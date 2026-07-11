@@ -312,6 +312,33 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
     expect(posture?.encryptedAtRest).toBe('sealed')
     expect(posture?.exportable).toBe(false)
   })
+
+  it('3-call pin (cm7): fresh depsless computed → never-attach → recoverable-with-rider attach is a safe no-error outcome — the dangerous state never forms (#638 Task 3)', async () => {
+    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'graph-edges-3call-2026' })
+    const vault = await db.openVault('demo')
+    // Call 1: fresh — a depsless computed field named 'email_domain', matching
+    // classified.email()'s auto-derived rider companion name
+    // (`resolveClassifiedFields`: companion = `${field}_${riderName}`).
+    // Legal: no classified field exists yet.
+    vault.collection('threehop', { computed: { email_domain: (r: Record<string, unknown>) => String(r.x).length } })
+    // Call 2: attach a storage:'never' classified field — exempt from the
+    // depsless-leak guard (never-storage can't reach a computed field, see
+    // validateReconcileGraphEdges's doc comment), so this must not throw.
+    // This is also what makes `this.classified` non-undefined going into call 3.
+    expect(() => vault.collection('threehop', { classifiedFields: { other: neverSpec() } })).not.toThrow()
+    // Call 3: attach a RECOVERABLE classified field whose auto-derived rider
+    // companion name ('email_domain') collides with call 1's depsless field.
+    // `_applyClassifiedFields`'s first-wins early return (collection.ts:1341,
+    // reached because `this.classified` is already set from call 2) drops
+    // this WHOLE incoming declaration — rider companions included — before
+    // its own collision check (collection.ts:1347-1351) is ever reached, so
+    // nothing new is merged for it to collide with. No error either way.
+    expect(() => vault.collection('threehop', { classifiedFields: { email: classified.email() } })).not.toThrow()
+    // The dangerous state never formed: 'email' was never actually attached
+    // (dropped by the early return), so 'email_domain' stays an ordinary,
+    // untainted computed field — not a channel for 'email' plaintext.
+    expect(vault.graph.effectivePosture({ collection: 'threehop', field: 'email_domain' })).toBeUndefined()
+  })
 })
 
 describe('resolveViaBindingDepsEdges — the general via-bindings deps path (#638 Task 2)', () => {

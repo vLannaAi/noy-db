@@ -36,6 +36,12 @@ export function foldPosture(a: ViaPosture, b: ViaPosture): ViaPosture {
   }
 }
 
+/** Whether `p` is exactly the plain, non-taint baseline (Task 3 — `taintProvenance`). */
+function isDefaultPosture(p: ViaPosture): boolean {
+  return p.encryptedAtRest === DEFAULT_POSTURE.encryptedAtRest && p.queryable === DEFAULT_POSTURE.queryable &&
+    p.exportable === DEFAULT_POSTURE.exportable && p.forgettable === DEFAULT_POSTURE.forgettable
+}
+
 /** One registered `registerDerived` call — a target's whole in-edge set. */
 interface DerivedEdge {
   readonly target: FieldRef
@@ -225,6 +231,23 @@ export class ViaGraph {
       if (edge.target.collection !== collection) continue
       const posture = this._computeEffective(nodeId(edge.target), edge)
       if (posture.encryptedAtRest === 'sealed') out.add(edge.target.field)
+    }
+    return out
+  }
+
+  /** Per-collection { field → immediate source field names that forced its
+   *  effective posture away from `DEFAULT_POSTURE` } — `describe()`'s
+   *  provenance (Task 3). Only the DIRECT declared sources are named (not the
+   *  ultimate origin several hops up a transitive chain); a source absent
+   *  from the result contributed nothing restrictive. */
+  taintProvenance(collection: string): ReadonlyMap<string, readonly string[]> {
+    const out = new Map<string, readonly string[]>()
+    for (const edge of this._in.values()) {
+      if (edge.target.collection !== collection) continue
+      const forcedBy = edge.sources
+        .filter((source) => !isDefaultPosture(this._contribution(nodeId(source))))
+        .map((source) => source.field)
+      if (forcedBy.length > 0) out.set(edge.target.field, forcedBy)
     }
     return out
   }

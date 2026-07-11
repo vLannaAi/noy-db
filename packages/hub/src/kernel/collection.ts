@@ -985,15 +985,11 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
-   * Describe the collection's field schema from in-memory config — zero store I/O.
-   *
-   * Sync overload (no args): merges moneyFields / dictKeyFields / refs /
-   * computed / fieldMeta into a {@link CollectionDescription}. Field types are
-   * inferred from config (money→'number', ref→'string'/'array', dict→'enum',
-   * others→'unknown'). Validator-derived types require the async overload.
-   *
-   * The async overload resolves validator-derived types + dynamic dict
-   * labels before building the description.
+   * Describe the collection's field schema from in-memory config — zero store
+   * I/O. Sync overload (no args): merges moneyFields/dictKeyFields/refs/
+   * computed/fieldMeta/taint into a {@link CollectionDescription} (types
+   * inferred from config; validator-derived types need the async overload,
+   * which also resolves dynamic dict labels).
    */
   describe(): CollectionDescription
   describe(opts: DescribeOptions): Promise<CollectionDescription>
@@ -1012,6 +1008,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       ...(this.meta !== undefined ? { meta: this.meta } : {}),
       ...(this.i18nFields !== undefined ? { i18nFields: this.i18nFields } : {}),
       ...(this.classified !== undefined ? { classified: this.classified.byField } : {}),
+      ...(this.via?.taint !== undefined ? { taint: this.via.taint } : {}),
     })
   }
 
@@ -1058,6 +1055,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       ...(this.meta !== undefined ? { meta: this.meta } : {}),
       ...(this.i18nFields !== undefined ? { i18nFields: this.i18nFields } : {}),
       ...(this.classified !== undefined ? { classified: this.classified.byField } : {}),
+      ...(this.via?.taint !== undefined ? { taint: this.via.taint } : {}),
     })
   }
 

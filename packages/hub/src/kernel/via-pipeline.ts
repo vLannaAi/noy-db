@@ -7,12 +7,29 @@ export interface ViaClause {
   readonly payload: unknown
 }
 
-export class ViaPipeline {
-  private constructor(readonly bindings: readonly ViaBinding[]) {}
+/**
+ * The graph-computed taint overlay (#638 Task 3) — `postureFor`'s
+ * assignment→enforcement bridge. `postures`/`sealFields` are the
+ * enforcement-facing shapes `via-taint-binding.ts#buildTaintOverlay`
+ * produces from `ViaGraph.taintedPostures`/`taintSealedFields`;
+ * `provenance` (optional — introspection only, never consulted by
+ * `postureFor`) is `ViaGraph.taintProvenance`'s output, surfaced by
+ * `describe()`.
+ */
+export interface ViaTaintOverlay {
+  readonly postures: ReadonlyMap<string, ViaPosture>
+  readonly sealFields: ReadonlySet<string>
+  readonly provenance?: ReadonlyMap<string, readonly string[]>
+}
 
-  /** undefined for an empty list — the zero-via fast path is `this.via === undefined`. */
-  static build(bindings: readonly ViaBinding[]): ViaPipeline | undefined {
-    return bindings.length === 0 ? undefined : new ViaPipeline(bindings)
+export class ViaPipeline {
+  private constructor(readonly bindings: readonly ViaBinding[], readonly taint?: ViaTaintOverlay) {}
+
+  /** undefined when there is nothing to enforce — the zero-via fast path is
+   *  `this.via === undefined` (#553: keeps an all-plain collection sync). */
+  static build(bindings: readonly ViaBinding[], taint?: ViaTaintOverlay): ViaPipeline | undefined {
+    if (bindings.length === 0 && (!taint || taint.postures.size === 0)) return undefined
+    return new ViaPipeline(bindings, taint)
   }
 
   /** Refuse a write before crypto runs: awaits each binding's `enforceWrite` in order — first throw wins. */
@@ -126,8 +143,18 @@ export class ViaPipeline {
    * posture is `queryable: 'none'` (e.g. blob); every other posture
    * ('det-exact'/'ordered'/'full') is left to the existing per-binding
    * buildClause/evaluateClause/compareForOrder machinery, unchanged.
+   *
+   * #638 Task 3: the graph-computed taint overlay is consulted FIRST — a
+   * derived field's assigned (most-restrictive-of-sources) posture wins over
+   * whatever a binding would otherwise report for that field name (no
+   * binding covers a computed/derived field today, so this never actually
+   * shadows one — see `via-taint-binding.ts`'s `taintBinding.covers`, which
+   * only claims the sealed subset for `encodeAtRest`/`decodeAtRest`, not for
+   * this lookup).
    */
   postureFor(field: string): ViaPosture | undefined {
+    const t = this.taint?.postures.get(field)
+    if (t) return t
     for (const b of this.bindings) {
       if (b.covers?.(field)) return b.posture
     }

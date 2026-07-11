@@ -97,12 +97,29 @@ export interface RecordCodecContext<T> {
    * binding's `encodeAtRest`/`decodeAtRest` hooks and today's inline path.
    * The zero-via fast path (`via` undefined, or no binding declares an
    * at-rest hook) stays byte/behavior-identical (#629 Task 3).
+   *
+   * Mutable (not `readonly`, #638 Task 3): `Collection.via` can be
+   * reassigned post-construction (the taint overlay, `via-graph-wiring.ts#
+   * applyTaintOverlay`) — `RecordCodec.setVia` below keeps this in sync so
+   * at-rest hooks read the LIVE pipeline, not a stale construction-time
+   * snapshot.
    */
-  readonly via: ViaPipeline | undefined
+  via: ViaPipeline | undefined
 }
 
 export class RecordCodec<T> {
   constructor(private readonly ctx: RecordCodecContext<T>) {}
+
+  /**
+   * @internal Update the live Via pipeline this codec's at-rest hooks read
+   * (#638 Task 3) — called by `via-graph-wiring.ts#applyTaintOverlay` right
+   * after it reassigns `Collection.via`, so `hasAtRestHooks`/`encodeAtRest`/
+   * `decodeAtRest` see the newly-added `taint` binding instead of the
+   * pipeline snapshot captured when this codec was constructed.
+   */
+  setVia(via: ViaPipeline | undefined): void {
+    this.ctx.via = via
+  }
 
   /** Sealed-slot key material for this codec's collection, for a given per-record CEK (or none). */
   private sealKeyMaterial(cek: EnclaveKey | undefined): SealKeyMaterial {

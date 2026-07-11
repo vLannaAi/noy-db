@@ -101,7 +101,7 @@ import { isViaInstalled } from './via.js'
 import { mergeViaFields, type ViaFieldSpec } from './via-compose.js'
 import { exportRedact } from './via-pipeline.js'
 import { ViaGraph } from './via-graph.js'
-import { registerCollectionGraphSources, validateReconcileGraphEdges, commitReconcileGraphEdges, type ReconcileGraphOptions } from './via-graph-wiring.js'
+import { registerCollectionGraphSources, validateReconcileGraphEdges, commitReconcileGraphEdges, applyTaintOverlay, type ReconcileGraphOptions } from './via-graph-wiring.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 // Type-only imports for the guard + derivation services. The
 // runtime classes are loaded on demand via `await import(...)` inside
@@ -935,7 +935,10 @@ export class Vault {
       // Collection._applyClassifiedFields's own doc comment for the R1-R8 matrix.
       coll._applyClassifiedFields(options.classifiedFields)
     }
-    if (reconcilePlan) commitReconcileGraphEdges(this.graph, collectionName, reconcilePlan)
+    if (reconcilePlan) {
+      commitReconcileGraphEdges(this.graph, collectionName, reconcilePlan)
+      applyTaintOverlay(coll, this.graph, collectionName) // #638 Task 3: a late attach can newly taint an already-built pipeline
+    }
     if (!coll) {
       const effectiveViaFields = mergeViaFields({ moneyFields: options?.moneyFields, i18nFields: options?.i18nFields, dictKeyFields: options?.dictKeyFields, viaFields: options?.viaFields })
       // Register ref declarations (if any) with the vault-level
@@ -1212,6 +1215,7 @@ export class Vault {
       coll = new Collection<T>(collOpts)
       this.collectionCache.set(collectionName, coll)
       registerCollectionGraphSources(this.graph, collectionName, collOpts)
+      applyTaintOverlay(coll, this.graph, collectionName) // #638 Task 3: seal + gate any freshly-tainted field
 
       // Pre-build the lexical index on open when opted in. Fire-and-forget,
       // eager-only; warmIndex() no-ops when no textIndexes are declared and throws

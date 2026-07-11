@@ -216,6 +216,37 @@ describe('ViaGraph — taintedPostures / taintSealedFields (Task 3 overlay)', ()
     expect(sealed.has('sealedDerived')).toBe(true)
     expect(sealed.has('plainDerived')).toBe(false)
   })
+
+  it('taintProvenance names the immediate source(s) that forced a target away from DEFAULT_POSTURE, scoped per collection', () => {
+    const g = new ViaGraph()
+    g.registerField('c', 'ssn', CLASSIFIED)
+    g.registerField('c', 'name', DEFAULT_POSTURE)
+    g.registerDerived({ collection: 'c', field: 'total' }, [{ collection: 'c', field: 'ssn' }], 'computed', 'record')
+    g.registerDerived({ collection: 'c', field: 'plainDerived' }, [{ collection: 'c', field: 'name' }], 'computed', 'record')
+    g.registerDerived({ collection: 'other', field: 'ignored' }, [{ collection: 'c', field: 'ssn' }], 'computed', 'record')
+    const provenance = g.taintProvenance('c')
+    expect(provenance.get('total')).toEqual(['ssn'])
+    expect(provenance.get('plainDerived')).toBeUndefined() // nothing forced it — pure DEFAULT_POSTURE
+    expect(provenance.get('ignored')).toBeUndefined() // scoped to 'c', not 'other'
+  })
+
+  it('taintProvenance names only the restrictive source(s) out of multiple, and transitively through a chain', () => {
+    const g = new ViaGraph()
+    g.registerField('c', 'ssn', CLASSIFIED)
+    g.registerField('c', 'price', MONEY)
+    g.registerField('c', 'name', DEFAULT_POSTURE)
+    g.registerDerived(
+      { collection: 'c', field: 'combo' },
+      [{ collection: 'c', field: 'ssn' }, { collection: 'c', field: 'price' }, { collection: 'c', field: 'name' }],
+      'computed',
+      'record',
+    )
+    expect(g.taintProvenance('c').get('combo')).toEqual(['ssn', 'price']) // 'name' contributed nothing
+
+    g.registerDerived({ collection: 'c', field: 'b' }, [{ collection: 'c', field: 'ssn' }], 'computed', 'record')
+    g.registerDerived({ collection: 'c', field: 'c2' }, [{ collection: 'c', field: 'b' }], 'computed', 'record')
+    expect(g.taintProvenance('c').get('c2')).toEqual(['b']) // immediate source named, not the ultimate 'ssn'
+  })
 })
 
 describe('ViaGraph — dependentsOf / derivedArtifactsOf (Task 4/6 overlays)', () => {

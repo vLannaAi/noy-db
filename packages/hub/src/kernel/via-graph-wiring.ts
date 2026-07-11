@@ -11,6 +11,8 @@ import type { ViaPosture } from './via.js'
 import { resolveCollectionConfig, resolveComputedEdges, collectKnownFieldNames, type CollectionOpts, type GraphEdge } from './collection-config.js'
 import { resolveClassifiedFields, type ClassifiedEntry } from '../port/with/classified-strategy.js'
 import { ValidationError } from './errors.js'
+import { ViaPipeline, type ViaTaintOverlay } from './via-pipeline.js'
+import { buildTaintOverlay, taintBinding } from './via-taint-binding.js'
 
 // `ComputedFields` is a with-formula/computed type; the kernel spine may not
 // statically import a with-* service (S5 port-layering — see
@@ -133,12 +135,20 @@ export function validateReconcileGraphEdges(graph: ViaGraph, name: string, optio
 
   if (resolvedClassified !== undefined && Object.values(resolvedClassified.byField).some((spec) => spec.storage !== 'never')) {
     // A pre-existing depless field whose name collides with one of THIS
-    // call's classified rider companions is exempt: `Collection.
-    // _applyClassifiedFields`'s own (already-existing, pre-mutation) rider-
-    // collision check refuses that combination unconditionally, so it can
-    // never silently reach write time — no need for this guard to preempt
-    // it with a less specific error (`classified/threading.test.ts`'s
-    // "reconcile collision" fixture pins that exact, more specific,
+    // call's classified rider companions is exempt. Two DIFFERENT existing
+    // mechanisms make this safe, depending on whether classified was already
+    // attached before this call — the collision check at collection.ts:
+    // 1347-1351 is NOT unconditional; it sits AFTER `_applyClassifiedFields`'s
+    // first-wins early return (collection.ts:1341), so it only runs on the
+    // FIRST-EVER classified attach: (a) first attach — that collision check
+    // runs and refuses the combination outright; (b) classified ALREADY
+    // attached — the early return drops THIS call's whole incoming
+    // declaration, rider companions included, before the collision check is
+    // ever reached, so nothing new is merged for it to collide with. Either
+    // way the dangerous state (an opaque depsless computed field silently
+    // colliding with a rider name) never forms — no need for this guard to
+    // preempt it with a less specific error (`classified/threading.test.ts`'s
+    // "reconcile collision" fixture pins case (a)'s exact, more specific,
     // ClassifiedConfigError).
     const riderNames = new Set(Object.keys(resolvedClassified.riderComputed))
     const leaking = [...graph.depslessComputedFields(name)].filter((field) => !riderNames.has(field))
@@ -193,4 +203,42 @@ export function commitReconcileGraphEdges(graph: ViaGraph, name: string, plan: R
   for (const field of plan.depslessComputedFields) graph.markDepslessComputed(name, field)
   for (const field of plan.classifiedFieldNames) graph.registerField(name, field, CLASSIFIED_POSTURE)
   if (plan.classifiedFieldNames.length > 0) graph.markClassified(name)
+}
+
+/**
+ * Rebuild `coll`'s Via pipeline with the graph's taint overlay layered on
+ * (#638 Task 3 — the assignment→enforcement bridge): `postureFor` (query
+ * gate + `redactForExport`, `kernel/via-pipeline.ts`) enforces it with zero
+ * new surface, and any field the overlay resolves to `encryptedAtRest:
+ * 'sealed'` gets the `taint` binding added so it is ACTUALLY sealed at rest
+ * via `ctx.sealedSlots` (the same mechanism classified uses).
+ *
+ * No-op when the collection has no tainted fields — `coll.via` stays exactly
+ * what `resolveCollectionConfig` built, preserving `this.via === undefined`
+ * for an all-plain collection (#553's sync-stack guarantee). Called once
+ * after `registerCollectionGraphSources` (fresh construction) and once after
+ * `commitReconcileGraphEdges` (reconcile) — a late-attached classified/
+ * computed field can newly taint a field an EARLIER call already built the
+ * pipeline for, so both call sites must refresh.
+ *
+ * Reaches into `coll`'s private `via`/`codec` fields the same way
+ * `via-pipeline.ts`'s `exportRedact` and `vault.ts`'s `forget()` already do
+ * (grep `_classifySealedShred`/`_writeTombstone`) — no new Collection
+ * method, so this never touches the ceiling-locked `collection.ts`. The
+ * codec's OWN `via` snapshot (captured at construction, `collection.ts`'s
+ * `this.codec = new RecordCodec({..., via: this.via})`) does not
+ * automatically follow a later `this.via` reassignment — `RecordCodec.
+ * setVia` re-syncs it so `encryptRecord`/`decryptRecord` seal/unseal
+ * through the taint binding too, not a stale pre-taint pipeline.
+ */
+export function applyTaintOverlay(coll: unknown, graph: ViaGraph, name: string): void {
+  const postures = buildTaintOverlay(graph.taintedPostures(name), graph.taintSealedFields(name))
+  if (!postures) return
+  const sealFields = graph.taintSealedFields(name)
+  const provenance = graph.taintProvenance(name)
+  const c = coll as { via: ViaPipeline | undefined; codec: { setVia(via: ViaPipeline | undefined): void } }
+  const bindings = sealFields.size > 0 ? [...(c.via?.bindings ?? []), taintBinding(sealFields)] : (c.via?.bindings ?? [])
+  const taint: ViaTaintOverlay = { postures, sealFields, provenance }
+  c.via = ViaPipeline.build(bindings, taint)
+  c.codec.setVia(c.via)
 }
