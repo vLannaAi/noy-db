@@ -101,7 +101,7 @@ import { isViaInstalled } from './via.js'
 import { mergeViaFields, type ViaFieldSpec } from './via-compose.js'
 import { exportRedact } from './via-pipeline.js'
 import { ViaGraph } from './via-graph.js'
-import { registerCollectionGraphSources, reconcileCollectionGraphEdges, type ReconcileGraphOptions } from './via-graph-wiring.js'
+import { registerCollectionGraphSources, validateReconcileGraphEdges, commitReconcileGraphEdges, type ReconcileGraphOptions } from './via-graph-wiring.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 // Type-only imports for the guard + derivation services. The
 // runtime classes are loaded on demand via `await import(...)` inside
@@ -908,38 +908,34 @@ export class Vault {
     }
 
     let coll = this.collectionCache.get(collectionName)
+    // Two-phase reconcile (#638 Task 2 wave 2, Findings I1/I2/M1/M2): validate
+    // combined existing+incoming computed/classified state before any
+    // _apply* below mutates, commit graph edges only once every _apply*
+    // succeeds (see via-graph-wiring.ts). The branches below reconcile a
+    // field-declaring option onto a collection MV dependency analysis may
+    // have auto-created bare during openVault, before this real
+    // declaration; each is first-wins.
+    const reconcilePlan = coll && (options?.computed || options?.classifiedFields)
+      ? validateReconcileGraphEdges(this.graph, collectionName, options as unknown as ReconcileGraphOptions)
+      : undefined
     if (coll && options?.moneyFields) {
-      // The collection may have been auto-created (without options) by
-      // materialized-view dependency analysis during openVault, before
-      // this declaration. Reconcile money descriptors onto it so writes
-      // quantize and money-aware aggregation applies. First-wins.
       coll._applyMoneyFields(options.moneyFields)
     }
     if (coll && options?.computed) {
-      // Same MV-pre-creation reconcile as money: a collection used as an
-      // MV source is auto-created (without options) before this
-      // declaration; attach computed fields so writes materialize them.
-      reconcileCollectionGraphEdges(this.graph, collectionName, options as unknown as ReconcileGraphOptions)
       coll._applyComputed(options.computed as ComputedFields)
     }
     if (coll && options?.fieldMeta) {
-      // Same MV-pre-creation reconcile as money/computed: a collection
-      // auto-created without options gets its fieldMeta attached here.
-      // First-wins: if the collection already has fieldMeta set this is a no-op.
       coll._applyFieldMeta(options.fieldMeta)
     }
     if (coll && options?.meta) {
-      // Same MV-pre-creation reconcile as fieldMeta: attach collection-level
-      // descriptive metadata to a collection that was auto-created without options.
-      // First-wins.
       coll._applyMeta(options.meta)
     }
     if (coll && options?.classifiedFields) {
-      // Same MV-pre-creation reconcile as money/computed/fieldMeta/meta: attach
-      // classified fields to a collection that was auto-created without options.
-      // First-wins — cannot retro-seal, only merges rider computed fields.
+      // Cannot retro-seal — only merges rider computed fields; see
+      // Collection._applyClassifiedFields's own doc comment for the R1-R8 matrix.
       coll._applyClassifiedFields(options.classifiedFields)
     }
+    if (reconcilePlan) commitReconcileGraphEdges(this.graph, collectionName, reconcilePlan)
     if (!coll) {
       const effectiveViaFields = mergeViaFields({ moneyFields: options?.moneyFields, i18nFields: options?.i18nFields, dictKeyFields: options?.dictKeyFields, viaFields: options?.viaFields })
       // Register ref declarations (if any) with the vault-level

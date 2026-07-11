@@ -45,6 +45,7 @@ interface DerivedEdge {
 }
 
 const SEP = '\0'
+const EMPTY_SET: ReadonlySet<string> = new Set()
 
 function nodeId(ref: FieldRef): string {
   return `${ref.collection}${SEP}${ref.field}`
@@ -66,6 +67,14 @@ export class ViaGraph {
   private readonly _out = new Map<string, FieldRef[]>()
   /** Memoized effective posture per derived target node id. */
   private readonly _effectiveCache = new Map<string, ViaPosture>()
+  /** Collections with at least one classified field (#638 Task 2 fix wave 2,
+   *  Finding I1 — the reconcile path's combined-state leak guard memory). */
+  private readonly _classifiedCollections = new Set<string>()
+  /** Computed field names declared with no `computedDeps` entry, per collection
+   *  (Finding I1 — such a field registers no edge when no classified field is
+   *  present yet, so a LATER, separate reconcile call attaching classifiedFields
+   *  still needs to see it regardless of declaration order). */
+  private readonly _depslessComputed = new Map<string, Set<string>>()
 
   /** Declare a source field's posture (money/i18n/classified/plain). Plain fields
    *  default to `DEFAULT_POSTURE`; a later declaration for the same node wins-first (idempotent). */
@@ -74,6 +83,21 @@ export class ViaGraph {
     if (this._posture.has(id)) return
     this._posture.set(id, posture)
     this._effectiveCache.clear()
+  }
+
+  /** Every field name with a declared posture (registerField) for `collection` —
+   *  the graph's memory of previously-known fields. Consulted by the reconcile
+   *  path's computedDeps validation (#638 Task 2 fix wave 2, Finding I2ii) so a
+   *  field declared i18n/dictKey/money/classified at an EARLIER `vault.collection()`
+   *  call stays a valid dep source on a later one, without the reconcile path
+   *  needing direct access to those descriptors. */
+  fieldNamesOf(collection: string): ReadonlySet<string> {
+    const out = new Set<string>()
+    for (const id of this._posture.keys()) {
+      const sep = id.indexOf(SEP)
+      if (id.slice(0, sep) === collection) out.add(id.slice(sep + 1))
+    }
+    return out
   }
 
   /** A derived target depends on `sources` (may be cross-collection). `kind`/`grain`
@@ -90,6 +114,35 @@ export class ViaGraph {
       else this._out.set(sourceId, [target])
     }
     this._effectiveCache.clear()
+  }
+
+  /** Whether `target` already has a registered in-edge — lets a caller skip
+   *  re-registering the same target (#638 Task 2 fix wave 2, Finding I2i:
+   *  `registerDerived`'s at-most-once contract must hold across repeated
+   *  identical `vault.collection()` calls, not just within a single one). */
+  hasDerived(target: FieldRef): boolean {
+    return this._in.has(nodeId(target))
+  }
+
+  /** Mark/query a collection as having declared at least one classified field. */
+  markClassified(collection: string): void {
+    this._classifiedCollections.add(collection)
+  }
+
+  isClassified(collection: string): boolean {
+    return this._classifiedCollections.has(collection)
+  }
+
+  /** Mark/query a collection's depsless (no declared `computedDeps`) computed
+   *  field names — see `_depslessComputed`'s doc comment above. */
+  markDepslessComputed(collection: string, field: string): void {
+    let set = this._depslessComputed.get(collection)
+    if (!set) { set = new Set(); this._depslessComputed.set(collection, set) }
+    set.add(field)
+  }
+
+  depslessComputedFields(collection: string): ReadonlySet<string> {
+    return this._depslessComputed.get(collection) ?? EMPTY_SET
   }
 
   /** Reject cycles at declare time (vault open). Throws `DerivationCycleError` for a

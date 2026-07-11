@@ -9,6 +9,7 @@ import {
   ValidationError,
 } from '../../src/index.js'
 import { classified } from '../../src/shape/via-classified/presets.js'
+import { i18nText } from '../../src/shape/via-i18n/core.js'
 import { resolveComputedEdges, resolveViaBindingDepsEdges } from '../../src/kernel/collection-config.js'
 import { DEFAULT_POSTURE } from '../../src/kernel/via-graph.js'
 import type { ViaBinding } from '../../src/kernel/via.js'
@@ -237,6 +238,79 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
     expect(deps.some((d) =>
       d.target.collection === 'customers2' && d.target.field === 'total' && d.kind === 'computed',
     )).toBe(true)
+  })
+
+  it('a two-call reconcile assembly (depsless computed first, classifiedFields second) still throws (fix wave 2, Finding I1)', async () => {
+    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'graph-edges-order-a-2026' })
+    const vault = await db.openVault('demo')
+    // Call 1: fresh construction — legal, no classified fields exist yet.
+    vault.collection('leaky2', {
+      computed: { ssnLeak: (r: Record<string, unknown>) => r.ssn },
+      sensitive: ['ssn'],
+    })
+    // Call 2: reconcile — attaches classifiedFields onto the SAME collection.
+    // `sensitive: ['ssn']` above pre-freezes `sensitiveFields`, defusing
+    // `_applyClassifiedFields`'s own "sealing is fixed at first open" refusal —
+    // the ONLY thing that should refuse this is the combined-state leak guard.
+    expect(() =>
+      vault.collection('leaky2', { classifiedFields: { ssn: classified.email() } }),
+    ).toThrow(ValidationError)
+  })
+
+  it('a repeated identical vault.collection() call is a no-op — no duplicate edges, no spurious i18n knownFields throw (fix wave 2, Finding I2)', async () => {
+    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'graph-edges-repeat-2026' })
+    const vault = await db.openVault('demo')
+    const options = {
+      i18nFields: { note: i18nText({ languages: ['en'], required: 'any' }) },
+      computed: { total: (r: Record<string, unknown>) => String(r.note).length },
+      computedDeps: { total: ['note'] },
+    }
+    vault.collection('repeat-me', options) // fresh construction
+    expect(() => vault.collection('repeat-me', options)).not.toThrow() // identical repeat — reconcile branch
+    const deps = vault.graph.dependentsOf('repeat-me').filter((d) => d.target.field === 'total')
+    expect(deps).toHaveLength(1) // not duplicated
+  })
+
+  it('a rejected reconcile call (classified storage-form transition refused) leaves no partial graph state (fix wave 2, Finding M2)', async () => {
+    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'graph-edges-partial-2026' })
+    const vault = await db.openVault('demo')
+    vault.collection('partial', { classifiedFields: { ssn: neverSpec() } }) // storage: 'never'
+    expect(() =>
+      vault.collection('partial', {
+        // storage: 'recoverable' — a form transition R6 refuses, AFTER the
+        // computed edge would otherwise have been validated successfully.
+        classifiedFields: { ssn: classified.email() },
+        computed: { total: (r: Record<string, unknown>) => String(r.ssn).length },
+        computedDeps: { total: ['ssn'] },
+      }),
+    ).toThrow()
+    const deps = vault.graph.dependentsOf('partial').filter((d) => d.target.field === 'total')
+    expect(deps).toHaveLength(0)
+  })
+
+  it('a reconcile-attached classified field registers its sealed posture into the graph (fix wave 2, Finding M1)', async () => {
+    interface Row extends Record<string, unknown> { id: string }
+    const mv = withMaterializedView<Row>({
+      name: 'customer-rollup-4',
+      query: (db) => db.collection<Row>('customers4').query(),
+      rowKey: (r) => r.id,
+      refresh: 'eager',
+    })
+    const db = await createNoydb({
+      store: memory(), user: 'alice', secret: 'graph-edges-m1-2026',
+      materializedViewStrategies: [mv],
+    })
+    const vault = await db.openVault('demo')
+    // 'customers4' is auto-pre-created BARE by the MV; this reconciles both
+    // classifiedFields and a computed field depending on the classified source.
+    vault.collection('customers4', {
+      classifiedFields: { ssn: neverSpec() },
+      computed: { total: (r: Record<string, unknown>) => String(r.ssn).length },
+      computedDeps: { total: ['ssn'] },
+    })
+    const posture = vault.graph.effectivePosture({ collection: 'customers4', field: 'total' })
+    expect(posture?.encryptedAtRest).toBe('sealed')
+    expect(posture?.exportable).toBe(false)
   })
 })
 

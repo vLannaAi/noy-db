@@ -571,6 +571,32 @@ export function compileViaBindings<T>(
 export interface GraphEdge { readonly target: FieldRef; readonly sources: readonly FieldRef[] }
 
 /**
+ * The shared `computedDeps`/via-binding-deps field-name universe builder
+ * (#638 Task 2 fix wave 2) — used by both {@link resolveCollectionConfig}
+ * (fresh construction) and `via-graph-wiring.ts`'s reconcile-path validate so
+ * the two paths cannot silently drift apart on which field categories count
+ * as "known" (review Finding I2ii). The reconcile path has no i18n/dictKey
+ * descriptors of its own (those are construction-only — see
+ * `ReconcileGraphOptions`'s doc comment) and unions in `ViaGraph.fieldNamesOf`
+ * separately to cover that gap.
+ */
+export function collectKnownFieldNames(parts: {
+  readonly moneyFields?: Record<string, unknown> | undefined
+  readonly i18nFields?: Record<string, unknown> | undefined
+  readonly dictKeyFields?: Record<string, unknown> | undefined
+  readonly classifiedFields?: Record<string, unknown> | undefined
+  readonly computed?: Record<string, unknown> | undefined
+}): Set<string> {
+  return new Set<string>([
+    ...Object.keys(parts.moneyFields ?? {}),
+    ...Object.keys(parts.i18nFields ?? {}),
+    ...Object.keys(parts.dictKeyFields ?? {}),
+    ...Object.keys(parts.classifiedFields ?? {}),
+    ...Object.keys(parts.computed ?? {}),
+  ])
+}
+
+/**
  * Validate `computedDeps` well-formedness and resolve `computed` entries into
  * graph edges (#638 Task 2). `computed` is the RAW user-declared map (never
  * `mergedComputed` — a classified preset's `riderComputed` companions are a
@@ -772,13 +798,13 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
 
   // #638 Task 2 — the field-name universe `resolveComputedEdges`/`resolveViaBindingDepsEdges`
   // validate `deps` entries against ("references undeclared field" otherwise).
-  const knownFields = new Set<string>([
-    ...Object.keys(effectiveViaFields.moneyFields ?? {}),
-    ...Object.keys(effectiveViaFields.i18nFields ?? {}),
-    ...Object.keys(effectiveViaFields.dictKeyFields ?? {}),
-    ...(resolvedClassified !== undefined ? Object.keys(resolvedClassified.byField) : []),
-    ...Object.keys(opts.computed ?? {}),
-  ])
+  const knownFields = collectKnownFieldNames({
+    moneyFields: effectiveViaFields.moneyFields,
+    i18nFields: effectiveViaFields.i18nFields,
+    dictKeyFields: effectiveViaFields.dictKeyFields,
+    classifiedFields: resolvedClassified?.byField,
+    computed: opts.computed,
+  })
   const computedEdges = resolveComputedEdges(opts.name, opts.computed, opts.computedDeps, knownFields, resolvedClassified !== undefined)
   const viaDepsEdges = resolveViaBindingDepsEdges(opts.name, via?.bindings ?? [], knownFields)
 

@@ -7,8 +7,10 @@
 // which fire on every `Vault.collection()` call, not just vaults that declare
 // a derivation/MV/overlay strategy.
 import type { ViaGraph } from './via-graph.js'
-import { resolveCollectionConfig, resolveComputedEdges, type CollectionOpts } from './collection-config.js'
+import type { ViaPosture } from './via.js'
+import { resolveCollectionConfig, resolveComputedEdges, collectKnownFieldNames, type CollectionOpts, type GraphEdge } from './collection-config.js'
 import { resolveClassifiedFields, type ClassifiedEntry } from '../port/with/classified-strategy.js'
+import { ValidationError } from './errors.js'
 
 // `ComputedFields` is a with-formula/computed type; the kernel spine may not
 // statically import a with-* service (S5 port-layering — see
@@ -17,6 +19,16 @@ import { resolveClassifiedFields, type ClassifiedEntry } from '../port/with/clas
 // is grandfathered for the real with-formula import) instead of importing it
 // directly here.
 type ComputedFieldsParam = NonNullable<Parameters<typeof resolveComputedEdges>[1]>
+
+// The classified via-binding's fixed posture (`shape/via-classified/binding.ts`'s
+// `classifiedBinding().posture` — byte-for-byte duplicate, uniform across every
+// storage form, stable since #629 Task 5). Duplicated here rather than
+// imported: the reconcile commit path (unlike fresh construction) has no
+// compiled `ViaPipeline` to read `binding.posture` off of, and the kernel
+// spine may not statically reach a with-*/shape service for it. Same
+// documented-duplication-risk class as `WHOLE_RECORD`
+// (`with-formula/materialized-views/registry.ts`) — keep in sync by hand.
+const CLASSIFIED_POSTURE: ViaPosture = { encryptedAtRest: 'sealed', queryable: 'det-exact', exportable: false, forgettable: true }
 
 /**
  * Register one collection's field postures (`binding.posture` + `covers()`)
@@ -46,6 +58,18 @@ export function registerCollectionGraphSources<T>(graph: ViaGraph, name: string,
   }
   for (const edge of cfg.computedEdges) graph.registerDerived(edge.target, edge.sources, 'computed', 'record')
   for (const edge of cfg.viaDepsEdges) graph.registerDerived(edge.target, edge.sources, 'computed', 'record')
+
+  // #638 Task 2 fix wave 2 — record the combined-state leak-guard memory
+  // (Finding I1) a LATER, separate reconcile call needs: which raw
+  // user-declared computed fields have no `computedDeps` entry (depless —
+  // legal here since no classified field is present yet, so nothing to
+  // register an edge against), and whether this collection has any
+  // classified field at all.
+  if (cfg.classified !== undefined) graph.markClassified(name)
+  const depFields = new Set(cfg.computedEdges.map((edge) => edge.target.field))
+  for (const field of Object.keys(opts.computed ?? {})) {
+    if (!depFields.has(field)) graph.markDepslessComputed(name, field)
+  }
 }
 
 /** The slice of `Vault.collection()`'s reconcile-path options relevant to
@@ -59,31 +83,114 @@ export interface ReconcileGraphOptions {
   readonly computedDeps?: Record<string, readonly string[]>
 }
 
+/** Phase 1's output — what phase 2 (`commitReconcileGraphEdges`) applies once
+ *  every `_apply*` mutation for this reconcile call has succeeded. */
+export interface ReconcilePlan {
+  readonly edges: readonly GraphEdge[]
+  readonly depslessComputedFields: readonly string[]
+  readonly classifiedFieldNames: readonly string[]
+}
+
 /**
- * Reconcile-path counterpart to {@link registerCollectionGraphSources} (#638
- * Task 2 review fix — Finding 1). A collection an MV's `query(db)` callback
- * auto-pre-creates BARE, later declared for real via `Vault.collection()`'s
- * `coll && options?.computed` reconcile branch, used to skip graph
- * registration entirely: no `resolveComputedEdges` call meant no depsless-
- * plus-classified anti-leak throw and no `computedDeps` edges. This runs the
- * SAME validation + registration the fresh-construction path runs, scoped to
- * THIS reconcile call's own options — a bare pre-created collection carries
- * no prior money/computed/classified state, so the realistic MV pattern
- * (bare pre-create, then ONE later full declare) needs no cross-call
- * accumulation. Callers MUST invoke this before mutating the collection
- * (`Collection._applyComputed`/`_applyClassifiedFields`) so a thrown
- * `ValidationError` leaves no partial state.
+ * Phase 1 (validate) of the reconcile-path's two-phase graph wiring (#638
+ * Task 2 fix wave 2). Pure — throws `ValidationError`, never mutates `graph`.
+ *
+ * Evaluates the COMBINED existing+incoming computed/classified state, using
+ * `graph` as the vault-side memory of what a PRIOR, separate
+ * `vault.collection()` call already registered (review Finding I1): a
+ * depsless computed field declared while no classified field existed yet
+ * registers no edge (`registerCollectionGraphSources` marks it instead), so a
+ * LATER call newly introducing a PERSISTABLE (`recoverable`/`digest-only`)
+ * classified field must still see it and refuse, regardless of which call
+ * declared which piece first. `storage: 'never'` fields are exempt from this
+ * specific check: `enforceClassifiedWrite` rejects the whole write BEFORE
+ * computed fields ever evaluate (`Collection._putInternal`'s pipeline order —
+ * enforceWrite, then computed), so a `never`-stored value structurally cannot
+ * reach a computed field's output. (`resolveComputedEdges` below, unchanged,
+ * still blanket-refuses a depsless field THIS SAME call introduces alongside
+ * ANY classified field regardless of storage — same as fresh construction.)
+ * Given that, once a PERSISTABLE classified field is successfully committed
+ * for a collection, no depsless computed field can survive uncaught (this
+ * very check, or the identical fresh-construction one, would already have
+ * refused it) — so this check only needs THIS call's own incoming
+ * `classifiedFields`, never `graph`'s classified memory.
+ *
+ * `computedDeps` sources are validated against a knownFields universe built
+ * the SAME way the fresh path builds one (`collectKnownFieldNames`, shared —
+ * Finding I2ii), unioned with `graph.fieldNamesOf(name)` to cover
+ * i18n/dictKey fields the fresh path saw but this reconcile call's own
+ * options never carry.
+ *
+ * Callers MUST call this BEFORE any `_apply*` mutation runs, and must only
+ * call `commitReconcileGraphEdges` with the result AFTER every `_apply*` for
+ * this call has succeeded (Finding M2 — no partial graph state may survive a
+ * reconcile call whose config is ultimately rejected).
  */
-export function reconcileCollectionGraphEdges(graph: ViaGraph, name: string, options: ReconcileGraphOptions): void {
-  if (options.computed === undefined) return
+export function validateReconcileGraphEdges(graph: ViaGraph, name: string, options: ReconcileGraphOptions): ReconcilePlan {
   const resolvedClassified = options.classifiedFields !== undefined
     ? resolveClassifiedFields(name, options.classifiedFields)
     : undefined
-  const knownFields = new Set<string>([
-    ...Object.keys(options.moneyFields ?? {}),
-    ...(resolvedClassified !== undefined ? Object.keys(resolvedClassified.byField) : []),
-    ...Object.keys(options.computed),
-  ])
-  const edges = resolveComputedEdges(name, options.computed, options.computedDeps, knownFields, resolvedClassified !== undefined)
-  for (const edge of edges) graph.registerDerived(edge.target, edge.sources, 'computed', 'record')
+
+  if (resolvedClassified !== undefined && Object.values(resolvedClassified.byField).some((spec) => spec.storage !== 'never')) {
+    // A pre-existing depless field whose name collides with one of THIS
+    // call's classified rider companions is exempt: `Collection.
+    // _applyClassifiedFields`'s own (already-existing, pre-mutation) rider-
+    // collision check refuses that combination unconditionally, so it can
+    // never silently reach write time — no need for this guard to preempt
+    // it with a less specific error (`classified/threading.test.ts`'s
+    // "reconcile collision" fixture pins that exact, more specific,
+    // ClassifiedConfigError).
+    const riderNames = new Set(Object.keys(resolvedClassified.riderComputed))
+    const leaking = [...graph.depslessComputedFields(name)].filter((field) => !riderNames.has(field))
+    if (leaking.length > 0) {
+      const field = leaking[0]
+      throw new ValidationError(
+        `Collection "${name}": computed field "${field}" has no declared \`deps\` and the ` +
+        `collection declares classified fields — an opaque computed function could silently copy a ` +
+        `classified field's plaintext into an ordinary, unredacted field. Declare ` +
+        `\`computedDeps: { ${field}: [...] }\` naming the source fields it reads.`,
+      )
+    }
+  }
+
+  const combinedHasClassified = graph.isClassified(name) || resolvedClassified !== undefined
+
+  let edges: readonly GraphEdge[] = []
+  let depslessComputedFields: readonly string[] = []
+  if (options.computed !== undefined) {
+    const knownFields = new Set<string>([
+      ...collectKnownFieldNames({ moneyFields: options.moneyFields, classifiedFields: resolvedClassified?.byField, computed: options.computed }),
+      ...graph.fieldNamesOf(name),
+    ])
+    edges = resolveComputedEdges(name, options.computed, options.computedDeps, knownFields, combinedHasClassified)
+    const depFields = new Set(edges.map((edge) => edge.target.field))
+    depslessComputedFields = Object.keys(options.computed).filter((field) => !depFields.has(field))
+  }
+
+  return {
+    edges,
+    depslessComputedFields,
+    classifiedFieldNames: resolvedClassified !== undefined ? Object.keys(resolvedClassified.byField) : [],
+  }
+}
+
+/**
+ * Phase 2 (commit) — call ONLY after every `_apply*` mutation belonging to
+ * this reconcile call has succeeded (see {@link validateReconcileGraphEdges}'s
+ * doc comment, Finding M2). Registers `plan`'s edges, skipping any target
+ * already registered so `registerDerived`'s at-most-once contract holds
+ * across repeated identical `vault.collection()` calls, not just within one
+ * (Finding I2i); registers the late-attached classified field(s)' sealed
+ * posture (Finding M1 — fresh construction gets this for free from
+ * `registerCollectionGraphSources`'s compiled-binding loop, which the
+ * reconcile path has no equivalent of); and updates the depless-computed /
+ * classified graph memory {@link validateReconcileGraphEdges} reads.
+ */
+export function commitReconcileGraphEdges(graph: ViaGraph, name: string, plan: ReconcilePlan): void {
+  for (const edge of plan.edges) {
+    if (!graph.hasDerived(edge.target)) graph.registerDerived(edge.target, edge.sources, 'computed', 'record')
+  }
+  for (const field of plan.depslessComputedFields) graph.markDepslessComputed(name, field)
+  for (const field of plan.classifiedFieldNames) graph.registerField(name, field, CLASSIFIED_POSTURE)
+  if (plan.classifiedFieldNames.length > 0) graph.markClassified(name)
 }
