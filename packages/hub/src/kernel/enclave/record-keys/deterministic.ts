@@ -91,7 +91,7 @@ export async function findByDet<T>(ctx: DeterministicContext<T>, field: string, 
     const env = await ctx.adapter.get(ctx.vault, ctx.name, id)
     if (!env || !env._det) continue
     if (env._det[field] === target || env._det[field] === legacyTarget) {
-      return ctx.codec.decryptRecord(env)
+      return ctx.codec.decryptRecord(env, { id })
     }
   }
   return null
@@ -111,7 +111,7 @@ export async function queryByDet<T>(ctx: DeterministicContext<T>, field: string,
     const env = await ctx.adapter.get(ctx.vault, ctx.name, id)
     if (!env || !env._det) continue
     if (env._det[field] === target || env._det[field] === legacyTarget) {
-      const rec = await ctx.codec.decryptRecord(env)
+      const rec = await ctx.codec.decryptRecord(env, { id })
       if (rec !== null) matches.push(rec) // skip tombstone (defensive)
     }
   }
