@@ -119,6 +119,12 @@ const SCENARIOS = [
       // are linked only by withTeam() (team subpath) / withCustody(), never
       // by the single-user floor:
       'rotateKeys',            // team keyring re-key engine
+      // #629 Task 7 -- the blob Via binder links eagerly (port/with/
+      // blob-strategy.ts), but the binding is hook-free glue: the BlobSet
+      // machinery must still only arrive via the @noy-db/hub/blobs subpath.
+      // Complements the 'class BlobSet' literal canary above with the
+      // load-bearing signal under splitting (eager chunk import).
+      'BlobSet',
     ],
   },
   {
@@ -180,6 +186,22 @@ const SCENARIOS = [
       'computeBidxTarget', // findByDigest target/find engine — MUST stay behind active.ts's dynamic import (slice-2b)
       'mintBidxTag',       // write-side digest-index mint engine (codec-internal, never eager via the strategy)
     ],
+  },
+  {
+    name: 'blobs',
+    description: 'createNoydb + withBlobs (#629 Task 7 — via-blob scenario)',
+    // Measures the real cost of opting into blobs (BlobSet + chunk AEAD +
+    // mime-magic arrive eagerly through withBlobs() — that is the opt-in
+    // working as designed, not a leak). The floor scenario's 'class BlobSet'
+    // literal canary + 'BlobSet' eager-import canary remain the guards that
+    // none of this reaches a consumer who never imports @noy-db/hub/blobs.
+    code: `
+      import { createNoydb } from '@noy-db/hub'
+      import { withBlobs } from '@noy-db/hub/blobs'
+      const blobStrategy = withBlobs()
+      export { createNoydb, blobStrategy }
+    `,
+    leakCanaries: [],
   },
   {
     name: 'analytics',

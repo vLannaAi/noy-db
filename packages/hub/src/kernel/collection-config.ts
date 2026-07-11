@@ -475,19 +475,24 @@ export interface CollectionOpts<T> {
  * Compile a collection's declared config into the ordered list of `ViaBinding`s
  * for its `ViaPipeline`.
  *
- * money then i18n then classified — order pinned for pipeline parity with the
- * hand-wired baseline this replaces: money encode ran before the i18n write
- * stages, and money decode ran before i18n locale/dict-label resolution on
- * read. Classified compiles LAST (#629 Task 6): its `encodeAtRest`/
- * `decodeAtRest` hooks make the pipeline's `hasAtRestHooks` true, retiring
- * the codec's inline `sensitiveFields` seal path (record-codec.ts) for any
- * collection that declares `classifiedFields` — `classifiedGuardCtx` is the
- * SAME `ClassifiedGuardCtx` `resolveCollectionConfig` already built for
- * door 1's `guardClassifiedCompat` call, threaded in by its one caller below.
+ * money then i18n then classified then blob — order pinned for pipeline
+ * parity with the hand-wired baseline this replaces: money encode ran before
+ * the i18n write stages, and money decode ran before i18n locale/dict-label
+ * resolution on read. Classified compiles after those (#629 Task 6): its
+ * `encodeAtRest`/`decodeAtRest` hooks make the pipeline's `hasAtRestHooks`
+ * true, retiring the codec's inline `sensitiveFields` seal path
+ * (record-codec.ts) for any collection that declares `classifiedFields` —
+ * `classifiedGuardCtx` is the SAME `ClassifiedGuardCtx`
+ * `resolveCollectionConfig` already built for door 1's
+ * `guardClassifiedCompat` call, threaded in by its one caller below. Blob
+ * compiles last (#629 Task 7) but its position is inert: the blob binding
+ * declares NO write/read pipeline hooks (blob content is out-of-band
+ * `BlobSet` side-collections — it must never flip `hasAtRestHooks`), only
+ * `erase`/`describeFragment`.
  * {@link Collection._applyMoneyFields} PREPENDS money for the same reason
  * on its own (MV-precreation reconcile) path — see its docstring;
  * {@link Collection._applyClassifiedFields} APPENDS classified on that same
- * reconcile path, keeping it last regardless of attach order.
+ * reconcile path (blobFields has no late-attach reconcile door).
  */
 export function compileViaBindings<T>(opts: CollectionOpts<T>, classifiedGuardCtx: ClassifiedGuardCtx): ViaBinding[] {
   const { moneyFields, i18nFields, dictKeyFields } = mergeViaFields(opts)
@@ -520,6 +525,12 @@ export function compileViaBindings<T>(opts: CollectionOpts<T>, classifiedGuardCt
       entries: opts.classifiedFields,
       collectionName: opts.name,
       guardCtx: classifiedGuardCtx,
+    }))
+  }
+  if (opts.blobFields !== undefined) {
+    bindings.push(viaBinder('blob')({
+      fields: opts.blobFields,
+      collectionName: opts.name,
     }))
   }
   return bindings

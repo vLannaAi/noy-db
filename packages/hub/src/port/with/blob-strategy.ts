@@ -23,6 +23,18 @@ import type { NoydbStore } from '../../kernel/types.js'
 import type { ObjectProjection } from '../../with-shape/blobs/object-projection.js'
 import type { BlobFieldsConfig } from '../../with-shape/blobs/blob-compaction.js'
 import type { EnclaveKey } from '../../kernel/enclave/index.js'
+import { linkBlobVia } from '../../shape/via-blob/binding.js'
+
+// Install the blob Via binder EAGERLY (#629 Task 7) — `blobFields` policies
+// are plain object literals (there is no `blob.*()` declaration factory to
+// hang a lazy money/i18n-style link on), so the binder must be installed
+// before `compileViaBindings` ever compiles one. This port module is
+// already unconditionally imported by the kernel spine (for the `NO_BLOBS`
+// strategy default below), so linking here guarantees it — same rationale
+// as `port/with/classified-strategy.ts`'s eager `linkClassifiedVia()`. The
+// binding module is hook-free glue (declare/describe/erase) and imports no
+// machinery, so the eager cost is a few hundred bytes, not `BlobSet`.
+linkBlobVia()
 
 /**
  * Args forwarded by `Collection.blob(id)` to the active strategy's

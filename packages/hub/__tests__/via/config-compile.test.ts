@@ -89,3 +89,51 @@ describe('via config-compile seam — classified (#629 Task 6)', () => {
     expect(cfg.classified?.byField.secret?.storage).toBe('digest-only')
   })
 })
+
+describe('via config-compile seam — blob (#629 Task 7)', () => {
+  it('compileViaBindings compiles a blob binding when blobFields is declared — WITHOUT at-rest hooks', () => {
+    const opts = {
+      ...syntheticOpts(),
+      blobFields: { receipt: { retainDays: 30 } },
+    } as CollectionOpts<unknown>
+
+    const bindings = compileViaBindings(opts, emptyGuardCtx())
+
+    expect(bindings.map((b) => b.brand)).toEqual(['blob'])
+    // Blob content is out-of-band (BlobSet side-collections) — the binding
+    // must NOT flip hasAtRestHooks, or the codec would abandon its inline
+    // seal path for a feature that never seals record fields (#629 lesson 2).
+    expect(ViaPipeline.build(bindings)!.hasAtRestHooks).toBe(false)
+  })
+
+  it('compileViaBindings pushes nothing blob-branded when blobFields is absent', () => {
+    const bindings = compileViaBindings(syntheticOpts(), emptyGuardCtx())
+    expect(bindings.some((b) => b.brand === 'blob')).toBe(false)
+  })
+
+  it('classified + blob compile together — blob LAST, hasAtRestHooks true (from classified alone)', () => {
+    const opts = {
+      ...syntheticOpts(),
+      classifiedFields: { note: classified.email() },
+      blobFields: { attachment: {} },
+    } as CollectionOpts<unknown>
+
+    const bindings = compileViaBindings(opts, emptyGuardCtx())
+
+    expect(bindings.map((b) => b.brand)).toEqual(['classified', 'blob'])
+    expect(ViaPipeline.build(bindings)!.hasAtRestHooks).toBe(true)
+  })
+
+  it('resolveCollectionConfig wires a blobFields-only collection\'s cfg.via — pipeline present, no at-rest hooks', () => {
+    const opts = {
+      ...syntheticOpts(),
+      blobFields: { receipt: { retainDays: 30 } },
+    } as CollectionOpts<unknown>
+
+    const cfg = resolveCollectionConfig(opts)
+
+    expect(cfg.via).toBeDefined()
+    expect(cfg.via!.hasAtRestHooks).toBe(false)
+    expect(cfg.via!.bindings.map((b) => b.brand)).toEqual(['blob'])
+  })
+})
