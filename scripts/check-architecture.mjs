@@ -930,7 +930,14 @@ const KERNEL_SURFACE_BUDGET = {
   // MutationOrigin + Collection._onRecordMutated dispatch socket for phase
   // C) trimmed vault.ts by one net line as part of the same commit. Locked
   // in to the ACTUAL measured line count — no slack.
-  'packages/hub/src/kernel/vault.ts': 4094,
+  // Lowered 4094→4088 (2026-07-11, Task 11 re-ratchet, #629 via-phase-b arc):
+  // net −6 across the phase — Task 6 (classified kernel cutover) −1, Task 9
+  // (the exportStream() posture-redaction call site) +1, Task 10 (the six
+  // `(coll as any)` casts removed now that `_onViaErase`/`_classifySealedShred`
+  // are called directly, typed, plus the forget()-loop posture fallback) −6.
+  // Locked in to the ACTUAL measured line count (readFileSync(...).split('\n').length)
+  // — no slack.
+  'packages/hub/src/kernel/vault.ts': 4088,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

@@ -59,9 +59,11 @@ async function sealOneFieldWithDek(
 /**
  * Seal one field's value on demand — fetches the DEK itself. A singular
  * counterpart to {@link sealFields} for callers that seal one field at a
- * time rather than a whole record.
+ * time rather than a whole record. Not exported — `makeSealedSlotCapability`
+ * is the only caller (#629 Task 11: knip-flagged unused export, dropped;
+ * intra-module use only).
  */
-export async function sealOneField(
+async function sealOneField(
   field: string,
   value: unknown,
   keyMaterial: SealKeyMaterial,
@@ -160,11 +162,21 @@ export interface SealedSlotCapabilityCtx {
  * `Object.values` of the capability expose only the three methods, never a
  * key (zero-knowledge: capabilities never expose keys).
  *
- * `delete(field)` has no store to reach in this task — the store-level
- * wiring lands when a later task threads `ViaCryptoCtx` into `Collection`'s
- * write path. It marks the field locally so a subsequent `unseal` on THIS
- * capability instance refuses, giving `delete` an observable effect without
- * any I/O.
+ * `delete(field)` is **advisory and capability-instance-local, not real
+ * erasure** — it has no store to reach and never will by itself: it just
+ * adds `field` to a `Set` closed over by THIS ONE capability object, so a
+ * later `unseal` call on that SAME object refuses. No I/O happens. A fresh
+ * capability for the same record (e.g. `seal()`'d again, or a new
+ * `makeSealedSlotCapability(...)` call) has an empty set and sees no
+ * deletion at all — `seal()` on a given field also clears any prior mark
+ * for it. Do not build production logic on `delete()` persisting anything.
+ * The real erasure guarantee for a forgotten record is `vault.forget()`'s
+ * unconditional `_writeTombstone` call, which replaces the whole live
+ * envelope with a fresh, `_sealed`-free tombstone — `_sealed` disappears
+ * from the store regardless of what any capability's `delete()` marked.
+ * (#629 Task 10 traced this end-to-end; see task-10-report.md "sealedSlots
+ * .delete()" section. Removing/changing this method's shape is a phase-E
+ * decision, not implied by this comment.)
  */
 export function makeSealedSlotCapability(
   ctx: SealedSlotCapabilityCtx,
