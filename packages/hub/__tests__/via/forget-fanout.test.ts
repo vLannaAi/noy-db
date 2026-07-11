@@ -7,7 +7,7 @@
 // anywhere combines forget × derivation/MV becomes this file's first fixture.
 
 import { describe, it, expect } from 'vitest'
-import { createNoydb, withRollup, withMaterializedView } from '../../src/index.js'
+import { createNoydb, withRollup, withMaterializedView, withDerivation } from '../../src/index.js'
 import { withForgetCascade } from '../../src/with-audit/forget/index.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
 import { withPeriods } from '../../src/with-audit/periods/index.js'
@@ -104,6 +104,39 @@ describe('forget() fanout to derived residue (#622)', () => {
     expect(await mirror.get('p2')).not.toBeNull() // untouched sibling
     expect(result.derivedRecordsErased).toBeGreaterThanOrEqual(1)
     expect(result.recordsShredded).toBe(1)
+  })
+
+  it('forget × optional derivation with no emitted row: derivedRecordsErased counts only REAL erasures (#622 review Finding 1)', async () => {
+    // RCT-TRIGGER-001-style optional output: the derivation edge exists (allocations →
+    // receipts), but `derive` returns null for THIS record, so no receipt row was ever
+    // written. Forgetting it must NOT count a phantom erasure — `dispatchArrayDerivationsOnDelete`'s
+    // `_internalDelete` no-ops (nothing to delete), and the count must reflect that 0, not the
+    // edge count (1). Fails on the unfixed edge-count path (over-counts to 1).
+    interface Alloc extends Record<string, unknown> { id: string; subjectId: string; servicesNetPortion: number }
+    interface Receipt extends Record<string, unknown> { id: string; appliedAmount: number }
+    const strategy = withDerivation<Alloc, { receipt: Receipt }>({
+      source: 'allocations',
+      deterministic: true,
+      outputs: { receipt: { shape: 'record', collection: 'receipts', optional: true } },
+      derive: (alloc) => ({
+        receipt: alloc.servicesNetPortion > 0 ? { id: alloc.id, appliedAmount: alloc.servicesNetPortion } : null!,
+      }),
+      lifecycle: 'eager',
+    })
+    const db = await createNoydb({
+      store: memory(), user: 'alice', secret: 'forget-fanout-optional-skip-passphrase-2026',
+      derivationStrategies: [strategy],
+      historyStrategy: withHistory(),
+      forgetStrategy: withForgetCascade({ subjects: { allocations: 'subjectId' } }),
+    })
+    const vault = await db.openVault('firm')
+    await vault.collection<Alloc>('allocations').put('a1', { id: 'a1', subjectId: 'subj-1', servicesNetPortion: 0 })
+    expect(await vault.collection<Receipt>('receipts').get('a1')).toBeNull() // never emitted
+
+    const result = await vault.forget('subj-1')
+
+    expect(result.recordsShredded).toBe(1)
+    expect(result.derivedRecordsErased).toBe(0) // exact: no output row ever existed to erase
   })
 
   it('forget × frozen aggregate: recompute skipped, residue reported + audited, subject still fully shredded', async () => {

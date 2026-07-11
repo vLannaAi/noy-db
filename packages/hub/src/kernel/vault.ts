@@ -2155,7 +2155,7 @@ export class Vault {
       getRecord: async (c, id) =>
         (await this.collection(c).get(id, { locale: 'raw' })) as Record<string, unknown> | null,
       getEnvelope: (c, id) => this.adapter.get(this.name, c, id),
-      removeFromPrimary: (c, id) => this.collection(c)._internalDelete(id),
+      removeFromPrimary: async (c, id) => { await this.collection(c)._internalDelete(id) },
       restoreToPrimary: async (c, id, env) => {
         await this.adapter.put(this.name, c, id, env)
         await this.collection(c)._invalidateCacheEntry(id)

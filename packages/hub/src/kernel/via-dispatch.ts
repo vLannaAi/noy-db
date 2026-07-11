@@ -200,10 +200,13 @@ export async function forgetDerivedFanout(
   if (edges.some((e) => e.kind === 'mv')) {
     stats.recordsErased += await coll.dispatchMaterializedViewsOnDelete(ref.id)
   }
-  const derivationEdgeCount = edges.filter((e) => e.kind === 'derivation').length
-  if (derivationEdgeCount > 0) {
-    await coll.dispatchArrayDerivationsOnDelete(ref.id, true)
-    stats.recordsErased += derivationEdgeCount
+  if (edges.some((e) => e.kind === 'derivation')) {
+    // #622 review Finding 1: count REAL erasures (dispatchArrayDerivationsOnDelete's own
+    // `_internalDelete`-backed tally), not the derivation EDGE count — an edge exists whenever
+    // this collection is ANY trigger (source/sources[]/triggerBy), but the same-id record-shape
+    // guard only erases for `spec.source === this.name`, and `derive()` may never have produced
+    // an output row (optional-skip) in the first place. Both cases must contribute 0, not +1.
+    stats.recordsErased += await coll.dispatchArrayDerivationsOnDelete(ref.id, true)
   }
 
   if (envelope && edges.some((e) => e.kind === 'rollup')) {

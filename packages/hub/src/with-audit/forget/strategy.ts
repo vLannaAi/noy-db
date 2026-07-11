@@ -126,8 +126,10 @@ export interface ForgetResult {
   readonly sealedResidue: readonly string[]
   /** The single `op:'forget'` ledger entry appended for this erasure. */
   readonly ledgerEntry: LedgerEntry
-  /** #622 — record-grain derived artifacts (MV rows, per-record derived copies, overlay
-   *  outputs) erased because their source subject was forgotten. */
+  /** #622 — record-grain derived artifacts (MV rows, per-record derived copies) erased
+   *  because their source subject was forgotten. Overlay outputs are intentionally out of
+   *  scope here — an overlay is always sourced from an MV, never directly from a subject
+   *  collection, so the personal-data-bearing MV rows it reads are already erased above. */
   readonly derivedRecordsErased: number
   /** #622 — aggregate-grain targets (rollups) recomputed without the forgotten contribution. */
   readonly derivedAggregatesRecomputed: number

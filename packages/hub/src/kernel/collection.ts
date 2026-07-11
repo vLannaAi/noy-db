@@ -2562,9 +2562,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * history snapshot still fire so backup integrity and time-travel
    * reconstruction stay consistent.
    *
-   * Returns silently for delete-of-absent (idempotent contract — both
-   * paths honour this: the `txCtx === null` path also reads the prior
-   * envelope and short-circuits before the ledger/event side-effects).
+   * Returns `true` when it erased a live record, `false` for delete-of-absent (idempotent
+   * contract — both txCtx-aware and txCtx===null callers honour this, short-circuiting before any side-effect).
    *
    * When a `txCtx` is supplied, the prior envelope is captured and
    * pushed onto `txCtx._executed` BEFORE the delete fires — mirrors
@@ -2591,14 +2590,14 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * write permission on the collection (derivations run under the
    * user's keyring).
    */
-  async _internalDelete(id: string, txCtx: TxContext | null = null): Promise<void> {
+  async _internalDelete(id: string, txCtx: TxContext | null = null): Promise<boolean> {
     // Idempotency contract: short-circuit before any ledger/event
     // side-effect when the target is absent. Both txCtx-aware and
     // txCtx-null callers honour this — `deriveAll` recomputes
     // expense-only allocations that never emitted a receipt without
     // writing spurious v0 ledger entries.
     const prior = await this.adapter.get(this.vault, this.name, id)
-    if (prior === null) return
+    if (prior === null) return false
     if (txCtx !== null) {
       txCtx._executed.push({
         op: {
@@ -2611,6 +2610,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       })
     }
     await this._doDelete(id, true)
+    return true
   }
 
   private async _doDelete(id: string, internal: boolean): Promise<void> {
@@ -2828,19 +2828,18 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /**
    * Cascade deletes of array-shape derived rows when a source row is deleted. Reads each
    * registered strategy's fanout sidecar for this source id, deletes every listed derived
-   * row, then deletes the sidecar itself.
+   * row, then deletes the sidecar itself. Returns the REAL erased count (#622 review Finding 1).
    *
    * Record-shape derivations are skipped on the ordinary delete path (see _doDelete's comment).
-   * `eraseRecordShapeToo` (#638 T6, default `false` — ordinary delete stays byte-identical) opts
-   * a same-id record-shape copy into erasure too — forget()'s fanout, GDPR residue.
+   * `eraseRecordShapeToo` (#638 T6, default `false`) opts a same-id record-shape copy into
+   * erasure too — forget()'s fanout, GDPR residue. A delete-of-absent contributes 0 either way.
    * @internal
    */
-  async dispatchArrayDerivationsOnDelete(id: string, eraseRecordShapeToo = false): Promise<void> {
-    if (this.derivationSource === undefined) return
+  async dispatchArrayDerivationsOnDelete(id: string, eraseRecordShapeToo = false): Promise<number> {
+    if (this.derivationSource === undefined) return 0
     const registry = this.derivationSource.registry()
     const strategies = registry.strategiesForSource(this.name)
-    if (strategies.length === 0) return
-
+    if (strategies.length === 0) return 0
     // Dynamic-import the sidecar helpers — keeps the derivation chunk out of the
     // floor bundle for consumers that don't use array-shape derivations.
     let helpers: {
@@ -2849,7 +2848,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       saveFanoutSidecar: typeof SaveFanoutSidecarType
     } | null = null
     const txCtx = this.derivationSource.getActiveTxContext()
-
+    let erased = 0 // #622 review: rows ACTUALLY deleted, not edges visited
     for (const { spec } of strategies) {
       for (const [outputKey, outSpec] of Object.entries(spec.outputs)) {
         if (outSpec.shape === 'record') {
@@ -2857,7 +2856,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
           // collection — never the self-denorm case (would re-delete the record just
           // tombstoned) nor triggerBy/sibling (derived id isn't `id`).
           if (eraseRecordShapeToo && spec.source === this.name && outSpec.collection !== this.name) {
-            await this.derivationSource.getCollection(outSpec.collection)._internalDelete(id, txCtx)
+            if (await this.derivationSource.getCollection(outSpec.collection)._internalDelete(id, txCtx)) erased += 1
           }
           continue
         }
@@ -2868,11 +2867,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         if (!sidecar) continue
         const outputCollection = this.derivationSource.getCollection(outSpec.collection)
         for (const derivedId of sidecar.keys) {
-          await outputCollection._internalDelete(derivedId, txCtx)
+          if (await outputCollection._internalDelete(derivedId, txCtx)) erased += 1
         }
         await helpers.deleteFanoutSidecar(this.adapter, this.vault, spec.source, id, outputKey)
       }
     }
+    return erased
   }
 
   /**
