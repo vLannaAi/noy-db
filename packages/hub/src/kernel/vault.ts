@@ -154,8 +154,8 @@ import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from
 import type { VaultIntrospectState } from '../with-shape/introspection/walk.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta, VaultMeta } from '../with-shape/introspection/meta.js'
-import type { ClassifiedEntry } from '../with-shape/classified/resolve.js'
-import { NO_CLASSIFIED, type ClassifiedStrategy } from '../with-shape/classified/strategy.js'
+import type { ClassifiedEntry } from '../shape/via-classified/resolve.js'
+import { NO_CLASSIFIED, type ClassifiedStrategy } from '../port/with/classified-strategy.js'
 import { USER_ENVELOPE_COLLECTION } from './constants.js'
 
 /**

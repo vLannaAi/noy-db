@@ -419,7 +419,7 @@ function scanFileForStrategyOptIn(file, content) {
 //     strategy; the collection IS the opt-in unit, impl lazy-imported
 //     from the schema declaration (see noy-db-docs/content/docs/services/<x>.md):
 //       with-formula/computed          computed({…}) field evaluator
-//       with-shape/classified          classifiedFields declaration (sealed + riders)
+//       shape/via-classified           classifiedFields declaration (sealed + riders)
 //       with-shape/introspection       describe()/dumpVaultSchema — read-only schema surface
 //       with-shape/links               link()/backlink schema refs
 //       shape/via-money                money() field descriptor
@@ -442,7 +442,7 @@ function scanFileForStrategyOptIn(file, content) {
 // reader who wonders why they're absent from the list.
 const SCHEMA_DECLARED_OR_INFRA_EXEMPT = new Set([
   'with-formula/computed',
-  'with-shape/classified',
+  'shape/via-classified',
   'with-shape/introspection',
   'with-shape/links',
   'shape/via-money',
@@ -1180,11 +1180,9 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/blobs/strategy.js',
     // classified stage 2 Task 13 (2026-07-04) — refusal matrix R1-R5 guard at
     // door 1 (config resolution); pure validation, same ③ class as resolve.js
-    '../with-shape/classified/guards.js',
+    '../shape/via-classified/guards.js',
     // classified-fields stage 1 — ③ schema feature, joins the #553 lazy-import debt like money/dictKey/computed
-    '../with-shape/classified/resolve.js',
-    // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
-    '../with-shape/classified/strategy.js',
+    '../shape/via-classified/resolve.js',
     '../with-shape/introspection/field-meta.js',
     '../with-shape/introspection/meta.js',
     '../with-shape/schema-update/fence-controller.js',
@@ -1234,15 +1232,13 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/blobs/object-projection.js',
     '../with-shape/blobs/strategy.js',
     // classified-fields stage 1 — ③ schema feature, joins the #553 lazy-import debt like money/dictKey/computed
-    '../with-shape/classified/resolve.js',
-    '../with-shape/classified/write.js',
-    // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
-    '../with-shape/classified/strategy.js',
+    '../shape/via-classified/resolve.js',
+    '../shape/via-classified/write.js',
     // classified-fields stage 1 Task 6 — typed reveal() error, sibling of the ③ write-path errors
-    '../with-shape/classified/errors.js',
+    '../shape/via-classified/errors.js',
     // classified stage 2 Task 13 (2026-07-04) — refusal matrix R1-R5 guard at
     // door 2 (the _applyClassifiedFields reconcile seam); pure validation, same ③ class as resolve.js
-    '../with-shape/classified/guards.js',
+    '../shape/via-classified/guards.js',
     '../with-shape/introspection/describe.js',
     '../with-shape/introspection/field-meta.js',
     '../with-shape/introspection/meta.js',
@@ -1316,8 +1312,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-party/team/sync-strategy.js',
     '../with-shape/blobs/object-projection.js',
     '../with-shape/blobs/strategy.js',
-    // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
-    '../with-shape/classified/strategy.js',
     '../port/by/types.js',
   ]],
   ['packages/hub/src/kernel/vault.ts', [
@@ -1379,9 +1373,7 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/blobs/object-projection.js',
     '../with-shape/blobs/strategy.js',
     // classified-fields stage 1 — ③ schema feature, joins the #553 lazy-import debt like money/dictKey/computed
-    '../with-shape/classified/resolve.js',
-    // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
-    '../with-shape/classified/strategy.js',
+    '../shape/via-classified/resolve.js',
     '../with-shape/introspection/field-meta.js',
     '../with-shape/introspection/meta.js',
     '../with-shape/introspection/types.js',
@@ -1769,7 +1761,7 @@ function checkEnclaveClassifyOnly() {
         'enclave-classify-only',
         `${relative(ROOT, file)} references "${m[0]}" — verify-digest crypto identifiers and the ` +
         `'noydb-classify-vdig' salt domain are enclave-interior (M1). Call through the classified ` +
-        `strategy seam (with-shape/classified/active.ts dynamic import) or the enclave barrel; ` +
+        `strategy seam (shape/via-classified/active.ts dynamic import) or the enclave barrel; ` +
         `opaque _vdig ciphertext transit needs no crypto identifier.`,
         file,
       )
@@ -1783,7 +1775,7 @@ function checkEnclaveClassifyOnly() {
 // identifiers — plus the index salt-domain literals — live ONLY in
 // kernel/enclave/** (the classify/ folder). Outside it, referencing these
 // is a leak of enclave interior into service/kernel code. The ONE sanctioned
-// exception is with-shape/classified/active.ts, which reaches
+// exception is shape/via-classified/active.ts, which reaches
 // computeBidxTarget exclusively through the dynamic-import strategy seam
 // (kernel/enclave/classify/find.js) — that file is allowlisted the same way
 // enclave/test files are exempt elsewhere in this script. Opaque `_bidx`
@@ -1797,7 +1789,7 @@ function checkEnclaveClassifyOnly() {
 const CLASSIFY_INDEX_ENCLAVE_ONLY_RE =
   /\bderiveClassifyIndexKey\b|\bderiveClassifyIndexSalt\b|\bmintBidxTag\b|\bcomputeBidxTarget\b|noydb-classify-index-v1|noydb-classify-index-salt-v1/
 
-const CLASSIFY_INDEX_ALLOWLIST = new Set(['packages/hub/src/with-shape/classified/active.ts'])
+const CLASSIFY_INDEX_ALLOWLIST = new Set(['packages/hub/src/shape/via-classified/active.ts'])
 
 function checkEnclaveClassifyIndexOnly() {
   const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
@@ -1815,7 +1807,7 @@ function checkEnclaveClassifyIndexOnly() {
         'enclave-classify-index-only',
         `${relative(ROOT, file)} references "${m[0]}" — blind-index key/salt-derivation and target ` +
         `identifiers, and the 'noydb-classify-index-v1'/'noydb-classify-index-salt-v1' literals, are ` +
-        `enclave-interior (M1). Call through the classified strategy seam (with-shape/classified/active.ts ` +
+        `enclave-interior (M1). Call through the classified strategy seam (shape/via-classified/active.ts ` +
         `dynamic import) or the enclave barrel; opaque _bidx tag-map transit needs no crypto identifier.`,
         file,
       )
@@ -1852,12 +1844,39 @@ function checkEnclaveClassifyIndexOnly() {
 // kernel/enclave/ (crypto should reach features only via ctx, not a direct
 // enclave-barrel import) — is enforced separately by Check 15
 // (via-enclave-isolation) below.
+//
+// #629 Task 5 (via-classified move) added a SECOND temporary batch:
+// `shape/via-classified/{resolve,guards,write,errors}.js` — the classified
+// binding is DORMANT (no compile entry yet), so collection.ts/
+// collection-config.ts/vault.ts still call `resolveClassifiedFields`/
+// `guardClassifiedCompat`/`enforceClassifiedWrite`/`ClassifiedRevealError`/
+// `ClassifiedVerifyError` directly, exactly as they did at the pre-move
+// `with-shape/classified/*` paths (Check 9/port-layering never restricted
+// those — this check didn't exist yet when classified's inline wiring was
+// written). #629 Task 6 (kernel cutover) routes these through the Via
+// pipeline instead and retires every entry in this batch — see that task's
+// "grandfather retirements" acceptance criterion and its
+// `grep -rn "shape/via-classified" packages/hub/src/kernel` → nothing check.
 
 const VIA_SHAPE_ALLOWLIST = new Map([
   // #626: the one join-layer i18n exception (comment lives at the import
   // site in join.ts) — join-layer i18n is sync + i18n-text-only; converging
   // it onto the Via seam is #626's job.
   ['packages/hub/src/kernel/query/join.ts', ['../../shape/via-i18n/core.js']],
+  // #629 Task 5 — TEMPORARY, retired by Task 6 (see comment above).
+  ['packages/hub/src/kernel/collection-config.ts', [
+    '../shape/via-classified/resolve.js',
+    '../shape/via-classified/guards.js',
+  ]],
+  ['packages/hub/src/kernel/collection.ts', [
+    '../shape/via-classified/resolve.js',
+    '../shape/via-classified/errors.js',
+    '../shape/via-classified/guards.js',
+    '../shape/via-classified/write.js',
+  ]],
+  ['packages/hub/src/kernel/vault.ts', [
+    '../shape/via-classified/resolve.js',
+  ]],
 ])
 
 function checkViaLayering() {

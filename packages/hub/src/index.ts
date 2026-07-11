@@ -872,8 +872,8 @@ export type { ViaFieldSpec } from './kernel/via-compose.js'
 export type { ViaPosture, ViaDescriptor } from './kernel/via.js'
 
 // classified — preset catalog (creditCard/birthDate/email/phone) + validators
-export { classified, luhnCheck, isClassifiedFieldSpec, isClassifiedGroup, resolveClassifiedFields, ClassifiedConfigError, ClassifiedNeverStoredError, ClassifiedValidationError, ClassifiedRevealError, ClassifiedVerifyError, ClassifiedRotationError } from './with-shape/classified/index.js'
-export type { ClassifiedFieldSpec, ClassifiedGroup, ClassifiedEntry, ClassifiedList, ClassifiedStorage, ClassifiedVerdict } from './with-shape/classified/index.js'
+export { classified, luhnCheck, isClassifiedFieldSpec, isClassifiedGroup, resolveClassifiedFields, ClassifiedConfigError, ClassifiedNeverStoredError, ClassifiedValidationError, ClassifiedRevealError, ClassifiedVerifyError, ClassifiedRotationError } from './shape/via-classified/index.js'
+export type { ClassifiedFieldSpec, ClassifiedGroup, ClassifiedEntry, ClassifiedList, ClassifiedStorage, ClassifiedVerdict } from './shape/via-classified/index.js'
 
 // computed — schema-owned computed scalar fields
 export { evalComputedFields, ComputedFieldError } from './with-formula/computed/index.js'

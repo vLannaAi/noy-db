@@ -11,10 +11,15 @@
  * handle) reads it back and refuses to write — see RecordCodec.encryptRecord's
  * R10 guard.
  *
+ * `dek` is typed as the bare `CryptoKey` global rather than `EnclaveKey`
+ * (`kernel/enclave/crypto.ts`'s alias for the same type) — this file lives
+ * under `shape/via-classified/`, which the `via-enclave-isolation`
+ * architecture guard (#629) forbids from importing `kernel/enclave/` at
+ * all, even type-only.
+ *
  * @module
  */
 import type { NoydbStore, VdigFieldPolicy, ClassifiedMarker } from '../../kernel/types.js'
-import type { EnclaveKey } from '../../kernel/enclave/index.js'
 
 /** Build the marker for a handle's digest-only field map, or null when it declares none. */
 function markerForFields(vdigFields: ReadonlyMap<string, VdigFieldPolicy> | null): ClassifiedMarker | null {
@@ -32,11 +37,11 @@ export async function persistClassifiedMarkerForFields(
   vault: string,
   collectionName: string,
   vdigFields: ReadonlyMap<string, VdigFieldPolicy> | null,
-  dek: EnclaveKey,
+  dek: CryptoKey,
 ): Promise<void> {
   const marker = markerForFields(vdigFields)
   if (marker === null) return
-  const { persistClassifiedMarker } = await import('../persisted-schemas/register.js')
+  const { persistClassifiedMarker } = await import('../../with-shape/persisted-schemas/register.js')
   await persistClassifiedMarker({ store, vault, collectionName, dek, marker })
 }
 
@@ -50,9 +55,9 @@ export async function readClassifiedMarkerDigestOnly(
   store: NoydbStore,
   vault: string,
   collectionName: string,
-  dek: EnclaveKey,
+  dek: CryptoKey,
 ): Promise<readonly string[]> {
-  const { loadPersistedSchema } = await import('../persisted-schemas/storage.js')
+  const { loadPersistedSchema } = await import('../../with-shape/persisted-schemas/storage.js')
   const persisted = await loadPersistedSchema(store, vault, collectionName, dek)
   return persisted?.classified?.digestOnly ?? []
 }

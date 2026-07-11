@@ -6,8 +6,8 @@
 
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
-import { classified } from '../../src/with-shape/classified/index.js'
-import type { ClassifiedEntry, ClassifiedFieldSpec } from '../../src/with-shape/classified/descriptor.js'
+import { classified } from '../../src/shape/via-classified/index.js'
+import type { ClassifiedEntry, ClassifiedFieldSpec } from '../../src/shape/via-classified/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 import { ClassifiedConfigError, ConflictError } from '../../src/kernel/errors.js'
 

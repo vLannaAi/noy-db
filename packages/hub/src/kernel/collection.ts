@@ -1,10 +1,10 @@
 import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult, SealedView, VdigFieldPolicy, ClassifiedVerdict } from './types.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
-import { resolveClassifiedFields, ClassifiedConfigError, type ClassifiedEntry, type ClassifiedFieldSpec, type ResolvedClassified } from '../with-shape/classified/resolve.js'
-import { ClassifiedRevealError, ClassifiedVerifyError } from '../with-shape/classified/errors.js'
-import { guardClassifiedCompat, type ClassifiedGuardCtx } from '../with-shape/classified/guards.js'
-import type { ClassifiedStrategy, ClassifiedVerifyCtx } from '../with-shape/classified/strategy.js'
+import { resolveClassifiedFields, ClassifiedConfigError, type ClassifiedEntry, type ClassifiedFieldSpec, type ResolvedClassified } from '../shape/via-classified/resolve.js'
+import { ClassifiedRevealError, ClassifiedVerifyError } from '../shape/via-classified/errors.js'
+import { guardClassifiedCompat, type ClassifiedGuardCtx } from '../shape/via-classified/guards.js'
+import type { ClassifiedStrategy, ClassifiedVerifyCtx } from '../port/with/classified-strategy.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from '../with-commit/crdt/crdt.js'
 import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
 import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../port/with/i18n-strategy.js'
@@ -13,7 +13,7 @@ import { ViaPipeline } from './via-pipeline.js'
 import { viaBinder, type ViaDescriptor } from './via.js'
 import type { MutationOrigin } from './mutation.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
-import { enforceClassifiedWrite } from '../with-shape/classified/write.js'
+import { enforceClassifiedWrite } from '../shape/via-classified/write.js'
 import {
   isTombstone,
   isDeleteMarker,
@@ -4317,7 +4317,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /** C-A/R10: persist the classified marker once per classified handle (store I/O in config-drift.ts). */
   private async _ensureClassifiedMarker(): Promise<void> {
     if (this._markerPersisted || this.vdigFields === null) return
-    const { persistClassifiedMarkerForFields } = await import('../with-shape/classified/config-drift.js')
+    const { persistClassifiedMarkerForFields } = await import('../shape/via-classified/config-drift.js')
     await persistClassifiedMarkerForFields(this.adapter, this.vault, this.name, this.vdigFields, await this.getDEK(this.name))
     this._markerPersisted = true
   }
@@ -4325,7 +4325,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /** C-A/R10 drift signal — the marker's declared digest-only set, memoized to one store read per handle (see config-drift.ts). */
   private async _classifiedMarkerDigestOnly(): Promise<readonly string[]> {
     if (this._markerDigestOnlyCache !== undefined) return this._markerDigestOnlyCache
-    const { readClassifiedMarkerDigestOnly } = await import('../with-shape/classified/config-drift.js')
+    const { readClassifiedMarkerDigestOnly } = await import('../shape/via-classified/config-drift.js')
     this._markerDigestOnlyCache = await readClassifiedMarkerDigestOnly(this.adapter, this.vault, this.name, await this.getDEK(this.name))
     return this._markerDigestOnlyCache
   }

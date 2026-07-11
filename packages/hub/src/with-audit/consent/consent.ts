@@ -80,7 +80,7 @@ export interface ConsentContext {
  * downstream exhaustive switch breaks at its next in-range minor:
  *   1. `ConsentOp` here (public, re-exported at `index.ts`).
  *   2. `onAccess` op union on `kernel/collection-config.ts`.
- *   3. classified ctx `onAccess` op union on `with-shape/classified/strategy.ts`
+ *   3. classified ctx `onAccess` op union on `port/with/classified-strategy.ts`
  *      (the `ClassifiedVerifyCtx` one — the `ClassifiedRevealCtx` one stays `'reveal'`-only).
  */
 export type ConsentOp = 'get' | 'put' | 'delete' | 'reveal' | 'verify' | 'find'

@@ -17,9 +17,9 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
-import { withClassified } from '../../src/with-shape/classified/active.js'
+import { withClassified } from '../../src/shape/via-classified/active.js'
 import { inlineMemory, type InlineMemoryStore } from './harness.js'
-import { classified } from '../../src/with-shape/classified/presets.js'
+import { classified } from '../../src/shape/via-classified/presets.js'
 
 let seq = 0
 

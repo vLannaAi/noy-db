@@ -8,7 +8,7 @@ import { createNoydb } from '../../src/kernel/noydb.js'
 import {
   classified, ClassifiedConfigError, ClassifiedNeverStoredError,
   type ClassifiedFieldSpec,
-} from '../../src/with-shape/classified/index.js'
+} from '../../src/shape/via-classified/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 import { ConflictError } from '../../src/kernel/errors.js'
 

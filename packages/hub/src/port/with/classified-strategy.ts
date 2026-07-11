@@ -1,5 +1,21 @@
-/** The ② capability seam for classified read-egress ops (stage 1: reveal; stage 2: verify). @module */
-import type { ClassifiedFieldSpec } from './descriptor.js'
+/**
+ * Classified strategy seam (#629 Task 5 — moved out of
+ * `shape/via-classified/strategy.ts`, precedent: `port/with/i18n-strategy.ts`).
+ * Lives on the `/with` port (the one seam the kernel spine may import
+ * statically) so `Collection`/`Vault` can hold the `NO_CLASSIFIED` default
+ * without a spine→service static import.
+ *
+ * This file (unlike `shape/via-classified/**`) is NOT subject to the
+ * `via-enclave-isolation` architecture guard — it may import `EnclaveKey`
+ * from the enclave barrel freely, the same way `port/with/i18n-strategy.ts`
+ * did before #629 Task 4's DictionaryHandle cutover.
+ *
+ * The ② capability seam for classified read-egress ops (stage 1: reveal;
+ * stage 2: verify).
+ *
+ * @internal
+ */
+import type { ClassifiedFieldSpec } from '../../shape/via-classified/descriptor.js'
 import { ClassifiedNotEnabledError } from '../../kernel/errors.js'
 import type { EncryptedEnvelope } from '../../kernel/types.js'
 import type { EnclaveKey } from '../../kernel/enclave/index.js'
