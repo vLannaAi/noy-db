@@ -1,0 +1,255 @@
+import { describe, it, expect } from 'vitest'
+import { DerivationCycleError, MaterializedViewCycleError } from '../../src/kernel/errors.js'
+import { ViaGraph, DEFAULT_POSTURE, foldPosture } from '../../src/kernel/via-graph.js'
+import type { ViaPosture } from '../../src/kernel/via.js'
+
+// Real postures from the shipped bindings (shape/via-classified/binding.ts:213,
+// shape/via-money/binding.ts:23) — used as realistic fixtures, not re-declared
+// via any shape/** import (the graph itself never imports shape/**).
+const CLASSIFIED: ViaPosture = { encryptedAtRest: 'sealed', queryable: 'det-exact', exportable: false, forgettable: true }
+const MONEY: ViaPosture = { encryptedAtRest: 'envelope', queryable: 'ordered', exportable: true, forgettable: true }
+
+describe('foldPosture — the pure taint algebra', () => {
+  it('folds classified + money to the strictest per-axis result (§2)', () => {
+    expect(foldPosture(CLASSIFIED, MONEY)).toEqual({
+      encryptedAtRest: 'sealed',
+      queryable: 'det-exact',
+      exportable: false,
+      forgettable: true,
+    })
+  })
+
+  it('is commutative (order of fold does not matter)', () => {
+    expect(foldPosture(MONEY, CLASSIFIED)).toEqual(foldPosture(CLASSIFIED, MONEY))
+  })
+
+  it('sealed wins over envelope on encryptedAtRest', () => {
+    const envelope: ViaPosture = { ...DEFAULT_POSTURE, encryptedAtRest: 'envelope' }
+    const sealed: ViaPosture = { ...DEFAULT_POSTURE, encryptedAtRest: 'sealed' }
+    expect(foldPosture(envelope, sealed).encryptedAtRest).toBe('sealed')
+    expect(foldPosture(sealed, envelope).encryptedAtRest).toBe('sealed')
+  })
+
+  it('queryable takes the least-capable rung on the none < det-exact < ordered < full ladder', () => {
+    const rungs: ViaPosture['queryable'][] = ['none', 'det-exact', 'ordered', 'full']
+    for (let i = 0; i < rungs.length; i++) {
+      for (let j = 0; j < rungs.length; j++) {
+        const a: ViaPosture = { ...DEFAULT_POSTURE, queryable: rungs[i]! }
+        const b: ViaPosture = { ...DEFAULT_POSTURE, queryable: rungs[j]! }
+        expect(foldPosture(a, b).queryable).toBe(rungs[Math.min(i, j)])
+      }
+    }
+  })
+
+  it('exportable is a logical AND', () => {
+    expect(foldPosture({ ...DEFAULT_POSTURE, exportable: true }, { ...DEFAULT_POSTURE, exportable: true }).exportable).toBe(true)
+    expect(foldPosture({ ...DEFAULT_POSTURE, exportable: true }, { ...DEFAULT_POSTURE, exportable: false }).exportable).toBe(false)
+    expect(foldPosture({ ...DEFAULT_POSTURE, exportable: false }, { ...DEFAULT_POSTURE, exportable: false }).exportable).toBe(false)
+  })
+
+  it('forgettable is a logical OR — a forgettable source forces the derived field forgettable', () => {
+    expect(foldPosture({ ...DEFAULT_POSTURE, forgettable: false }, { ...DEFAULT_POSTURE, forgettable: false }).forgettable).toBe(false)
+    expect(foldPosture({ ...DEFAULT_POSTURE, forgettable: true }, { ...DEFAULT_POSTURE, forgettable: false }).forgettable).toBe(true)
+    expect(foldPosture({ ...DEFAULT_POSTURE, forgettable: false }, { ...DEFAULT_POSTURE, forgettable: true }).forgettable).toBe(true)
+  })
+
+  it('folding DEFAULT_POSTURE with itself is a no-op (max-permissive baseline)', () => {
+    expect(foldPosture(DEFAULT_POSTURE, DEFAULT_POSTURE)).toEqual(DEFAULT_POSTURE)
+  })
+})
+
+describe('ViaGraph — registration + effective posture', () => {
+  it('effectivePosture is undefined for a field with no in-edges (not derived)', () => {
+    const g = new ViaGraph()
+    g.registerField('customers', 'name', DEFAULT_POSTURE)
+    expect(g.effectivePosture({ collection: 'customers', field: 'name' })).toBeUndefined()
+    // Never-registered fields are equally "not derived".
+    expect(g.effectivePosture({ collection: 'customers', field: 'unknown' })).toBeUndefined()
+  })
+
+  it('a later registerField declaration for the same node is a no-op — first wins (idempotent)', () => {
+    const g = new ViaGraph()
+    g.registerField('customers', 'ssn', CLASSIFIED)
+    g.registerField('customers', 'ssn', MONEY)
+    g.registerDerived({ collection: 'customers', field: 'ssnCopy' }, [{ collection: 'customers', field: 'ssn' }], 'computed', 'record')
+    expect(g.effectivePosture({ collection: 'customers', field: 'ssnCopy' })).toEqual(
+      foldPosture(DEFAULT_POSTURE, CLASSIFIED),
+    )
+  })
+
+  it('a derived target inherits its source classified field\'s sealed/non-export/non-query posture (#636 fixture)', () => {
+    const g = new ViaGraph()
+    g.registerField('customers', 'ssn', CLASSIFIED)
+    g.registerDerived(
+      { collection: 'customers', field: 'total' },
+      [{ collection: 'customers', field: 'ssn' }],
+      'computed',
+      'record',
+    )
+    expect(g.effectivePosture({ collection: 'customers', field: 'total' })).toEqual(
+      foldPosture(DEFAULT_POSTURE, CLASSIFIED),
+    )
+  })
+
+  it('a plain (never registerField-declared) source folds in as DEFAULT_POSTURE', () => {
+    const g = new ViaGraph()
+    g.registerDerived(
+      { collection: 'customers', field: 'derivedPlain' },
+      [{ collection: 'customers', field: 'unregisteredPlain' }],
+      'computed',
+      'record',
+    )
+    expect(g.effectivePosture({ collection: 'customers', field: 'derivedPlain' })).toEqual(DEFAULT_POSTURE)
+  })
+
+  it('folds across MULTIPLE sources (strictest wins per axis)', () => {
+    const g = new ViaGraph()
+    g.registerField('customers', 'ssn', CLASSIFIED)
+    g.registerField('customers', 'price', MONEY)
+    g.registerDerived(
+      { collection: 'customers', field: 'combo' },
+      [{ collection: 'customers', field: 'ssn' }, { collection: 'customers', field: 'price' }],
+      'computed',
+      'record',
+    )
+    expect(g.effectivePosture({ collection: 'customers', field: 'combo' })).toEqual(
+      foldPosture(foldPosture(DEFAULT_POSTURE, CLASSIFIED), MONEY),
+    )
+  })
+
+  it('transitive taint: a → b → c propagates sealed all the way to c', () => {
+    const g = new ViaGraph()
+    g.registerField('c', 'a', CLASSIFIED)
+    g.registerDerived({ collection: 'c', field: 'b' }, [{ collection: 'c', field: 'a' }], 'computed', 'record')
+    g.registerDerived({ collection: 'c', field: 'c' }, [{ collection: 'c', field: 'b' }], 'computed', 'record')
+    const effB = g.effectivePosture({ collection: 'c', field: 'b' })
+    const effC = g.effectivePosture({ collection: 'c', field: 'c' })
+    expect(effB?.encryptedAtRest).toBe('sealed')
+    expect(effC?.encryptedAtRest).toBe('sealed')
+    expect(effC?.exportable).toBe(false)
+    expect(effC?.forgettable).toBe(true)
+  })
+
+  it('cross-collection sources are folded too', () => {
+    const g = new ViaGraph()
+    g.registerField('orders', 'cardNumber', CLASSIFIED)
+    g.registerDerived(
+      { collection: 'reports', field: 'summary' },
+      [{ collection: 'orders', field: 'cardNumber' }],
+      'rollup',
+      'aggregate',
+    )
+    expect(g.effectivePosture({ collection: 'reports', field: 'summary' })?.encryptedAtRest).toBe('sealed')
+  })
+})
+
+describe('ViaGraph — cycle rejection (assertAcyclic)', () => {
+  it('a self-referential derivation/computed cycle throws DerivationCycleError', () => {
+    const g = new ViaGraph()
+    g.registerDerived({ collection: 'c', field: 'x' }, [{ collection: 'c', field: 'x' }], 'derivation', 'record')
+    expect(() => g.assertAcyclic()).toThrow(DerivationCycleError)
+  })
+
+  it('a self-referential MV-kind cycle throws MaterializedViewCycleError', () => {
+    const g = new ViaGraph()
+    g.registerDerived({ collection: 'c', field: 'x' }, [{ collection: 'c', field: 'x' }], 'mv', 'aggregate')
+    expect(() => g.assertAcyclic()).toThrow(MaterializedViewCycleError)
+  })
+
+  it('a multi-node derivation cycle (a → b → c → a) throws DerivationCycleError', () => {
+    const g = new ViaGraph()
+    g.registerDerived({ collection: 'v', field: 'a' }, [{ collection: 'v', field: 'c' }], 'derivation', 'record')
+    g.registerDerived({ collection: 'v', field: 'b' }, [{ collection: 'v', field: 'a' }], 'derivation', 'record')
+    g.registerDerived({ collection: 'v', field: 'c' }, [{ collection: 'v', field: 'b' }], 'derivation', 'record')
+    expect(() => g.assertAcyclic()).toThrow(DerivationCycleError)
+  })
+
+  it('a cycle where any participating node is MV-kind attributes to MaterializedViewCycleError', () => {
+    const g = new ViaGraph()
+    g.registerDerived({ collection: 'v', field: 'a' }, [{ collection: 'v', field: 'b' }], 'derivation', 'record')
+    g.registerDerived({ collection: 'v', field: 'b' }, [{ collection: 'v', field: 'a' }], 'mv', 'aggregate')
+    expect(() => g.assertAcyclic()).toThrow(MaterializedViewCycleError)
+  })
+
+  it('does not throw for an acyclic graph, including diamonds (shared source, two derived targets)', () => {
+    const g = new ViaGraph()
+    g.registerField('c', 'src', DEFAULT_POSTURE)
+    g.registerDerived({ collection: 'c', field: 'a' }, [{ collection: 'c', field: 'src' }], 'computed', 'record')
+    g.registerDerived({ collection: 'c', field: 'b' }, [{ collection: 'c', field: 'src' }], 'computed', 'record')
+    g.registerDerived({ collection: 'c', field: 'ab' }, [{ collection: 'c', field: 'a' }, { collection: 'c', field: 'b' }], 'computed', 'record')
+    expect(() => g.assertAcyclic()).not.toThrow()
+  })
+
+  it('the offending path is carried on the thrown error (behavior-lock shape)', () => {
+    const g = new ViaGraph()
+    g.registerDerived({ collection: 'c', field: 'x' }, [{ collection: 'c', field: 'x' }], 'derivation', 'record')
+    try {
+      g.assertAcyclic()
+      expect.fail('expected assertAcyclic to throw')
+    } catch (e) {
+      expect(e).toBeInstanceOf(DerivationCycleError)
+      expect((e as DerivationCycleError).path.length).toBeGreaterThan(0)
+      expect((e as DerivationCycleError).message).toMatch(/cycle/i)
+    }
+  })
+})
+
+describe('ViaGraph — taintedPostures / taintSealedFields (Task 3 overlay)', () => {
+  it('taintedPostures returns a field → effectivePosture map scoped to one collection', () => {
+    const g = new ViaGraph()
+    g.registerField('c', 'ssn', CLASSIFIED)
+    g.registerDerived({ collection: 'c', field: 'total' }, [{ collection: 'c', field: 'ssn' }], 'computed', 'record')
+    g.registerDerived({ collection: 'other', field: 'ignored' }, [{ collection: 'c', field: 'ssn' }], 'computed', 'record')
+    const postures = g.taintedPostures('c')
+    expect(postures.size).toBe(1)
+    expect(postures.get('total')).toEqual(foldPosture(DEFAULT_POSTURE, CLASSIFIED))
+    expect(postures.get('ignored')).toBeUndefined()
+  })
+
+  it('taintSealedFields includes a materialized computed field with a sealed source, excludes a plain-source one', () => {
+    const g = new ViaGraph()
+    g.registerField('c', 'ssn', CLASSIFIED)
+    g.registerField('c', 'name', DEFAULT_POSTURE)
+    g.registerDerived({ collection: 'c', field: 'sealedDerived' }, [{ collection: 'c', field: 'ssn' }], 'computed', 'record')
+    g.registerDerived({ collection: 'c', field: 'plainDerived' }, [{ collection: 'c', field: 'name' }], 'computed', 'record')
+    const sealed = g.taintSealedFields('c')
+    expect(sealed.has('sealedDerived')).toBe(true)
+    expect(sealed.has('plainDerived')).toBe(false)
+  })
+})
+
+describe('ViaGraph — dependentsOf / derivedArtifactsOf (Task 4/6 overlays)', () => {
+  it('dependentsOf enumerates every derived target with at least one source in the given collection', () => {
+    const g = new ViaGraph()
+    g.registerDerived({ collection: 'reports', field: 'r1' }, [{ collection: 'orders', field: 'amount' }], 'rollup', 'aggregate')
+    g.registerDerived({ collection: 'reports', field: 'r2' }, [{ collection: 'orders', field: 'amount' }, { collection: 'customers', field: 'name' }], 'derivation', 'record')
+    g.registerDerived({ collection: 'unrelated', field: 'u' }, [{ collection: 'customers', field: 'name' }], 'computed', 'record')
+
+    const deps = g.dependentsOf('orders')
+    expect(deps).toHaveLength(2)
+    expect(deps.map(d => d.target)).toEqual(
+      expect.arrayContaining([
+        { collection: 'reports', field: 'r1' },
+        { collection: 'reports', field: 'r2' },
+      ]),
+    )
+    const r1 = deps.find(d => d.target.field === 'r1')
+    expect(r1?.kind).toBe('rollup')
+    expect(r1?.grain).toBe('aggregate')
+  })
+
+  it('dependentsOf returns an empty array for a collection with no dependents', () => {
+    const g = new ViaGraph()
+    g.registerDerived({ collection: 'reports', field: 'r1' }, [{ collection: 'orders', field: 'amount' }], 'rollup', 'aggregate')
+    expect(g.dependentsOf('customers')).toEqual([])
+  })
+
+  it('derivedArtifactsOf enumerates the same shape for erasure fanout', () => {
+    const g = new ViaGraph()
+    g.registerDerived({ collection: 'mv-out', field: 'row' }, [{ collection: 'customers', field: 'ssn' }], 'mv', 'record')
+    const artifacts = g.derivedArtifactsOf('customers')
+    expect(artifacts).toEqual([
+      { target: { collection: 'mv-out', field: 'row' }, kind: 'mv', grain: 'record' },
+    ])
+  })
+})
