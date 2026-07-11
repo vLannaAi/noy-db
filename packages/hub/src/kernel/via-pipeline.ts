@@ -169,6 +169,31 @@ export class ViaPipeline {
     return s as S
   }
 
+  /**
+   * Deliberate export-layer redaction (#629 Task 9's posture consumer):
+   * for every OWN field the decoded record carries, if the covering
+   * binding's posture declares `exportable: false` (classified today;
+   * money/i18n/blob are all `true`), replace the value with
+   * {@link EXPORT_REDACTION_MARKER} — the same `'[sealed]'` string
+   * `SealedHandle.toJSON()` (`kernel/types.ts`) already emits, so this is
+   * byte-parity with today's accidental redaction, now independent of the
+   * field's runtime shape. `SealedHandle.toJSON()` stays untouched as
+   * defense-in-depth: a record read via `collection.get()` and
+   * JSON.stringify'd outside `exportStream()` still gets the accident's
+   * redaction on its own. Never mutates the input; returns a new object
+   * only when a field was actually redacted.
+   */
+  redactForExport(record: Record<string, unknown>): Record<string, unknown> {
+    let out: Record<string, unknown> | undefined
+    for (const field of Object.keys(record)) {
+      if (this.postureFor(field)?.exportable === false) {
+        out ??= { ...record }
+        out[field] = EXPORT_REDACTION_MARKER
+      }
+    }
+    return out ?? record
+  }
+
   /** `forget()`'s per-ref erasure door: runs every binding's `erase`, concatenating shredded counts and residue. */
   async erase(ctx: ViaEraseCtx): Promise<ViaEraseReport> {
     let shredded = 0
@@ -197,4 +222,28 @@ export class ViaPipeline {
   get hasAtRestHooks(): boolean {
     return this.bindings.some((b) => b.encodeAtRest !== undefined || b.decodeAtRest !== undefined)
   }
+}
+
+/**
+ * The marker `redactForExport` writes for a non-exportable field —
+ * intentionally the same literal `SealedHandle.toJSON()` (`kernel/types.ts`)
+ * returns, so the two independent redaction layers (deliberate + accident)
+ * produce byte-identical export output. Duplicated, not imported, because
+ * `SealedHandle.toJSON()` is untouched by #629 Task 9 (belt-and-braces —
+ * `via/export-posture-b.test.ts` asserts both layers agree on this string).
+ */
+export const EXPORT_REDACTION_MARKER = '[sealed]'
+
+/**
+ * `vault.ts`'s `exportStream()` reach-in (#629 Task 9): apply the owning
+ * collection's export redaction to one decoded record. `via` is a private
+ * `Collection` field — reached by name, mirroring the existing
+ * `(coll as any)._classifySealedShred`/`_writeTombstone` convention
+ * `vault.ts`'s `forget()` already uses for collection-internal access.
+ */
+export function exportRedact(coll: unknown, record: unknown): unknown {
+  if (record === null || typeof record !== 'object') return record
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const via = (coll as any).via as ViaPipeline | undefined
+  return via ? via.redactForExport(record as Record<string, unknown>) : record
 }

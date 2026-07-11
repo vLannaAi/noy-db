@@ -99,6 +99,7 @@ import type { ComputedFields } from '../with-formula/computed/index.js'
 import { NO_I18N, type I18nStrategy, type I18nTextDescriptor } from '../port/with/i18n-strategy.js'
 import { isViaInstalled } from './via.js'
 import { mergeViaFields, type ViaFieldSpec } from './via-compose.js'
+import { exportRedact } from './via-pipeline.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 // Type-only imports for the guard + derivation services. The
 // runtime classes are loaded on demand via `await import(...)` inside
@@ -3970,7 +3971,7 @@ export class Vault {
         const records: unknown[] = []
         for (const id of ids) {
           const record = await coll.get(id, localeOpts)
-          if (record !== null) records.push(record)
+          if (record !== null) records.push(exportRedact(coll, record))
         }
         const chunk: ExportChunk = {
           collection: collectionName,
@@ -3992,7 +3993,7 @@ export class Vault {
             collection: collectionName,
             schema,
             refs,
-            records: [record],
+            records: [exportRedact(coll, record)],
             ...(dictionaries !== undefined ? { dictionaries } : {}),
             ...(ledgerHead ? { ledgerHead } : {}),
           }

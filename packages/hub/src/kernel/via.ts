@@ -82,11 +82,12 @@ export interface ViaBinding {
    * blob, never define). SYNC, no side effects.
    *
    * Contract (documentation only — not enforced at runtime, future work):
-   * any binding declaring `posture.queryable: 'none'` MUST implement
-   * `covers()`. `postureFor`'s refusal only engages for fields a binding
-   * actively claims via `covers()`; a `'none'`-posture binding that omits
-   * `covers()` would silently fall through to the generic query path
-   * instead of refusing.
+   * any binding declaring a non-default posture value — `queryable: 'none'`
+   * (#629 Task 8) or `exportable: false` (#629 Task 9's `redactForExport`)
+   * — MUST implement `covers()`. `postureFor`'s consumers only engage for
+   * fields a binding actively claims via `covers()`; a binding that omits
+   * it would silently fall through to the generic (unrefused/unredacted)
+   * path instead.
    */
   covers?(field: string): boolean
   // NOTE: phase C adds a `derive` hook ADDITIVELY — do not stub it now.
