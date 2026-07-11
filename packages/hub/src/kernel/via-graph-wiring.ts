@@ -137,9 +137,9 @@ export function validateReconcileGraphEdges(graph: ViaGraph, name: string, optio
     // A pre-existing depless field whose name collides with one of THIS
     // call's classified rider companions is exempt. Two DIFFERENT existing
     // mechanisms make this safe, depending on whether classified was already
-    // attached before this call — the collision check at collection.ts:
-    // 1347-1351 is NOT unconditional; it sits AFTER `_applyClassifiedFields`'s
-    // first-wins early return (collection.ts:1341), so it only runs on the
+    // attached before this call — the rider-companion collision check in
+    // `_applyClassifiedFields` (collection.ts) is NOT unconditional; it sits
+    // AFTER that same method's first-wins early return, so it only runs on the
     // FIRST-EVER classified attach: (a) first attach — that collision check
     // runs and refuses the combination outright; (b) classified ALREADY
     // attached — the early return drops THIS call's whole incoming
