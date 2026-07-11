@@ -473,9 +473,12 @@ export interface CollectionOpts<T> {
  * Compile a collection's declared config into the ordered list of `ViaBinding`s
  * for its `ViaPipeline`.
  *
- * money then i18n — order pinned for pipeline parity with the hand-wired
- * baseline this replaces: money encode ran before the i18n write stages,
- * and money decode ran before i18n locale/dict-label resolution on read.
+ * money then i18n then classified — order pinned for pipeline parity with the
+ * hand-wired baseline this replaces: money encode ran before the i18n write
+ * stages, and money decode ran before i18n locale/dict-label resolution on
+ * read. Classified compiles last, once its binding exists (#629 Task 6) — no
+ * classified binding is pushed here yet, so this function's threading is
+ * unchanged for phase B's pipeline-plumbing task.
  * {@link Collection._applyMoneyFields} PREPENDS money for the same reason
  * on its own (MV-precreation reconcile) path — see its docstring.
  */
