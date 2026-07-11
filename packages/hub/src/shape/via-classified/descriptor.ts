@@ -17,6 +17,16 @@ export type ClassifiedRider = (value: unknown) => unknown
 
 export interface ClassifiedFieldSpec {
   readonly _noydbClassified: true
+  /**
+   * Via port brand marker — lets a `ClassifiedFieldSpec` satisfy the
+   * kernel's opaque `ViaDescriptor` (#629 Task 5). Optional (unlike
+   * `MoneyDescriptor._viaBrand`/`I18nTextDescriptor._viaBrand`, which are
+   * required): every `classified.*()` preset factory stamps it, but the
+   * pre-existing test suite's hand-rolled `ClassifiedFieldSpec` fixtures
+   * (built without going through a preset) predate this field and would
+   * fail to compile if it were mandatory.
+   */
+  readonly _viaBrand?: 'classified'
   readonly preset: string
   readonly storage: ClassifiedStorage
   readonly list: ClassifiedList
@@ -45,6 +55,8 @@ export interface ClassifiedFieldSpec {
 
 export interface ClassifiedGroup {
   readonly _noydbClassifiedGroup: true
+  /** Via port brand marker — see {@link ClassifiedFieldSpec._viaBrand}. */
+  readonly _viaBrand?: 'classified'
   readonly preset: string
   /** member record-field name -> spec (differential per-member policy). */
   readonly members: Record<string, ClassifiedFieldSpec>

@@ -19,6 +19,8 @@ import type { ViaBinding, ViaPosture } from '../../src/kernel/via.js'
 import { generateDEK, decrypt, type EnclaveKey } from '../../src/kernel/enclave/index.js'
 import { SealedHandle, type EncryptedEnvelope } from '../../src/kernel/types.js'
 import { NO_CRDT } from '../../src/with-commit/crdt/strategy.js'
+import { classifiedBinding } from '../../src/shape/via-classified/binding.js'
+import { classified } from '../../src/shape/via-classified/presets.js'
 
 const posture = (): ViaPosture => ({ encryptedAtRest: 'sealed', queryable: 'none', exportable: false, forgettable: true })
 
@@ -218,5 +220,56 @@ describe('viaCryptoCtx.reservedEnvelopes — per-collection DEK resolution (#629
     // Only the reserved collection's DEK does.
     const json = await decrypt(captured!._iv, captured!._data, dictDek)
     expect(JSON.parse(json)).toEqual({ hello: 'world' })
+  })
+})
+
+describe('at-rest hook failure propagates through the codec boundary (#629 Task 5 — first real at-rest binding)', () => {
+  /**
+   * An earlier review flagged the hook-throwing path as missing coverage:
+   * every prior codec-boundary test proves the SUCCESS path. This uses the
+   * real classified binding (not a fixture). Both failures are genuine —
+   * not simulated by breaking codec plumbing (a broken `getDEK` would also
+   * fail body encryption independently of the hook, confounding the proof)
+   * — so a passing test here is proof the HOOK's own failure specifically
+   * propagates, not some unrelated codec-level failure.
+   */
+  const fixtureGuardCtx = {
+    perRecordKeys: false, crdt: false, hasConflictPolicy: false, storeCiphertext: true,
+    deterministicFields: null, indexedFields: new Set<string>(), textIndexFields: new Set<string>(),
+    vectorSourceFields: new Set<string>(), subjectKeyField: undefined, bareSensitiveFields: new Set<string>(),
+    acknowledgeEquatableRisk: false,
+  }
+
+  it('encryptRecord rejects when the binding\'s encodeAtRest hook throws (unserializable field value)', async () => {
+    const dek = await generateDEK()
+    const pipeline = ViaPipeline.build([
+      classifiedBinding({ entries: { mail: classified.email() }, collectionName: 'fixtures', guardCtx: fixtureGuardCtx }),
+    ])!
+    const codec = new RecordCodec(makeCtx({ storeCiphertext: true, via: pipeline, dek }))
+
+    // A BigInt value: JSON.stringify throws inside sealOneField, BEFORE any
+    // crypto runs — a genuine encodeAtRest-hook failure, not a codec-level one.
+    await expect(
+      codec.encryptRecord({ mail: 10n as unknown as string }, 1, undefined, undefined, undefined, undefined, 'r1'),
+    ).rejects.toThrow(/BigInt/)
+  })
+
+  it('decryptRecord rejects when the binding\'s decodeAtRest hook throws (tampered sealed slot)', async () => {
+    const dek = await generateDEK()
+    const cfg = { entries: { mail: classified.email() }, collectionName: 'fixtures', guardCtx: fixtureGuardCtx }
+    const pipeline = ViaPipeline.build([classifiedBinding(cfg)])!
+    const codec = new RecordCodec(makeCtx({ storeCiphertext: true, via: pipeline, dek }))
+    const envelope = await codec.encryptRecord(
+      { mail: 'person@example.com' }, 1, undefined, undefined, undefined, undefined, 'r1',
+    )
+    expect(envelope._sealed!.mail).toBeDefined()
+
+    // Tamper the sealed slot's ciphertext — AES-GCM auth fails inside
+    // crypto.sealedSlots.unseal, called from decodeAtRest.
+    const [iv, data] = envelope._sealed!.mail!.split(':')
+    const tamperedData = data!.slice(0, -2) + (data!.slice(-2) === '00' ? '11' : '00')
+    const tampered: EncryptedEnvelope = { ...envelope, _sealed: { mail: `${iv}:${tamperedData}` } }
+
+    await expect(codec.decryptRecord(tampered, { id: 'r1' })).rejects.toThrow()
   })
 })
