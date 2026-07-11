@@ -1434,6 +1434,8 @@ export interface NoydbEventMap {
    * #638 Task 5 — a dispatch-driven derivation/rollup/MV output write targeted a row whose
    * period is closed. The write is SKIPPED (the historical value stands); the SOURCE write
    * that triggered the recompute still succeeded. See `kernel/via-dispatch.ts#putDerivedOutput`.
+   * `source.id` may be a non-record sentinel (e.g. `'refreshView'`) for manual bulk-refresh-
+   * triggered skips, not a real source record id.
    */
   'derivation:skipped-frozen': DerivationSkippedFrozen
 }

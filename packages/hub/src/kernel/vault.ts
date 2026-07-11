@@ -2914,11 +2914,11 @@ export class Vault {
    * Re-derive every record in the named source collection (useful after a strategy
    * change to bring previously-derived records up-to-date). Sequential in v1.
    */
-  async deriveAll(sourceCollection: string): Promise<{ derived: number; failed: number }> {
+  async deriveAll(sourceCollection: string): Promise<{ derived: number; failed: number; skippedFrozen: number }> {
     const registry = this._getDerivationRegistry()
-    if (registry === null) return { derived: 0, failed: 0 }
+    if (registry === null) return { derived: 0, failed: 0, skippedFrozen: 0 }
     const strategies = registry.strategiesForSource(sourceCollection)
-    if (strategies.length === 0) return { derived: 0, failed: 0 }
+    if (strategies.length === 0) return { derived: 0, failed: 0, skippedFrozen: 0 }
 
     const { DerivationExecutor } = await import('../with-formula/derivations/executor.js')
 
@@ -2931,6 +2931,7 @@ export class Vault {
     const ctx = { vault: this.derivationFacade ?? new (await import('../with-audit/guards/read-only-facade.js')).ReadOnlyVaultFacade(this, 'derivation') }
     let derived = 0
     let failed = 0
+    let skippedFrozen = 0
     for (const record of records) {
       if (typeof record !== 'object' || record === null) continue
       const id = (record as { id?: unknown }).id
@@ -2939,7 +2940,7 @@ export class Vault {
       for (const { spec, strategyHash } of strategies) {
         const sourceWithId = { ...record, id }
         const result = await DerivationExecutor.run(spec, sourceWithId, 0, strategyHash, ctx)
-        let anyFailed = false
+        let anyFailed = false, anyFrozenSkip = false
         for (const key of Object.keys(spec.outputs)) {
           const out = result.outputs[key]
           if (!out) continue
@@ -2961,7 +2962,7 @@ export class Vault {
               await outputColl._internalDelete(k)
             }
             for (const entry of out.entries) {
-              await putDerivedOutput(outputColl, entry.key, entry.value, dispatchCtx)
+              if (await putDerivedOutput(outputColl, entry.key, entry.value, dispatchCtx) === 'skipped-frozen') anyFrozenSkip = true
             }
             await saveFanoutSidecar(this.adapter, this.name, {
               source: spec.source,
@@ -2982,13 +2983,12 @@ export class Vault {
             await outputColl._internalDelete(id)
             continue
           }
-          await putDerivedOutput(outputColl, id, out.value, dispatchCtx)
+          if (await putDerivedOutput(outputColl, id, out.value, dispatchCtx) === 'skipped-frozen') anyFrozenSkip = true
         }
-        if (anyFailed) failed++
-        else derived++
+        if (anyFailed) failed++; else if (anyFrozenSkip) skippedFrozen++; else derived++
       }
     }
-    return { derived, failed }
+    return { derived, failed, skippedFrozen }
   }
 
   /**

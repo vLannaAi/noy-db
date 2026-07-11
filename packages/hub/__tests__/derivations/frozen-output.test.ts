@@ -160,6 +160,35 @@ describe('frozen-output rule (#637) — vault.deriveAll()', () => {
     expect(await vault.collection<Meta>('pdf-meta').get('p2')).toMatchObject({ len: 2 })
     expect(result.derived).toBeGreaterThanOrEqual(1)
   })
+
+  it('counts a frozen-skip separately from a written output — `derived` does not count the skip (Task 5 review Finding 1)', async () => {
+    const db = await createNoydb({
+      store: memory(), user: 'alice', secret: 'frozen-deriveall-counters-passphrase-2026',
+      derivationStrategies: [withDerivation({
+        source: 'pdfs',
+        deterministic: true,
+        outputs: { meta: { shape: 'record', collection: 'pdf-meta' } },
+        derive: (s: Pdf) => ({ meta: { len: s.body.length, asOf: s.date } }),
+        lifecycle: 'eager',
+      })],
+      periodsStrategy: withPeriods(),
+    })
+    const vault = await db.openVault('demo')
+    const pdfs = vault.collection<Pdf>('pdfs')
+
+    await pdfs.put('p1', { id: 'p1', body: 'a', date: '2026-01-15' })
+    await pdfs.put('p2', { id: 'p2', body: 'bb', date: '2026-06-01' })
+    await vault.deriveAll('pdfs') // baseline — no period closed yet
+    await vault.closePeriod({ name: 'FY2026-Q1', endDate: '2026-03-31', dateField: 'asOf' })
+
+    const result = await vault.deriveAll('pdfs')
+
+    // p1's output write lands in a frozen period and is skipped — it must be counted in
+    // `skippedFrozen`, NOT in `derived`. Only p2 (open period) counts as `derived`.
+    expect(result.skippedFrozen).toBe(1)
+    expect(result.derived).toBe(1)
+    expect(result.failed).toBe(0)
+  })
 })
 
 interface Item extends Record<string, unknown> { id: string; tag: string; asOf: string }
