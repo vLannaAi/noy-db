@@ -8,11 +8,23 @@
  * separable the same way — it needs write-history `prev` context, see the
  * seam map's separability verdict). `sealFields`/`unsealFields` are the
  * natural shape of a `via` `encodeAtRest`/`decodeAtRest` hook for a "seal
- * this field" via-feature.
+ * this field" via-feature, and `makeSealedSlotCapability`/
+ * `makeReservedEnvelopes` (below) are the `ViaCryptoCtx` capability
+ * factories built on top of them.
+ *
+ * The capability factories live here (rather than a sibling
+ * `kernel/via-crypto.ts`) so they can call `deriveSealedFieldKey`/
+ * `deriveSealedFieldKeyFromCek`/`encrypt`/`decrypt` directly — this file IS
+ * kernel enclave code (C3), so it is exempt from `enclave-barrel-only` the
+ * same way `record-codec.ts`/`sealing.ts` are. A file outside
+ * `kernel/enclave/**` would have had to go through the enclave barrel
+ * (`kernel/enclave/index.ts`), which does not (yet) export these symbols.
  */
-import { encrypt, deriveSealedFieldKey, deriveSealedFieldKeyFromCek, type EnclaveKey } from '../crypto.js'
+import { encrypt, decrypt, deriveSealedFieldKey, deriveSealedFieldKeyFromCek, type EnclaveKey } from '../crypto.js'
 import { dualReadSealedSlot } from './sealed-slot.js'
-import { SealedHandle } from '../../types.js'
+import { NOYDB_FORMAT_VERSION, SealedHandle, type EncryptedEnvelope } from '../../types.js'
+import { ValidationError } from '../../errors.js'
+import type { SealedSlotRef, ViaCryptoCtx } from '../../via.js'
 
 /**
  * Key material for one collection's sealed-field derivation. `cek`, when
@@ -37,7 +49,7 @@ async function sealOneFieldWithDek(
   value: unknown,
   dek: EnclaveKey,
   keyMaterial: SealKeyMaterial,
-): Promise<{ iv: string; data: string }> {
+): Promise<SealedSlotRef> {
   const fieldKey = keyMaterial.cek !== undefined
     ? await deriveSealedFieldKeyFromCek(keyMaterial.cek, keyMaterial.collection, field)
     : await deriveSealedFieldKey(dek, keyMaterial.collection, field)
@@ -53,7 +65,7 @@ export async function sealOneField(
   field: string,
   value: unknown,
   keyMaterial: SealKeyMaterial,
-): Promise<{ iv: string; data: string }> {
+): Promise<SealedSlotRef> {
   const dek = await keyMaterial.getDEK()
   return sealOneFieldWithDek(field, value, dek, keyMaterial)
 }
@@ -129,4 +141,116 @@ export async function unsealFields(
     record[field] = makeHandle !== undefined ? makeHandle(field, blob) : await unsealOneField(field, blob, keyMaterial)
   }
   return record
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// ViaCryptoCtx capability factories (#629 Task 1, second commit)
+// ─────────────────────────────────────────────────────────────────────────
+
+/** What {@link makeSealedSlotCapability} needs — a subset of `RecordCodecContext`. */
+export interface SealedSlotCapabilityCtx {
+  readonly name: string
+  getDEK(): Promise<EnclaveKey>
+}
+
+/**
+ * Build a `ViaCryptoCtx.sealedSlots` capability pre-bound to one
+ * `(collection, recordId)`. The key material (`cek`/DEK resolver) is closed
+ * over and never placed on the returned object — `Object.keys`/
+ * `Object.values` of the capability expose only the three methods, never a
+ * key (zero-knowledge: capabilities never expose keys).
+ *
+ * `delete(field)` has no store to reach in this task — the store-level
+ * wiring lands when a later task threads `ViaCryptoCtx` into `Collection`'s
+ * write path. It marks the field locally so a subsequent `unseal` on THIS
+ * capability instance refuses, giving `delete` an observable effect without
+ * any I/O.
+ */
+export function makeSealedSlotCapability(
+  ctx: SealedSlotCapabilityCtx,
+  recordId: string,
+  cek?: EnclaveKey,
+): ViaCryptoCtx['sealedSlots'] {
+  const keyMaterial: SealKeyMaterial = {
+    collection: ctx.name,
+    ...(cek !== undefined ? { cek } : {}),
+    getDEK: () => ctx.getDEK(),
+  }
+  const deletedFields = new Set<string>()
+
+  return {
+    async seal(field, plaintext) {
+      const ref = await sealOneField(field, plaintext, keyMaterial)
+      deletedFields.delete(field)
+      return ref
+    },
+    async unseal(field, ref) {
+      if (deletedFields.has(field)) {
+        throw new ValidationError(`sealedSlots.unseal: field "${field}" on record "${recordId}" was deleted from this capability`)
+      }
+      return unsealOneField(field, `${ref.iv}:${ref.data}`, keyMaterial)
+    },
+    async delete(field) {
+      deletedFields.add(field)
+    },
+  }
+}
+
+/** Resolve the DEK for an arbitrary (possibly synthetic, e.g. `_dict_en`) collection name. */
+export type ReservedEnvelopeDekResolver = (collection: string) => Promise<EnclaveKey>
+
+/**
+ * Build a `ViaCryptoCtx.reservedEnvelopes` capability: a whole-envelope
+ * encrypt/decrypt door scoped to collection names under a declared prefix
+ * (e.g. `_dict_`) — the shape `shape/via-i18n/dictionary.ts`'s
+ * `DictionaryHandle` needs (seam map Part 3): build JSON → encrypt under a
+ * DEK → wrap in an `EncryptedEnvelope`; decrypt → JSON text. No per-record
+ * CEK — reserved envelopes are whole-DEK-encrypted, same as the dictionary
+ * grandfather.
+ *
+ * `reservedEnvelopes(prefix)` throws `ValidationError` immediately when
+ * `prefix` is not in `declaredPrefixes`; each `encrypt`/`decrypt` call
+ * throws `ValidationError` when its `collection` argument does not start
+ * with `prefix`.
+ */
+export function makeReservedEnvelopes(
+  dekResolver: ReservedEnvelopeDekResolver,
+  declaredPrefixes: readonly string[],
+): ViaCryptoCtx['reservedEnvelopes'] {
+  const declared = new Set(declaredPrefixes)
+
+  return (prefix: string) => {
+    if (!declared.has(prefix)) {
+      throw new ValidationError(`reservedEnvelopes: prefix "${prefix}" is not declared by this binding's reservedPrefixes`)
+    }
+
+    const assertPrefixed = (collection: string, method: 'encrypt' | 'decrypt'): void => {
+      if (!collection.startsWith(prefix)) {
+        throw new ValidationError(
+          `reservedEnvelopes('${prefix}').${method}: collection "${collection}" does not start with "${prefix}"`,
+        )
+      }
+    }
+
+    const encryptForPrefix = async (collection: string, json: string, v: number): Promise<EncryptedEnvelope> => {
+      assertPrefixed(collection, 'encrypt')
+      const dek = await dekResolver(collection)
+      const { iv, data } = await encrypt(json, dek)
+      return {
+        _noydb: NOYDB_FORMAT_VERSION,
+        _v: v,
+        _ts: new Date().toISOString(),
+        _iv: iv,
+        _data: data,
+      }
+    }
+
+    const decryptForPrefix = async (collection: string, env: EncryptedEnvelope): Promise<string> => {
+      assertPrefixed(collection, 'decrypt')
+      const dek = await dekResolver(collection)
+      return decrypt(env._iv, env._data, dek)
+    }
+
+    return { encrypt: encryptForPrefix, decrypt: decryptForPrefix }
+  }
 }

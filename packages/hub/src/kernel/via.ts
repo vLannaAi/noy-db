@@ -1,5 +1,6 @@
 // kernel/via.ts — the ONLY kernel-resident via surface.
 import { NoydbError } from './errors.js'
+import type { EncryptedEnvelope } from './types.js'
 
 /** Awaitable type for potentially async results. */
 type Awaitable<T> = T | Promise<T>
@@ -33,6 +34,33 @@ export interface ViaReadCtx {
   readonly layer: string
 }
 
+/** One sealed slot's ciphertext — matches the existing `iv:data` sealed map entries (seam map §2 step 2). */
+export interface SealedSlotRef { readonly iv: string; readonly data: string }
+
+/**
+ * A scoped crypto capability handed to a `via` feature's `encodeAtRest`/
+ * `decodeAtRest`/`erase` hooks — never the keyring, never the enclave.
+ * `sealedSlots` is pre-bound to one `(collection, recordId)`; `reservedEnvelopes`
+ * is a whole-envelope encrypt/decrypt door scoped to collection names under a
+ * declared prefix (e.g. `_dict_`).
+ */
+export interface ViaCryptoCtx {
+  readonly sealedSlots: {
+    seal(field: string, plaintext: unknown): Promise<SealedSlotRef>
+    unseal(field: string, ref: SealedSlotRef): Promise<unknown>
+    delete(field: string): Promise<void>
+  }
+  reservedEnvelopes(prefix: string): {
+    encrypt(collection: string, json: string, v: number): Promise<EncryptedEnvelope>
+    decrypt(collection: string, env: EncryptedEnvelope): Promise<string>
+  }
+}
+
+/** Per-call erase context — `forget()`'s per-ref participation door (phase C). */
+export interface ViaEraseCtx { readonly id: string; readonly vault: string; readonly live: unknown /* EncryptedEnvelope */; readonly crypto: ViaCryptoCtx }
+/** What an `erase` hook reports back to `forget()`'s summary ledger entry. */
+export interface ViaEraseReport { readonly shredded: number; readonly residue: readonly unknown[] }
+
 /**
  * A feature bound to one collection's declared config. Record-grain hooks —
  * every hook receives the whole record (matches the real engine signatures,
@@ -45,15 +73,23 @@ export interface ViaBinding {
   /** Declared dependencies (field paths / cross-record specs). MANDATORY for any future
    *  derive-bearing binding (phase C consumes; A only validates well-formedness: strings, non-empty). */
   readonly deps?: readonly string[]
-  // NOTE: phases B/C add `encodeAtRest`/`decodeAtRest`/`erase`/`derive` hooks ADDITIVELY — do not stub them now.
+  /** Collection-name prefixes this binding's `reservedEnvelopes` capability may address (e.g. `_dict_`). */
+  readonly reservedPrefixes?: readonly string[]
+  // NOTE: phase C adds a `derive` hook ADDITIVELY — do not stub it now.
   // ── write pipeline ──
+  /** Refuse a write before crypto runs (classified step-3 slot: storage:'never' rejection + validators). Throws to refuse. */
+  enforceWrite?(record: Record<string, unknown>, ctx: ViaWriteCtx): void | Promise<void>
   /** First pipeline stage (money canonicalizeIncomingMoney). SYNC. */
   ingest?(record: Record<string, unknown>): Record<string, unknown>
   /** Decode STORED form to canonical for internal boundaries (gates, derivations, patch bases). SYNC. */
   canonicalizeStored?(record: Record<string, unknown>): Record<string, unknown>
   /** Post-validation write encoding (money quantize; i18n translate→script→validate→densify). May be async. */
   encodeWrite?(record: Record<string, unknown>, ctx: ViaWriteCtx): Awaitable<Record<string, unknown>>
+  /** Final write-pipeline stage: seal/encrypt declared fields via `crypto` before the envelope body is built (classified step-2 slot). */
+  encodeAtRest?(record: Record<string, unknown>, crypto: ViaCryptoCtx): Promise<{ record: Record<string, unknown>; sealed?: Record<string, SealedSlotRef> }>
   // ── read pipeline ──
+  /** First read-pipeline stage: unseal/decrypt declared fields via `crypto` before `present` runs (classified sealed-handle slot). */
+  decodeAtRest?(record: Record<string, unknown>, sealed: Record<string, SealedSlotRef>, crypto: ViaCryptoCtx, opts: { asHandles: boolean }): Promise<Record<string, unknown>>
   /** Read-time presentation (money decode+virtuals; i18n locale/labels/strip). May be async. */
   present?(record: Record<string, unknown>, ctx: ViaReadCtx): Awaitable<Record<string, unknown>>
   // ── query participation (ALL SYNC — #553) ──
@@ -68,6 +104,9 @@ export interface ViaBinding {
   compareForOrder?(field: string, a: unknown, b: unknown): number | undefined
   /** Rewrite an aggregate spec (money exact reducers). */
   wrapReducers?(spec: unknown): unknown
+  // ── forget participation ──
+  /** `forget()`'s per-ref erasure door — shred/report this binding's residue for one record (classified/blob forget participation). */
+  erase?(ctx: ViaEraseCtx): Promise<ViaEraseReport>
   // ── introspection ──
   describeFragment?(): Record<string, unknown>
 }
