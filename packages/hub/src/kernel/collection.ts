@@ -9,6 +9,7 @@ import { isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
 import { ViaPipeline } from './via-pipeline.js'
 import { viaBinder, type ViaDescriptor, type ViaWriteCtx, type ViaEraseReport } from './via.js'
 import type { MutationOrigin } from './mutation.js'
+import type { WaveContext } from './via-dispatch.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import {
   isTombstone,
@@ -342,72 +343,40 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   private readonly defaultLocale: string | undefined
 
-  /**
-   * Map of field name → `I18nTextDescriptor` for fields declared with
-   * `i18nText()`. Write/read handling itself runs through the compiled
-   * `via` i18n binding (see {@link via}); this field remains for
-   * `describe()`, `hasReadTransforms()`, and the search-index build path.
-   *
-   * Declared via the `i18nFields` collection option.
-   */
+  /** Field name → `I18nTextDescriptor` for `i18nText()` fields (`i18nFields` option); write/read
+   *  runs through the compiled `via` i18n binding — this remains for `describe()`,
+   *  `hasReadTransforms()`, and the search-index build path. */
   private readonly i18nFields: Record<string, I18nTextDescriptor> | undefined
 
-  /**
-   * The configured string fields exposed to `retrieve()`. `undefined`
-   * for ordinary collections, so the search path costs nothing when unused.
-   */
+  /** The configured string fields exposed to `retrieve()`; `undefined` for ordinary collections (zero-cost). */
   private readonly textIndexes: readonly string[] | undefined
 
-  /**
-   * The session-scoped lexical index store. `undefined` (so the dirty
-   * poke + retrieve are zero-cost) unless `textIndexes` is non-empty.
-   */
+  /** Session-scoped lexical index store; `undefined` (zero-cost) unless `textIndexes` is non-empty. */
   private readonly searchIndexStore: IndexStore | undefined
 
-  /**
-   * Embedding config for write-time vector derivation. `undefined`
-   * for ordinary collections (zero cost). When set, `put()` encodes the
-   * source field(s) and stores an encrypted `_vec` sidecar.
-   */
+  /** Embedding config for write-time vector derivation; `undefined` (zero-cost) for ordinary
+   *  collections. When set, `put()` encodes the source field(s) and stores an encrypted `_vec` sidecar. */
   private readonly embeddings: EmbeddingDescriptor | undefined
 
-  /**
-   * In-memory vector set, populated lazily from `_vec` sidecars.
-   * `undefined` when no embedding config is declared.
-   */
+  /** In-memory vector set, populated lazily from `_vec` sidecars; `undefined` when no embedding config is declared. */
   private vectorSet: VectorSet | undefined
 
-  /**
-   * Map of field name → `DictKeyDescriptor` for fields declared with
-   * `dictKey()`. Used by `get()`/`list()` to add `<field>Label` virtual
-   * fields when a locale is requested.
-   */
+  /** Field name → `DictKeyDescriptor` for `dictKey()` fields; used by `get()`/`list()` to add
+   *  `<field>Label` virtual fields when a locale is requested. */
   private readonly dictKeyFields: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
 
-  /**
-   * Consumer-neutral per-field descriptors declared via the `fieldMeta`
-   * collection option. Read by `getFieldMeta()`; merged by `collection.describe()`.
-   */
+  /** Consumer-neutral per-field descriptors declared via `fieldMeta`; read by `getFieldMeta()`, merged by `describe()`. */
   private fieldMeta: Record<string, FieldMeta> | undefined
 
-  /**
-   * Collection-level descriptive metadata declared via the `meta` collection
-   * option. Read by `getMeta()`; surfaced in `collection.describe()`.
-   */
+  /** Collection-level descriptive metadata declared via `meta`; read by `getMeta()`, surfaced in `describe()`. */
   private meta: CollectionMeta | undefined
 
-  /**
-   * Outbound ref declarations for this collection (snapshot from vault
-   * refRegistry at construction time). Used by `describe()` (sync, config-only).
-   */
+  /** Outbound ref declarations (snapshot from vault refRegistry at construction time); used by `describe()`. */
   private readonly _refs: Record<string, RefDescriptor>
 
-  /**
-   * Money field descriptors keyed by field path, typed as the opaque
-   * {@link ViaDescriptor} marker (the kernel never inspects the concrete
-   * shape). `put()` quantizes to a scaled-int string, `get()`/`list()`
-   * decode back. Mutable so {@link _applyMoneyFields} can attach.
-   */
+  /** Money field descriptors keyed by field path, typed as the opaque {@link ViaDescriptor} marker
+   *  (the kernel never inspects the concrete shape); `put()` quantizes to a scaled-int string,
+   *  `get()`/`list()` decode back. Mutable so {@link _applyMoneyFields} can attach. */
   private moneyFields: Record<string, ViaDescriptor> | undefined
   private via: ViaPipeline | undefined // compiled Via pipeline (money, i18n); rebuilt by {@link _applyMoneyFields}
 
@@ -593,6 +562,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       }
     | undefined
 
+  /** #638 Task 4 — `Vault._collectGraphTouch`; a no-op absent an open sync/cutover/restore batch. */
+  private readonly graphDispatch: { collect(collection: string, id: string): void } | undefined
+
   /**
    * Optional back-reference to the owning compartment's ref
    * enforcer. When present, `Collection.put` calls
@@ -711,6 +683,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.onAccess = cfg.onAccess
     this.derivationSource = cfg.derivationSource
     this.materializedViewSource = cfg.materializedViewSource
+    this.graphDispatch = cfg.graphDispatch
     this.tiers = cfg.tiers
     this.tierMode = cfg.tierMode
     this.onCrossTierAccess = cfg.onCrossTierAccess
@@ -2070,9 +2043,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * MV-emitted row (carries `_materializedFrom`) — defensive guard
    * against missed cycle detection.
    *
-   * @internal
+   * @internal `wave` (#638 Task 4): when present (the sync/cutover/restore dispatch wave),
+   * an eager MV already refreshed this wave is skipped (per-target dedup, keyed on spec name).
    */
-  private async dispatchMaterializedViews(id: string, record: T): Promise<void> {
+  async dispatchMaterializedViews(id: string, record: T, wave?: WaveContext): Promise<void> {
     void id
     if (this.materializedViewSource === undefined) return
     const incoming = record as unknown as Record<string, unknown>
@@ -2091,6 +2065,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     for (const reg of mvs) {
       const mode = reg.spec.refresh
       if (mode === 'eager') {
+        if (wave?.seen(`mv\0${reg.spec.name}`)) continue
         if (executor === null) {
           ;({ MaterializedViewExecutor: executor } = await import('../with-formula/materialized-views/executor.js'))
         }
@@ -2170,6 +2145,15 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     return (this.via ? this.via.canonicalizeStored(raw as Record<string, unknown>) : raw) as T
   }
 
+  /** @internal #638 Task 4 — decrypted STORED-form record + envelope version for the sync/cutover/
+   *  restore dispatch wave (id threaded into decrypt, matching `_invalidateCacheEntry`'s contract). */
+  async _getStoredRecordForDispatch(id: string): Promise<{ record: T; version: number } | null> {
+    const env = await this.adapter.get(this.vault, this.name, id)
+    if (!env || isTombstone(env, this.storeCiphertext) || isDeleteMarker(env)) return null
+    const record = await this.codec.decryptRecord(env, { id })
+    return record === null ? null : { record, version: env._v }
+  }
+
   /**
    * @internal Ids of records whose top-level `field` equals `value`.
    * Uses the FK index when the field is indexed (O(matches)); otherwise a
@@ -2205,16 +2189,20 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * @internal Recompute a rollup aggregate onto the parent.
    * Gathers every child of `parentId`, runs `compute`, and patches only the
    * rollup `field` onto the parent's raw stored record (value-equality
-   * guarded). No-op when the parent record does not exist.
+   * guarded). No-op when the parent record does not exist. `wave` (#638 Task 4):
+   * the sync/cutover/restore dispatch wave's per-target dedup — a (into, parentId,
+   * field) target already recomputed this wave is skipped (N pulled children → one recompute).
    */
   private async recomputeRollup(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     spec: { source: string; rollup?: { from: string; key: string; field: string; compute: (children: any[]) => unknown } },
     parentId: string,
+    wave?: WaveContext,
   ): Promise<void> {
     if (this.derivationSource === undefined || spec.rollup === undefined) return
     const { from, key, field, compute } = spec.rollup
     const into = spec.source
+    if (wave?.seen(`rollup\0${into}\0${parentId}\0${field}`)) return
     const intoColl = this.derivationSource.getCollection(into)
     const base = await intoColl._getStoredRecord(parentId)
     if (base === null) return // no parent record to patch
@@ -2260,7 +2248,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     }
   }
 
-  private async dispatchDerivations(id: string, record: T, version: number): Promise<void> {
+  /** @internal `wave` (#638 Task 4) — threaded to `recomputeRollup` for the sync/cutover/restore
+   *  dispatch wave's per-target dedup; `undefined` on the local-write path (byte-identical). */
+  async dispatchDerivations(id: string, record: T, version: number, wave?: WaveContext): Promise<void> {
     if (this.derivationSource === undefined) return
     // `record` is the stored form here (post-quantize) — decode so
     // derive(source, ctx) sees the canonical money shape.
@@ -2290,7 +2280,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         } else {
           parentId = id // a write to the parent recomputes its own aggregate
         }
-        if (parentId !== null) await this.recomputeRollup(spec, parentId)
+        if (parentId !== null) await this.recomputeRollup(spec, parentId, wave)
         continue
       }
 
@@ -3830,18 +3820,19 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         this.searchIndexStore?.markDirty() // peer write changed the cache; rebuild on next retrieve
         return
       case 'sync-apply':
-        // #621: phase C plugs graph dispatch here
         this._invalidateCekCacheEntry(id)
         await this._invalidateCacheEntry(id)
+        this.graphDispatch?.collect(this.name, id)
         return
       case 'cutover':
         // Parity: cache invalidation only — the migration ledger entry
         // stays at the `_applyCutoverTransform` call site.
-        // #621: phase C plugs graph dispatch here
         await this._invalidateCacheEntry(id)
+        this.graphDispatch?.collect(this.name, id)
         return
       case 'restore':
         // Unreachable today — see doc comment above. Reserved for phase C.
+        this.graphDispatch?.collect(this.name, id)
         return
     }
   }

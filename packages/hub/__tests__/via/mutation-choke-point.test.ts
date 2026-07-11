@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createNoydb, withDerivation } from '../../src/index.js'
+import { createNoydb, withDerivation, withMaterializedView } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 // Reuses the in-memory NoydbStore + `pdfs` → `pdf-meta` derivation fixture
@@ -40,6 +40,7 @@ function memory(): NoydbStore {
 }
 
 interface Pdf extends Record<string, unknown> { id: string; body: string }
+interface Invoice extends Record<string, unknown> { id: string; status: 'open' | 'paid'; amount: number }
 const SECRET = 'mutation-choke-point-pass-2026'
 
 /** Record-shape derivation `pdfs` → `pdf-meta` (len(body)). Counts invocations. */
@@ -128,7 +129,7 @@ describe('mutation-choke-point origin parity (#623 task 10, #621)', () => {
     db1.close(); db2.close()
   })
 
-  it('sync-apply (_invalidateSyncApplied): invalidates cache but emits NO change and dispatches NO derivations', async () => {
+  it('sync-apply (_invalidateSyncApplied), inside a graph-dispatch batch: invalidates cache AND dispatches derivations (#621)', async () => {
     const { handle, calls } = makeDerivation()
     const store = memory()
     const db1 = await createNoydb({ store, user: 'alice', secret: SECRET, derivationStrategies: [handle] })
@@ -149,14 +150,47 @@ describe('mutation-choke-point origin parity (#623 task 10, #621)', () => {
     db2.on('change', (e) => { if (e.id === 'doc1') changed2++ })
     const beforeSyncApply = calls()
 
-    // Simulates what SyncEngine#applyRemote does after writing the raw
-    // envelope: refresh db2's cache/CEK view of the record. No event, no
-    // derivation dispatch — parity-pin: #621 — phase C changes this.
+    // Simulates what SyncEngine#applyRemote does after writing the raw envelope: refresh db2's
+    // cache/CEK view of the record, inside an open graph-dispatch batch (what pull()/push() do
+    // around every applyRemote call, per §3) — flip: phase C now dispatches on flush.
+    // parity-pin: #621 — phase C changes this (was: no event, no derivation dispatch).
+    v2._beginGraphBatch()
     await v2._invalidateSyncApplied('pdfs', 'doc1')
+    await v2._flushGraphBatch()
 
-    expect(changed2).toBe(0) // parity-pin: #621 — phase C changes this
-    expect(calls()).toBe(beforeSyncApply) // parity-pin: #621 — phase C changes this
+    expect(changed2).toBe(1) // parity-pin: #621 — phase C changes this (the derived pdf-meta/doc1 output write)
+    expect(calls()).toBe(beforeSyncApply + 1) // parity-pin: #621 — phase C changes this
     expect(await c2.get('doc1')).toMatchObject({ body: 'hello' }) // cache WAS invalidated/refreshed
+    expect(await v2.collection<{ len: number } & Record<string, unknown>>('pdf-meta').get('doc1')).toMatchObject({ len: 5 })
+    db1.close(); db2.close()
+  })
+
+  it('sync-apply, inside a graph-dispatch batch: dispatches materialized views too (#621)', async () => {
+    const openInvoicesMV = withMaterializedView<Invoice>({
+      name: 'open-invoices',
+      query: (db) => db.collection<Invoice>('invoices').query().where('status', '==', 'open'),
+      rowKey: (r) => r.id,
+      refresh: 'eager',
+    })
+    const store = memory()
+    const db1 = await createNoydb({ store, user: 'alice', secret: SECRET, materializedViewStrategies: [openInvoicesMV] })
+    const v1 = await db1.openVault('demo')
+    // 'open' status so the MV materializes a row — mints + persists the shared 'open-invoices'
+    // collection DEK before db2 ever opens (mirrors the derivation test's 'seed' comment above).
+    await v1.collection<Invoice>('invoices').put('seed', { id: 'seed', status: 'open', amount: 1 })
+
+    const db2 = await createNoydb({ store, user: 'alice', secret: SECRET, materializedViewStrategies: [openInvoicesMV] })
+    const v2 = await db2.openVault('demo')
+    const invoices2 = v2.collection<Invoice>('invoices')
+    await invoices2.get('seed') // hydrate db2's cache under the shared DEK
+
+    await v1.collection<Invoice>('invoices').put('inv-1', { id: 'inv-1', status: 'open', amount: 100 }) // db1's own local-write, into the shared store
+
+    v2._beginGraphBatch()
+    await v2._invalidateSyncApplied('invoices', 'inv-1')
+    await v2._flushGraphBatch()
+
+    expect(await v2.collection<Invoice>('open-invoices').get('inv-1')).toMatchObject({ amount: 100 })
     db1.close(); db2.close()
   })
 

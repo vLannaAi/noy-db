@@ -483,6 +483,12 @@ export interface CollectionOpts<T> {
     getActiveTxContext(): TxContext | null
     getQueryContext(): MVQueryContext
   } | undefined
+  /**
+   * #638 Task 4 — thin collector hook wired by the Vault (`Vault._collectGraphTouch`). Every
+   * `sync-apply`/`cutover`/`restore` mutation origin calls `collect(this.name, id)`; a no-op
+   * when no batch is open (`_beginGraphBatch()` wasn't called) or the vault has no graph.
+   */
+  graphDispatch?: { collect(collection: string, id: string): void } | undefined
 }
 
 /**
@@ -866,6 +872,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     onAccess: opts.onAccess,
     derivationSource: opts.derivationSource,
     materializedViewSource: opts.materializedViewSource,
+    graphDispatch: opts.graphDispatch,
     tiers: opts.tiers && opts.tiers.length > 0 ? new Set(opts.tiers) : null,
     tiersStrategy: opts.tiersStrategy ?? NO_TIERS,
     searchStrategy: opts.searchStrategy ?? NO_SEARCH,

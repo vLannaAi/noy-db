@@ -684,11 +684,10 @@ export class Noydb {
     // #598: sync-applied writes must refresh Collection in-memory views.
     this._forEachSyncEngine(name, engine => {
       engine.setCacheInvalidator((collection, id) => comp._invalidateSyncApplied(collection, id))
+      engine.setGraphBatchController({ begin: () => comp._beginGraphBatch(), flush: () => comp._flushGraphBatch() })
     })
-    // Initialise the optional guard + derivation registries via
-    // dynamic-import. Both calls are no-ops when the corresponding
-    // strategies array is empty / unset, leaving the service code
-    // out of the floor bundle for consumers that don't use it.
+    // Initialise the optional guard + derivation registries via dynamic-import — no-ops when the
+    // corresponding strategies array is empty/unset, keeping the service code out of the floor bundle.
     await comp._initGuards(this.options.guardStrategies ?? [])
     await comp._initDerivations(this.options.derivationStrategies ?? [])
     await comp._initMaterializedViews(this.options.materializedViewStrategies ?? [])

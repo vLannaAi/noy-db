@@ -102,6 +102,7 @@ import { mergeViaFields, type ViaFieldSpec } from './via-compose.js'
 import { exportRedact } from './via-pipeline.js'
 import { ViaGraph } from './via-graph.js'
 import { registerCollectionGraphSources, validateReconcileGraphEdges, commitReconcileGraphEdges, applyTaintOverlay, type ReconcileGraphOptions } from './via-graph-wiring.js'
+import { runGraphDispatchWave, type GraphBatch } from './via-dispatch.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 // Type-only imports for the guard + derivation services. The
 // runtime classes are loaded on demand via `await import(...)` inside
@@ -192,21 +193,11 @@ export class Vault {
   private readonly adapter: NoydbStore
   /** The vault's name as passed to `openVault()`. Stable for the instance lifetime. */
   public readonly name: string
-  /**
-   * Backreference to the parent `Noydb`. Lets vault-scoped services
-   * (e.g. `as-*` reader `apply()` paths gating on `withTransactions()`)
-   * reach the strategy seam without threading `db` through every API.
-   *
-   * Type-only Noydb import keeps the module graph acyclic at runtime.
-   */
+  /** Backreference to the parent `Noydb` — lets vault-scoped services reach the strategy seam
+   *  without threading `db` through every API (type-only import keeps the module graph acyclic). */
   public readonly noydb: Noydb
-  /**
-   * The active in-memory keyring. NOT readonly because `load()`
-   * needs to refresh it after restoring a different keyring file —
-   * otherwise the in-memory DEKs (from the pre-load session) and
-   * the on-disk wrapped DEKs (from the loaded backup) drift apart
-   * and every subsequent decrypt fails with TamperedError.
-   */
+  /** The active in-memory keyring. NOT readonly — `load()` refreshes it after restoring a
+   *  different keyring file, or in-memory/on-disk DEKs drift apart and decrypt fails with TamperedError. */
   private keyring: UnlockedKeyring
   private readonly encrypted: boolean
   private readonly emitter: NoydbEventEmitter
@@ -215,11 +206,8 @@ export class Vault {
   private readonly syncAdapter: NoydbStore | undefined
   private readonly getPurgeableTargets: () => readonly { store: NoydbStore; role: 'backup' | 'archive'; label?: string }[]
   private readonly historyConfig: HistoryConfig
-  /**
-   * tree-shake seam for the optional blob service. Undefined
-   * means "blobs are off for this vault"; every `collection.blob(id)`
-   * call throws with a pointer at `@noy-db/hub/blobs`.
-   */
+  /** tree-shake seam for the optional blob service; `undefined` means "blobs are off for this
+   *  vault" — every `collection.blob(id)` call throws with a pointer at `@noy-db/hub/blobs`. */
   private readonly blobStrategy: BlobStrategy | undefined
   private readonly objectStore: ObjectProjection | undefined
 
@@ -234,11 +222,8 @@ export class Vault {
   private readonly crdtStrategy: CrdtStrategy | undefined
   private readonly tiersStrategy: TiersStrategy | undefined
   private readonly searchStrategy: SearchStrategy | undefined
-  /**
-   * Cargo (partition extraction) strategy — `NO_CARGO` (throwing) unless
-   * `withCargo()` was passed. Public so the `extractPartition` free function
-   * (which takes a `Vault`) routes through it.
-   */
+  /** Cargo (partition extraction) strategy — `NO_CARGO` (throwing) unless `withCargo()` was passed.
+   *  Public so the `extractPartition` free function (which takes a `Vault`) routes through it. */
   readonly cargoStrategy: CargoStrategy
   private readonly sealedRecordStrategy: SealedRecordStrategy
   private readonly portabilityStrategy: PortabilityStrategy
@@ -252,13 +237,8 @@ export class Vault {
   private readonly i18nStrategy: I18nStrategy
   private readonly syncStrategy: SyncStrategy
   private readonly classifiedStrategy: ClassifiedStrategy
-  /**
-   * Per-vault guard registry. `null` until `_initGuards()` runs; stays
-   * `null` for vaults that never register any guard strategy. The
-   * runtime class is dynamic-imported on demand so consumers that
-   * never use guards don't pull `GuardRegistry`/`GuardExecutor` into
-   * their bundle.
-   */
+  /** Per-vault guard registry; `null` until `_initGuards()` runs (or for vaults that never register
+   *  one) — the runtime class is dynamic-imported on demand to keep it out of the floor bundle. */
   private guardRegistry: GuardRegistry | null = null
   /** Per-vault derivation/MV/overlay registries — same lazy-load contract as
    *  `guardRegistry`: each stays `null` until its `_init*()` runs with at
@@ -270,6 +250,8 @@ export class Vault {
    *  computed/via-deps edges. Metadata-only (field names, postures, grains —
    *  never values or key material); always present, unlike the registries above. */
   readonly graph: ViaGraph
+  /** #638 Task 4 — open sync/cutover/restore touch collector, or `undefined` between batches. */
+  private _graphBatch: GraphBatch | undefined
   /** Cached read-only facades for guard/derivation callbacks — split by
    *  resolution layer (`layer:'guard'` vs `'derivation'`, each field's
    *  `onMissing` policy differs). Allocated eagerly inside `_initGuards()`/
@@ -306,18 +288,9 @@ export class Vault {
    */
   public readonly custody: CustodyApi
 
-  /**
-   * Optional callback that re-derives an UnlockedKeyring from the
-   * adapter using the active user's passphrase. Called by `load()`
-   * after the on-disk keyring file has been replaced — refreshes
-   * `this.keyring` so the next DEK access uses the loaded wrapped
-   * DEKs instead of the stale pre-load ones.
-   *
-   * Provided by Noydb at openVault() time. Tests that
-   * construct Vault directly can pass `undefined`; load()
-   * skips the refresh in that case (which is fine for plaintext
-   * compartments — there's nothing to re-unwrap).
-   */
+  /** Re-derives an UnlockedKeyring from the adapter using the active user's passphrase; called by
+   *  `load()` after the on-disk keyring file has been replaced. Provided by Noydb at openVault()
+   *  time; `undefined` in tests that construct Vault directly (load() then skips the refresh). */
   private readonly reloadKeyring: (() => Promise<UnlockedKeyring>) | undefined
   private readonly collectionCache = new Map<string, Collection<unknown>>()
   private satelliteRegistry: SatelliteRegistry | null = null // spec #591, archetype-③
@@ -1075,6 +1048,7 @@ export class Vault {
         defaultLocale: this.locale,
         onRegisterConflictResolver: this.onRegisterConflictResolver,
         onAccess: (op, id) => this._logConsent(op, collectionName, id),
+        graphDispatch: { collect: (collection, id) => this._collectGraphTouch(collection, id) },
         // Derivation source is only wired when the corresponding registry
         // has been initialised. Guard source was removed in Track A slice 3b
         // — guards now run via the gate bus in Noydb.#registerGuardGate.
@@ -1306,7 +1280,9 @@ export class Vault {
   async #runCutoverTransform(collectionName: string, transform: TransformFn): Promise<void> {
     const coll = this.collectionCache.get(collectionName)
     if (!coll) return
+    this._beginGraphBatch() // #638 Task 4 — cutover is a dispatch-wave origin, same as sync-apply
     await coll._applyCutoverTransform(transform)
+    await this._flushGraphBatch()
   }
 
   /**
@@ -1325,6 +1301,30 @@ export class Vault {
     const coll = this.collectionCache.get(collection)
     if (!coll) return
     await coll._onRecordMutated(id, 'put', 'sync-apply')
+  }
+
+  /** @internal #638 Task 4 — open a graph-dispatch touch batch (sync pull()/push()/cutover). */
+  _beginGraphBatch(): void {
+    this._graphBatch = new Map()
+  }
+
+  /** @internal #638 Task 4 — `Collection._onRecordMutated`'s sync-apply/cutover/restore hook; a
+   *  no-op when no batch is open (`_beginGraphBatch()` was never called for this call chain). */
+  _collectGraphTouch(collection: string, id: string): void {
+    if (!this._graphBatch) return
+    this._graphBatch.set(collection, (this._graphBatch.get(collection) ?? new Set()).add(id))
+  }
+
+  /** @internal #638 Task 4 — close the open batch and run ONE dispatch wave over it. */
+  async _flushGraphBatch(): Promise<void> {
+    const batch = this._graphBatch
+    this._graphBatch = undefined
+    if (batch && batch.size > 0) await runGraphDispatchWave(this, batch)
+  }
+
+  /** @internal #638 Task 4 — cached-collection lookup for `runGraphDispatchWave` (`VaultLike`); never constructs. */
+  _getCollection(name: string): Collection<Record<string, unknown>> | undefined {
+    return this.collectionCache.get(name) as Collection<Record<string, unknown>> | undefined
   }
 
   /**

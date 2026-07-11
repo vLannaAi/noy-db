@@ -61,6 +61,16 @@ export class SyncEngine {
     this.cacheInvalidator = fn
   }
 
+  /** #638 Task 4: opens/flushes the vault's graph-dispatch touch batch around a whole `pull()`/
+   *  `push()` call, so N `applyRemote`d records feeding the same derivation/rollup/MV target
+   *  recompute once. Wired by the vault at open, mirroring `cacheInvalidator`. */
+  private graphBatchController?: { begin(): void; flush(): Promise<void> }
+
+  /** Wire the graph-dispatch batch controller (#638 Task 4). Same injection pattern as `setCacheInvalidator`. */
+  setGraphBatchController(controller: { begin(): void; flush(): Promise<void> }): void {
+    this.graphBatchController = controller
+  }
+
   constructor(opts: {
     local: NoydbStore
     remote: NoydbStore
@@ -179,6 +189,7 @@ export class SyncEngine {
   /** Push dirty records to remote adapter. Accepts optional `PushOptions` for partial sync. */
   async push(options?: PushOptions): Promise<PushResult> {
     await this.ensureLoaded()
+    this.graphBatchController?.begin() // #638 Task 4
 
     let pushed = 0
     const conflicts: Conflict[] = []
@@ -302,6 +313,7 @@ export class SyncEngine {
 
     this.lastPush = new Date().toISOString()
     await this.persistMeta()
+    await this.graphBatchController?.flush() // #638 Task 4
 
     const result: PushResult = { pushed, conflicts, errors, erasures }
     this.emitter.emit('sync:push', result)
@@ -311,6 +323,7 @@ export class SyncEngine {
   /** Pull remote records to local adapter. Accepts optional `PullOptions` for partial sync. */
   async pull(options?: PullOptions): Promise<PullResult> {
     await this.ensureLoaded()
+    this.graphBatchController?.begin() // #638 Task 4
 
     let pulled = 0
     const conflicts: Conflict[] = []
@@ -438,6 +451,7 @@ export class SyncEngine {
 
     this.lastPull = new Date().toISOString()
     await this.persistMeta()
+    await this.graphBatchController?.flush() // #638 Task 4
 
     const result: PullResult = { pulled, conflicts, errors, erasures }
     this.emitter.emit('sync:pull', result)
