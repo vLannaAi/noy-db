@@ -169,7 +169,7 @@ export async function getAtTier<T>(ctx: TiersContext<T>, id: string): Promise<T 
   if (!envelope) return null
   const tier = envelope._tier ?? 0
   if (tier === 0) {
-    return ctx.codec.decryptRecord(envelope)
+    return ctx.codec.decryptRecord(envelope, { id })
   }
 
   const key = dekKey(ctx.name, tier)

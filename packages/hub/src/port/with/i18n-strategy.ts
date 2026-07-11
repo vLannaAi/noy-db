@@ -38,7 +38,7 @@ import type { I18nTextDescriptor } from '../../shape/via-i18n/core.js'
 import type { Layer } from '../../shape/via-i18n/policy.js'
 import type { ScriptWarning } from '../../shape/via-i18n/script.js'
 import type { DictKeyDescriptor, DictionaryHandle, DictionaryOptions, StaticDictDescriptor } from '../../shape/via-i18n/dictionary.js'
-import type { EnclaveKey } from '../../kernel/enclave/index.js'
+import type { ViaCryptoCtx } from '../../kernel/via.js'
 
 /**
  * Options accepted by `I18nStrategy.buildDictionaryHandle`. Mirrors
@@ -52,7 +52,13 @@ export interface BuildDictionaryHandleOptions<Keys extends string = string> {
   compartmentName: string
   dictionaryName: string
   keyring: UnlockedKeyring
-  getDEK: (collectionName: string) => Promise<EnclaveKey>
+  /**
+   * The `reservedEnvelopes('_dict_')` capability (#629 Task 4) — DictionaryHandle's
+   * sanctioned crypto door onto its `_dict_<name>` collection. Bound by the
+   * Vault to its own `getDEK`, the same per-collection-name DEK resolver
+   * every other collection uses.
+   */
+  reservedEnvelopes: ReturnType<ViaCryptoCtx['reservedEnvelopes']>
   encrypted: boolean
   ledger: LedgerStore | undefined
   options: DictionaryOptions

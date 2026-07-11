@@ -872,8 +872,8 @@ export type { ViaFieldSpec } from './kernel/via-compose.js'
 export type { ViaPosture, ViaDescriptor } from './kernel/via.js'
 
 // classified — preset catalog (creditCard/birthDate/email/phone) + validators
-export { classified, luhnCheck, isClassifiedFieldSpec, isClassifiedGroup, resolveClassifiedFields, ClassifiedConfigError, ClassifiedNeverStoredError, ClassifiedValidationError, ClassifiedRevealError, ClassifiedVerifyError, ClassifiedRotationError } from './with-shape/classified/index.js'
-export type { ClassifiedFieldSpec, ClassifiedGroup, ClassifiedEntry, ClassifiedList, ClassifiedStorage, ClassifiedVerdict } from './with-shape/classified/index.js'
+export { classified, luhnCheck, isClassifiedFieldSpec, isClassifiedGroup, resolveClassifiedFields, ClassifiedConfigError, ClassifiedNeverStoredError, ClassifiedValidationError, ClassifiedRevealError, ClassifiedVerifyError, ClassifiedRotationError } from './shape/via-classified/index.js'
+export type { ClassifiedFieldSpec, ClassifiedGroup, ClassifiedEntry, ClassifiedList, ClassifiedStorage, ClassifiedVerdict } from './shape/via-classified/index.js'
 
 // computed — schema-owned computed scalar fields
 export { evalComputedFields, ComputedFieldError } from './with-formula/computed/index.js'
@@ -959,6 +959,8 @@ export { TierNotGrantedError, TierDemoteDeniedError, DelegationTargetMissingErro
 
 // lazy-mode index errors
 export { IndexRequiredError, IndexWriteFailureError } from './kernel/errors.js'
+// Via posture-refusal error (#629 Task 8 — queryable: 'none' fields)
+export { FieldNotQueryableError } from './kernel/errors.js'
 // Hybrid-retrieval rank fusion (also the klum federation primitive)
 export { fuseRetrieval, type FuseOptions } from './with-lookup/search/fuse.js'
 // unique-index enforcement error

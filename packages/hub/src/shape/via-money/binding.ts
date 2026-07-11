@@ -21,6 +21,7 @@ export function moneyBinding(moneyFields: Record<string, MoneyDescriptor>): ViaB
   return {
     brand: 'money',
     posture: { encryptedAtRest: 'envelope', queryable: 'ordered', exportable: true, forgettable: true },
+    covers: (field) => field in moneyFields,
     ingest: (r) => canonicalizeIncomingMoney(r, moneyFields) as Record<string, unknown>,
     canonicalizeStored: (r) => canonicalizeStoredMoney(r, moneyFields) as Record<string, unknown>,
     encodeWrite: (r) => quantizeMoneyFields(r, moneyFields),

@@ -203,7 +203,7 @@ export async function rebuildIndexes<T>(ctx: IndexingContext<T>): Promise<void> 
   for (const recordId of canonicalIds) {
     const envelope = await ctx.adapter.get(ctx.vault, ctx.name, recordId)
     if (!envelope) continue
-    const record = await ctx.codec.decryptRecord(envelope, { skipValidation: true })
+    const record = await ctx.codec.decryptRecord(envelope, { skipValidation: true, id: recordId })
     if (record === null) continue // shredded (tombstone) — no side-car to build
     await maintainPersistedIndexesOnPut(ctx, recordId, record, null, envelope._v)
   }
@@ -278,7 +278,7 @@ export async function reconcileIndex<T>(
     if (id.startsWith('_')) continue
     const env = await ctx.adapter.get(ctx.vault, ctx.name, id)
     if (!env) continue
-    const record = await ctx.codec.decryptRecord(env, { skipValidation: true })
+    const record = await ctx.codec.decryptRecord(env, { skipValidation: true, id })
     // Shredded (tombstone) canonical record: treat like a vanished record —
     // leave its `id` in `sidecarIds` so any lingering side-car is marked
     // stale (and deleted) by the leftover loop below.

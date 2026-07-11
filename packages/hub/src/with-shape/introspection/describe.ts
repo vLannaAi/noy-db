@@ -21,7 +21,7 @@ import { isStaticDictDescriptor } from '../../shape/via-i18n/dictionary.js'
 import type { I18nTextDescriptor } from '../../shape/via-i18n/core.js'
 import type { ComputedFields } from '../../with-formula/computed/index.js'
 import type { RefDescriptor } from '../../kernel/refs.js'
-import type { ClassifiedFieldSpec } from '../classified/descriptor.js'
+import type { ClassifiedFieldSpec } from '../../shape/via-classified/descriptor.js'
 import { derivePersistedSchema, isZod4Schema } from '../persisted-schemas/derive.js'
 import { jsonSchemaToFields } from './fields.js'
 

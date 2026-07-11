@@ -8,7 +8,7 @@ const digitsOf = (v: unknown): string => String(v).replace(/\D/g, '')
 
 function panSpec(): ClassifiedFieldSpec {
   return {
-    _noydbClassified: true, preset: 'creditCard.pan', storage: 'recoverable',
+    _noydbClassified: true, _viaBrand: 'classified', preset: 'creditCard.pan', storage: 'recoverable',
     sensitivity: 'secret', list: { kind: 'mask', pattern: '•••• ${last4}' },
     riders: { last4: (v) => digitsOf(v).slice(-4), bin: (v) => digitsOf(v).slice(0, 6) },
     validate: (v) => (typeof v === 'string' && luhnCheck(v) ? null : 'not a Luhn-valid card number'),
@@ -17,7 +17,7 @@ function panSpec(): ClassifiedFieldSpec {
 
 function expirySpec(): ClassifiedFieldSpec {
   return {
-    _noydbClassified: true, preset: 'creditCard.expiry', storage: 'recoverable',
+    _noydbClassified: true, _viaBrand: 'classified', preset: 'creditCard.expiry', storage: 'recoverable',
     sensitivity: 'pii', list: { kind: 'mask', pattern: '••/••' },
     validate: (v) => (typeof v === 'string' && /^(0[1-9]|1[0-2])\/\d{2}$/.test(v) ? null : 'expected MM/YY'),
   }
@@ -25,7 +25,7 @@ function expirySpec(): ClassifiedFieldSpec {
 
 function cvcSpec(): ClassifiedFieldSpec {
   return {
-    _noydbClassified: true, preset: 'creditCard.cvc', storage: 'never',
+    _noydbClassified: true, _viaBrand: 'classified', preset: 'creditCard.cvc', storage: 'never',
     sensitivity: 'secret', list: { kind: 'omit' },
     validate: (v) => (typeof v === 'string' && /^\d{3,4}$/.test(v) ? null : 'expected 3-4 digits'),
   }
@@ -37,12 +37,12 @@ export const classified = {
     const members: Record<string, ClassifiedFieldSpec> = { [fields.pan]: panSpec() }
     if (fields.expiry !== undefined) members[fields.expiry] = expirySpec()
     if (fields.cvc !== undefined) members[fields.cvc] = cvcSpec()
-    return { _noydbClassifiedGroup: true, preset: 'creditCard', members }
+    return { _noydbClassifiedGroup: true, _viaBrand: 'classified', preset: 'creditCard', members }
   },
 
   birthDate(): ClassifiedFieldSpec {
     return {
-      _noydbClassified: true, preset: 'birthDate', storage: 'recoverable',
+      _noydbClassified: true, _viaBrand: 'classified', preset: 'birthDate', storage: 'recoverable',
       sensitivity: 'pii', list: { kind: 'mask', pattern: '${yob}-••-••' },
       riders: { yob: (v) => String(v).slice(0, 4) },
       validate: (v) => {
@@ -61,7 +61,7 @@ export const classified = {
 
   email(): ClassifiedFieldSpec {
     return {
-      _noydbClassified: true, preset: 'email', storage: 'recoverable',
+      _noydbClassified: true, _viaBrand: 'classified', preset: 'email', storage: 'recoverable',
       sensitivity: 'pii', list: { kind: 'mask', pattern: '•••@${domain}' },
       riders: { domain: (v) => String(v).split('@')[1] ?? '' },
       validate: (v) => (typeof v === 'string' && v.includes('@') ? null : 'expected an email address'),
@@ -70,7 +70,7 @@ export const classified = {
 
   phone(): ClassifiedFieldSpec {
     return {
-      _noydbClassified: true, preset: 'phone', storage: 'recoverable',
+      _noydbClassified: true, _viaBrand: 'classified', preset: 'phone', storage: 'recoverable',
       sensitivity: 'pii', list: { kind: 'mask', pattern: '•••••${last2}' },
       riders: { last2: (v) => digitsOf(v).slice(-2) },
       validate: (v) => (digitsOf(v).length >= 5 ? null : 'expected at least 5 digits'),
@@ -105,7 +105,7 @@ export const classified = {
       throw new Error(`classified.password: notLastN must be an integer 0..8 (write cost is n × 600K PBKDF2; ring blast radius is documented), got ${notLastN}`)
     }
     return {
-      _noydbClassified: true, preset: 'password', storage: 'digest-only',
+      _noydbClassified: true, _viaBrand: 'classified', preset: 'password', storage: 'digest-only',
       sensitivity: 'secret', list: { kind: 'omit' },
       verifyNormalize: 'password',
       ...(opts.rotateDays !== undefined ? { rotateDays: opts.rotateDays } : {}),
@@ -139,7 +139,7 @@ export const classified = {
    *  tags. */
   secretAnswer(opts: { equatable?: true } = {}): ClassifiedFieldSpec {
     return {
-      _noydbClassified: true, preset: 'secretAnswer', storage: 'digest-only',
+      _noydbClassified: true, _viaBrand: 'classified', preset: 'secretAnswer', storage: 'digest-only',
       sensitivity: 'secret', list: { kind: 'omit' },
       verifyNormalize: 'secret-answer', verifyGroupMember: true,
       ...(opts.equatable === true ? { equatable: true as const } : {}),

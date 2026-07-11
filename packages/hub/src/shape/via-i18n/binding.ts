@@ -358,6 +358,13 @@ export function i18nBinding(cfg: I18nViaConfig): ViaBinding {
   return {
     brand: 'i18n',
     posture: { encryptedAtRest: 'envelope', queryable: 'full', exportable: true, forgettable: true },
+    // DictionaryHandle's `_dict_*` reserved collections (#629 Task 4) — the
+    // codec boundary's `reservedEnvelopes` door may address any collection
+    // name under this prefix.
+    reservedPrefixes: ['_dict_'],
+    covers: (field) =>
+      (cfg.i18nFields !== undefined && field in cfg.i18nFields)
+      || (cfg.dictKeyFields !== undefined && field in cfg.dictKeyFields),
     encodeWrite: async (record, ctx) => runI18nWriteStages(record, ctx, cfg),
     present: async (record, ctx) => runI18nPresent(record, ctx, cfg),
     describeFragment: () => buildI18nDescribeFragment(cfg),

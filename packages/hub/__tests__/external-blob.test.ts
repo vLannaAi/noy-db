@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
-import { withBlobs } from '../src/with-shape/blobs/index.js'
+import { withBlobs } from '../src/shape/via-blob/index.js'
 import { memoryObjectProjection } from '../src/with-shape/blobs/object-projection.js'
 import { importExternalObjects } from '../src/with-shape/blobs/import-external.js'
 

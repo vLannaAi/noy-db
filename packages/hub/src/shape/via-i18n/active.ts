@@ -46,7 +46,7 @@ export function withI18n(): I18nStrategy {
         opts.compartmentName,
         opts.dictionaryName,
         opts.keyring,
-        opts.getDEK,
+        opts.reservedEnvelopes,
         opts.encrypted,
         opts.ledger,
         opts.options,

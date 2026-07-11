@@ -33,7 +33,7 @@ import { NO_CRDT, type CrdtStrategy } from '../with-commit/crdt/strategy.js'
 import { NO_HISTORY, type HistoryStrategy } from '../with-commit/history/strategy.js'
 import { NO_I18N, type I18nStrategy } from '../port/with/i18n-strategy.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
-import { NO_BLOBS, type BlobStrategy } from '../with-shape/blobs/strategy.js'
+import { NO_BLOBS, type BlobStrategy } from '../port/with/blob-strategy.js'
 import { NO_AGGREGATE, type AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
 import { NO_TIERS, type TiersStrategy } from '../with-audit/tiers/strategy.js'
 import { NO_SEARCH, type SearchStrategy } from '../with-lookup/search/strategy.js'
@@ -43,9 +43,11 @@ import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
 import type { IndexDef } from '../with-lookup/indexing/eager-indexes.js'
 import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../port/with/i18n-strategy.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
-import { resolveClassifiedFields, ClassifiedConfigError, type ClassifiedEntry, type ResolvedClassified } from '../with-shape/classified/resolve.js'
-import { guardClassifiedCompat, type ClassifiedGuardCtx } from '../with-shape/classified/guards.js'
-import { NO_CLASSIFIED, type ClassifiedStrategy } from '../with-shape/classified/strategy.js'
+import {
+  resolveClassifiedFields, guardClassifiedCompat, NO_CLASSIFIED,
+  type ClassifiedEntry, type ResolvedClassified, type ClassifiedGuardCtx, type ClassifiedStrategy, type ClassifiedViaConfig,
+} from '../port/with/classified-strategy.js'
+import { ClassifiedConfigError } from './errors.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
 import type { RefDescriptor } from './refs.js'
@@ -473,13 +475,40 @@ export interface CollectionOpts<T> {
  * Compile a collection's declared config into the ordered list of `ViaBinding`s
  * for its `ViaPipeline`.
  *
- * money then i18n — order pinned for pipeline parity with the hand-wired
- * baseline this replaces: money encode ran before the i18n write stages,
- * and money decode ran before i18n locale/dict-label resolution on read.
+ * money then i18n then classified then blob — order pinned for pipeline
+ * parity with the hand-wired baseline this replaces: money encode ran before
+ * the i18n write stages, and money decode ran before i18n locale/dict-label
+ * resolution on read. Classified compiles after those (#629 Task 6): its
+ * `encodeAtRest`/`decodeAtRest` hooks make the pipeline's `hasAtRestHooks`
+ * true, retiring the codec's inline `sensitiveFields` seal path
+ * (record-codec.ts) for any collection that declares `classifiedFields` —
+ * `classifiedGuardCtx` is the SAME `ClassifiedGuardCtx`
+ * `resolveCollectionConfig` already built for door 1's
+ * `guardClassifiedCompat` call, threaded in by its one caller below. Blob
+ * compiles last (#629 Task 7) but its position is inert: the blob binding
+ * declares NO write/read pipeline hooks (blob content is out-of-band
+ * `BlobSet` side-collections — it must never flip `hasAtRestHooks`), only
+ * `erase`/`describeFragment`.
  * {@link Collection._applyMoneyFields} PREPENDS money for the same reason
- * on its own (MV-precreation reconcile) path — see its docstring.
+ * on its own (MV-precreation reconcile) path — see its docstring;
+ * {@link Collection._applyClassifiedFields} APPENDS classified on that same
+ * reconcile path (blobFields has no late-attach reconcile door).
+ *
+ * `eraseCfgOut` (#629 Task 10, optional out-param) — this function runs
+ * before the owning `Collection` exists (`this.codec` isn't built yet), so
+ * the classified binding's `classifySealedShred` closure can't be wired
+ * here. When supplied, `eraseCfgOut.classified` is set to the SAME cfg
+ * object instance handed to `viaBinder('classified')`, so a caller
+ * (`resolveCollectionConfig`) can thread it out to the `Collection`
+ * constructor, which mutates `classifySealedShred` in place once
+ * `this.codec` exists. Additive — every existing caller omits it and keeps
+ * getting a plain `ViaBinding[]`.
  */
-export function compileViaBindings<T>(opts: CollectionOpts<T>): ViaBinding[] {
+export function compileViaBindings<T>(
+  opts: CollectionOpts<T>,
+  classifiedGuardCtx: ClassifiedGuardCtx,
+  eraseCfgOut?: { classified?: ClassifiedViaConfig },
+): ViaBinding[] {
   const { moneyFields, i18nFields, dictKeyFields } = mergeViaFields(opts)
   const bindings: ViaBinding[] = []
   if (moneyFields) bindings.push(viaBinder('money')(moneyFields))
@@ -502,6 +531,21 @@ export function compileViaBindings<T>(opts: CollectionOpts<T>): ViaBinding[] {
       ...(opts.autoTranslateHook !== undefined ? { autoTranslateHook: opts.autoTranslateHook } : {}),
       ...(opts.dictLabelResolver !== undefined ? { dictLabelResolver: opts.dictLabelResolver } : {}),
       ...(opts.i18nPutValidator !== undefined ? { i18nPutValidator: opts.i18nPutValidator } : {}),
+      collectionName: opts.name,
+    }))
+  }
+  if (opts.classifiedFields !== undefined) {
+    const classifiedCfg: ClassifiedViaConfig = {
+      entries: opts.classifiedFields,
+      collectionName: opts.name,
+      guardCtx: classifiedGuardCtx,
+    }
+    if (eraseCfgOut) eraseCfgOut.classified = classifiedCfg
+    bindings.push(viaBinder('classified')(classifiedCfg))
+  }
+  if (opts.blobFields !== undefined) {
+    bindings.push(viaBinder('blob')({
+      fields: opts.blobFields,
       collectionName: opts.name,
     }))
   }
@@ -624,6 +668,10 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
   const perRecordCek = opts.perRecordKeys === true
   const cekCache = perRecordCek ? new Lru<string, EnclaveKey>({ maxRecords: 4096 }) : null
 
+  // #629 Task 10 — captures the classified binding's cfg (see compileViaBindings's doc comment) for the constructor's post-codec wiring.
+  const viaEraseCfgOut: { classified?: ClassifiedViaConfig } = {}
+  const via = ViaPipeline.build(compileViaBindings(opts, classifiedGuardCtx, viaEraseCfgOut))
+
   return {
     adapter: opts.adapter,
     vault: opts.vault,
@@ -663,7 +711,8 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     fieldMeta: opts.fieldMeta,
     meta: opts.meta,
     _refs: opts.declaredRefs ?? {},
-    via: ViaPipeline.build(compileViaBindings(opts)),
+    via,
+    classifiedEraseCfg: viaEraseCfgOut.classified,
     moneyFields: effectiveViaFields.moneyFields,
     classified: resolvedClassified,
     classifiedGuardCtx,

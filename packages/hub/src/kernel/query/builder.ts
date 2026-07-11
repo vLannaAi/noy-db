@@ -11,7 +11,7 @@ import { evaluateClause, hasFnClause } from './predicate.js'
 import type { CollectionIndexes } from '../../with-lookup/indexing/eager-indexes.js'
 import type { JoinableSource, JoinContext, JoinLeg, JoinStrategy } from './join.js'
 import { applyJoins } from './join.js'
-import { CrossJoinTooLargeError, CrossJoinSourceUnknownError } from '../errors.js'
+import { CrossJoinTooLargeError, CrossJoinSourceUnknownError, FieldNotQueryableError } from '../errors.js'
 import type { LiveQuery, LiveUpstream } from './live.js'
 import { buildLiveQuery } from './live.js'
 import type { AggregateSpec, AggregateResult, AggregationUpstream, Aggregation } from '../../with-lookup/aggregate/aggregation.js'
@@ -277,9 +277,16 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * quantized into stored scaled-int space at build time and evaluated
    * BigInt-exact per record. A malformed operand or a string operator
    * (`contains`/`startsWith`) throws here, at the call site.
+   *
+   * Consults the Via pipeline's posture before building a clause (#629
+   * Task 8): a field whose posture is `queryable: 'none'` (e.g. a
+   * `blobFields` slot) throws `FieldNotQueryableError` here, at the call
+   * site. Every other posture is unaffected — the existing per-binding
+   * `buildClause` machinery runs exactly as before.
    */
   where(field: QueryField<T, S, Q>, op: Operator, value: unknown): Query<T, S, Q, M> {
     const via = this.source.via
+    if (via?.postureFor(field)?.queryable === 'none') throw new FieldNotQueryableError(field)
     const viaClause = via?.buildClause(field, op, value)
     const clause: FieldClause = viaClause
       ? {
@@ -367,8 +374,13 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * Sort by a field. Subsequent calls are tie-breakers. Pass
    * `{ by: 'label' }` to sort a `dictKey`/`staticDict` field by its resolved
    * label at the query locale instead of the stored code.
+   *
+   * Consults the Via pipeline's posture (#629 Task 8): a field whose posture
+   * is `queryable: 'none'` throws `FieldNotQueryableError` here, at the call
+   * site — same gate as `where()`.
    */
   orderBy(field: QueryField<T, S>, direction: 'asc' | 'desc' = 'asc', opts?: { by?: 'value' | 'label' }): Query<T, S, Q, M> {
+    if (this.source.via?.postureFor(field)?.queryable === 'none') throw new FieldNotQueryableError(field)
     const entry: OrderBy = opts?.by === 'label' ? { field, direction, by: 'label' } : { field, direction }
     return new Query<T, S, Q, M>(
       this.source as QuerySource<T>,

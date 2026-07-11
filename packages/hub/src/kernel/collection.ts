@@ -1,19 +1,15 @@
 import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult, SealedView, VdigFieldPolicy, ClassifiedVerdict } from './types.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
-import { resolveClassifiedFields, ClassifiedConfigError, type ClassifiedEntry, type ClassifiedFieldSpec, type ResolvedClassified } from '../with-shape/classified/resolve.js'
-import { ClassifiedRevealError, ClassifiedVerifyError } from '../with-shape/classified/errors.js'
-import { guardClassifiedCompat, type ClassifiedGuardCtx } from '../with-shape/classified/guards.js'
-import type { ClassifiedStrategy, ClassifiedVerifyCtx } from '../with-shape/classified/strategy.js'
+import { resolveClassifiedFields, guardClassifiedCompat, type ClassifiedEntry, type ClassifiedFieldSpec, type ResolvedClassified, type ClassifiedGuardCtx, type ClassifiedStrategy, type ClassifiedVerifyCtx } from '../port/with/classified-strategy.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from '../with-commit/crdt/crdt.js'
 import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
 import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../port/with/i18n-strategy.js'
 import { isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
 import { ViaPipeline } from './via-pipeline.js'
-import { viaBinder, type ViaDescriptor } from './via.js'
+import { viaBinder, type ViaDescriptor, type ViaWriteCtx, type ViaEraseReport } from './via.js'
 import type { MutationOrigin } from './mutation.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
-import { enforceClassifiedWrite } from '../with-shape/classified/write.js'
 import {
   isTombstone,
   isDeleteMarker,
@@ -47,7 +43,7 @@ import {
   purgePersistedIndexes as purgePersistedIndexesImpl,
   type IndexingContext,
 } from '../with-lookup/indexing/collection-facade.js'
-import { ConflictError, ReadOnlyError } from './errors.js'
+import { ConflictError, ReadOnlyError, ClassifiedConfigError, ClassifiedRevealError, ClassifiedVerifyError } from './errors.js'
 import type { GhostRecord, TierMode, CrossTierAccessEvent } from './types.js'
 import type { UnlockedKeyring } from '../with-party/team/keyring.js'
 import { hasWritePermission } from '../with-party/team/keyring.js'
@@ -87,7 +83,7 @@ import { generateULID } from '../with-pod/ulid.js'
 import type { PresenceHandle, PresenceHandleOpts } from '../with-party/team/presence.js'
 import type { SyncStrategy } from '../with-party/team/sync-strategy.js'
 import type { BlobSet } from '../with-shape/blobs/blob-set.js'
-import type { BlobStrategy } from '../with-shape/blobs/strategy.js'
+import type { BlobStrategy } from '../port/with/blob-strategy.js'
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { BlobFieldsConfig } from '../with-shape/blobs/blob-compaction.js'
 import type { AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
@@ -755,11 +751,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       }
     }
 
-    // Build the record codec once. Constructed AFTER every dependency it reads
-    // is assigned (name, keyring, storeCiphertext, provenance, sensitiveFields,
-    // deterministicFields, crdtMode, crdtStrategy, schema, getDEK, cekCache).
-    // `cekCache` is passed as the SAME reference (not a copy) so the codec's
-    // resolveEnvelopeCek and the tier/forget cache evictions all see one object.
+    // Build the record codec once, AFTER every dependency it reads is assigned
+    // (name, keyring, storeCiphertext, provenance, sensitiveFields, deterministicFields,
+    // crdtMode, crdtStrategy, schema, getDEK, cekCache, via). `cekCache` is the SAME
+    // reference (not a copy) — the codec's resolveEnvelopeCek and the tier/forget cache evictions share it.
     this.codec = new RecordCodec<T>({
       name: this.name,
       actor: this.keyring.userId,
@@ -772,11 +767,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       crdtMode: this.crdtMode,
       crdtStrategy: this.crdtStrategy,
       schema: this.schema,
-      getDEK: () => this.getDEK(this.name),
+      getDEK: (collection) => this.getDEK(collection ?? this.name),
       cekCache: this.cekCache,
       classifiedMarkerDigestOnly: () => this._classifiedMarkerDigestOnly(),
-    })
-
+      via: this.via,
+    }) // #629 T10: classifySealedShred wired onto cfg.classifiedEraseCfg just below, once this.codec exists
+    if (cfg.classifiedEraseCfg) cfg.classifiedEraseCfg.classifySealedShred = (live) => this.codec.classifySealedShred(live as EncryptedEnvelope)
     // Build + register this collection's SyncEngine conflict resolvers (the CRDT
     // merge resolver + the per-collection `conflictPolicy` resolver). Kept inline
     // here: the closures capture private `this` state (this.codec,
@@ -863,7 +859,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
           const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
           // R2 refuses digest-only × conflictPolicy; on a vdig collection this path is
           // unreachable and the codec fail-loud guard backstops it.
-          return this.codec.encryptRecord(merged, mergedVersion, cek)
+          return this.codec.encryptRecord(merged, mergedVersion, cek, undefined, undefined, undefined, id)
         }
       }
 
@@ -1381,6 +1377,11 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     }
     this.classified = resolved
     this.computed = { ...resolved.riderComputed, ...(this.computed ?? {}) }
+    // APPEND (not prepend, unlike {@link _applyMoneyFields}) — compile order
+    // is money→i18n→classified; this keeps classified last regardless of order.
+    this.via = ViaPipeline.build([...(this.via?.bindings ?? []), viaBinder('classified')({
+      entries: classifiedFields, collectionName: this.name, guardCtx: this.classifiedGuardCtx, classifySealedShred: (live: unknown) => this.codec.classifySealedShred(live as EncryptedEnvelope), // #629 T10
+    })])
   }
 
   /** @internal — used only in tests; do not read in production code. */
@@ -1603,7 +1604,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       if (cached) return cached.record as Record<string, unknown>
       const env = await this.adapter.get(this.vault, this.name, id)
       if (!env) return undefined
-      const rec = await this.codec.decryptRecord(env)
+      const rec = await this.codec.decryptRecord(env, { id })
       return rec === null ? undefined : (rec as Record<string, unknown>)
     }
     await this.ensureHydrated()
@@ -1655,7 +1656,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       if (cached) return { record: cached.record, version: cached.version }
       const env = await this.adapter.get(this.vault, this.name, id)
       if (!env) return { record: null, version: 0 }
-      return { record: (await this.codec.decryptRecord(env, { skipValidation: true })) as unknown ?? null, version: env._v }
+      return { record: (await this.codec.decryptRecord(env, { skipValidation: true, id })) as unknown ?? null, version: env._v }
     }
     await this.ensureHydrated()
     const cached = this.cache.get(id)
@@ -1692,7 +1693,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const env = await this.adapter.get(this.vault, this.name, id)
     if (!env) return { env: null, record: null, elided: false }
     try {
-      return { env, record: await this.codec.decryptRecord(env, { skipValidation: true }), elided: false }
+      return { env, record: await this.codec.decryptRecord(env, { skipValidation: true, id }), elided: false }
     } catch {
       return { env, record: null, elided: false }
     }
@@ -1750,11 +1751,19 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       await this.subsystemBus.dispatchGate('beforePut', gateEvent)
     }
 
-    // Classified enforcement — storage:'never' rejection + validators run
-    // before riders derive and before the schema sees the record.
-    if (this.classified !== undefined) {
-      enforceClassifiedWrite(record as Record<string, unknown>, this.classified.byField, this.name)
+    // Shared Via write ctx for enforceWrite + encodeWrite below (`prior` is
+    // lazy — paid only if a binding calls it, e.g. i18n densify).
+    const viaWriteCtx: ViaWriteCtx = {
+      id,
+      vault: this.vault,
+      prior: async () => (await this.resolveDensifyPrior(id)) ?? null,
+      emit: (e: string, p: unknown) => (this.emitter.emit as (ev: string, pl: unknown) => void)(e, p),
     }
+
+    // Via enforceWrite phase — classified storage:'never' rejection +
+    // validators, before riders derive/schema sees the record (#629 Task 6:
+    // was a direct enforceClassifiedWrite call, now the pipeline's hook).
+    if (this.via) await this.via.enforceWrite(record as Record<string, unknown>, viaWriteCtx)
 
     // Computed scalar fields — evaluated FIRST so the user need not supply
     // them and the schema validates the computed result. Throws
@@ -1774,21 +1783,11 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       record = await validateSchemaInput(this.schema, record, `put(${id})`)
     }
 
-    // Single Via encode-write phase: money quantize (After schema validation
-    // — descriptor owns precision/scale/currency), then i18nText
-    // translate→densify-prior-read→script→validate→densify (via the i18n
-    // binding, when declared) — binding order is money-first (see
-    // {@link compileViaBindings}). `prior` mirrors {@link resolveDensifyPrior}
-    // exactly (same basis the densify-prior read used before this cutover)
-    // and is lazily invoked — only paid when a binding's densify actually
-    // calls it.
+    // Single Via encode-write phase: money quantize, then i18nText
+    // translate→densify→script→validate→densify (via the i18n binding) —
+    // binding order is money-first (see {@link compileViaBindings}).
     if (this.via) {
-      record = await this.via.encodeWrite(record as Record<string, unknown>, {
-        id,
-        vault: this.vault,
-        prior: async () => (await this.resolveDensifyPrior(id)) ?? null,
-        emit: (e: string, p: unknown) => (this.emitter.emit as (ev: string, pl: unknown) => void)(e, p),
-      }) as T
+      record = await this.via.encodeWrite(record as Record<string, unknown>, viaWriteCtx) as T
     }
 
     // Foreign-key ref enforcement. Runs AFTER schema
@@ -1862,7 +1861,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       if (existingResolved && this.historyConfig.enabled !== false) {
         // History snapshot of the PRIOR version — does NOT carry source from the new write
         const vdigCtx = this.vdigFields !== null ? { id, prev: existingEnvelope } : undefined
-        const histEnvelope = await this.codec.encryptRecord(existingResolved.record, existingResolved.version, cek, undefined, undefined, vdigCtx)
+        const histEnvelope = await this.codec.encryptRecord(existingResolved.record, existingResolved.version, cek, undefined, undefined, vdigCtx, id)
         await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, histEnvelope)
         this.emitter.emit('history:save', { vault: this.vault, collection: this.name, id, version: existingResolved.version })
         if (this.historyConfig.maxVersions) {
@@ -1911,7 +1910,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       if (!existing) {
         priorRaw = await this.adapter.get(this.vault, this.name, id)
         if (priorRaw) {
-          const previousRecord = await this.codec.decryptRecord(priorRaw)
+          const previousRecord = await this.codec.decryptRecord(priorRaw, { id })
           // Tombstone (shredded) prior → treat as no previous version.
           if (previousRecord !== null) {
             existing = { record: previousRecord, version: priorRaw._v }
@@ -1964,7 +1963,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // CRITICAL: the history snapshot is a record of the PRIOR version — it must
     // NOT carry the source from the current write (source belongs to the new write only).
     if (existing && this.historyConfig.enabled !== false) {
-      const historyEnvelope = await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, vdigCtx)
+      const historyEnvelope = await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, vdigCtx, id)
       await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, historyEnvelope)
 
       this.emitter.emit('history:save', {
@@ -1982,7 +1981,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       }
     }
 
-    const envelope = await this.codec.encryptRecord(record, version, cek, options?.source, options?.sourceTs, vdigCtx)
+    const envelope = await this.codec.encryptRecord(record, version, cek, options?.source, options?.sourceTs, vdigCtx, id)
     await this.adapter.put(this.vault, this.name, id, envelope)
 
     // C-A/R10: persist the x-classified marker on the first classified write
@@ -2543,7 +2542,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       // stays directly under the collection DEK. `forget()`/shred reports
       // un-migrated records explicitly rather than claiming erasure.
       const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
-      const newEnv = await this.codec.encryptRecord(next as unknown as T, nextVersion, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: env } : undefined)
+      const newEnv = await this.codec.encryptRecord(next as unknown as T, nextVersion, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: env } : undefined, id)
       await this.adapter.put(this.vault, this.name, id, newEnv)
       await this._onRecordMutated(id, 'put', 'cutover') // refresh in-memory cache after the raw write (parity: cache only)
       if (this.ledger) {
@@ -2664,7 +2663,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       if (!existing && this.historyConfig.enabled !== false) {
         const previousEnvelope = await this.adapter.get(this.vault, this.name, id)
         if (previousEnvelope) {
-          const previousRecord = await this.codec.decryptRecord(previousEnvelope)
+          const previousRecord = await this.codec.decryptRecord(previousEnvelope, { id })
           // Tombstone (shredded) prior → no record to snapshot on delete.
           if (previousRecord !== null) {
             existing = { record: previousRecord, version: previousEnvelope._v }
@@ -2682,7 +2681,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (existing && this.historyConfig.enabled !== false) {
       const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
       const prevForVdig = this.vdigFields !== null ? await this.adapter.get(this.vault, this.name, id) : null
-      const historyEnvelope = await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: prevForVdig } : undefined)
+      const historyEnvelope = await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: prevForVdig } : undefined, id)
       await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, historyEnvelope)
     }
 
@@ -3430,7 +3429,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const entries: HistoryEntry<T>[] = []
     for (const env of envelopes) {
       // History reads skip schema validation — see getVersion() docs.
-      const record = await this.codec.decryptRecord(env, { skipValidation: true })
+      const record = await this.codec.decryptRecord(env, { skipValidation: true, id })
       // Shredded (tombstoned) history version: the body is permanently gone,
       // so there is nothing to return — skip it. The version still counted in
       // the audit ledger; history() just can't surface its erased content.
@@ -3459,7 +3458,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       this.adapter, this.vault, this.name, id, version,
     )
     if (!envelope) return null
-    return this.codec.decryptRecord(envelope, { skipValidation: true })
+    return this.codec.decryptRecord(envelope, { skipValidation: true, id })
   }
 
   /** Revert a record to a past version. Creates a new version with the old content. */
@@ -3591,7 +3590,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       const id = ids[i]!
       const envelope = await this.adapter.get(this.vault, this.name, id)
       if (envelope) {
-        const record = await this.codec.decryptRecord(envelope, { sealedAsHandles: true })
+        const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
         if (record === null) continue // shredded (tombstone) — skip
         items.push(record)
         // Same lazy-mode skip as the native path: don't pollute the LRU
@@ -3694,7 +3693,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     for (const { id, envelope } of items) {
       // Public scan/listPage output (and the opportunistic cache fill in
       // listPage) — sealed fields surface as handles, never plaintext.
-      const record = await this.codec.decryptRecord(envelope, { sealedAsHandles: true })
+      const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
       if (record === null) continue // shredded (tombstone) — skip the page row
       out.push({ id, record, version: envelope._v })
     }
@@ -3759,7 +3758,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       return
     }
     // Handle-form for the cache (non-residency for sensitive fields).
-    const record = await this.codec.decryptRecord(envelope, { sealedAsHandles: true })
+    const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
     if (record === null) {
       // The on-disk envelope is now a tombstone (shredded). Treat exactly
       // like a deleted record: drop the cache entry and its index rows.
@@ -4026,7 +4025,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       // chain. `undefined` → legacy path.
       const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
       const prevForVdig = this.vdigFields !== null ? await this.adapter.get(this.vault, this.name, id) : null
-      result[id] = await this.codec.encryptRecord(entry.record, entry.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: prevForVdig } : undefined)
+      result[id] = await this.codec.encryptRecord(entry.record, entry.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: prevForVdig } : undefined, id)
     }
     return result
   }
@@ -4317,7 +4316,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /** C-A/R10: persist the classified marker once per classified handle (store I/O in config-drift.ts). */
   private async _ensureClassifiedMarker(): Promise<void> {
     if (this._markerPersisted || this.vdigFields === null) return
-    const { persistClassifiedMarkerForFields } = await import('../with-shape/classified/config-drift.js')
+    const { persistClassifiedMarkerForFields } = await import('../port/with/classified-marker.js')
     await persistClassifiedMarkerForFields(this.adapter, this.vault, this.name, this.vdigFields, await this.getDEK(this.name))
     this._markerPersisted = true
   }
@@ -4325,7 +4324,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /** C-A/R10 drift signal — the marker's declared digest-only set, memoized to one store read per handle (see config-drift.ts). */
   private async _classifiedMarkerDigestOnly(): Promise<readonly string[]> {
     if (this._markerDigestOnlyCache !== undefined) return this._markerDigestOnlyCache
-    const { readClassifiedMarkerDigestOnly } = await import('../with-shape/classified/config-drift.js')
+    const { readClassifiedMarkerDigestOnly } = await import('../port/with/classified-marker.js')
     this._markerDigestOnlyCache = await readClassifiedMarkerDigestOnly(this.adapter, this.vault, this.name, await this.getDEK(this.name))
     return this._markerDigestOnlyCache
   }
@@ -4424,6 +4423,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     return classifySealedShredImpl(this.tiersContext(), live)
   }
 
+  async _onViaErase(id: string, live: EncryptedEnvelope): Promise<ViaEraseReport | undefined> { return this.via ? this.via.eraseSealed({ id, vault: this.vault, live, crypto: await this.codec.eraseCryptoCtx(id, live) }) : undefined } // @internal forget()'s per-ref via-erase fold (#629 T10)
   /**
    * Bind the {@link TiersContext} the tier ops need. The `cekCache` is passed
    * by reference (the SAME `Lru` the kernel's read/write path owns) so an

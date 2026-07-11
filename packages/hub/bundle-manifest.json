@@ -20,6 +20,10 @@
       "minifiedBytes": 2844,
       "gzippedBytes": 1029
     },
+    "blobs": {
+      "minifiedBytes": 1556,
+      "gzippedBytes": 543
+    },
     "analytics": {
       "minifiedBytes": 2367,
       "gzippedBytes": 898
