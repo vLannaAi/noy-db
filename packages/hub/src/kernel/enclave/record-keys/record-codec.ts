@@ -16,10 +16,11 @@
  *
  * Internal service — not exported as a `@noy-db/hub/*` subpath.
  */
-import { encrypt, decrypt, encryptDeterministic, deriveDeterministicKey, wrapCek, unwrapCek, deriveSealedFieldKey, deriveSealedFieldKeyFromCek, type EnclaveKey } from '../crypto.js'
-import { NOYDB_FORMAT_VERSION, SealedHandle, type EncryptedEnvelope, type CrdtMode, type CrdtState, type CrdtStrategy, type VdigFieldPolicy } from '../../types.js'
+import { encrypt, decrypt, encryptDeterministic, deriveDeterministicKey, wrapCek, unwrapCek, deriveSealedFieldKeyFromCek, type EnclaveKey } from '../crypto.js'
+import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope, type CrdtMode, type CrdtState, type CrdtStrategy, type VdigFieldPolicy, type SealedHandle } from '../../types.js'
 import { isTombstone, isDeleteMarker } from './tombstone.js'
-import { parseSealedSlot, dualReadSealedSlot } from './sealed-slot.js'
+import { parseSealedSlot } from './sealed-slot.js'
+import { sealFields, unsealOneField, unsealFields, makeHandleProducer, type SealKeyMaterial } from './sealed-slots.js'
 import { DebugReservedFieldError, ClassifiedConfigError, ValidationError } from '../../errors.js'
 import { mintVdigSlot } from '../classify/write.js'
 import { mintBidxTag } from '../classify/bidx.js'
@@ -85,6 +86,15 @@ export interface RecordCodecContext<T> {
 
 export class RecordCodec<T> {
   constructor(private readonly ctx: RecordCodecContext<T>) {}
+
+  /** Sealed-slot key material for this codec's collection, for a given per-record CEK (or none). */
+  private sealKeyMaterial(cek: EnclaveKey | undefined): SealKeyMaterial {
+    return {
+      collection: this.ctx.name,
+      ...(cek !== undefined ? { cek } : {}),
+      getDEK: () => this.ctx.getDEK(),
+    }
+  }
 
   // ──────────────────────────────────────────────────────────────────────
   // Low-level literal builders
@@ -267,23 +277,10 @@ export class RecordCodec<T> {
     let sealed: Record<string, string> | undefined
     if (this.ctx.storeCiphertext && this.ctx.sensitiveFields.size > 0) {
       const src = record as unknown as Record<string, unknown>
-      const dek = await this.ctx.getDEK()
-      const open: Record<string, unknown> = { ...src }
-      const slots: Record<string, string> = {}
-      for (const field of this.ctx.sensitiveFields) {
-        if (!(field in src)) continue
-        const value = src[field]
-        if (value === undefined) continue
-        const fieldKey = cek !== undefined
-          ? await deriveSealedFieldKeyFromCek(cek, this.ctx.name, field)
-          : await deriveSealedFieldKey(dek, this.ctx.name, field)
-        const { iv, data } = await encrypt(JSON.stringify(value), fieldKey)
-        slots[field] = `${iv}:${data}`
-        delete open[field]
-      }
-      if (Object.keys(slots).length > 0) {
-        sealed = slots
-        openRecord = open as unknown as T
+      const result = await sealFields(src, this.ctx.sensitiveFields, this.sealKeyMaterial(cek))
+      if (result.sealed !== undefined) {
+        sealed = result.sealed
+        openRecord = result.openRecord as unknown as T
       }
     }
 
@@ -488,8 +485,7 @@ export class RecordCodec<T> {
     // CEK-encrypted) are sealed under the collection-DEK key. Try the CEK key
     // first; on its AES-GCM auth failure, fall back to the DEK key. Without this
     // fallback every legacy `_sealed` record would throw TamperedError (data loss).
-    const dek = await this.ctx.getDEK()
-    return JSON.parse(await dualReadSealedSlot(blob, field, this.ctx.name, cek, dek))
+    return unsealOneField(field, blob, this.sealKeyMaterial(cek))
   }
 
   /**
@@ -550,7 +546,7 @@ export class RecordCodec<T> {
    * exposing the value, which decrypts only on `reveal()`.
    */
   makeSealedHandle(field: string, blob: string, cek?: EnclaveKey): SealedHandle<unknown> {
-    return new SealedHandle(() => this.unsealField(field, blob, cek))
+    return makeHandleProducer(this.sealKeyMaterial(cek))(field, blob)
   }
 
   /**
@@ -614,12 +610,12 @@ export class RecordCodec<T> {
     // plaintext is never materialised into the working-set cache.
     if (envelope._sealed !== undefined && this.ctx.storeCiphertext) {
       const sealedCek = await this.resolveEnvelopeCek(envelope, opts.id)
-      const target = record as unknown as Record<string, unknown>
-      for (const [field, blob] of Object.entries(envelope._sealed)) {
-        target[field] = opts.sealedAsHandles
-          ? this.makeSealedHandle(field, blob, sealedCek)
-          : await this.unsealField(field, blob, sealedCek)
-      }
+      record = await unsealFields(
+        record as unknown as Record<string, unknown>,
+        envelope._sealed,
+        this.sealKeyMaterial(sealedCek),
+        { asHandles: opts.sealedAsHandles === true },
+      ) as unknown as T
     }
 
     // Skip output validation when sealed fields are returned as handles:
