@@ -126,7 +126,7 @@ import {
   type ClosePeriodOptions,
   type OpenPeriodOptions,
 } from '../with-audit/periods/index.js'
-import { encrypt, openEnvelopeJson, hasPerRecordKey, SEALED_CEK_NS, type SealingContext, type EnclaveKey, type SealedShredSlot, isDeleteMarker, makeReservedEnvelopes } from './enclave/index.js'
+import { encrypt, openEnvelopeJson, hasPerRecordKey, SEALED_CEK_NS, type SealingContext, type EnclaveKey, isDeleteMarker, makeReservedEnvelopes } from './enclave/index.js'
 import type { RecipientSealer } from '../with-party/team/managed-passphrase.js'
 import {
   createExportBlobsHandle,
@@ -2389,8 +2389,7 @@ export class Vault {
       this.forgetStrategy.subjects,
       async (collectionName, id, env) => {
         const coll = this.collection<Record<string, unknown>>(collectionName)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return (coll as any)._decodeEnvelope(env, id) as Promise<Record<string, unknown> | null>
+        return coll._decodeEnvelope(env, id)
       },
     )
   }
@@ -2456,26 +2455,25 @@ export class Vault {
       if (perRecordKeys && live && live._data && !hasPerRecordKey(live)) {
         unmigratedRecords.push(`${ref.collection}:${ref.id}`)
       }
-      // Classify each `_sealed` slot BEFORE tombstoning (#M-1, security
-      // review). A slot keyed off the per-record CEK is genuinely shredded when
-      // `_cek` drops; a collection-DEK-derived slot is NOT (the DEK is
-      // retained → synced/backup copies stay decryptable). Count only the
-      // former as shredded; report the latter as residue.
+      // Classify each `_sealed`/`_vdig` slot BEFORE tombstoning (#M-1, security
+      // review): CEK-keyed → shreddable (tombstone erases it); collection-DEK-
+      // keyed → NOT (retained → synced/backup copies stay decryptable); the
+      // `_bidx` case is both (dual accounting). #629 Task 10: a compiled-in
+      // classified via binding owns this via `_onViaErase`'s sealed-posture
+      // fold (metadata-driven); bare-`sensitive` collections fall back below.
       if (live?._sealed !== undefined) {
         try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const cls = await (coll as any)._classifySealedShred(live) as { readonly slots: readonly SealedShredSlot[] }
-          for (const slot of cls.slots) {
-            // 'shreddable' → CEK-only, the tombstone genuinely erases it.
-            // 'live-shreddable+dekResidue-in-backups' (the `_bidx` case) is BOTH:
-            // live-dropped by the tombstone (counts as shredded) yet retained
-            // under the surviving DEK in any pre-forget backup (also residue) —
-            // honest dual accounting.
-            if (slot.class === 'shreddable' || slot.class === 'live-shreddable+dekResidue-in-backups') {
-              sealedFieldsShredded += 1
+          const viaReport = await coll._onViaErase(ref.id, live)
+          if (viaReport) {
+            sealedFieldsShredded += viaReport.shredded
+            for (const entry of viaReport.residue as readonly { readonly kind?: string; readonly field?: string }[]) {
+              if (entry.kind === 'classified-sealed-dek-residue' && entry.field !== undefined) sealedResidue.push(`${ref.collection}:${ref.id}:${entry.field}`)
             }
-            if (slot.class === 'dekResidue' || slot.class === 'live-shreddable+dekResidue-in-backups') {
-              sealedResidue.push(`${ref.collection}:${ref.id}:${slot.field}`)
+          } else {
+            const cls = await coll._classifySealedShred(live)
+            for (const slot of cls.slots) {
+              if (slot.class === 'shreddable' || slot.class === 'live-shreddable+dekResidue-in-backups') sealedFieldsShredded += 1
+              if (slot.class === 'dekResidue' || slot.class === 'live-shreddable+dekResidue-in-backups') sealedResidue.push(`${ref.collection}:${ref.id}:${slot.field}`)
             }
           }
         } catch {
@@ -2507,8 +2505,7 @@ export class Vault {
 
       let shred: { previousVersion: number } | null
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        shred = await (coll as any)._writeTombstone(ref.id, actor) as { previousVersion: number } | null
+        shred = await coll._writeTombstone(ref.id, actor)
       } catch (cause) {
         if (satelliteOf === undefined) throw cause // base ref: pre-existing (unwrapped) fail-loud behavior
         throw new SatelliteConfigError( // R-S4: abort the whole forget rather than leave the heavy side un-erased
@@ -2529,16 +2526,14 @@ export class Vault {
       // Purge the record's persisted `_idx` side-cars: they live under
       // the retained collection DEK, so crypto-shred alone leaves the indexed
       // field VALUES readable. Content-free delete; failures → indexResidue.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const idxPurge = await (coll as any)._purgePersistedIndexes(ref.id) as { purged: number; residue: string[] }
+      const idxPurge = await coll._purgePersistedIndexes(ref.id)
       indexPostingsPurged += idxPurge.purged
       for (const field of idxPurge.residue) indexResidue.push(`${ref.collection}:${ref.id}:${field}`)
 
       // Purge the record's encrypted _vec sidecar: a vector embedding
       // is text-invertible, so it must not survive crypto-shred of the source record.
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (coll as any)._purgeVector(ref.id)
+        await coll._purgeVector(ref.id)
       } catch {
         indexResidue.push(`${ref.collection}:${ref.id}:_vec`)
       }
@@ -2574,8 +2569,7 @@ export class Vault {
     // blob is erasure residue surfaced in the returned ForgetResult.
     for (const collName of collections) {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (this.collection(collName) as any)._purgeSearchIndex()
+        await this.collection(collName)._purgeSearchIndex()
       } catch {
         indexResidue.push(`${collName}:_ftindex`)
       }

@@ -7,7 +7,7 @@ import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
 import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../port/with/i18n-strategy.js'
 import { isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
 import { ViaPipeline } from './via-pipeline.js'
-import { viaBinder, type ViaDescriptor, type ViaWriteCtx } from './via.js'
+import { viaBinder, type ViaDescriptor, type ViaWriteCtx, type ViaEraseReport } from './via.js'
 import type { MutationOrigin } from './mutation.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import {
@@ -771,8 +771,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       cekCache: this.cekCache,
       classifiedMarkerDigestOnly: () => this._classifiedMarkerDigestOnly(),
       via: this.via,
-    })
-
+    }) // #629 T10: classifySealedShred wired onto cfg.classifiedEraseCfg just below, once this.codec exists
+    if (cfg.classifiedEraseCfg) cfg.classifiedEraseCfg.classifySealedShred = (live) => this.codec.classifySealedShred(live as EncryptedEnvelope)
     // Build + register this collection's SyncEngine conflict resolvers (the CRDT
     // merge resolver + the per-collection `conflictPolicy` resolver). Kept inline
     // here: the closures capture private `this` state (this.codec,
@@ -1380,7 +1380,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // APPEND (not prepend, unlike {@link _applyMoneyFields}) — compile order
     // is money→i18n→classified; this keeps classified last regardless of order.
     this.via = ViaPipeline.build([...(this.via?.bindings ?? []), viaBinder('classified')({
-      entries: classifiedFields, collectionName: this.name, guardCtx: this.classifiedGuardCtx,
+      entries: classifiedFields, collectionName: this.name, guardCtx: this.classifiedGuardCtx, classifySealedShred: (live: unknown) => this.codec.classifySealedShred(live as EncryptedEnvelope), // #629 T10
     })])
   }
 
@@ -4423,6 +4423,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     return classifySealedShredImpl(this.tiersContext(), live)
   }
 
+  async _onViaErase(id: string, live: EncryptedEnvelope): Promise<ViaEraseReport | undefined> { return this.via ? this.via.eraseSealed({ id, vault: this.vault, live, crypto: await this.codec.eraseCryptoCtx(id, live) }) : undefined } // @internal forget()'s per-ref via-erase fold (#629 T10)
   /**
    * Bind the {@link TiersContext} the tier ops need. The `cekCache` is passed
    * by reference (the SAME `Lru` the kernel's read/write path owns) so an

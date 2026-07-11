@@ -547,6 +547,16 @@ export class RecordCodec<T> {
   }
 
   /**
+   * Build the `ViaCryptoCtx` for forget()'s per-ref via-erase fold (#629
+   * Task 10) — resolves the live envelope's CEK exactly like
+   * `decryptRecord` does, then delegates to the same capability factory
+   * `encodeAtRest`/`decodeAtRest` use.
+   */
+  async eraseCryptoCtx(id: string, live: EncryptedEnvelope): Promise<ViaCryptoCtx> {
+    return this.viaCryptoCtx(id, await this.resolveEnvelopeCek(live, id))
+  }
+
+  /**
    * Classify a live envelope's `_sealed` slots for crypto-shred completeness.
    * `forget()` drops `_cek`/`_sealed` but
    * RETAINS the collection DEK, so only a slot keyed off the per-record CEK is

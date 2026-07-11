@@ -207,6 +207,47 @@ describe('ViaPipeline.erase', () => {
 
     expect(result).toEqual({ shredded: 0, residue: [] })
   })
+
+  it('#629 Task 10 — skips a binding declaring forgettable: false even if it defines erase', async () => {
+    const notForgettable: ViaBinding = {
+      brand: 'a', posture: { ...posture(), forgettable: false }, erase: async () => ({ shredded: 9, residue: ['should-not-appear'] }),
+    }
+    const b: ViaBinding = { brand: 'b', posture: posture(), erase: async () => ({ shredded: 1, residue: [] }) }
+    const p = ViaPipeline.build([notForgettable, b])!
+
+    const result = await p.erase(eraseCtxFixture())
+
+    expect(result).toEqual({ shredded: 1, residue: [] })
+  })
+
+  it('#629 Task 10 — sums retainedShared across bindings, present only when > 0', async () => {
+    const a: ViaBinding = { brand: 'a', posture: posture(), erase: async () => ({ shredded: 1, residue: [], retainedShared: 2 }) }
+    const b: ViaBinding = { brand: 'b', posture: posture(), erase: async () => ({ shredded: 1, residue: [], retainedShared: 3 }) }
+    const p = ViaPipeline.build([a, b])!
+
+    const result = await p.erase(eraseCtxFixture())
+
+    expect(result).toEqual({ shredded: 2, residue: [], retainedShared: 5 })
+  })
+})
+
+describe('ViaPipeline.eraseSealed (#629 Task 10 — forget()\'s sealed-posture-only fold)', () => {
+  it('folds ONLY bindings whose posture is encryptedAtRest: "sealed", ignoring others', async () => {
+    const sealed: ViaBinding = { brand: 'classified', posture: { ...posture(), encryptedAtRest: 'sealed' }, erase: async () => ({ shredded: 1, residue: ['sealed-residue'] }) }
+    const notSealed: ViaBinding = { brand: 'blob', posture: posture(), erase: async () => ({ shredded: 99, residue: ['should-not-appear'] }) }
+    const p = ViaPipeline.build([sealed, notSealed])!
+
+    const result = await p.eraseSealed(eraseCtxFixture())
+
+    expect(result).toEqual({ shredded: 1, residue: ['sealed-residue'] })
+  })
+
+  it('returns undefined when no binding declares sealed posture', async () => {
+    const a: ViaBinding = { brand: 'a', posture: posture(), erase: async () => ({ shredded: 1, residue: [] }) }
+    const p = ViaPipeline.build([a])!
+
+    expect(await p.eraseSealed(eraseCtxFixture())).toBeUndefined()
+  })
 })
 
 describe('ViaPipeline.hasAtRestHooks (async-stack detection)', () => {

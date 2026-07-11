@@ -21,6 +21,12 @@ import type { EncryptedEnvelope } from '../../kernel/types.js'
 import type { EnclaveKey } from '../../kernel/enclave/index.js'
 import { linkClassifiedVia } from '../../shape/via-classified/binding.js'
 
+// #629 Task 10 — re-export the classified binding's erase-cfg TYPE (not
+// `shape/via-classified/binding.js` directly) so the kernel spine can name
+// it for the post-construction `classifySealedShred` wiring, same rationale
+// as `resolveClassifiedFields`/`guardClassifiedCompat` above.
+export type { ClassifiedViaConfig } from '../../shape/via-classified/binding.js'
+
 export type { ClassifiedVerdict } from '../../kernel/types.js'
 import type { ClassifiedVerdict } from '../../kernel/types.js'
 

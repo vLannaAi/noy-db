@@ -45,7 +45,7 @@ import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, Dicti
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import {
   resolveClassifiedFields, guardClassifiedCompat, NO_CLASSIFIED,
-  type ClassifiedEntry, type ResolvedClassified, type ClassifiedGuardCtx, type ClassifiedStrategy,
+  type ClassifiedEntry, type ResolvedClassified, type ClassifiedGuardCtx, type ClassifiedStrategy, type ClassifiedViaConfig,
 } from '../port/with/classified-strategy.js'
 import { ClassifiedConfigError } from './errors.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
@@ -493,8 +493,22 @@ export interface CollectionOpts<T> {
  * on its own (MV-precreation reconcile) path — see its docstring;
  * {@link Collection._applyClassifiedFields} APPENDS classified on that same
  * reconcile path (blobFields has no late-attach reconcile door).
+ *
+ * `eraseCfgOut` (#629 Task 10, optional out-param) — this function runs
+ * before the owning `Collection` exists (`this.codec` isn't built yet), so
+ * the classified binding's `classifySealedShred` closure can't be wired
+ * here. When supplied, `eraseCfgOut.classified` is set to the SAME cfg
+ * object instance handed to `viaBinder('classified')`, so a caller
+ * (`resolveCollectionConfig`) can thread it out to the `Collection`
+ * constructor, which mutates `classifySealedShred` in place once
+ * `this.codec` exists. Additive — every existing caller omits it and keeps
+ * getting a plain `ViaBinding[]`.
  */
-export function compileViaBindings<T>(opts: CollectionOpts<T>, classifiedGuardCtx: ClassifiedGuardCtx): ViaBinding[] {
+export function compileViaBindings<T>(
+  opts: CollectionOpts<T>,
+  classifiedGuardCtx: ClassifiedGuardCtx,
+  eraseCfgOut?: { classified?: ClassifiedViaConfig },
+): ViaBinding[] {
   const { moneyFields, i18nFields, dictKeyFields } = mergeViaFields(opts)
   const bindings: ViaBinding[] = []
   if (moneyFields) bindings.push(viaBinder('money')(moneyFields))
@@ -521,11 +535,13 @@ export function compileViaBindings<T>(opts: CollectionOpts<T>, classifiedGuardCt
     }))
   }
   if (opts.classifiedFields !== undefined) {
-    bindings.push(viaBinder('classified')({
+    const classifiedCfg: ClassifiedViaConfig = {
       entries: opts.classifiedFields,
       collectionName: opts.name,
       guardCtx: classifiedGuardCtx,
-    }))
+    }
+    if (eraseCfgOut) eraseCfgOut.classified = classifiedCfg
+    bindings.push(viaBinder('classified')(classifiedCfg))
   }
   if (opts.blobFields !== undefined) {
     bindings.push(viaBinder('blob')({
@@ -652,6 +668,10 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
   const perRecordCek = opts.perRecordKeys === true
   const cekCache = perRecordCek ? new Lru<string, EnclaveKey>({ maxRecords: 4096 }) : null
 
+  // #629 Task 10 — captures the classified binding's cfg (see compileViaBindings's doc comment) for the constructor's post-codec wiring.
+  const viaEraseCfgOut: { classified?: ClassifiedViaConfig } = {}
+  const via = ViaPipeline.build(compileViaBindings(opts, classifiedGuardCtx, viaEraseCfgOut))
+
   return {
     adapter: opts.adapter,
     vault: opts.vault,
@@ -691,7 +711,8 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     fieldMeta: opts.fieldMeta,
     meta: opts.meta,
     _refs: opts.declaredRefs ?? {},
-    via: ViaPipeline.build(compileViaBindings(opts, classifiedGuardCtx)),
+    via,
+    classifiedEraseCfg: viaEraseCfgOut.classified,
     moneyFields: effectiveViaFields.moneyFields,
     classified: resolvedClassified,
     classifiedGuardCtx,

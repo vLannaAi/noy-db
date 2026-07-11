@@ -194,17 +194,42 @@ export class ViaPipeline {
     return out ?? record
   }
 
-  /** `forget()`'s per-ref erasure door: runs every binding's `erase`, concatenating shredded counts and residue. */
-  async erase(ctx: ViaEraseCtx): Promise<ViaEraseReport> {
+  /**
+   * Shared fold over a subset of `this.bindings`: runs each binding's
+   * `erase`, concatenating shredded/retainedShared counts and residue.
+   * Consults `posture.forgettable` (#629 Task 10) — a binding declaring
+   * `forgettable: false` is skipped even if it defines `erase` (none does
+   * today; a future non-forgettable binding is supported without a brand check).
+   */
+  private async foldErase(ctx: ViaEraseCtx, bindings: readonly ViaBinding[]): Promise<ViaEraseReport> {
     let shredded = 0
+    let retainedShared = 0
     const residue: unknown[] = []
-    for (const b of this.bindings) {
-      if (!b.erase) continue
+    for (const b of bindings) {
+      if (!b.erase || b.posture.forgettable === false) continue
       const report = await b.erase(ctx)
       shredded += report.shredded
+      retainedShared += report.retainedShared ?? 0
       residue.push(...report.residue)
     }
-    return { shredded, residue }
+    return retainedShared > 0 ? { shredded, residue, retainedShared } : { shredded, residue }
+  }
+
+  /** `forget()`'s per-ref erasure door: folds every binding's `erase`. */
+  async erase(ctx: ViaEraseCtx): Promise<ViaEraseReport> {
+    return this.foldErase(ctx, this.bindings)
+  }
+
+  /**
+   * `forget()`'s SEALED-posture-only erase fold (#629 Task 10, `Collection._onViaErase`'s
+   * one caller) — classified today; metadata-filtered on
+   * `posture.encryptedAtRest`, not brand-checked. `undefined` when no
+   * sealed-posture binding is compiled in — `vault.ts` then falls back to
+   * its own bare-`sensitive` classification, which no via binding covers.
+   */
+  async eraseSealed(ctx: ViaEraseCtx): Promise<ViaEraseReport | undefined> {
+    const sealed = this.bindings.filter((b) => b.posture.encryptedAtRest === 'sealed')
+    return sealed.length === 0 ? undefined : this.foldErase(ctx, sealed)
   }
 
   /** True iff any binding implements decodeResults (query fast-path gating). */

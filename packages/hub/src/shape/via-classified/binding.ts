@@ -63,13 +63,23 @@ export interface ClassifiedViaConfig {
    * classifies a live envelope's `_sealed` slots for crypto-shred
    * completeness (see that method's doc comment for the shreddable/
    * dekResidue/both-class semantics). `live` is `ViaEraseCtx.live`'s opaque
-   * envelope, passed straight through.
+   * envelope, passed straight through. NOT `readonly` (#629 Task 10):
+   * `compileViaBindings` builds this cfg before the owning `Collection`'s
+   * `RecordCodec` exists, so `Collection`'s constructor mutates this field
+   * in place once `this.codec` is available — the closure `eraseClassified`
+   * reads is looked up at CALL time, not at binding-construction time, so
+   * the late assignment is picked up correctly.
    */
-  readonly classifySealedShred?: (live: unknown) => Promise<{ readonly slots: readonly ClassifiedShredSlot[] }>
+  classifySealedShred?: (live: unknown) => Promise<{ readonly slots: readonly ClassifiedShredSlot[] }>
   /**
    * Vault-provided closure that purges every `_sealed_cek/<collection>/<id>/*`
    * host-delivery envelope for one record (mirrors `rotateRecordCek`'s own
-   * prefix-delete) and returns the count purged.
+   * prefix-delete) and returns the count purged. Deliberately left UNWIRED
+   * by `compileViaBindings` (#629 Task 10) — `forget-sealed-erasure.test.ts`
+   * proves this purge is UNCONDITIONAL on `sealRecordToHost` usage alone,
+   * independent of whether `classifiedFields` is declared (a bare
+   * `sensitive: [...]` collection exercises it with no classified binding
+   * at all) — vault.ts keeps owning it directly so that case stays correct.
    */
   readonly purgeSealedCekEnvelopes?: (id: string) => Promise<number>
 }

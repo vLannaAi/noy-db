@@ -58,8 +58,14 @@ export interface ViaCryptoCtx {
 
 /** Per-call erase context — `forget()`'s per-ref participation door (phase C). */
 export interface ViaEraseCtx { readonly id: string; readonly vault: string; readonly live: unknown /* EncryptedEnvelope */; readonly crypto: ViaCryptoCtx }
-/** What an `erase` hook reports back to `forget()`'s summary ledger entry. */
-export interface ViaEraseReport { readonly shredded: number; readonly residue: readonly unknown[] }
+/**
+ * What an `erase` hook reports back to `forget()`'s summary ledger entry.
+ * `retainedShared` is additive (#629 Task 10) — content NOT erased because
+ * still referenced by another live record (blob's shared-chunk dual
+ * accounting, `shredAllForRecord()`'s `retainedShared` count). Absent/0 for
+ * bindings with no such concept (a sealed field is never "shared").
+ */
+export interface ViaEraseReport { readonly shredded: number; readonly residue: readonly unknown[]; readonly retainedShared?: number }
 
 /**
  * A feature bound to one collection's declared config. Record-grain hooks —

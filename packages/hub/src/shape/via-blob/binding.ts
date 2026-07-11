@@ -38,12 +38,23 @@ import type { BlobFieldsConfig } from '../../with-shape/blobs/blob-compaction.js
 /**
  * Config a blob collection's `blobFields` declaration resolves to — the
  * binding's construction input. `purgeBlobsForRecord` is an OPTIONAL
- * vault/service-provided closure for the `erase` hook — undefined in this
- * task (no caller wires it yet), wired for real in #629 Task 10 ("posture
- * enforcement — forget + erase hooks live"), where it wraps the existing
- * `collection.blob(id).shredAllForRecord()` participation (`vault.forget()`'s
- * per-ref blob purge) and owns mapping its shredded/retainedShared/residue
- * accounting onto the report shape byte-identically to today's ledger entry.
+ * vault/service-provided closure for the `erase` hook, mapping
+ * `collection.blob(id).shredAllForRecord()`'s `{shredded, retainedShared,
+ * residue}: string[]` accounting onto `ViaEraseReport` — `shredded`/
+ * `retainedShared` become counts, each residue eTag becomes a tagged
+ * `{kind: 'blob-residue', eTag}` entry.
+ *
+ * DELIBERATELY left unwired by `compileViaBindings` (#629 Task 10, resolved
+ * within parity-first — see task-10-report.md "blob purge" section):
+ * `per-blob-cek.test.ts`/`forget.test.ts` prove blob-shred-on-forget is
+ * gated SOLELY on the vault's `blobStrategy` being configured, never on a
+ * given collection's OWN `blobFields` declaration (`.blob(id)` is callable,
+ * and IS exercised by those tests, on collections with no `blobFields` at
+ * all). Routing it exclusively through this binding would silently stop
+ * blob crypto-shredding for every such collection; `vault.forget()` keeps
+ * calling `collection.blob(id).shredAllForRecord()` directly for that
+ * reason. The hook stays real/tested (see `blob-binding.test.ts`) for a
+ * future caller that wants it.
  */
 export interface BlobViaConfig {
   readonly fields: BlobFieldsConfig
@@ -54,9 +65,9 @@ export interface BlobViaConfig {
 
 /**
  * `forget()`'s per-ref blob-purge participation: delegate to the wired
- * closure, or report a clean zero-shredded, zero-residue no-op until
- * Task 10 supplies one (mirrors the classified binding's dormant-erase
- * precedent).
+ * closure, or report a clean zero-shredded, zero-residue no-op — the
+ * default in production too (#629 Task 10 deliberately leaves this unwired;
+ * see `BlobViaConfig`'s doc comment).
  */
 async function eraseBlobs(ctx: ViaEraseCtx, cfg: BlobViaConfig): Promise<ViaEraseReport> {
   if (cfg.purgeBlobsForRecord) return cfg.purgeBlobsForRecord(ctx.id)
