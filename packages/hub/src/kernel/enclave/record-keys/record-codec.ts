@@ -20,13 +20,15 @@ import { encrypt, decrypt, encryptDeterministic, deriveDeterministicKey, wrapCek
 import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope, type CrdtMode, type CrdtState, type CrdtStrategy, type VdigFieldPolicy, type SealedHandle } from '../../types.js'
 import { isTombstone, isDeleteMarker } from './tombstone.js'
 import { parseSealedSlot } from './sealed-slot.js'
-import { sealFields, unsealOneField, unsealFields, makeHandleProducer, type SealKeyMaterial } from './sealed-slots.js'
+import { sealFields, unsealOneField, unsealFields, makeHandleProducer, makeSealedSlotCapability, makeReservedEnvelopes, type SealKeyMaterial } from './sealed-slots.js'
 import { DebugReservedFieldError, ClassifiedConfigError, ValidationError } from '../../errors.js'
 import { mintVdigSlot } from '../classify/write.js'
 import { mintBidxTag } from '../classify/bidx.js'
 import { normalizeForVerify } from '../classify/normalize.js'
 import { validateSchemaOutput, type StandardSchemaV1 } from '../../schema.js'
 import type { Lru } from '../../cache/index.js'
+import type { ViaCryptoCtx, SealedSlotRef } from '../../via.js'
+import type { ViaPipeline } from '../../via-pipeline.js'
 
 /**
  * One classified per-slot verdict from {@link RecordCodec.classifySealedShred}.
@@ -82,6 +84,15 @@ export interface RecordCodecContext<T> {
    * resolveEnvelopeCek exactly as the inline code did. `null` → no caching.
    */
   readonly cekCache: Lru<string, EnclaveKey> | null
+  /**
+   * Compiled Via pipeline (money, i18n, …), or undefined for a collection
+   * with none declared. `encryptRecord`/`decryptRecord` consult
+   * `via?.hasAtRestHooks` at the sealed-slot sub-step to choose between a
+   * binding's `encodeAtRest`/`decodeAtRest` hooks and today's inline path.
+   * The zero-via fast path (`via` undefined, or no binding declares an
+   * at-rest hook) stays byte/behavior-identical (#629 Task 3).
+   */
+  readonly via: ViaPipeline | undefined
 }
 
 export class RecordCodec<T> {
@@ -93,6 +104,24 @@ export class RecordCodec<T> {
       collection: this.ctx.name,
       ...(cek !== undefined ? { cek } : {}),
       getDEK: () => this.ctx.getDEK(),
+    }
+  }
+
+  /**
+   * Build the `ViaCryptoCtx` handed to a binding's `encodeAtRest`/
+   * `decodeAtRest` hook: `sealedSlots` pre-bound to `(this.ctx.name,
+   * recordId)` — always threading `cek` when the caller has one, so the
+   * capability's record-binding stays cryptographic rather than degrading
+   * to collection-scope. `reservedEnvelopes`'s cross-collection DEK
+   * resolution is wired for real in #629 Task 4 (DictionaryHandle
+   * cutover); no binding declares `reservedPrefixes` yet, so the declared
+   * set is always empty and that resolver is unreached.
+   */
+  private viaCryptoCtx(recordId: string, cek: EnclaveKey | undefined): ViaCryptoCtx {
+    const declaredPrefixes = this.ctx.via?.bindings.flatMap((b) => b.reservedPrefixes ?? []) ?? []
+    return {
+      sealedSlots: makeSealedSlotCapability(this.ctx, recordId, cek),
+      reservedEnvelopes: makeReservedEnvelopes(() => this.ctx.getDEK(), declaredPrefixes),
     }
   }
 
@@ -219,6 +248,7 @@ export class RecordCodec<T> {
     source?: string,
     sourceTs?: string,
     vdig?: { readonly id: string; readonly prev: EncryptedEnvelope | null },
+    id?: string,
   ): Promise<EncryptedEnvelope> {
     // Debug-plaintext: write user-collection records with their fields inlined
     // beside the envelope metadata so native store tools read them directly.
@@ -273,9 +303,30 @@ export class RecordCodec<T> {
     // `_sealed[field]` slot under a per-field key. Default-off — with no
     // sensitive fields the open record is unchanged and no `_sealed` is
     // emitted, so the envelope stays byte-identical to legacy output.
+    // A collection whose via pipeline declares at-rest hooks (#629 Task 3)
+    // seals through THOSE instead — the inline `sensitiveFields` path and
+    // the hook path are mutually exclusive per collection, gated on
+    // `hasAtRestHooks` (classified still runs inline: its binding doesn't
+    // exist yet). The zero-via fast path (no `via`, or a pipeline with no
+    // at-rest hooks, e.g. money-only) always takes the `else if` branch,
+    // unchanged.
     let openRecord = record
     let sealed: Record<string, string> | undefined
-    if (this.ctx.storeCiphertext && this.ctx.sensitiveFields.size > 0) {
+    if (this.ctx.storeCiphertext && this.ctx.via?.hasAtRestHooks) {
+      if (id === undefined) {
+        throw new Error(
+          `RecordCodec.encryptRecord: collection "${this.ctx.name}" has via at-rest hooks but this write ` +
+          'path supplied no record id (needed to scope the sealed-slot capability) — caller bug.',
+        )
+      }
+      const src = record as unknown as Record<string, unknown>
+      const result = await this.ctx.via.encodeAtRest(src, this.viaCryptoCtx(id, cek))
+      openRecord = result.record as unknown as T
+      if (result.sealed !== undefined) {
+        sealed = {}
+        for (const [field, ref] of Object.entries(result.sealed)) sealed[field] = `${ref.iv}:${ref.data}`
+      }
+    } else if (this.ctx.storeCiphertext && this.ctx.sensitiveFields.size > 0) {
       const src = record as unknown as Record<string, unknown>
       const result = await sealFields(src, this.ctx.sensitiveFields, this.sealKeyMaterial(cek))
       if (result.sealed !== undefined) {
@@ -607,15 +658,39 @@ export class RecordCodec<T> {
     // `sealedAsHandles: false` (default — internal callers that compute on
     // real values) inline-decrypts to the plaintext value; `true` (the
     // public / cache path) yields an opaque {@link Sealed} handle so the
-    // plaintext is never materialised into the working-set cache.
+    // plaintext is never materialised into the working-set cache. A
+    // collection whose via pipeline declares at-rest hooks (#629 Task 3)
+    // decodes through THOSE instead of the inline dual-read below — the
+    // zero-via fast path (no `via`, or a pipeline with no at-rest hooks)
+    // always takes the `else` branch, unchanged.
     if (envelope._sealed !== undefined && this.ctx.storeCiphertext) {
       const sealedCek = await this.resolveEnvelopeCek(envelope, opts.id)
-      record = await unsealFields(
-        record as unknown as Record<string, unknown>,
-        envelope._sealed,
-        this.sealKeyMaterial(sealedCek),
-        { asHandles: opts.sealedAsHandles === true },
-      ) as unknown as T
+      if (this.ctx.via?.hasAtRestHooks) {
+        if (opts.id === undefined) {
+          throw new Error(
+            `RecordCodec.decryptRecord: collection "${this.ctx.name}" has via at-rest hooks but this read ` +
+            'path supplied no record id (needed to scope the sealed-slot capability) — caller bug.',
+          )
+        }
+        const sealedRefs: Record<string, SealedSlotRef> = {}
+        for (const [field, blob] of Object.entries(envelope._sealed)) {
+          const { iv, data } = parseSealedSlot(blob)
+          sealedRefs[field] = { iv, data }
+        }
+        record = await this.ctx.via.decodeAtRest(
+          record as unknown as Record<string, unknown>,
+          sealedRefs,
+          this.viaCryptoCtx(opts.id, sealedCek),
+          { asHandles: opts.sealedAsHandles === true },
+        ) as unknown as T
+      } else {
+        record = await unsealFields(
+          record as unknown as Record<string, unknown>,
+          envelope._sealed,
+          this.sealKeyMaterial(sealedCek),
+          { asHandles: opts.sealedAsHandles === true },
+        ) as unknown as T
+      }
     }
 
     // Skip output validation when sealed fields are returned as handles:

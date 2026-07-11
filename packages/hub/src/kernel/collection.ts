@@ -755,11 +755,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       }
     }
 
-    // Build the record codec once. Constructed AFTER every dependency it reads
-    // is assigned (name, keyring, storeCiphertext, provenance, sensitiveFields,
-    // deterministicFields, crdtMode, crdtStrategy, schema, getDEK, cekCache).
-    // `cekCache` is passed as the SAME reference (not a copy) so the codec's
-    // resolveEnvelopeCek and the tier/forget cache evictions all see one object.
+    // Build the record codec once, AFTER every dependency it reads is assigned
+    // (name, keyring, storeCiphertext, provenance, sensitiveFields, deterministicFields,
+    // crdtMode, crdtStrategy, schema, getDEK, cekCache, via). `cekCache` is the SAME
+    // reference (not a copy) — the codec's resolveEnvelopeCek and the tier/forget cache evictions share it.
     this.codec = new RecordCodec<T>({
       name: this.name,
       actor: this.keyring.userId,
@@ -775,6 +774,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       getDEK: () => this.getDEK(this.name),
       cekCache: this.cekCache,
       classifiedMarkerDigestOnly: () => this._classifiedMarkerDigestOnly(),
+      via: this.via,
     })
 
     // Build + register this collection's SyncEngine conflict resolvers (the CRDT
