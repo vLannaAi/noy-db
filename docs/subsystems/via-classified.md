@@ -77,9 +77,13 @@ await expect(cards.reveal('r1', 'cvc')).rejects.toThrow(/never/)      // nothing
 
 (from `packages/hub/__tests__/classified/reveal-gate.test.ts`). This reveal/verify layer
 (`.reveal()`, `.verify()`, `.verifyGroup()`, `.findByDigest()`) pre-dates phase B and is
-unaffected by it — every read path (`get`, `listPage`, `scan`, `history`, `getVersion`, the
-`beforePut` gate's prior-record view) round-trips a sealed field correctly, including through the
-phase-B `via` cutover (`packages/hub/__tests__/classified/read-path-id-threading.test.ts`).
+unaffected by it — every read path round-trips a sealed field correctly through the phase-B `via`
+cutover: `collection.ts`'s own surface (`get`, `listPage`, `scan`, `history`, `getVersion`, the
+`beforePut` gate's prior-record view — `packages/hub/__tests__/classified/read-path-id-threading.test.ts`)
+and the five out-of-`collection.ts` consumers of `RecordCodec.decryptRecord` (`findByDet`,
+`queryByDet`, `getAtTier`'s tier-0 branch, `rebuildIndexes`, `reconcileIndex` — missed by the same
+Task-6 id-threading pass and fixed in the whole-branch review's cross-feature wave,
+`packages/hub/__tests__/classified/cross-feature-id-threading.test.ts`).
 
 ## Query posture — `det-exact`: silent no-match, not a throw
 
@@ -196,9 +200,13 @@ directly; the via binding's own `purgeSealedCekEnvelopes` closure exists and is 
   deleted on the erase call's `sealedSlots` capability — see the "Forget / erasure" section above
   for what does and doesn't route through here.
 
-`via-classified` never imports `kernel/enclave/` directly (`via-enclave-isolation`, enforced by
-`pnpm check:architecture` with an **empty** allowlist as of #629 Task 4) — all its crypto reaches
-it through the injected `ViaCryptoCtx`.
+`via-classified` never *statically* imports `kernel/enclave/` (`via-enclave-isolation`, enforced by
+`pnpm check:architecture` with an **empty** allowlist as of #629 Task 4) — its `encodeAtRest`/
+`decodeAtRest`/`erase` hooks reach their crypto through the injected `ViaCryptoCtx`. `active.ts`
+(the opt-in `withClassified()` strategy — reveal/verify/verifyText/matchGroup/computeTarget) is the
+one exception: it reaches the enclave through a `Check-13`-allowlisted (`enclave-classify-index-only`)
+dynamic `import()` of `kernel/enclave/classify/*`, which the static `via-enclave-isolation` check
+does not see.
 
 ## See also
 
