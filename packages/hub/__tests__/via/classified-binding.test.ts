@@ -207,6 +207,41 @@ describe('classifiedBinding (#629 Task 5)', () => {
       expect(result).toEqual({ record: { other: 'x' } })
     })
 
+    it('encodeAtRest ALSO seals bare sensitive[] fields (guardCtx.bareSensitiveFields) — #629 Task 6 union', async () => {
+      // Once this binding is compiled in, hasAtRestHooks retires the codec's
+      // inline sensitiveFields path for the WHOLE collection — a bare
+      // sensitive[] field (unrelated to classifiedFields) must still seal,
+      // or it would silently stop being sealed at all.
+      const b = classifiedBinding({
+        entries: { pan: classified.creditCard({ pan: 'pan' }) },
+        collectionName: 'cards',
+        guardCtx: guardCtx({ bareSensitiveFields: new Set(['ssn']) }),
+      })
+      const { crypto } = fixtureCrypto()
+
+      const result = await b.encodeAtRest!({ pan: '4242424242424242', ssn: '123-45-6789', open: 'visible' }, crypto)
+
+      expect(result.sealed).toEqual({
+        pan: { iv: 'iv0', data: 'data0' },
+        ssn: { iv: 'iv1', data: 'data1' },
+      })
+      expect(result.record).toEqual({ open: 'visible' })
+    })
+
+    it('decodeAtRest round-trips a bare sensitive[] field sealed via the union', async () => {
+      const b = classifiedBinding({
+        entries: { pan: classified.creditCard({ pan: 'pan' }) },
+        collectionName: 'cards',
+        guardCtx: guardCtx({ bareSensitiveFields: new Set(['ssn']) }),
+      })
+      const { crypto } = fixtureCrypto()
+
+      const encoded = await b.encodeAtRest!({ pan: '4242424242424242', ssn: '123-45-6789' }, crypto)
+      const decoded = await b.decodeAtRest!(encoded.record, encoded.sealed!, crypto, { asHandles: false })
+
+      expect(decoded).toEqual({ pan: '4242424242424242', ssn: '123-45-6789' })
+    })
+
     it('decodeAtRest round-trips the sealed field back to plaintext (asHandles: false)', async () => {
       const b = classifiedBinding({
         entries: { pan: classified.creditCard({ pan: 'pan' }) },

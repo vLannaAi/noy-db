@@ -3,6 +3,8 @@ import { installViaBinder } from '../../src/kernel/via.js'
 import { compileViaBindings, resolveCollectionConfig, type CollectionOpts } from '../../src/kernel/collection-config.js'
 import { ViaPipeline } from '../../src/kernel/via-pipeline.js'
 import { NoydbEventEmitter } from '../../src/kernel/events.js'
+import { classified } from '../../src/shape/via-classified/presets.js'
+import type { ClassifiedGuardCtx } from '../../src/port/with/classified-strategy.js'
 
 // Synthetic opts — resolveCollectionConfig/compileViaBindings never call methods
 // on adapter/keyring/getDEK, only forward them, so undefined stand-ins are safe.
@@ -18,6 +20,18 @@ function syntheticOpts(): CollectionOpts<unknown> {
   } as unknown as CollectionOpts<unknown>
 }
 
+// #629 Task 6 — compileViaBindings gained a required classifiedGuardCtx
+// parameter (the classified binding's construction input); a plain
+// collection with no classifiedFields never reads it.
+function emptyGuardCtx(): ClassifiedGuardCtx {
+  return {
+    perRecordKeys: false, crdt: false, hasConflictPolicy: false, storeCiphertext: true,
+    deterministicFields: null, indexedFields: new Set(), textIndexFields: new Set(),
+    vectorSourceFields: new Set(), subjectKeyField: undefined, bareSensitiveFields: new Set(),
+    acknowledgeEquatableRisk: false,
+  }
+}
+
 describe('via config-compile seam (#623 Task 3)', () => {
   it('compileViaBindings returns [] regardless of installed binders — no consumers yet', () => {
     // A fixture binder installed under a foreign brand must not leak into
@@ -28,7 +42,7 @@ describe('via config-compile seam (#623 Task 3)', () => {
       posture: { encryptedAtRest: 'envelope', queryable: 'none', exportable: true, forgettable: true },
     }))
 
-    const bindings = compileViaBindings(syntheticOpts())
+    const bindings = compileViaBindings(syntheticOpts(), emptyGuardCtx())
     expect(bindings).toEqual([])
     // the zero-via fast path
     expect(ViaPipeline.build(bindings)).toBeUndefined()
@@ -37,5 +51,41 @@ describe('via config-compile seam (#623 Task 3)', () => {
   it('resolveCollectionConfig wires cfg.via via ViaPipeline.build — undefined for a plain collection', () => {
     const cfg = resolveCollectionConfig(syntheticOpts())
     expect(cfg.via).toBeUndefined()
+  })
+})
+
+describe('via config-compile seam — classified (#629 Task 6)', () => {
+  it('compileViaBindings compiles a classified binding LAST when classifiedFields is declared', () => {
+    const opts = {
+      ...syntheticOpts(),
+      classifiedFields: { note: classified.email() },
+    } as CollectionOpts<unknown>
+
+    const bindings = compileViaBindings(opts, emptyGuardCtx())
+
+    expect(bindings.map((b) => b.brand)).toEqual(['classified'])
+    // hasAtRestHooks becomes true — the codec boundary now routes this
+    // collection's sealed-field crypto through the binding's encodeAtRest/
+    // decodeAtRest hooks instead of the inline sensitiveFields path.
+    expect(ViaPipeline.build(bindings)!.hasAtRestHooks).toBe(true)
+  })
+
+  it('compileViaBindings pushes nothing classified-branded when classifiedFields is absent', () => {
+    const bindings = compileViaBindings(syntheticOpts(), emptyGuardCtx())
+    expect(bindings.some((b) => b.brand === 'classified')).toBe(false)
+  })
+
+  it('resolveCollectionConfig wires a classified collection\'s cfg.via with hasAtRestHooks true', () => {
+    const opts = {
+      ...syntheticOpts(),
+      encrypted: true,
+      perRecordKeys: true,
+      classifiedFields: { secret: classified.password() },
+    } as CollectionOpts<unknown>
+
+    const cfg = resolveCollectionConfig(opts)
+
+    expect(cfg.via?.hasAtRestHooks).toBe(true)
+    expect(cfg.classified?.byField.secret?.storage).toBe('digest-only')
   })
 })

@@ -2792,10 +2792,10 @@ export class EnclaveNotSupportedError extends NoydbError {
 /**
  * Raised when a collection's `classifiedFields` configuration is invalid
  * (e.g. a claimed field name collides with a rider companion or another
- * classified field). Homed in `kernel/errors.ts` (rather than
- * `shape/via-classified/errors.ts`) so `kernel/enclave/classify/*` can throw
- * it without importing with-*; `shape/via-classified/errors.ts` re-exports
- * it under the same name for backward-compatible import paths.
+ * classified field). Homed in `kernel/errors.ts` (rather than the classified
+ * feature module) so `kernel/enclave/classify/*` can throw it without
+ * importing with-*; the classified feature module re-exports it under the
+ * same name for backward-compatible import paths.
  */
 export class ClassifiedConfigError extends Error {
   constructor(public readonly collection: string, message: string) {

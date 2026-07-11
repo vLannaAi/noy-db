@@ -19,9 +19,32 @@ import type { ClassifiedFieldSpec } from '../../shape/via-classified/descriptor.
 import { ClassifiedNotEnabledError } from '../../kernel/errors.js'
 import type { EncryptedEnvelope } from '../../kernel/types.js'
 import type { EnclaveKey } from '../../kernel/enclave/index.js'
+import { linkClassifiedVia } from '../../shape/via-classified/binding.js'
 
 export type { ClassifiedVerdict } from '../../kernel/types.js'
 import type { ClassifiedVerdict } from '../../kernel/types.js'
+
+// #629 Task 6 — the classified binding's construction-time resolve/guard,
+// re-exported here (not `shape/via-classified/{resolve,guards}.js` directly)
+// so the kernel spine keeps importing only this one `/with` port seam, same
+// rationale as `NO_CLASSIFIED` below.
+export { resolveClassifiedFields, type ClassifiedEntry, type ResolvedClassified } from '../../shape/via-classified/resolve.js'
+export { guardClassifiedCompat, type ClassifiedGuardCtx } from '../../shape/via-classified/guards.js'
+export type { ClassifiedFieldSpec }
+
+// Install the classified Via binder EAGERLY — unlike money()/i18nText(),
+// several classified fixtures (both hub tests and consumer code) build a raw
+// `ClassifiedFieldSpec` object literal without ever calling a
+// `classified.*()` preset (bypassing `shape/via-classified/presets.ts`
+// entirely — an intentionally supported pattern, see that module's Task 5
+// doc comment). Linking lazily at preset-call time (the money/i18n pattern)
+// would leave `viaBinder('classified')` unlinked for those declarations.
+// This port module is already unconditionally imported by the kernel spine
+// (for the `NO_CLASSIFIED` strategy default below), so linking here
+// guarantees the binder is always installed before `compileViaBindings`
+// ever needs it, regardless of how a collection's classifiedFields were
+// constructed.
+linkClassifiedVia()
 
 export interface ClassifiedRevealCtx {
   readonly collection: string

@@ -43,9 +43,11 @@ import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
 import type { IndexDef } from '../with-lookup/indexing/eager-indexes.js'
 import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../port/with/i18n-strategy.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
-import { resolveClassifiedFields, ClassifiedConfigError, type ClassifiedEntry, type ResolvedClassified } from '../shape/via-classified/resolve.js'
-import { guardClassifiedCompat, type ClassifiedGuardCtx } from '../shape/via-classified/guards.js'
-import { NO_CLASSIFIED, type ClassifiedStrategy } from '../port/with/classified-strategy.js'
+import {
+  resolveClassifiedFields, guardClassifiedCompat, NO_CLASSIFIED,
+  type ClassifiedEntry, type ResolvedClassified, type ClassifiedGuardCtx, type ClassifiedStrategy,
+} from '../port/with/classified-strategy.js'
+import { ClassifiedConfigError } from './errors.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
 import type { RefDescriptor } from './refs.js'
@@ -476,13 +478,18 @@ export interface CollectionOpts<T> {
  * money then i18n then classified — order pinned for pipeline parity with the
  * hand-wired baseline this replaces: money encode ran before the i18n write
  * stages, and money decode ran before i18n locale/dict-label resolution on
- * read. Classified compiles last, once its binding exists (#629 Task 6) — no
- * classified binding is pushed here yet, so this function's threading is
- * unchanged for phase B's pipeline-plumbing task.
+ * read. Classified compiles LAST (#629 Task 6): its `encodeAtRest`/
+ * `decodeAtRest` hooks make the pipeline's `hasAtRestHooks` true, retiring
+ * the codec's inline `sensitiveFields` seal path (record-codec.ts) for any
+ * collection that declares `classifiedFields` — `classifiedGuardCtx` is the
+ * SAME `ClassifiedGuardCtx` `resolveCollectionConfig` already built for
+ * door 1's `guardClassifiedCompat` call, threaded in by its one caller below.
  * {@link Collection._applyMoneyFields} PREPENDS money for the same reason
- * on its own (MV-precreation reconcile) path — see its docstring.
+ * on its own (MV-precreation reconcile) path — see its docstring;
+ * {@link Collection._applyClassifiedFields} APPENDS classified on that same
+ * reconcile path, keeping it last regardless of attach order.
  */
-export function compileViaBindings<T>(opts: CollectionOpts<T>): ViaBinding[] {
+export function compileViaBindings<T>(opts: CollectionOpts<T>, classifiedGuardCtx: ClassifiedGuardCtx): ViaBinding[] {
   const { moneyFields, i18nFields, dictKeyFields } = mergeViaFields(opts)
   const bindings: ViaBinding[] = []
   if (moneyFields) bindings.push(viaBinder('money')(moneyFields))
@@ -506,6 +513,13 @@ export function compileViaBindings<T>(opts: CollectionOpts<T>): ViaBinding[] {
       ...(opts.dictLabelResolver !== undefined ? { dictLabelResolver: opts.dictLabelResolver } : {}),
       ...(opts.i18nPutValidator !== undefined ? { i18nPutValidator: opts.i18nPutValidator } : {}),
       collectionName: opts.name,
+    }))
+  }
+  if (opts.classifiedFields !== undefined) {
+    bindings.push(viaBinder('classified')({
+      entries: opts.classifiedFields,
+      collectionName: opts.name,
+      guardCtx: classifiedGuardCtx,
     }))
   }
   return bindings
@@ -666,7 +680,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     fieldMeta: opts.fieldMeta,
     meta: opts.meta,
     _refs: opts.declaredRefs ?? {},
-    via: ViaPipeline.build(compileViaBindings(opts)),
+    via: ViaPipeline.build(compileViaBindings(opts, classifiedGuardCtx)),
     moneyFields: effectiveViaFields.moneyFields,
     classified: resolvedClassified,
     classifiedGuardCtx,

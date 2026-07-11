@@ -1845,38 +1845,18 @@ function checkEnclaveClassifyIndexOnly() {
 // enclave-barrel import) — is enforced separately by Check 15
 // (via-enclave-isolation) below.
 //
-// #629 Task 5 (via-classified move) added a SECOND temporary batch:
-// `shape/via-classified/{resolve,guards,write,errors}.js` — the classified
-// binding is DORMANT (no compile entry yet), so collection.ts/
-// collection-config.ts/vault.ts still call `resolveClassifiedFields`/
-// `guardClassifiedCompat`/`enforceClassifiedWrite`/`ClassifiedRevealError`/
-// `ClassifiedVerifyError` directly, exactly as they did at the pre-move
-// `with-shape/classified/*` paths (Check 9/port-layering never restricted
-// those — this check didn't exist yet when classified's inline wiring was
-// written). #629 Task 6 (kernel cutover) routes these through the Via
-// pipeline instead and retires every entry in this batch — see that task's
-// "grandfather retirements" acceptance criterion and its
-// `grep -rn "shape/via-classified" packages/hub/src/kernel` → nothing check.
+// #629 Task 5 (via-classified move) added a SECOND temporary batch —
+// `shape/via-classified/{resolve,guards,write,errors}.js` — while the
+// classified binding was DORMANT (no compile entry yet). #629 Task 6 (kernel
+// cutover) routed those calls through the Via pipeline/`port/with/` seam
+// instead and retired every entry in that batch: the allowlist is back to
+// exactly the one #626 baseline.
 
 const VIA_SHAPE_ALLOWLIST = new Map([
   // #626: the one join-layer i18n exception (comment lives at the import
   // site in join.ts) — join-layer i18n is sync + i18n-text-only; converging
   // it onto the Via seam is #626's job.
   ['packages/hub/src/kernel/query/join.ts', ['../../shape/via-i18n/core.js']],
-  // #629 Task 5 — TEMPORARY, retired by Task 6 (see comment above).
-  ['packages/hub/src/kernel/collection-config.ts', [
-    '../shape/via-classified/resolve.js',
-    '../shape/via-classified/guards.js',
-  ]],
-  ['packages/hub/src/kernel/collection.ts', [
-    '../shape/via-classified/resolve.js',
-    '../shape/via-classified/errors.js',
-    '../shape/via-classified/guards.js',
-    '../shape/via-classified/write.js',
-  ]],
-  ['packages/hub/src/kernel/vault.ts', [
-    '../shape/via-classified/resolve.js',
-  ]],
 ])
 
 function checkViaLayering() {

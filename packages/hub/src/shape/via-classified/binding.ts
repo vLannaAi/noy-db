@@ -1,17 +1,22 @@
 /**
- * The classified `ViaBinding` (#629 Task 5) — wires classified-fields
- * declaration/write-enforcement/at-rest sealing/erasure into the kernel's
- * generic Via port. Mirrors `shape/via-money/binding.ts`'s inline
- * declaration-time validation and `shape/via-i18n/binding.ts`'s `linkXVia`
- * static-link pattern.
+ * The classified `ViaBinding` (#629 Task 5, LIVE since Task 6) — wires
+ * classified-fields declaration/write-enforcement/at-rest sealing/erasure
+ * into the kernel's generic Via port. Mirrors `shape/via-money/binding.ts`'s
+ * inline declaration-time validation and `shape/via-i18n/binding.ts`'s
+ * `linkXVia` static-link pattern — except the link itself is EAGER
+ * (`port/with/classified-strategy.ts` calls `linkClassifiedVia()` at module
+ * load, not lazily from a `classified.*()` preset call): several fixtures
+ * build a raw `ClassifiedFieldSpec` literal without ever calling a preset,
+ * and the binder must be installed before `compileViaBindings` needs it
+ * regardless.
  *
- * DORMANT: `linkClassifiedVia()` is never called anywhere in this task —
- * the kernel still hand-wires `resolveClassifiedFields`/
- * `guardClassifiedCompat`/`enforceClassifiedWrite` directly (temporarily
- * grandfathered in `scripts/check-architecture.mjs`'s `VIA_SHAPE_ALLOWLIST`).
- * #629 Task 6 (kernel cutover) compiles this binding into
- * `compileViaBindings`, retires the grandfather, and deletes the kernel's
- * direct classified imports.
+ * `compileViaBindings` (`kernel/collection-config.ts`) compiles this binding
+ * in whenever a collection declares `classifiedFields` — money then i18n
+ * then classified, order pinned. `kernel/collection.ts`'s `_putInternal`
+ * runs `enforceClassifiedWrite`'s effect via the pipeline's `enforceWrite`
+ * phase; the codec's `encodeAtRest`/`decodeAtRest` hooks (Task 3's boundary)
+ * replace the inline `sensitiveFields` seal path for any collection this
+ * binding is compiled into.
  *
  * `declare` — `classifiedBinding(cfg)` runs `resolveClassifiedFields` +
  * `guardClassifiedCompat` at CONSTRUCTION time (the same #553 pattern
@@ -69,26 +74,40 @@ export interface ClassifiedViaConfig {
   readonly purgeSealedCekEnvelopes?: (id: string) => Promise<number>
 }
 
-/** Fields declared `storage: 'recoverable'` — the only storage form `encodeAtRest`/`decodeAtRest` touch (digest-only stays codec-inline; `'never'` is rejected by `enforceWrite` before either hook runs). */
+/** Fields declared `storage: 'recoverable'` (digest-only stays codec-inline; `'never'` is rejected by `enforceWrite` before either hook runs). */
 function recoverableFields(byField: Record<string, ClassifiedFieldSpec>): string[] {
   return Object.entries(byField).filter(([, spec]) => spec.storage === 'recoverable').map(([field]) => field)
 }
 
 /**
- * Seal every declared recoverable field present with a defined value into
- * its own sealed slot via `crypto.sealedSlots`, peeling it out of the
- * record — the same "recoverable classified fields are unioned into
- * sensitiveFields... zero new crypto code" semantics
- * `collection-config.ts:598-605` documents for today's inline path.
+ * The full set this binding's `encodeAtRest`/`decodeAtRest` seal: declared
+ * recoverable classified fields UNION bare `sensitive[]` fields — mirrors
+ * `collection-config.ts`'s pre-cutover "recoverable classified fields are
+ * unioned into sensitiveFields... zero new crypto code" semantics. Once this
+ * binding is compiled into a collection's pipeline, `hasAtRestHooks` is true
+ * and the codec's inline `sensitiveFields` seal path (record-codec.ts) is
+ * DEAD for that collection — mutually exclusive with the hook path (#629
+ * Task 3) — so bare `sensitive[]` fields MUST seal through here too, or
+ * they'd silently stop being sealed at all (#629 Task 6 reconciliation).
+ * `guardCtx.bareSensitiveFields` is the exact same `Set` the collection's
+ * refusal-matrix guard already carries (`ClassifiedGuardCtx`).
+ */
+function sealFieldNames(byField: Record<string, ClassifiedFieldSpec>, guardCtx: ClassifiedGuardCtx): string[] {
+  return [...recoverableFields(byField), ...guardCtx.bareSensitiveFields]
+}
+
+/**
+ * Seal every named field present with a defined value into its own sealed
+ * slot via `crypto.sealedSlots`, peeling it out of the record.
  */
 async function encodeClassifiedAtRest(
   record: Record<string, unknown>,
   crypto: ViaCryptoCtx,
-  byField: Record<string, ClassifiedFieldSpec>,
+  fields: readonly string[],
 ): Promise<{ record: Record<string, unknown>; sealed?: Record<string, SealedSlotRef> }> {
   let open = record
   let sealed: Record<string, SealedSlotRef> | undefined
-  for (const field of recoverableFields(byField)) {
+  for (const field of fields) {
     if (!(field in record)) continue
     const value = record[field]
     if (value === undefined) continue
@@ -102,21 +121,20 @@ async function encodeClassifiedAtRest(
 }
 
 /**
- * Restore every declared recoverable field's sealed slot back onto the
- * record: an opaque `SealedHandle` under `asHandles` (never materialises
- * plaintext into the cache — `SealedHandle.toJSON()` returns `'[sealed]'`,
- * the export-redaction guarantee `reveal()` alone can lift), the plaintext
- * value otherwise.
+ * Restore every named field's sealed slot back onto the record: an opaque
+ * `SealedHandle` under `asHandles` (never materialises plaintext into the
+ * cache — `SealedHandle.toJSON()` returns `'[sealed]'`, the export-redaction
+ * guarantee `reveal()` alone can lift), the plaintext value otherwise.
  */
 async function decodeClassifiedAtRest(
   record: Record<string, unknown>,
   sealed: Record<string, SealedSlotRef>,
   crypto: ViaCryptoCtx,
   opts: { asHandles: boolean },
-  byField: Record<string, ClassifiedFieldSpec>,
+  fields: readonly string[],
 ): Promise<Record<string, unknown>> {
   let out = record
-  for (const field of recoverableFields(byField)) {
+  for (const field of fields) {
     const ref = sealed[field]
     if (ref === undefined) continue
     if (out === record) out = { ...record }
@@ -178,6 +196,7 @@ export function classifiedBinding(cfg: ClassifiedViaConfig): ViaBinding {
   const resolved = resolveClassifiedFields(cfg.collectionName, cfg.entries)
   guardClassifiedCompat(cfg.collectionName, resolved.byField, cfg.guardCtx)
   const byField = resolved.byField
+  const sealFields = sealFieldNames(byField, cfg.guardCtx)
 
   return {
     brand: 'classified',
@@ -187,8 +206,8 @@ export function classifiedBinding(cfg: ClassifiedViaConfig): ViaBinding {
     // hook's calling convention — `enforceClassifiedWrite` itself stays sync.
     enforceWrite: async (record: Record<string, unknown>, _ctx: ViaWriteCtx) =>
       enforceClassifiedWrite(record, byField, cfg.collectionName),
-    encodeAtRest: (record, crypto) => encodeClassifiedAtRest(record, crypto, byField),
-    decodeAtRest: (record, sealed, crypto, opts) => decodeClassifiedAtRest(record, sealed, crypto, opts, byField),
+    encodeAtRest: (record, crypto) => encodeClassifiedAtRest(record, crypto, sealFields),
+    decodeAtRest: (record, sealed, crypto, opts) => decodeClassifiedAtRest(record, sealed, crypto, opts, sealFields),
     erase: (ctx) => eraseClassified(ctx, cfg),
     describeFragment: () => buildClassifiedDescribeFragment(byField),
   }
