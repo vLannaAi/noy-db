@@ -901,7 +901,7 @@ export class Vault {
       applyTaintOverlay(coll, this.graph, collectionName) // #638 Task 3: a late attach can newly taint an already-built pipeline
     }
     if (!coll) {
-      const effectiveViaFields = mergeViaFields({ moneyFields: options?.moneyFields, i18nFields: options?.i18nFields, dictKeyFields: options?.dictKeyFields, viaFields: options?.viaFields })
+      const effectiveViaFields = mergeViaFields({ moneyFields: options?.moneyFields, i18nFields: options?.i18nFields, dictKeyFields: options?.dictKeyFields, lookupFields: options?.lookupFields, viaFields: options?.viaFields })
       // Register ref declarations (if any) with the vault-level
       // registry BEFORE constructing the Collection. This way the
       // first put() on the new collection already sees its refs via

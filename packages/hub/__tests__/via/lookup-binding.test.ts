@@ -103,6 +103,20 @@ describe('the lookup binding (#650 Task 2)', () => {
     expect(viaLookup.statusLabel).toBe(viaDictKey.statusLabel)
   })
 
+  it('lookupFields sugar key (no viaFields) compiles the lookup binding, same as via()', async () => {
+    const db = await freshDb()
+    const vault = await db.openVault('v')
+    await vault.dictionary('status').putAll({ paid: { en: 'Paid', th: 'ชำระแล้ว' } })
+
+    interface Order extends Record<string, unknown> { id: string; status: string }
+    const orders = vault.collection<Order>('sugar-orders', {
+      lookupFields: { status: dict('status') },
+    })
+    await orders.put('o1', { id: 'o1', status: 'paid' })
+    const got = await orders.get('o1', { locale: 'th' }) as Order & { statusLabel?: string }
+    expect(got.statusLabel).toBe('ชำระแล้ว')
+  })
+
   it('enumOf(): stores the code verbatim and describe() reports type:enum + widget:select', async () => {
     const db = await freshDb()
     const vault = await db.openVault('v')
