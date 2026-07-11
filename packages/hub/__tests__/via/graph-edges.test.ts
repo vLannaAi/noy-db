@@ -171,7 +171,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
     ).not.toThrow()
   })
 
-  it('a rider-computed classified companion (last4/domain) is NOT subject to the depsless guard (sanctioned channel, #629 precedent)', async () => {
+  it('a rider-computed classified companion (domain) is NOT subject to the depsless guard (sanctioned channel, #629 precedent)', async () => {
     const db = await createNoydb({ store: memory(), user: 'alice', secret: 'graph-edges-rider-2026' })
     const vault = await db.openVault('demo')
     // classified.email() auto-derives a `domain` riderComputed companion —
