@@ -27,6 +27,12 @@
  * - **buildDictionaryHandle** — throws when called. Only fires when
  *   user code calls `vault.dictionary(...)`.
  *
+ * #650 Task 1 (via-lookup extraction, phase D): the real
+ * `buildDictionaryHandle` (in `shape/via-i18n/active.ts`) now delegates to
+ * `withLookup().buildLookupHandle` (`shape/via-lookup/active.ts`) — same
+ * handle (`LookupHandle`, aliased as `DictionaryHandle`), new home. This
+ * interface's shape is unchanged.
+ *
  * @internal
  */
 
@@ -174,10 +180,11 @@ export const NO_I18N: I18nStrategy = {
 
 /**
  * Return true when a collection name is a reserved dictionary collection
- * (the `_dict_*` prefix). Mirrors `DICT_COLLECTION_PREFIX` in
- * `shape/via-i18n/dictionary.ts` — duplicated here (not imported) so this
- * port has no VALUE dependency back on the feature; keep the two in sync if
- * the prefix ever changes.
+ * (the `_dict_*` prefix). Mirrors `DICT_COLLECTION_PREFIX` — now on
+ * `shape/via-lookup/handle.ts` (#650 Task 1), re-exported from
+ * `shape/via-i18n/dictionary.ts` for compat — duplicated here (not
+ * imported) so this port has no VALUE dependency back on the feature; keep
+ * the two in sync if the prefix ever changes.
  */
 export function isDictCollectionName(name: string): boolean {
   return name.startsWith('_dict_')

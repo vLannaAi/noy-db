@@ -941,7 +941,16 @@ const KERNEL_SURFACE_BUDGET = {
   // are called directly, typed, plus the forget()-loop posture fallback) −6.
   // Locked in to the ACTUAL measured line count (readFileSync(...).split('\n').length)
   // — no slack.
-  'packages/hub/src/kernel/vault.ts': 4088,
+  // Lowered 4088→3941 (2026-07-12, #650 Task 1 (via-lookup extraction)): the
+  // ~350-line dict registry/handle block left vault.ts for
+  // shape/via-lookup/{handle,registry,active,index}.ts + the new
+  // port/with/lookup-strategy.ts seam — enforceStaticDictOnPut/
+  // resolveDictSource/dictionary()'s findAndUpdateReferences closure are now
+  // thin delegators, and the dead `applyLocale` (zero production callers,
+  // superseded by via.present) was retired outright. Funds the phase's
+  // ceiling budget for later tasks. Locked in to the ACTUAL measured line
+  // count — no slack.
+  'packages/hub/src/kernel/vault.ts': 3941,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -1680,7 +1689,11 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   // literals inline — down from 5 (the plaintext branch's `_iv: ''`/`_data:`
   // + decryptEntry's `envelope._data` read remain; the two-occurrence
   // encrypted-branch envelope literal moved into kernel/enclave/).
-  ['packages/hub/src/shape/via-i18n/dictionary.ts', 3],
+  // #650 Task 1: DictionaryHandle (renamed LookupHandle) moved wholesale to
+  // shape/via-lookup/handle.ts — this entry retargets with it (same 3:
+  // plaintext-branch `_iv: ''`/`_data:` + decryptEntry's `envelope._data`
+  // read). shape/via-i18n/dictionary.ts now re-exports the class and has 0.
+  ['packages/hub/src/shape/via-lookup/handle.ts', 3],
   ['packages/hub/src/with-shape/introspection/walk.ts', 1],
   ['packages/hub/src/with-shape/links/link-set.ts', 5],
   ['packages/hub/src/with-shape/persisted-schemas/storage.ts', 2],

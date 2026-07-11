@@ -91,6 +91,15 @@ import {
 } from './refs.js'
 import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor, StaticDictDescriptor } from '../port/with/i18n-strategy.js'
 import { isDictCollectionName, isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
+// #650 Task 1 (via-lookup extraction) — the pure dict-registry helpers now
+// live in shape/via-lookup/registry.ts, reached only through this port seam
+// (never shape/via-lookup/* directly — Check 14 via-layering). Aliased to
+// avoid colliding with Vault's own same-named public delegator methods below.
+import {
+  enforceStaticDictOnPut as enforceStaticDictOnPutHelper,
+  resolveDictSource as resolveDictSourceHelper,
+  updateReferencingRecords,
+} from '../port/with/lookup-strategy.js'
 import { isLinkCollectionName, type LinkSpec, type LinkSetHandle } from '../with-shape/links/names.js'
 import { makeLazyLinkSetHandle, type LazyLinkSetHandle } from '../with-shape/links/lazy-handle.js'
 import type { EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
@@ -115,9 +124,9 @@ import type { GuardStrategyHandleAny } from '../with-audit/guards/types.js'
 import type { ReadOnlyVaultFacade } from '../with-audit/guards/read-only-facade.js'
 import type { DerivationRegistry } from '../with-formula/derivations/registry.js'
 import type { DerivationStrategyHandle } from '../with-formula/derivations/types.js'
-import type { LocaleReadOptions, ConflictPolicy } from './types.js'
+import type { ConflictPolicy } from './types.js'
 import type { CrdtMode } from '../with-commit/crdt/crdt.js'
-import { ReservedCollectionNameError, StaticDictReadonlyError, UnknownDictCodeError, SatelliteConfigError } from './errors.js'
+import { ReservedCollectionNameError, StaticDictReadonlyError, SatelliteConfigError } from './errors.js'
 import { declareSatellite } from '../with-shape/satellites/declare.js'
 import { makeSatelliteProxy, makeBaseProxy } from '../with-shape/satellites/proxy.js'
 import type { SatelliteRegistry } from '../with-shape/satellites/registry.js'
@@ -1508,107 +1517,15 @@ export class Vault {
    * Validate staticDict codes on a `put()`. For each `staticDict()`
    * field, every stored code must be a declared key of the descriptor's
    * table, else `UnknownDictCodeError`. Opt out per descriptor with
-   * `{ validateCodes: false }`. Supports scalar, dotted, and `[].`-wildcard
-   * field paths via `getAtPath` (same path support as i18n validation).
+   * `{ validateCodes: false }`.
    *
-   * Delegates through the Via registry — see {@link enforceI18nOnPut}.
+   * Delegates through the Via registry — see {@link enforceI18nOnPut}. The
+   * per-field validation itself lives in `shape/via-lookup/registry.ts`
+   * (#650 Task 1 extraction), reached via `port/with/lookup-strategy.ts`.
    */
   enforceStaticDictOnPut(collectionName: string, record: unknown): void {
     if (!isViaInstalled('i18n')) return
-    const staticFields = this.staticDescriptorByField.get(collectionName)
-    if (!staticFields || Object.keys(staticFields).length === 0) return
-    if (!record || typeof record !== 'object') return
-
-    const obj = record as Record<string, unknown>
-    for (const [field, desc] of Object.entries(staticFields)) {
-      if (desc.validateCodes === false) continue
-      const known = new Set<string>(desc.keys)
-      const values = getAtPath(obj, field)
-      for (const value of values) {
-        if (value === undefined || value === null) continue
-        const codes = Array.isArray(value) ? value : [value]
-        for (const code of codes) {
-          if (typeof code !== 'string') continue
-          if (!known.has(code)) {
-            throw new UnknownDictCodeError(desc.name, field, code)
-          }
-        }
-      }
-    }
-  }
-
-  /**
-   * Apply locale resolution to a record for the given collection.
-   *
-   * Called by Collection after decryption when locale options are present.
-   * Returns a new object (never mutates the cached record).
-   */
-  async applyLocale(
-    collectionName: string,
-    record: Record<string, unknown>,
-    localeOpts: LocaleReadOptions,
-  ): Promise<Record<string, unknown>> {
-    const locale = localeOpts.locale ?? this.locale
-    const staticFields = this.staticDescriptorByField.get(collectionName)
-    // A static dict with `displayLocale` resolves even under a locale-less
-    // read. The early-return relaxes only for that case; an i18nText-
-    // only / plain-dictKey collection still returns the raw record when no
-    // locale is active (today's invariant).
-    const hasStaticDisplay =
-      staticFields !== undefined &&
-      Object.values(staticFields).some((d) => d.displayLocale !== undefined)
-    if (!locale && !hasStaticDisplay) return record
-
-    let result = record
-
-    // 1. i18nText resolution — requires an active locale.
-    if (locale) {
-      const i18nFields = this.i18nFieldRegistry.get(collectionName)
-      if (i18nFields && Object.keys(i18nFields).length > 0) {
-        result = this.i18nStrategy.applyI18nLocale(result, i18nFields, locale, localeOpts.fallback)
-      }
-    }
-
-    // 2. dictKey label resolution — add <field>Label virtual fields (encrypted
-    // _dict_* handle). Skipped on `raw`. Static fields are NOT in this
-    // registry (they skip rename tracking), so this never calls
-    // this.dictionary(staticName).
-    const dictFields = this.dictKeyFieldRegistry.get(collectionName)
-    if (locale && dictFields && Object.keys(dictFields).length > 0 && locale !== 'raw') {
-      const withLabels = { ...result }
-      for (const [field, dictName] of Object.entries(dictFields)) {
-        const key = result[field]
-        if (typeof key !== 'string') continue
-        const handle = this.dictionary(dictName)
-        const label = await handle.resolveLabel(key, locale, localeOpts.fallback)
-        if (label !== undefined) {
-          withLabels[`${field}Label`] = label
-        }
-      }
-      result = withLabels
-    }
-
-    // 3. staticDict label resolution — resolve from the in-memory table; uses
-    // the field's displayLocale when no locale is active. No
-    // dictionary() lookup, so no StaticDictReadonlyError from this path.
-    if (staticFields && Object.keys(staticFields).length > 0 && locale !== 'raw') {
-      const withLabels = { ...result }
-      for (const [field, desc] of Object.entries(staticFields)) {
-        const effLocale = locale ?? desc.displayLocale
-        if (!effLocale) continue
-        const key = result[field]
-        if (typeof key !== 'string') continue
-        const labels = desc.table[key]
-        if (!labels) continue
-        const label = resolveLabelFromMap(labels, effLocale, localeOpts.fallback ?? desc.substitute)
-        if (label !== undefined) {
-          withLabels[`${field}Label`] = label
-        }
-      }
-      result = withLabels
-    }
-
-    return result
+    enforceStaticDictOnPutHelper(this.staticDescriptorByField.get(collectionName), record)
   }
 
   /**
@@ -1651,34 +1568,17 @@ export class Vault {
         ledger: this.getLedgerOrNull() ?? undefined,
         options,
         // findAndUpdateReferences: rewrite dictKey fields in all
-        // registered collections when rename() is called
+        // registered collections when rename() is called. Body extracted to
+        // shape/via-lookup/registry.ts (#650 Task 1) — reached via the
+        // port/with/lookup-strategy.ts seam.
         findAndUpdateReferences: async (dictionaryName, oldKey, newKey) => {
-          for (const [collectionName, dictFields] of this.dictKeyFieldRegistry) {
-            // Find fields that point at this dictionary
-            const fields = Object.entries(dictFields)
-              .filter(([, dn]) => dn === dictionaryName)
-              .map(([field]) => field)
-            if (fields.length === 0) continue
-
-            const coll = this.collection<Record<string, unknown>>(collectionName)
-            const records = await coll.list()
-            for (const record of records) {
-              let changed = false
-              const updated = { ...record }
-              for (const field of fields) {
-                if (updated[field] === oldKey) {
-                  updated[field] = newKey
-                  changed = true
-                }
-              }
-              if (changed) {
-                const id = (record['id'] as string | undefined)
-                if (id !== undefined) {
-                  await coll.put(id, updated)
-                }
-              }
-            }
-          }
+          await updateReferencingRecords(
+            this.dictKeyFieldRegistry,
+            (collectionName) => this.collection<Record<string, unknown>>(collectionName),
+            dictionaryName,
+            oldKey,
+            newKey,
+          )
         },
         emitter: this.emitter,
       })
@@ -1750,69 +1650,24 @@ export class Vault {
   }
 
   /**
-   * Build a `JoinableSource` for a dictKey field, for use in dict joins
-   *. Returns a source whose snapshot contains `{ key, ...labels }`
-   * records — one per dictionary entry — keyed by the stable key.
+   * Build a `JoinableSource` for a dictKey field, for use in dict joins.
+   * Returns a source whose snapshot contains `{ key, labels, ...labels }`
+   * records — one per dictionary entry — keyed by the stable key. Returns
+   * `null` when `field` is not a dictKey in `leftCollection`.
    *
-   * Returns `null` when `field` is not a dictKey in `leftCollection`.
-   *
-   * The snapshot is built synchronously from whatever the dictionary
-   * handle has in its cached state. For empty dictionaries this returns
-   * an empty snapshot rather than `null`.
-   */
-  /**
-   * Build a `JoinableSource` for a dictKey field, for use in dict joins
-   *. Returns a source whose snapshot contains
-   * `{ key, labels, ...labels }` records — one per dictionary entry —
-   * keyed by the stable key.
-   *
-   * The snapshot is built synchronously from the DictionaryHandle's
-   * write-through cache, which is populated on every `put()`, `rename()`,
-   * `delete()`, and `list()` call. For pre-existing data not yet touched
-   * this session, call `await vault.dictionary(name).list()` first
-   * to warm the cache.
-   *
-   * Returns `null` when `field` is not a dictKey in `leftCollection`.
+   * Body extracted to `shape/via-lookup/registry.ts` (#650 Task 1) —
+   * reached via the `port/with/lookup-strategy.ts` seam. See that
+   * function's doc comment for the static-vs-dynamic-dict split and the
+   * cache-warming caveat.
    */
   resolveDictSource(leftCollection: string, field: string): JoinableSource | null {
-    // staticDict: a code-table-backed source — snapshot() materialises
-    // the in-memory table into [{ key, labels, ...labels }] rows, mirroring
-    // DictionaryHandle.snapshotEntries(). Carries `displayLocale` so a
-    // locale-less { by: 'label' } query has a default locale to resolve at.
-    const staticFields = this.staticDescriptorByField.get(leftCollection)
-    if (staticFields && field in staticFields) {
-      const desc = staticFields[field]!
-      const rows: readonly Record<string, unknown>[] = Object.entries(desc.table).map(
-        ([key, labels]) => ({ key, labels, ...(labels as Record<string, string>) }),
-      )
-      const source: JoinableSource = {
-        snapshot(): readonly unknown[] {
-          return rows
-        },
-        lookupById(id: string): unknown {
-          return rows.find((e) => e['key'] === id)
-        },
-      }
-      if (desc.displayLocale !== undefined) {
-        ;(source as { displayLocale?: string }).displayLocale = desc.displayLocale
-      }
-      return source
-    }
-
-    const dictFields = this.dictKeyFieldRegistry.get(leftCollection)
-    if (!dictFields || !(field in dictFields)) return null
-    const dictName = dictFields[field]
-    if (!dictName) return null
-    const handle = this.dictionary(dictName)
-    return {
-      snapshot(): readonly unknown[] {
-        return handle.snapshotEntries()
-      },
-      lookupById(id: string): unknown {
-        const entries = handle.snapshotEntries()
-        return entries.find((e) => e['key'] === id)
-      },
-    }
+    return resolveDictSourceHelper(
+      leftCollection,
+      field,
+      this.staticDescriptorByField,
+      this.dictKeyFieldRegistry,
+      (name) => this.dictionary(name),
+    )
   }
 
   /**
