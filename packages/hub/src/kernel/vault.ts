@@ -101,7 +101,7 @@ import { isViaInstalled } from './via.js'
 import { mergeViaFields, type ViaFieldSpec } from './via-compose.js'
 import { exportRedact } from './via-pipeline.js'
 import { ViaGraph } from './via-graph.js'
-import { registerCollectionGraphSources } from './via-graph-wiring.js'
+import { registerCollectionGraphSources, reconcileCollectionGraphEdges, type ReconcileGraphOptions } from './via-graph-wiring.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 // Type-only imports for the guard + derivation services. The
 // runtime classes are loaded on demand via `await import(...)` inside
@@ -752,8 +752,8 @@ export class Vault {
     viaFields?: Record<string, ViaFieldSpec> // via() composed fields; merged with the money/i18n sugar keys (field in both throws)
     /** — declare computed scalar fields, evaluated on write (schema-owned). */
     computed?: ComputedFields<T>
-    /** — declared source-field deps for `computed` entries (#638), feeding
-     *  `vault.graph`. Depsless throws when `classifiedFields` is also declared. */
+    /** @internal Experimental staging seam for #638 (phase C). Will be superseded by the composed
+     *  form `computed(fn, { deps, mode })` in a later task — do not depend on this shape. */
     computedDeps?: Record<string, readonly string[]>
     /** — declare classified() sensitive-field descriptors. See the classified-fields spec. */
     classifiedFields?: Record<string, ClassifiedEntry>
@@ -919,6 +919,7 @@ export class Vault {
       // Same MV-pre-creation reconcile as money: a collection used as an
       // MV source is auto-created (without options) before this
       // declaration; attach computed fields so writes materialize them.
+      reconcileCollectionGraphEdges(this.graph, collectionName, options as unknown as ReconcileGraphOptions)
       coll._applyComputed(options.computed as ComputedFields)
     }
     if (coll && options?.fieldMeta) {

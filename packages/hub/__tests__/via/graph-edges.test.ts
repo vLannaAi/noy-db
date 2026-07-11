@@ -13,6 +13,16 @@ import { resolveComputedEdges, resolveViaBindingDepsEdges } from '../../src/kern
 import { DEFAULT_POSTURE } from '../../src/kernel/via-graph.js'
 import type { ViaBinding } from '../../src/kernel/via.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
+import type { ClassifiedFieldSpec } from '../../src/shape/via-classified/index.js'
+
+/** A `storage: 'never'` spec-literal (mirrors classified/threading.test.ts's
+ *  `neverSpec`) — safe to declare on the reconcile path (post auto-creation),
+ *  unlike the shipped presets (all recoverable/digest-only, which the
+ *  reconcile path independently refuses for an unrelated sealing reason). */
+const neverSpec = (): ClassifiedFieldSpec => ({
+  _noydbClassified: true, preset: 'test', storage: 'never',
+  list: { kind: 'omit' }, sensitivity: 'secret',
+})
 
 function memory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
@@ -178,6 +188,55 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
     // this must NOT trip the depsless-on-classified guard (which only
     // applies to opts.computed, never resolvedClassified.riderComputed).
     expect(() => vault.collection('with-rider', { classifiedFields: { email: classified.email() } })).not.toThrow()
+  })
+
+  it('the MV-pre-creation reconcile path still runs the anti-leak guard (review fix — #638 Task 2)', async () => {
+    // 'customers' is auto-pre-created BARE by the MV's query(db) callback
+    // during openVault, before any real declaration exists for it.
+    interface Row extends Record<string, unknown> { id: string }
+    const mv = withMaterializedView<Row>({
+      name: 'customer-rollup',
+      query: (db) => db.collection<Row>('customers').query(),
+      rowKey: (r) => r.id,
+      refresh: 'eager',
+    })
+    const db = await createNoydb({
+      store: memory(), user: 'alice', secret: 'graph-edges-reconcile-leak-2026',
+      materializedViewStrategies: [mv],
+    })
+    const vault = await db.openVault('demo')
+    // Later, real declaration reconciles onto the bare-pre-created collection —
+    // same depsless-computed-plus-classified config the fresh path refuses.
+    expect(() =>
+      vault.collection('customers', {
+        classifiedFields: { ssn: neverSpec() },
+        computed: { ssnLeak: (r: Record<string, unknown>) => r.ssn },
+      }),
+    ).toThrow(ValidationError)
+  })
+
+  it('the MV-pre-creation reconcile path registers computedDeps edges into vault.graph', async () => {
+    interface Row extends Record<string, unknown> { id: string }
+    const mv = withMaterializedView<Row>({
+      name: 'customer-rollup-2',
+      query: (db) => db.collection<Row>('customers2').query(),
+      rowKey: (r) => r.id,
+      refresh: 'eager',
+    })
+    const db = await createNoydb({
+      store: memory(), user: 'alice', secret: 'graph-edges-reconcile-valid-2026',
+      materializedViewStrategies: [mv],
+    })
+    const vault = await db.openVault('demo')
+    vault.collection('customers2', {
+      classifiedFields: { ssn: neverSpec() },
+      computed: { total: (r: Record<string, unknown>) => String(r.ssn).length },
+      computedDeps: { total: ['ssn'] },
+    })
+    const deps = vault.graph.dependentsOf('customers2')
+    expect(deps.some((d) =>
+      d.target.collection === 'customers2' && d.target.field === 'total' && d.kind === 'computed',
+    )).toBe(true)
   })
 })
 
