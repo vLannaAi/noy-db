@@ -870,6 +870,7 @@ export type {
 export { via, isViaFieldSpec } from './kernel/via-compose.js'
 export type { ViaFieldSpec } from './kernel/via-compose.js'
 export type { ViaPosture, ViaDescriptor } from './kernel/via.js'
+export type { DerivationSkippedFrozen } from './kernel/via-dispatch.js'
 
 // classified — preset catalog (creditCard/birthDate/email/phone) + validators
 export { classified, luhnCheck, isClassifiedFieldSpec, isClassifiedGroup, resolveClassifiedFields, ClassifiedConfigError, ClassifiedNeverStoredError, ClassifiedValidationError, ClassifiedRevealError, ClassifiedVerifyError, ClassifiedRotationError } from './shape/via-classified/index.js'

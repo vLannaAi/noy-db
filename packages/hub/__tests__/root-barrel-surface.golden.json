@@ -536,6 +536,7 @@
     "DelegationToken",
     "DeleteManyResult",
     "DerivationDescriptor",
+    "DerivationSkippedFrozen",
     "DerivationStrategy",
     "DerivationStrategyHandle",
     "DerivedFromMeta",

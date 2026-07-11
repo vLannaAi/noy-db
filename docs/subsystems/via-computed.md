@@ -279,7 +279,7 @@ documented as "do not depend on this shape") is **removed**, not aliased — fol
 - [`docs/subsystems/via-classified.md`](via-classified.md) — the classified feature (the usual taint
   *source*)
 - `packages/hub/src/shape/via-computed/` — `computed()`/`ComputedDescriptor`/`computedBinding`
-- `packages/hub/__tests__/computed/virtual.test.ts` — the `mode: 'virtual'` suite (11 tests)
+- `packages/hub/__tests__/computed/virtual.test.ts` — the `mode: 'virtual'` suite (12 tests)
 - `packages/hub/__tests__/via/computed-binding.test.ts` — the binding unit suite (6 tests)
 - `packages/hub/__tests__/via/taint.test.ts` — the #636 taint-propagation regression suite
 - `packages/hub/__tests__/via/graph-edges.test.ts` — the declare-time guard + reconcile-path suite

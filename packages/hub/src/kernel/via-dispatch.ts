@@ -51,9 +51,15 @@ export async function runGraphDispatchWave(vault: VaultLike, batch: GraphBatch):
     const coll = vault._getCollection(collectionName)
     if (!coll) continue
     for (const id of ids) {
-      const stored = await coll._getStoredRecordForDispatch(id)
-      if (!stored) continue
       try {
+        // Decrypt is INSIDE the per-id isolation boundary (whole-branch review Important
+        // finding, #638): an undecryptable synced envelope (`TamperedError`) must not
+        // escape `_getStoredRecordForDispatch` and abort the wave — that would propagate
+        // through `_flushGraphBatch` and reject the surrounding `SyncEngine.pull`/`push`
+        // AFTER records were already applied + meta persisted, starving every other
+        // touched target in the same batch.
+        const stored = await coll._getStoredRecordForDispatch(id)
+        if (!stored) continue
         await coll.dispatchDerivations(id, stored.record, stored.version, wave)
         await coll.dispatchMaterializedViews(id, stored.record, wave)
       } catch (err) {
@@ -61,10 +67,10 @@ export async function runGraphDispatchWave(vault: VaultLike, batch: GraphBatch):
         // whole wave (starving co-batched healthy targets) or the pull/push it's nested
         // inside. `PeriodClosedError` never reaches here — `putDerivedOutput` already
         // intercepts it at every output-write call site and turns it into a skip+event.
-        // Anything else (a genuine derive()/executor bug, a schema violation on the
-        // output, ...) is surfaced — not silently swallowed — via the SAME console.warn
-        // channel `dispatchDerivations`/the MV executor already use for their own
-        // non-strict-mode output failures, then isolated to just this one id.
+        // Anything else (a genuine decrypt failure, a derive()/executor bug, a schema
+        // violation on the output, ...) is surfaced — not silently swallowed — via the
+        // SAME console.warn channel `dispatchDerivations`/the MV executor already use for
+        // their own non-strict-mode output failures, then isolated to just this one id.
         console.warn(`[via-dispatch] wave recompute failed for ${collectionName}/${id}:`, err)
       }
     }

@@ -3830,7 +3830,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         this.graphDispatch?.collect(this.name, id)
         return
       case 'restore':
-        // Unreachable today — see doc comment above. Reserved for phase C.
+        // Unreachable today — see doc comment above. Phase C (#638) wires the dispatch call anyway.
         this.graphDispatch?.collect(this.name, id)
         return
     }

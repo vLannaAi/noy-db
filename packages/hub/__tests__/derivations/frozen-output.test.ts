@@ -318,4 +318,50 @@ describe('frozen-output rule (#637) — the sync dispatch wave (#638 Task 5 revi
     warnSpy.mockRestore()
     dbA.close(); dbB.close()
   })
+
+  it('whole-branch review Important finding (#638): a corrupted envelope in the shared store is isolated per-id — decrypt happens INSIDE the per-id try, so the wave (not just the derive body) survives one undecryptable record and the pull still resolves', async () => {
+    const derivation = withDerivation({
+      source: 'pdfs',
+      deterministic: true,
+      outputs: { meta: { shape: 'record', collection: 'pdf-meta' } },
+      derive: (s: Pdf) => ({ meta: { len: s.body.length } }),
+      lifecycle: 'eager',
+    })
+    const remote = memory()
+    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), encrypt: false })
+    const dbB = await createNoydb({
+      store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), encrypt: false,
+      derivationStrategies: [derivation],
+    })
+
+    const vA = await dbA.openVault('demo')
+    const vB = await dbB.openVault('demo')
+    vB.collection<Pdf>('pdfs')
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await vA.collection<Pdf>('pdfs').put('good', { id: 'good', body: 'hello', date: '' })
+    await vA.collection<Pdf>('pdfs').put('corrupt-me', { id: 'corrupt-me', body: 'xx', date: '' })
+    await dbA.push('demo')
+
+    // Corrupt the SYNCED envelope directly in the shared store, post-write — reproducing an
+    // undecryptable envelope arriving at the wave's decrypt step (a `TamperedError` under real
+    // encryption; a JSON-parse failure here under the plaintext codec — same call site,
+    // same isolation requirement). `applyRemote` is ciphertext-blind (just copies the envelope
+    // + invalidates cache), so this corruption is invisible to `pull`'s own per-record loop —
+    // it only surfaces later, at `_flushGraphBatch` → `runGraphDispatchWave`'s decrypt.
+    const badEnvelope = await remote.get('demo', 'pdfs', 'corrupt-me')
+    await remote.put('demo', 'pdfs', 'corrupt-me', { ...badEnvelope!, _data: 'not-json{{{' })
+
+    await expect(dbB.pull('demo')).resolves.toBeTruthy() // must not reject despite the bad envelope
+
+    // Co-batched healthy target still recomputed — not starved by the corrupted one.
+    expect(await vB.collection<{ len: number } & Record<string, unknown>>('pdf-meta').get('good')).toMatchObject({ len: 5 })
+    // Corrupted target never computed (decrypt failed before dispatch could run) — not crashed, not silently faked.
+    expect(await vB.collection<{ len: number } & Record<string, unknown>>('pdf-meta').get('corrupt-me')).toBeNull()
+    expect(warnSpy).toHaveBeenCalled() // surfaced — not silently swallowed
+
+    warnSpy.mockRestore()
+    dbA.close(); dbB.close()
+  })
 })
