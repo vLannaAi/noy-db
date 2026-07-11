@@ -9,7 +9,7 @@ import { isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
 import { ViaPipeline } from './via-pipeline.js'
 import { viaBinder, type ViaDescriptor, type ViaWriteCtx, type ViaEraseReport } from './via.js'
 import type { MutationOrigin } from './mutation.js'
-import type { WaveContext } from './via-dispatch.js'
+import { putDerivedOutput, ledgerAuditHook, type WaveContext } from './via-dispatch.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import {
   isTombstone,
@@ -2047,7 +2047,6 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * an eager MV already refreshed this wave is skipped (per-target dedup, keyed on spec name).
    */
   async dispatchMaterializedViews(id: string, record: T, wave?: WaveContext): Promise<void> {
-    void id
     if (this.materializedViewSource === undefined) return
     const incoming = record as unknown as Record<string, unknown>
     if (incoming && typeof incoming === 'object' && '_materializedFrom' in incoming) return
@@ -2073,6 +2072,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
           getCollection: (name) => this.materializedViewSource!.getCollection(name),
           getActiveTxContext: () => this.materializedViewSource!.getActiveTxContext(),
           getQueryContext: () => this.materializedViewSource!.getQueryContext(),
+          dispatchCtx: this.#dispatchCtx({ collection: this.name, id }),
         })
       } else if (mode === 'lazy') {
         if (staleHelpers === null) {
@@ -2193,10 +2193,16 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * the sync/cutover/restore dispatch wave's per-target dedup — a (into, parentId,
    * field) target already recomputed this wave is skipped (N pulled children → one recompute).
    */
+  /** @internal — ctx for `putDerivedOutput`'s frozen-period skip+audit (#638 Task 5). */
+  #dispatchCtx(source: { readonly collection: string; readonly id: string }) {
+    return { emit: (e: string, p: unknown) => (this.emitter.emit as (ev: string, pl: unknown) => void)(e, p), source, audit: ledgerAuditHook(this.ledger, this.keyring.userId) }
+  }
+
   private async recomputeRollup(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     spec: { source: string; rollup?: { from: string; key: string; field: string; compute: (children: any[]) => unknown } },
     parentId: string,
+    source: { readonly collection: string; readonly id: string },
     wave?: WaveContext,
   ): Promise<void> {
     if (this.derivationSource === undefined || spec.rollup === undefined) return
@@ -2227,7 +2233,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         priorEnvelope: prior,
       })
     }
-    await intoColl.put(parentId, patched)
+    await putDerivedOutput(intoColl, parentId, patched, this.#dispatchCtx(source))
   }
 
   /**
@@ -2236,7 +2242,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * from the delete path with the just-removed record's key value. Other
    * derivation kinds do not react to deletes (unchanged).
    */
-  private async dispatchRollupsOnDelete(deleted: T): Promise<void> {
+  private async dispatchRollupsOnDelete(id: string, deleted: T): Promise<void> {
     if (this.derivationSource === undefined) return
     const registry = this.derivationSource.registry()
     const rec = deleted as Record<string, unknown>
@@ -2244,7 +2250,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       if (!spec.rollup || spec.rollup.from !== this.name) continue
       const kv = rec[spec.rollup.key]
       if (typeof kv !== 'string' && typeof kv !== 'number') continue
-      await this.recomputeRollup(spec, String(kv))
+      await this.recomputeRollup(spec, String(kv), { collection: this.name, id })
     }
   }
 
@@ -2280,7 +2286,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         } else {
           parentId = id // a write to the parent recomputes its own aggregate
         }
-        if (parentId !== null) await this.recomputeRollup(spec, parentId, wave)
+        if (parentId !== null) await this.recomputeRollup(spec, parentId, { collection: this.name, id }, wave)
         continue
       }
 
@@ -2341,6 +2347,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
       for (const run of runs) {
         const ctx = { vault: this.derivationSource.getReadOnlyFacade() }
+        const outCtx = this.#dispatchCtx({ collection: spec.source, id: run.runId })
         const result = await DerivationExecutor.run(spec, run.input, run.version, strategyHash, ctx)
         for (const key of Object.keys(spec.outputs)) {
           const out = result.outputs[key]
@@ -2394,7 +2401,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
                   priorEnvelope,
                 })
               }
-              await outputCollection.put(entry.key, entry.value, { source: 'derived' })
+              await putDerivedOutput(outputCollection, entry.key, entry.value, outCtx, { source: 'derived' })
             }
 
             // Persist the new key set last, for failure-mode symmetry.
@@ -2448,7 +2455,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
                 priorEnvelope: prior,
               })
             }
-            await outputCollection.put(run.runId, patched, { source: 'derived' })
+            await putDerivedOutput(outputCollection, run.runId, patched, outCtx, { source: 'derived' })
             continue
           }
 
@@ -2465,7 +2472,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
               priorEnvelope: prior,
             })
           }
-          await outputCollection.put(run.runId, out.value, { source: 'derived' })
+          await putDerivedOutput(outputCollection, run.runId, out.value, outCtx, { source: 'derived' })
         }
       }
     }
@@ -2763,7 +2770,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       // that this child is gone. `existing.record` carries the deleted child's
       // FK; the recompute gathers the REMAINING children (this one already
       // removed from the store/cache above).
-      if (existing) await this.dispatchRollupsOnDelete(existing.record)
+      if (existing) await this.dispatchRollupsOnDelete(id, existing.record)
     }
   }
 
@@ -2874,7 +2881,6 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * @internal
    */
   private async dispatchMaterializedViewsOnDelete(id: string): Promise<void> {
-    void id
     if (this.materializedViewSource === undefined) return
     const registry = this.materializedViewSource.registry()
     const mvs = registry.mvsForSource(this.name)
@@ -2891,6 +2897,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
           getCollection: (name) => this.materializedViewSource!.getCollection(name),
           getActiveTxContext: () => this.materializedViewSource!.getActiveTxContext(),
           getQueryContext: () => this.materializedViewSource!.getQueryContext(),
+          dispatchCtx: this.#dispatchCtx({ collection: this.name, id }),
         })
       } else if (mode === 'lazy') {
         if (staleHelpers === null) {

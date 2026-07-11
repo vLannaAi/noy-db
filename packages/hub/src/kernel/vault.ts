@@ -102,7 +102,7 @@ import { mergeViaFields, type ViaFieldSpec } from './via-compose.js'
 import { exportRedact } from './via-pipeline.js'
 import { ViaGraph } from './via-graph.js'
 import { registerCollectionGraphSources, validateReconcileGraphEdges, commitReconcileGraphEdges, applyTaintOverlay, type ReconcileGraphOptions } from './via-graph-wiring.js'
-import { runGraphDispatchWave, type GraphBatch } from './via-dispatch.js'
+import { runGraphDispatchWave, putDerivedOutput, ledgerAuditHook, type GraphBatch } from './via-dispatch.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 // Type-only imports for the guard + derivation services. The
 // runtime classes are loaded on demand via `await import(...)` inside
@@ -2876,16 +2876,16 @@ export class Vault {
     return this.overlayedViewRegistry
   }
 
+  /** @internal — ctx for `putDerivedOutput`'s frozen-period skip+audit (#638 Task 5). */
+  private _dispatchCtx(source: { readonly collection: string; readonly id: string }) {
+    return { emit: (e: string, p: unknown) => (this.emitter.emit as (ev: string, pl: unknown) => void)(e, p), source, audit: ledgerAuditHook(this.getLedgerOrNull() ?? undefined, this.keyring.userId) }
+  }
+
   /**
-   * Manual re-materialize for a single registered MV. Useful
-   * for `refresh: 'manual'` MVs (whose consumer drives refreshes
-   * externally), for stale-bit recovery on vault re-open, and as the
-   * explicit bulk-recompute escape hatch after a strategy change.
-   *
-   * Returns `{ written, deleted, failed }`. `deleted` is always 0
-   * when tombstoning is not enabled.
-   *
-   * Throws if `name` is not a registered MV.
+   * Manual re-materialize for a single registered MV (`refresh: 'manual'` consumers,
+   * stale-bit recovery on vault reopen, bulk-recompute escape hatch after a strategy
+   * change). Returns `{ written, deleted, failed }` (`deleted` always 0 without
+   * tombstoning). Throws if `name` is not a registered MV.
    */
   async refreshView(name: string): Promise<{ written: number; deleted: number; failed: number }> {
     const registry = this.materializedViewRegistry
@@ -2901,6 +2901,7 @@ export class Vault {
       getCollection: (n) => this.collection(n),
       getActiveTxContext: () => this.noydb._activeTxContextOrNull,
       getQueryContext: () => this as unknown as MVQueryContext,
+      dispatchCtx: this._dispatchCtx({ collection: name, id: 'refreshView' }),
     })
     // Manual refresh clears any pending stale bit — the post-refresh
     // state matches the registered strategy.
@@ -2910,11 +2911,8 @@ export class Vault {
   }
 
   /**
-   * Re-derive every record in the named source collection. Useful
-   * after a strategy change to bring previously-derived records
-   * up-to-date.
-   *
-   * Sequential in v1; parallelisation deferred to v2.
+   * Re-derive every record in the named source collection (useful after a strategy
+   * change to bring previously-derived records up-to-date). Sequential in v1.
    */
   async deriveAll(sourceCollection: string): Promise<{ derived: number; failed: number }> {
     const registry = this._getDerivationRegistry()
@@ -2937,6 +2935,7 @@ export class Vault {
       if (typeof record !== 'object' || record === null) continue
       const id = (record as { id?: unknown }).id
       if (typeof id !== 'string') continue
+      const dispatchCtx = this._dispatchCtx({ collection: sourceCollection, id })
       for (const { spec, strategyHash } of strategies) {
         const sourceWithId = { ...record, id }
         const result = await DerivationExecutor.run(spec, sourceWithId, 0, strategyHash, ctx)
@@ -2962,7 +2961,7 @@ export class Vault {
               await outputColl._internalDelete(k)
             }
             for (const entry of out.entries) {
-              await outputColl.put(entry.key, entry.value)
+              await putDerivedOutput(outputColl, entry.key, entry.value, dispatchCtx)
             }
             await saveFanoutSidecar(this.adapter, this.name, {
               source: spec.source,
@@ -2983,7 +2982,7 @@ export class Vault {
             await outputColl._internalDelete(id)
             continue
           }
-          await outputColl.put(id, out.value)
+          await putDerivedOutput(outputColl, id, out.value, dispatchCtx)
         }
         if (anyFailed) failed++
         else derived++
