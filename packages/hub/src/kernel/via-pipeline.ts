@@ -135,18 +135,35 @@ export class ViaPipeline {
   }
 
   /**
-   * Rewrite an aggregate spec (money exact reducers), then refuse any
-   * field-based reducer over a `queryable: 'none'` field (blob) — the same
-   * posture gate `.where()`/`.orderBy()` apply, extended to `.aggregate()`
-   * (both the bare-spec and builder forms funnel through here).
+   * Refuse any field-based reducer over a `queryable: 'none'` field (blob) —
+   * metadata-only: walks each reducer's `.field` and checks posture, no
+   * rewriting. Reducers with no `.field` (e.g. `count()`) are skipped.
+   *
+   * Shared by `wrapReducers` below (which ALSO applies each binding's
+   * rewrite, e.g. money's exact-BigInt reducer swap) and by
+   * `ScanBuilder.aggregate()` (#629 Task 8 review fix wave 1), which must
+   * call THIS, not `wrapReducers` — wiring full `wrapReducers` into
+   * `ScanBuilder.aggregate()` would newly activate money/i18n reducer
+   * wrapping on a path that has never run it, a parity-breaking behavior
+   * change for existing brands.
    */
-  wrapReducers<S>(spec: S): S {
+  refuseUnqueryableReducers<S>(spec: S): void {
     for (const reducer of Object.values(spec as unknown as Record<string, { readonly field?: string }>)) {
       const field = reducer?.field
       if (field !== undefined && this.postureFor(field)?.queryable === 'none') {
         throw new FieldNotQueryableError(field)
       }
     }
+  }
+
+  /**
+   * Rewrite an aggregate spec (money exact reducers), then refuse any
+   * field-based reducer over a `queryable: 'none'` field (blob) — the same
+   * posture gate `.where()`/`.orderBy()` apply, extended to `.aggregate()`
+   * (both the bare-spec and builder forms funnel through here).
+   */
+  wrapReducers<S>(spec: S): S {
+    this.refuseUnqueryableReducers(spec)
     let s: unknown = spec
     for (const b of this.bindings) if (b.wrapReducers) s = b.wrapReducers(s)
     return s as S

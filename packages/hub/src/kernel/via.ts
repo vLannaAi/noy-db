@@ -80,6 +80,13 @@ export interface ViaBinding {
    * 8's posture consumer) — a passive coverage check, independent of
    * `buildClause`/`compareForOrder` (which some bindings, e.g. classified and
    * blob, never define). SYNC, no side effects.
+   *
+   * Contract (documentation only — not enforced at runtime, future work):
+   * any binding declaring `posture.queryable: 'none'` MUST implement
+   * `covers()`. `postureFor`'s refusal only engages for fields a binding
+   * actively claims via `covers()`; a `'none'`-posture binding that omits
+   * `covers()` would silently fall through to the generic query path
+   * instead of refusing.
    */
   covers?(field: string): boolean
   // NOTE: phase C adds a `derive` hook ADDITIVELY — do not stub it now.

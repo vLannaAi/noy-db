@@ -598,6 +598,14 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
    * one. Consumers with huge collections and live needs should
    * narrow with `.where()` enough to fit in the 50k `query()`
    * limit and use `query().aggregate().live()` instead.
+   *
+   * Consults the Via pipeline's posture before reducing (#629 Task 8 review
+   * fix wave 1): a reducer over a field whose posture is `queryable: 'none'`
+   * throws `FieldNotQueryableError` here, metadata-only — via
+   * `ViaPipeline.refuseUnqueryableReducers`, NOT the full `wrapReducers`
+   * (which would also activate money's exact-reducer rewrite, a path this
+   * method has never run and must not start running as a side effect of
+   * this gate).
    */
   async aggregate<Spec extends AggregateSpec>(spec: Spec): Promise<AggregateResult<Spec>>
   async aggregate<Spec extends AggregateSpec>(build: (b: ReducerBuilder<T, S, M>) => Spec): Promise<AggregateResult<Spec>>
@@ -611,6 +619,7 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
     const spec: Spec = typeof specOrBuild === 'function'
       ? (specOrBuild as (b: ReducerBuilder<T, S, M>) => Spec)(reducerBuilder as unknown as ReducerBuilder<T, S, M>)
       : specOrBuild
+    this.via?.refuseUnqueryableReducers(spec)
     const keys = Object.keys(spec)
     // Per-reducer state. Exactly |keys| entries, never grows with
     // the record count — that's the O(reducers) memory guarantee.
