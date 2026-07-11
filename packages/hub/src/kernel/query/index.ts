@@ -62,4 +62,5 @@ export {
   DanglingReferenceError,
   CrossJoinTooLargeError,
   CrossJoinSourceUnknownError,
+  FieldNotQueryableError,
 } from '../errors.js'

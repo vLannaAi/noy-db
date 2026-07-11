@@ -68,6 +68,7 @@
     "EnclaveNotSupportedError",
     "ExportCapabilityError",
     "FieldFrozenError",
+    "FieldNotQueryableError",
     "FilenameSanitizationError",
     "ForgetStrategyNotConfiguredError",
     "GROUPBY_MAX_CARDINALITY",

@@ -201,6 +201,7 @@ export function classifiedBinding(cfg: ClassifiedViaConfig): ViaBinding {
   return {
     brand: 'classified',
     posture: { encryptedAtRest: 'sealed', queryable: 'det-exact', exportable: false, forgettable: true },
+    covers: (field) => field in byField,
     // async (rather than a bare passthrough) so a refusal is always a
     // rejected Promise for direct callers, matching every other async-stack
     // hook's calling convention — `enforceClassifiedWrite` itself stays sync.

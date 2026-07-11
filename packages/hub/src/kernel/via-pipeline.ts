@@ -1,5 +1,5 @@
-import type { ViaBinding, ViaWriteCtx, ViaReadCtx, ViaCryptoCtx, SealedSlotRef, ViaEraseCtx, ViaEraseReport } from './via.js'
-import { ValidationError } from './errors.js'
+import type { ViaBinding, ViaPosture, ViaWriteCtx, ViaReadCtx, ViaCryptoCtx, SealedSlotRef, ViaEraseCtx, ViaEraseReport } from './via.js'
+import { ValidationError, FieldNotQueryableError } from './errors.js'
 
 /** Opaque per-clause query payload carried on FieldClause (replaces the money-only slot). */
 export interface ViaClause {
@@ -118,7 +118,35 @@ export class ViaPipeline {
     return undefined
   }
 
+  /**
+   * Which posture governs `field`, if any binding covers it — `undefined`
+   * means no binding declares `field` (the generic, non-via query path
+   * applies). #629 Task 8's posture consumer: `.where()`/`.orderBy()`
+   * consult this before building/evaluating a clause, refusing fields whose
+   * posture is `queryable: 'none'` (e.g. blob); every other posture
+   * ('det-exact'/'ordered'/'full') is left to the existing per-binding
+   * buildClause/evaluateClause/compareForOrder machinery, unchanged.
+   */
+  postureFor(field: string): ViaPosture | undefined {
+    for (const b of this.bindings) {
+      if (b.covers?.(field)) return b.posture
+    }
+    return undefined
+  }
+
+  /**
+   * Rewrite an aggregate spec (money exact reducers), then refuse any
+   * field-based reducer over a `queryable: 'none'` field (blob) — the same
+   * posture gate `.where()`/`.orderBy()` apply, extended to `.aggregate()`
+   * (both the bare-spec and builder forms funnel through here).
+   */
   wrapReducers<S>(spec: S): S {
+    for (const reducer of Object.values(spec as unknown as Record<string, { readonly field?: string }>)) {
+      const field = reducer?.field
+      if (field !== undefined && this.postureFor(field)?.queryable === 'none') {
+        throw new FieldNotQueryableError(field)
+      }
+    }
     let s: unknown = spec
     for (const b of this.bindings) if (b.wrapReducers) s = b.wrapReducers(s)
     return s as S

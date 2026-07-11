@@ -362,6 +362,9 @@ export function i18nBinding(cfg: I18nViaConfig): ViaBinding {
     // codec boundary's `reservedEnvelopes` door may address any collection
     // name under this prefix.
     reservedPrefixes: ['_dict_'],
+    covers: (field) =>
+      (cfg.i18nFields !== undefined && field in cfg.i18nFields)
+      || (cfg.dictKeyFields !== undefined && field in cfg.dictKeyFields),
     encodeWrite: async (record, ctx) => runI18nWriteStages(record, ctx, cfg),
     present: async (record, ctx) => runI18nPresent(record, ctx, cfg),
     describeFragment: () => buildI18nDescribeFragment(cfg),

@@ -68,7 +68,7 @@ import type {
   AggregateResult,
 } from '../../with-lookup/aggregate/aggregation.js'
 import type { JoinContext, JoinLeg, JoinableSource } from './join.js'
-import { DanglingReferenceError } from '../errors.js'
+import { DanglingReferenceError, FieldNotQueryableError } from '../errors.js'
 import type { ViaPipeline } from '../via-pipeline.js'
 
 /**
@@ -169,11 +169,17 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
    * the in-memory cache where indexes live. Index-accelerated scans
    * are a future optimization — the current implementation
    * evaluates clauses per record in O(1) per clause.
+   *
+   * Consults the Via pipeline's posture before building a clause (#629
+   * Task 8): a field whose posture is `queryable: 'none'` throws
+   * `FieldNotQueryableError` here, at the call site — same gate as
+   * `Query.where()`.
    */
   where(field: QueryField<T, S>, op: Operator, value: unknown): ScanBuilder<T, S, M> {
     // A Via-covered field (e.g. money) compares in major units, BigInt-exact
     // in scaled space — same build-time operand rewrite as Query.where().
     const via = this.via
+    if (via?.postureFor(field as string)?.queryable === 'none') throw new FieldNotQueryableError(field as string)
     const viaClause = via?.buildClause(field as string, op, value)
     const clause: FieldClause = viaClause
       ? {

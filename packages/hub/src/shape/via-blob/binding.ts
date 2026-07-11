@@ -24,6 +24,12 @@
  * construction-time refusal matrix (policies are consulted lazily by
  * `vault.compact()` and `BlobSet.put`), and inventing one here would
  * break the behavior lock.
+ *
+ * `covers` (#629 Task 8) is a passive coverage predicate, not a pipeline
+ * hook — it lets `ViaPipeline.postureFor` recognize a `blobFields` slot so
+ * `.where()`/`.orderBy()`/`.aggregate()` can refuse it (posture
+ * `queryable: 'none'`); it does not participate in clause building or
+ * evaluation.
  */
 import type { ViaBinding, ViaEraseCtx, ViaEraseReport } from '../../kernel/via.js'
 import { installViaBinder } from '../../kernel/via.js'
@@ -88,6 +94,7 @@ export function blobBinding(cfg: BlobViaConfig): ViaBinding {
     // is a first-class door; forgettable — shredAllForRecord participates in
     // vault.forget().
     posture: { encryptedAtRest: 'envelope', queryable: 'none', exportable: true, forgettable: true },
+    covers: (field) => field in cfg.fields,
     erase: (ctx) => eraseBlobs(ctx, cfg),
     describeFragment: () => buildBlobDescribeFragment(cfg.fields),
   }

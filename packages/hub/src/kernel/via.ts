@@ -75,6 +75,13 @@ export interface ViaBinding {
   readonly deps?: readonly string[]
   /** Collection-name prefixes this binding's `reservedEnvelopes` capability may address (e.g. `_dict_`). */
   readonly reservedPrefixes?: readonly string[]
+  /**
+   * Does this binding own `field`? Backs `ViaPipeline.postureFor` (#629 Task
+   * 8's posture consumer) — a passive coverage check, independent of
+   * `buildClause`/`compareForOrder` (which some bindings, e.g. classified and
+   * blob, never define). SYNC, no side effects.
+   */
+  covers?(field: string): boolean
   // NOTE: phase C adds a `derive` hook ADDITIVELY — do not stub it now.
   // ── write pipeline ──
   /** Refuse a write before crypto runs (classified step-3 slot: storage:'never' rejection + validators). Throws to refuse. */

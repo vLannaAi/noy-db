@@ -34,7 +34,8 @@
  *       │    ├─ IndexRequiredError                — lazy-mode query touches unindexed field
  *       │    ├─ IndexWriteFailureError            — index side-car put/delete failed post-main
  *       │    ├─ UniqueConstraintError             — duplicate value on unique index
- *       │    └─ UnsupportedIndexOptionError       — unique+lazy or unique+crdt at registration
+ *       │    ├─ UnsupportedIndexOptionError       — unique+lazy or unique+crdt at registration
+ *       │    └─ FieldNotQueryableError            — field's Via posture is queryable: 'none'
  *       ├─ i18n / Dictionary errors
  *       │    ├─ ReservedCollectionNameError
  *       │    ├─ DictKeyMissingError
@@ -1227,6 +1228,30 @@ export class IndexWriteFailureError extends NoydbError {
     this.field = args.field
     this.op = args.op
     this.cause = args.cause
+  }
+}
+
+/**
+ * Thrown by `.where()` / `.orderBy()` / `.aggregate()` (via the Via
+ * pipeline's `postureFor`/`wrapReducers`) when the field is covered by a Via
+ * feature whose declared posture is `queryable: 'none'` — e.g. a `blobFields`
+ * slot (blob content is out-of-band; it never reaches the decrypted record,
+ * so nothing indexes or compares it). #629 Task 8 — the first posture
+ * consumer.
+ *
+ * Payload:
+ * - `field` — the refused field name
+ */
+export class FieldNotQueryableError extends NoydbError {
+  readonly field: string
+
+  constructor(field: string) {
+    super(
+      'FIELD_NOT_QUERYABLE',
+      `Field "${field}" is not queryable — its Via feature declares queryable: 'none'.`,
+    )
+    this.name = 'FieldNotQueryableError'
+    this.field = field
   }
 }
 

@@ -959,6 +959,8 @@ export { TierNotGrantedError, TierDemoteDeniedError, DelegationTargetMissingErro
 
 // lazy-mode index errors
 export { IndexRequiredError, IndexWriteFailureError } from './kernel/errors.js'
+// Via posture-refusal error (#629 Task 8 — queryable: 'none' fields)
+export { FieldNotQueryableError } from './kernel/errors.js'
 // Hybrid-retrieval rank fusion (also the klum federation primitive)
 export { fuseRetrieval, type FuseOptions } from './with-lookup/search/fuse.js'
 // unique-index enforcement error
