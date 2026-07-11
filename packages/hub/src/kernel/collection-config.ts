@@ -614,13 +614,16 @@ export interface GraphEdge { readonly target: FieldRef; readonly sources: readon
 /**
  * The known-field-name universe builder (#638 Task 2 fix wave 2) — used by
  * {@link resolveCollectionConfig} to validate `resolveViaBindingDepsEdges`'s `deps`
- * entries. Originally also fed `resolveComputedEdges`'s own "references undeclared
- * field" check (Finding I2ii's "shared, so the two paths cannot silently drift apart"
- * rationale); #638 Task 7 dropped that check entirely (see `resolveComputedEdges`'s
- * doc comment) and, with it, `via-graph-wiring.ts`'s reconcile-path caller — this is
- * now single-caller but stays a named helper for clarity at its one call site.
+ * entries, and by {@link resolveComputedEdges}'s classified-collection dep-name check
+ * (Finding I2ii's "shared, so the two paths cannot silently drift apart" rationale).
+ * #638 Task 7 dropped `resolveComputedEdges`'s dep-name check entirely (legalizing a
+ * plain-field dep on a non-classified collection); the Task 7 review's CRITICAL finding
+ * (a typo'd dep on a CLASSIFIED collection reopens the #636 leak) restored a
+ * classified-only slice of it, scoped through this SAME helper rather than a
+ * hand-rolled second universe — exported so `via-graph-wiring.ts`'s reconcile path can
+ * build its own call-scoped knownFields the identical way the fresh path does.
  */
-function collectKnownFieldNames(parts: {
+export function collectKnownFieldNames(parts: {
   readonly moneyFields?: Record<string, unknown> | undefined
   readonly i18nFields?: Record<string, unknown> | undefined
   readonly dictKeyFields?: Record<string, unknown> | undefined
@@ -635,6 +638,11 @@ function collectKnownFieldNames(parts: {
     ...Object.keys(parts.computed ?? {}),
   ])
 }
+
+/** Default `knownFields` for a `resolveComputedEdges` call that never checks it
+ *  (`hasClassifiedFields === false`) — lets existing direct-unit-test call sites
+ *  omit the 4th argument. */
+const EMPTY_KNOWN_FIELDS: ReadonlySet<string> = new Set()
 
 /**
  * Validate each `computed` entry's `deps` well-formedness and resolve them into graph
@@ -657,18 +665,39 @@ function collectKnownFieldNames(parts: {
  * `computed`'s own declared names — `collection-config.ts` has no schema-introspection
  * API to check a `deps` entry against the record's FULL field set, since
  * `StandardSchemaV1` — Zod/Valibot/ArkType/Effect, deliberately schema-library-agnostic —
- * exposes no "list of field names" capability). This is safe: a dep with no registered
- * `ViaGraph` node contributes `DEFAULT_POSTURE` when folded (`ViaGraph._contribution`'s
- * `?? DEFAULT_POSTURE` fallback) — i.e. nothing, exactly like any other untainted
- * source. Resolved WITHIN this task per "Before You Begin" — the brief's own canonical
- * example (`deps: ['amount']` on a plain numeric field) is unreachable under Task 2's
- * original strict check; a real per-record schema-membership check would need a
- * schema-introspection capability that doesn't exist for `StandardSchemaV1`.
+ * exposes no "list of field names" capability). This is safe on a NON-classified
+ * collection: a dep with no registered `ViaGraph` node contributes `DEFAULT_POSTURE`
+ * when folded (`ViaGraph._contribution`'s `?? DEFAULT_POSTURE` fallback) — i.e. nothing,
+ * exactly like any other untainted source.
+ *
+ * Task 7 review CRITICAL fix (empirically confirmed leak reopening): on a collection
+ * that DOES declare classified fields, an UNKNOWN `deps` entry (a typo — e.g.
+ * `deps: ['sssn']` instead of `['ssn']`) used to fold to `DEFAULT_POSTURE` exactly like
+ * the "harmless plain field" case above, silently reopening the #636 leak — construction
+ * didn't throw, and the derived field was written/read UNSEALED even though its `fn`
+ * actually read a classified field. `knownFields` (built by {@link collectKnownFieldNames}
+ * the SAME way at every call site — never a hand-rolled second universe, the exact drift
+ * that caused a Task 2 bug) restores the "every dep must name a known field" check, but
+ * ONLY when `hasClassifiedFields` — a non-classified collection keeps the Task 7 freedom
+ * (any string is a legal dep, per the paragraph above) since an untainted fold there is
+ * always safe regardless of typos.
+ *
+ * KNOWN LIMIT (pre-existing since Task 2, phase-E territory — pinned by
+ * `via/taint.test.ts`'s "KNOWN LIMIT" test): this only checks that a `deps` entry names
+ * SOME known field, not that it names the RIGHT one. A `deps` entry naming a real,
+ * declared-but-WRONG field (e.g. `fn` reads classified field `ssn` but `deps: ['amount']`
+ * — a genuine, known, non-classified field) still passes this check and still leaks:
+ * the graph edge folds from `amount`'s posture, not `ssn`'s, so the derived field is
+ * folded/sealed as if it read `amount`, while its actual output is `ssn`'s plaintext.
+ * There is no schema-introspection capability (see above) to verify a `deps` entry
+ * actually corresponds to what `fn` reads — closing this fully would need runtime
+ * read-tracking or a schema-aware capability, out of this fix's scope.
  */
 export function resolveComputedEdges(
   collectionName: string,
   computed: ComputedFields | undefined,
   hasClassifiedFields: boolean,
+  knownFields: ReadonlySet<string> = EMPTY_KNOWN_FIELDS,
 ): readonly GraphEdge[] {
   if (!computed) return []
   const edges: GraphEdge[] = []
@@ -693,6 +722,15 @@ export function resolveComputedEdges(
     for (const dep of deps) {
       if (typeof dep !== 'string' || dep.length === 0) {
         throw new ValidationError(`Collection "${collectionName}": computed field "${field}"'s \`deps\` entries must be non-empty strings.`)
+      }
+      if (hasClassifiedFields && !knownFields.has(dep)) {
+        throw new ValidationError(
+          `Collection "${collectionName}": computed field "${field}"'s \`deps\` entry "${dep}" does not name a ` +
+          `declared field, and the collection declares classified fields — an opaque computed function could ` +
+          `silently copy a classified field's plaintext into an ordinary, unredacted field via a mistyped/unknown ` +
+          `dep name. Declare \`deps\` naming only known fields (money/i18n/dictKey/classified/computed) — check ` +
+          `"${dep}" for a typo.`,
+        )
       }
     }
     edges.push({
@@ -872,9 +910,10 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
 
   // #638 Task 2 — the field-name universe `resolveViaBindingDepsEdges` validates `deps`
   // entries against ("references undeclared field" otherwise) — still true for the general
-  // `ViaBinding.deps` path. `resolveComputedEdges` (#638 Task 7) no longer consults this: a
-  // computed `deps` entry may name a plain field with no via feature at all (its own doc
-  // comment explains why that check was dropped for computed specifically).
+  // `ViaBinding.deps` path. `resolveComputedEdges` (#638 Task 7) only consults this when
+  // `hasClassifiedFields` (the Task 7 review's CRITICAL fix — see its own doc comment): a
+  // computed `deps` entry may still name a plain field with no via feature at all on a
+  // NON-classified collection.
   const knownFields = collectKnownFieldNames({
     moneyFields: effectiveViaFields.moneyFields,
     i18nFields: effectiveViaFields.i18nFields,
@@ -882,7 +921,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     classifiedFields: resolvedClassified?.byField,
     computed: allComputed,
   })
-  const computedEdges = resolveComputedEdges(opts.name, allComputed, resolvedClassified !== undefined)
+  const computedEdges = resolveComputedEdges(opts.name, allComputed, resolvedClassified !== undefined, knownFields)
   const viaDepsEdges = resolveViaBindingDepsEdges(opts.name, via?.bindings ?? [], knownFields)
 
   return {

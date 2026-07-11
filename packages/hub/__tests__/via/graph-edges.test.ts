@@ -177,6 +177,18 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
     ).toThrow(ValidationError)
   })
 
+  it('a computed entry with a MISTYPED dep on a collection that also declares classified fields throws (Task 7 review CRITICAL fix — closes the typo reopening of #636: construction used to silently fold the derived field to DEFAULT_POSTURE)', async () => {
+    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'graph-edges-typo-fresh-2026' })
+    const vault = await db.openVault('demo')
+    expect(() =>
+      vault.collection('typo-leaky', {
+        classifiedFields: { ssn: classified.email() },
+        // 'sssn' — a typo for the declared classified field 'ssn'.
+        computed: { ssnLeak: { fn: (r: Record<string, unknown>) => r.ssn, deps: ['sssn'] } },
+      }),
+    ).toThrow(ValidationError)
+  })
+
   it('a depsless computed entry on a NON-classified collection is fine (no in-edges → no taint)', async () => {
     const db = await createNoydb({ store: memory(), user: 'alice', secret: 'graph-edges-plain-2026' })
     const vault = await db.openVault('demo')
@@ -240,6 +252,30 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
     expect(deps.some((d) =>
       d.target.collection === 'customers2' && d.target.field === 'total' && d.kind === 'computed',
     )).toBe(true)
+  })
+
+  it('the MV-pre-creation reconcile path also refuses a MISTYPED computed dep on a newly-attached classified field (Task 7 review CRITICAL fix)', async () => {
+    interface Row extends Record<string, unknown> { id: string }
+    const mv = withMaterializedView<Row>({
+      name: 'customer-rollup-typo',
+      query: (db) => db.collection<Row>('customers-typo').query(),
+      rowKey: (r) => r.id,
+      refresh: 'eager',
+    })
+    const db = await createNoydb({
+      store: memory(), user: 'alice', secret: 'graph-edges-reconcile-typo-2026',
+      materializedViewStrategies: [mv],
+    })
+    const vault = await db.openVault('demo')
+    // 'customers-typo' is auto-pre-created BARE by the MV; this reconciles
+    // both classifiedFields and a computed field whose `deps` typo's the
+    // classified field's name ('sssn' instead of 'ssn') in the SAME call.
+    expect(() =>
+      vault.collection('customers-typo', {
+        classifiedFields: { ssn: neverSpec() },
+        computed: { ssnLeak: { fn: (r: Record<string, unknown>) => r.ssn, deps: ['sssn'] } },
+      }),
+    ).toThrow(ValidationError)
   })
 
   it('a two-call reconcile assembly (depsless computed first, classifiedFields second) still throws (fix wave 2, Finding I1)', async () => {
@@ -389,5 +425,23 @@ describe('resolveComputedEdges — well-formedness (#638 Task 2; #638 Task 7 fol
   it('a mode: "virtual" entry resolves to grain "virtual"', () => {
     const edges = resolveComputedEdges('c', { total: { fn: () => 1, deps: ['amount'], mode: 'virtual' } }, false)
     expect(edges).toEqual([{ target: { collection: 'c', field: 'total' }, sources: [{ collection: 'c', field: 'amount' }], grain: 'virtual' }])
+  })
+
+  // Task 7 review CRITICAL fix — the 4th (`knownFields`) param, consulted
+  // ONLY when `hasClassifiedFields` is true.
+  it('CONTROL: a deps entry naming a KNOWN field on a classified collection is legal', () => {
+    const edges = resolveComputedEdges('c', { total: { fn: () => 1, deps: ['ssn'] } }, true, new Set(['ssn']))
+    expect(edges).toEqual([{ target: { collection: 'c', field: 'total' }, sources: [{ collection: 'c', field: 'ssn' }], grain: 'record' }])
+  })
+
+  it('a deps entry naming an UNKNOWN field on a classified collection throws ValidationError (the typo-reopening fix)', () => {
+    expect(() =>
+      resolveComputedEdges('c', { total: { fn: () => 1, deps: ['sssn'] } }, true, new Set(['ssn'])),
+    ).toThrow(ValidationError)
+  })
+
+  it('CONTROL: a deps entry naming an unknown field on a NON-classified collection stays legal (#638 Task 7 freedom preserved, `knownFields` ignored)', () => {
+    const edges = resolveComputedEdges('c', { total: { fn: () => 1, deps: ['nope'] } }, false, new Set(['ssn']))
+    expect(edges).toEqual([{ target: { collection: 'c', field: 'total' }, sources: [{ collection: 'c', field: 'nope' }], grain: 'record' }])
   })
 })

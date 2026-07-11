@@ -30,6 +30,7 @@ import { withClassified } from '../../src/shape/via-classified/index.js'
 import type { ClassifiedFieldSpec } from '../../src/shape/via-classified/index.js'
 import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
 import { SealedHandle } from '../../src/index.js'
+import { money } from '../../src/shape/via-money/descriptor.js'
 import { inlineMemory } from '../classified/harness.js'
 
 interface Person extends Record<string, unknown> {
@@ -145,6 +146,64 @@ describe('#636 regression — computed-from-classified taint (GREEN after #638 T
     // An untainted computed/plain field carries no taint block.
     const name = desc.fields.find((f) => f.key === 'name')
     expect(name?.taint).toBeUndefined()
+  })
+})
+
+/**
+ * Task 7 review — KNOWN LIMIT (documented residual, pinned so a future fix
+ * flips it consciously). `resolveComputedEdges`'s classified-collection dep
+ * check (the review's CRITICAL fix, `collection-config.ts`) only verifies
+ * that a `deps` entry names SOME known field (money/i18n/dictKey/classified/
+ * computed) — not that it names the field `fn` actually reads. A `deps`
+ * entry naming a real, declared-but-WRONG field still passes the check and
+ * still leaks: the graph edge folds from the WRONG field's posture, not the
+ * classified source's, so a materialized field whose `fn` reads a classified
+ * field's plaintext comes back UNSEALED/plaintext whenever its declared
+ * `deps` points at some other known, non-classified field instead of the
+ * one `fn` actually reads. There is no schema-introspection capability to
+ * verify a `deps` entry corresponds to what `fn` actually reads (see
+ * `resolveComputedEdges`'s doc comment) — closing this fully is out of this
+ * fix's scope (phase-E territory).
+ */
+describe('Task 7 review — KNOWN LIMIT: a computed dep naming a real-but-wrong declared field still leaks', () => {
+  it('fn reads a classified field but `deps` names a different, real, KNOWN field — construction does not throw and the #636 leak shape survives', async () => {
+    interface Person extends Record<string, unknown> { id: string; ssn: string; amount: number; ssnLeak?: string }
+    const ssnSpec2 = (): ClassifiedFieldSpec => ({
+      _noydbClassified: true, preset: 'test-ssn', storage: 'recoverable',
+      list: { kind: 'omit' }, sensitivity: 'secret',
+    })
+    const store = inlineMemory()
+    const db = await createNoydb({
+      store, user: 'a', secret: 'known-limit-wrong-dep-2026', classifiedStrategy: withClassified(),
+    })
+    const v = await db.openVault('v1')
+    // `fn` actually reads `ssn` (classified/sealed); `deps` names `amount` —
+    // a REAL, declared money field, NOT the field `fn` reads. `amount` IS in
+    // the knownFields universe (the CRITICAL fix only checks "is this a
+    // known field", not "is this the RIGHT field"), so construction does
+    // NOT throw — the residual limit this test pins.
+    const c = v.collection<Person>('people', {
+      moneyFields: { amount: money({ currency: 'EUR', scale: 2 }) },
+      classifiedFields: { ssn: ssnSpec2() },
+      computed: { ssnLeak: { fn: (r) => r.ssn as string, deps: ['amount'] } },
+    })
+    await c.put('r1', { id: 'r1', ssn: '123-45-6789', amount: 42 })
+
+    const rec = await c.get('r1')
+    expect(rec?.ssn).toBeInstanceOf(SealedHandle) // the actual classified field is still correctly protected
+    // KNOWN LIMIT: ssnLeak's effective posture folded from `amount` (an
+    // ordinary money field), not `ssn` — so it is NOT redacted/sealed at
+    // all. `ssnLeak` comes back as ssn's raw plaintext, exactly the #636
+    // shape, despite the collection declaring classified fields and this
+    // computed entry declaring (wrong, but known) `deps`.
+    expect(rec?.ssnLeak).toBe('123-45-6789')
+
+    // Structural proof, mirroring the #636-regression suite's own idiom above:
+    // the source classified field is sealed, ssnLeak never is.
+    const raw = store._dump('v1', 'people', 'r1')
+    expect(raw).toBeDefined()
+    expect(raw!._sealed?.ssn).toMatch(/^.+:.+$/)
+    expect(raw!._sealed?.ssnLeak).toBeUndefined()
   })
 })
 

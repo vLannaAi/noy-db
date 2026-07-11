@@ -80,7 +80,7 @@ export class ViaGraph {
   /** Collections with at least one classified field (#638 Task 2 fix wave 2,
    *  Finding I1 — the reconcile path's combined-state leak guard memory). */
   private readonly _classifiedCollections = new Set<string>()
-  /** Computed field names declared with no `computedDeps` entry, per collection
+  /** Computed field names declared with no `deps` entry, per collection
    *  (Finding I1 — such a field registers no edge when no classified field is
    *  present yet, so a LATER, separate reconcile call attaching classifiedFields
    *  still needs to see it regardless of declaration order). */
@@ -93,21 +93,6 @@ export class ViaGraph {
     if (this._posture.has(id)) return
     this._posture.set(id, posture)
     this._effectiveCache.clear()
-  }
-
-  /** Every field name with a declared posture (registerField) for `collection` —
-   *  the graph's memory of previously-known fields. Consulted by the reconcile
-   *  path's computedDeps validation (#638 Task 2 fix wave 2, Finding I2ii) so a
-   *  field declared i18n/dictKey/money/classified at an EARLIER `vault.collection()`
-   *  call stays a valid dep source on a later one, without the reconcile path
-   *  needing direct access to those descriptors. */
-  fieldNamesOf(collection: string): ReadonlySet<string> {
-    const out = new Set<string>()
-    for (const id of this._posture.keys()) {
-      const sep = id.indexOf(SEP)
-      if (id.slice(0, sep) === collection) out.add(id.slice(sep + 1))
-    }
-    return out
   }
 
   /** A derived target depends on `sources` (may be cross-collection). `kind`/`grain`
@@ -143,7 +128,7 @@ export class ViaGraph {
     return this._classifiedCollections.has(collection)
   }
 
-  /** Mark/query a collection's depsless (no declared `computedDeps`) computed
+  /** Mark/query a collection's depsless (no declared `deps`) computed
    *  field names — see `_depslessComputed`'s doc comment above. */
   markDepslessComputed(collection: string, field: string): void {
     let set = this._depslessComputed.get(collection)

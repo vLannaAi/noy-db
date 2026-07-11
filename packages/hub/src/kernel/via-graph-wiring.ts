@@ -8,7 +8,10 @@
 // a derivation/MV/overlay strategy.
 import type { ViaGraph } from './via-graph.js'
 import type { ViaPosture } from './via.js'
-import { resolveCollectionConfig, resolveComputedEdges, computedEntryParts, type CollectionOpts, type GraphEdge } from './collection-config.js'
+import {
+  resolveCollectionConfig, resolveComputedEdges, computedEntryParts, collectKnownFieldNames,
+  type CollectionOpts, type GraphEdge,
+} from './collection-config.js'
 import { resolveClassifiedFields, type ClassifiedEntry } from '../port/with/classified-strategy.js'
 import { ValidationError } from './errors.js'
 import { ViaPipeline, type ViaTaintOverlay } from './via-pipeline.js'
@@ -126,10 +129,13 @@ export interface ReconcilePlan {
  * `computed:` sugar option, per `ReconcileGraphOptions`'s doc comment; `via(computed(...))`
  * is construction-only like i18nFields/dictKeyFields) are resolved via `resolveComputedEdges`
  * exactly like the fresh-construction path — Finding I2ii's original knownFields-sharing
- * concern no longer applies: `resolveComputedEdges` (#638 Task 7) no longer validates a
- * `deps` entry against a known-field universe at all (see its own doc comment — a plain,
- * non-via field is a legal dep, and there is no schema-introspection API to check against
- * the record's full field set either way).
+ * concern is back in play for the Task 7 review's CRITICAL fix: on a collection that
+ * declares classified fields, `resolveComputedEdges` now checks every `deps` entry against
+ * a `knownFields` universe built via the SAME `collectKnownFieldNames` helper the fresh path
+ * uses (never a hand-rolled second universe), scoped to THIS call's own
+ * `moneyFields`/`classifiedFields`/`computed` options (see `resolveComputedEdges`'s own doc
+ * comment for the full rationale and its documented residual limit). On a non-classified
+ * collection a plain, non-via field is still a legal dep, unchanged from Task 7.
  *
  * Callers MUST call this BEFORE any `_apply*` mutation runs, and must only
  * call `commitReconcileGraphEdges` with the result AFTER every `_apply*` for
@@ -192,7 +198,16 @@ export function validateReconcileGraphEdges(graph: ViaGraph, name: string, optio
         )
       }
     }
-    edges = resolveComputedEdges(name, options.computed, combinedHasClassified)
+    // #638 Task 7 review CRITICAL fix — scoped to THIS reconcile call's own options
+    // (mirrors the fresh path's `knownFields`, built once per `vault.collection()` call;
+    // `resolveComputedEdges`'s doc comment covers the residual cross-call/known-but-wrong
+    // limits).
+    const knownFields = collectKnownFieldNames({
+      moneyFields: options.moneyFields,
+      classifiedFields: resolvedClassified?.byField,
+      computed: options.computed,
+    })
+    edges = resolveComputedEdges(name, options.computed, combinedHasClassified, knownFields)
     const depFields = new Set(edges.map((edge) => edge.target.field))
     depslessComputedFields = Object.keys(options.computed).filter((field) => !depFields.has(field))
   }

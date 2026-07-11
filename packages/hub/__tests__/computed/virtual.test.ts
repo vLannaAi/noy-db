@@ -159,6 +159,38 @@ describe('computed(virtual) — read-time, never-stored mode (#638 Task 7)', () 
     expect(() => c.query().where('doubledPrice', '==', 21)).toThrow(FieldNotQueryableError)
   })
 
+  it('composed grammar (MATERIALIZED default): via(computed(fn, { mode: "materialized" }), money(...)) on one field — money DOES format the computed output (pins the OPPOSITE of the virtual-mode case above)', async () => {
+    // Unlike `mode: 'virtual'` above, a MATERIALIZED computed field is
+    // evaluated by `evalComputedFields` in `_putInternal` BEFORE
+    // `this.via.encodeWrite` runs (collection.ts's "Computed scalar fields —
+    // evaluated FIRST" comment) — its raw output is merged into the record
+    // exactly like any user-supplied value, so money's OWN encode/decode/
+    // present hooks (which also cover this field, per `compileViaBindings`'s
+    // ordering) apply to it normally on both write and read, same as a plain
+    // money field (money/read-parity.test.ts's '122.00'-style decimal-string
+    // format). Pinned empirically — do not change this behavior, only this
+    // test's assertion, if it ever proves wrong.
+    interface Priced extends Record<string, unknown> { id: string; base: number; total?: string | number }
+    const store = inlineMemory()
+    const db = await createNoydb({ store, user: 'alice', secret: 'via-computed-materialized-stack-2026' })
+    const v = await db.openVault('v1')
+    const c = v.collection<Priced>('priced', {
+      viaFields: {
+        total: via(
+          computed((r) => (r.base as number) * 2, { deps: ['base'], mode: 'materialized' }),
+          money({ currency: 'EUR', scale: 2 }),
+        ),
+      },
+    })
+    await c.put('a', { id: 'a', base: 10.5 })
+    const read = await c.get('a')
+    expect(read?.total).toBe('21.00')
+    // materialized: STORED (unlike virtual mode) — money's own encode already
+    // quantized the computed output before persistence.
+    const raw = await c._getStoredRecord('a')
+    expect((raw as Priced)?.total).toBeDefined()
+  })
+
   it('a depsless virtual field on a non-classified collection is legal and always non-queryable', async () => {
     const store = inlineMemory()
     const db = await createNoydb({ store, user: 'alice', secret: 'via-computed-virtual-depsless-2026' })
