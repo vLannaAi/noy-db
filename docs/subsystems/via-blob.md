@@ -18,6 +18,11 @@ Enable blob storage with `blobStrategy: withBlobs()` (subpath `@noy-db/hub/blobs
 import { createNoydb } from '@noy-db/hub'
 import { withBlobs } from '@noy-db/hub/blobs'
 
+interface InvoiceScan {
+  id: string
+  status: string
+}
+
 const db = await createNoydb({ user: 'owner', secret: 'pw', blobStrategy: withBlobs() })
 const vault = await db.openVault('v1')
 const scans = vault.collection<InvoiceScan>('invoiceScans', {
@@ -36,11 +41,19 @@ literal — every knob is optional (`{}` is a valid, no-op policy):
   `now - retainDays × 86400s`.
 - `evictWhen: (record) => boolean` — predicate eviction over the decrypted record.
 - `legalHold: (record) => boolean` — a `true` result blocks eviction outright, TTL or predicate.
-- `retainUntil: (record) => Date | null` — a hard floor date under which eviction never fires.
+- `retainUntil: (record) => Date | string | number | null | undefined` — a hard floor date (or
+  `null`/`undefined` for no floor) under which eviction never fires.
 - `external: true` — the slot is treated as an externally-stored object (see
   `ObjectProjection`), not an inline `BlobSet` chunk.
 - `public: true` — opts the slot into unauthenticated public URL serving.
-- `backlink: string` — an opaque token carried through to the eviction audit log.
+- `backlink: 'opaque-token' | 'encrypted' | 'plain' | 'none'` — for an `external` field, selects
+  how a backlink (this record's vault/collection/id/field) is stamped onto the object's metadata,
+  the self-describing "secondary store" that powers reconcile / DR / import re-pairing:
+  `'opaque-token'` (default) is a random id, preserving the opaque-bucket property (no names
+  leak), also recorded on the slot; `'encrypted'` is the reference encrypted under the blob DEK
+  (ZK-preserving; falls back to `'opaque-token'` on a plaintext vault); `'plain'` is the reference
+  in cleartext metadata — leaks structure to bucket readers, only for non-sensitive deployments;
+  `'none'` means no backlink.
 
 Run eviction with `vault.compact()`, which returns a `CompactionResult` — `evicted`, `records`,
 `collections`, `auditEntries`, `held`, and a per-collection `byCollection: Record<string, {
