@@ -1003,13 +1003,17 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       ? await deriveZodFields(this.schema)
       : undefined
 
-    // 2. Optionally resolve dynamic-dict labels from the vault's dictionary store.
+    // 2. Optionally resolve dynamic-dict labels — dictKeyFields AND reserved-tier
+    // lookupFields (native dict()) share the SAME `_dict_<name>` backing (review fix).
     let dictLabels: Record<string, Record<string, string>> | undefined
-    if (opts.resolveDictLabels === true && this.dictKeyFields !== undefined) {
-      dictLabels = {}
-      for (const [, desc] of Object.entries(this.dictKeyFields)) {
-        if (!isStaticDictDescriptor(desc) && this.getDictionary !== undefined) {
-          const handle = await this.getDictionary(desc.name)
+    if (opts.resolveDictLabels === true && this.getDictionary !== undefined) {
+      const names = new Set<string>()
+      for (const desc of Object.values(this.dictKeyFields ?? {})) if (!isStaticDictDescriptor(desc)) names.add(desc.name)
+      for (const desc of Object.values(this.lookupFields ?? {})) if (desc.backing === 'reserved') names.add(desc.dimension)
+      if (names.size > 0) {
+        dictLabels = {}
+        for (const name of names) {
+          const handle = await this.getDictionary(name)
           const entries = await handle.list()
           const valueToLabel: Record<string, string> = {}
           for (const entry of entries) {
@@ -1017,7 +1021,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
             const label = Object.values(entry.labels)[0]
             if (label !== undefined) valueToLabel[entry.key] = label
           }
-          dictLabels[desc.name] = valueToLabel
+          dictLabels[name] = valueToLabel
         }
       }
     }

@@ -93,6 +93,14 @@ describe('lookup alias-equivalence parity (#650 Task 2)', () => {
       expect(nativeRead.statusLabel).toBe(aliasRead.statusLabel)
       expect(nativeRead.statusLabel).toBe('ชำระแล้ว')
 
+      // present({locale:'raw'}) — Minor 1: binding.ts:97's raw guard applies to
+      // a native lookup field exactly as it does to the dictKey alias (no
+      // synthetic statusLabel on a raw read).
+      const aliasRaw = await aliasColl.get('i1', { locale: 'raw' }) as Invoice & { statusLabel?: string }
+      const nativeRaw = await nativeColl.get('i1', { locale: 'raw' }) as Invoice & { statusLabel?: string }
+      expect(nativeRaw).toEqual(aliasRaw)
+      expect(nativeRaw.statusLabel).toBeUndefined()
+
       // describe()
       const aliasField = aliasColl.describe().fields.find((f) => f.key === 'status')
       const nativeField = nativeColl.describe().fields.find((f) => f.key === 'status')
@@ -106,6 +114,29 @@ describe('lookup alias-equivalence parity (#650 Task 2)', () => {
       expect((nativeJoin[0] as Record<string, unknown>)['statusInfo']).toEqual(
         (aliasJoin[0] as Record<string, unknown>)['statusInfo'],
       )
+    })
+
+    it('describeAsync({resolveDictLabels:true}) resolves labels identically to the dictKey alias', async () => {
+      const db = await freshDb()
+      const vault = await db.openVault('v')
+      await vault.dictionary('status').putAll({
+        draft: { en: 'Draft', th: 'ฉบับร่าง' },
+        paid: { en: 'Paid', th: 'ชำระแล้ว' },
+      })
+
+      const aliasColl = vault.collection<Invoice>('invoices-alias-async', {
+        dictKeyFields: { status: dictKey('status', ['draft', 'paid'] as const) },
+      })
+      const nativeColl = vault.collection<Invoice>('invoices-native-async', {
+        viaFields: { status: via(dict('status', { keys: ['draft', 'paid'] as const })) },
+      })
+
+      const aliasDesc = await aliasColl.describe({ resolveDictLabels: true })
+      const nativeDesc = await nativeColl.describe({ resolveDictLabels: true })
+      const aliasField = aliasDesc.fields.find((f) => f.key === 'status')
+      const nativeField = nativeDesc.fields.find((f) => f.key === 'status')
+      expect(nativeField?.dict).toEqual(aliasField?.dict)
+      expect(nativeField?.dict?.values?.every((v) => v.label !== undefined)).toBe(true)
     })
   })
 
@@ -156,6 +187,15 @@ describe('lookup alias-equivalence parity (#650 Task 2)', () => {
       expect(nativeField?.widget).toBe(aliasField?.widget)
       expect(nativeField?.dict?.static).toBe(aliasField?.dict?.static)
       expect(nativeField?.dict?.values).toEqual(aliasField?.dict?.values)
+
+      // describeAsync({resolveDictLabels:true}) — the static tier resolves
+      // synchronously from the in-code table either way; assert the async
+      // overload's output matches the sync overload's, for both alias and native.
+      const aliasAsyncField = (await aliasColl.describe({ resolveDictLabels: true })).fields.find((f) => f.key === 'civilStatus')
+      const nativeAsyncField = (await nativeColl.describe({ resolveDictLabels: true })).fields.find((f) => f.key === 'civilStatus')
+      expect(aliasAsyncField?.dict).toEqual(aliasField?.dict)
+      expect(nativeAsyncField?.dict?.static).toBe(aliasAsyncField?.dict?.static)
+      expect(nativeAsyncField?.dict?.values).toEqual(aliasAsyncField?.dict?.values)
 
       // .join() dressing
       const aliasJoin = aliasColl.query().where('id', '==', 'w1').join('civilStatus', { as: 'info' }).toArray()

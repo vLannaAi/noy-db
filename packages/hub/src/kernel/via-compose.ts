@@ -100,6 +100,16 @@ export interface MergedViaFields {
  * — one declaration site per field (#623 Task 9).
  */
 export function mergeViaFields(sources: ViaFieldSources): MergedViaFields {
+  // Sugar-vs-sugar collision (review fix): dictKeyFields and lookupFields
+  // naming the same field is otherwise silently ambiguous — mirrors the
+  // viaFields-vs-sugar check below (#623 Task 9), one declaration site per field.
+  for (const field of Object.keys(sources.dictKeyFields ?? {})) {
+    if (sources.lookupFields && field in sources.lookupFields) {
+      throw new ValidationError(
+        `mergeViaFields(): field "${field}" is declared in both \`dictKeyFields\` and \`lookupFields\` — declare it in one place only.`,
+      )
+    }
+  }
   if (!sources.viaFields || Object.keys(sources.viaFields).length === 0) {
     return {
       moneyFields: sources.moneyFields, i18nFields: sources.i18nFields, dictKeyFields: sources.dictKeyFields,

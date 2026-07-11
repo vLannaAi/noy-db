@@ -389,9 +389,13 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
       // block shape as above, for byte-parity with the dictKey()/staticDict()
       // alias. A table-bearing descriptor ('static' backing, the lookup(static)
       // form staticDict() compiles onto) resolves synchronously like a static
-      // dict; everything else (reserved/collection/bare enum) falls to the
-      // declared-keys-only fallback, same as an unresolved dynamic dictKey.
+      // dict; a reserved-tier dict() resolves via `dictLabels` exactly like a
+      // dynamic dictKey (review fix — was previously falling to the
+      // declared-keys-only fallback below, breaking async describe parity);
+      // everything else (collection/bare enum) falls to that fallback.
       type = 'enum'
+      const lookupLabelMap = dictLabels?.[lookupDesc.dimension]
+      const lookupLabelMapHasEntries = lookupLabelMap !== undefined && Object.keys(lookupLabelMap).length > 0
       if (lookupDesc.table !== undefined) {
         const displayLocale = lookupDesc.displayLocale
         const table = lookupDesc.table
@@ -403,6 +407,9 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
           return label !== undefined ? { value: k, label } : { value: k }
         })
         dictBlock = { name: lookupDesc.dimension, static: true, values }
+      } else if (lookupLabelMapHasEntries) {
+        const values = Object.entries(lookupLabelMap).map(([value, label]) => ({ value, label }))
+        dictBlock = { name: lookupDesc.dimension, static: false, values }
       } else if (lookupDesc.keys !== undefined) {
         const values = lookupDesc.keys.map((k) => {
           const label = lookupDesc.labels?.[k]

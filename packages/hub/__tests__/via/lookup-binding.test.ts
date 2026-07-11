@@ -117,6 +117,17 @@ describe('the lookup binding (#650 Task 2)', () => {
     expect(got.statusLabel).toBe('ชำระแล้ว')
   })
 
+  it('mergeViaFields: dictKeyFields + lookupFields naming the same field throws ValidationError', async () => {
+    const db = await freshDb()
+    const vault = await db.openVault('v')
+    expect(() =>
+      vault.collection<{ id: string; status: string }>('double-sugar', {
+        dictKeyFields: { status: dictKey('status', ['draft', 'paid'] as const) },
+        lookupFields: { status: dict('status') },
+      }),
+    ).toThrow(/status.*both/i)
+  })
+
   it('enumOf(): stores the code verbatim and describe() reports type:enum + widget:select', async () => {
     const db = await freshDb()
     const vault = await db.openVault('v')
