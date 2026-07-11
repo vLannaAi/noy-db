@@ -330,10 +330,13 @@ export class RecordCodec<T> {
     // A collection whose via pipeline declares at-rest hooks (#629 Task 3)
     // seals through THOSE instead — the inline `sensitiveFields` path and
     // the hook path are mutually exclusive per collection, gated on
-    // `hasAtRestHooks` (classified still runs inline: its binding doesn't
-    // exist yet). The zero-via fast path (no `via`, or a pipeline with no
-    // at-rest hooks, e.g. money-only) always takes the `else if` branch,
-    // unchanged.
+    // `hasAtRestHooks` (the inline path now serves only the plain
+    // `sensitive: [...]` collection option; since #629, `classifiedFields`-
+    // declared fields seal through their own via-binding hook, and since
+    // #638 so does any field the taint graph seals — `shape/via-classified/
+    // binding.ts` and `kernel/via-taint-binding.ts`, respectively). The
+    // zero-via fast path (no `via`, or a pipeline with no at-rest hooks,
+    // e.g. money-only) always takes the `else if` branch, unchanged.
     let openRecord = record
     let sealed: Record<string, string> | undefined
     if (this.ctx.storeCiphertext && this.ctx.via?.hasAtRestHooks) {
