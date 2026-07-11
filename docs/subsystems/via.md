@@ -22,9 +22,14 @@ contract: via(blob())                                      // externalized binar
 
 > Illustrative — the phase A entries (`money`, `i18nText`) are shipped and runnable
 > as spelled above (see the `via()` composer section below for the full
-> collection-option context). The phase B–D entries (`indexed`, `ref`,
-> `searchable`, `computed`, `classified`, `blob`) are unshipped design sketches,
-> not yet runnable.
+> collection-option context). Phase B's `classified`/`blob` features are ALSO
+> shipped, but not yet through the `via()` composer shown here — declare them
+> via their own sugar keys instead, `classifiedFields`/`blobFields` (see
+> [`docs/subsystems/via-classified.md`](via-classified.md) /
+> [`docs/subsystems/via-blob.md`](via-blob.md)); `via(classified())` /
+> `via(blob())` as spelled above remain unrunnable until the composer grows
+> those brands. The phase C–D entries (`indexed`, `ref`, `searchable`,
+> `computed`) are unshipped design sketches, not yet runnable.
 
 ## The grammar (the naming system this arc completes)
 
@@ -105,7 +110,9 @@ The **feature stack order** is deterministic and pinned in one place (`compileVi
 The kernel enforces two new **architecture rules** (checked by `pnpm check:architecture` at build time — `via-layering` and `via-enclave-isolation`):
 
 1. **`kernel` imports nothing from `shape/via-*`** — all via-features are in the `shape/` layer; the kernel holds only the port contract and runner. One frozen grandfather: `kernel/query/join.ts` imports i18n's `applyI18nLocale` from `shape/via-i18n/core.js` for join-layer presentation (sync, i18n-text-only resolution of a joined right-side field) — issue #626 tracks converging it onto the Via seam instead.
-2. **`shape/via-*` never imports `kernel/enclave/`** — this rule bans importing the enclave, not "crypto.subtle directly": crypto should reach a feature only through a scoped context (`ViaCryptoCtx`, phase B, milestone #28), never a direct enclave-barrel import. One frozen grandfather, predating #623: `shape/via-i18n/dictionary.ts` imports `kernel/enclave/index.js` for `DictionaryHandle`'s own crypto (encrypting/decrypting `_dict_*` entry envelopes) — phase B's `ViaCryptoCtx` will own rerouting it.
+2. **`shape/via-*` never imports `kernel/enclave/`** — this rule bans importing the enclave, not "crypto.subtle directly": crypto should reach a feature only through a scoped context (`ViaCryptoCtx`). Phase B built `ViaCryptoCtx` (the kernel's `sealedSlots`/`reservedEnvelopes` capability factories, `kernel/enclave/record-keys/sealed-slots.ts`) and used it to reroute `shape/via-i18n/dictionary.ts`'s `DictionaryHandle` off its former direct `kernel/enclave/index.js` import (the one grandfather this rule used to carry, predating #623) onto `reservedEnvelopes('_dict_')` — **the allowlist is now empty** and every `shape/via-*/**` file, including the new `via-classified`/`via-blob`, is enclave-clean by construction.
+
+`ViaCryptoCtx` is kernel-internal machinery for feature *authors* (a `ViaBinding`'s `encodeAtRest`/`decodeAtRest`/`erase` hooks receive it as a parameter — see `kernel/via.ts`) — not something a collection consumer calls directly. `sealedSlots` seals/unseals individual fields into their own `iv:data` slot under per-record key material (the mechanism `via-classified` seals recoverable fields with); `reservedEnvelopes(prefix)` is a whole-envelope encrypt/decrypt door scoped to collection names under a declared prefix, for reserved kernel-managed collections like `_dict_*` (see `packages/hub/__tests__/via/crypto-ctx.test.ts`).
 
 ## Implementation phases
 
@@ -114,7 +121,7 @@ The via-port lands in five phases, each with its own feature set, integration de
 | Phase | What | Status | Issues |
 |---|---|---|---|
 | **A** | Core port (contract, registry, pipeline runner), `via-money`, `via-i18n` (sugar compatibility) | Landed on `feat/623-via-port`, unreleased | #623 (milestone #28) |
-| **B** | Security features: `via-classified`, `via-blob`; posture enforcement; async per-field (`ViaCryptoCtx`) | Design → Todo | issue TBD |
+| **B** | Security features: `via-classified`, `via-blob`; posture enforcement (query/export/forget); `ViaCryptoCtx` (`sealedSlots`/`reservedEnvelopes`) | Landed on `feat/629-via-phase-b`, unreleased | #629 (milestone #28) |
 | **C** | Formula & graph: `via-computed` (virtual mode), dependency engine, choke-point dispatch — fixes #621 and #622 structurally | Design | issue TBD |
 | **D** | Lookup layer: `via-ref` (FK deps), `via-indexed`, `via-searchable` — index/search maintenance onto the choke point | Design | issue TBD |
 | **E** | External SPI — publish the contract; plugin sandboxing; posture non-forgeability | Deferred | TBD |
@@ -123,12 +130,26 @@ Each phase is self-contained; work in earlier phases does not block later ones. 
 
 Phase A's whole-branch review filed three follow-ups rather than blocking the phase — all **phase-A review follow-ups**, not new phases: **#625** (restore the index-accelerated `==`/`in` fast path for fixed-mode money `where()` clauses — the `indexProbe` hook), **#626** (converge `kernel/query/join.ts`'s join-layer i18n resolution onto the Via seam — see the grandfather note above), and **#627** (a `viaFields`-declared money field skips the late-attach reconcile when a collection is constructed twice before the declaration — the late-attach gap).
 
+### Phase B — security features + posture enforcement
+
+Phase B retrofits the two remaining security-sensitive field kinds — classified fields (`shape/via-classified/`) and blobs (`shape/via-blob/`) — as via-features, and makes every binding's declared `ViaPosture` (`encryptedAtRest`/`queryable`/`exportable`/`forgettable`) an *enforced* contract instead of documentation: the query DSL refuses a `queryable: 'none'` field (`FieldNotQueryableError`), `Vault.exportStream()`/`exportJSON()` deliberately redact a `exportable: false` field to the literal string `'[sealed]'`, and `vault.forget()` consults `forgettable` and folds each sealed-posture binding's `erase()` hook into its erasure report. See [`docs/subsystems/via-classified.md`](via-classified.md) and [`docs/subsystems/via-blob.md`](via-blob.md) for the per-feature detail — two things worth knowing before reading either:
+
+- **`via-blob` is deliberately thin.** Blob content (chunked AEAD, per-blob key lifecycle) is real cryptographic engine work that the `via-enclave-isolation` rule forbids under `shape/via-*` — so unlike `via-classified`, `via-blob`'s binding carries only declaration + posture + `describeFragment` + an `erase` hook; the content-crypto machinery stays service-side at `with-shape/blobs/` (unchanged, pre-dating the via port). `via-blob` declares no `encodeAtRest`/`decodeAtRest` hooks and never touches `ViaCryptoCtx`.
+- **Two pieces of erase-hook wiring are real, tested, and stay production-dormant on purpose.** `via-classified`'s `erase()` hook is live for `_sealed`-slot shred/residue classification (`vault.forget()` routes through it whenever a `classifiedFields` binding is compiled in — see `forget-classified-erase.test.ts`), but its *sealed-CEK prefix-purge* participation (`purgeSealedCekEnvelopes`) is never wired in, and `via-blob`'s `erase()` hook (`purgeBlobsForRecord`) is never wired in at all. Both are proven (by the pre-existing `forget-sealed-erasure.test.ts`/`per-blob-cek.test.ts` suites) to be **vault-level operations, unconditional on any given collection declaring `classifiedFields`/`blobFields`** — routing them exclusively through a per-collection via binding would silently stop shredding for undeclared collections. `vault.forget()` keeps calling both directly (the sealed-CEK `_sealed_cek/*` prefix-delete, and `collection.blob(id).shredAllForRecord()`); the hooks themselves are unit-tested and wireable by a future, collection-scoping-aware caller. Making that scoping decision is a future product call, not a phase-B gap.
+
 ## See also
 
-- [`docs/superpowers/specs/2026-07-10-via-port-design.md`](../superpowers/specs/2026-07-10-via-port-design.md) — full design spec
+- [`docs/superpowers/specs/2026-07-10-via-port-design.md`](../superpowers/specs/2026-07-10-via-port-design.md) — full phase A design spec
+- [`docs/superpowers/specs/2026-07-11-via-phase-b-design.md`](../superpowers/specs/2026-07-11-via-phase-b-design.md) — full phase B design spec
 - [`docs/subsystems/via-money.md`](via-money.md) — money feature docs
 - [`docs/subsystems/via-i18n.md`](via-i18n.md) — i18n feature docs
-- `packages/hub/src/kernel/via.ts` — the port contract and kernel runner
+- [`docs/subsystems/via-classified.md`](via-classified.md) — classified feature docs
+- [`docs/subsystems/via-blob.md`](via-blob.md) — blob feature docs
+- `packages/hub/src/kernel/via.ts` — the port contract and kernel runner (incl. `ViaCryptoCtx`, `ViaEraseCtx`/`ViaEraseReport`)
+- `packages/hub/src/kernel/via-pipeline.ts` — the phased runner (incl. `postureFor`, `redactForExport`, `eraseSealed`)
 - `packages/hub/src/kernel/via-compose.ts` — the `via()` composer + sugar/`viaFields` merge
+- `packages/hub/src/kernel/enclave/record-keys/sealed-slots.ts` — `ViaCryptoCtx`'s kernel-side capability factories
 - `packages/hub/src/shape/via-money/` — phase A: money binding
 - `packages/hub/src/shape/via-i18n/` — phase A: i18n binding
+- `packages/hub/src/shape/via-classified/` — phase B: classified binding
+- `packages/hub/src/shape/via-blob/` — phase B: blob binding
