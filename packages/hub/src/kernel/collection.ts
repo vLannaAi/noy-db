@@ -1604,7 +1604,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       if (cached) return cached.record as Record<string, unknown>
       const env = await this.adapter.get(this.vault, this.name, id)
       if (!env) return undefined
-      const rec = await this.codec.decryptRecord(env)
+      const rec = await this.codec.decryptRecord(env, { id })
       return rec === null ? undefined : (rec as Record<string, unknown>)
     }
     await this.ensureHydrated()
@@ -1656,7 +1656,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       if (cached) return { record: cached.record, version: cached.version }
       const env = await this.adapter.get(this.vault, this.name, id)
       if (!env) return { record: null, version: 0 }
-      return { record: (await this.codec.decryptRecord(env, { skipValidation: true })) as unknown ?? null, version: env._v }
+      return { record: (await this.codec.decryptRecord(env, { skipValidation: true, id })) as unknown ?? null, version: env._v }
     }
     await this.ensureHydrated()
     const cached = this.cache.get(id)
@@ -1693,7 +1693,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const env = await this.adapter.get(this.vault, this.name, id)
     if (!env) return { env: null, record: null, elided: false }
     try {
-      return { env, record: await this.codec.decryptRecord(env, { skipValidation: true }), elided: false }
+      return { env, record: await this.codec.decryptRecord(env, { skipValidation: true, id }), elided: false }
     } catch {
       return { env, record: null, elided: false }
     }
@@ -1910,7 +1910,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       if (!existing) {
         priorRaw = await this.adapter.get(this.vault, this.name, id)
         if (priorRaw) {
-          const previousRecord = await this.codec.decryptRecord(priorRaw)
+          const previousRecord = await this.codec.decryptRecord(priorRaw, { id })
           // Tombstone (shredded) prior → treat as no previous version.
           if (previousRecord !== null) {
             existing = { record: previousRecord, version: priorRaw._v }
@@ -2663,7 +2663,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       if (!existing && this.historyConfig.enabled !== false) {
         const previousEnvelope = await this.adapter.get(this.vault, this.name, id)
         if (previousEnvelope) {
-          const previousRecord = await this.codec.decryptRecord(previousEnvelope)
+          const previousRecord = await this.codec.decryptRecord(previousEnvelope, { id })
           // Tombstone (shredded) prior → no record to snapshot on delete.
           if (previousRecord !== null) {
             existing = { record: previousRecord, version: previousEnvelope._v }
@@ -3429,7 +3429,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const entries: HistoryEntry<T>[] = []
     for (const env of envelopes) {
       // History reads skip schema validation — see getVersion() docs.
-      const record = await this.codec.decryptRecord(env, { skipValidation: true })
+      const record = await this.codec.decryptRecord(env, { skipValidation: true, id })
       // Shredded (tombstoned) history version: the body is permanently gone,
       // so there is nothing to return — skip it. The version still counted in
       // the audit ledger; history() just can't surface its erased content.
@@ -3458,7 +3458,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       this.adapter, this.vault, this.name, id, version,
     )
     if (!envelope) return null
-    return this.codec.decryptRecord(envelope, { skipValidation: true })
+    return this.codec.decryptRecord(envelope, { skipValidation: true, id })
   }
 
   /** Revert a record to a past version. Creates a new version with the old content. */
@@ -3590,7 +3590,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       const id = ids[i]!
       const envelope = await this.adapter.get(this.vault, this.name, id)
       if (envelope) {
-        const record = await this.codec.decryptRecord(envelope, { sealedAsHandles: true })
+        const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
         if (record === null) continue // shredded (tombstone) — skip
         items.push(record)
         // Same lazy-mode skip as the native path: don't pollute the LRU
@@ -3693,7 +3693,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     for (const { id, envelope } of items) {
       // Public scan/listPage output (and the opportunistic cache fill in
       // listPage) — sealed fields surface as handles, never plaintext.
-      const record = await this.codec.decryptRecord(envelope, { sealedAsHandles: true })
+      const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
       if (record === null) continue // shredded (tombstone) — skip the page row
       out.push({ id, record, version: envelope._v })
     }
@@ -3758,7 +3758,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       return
     }
     // Handle-form for the cache (non-residency for sensitive fields).
-    const record = await this.codec.decryptRecord(envelope, { sealedAsHandles: true })
+    const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
     if (record === null) {
       // The on-disk envelope is now a tombstone (shredded). Treat exactly
       // like a deleted record: drop the cache entry and its index rows.
