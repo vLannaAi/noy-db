@@ -15,6 +15,7 @@ import { UnknownDictCodeError } from '../../kernel/errors.js'
 import type { JoinableSource } from '../../kernel/query/index.js'
 import type { StaticDictDescriptor } from '../../port/with/i18n-strategy.js'
 import type { LookupHandle } from './handle.js'
+import type { LookupDescriptor } from './descriptor.js'
 
 /**
  * Validate staticDict codes on a `put()`. For each `staticDict()` field,
@@ -162,4 +163,93 @@ export async function updateReferencingRecords(
       }
     }
   }
+}
+
+/**
+ * Resolve a label from an in-memory `{ locale -> label }` map, walking the
+ * same fallback chain semantics as `LookupHandle.resolveLabel` (#650 Task 2
+ * — moved here from `kernel/vault.ts` so the SAME chain serves both the
+ * i18n binding's `dictLabelResolver` and the lookup binding's
+ * `lookupLabelResolver`, which #650 Task 2 wires to the identical closure).
+ */
+export function resolveLabelFromMap(
+  labels: Readonly<Record<string, string>>,
+  locale: string,
+  fallback?: string | readonly string[],
+): string | undefined {
+  if (labels[locale] !== undefined) return labels[locale]
+  const chain = Array.isArray(fallback)
+    ? (fallback as readonly string[])
+    : fallback
+      ? [fallback as string]
+      : []
+  for (const fb of chain) {
+    if (fb === 'any') {
+      const any = Object.values(labels)[0]
+      if (any !== undefined) return any
+    } else if (labels[fb] !== undefined) {
+      return labels[fb]
+    }
+  }
+  return undefined
+}
+
+/**
+ * Project a native `lookup(dimension, { backing:'static', table, … })`
+ * descriptor into the legacy `StaticDictDescriptor` shape — the
+ * alias-equivalence compat seam (#650 Task 2) that lets a native
+ * static-tier lookup field reuse the SAME vault registries
+ * (`staticByName`/`staticDescriptorByField`) — and therefore the same
+ * `dictLabelResolver`/`resolveDictSource` machinery — as its `staticDict()`
+ * alias. `vocabulary:'closed'` maps to `validateCodes:true` (closed = only
+ * declared codes are legal); `'open'` maps to `validateCodes:false`.
+ * Returns `undefined` for non-static or table-less (bare `enumOf`)
+ * descriptors — those have nothing to register.
+ */
+export function lookupToStaticDictCompat(desc: LookupDescriptor): StaticDictDescriptor | undefined {
+  if (desc.backing !== 'static' || desc.table === undefined) return undefined
+  return {
+    _noydbStaticDict: true,
+    _viaBrand: 'i18n',
+    name: desc.dimension,
+    table: desc.table,
+    keys: desc.keys ?? Object.keys(desc.table),
+    ...(desc.displayLocale !== undefined ? { displayLocale: desc.displayLocale } : {}),
+    ...(desc.onMissing !== undefined ? { onMissing: desc.onMissing } : {}),
+    ...(desc.substitute !== undefined ? { substitute: desc.substitute } : {}),
+    validateCodes: desc.vocabulary === 'closed',
+  }
+}
+
+/** The vault-registry entries a collection's `lookupFields` contribute — the alias-equivalence bridge (#650 Task 2). */
+export interface LookupDictCompat {
+  /** Reserved-tier fields: field name -> dimension (dictionary) name — merges into `dictKeyFieldRegistry`. */
+  readonly dictFieldMap: Record<string, string>
+  /** Static-tier (table-bearing) fields, projected — merges into `staticDescriptorByField`/`staticByName`. */
+  readonly staticEntries: ReadonlyArray<readonly [string, StaticDictDescriptor]>
+}
+
+/**
+ * Bridge a collection's `lookupFields` into the SAME shape the legacy dict
+ * registries expect, so `resolveDictSource`/`dictLabelResolver` (and
+ * therefore `.join()`/`orderBy({by:'label'})`) serve a native `dict()`/
+ * `lookup(static)` field identically to its `dictKey()`/`staticDict()`
+ * alias — the reserved-vs-first-class-backing "matrix" tier is NOT bridged
+ * here (no vault registry backs it; Task 5/6 build its own graph edge /
+ * snapshot seam).
+ */
+export function collectLookupDictCompat(
+  lookupFields: Record<string, LookupDescriptor> | undefined,
+): LookupDictCompat {
+  const dictFieldMap: Record<string, string> = {}
+  const staticEntries: Array<readonly [string, StaticDictDescriptor]> = []
+  for (const [field, desc] of Object.entries(lookupFields ?? {})) {
+    if (desc.backing === 'reserved') {
+      dictFieldMap[field] = desc.dimension
+    } else {
+      const compat = lookupToStaticDictCompat(desc)
+      if (compat) staticEntries.push([field, compat])
+    }
+  }
+  return { dictFieldMap, staticEntries }
 }

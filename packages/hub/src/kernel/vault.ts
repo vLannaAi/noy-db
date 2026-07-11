@@ -95,10 +95,15 @@ import { isDictCollectionName, isStaticDictDescriptor } from '../port/with/i18n-
 // live in shape/via-lookup/registry.ts, reached only through this port seam
 // (never shape/via-lookup/* directly — Check 14 via-layering). Aliased to
 // avoid colliding with Vault's own same-named public delegator methods below.
+// #650 Task 2 — resolveLabelFromMap/collectLookupDictCompat: the
+// alias-equivalence bridge shared by the i18n + lookup bindings.
 import {
   enforceStaticDictOnPut as enforceStaticDictOnPutHelper,
   resolveDictSource as resolveDictSourceHelper,
   updateReferencingRecords,
+  resolveLabelFromMap,
+  collectLookupDictCompat,
+  type LookupDescriptor,
 } from '../port/with/lookup-strategy.js'
 import { isLinkCollectionName, type LinkSpec, type LinkSetHandle } from '../with-shape/links/names.js'
 import { makeLazyLinkSetHandle, type LazyLinkSetHandle } from '../with-shape/links/lazy-handle.js'
@@ -169,33 +174,6 @@ import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta, VaultMeta } from '../with-shape/introspection/meta.js'
 import { NO_CLASSIFIED, type ClassifiedEntry, type ClassifiedStrategy } from '../port/with/classified-strategy.js'
 import { USER_ENVELOPE_COLLECTION } from './constants.js'
-
-/**
- * Resolve a label from an in-memory `{ locale → label }` map, walking the
- * same fallback chain semantics as `DictionaryHandle.resolveLabel`.
- * Used by the staticDict read-path resolver, which has no `_dict_*` handle.
- */
-function resolveLabelFromMap(
-  labels: Readonly<Record<string, string>>,
-  locale: string,
-  fallback?: string | readonly string[],
-): string | undefined {
-  if (labels[locale] !== undefined) return labels[locale]
-  const chain = Array.isArray(fallback)
-    ? (fallback as readonly string[])
-    : fallback
-      ? [fallback as string]
-      : []
-  for (const fb of chain) {
-    if (fb === 'any') {
-      const any = Object.values(labels)[0]
-      if (any !== undefined) return any
-    } else if (labels[fb] !== undefined) {
-      return labels[fb]
-    }
-  }
-  return undefined
-}
 
 /** A vault (tenant namespace) containing collections. */
 export class Vault {
@@ -725,6 +703,8 @@ export class Vault {
     textIndexPersist?: boolean
     /** — declare dictKey / staticDict fields for label resolution on reads. */
     dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor>
+    /** — declare lookup() / enumOf() / dict() fields (#650 Task 2 — the 'lookup' via binding's three tiers). */
+    lookupFields?: Record<string, LookupDescriptor>
     /** Consumer-neutral per-field descriptors (label/unit/semanticType/sensitivity…). See collection.describe(). */
     fieldMeta?: Record<string, FieldMeta>
     /** The collection's own descriptive metadata (label/description/icon). See collection.describe(). */
@@ -954,11 +934,12 @@ export class Vault {
       // the rename-tracking registry; staticDict fields skip it (no
       // per-vault pointer rewrite) and instead populate the static
       // registries that back the read-path resolver, the readonly guard, and
-      // put-time code validation.
-      if (effectiveViaFields.dictKeyFields) {
+      // put-time code validation. Native lookup()/dict() reserved/static
+      // fields fold into the SAME registries (#650 Task 2 — collectLookupDictCompat).
+      if (effectiveViaFields.dictKeyFields || effectiveViaFields.lookupFields) {
         const dictFieldMap: Record<string, string> = {}
         const staticFieldMap: Record<string, StaticDictDescriptor> = {}
-        for (const [field, desc] of Object.entries(effectiveViaFields.dictKeyFields)) {
+        for (const [field, desc] of Object.entries(effectiveViaFields.dictKeyFields ?? {})) {
           if (isStaticDictDescriptor(desc)) {
             staticFieldMap[field] = desc
             this.staticDictNames.add(desc.name)
@@ -966,6 +947,13 @@ export class Vault {
           } else {
             dictFieldMap[field] = desc.name
           }
+        }
+        const lookupCompat = collectLookupDictCompat(effectiveViaFields.lookupFields)
+        Object.assign(dictFieldMap, lookupCompat.dictFieldMap)
+        for (const [field, desc] of lookupCompat.staticEntries) {
+          staticFieldMap[field] = desc
+          this.staticDictNames.add(desc.name)
+          this.staticByName.set(desc.name, desc)
         }
         if (Object.keys(dictFieldMap).length > 0) {
           this.dictKeyFieldRegistry.set(collectionName, dictFieldMap)
@@ -1144,11 +1132,14 @@ export class Vault {
       if (options?.viaFields !== undefined) collOpts.viaFields = options.viaFields
       if (options?.computed !== undefined) collOpts.computed = options.computed as ComputedFields
       if (options?.classifiedFields !== undefined) collOpts.classifiedFields = options.classifiedFields
-      if (effectiveViaFields.dictKeyFields !== undefined) {
+      if (effectiveViaFields.dictKeyFields !== undefined || effectiveViaFields.lookupFields !== undefined) {
         // Build the label resolver callback for this collection. A static
         // dict resolves from its in-memory table — no dictionary()
         // lookup, no _dict_* read — while a plain dictKey resolves through
-        // the encrypted _dict_* handle as before.
+        // the encrypted _dict_* handle as before. Shared verbatim by the
+        // lookup binding (#650 Task 2) — native lookup()/dict() reserved/
+        // static(+table) dimensions register into the SAME staticByName
+        // registry above, so this one resolver serves both bindings.
         collOpts.dictLabelResolver = async (dictName, key, locale, fallback) => {
           const stat = this.staticByName.get(dictName)
           if (stat) {
@@ -1162,6 +1153,15 @@ export class Vault {
         // index can call list() to build the full key→labels map.
         collOpts.getDictionary = async (name: string) => this.dictionary(name)
         collOpts.dictKeyFields = options?.dictKeyFields
+      }
+      if (effectiveViaFields.lookupFields !== undefined) {
+        // Reserved/static tiers share the resolver above (both closures
+        // resolve through the same staticByName/dictionary() chain); the
+        // matrix (collection) tier reads a backing row's declared
+        // present.label field via this vault.collection().get() accessor.
+        collOpts.lookupLabelResolver = collOpts.dictLabelResolver
+        collOpts.getLookupBacking = (dimension: string) => async (key: string) => (await this.collection<Record<string, unknown>>(dimension).get(key)) ?? undefined
+        collOpts.lookupFields = options?.lookupFields
       }
       // i18n / staticDict validation on put — enforced via the compartment's
       // put hook. staticDict adds put-time code validation.

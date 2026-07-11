@@ -41,6 +41,11 @@
 
 import type { OnMissingPolicy } from './policy.js'
 import { linkI18nVia } from './binding.js'
+// #650 Task 2 — type-only: dictKey()/staticDict() construct the equivalent
+// LookupDescriptor shape internally (the reserved/static tiers via-lookup's
+// dict()/lookup(static) also produce) before adapting it to their own
+// legacy public return shape. No runtime dependency on shape/via-lookup.
+import type { LookupDescriptor } from '../via-lookup/descriptor.js'
 
 // `isDictCollectionName` now lives on the kernel port (#623 Task 7,
 // port/with/i18n-strategy.ts) — re-exported here for compat. Its `'_dict_'`
@@ -149,14 +154,33 @@ export function dictKey<Keys extends string>(
     keys = undefined
     labels = opts?.labels
   }
-  return {
-    _noydbDictKey: true,
-    _viaBrand: 'i18n',
-    name,
-    keys,
+  // #650 Task 2 — dictKey is the reserved-backing tier of via-lookup
+  // (dict()'s alias); construct the equivalent LookupDescriptor shape so
+  // the two tiers' field semantics stay in lockstep, then adapt it to
+  // dictKey's legacy public return shape. `_viaBrand` stays `'i18n'` for
+  // one release (see task-2-report.md's alias-brand decision) —
+  // mergeViaFields/compileViaBindings's existing i18nFields+dictKeyFields
+  // path is untouched.
+  const equiv: LookupDescriptor<Keys> = {
+    _viaBrand: 'lookup',
+    dimension: name,
+    key: 'id',
+    vocabulary: 'open',
+    backing: 'reserved',
+    onDelete: 'restrict',
+    ...(keys !== undefined ? { keys } : {}),
     ...(opts?.onMissing !== undefined ? { onMissing: opts.onMissing } : {}),
     ...(opts?.substitute !== undefined ? { substitute: opts.substitute } : {}),
     ...(labels !== undefined ? { labels } : {}),
+  }
+  return {
+    _noydbDictKey: true,
+    _viaBrand: 'i18n',
+    name: equiv.dimension,
+    keys: equiv.keys,
+    ...(equiv.onMissing !== undefined ? { onMissing: equiv.onMissing } : {}),
+    ...(equiv.substitute !== undefined ? { substitute: equiv.substitute } : {}),
+    ...(equiv.labels !== undefined ? { labels: equiv.labels } : {}),
   }
 }
 
@@ -257,15 +281,36 @@ export function staticDict<const T extends Record<string, Record<string, string>
   // The declaration is the Via binding's opt-in unit (#553) — same pattern
   // as i18nText()/dictKey()/money().
   linkI18nVia()
-  return {
-    _noydbStaticDict: true,
-    _viaBrand: 'i18n',
-    name,
-    table: table as Readonly<Record<Extract<keyof T, string>, Readonly<Record<string, string>>>>,
-    keys: Object.keys(table) as Extract<keyof T, string>[],
+  type K = Extract<keyof T, string>
+  // #650 Task 2 — staticDict is the static-backing tier of via-lookup
+  // (lookup(dimension, {backing:'static', table, ...})'s alias); construct
+  // the equivalent LookupDescriptor shape, then adapt it to staticDict's
+  // legacy public return shape. `validateCodes` has no LookupDescriptor
+  // equivalent (a dictKey-family-only put-time knob) — applied directly
+  // below. `_viaBrand` stays `'i18n'` for one release — see
+  // task-2-report.md's alias-brand decision.
+  const equiv: LookupDescriptor<K> = {
+    _viaBrand: 'lookup',
+    dimension: name,
+    key: 'id',
+    vocabulary: 'closed',
+    backing: 'static',
+    onDelete: 'restrict',
+    table: table as Readonly<Record<string, Readonly<Record<string, string>>>>,
+    keys: Object.keys(table) as K[],
     ...(opts?.displayLocale !== undefined ? { displayLocale: opts.displayLocale } : {}),
     ...(opts?.onMissing !== undefined ? { onMissing: opts.onMissing } : {}),
     ...(opts?.substitute !== undefined ? { substitute: opts.substitute } : {}),
+  }
+  return {
+    _noydbStaticDict: true,
+    _viaBrand: 'i18n',
+    name: equiv.dimension,
+    table: equiv.table as Readonly<Record<K, Readonly<Record<string, string>>>>,
+    keys: equiv.keys as readonly K[],
+    ...(equiv.displayLocale !== undefined ? { displayLocale: equiv.displayLocale } : {}),
+    ...(equiv.onMissing !== undefined ? { onMissing: equiv.onMissing } : {}),
+    ...(equiv.substitute !== undefined ? { substitute: equiv.substitute } : {}),
     ...(opts?.validateCodes !== undefined ? { validateCodes: opts.validateCodes } : {}),
   }
 }

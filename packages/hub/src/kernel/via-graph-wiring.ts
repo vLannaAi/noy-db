@@ -51,6 +51,10 @@ export function registerCollectionGraphSources<T>(graph: ViaGraph, name: string,
     ...Object.keys(cfg.moneyFields ?? {}),
     ...Object.keys(cfg.i18nFields ?? {}),
     ...Object.keys(cfg.dictKeyFields ?? {}),
+    // #650 Task 2 — native lookup()/enumOf()/dict() fields register their
+    // posture (`lookupBinding().posture`) the same generic way every other
+    // binding does; no `'ref'` EdgeKind / graph edge yet (Task 5).
+    ...Object.keys(cfg.lookupFields ?? {}),
     ...(cfg.classified !== undefined ? Object.keys(cfg.classified.byField) : []),
   ])
   for (const field of knownFields) {

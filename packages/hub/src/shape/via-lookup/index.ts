@@ -10,3 +10,6 @@
 export { LookupHandle, DictionaryHandle, DICT_COLLECTION_PREFIX, dictCollectionName, type DictEntry, type DictionaryOptions } from './handle.js'
 export { enforceStaticDictOnPut, resolveDictSource, updateReferencingRecords, type DictReferencingCollection } from './registry.js'
 export { withLookup } from './active.js'
+// #650 Task 2 — the 'lookup' via binding + its three descriptor tiers.
+export { lookup, enumOf, enumOf as enum, dict, type LookupDescriptor, type Vocabulary, type LookupBacking, type OnDelete } from './descriptor.js'
+export { lookupBinding, linkLookupVia, type LookupViaConfig } from './binding.js'

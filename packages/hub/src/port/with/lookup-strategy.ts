@@ -29,8 +29,13 @@ import {
   enforceStaticDictOnPut,
   resolveDictSource,
   updateReferencingRecords,
+  resolveLabelFromMap,
+  collectLookupDictCompat,
+  lookupToStaticDictCompat,
   type DictReferencingCollection,
+  type LookupDictCompat,
 } from '../../shape/via-lookup/registry.js'
+import type { LookupDescriptor } from '../../shape/via-lookup/descriptor.js'
 
 /**
  * Backing options for `LookupStrategy.buildLookupHandle` — same shape as
@@ -118,6 +123,27 @@ export function isLookupCollectionName(name: string): boolean {
 export { enforceStaticDictOnPut, resolveDictSource, updateReferencingRecords }
 export type { DictReferencingCollection }
 
+// #650 Task 2 — the alias-equivalence bridge (`resolveLabelFromMap` +
+// `collectLookupDictCompat`/`lookupToStaticDictCompat`) + the runtime
+// brand/shape predicates `via-compose.ts` needs to route `'lookup'`-branded
+// descriptors, mirroring `isI18nTextDescriptor`/`isDictKeyDescriptor` below.
+export { resolveLabelFromMap, collectLookupDictCompat, lookupToStaticDictCompat }
+export type { LookupDictCompat }
+
+/** Runtime predicate for detecting a `LookupDescriptor` (any of the three tiers). */
+export function isLookupDescriptor(x: unknown): x is LookupDescriptor {
+  return (
+    typeof x === 'object' &&
+    x !== null &&
+    (x as { _viaBrand?: unknown })._viaBrand === 'lookup'
+  )
+}
+
+/** Runtime predicate for the bare enum tier (`backing:'static'`, no in-code `table` — no label source). */
+export function isEnumDescriptor(x: unknown): x is LookupDescriptor {
+  return isLookupDescriptor(x) && x.backing === 'static' && x.table === undefined
+}
+
 /**
  * Type-only re-exports — the kernel spine imports these descriptor/handle
  * types through the port instead of reaching into `shape/via-lookup/*` or
@@ -125,4 +151,6 @@ export type { DictReferencingCollection }
  * build time — no runtime coupling.
  */
 export type { LookupHandle, DictEntry, DictionaryOptions } from '../../shape/via-lookup/handle.js'
+export type { LookupDescriptor, Vocabulary, LookupBacking, OnDelete } from '../../shape/via-lookup/descriptor.js'
+export type { LookupViaConfig } from '../../shape/via-lookup/binding.js'
 export type { DictKeyDescriptor, StaticDictDescriptor } from '../../shape/via-i18n/dictionary.js'

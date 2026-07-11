@@ -6,6 +6,7 @@ import type { CrdtMode, CrdtState, LwwMapState, RgaState } from '../with-commit/
 import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
 import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../port/with/i18n-strategy.js'
 import { isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
+import type { LookupDescriptor } from '../port/with/lookup-strategy.js'
 import { ViaPipeline } from './via-pipeline.js'
 import { viaBinder, type ViaDescriptor, type ViaWriteCtx, type ViaEraseReport } from './via.js'
 import type { MutationOrigin } from './mutation.js'
@@ -365,6 +366,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    *  `<field>Label` virtual fields when a locale is requested. */
   private readonly dictKeyFields: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
 
+  /** Field name → `LookupDescriptor` for native `lookup()`/`enumOf()`/`dict()` fields (#650 Task 2) — describe()-only in this task. */
+  private readonly lookupFields: Record<string, LookupDescriptor> | undefined
+
   /** Consumer-neutral per-field descriptors declared via `fieldMeta`; read by `getFieldMeta()`, merged by `describe()`. */
   private fieldMeta: Record<string, FieldMeta> | undefined
 
@@ -666,6 +670,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.embeddings = cfg.embeddings
     this.vectorSet = cfg.vectorSet
     this.dictKeyFields = cfg.dictKeyFields
+    this.lookupFields = cfg.lookupFields
     this.fieldMeta = cfg.fieldMeta
     this.meta = cfg.meta
     this._refs = cfg._refs
@@ -975,6 +980,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       fieldMeta: this.fieldMeta,
       moneyFields: this.moneyFields,
       dictKeyFields: this.dictKeyFields,
+      ...(this.lookupFields !== undefined ? { lookupFields: this.lookupFields } : {}),
       computed: this.computed,
       refs: this._refs,
       zodFields: undefined,
@@ -1021,6 +1027,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       fieldMeta: this.fieldMeta,
       moneyFields: this.moneyFields,
       dictKeyFields: this.dictKeyFields,
+      ...(this.lookupFields !== undefined ? { lookupFields: this.lookupFields } : {}),
       computed: this.computed,
       refs: this._refs,
       zodFields,

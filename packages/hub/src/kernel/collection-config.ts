@@ -42,6 +42,11 @@ import type { BlobFieldsConfig } from '../with-shape/blobs/blob-compaction.js'
 import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
 import type { IndexDef } from '../with-lookup/indexing/eager-indexes.js'
 import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../port/with/i18n-strategy.js'
+// #650 Task 2 — `LookupDescriptor` type-only, mirroring the i18n descriptor
+// imports above; no eager value import needed (lookup()/enumOf()/dict()
+// each call `linkLookupVia()` themselves, so `viaBinder('lookup')` is
+// already resolvable by the time a `lookupFields` entry exists).
+import type { LookupDescriptor } from '../port/with/lookup-strategy.js'
 import type { ComputedFields, ComputedFn, ComputedFieldEntry } from '../with-formula/computed/index.js'
 // #638 Task 7 — the value import (not just `import type`) forces the port module's eager
 // `linkComputedVia()` to run whenever this file loads (collection-config.ts is always in the
@@ -285,6 +290,20 @@ export interface CollectionOpts<T> {
    * on put. Provided by the Vault. Throws MissingTranslationError.
    */
   i18nPutValidator?: ((record: unknown) => void) | undefined
+  /** — declare lookup()/enumOf()/dict() fields (#650 Task 2 sugar key, mirrors dictKeyFields), merged with `via(lookup(...))` entries. */
+  lookupFields?: Record<string, LookupDescriptor> | undefined
+  /**
+   * async label resolver for the `'lookup'` binding's `'static'`/`'reserved'`
+   * tiers. Provided by the Vault — the SAME closure as `dictLabelResolver`
+   * (static table first, else the `vault.dictionary()` handle), so a
+   * native `dict()`/`lookup(static)` field resolves through identical
+   * label data as its `dictKey()`/`staticDict()` alias.
+   */
+  lookupLabelResolver?:
+    | ((dimension: string, key: string, locale: string, fallback?: string | readonly string[]) => Promise<string | undefined>)
+    | undefined
+  /** — the matrix (`backing:'collection'`) tier's present-time row accessor. Provided by the Vault. */
+  getLookupBacking?: ((dimension: string) => ((key: string) => Promise<Record<string, unknown> | undefined>) | undefined) | undefined
   /**
    * translator callback from Noydb. When present, missing
    * translations for `autoTranslate: true` i18nText fields are generated
@@ -511,10 +530,16 @@ function unifyComputedFields<T>(opts: CollectionOpts<T>, viaComputedFields: Reco
  * Compile a collection's declared config into the ordered list of `ViaBinding`s
  * for its `ViaPipeline`.
  *
- * money then i18n then classified then blob then computed — order pinned for
- * pipeline parity with the hand-wired baseline this replaces: money encode ran
- * before the i18n write stages, and money decode ran before i18n locale/dict-label
- * resolution on read. Classified compiles after those (#629 Task 6): its
+ * money then i18n then lookup then classified then blob then computed — order
+ * pinned for pipeline parity with the hand-wired baseline this replaces: money
+ * encode ran before the i18n write stages, and money decode ran before i18n
+ * locale/dict-label resolution on read. Lookup compiles right after i18n
+ * (#650 Task 2) — a separate binding for native lookup()/enumOf()/dict()
+ * fields (`dictKeyFields`/`dictKey()`/`staticDict()` stay on the i18n
+ * binding above, unchanged); its `present` hook only adds `<field>Label`,
+ * same shape of read-time addition as i18n's own dict-label dressing, and
+ * declares no write-pipeline hooks yet (Task 3 adds `ingest`/`enforceWrite`).
+ * Classified compiles after those (#629 Task 6): its
  * `encodeAtRest`/`decodeAtRest` hooks make the pipeline's `hasAtRestHooks`
  * true, retiring the codec's inline `sensitiveFields` seal path
  * (record-codec.ts) for any collection that declares `classifiedFields` —
@@ -552,7 +577,7 @@ export function compileViaBindings<T>(
   classifiedGuardCtx: ClassifiedGuardCtx,
   eraseCfgOut?: { classified?: ClassifiedViaConfig },
 ): ViaBinding[] {
-  const { moneyFields, i18nFields, dictKeyFields, computedFields } = mergeViaFields(opts)
+  const { moneyFields, i18nFields, dictKeyFields, computedFields, lookupFields } = mergeViaFields(opts)
   const bindings: ViaBinding[] = []
   if (moneyFields) bindings.push(viaBinder('money')(moneyFields))
   if (i18nFields || dictKeyFields) {
@@ -574,6 +599,19 @@ export function compileViaBindings<T>(
       ...(opts.autoTranslateHook !== undefined ? { autoTranslateHook: opts.autoTranslateHook } : {}),
       ...(opts.dictLabelResolver !== undefined ? { dictLabelResolver: opts.dictLabelResolver } : {}),
       ...(opts.i18nPutValidator !== undefined ? { i18nPutValidator: opts.i18nPutValidator } : {}),
+      collectionName: opts.name,
+    }))
+  }
+  // #650 Task 2 — native lookup()/enumOf()/dict() fields (the `lookupFields`
+  // sugar key, merged with `via(lookup(...))` entries by mergeViaFields). A
+  // SEPARATE binding from i18n above — dictKey()/staticDict() stay on the
+  // i18n binding (the alias, unchanged); a collection declaring BOTH
+  // dictKeyFields and lookupFields compiles both bindings.
+  if (lookupFields !== undefined) {
+    bindings.push(viaBinder('lookup')({
+      lookupFields,
+      ...(opts.lookupLabelResolver !== undefined ? { lookupLabelResolver: opts.lookupLabelResolver } : {}),
+      ...(opts.getLookupBacking !== undefined ? { getLookupBacking: opts.getLookupBacking } : {}),
       collectionName: opts.name,
     }))
   }
@@ -629,6 +667,7 @@ export function collectKnownFieldNames(parts: {
   readonly dictKeyFields?: Record<string, unknown> | undefined
   readonly classifiedFields?: Record<string, unknown> | undefined
   readonly computed?: Record<string, unknown> | undefined
+  readonly lookupFields?: Record<string, unknown> | undefined
 }): Set<string> {
   return new Set<string>([
     ...Object.keys(parts.moneyFields ?? {}),
@@ -636,6 +675,7 @@ export function collectKnownFieldNames(parts: {
     ...Object.keys(parts.dictKeyFields ?? {}),
     ...Object.keys(parts.classifiedFields ?? {}),
     ...Object.keys(parts.computed ?? {}),
+    ...Object.keys(parts.lookupFields ?? {}),
   ])
 }
 
@@ -920,6 +960,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     dictKeyFields: effectiveViaFields.dictKeyFields,
     classifiedFields: resolvedClassified?.byField,
     computed: allComputed,
+    lookupFields: effectiveViaFields.lookupFields,
   })
   const computedEdges = resolveComputedEdges(opts.name, allComputed, resolvedClassified !== undefined, knownFields)
   const viaDepsEdges = resolveViaBindingDepsEdges(opts.name, via?.bindings ?? [], knownFields)
@@ -960,6 +1001,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     embeddings: opts.embeddings,
     vectorSet: opts.embeddings ? new VectorSet() : undefined,
     dictKeyFields: effectiveViaFields.dictKeyFields,
+    lookupFields: effectiveViaFields.lookupFields,
     fieldMeta: opts.fieldMeta,
     meta: opts.meta,
     _refs: opts.declaredRefs ?? {},

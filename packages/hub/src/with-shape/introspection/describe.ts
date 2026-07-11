@@ -18,6 +18,13 @@ import type { MoneyDescriptor } from '../../shape/via-money/descriptor.js'
 import type { ViaDescriptor, ViaPosture } from '../../kernel/via.js'
 import type { DictKeyDescriptor, StaticDictDescriptor } from '../../shape/via-i18n/dictionary.js'
 import { isStaticDictDescriptor } from '../../shape/via-i18n/dictionary.js'
+// #650 Task 2 — native lookup()/enumOf()/dict() fields (separate from
+// dictKeyFields above, which stays the dictKey()/staticDict() alias's own
+// input). Emits the SAME `dict` block shape for byte-parity (the tiers this
+// covers — 'static' with a table, 'reserved' — are the alias-equivalent
+// ones; a first-class 'collection' backing degrades to the "no resolved
+// labels" fallback, same as an unresolved dynamic dictKey).
+import type { LookupDescriptor } from '../../shape/via-lookup/descriptor.js'
 import type { I18nTextDescriptor } from '../../shape/via-i18n/core.js'
 import type { ComputedFields } from '../../with-formula/computed/index.js'
 import type { RefDescriptor } from '../../kernel/refs.js'
@@ -193,6 +200,8 @@ export interface BuildDescriptionInput {
    */
   readonly moneyFields: Record<string, ViaDescriptor> | undefined
   readonly dictKeyFields: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
+  /** Native lookup()/enumOf()/dict() fields (#650 Task 2) — declared only via `viaFields`/`via()`, no sugar key. */
+  readonly lookupFields?: Record<string, LookupDescriptor> | undefined
   readonly computed: ComputedFields | undefined
   readonly refs: Record<string, RefDescriptor>
   /** Async path fills this; sync path passes `undefined`. */
@@ -263,7 +272,7 @@ function deriveWidget(opts: {
  * couldn't do (schema fields weren't knowable synchronously).
  */
 export function buildDescription(input: BuildDescriptionInput): CollectionDescription {
-  const { collection, fieldMeta, moneyFields, dictKeyFields, computed, refs, zodFields, dictLabels, meta, i18nFields, classified, taint } = input
+  const { collection, fieldMeta, moneyFields, dictKeyFields, lookupFields, computed, refs, zodFields, dictLabels, meta, i18nFields, classified, taint } = input
 
   // When zodFields is present AND non-empty (async path, validator successfully derived
   // a schema): validate fieldMeta keys against the real known-field set = config keys ∪
@@ -280,6 +289,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
       ...Object.keys(computed ?? {}),
       ...Object.keys(zodFields),
       ...Object.keys(i18nFields ?? {}),
+      ...Object.keys(lookupFields ?? {}),
     ])
     validateFieldMetaKeys(collection, fieldMeta, knownFields)
   }
@@ -288,6 +298,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
   const allKeys = new Set<string>([
     ...Object.keys(moneyFields ?? {}),
     ...Object.keys(dictKeyFields ?? {}),
+    ...Object.keys(lookupFields ?? {}),
     ...Object.keys(refs),
     ...Object.keys(computed ?? {}),
     ...Object.keys(fieldMeta ?? {}),
@@ -304,6 +315,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
     // {@link BuildDescriptionInput.moneyFields} doc comment.
     const money = moneyFields?.[key] as MoneyDescriptor | undefined
     const dict = dictKeyFields?.[key]
+    const lookupDesc = lookupFields?.[key]
     const refDesc = refs[key]
     const isComputed = computed !== undefined && key in computed
     const i18nDesc = i18nFields?.[key]
@@ -371,6 +383,34 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
         } else {
           dictBlock = { name: dict.name, static: false }
         }
+      }
+    } else if (lookupDesc) {
+      // Native lookup()/enumOf()/dict() field (#650 Task 2) — the SAME `dict`
+      // block shape as above, for byte-parity with the dictKey()/staticDict()
+      // alias. A table-bearing descriptor ('static' backing, the lookup(static)
+      // form staticDict() compiles onto) resolves synchronously like a static
+      // dict; everything else (reserved/collection/bare enum) falls to the
+      // declared-keys-only fallback, same as an unresolved dynamic dictKey.
+      type = 'enum'
+      if (lookupDesc.table !== undefined) {
+        const displayLocale = lookupDesc.displayLocale
+        const table = lookupDesc.table
+        const values = (lookupDesc.keys ?? Object.keys(table)).map((k) => {
+          const localeMap = table[k]
+          const label = displayLocale !== undefined
+            ? (localeMap?.[displayLocale] ?? undefined)
+            : undefined
+          return label !== undefined ? { value: k, label } : { value: k }
+        })
+        dictBlock = { name: lookupDesc.dimension, static: true, values }
+      } else if (lookupDesc.keys !== undefined) {
+        const values = lookupDesc.keys.map((k) => {
+          const label = lookupDesc.labels?.[k]
+          return label !== undefined ? { value: k, label } : { value: k }
+        })
+        dictBlock = { name: lookupDesc.dimension, static: false, values }
+      } else {
+        dictBlock = { name: lookupDesc.dimension, static: false }
       }
     } else if (i18nDesc) {
       // i18nText field: the stored value is a locale-map object, but the resolved
