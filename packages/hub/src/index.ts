@@ -870,6 +870,7 @@ export type {
 export { via, isViaFieldSpec } from './kernel/via-compose.js'
 export type { ViaFieldSpec } from './kernel/via-compose.js'
 export type { ViaPosture, ViaDescriptor } from './kernel/via.js'
+export type { DerivationSkippedFrozen } from './kernel/via-dispatch.js'
 
 // classified — preset catalog (creditCard/birthDate/email/phone) + validators
 export { classified, luhnCheck, isClassifiedFieldSpec, isClassifiedGroup, resolveClassifiedFields, ClassifiedConfigError, ClassifiedNeverStoredError, ClassifiedValidationError, ClassifiedRevealError, ClassifiedVerifyError, ClassifiedRotationError } from './shape/via-classified/index.js'
@@ -877,7 +878,11 @@ export type { ClassifiedFieldSpec, ClassifiedGroup, ClassifiedEntry, ClassifiedL
 
 // computed — schema-owned computed scalar fields
 export { evalComputedFields, ComputedFieldError } from './with-formula/computed/index.js'
-export type { ComputedFields, ComputedFn } from './with-formula/computed/index.js'
+export type { ComputedFields, ComputedFn, ComputedFieldEntry } from './with-formula/computed/index.js'
+
+// computed — via-feature declaration factory (materialized default / virtual read-time mode)
+export { computed, isComputedDescriptor } from './shape/via-computed/descriptor.js'
+export type { ComputedDescriptor } from './shape/via-computed/descriptor.js'
 
 // i18n — resolution policy + script enforcement
 export { resolvePolicy } from './shape/via-i18n/policy.js'

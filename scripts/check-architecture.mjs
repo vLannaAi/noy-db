@@ -460,6 +460,10 @@ const SCHEMA_DECLARED_OR_INFRA_EXEMPT = new Set([
   // gated service's content-crypto machinery (BlobSet/compaction/export), same
   // bucket as with-party/sync behind team's withSync().
   'with-shape/blobs',
+  // #638 Task 7 — computed() is a declaration factory (money()/i18nText() precedent,
+  // same ③ schema-feature bucket as shape/via-money/with-formula/computed above), not
+  // an opt-in strategy gate; the computed via-binder links eagerly (port/with/computed-strategy.ts).
+  'shape/via-computed',
 ])
 
 // Does any .ts file in `dir` (recursively) export a `with*()` factory —

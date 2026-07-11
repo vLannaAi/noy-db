@@ -197,7 +197,6 @@
     "getRaw",
     "getSchema",
     "getVersion",
-    "hasReadTransforms",
     "history",
     "hydrateFromSnapshot",
     "i18nProvenance",

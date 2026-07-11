@@ -8,6 +8,7 @@ import { wrapDbWithPredicates } from './registry.js'
 import { groupAndReduce } from '../../with-lookup/aggregate/groupby.js'
 import { canonicalGroupKey } from '../../with-lookup/aggregate/canonical-key.js'
 import { applyI18nLocale, type I18nTextDescriptor } from '../../shape/via-i18n/core.js'
+import { putDerivedOutput, type PutDerivedOutputCtx } from '../../kernel/via-dispatch.js'
 
 /**
  * Accessor shape passed in from the owning Vault. Mirrors v1's
@@ -26,6 +27,16 @@ export interface MVExecutorAccessor {
    * re-evaluate the closure against the live vault state.
    */
   getQueryContext(): MVQueryContext
+  /**
+   * #638 Task 5 — ctx for `putDerivedOutput`'s frozen-period skip+audit. Optional:
+   * the lazy resolve-on-read caller (`stale.ts#resolveStaleMVOnRead`) does not supply
+   * one (no natural "reacting write" for a read-triggered materialize — out of this
+   * task's scope), so row writes there stay byte-identical to today (a closed-period
+   * row throws `PeriodClosedError` same as before). Every write/manual-refresh caller
+   * (`dispatchMaterializedViews`, `dispatchMaterializedViewsOnDelete`, `refreshView`)
+   * supplies one.
+   */
+  dispatchCtx?: PutDerivedOutputCtx
 }
 
 export interface RefreshResult {
@@ -291,8 +302,12 @@ export const MaterializedViewExecutor = {
             priorEnvelope: prior,
           })
         }
-        await outputColl.put(id, record)
-        written++
+        if (accessor.dispatchCtx) {
+          if (await putDerivedOutput(outputColl, id, record, accessor.dispatchCtx) === 'written') written++
+        } else {
+          await outputColl.put(id, record)
+          written++
+        }
       } catch (err) {
         failed++
         if (strict) throw err

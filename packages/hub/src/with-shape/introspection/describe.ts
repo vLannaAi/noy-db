@@ -15,7 +15,7 @@ import type { FieldMeta } from './field-meta.js'
 import { resolveFieldMeta, validateFieldMetaKeys, FieldMetaUnknownFieldError, humanizeFieldKey } from './field-meta.js'
 import type { CollectionMeta } from './meta.js'
 import type { MoneyDescriptor } from '../../shape/via-money/descriptor.js'
-import type { ViaDescriptor } from '../../kernel/via.js'
+import type { ViaDescriptor, ViaPosture } from '../../kernel/via.js'
 import type { DictKeyDescriptor, StaticDictDescriptor } from '../../shape/via-i18n/dictionary.js'
 import { isStaticDictDescriptor } from '../../shape/via-i18n/dictionary.js'
 import type { I18nTextDescriptor } from '../../shape/via-i18n/core.js'
@@ -69,6 +69,17 @@ export interface DescribedField {
      * deployment wanting it gated can gate this behind its value-bearing door.
      */
     readonly equatable?: true
+  }
+  /**
+   * Present only for a graph-tainted derived field (#638 Task 3 — computed/
+   * derivation output whose effective posture was forced away from the
+   * plain baseline by a source's posture, e.g. a computed field reading a
+   * classified field). `forcedBy` names the immediate declared source
+   * field(s) responsible.
+   */
+  readonly taint?: {
+    readonly posture: ViaPosture
+    readonly forcedBy: readonly string[]
   }
 }
 
@@ -201,6 +212,8 @@ export interface BuildDescriptionInput {
   readonly i18nFields?: Record<string, I18nTextDescriptor> | undefined
   /** Per-field classified specs (already resolved/flattened). */
   readonly classified?: Record<string, ClassifiedFieldSpec> | undefined
+  /** Graph-computed taint overlay (#638 Task 3) — `Collection.via?.taint`. */
+  readonly taint?: { readonly postures: ReadonlyMap<string, ViaPosture>; readonly provenance?: ReadonlyMap<string, readonly string[]> } | undefined
 }
 
 // Re-export so that callers that want to catch the error don't need another import path.
@@ -250,7 +263,7 @@ function deriveWidget(opts: {
  * couldn't do (schema fields weren't knowable synchronously).
  */
 export function buildDescription(input: BuildDescriptionInput): CollectionDescription {
-  const { collection, fieldMeta, moneyFields, dictKeyFields, computed, refs, zodFields, dictLabels, meta, i18nFields, classified } = input
+  const { collection, fieldMeta, moneyFields, dictKeyFields, computed, refs, zodFields, dictLabels, meta, i18nFields, classified, taint } = input
 
   // When zodFields is present AND non-empty (async path, validator successfully derived
   // a schema): validate fieldMeta keys against the real known-field set = config keys ∪
@@ -295,6 +308,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
     const isComputed = computed !== undefined && key in computed
     const i18nDesc = i18nFields?.[key]
     const cls = classified?.[key]
+    const taintPosture = taint?.postures.get(key)
 
     // ── Infer type + structural extras ────────────────────────────────────
     let type = zod?.type ?? 'unknown'
@@ -438,6 +452,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
           ...(cls.equatable === true ? { equatable: true as const } : {}),
         },
       } : {}),
+      ...(taintPosture !== undefined ? { taint: { posture: taintPosture, forcedBy: taint?.provenance?.get(key) ?? [] } } : {}),
     }
 
     fields.push(field)

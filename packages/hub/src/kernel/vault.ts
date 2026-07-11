@@ -100,6 +100,9 @@ import { NO_I18N, type I18nStrategy, type I18nTextDescriptor } from '../port/wit
 import { isViaInstalled } from './via.js'
 import { mergeViaFields, type ViaFieldSpec } from './via-compose.js'
 import { exportRedact } from './via-pipeline.js'
+import { ViaGraph } from './via-graph.js'
+import { registerCollectionGraphSources, validateReconcileGraphEdges, commitReconcileGraphEdges, applyTaintOverlay, type ReconcileGraphOptions } from './via-graph-wiring.js'
+import { runGraphDispatchWave, putDerivedOutput, ledgerAuditHook, forgetDerivedFanout, type GraphBatch, type ForgetFanoutStats } from './via-dispatch.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 // Type-only imports for the guard + derivation services. The
 // runtime classes are loaded on demand via `await import(...)` inside
@@ -190,21 +193,11 @@ export class Vault {
   private readonly adapter: NoydbStore
   /** The vault's name as passed to `openVault()`. Stable for the instance lifetime. */
   public readonly name: string
-  /**
-   * Backreference to the parent `Noydb`. Lets vault-scoped services
-   * (e.g. `as-*` reader `apply()` paths gating on `withTransactions()`)
-   * reach the strategy seam without threading `db` through every API.
-   *
-   * Type-only Noydb import keeps the module graph acyclic at runtime.
-   */
+  /** Backreference to the parent `Noydb` — lets vault-scoped services reach the strategy seam
+   *  without threading `db` through every API (type-only import keeps the module graph acyclic). */
   public readonly noydb: Noydb
-  /**
-   * The active in-memory keyring. NOT readonly because `load()`
-   * needs to refresh it after restoring a different keyring file —
-   * otherwise the in-memory DEKs (from the pre-load session) and
-   * the on-disk wrapped DEKs (from the loaded backup) drift apart
-   * and every subsequent decrypt fails with TamperedError.
-   */
+  /** The active in-memory keyring. NOT readonly — `load()` refreshes it after restoring a
+   *  different keyring file, or in-memory/on-disk DEKs drift apart and decrypt fails with TamperedError. */
   private keyring: UnlockedKeyring
   private readonly encrypted: boolean
   private readonly emitter: NoydbEventEmitter
@@ -213,11 +206,8 @@ export class Vault {
   private readonly syncAdapter: NoydbStore | undefined
   private readonly getPurgeableTargets: () => readonly { store: NoydbStore; role: 'backup' | 'archive'; label?: string }[]
   private readonly historyConfig: HistoryConfig
-  /**
-   * tree-shake seam for the optional blob service. Undefined
-   * means "blobs are off for this vault"; every `collection.blob(id)`
-   * call throws with a pointer at `@noy-db/hub/blobs`.
-   */
+  /** tree-shake seam for the optional blob service; `undefined` means "blobs are off for this
+   *  vault" — every `collection.blob(id)` call throws with a pointer at `@noy-db/hub/blobs`. */
   private readonly blobStrategy: BlobStrategy | undefined
   private readonly objectStore: ObjectProjection | undefined
 
@@ -232,11 +222,8 @@ export class Vault {
   private readonly crdtStrategy: CrdtStrategy | undefined
   private readonly tiersStrategy: TiersStrategy | undefined
   private readonly searchStrategy: SearchStrategy | undefined
-  /**
-   * Cargo (partition extraction) strategy — `NO_CARGO` (throwing) unless
-   * `withCargo()` was passed. Public so the `extractPartition` free function
-   * (which takes a `Vault`) routes through it.
-   */
+  /** Cargo (partition extraction) strategy — `NO_CARGO` (throwing) unless `withCargo()` was passed.
+   *  Public so the `extractPartition` free function (which takes a `Vault`) routes through it. */
   readonly cargoStrategy: CargoStrategy
   private readonly sealedRecordStrategy: SealedRecordStrategy
   private readonly portabilityStrategy: PortabilityStrategy
@@ -250,42 +237,26 @@ export class Vault {
   private readonly i18nStrategy: I18nStrategy
   private readonly syncStrategy: SyncStrategy
   private readonly classifiedStrategy: ClassifiedStrategy
-  /**
-   * Per-vault guard registry. `null` until `_initGuards()` runs; stays
-   * `null` for vaults that never register any guard strategy. The
-   * runtime class is dynamic-imported on demand so consumers that
-   * never use guards don't pull `GuardRegistry`/`GuardExecutor` into
-   * their bundle.
-   */
+  /** Per-vault guard registry; `null` until `_initGuards()` runs (or for vaults that never register
+   *  one) — the runtime class is dynamic-imported on demand to keep it out of the floor bundle. */
   private guardRegistry: GuardRegistry | null = null
-  /**
-   * Per-vault derivation registry. Same lazy-load contract as
-   * `guardRegistry` — `null` until `_initDerivations()` runs with at
-   * least one strategy handle.
-   */
+  /** Per-vault derivation/MV/overlay registries — same lazy-load contract as
+   *  `guardRegistry`: each stays `null` until its `_init*()` runs with at
+   *  least one strategy/MV/overlay handle. */
   private derivationRegistry: DerivationRegistry | null = null
-  /**
-   * Per-vault materialized-view registry. Same lazy-load
-   * contract as `derivationRegistry` — `null` until
-   * `_initMaterializedViews()` runs with at least one MV handle.
-   */
   private materializedViewRegistry: MaterializedViewRegistry | null = null
-  /**
-   * Per-vault overlay registry. Same lazy-load contract as
-   * `materializedViewRegistry` — `null` until `_initOverlayedViews()`
-   * runs with at least one handle.
-   */
   private overlayedViewRegistry: OverlayedViewRegistry | null = null
-  /**
-   * Cached read-only facades handed to guard callbacks via `ctx.vault`
-   * and to derivation callbacks via `derive(source, ctx)`. Split by
-   * resolution layer: the guard facade reads at `layer:'guard'`,
-   * the derivation facade at `layer:'derivation'`, so i18nText / dictKey
-   * fields resolve under that layer's `onMissing` policy. Allocated
-   * eagerly inside `_initGuards()` / `_initDerivations()` so read
-   * accessors stay synchronous (callers in `tx/transaction.ts` rely on
-   * that). Each stays `null` for vaults without that service.
-   */
+  /** Per-vault dependency graph (#638) — field postures + derivation/MV/overlay/
+   *  computed/via-deps edges. Metadata-only (field names, postures, grains —
+   *  never values or key material); always present, unlike the registries above. */
+  readonly graph: ViaGraph
+  /** #638 Task 4 — open sync/cutover/restore touch collector, or `undefined` between batches. */
+  private _graphBatch: GraphBatch | undefined
+  /** Cached read-only facades for guard/derivation callbacks — split by
+   *  resolution layer (`layer:'guard'` vs `'derivation'`, each field's
+   *  `onMissing` policy differs). Allocated eagerly inside `_initGuards()`/
+   *  `_initDerivations()` so read accessors stay synchronous; `null` for
+   *  vaults without that service. */
   private guardFacade: ReadOnlyVaultFacade | null = null
   private derivationFacade: ReadOnlyVaultFacade | null = null
   private getDEK: (collectionName: string) => Promise<EnclaveKey>
@@ -317,18 +288,9 @@ export class Vault {
    */
   public readonly custody: CustodyApi
 
-  /**
-   * Optional callback that re-derives an UnlockedKeyring from the
-   * adapter using the active user's passphrase. Called by `load()`
-   * after the on-disk keyring file has been replaced — refreshes
-   * `this.keyring` so the next DEK access uses the loaded wrapped
-   * DEKs instead of the stale pre-load ones.
-   *
-   * Provided by Noydb at openVault() time. Tests that
-   * construct Vault directly can pass `undefined`; load()
-   * skips the refresh in that case (which is fine for plaintext
-   * compartments — there's nothing to re-unwrap).
-   */
+  /** Re-derives an UnlockedKeyring from the adapter using the active user's passphrase; called by
+   *  `load()` after the on-disk keyring file has been replaced. Provided by Noydb at openVault()
+   *  time; `undefined` in tests that construct Vault directly (load() then skips the refresh). */
   private readonly reloadKeyring: (() => Promise<UnlockedKeyring>) | undefined
   private readonly collectionCache = new Map<string, Collection<unknown>>()
   private satelliteRegistry: SatelliteRegistry | null = null // spec #591, archetype-③
@@ -619,6 +581,7 @@ export class Vault {
     this.i18nStrategy = opts.i18nStrategy ?? NO_I18N
     this.syncStrategy = opts.syncStrategy ?? NO_SYNC
     this.classifiedStrategy = opts.classifiedStrategy ?? NO_CLASSIFIED
+    this.graph = new ViaGraph()
     // Guard + derivation registries are initialised lazily via
     // `_initGuards()` / `_initDerivations()` from `Noydb.openVault()`.
     // The classes are dynamic-imported there so vaults that never
@@ -760,7 +723,9 @@ export class Vault {
     /** — declare money() fields for currency-safe decimal storage/formatting. */
     moneyFields?: MoneyFieldsOpt<T, M>
     viaFields?: Record<string, ViaFieldSpec> // via() composed fields; merged with the money/i18n sugar keys (field in both throws)
-    /** — declare computed scalar fields, evaluated on write (schema-owned). */
+    /** — declare computed scalar fields, evaluated on write (schema-owned). Each entry may be
+     *  a plain `(record) => value` function, OR `{ fn, deps }` to declare source fields for
+     *  taint propagation (#638 Task 7 — supersedes the retired `computedDeps` option). */
     computed?: ComputedFields<T>
     /** — declare classified() sensitive-field descriptors. See the classified-fields spec. */
     classifiedFields?: Record<string, ClassifiedEntry>
@@ -915,36 +880,36 @@ export class Vault {
     }
 
     let coll = this.collectionCache.get(collectionName)
+    // Two-phase reconcile (#638 Task 2 wave 2, Findings I1/I2/M1/M2): validate
+    // combined existing+incoming computed/classified state before any
+    // _apply* below mutates, commit graph edges only once every _apply*
+    // succeeds (see via-graph-wiring.ts). The branches below reconcile a
+    // field-declaring option onto a collection MV dependency analysis may
+    // have auto-created bare during openVault, before this real
+    // declaration; each is first-wins.
+    const reconcilePlan = coll && (options?.computed || options?.classifiedFields)
+      ? validateReconcileGraphEdges(this.graph, collectionName, options as unknown as ReconcileGraphOptions)
+      : undefined
     if (coll && options?.moneyFields) {
-      // The collection may have been auto-created (without options) by
-      // materialized-view dependency analysis during openVault, before
-      // this declaration. Reconcile money descriptors onto it so writes
-      // quantize and money-aware aggregation applies. First-wins.
       coll._applyMoneyFields(options.moneyFields)
     }
     if (coll && options?.computed) {
-      // Same MV-pre-creation reconcile as money: a collection used as an
-      // MV source is auto-created (without options) before this
-      // declaration; attach computed fields so writes materialize them.
       coll._applyComputed(options.computed as ComputedFields)
     }
     if (coll && options?.fieldMeta) {
-      // Same MV-pre-creation reconcile as money/computed: a collection
-      // auto-created without options gets its fieldMeta attached here.
-      // First-wins: if the collection already has fieldMeta set this is a no-op.
       coll._applyFieldMeta(options.fieldMeta)
     }
     if (coll && options?.meta) {
-      // Same MV-pre-creation reconcile as fieldMeta: attach collection-level
-      // descriptive metadata to a collection that was auto-created without options.
-      // First-wins.
       coll._applyMeta(options.meta)
     }
     if (coll && options?.classifiedFields) {
-      // Same MV-pre-creation reconcile as money/computed/fieldMeta/meta: attach
-      // classified fields to a collection that was auto-created without options.
-      // First-wins — cannot retro-seal, only merges rider computed fields.
+      // Cannot retro-seal — only merges rider computed fields; see
+      // Collection._applyClassifiedFields's own doc comment for the R1-R8 matrix.
       coll._applyClassifiedFields(options.classifiedFields)
+    }
+    if (reconcilePlan) {
+      commitReconcileGraphEdges(this.graph, collectionName, reconcilePlan)
+      applyTaintOverlay(coll, this.graph, collectionName) // #638 Task 3: a late attach can newly taint an already-built pipeline
     }
     if (!coll) {
       const effectiveViaFields = mergeViaFields({ moneyFields: options?.moneyFields, i18nFields: options?.i18nFields, dictKeyFields: options?.dictKeyFields, viaFields: options?.viaFields })
@@ -1082,6 +1047,7 @@ export class Vault {
         defaultLocale: this.locale,
         onRegisterConflictResolver: this.onRegisterConflictResolver,
         onAccess: (op, id) => this._logConsent(op, collectionName, id),
+        graphDispatch: { collect: (collection, id) => this._collectGraphTouch(collection, id) },
         // Derivation source is only wired when the corresponding registry
         // has been initialised. Guard source was removed in Track A slice 3b
         // — guards now run via the gate bus in Noydb.#registerGuardGate.
@@ -1220,6 +1186,8 @@ export class Vault {
       }
       coll = new Collection<T>(collOpts)
       this.collectionCache.set(collectionName, coll)
+      registerCollectionGraphSources(this.graph, collectionName, collOpts)
+      applyTaintOverlay(coll, this.graph, collectionName) // #638 Task 3: seal + gate any freshly-tainted field
 
       // Pre-build the lexical index on open when opted in. Fire-and-forget,
       // eager-only; warmIndex() no-ops when no textIndexes are declared and throws
@@ -1310,7 +1278,9 @@ export class Vault {
   async #runCutoverTransform(collectionName: string, transform: TransformFn): Promise<void> {
     const coll = this.collectionCache.get(collectionName)
     if (!coll) return
+    this._beginGraphBatch() // #638 Task 4 — cutover is a dispatch-wave origin, same as sync-apply
     await coll._applyCutoverTransform(transform)
+    await this._flushGraphBatch()
   }
 
   /**
@@ -1329,6 +1299,30 @@ export class Vault {
     const coll = this.collectionCache.get(collection)
     if (!coll) return
     await coll._onRecordMutated(id, 'put', 'sync-apply')
+  }
+
+  /** @internal #638 Task 4 — open a graph-dispatch touch batch (sync pull()/push()/cutover). */
+  _beginGraphBatch(): void {
+    this._graphBatch = new Map()
+  }
+
+  /** @internal #638 Task 4 — `Collection._onRecordMutated`'s sync-apply/cutover/restore hook; a
+   *  no-op when no batch is open (`_beginGraphBatch()` was never called for this call chain). */
+  _collectGraphTouch(collection: string, id: string): void {
+    if (!this._graphBatch) return
+    this._graphBatch.set(collection, (this._graphBatch.get(collection) ?? new Set()).add(id))
+  }
+
+  /** @internal #638 Task 4 — close the open batch and run ONE dispatch wave over it. */
+  async _flushGraphBatch(): Promise<void> {
+    const batch = this._graphBatch
+    this._graphBatch = undefined
+    if (batch && batch.size > 0) await runGraphDispatchWave(this, batch)
+  }
+
+  /** @internal #638 Task 4 — cached-collection lookup for `runGraphDispatchWave` (`VaultLike`); never constructs. */
+  _getCollection(name: string): Collection<Record<string, unknown>> | undefined {
+    return this.collectionCache.get(name) as Collection<Record<string, unknown>> | undefined
   }
 
   /**
@@ -2159,7 +2153,7 @@ export class Vault {
       getRecord: async (c, id) =>
         (await this.collection(c).get(id, { locale: 'raw' })) as Record<string, unknown> | null,
       getEnvelope: (c, id) => this.adapter.get(this.name, c, id),
-      removeFromPrimary: (c, id) => this.collection(c)._internalDelete(id),
+      removeFromPrimary: async (c, id) => { await this.collection(c)._internalDelete(id) },
       restoreToPrimary: async (c, id, env) => {
         await this.adapter.put(this.name, c, id, env)
         await this.collection(c)._invalidateCacheEntry(id)
@@ -2395,23 +2389,19 @@ export class Vault {
   }
 
   /**
-   * GDPR crypto-shred of a data subject. Consults the encrypted subject
-   * index and, per matching record:
-   *   - rewrites the LIVE envelope to a tombstone (drops `_iv`/`_data`/`_cek`/`_det`),
-   *   - tombstones every `_history` version of the record,
-   * so the body and all prior versions become permanently undecryptable while
-   * the collection DEK and every OTHER record stay intact. Then appends ONE
-   * `op:'forget'` ledger entry whose `payloadHash` is `sha256Hex(subjectId)` —
-   * the chain still `verify()`s, PROVING the subject existed and was erased
-   * without retaining any plaintext.
+   * GDPR crypto-shred of a data subject. Consults the encrypted subject index and, per matching
+   * record: rewrites the LIVE envelope to a tombstone (drops `_iv`/`_data`/`_cek`/`_det`), tombstones
+   * every `_history` version, and fans out to derived residue via the graph (#622) — record-grain
+   * artifacts (MV rows, derivation copies) ERASED, aggregate-grain rollups RECOMPUTED without the
+   * forgotten contribution (skip+audit in a frozen period). The body/history become permanently
+   * undecryptable while the collection DEK and every OTHER record stay intact. Then appends ONE
+   * `op:'forget'` ledger entry whose `payloadHash` is `sha256Hex(subjectId)` — the chain still
+   * `verify()`s, PROVING the subject existed and was erased without retaining any plaintext.
    *
-   * Reports — but does not silently swallow — two completeness gaps:
-   *   - `unmigratedRecords`: a record whose body was NOT yet migrated to a
-   *     per-record CEK (legacy body still under the shared collection DEK). It
-   *     is still tombstoned, but its pre-shred ciphertext (if leaked to a
-   *     backup before migration) stays decryptable. Migrate, then re-forget.
-   *   - `blobResidueCollections`: a shredded record still has blob attachments,
-   *     which are keyed off a separate `_blob` DEK and are out of scope here.
+   * Reports — but does not silently swallow — two completeness gaps: `unmigratedRecords` (a record
+   * whose body was NOT yet migrated to a per-record CEK — still tombstoned, but pre-shred backups
+   * stay decryptable; migrate, then re-forget) and `blobResidueCollections` (blob attachments, keyed
+   * off a separate `_blob` DEK, out of scope here).
    *
    * @throws ForgetStrategyNotConfiguredError when no `withForgetCascade` was set.
    */
@@ -2440,6 +2430,7 @@ export class Vault {
     const indexResidue: string[] = []
     const blobsEnabled = this.blobStrategy !== undefined
     const actor = this.keyring.userId
+    const fanoutStats: ForgetFanoutStats = { recordsErased: 0, aggregatesRecomputed: 0, residueFrozen: [] }
 
     for (const ref of allRefs) {
       const coll = this.collection<Record<string, unknown>>(ref.collection)
@@ -2516,6 +2507,7 @@ export class Vault {
       if (shred !== null) {
         recordsShredded++
         collections.add(ref.collection)
+        await forgetDerivedFanout(this, { collection: ref.collection, id: ref.id }, live, fanoutStats)
       }
 
       // Tombstone every history version (idempotent — already-shredded skip).
@@ -2626,6 +2618,9 @@ export class Vault {
       sealedCekResidue,
       sealedResidue,
       ledgerEntry,
+      derivedRecordsErased: fanoutStats.recordsErased,
+      derivedAggregatesRecomputed: fanoutStats.aggregatesRecomputed,
+      derivedResidueFrozen: fanoutStats.residueFrozen,
     }
   }
 
@@ -2768,7 +2763,8 @@ export class Vault {
     for (const h of handles) {
       await registry.register(h.spec)
     }
-    registry.validate()
+    for (const edge of registry.edges()) this.graph.registerDerived(edge.target, edge.sources, edge.kind, edge.grain)
+    registry.validate(this.graph)
     this.derivationRegistry = registry
     // Derivation reads resolve at `layer:'derivation'` — a distinct
     // facade from the guard one, so `derive(source, ctx)` gets the
@@ -2820,10 +2816,11 @@ export class Vault {
     for (const h of handles) {
       await registry.register(h.spec, db)
     }
-    // Phase 2: unified cycle detection across MV + derivation graphs.
-    // Runs after all `register()` calls so the analyzer has every
-    // dep-set; throws `MaterializedViewCycleError` on the first cycle.
-    registry.validate(this.derivationRegistry)
+    // Phase 2: unified cycle detection — `this.graph` already carries
+    // `_initDerivations`'s edges (#638); add this registry's own, then
+    // re-validate. Throws `MaterializedViewCycleError` on the first cycle.
+    for (const edge of registry.edges()) this.graph.registerDerived(edge.target, edge.sources, edge.kind, edge.grain)
+    registry.validate(this.graph)
   }
 
   /**
@@ -2864,6 +2861,8 @@ export class Vault {
         isOverlayName: (n) => overlayNames.has(n) && n !== h.spec.name,
         isMVOutput,
       })
+      // #638 Task 2 — '*' matches the derivation/MV whole-record marker.
+      this.graph.registerDerived({ collection: h.spec.name, field: '*' }, [{ collection: h.spec.base, field: '*' }], 'overlay', 'record')
     }
     this.overlayedViewRegistry = registry
   }
@@ -2876,16 +2875,16 @@ export class Vault {
     return this.overlayedViewRegistry
   }
 
+  /** @internal — ctx for `putDerivedOutput`'s frozen-period skip+audit (#638 Task 5). */
+  private _dispatchCtx(source: { readonly collection: string; readonly id: string }) {
+    return { emit: (e: string, p: unknown) => (this.emitter.emit as (ev: string, pl: unknown) => void)(e, p), source, audit: ledgerAuditHook(this.getLedgerOrNull() ?? undefined, this.keyring.userId) }
+  }
+
   /**
-   * Manual re-materialize for a single registered MV. Useful
-   * for `refresh: 'manual'` MVs (whose consumer drives refreshes
-   * externally), for stale-bit recovery on vault re-open, and as the
-   * explicit bulk-recompute escape hatch after a strategy change.
-   *
-   * Returns `{ written, deleted, failed }`. `deleted` is always 0
-   * when tombstoning is not enabled.
-   *
-   * Throws if `name` is not a registered MV.
+   * Manual re-materialize for a single registered MV (`refresh: 'manual'` consumers,
+   * stale-bit recovery on vault reopen, bulk-recompute escape hatch after a strategy
+   * change). Returns `{ written, deleted, failed }` (`deleted` always 0 without
+   * tombstoning). Throws if `name` is not a registered MV.
    */
   async refreshView(name: string): Promise<{ written: number; deleted: number; failed: number }> {
     const registry = this.materializedViewRegistry
@@ -2901,6 +2900,7 @@ export class Vault {
       getCollection: (n) => this.collection(n),
       getActiveTxContext: () => this.noydb._activeTxContextOrNull,
       getQueryContext: () => this as unknown as MVQueryContext,
+      dispatchCtx: this._dispatchCtx({ collection: name, id: 'refreshView' }),
     })
     // Manual refresh clears any pending stale bit — the post-refresh
     // state matches the registered strategy.
@@ -2910,17 +2910,14 @@ export class Vault {
   }
 
   /**
-   * Re-derive every record in the named source collection. Useful
-   * after a strategy change to bring previously-derived records
-   * up-to-date.
-   *
-   * Sequential in v1; parallelisation deferred to v2.
+   * Re-derive every record in the named source collection (useful after a strategy
+   * change to bring previously-derived records up-to-date). Sequential in v1.
    */
-  async deriveAll(sourceCollection: string): Promise<{ derived: number; failed: number }> {
+  async deriveAll(sourceCollection: string): Promise<{ derived: number; failed: number; skippedFrozen: number }> {
     const registry = this._getDerivationRegistry()
-    if (registry === null) return { derived: 0, failed: 0 }
+    if (registry === null) return { derived: 0, failed: 0, skippedFrozen: 0 }
     const strategies = registry.strategiesForSource(sourceCollection)
-    if (strategies.length === 0) return { derived: 0, failed: 0 }
+    if (strategies.length === 0) return { derived: 0, failed: 0, skippedFrozen: 0 }
 
     const { DerivationExecutor } = await import('../with-formula/derivations/executor.js')
 
@@ -2933,14 +2930,16 @@ export class Vault {
     const ctx = { vault: this.derivationFacade ?? new (await import('../with-audit/guards/read-only-facade.js')).ReadOnlyVaultFacade(this, 'derivation') }
     let derived = 0
     let failed = 0
+    let skippedFrozen = 0
     for (const record of records) {
       if (typeof record !== 'object' || record === null) continue
       const id = (record as { id?: unknown }).id
       if (typeof id !== 'string') continue
+      const dispatchCtx = this._dispatchCtx({ collection: sourceCollection, id })
       for (const { spec, strategyHash } of strategies) {
         const sourceWithId = { ...record, id }
         const result = await DerivationExecutor.run(spec, sourceWithId, 0, strategyHash, ctx)
-        let anyFailed = false
+        let anyFailed = false, anyFrozenSkip = false
         for (const key of Object.keys(spec.outputs)) {
           const out = result.outputs[key]
           if (!out) continue
@@ -2962,7 +2961,7 @@ export class Vault {
               await outputColl._internalDelete(k)
             }
             for (const entry of out.entries) {
-              await outputColl.put(entry.key, entry.value)
+              if (await putDerivedOutput(outputColl, entry.key, entry.value, dispatchCtx) === 'skipped-frozen') anyFrozenSkip = true
             }
             await saveFanoutSidecar(this.adapter, this.name, {
               source: spec.source,
@@ -2983,13 +2982,12 @@ export class Vault {
             await outputColl._internalDelete(id)
             continue
           }
-          await outputColl.put(id, out.value)
+          if (await putDerivedOutput(outputColl, id, out.value, dispatchCtx) === 'skipped-frozen') anyFrozenSkip = true
         }
-        if (anyFailed) failed++
-        else derived++
+        if (anyFailed) failed++; else if (anyFrozenSkip) skippedFrozen++; else derived++
       }
     }
-    return { derived, failed }
+    return { derived, failed, skippedFrozen }
   }
 
   /**

@@ -38,6 +38,7 @@ import type { TxStrategy } from '../with-commit/tx/strategy.js'
 import type { HistoryStrategy } from '../with-commit/history/strategy.js'
 import type { ForgetStrategy } from '../with-audit/forget/strategy.js'
 import type { SnapshotStrategy } from '../with-fork/snapshots/strategy.js'
+import type { DerivationSkippedFrozen } from './via-dispatch.js'
 import type { AttestationStrategy } from '../with-audit/attestation/strategy.js'
 import type { ClassifiedStrategy } from '../port/with/classified-strategy.js'
 import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
@@ -1429,6 +1430,14 @@ export interface NoydbEventMap {
     applied: number
     skipped: boolean
   }
+  /**
+   * #638 Task 5 — a dispatch-driven derivation/rollup/MV output write targeted a row whose
+   * period is closed. The write is SKIPPED (the historical value stands); the SOURCE write
+   * that triggered the recompute still succeeded. See `kernel/via-dispatch.ts#putDerivedOutput`.
+   * `source.id` may be a non-record sentinel (e.g. `'refreshView'`) for manual bulk-refresh-
+   * triggered skips, not a real source record id.
+   */
+  'derivation:skipped-frozen': DerivationSkippedFrozen
 }
 
 // ─── Grant / Revoke ────────────────────────────────────────────────────
