@@ -102,7 +102,7 @@ import { mergeViaFields, type ViaFieldSpec } from './via-compose.js'
 import { exportRedact } from './via-pipeline.js'
 import { ViaGraph } from './via-graph.js'
 import { registerCollectionGraphSources, validateReconcileGraphEdges, commitReconcileGraphEdges, applyTaintOverlay, type ReconcileGraphOptions } from './via-graph-wiring.js'
-import { runGraphDispatchWave, putDerivedOutput, ledgerAuditHook, type GraphBatch } from './via-dispatch.js'
+import { runGraphDispatchWave, putDerivedOutput, ledgerAuditHook, forgetDerivedFanout, type GraphBatch, type ForgetFanoutStats } from './via-dispatch.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 // Type-only imports for the guard + derivation services. The
 // runtime classes are loaded on demand via `await import(...)` inside
@@ -2391,23 +2391,19 @@ export class Vault {
   }
 
   /**
-   * GDPR crypto-shred of a data subject. Consults the encrypted subject
-   * index and, per matching record:
-   *   - rewrites the LIVE envelope to a tombstone (drops `_iv`/`_data`/`_cek`/`_det`),
-   *   - tombstones every `_history` version of the record,
-   * so the body and all prior versions become permanently undecryptable while
-   * the collection DEK and every OTHER record stay intact. Then appends ONE
-   * `op:'forget'` ledger entry whose `payloadHash` is `sha256Hex(subjectId)` —
-   * the chain still `verify()`s, PROVING the subject existed and was erased
-   * without retaining any plaintext.
+   * GDPR crypto-shred of a data subject. Consults the encrypted subject index and, per matching
+   * record: rewrites the LIVE envelope to a tombstone (drops `_iv`/`_data`/`_cek`/`_det`), tombstones
+   * every `_history` version, and fans out to derived residue via the graph (#622) — record-grain
+   * artifacts (MV rows, derivation copies) ERASED, aggregate-grain rollups RECOMPUTED without the
+   * forgotten contribution (skip+audit in a frozen period). The body/history become permanently
+   * undecryptable while the collection DEK and every OTHER record stay intact. Then appends ONE
+   * `op:'forget'` ledger entry whose `payloadHash` is `sha256Hex(subjectId)` — the chain still
+   * `verify()`s, PROVING the subject existed and was erased without retaining any plaintext.
    *
-   * Reports — but does not silently swallow — two completeness gaps:
-   *   - `unmigratedRecords`: a record whose body was NOT yet migrated to a
-   *     per-record CEK (legacy body still under the shared collection DEK). It
-   *     is still tombstoned, but its pre-shred ciphertext (if leaked to a
-   *     backup before migration) stays decryptable. Migrate, then re-forget.
-   *   - `blobResidueCollections`: a shredded record still has blob attachments,
-   *     which are keyed off a separate `_blob` DEK and are out of scope here.
+   * Reports — but does not silently swallow — two completeness gaps: `unmigratedRecords` (a record
+   * whose body was NOT yet migrated to a per-record CEK — still tombstoned, but pre-shred backups
+   * stay decryptable; migrate, then re-forget) and `blobResidueCollections` (blob attachments, keyed
+   * off a separate `_blob` DEK, out of scope here).
    *
    * @throws ForgetStrategyNotConfiguredError when no `withForgetCascade` was set.
    */
@@ -2436,6 +2432,7 @@ export class Vault {
     const indexResidue: string[] = []
     const blobsEnabled = this.blobStrategy !== undefined
     const actor = this.keyring.userId
+    const fanoutStats: ForgetFanoutStats = { recordsErased: 0, aggregatesRecomputed: 0, residueFrozen: [] }
 
     for (const ref of allRefs) {
       const coll = this.collection<Record<string, unknown>>(ref.collection)
@@ -2512,6 +2509,7 @@ export class Vault {
       if (shred !== null) {
         recordsShredded++
         collections.add(ref.collection)
+        await forgetDerivedFanout(this, { collection: ref.collection, id: ref.id }, live, fanoutStats)
       }
 
       // Tombstone every history version (idempotent — already-shredded skip).
@@ -2622,6 +2620,9 @@ export class Vault {
       sealedCekResidue,
       sealedResidue,
       ledgerEntry,
+      derivedRecordsErased: fanoutStats.recordsErased,
+      derivedAggregatesRecomputed: fanoutStats.aggregatesRecomputed,
+      derivedResidueFrozen: fanoutStats.residueFrozen,
     }
   }
 

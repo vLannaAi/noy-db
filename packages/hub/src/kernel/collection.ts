@@ -9,7 +9,7 @@ import { isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
 import { ViaPipeline } from './via-pipeline.js'
 import { viaBinder, type ViaDescriptor, type ViaWriteCtx, type ViaEraseReport } from './via.js'
 import type { MutationOrigin } from './mutation.js'
-import { putDerivedOutput, ledgerAuditHook, type WaveContext } from './via-dispatch.js'
+import { putDerivedOutput, ledgerAuditHook, type WaveContext, type RollupOutcome } from './via-dispatch.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import {
   isTombstone,
@@ -2185,14 +2185,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     return out
   }
 
-  /**
-   * @internal Recompute a rollup aggregate onto the parent.
-   * Gathers every child of `parentId`, runs `compute`, and patches only the
-   * rollup `field` onto the parent's raw stored record (value-equality
-   * guarded). No-op when the parent record does not exist. `wave` (#638 Task 4):
-   * the sync/cutover/restore dispatch wave's per-target dedup — a (into, parentId,
-   * field) target already recomputed this wave is skipped (N pulled children → one recompute).
-   */
+  /** @internal Recompute a rollup aggregate onto the parent from `parentId`'s current children
+   *  (value-equality guarded; no-op absent parent). `wave` (#638 T4): per-target dedup. Returns
+   *  the `putDerivedOutput` outcome, or `'noop'` when nothing needed recomputing (#638 T6 —
+   *  `dispatchRollupsOnDelete`'s forget-fanout caller needs this to fill the forget report). */
   /** @internal — ctx for `putDerivedOutput`'s frozen-period skip+audit (#638 Task 5). */
   #dispatchCtx(source: { readonly collection: string; readonly id: string }) {
     return { emit: (e: string, p: unknown) => (this.emitter.emit as (ev: string, pl: unknown) => void)(e, p), source, audit: ledgerAuditHook(this.ledger, this.keyring.userId) }
@@ -2204,14 +2200,14 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     parentId: string,
     source: { readonly collection: string; readonly id: string },
     wave?: WaveContext,
-  ): Promise<void> {
-    if (this.derivationSource === undefined || spec.rollup === undefined) return
+  ): Promise<RollupOutcome> {
+    if (this.derivationSource === undefined || spec.rollup === undefined) return 'noop'
     const { from, key, field, compute } = spec.rollup
     const into = spec.source
-    if (wave?.seen(`rollup\0${into}\0${parentId}\0${field}`)) return
+    if (wave?.seen(`rollup\0${into}\0${parentId}\0${field}`)) return 'noop'
     const intoColl = this.derivationSource.getCollection(into)
     const base = await intoColl._getStoredRecord(parentId)
-    if (base === null) return // no parent record to patch
+    if (base === null) return 'noop' // no parent record to patch
 
     const fromColl = this.derivationSource.getCollection(from)
     const childIds = await fromColl._findMatchingIds(key, parentId)
@@ -2222,7 +2218,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     }
 
     const newValue = compute(children)
-    if (selfWriteFieldEqual(base[field], newValue)) return // no change → no write
+    if (selfWriteFieldEqual(base[field], newValue)) return 'noop' // no change → no write
 
     const patched = { ...base, [field]: newValue }
     const txCtx = this.derivationSource.getActiveTxContext()
@@ -2233,25 +2229,27 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         priorEnvelope: prior,
       })
     }
-    await putDerivedOutput(intoColl, parentId, patched, this.#dispatchCtx(source))
+    return putDerivedOutput(intoColl, parentId, patched, this.#dispatchCtx(source))
   }
 
   /**
-   * @internal Fire any rollups for which THIS collection is the
-   * child `from`, recomputing the affected parent after a child delete. Called
-   * from the delete path with the just-removed record's key value. Other
-   * derivation kinds do not react to deletes (unchanged).
+   * @internal Fire any rollups for which THIS collection is the child `from`, recomputing the
+   * affected parent after a child delete/forget. Called from the delete path (return discarded)
+   * and from `forgetDerivedFanout` (#638 Task 6), which needs the per-target outcome to fill
+   * `ForgetResult.derivedAggregatesRecomputed`/`derivedResidueFrozen`.
    */
-  private async dispatchRollupsOnDelete(id: string, deleted: T): Promise<void> {
-    if (this.derivationSource === undefined) return
+  async dispatchRollupsOnDelete(id: string, deleted: T): Promise<ReadonlyArray<{ readonly into: string; readonly parentId: string; readonly outcome: RollupOutcome }>> {
+    if (this.derivationSource === undefined) return []
     const registry = this.derivationSource.registry()
     const rec = deleted as Record<string, unknown>
+    const results: Array<{ into: string; parentId: string; outcome: RollupOutcome }> = []
     for (const { spec } of registry.strategiesForSource(this.name)) {
       if (!spec.rollup || spec.rollup.from !== this.name) continue
       const kv = rec[spec.rollup.key]
       if (typeof kv !== 'string' && typeof kv !== 'number') continue
-      await this.recomputeRollup(spec, String(kv), { collection: this.name, id })
+      results.push({ into: spec.source, parentId: String(kv), outcome: await this.recomputeRollup(spec, String(kv), { collection: this.name, id }) })
     }
+    return results
   }
 
   /** @internal `wave` (#638 Task 4) — threaded to `recomputeRollup` for the sync/cutover/restore
@@ -2828,25 +2826,23 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
-   * Cascade deletes of array-shape derived rows when a source row is
-   * deleted. Reads each registered strategy's fanout sidecar
-   * for this source id, deletes every listed derived row, then
-   * deletes the sidecar itself.
+   * Cascade deletes of array-shape derived rows when a source row is deleted. Reads each
+   * registered strategy's fanout sidecar for this source id, deletes every listed derived
+   * row, then deletes the sidecar itself.
    *
-   * Record-shape derivations are skipped — see _doDelete's comment
-   * for why the asymmetry is correct.
-   *
+   * Record-shape derivations are skipped on the ordinary delete path (see _doDelete's comment).
+   * `eraseRecordShapeToo` (#638 T6, default `false` — ordinary delete stays byte-identical) opts
+   * a same-id record-shape copy into erasure too — forget()'s fanout, GDPR residue.
    * @internal
    */
-  private async dispatchArrayDerivationsOnDelete(id: string): Promise<void> {
+  async dispatchArrayDerivationsOnDelete(id: string, eraseRecordShapeToo = false): Promise<void> {
     if (this.derivationSource === undefined) return
     const registry = this.derivationSource.registry()
     const strategies = registry.strategiesForSource(this.name)
     if (strategies.length === 0) return
 
-    // Dynamic-import the sidecar helpers — keeps the derivation
-    // chunk out of the floor bundle for consumers that don't use
-    // array-shape derivations.
+    // Dynamic-import the sidecar helpers — keeps the derivation chunk out of the
+    // floor bundle for consumers that don't use array-shape derivations.
     let helpers: {
       loadFanoutSidecar: typeof LoadFanoutSidecarType
       deleteFanoutSidecar: typeof DeleteFanoutSidecarType
@@ -2856,7 +2852,15 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
     for (const { spec } of strategies) {
       for (const [outputKey, outSpec] of Object.entries(spec.outputs)) {
-        if (outSpec.shape !== 'array') continue
+        if (outSpec.shape === 'record') {
+          // Same-id erasure only for a standard source-triggered strategy into a DIFFERENT
+          // collection — never the self-denorm case (would re-delete the record just
+          // tombstoned) nor triggerBy/sibling (derived id isn't `id`).
+          if (eraseRecordShapeToo && spec.source === this.name && outSpec.collection !== this.name) {
+            await this.derivationSource.getCollection(outSpec.collection)._internalDelete(id, txCtx)
+          }
+          continue
+        }
         if (helpers === null) {
           helpers = await import('../with-formula/derivations/fanout-sidecar.js')
         }
@@ -2872,33 +2876,32 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
-   * Mirror of {@link dispatchMaterializedViews} for the delete path.
-   * No record content is available (it's gone), so the
-   * `_materializedFrom` skip used by the put-side dispatch doesn't
-   * apply here — instead, the recursion guard is the `internal` gate
-   * at the `_doDelete` call site above.
-   *
+   * Mirror of {@link dispatchMaterializedViews} for the delete/forget path — no `_materializedFrom`
+   * skip (record's gone); the `internal` gate at `_doDelete` is the recursion guard. Returns the
+   * row count TOMBSTONED across every eager MV sourced here (#638 T6 — `forgetDerivedFanout`'s
+   * `derivedRecordsErased`); a lazy MV only flips its stale bit (0 contribution — resolved on read).
    * @internal
    */
-  private async dispatchMaterializedViewsOnDelete(id: string): Promise<void> {
-    if (this.materializedViewSource === undefined) return
+  async dispatchMaterializedViewsOnDelete(id: string): Promise<number> {
+    if (this.materializedViewSource === undefined) return 0
     const registry = this.materializedViewSource.registry()
     const mvs = registry.mvsForSource(this.name)
-    if (mvs.length === 0) return
+    if (mvs.length === 0) return 0
     let executor: typeof MVExecutorType | null = null
     let staleHelpers: typeof MVStaleModule | null = null
+    let deleted = 0
     for (const reg of mvs) {
       const mode = reg.spec.refresh
       if (mode === 'eager') {
         if (executor === null) {
           ;({ MaterializedViewExecutor: executor } = await import('../with-formula/materialized-views/executor.js'))
         }
-        await executor.refresh(reg, {
+        deleted += (await executor.refresh(reg, {
           getCollection: (name) => this.materializedViewSource!.getCollection(name),
           getActiveTxContext: () => this.materializedViewSource!.getActiveTxContext(),
           getQueryContext: () => this.materializedViewSource!.getQueryContext(),
           dispatchCtx: this.#dispatchCtx({ collection: this.name, id }),
-        })
+        })).deleted
       } else if (mode === 'lazy') {
         if (staleHelpers === null) {
           staleHelpers = await import('../with-formula/materialized-views/stale.js')
@@ -2907,6 +2910,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       }
       // manual: no-op — `vault.refreshView(name)` is the only path.
     }
+    return deleted
   }
 
   /**

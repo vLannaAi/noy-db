@@ -13,6 +13,7 @@
 
 import type { ViaGraph } from './via-graph.js'
 import type { Collection } from './collection.js'
+import type { EncryptedEnvelope } from './types.js'
 import { PeriodClosedError } from './errors.js'
 
 /** Per-session touched set — collection → ids. Metadata only (no values, no key material). */
@@ -155,5 +156,63 @@ export function ledgerAuditHook(
       op: 'lifecycle', collection: e.target.collection, id: e.target.id, version: 0, actor, payloadHash: '',
       reason: JSON.stringify({ event: 'derivation-skipped-frozen', ...e }),
     })
+  }
+}
+
+/** `recomputeRollup`/`dispatchRollupsOnDelete`'s per-target write outcome (#638 Task 6):
+ *  `'written'`/`'skipped-frozen'` mirror {@link putDerivedOutput}'s result; `'noop'` covers
+ *  no-parent/no-change/deduped-by-wave — nothing to report either way. */
+export type RollupOutcome = 'written' | 'skipped-frozen' | 'noop'
+
+/** Mutable accumulator `forgetDerivedFanout` writes into, one per `Vault.forget()` call — keeps
+ *  the per-ref loop's call site to a single line under vault.ts's tight kernel-surface ceiling.
+ *  Maps 1:1 onto `ForgetResult`'s additive fields (`with-audit/forget/strategy.ts`). */
+export interface ForgetFanoutStats {
+  recordsErased: number
+  aggregatesRecomputed: number
+  readonly residueFrozen: string[]
+}
+
+/**
+ * #622 — after `_writeTombstone(ref.id, actor)` erases the forgotten subject's own record, fan
+ * out to its derived residue via the graph (spec §5): record-grain artifacts (MV rows,
+ * array-shape derivation rows, same-id record-shape derivation copies) are ERASED through the
+ * SAME `!internal` housekeeping-bypass machinery the ordinary delete path uses (no user
+ * `onDelete` re-fires — the shred-is-not-a-domain-delete property `_writeTombstone` protects);
+ * aggregate-grain rollups are RECOMPUTED without the forgotten contribution in open periods, or
+ * skip+audit (via `putDerivedOutput`, already wired into the rollup/MV output paths) in frozen
+ * ones. Mutates `stats` in place. `envelope` is `ref`'s PRE-tombstone envelope, decoded only if
+ * a rollup edge is actually present — the #553 zero-cost-skip discipline: no decrypt for the
+ * common case of a forgotten record with no aggregate-grain consumer, and no work at all when
+ * `ref.collection` has no graph out-edges.
+ */
+export async function forgetDerivedFanout(
+  vault: VaultLike,
+  ref: { readonly collection: string; readonly id: string },
+  envelope: EncryptedEnvelope | null,
+  stats: ForgetFanoutStats,
+): Promise<void> {
+  const edges = vault.graph.derivedArtifactsOf(ref.collection)
+  if (edges.length === 0) return
+  const coll = vault._getCollection(ref.collection)
+  if (!coll) return
+
+  if (edges.some((e) => e.kind === 'mv')) {
+    stats.recordsErased += await coll.dispatchMaterializedViewsOnDelete(ref.id)
+  }
+  const derivationEdgeCount = edges.filter((e) => e.kind === 'derivation').length
+  if (derivationEdgeCount > 0) {
+    await coll.dispatchArrayDerivationsOnDelete(ref.id, true)
+    stats.recordsErased += derivationEdgeCount
+  }
+
+  if (envelope && edges.some((e) => e.kind === 'rollup')) {
+    const priorRecord = await coll._decodeEnvelope(envelope, ref.id)
+    if (priorRecord) {
+      for (const r of await coll.dispatchRollupsOnDelete(ref.id, priorRecord)) {
+        if (r.outcome === 'written') stats.aggregatesRecomputed += 1
+        else if (r.outcome === 'skipped-frozen') stats.residueFrozen.push(`${r.into}:${r.parentId}`)
+      }
+    }
   }
 }

@@ -126,4 +126,12 @@ export interface ForgetResult {
   readonly sealedResidue: readonly string[]
   /** The single `op:'forget'` ledger entry appended for this erasure. */
   readonly ledgerEntry: LedgerEntry
+  /** #622 — record-grain derived artifacts (MV rows, per-record derived copies, overlay
+   *  outputs) erased because their source subject was forgotten. */
+  readonly derivedRecordsErased: number
+  /** #622 — aggregate-grain targets (rollups) recomputed without the forgotten contribution. */
+  readonly derivedAggregatesRecomputed: number
+  /** #622 — `collection:id` derived writes SKIPPED because the target period is frozen
+   *  (recompute deferred; the aggregate retains the forgotten contribution — audited). */
+  readonly derivedResidueFrozen: readonly string[]
 }
