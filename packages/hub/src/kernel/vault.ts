@@ -44,7 +44,7 @@ import {
 import { ElevatedHandle, ELEVATION_AUDIT_COLLECTION } from '../with-commit/tx/elevated-handle.js'
 import type { NoydbEventEmitter } from './events.js'
 import type { StandardSchemaV1 } from './schema.js'
-import type { BlobStrategy } from '../with-shape/blobs/strategy.js'
+import type { BlobStrategy } from '../port/with/blob-strategy.js'
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { ArchiveStrategy } from '../with-fork/archive/index.js'
 import type { ArchivePolicy, ArchiveContext, ArchiveResult, ArchiveRunOptions } from '../with-fork/archive/index.js'

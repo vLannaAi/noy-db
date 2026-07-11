@@ -27,7 +27,7 @@ const ENTRIES = {
   'forget/index': 'src/with-audit/forget/index.ts',
   'sealed-record/index': 'src/with-audit/sealed-record/index.ts',
   'query/index': 'src/kernel/query/index.ts',
-  'blobs/index': 'src/with-shape/blobs/index.ts',
+  'blobs/index': 'src/shape/via-blob/index.ts',
   'indexing/index': 'src/with-lookup/indexing/index.ts',
   'lazy/index': 'src/with-store/lazy/index.ts',
   'aggregate/index': 'src/with-lookup/aggregate/index.ts',

@@ -17,7 +17,7 @@ import { ref } from '../src/kernel/refs.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, KeyringFile } from '../src/kernel/types.js'
 import { decrypt, unwrapCek } from '../src/kernel/enclave/index.js'
-import { withBlobs } from '../src/with-shape/blobs/index.js'
+import { withBlobs } from '../src/shape/via-blob/index.js'
 import { BLOB_INDEX_COLLECTION, BLOB_CHUNKS_COLLECTION } from '../src/with-shape/blobs/blob-set.js'
 import { extractPartition } from '../src/with-cargo/extract-partition.js'
 import {

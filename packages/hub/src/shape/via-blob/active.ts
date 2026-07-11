@@ -10,8 +10,8 @@
  * this (ESM tree-shaking + hub's `"sideEffects": false`).
  */
 
-import { BlobSet } from './blob-set.js'
-import type { BlobStrategy } from './strategy.js'
+import { BlobSet } from '../../with-shape/blobs/blob-set.js'
+import type { BlobStrategy } from '../../port/with/blob-strategy.js'
 
 /**
  * Build a default `BlobStrategy` ready to pass into `createNoydb`.

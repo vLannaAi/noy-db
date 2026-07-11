@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
 import { ConflictError, createNoydb } from '../src/index.js'
-import { withBlobs } from '../src/with-shape/blobs/index.js'
+import { withBlobs } from '../src/shape/via-blob/index.js'
 import type { Noydb, Vault } from '../src/index.js'
 import { BLOB_EVICTION_AUDIT_COLLECTION } from '../src/with-shape/blobs/blob-compaction.js'
 

@@ -1,21 +1,27 @@
 /**
- * Strategy seam between core Collection and the optional blob service.
+ * Strategy seam between core Collection and the optional blob service
+ * (#629 Task 7 — moved out of `with-shape/blobs/strategy.ts`, precedent:
+ * `port/with/classified-strategy.ts`/`i18n-strategy.ts`). Lives on the
+ * `/with` port (the one seam the kernel spine may import statically) so
+ * `Collection`/`Vault` can hold the `NO_BLOBS` default without a
+ * spine→service static import.
  *
  * Core imports `BlobStrategy` as a TYPE-ONLY symbol and `NO_BLOBS` as a
  * minimal runtime stub. Neither pulls in the heavy `BlobSet` / chunk /
  * MIME machinery — those only arrive when the consumer explicitly
- * imports `@noy-db/hub/blobs` (see `./index.ts` → `withBlobs()` factory).
+ * imports `@noy-db/hub/blobs` (see `shape/via-blob/index.ts` →
+ * `withBlobs()` factory).
  *
- * This file is intentionally tiny and free of side effects so the
- * bundler keeps it in the graph without dragging everything else in.
+ * This file is intentionally tiny so the bundler keeps it in the graph
+ * without dragging everything else in.
  *
  * @internal
  */
 
-import type { BlobSet } from './blob-set.js'
+import type { BlobSet } from '../../with-shape/blobs/blob-set.js'
 import type { NoydbStore } from '../../kernel/types.js'
-import type { ObjectProjection } from './object-projection.js'
-import type { BlobFieldsConfig } from './blob-compaction.js'
+import type { ObjectProjection } from '../../with-shape/blobs/object-projection.js'
+import type { BlobFieldsConfig } from '../../with-shape/blobs/blob-compaction.js'
 import type { EnclaveKey } from '../../kernel/enclave/index.js'
 
 /**

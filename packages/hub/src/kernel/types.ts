@@ -26,7 +26,7 @@
 import type { StandardSchemaV1 } from './schema.js'
 import type { DeferredNumberingConfig } from '../with-commit/numbering/descriptor.js'
 import type { SyncPolicy } from './sync-policy.js'
-import type { BlobStrategy } from '../with-shape/blobs/strategy.js'
+import type { BlobStrategy } from '../port/with/blob-strategy.js'
 import type { ArchiveStrategy } from '../with-fork/archive/index.js'
 import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
 import type { AggregateStrategy } from '../with-lookup/aggregate/strategy.js'

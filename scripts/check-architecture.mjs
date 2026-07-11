@@ -456,6 +456,10 @@ const SCHEMA_DECLARED_OR_INFRA_EXEMPT = new Set([
   'with-lookup/embeddings',
   'with-party/sync',
   'with-party/auth-introspection',
+  // #629 Task 7 — withBlobs() gate moved to shape/via-blob; this folder is the
+  // gated service's content-crypto machinery (BlobSet/compaction/export), same
+  // bucket as with-party/sync behind team's withSync().
+  'with-shape/blobs',
 ])
 
 // Does any .ts file in `dir` (recursively) export a `with*()` factory —
@@ -1177,7 +1181,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-party/team/sync-strategy.js',
     '../with-shape/blobs/blob-compaction.js',
     '../with-shape/blobs/object-projection.js',
-    '../with-shape/blobs/strategy.js',
     // classified stage 2 Task 13 (2026-07-04) — refusal matrix R1-R5 guard at
     // door 1 (config resolution); pure validation, same ③ class as resolve.js
     '../shape/via-classified/guards.js',
@@ -1230,7 +1233,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/blobs/blob-compaction.js',
     '../with-shape/blobs/blob-set.js',
     '../with-shape/blobs/object-projection.js',
-    '../with-shape/blobs/strategy.js',
     // classified-fields stage 1 — ③ schema feature, joins the #553 lazy-import debt like money/dictKey/computed
     '../shape/via-classified/resolve.js',
     '../shape/via-classified/write.js',
@@ -1311,7 +1313,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-party/team/shamir-recovery-provider.js',
     '../with-party/team/sync-strategy.js',
     '../with-shape/blobs/object-projection.js',
-    '../with-shape/blobs/strategy.js',
     '../port/by/types.js',
   ]],
   ['packages/hub/src/kernel/vault.ts', [
@@ -1371,7 +1372,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/blobs/blob-compaction.js',
     '../with-shape/blobs/export-blobs.js',
     '../with-shape/blobs/object-projection.js',
-    '../with-shape/blobs/strategy.js',
     // classified-fields stage 1 — ③ schema feature, joins the #553 lazy-import debt like money/dictKey/computed
     '../shape/via-classified/resolve.js',
     '../with-shape/introspection/field-meta.js',
