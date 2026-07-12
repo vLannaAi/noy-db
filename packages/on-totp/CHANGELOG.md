@@ -1,5 +1,15 @@
 # @noy-db/on-totp
 
+## 1.0.0-pre.9
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0-pre.9
+
 ## 1.0.0-pre.8
 
 ### Patch Changes
