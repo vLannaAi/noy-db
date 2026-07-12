@@ -37,6 +37,9 @@ import {
   buildLookupAltIndex,
   registerLookupRefEdges,
   buildLookupSnapshotRows,
+  coerceLookupKey,
+  resolveBackingRowKey,
+  matchesReferencingValue,
   type DictReferencingCollection,
   type LookupDictCompat,
   type MaterializedBacking,
@@ -178,6 +181,12 @@ export { registerLookupRefEdges }
 // `JoinableSource.presentForJoin` hook `kernel/query/join.ts` consumes.
 export { buildLookupSnapshotRows, buildPresentForJoin }
 export type { LookupSnapshot } from '../../shape/via-lookup/snapshot.js'
+
+// #651 Task 3 — the ONE descriptor-keyed key-resolution core (guarded coercion +
+// backing-row-key resolve + referencing-value match) — every consumer (vault.ts,
+// with-shape/links/vault-facade.ts, kernel/via-dispatch.ts) routes through here,
+// never a bare `String()`, ending the dm12 dialect drift.
+export { coerceLookupKey, resolveBackingRowKey, matchesReferencingValue }
 
 /** Runtime predicate for detecting a `LookupDescriptor` (any of the three tiers). */
 export function isLookupDescriptor(x: unknown): x is LookupDescriptor {

@@ -120,17 +120,23 @@ live-rows set: a `vocabulary: 'closed'` field refuses even a genuinely valid, al
 until the dimension is hydrated. Open the backing collection (matrix tier; eager mode, the default —
 not `{prefetch:false}`) or call `await vault.dictionary(name).list()` (dict tier) first — the exact
 same populate-first requirement `altKeys` normalization has above. This fails safe (refuses rather
-than silently accepts an unverified key), but is easy to trip over on a fresh instance.
+than silently accepts an unverified key), but is easy to trip over on a fresh instance. Membership
+has never had a live fallback — it is pure-snapshot for both tiers. The matrix tier's *presentation*
+path (`<field>Label` resolution, below) is different: it preserves a live cold-session fallback, but
+**only** for the default `key: 'id'` (#651, closed).
 
 ## Presentation — `<field>Label`, in reads and in joins
 
 Reading with a locale resolves `<field>Label` on the SAME record (direct `present()`, works for
 reserved/static tiers via the vault-built label resolver). For matrix tier, direct (non-join) reads
-currently resolve the backing row by the backing collection's own PUT-id via `.get()` — **not** by
-`descriptor.key`. For the default `key: 'id'` those are the same thing, but for a custom canonical
-key like this doc's own `key: 'iso2'` recipe above, a direct `present()` read silently omits
-`<field>Label` instead of resolving it (tracked as #651) — use the join path below, or declare
-`key: 'id'`, until that's closed. Joining to a collection that itself declares a lookup field
+resolve the backing row through the SAME descriptor-keyed sync snapshot the join path uses
+(`resolveBackingRowKey`, #651 Task 3) — keyed by `descriptor.key`, never the backing collection's own
+PUT-id, so a custom canonical key like this doc's own `key: 'iso2'` recipe above resolves
+`<field>Label` correctly on a direct read too, not just through a join. The snapshot route needs the
+dimension collection open/populated in this session (the cold-session caveat above); the default
+`key: 'id'` tier ALONE keeps a live `.get()` fallback on a snapshot miss (construct+hydrate
+on-demand cold-session behavior, preserved unchanged) — for `key !== 'id'` the snapshot is the sole
+source of truth, per the caveat above. Joining to a collection that itself declares a lookup field
 resolves that field's label on the JOINED side too — the **snapshot+locale seam** (#650 Task 6,
 extended to matrix tier in Task 7), which correctly keys by `descriptor.key`, not the PUT-id:
 

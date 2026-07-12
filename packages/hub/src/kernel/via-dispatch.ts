@@ -15,6 +15,7 @@ import type { ViaGraph } from './via-graph.js'
 import type { Collection } from './collection.js'
 import type { EncryptedEnvelope } from './types.js'
 import { PeriodClosedError } from './errors.js'
+import { matchesReferencingValue } from '../port/with/lookup-strategy.js'
 
 /** Per-session touched set — collection → ids. Metadata only (no values, no key material). */
 export type GraphBatch = Map<string, Set<string>>
@@ -219,14 +220,19 @@ export async function forgetDerivedFanout(
 
   // #650 Task 5 (#648) — 'ref' cascade/nullify propagate ADDITIVELY, here, AFTER the shred
   // (restrict already refused BEFORE any shred — the caller's pre-tombstone check, spec §4).
-  // Duplicated (not imported) from `VaultLinks.applyLookupRefsPropagation`/`checkLookupRefsRestrict`
-  // (with-shape/links/vault-facade.ts) — the kernel spine may not statically import a with-*
-  // service (port-layering, the #638 Task 5 via-dispatch.ts precedent). A referencing edge whose
-  // dimension uses a non-default `key` (matrix tier only) needs the backing row's OWN value at
-  // that field, not its PUT-id — the row is ALREADY tombstoned by now, so it's read from
-  // `lookupCompareKeys`, resolved by the caller from the LIVE row BEFORE the shred (#650 Task 5
-  // review, Important fix — eliminates the post-shred envelope-decode dependency this used to
-  // have, which silently skipped propagation whenever that decode failed).
+  // The I/O shell (loop shape, collection accessor) is duplicated, not imported, from
+  // `VaultLinks.applyLookupRefsPropagation`/`checkLookupRefsRestrict` (with-shape/links/
+  // vault-facade.ts) — the kernel spine may not statically import a with-* service
+  // (port-layering, the #638 Task 5 via-dispatch.ts precedent); `vault._getCollection` is
+  // cached-only while `VaultLinks`' accessor constructs. The pure match predicate itself is
+  // shared through the port seam (#651 Task 3 — `matchesReferencingValue`, `port/with/
+  // lookup-strategy.ts`), so only the shell, not the coercion logic, stays duplicated. A
+  // referencing edge whose dimension uses a non-default `key` (matrix tier only) needs the
+  // backing row's OWN value at that field, not its PUT-id — the row is ALREADY tombstoned by
+  // now, so it's read from `lookupCompareKeys`, resolved by the caller from the LIVE row
+  // BEFORE the shred (#650 Task 5 review, Important fix — eliminates the post-shred
+  // envelope-decode dependency this used to have, which silently skipped propagation whenever
+  // that decode failed).
   if (edges.some((e) => e.kind === 'ref')) {
     const { cascaded, nullified, residue } = await applyLookupRefsFanout(vault, ref.collection, ref.id, lookupCompareKeys)
     stats.lookupReferencesCascaded += cascaded
@@ -259,8 +265,9 @@ export async function forgetDerivedFanout(
 
 /**
  * Apply `cascade`/`nullify` propagation for `backing`'s non-restrict `'ref'` edges — the
- * forget-path counterpart of `VaultLinks.applyLookupRefsPropagation` (duplicated, not imported —
- * see {@link forgetDerivedFanout}'s call site comment). `restrict` edges are skipped here: the
+ * forget-path counterpart of `VaultLinks.applyLookupRefsPropagation` (I/O shell duplicated, not
+ * imported, match predicate shared via the port — see {@link forgetDerivedFanout}'s call site
+ * comment). `restrict` edges are skipped here: the
  * forget loop's `checkLookupRefsRestrict`-equivalent call already refused (or the reference no
  * longer existed) BEFORE `_writeTombstone` ran, so by the time this runs only cascade/nullify
  * remain to propagate. `compareKeys` is the non-`'id'`-`keyField` compare-value map, resolved by
@@ -287,7 +294,7 @@ async function applyLookupRefsFanout(
     }
     const coll = vault._getCollection(referencing.collection)
     if (!coll) continue
-    const matches = (await coll.list()).filter((rec) => String(rec[referencing.field]) === compareKey)
+    const matches = (await coll.list()).filter((rec) => matchesReferencingValue(rec, referencing.field, compareKey))
     for (const rec of matches) {
       const id = rec['id'] as string | undefined
       if (id === undefined) continue

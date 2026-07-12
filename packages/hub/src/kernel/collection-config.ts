@@ -303,8 +303,10 @@ export interface CollectionOpts<T> {
   lookupLabelResolver?:
     | ((dimension: string, key: string, locale: string, fallback?: string | readonly string[]) => Promise<string | undefined>)
     | undefined
-  /** — the matrix (`backing:'collection'`) tier's present-time row accessor. Provided by the Vault. */
-  getLookupBacking?: ((dimension: string) => ((key: string) => Promise<Record<string, unknown> | undefined>) | undefined) | undefined
+  /** — the matrix (`backing:'collection'`) tier's present-time row accessor, keyed by the full
+   *  descriptor so it can resolve by `descriptor.key`, not the backing row's PUT-id (#651 Task 3).
+   *  Provided by the Vault. */
+  getLookupBacking?: ((descriptor: LookupDescriptor) => (key: string) => Promise<Record<string, unknown> | undefined>) | undefined
   /** — closed-vocabulary write-time membership test (#650 Task 3). Provided by the Vault. */
   membership?: ((field: string, key: string) => boolean | Promise<boolean>) | undefined
   /** — altKeys `ingest` normalization source (#650 Task 3). Provided by the Vault. */

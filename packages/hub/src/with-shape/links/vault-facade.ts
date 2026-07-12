@@ -31,6 +31,7 @@ import type { NoydbStore } from '../../kernel/types.js'
 import type { TxContext } from '../../with-commit/tx/transaction.js'
 import type { ViaGraph } from '../../kernel/via-graph.js'
 import { DictKeyInUseError } from '../../kernel/errors.js'
+import { coerceLookupKey, matchesReferencingValue } from '../../port/with/lookup-strategy.js'
 
 /** Everything the moving refs/links methods touched on the vault's `this.*`. */
 export interface VaultLinksDeps {
@@ -270,7 +271,7 @@ export class VaultLinks {
     key: string,
   ): Promise<Record<string, unknown>[]> {
     const all = await collection.list()
-    return all.filter((rec) => String(rec[field]) === key)
+    return all.filter((rec) => matchesReferencingValue(rec, field, key))
   }
 
   /**
@@ -292,8 +293,7 @@ export class VaultLinks {
     if (keyField === 'id') return rawKey
     if (cache.has(keyField)) return cache.get(keyField)
     const row = await this.deps.collection<Record<string, unknown>>(backingCollection).get(rawKey)
-    const raw = row?.[keyField]
-    const resolved = typeof raw === 'string' || typeof raw === 'number' ? String(raw) : undefined
+    const resolved = coerceLookupKey(row?.[keyField])
     cache.set(keyField, resolved)
     return resolved
   }

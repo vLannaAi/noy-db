@@ -1131,7 +1131,8 @@ export class Vault {
       if (effectiveViaFields.lookupFields !== undefined) {
         // membership/getAltIndex (#650 Task 3) are vault-built closures — never a collection handle.
         collOpts.lookupLabelResolver = collOpts.dictLabelResolver
-        collOpts.getLookupBacking = (dimension: string) => async (key: string) => (await this.collection<Record<string, unknown>>(dimension).get(key)) ?? undefined
+        collOpts.getLookupBacking = (desc: LookupDescriptor) => async (key: string) => // #651: snapshot-first (sole truth for key!=='id'); id-tier alone falls back to a live cold-session .get()
+          buildLookupSnapshotRows(desc, (n) => this.reservedLookupCollections.has(dictCollectionName(n)), (n) => this.dictionary(n), (n) => this.collection<Record<string, unknown>>(n))?.get(key) ?? (desc.key === 'id' ? (await this.collection<Record<string, unknown>>(desc.dimension).get(key)) ?? undefined : undefined)
         collOpts.lookupFields = options?.lookupFields
         collOpts.membership = (field, key) => checkLookupMembership(effectiveViaFields.lookupFields![field]!, key, (n) => this.dictionary(n), (n) => this.collection(n))
         collOpts.getAltIndex = (d) => buildLookupAltIndex(d, (n) => this.dictionary(n), (n) => this.collection<Record<string, unknown>>(n))
