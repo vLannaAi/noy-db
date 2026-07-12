@@ -19,7 +19,7 @@
  * re-litigate them.
  */
 
-import type { NoydbStore } from '../../kernel/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { LedgerStore } from '../../with-commit/history/ledger/store.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
@@ -73,6 +73,13 @@ export interface BuildLookupHandleOptions<Keys extends string = string> {
     | ((dimension: string, oldKey: string, newKey: string) => Promise<void>)
     | undefined
   readonly emitter: NoydbEventEmitter
+  /**
+   * #647 fix wave 1 — mints a version-ordered delete-marker envelope. Bound by the Vault to the
+   * real `kernel/enclave` `buildDeleteMarker` function — `LookupHandle` (`shape/via-lookup/**`)
+   * may not import `kernel/enclave/` itself (Check 11/15), so this capability is injected the
+   * same way `reservedEnvelopes` above is.
+   */
+  readonly buildDeleteMarker: (version: number, actor: string) => EncryptedEnvelope
   /** #650 Task 4 (#647) — choke-point participation hooks. */
   readonly onDirty?: ((collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>) | undefined
   readonly onRecordMutated?: ((collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>) | undefined

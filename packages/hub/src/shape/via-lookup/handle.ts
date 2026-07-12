@@ -27,6 +27,23 @@ import {
   DictKeyMissingError,
 } from '../../kernel/errors.js'
 
+/**
+ * Delete-marker predicate, duplicated (not imported) from
+ * `kernel/enclave/record-keys/tombstone.ts`'s `isDeleteMarker` (#647 fix wave 1).
+ * `shape/via-lookup/**` may not statically import `kernel/enclave/` — not even the barrel
+ * (Check 15, `via-enclave-isolation`) — and this predicate carries zero crypto/protected-body
+ * surface (just the `_del` protocol-header field, not `_iv`/`_data`), so duplicating it here
+ * mirrors the same call `port/with/i18n-strategy.ts` already makes for `isDictCollectionName`
+ * (see its doc comment). Keep the two in sync if the marker shape ever changes.
+ *
+ * `buildDeleteMarker` (which DOES construct the protected `_iv`/`_data` body fields — Check 11,
+ * `enclave-body-only`) can't be duplicated the same way; it's injected via the constructor
+ * instead, built from the real `kernel/enclave` function at the Vault call site.
+ */
+function isDeleteMarker(envelope: EncryptedEnvelope): boolean {
+  return envelope._del === true
+}
+
 /** Reserved collection name prefix. Never collides with user collections. */
 export const DICT_COLLECTION_PREFIX = '_dict_'
 
@@ -130,6 +147,15 @@ export class LookupHandle<Keys extends string = string> {
         ) => Promise<void>)
       | undefined,
     private readonly emitter: NoydbEventEmitter,
+    /**
+     * #647 fix wave 1 — mints a version-ordered delete-marker envelope (the reserved-tier
+     * mirror of #589's ordinary-collection delete marker). Injected rather than imported:
+     * `buildDeleteMarker` constructs the envelope's protected-body fields (`_iv`/`_data`), and
+     * `shape/via-lookup/**` may not reach `kernel/enclave/` directly (Check 11
+     * `enclave-body-only` / Check 15 `via-enclave-isolation`) — the Vault binds the real
+     * `kernel/enclave` function at construction time, same pattern as `reservedEnvelopes` above.
+     */
+    private readonly buildDeleteMarker: (version: number, actor: string) => EncryptedEnvelope,
     /** #650 Task 4 (#647) — dirty-log participation hook (origin `local-write`), threaded from `BuildLookupHandleOptions`. */
     private readonly onDirty?: (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>,
     /** #650 Task 4 — thin `graphDispatch.collect`-equivalent; opens/collects/flushes a one-shot wave for this touch. */
@@ -191,7 +217,7 @@ export class LookupHandle<Keys extends string = string> {
    *  put()/delete()/rename() already triggers via `_syncCache.set`/`delete` above. */
   async _refreshSyncCache(key: string): Promise<void> {
     const envelope = await this.adapter.get(this.compartmentName, this.collName, key)
-    if (!envelope) { this._syncCache.delete(key); return }
+    if (!envelope || isDeleteMarker(envelope)) { this._syncCache.delete(key); return }
     this._syncCache.set(key, await this.decryptEntry(envelope))
   }
 
@@ -276,7 +302,7 @@ export class LookupHandle<Keys extends string = string> {
       this.collName,
       key,
     )
-    if (!envelope) return null
+    if (!envelope || isDeleteMarker(envelope)) return null
     const entry = await this.decryptEntry(envelope)
     return entry.labels
   }
@@ -287,6 +313,10 @@ export class LookupHandle<Keys extends string = string> {
    * Default mode is `'strict'` — throws `DictKeyInUseError` if any
    * registered collection has a record referencing this key. Pass
    * `{ mode: 'warn' }` to skip the check (dev-mode cleanup only).
+   *
+   * Under sync, deletion writes a version-ordered delete-marker row rather than removing the
+   * adapter key outright (#647 fix wave 1) — markers accumulate over time; GC is future work,
+   * acceptable for vocabulary-scale data.
    */
   async delete(key: Keys, opts: { mode?: 'strict' | 'warn' } = {}): Promise<void> {
     this.requireWriteAccess()
@@ -296,7 +326,7 @@ export class LookupHandle<Keys extends string = string> {
       this.collName,
       key,
     )
-    if (!existing) {
+    if (!existing || isDeleteMarker(existing)) {
       throw new DictKeyMissingError(this.dictionaryName, key)
     }
 
@@ -310,13 +340,28 @@ export class LookupHandle<Keys extends string = string> {
       // A dedicated findReferences API is tracked as a follow-up.
     }
 
-    await this.adapter.delete(this.compartmentName, this.collName, key)
+    // #647 fix wave 1 — mirrors Collection._doDelete's identical `this.onDirty`-gated branch
+    // (#589): under sync, a raw adapter.delete() is invisible to a peer's next pull (the key
+    // simply stops appearing in remote.list()) — a deleted key never propagates and can be
+    // silently resurrected by a later edit. Write a version-ordered DELETE-MARKER instead, so
+    // the removal round-trips like any other row. No-op (plain adapter.delete) when sync isn't wired.
+    const nextVersion = existing._v + 1
+    if (this.onDirty) {
+      await this.adapter.put(this.compartmentName, this.collName, key, this.buildDeleteMarker(nextVersion, this.keyring.userId))
+    } else {
+      await this.adapter.delete(this.compartmentName, this.collName, key)
+    }
 
     // Maintain synchronous cache for dict-join snapshot
     this._syncCache.delete(key)
 
     // #650 Task 4 (#647) — same choke-point ordering as put() above.
-    await this.onDirty?.(this.collName, key, 'delete', existing._v)
+    // #647 fix wave 1: the dirty entry's ACTION is 'put' (not 'delete') — mirrors
+    // Collection._onRecordMutated's 'local-delete' case exactly: the marker rides push's
+    // CAS-put path, not push's raw remote.delete() path (which would strip the marker off the
+    // remote too and reopen this same hole). The version is the MARKER's version, so push's CAS
+    // (expectedVersion = entry.version - 1) matches the pre-delete remote copy.
+    await this.onDirty?.(this.collName, key, 'put', nextVersion)
 
     this.emitter.emit('change', {
       vault: this.compartmentName,
@@ -325,7 +370,7 @@ export class LookupHandle<Keys extends string = string> {
       action: 'delete',
     })
 
-    await this.onRecordMutated?.(this.collName, key, 'delete', existing._v)
+    await this.onRecordMutated?.(this.collName, key, 'delete', nextVersion)
 
     if (this.ledger) {
       await this.ledger.append({
@@ -370,7 +415,7 @@ export class LookupHandle<Keys extends string = string> {
       this.collName,
       oldKey,
     )
-    if (!existing) {
+    if (!existing || isDeleteMarker(existing)) {
       throw new DictKeyMissingError(this.dictionaryName, oldKey)
     }
     const oldEntry = await this.decryptEntry(existing)
@@ -390,22 +435,31 @@ export class LookupHandle<Keys extends string = string> {
       await this.findAndUpdateReferences(this.dictionaryName, oldKey, newKey)
     }
 
-    // 4. Delete old key
-    await this.adapter.delete(this.compartmentName, this.collName, oldKey)
+    // 4. Remove old key — #647 fix wave 1: same delete-marker convention as delete() above, so
+    // the old key's removal propagates on sync instead of leaving a phantom stale row on a peer
+    // that only observes the new key arriving.
+    const oldKeyNextVersion = existing._v + 1
+    if (this.onDirty) {
+      await this.adapter.put(this.compartmentName, this.collName, oldKey, this.buildDeleteMarker(oldKeyNextVersion, this.keyring.userId))
+    } else {
+      await this.adapter.delete(this.compartmentName, this.collName, oldKey)
+    }
 
     // Maintain synchronous cache for dict-join snapshot
     this._syncCache.delete(oldKey)
     this._syncCache.set(newKey, newEntry)
 
     // #650 Task 4 (#647) — same choke-point ordering as put()/delete() above, for BOTH touches.
-    await this.onDirty?.(this.collName, oldKey, 'delete', existing._v)
+    // #647 fix wave 1: oldKey's dirty action is 'put' (not 'delete') — see delete()'s comment
+    // above for why the marker must ride push's CAS-put path, at the marker's version.
+    await this.onDirty?.(this.collName, oldKey, 'put', oldKeyNextVersion)
     this.emitter.emit('change', {
       vault: this.compartmentName,
       collection: this.collName,
       id: oldKey,
       action: 'delete',
     })
-    await this.onRecordMutated?.(this.collName, oldKey, 'delete', existing._v)
+    await this.onRecordMutated?.(this.collName, oldKey, 'delete', oldKeyNextVersion)
 
     await this.onDirty?.(this.collName, newKey, 'put', 1)
     this.emitter.emit('change', {
@@ -455,7 +509,9 @@ export class LookupHandle<Keys extends string = string> {
         this.collName,
         key,
       )
-      if (!envelope) continue
+      // #647 fix wave 1 — a delete-marker row is a removed key, not a live entry: exclude it
+      // from the listing and drop any stale cache entry a prior warm may have left under it.
+      if (!envelope || isDeleteMarker(envelope)) { this._syncCache.delete(key); continue }
       const entry = await this.decryptEntry(envelope)
       entries.push(entry)
       // Warm the synchronous cache

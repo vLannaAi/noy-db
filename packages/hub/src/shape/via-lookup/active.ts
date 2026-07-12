@@ -35,6 +35,7 @@ export function withLookup(): LookupStrategy {
         opts.options,
         opts.findAndUpdateReferences,
         opts.emitter,
+        opts.buildDeleteMarker, // #647 fix wave 1
         opts.onDirty, // #650 Task 4
         opts.onRecordMutated, // #650 Task 4
       )

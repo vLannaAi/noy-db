@@ -145,7 +145,7 @@ import {
   type ClosePeriodOptions,
   type OpenPeriodOptions,
 } from '../with-audit/periods/index.js'
-import { encrypt, openEnvelopeJson, hasPerRecordKey, SEALED_CEK_NS, type SealingContext, type EnclaveKey, isDeleteMarker, makeReservedEnvelopes } from './enclave/index.js'
+import { encrypt, openEnvelopeJson, hasPerRecordKey, SEALED_CEK_NS, type SealingContext, type EnclaveKey, isDeleteMarker, buildDeleteMarker, makeReservedEnvelopes } from './enclave/index.js'
 import type { RecipientSealer } from '../with-party/team/managed-passphrase.js'
 import {
   createExportBlobsHandle,
@@ -1572,6 +1572,7 @@ export class Vault {
           )
         },
         emitter: this.emitter,
+        buildDeleteMarker, // #647 fix wave 1 — real kernel/enclave builder; LookupHandle can't import it directly
         // #650 Task 4 (#647) — choke-point participation for LOCAL writes: dirty-log tracking
         // (same callback Collections get) + a one-shot graph-dispatch wave open/collect/flush
         // (the local-write origin's thin `graphDispatch.collect`-equivalent; a #553 zero-cost

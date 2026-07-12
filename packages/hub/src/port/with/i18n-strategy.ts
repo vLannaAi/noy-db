@@ -45,6 +45,7 @@ import type { Layer } from '../../shape/via-i18n/policy.js'
 import type { ScriptWarning } from '../../shape/via-i18n/script.js'
 import type { DictKeyDescriptor, DictionaryHandle, DictionaryOptions, StaticDictDescriptor } from '../../shape/via-i18n/dictionary.js'
 import type { ViaCryptoCtx } from '../../kernel/via.js'
+import type { EncryptedEnvelope } from '../../kernel/types.js'
 
 /**
  * Options accepted by `I18nStrategy.buildDictionaryHandle`. Mirrors
@@ -85,6 +86,12 @@ export interface BuildDictionaryHandleOptions<Keys extends string = string> {
   /** #650 Task 4 (#647) — choke-point participation hooks, passed through to `buildLookupHandle`. */
   onDirty?: ((collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>) | undefined
   onRecordMutated?: ((collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>) | undefined
+  /**
+   * #647 fix wave 1 — mints a version-ordered delete-marker envelope, passed through to
+   * `buildLookupHandle`. See `port/with/lookup-strategy.ts`'s `BuildLookupHandleOptions` doc
+   * comment for why this is injected rather than imported by the handle itself.
+   */
+  buildDeleteMarker: (version: number, actor: string) => EncryptedEnvelope
 }
 
 /**

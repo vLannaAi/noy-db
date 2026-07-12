@@ -199,4 +199,114 @@ describe('reserved-lookup sync (#647, #650 Task 4)', () => {
     expect(sawRowAtFlush).not.toBeNull()
     expect((sawRowAtFlush as EncryptedEnvelope | null)?._data).toBe(seedEnvelope._data)
   })
+
+  // ─── #647 fix wave 1 — reserved delete/rename-removal propagation (delete-markers) ───────────
+
+  it('a key deleted on A propagates to B on pull: get is null, closed-vocabulary membership refuses it, snapshot excludes it', async () => {
+    const remote = memory()
+    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+    const dbB = await createNoydb({ store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+
+    const vA = await dbA.openVault('demo')
+    await vA.dictionary('status').put('paid', { en: 'Paid' })
+    await dbA.push('demo')
+
+    const vB = await dbB.openVault('demo')
+    const orders = vB.collection<Order>('orders', { lookupFields: { status: dict('status', { vocabulary: 'closed' }) } })
+    await dbB.pull('demo')
+    expect(await vB.dictionary('status').get('paid')).toEqual({ en: 'Paid' })
+    // Warm B's cache (closed-vocabulary membership is a sync, cache-only read) and confirm
+    // 'paid' is known before the delete lands.
+    await vB.dictionary('status').list()
+    await expect(orders.put('o1', { id: 'o1', status: 'paid' })).resolves.not.toThrow()
+
+    // A deletes the key and pushes.
+    await vA.dictionary('status').delete('paid')
+    await dbA.push('demo')
+
+    const pull2 = await dbB.pull('demo')
+    expect(pull2.errors).toHaveLength(0)
+
+    // Pre-fix: LookupHandle.delete() does a raw adapter.delete() — invisible to remote.list() —
+    // so none of this observes the deletion; 'paid' persists on B forever (silent resurrection risk).
+    expect(await vB.dictionary('status').get('paid')).toBeNull()
+    expect(vB.dictionary('status').snapshotEntries().map((e) => e['key'])).not.toContain('paid')
+    await expect(orders.put('o2', { id: 'o2', status: 'paid' })).rejects.toThrow()
+
+    dbA.close(); dbB.close()
+  })
+
+  it('phantom-rename: A renames paid->settled and pushes; B pulls and has settled AND NOT paid', async () => {
+    const remote = memory()
+    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+    const dbB = await createNoydb({ store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+
+    const vA = await dbA.openVault('demo')
+    await vA.dictionary('status').put('paid', { en: 'Paid' })
+    await dbA.push('demo')
+
+    const vB = await dbB.openVault('demo')
+    vB.dictionary('status') // declare BEFORE pull — registers `_dict_status` in the reserved-lookup registry pull() enumerates
+    await dbB.pull('demo')
+    expect(await vB.dictionary('status').get('paid')).toEqual({ en: 'Paid' })
+
+    await vA.dictionary('status').rename('paid', 'settled')
+    await dbA.push('demo')
+
+    const pull2 = await dbB.pull('demo')
+    expect(pull2.errors).toHaveLength(0)
+
+    expect(await vB.dictionary('status').get('settled')).toEqual({ en: 'Paid' })
+    // Pre-fix: rename's old-key removal is a raw adapter.delete() on A's LOCAL store — invisible
+    // to remote.list() (the row simply vanishes from remote) — so B's pull loop never encounters
+    // 'paid' at all, and its stale local copy from the earlier pull survives forever (the phantom
+    // key the original E2E test's assertions never checked for).
+    expect(await vB.dictionary('status').get('paid')).toBeNull()
+    await vB.dictionary('status').list()
+    const keys = vB.dictionary('status').snapshotEntries().map((e) => e['key'])
+    expect(keys).toContain('settled')
+    expect(keys).not.toContain('paid')
+
+    dbA.close(); dbB.close()
+  })
+
+  it('resurrection-prevention: a concurrent local edit on B does not resurrect a key A deleted at a converging version', async () => {
+    const remote = memory()
+    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+    const dbB = await createNoydb({ store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+
+    const vA = await dbA.openVault('demo')
+    await vA.dictionary('status').put('paid', { en: 'Paid' })
+    await dbA.push('demo')
+
+    const vB = await dbB.openVault('demo')
+    vB.dictionary('status') // declare BEFORE pull — registers `_dict_status` in the reserved-lookup registry pull() enumerates
+    await dbB.pull('demo')
+    expect(await vB.dictionary('status').get('paid')).toEqual({ en: 'Paid' })
+
+    // B edits K locally (dirty, unsynced) while A independently deletes K and pushes first — A's
+    // delete marker lands on the remote at a version that TIES B's own local (unsynced) edit.
+    await vB.dictionary('status').put('paid', { en: 'Paid (B edit)' })
+    await vA.dictionary('status').delete('paid')
+    await dbA.push('demo')
+
+    // B pulls: the delete marker must win the tie over B's own unsynced edit — no resurrection.
+    const pull2 = await dbB.pull('demo')
+    expect(pull2.errors).toHaveLength(0)
+    expect(await vB.dictionary('status').get('paid')).toBeNull()
+
+    // B's own subsequent push must not resurrect the key on the remote either — the pending
+    // dirty 'put' from B's edit must not silently win the CAS.
+    const push2 = await dbB.push('demo')
+    expect(push2.errors).toHaveLength(0)
+
+    // Converged: a THIRD, fresh instance pulling from the same remote never sees 'paid' resurrected.
+    const dbC = await createNoydb({ store: memory(), sync: remote, user: 'user-c', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+    const vC = await dbC.openVault('demo')
+    vC.dictionary('status') // declare BEFORE pull — same registration requirement as B above
+    await dbC.pull('demo')
+    expect(await vC.dictionary('status').get('paid')).toBeNull()
+
+    dbA.close(); dbB.close(); dbC.close()
+  })
 })

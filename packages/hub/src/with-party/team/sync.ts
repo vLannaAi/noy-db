@@ -470,15 +470,54 @@ export class SyncEngine {
       // keep their `loadAll`-skip semantics untouched. Applied through the SAME `applyRemote` path,
       // still inside this try block, BEFORE `persistMeta`/`flush` below — so a pulled vocabulary
       // row lands before the wave (flushed at the end of `pull()`) recomputes any dependent.
+      //
+      // #647 fix wave 1: `LookupHandle.delete()`/`rename()` now write a version-ordered
+      // delete-marker row (mirroring #589) instead of a raw adapter delete, so a removed key is
+      // a normal row here too — reachable via `remote.list()` like any other id, applied by
+      // version like any other write. The only reserved-tier-specific rule is the same-version
+      // tie-break below: reserved lookups have no per-collection conflict-resolver concept
+      // (dictionaries are admin-edited, not multi-actor-negotiated), so a converging delete
+      // unconditionally wins over a same-version live edit.
       for (const collName of this.reservedLookup?.collections() ?? []) {
         if (filter && !filter.has(collName)) continue
         for (const id of await this.remote.list(this.vault, collName)) {
           try {
             const remoteEnvelope = await this.remote.get(this.vault, collName, id)
             if (!remoteEnvelope) continue
+
+            // Partial sync: modifiedSince filter — a delete marker is exempt, mirroring the
+            // main loop's tombstone/marker exemption above: a deletion must never be silently
+            // skipped by a time-window partial pull.
+            if (
+              options?.modifiedSince &&
+              remoteEnvelope._ts <= options.modifiedSince &&
+              !isDeleteMarker(remoteEnvelope)
+            ) {
+              continue
+            }
+
             const localEnvelope = await this.local.get(this.vault, collName, id)
-            if (!localEnvelope || remoteEnvelope._v > localEnvelope._v) {
+            if (!localEnvelope) {
               await this.applyRemote(collName, id, remoteEnvelope)
+              pulled++
+            } else if (
+              remoteEnvelope._v === localEnvelope._v &&
+              isDeleteMarker(remoteEnvelope) !== isDeleteMarker(localEnvelope)
+            ) {
+              // Same-version delete-vs-edit tie (#589's rule, reserved-tier default: no
+              // resolver concept here, so delete always wins).
+              if (isDeleteMarker(remoteEnvelope)) {
+                await this.applyRemote(collName, id, remoteEnvelope)
+                this.dirty = this.dirty.filter(d => !(d.collection === collName && d.id === id))
+                pulled++
+              }
+              // else: local already holds the marker (a local delete not yet observed
+              // remotely) — keep it; push re-asserts it.
+            } else if (remoteEnvelope._v > localEnvelope._v) {
+              await this.applyRemote(collName, id, remoteEnvelope)
+              // Drop any now-superseded local dirty entry so a subsequent push doesn't
+              // redundantly re-fight a CAS conflict over content pull just overwrote.
+              this.dirty = this.dirty.filter(d => !(d.collection === collName && d.id === id))
               pulled++
             }
           } catch (err) {
