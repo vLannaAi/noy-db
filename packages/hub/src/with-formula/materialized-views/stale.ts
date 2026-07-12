@@ -1,5 +1,6 @@
 import type { Collection } from '../../kernel/collection.js'
 import type { TxContext } from '../../with-commit/tx/transaction.js'
+import type { PutDerivedOutputCtx } from '../../kernel/via-dispatch.js'
 import type { MaterializedViewRegistry } from './registry.js'
 // Type-only — runtime class loaded via dynamic import in
 // `resolveStaleMVOnRead` only when a stale flag actually fires.
@@ -68,6 +69,14 @@ export function isMVStale(registry: MaterializedViewRegistry, mvName: string): b
  * before returning. No-op when there is no pending work — keeps the
  * read fast path negligible.
  *
+ * `dispatchCtx` (#641): threaded from the calling `Collection`'s
+ * `#dispatchCtx({ collection: outputCollection, id: 'resolve-on-read' })` — a read has no
+ * real "reacting write" record, so `'resolve-on-read'` is the sentinel id, mirroring
+ * `Vault.refreshView()`'s `'refreshView'` sentinel for the same reason. Passed straight
+ * through to the executor so a stale row whose output lands in a closed period follows the
+ * frozen-output rule (skip + `derivation:skipped-frozen`, #637) instead of throwing
+ * `PeriodClosedError` out of a read.
+ *
  * Dynamic-imports the executor only when a stale flag actually fires
  * (the floor-bundle isolation pattern v1 derivations established in
  * floor-bundle isolation pattern).
@@ -75,6 +84,7 @@ export function isMVStale(registry: MaterializedViewRegistry, mvName: string): b
 export async function resolveStaleMVOnRead(
   accessor: MVStaleAccessor,
   outputCollection: string,
+  dispatchCtx?: PutDerivedOutputCtx,
 ): Promise<void> {
   const registry = accessor.registry()
   const pending = _staleByRegistry.get(registry)
@@ -108,6 +118,7 @@ export async function resolveStaleMVOnRead(
       getCollection: (n) => accessor.getCollection(n),
       getActiveTxContext: () => accessor.getActiveTxContext(),
       getQueryContext: () => accessor.getQueryContext(),
+      ...(dispatchCtx !== undefined ? { dispatchCtx } : {}),
     })
     pending.delete(name)
   }

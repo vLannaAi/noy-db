@@ -1403,7 +1403,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // when nothing is pending.
     if (this.materializedViewSource !== undefined) {
       const { resolveStaleMVOnRead } = await import('../with-formula/materialized-views/stale.js')
-      await resolveStaleMVOnRead(this.materializedViewSource, this.name)
+      await resolveStaleMVOnRead(this.materializedViewSource, this.name, this.#dispatchCtx({ collection: this.name, id: 'resolve-on-read' }))
     }
 
     let record: T | null
@@ -2952,7 +2952,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // when nothing is pending — keeps the read path negligible.
     if (this.materializedViewSource !== undefined) {
       const { resolveStaleMVOnRead } = await import('../with-formula/materialized-views/stale.js')
-      await resolveStaleMVOnRead(this.materializedViewSource, this.name)
+      await resolveStaleMVOnRead(this.materializedViewSource, this.name, this.#dispatchCtx({ collection: this.name, id: 'resolve-on-read' }))
     }
     await this.ensureHydrated()
     const records = [...this.cache.values()].map(e => e.record)

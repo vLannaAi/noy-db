@@ -28,13 +28,12 @@ export interface MVExecutorAccessor {
    */
   getQueryContext(): MVQueryContext
   /**
-   * #638 Task 5 — ctx for `putDerivedOutput`'s frozen-period skip+audit. Optional:
-   * the lazy resolve-on-read caller (`stale.ts#resolveStaleMVOnRead`) does not supply
-   * one (no natural "reacting write" for a read-triggered materialize — out of this
-   * task's scope), so row writes there stay byte-identical to today (a closed-period
-   * row throws `PeriodClosedError` same as before). Every write/manual-refresh caller
-   * (`dispatchMaterializedViews`, `dispatchMaterializedViewsOnDelete`, `refreshView`)
-   * supplies one.
+   * #638 Task 5 — ctx for `putDerivedOutput`'s frozen-period skip+audit. #641: the lazy
+   * resolve-on-read caller (`stale.ts#resolveStaleMVOnRead`) now supplies one too — built at
+   * the `Collection.get()`/`list()` entry point with a `'resolve-on-read'` sentinel id (no
+   * real "reacting write" for a read-triggered materialize, mirroring `refreshView()`'s
+   * `'refreshView'` sentinel). Still declared optional here since `MVExecutorAccessor` is a
+   * general shape and a future caller could reasonably omit it.
    */
   dispatchCtx?: PutDerivedOutputCtx
 }
