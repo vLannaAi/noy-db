@@ -22,6 +22,7 @@ import { createNoydb } from '../../src/index.js'
 import { withI18n } from '../../src/shape/via-i18n/index.js'
 import { i18nText } from '../../src/shape/via-i18n/core.js'
 import { money } from '../../src/shape/via-money/descriptor.js'
+import { via } from '../../src/kernel/via-compose.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 function memory(): NoydbStore {
@@ -93,5 +94,66 @@ describe('_applyMoneyFields reconcile order (#623 Task 8, controller pin 3)', ()
     const resolved = await second.get('i1', { locale: 'en' })
     expect(resolved?.total).toBe('10.50')
     expect(resolved?.memo).toBe('Hello')
+  })
+
+  it('#627: reconciles via(money(...)) declared through viaFields onto an already-constructed collection, same as moneyFields', async () => {
+    const db = await createNoydb({
+      store: memory(),
+      user: 'alice',
+      secret: 'binding-order-reconcile-2026-pilot3-via',
+      i18nStrategy: withI18n(),
+    })
+    const vault = await db.openVault('books', { locale: 'en' })
+
+    // First declaration: no money config at all (mirrors an MV-precreation
+    // bare auto-create, or a plain first `vault.collection(name)` call).
+    const first = vault.collection<Invoice>('invoices', {
+      i18nFields: { memo: i18nText({ languages: ['en', 'th'], required: 'any' }) },
+    })
+
+    // Second declaration on the SAME name: money declared via the public
+    // `viaFields: { total: via(money(...)) }` spelling — must reconcile onto
+    // the existing instance exactly like the `moneyFields` sugar key does.
+    const second = vault.collection<Invoice>('invoices', {
+      viaFields: { total: via(money({ currency: 'EUR', scale: 2 })) },
+    })
+
+    expect(second).toBe(first)
+
+    // describe() surfaces money metadata only when the via pipeline actually
+    // compiled a money binding for `total` — the discriminating assertion
+    // that the reconcile fired (not just that a pre-canonical value round-tripped).
+    expect(second.describe().fields.some((f) => f.key === 'total' && 'money' in f)).toBe(true)
+
+    // Un-canonical numeric input: only a compiled money binding quantizes
+    // `10.5` up to the fixed 2-decimal-scale string `'10.50'` on write.
+    await second.put('i1', { id: 'i1', total: 10.5, memo: { en: 'Hello', th: 'สวัสดี' } })
+
+    const raw = await second.get('i1', { locale: 'raw' })
+    expect(raw?.total).toBe('10.50')
+  })
+
+  it('#627 parity: viaFields-style late-attach and moneyFields-style late-attach produce identical describe()/read output', async () => {
+    const store = memory()
+    const db = await createNoydb({ store, user: 'alice', secret: 'binding-order-reconcile-2026-pilot3-parity' })
+    const sugarVault = await db.openVault('sugar')
+    const viaVault = await db.openVault('via')
+
+    const sugarFirst = sugarVault.collection<Invoice>('invoices', {})
+    const sugarSecond = sugarVault.collection<Invoice>('invoices', {
+      moneyFields: { total: money({ currency: 'EUR', scale: 2 }) },
+    })
+    const viaFirst = viaVault.collection<Invoice>('invoices', {})
+    const viaSecond = viaVault.collection<Invoice>('invoices', {
+      viaFields: { total: via(money({ currency: 'EUR', scale: 2 })) },
+    })
+
+    expect(sugarSecond).toBe(sugarFirst)
+    expect(viaSecond).toBe(viaFirst)
+    expect(viaSecond.describe()).toEqual(sugarSecond.describe())
+
+    await sugarSecond.put('a', { id: 'a', total: 123.45, memo: {} })
+    await viaSecond.put('a', { id: 'a', total: 123.45, memo: {} })
+    expect(await viaSecond.get('a')).toEqual(await sugarSecond.get('a'))
   })
 })
