@@ -685,6 +685,7 @@ export class Noydb {
     this._forEachSyncEngine(name, engine => {
       engine.setCacheInvalidator((collection, id) => comp._invalidateSyncApplied(collection, id))
       engine.setGraphBatchController({ begin: () => comp._beginGraphBatch(), flush: () => comp._flushGraphBatch() })
+      engine.setReservedLookupSource({ collections: () => comp._reservedLookupCollectionNames() }) // #650 Task 4
     })
     // Initialise the optional guard + derivation registries via dynamic-import — no-ops when the
     // corresponding strategies array is empty/unset, keeping the service code out of the floor bundle.

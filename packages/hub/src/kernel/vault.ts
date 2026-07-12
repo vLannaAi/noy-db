@@ -91,6 +91,22 @@ import {
 } from './refs.js'
 import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor, StaticDictDescriptor } from '../port/with/i18n-strategy.js'
 import { isDictCollectionName, isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
+// #650 Task 1 (via-lookup extraction) — the pure dict-registry helpers now live in
+// shape/via-lookup/registry.ts, reached only through this port seam (never shape/via-lookup/*
+// directly — Check 14 via-layering). Aliased to avoid colliding with Vault's own same-named
+// public delegator methods below. Task 2's resolveLabelFromMap/collectLookupDictCompat is the
+// alias-equivalence bridge shared by the i18n + lookup bindings.
+import {
+  enforceStaticDictOnPut as enforceStaticDictOnPutHelper,
+  resolveDictSource as resolveDictSourceHelper,
+  updateReferencingRecords,
+  resolveLabelFromMap,
+  collectLookupDictCompat,
+  checkLookupMembership, buildLookupAltIndex,
+  dictCollectionName, registerLookupRefEdges, // #650 Task 4/5
+  buildLookupSnapshotRows, // #650 Task 6
+  type LookupDescriptor,
+} from '../port/with/lookup-strategy.js'
 import { isLinkCollectionName, type LinkSpec, type LinkSetHandle } from '../with-shape/links/names.js'
 import { makeLazyLinkSetHandle, type LazyLinkSetHandle } from '../with-shape/links/lazy-handle.js'
 import type { EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
@@ -115,9 +131,9 @@ import type { GuardStrategyHandleAny } from '../with-audit/guards/types.js'
 import type { ReadOnlyVaultFacade } from '../with-audit/guards/read-only-facade.js'
 import type { DerivationRegistry } from '../with-formula/derivations/registry.js'
 import type { DerivationStrategyHandle } from '../with-formula/derivations/types.js'
-import type { LocaleReadOptions, ConflictPolicy } from './types.js'
+import type { ConflictPolicy } from './types.js'
 import type { CrdtMode } from '../with-commit/crdt/crdt.js'
-import { ReservedCollectionNameError, StaticDictReadonlyError, UnknownDictCodeError, SatelliteConfigError } from './errors.js'
+import { ReservedCollectionNameError, StaticDictReadonlyError, SatelliteConfigError } from './errors.js'
 import { declareSatellite } from '../with-shape/satellites/declare.js'
 import { makeSatelliteProxy, makeBaseProxy } from '../with-shape/satellites/proxy.js'
 import type { SatelliteRegistry } from '../with-shape/satellites/registry.js'
@@ -129,7 +145,7 @@ import {
   type ClosePeriodOptions,
   type OpenPeriodOptions,
 } from '../with-audit/periods/index.js'
-import { encrypt, openEnvelopeJson, hasPerRecordKey, SEALED_CEK_NS, type SealingContext, type EnclaveKey, isDeleteMarker, makeReservedEnvelopes } from './enclave/index.js'
+import { encrypt, openEnvelopeJson, hasPerRecordKey, SEALED_CEK_NS, type SealingContext, type EnclaveKey, isDeleteMarker, buildDeleteMarker, makeReservedEnvelopes } from './enclave/index.js'
 import type { RecipientSealer } from '../with-party/team/managed-passphrase.js'
 import {
   createExportBlobsHandle,
@@ -160,33 +176,6 @@ import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta, VaultMeta } from '../with-shape/introspection/meta.js'
 import { NO_CLASSIFIED, type ClassifiedEntry, type ClassifiedStrategy } from '../port/with/classified-strategy.js'
 import { USER_ENVELOPE_COLLECTION } from './constants.js'
-
-/**
- * Resolve a label from an in-memory `{ locale → label }` map, walking the
- * same fallback chain semantics as `DictionaryHandle.resolveLabel`.
- * Used by the staticDict read-path resolver, which has no `_dict_*` handle.
- */
-function resolveLabelFromMap(
-  labels: Readonly<Record<string, string>>,
-  locale: string,
-  fallback?: string | readonly string[],
-): string | undefined {
-  if (labels[locale] !== undefined) return labels[locale]
-  const chain = Array.isArray(fallback)
-    ? (fallback as readonly string[])
-    : fallback
-      ? [fallback as string]
-      : []
-  for (const fb of chain) {
-    if (fb === 'any') {
-      const any = Object.values(labels)[0]
-      if (any !== undefined) return any
-    } else if (labels[fb] !== undefined) {
-      return labels[fb]
-    }
-  }
-  return undefined
-}
 
 /** A vault (tenant namespace) containing collections. */
 export class Vault {
@@ -382,60 +371,28 @@ export class Vault {
   private consentContext: ConsentContext | null = null
 
 
-  /**
-   * Registry of dictKey fields declared across all collections in this
-   * vault. Keyed by collection name → field name → dictionary name.
-   * Used by `DictionaryHandle.rename()` to find and update all records
-   * referencing a renamed key.
-   *
-   * Populated by `collection()` when the `dictKeyFields` option is passed.
-   */
-  private readonly dictKeyFieldRegistry = new Map<
-    string, // collection name
-    Record<string, string> // field name → dictionary name
-  >()
+  /** dictKeyField registry: collection name → field name → dictionary name — `DictionaryHandle.rename()`'s reference-update source; populated by `collection()` from `dictKeyFields`. */
+  private readonly dictKeyFieldRegistry = new Map<string, Record<string, string>>()
 
-  /**
-   * Names of dictionaries backed by a `staticDict()` descriptor.
-   * A static dict skips the `dictKeyFieldRegistry` rename machinery, but the
-   * vault must still *know* a name is static so `vault.dictionary(name)` can
-   * refuse mutation (`StaticDictReadonlyError`). Populated at `collection()`
-   * config time whenever a `StaticDictDescriptor` is seen.
-   */
+  /** Names of `staticDict()`-backed dictionaries (skip rename tracking; `vault.dictionary(name)` refuses mutation on these via `StaticDictReadonlyError`). Populated at `collection()` config time. */
   private readonly staticDictNames = new Set<string>()
 
-  /**
-   * Static-dict descriptors keyed by dictionary name. Backs the
-   * read-path label resolver (resolve from the in-memory table) and the
-   * query-seam `resolveDictSource` snapshot. Last writer wins when the same
-   * name is registered by multiple collections (identical-across-vaults by
-   * construction, so the tables match).
-   */
+  /** Static-dict descriptors by dictionary name — backs the read-path label resolver and the `resolveDictSource` snapshot. Last writer wins across collections (tables match by construction). */
   private readonly staticByName = new Map<string, StaticDictDescriptor>()
 
-  /**
-   * Per-collection map of field name → StaticDictDescriptor. Used by
-   * `enforceStaticDictOnPut` to validate stored codes against `desc.keys`.
-   */
-  private readonly staticDescriptorByField = new Map<
-    string, // collection name
-    Record<string, StaticDictDescriptor>
-  >()
+  /** Per-collection field name → StaticDictDescriptor, validated by `enforceStaticDictOnPut`. */
+  private readonly staticDescriptorByField = new Map<string, Record<string, StaticDictDescriptor>>()
 
-  /**
-   * Registry of i18nText fields declared across all collections. Keyed
-   * by collection name → field name → I18nTextDescriptor. Used by
-   * `applyI18nLocale` on reads and by `validateI18nTextValue` on puts.
-   *
-   * Populated by `collection()` when the `i18nFields` option is passed.
-   */
-  private readonly i18nFieldRegistry = new Map<
-    string, // collection name
-    Record<string, I18nTextDescriptor>
-  >()
+  /** i18nText fields: collection name → field name → descriptor. Used by `applyI18nLocale`/`validateI18nTextValue`; populated by `collection()` from `i18nFields`. */
+  private readonly i18nFieldRegistry = new Map<string, Record<string, I18nTextDescriptor>>()
 
   /** Cache of DictionaryHandle instances, one per dictionary name. */
   private readonly dictionaryCache = new Map<string, DictionaryHandle>()
+
+  /** #650 Task 4 (#647) — declared reserved-lookup collection name → dimension name, for dimensions
+   *  with `backing:'reserved'` (dict()/dictKey()). The explicit sync-pull registry: NOT a blanket
+   *  underscore-glob — populated at `collection()`-declare time and at `dictionary()`-call time. */
+  private readonly reservedLookupCollections = new Map<string, string>()
 
   /** Registered link specs, keyed by link name; set by `vault.link()`. */
   private readonly linkRegistry = new Map<string, LinkSpec>()
@@ -716,6 +673,8 @@ export class Vault {
     textIndexPersist?: boolean
     /** — declare dictKey / staticDict fields for label resolution on reads. */
     dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor>
+    /** — declare lookup() / enumOf() / dict() fields (#650 Task 2 — the 'lookup' via binding's three tiers). */
+    lookupFields?: Record<string, LookupDescriptor>
     /** Consumer-neutral per-field descriptors (label/unit/semanticType/sensitivity…). See collection.describe(). */
     fieldMeta?: Record<string, FieldMeta>
     /** The collection's own descriptive metadata (label/description/icon). See collection.describe(). */
@@ -912,7 +871,7 @@ export class Vault {
       applyTaintOverlay(coll, this.graph, collectionName) // #638 Task 3: a late attach can newly taint an already-built pipeline
     }
     if (!coll) {
-      const effectiveViaFields = mergeViaFields({ moneyFields: options?.moneyFields, i18nFields: options?.i18nFields, dictKeyFields: options?.dictKeyFields, viaFields: options?.viaFields })
+      const effectiveViaFields = mergeViaFields({ moneyFields: options?.moneyFields, i18nFields: options?.i18nFields, dictKeyFields: options?.dictKeyFields, lookupFields: options?.lookupFields, viaFields: options?.viaFields })
       // Register ref declarations (if any) with the vault-level
       // registry BEFORE constructing the Collection. This way the
       // first put() on the new collection already sees its refs via
@@ -945,11 +904,12 @@ export class Vault {
       // the rename-tracking registry; staticDict fields skip it (no
       // per-vault pointer rewrite) and instead populate the static
       // registries that back the read-path resolver, the readonly guard, and
-      // put-time code validation.
-      if (effectiveViaFields.dictKeyFields) {
+      // put-time code validation. Native lookup()/dict() reserved/static
+      // fields fold into the SAME registries (#650 Task 2 — collectLookupDictCompat).
+      if (effectiveViaFields.dictKeyFields || effectiveViaFields.lookupFields) {
         const dictFieldMap: Record<string, string> = {}
         const staticFieldMap: Record<string, StaticDictDescriptor> = {}
-        for (const [field, desc] of Object.entries(effectiveViaFields.dictKeyFields)) {
+        for (const [field, desc] of Object.entries(effectiveViaFields.dictKeyFields ?? {})) {
           if (isStaticDictDescriptor(desc)) {
             staticFieldMap[field] = desc
             this.staticDictNames.add(desc.name)
@@ -958,8 +918,21 @@ export class Vault {
             dictFieldMap[field] = desc.name
           }
         }
+        const lookupCompat = collectLookupDictCompat(effectiveViaFields.lookupFields)
+        Object.assign(dictFieldMap, lookupCompat.dictFieldMap)
+        for (const [field, desc] of lookupCompat.staticEntries) {
+          staticFieldMap[field] = desc
+          this.staticDictNames.add(desc.name)
+          this.staticByName.set(desc.name, desc)
+        }
         if (Object.keys(dictFieldMap).length > 0) {
           this.dictKeyFieldRegistry.set(collectionName, dictFieldMap)
+          // #650 Task 4 (#647) — declare these dimensions' _dict_* collections into the
+          // reserved-lookup sync registry NOW, at schema-declare time — before any local
+          // dictionary() call/write/read touches them this session.
+          for (const dictName of new Set(Object.values(dictFieldMap))) {
+            this.reservedLookupCollections.set(dictCollectionName(dictName), dictName)
+          }
         }
         if (Object.keys(staticFieldMap).length > 0) {
           this.staticDescriptorByField.set(collectionName, staticFieldMap)
@@ -1135,11 +1108,12 @@ export class Vault {
       if (options?.viaFields !== undefined) collOpts.viaFields = options.viaFields
       if (options?.computed !== undefined) collOpts.computed = options.computed as ComputedFields
       if (options?.classifiedFields !== undefined) collOpts.classifiedFields = options.classifiedFields
-      if (effectiveViaFields.dictKeyFields !== undefined) {
-        // Build the label resolver callback for this collection. A static
-        // dict resolves from its in-memory table — no dictionary()
-        // lookup, no _dict_* read — while a plain dictKey resolves through
-        // the encrypted _dict_* handle as before.
+      if (effectiveViaFields.dictKeyFields !== undefined || effectiveViaFields.lookupFields !== undefined) {
+        // Build the label resolver callback for this collection. A static dict resolves from
+        // its in-memory table — no dictionary() lookup, no _dict_* read — while a plain dictKey
+        // resolves through the encrypted _dict_* handle as before. Shared verbatim by the lookup
+        // binding (#650 Task 2) — native lookup()/dict() reserved/static(+table) dimensions
+        // register into the SAME staticByName registry above, so this one resolver serves both.
         collOpts.dictLabelResolver = async (dictName, key, locale, fallback) => {
           const stat = this.staticByName.get(dictName)
           if (stat) {
@@ -1153,6 +1127,15 @@ export class Vault {
         // index can call list() to build the full key→labels map.
         collOpts.getDictionary = async (name: string) => this.dictionary(name)
         collOpts.dictKeyFields = options?.dictKeyFields
+      }
+      if (effectiveViaFields.lookupFields !== undefined) {
+        // membership/getAltIndex (#650 Task 3) are vault-built closures — never a collection handle.
+        collOpts.lookupLabelResolver = collOpts.dictLabelResolver
+        collOpts.getLookupBacking = (dimension: string) => async (key: string) => (await this.collection<Record<string, unknown>>(dimension).get(key)) ?? undefined
+        collOpts.lookupFields = options?.lookupFields
+        collOpts.membership = (field, key) => checkLookupMembership(effectiveViaFields.lookupFields![field]!, key, (n) => this.dictionary(n), (n) => this.collection(n))
+        collOpts.getAltIndex = (d) => buildLookupAltIndex(d, (n) => this.dictionary(n), (n) => this.collection<Record<string, unknown>>(n))
+        collOpts.snapshotFor = (d) => buildLookupSnapshotRows(d, (n) => this.reservedLookupCollections.has(dictCollectionName(n)), (n) => this.dictionary(n), (n) => this.collection<Record<string, unknown>>(n)) // #650 Task 6/7
       }
       // i18n / staticDict validation on put — enforced via the compartment's
       // put hook. staticDict adds put-time code validation.
@@ -1187,6 +1170,7 @@ export class Vault {
       coll = new Collection<T>(collOpts)
       this.collectionCache.set(collectionName, coll)
       registerCollectionGraphSources(this.graph, collectionName, collOpts)
+      registerLookupRefEdges(this.graph, collectionName, effectiveViaFields.lookupFields) // #650 Task 5
       applyTaintOverlay(coll, this.graph, collectionName) // #638 Task 3: seal + gate any freshly-tainted field
 
       // Pre-build the lexical index on open when opted in. Fire-and-forget,
@@ -1294,11 +1278,26 @@ export class Vault {
     await coll._applyRemoteChange(docId, action)
   }
 
-  /** @internal #598: refresh cache entries a sync-applied write rewrote underneath us. No-op if not loaded this session. */
+  /** @internal #598: refresh cache entries a sync-applied write rewrote underneath us. No-op if not loaded this session.
+   *  #650 Task 4 (#647): a reserved-lookup collection has no `Collection` instance — instead, refresh
+   *  its already-warmed `LookupHandle._syncCache` (membership/altIndex/snapshot reads never see a
+   *  stale verdict for a pulled vocabulary edit) and collect the touch into any open graph batch
+   *  (the sync-apply wave-reachability seam Task 5's ref edges will use). No-op if never warmed. */
   async _invalidateSyncApplied(collection: string, id: string): Promise<void> {
     const coll = this.collectionCache.get(collection)
-    if (!coll) return
-    await coll._onRecordMutated(id, 'put', 'sync-apply')
+    if (coll) {
+      await coll._onRecordMutated(id, 'put', 'sync-apply')
+      return
+    }
+    const dimName = this.reservedLookupCollections.get(collection)
+    if (dimName === undefined) return
+    await this.dictionaryCache.get(dimName)?._refreshSyncCache(id)
+    this._collectGraphTouch(collection, id)
+  }
+
+  /** @internal #650 Task 4 (#647) — declared reserved-lookup collection names, for `SyncEngine.pull()`'s explicit prefix registry. */
+  _reservedLookupCollectionNames(): readonly string[] {
+    return [...this.reservedLookupCollections.keys()]
   }
 
   /** @internal #638 Task 4 — open a graph-dispatch touch batch (sync pull()/push()/cutover). */
@@ -1508,107 +1507,15 @@ export class Vault {
    * Validate staticDict codes on a `put()`. For each `staticDict()`
    * field, every stored code must be a declared key of the descriptor's
    * table, else `UnknownDictCodeError`. Opt out per descriptor with
-   * `{ validateCodes: false }`. Supports scalar, dotted, and `[].`-wildcard
-   * field paths via `getAtPath` (same path support as i18n validation).
+   * `{ validateCodes: false }`.
    *
-   * Delegates through the Via registry — see {@link enforceI18nOnPut}.
+   * Delegates through the Via registry — see {@link enforceI18nOnPut}. The
+   * per-field validation itself lives in `shape/via-lookup/registry.ts`
+   * (#650 Task 1 extraction), reached via `port/with/lookup-strategy.ts`.
    */
   enforceStaticDictOnPut(collectionName: string, record: unknown): void {
     if (!isViaInstalled('i18n')) return
-    const staticFields = this.staticDescriptorByField.get(collectionName)
-    if (!staticFields || Object.keys(staticFields).length === 0) return
-    if (!record || typeof record !== 'object') return
-
-    const obj = record as Record<string, unknown>
-    for (const [field, desc] of Object.entries(staticFields)) {
-      if (desc.validateCodes === false) continue
-      const known = new Set<string>(desc.keys)
-      const values = getAtPath(obj, field)
-      for (const value of values) {
-        if (value === undefined || value === null) continue
-        const codes = Array.isArray(value) ? value : [value]
-        for (const code of codes) {
-          if (typeof code !== 'string') continue
-          if (!known.has(code)) {
-            throw new UnknownDictCodeError(desc.name, field, code)
-          }
-        }
-      }
-    }
-  }
-
-  /**
-   * Apply locale resolution to a record for the given collection.
-   *
-   * Called by Collection after decryption when locale options are present.
-   * Returns a new object (never mutates the cached record).
-   */
-  async applyLocale(
-    collectionName: string,
-    record: Record<string, unknown>,
-    localeOpts: LocaleReadOptions,
-  ): Promise<Record<string, unknown>> {
-    const locale = localeOpts.locale ?? this.locale
-    const staticFields = this.staticDescriptorByField.get(collectionName)
-    // A static dict with `displayLocale` resolves even under a locale-less
-    // read. The early-return relaxes only for that case; an i18nText-
-    // only / plain-dictKey collection still returns the raw record when no
-    // locale is active (today's invariant).
-    const hasStaticDisplay =
-      staticFields !== undefined &&
-      Object.values(staticFields).some((d) => d.displayLocale !== undefined)
-    if (!locale && !hasStaticDisplay) return record
-
-    let result = record
-
-    // 1. i18nText resolution — requires an active locale.
-    if (locale) {
-      const i18nFields = this.i18nFieldRegistry.get(collectionName)
-      if (i18nFields && Object.keys(i18nFields).length > 0) {
-        result = this.i18nStrategy.applyI18nLocale(result, i18nFields, locale, localeOpts.fallback)
-      }
-    }
-
-    // 2. dictKey label resolution — add <field>Label virtual fields (encrypted
-    // _dict_* handle). Skipped on `raw`. Static fields are NOT in this
-    // registry (they skip rename tracking), so this never calls
-    // this.dictionary(staticName).
-    const dictFields = this.dictKeyFieldRegistry.get(collectionName)
-    if (locale && dictFields && Object.keys(dictFields).length > 0 && locale !== 'raw') {
-      const withLabels = { ...result }
-      for (const [field, dictName] of Object.entries(dictFields)) {
-        const key = result[field]
-        if (typeof key !== 'string') continue
-        const handle = this.dictionary(dictName)
-        const label = await handle.resolveLabel(key, locale, localeOpts.fallback)
-        if (label !== undefined) {
-          withLabels[`${field}Label`] = label
-        }
-      }
-      result = withLabels
-    }
-
-    // 3. staticDict label resolution — resolve from the in-memory table; uses
-    // the field's displayLocale when no locale is active. No
-    // dictionary() lookup, so no StaticDictReadonlyError from this path.
-    if (staticFields && Object.keys(staticFields).length > 0 && locale !== 'raw') {
-      const withLabels = { ...result }
-      for (const [field, desc] of Object.entries(staticFields)) {
-        const effLocale = locale ?? desc.displayLocale
-        if (!effLocale) continue
-        const key = result[field]
-        if (typeof key !== 'string') continue
-        const labels = desc.table[key]
-        if (!labels) continue
-        const label = resolveLabelFromMap(labels, effLocale, localeOpts.fallback ?? desc.substitute)
-        if (label !== undefined) {
-          withLabels[`${field}Label`] = label
-        }
-      }
-      result = withLabels
-    }
-
-    return result
+    enforceStaticDictOnPutHelper(this.staticDescriptorByField.get(collectionName), record)
   }
 
   /**
@@ -1639,6 +1546,7 @@ export class Vault {
     if (this.staticDictNames.has(name)) {
       throw new StaticDictReadonlyError(name)
     }
+    this.reservedLookupCollections.set(dictCollectionName(name), name) // #650 Task 4 (#647)
     let handle = this.dictionaryCache.get(name)
     if (!handle) {
       handle = this.i18nStrategy.buildDictionaryHandle<Keys>({
@@ -1651,36 +1559,25 @@ export class Vault {
         ledger: this.getLedgerOrNull() ?? undefined,
         options,
         // findAndUpdateReferences: rewrite dictKey fields in all
-        // registered collections when rename() is called
+        // registered collections when rename() is called. Body extracted to
+        // shape/via-lookup/registry.ts (#650 Task 1) — reached via the
+        // port/with/lookup-strategy.ts seam.
         findAndUpdateReferences: async (dictionaryName, oldKey, newKey) => {
-          for (const [collectionName, dictFields] of this.dictKeyFieldRegistry) {
-            // Find fields that point at this dictionary
-            const fields = Object.entries(dictFields)
-              .filter(([, dn]) => dn === dictionaryName)
-              .map(([field]) => field)
-            if (fields.length === 0) continue
-
-            const coll = this.collection<Record<string, unknown>>(collectionName)
-            const records = await coll.list()
-            for (const record of records) {
-              let changed = false
-              const updated = { ...record }
-              for (const field of fields) {
-                if (updated[field] === oldKey) {
-                  updated[field] = newKey
-                  changed = true
-                }
-              }
-              if (changed) {
-                const id = (record['id'] as string | undefined)
-                if (id !== undefined) {
-                  await coll.put(id, updated)
-                }
-              }
-            }
-          }
+          await updateReferencingRecords(
+            this.dictKeyFieldRegistry,
+            (collectionName) => this.collection<Record<string, unknown>>(collectionName),
+            dictionaryName,
+            oldKey,
+            newKey,
+          )
         },
         emitter: this.emitter,
+        buildDeleteMarker, // #647 fix wave 1 — real kernel/enclave builder; LookupHandle can't import it directly
+        // #650 Task 4 (#647) — choke-point participation for LOCAL writes: dirty-log tracking + a
+        // one-shot graph-dispatch wave (local-write's `graphDispatch.collect`-equivalent; Task 5's ref edges give it dependents).
+        onDirty: this.onDirty,
+        onRecordMutated: async (collection, id) => { this._beginGraphBatch(); this._collectGraphTouch(collection, id); await this._flushGraphBatch() },
+        checkReferencesOnDelete: (key) => this.linksEnforcer.enforceLookupRefsOnDelete(this.graph, name, dictCollectionName(name), key), // #650 Task 5
       })
       this.dictionaryCache.set(name, handle)
     }
@@ -1750,69 +1647,24 @@ export class Vault {
   }
 
   /**
-   * Build a `JoinableSource` for a dictKey field, for use in dict joins
-   *. Returns a source whose snapshot contains `{ key, ...labels }`
-   * records — one per dictionary entry — keyed by the stable key.
+   * Build a `JoinableSource` for a dictKey field, for use in dict joins.
+   * Returns a source whose snapshot contains `{ key, labels, ...labels }`
+   * records — one per dictionary entry — keyed by the stable key. Returns
+   * `null` when `field` is not a dictKey in `leftCollection`.
    *
-   * Returns `null` when `field` is not a dictKey in `leftCollection`.
-   *
-   * The snapshot is built synchronously from whatever the dictionary
-   * handle has in its cached state. For empty dictionaries this returns
-   * an empty snapshot rather than `null`.
-   */
-  /**
-   * Build a `JoinableSource` for a dictKey field, for use in dict joins
-   *. Returns a source whose snapshot contains
-   * `{ key, labels, ...labels }` records — one per dictionary entry —
-   * keyed by the stable key.
-   *
-   * The snapshot is built synchronously from the DictionaryHandle's
-   * write-through cache, which is populated on every `put()`, `rename()`,
-   * `delete()`, and `list()` call. For pre-existing data not yet touched
-   * this session, call `await vault.dictionary(name).list()` first
-   * to warm the cache.
-   *
-   * Returns `null` when `field` is not a dictKey in `leftCollection`.
+   * Body extracted to `shape/via-lookup/registry.ts` (#650 Task 1) —
+   * reached via the `port/with/lookup-strategy.ts` seam. See that
+   * function's doc comment for the static-vs-dynamic-dict split and the
+   * cache-warming caveat.
    */
   resolveDictSource(leftCollection: string, field: string): JoinableSource | null {
-    // staticDict: a code-table-backed source — snapshot() materialises
-    // the in-memory table into [{ key, labels, ...labels }] rows, mirroring
-    // DictionaryHandle.snapshotEntries(). Carries `displayLocale` so a
-    // locale-less { by: 'label' } query has a default locale to resolve at.
-    const staticFields = this.staticDescriptorByField.get(leftCollection)
-    if (staticFields && field in staticFields) {
-      const desc = staticFields[field]!
-      const rows: readonly Record<string, unknown>[] = Object.entries(desc.table).map(
-        ([key, labels]) => ({ key, labels, ...(labels as Record<string, string>) }),
-      )
-      const source: JoinableSource = {
-        snapshot(): readonly unknown[] {
-          return rows
-        },
-        lookupById(id: string): unknown {
-          return rows.find((e) => e['key'] === id)
-        },
-      }
-      if (desc.displayLocale !== undefined) {
-        ;(source as { displayLocale?: string }).displayLocale = desc.displayLocale
-      }
-      return source
-    }
-
-    const dictFields = this.dictKeyFieldRegistry.get(leftCollection)
-    if (!dictFields || !(field in dictFields)) return null
-    const dictName = dictFields[field]
-    if (!dictName) return null
-    const handle = this.dictionary(dictName)
-    return {
-      snapshot(): readonly unknown[] {
-        return handle.snapshotEntries()
-      },
-      lookupById(id: string): unknown {
-        const entries = handle.snapshotEntries()
-        return entries.find((e) => e['key'] === id)
-      },
-    }
+    return resolveDictSourceHelper(
+      leftCollection,
+      field,
+      this.staticDescriptorByField,
+      this.dictKeyFieldRegistry,
+      (name) => this.dictionary(name),
+    )
   }
 
   /**
@@ -2272,7 +2124,7 @@ export class Vault {
    * cascade guard. See `with-shape/links/vault-facade.ts`.
    */
   async enforceRefsOnDelete(collectionName: string, id: string): Promise<void> {
-    return this.linksEnforcer.enforceRefsOnDelete(collectionName, id)
+    return this.linksEnforcer.enforceRefsOnDelete(this.graph, collectionName, id)
   }
 
   // ─── Join resolver) ────────────────────
@@ -2430,12 +2282,13 @@ export class Vault {
     const indexResidue: string[] = []
     const blobsEnabled = this.blobStrategy !== undefined
     const actor = this.keyring.userId
-    const fanoutStats: ForgetFanoutStats = { recordsErased: 0, aggregatesRecomputed: 0, residueFrozen: [] }
+    const fanoutStats: ForgetFanoutStats = { recordsErased: 0, aggregatesRecomputed: 0, residueFrozen: [], lookupReferencesCascaded: 0, lookupReferencesNullified: 0, lookupReferencesResidue: [] }
 
     for (const ref of allRefs) {
       const coll = this.collection<Record<string, unknown>>(ref.collection)
       const satelliteOf = (ref as { satelliteOf?: string }).satelliteOf
       const perRecordKeys = this.forgetStrategy.subjects[satelliteOf ?? ref.collection] !== undefined // #591 classification inheritance
+      const lookupCompareKeys = await this.linksEnforcer.checkLookupRefsRestrict(this.graph, ref.collection, ref.collection, ref.id) // #650 (#648) — restrict BEFORE any shred; ALSO live-resolves every ref edge's compare-key (#650 review, Important fix — no post-shred decode needed by forgetDerivedFanout)
 
       // Detect an un-migrated record BEFORE shredding: a perRecordKeys
       // collection whose live envelope still carries a body but no `_cek`
@@ -2507,7 +2360,7 @@ export class Vault {
       if (shred !== null) {
         recordsShredded++
         collections.add(ref.collection)
-        await forgetDerivedFanout(this, { collection: ref.collection, id: ref.id }, live, fanoutStats)
+        await forgetDerivedFanout(this, { collection: ref.collection, id: ref.id }, live, fanoutStats, lookupCompareKeys)
       }
 
       // Tombstone every history version (idempotent — already-shredded skip).
@@ -2621,6 +2474,7 @@ export class Vault {
       derivedRecordsErased: fanoutStats.recordsErased,
       derivedAggregatesRecomputed: fanoutStats.aggregatesRecomputed,
       derivedResidueFrozen: fanoutStats.residueFrozen,
+      lookupReferencesCascaded: fanoutStats.lookupReferencesCascaded, lookupReferencesNullified: fanoutStats.lookupReferencesNullified, lookupReferencesResidue: fanoutStats.lookupReferencesResidue, // #650 Task 5 (+ review Important fix: residue)
     }
   }
 

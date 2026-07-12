@@ -93,6 +93,21 @@ const workers = vault.collection<Worker>('workers', {
 Both `dictKey` and `staticDict` share `_viaBrand: 'i18n'` and the same `onMissing`/`substitute`
 label-resolution policy engine as `i18nText`.
 
+**`dictKey()`/`staticDict()` are now aliases** (#650, phase D): internally they build the
+equivalent `LookupDescriptor` shape — `dictKey()` matching its reserved tier (`dict()`'s native
+spelling), `staticDict()` matching its static tier (`lookup(name, { backing: 'static', table })`'s
+native spelling) — but they still compile onto the **`'i18n'`** via-binding (`_viaBrand: 'i18n'`,
+unchanged), not the new `'lookup'` one. Stored envelopes, the `type`/`widget`/`dict` slice of
+`describe()` output, and `.join()` dressing are byte-identical between an alias and its native
+equivalent, locked by `packages/hub/__tests__/via/lookup-alias-parity.test.ts` — this is not a
+deprecation, both spellings are fully supported going forward. Neither alias gains the new
+`describe()` `lookup` block (see `via-lookup.md`'s "describe()" section) — that block is emitted
+only by the `'lookup'` binding's `describeFragment()`. The native `lookup()`/`enum()`/`dict()`
+surface adds capability the aliases don't have: altKeys, closed-vocabulary write refusal, a
+first-class reference-collection ("matrix") tier, and `restrict`/`cascade`/`nullify` reference
+semantics on delete/forget. See [`docs/subsystems/via-lookup.md`](via-lookup.md) for the full
+story.
+
 ## Dictionaries — `vault.dictionary(name)`
 
 `dictKey()`-backed dictionaries are **vault-scoped** reserved collections named `_dict_<name>`,

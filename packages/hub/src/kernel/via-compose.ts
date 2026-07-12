@@ -24,6 +24,13 @@ import { isDictKeyDescriptor, isI18nTextDescriptor, isStaticDictDescriptor } fro
 // `viaBinder('computed')` resolvable lives in `collection-config.ts`'s value
 // import of this same port module (#638 Task 7).
 import type { ComputedDescriptor } from '../port/with/computed-strategy.js'
+// #650 Task 2 — `LookupDescriptor`/`isLookupDescriptor` reach through the
+// SAME kernel port seam (no new `src/shape/**` specifier here; `linkLookupVia()`
+// already ran when the caller constructed the descriptor via `lookup()`/
+// `enumOf()`/`dict()`, so `viaBinder('lookup')` is resolvable with no eager
+// import needed here, mirroring i18n/money — see `descriptor.ts`).
+import type { LookupDescriptor } from '../port/with/lookup-strategy.js'
+import { isLookupDescriptor } from '../port/with/lookup-strategy.js'
 
 /** Tagged container returned by {@link via}. Readonly — never mutated after construction. */
 export interface ViaFieldSpec {
@@ -53,11 +60,13 @@ export function isViaFieldSpec(x: unknown): x is ViaFieldSpec {
   return typeof x === 'object' && x !== null && (x as { _noydbVia?: unknown })._noydbVia === true
 }
 
-/** The money/i18n sugar keys + a `viaFields` map — the inputs {@link mergeViaFields} reconciles. */
+/** The money/i18n/lookup sugar keys + a `viaFields` map — the inputs {@link mergeViaFields} reconciles. */
 export interface ViaFieldSources {
   readonly moneyFields?: Record<string, ViaDescriptor> | undefined
   readonly i18nFields?: Record<string, I18nTextDescriptor> | undefined
   readonly dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
+  /** — lookup()/enumOf()/dict() sugar key (#650 Task 2). */
+  readonly lookupFields?: Record<string, LookupDescriptor> | undefined
   readonly viaFields?: Record<string, ViaFieldSpec> | undefined
 }
 
@@ -70,6 +79,10 @@ export interface MergedViaFields {
    *  sugar KEY to merge against here (unlike money/i18n/dictKey); `collection-config.ts`
    *  unions this with the `computed:` option's own entries before splitting by mode. */
   readonly computedFields: Record<string, ComputedDescriptor> | undefined
+  /** `lookupFields` sugar key merged with `via(lookup(...))`/`via(enumOf(...))`/`via(dict(...))`
+   *  entries (#650 Task 2) — a SEPARATE binding from i18n; `dictKey()`/`staticDict()` stay
+   *  routed onto `dictKeyFields`/the i18n binding (the alias, unchanged). */
+  readonly lookupFields: Record<string, LookupDescriptor> | undefined
 }
 
 /**
@@ -87,21 +100,33 @@ export interface MergedViaFields {
  * — one declaration site per field (#623 Task 9).
  */
 export function mergeViaFields(sources: ViaFieldSources): MergedViaFields {
+  // Sugar-vs-sugar collision (review fix): dictKeyFields and lookupFields
+  // naming the same field is otherwise silently ambiguous — mirrors the
+  // viaFields-vs-sugar check below (#623 Task 9), one declaration site per field.
+  for (const field of Object.keys(sources.dictKeyFields ?? {})) {
+    if (sources.lookupFields && field in sources.lookupFields) {
+      throw new ValidationError(
+        `mergeViaFields(): field "${field}" is declared in both \`dictKeyFields\` and \`lookupFields\` — declare it in one place only.`,
+      )
+    }
+  }
   if (!sources.viaFields || Object.keys(sources.viaFields).length === 0) {
     return {
       moneyFields: sources.moneyFields, i18nFields: sources.i18nFields, dictKeyFields: sources.dictKeyFields,
-      computedFields: undefined,
+      computedFields: undefined, lookupFields: sources.lookupFields,
     }
   }
   const sugarFieldNames = new Set([
     ...Object.keys(sources.moneyFields ?? {}),
     ...Object.keys(sources.i18nFields ?? {}),
     ...Object.keys(sources.dictKeyFields ?? {}),
+    ...Object.keys(sources.lookupFields ?? {}),
   ])
   const viaMoney: Record<string, ViaDescriptor> = {}
   const viaI18nText: Record<string, I18nTextDescriptor> = {}
   const viaDictKey: Record<string, DictKeyDescriptor | StaticDictDescriptor> = {}
   const viaComputed: Record<string, ComputedDescriptor> = {}
+  const viaLookup: Record<string, LookupDescriptor> = {}
   for (const [field, spec] of Object.entries(sources.viaFields)) {
     if (sugarFieldNames.has(field)) {
       throw new ValidationError(
@@ -116,8 +141,10 @@ export function mergeViaFields(sources: ViaFieldSources): MergedViaFields {
         else if (isDictKeyDescriptor(descriptor) || isStaticDictDescriptor(descriptor)) viaDictKey[field] = descriptor
       } else if (descriptor._viaBrand === 'computed') {
         viaComputed[field] = descriptor as ComputedDescriptor
+      } else if (descriptor._viaBrand === 'lookup' && isLookupDescriptor(descriptor)) {
+        viaLookup[field] = descriptor
       } else {
-        throw new ValidationError(`via(): field "${field}" has a descriptor with unrecognized _viaBrand "${descriptor._viaBrand}" — via() only supports money/i18n/computed descriptors today.`)
+        throw new ValidationError(`via(): field "${field}" has a descriptor with unrecognized _viaBrand "${descriptor._viaBrand}" — via() only supports money/i18n/computed/lookup descriptors today.`)
       }
     }
   }
@@ -126,5 +153,6 @@ export function mergeViaFields(sources: ViaFieldSources): MergedViaFields {
     i18nFields: Object.keys(viaI18nText).length > 0 ? { ...(sources.i18nFields ?? {}), ...viaI18nText } : sources.i18nFields,
     dictKeyFields: Object.keys(viaDictKey).length > 0 ? { ...(sources.dictKeyFields ?? {}), ...viaDictKey } : sources.dictKeyFields,
     computedFields: Object.keys(viaComputed).length > 0 ? viaComputed : undefined,
+    lookupFields: Object.keys(viaLookup).length > 0 ? { ...(sources.lookupFields ?? {}), ...viaLookup } : sources.lookupFields,
   }
 }

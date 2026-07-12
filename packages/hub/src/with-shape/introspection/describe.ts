@@ -18,6 +18,18 @@ import type { MoneyDescriptor } from '../../shape/via-money/descriptor.js'
 import type { ViaDescriptor, ViaPosture } from '../../kernel/via.js'
 import type { DictKeyDescriptor, StaticDictDescriptor } from '../../shape/via-i18n/dictionary.js'
 import { isStaticDictDescriptor } from '../../shape/via-i18n/dictionary.js'
+// #650 Task 2 — native lookup()/enumOf()/dict() fields (separate from
+// dictKeyFields above, which stays the dictKey()/staticDict() alias's own
+// input). Emits the SAME `dict` block shape for byte-parity (the tiers this
+// covers — 'static' with a table, 'reserved' — are the alias-equivalent
+// ones; a first-class 'collection' backing degrades to the "no resolved
+// labels" fallback, same as an unresolved dynamic dictKey).
+import type { LookupDescriptor } from '../../shape/via-lookup/descriptor.js'
+// #650 Task 7 — the 'lookup' binding's describeFragment payload shape (the
+// first-ever ViaBinding.describeFragment consumer, via.ts:136). describe.ts
+// is NOT under kernel/**, so importing this shape/ type directly is fine
+// (Check 14 via-layering only restricts the kernel spine).
+import type { LookupDescribeFragment, LookupDescribeFragmentEntry } from '../../shape/via-lookup/binding.js'
 import type { I18nTextDescriptor } from '../../shape/via-i18n/core.js'
 import type { ComputedFields } from '../../with-formula/computed/index.js'
 import type { RefDescriptor } from '../../kernel/refs.js'
@@ -48,6 +60,30 @@ export interface DescribedField {
   readonly displayFor?: string
   readonly money?: { mode: 'fixed' | 'multi'; currency?: string; scale?: number; rounding?: string }
   readonly dict?: { name: string; static: boolean; values?: readonly { value: string; label?: string }[] }
+  /**
+   * Normalized lookup metadata (#650 Task 7 — the first-ever
+   * `ViaBinding.describeFragment` consumer; sourced from the `'lookup'`
+   * binding's fragment, NOT from config directly — see `buildDescription`).
+   * Present for every `lookup()`/`enumOf()`/`dict()` field, ALONGSIDE the
+   * pre-existing `dict` block above (kept byte-stable for the
+   * `dictKey()`/`staticDict()` alias — this is additive, not a replacement).
+   * `dimension` is omitted for a bare `enumOf()` (no backing store, no
+   * dimension name — the #650 Task 2 `dimension:''` sentinel resolved).
+   * `keys` is the statically-known closed-vocabulary key set (declared
+   * `keys`, or a static table's own keys) — omitted when membership lives
+   * only in the backing collection/dictionary.
+   */
+  readonly lookup?: {
+    readonly dimension?: string
+    readonly backing: 'static' | 'reserved' | 'collection'
+    readonly vocabulary: 'open' | 'closed'
+    readonly key: string
+    readonly altKeys?: readonly string[]
+    readonly present?: { readonly label: string; readonly by?: string }
+    readonly sortBy?: string
+    readonly onDelete: 'restrict' | 'cascade' | 'nullify'
+    readonly keys?: readonly string[]
+  }
   readonly computed?: true
   /** i18n metadata for fields declared with i18nText(). Present only when the field is i18n-enabled. */
   readonly i18n?: { readonly locales?: readonly string[]; readonly densify?: boolean }
@@ -193,6 +229,8 @@ export interface BuildDescriptionInput {
    */
   readonly moneyFields: Record<string, ViaDescriptor> | undefined
   readonly dictKeyFields: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
+  /** Native lookup()/enumOf()/dict() fields (#650 Task 2) — declared only via `viaFields`/`via()`, no sugar key. */
+  readonly lookupFields?: Record<string, LookupDescriptor> | undefined
   readonly computed: ComputedFields | undefined
   readonly refs: Record<string, RefDescriptor>
   /** Async path fills this; sync path passes `undefined`. */
@@ -214,6 +252,15 @@ export interface BuildDescriptionInput {
   readonly classified?: Record<string, ClassifiedFieldSpec> | undefined
   /** Graph-computed taint overlay (#638 Task 3) — `Collection.via?.taint`. */
   readonly taint?: { readonly postures: ReadonlyMap<string, ViaPosture>; readonly provenance?: ReadonlyMap<string, readonly string[]> } | undefined
+  /**
+   * Per-binding `describeFragment()` output, keyed by binding brand (#650
+   * Task 7 — first-ever consumer of `ViaBinding.describeFragment`,
+   * `via.ts:136`). `Collection.describe()`/`describeAsync()` build this
+   * from `this.via?.describeFragments()`. Only the `'lookup'` brand's
+   * fragment is consumed today (the `lookup` block below); other brands'
+   * fragments ride along unread until they gain a consumer too.
+   */
+  readonly viaFragments?: Record<string, Record<string, unknown>> | undefined
 }
 
 // Re-export so that callers that want to catch the error don't need another import path.
@@ -229,6 +276,8 @@ function deriveWidget(opts: {
   semanticType?: string
   type: string
   dict?: unknown
+  /** #650 Task 7 — same 'select' outcome as `dict` (today always co-present for a lookup field via the existing `dict` block; kept as its own check so a future lookup-only field, with no `dict` block, still derives 'select'). */
+  lookup?: unknown
   resolvedWidget?: string
 }): string {
   if (opts.resolvedWidget !== undefined) return opts.resolvedWidget
@@ -247,7 +296,7 @@ function deriveWidget(opts: {
     case 'percent':
       return 'number'
   }
-  if (opts.dict !== undefined) return 'select'
+  if (opts.dict !== undefined || opts.lookup !== undefined) return 'select'
   if (opts.type === 'boolean') return 'checkbox'
   if (opts.type === 'number') return 'number'
   return 'text'
@@ -263,7 +312,14 @@ function deriveWidget(opts: {
  * couldn't do (schema fields weren't knowable synchronously).
  */
 export function buildDescription(input: BuildDescriptionInput): CollectionDescription {
-  const { collection, fieldMeta, moneyFields, dictKeyFields, computed, refs, zodFields, dictLabels, meta, i18nFields, classified, taint } = input
+  const { collection, fieldMeta, moneyFields, dictKeyFields, lookupFields, computed, refs, zodFields, dictLabels, meta, i18nFields, classified, taint } = input
+
+  // #650 Task 7 — the 'lookup' binding's describeFragment, keyed per field.
+  // Deliberately routed through `viaFragments` rather than reused directly
+  // from `lookupFields` above (which only feeds the pre-existing `dict`
+  // block, byte-stable for the alias) — this IS the first-ever
+  // `describeFragment` consumption the task wires up.
+  const lookupFragments = (input.viaFragments?.['lookup'] as LookupDescribeFragment | undefined)?.lookupFields
 
   // When zodFields is present AND non-empty (async path, validator successfully derived
   // a schema): validate fieldMeta keys against the real known-field set = config keys ∪
@@ -280,6 +336,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
       ...Object.keys(computed ?? {}),
       ...Object.keys(zodFields),
       ...Object.keys(i18nFields ?? {}),
+      ...Object.keys(lookupFields ?? {}),
     ])
     validateFieldMetaKeys(collection, fieldMeta, knownFields)
   }
@@ -288,6 +345,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
   const allKeys = new Set<string>([
     ...Object.keys(moneyFields ?? {}),
     ...Object.keys(dictKeyFields ?? {}),
+    ...Object.keys(lookupFields ?? {}),
     ...Object.keys(refs),
     ...Object.keys(computed ?? {}),
     ...Object.keys(fieldMeta ?? {}),
@@ -304,6 +362,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
     // {@link BuildDescriptionInput.moneyFields} doc comment.
     const money = moneyFields?.[key] as MoneyDescriptor | undefined
     const dict = dictKeyFields?.[key]
+    const lookupDesc = lookupFields?.[key]
     const refDesc = refs[key]
     const isComputed = computed !== undefined && key in computed
     const i18nDesc = i18nFields?.[key]
@@ -317,6 +376,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
     let moneyBlock: DescribedField['money'] | undefined
     let dictBlock: DescribedField['dict'] | undefined
     let refBlock: DescribedField['ref'] | undefined
+    let lookupBlock: DescribedField['lookup'] | undefined
 
     if (money) {
       type = 'number'
@@ -372,12 +432,70 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
           dictBlock = { name: dict.name, static: false }
         }
       }
+    } else if (lookupDesc) {
+      // Native lookup()/enumOf()/dict() field (#650 Task 2) — the SAME `dict`
+      // block shape as above, for byte-parity with the dictKey()/staticDict()
+      // alias. A table-bearing descriptor ('static' backing, the lookup(static)
+      // form staticDict() compiles onto) resolves synchronously like a static
+      // dict; a reserved-tier dict() resolves via `dictLabels` exactly like a
+      // dynamic dictKey (review fix — was previously falling to the
+      // declared-keys-only fallback below, breaking async describe parity);
+      // everything else (collection/bare enum) falls to that fallback.
+      type = 'enum'
+      const lookupLabelMap = dictLabels?.[lookupDesc.dimension]
+      const lookupLabelMapHasEntries = lookupLabelMap !== undefined && Object.keys(lookupLabelMap).length > 0
+      if (lookupDesc.table !== undefined) {
+        const displayLocale = lookupDesc.displayLocale
+        const table = lookupDesc.table
+        const values = (lookupDesc.keys ?? Object.keys(table)).map((k) => {
+          const localeMap = table[k]
+          const label = displayLocale !== undefined
+            ? (localeMap?.[displayLocale] ?? undefined)
+            : undefined
+          return label !== undefined ? { value: k, label } : { value: k }
+        })
+        dictBlock = { name: lookupDesc.dimension, static: true, values }
+      } else if (lookupLabelMapHasEntries) {
+        const values = Object.entries(lookupLabelMap).map(([value, label]) => ({ value, label }))
+        dictBlock = { name: lookupDesc.dimension, static: false, values }
+      } else if (lookupDesc.keys !== undefined) {
+        const values = lookupDesc.keys.map((k) => {
+          const label = lookupDesc.labels?.[k]
+          return label !== undefined ? { value: k, label } : { value: k }
+        })
+        dictBlock = { name: lookupDesc.dimension, static: false, values }
+      } else {
+        dictBlock = { name: lookupDesc.dimension, static: false }
+      }
     } else if (i18nDesc) {
       // i18nText field: the stored value is a locale-map object, but the resolved
       // type exposed to consumers is 'string' (locale resolution collapses to a string).
       type = 'string'
     } else if (isComputed) {
       // type already initialized to zod?.type ?? 'unknown' above; no re-set needed
+    }
+
+    // ── lookup block (#650 Task 7 — first-ever ViaBinding.describeFragment
+    // consumer) ── Sourced from `lookupFragments` (the binding's fragment),
+    // NOT from `lookupDesc` above (which only feeds the pre-existing `dict`
+    // block, byte-stable for the alias) — routing through the fragment is
+    // the point: `backing`/`vocabulary`/`key`/`onDelete` have no other
+    // source in this function, so their presence here is itself proof the
+    // describeFragment seam (declared via.ts:136, zero consumers before
+    // this task) carries data end to end from binding to describe() output.
+    const lookupFragmentEntry: LookupDescribeFragmentEntry | undefined = lookupFragments?.[key]
+    if (lookupFragmentEntry !== undefined) {
+      lookupBlock = {
+        ...(lookupFragmentEntry.dimension !== undefined ? { dimension: lookupFragmentEntry.dimension } : {}),
+        backing: lookupFragmentEntry.backing,
+        vocabulary: lookupFragmentEntry.vocabulary,
+        key: lookupFragmentEntry.key,
+        onDelete: lookupFragmentEntry.onDelete,
+        ...(lookupFragmentEntry.altKeys !== undefined ? { altKeys: lookupFragmentEntry.altKeys } : {}),
+        ...(lookupFragmentEntry.present !== undefined ? { present: lookupFragmentEntry.present } : {}),
+        ...(lookupFragmentEntry.sortBy !== undefined ? { sortBy: lookupFragmentEntry.sortBy } : {}),
+        ...(lookupFragmentEntry.keys !== undefined ? { keys: lookupFragmentEntry.keys } : {}),
+      }
     }
 
     // Classified sensitivity feeds inferred meta at lowest precedence — channel
@@ -409,6 +527,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
       type,
       ...(resolved.semanticType !== undefined ? { semanticType: resolved.semanticType } : {}),
       ...(dictBlock !== undefined ? { dict: dictBlock } : {}),
+      ...(lookupBlock !== undefined ? { lookup: lookupBlock } : {}),
       ...(resolved.widget !== undefined ? { resolvedWidget: resolved.widget } : {}),
     })
 
@@ -438,6 +557,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
       ...(refBlock !== undefined ? { ref: refBlock } : {}),
       ...(moneyBlock !== undefined ? { money: moneyBlock } : {}),
       ...(dictBlock !== undefined ? { dict: dictBlock } : {}),
+      ...(lookupBlock !== undefined ? { lookup: lookupBlock } : {}),
       ...(isComputed ? { computed: true as const } : {}),
       ...(i18nBlock !== undefined ? { i18n: i18nBlock } : {}),
       widget,

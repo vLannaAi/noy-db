@@ -6,9 +6,10 @@
 // the cutover/restore origins reaching the wave via `Vault._beginGraphBatch`/`_flushGraphBatch`,
 // and id-threaded decrypt for a per-record-keyed source collection.
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { createNoydb, withDerivation, withRollup } from '../../src/index.js'
 import { withSync } from '../../src/with-party/sync/index.js'
+import { lookup } from '../../src/shape/via-lookup/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 function memory(): NoydbStore {
@@ -167,5 +168,34 @@ describe('sync dispatch wave — id-threaded decrypt for a per-record-keyed sour
     expect(seen).toBe('abcdefghij') // the wave's decrypt (id: 'd1') recovered the RIGHT plaintext
     expect(await v2.collection<{ len: number } & Record<string, unknown>>('doc-meta').get('d1')).toMatchObject({ len: 10 })
     db1.close(); db2.close()
+  })
+})
+
+describe('sync dispatch wave — ref edges excluded from dependentsOf (#650 Task 5 review, folded Minor)', () => {
+  interface Country extends Record<string, unknown> { id: string; name: string }
+  interface Traveler extends Record<string, unknown> { id: string; country: string }
+
+  it('pull(): a write to a referenced-only backing collection (a `ref` edge, no derivations) skips the wave — no decrypt', async () => {
+    const remote = memory()
+    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), encrypt: false })
+    const dbB = await createNoydb({ store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), encrypt: false })
+
+    const vA = await dbA.openVault('demo')
+    await vA.collection<Country>('countries').put('US', { id: 'US', name: 'United States' })
+    await dbA.push('demo')
+
+    const vB = await dbB.openVault('demo')
+    const countriesB = vB.collection<Country>('countries', {})
+    // Declares the 'ref' edge countries -> travelers.country (cascade); countries itself has
+    // no derivation/rollup/mv — dependentsOf('countries') must be empty post-fix.
+    vB.collection<Traveler>('travelers', { lookupFields: { country: lookup('countries', { onDelete: 'cascade' }) } })
+    const decryptSpy = vi.spyOn(countriesB, '_getStoredRecordForDispatch')
+
+    const pullResult = await dbB.pull('demo')
+
+    expect(pullResult.pulled).toBeGreaterThanOrEqual(1)
+    expect(decryptSpy).not.toHaveBeenCalled() // #553 zero-cost skip: the wave never touched 'countries'
+    expect(await countriesB.get('US')).toMatchObject({ id: 'US', name: 'United States' }) // the write itself still applied
+    dbA.close(); dbB.close()
   })
 })

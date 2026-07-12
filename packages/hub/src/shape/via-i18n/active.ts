@@ -29,9 +29,15 @@ import type { I18nStrategy, BuildDictionaryHandleOptions } from './strategy.js'
 import { applyI18nLocale, validateI18nTextValue } from './core.js'
 import { enforceScript } from './script.js'
 import { computeExemptFills, densify } from './densify.js'
-import { DictionaryHandle } from './dictionary.js'
+import type { DictionaryHandle } from './dictionary.js'
+import { withLookup } from '../via-lookup/active.js'
 
 export function withI18n(): I18nStrategy {
+  // #650 Task 1: the handle-construction logic moved to
+  // shape/via-lookup/active.ts (LookupHandle, renamed from
+  // DictionaryHandle, new home). buildDictionaryHandle below is now a
+  // thin field-name translator over buildLookupHandle — same handle.
+  const lookup = withLookup()
   return {
     applyI18nLocale,
     validateI18nTextValue,
@@ -41,18 +47,22 @@ export function withI18n(): I18nStrategy {
     buildDictionaryHandle<Keys extends string = string>(
       opts: BuildDictionaryHandleOptions<Keys>,
     ): DictionaryHandle<Keys> {
-      return new DictionaryHandle<Keys>(
-        opts.adapter,
-        opts.compartmentName,
-        opts.dictionaryName,
-        opts.keyring,
-        opts.reservedEnvelopes,
-        opts.encrypted,
-        opts.ledger,
-        opts.options,
-        opts.findAndUpdateReferences,
-        opts.emitter,
-      )
+      return lookup.buildLookupHandle<Keys>({
+        adapter: opts.adapter,
+        compartmentName: opts.compartmentName,
+        dimensionName: opts.dictionaryName,
+        keyring: opts.keyring,
+        reservedEnvelopes: opts.reservedEnvelopes,
+        encrypted: opts.encrypted,
+        ledger: opts.ledger,
+        options: opts.options,
+        findAndUpdateReferences: opts.findAndUpdateReferences,
+        emitter: opts.emitter,
+        buildDeleteMarker: opts.buildDeleteMarker, // #647 fix wave 1
+        onDirty: opts.onDirty, // #650 Task 4
+        onRecordMutated: opts.onRecordMutated, // #650 Task 4
+        checkReferencesOnDelete: opts.checkReferencesOnDelete, // #650 Task 5
+      })
     },
   }
 }

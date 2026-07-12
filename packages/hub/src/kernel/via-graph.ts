@@ -12,12 +12,17 @@ import type { ViaPosture } from './via.js'
  *  overlay output) are modelled as a field node whose `field` is the artifact key. */
 export interface FieldRef { readonly collection: string; readonly field: string }
 
-export type EdgeKind = 'computed' | 'derivation' | 'rollup' | 'mv' | 'overlay'
+export type EdgeKind = 'computed' | 'derivation' | 'rollup' | 'mv' | 'overlay' | 'ref'
 /** `'virtual'` (#638 Task 7) marks a `computed(fn, { mode: 'virtual' })` field's edge —
  *  never stored (rides the `present` phase), so it can never be sealed at rest
  *  ({@link ViaGraph.taintSealedFields} excludes it) and is always non-queryable
  *  regardless of source posture ({@link ViaGraph.effectivePosture} clamps it). */
 export type Grain = 'record' | 'aggregate' | 'virtual'
+
+/** Delete/forget-time referential policy for a `'ref'` edge (#650 Task 5, spec §4) — duplicated
+ *  (not imported) from `shape/via-lookup/descriptor.ts`'s `OnDelete`: the kernel spine may not
+ *  statically import `shape/**` (Check 14, `via-layering`). Keep the two in sync by hand. */
+export type OnDelete = 'restrict' | 'cascade' | 'nullify'
 
 /** Plain (non-via) field baseline — max-permissive; taint only ever tightens. */
 export const DEFAULT_POSTURE: ViaPosture =
@@ -52,6 +57,13 @@ interface DerivedEdge {
   readonly sources: readonly FieldRef[]
   readonly kind: EdgeKind
   readonly grain: Grain
+  /** `'ref'` edges only — the referencing field's delete/forget policy (#650 Task 5). */
+  readonly onDelete?: OnDelete
+  /** `'ref'` edges only — the backing dimension's canonical-key FIELD NAME on its own row (matrix
+   *  tier's `lookup(dim, {key})`; always `'id'` for reserved/static tiers). Defaults to `'id'`
+   *  when absent — a referencing field always stores this field's VALUE, never the backing row's
+   *  PUT-id when the two differ (#650 Task 5, mirrors Task 3's membership review fix). */
+  readonly keyField?: string
 }
 
 const SEP = '\0'
@@ -98,10 +110,15 @@ export class ViaGraph {
   /** A derived target depends on `sources` (may be cross-collection). `kind`/`grain`
    *  drive dispatch + erasure semantics; sources drive taint. Re-registering the same
    *  target replaces `_in` but does not prune stale `_out` edges — callers must
-   *  register each target at most once per graph lifetime. */
-  registerDerived(target: FieldRef, sources: readonly FieldRef[], kind: EdgeKind, grain: Grain): void {
+   *  register each target at most once per graph lifetime. `onDelete`/`keyField` (#650 Task 5)
+   *  are meaningful only for `kind === 'ref'` edges — {@link referencingEdgesOf} reads them back. */
+  registerDerived(target: FieldRef, sources: readonly FieldRef[], kind: EdgeKind, grain: Grain, onDelete?: OnDelete, keyField?: string): void {
     const id = nodeId(target)
-    this._in.set(id, { target, sources, kind, grain })
+    this._in.set(id, {
+      target, sources, kind, grain,
+      ...(onDelete !== undefined ? { onDelete } : {}),
+      ...(keyField !== undefined ? { keyField } : {}),
+    })
     for (const source of sources) {
       const sourceId = nodeId(source)
       const dependents = this._out.get(sourceId)
@@ -280,13 +297,38 @@ export class ViaGraph {
     return out
   }
 
-  /** Dispatch (Task 4): every derived target triggered by a write to `collection`. */
+  /** Dispatch (Task 4): every derived target triggered by a write to `collection`. Excludes
+   *  `'ref'` edges (#650 Task 5 review, folded Minor) — a `'ref'` edge is consulted only by the
+   *  delete/forget-time restrict/cascade/nullify path ({@link referencingEdgesOf}), never by the
+   *  sync/cutover/restore dispatch wave (`runGraphDispatchWave`); counting it here defeated that
+   *  wave's zero-cost early-continue, costing every write to a referenced backing collection an
+   *  unconditional decrypt + two no-op dispatch passes. {@link derivedArtifactsOf} (erasure
+   *  fanout) still includes `'ref'` edges — the forget path genuinely needs them. */
   dependentsOf(collection: string): ReadonlyArray<{ readonly target: FieldRef; readonly kind: EdgeKind; readonly grain: Grain }> {
-    return this._targetsDependingOn(collection)
+    return this._targetsDependingOn(collection).filter((edge) => edge.kind !== 'ref')
   }
 
   /** Erasure (Task 6): derived artifacts of a forgotten record whose source is `collection`. */
   derivedArtifactsOf(collection: string): ReadonlyArray<{ readonly target: FieldRef; readonly kind: EdgeKind; readonly grain: Grain }> {
     return this._targetsDependingOn(collection)
+  }
+
+  /** Referencing edges pointing AT a backing dimension (delete/forget-time restrict/cascade/
+   *  nullify, #650 Task 5) — an O(1) reverse lookup via the existing `_out` map (keyed at the
+   *  dimension's wildcard `field:'*'` node, the same convention every whole-collection source
+   *  already uses), NEVER a scan across collections or records. `backing` is the collection name
+   *  a lookup field's edge was registered against (a reserved dimension's `_dict_<name>`/
+   *  `_lookup_<name>` collection name, or a matrix dimension's own collection name). */
+  referencingEdgesOf(backing: string): ReadonlyArray<{ readonly referencing: FieldRef; readonly onDelete: OnDelete; readonly keyField: string }> {
+    const targets = this._out.get(nodeId({ collection: backing, field: '*' }))
+    if (!targets) return []
+    const out: Array<{ referencing: FieldRef; onDelete: OnDelete; keyField: string }> = []
+    for (const target of targets) {
+      const edge = this._in.get(nodeId(target))
+      if (edge?.kind === 'ref' && edge.onDelete !== undefined) {
+        out.push({ referencing: target, onDelete: edge.onDelete, keyField: edge.keyField ?? 'id' })
+      }
+    }
+    return out
   }
 }

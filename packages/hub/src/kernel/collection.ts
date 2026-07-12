@@ -6,6 +6,7 @@ import type { CrdtMode, CrdtState, LwwMapState, RgaState } from '../with-commit/
 import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
 import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../port/with/i18n-strategy.js'
 import { isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
+import type { LookupDescriptor } from '../port/with/lookup-strategy.js'
 import { ViaPipeline } from './via-pipeline.js'
 import { viaBinder, type ViaDescriptor, type ViaWriteCtx, type ViaEraseReport } from './via.js'
 import type { MutationOrigin } from './mutation.js'
@@ -365,6 +366,11 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    *  `<field>Label` virtual fields when a locale is requested. */
   private readonly dictKeyFields: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
 
+  /** Field name → `LookupDescriptor` for native `lookup()`/`enumOf()`/`dict()` fields (#650 Task 2) — describe()-only in this task. */
+  private readonly lookupFields: Record<string, LookupDescriptor> | undefined
+  /** Sync join-dressing hook (#650 Task 6, #626 retirement) — `querySourceForJoin()`'s `presentForJoin`. */
+  private readonly presentForJoin: ((record: unknown, locale: string) => unknown) | undefined
+
   /** Consumer-neutral per-field descriptors declared via `fieldMeta`; read by `getFieldMeta()`, merged by `describe()`. */
   private fieldMeta: Record<string, FieldMeta> | undefined
 
@@ -666,6 +672,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.embeddings = cfg.embeddings
     this.vectorSet = cfg.vectorSet
     this.dictKeyFields = cfg.dictKeyFields
+    this.lookupFields = cfg.lookupFields
+    this.presentForJoin = cfg.presentForJoin
     this.fieldMeta = cfg.fieldMeta
     this.meta = cfg.meta
     this._refs = cfg._refs
@@ -958,11 +966,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
-   * Describe the collection's field schema from in-memory config — zero store
-   * I/O. Sync overload (no args): merges moneyFields/dictKeyFields/refs/
-   * computed/fieldMeta/taint into a {@link CollectionDescription} (types
-   * inferred from config; validator-derived types need the async overload,
-   * which also resolves dynamic dict labels).
+   * Describe the collection's field schema from in-memory config — zero store I/O.
+   * Sync overload (no args): merges moneyFields/dictKeyFields/refs/computed/fieldMeta/
+   * taint into a {@link CollectionDescription} (types inferred from config; the async
+   * overload also derives validator-exact types and resolves dynamic dict labels).
    */
   describe(): CollectionDescription
   describe(opts: DescribeOptions): Promise<CollectionDescription>
@@ -975,6 +982,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       fieldMeta: this.fieldMeta,
       moneyFields: this.moneyFields,
       dictKeyFields: this.dictKeyFields,
+      ...(this.lookupFields !== undefined ? { lookupFields: this.lookupFields } : {}),
       computed: this.computed,
       refs: this._refs,
       zodFields: undefined,
@@ -982,14 +990,14 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       ...(this.i18nFields !== undefined ? { i18nFields: this.i18nFields } : {}),
       ...(this.classified !== undefined ? { classified: this.classified.byField } : {}),
       ...(this.via?.taint !== undefined ? { taint: this.via.taint } : {}),
+      ...(this.via ? { viaFragments: this.via.describeFragments() } : {}), // #650 Task 7
     })
   }
 
   /**
-   * Async describe implementation.
-   * Derives validator-exact types via deriveZodFields (lazy, no static zod import),
-   * optionally resolves dynamic-dict labels from vault.dictionary(name).list(),
-   * then delegates to buildDescription which also runs fieldMeta key-validation.
+   * Async describe implementation. Derives validator-exact types via deriveZodFields
+   * (lazy, no static zod import), optionally resolves dynamic-dict labels from vault.dictionary(name).list(),
+   * then delegates to buildDescription (which also runs fieldMeta key-validation).
    */
   private async describeAsync(opts: DescribeOptions): Promise<CollectionDescription> {
     // 1. Derive per-field type/optional/constraints/meta from the validator (if any).
@@ -997,13 +1005,17 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       ? await deriveZodFields(this.schema)
       : undefined
 
-    // 2. Optionally resolve dynamic-dict labels from the vault's dictionary store.
+    // 2. Optionally resolve dynamic-dict labels — dictKeyFields AND reserved-tier
+    // lookupFields (native dict()) share the SAME `_dict_<name>` backing (review fix).
     let dictLabels: Record<string, Record<string, string>> | undefined
-    if (opts.resolveDictLabels === true && this.dictKeyFields !== undefined) {
-      dictLabels = {}
-      for (const [, desc] of Object.entries(this.dictKeyFields)) {
-        if (!isStaticDictDescriptor(desc) && this.getDictionary !== undefined) {
-          const handle = await this.getDictionary(desc.name)
+    if (opts.resolveDictLabels === true && this.getDictionary !== undefined) {
+      const names = new Set<string>()
+      for (const desc of Object.values(this.dictKeyFields ?? {})) if (!isStaticDictDescriptor(desc)) names.add(desc.name)
+      for (const desc of Object.values(this.lookupFields ?? {})) if (desc.backing === 'reserved') names.add(desc.dimension)
+      if (names.size > 0) {
+        dictLabels = {}
+        for (const name of names) {
+          const handle = await this.getDictionary(name)
           const entries = await handle.list()
           const valueToLabel: Record<string, string> = {}
           for (const entry of entries) {
@@ -1011,7 +1023,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
             const label = Object.values(entry.labels)[0]
             if (label !== undefined) valueToLabel[entry.key] = label
           }
-          dictLabels[desc.name] = valueToLabel
+          dictLabels[name] = valueToLabel
         }
       }
     }
@@ -1021,6 +1033,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       fieldMeta: this.fieldMeta,
       moneyFields: this.moneyFields,
       dictKeyFields: this.dictKeyFields,
+      ...(this.lookupFields !== undefined ? { lookupFields: this.lookupFields } : {}),
       computed: this.computed,
       refs: this._refs,
       zodFields,
@@ -1029,6 +1042,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       ...(this.i18nFields !== undefined ? { i18nFields: this.i18nFields } : {}),
       ...(this.classified !== undefined ? { classified: this.classified.byField } : {}),
       ...(this.via?.taint !== undefined ? { taint: this.via.taint } : {}),
+      ...(this.via ? { viaFragments: this.via.describeFragments() } : {}), // #650 Task 7
     })
   }
 
@@ -3348,8 +3362,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * silently miss records — consistent with the `query()` /
    * `list()` lazy-mode policy. If this becomes a blocker for a
    * real consumer, the fix is to add an async `scan()`-backed
-   * variant of this method, which is exactly what  streaming
-   * joins will need anyway.
+   * variant of this method, which is exactly what streaming joins will need anyway.
    */
   querySourceForJoin(): JoinableSource {
     if (this.lazy) {
@@ -3377,9 +3390,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         this.emitter.on('change', handler)
         return () => this.emitter.off('change', handler)
       },
-      // Expose this (right-side) collection's i18nText descriptors so
-      // the join executor can resolve joined i18n fields at the `join` layer.
-      ...(this.i18nFields !== undefined ? { i18nFields: this.i18nFields } : {}),
+      // Sync join dressing (#650 Task 6, #626 retirement) — i18n-text + lookup-label, from this collection's own bindings.
+      ...(this.presentForJoin !== undefined ? { presentForJoin: this.presentForJoin } : {}),
     }
   }
 

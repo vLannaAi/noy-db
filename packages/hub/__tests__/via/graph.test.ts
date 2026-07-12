@@ -283,4 +283,18 @@ describe('ViaGraph — dependentsOf / derivedArtifactsOf (Task 4/6 overlays)', (
       { target: { collection: 'mv-out', field: 'row' }, kind: 'mv', grain: 'record' },
     ])
   })
+
+  it('dependentsOf excludes ref edges (the sync/cutover/restore dispatch wave never needs them); derivedArtifactsOf still includes them (erasure fanout does) — #650 Task 5 review, folded Minor', () => {
+    const g = new ViaGraph()
+    g.registerDerived({ collection: 'travelers', field: 'country' }, [{ collection: 'countries', field: '*' }], 'ref', 'record', 'cascade', 'id')
+    g.registerDerived({ collection: 'reports', field: 'r1' }, [{ collection: 'countries', field: 'name' }], 'rollup', 'aggregate')
+
+    const deps = g.dependentsOf('countries')
+    expect(deps).toHaveLength(1)
+    expect(deps.map(d => d.kind)).toEqual(['rollup']) // the 'ref' edge is excluded
+
+    const artifacts = g.derivedArtifactsOf('countries')
+    expect(artifacts).toHaveLength(2) // both 'ref' and 'rollup' — erasure fanout needs the 'ref' edge
+    expect(artifacts.map(a => a.kind).sort()).toEqual(['ref', 'rollup'])
+  })
 })

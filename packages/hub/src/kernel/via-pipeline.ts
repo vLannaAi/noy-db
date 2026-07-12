@@ -135,6 +135,16 @@ export class ViaPipeline {
     return undefined
   }
 
+  /** undefined = no binding resolves an order-sort label for `key` at `field`/`locale` (#650 Task 7 —
+   *  the `orderBy(..., {by:'label'})` per-call-locale channel `compareForOrder` above can't serve). */
+  resolveOrderLabel(field: string, key: string, locale: string | undefined): string | undefined {
+    for (const bind of this.bindings) {
+      const label = bind.resolveOrderLabel?.(field, key, locale)
+      if (label !== undefined) return label
+    }
+    return undefined
+  }
+
   /**
    * Which posture governs `field`, if any binding covers it — `undefined`
    * means no binding declares `field` (the generic, non-via query path
@@ -273,6 +283,23 @@ export class ViaPipeline {
    */
   get hasAtRestHooks(): boolean {
     return this.bindings.some((b) => b.encodeAtRest !== undefined || b.decodeAtRest !== undefined)
+  }
+
+  /**
+   * Fold every binding's `describeFragment()` into one `brand -> fragment`
+   * map (#650 Task 7 — the first-ever consumer; `describeFragment` was
+   * declared at `via.ts:136` since #623 with zero callers until this task).
+   * `undefined` when no compiled binding implements it. Consumed by
+   * `Collection.describe()`/`describeAsync()`, threaded to `buildDescription`
+   * as `BuildDescriptionInput.viaFragments`.
+   */
+  describeFragments(): Record<string, Record<string, unknown>> | undefined {
+    let out: Record<string, Record<string, unknown>> | undefined
+    for (const b of this.bindings) {
+      const f = b.describeFragment?.()
+      if (f !== undefined) { out ??= {}; out[b.brand] = f }
+    }
+    return out
   }
 }
 

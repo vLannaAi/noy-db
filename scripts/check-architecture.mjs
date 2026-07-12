@@ -941,7 +941,22 @@ const KERNEL_SURFACE_BUDGET = {
   // are called directly, typed, plus the forget()-loop posture fallback) −6.
   // Locked in to the ACTUAL measured line count (readFileSync(...).split('\n').length)
   // — no slack.
-  'packages/hub/src/kernel/vault.ts': 4088,
+  // Lowered 4088→3941 (2026-07-12, #650 Task 1 (via-lookup extraction)): the
+  // ~350-line dict registry/handle block left vault.ts for
+  // shape/via-lookup/{handle,registry,active,index}.ts + the new
+  // port/with/lookup-strategy.ts seam — enforceStaticDictOnPut/
+  // resolveDictSource/dictionary()'s findAndUpdateReferences closure are now
+  // thin delegators, and the dead `applyLocale` (zero production callers,
+  // superseded by via.present) was retired outright. Funds the phase's
+  // ceiling budget for later tasks.
+  // Lowered 3941→3940 (2026-07-12, #650 Task 7, final phase-D re-ratchet):
+  // Task 7's one vault.ts change modified the existing Task 6 `snapshotFor`
+  // line in place (added a `getCollection` arg for matrix-tier routing) —
+  // net zero new lines, so the 1-line slack Task 6 left behind was never
+  // spent and is removed here per the checker's ratchet-to-actual
+  // convention (phase D's final task). Locked in to the ACTUAL measured
+  // line count (readFileSync(...).split('\n').length) — no slack.
+  'packages/hub/src/kernel/vault.ts': 3940,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -1421,9 +1436,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../../with-lookup/aggregate/reducers.js',
     '../../with-lookup/indexing/eager-indexes.js',
   ]],
-  ['packages/hub/src/kernel/query/join.ts', [
-    '../../shape/via-i18n/core.js',
-  ]],
   ['packages/hub/src/kernel/query/scan-builder.ts', [
     '../../with-lookup/aggregate/aggregation.js',
     '../../with-lookup/aggregate/reducers.js',
@@ -1680,7 +1692,11 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   // literals inline — down from 5 (the plaintext branch's `_iv: ''`/`_data:`
   // + decryptEntry's `envelope._data` read remain; the two-occurrence
   // encrypted-branch envelope literal moved into kernel/enclave/).
-  ['packages/hub/src/shape/via-i18n/dictionary.ts', 3],
+  // #650 Task 1: DictionaryHandle (renamed LookupHandle) moved wholesale to
+  // shape/via-lookup/handle.ts — this entry retargets with it (same 3:
+  // plaintext-branch `_iv: ''`/`_data:` + decryptEntry's `envelope._data`
+  // read). shape/via-i18n/dictionary.ts now re-exports the class and has 0.
+  ['packages/hub/src/shape/via-lookup/handle.ts', 3],
   ['packages/hub/src/with-shape/introspection/walk.ts', 1],
   ['packages/hub/src/with-shape/links/link-set.ts', 5],
   ['packages/hub/src/with-shape/persisted-schemas/storage.ts', 2],
@@ -1860,15 +1876,18 @@ function checkEnclaveClassifyIndexOnly() {
 // `shape/via-classified/{resolve,guards,write,errors}.js` — while the
 // classified binding was DORMANT (no compile entry yet). #629 Task 6 (kernel
 // cutover) routed those calls through the Via pipeline/`port/with/` seam
-// instead and retired every entry in that batch: the allowlist is back to
+// instead and retired every entry in that batch: the allowlist was back to
 // exactly the one #626 baseline.
+//
+// #650 Task 6 retired that last baseline too: `join.ts` no longer imports
+// `shape/via-i18n/core.js` — it calls the sync `presentForJoin` hook the
+// `Collection` builds from its own i18n + lookup bindings instead (routed
+// through `port/with/lookup-strategy.ts`, never a direct shape/ import).
+// The allowlist is now EMPTY and MUST STAY EMPTY — do not add a new entry;
+// `via-layering-empty.test.ts` proves both that this map is empty AND that
+// the guard still fires on a synthetic kernel→shape/ import.
 
-const VIA_SHAPE_ALLOWLIST = new Map([
-  // #626: the one join-layer i18n exception (comment lives at the import
-  // site in join.ts) — join-layer i18n is sync + i18n-text-only; converging
-  // it onto the Via seam is #626's job.
-  ['packages/hub/src/kernel/query/join.ts', ['../../shape/via-i18n/core.js']],
-])
+const VIA_SHAPE_ALLOWLIST = new Map([])
 
 function checkViaLayering() {
   const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
@@ -1888,7 +1907,7 @@ function checkViaLayering() {
       if (/^shape\//.test(target)) {
         fail(
           'via-layering',
-          `${rel} statically imports feature-layer path "${spec}" — the kernel spine may not reach into src/shape/** (the Via port's feature layer) except the frozen #626 baseline in VIA_SHAPE_ALLOWLIST. Route through the Via port (kernel/via.ts) instead.`,
+          `${rel} statically imports feature-layer path "${spec}" — the kernel spine may not reach into src/shape/** (the Via port's feature layer). VIA_SHAPE_ALLOWLIST is EMPTY (the #626 baseline it once held was retired by #650 Task 6) — there is no grandfathered import left to match. Route through the Via port (kernel/via.ts) instead.`,
           file,
         )
       }
@@ -1941,7 +1960,7 @@ function checkViaEnclaveIsolation() {
         if (target.startsWith('kernel/enclave/')) {
           fail(
             'via-enclave-isolation',
-            `${rel} statically imports enclave path "${spec}" — src/shape/via-*/** (the Via port's feature layer) may not reach kernel/enclave/ directly, not even the barrel; crypto should reach a feature only via ctx (phase B's ViaCryptoCtx, milestone #28), except the frozen baseline in VIA_ENCLAVE_ALLOWLIST.`,
+            `${rel} statically imports enclave path "${spec}" — src/shape/via-*/** (the Via port's feature layer) may not reach kernel/enclave/ directly, not even the barrel; crypto should reach a feature only via ctx (phase B's ViaCryptoCtx, milestone #28). VIA_ENCLAVE_ALLOWLIST is EMPTY (the DictionaryHandle baseline it once held was retired by #629 Task 4) — there is no grandfathered import left to match.`,
             file,
           )
         }

@@ -45,6 +45,7 @@
  *       │    ├─ ScriptViolationError
  *       │    ├─ StaticDictReadonlyError
  *       │    ├─ UnknownDictCodeError
+ *       │    ├─ UnknownLookupKeyError
  *       │    └─ TranslatorNotConfiguredError
  *       ├─ Backup errors
  *       │    ├─ BackupLedgerError      — hash-chain verification failed
@@ -1565,6 +1566,40 @@ export class UnknownDictCodeError extends NoydbError {
     this.dictionaryName = dictionaryName
     this.field = field
     this.code = code
+  }
+}
+
+/**
+ * Thrown at put-time when a `vocabulary: 'closed'` lookup field (#650 Task
+ * 3 — `lookup()`/`enumOf()`/`dict()`, the via-lookup binding) carries a key
+ * that is not a member of its dimension — the enum tier's declared key set,
+ * the dict tier's declared keys / live reserved-collection entries, or the
+ * matrix tier's backing collection.
+ *
+ * Distinct from {@link UnknownDictCodeError} (the `staticDict()` alias's own
+ * error, unchanged by this task) — this is the native `lookup`/`dict`/`enum`
+ * descriptors' equivalent. `'open'` vocabulary (the default) never throws
+ * this; declare `{ vocabulary: 'closed' }` to opt in.
+ */
+export class UnknownLookupKeyError extends NoydbError {
+  /** The dimension (dictionary/target collection) name. */
+  readonly dimension: string
+  /** The field that carried the unknown key. */
+  readonly field: string
+  /** The offending key value. */
+  readonly key: string
+
+  constructor(dimension: string, field: string, key: string) {
+    super(
+      'UNKNOWN_LOOKUP_KEY',
+      `Field "${field}": key "${key}" is not a known member of the "${dimension}" ` +
+        `lookup vocabulary (closed). Use a declared/existing key, or declare ` +
+        `{ vocabulary: 'open' } to allow unknown keys.`,
+    )
+    this.name = 'UnknownLookupKeyError'
+    this.dimension = dimension
+    this.field = field
+    this.key = key
   }
 }
 
