@@ -1438,6 +1438,16 @@ export interface NoydbEventMap {
    * triggered skips, not a real source record id.
    */
   'derivation:skipped-frozen': DerivationSkippedFrozen
+  /**
+   * #654 — an ordinary-delete lookup-ref `cascade`/`nullify` propagation edge whose compare-key
+   * could not be resolved from the backing row (matrix custom-key row unreadable — corruption
+   * class). The delete itself proceeds (only `restrict` edges fail closed, via
+   * `RestrictRefUnresolvableError`); this edge's propagation is skipped and reported here instead
+   * of silently dropped — the ordinary-delete counterpart of the forget path's
+   * `ForgetResult.lookupReferencesResidue` channel. `residue` entries are `backing:key:
+   * collection.field`, one per un-propagated edge (see `VaultLinks.applyLookupRefsPropagation`).
+   */
+  'lookup:propagation-residue': { vault: string; dimension: string; key: string; residue: readonly string[] }
 }
 
 // ─── Grant / Revoke ────────────────────────────────────────────────────

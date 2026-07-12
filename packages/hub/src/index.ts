@@ -909,7 +909,7 @@ export {
 // own name (`enum` is a reserved word); `enum` is re-exported alongside it
 // as the documented spelling — both names refer to the identical function.
 export { lookup, dict, enumOf, enum } from './shape/via-lookup/index.js'
-export { UnknownLookupKeyError } from './kernel/errors.js'
+export { UnknownLookupKeyError, RestrictRefUnresolvableError } from './kernel/errors.js'
 export type { LookupDescriptor, Vocabulary, OnDelete } from './shape/via-lookup/index.js'
 
 // Locale read options + translator audit log

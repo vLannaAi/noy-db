@@ -370,7 +370,6 @@ export class Vault {
    */
   private consentContext: ConsentContext | null = null
 
-
   /** dictKeyField registry: collection name → field name → dictionary name — `DictionaryHandle.rename()`'s reference-update source; populated by `collection()` from `dictKeyFields`. */
   private readonly dictKeyFieldRegistry = new Map<string, Record<string, string>>()
 
@@ -531,6 +530,7 @@ export class Vault {
       links: (name) => this.links(name),
       getCachedCollection: (name) => this.collectionCache.get(name),
       getActiveTxContext: () => this.noydb._activeTxContextOrNull,
+      emitter: this.emitter,
     })
     this.shadowStrategy = opts.shadowStrategy ?? NO_SHADOW
     this.historyStrategy = opts.historyStrategy ?? NO_HISTORY

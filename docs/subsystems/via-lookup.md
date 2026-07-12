@@ -236,6 +236,37 @@ A plain delete on a dictionary/collection row that **no** declared lookup field 
 references is completely unaffected by any of this — `onDelete` only fires for dimensions a
 `lookupFields`/`via(lookup(...))` declaration actually points at.
 
+### Unresolvable compare-key: restrict fails closed, propagation residue-reports (#654)
+
+A matrix dimension with a non-default `key` resolves its compare-key by reading `row[key]` off the
+backing row (`resolveLookupCompareKey`). If that row is corrupted — the `key` field is missing or
+holds a non-string/non-number value — the compare-key **cannot be resolved**. Two policies apply,
+by `onDelete` mode:
+
+- **`restrict`** fails CLOSED: the delete/forget REFUSES with `RestrictRefUnresolvableError`
+  (`errors.ts`) naming the dimension, the row's key, and the unresolvable edge
+  (`"collection.field"`). Whether a referencer exists can't be proven, so the row is not deleted —
+  the same "cannot prove no references ⇒ do not delete" reasoning `DictKeyInUseError` already
+  applies when references ARE provably present.
+  ```ts
+  await expect(countries.delete('row-broken')).rejects.toThrow(RestrictRefUnresolvableError)
+  // err.dimension === 'countries'; err.key === 'row-broken'; err.referencing === 'orders.country'
+  ```
+- **`cascade`/`nullify`** residue-report instead: the delete PROCEEDS (only `restrict` edges are
+  fail-closed), but the un-propagated edge is never silently dropped — it's reported on a
+  structured `lookup:propagation-residue` event (`{ vault, dimension, key, residue }`, `residue`
+  entries formatted `backing:key:collection.field`), the ordinary-delete counterpart of the forget
+  path's `ForgetResult.lookupReferencesResidue` channel (which is unaffected — its own edges were
+  already residue-reported before #654).
+  ```ts
+  db.on('lookup:propagation-residue', (e) => { /* e.residue: ['countries:row-broken:orders.country'] */ })
+  await countries.delete('row-broken')   // still succeeds
+  ```
+
+A resolvable edge (the `key` field present and scalar) behaves exactly as before #654 in every
+mode — this is a corruption-class-rarity refinement, not a change to the common path (see
+`packages/hub/__tests__/via/lookup-restrict-unresolvable.test.ts`).
+
 ## Reserved-tier sync — dictionaries now travel (#647)
 
 Before #647, `_dict_*` rows written through `vault.dictionary(name)` bypassed the mutation choke
