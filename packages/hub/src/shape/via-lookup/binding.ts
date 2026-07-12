@@ -24,7 +24,7 @@ import type { ViaBinding, ViaReadCtx } from '../../kernel/via.js'
 import { installViaBinder } from '../../kernel/via.js'
 import type { LookupDescriptor } from './descriptor.js'
 import { resolvePolicy, type Layer } from '../via-i18n/policy.js'
-import { LocaleNotSpecifiedError, UnknownLookupKeyError } from '../../kernel/errors.js'
+import { LocaleNotSpecifiedError, UnknownLookupKeyError, ValidationError } from '../../kernel/errors.js'
 import { getAtPath, setAtPathInPlace } from '../../kernel/paths.js'
 import type { MaterializedBacking } from './registry.js'
 
@@ -171,6 +171,32 @@ function buildLookupDescribeFragment(cfg: LookupViaConfig): Record<string, unkno
 }
 
 /**
+ * `cfg.getAltIndex(desc)` (matrix tier) reads the backing collection's cache
+ * via `querySourceForJoin()` (`buildLookupAltIndex`, registry.ts) — which
+ * throws a `.join()`-branded message when that collection was opened
+ * `{prefetch:false}` (lazy mode is unsupported for altKey normalization).
+ * Normalization must never silently not happen (the banned silent-no-op
+ * class, #650 Task 3 review, Important 2) — detect that specific failure
+ * and surface a CLEAR, lookup-branded `ValidationError` at the point of
+ * failure instead of letting the confusing join-branded one leak onto an
+ * unrelated `put()`. Any OTHER error (e.g. `materializeBackingTable`'s own
+ * altKey-collision `ValidationError`) propagates unchanged.
+ */
+function getAltIndexOrThrow(field: string, desc: LookupDescriptor, cfg: LookupViaConfig): MaterializedBacking | undefined {
+  try {
+    return cfg.getAltIndex?.(desc)
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('lazy-mode')) {
+      throw new ValidationError(
+        `lookup: altKeys on "${field}" require the backing collection "${desc.dimension}" to be ` +
+          `prefetch-enabled (lazy mode unsupported); open it without {prefetch:false} or drop altKeys.`,
+      )
+    }
+    throw err
+  }
+}
+
+/**
  * `ingest` — altKey candidate values normalize to the canonical key (#650
  * Task 3, spec §3). Pure, sync, idempotent (a canonical key maps to
  * itself); no store read — consults the pre-materialized
@@ -183,9 +209,15 @@ function runLookupIngest(record: Record<string, unknown>, cfg: LookupViaConfig):
 
   let result = record
   for (const [field, desc] of withAltKeys) {
-    const backing = cfg.getAltIndex?.(desc)
+    const backing = getAltIndexOrThrow(field, desc, cfg)
     if (!backing || backing.altIndex.size === 0) continue
     const values = getAtPath(record, field)
+    // Multi-value fields ([].-wildcard/array-typed paths — `getAtPath`
+    // returns >1 entries) bail out of normalization here (follow-up
+    // flagged, #650 Task 3 review; no behavior change this wave).
+    // `runLookupEnforceWrite` below has no such bail, so a closed-vocabulary
+    // array field can see an un-normalized altKey value refused even though
+    // the candidate is a legitimate, just-not-yet-canonicalized altKey.
     if (values.length !== 1) continue
     const value = values[0]
     if (typeof value !== 'string') continue
@@ -208,6 +240,11 @@ function runLookupIngest(record: Record<string, unknown>, cfg: LookupViaConfig):
 async function runLookupEnforceWrite(record: Record<string, unknown>, cfg: LookupViaConfig): Promise<void> {
   for (const [field, desc] of Object.entries(cfg.lookupFields)) {
     if (desc.vocabulary !== 'closed') continue
+    // Unlike `runLookupIngest` (which bails on multi-value fields), this
+    // checks every value `getAtPath` returns — including array elements
+    // ingest never got a chance to normalize. See the asymmetry note at
+    // `runLookupIngest`'s bail-out (#650 Task 3 review; no behavior change
+    // this wave).
     for (const value of getAtPath(record, field)) {
       if (typeof value !== 'string') continue
       const known = cfg.membership ? await cfg.membership(field, value) : true

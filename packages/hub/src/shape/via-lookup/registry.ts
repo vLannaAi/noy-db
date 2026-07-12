@@ -310,16 +310,19 @@ export function materializeBackingTable(
  * table's own keys when table-bearing). Reserved tier: sync — the declared
  * `keys` union the reserved handle's live write-through snapshot (closes
  * #649 for the native `dict()` spelling: the declared-keys promise the old
- * `dictKey()` doc comment made falsely). Matrix (collection) tier: awaits a
- * targeted `get(key)` on the backing collection — the `enforceRefsOnPut`
- * async precedent (`with-shape/links/vault-facade.ts:113`).
+ * `dictKey()` doc comment made falsely). Matrix (collection) tier: sync —
+ * delegates to `buildLookupAltIndex` so membership is checked against the
+ * SAME `row[descriptor.key]` keying the altKey index uses (review fix,
+ * Important 1: an earlier PUT-id `.get(key)` scan disagreed with the
+ * altIndex whenever `descriptor.key !== 'id'`, wrongly rejecting valid
+ * non-id candidates and wrongly accepting an unrelated row's PUT-id).
  */
 export function checkLookupMembership(
   descriptor: LookupDescriptor,
   key: string,
   getDictionary: (dimension: string) => LookupHandle,
-  getCollection: (dimension: string) => { get(id: string): Promise<unknown> },
-): boolean | Promise<boolean> {
+  getCollection: (dimension: string) => { querySourceForJoin(): JoinableSource },
+): boolean {
   if (descriptor.backing === 'static') {
     const known = descriptor.keys ?? (descriptor.table ? Object.keys(descriptor.table) : [])
     return known.includes(key)
@@ -328,9 +331,7 @@ export function checkLookupMembership(
     if ((descriptor.keys ?? []).includes(key)) return true
     return getDictionary(descriptor.dimension).snapshotEntries().some((e) => e['key'] === key)
   }
-  return getCollection(descriptor.dimension)
-    .get(key)
-    .then((row) => row !== undefined && row !== null)
+  return buildLookupAltIndex(descriptor, getDictionary, getCollection).keys.has(key)
 }
 
 /**

@@ -123,6 +123,27 @@ describe('lookup() altKeys ingest normalization — matrix (collection) tier end
     expect(stored3?.country).toBe('US')
   })
 
+  it('lazy-mode backing collection + altKeys: put() throws a clear, lookup-branded error, not the join-branded one (review fix, Important 2)', async () => {
+    const db = await freshDb()
+    const vault = await db.openVault('v')
+    interface Country extends Record<string, unknown> { id: string; iso2: string; iso3: string }
+    interface Order extends Record<string, unknown> { id: string; country: string }
+
+    // countries is opened LAZILY (prefetch: false) — buildLookupAltIndex's
+    // matrix branch reads the backing collection via querySourceForJoin(),
+    // which refuses lazy-mode collections.
+    vault.collection<Country>('countries', { prefetch: false, cache: { maxRecords: 10 } })
+
+    const orders = vault.collection<Order>('lazy-orders', {
+      lookupFields: { country: lookup('countries', { key: 'iso2', altKeys: ['iso3'] }) },
+    })
+
+    await expect(orders.put('o1', { id: 'o1', country: 'USA' })).rejects.toThrow(ValidationError)
+    await expect(orders.put('o2', { id: 'o2', country: 'USA' })).rejects.toThrow(
+      /altKeys on "country" require the backing collection "countries" to be prefetch-enabled/,
+    )
+  })
+
   it('a candidate value with no altIndex match passes through unnormalized', async () => {
     const db = await freshDb()
     const vault = await db.openVault('v')

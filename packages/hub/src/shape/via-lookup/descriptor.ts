@@ -72,6 +72,13 @@ export interface LookupDescriptor<Keys extends string = string> {
  * already carries these fields for exactly this purpose, and without them
  * `backing:'static'` would be unreachable stand-alone through `lookup()`
  * (see task-2-report.md's "Design decisions").
+ *
+ * **`altKeys` caveat (matrix tier only)**: normalizing an altKey candidate
+ * to its canonical `key` requires the backing `dimension` collection to be
+ * open in EAGER mode (the default; `{ prefetch: false }` — lazy mode — is
+ * unsupported). A `put()` on a field with `altKeys` whose backing collection
+ * is lazy throws a `ValidationError` naming the field and dimension; open
+ * the backing collection without `{ prefetch: false }`, or drop `altKeys`.
  */
 export function lookup<Keys extends string>(
   dimension: string,
@@ -132,6 +139,12 @@ export function enumOf<const Keys extends readonly string[]>(keys: Keys): Lookup
  * Dict tier — reserved `_dict_<dimension>` micro-collection backing (the
  * `vault.dictionary(dimension)` engine), open vocabulary by default. The
  * native equivalent of `dictKey()`.
+ *
+ * Unlike `lookup()`'s matrix tier, `dict()` has no `altKeys` option — its
+ * `_dict_<dimension>` backing is the always-synchronous `LookupHandle`
+ * write-through cache, never a `vault.collection()` that can be opened
+ * `{ prefetch: false }`, so the matrix tier's lazy-mode altKeys restriction
+ * does not apply here.
  */
 export function dict<Keys extends string>(
   dimension: string,

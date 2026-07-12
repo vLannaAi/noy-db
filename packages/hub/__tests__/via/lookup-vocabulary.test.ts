@@ -132,6 +132,62 @@ describe('lookup vocabulary governance (#650 Task 3, closes #649)', () => {
     await expect(orders.put('o2', { id: 'o2', country: 'US' })).resolves.not.toThrow()
   })
 
+  it('matrix (collection) tier with a non-default descriptor.key: membership keys by row[key], not the PUT-id (review fix, Important 1)', async () => {
+    const db = await freshDb()
+    const vault = await db.openVault('v')
+    interface Country extends Record<string, unknown> { id: string; iso2: string }
+    interface Order extends Record<string, unknown> { id: string; country: string }
+
+    const countries = vault.collection<Country>('countries', {})
+    // The PUT-id ('US-internal') is deliberately NOT the iso2 value ('US') —
+    // the mis-validation pin below depends on the two being different.
+    await countries.put('US-internal', { id: 'US-internal', iso2: 'US' })
+
+    const orders = vault.collection<Order>('iso2-orders', {
+      lookupFields: { country: lookup('countries', { key: 'iso2', vocabulary: 'closed' }) },
+    })
+
+    // A valid iso2 value passes.
+    await expect(orders.put('o1', { id: 'o1', country: 'US' })).resolves.not.toThrow()
+    // An unknown iso2 value is refused.
+    await expect(orders.put('o2', { id: 'o2', country: 'ZZ' })).rejects.toThrow(UnknownLookupKeyError)
+    // The mis-validation pin: a value equal to the row's PUT-id but NOT its
+    // iso2 must be REFUSED, not wrongly accepted via an id-keyed lookup.
+    await expect(orders.put('o3', { id: 'o3', country: 'US-internal' })).rejects.toThrow(UnknownLookupKeyError)
+  })
+
+  it('pipeline ordering pin: mixed dictKeyFields + closed native static lookupFields — enforceWrite (lookup) fires before encodeWrite (legacy dict validator)', async () => {
+    const db = await freshDb()
+    const vault = await db.openVault('v')
+    interface Item extends Record<string, unknown> { id: string; status: string; category: string }
+
+    const items = vault.collection<Item>('mixed-items', {
+      // Presence of `dictKeyFields` (any field) wires the legacy
+      // `i18nPutValidator` gate, which reads the collection's FULL
+      // `staticDescriptorByField` map — including the native static+table
+      // `lookupFields` entry below, bridged in by `collectLookupDictCompat`
+      // (#650 Task 2) regardless of `dictKeyFields`'s own field name.
+      dictKeyFields: { status: dictKey('item-status', ['draft', 'sent'] as const) },
+      lookupFields: {
+        category: lookup('categories', {
+          backing: 'static',
+          table: { books: { en: 'Books' }, food: { en: 'Food' } },
+          vocabulary: 'closed',
+        }),
+      },
+    })
+
+    // An unknown `category` code is checkable by BOTH the native lookup
+    // binding's `enforceWrite` (-> UnknownLookupKeyError) and the legacy
+    // `enforceStaticDictOnPut` (-> UnknownDictCodeError, run inside the i18n
+    // binding's `encodeWrite`). The write pipeline runs every binding's
+    // `enforceWrite` to completion (collection.ts ~:1748) strictly BEFORE
+    // `encodeWrite` (~:1772) — the lookup error must win the race.
+    await expect(
+      items.put('i1', { id: 'i1', status: 'draft', category: 'unknown-category' }),
+    ).rejects.toThrow(UnknownLookupKeyError)
+  })
+
   it('alias unchanged: dictKey() stays open by default — an undeclared code does not throw', async () => {
     const db = await freshDb()
     const vault = await db.openVault('v')
