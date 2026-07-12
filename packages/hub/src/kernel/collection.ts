@@ -10,7 +10,7 @@ import type { LookupDescriptor } from '../port/with/lookup-strategy.js'
 import { ViaPipeline } from './via-pipeline.js'
 import { viaBinder, type ViaDescriptor, type ViaWriteCtx, type ViaEraseReport } from './via.js'
 import type { MutationOrigin } from './mutation.js'
-import { putDerivedOutput, ledgerAuditHook, type WaveContext, type RollupOutcome } from './via-dispatch.js'
+import { putDerivedOutput, ledgerAuditHook, resolveRollupDeleteIntents, findRollupSpecForIntent, type WaveContext, type RollupOutcome, type RollupDeleteIntent } from './via-dispatch.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import {
   isTombstone,
@@ -568,8 +568,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       }
     | undefined
 
-  /** #638 Task 4 — `Vault._collectGraphTouch`; a no-op absent an open sync/cutover/restore batch. */
-  private readonly graphDispatch: { collect(collection: string, id: string): void } | undefined
+  /** #638 Task 4 — `Vault._collectGraphTouch`; a no-op absent an open batch. `collectDelete` (#640) is the sync-apply delete socket. */
+  private readonly graphDispatch: { collect(collection: string, id: string): void; collectDelete(collection: string, id: string, intents: readonly RollupDeleteIntent[]): void } | undefined
 
   /**
    * Optional back-reference to the owning compartment's ref
@@ -2199,21 +2199,16 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     return out
   }
 
-  /** @internal Recompute a rollup aggregate onto the parent from `parentId`'s current children
-   *  (value-equality guarded; no-op absent parent). `wave` (#638 T4): per-target dedup. Returns
-   *  the `putDerivedOutput` outcome, or `'noop'` when nothing needed recomputing (#638 T6 —
-   *  `dispatchRollupsOnDelete`'s forget-fanout caller needs this to fill the forget report). */
   /** @internal — ctx for `putDerivedOutput`'s frozen-period skip+audit (#638 Task 5). */
   #dispatchCtx(source: { readonly collection: string; readonly id: string }) {
     return { emit: (e: string, p: unknown) => (this.emitter.emit as (ev: string, pl: unknown) => void)(e, p), source, audit: ledgerAuditHook(this.ledger, this.keyring.userId) }
   }
 
+  /** @internal Recompute a rollup aggregate onto the parent from `parentId`'s current children (value-equality guarded; no-op absent parent).
+   *  `wave` (#638 T4, #640): per-target dedup. Returns the `putDerivedOutput` outcome, or `'noop'` (no parent/no-op/deduped) — `dispatchRollupsOnDelete`'s forget-fanout caller + #640's `_recomputeDeletedRollups` need this to fill their reports. */
   private async recomputeRollup(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    spec: { source: string; rollup?: { from: string; key: string; field: string; compute: (children: any[]) => unknown } },
-    parentId: string,
-    source: { readonly collection: string; readonly id: string },
-    wave?: WaveContext,
+    spec: { source: string; rollup?: { from: string; key: string; field: string; compute: (children: any[]) => unknown } }, parentId: string, source: { readonly collection: string; readonly id: string }, wave?: WaveContext,
   ): Promise<RollupOutcome> {
     if (this.derivationSource === undefined || spec.rollup === undefined) return 'noop'
     const { from, key, field, compute } = spec.rollup
@@ -2246,24 +2241,32 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     return putDerivedOutput(intoColl, parentId, patched, this.#dispatchCtx(source))
   }
 
+  /** @internal #640 — this deleted child's rollup PARENT intents (see via-dispatch.ts#resolveRollupDeleteIntents). */
+  _rollupDeleteIntents(deleted: T): RollupDeleteIntent[] {
+    return resolveRollupDeleteIntents(this.derivationSource?.registry(), this.name, deleted as Record<string, unknown>)
+  }
+
   /**
    * @internal Fire any rollups for which THIS collection is the child `from`, recomputing the
    * affected parent after a child delete/forget. Called from the delete path (return discarded)
    * and from `forgetDerivedFanout` (#638 Task 6), which needs the per-target outcome to fill
-   * `ForgetResult.derivedAggregatesRecomputed`/`derivedResidueFrozen`.
+   * `ForgetResult.derivedAggregatesRecomputed`/`derivedResidueFrozen`). `wave` (#640): per-target dedup for the sync-apply path; `undefined` on local-delete (byte-identical).
    */
-  async dispatchRollupsOnDelete(id: string, deleted: T): Promise<ReadonlyArray<{ readonly into: string; readonly parentId: string; readonly outcome: RollupOutcome }>> {
-    if (this.derivationSource === undefined) return []
-    const registry = this.derivationSource.registry()
-    const rec = deleted as Record<string, unknown>
+  async dispatchRollupsOnDelete(id: string, deleted: T, wave?: WaveContext): Promise<ReadonlyArray<{ readonly into: string; readonly parentId: string; readonly outcome: RollupOutcome }>> {
     const results: Array<{ into: string; parentId: string; outcome: RollupOutcome }> = []
-    for (const { spec } of registry.strategiesForSource(this.name)) {
-      if (!spec.rollup || spec.rollup.from !== this.name) continue
-      const kv = rec[spec.rollup.key]
-      if (typeof kv !== 'string' && typeof kv !== 'number') continue
-      results.push({ into: spec.source, parentId: String(kv), outcome: await this.recomputeRollup(spec, String(kv), { collection: this.name, id }) })
+    for (const intent of this._rollupDeleteIntents(deleted)) {
+      const spec = findRollupSpecForIntent(this.derivationSource?.registry(), this.name, intent)
+      if (spec) results.push({ into: intent.into, parentId: intent.parentId, outcome: await this.recomputeRollup(spec, intent.parentId, { collection: this.name, id }, wave) })
     }
     return results
+  }
+
+  /** @internal #640 — the wave's per-id driver: recompute each sync-apply delete's rollup parent. */
+  async _recomputeDeletedRollups(intents: readonly RollupDeleteIntent[], wave: WaveContext): Promise<void> {
+    for (const intent of intents) {
+      const spec = findRollupSpecForIntent(this.derivationSource?.registry(), this.name, intent)
+      if (spec) await this.recomputeRollup(spec, intent.parentId, { collection: this.name, id: '<sync-delete>' }, wave)
+    }
   }
 
   /** @internal `wave` (#638 Task 4) — threaded to `recomputeRollup` for the sync/cutover/restore
@@ -3830,11 +3833,14 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action })
         this.searchIndexStore?.markDirty() // peer write changed the cache; rebuild on next retrieve
         return
-      case 'sync-apply':
+      case 'sync-apply': {
         this._invalidateCekCacheEntry(id)
+        const prior = action === 'delete' ? this._peekCached(id) : undefined
         await this._invalidateCacheEntry(id)
-        this.graphDispatch?.collect(this.name, id)
+        if (prior) this.graphDispatch?.collectDelete(this.name, id, this._rollupDeleteIntents(prior))
+        else if (action === 'put') this.graphDispatch?.collect(this.name, id)
         return
+      }
       case 'cutover':
         // Parity: cache invalidation only — the migration ledger entry
         // stays at the `_applyCutoverTransform` call site.
@@ -4370,12 +4376,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   // ─── Hierarchical Access ──────────────────────────
 
   /** tier-aware put — gated behind `tiersStrategy: withTiers()`. */
-  putAtTier(
-    id: string,
-    record: T,
-    tier: number,
-    opts?: { elevation?: { reason: string; fromTier: number }; source?: string; sourceTs?: string },
-  ): Promise<void> {
+  putAtTier(id: string, record: T, tier: number, opts?: { elevation?: { reason: string; fromTier: number }; source?: string; sourceTs?: string }): Promise<void> {
     return this.tiersStrategy.putAtTier(this.tiersContext(), id, record, tier, opts)
   }
 
@@ -4417,9 +4418,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * (#M-1, 2026-06-30 security review). Kept as a `_`-prefixed method on
    * Collection because `vault.ts` forget() reaches in via this name.
    */
-  _classifySealedShred(
-    live: EncryptedEnvelope,
-  ): Promise<{ readonly slots: readonly SealedShredSlot[] }> {
+  _classifySealedShred(live: EncryptedEnvelope): Promise<{ readonly slots: readonly SealedShredSlot[] }> {
     return classifySealedShredImpl(this.tiersContext(), live)
   }
 

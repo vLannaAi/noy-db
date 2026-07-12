@@ -99,6 +99,7 @@
     "dump",
     "dumpSchema",
     "elevate",
+    "emit",
     "emitCrossTier",
     "enforceI18nOnPut",
     "enforceRefsOnDelete",

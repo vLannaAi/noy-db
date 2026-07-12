@@ -61,11 +61,13 @@ export class SyncEngine {
    */
   private pairExpander?: (names: readonly string[]) => readonly string[]
 
-  /** #598: refreshes Collection in-memory views after a sync-applied local write. Wired by the vault at open. */
-  private cacheInvalidator?: (collection: string, id: string) => Promise<void>
+  /** #598: refreshes Collection in-memory views after a sync-applied local write. Wired by the
+   *  vault at open. `action` (#640): `'delete'` for a pulled tombstone/delete-marker, `'put'`
+   *  otherwise — classified at `applyRemote`, the one choke point that holds the envelope. */
+  private cacheInvalidator?: (collection: string, id: string, action: 'put' | 'delete') => Promise<void>
 
   /** Wire the Collection-cache invalidation hook (#598). Same injection pattern as `setPairExpander`. */
-  setCacheInvalidator(fn: (collection: string, id: string) => Promise<void>): void {
+  setCacheInvalidator(fn: (collection: string, id: string, action: 'put' | 'delete') => Promise<void>): void {
     this.cacheInvalidator = fn
   }
 
@@ -330,8 +332,14 @@ export class SyncEngine {
     }
 
     this.lastPush = new Date().toISOString()
-    await this.persistMeta()
-    await this.graphBatchController?.flush() // #638 Task 4
+    try {
+      await this.persistMeta()
+    } finally {
+      // #644 item 1: flush (which clears `_graphBatch` unconditionally, vault.ts:1316-1320) must
+      // run even if `persistMeta()` throws — else a throw here leaves the batch open, corrupting
+      // the NEXT pull()/push() call's wave with THIS call's stale touches.
+      await this.graphBatchController?.flush() // #638 Task 4
+    }
 
     const result: PushResult = { pushed, conflicts, errors, erasures }
     this.emitter.emit('sync:push', result)
@@ -530,8 +538,12 @@ export class SyncEngine {
     }
 
     this.lastPull = new Date().toISOString()
-    await this.persistMeta()
-    await this.graphBatchController?.flush() // #638 Task 4
+    try {
+      await this.persistMeta()
+    } finally {
+      // #644 item 1: flush must run even if `persistMeta()` throws (see push()'s identical guard).
+      await this.graphBatchController?.flush() // #638 Task 4
+    }
 
     const result: PullResult = { pulled, conflicts, errors, erasures }
     this.emitter.emit('sync:pull', result)
@@ -724,10 +736,16 @@ export class SyncEngine {
     this.emitter.emit('sync:offline', undefined as never)
   }
 
-  /** Apply an envelope to the local store and refresh in-memory views (#598). */
+  /** Apply an envelope to the local store and refresh in-memory views (#598). `action` (#640):
+   *  classified HERE — the one choke point that still holds the envelope — so the
+   *  cacheInvalidator seam (and, downstream, the dispatch wave) can tell a pulled delete from an
+   *  ordinary put. `isTombstoneShape` covers a forgotten-elsewhere record arriving as a shred;
+   *  `isDeleteMarker` covers an ordinary (#589) delete — both route to the SAME 'delete' action
+   *  (sync delete ≠ forget: freshness only, no shred/residue channel on the receiving side). */
   private async applyRemote(collection: string, id: string, envelope: EncryptedEnvelope): Promise<void> {
     await this.local.put(this.vault, collection, id, envelope)
-    await this.cacheInvalidator?.(collection, id)
+    const action: 'put' | 'delete' = isTombstoneShape(envelope) || isDeleteMarker(envelope) ? 'delete' : 'put'
+    await this.cacheInvalidator?.(collection, id, action)
   }
 
   /** Record + emit a tombstone enforcement (#590). */

@@ -17,8 +17,74 @@ import type { EncryptedEnvelope } from './types.js'
 import { PeriodClosedError } from './errors.js'
 import { matchesReferencingValue } from '../port/with/lookup-strategy.js'
 
-/** Per-session touched set — collection → ids. Metadata only (no values, no key material). */
-export type GraphBatch = Map<string, Set<string>>
+/** One deleted child's resolved rollup PARENT intent (#640) — ids + a field name only. A
+ *  resolved `parentId` is an id, same class as any touched record id — never a stored value. */
+export interface RollupDeleteIntent {
+  readonly into: string
+  readonly parentId: string
+  readonly field: string
+}
+
+/** One collection's batched touches this session (#640 widens the #638 `Set<string>` shape):
+ *  `puts` — the original semantics, unchanged; `deletes` — a deleted record's id mapped to its
+ *  resolved rollup-parent intents, captured PRE-invalidation by `Collection._onRecordMutated`'s
+ *  sync-apply delete case (the FK is only readable there — see `kernel/collection.ts
+ *  #_rollupDeleteIntents`). */
+export interface GraphTouch {
+  readonly puts: Set<string>
+  readonly deletes: Map<string, readonly RollupDeleteIntent[]>
+}
+
+/** Per-session touched set — collection → its `GraphTouch`. Metadata only — ids (collection
+ *  names, record ids INCLUDING resolved rollup parent ids) and field names; NEVER record payload
+ *  or key material. A resolved parentId is an id, same class as the touched ids — not a stored
+ *  value. */
+export type GraphBatch = Map<string, GraphTouch>
+
+/** Get-or-create `batch`'s `GraphTouch` entry for `collection` (#640) — shared by
+ *  `Vault._collectGraphTouch`/`_collectGraphDelete` so each stays a one-line call. */
+export function touchFor(batch: GraphBatch, collection: string): GraphTouch {
+  let t = batch.get(collection)
+  if (!t) {
+    t = { puts: new Set(), deletes: new Map() }
+    batch.set(collection, t)
+  }
+  return t
+}
+
+/** #640 — sync, I/O-free: `deleted`'s resolved rollup PARENT intents (the FK is only readable
+ *  NOW, before the record is gone) — a pure function so `Collection._rollupDeleteIntents` stays
+ *  a one-line delegator under the kernel-surface ceiling. `registry` is `this.derivationSource
+ *  ?.registry()`; `collectionName` is `this.name` (the CHILD/`rollup.from` side). Generic over
+ *  the registry's own spec shape so this file never imports a `with-formula` type (port-layering
+ *  — via-dispatch.ts must not gain a with-* import). */
+export function resolveRollupDeleteIntents<S extends { source: string; rollup?: { from: string; key: string; field: string } }>(
+  registry: { strategiesForSource(name: string): ReadonlyArray<{ spec: S }> } | undefined,
+  collectionName: string,
+  deleted: Record<string, unknown>,
+): RollupDeleteIntent[] {
+  if (!registry) return []
+  const intents: RollupDeleteIntent[] = []
+  for (const { spec } of registry.strategiesForSource(collectionName)) {
+    if (!spec.rollup || spec.rollup.from !== collectionName) continue
+    const kv = deleted[spec.rollup.key]
+    if (typeof kv === 'string' || typeof kv === 'number') intents.push({ into: spec.source, parentId: String(kv), field: spec.rollup.field })
+  }
+  return intents
+}
+
+/** #640 — resolve a `RollupDeleteIntent` back to its registry `spec`. The wave's per-intent
+ *  driver needs `spec.rollup.compute`, which `GraphBatch`'s metadata-only pin forbids batching —
+ *  so it's re-resolved here, post-boundary, instead of carried across it. `undefined` if the
+ *  intent's originating strategy was unregistered between collect time and wave time (residual
+ *  gap, freshness-only). */
+export function findRollupSpecForIntent<S extends { source: string; rollup?: { field: string } }>(
+  registry: { strategiesForSource(name: string): ReadonlyArray<{ spec: S }> } | undefined,
+  collectionName: string,
+  intent: RollupDeleteIntent,
+): S | undefined {
+  return registry?.strategiesForSource(collectionName).find((s) => s.spec.source === intent.into && s.spec.rollup?.field === intent.field)?.spec
+}
 
 /** One dedup ledger for a single wave — a target is recomputed at most once (mark-on-check). */
 export class WaveContext {
@@ -36,6 +102,8 @@ export class WaveContext {
 export interface VaultLike {
   readonly graph: ViaGraph
   _getCollection(name: string): Collection<Record<string, unknown>> | undefined
+  /** #640 (#644 item 3) — structured wave-error surfacing, additive to the existing console.warn. */
+  emit(event: string, payload: unknown): void
 }
 
 /**
@@ -47,11 +115,11 @@ export interface VaultLike {
  */
 export async function runGraphDispatchWave(vault: VaultLike, batch: GraphBatch): Promise<void> {
   const wave = new WaveContext()
-  for (const [collectionName, ids] of batch) {
+  for (const [collectionName, touch] of batch) {
     if (vault.graph.dependentsOf(collectionName).length === 0) continue
     const coll = vault._getCollection(collectionName)
     if (!coll) continue
-    for (const id of ids) {
+    for (const id of touch.puts) {
       try {
         // Decrypt is INSIDE the per-id isolation boundary (whole-branch review Important
         // finding, #638): an undecryptable synced envelope (`TamperedError`) must not
@@ -72,7 +140,22 @@ export async function runGraphDispatchWave(vault: VaultLike, batch: GraphBatch):
         // violation on the output, ...) is surfaced — not silently swallowed — via the
         // SAME console.warn channel `dispatchDerivations`/the MV executor already use for
         // their own non-strict-mode output failures, then isolated to just this one id.
+        // #644 item 3: ADDITIVELY (never in place of the warn) emit a structured event too,
+        // so a listener doesn't have to scrape console output to react to a wave failure.
         console.warn(`[via-dispatch] wave recompute failed for ${collectionName}/${id}:`, err)
+        vault.emit('derivation:wave-error', { collection: collectionName, id, error: err })
+      }
+    }
+    // #640 — delete-kind touches: the deleted child's rollup-parent intents, resolved (sync,
+    // pre-invalidation) at collect time by `Collection._rollupDeleteIntents`. Same per-id
+    // isolation as the puts loop above; never routed through `dispatchDerivations` (the
+    // mutation-choke-point.test.ts:85-99 pin — sync-applied deletes are rollup-on-delete only).
+    for (const [id, intents] of touch.deletes) {
+      try {
+        await coll._recomputeDeletedRollups(intents, wave)
+      } catch (err) {
+        console.warn(`[via-dispatch] wave delete-recompute failed for ${collectionName}/${id}:`, err)
+        vault.emit('derivation:wave-error', { collection: collectionName, id, error: err })
       }
     }
   }

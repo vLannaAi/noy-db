@@ -162,7 +162,7 @@ describe('sync dispatch wave — id-threaded decrypt for a per-record-keyed sour
     await docs1.put('d1', { id: 'd1', secret: 'abcdefghij' }) // db1's own local-write, into the shared store
 
     v2._beginGraphBatch()
-    await v2._invalidateSyncApplied('docs', 'd1')
+    await v2._invalidateSyncApplied('docs', 'd1', 'put')
     await v2._flushGraphBatch()
 
     expect(seen).toBe('abcdefghij') // the wave's decrypt (id: 'd1') recovered the RIGHT plaintext

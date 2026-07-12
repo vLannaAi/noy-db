@@ -1448,6 +1448,14 @@ export interface NoydbEventMap {
    * collection.field`, one per un-propagated edge (see `VaultLinks.applyLookupRefsPropagation`).
    */
   'lookup:propagation-residue': { vault: string; dimension: string; key: string; residue: readonly string[] }
+  /**
+   * #640 rider (#644 item 3) — the sync/cutover/restore dispatch wave's per-id recompute failed
+   * (a genuine decrypt failure, a derive()/executor bug, a schema violation on the output, ...).
+   * ADDITIVE to the existing `console.warn` in `runGraphDispatchWave` — never replaces it, so no
+   * listener-dependent silence. One event per failed (collection, id); the wave still isolates
+   * the failure to just that one record. See `kernel/via-dispatch.ts#runGraphDispatchWave`.
+   */
+  'derivation:wave-error': { collection: string; id: string; error: unknown }
 }
 
 // ─── Grant / Revoke ────────────────────────────────────────────────────

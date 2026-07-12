@@ -683,7 +683,7 @@ export class Noydb {
     })
     // #598: sync-applied writes must refresh Collection in-memory views.
     this._forEachSyncEngine(name, engine => {
-      engine.setCacheInvalidator((collection, id) => comp._invalidateSyncApplied(collection, id))
+      engine.setCacheInvalidator((collection, id, action) => comp._invalidateSyncApplied(collection, id, action))
       engine.setGraphBatchController({ begin: () => comp._beginGraphBatch(), flush: () => comp._flushGraphBatch() })
       engine.setReservedLookupSource({ collections: () => comp._reservedLookupCollectionNames() }) // #650 Task 4
     })

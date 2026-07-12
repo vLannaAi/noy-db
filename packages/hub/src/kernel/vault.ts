@@ -118,7 +118,7 @@ import { mergeViaFields, type ViaFieldSpec } from './via-compose.js'
 import { exportRedact } from './via-pipeline.js'
 import { ViaGraph } from './via-graph.js'
 import { registerCollectionGraphSources, validateReconcileGraphEdges, commitReconcileGraphEdges, applyTaintOverlay, reapplyDependentOverlays, type ReconcileGraphOptions } from './via-graph-wiring.js'
-import { runGraphDispatchWave, putDerivedOutput, ledgerAuditHook, forgetDerivedFanout, type GraphBatch, type ForgetFanoutStats } from './via-dispatch.js'
+import { runGraphDispatchWave, putDerivedOutput, ledgerAuditHook, forgetDerivedFanout, touchFor, type GraphBatch, type ForgetFanoutStats, type RollupDeleteIntent } from './via-dispatch.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 // Type-only imports for the guard + derivation services. The
 // runtime classes are loaded on demand via `await import(...)` inside
@@ -1020,7 +1020,7 @@ export class Vault {
         defaultLocale: this.locale,
         onRegisterConflictResolver: this.onRegisterConflictResolver,
         onAccess: (op, id) => this._logConsent(op, collectionName, id),
-        graphDispatch: { collect: (collection, id) => this._collectGraphTouch(collection, id) },
+        graphDispatch: { collect: (collection, id) => this._collectGraphTouch(collection, id), collectDelete: (collection, id, intents) => this._collectGraphDelete(collection, id, intents) },
         // Derivation source is only wired when the corresponding registry
         // has been initialised. Guard source was removed in Track A slice 3b
         // — guards now run via the gate bus in Noydb.#registerGuardGate.
@@ -1283,10 +1283,10 @@ export class Vault {
    *  its already-warmed `LookupHandle._syncCache` (membership/altIndex/snapshot reads never see a
    *  stale verdict for a pulled vocabulary edit) and collect the touch into any open graph batch
    *  (the sync-apply wave-reachability seam Task 5's ref edges will use). No-op if never warmed. */
-  async _invalidateSyncApplied(collection: string, id: string): Promise<void> {
+  async _invalidateSyncApplied(collection: string, id: string, action: 'put' | 'delete'): Promise<void> {
     const coll = this.collectionCache.get(collection)
     if (coll) {
-      await coll._onRecordMutated(id, 'put', 'sync-apply')
+      await coll._onRecordMutated(id, action, 'sync-apply')
       return
     }
     const dimName = this.reservedLookupCollections.get(collection)
@@ -1309,7 +1309,13 @@ export class Vault {
    *  no-op when no batch is open (`_beginGraphBatch()` was never called for this call chain). */
   _collectGraphTouch(collection: string, id: string): void {
     if (!this._graphBatch) return
-    this._graphBatch.set(collection, (this._graphBatch.get(collection) ?? new Set()).add(id))
+    touchFor(this._graphBatch, collection).puts.add(id)
+  }
+
+  /** @internal #640 — the sync-apply delete socket: `id`'s resolved rollup-parent intents. */
+  _collectGraphDelete(collection: string, id: string, intents: readonly RollupDeleteIntent[]): void {
+    if (!this._graphBatch) return
+    touchFor(this._graphBatch, collection).deletes.set(id, intents)
   }
 
   /** @internal #638 Task 4 — close the open batch and run ONE dispatch wave over it. */
@@ -1323,6 +1329,9 @@ export class Vault {
   _getCollection(name: string): Collection<Record<string, unknown>> | undefined {
     return this.collectionCache.get(name) as Collection<Record<string, unknown>> | undefined
   }
+
+  /** @internal #640 (#644 item 3) — `VaultLike.emit`: the wave's structured error surfacing. */
+  emit(event: string, payload: unknown): void { (this.emitter.emit as (ev: string, pl: unknown) => void)(event, payload) }
 
   /**
    * @internal #589 → #604. Physically remove delete markers with `_ts` strictly
@@ -1599,10 +1608,7 @@ export class Vault {
    * governs what happens to link rows when an endpoint record is deleted
    * (`'cascade'` default, `'strict'`, `'warn'`).
    */
-  link(
-    name: string,
-    spec: { a: string | RefDescriptor; b: string | RefDescriptor; onDelete?: LinkSpec['onDelete'] },
-  ): void {
+  link(name: string, spec: { a: string | RefDescriptor; b: string | RefDescriptor; onDelete?: LinkSpec['onDelete'] }): void {
     const a = typeof spec.a === 'string' ? spec.a : spec.a.target
     const b = typeof spec.b === 'string' ? spec.b : spec.b.target
     for (const [slot, target] of [['a', a], ['b', b]] as const) {
@@ -3029,9 +3035,7 @@ export class Vault {
    * read, written, elevated, or demoted successfully via this vault.
    * Returns an unsubscribe function.
    */
-  onCrossTierAccess(
-    listener: (event: CrossTierAccessEvent) => void,
-  ): () => void {
+  onCrossTierAccess(listener: (event: CrossTierAccessEvent) => void): () => void {
     this.crossTierSubs.add(listener)
     return () => this.crossTierSubs.delete(listener)
   }
@@ -3120,10 +3124,7 @@ export class Vault {
    *     {@link CrossTierAccessEvent} with `authorization: 'elevation'`,
    *     stamped with `reason` and `elevatedFrom`.
    */
-  async elevate(
-    tier: number,
-    options: { ttlMs: number; reason: string },
-  ): Promise<ElevatedHandle> {
+  async elevate(tier: number, options: { ttlMs: number; reason: string }): Promise<ElevatedHandle> {
     if (!Number.isInteger(tier) || tier <= 0) {
       throw new ValidationError(`elevate: tier must be a positive integer, got ${tier}`)
     }
@@ -3560,9 +3561,7 @@ export class Vault {
    *
    * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md
    */
-  async getPublicEnvelope(
-    opts: { readonly locale?: string } = {},
-  ): Promise<PublicEnvelope | undefined> {
+  async getPublicEnvelope(opts: { readonly locale?: string } = {}): Promise<PublicEnvelope | undefined> {
     const { readPublicEnvelope } = await import('../with-party/directory/public-envelope/index.js')
     return readPublicEnvelope(this.adapter, this.name, opts)
   }
