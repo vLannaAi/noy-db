@@ -29,6 +29,8 @@ import type { JoinableSource } from '../../kernel/query/index.js'
 import type { Collection } from '../../kernel/collection.js'
 import type { NoydbStore } from '../../kernel/types.js'
 import type { TxContext } from '../../with-commit/tx/transaction.js'
+import type { ViaGraph } from '../../kernel/via-graph.js'
+import { DictKeyInUseError } from '../../kernel/errors.js'
 
 /** Everything the moving refs/links methods touched on the vault's `this.*`. */
 export interface VaultLinksDeps {
@@ -171,12 +173,15 @@ export class VaultLinks {
    * for the same (collection, id) returns immediately so two
    * mutually-cascading collections don't recurse forever.
    */
-  async enforceRefsOnDelete(collectionName: string, id: string): Promise<void> {
+  async enforceRefsOnDelete(graph: ViaGraph, collectionName: string, id: string): Promise<void> {
     const key = `${collectionName}/${id}`
     if (this.cascadeInProgress.has(key)) return
     this.cascadeInProgress.add(key)
 
     try {
+      // #650 Task 5 (#648) — lookup-ref restrict/cascade/nullify (a matrix dimension's own
+      // collection IS an ordinary Collection, so its `.delete()` already routes through here).
+      await this.enforceLookupRefsOnDelete(graph, collectionName, collectionName, id)
       const inbound = this.deps.refRegistry.getInbound(collectionName)
       for (const rule of inbound) {
         const fromCollection = this.deps.collection<Record<string, unknown>>(rule.collection)
@@ -251,6 +256,115 @@ export class VaultLinks {
     } finally {
       this.cascadeInProgress.delete(key)
     }
+  }
+
+  /**
+   * Find the records in `collection` whose `field` currently equals `key` — the SAME
+   * list()+filter machinery `enforceRefsOnDelete`'s classic ref-restrict/cascade loop above
+   * already uses (bounded by the referencing collection's size, never by the whole vault or by
+   * "which collections reference this" — that part is the graph's O(1) `_out` reverse index).
+   */
+  private async findLookupReferencingRecords(
+    collection: Collection<Record<string, unknown>>,
+    field: string,
+    key: string,
+  ): Promise<Record<string, unknown>[]> {
+    const all = await collection.list()
+    return all.filter((rec) => String(rec[field]) === key)
+  }
+
+  /**
+   * Resolve the VALUE a referencing field actually stores for the row being deleted (`rawKey`,
+   * the backing row's PUT-id) under a given edge's `keyField` — a referencing field always stores
+   * `row[keyField]`, never the PUT-id when the two differ (matrix tier's `lookup(dim, {key})`;
+   * mirrors Task 3's `checkLookupMembership` review fix, Important 1). `keyField === 'id'`
+   * (reserved/static tiers, and the matrix default) needs no row read: `rawKey` IS the value.
+   * Reads the backing row AT MOST ONCE per distinct non-`'id'` `keyField`, even across multiple
+   * edges — `backingCollection` is only `.get()`-able for the matrix tier, which is exactly the
+   * only tier that can ever have `keyField !== 'id'`.
+   */
+  private async resolveLookupCompareKey(
+    backingCollection: string,
+    rawKey: string,
+    keyField: string,
+    cache: Map<string, string | undefined>,
+  ): Promise<string | undefined> {
+    if (keyField === 'id') return rawKey
+    if (cache.has(keyField)) return cache.get(keyField)
+    const row = await this.deps.collection<Record<string, unknown>>(backingCollection).get(rawKey)
+    const raw = row?.[keyField]
+    const resolved = typeof raw === 'string' || typeof raw === 'number' ? String(raw) : undefined
+    cache.set(keyField, resolved)
+    return resolved
+  }
+
+  /**
+   * Phase 1 (#650 Task 5, #648) — restrict check ONLY, never mutates. Throws
+   * `DictKeyInUseError(dimension, key, usedBy, count)` naming the FIRST referencing collection
+   * still holding a matching record, for every `onDelete:'restrict'` edge the graph's O(1)
+   * `referencingEdgesOf(backingCollection)` reverse lookup finds pointing at this dimension. A
+   * dimension with no declared lookup-referencing edges is a no-op — undeclared refs keep
+   * dangling (today's behavior, unaffected). Called by `Vault.forget()` BEFORE any shred (the
+   * spec §4 "restrict refuses before any shred" design decision) — cascade/nullify propagation
+   * for the SAME edges happens separately, after the shred, via `forgetDerivedFanout`.
+   */
+  async checkLookupRefsRestrict(graph: ViaGraph, dimension: string, backingCollection: string, key: string): Promise<void> {
+    const keyCache = new Map<string, string | undefined>()
+    for (const { referencing, onDelete, keyField } of graph.referencingEdgesOf(backingCollection)) {
+      if (onDelete !== 'restrict') continue
+      const compareKey = await this.resolveLookupCompareKey(backingCollection, key, keyField, keyCache)
+      if (compareKey === undefined) continue
+      const coll = this.deps.collection<Record<string, unknown>>(referencing.collection)
+      const matches = await this.findLookupReferencingRecords(coll, referencing.field, compareKey)
+      if (matches.length > 0) {
+        throw new DictKeyInUseError(dimension, key, referencing.collection, matches.length)
+      }
+    }
+  }
+
+  /**
+   * Phase 2 (#650 Task 5, #648) — apply `cascade`/`nullify` propagation for this dimension's
+   * non-restrict referencing edges (restrict edges are skipped — phase 1 above already refused
+   * or the caller already checked). `cascade` deletes each matching record through its ordinary
+   * `collection.delete()` (an origin-tagged, fanout-visible delete — participates in sync/history/
+   * the graph dispatch wave exactly like any other delete); `nullify` clears the referencing field
+   * via an ordinary `collection.put()`. Returns the counts so callers (forget's `ForgetFanoutStats`)
+   * can report the propagation additively.
+   */
+  async applyLookupRefsPropagation(graph: ViaGraph, backingCollection: string, key: string): Promise<{ cascaded: number; nullified: number }> {
+    let cascaded = 0
+    let nullified = 0
+    const keyCache = new Map<string, string | undefined>()
+    for (const { referencing, onDelete, keyField } of graph.referencingEdgesOf(backingCollection)) {
+      if (onDelete === 'restrict') continue
+      const compareKey = await this.resolveLookupCompareKey(backingCollection, key, keyField, keyCache)
+      if (compareKey === undefined) continue
+      const coll = this.deps.collection<Record<string, unknown>>(referencing.collection)
+      const matches = await this.findLookupReferencingRecords(coll, referencing.field, compareKey)
+      for (const rec of matches) {
+        const id = rec['id'] as string | undefined
+        if (id === undefined) continue
+        if (onDelete === 'cascade') {
+          await coll.delete(id)
+          cascaded++
+        } else if (onDelete === 'nullify') {
+          await coll.put(id, { ...rec, [referencing.field]: null })
+          nullified++
+        }
+      }
+    }
+    return { cascaded, nullified }
+  }
+
+  /**
+   * Convenience: the full restrict-then-propagate sequence for an ORDINARY (non-forget) delete of
+   * a lookup-referenced row — `checkLookupRefsRestrict` then `applyLookupRefsPropagation`. Used by
+   * `enforceRefsOnDelete` above (matrix-tier: the backing row IS an ordinary `Collection` record)
+   * and by `LookupHandle.delete()`'s injected `checkReferencesOnDelete` callback (reserved tier).
+   */
+  async enforceLookupRefsOnDelete(graph: ViaGraph, dimension: string, backingCollection: string, key: string): Promise<{ cascaded: number; nullified: number }> {
+    await this.checkLookupRefsRestrict(graph, dimension, backingCollection, key)
+    return this.applyLookupRefsPropagation(graph, backingCollection, key)
   }
 
   /**

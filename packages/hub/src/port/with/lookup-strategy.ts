@@ -35,6 +35,7 @@ import {
   materializeBackingTable,
   checkLookupMembership,
   buildLookupAltIndex,
+  registerLookupRefEdges,
   type DictReferencingCollection,
   type LookupDictCompat,
   type MaterializedBacking,
@@ -83,6 +84,15 @@ export interface BuildLookupHandleOptions<Keys extends string = string> {
   /** #650 Task 4 (#647) — choke-point participation hooks. */
   readonly onDirty?: ((collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>) | undefined
   readonly onRecordMutated?: ((collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>) | undefined
+  /**
+   * #650 Task 5 (#648) — the real reference check `LookupHandle.delete()`'s strict branch calls:
+   * restrict throws `DictKeyInUseError` naming the referencing collection, cascade/nullify apply
+   * their propagation. Bound by the Vault (never a `Collection`/keyring/DEK reach-around); a
+   * no-op when the dimension has no declared lookup-referencing edges (today's dangling behavior
+   * for undeclared refs is unaffected). Return value is discarded by the handle — callers who
+   * need cascade/nullify counts (forget) go through `VaultLinks` directly.
+   */
+  readonly checkReferencesOnDelete?: ((key: string) => Promise<unknown>) | undefined
   /**
    * Used by the active strategy to satisfy the generic-key parameter on the
    * returned handle. The NO_LOOKUP stub never reads it. Mirrors
@@ -150,6 +160,9 @@ export type { LookupDictCompat }
 // vault.ts's `membership`/`getAltIndex` closures delegate to.
 export { materializeBackingTable, checkLookupMembership, buildLookupAltIndex }
 export type { MaterializedBacking }
+
+// #650 Task 5 — registers a collection's lookup-fields' cross-collection 'ref' graph edges.
+export { registerLookupRefEdges }
 
 /** Runtime predicate for detecting a `LookupDescriptor` (any of the three tiers). */
 export function isLookupDescriptor(x: unknown): x is LookupDescriptor {

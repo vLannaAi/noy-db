@@ -203,12 +203,19 @@ describe('forget() fanout to derived residue (#622)', () => {
     expect(result.derivedRecordsErased).toBe(0)
     expect(result.derivedAggregatesRecomputed).toBe(0)
     expect(result.derivedResidueFrozen).toEqual([])
+    // Additive #650 Task 5 fields default to zero when no lookup ref propagated.
+    expect(result.lookupReferencesCascaded).toBe(0)
+    expect(result.lookupReferencesNullified).toBe(0)
     // Snapshot the full key set — a byte-shape regression on an EXISTING field
     // would silently pass value assertions above but fail this key list.
+    // #650 Task 5 — lookupReferencesCascaded/lookupReferencesNullified are new,
+    // additive fields (see lookup-forget-ref.test.ts); every pre-existing key
+    // below is unchanged.
     expect(Object.keys(result).sort()).toEqual([
       'blobResidueCollections', 'blobsRetainedShared', 'blobsShredded', 'collections',
       'derivedAggregatesRecomputed', 'derivedRecordsErased', 'derivedResidueFrozen',
       'historyVersionsShredded', 'indexPostingsPurged', 'indexResidue', 'ledgerEntry',
+      'lookupReferencesCascaded', 'lookupReferencesNullified',
       'recordsShredded', 'sealedCekEnvelopesPurged', 'sealedCekResidue', 'sealedFieldsShredded',
       'sealedResidue', 'subject', 'unmigratedRecords',
     ])

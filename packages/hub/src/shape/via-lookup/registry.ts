@@ -13,9 +13,10 @@
 import { getAtPath } from '../../kernel/paths.js'
 import { UnknownDictCodeError, ValidationError } from '../../kernel/errors.js'
 import type { JoinableSource } from '../../kernel/query/index.js'
+import type { FieldRef, ViaGraph } from '../../kernel/via-graph.js'
 import type { StaticDictDescriptor } from '../../port/with/i18n-strategy.js'
-import type { LookupHandle } from './handle.js'
-import type { LookupDescriptor } from './descriptor.js'
+import { dictCollectionName, type LookupHandle } from './handle.js'
+import type { LookupDescriptor, OnDelete } from './descriptor.js'
 
 /**
  * Validate staticDict codes on a `put()`. For each `staticDict()` field,
@@ -369,4 +370,62 @@ export function buildLookupAltIndex(
       }),
     ),
   )
+}
+
+/** One cross-collection `'ref'` graph edge a lookup field declares (#650 Task 5). Module-private —
+ *  only `registerLookupRefEdges` below (the exported entry point) consumes it. */
+interface LookupRefEdge {
+  readonly referencing: FieldRef
+  readonly sources: readonly FieldRef[]
+  readonly onDelete: OnDelete
+  /** The backing dimension's canonical-key FIELD NAME on its own row (`desc.key` — matrix tier
+   *  only varies this; reserved/static tiers are always `'id'`). A referencing field always
+   *  stores THIS field's value, never the backing row's PUT-id when the two differ. */
+  readonly keyField: string
+}
+
+/**
+ * Compute the cross-collection `'ref'` edges a collection's `lookupFields` declare (#650 Task 5,
+ * spec §4) — one edge per non-static-backing field: target = the referencing field; sources =
+ * the backing dimension's whole-collection node (`field:'*'`, the wildcard key
+ * `ViaGraph.referencingEdgesOf` does its O(1) reverse lookup against) PLUS, when the descriptor
+ * names a presentation field (`present.label`), that SPECIFIC field too. `foldPosture`'s
+ * `DEFAULT_POSTURE` is the fold's identity element, so adding the wildcard alongside a real field
+ * source changes nothing when that field is plain — but folds in a classified/money posture when
+ * it isn't (taint composition, spec §4: "a lookup edge whose source names a classified field
+ * contributes that field's posture"). Static tier (`backing:'static'`) has no backing collection/
+ * dimension rows to reference-check — excluded. Pure; consumed only by `registerLookupRefEdges` below.
+ */
+function collectLookupRefEdges(
+  collectionName: string,
+  lookupFields: Record<string, LookupDescriptor> | undefined,
+): readonly LookupRefEdge[] {
+  const edges: LookupRefEdge[] = []
+  for (const [field, desc] of Object.entries(lookupFields ?? {})) {
+    if (desc.backing === 'static') continue
+    const backing = desc.backing === 'reserved' ? dictCollectionName(desc.dimension) : desc.dimension
+    edges.push({
+      referencing: { collection: collectionName, field },
+      sources: [
+        { collection: backing, field: '*' },
+        ...(desc.present?.label !== undefined ? [{ collection: backing, field: desc.present.label }] : []),
+      ],
+      onDelete: desc.onDelete,
+      keyField: desc.key,
+    })
+  }
+  return edges
+}
+
+/** Thin wrapper — `collectLookupRefEdges` + one `graph.registerDerived` call per edge. Lets
+ *  `vault.collection()` (kernel-surface-budgeted, #650 Task 5) register a collection's lookup-ref
+ *  edges with a single line, keeping the ceiling-guarded call site a thin call (route logic here). */
+export function registerLookupRefEdges(
+  graph: ViaGraph,
+  collectionName: string,
+  lookupFields: Record<string, LookupDescriptor> | undefined,
+): void {
+  for (const e of collectLookupRefEdges(collectionName, lookupFields)) {
+    graph.registerDerived(e.referencing, e.sources, 'ref', 'record', e.onDelete, e.keyField)
+  }
 }

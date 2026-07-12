@@ -177,6 +177,10 @@ export interface ForgetFanoutStats {
   recordsErased: number
   aggregatesRecomputed: number
   readonly residueFrozen: string[]
+  /** #650 Task 5 (#648) — referencing records tombstoned via a `'ref'` edge's `cascade` policy. */
+  lookupReferencesCascaded: number
+  /** #650 Task 5 (#648) — referencing fields cleared via a `'ref'` edge's `nullify` policy. */
+  lookupReferencesNullified: number
 }
 
 /**
@@ -200,8 +204,26 @@ export async function forgetDerivedFanout(
 ): Promise<void> {
   const edges = vault.graph.derivedArtifactsOf(ref.collection)
   if (edges.length === 0) return
+
   const coll = vault._getCollection(ref.collection)
   if (!coll) return
+
+  // #650 Task 5 (#648) — 'ref' cascade/nullify propagate ADDITIVELY, here, AFTER the shred
+  // (restrict already refused BEFORE any shred — the caller's pre-tombstone check, spec §4).
+  // Duplicated (not imported) from `VaultLinks.applyLookupRefsPropagation`/`checkLookupRefsRestrict`
+  // (with-shape/links/vault-facade.ts) — the kernel spine may not statically import a with-*
+  // service (port-layering, the #638 Task 5 via-dispatch.ts precedent). A referencing edge whose
+  // dimension uses a non-default `key` (matrix tier only) needs the backing row's OWN value at
+  // that field, not its PUT-id — but the row is ALREADY tombstoned by now, so it's read from the
+  // PRE-tombstone `envelope` (decoded only when such an edge actually exists — #553 zero-cost-skip).
+  if (edges.some((e) => e.kind === 'ref')) {
+    const refEdges = vault.graph.referencingEdgesOf(ref.collection)
+    const needsPriorRecord = envelope && refEdges.some((e) => e.onDelete !== 'restrict' && e.keyField !== 'id')
+    const priorRecord = needsPriorRecord ? await coll._decodeEnvelope(envelope, ref.id) : null
+    const { cascaded, nullified } = await applyLookupRefsFanout(vault, ref.collection, ref.id, priorRecord)
+    stats.lookupReferencesCascaded += cascaded
+    stats.lookupReferencesNullified += nullified
+  }
 
   if (edges.some((e) => e.kind === 'mv')) {
     stats.recordsErased += await coll.dispatchMaterializedViewsOnDelete(ref.id)
@@ -224,4 +246,48 @@ export async function forgetDerivedFanout(
       }
     }
   }
+}
+
+/**
+ * Apply `cascade`/`nullify` propagation for `backing`'s non-restrict `'ref'` edges — the
+ * forget-path counterpart of `VaultLinks.applyLookupRefsPropagation` (duplicated, not imported —
+ * see {@link forgetDerivedFanout}'s call site comment). `restrict` edges are skipped here: the
+ * forget loop's `checkLookupRefsRestrict`-equivalent call already refused (or the reference no
+ * longer existed) BEFORE `_writeTombstone` ran, so by the time this runs only cascade/nullify
+ * remain to propagate. `priorRecord` is the backing row's PRE-tombstone value (or `null`) — needed
+ * only to resolve a non-`'id'` `keyField` edge's compare value, since the live row is already
+ * shredded by the time this runs (mirrors Task 3's membership review fix, Important 1).
+ */
+async function applyLookupRefsFanout(
+  vault: VaultLike,
+  backing: string,
+  key: string,
+  priorRecord: Record<string, unknown> | null,
+): Promise<{ cascaded: number; nullified: number }> {
+  let cascaded = 0
+  let nullified = 0
+  for (const { referencing, onDelete, keyField } of vault.graph.referencingEdgesOf(backing)) {
+    if (onDelete === 'restrict') continue
+    let compareKey: string | undefined = key
+    if (keyField !== 'id') {
+      const raw = priorRecord?.[keyField]
+      compareKey = typeof raw === 'string' || typeof raw === 'number' ? String(raw) : undefined
+    }
+    if (compareKey === undefined) continue
+    const coll = vault._getCollection(referencing.collection)
+    if (!coll) continue
+    const matches = (await coll.list()).filter((rec) => String(rec[referencing.field]) === compareKey)
+    for (const rec of matches) {
+      const id = rec['id'] as string | undefined
+      if (id === undefined) continue
+      if (onDelete === 'cascade') {
+        await coll.delete(id)
+        cascaded++
+      } else if (onDelete === 'nullify') {
+        await coll.put(id, { ...rec, [referencing.field]: null })
+        nullified++
+      }
+    }
+  }
+  return { cascaded, nullified }
 }

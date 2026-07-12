@@ -160,6 +160,10 @@ export class LookupHandle<Keys extends string = string> {
     private readonly onDirty?: (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>,
     /** #650 Task 4 — thin `graphDispatch.collect`-equivalent; opens/collects/flushes a one-shot wave for this touch. */
     private readonly onRecordMutated?: (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>,
+    /** #650 Task 5 (#648) — the real reference check `delete()`'s strict branch calls: restrict
+     *  throws `DictKeyInUseError`, cascade/nullify apply their propagation. Vault-bound; a no-op
+     *  when the dimension has no declared lookup-referencing edges. */
+    private readonly checkReferencesOnDelete?: (key: string) => Promise<unknown>,
   ) {
     this.collName = dictCollectionName(dictionaryName)
   }
@@ -330,14 +334,13 @@ export class LookupHandle<Keys extends string = string> {
       throw new DictKeyMissingError(this.dictionaryName, key)
     }
 
+    // #650 Task 5 (#648) — the real reference check: restrict throws `DictKeyInUseError` naming
+    // the referencing collection, cascade/nullify apply their propagation. `mode: 'warn'` skips
+    // this entirely (today's dev-mode-cleanup escape hatch, unconditional delete). A dimension
+    // with no declared lookup-referencing edges is a no-op (undeclared refs keep dangling).
     const mode = opts.mode ?? 'strict'
-    if (mode === 'strict' && this.findAndUpdateReferences) {
-      // Check for references by attempting a rename to a sentinel that
-      // doesn't exist — we reuse the reference-finding machinery but
-      // abort before applying changes. Simpler: the vault
-      // exposes a separate checkReferences() callback. For now we rely
-      // on the caller to confirm no references exist, or use warn mode.
-      // A dedicated findReferences API is tracked as a follow-up.
+    if (mode === 'strict') {
+      await this.checkReferencesOnDelete?.(key)
     }
 
     // #647 fix wave 1 — mirrors Collection._doDelete's identical `this.onDirty`-gated branch

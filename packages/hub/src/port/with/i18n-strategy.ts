@@ -92,6 +92,8 @@ export interface BuildDictionaryHandleOptions<Keys extends string = string> {
    * comment for why this is injected rather than imported by the handle itself.
    */
   buildDeleteMarker: (version: number, actor: string) => EncryptedEnvelope
+  /** #650 Task 5 (#648) — the real reference check, passed through to `buildLookupHandle`. */
+  checkReferencesOnDelete?: ((key: string) => Promise<unknown>) | undefined
 }
 
 /**

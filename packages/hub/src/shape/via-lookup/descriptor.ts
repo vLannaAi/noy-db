@@ -152,6 +152,7 @@ export function dict<Keys extends string>(
     keys?: readonly Keys[]
     vocabulary?: Vocabulary
     present?: { label: string; by?: string }
+    onDelete?: OnDelete
     onMissing?: OnMissingPolicy
     substitute?: readonly string[]
   },
@@ -163,7 +164,7 @@ export function dict<Keys extends string>(
     key: 'id',
     vocabulary: opts?.vocabulary ?? 'open',
     backing: 'reserved',
-    onDelete: 'restrict',
+    onDelete: opts?.onDelete ?? 'restrict',
     ...(opts?.keys !== undefined ? { keys: opts.keys } : {}),
     ...(opts?.present !== undefined ? { present: opts.present } : {}),
     ...(opts?.onMissing !== undefined ? { onMissing: opts.onMissing } : {}),

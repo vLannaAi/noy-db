@@ -61,6 +61,7 @@ export function withI18n(): I18nStrategy {
         buildDeleteMarker: opts.buildDeleteMarker, // #647 fix wave 1
         onDirty: opts.onDirty, // #650 Task 4
         onRecordMutated: opts.onRecordMutated, // #650 Task 4
+        checkReferencesOnDelete: opts.checkReferencesOnDelete, // #650 Task 5
       })
     },
   }

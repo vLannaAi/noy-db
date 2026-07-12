@@ -136,4 +136,8 @@ export interface ForgetResult {
   /** #622 — `collection:id` derived writes SKIPPED because the target period is frozen
    *  (recompute deferred; the aggregate retains the forgotten contribution — audited). */
   readonly derivedResidueFrozen: readonly string[]
+  /** #650 Task 5 (#648) — referencing records tombstoned via a `'ref'` edge's `cascade` policy. */
+  readonly lookupReferencesCascaded: number
+  /** #650 Task 5 (#648) — referencing fields cleared via a `'ref'` edge's `nullify` policy. */
+  readonly lookupReferencesNullified: number
 }

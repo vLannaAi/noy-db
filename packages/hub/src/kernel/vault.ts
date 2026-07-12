@@ -104,7 +104,7 @@ import {
   resolveLabelFromMap,
   collectLookupDictCompat,
   checkLookupMembership, buildLookupAltIndex,
-  dictCollectionName, // #650 Task 4
+  dictCollectionName, registerLookupRefEdges, // #650 Task 4/5
   type LookupDescriptor,
 } from '../port/with/lookup-strategy.js'
 import { isLinkCollectionName, type LinkSpec, type LinkSetHandle } from '../with-shape/links/names.js'
@@ -1171,6 +1171,7 @@ export class Vault {
       coll = new Collection<T>(collOpts)
       this.collectionCache.set(collectionName, coll)
       registerCollectionGraphSources(this.graph, collectionName, collOpts)
+      registerLookupRefEdges(this.graph, collectionName, effectiveViaFields.lookupFields) // #650 Task 5
       applyTaintOverlay(coll, this.graph, collectionName) // #638 Task 3: seal + gate any freshly-tainted field
 
       // Pre-build the lexical index on open when opted in. Fire-and-forget,
@@ -1573,14 +1574,11 @@ export class Vault {
         },
         emitter: this.emitter,
         buildDeleteMarker, // #647 fix wave 1 — real kernel/enclave builder; LookupHandle can't import it directly
-        // #650 Task 4 (#647) — choke-point participation for LOCAL writes: dirty-log tracking
-        // (same callback Collections get) + a one-shot graph-dispatch wave open/collect/flush
-        // (the local-write origin's thin `graphDispatch.collect`-equivalent; a #553 zero-cost
-        // no-op today with no ref edges registered yet — Task 5 gives it dependents to recompute).
+        // #650 Task 4 (#647) — choke-point participation for LOCAL writes: dirty-log tracking + a
+        // one-shot graph-dispatch wave (local-write's `graphDispatch.collect`-equivalent; Task 5's ref edges give it dependents).
         onDirty: this.onDirty,
-        onRecordMutated: async (collection, id) => {
-          this._beginGraphBatch(); this._collectGraphTouch(collection, id); await this._flushGraphBatch()
-        },
+        onRecordMutated: async (collection, id) => { this._beginGraphBatch(); this._collectGraphTouch(collection, id); await this._flushGraphBatch() },
+        checkReferencesOnDelete: (key) => this.linksEnforcer.enforceLookupRefsOnDelete(this.graph, name, dictCollectionName(name), key), // #650 Task 5
       })
       this.dictionaryCache.set(name, handle)
     }
@@ -2127,7 +2125,7 @@ export class Vault {
    * cascade guard. See `with-shape/links/vault-facade.ts`.
    */
   async enforceRefsOnDelete(collectionName: string, id: string): Promise<void> {
-    return this.linksEnforcer.enforceRefsOnDelete(collectionName, id)
+    return this.linksEnforcer.enforceRefsOnDelete(this.graph, collectionName, id)
   }
 
   // ─── Join resolver) ────────────────────
@@ -2285,12 +2283,13 @@ export class Vault {
     const indexResidue: string[] = []
     const blobsEnabled = this.blobStrategy !== undefined
     const actor = this.keyring.userId
-    const fanoutStats: ForgetFanoutStats = { recordsErased: 0, aggregatesRecomputed: 0, residueFrozen: [] }
+    const fanoutStats: ForgetFanoutStats = { recordsErased: 0, aggregatesRecomputed: 0, residueFrozen: [], lookupReferencesCascaded: 0, lookupReferencesNullified: 0 }
 
     for (const ref of allRefs) {
       const coll = this.collection<Record<string, unknown>>(ref.collection)
       const satelliteOf = (ref as { satelliteOf?: string }).satelliteOf
       const perRecordKeys = this.forgetStrategy.subjects[satelliteOf ?? ref.collection] !== undefined // #591 classification inheritance
+      await this.linksEnforcer.checkLookupRefsRestrict(this.graph, ref.collection, ref.collection, ref.id) // #650 (#648) — restrict BEFORE any shred; cascade/nullify propagate after, additively, via forgetDerivedFanout
 
       // Detect an un-migrated record BEFORE shredding: a perRecordKeys
       // collection whose live envelope still carries a body but no `_cek`
@@ -2476,6 +2475,7 @@ export class Vault {
       derivedRecordsErased: fanoutStats.recordsErased,
       derivedAggregatesRecomputed: fanoutStats.aggregatesRecomputed,
       derivedResidueFrozen: fanoutStats.residueFrozen,
+      lookupReferencesCascaded: fanoutStats.lookupReferencesCascaded, lookupReferencesNullified: fanoutStats.lookupReferencesNullified, // #650 Task 5
     }
   }
 
