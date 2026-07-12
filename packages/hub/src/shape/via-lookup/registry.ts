@@ -431,31 +431,57 @@ export function registerLookupRefEdges(
 }
 
 /**
- * `LookupViaConfig.snapshotFor`'s vault-built row source (#650 Task 6,
- * spec §5) — reserved-tier ONLY: `dimension`'s rows come straight from the
- * SAME `LookupHandle.snapshotEntries()` write-through cache
- * `dictLabelResolver`/`resolveDictSource` already read (no second copy),
- * keyed by each entry's own canonical `key` (reserved tier's `key` field is
- * always `'id'` by construction — `dict()`'s factory hardcodes it — so no
- * re-keying is needed). `isReservedDimension` is the vault's
- * `reservedLookupCollections` membership test; returns `undefined` for any
- * non-reserved (static/matrix) dimension — the caller (`binding.ts`'s
- * `compareForOrder`, `snapshot.ts`'s `presentLookupForJoin`) handles static
- * tier directly from `descriptor.table` and gracefully skips matrix tier
- * (deferred — no vault-resident `dimension -> LookupDescriptor` registry
- * exists yet to resolve a matrix dimension's `key` field; see
- * `task-6-report.md`'s Concerns).
+ * `LookupViaConfig.snapshotFor`'s vault-built row source (#650 Task 6, spec
+ * §5; matrix-tier coverage added #650 Task 7, spec §6 — Task 6 deferred it,
+ * see `task-6-report.md`'s Concerns #1; the reviewer's Task-7 dispatch
+ * refuted the "needs a new vault-resident registry" premise: the descriptor
+ * is already in hand at both call sites, so `snapshotFor` just needs to
+ * ACCEPT it). Takes the full `descriptor` (not a bare dimension name) so it
+ * can route the matrix tier's `key` field, which — unlike reserved tier's
+ * hardcoded `'id'` — varies per collection. Routes on `descriptor.backing`:
+ *
+ * - **reserved**: rows come straight from the SAME `LookupHandle.
+ *   snapshotEntries()` write-through cache `dictLabelResolver`/
+ *   `resolveDictSource` already read (no second copy), keyed by each
+ *   entry's own canonical `key` (always `'id'` by construction for this
+ *   tier — `dict()`'s factory hardcodes it).
+ * - **collection** (matrix): rows come from `getCollection(dimension).
+ *   querySourceForJoin().snapshot()` — the SAME sync, already-live cache
+ *   `buildLookupAltIndex`'s matrix branch (above, this file) and `.join()`
+ *   itself already read — re-keyed by `String(row[descriptor.key])`, NOT
+ *   the row's own PUT-id (which may differ when `key !== 'id'`; the exact
+ *   distinction the #650 Task 3 review fix already applies to
+ *   `checkLookupMembership`'s matrix branch).
+ * - **static**: never routed here — `descriptor.table` is read directly by
+ *   the caller (`binding.ts`'s `compareLookupOrder`/`resolveLookupOrderLabel`,
+ *   `snapshot.ts`'s `presentLookupForJoin`); no vault call needed.
+ *
+ * `isReservedDimension` is the vault's `reservedLookupCollections`
+ * membership test.
  */
 export function buildLookupSnapshotRows(
-  dimension: string,
+  descriptor: LookupDescriptor,
   isReservedDimension: (dimension: string) => boolean,
   getDictionary: (dimension: string) => LookupHandle,
+  getCollection: (dimension: string) => { querySourceForJoin(): JoinableSource },
 ): ReadonlyMap<string, Record<string, unknown>> | undefined {
-  if (!isReservedDimension(dimension)) return undefined
-  const rows = new Map<string, Record<string, unknown>>()
-  for (const entry of getDictionary(dimension).snapshotEntries()) {
-    const key = entry['key']
-    if (typeof key === 'string') rows.set(key, entry)
+  const dimension = descriptor.dimension
+  if (isReservedDimension(dimension)) {
+    const rows = new Map<string, Record<string, unknown>>()
+    for (const entry of getDictionary(dimension).snapshotEntries()) {
+      const key = entry['key']
+      if (typeof key === 'string') rows.set(key, entry)
+    }
+    return rows
   }
-  return rows
+  if (descriptor.backing === 'collection') {
+    const rawRows = getCollection(dimension).querySourceForJoin().snapshot()
+    const rows = new Map<string, Record<string, unknown>>()
+    for (const r of rawRows) {
+      const row = r as Record<string, unknown>
+      rows.set(String(row[descriptor.key]), row)
+    }
+    return rows
+  }
+  return undefined
 }

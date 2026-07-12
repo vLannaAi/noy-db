@@ -1071,8 +1071,10 @@ function executePlanWithSource(
 
   if (plan.orderBy.length > 0) {
     // dictKey label-sort: for any `orderBy(..., { by: 'label' })`, build a
-    // sync code→label map at the query locale so the sort compares labels.
-    const labelMaps = buildOrderLabelMaps(plan.orderBy, joinContext, locale)
+    // sync code→label resolver at the query locale so the sort compares
+    // labels. `source.via` also feeds the #650 Task 7 matrix-tier fallback
+    // (fields `joinContext.resolveDictSource` doesn't bridge).
+    const labelMaps = buildOrderLabelMaps(plan.orderBy, joinContext, locale, source.via)
     result = sortRecords(result, plan.orderBy, source.via, labelMaps)
   }
   if (plan.offset > 0) {
@@ -1331,19 +1333,19 @@ function sortRecords(
   records: unknown[],
   orderBy: readonly OrderBy[],
   via?: ViaPipeline,
-  labelMaps?: Map<string, Map<string, string>>,
+  labelMaps?: Map<string, (code: string) => string | undefined>,
 ): unknown[] {
   // Stable sort: Array.prototype.sort is required to be stable since ES2019.
   return [...records].sort((a, b) => {
     for (const { field, direction, by } of orderBy) {
       let av = readField(a, field)
       let bv = readField(b, field)
-      // dictKey label-sort: compare resolved labels (fallback to the code
-      // when unresolved), so e.g. honorific codes sort by their locale label.
-      const labelMap = by === 'label' ? labelMaps?.get(field) : undefined
-      if (labelMap) {
-        av = (typeof av === 'string' ? labelMap.get(av) : undefined) ?? av
-        bv = (typeof bv === 'string' ? labelMap.get(bv) : undefined) ?? bv
+      // dictKey/lookup label-sort: compare resolved labels (fallback to the
+      // code when unresolved), so e.g. honorific codes sort by their locale label.
+      const labelResolver = by === 'label' ? labelMaps?.get(field) : undefined
+      if (labelResolver) {
+        av = (typeof av === 'string' ? labelResolver(av) : undefined) ?? av
+        bv = (typeof bv === 'string' ? labelResolver(bv) : undefined) ?? bv
         const cmp = compareValues(av, bv)
         if (cmp !== 0) return direction === 'asc' ? cmp : -cmp
         continue
@@ -1362,34 +1364,55 @@ function sortRecords(
 }
 
 /**
- * dictKey label-sort: for each `orderBy(..., { by: 'label' })` field, build
- * a sync `code → label` map at the query `locale` (falling back to a
- * `staticDict` `displayLocale`) from the join context's dict source. Fields
- * with no resolvable dict source are skipped — the sort then falls back to the
- * stored code for them.
+ * dictKey/lookup label-sort: for each `orderBy(..., { by: 'label' })`
+ * field, build a sync per-key label RESOLVER at the query `locale` (falling
+ * back to a `staticDict` `displayLocale`). Two sources, tried in order:
+ *
+ * 1. `joinContext.resolveDictSource(field)` — the pre-existing dict-registry
+ *    bridge (unchanged from before #650 Task 7): covers dictKey/staticDict
+ *    AND their native `dict()`/`lookup(static)`/`lookup(reserved)` aliases
+ *    (`registry.ts`'s `collectLookupDictCompat` bridges those tiers into the
+ *    same vault registries this reads). Builds an EAGER `code -> label` map
+ *    from the source's full snapshot, same as always.
+ * 2. `via.resolveOrderLabel(field, key, locale)` (#650 Task 7) — the
+ *    fallback for lookup fields the bridge above doesn't cover (matrix/
+ *    collection tier — no vault registry backs it). Per-key, LAZY (no full
+ *    snapshot enumeration API at this layer), memoized per field so a
+ *    repeated key within one sort doesn't re-resolve.
+ *
+ * Fields with neither source available are skipped — the sort then falls
+ * back to the raw stored code for them.
  */
 function buildOrderLabelMaps(
   orderBy: readonly OrderBy[],
   joinContext: JoinContext | undefined,
   locale: string | undefined,
-): Map<string, Map<string, string>> | undefined {
-  if (!joinContext?.resolveDictSource) return undefined
-  const resolveDict = joinContext.resolveDictSource.bind(joinContext)
-  let maps: Map<string, Map<string, string>> | undefined
+  via: ViaPipeline | undefined,
+): Map<string, (code: string) => string | undefined> | undefined {
+  let maps: Map<string, (code: string) => string | undefined> | undefined
   for (const { field, by } of orderBy) {
     if (by !== 'label') continue
-    const dictSource = resolveDict(field)
-    if (!dictSource) continue
-    const loc = locale ?? dictSource.displayLocale
-    if (loc === undefined) continue
-    const codeToLabel = new Map<string, string>()
-    for (const entry of dictSource.snapshot()) {
-      const k = (entry as Record<string, unknown>)['key']
-      const labels = (entry as Record<string, unknown>)['labels'] as Record<string, string> | undefined
-      const label = labels?.[loc]
-      if (typeof k === 'string' && typeof label === 'string') codeToLabel.set(k, label)
+    const dictSource = joinContext?.resolveDictSource?.(field)
+    if (dictSource) {
+      const loc = locale ?? dictSource.displayLocale
+      if (loc === undefined) continue
+      const codeToLabel = new Map<string, string>()
+      for (const entry of dictSource.snapshot()) {
+        const k = (entry as Record<string, unknown>)['key']
+        const labels = (entry as Record<string, unknown>)['labels'] as Record<string, string> | undefined
+        const label = labels?.[loc]
+        if (typeof k === 'string' && typeof label === 'string') codeToLabel.set(k, label)
+      }
+      ;(maps ??= new Map()).set(field, (code: string) => codeToLabel.get(code))
+      continue
     }
-    ;(maps ??= new Map()).set(field, codeToLabel)
+    if (via) {
+      const cache = new Map<string, string | undefined>()
+      ;(maps ??= new Map()).set(field, (code: string) => {
+        if (!cache.has(code)) cache.set(code, via.resolveOrderLabel(field, code, locale))
+        return cache.get(code)
+      })
+    }
   }
   return maps
 }

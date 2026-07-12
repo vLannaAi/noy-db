@@ -310,13 +310,14 @@ export interface CollectionOpts<T> {
   /** — altKeys `ingest` normalization source (#650 Task 3). Provided by the Vault. */
   getAltIndex?: ((desc: LookupDescriptor) => MaterializedBacking | undefined) | undefined
   /**
-   * — sync materialized `key -> row` rows for a lookup dimension (#650 Task
-   * 6, spec §5's snapshot+locale seam). Provided by the Vault; feeds both
-   * the `'lookup'` binding's `compareForOrder` and this collection's
+   * — sync materialized `key -> row` rows for a lookup descriptor (#650
+   * Task 6, spec §5's snapshot+locale seam; matrix-tier routing added Task
+   * 7). Provided by the Vault; feeds the `'lookup'` binding's
+   * `compareForOrder`/`resolveOrderLabel` and this collection's
    * `presentForJoin` hook (`resolveCollectionConfig` builds the latter via
    * `buildPresentForJoin`, below).
    */
-  snapshotFor?: ((dimension: string) => ReadonlyMap<string, Record<string, unknown>> | undefined) | undefined
+  snapshotFor?: ((descriptor: LookupDescriptor) => ReadonlyMap<string, Record<string, unknown>> | undefined) | undefined
   /**
    * translator callback from Noydb. When present, missing
    * translations for `autoTranslate: true` i18nText fields are generated

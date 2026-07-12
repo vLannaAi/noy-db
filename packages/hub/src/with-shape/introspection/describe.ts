@@ -25,6 +25,11 @@ import { isStaticDictDescriptor } from '../../shape/via-i18n/dictionary.js'
 // ones; a first-class 'collection' backing degrades to the "no resolved
 // labels" fallback, same as an unresolved dynamic dictKey).
 import type { LookupDescriptor } from '../../shape/via-lookup/descriptor.js'
+// #650 Task 7 — the 'lookup' binding's describeFragment payload shape (the
+// first-ever ViaBinding.describeFragment consumer, via.ts:136). describe.ts
+// is NOT under kernel/**, so importing this shape/ type directly is fine
+// (Check 14 via-layering only restricts the kernel spine).
+import type { LookupDescribeFragment, LookupDescribeFragmentEntry } from '../../shape/via-lookup/binding.js'
 import type { I18nTextDescriptor } from '../../shape/via-i18n/core.js'
 import type { ComputedFields } from '../../with-formula/computed/index.js'
 import type { RefDescriptor } from '../../kernel/refs.js'
@@ -55,6 +60,30 @@ export interface DescribedField {
   readonly displayFor?: string
   readonly money?: { mode: 'fixed' | 'multi'; currency?: string; scale?: number; rounding?: string }
   readonly dict?: { name: string; static: boolean; values?: readonly { value: string; label?: string }[] }
+  /**
+   * Normalized lookup metadata (#650 Task 7 — the first-ever
+   * `ViaBinding.describeFragment` consumer; sourced from the `'lookup'`
+   * binding's fragment, NOT from config directly — see `buildDescription`).
+   * Present for every `lookup()`/`enumOf()`/`dict()` field, ALONGSIDE the
+   * pre-existing `dict` block above (kept byte-stable for the
+   * `dictKey()`/`staticDict()` alias — this is additive, not a replacement).
+   * `dimension` is omitted for a bare `enumOf()` (no backing store, no
+   * dimension name — the #650 Task 2 `dimension:''` sentinel resolved).
+   * `keys` is the statically-known closed-vocabulary key set (declared
+   * `keys`, or a static table's own keys) — omitted when membership lives
+   * only in the backing collection/dictionary.
+   */
+  readonly lookup?: {
+    readonly dimension?: string
+    readonly backing: 'static' | 'reserved' | 'collection'
+    readonly vocabulary: 'open' | 'closed'
+    readonly key: string
+    readonly altKeys?: readonly string[]
+    readonly present?: { readonly label: string; readonly by?: string }
+    readonly sortBy?: string
+    readonly onDelete: 'restrict' | 'cascade' | 'nullify'
+    readonly keys?: readonly string[]
+  }
   readonly computed?: true
   /** i18n metadata for fields declared with i18nText(). Present only when the field is i18n-enabled. */
   readonly i18n?: { readonly locales?: readonly string[]; readonly densify?: boolean }
@@ -223,6 +252,15 @@ export interface BuildDescriptionInput {
   readonly classified?: Record<string, ClassifiedFieldSpec> | undefined
   /** Graph-computed taint overlay (#638 Task 3) — `Collection.via?.taint`. */
   readonly taint?: { readonly postures: ReadonlyMap<string, ViaPosture>; readonly provenance?: ReadonlyMap<string, readonly string[]> } | undefined
+  /**
+   * Per-binding `describeFragment()` output, keyed by binding brand (#650
+   * Task 7 — first-ever consumer of `ViaBinding.describeFragment`,
+   * `via.ts:136`). `Collection.describe()`/`describeAsync()` build this
+   * from `this.via?.describeFragments()`. Only the `'lookup'` brand's
+   * fragment is consumed today (the `lookup` block below); other brands'
+   * fragments ride along unread until they gain a consumer too.
+   */
+  readonly viaFragments?: Record<string, Record<string, unknown>> | undefined
 }
 
 // Re-export so that callers that want to catch the error don't need another import path.
@@ -238,6 +276,8 @@ function deriveWidget(opts: {
   semanticType?: string
   type: string
   dict?: unknown
+  /** #650 Task 7 — same 'select' outcome as `dict` (today always co-present for a lookup field via the existing `dict` block; kept as its own check so a future lookup-only field, with no `dict` block, still derives 'select'). */
+  lookup?: unknown
   resolvedWidget?: string
 }): string {
   if (opts.resolvedWidget !== undefined) return opts.resolvedWidget
@@ -256,7 +296,7 @@ function deriveWidget(opts: {
     case 'percent':
       return 'number'
   }
-  if (opts.dict !== undefined) return 'select'
+  if (opts.dict !== undefined || opts.lookup !== undefined) return 'select'
   if (opts.type === 'boolean') return 'checkbox'
   if (opts.type === 'number') return 'number'
   return 'text'
@@ -273,6 +313,13 @@ function deriveWidget(opts: {
  */
 export function buildDescription(input: BuildDescriptionInput): CollectionDescription {
   const { collection, fieldMeta, moneyFields, dictKeyFields, lookupFields, computed, refs, zodFields, dictLabels, meta, i18nFields, classified, taint } = input
+
+  // #650 Task 7 — the 'lookup' binding's describeFragment, keyed per field.
+  // Deliberately routed through `viaFragments` rather than reused directly
+  // from `lookupFields` above (which only feeds the pre-existing `dict`
+  // block, byte-stable for the alias) — this IS the first-ever
+  // `describeFragment` consumption the task wires up.
+  const lookupFragments = (input.viaFragments?.['lookup'] as LookupDescribeFragment | undefined)?.lookupFields
 
   // When zodFields is present AND non-empty (async path, validator successfully derived
   // a schema): validate fieldMeta keys against the real known-field set = config keys ∪
@@ -329,6 +376,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
     let moneyBlock: DescribedField['money'] | undefined
     let dictBlock: DescribedField['dict'] | undefined
     let refBlock: DescribedField['ref'] | undefined
+    let lookupBlock: DescribedField['lookup'] | undefined
 
     if (money) {
       type = 'number'
@@ -427,6 +475,29 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
       // type already initialized to zod?.type ?? 'unknown' above; no re-set needed
     }
 
+    // ── lookup block (#650 Task 7 — first-ever ViaBinding.describeFragment
+    // consumer) ── Sourced from `lookupFragments` (the binding's fragment),
+    // NOT from `lookupDesc` above (which only feeds the pre-existing `dict`
+    // block, byte-stable for the alias) — routing through the fragment is
+    // the point: `backing`/`vocabulary`/`key`/`onDelete` have no other
+    // source in this function, so their presence here is itself proof the
+    // describeFragment seam (declared via.ts:136, zero consumers before
+    // this task) carries data end to end from binding to describe() output.
+    const lookupFragmentEntry: LookupDescribeFragmentEntry | undefined = lookupFragments?.[key]
+    if (lookupFragmentEntry !== undefined) {
+      lookupBlock = {
+        ...(lookupFragmentEntry.dimension !== undefined ? { dimension: lookupFragmentEntry.dimension } : {}),
+        backing: lookupFragmentEntry.backing,
+        vocabulary: lookupFragmentEntry.vocabulary,
+        key: lookupFragmentEntry.key,
+        onDelete: lookupFragmentEntry.onDelete,
+        ...(lookupFragmentEntry.altKeys !== undefined ? { altKeys: lookupFragmentEntry.altKeys } : {}),
+        ...(lookupFragmentEntry.present !== undefined ? { present: lookupFragmentEntry.present } : {}),
+        ...(lookupFragmentEntry.sortBy !== undefined ? { sortBy: lookupFragmentEntry.sortBy } : {}),
+        ...(lookupFragmentEntry.keys !== undefined ? { keys: lookupFragmentEntry.keys } : {}),
+      }
+    }
+
     // Classified sensitivity feeds inferred meta at lowest precedence — channel
     // fieldMeta and zod .meta() still win via resolveFieldMeta's merge order.
     if (cls !== undefined) inferred.sensitivity = cls.sensitivity
@@ -456,6 +527,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
       type,
       ...(resolved.semanticType !== undefined ? { semanticType: resolved.semanticType } : {}),
       ...(dictBlock !== undefined ? { dict: dictBlock } : {}),
+      ...(lookupBlock !== undefined ? { lookup: lookupBlock } : {}),
       ...(resolved.widget !== undefined ? { resolvedWidget: resolved.widget } : {}),
     })
 
@@ -485,6 +557,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
       ...(refBlock !== undefined ? { ref: refBlock } : {}),
       ...(moneyBlock !== undefined ? { money: moneyBlock } : {}),
       ...(dictBlock !== undefined ? { dict: dictBlock } : {}),
+      ...(lookupBlock !== undefined ? { lookup: lookupBlock } : {}),
       ...(isComputed ? { computed: true as const } : {}),
       ...(i18nBlock !== undefined ? { i18n: i18nBlock } : {}),
       widget,

@@ -127,6 +127,18 @@ export interface ViaBinding {
   decodeResults?(record: unknown): unknown
   /** Exact ordering for a covered field; undefined when the field is not covered. */
   compareForOrder?(field: string, a: unknown, b: unknown): number | undefined
+  /**
+   * Per-key, PER-CALL-locale label resolution for `orderBy(field, dir,
+   * { by: 'label' })` (#650 Task 7) — the sibling `compareForOrder` above
+   * structurally cannot serve, since it carries no locale parameter.
+   * `locale` is the query's per-call locale (`undefined` for a locale-less
+   * query — a binding may fall back to its own descriptor-level default,
+   * mirroring `present`'s displayLocale hinge). `undefined` return = this
+   * binding doesn't resolve a label for `key` at `field` — caller falls
+   * back to the raw stored value, same graceful-degrade discipline every
+   * other via query hook uses. SYNC (#553 — query participation).
+   */
+  resolveOrderLabel?(field: string, key: string, locale: string | undefined): string | undefined
   /** Rewrite an aggregate spec (money exact reducers). */
   wrapReducers?(spec: unknown): unknown
   // ── forget participation ──

@@ -1135,7 +1135,7 @@ export class Vault {
         collOpts.lookupFields = options?.lookupFields
         collOpts.membership = (field, key) => checkLookupMembership(effectiveViaFields.lookupFields![field]!, key, (n) => this.dictionary(n), (n) => this.collection(n))
         collOpts.getAltIndex = (d) => buildLookupAltIndex(d, (n) => this.dictionary(n), (n) => this.collection<Record<string, unknown>>(n))
-        collOpts.snapshotFor = (d) => buildLookupSnapshotRows(d, (n) => this.reservedLookupCollections.has(dictCollectionName(n)), (n) => this.dictionary(n)) // #650 Task 6
+        collOpts.snapshotFor = (d) => buildLookupSnapshotRows(d, (n) => this.reservedLookupCollections.has(dictCollectionName(n)), (n) => this.dictionary(n), (n) => this.collection<Record<string, unknown>>(n)) // #650 Task 6/7
       }
       // i18n / staticDict validation on put — enforced via the compartment's
       // put hook. staticDict adds put-time code validation.

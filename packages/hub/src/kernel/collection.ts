@@ -966,11 +966,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
-   * Describe the collection's field schema from in-memory config — zero store
-   * I/O. Sync overload (no args): merges moneyFields/dictKeyFields/refs/
-   * computed/fieldMeta/taint into a {@link CollectionDescription} (types
-   * inferred from config; validator-derived types need the async overload,
-   * which also resolves dynamic dict labels).
+   * Describe the collection's field schema from in-memory config — zero store I/O.
+   * Sync overload (no args): merges moneyFields/dictKeyFields/refs/computed/fieldMeta/
+   * taint into a {@link CollectionDescription} (types inferred from config; the async
+   * overload also derives validator-exact types and resolves dynamic dict labels).
    */
   describe(): CollectionDescription
   describe(opts: DescribeOptions): Promise<CollectionDescription>
@@ -991,14 +990,14 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       ...(this.i18nFields !== undefined ? { i18nFields: this.i18nFields } : {}),
       ...(this.classified !== undefined ? { classified: this.classified.byField } : {}),
       ...(this.via?.taint !== undefined ? { taint: this.via.taint } : {}),
+      ...(this.via ? { viaFragments: this.via.describeFragments() } : {}), // #650 Task 7
     })
   }
 
   /**
-   * Async describe implementation.
-   * Derives validator-exact types via deriveZodFields (lazy, no static zod import),
-   * optionally resolves dynamic-dict labels from vault.dictionary(name).list(),
-   * then delegates to buildDescription which also runs fieldMeta key-validation.
+   * Async describe implementation. Derives validator-exact types via deriveZodFields
+   * (lazy, no static zod import), optionally resolves dynamic-dict labels from vault.dictionary(name).list(),
+   * then delegates to buildDescription (which also runs fieldMeta key-validation).
    */
   private async describeAsync(opts: DescribeOptions): Promise<CollectionDescription> {
     // 1. Derive per-field type/optional/constraints/meta from the validator (if any).
@@ -1043,6 +1042,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       ...(this.i18nFields !== undefined ? { i18nFields: this.i18nFields } : {}),
       ...(this.classified !== undefined ? { classified: this.classified.byField } : {}),
       ...(this.via?.taint !== undefined ? { taint: this.via.taint } : {}),
+      ...(this.via ? { viaFragments: this.via.describeFragments() } : {}), // #650 Task 7
     })
   }
 

@@ -13,11 +13,17 @@
  * closure reads the SAME `LookupHandle._syncCache` /
  * first-class-collection cache every other lookup consumer
  * (`dictLabelResolver`, `resolveDictSource`, `getAltIndex`) already reads).
- * Serves:
+ * Serves (reserved AND matrix tier since #650 Task 7 — `registry.ts`'s
+ * `buildLookupSnapshotRows` routes both; static tier is read straight off
+ * `descriptor.table` by every consumer below, never through this cache):
  *   - join dressing (`presentForJoin`, consumed by `kernel/query/join.ts`
  *     via `JoinableSource.presentForJoin`)
  *   - dimension sort (`compareForOrder`, consumed by
  *     `shape/via-lookup/binding.ts`'s `ViaBinding.compareForOrder` closure)
+ *   - per-call-locale order-label resolution (`resolveOrderLabel`, #650
+ *     Task 7 — the `orderBy(..., {by:'label'})` channel `compareForOrder`
+ *     structurally can't serve, no locale param; consumed by
+ *     `kernel/query/builder.ts`'s `buildOrderLabelMaps`)
  *   - membership: reserved/static-tier membership (#650 Task 3,
  *     `checkLookupMembership`) already reads the identical sync caches
  *     directly — not re-plumbed through this file; see
@@ -88,22 +94,23 @@ export function buildLookupSnapshot(
 }
 
 /**
- * The lookup-label HALF of `presentForJoin` (#626 retirement, spec §5) —
- * resolves `<field>Label` for every declared lookup field with a `present`
- * dressing dimension, sync, from `getSnapshotRows` (the vault-built
- * `LookupViaConfig.snapshotFor` closure; static tier reads its own
- * in-config `table` directly, no vault call — never `undefined` for a
- * declared static table). Mirrors `binding.ts`'s `runLookupPresent` (the
- * async `present()` hook) minus the array/`[].`-wildcard handling that
- * hook needs for full-record reads — join dressing only ever sees the
- * joined RIGHT-side record's scalar fields, so that complexity doesn't
- * apply here.
+ * The lookup-label HALF of `presentForJoin` (#626 retirement, spec §5;
+ * matrix-tier coverage added #650 Task 7) — resolves `<field>Label` for
+ * every declared lookup field with a `present` dressing dimension, sync,
+ * from `getSnapshotRows` (the vault-built `LookupViaConfig.snapshotFor`
+ * closure — now descriptor-routed, see `registry.ts`'s
+ * `buildLookupSnapshotRows`; static tier reads its own in-config `table`
+ * directly, no vault call — never `undefined` for a declared static table).
+ * Mirrors `binding.ts`'s `runLookupPresent` (the async `present()` hook)
+ * minus the array/`[].`-wildcard handling that hook needs for full-record
+ * reads — join dressing only ever sees the joined RIGHT-side record's
+ * scalar fields, so that complexity doesn't apply here.
  */
 function presentLookupForJoin(
   record: Record<string, unknown>,
   locale: string,
   lookupFields: Record<string, LookupDescriptor>,
-  getSnapshotRows: (dimension: string) => ReadonlyMap<string, Record<string, unknown>> | undefined,
+  getSnapshotRows: (descriptor: LookupDescriptor) => ReadonlyMap<string, Record<string, unknown>> | undefined,
 ): Record<string, unknown> {
   let result = record
   for (const [field, desc] of Object.entries(lookupFields)) {
@@ -112,7 +119,7 @@ function presentLookupForJoin(
     if (typeof raw !== 'string') continue
     const rows = desc.backing === 'static'
       ? (desc.table ? new Map(Object.entries(desc.table)) : undefined)
-      : getSnapshotRows(desc.dimension)
+      : getSnapshotRows(desc)
     if (!rows) continue
     const label = buildLookupSnapshot(desc.dimension, rows, desc).label(raw, locale)
     if (label === undefined) continue
@@ -135,7 +142,7 @@ function presentLookupForJoin(
 export function buildPresentForJoin(
   i18nFields: Record<string, I18nTextDescriptor> | undefined,
   lookupFields: Record<string, LookupDescriptor> | undefined,
-  getSnapshotRows: ((dimension: string) => ReadonlyMap<string, Record<string, unknown>> | undefined) | undefined,
+  getSnapshotRows: ((descriptor: LookupDescriptor) => ReadonlyMap<string, Record<string, unknown>> | undefined) | undefined,
 ): ((record: unknown, locale: string) => unknown) | undefined {
   const hasI18n = i18nFields !== undefined && Object.keys(i18nFields).length > 0
   const hasLookup = lookupFields !== undefined && Object.keys(lookupFields).length > 0

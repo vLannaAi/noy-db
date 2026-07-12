@@ -61,6 +61,32 @@ export interface LookupDescriptor<Keys extends string = string> {
 }
 
 /**
+ * `sortBy`/`present.by` coupling warning (#650 Task 7, T6 minor — task-6-
+ * report.md Concern #4). A `by`-keyed `present` (locale-map) field used as
+ * `sortBy` needs a declared `displayLocale` for the locale-less
+ * `compareForOrder` sort hook (a plain `orderBy(field)`, no `{by:'label'}`)
+ * to resolve anything — without one it silently degrades to comparing the
+ * raw canonical keys (never throws — `LookupSnapshot.compareKeys`'s
+ * contract). `orderBy(field, dir, {by:'label'})` doesn't need this (it
+ * carries its own per-call locale via `ViaBinding.resolveOrderLabel`,
+ * #650 Task 7) — only a sortBy-driven PLAIN orderBy does. Warn once at
+ * declare time rather than degrade silently at query time.
+ */
+function warnIfSortByNeedsDisplayLocale(
+  dimension: string,
+  opts?: { sortBy?: string; present?: { by?: string }; displayLocale?: string },
+): void {
+  if (opts?.sortBy !== undefined && opts.present?.by !== undefined && opts.displayLocale === undefined) {
+    console.warn(
+      `[noy-db] lookup("${dimension}"): sortBy "${opts.sortBy}" is locale-keyed (present.by is set) but no ` +
+        `displayLocale is declared — a locale-less orderBy() will silently sort by the raw stored key instead ` +
+        `of the resolved label. Declare displayLocale, or sort via orderBy(field, dir, { by: 'label' }), which ` +
+        `resolves at the query's own per-call locale.`,
+    )
+  }
+}
+
+/**
  * Matrix tier — first-class collection backing (default `backing:'collection'`).
  * `dimension` names the backing collection (e.g. `'countries'`).
  *
@@ -99,6 +125,7 @@ export function lookup<Keys extends string>(
   },
 ): LookupDescriptor<Keys> {
   linkLookupVia()
+  warnIfSortByNeedsDisplayLocale(dimension, opts)
   return {
     _viaBrand: 'lookup',
     dimension,

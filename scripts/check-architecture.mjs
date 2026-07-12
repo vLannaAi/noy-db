@@ -948,9 +948,15 @@ const KERNEL_SURFACE_BUDGET = {
   // resolveDictSource/dictionary()'s findAndUpdateReferences closure are now
   // thin delegators, and the dead `applyLocale` (zero production callers,
   // superseded by via.present) was retired outright. Funds the phase's
-  // ceiling budget for later tasks. Locked in to the ACTUAL measured line
-  // count — no slack.
-  'packages/hub/src/kernel/vault.ts': 3941,
+  // ceiling budget for later tasks.
+  // Lowered 3941→3940 (2026-07-12, #650 Task 7, final phase-D re-ratchet):
+  // Task 7's one vault.ts change modified the existing Task 6 `snapshotFor`
+  // line in place (added a `getCollection` arg for matrix-tier routing) —
+  // net zero new lines, so the 1-line slack Task 6 left behind was never
+  // spent and is removed here per the checker's ratchet-to-actual
+  // convention (phase D's final task). Locked in to the ACTUAL measured
+  // line count (readFileSync(...).split('\n').length) — no slack.
+  'packages/hub/src/kernel/vault.ts': 3940,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -1901,7 +1907,7 @@ function checkViaLayering() {
       if (/^shape\//.test(target)) {
         fail(
           'via-layering',
-          `${rel} statically imports feature-layer path "${spec}" — the kernel spine may not reach into src/shape/** (the Via port's feature layer) except the frozen #626 baseline in VIA_SHAPE_ALLOWLIST. Route through the Via port (kernel/via.ts) instead.`,
+          `${rel} statically imports feature-layer path "${spec}" — the kernel spine may not reach into src/shape/** (the Via port's feature layer). VIA_SHAPE_ALLOWLIST is EMPTY (the #626 baseline it once held was retired by #650 Task 6) — there is no grandfathered import left to match. Route through the Via port (kernel/via.ts) instead.`,
           file,
         )
       }

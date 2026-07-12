@@ -16,15 +16,20 @@
  * same #553 pattern `money()`/`dictKey()` use.
  *
  * `buildClause` (label-predicate queries) is still undeclared — out of scope
- * for #650. `compareForOrder` (#650 Task 6, spec §5) resolves a `sortBy`-
- * declared field's ordering via `cfg.snapshotFor`'s sync snapshot; the hook
- * signature is UNCHANGED (`via.ts:128-129` — no locale param), so it closes
- * over each descriptor's own `displayLocale` (the same locale-less-hinge
- * default `runLookupPresent`'s `hasStaticDisplay` branch already uses).
+ * for #650. `compareForOrder` (#650 Task 6, spec §5; matrix tier added Task
+ * 7) resolves a `sortBy`-declared field's ordering via `cfg.snapshotFor`'s
+ * sync snapshot; the hook signature is UNCHANGED (`via.ts:128-129` — no
+ * locale param), so it closes over each descriptor's own `displayLocale`
+ * (the same locale-less-hinge default `runLookupPresent`'s
+ * `hasStaticDisplay` branch already uses). `resolveOrderLabel` (#650 Task
+ * 7) is the PER-CALL-locale sibling `orderBy(..., {by:'label'})` needs —
+ * see its own doc comment below. `describeFragment` (#650 Task 7) is the
+ * first-ever consumed `ViaBinding.describeFragment` implementation — see
+ * `with-shape/introspection/describe.ts`'s `buildDescription`.
  */
 import type { ViaBinding, ViaReadCtx } from '../../kernel/via.js'
 import { installViaBinder } from '../../kernel/via.js'
-import type { LookupDescriptor } from './descriptor.js'
+import type { LookupDescriptor, LookupBacking, Vocabulary, OnDelete } from './descriptor.js'
 import { resolvePolicy, type Layer } from '../via-i18n/policy.js'
 import { LocaleNotSpecifiedError, UnknownLookupKeyError, ValidationError } from '../../kernel/errors.js'
 import { getAtPath, setAtPathInPlace } from '../../kernel/paths.js'
@@ -47,15 +52,18 @@ export interface LookupViaConfig {
   /** Sync per-descriptor altKey index — `ingest`'s normalization source (#650 Task 3). */
   readonly getAltIndex?: (desc: LookupDescriptor) => MaterializedBacking | undefined
   /**
-   * Sync materialized `key -> row` rows for `dimension` (#650 Task 6, spec
-   * §5) — `compareForOrder` below and `snapshot.ts`'s `presentForJoin`
-   * builder both read this same vault-built closure. Reserved tier only
-   * (the vault wires `dimension -> LookupHandle.snapshotEntries()`); static
-   * tier is resolved locally from `descriptor.table` without calling this;
-   * matrix tier is deferred (returns `undefined` — see
-   * `task-6-report.md`'s Concerns).
+   * Sync materialized `key -> row` rows for a lookup descriptor (#650 Task
+   * 6, spec §5; matrix-tier routing added #650 Task 7) — `compareForOrder`
+   * and `resolveOrderLabel` below, and `snapshot.ts`'s `presentForJoin`
+   * builder, all read this same vault-built closure. Reserved AND
+   * collection (matrix) tier route here (the vault wires
+   * `dimension -> LookupHandle.snapshotEntries()` / `dimension ->
+   * collection.querySourceForJoin().snapshot()` respectively, keyed by
+   * `descriptor.key` for the matrix case — see `registry.ts`'s
+   * `buildLookupSnapshotRows`); static tier is resolved locally from
+   * `descriptor.table` without calling this.
    */
-  readonly snapshotFor?: (dimension: string) => ReadonlyMap<string, Record<string, unknown>> | undefined
+  readonly snapshotFor?: (descriptor: LookupDescriptor) => ReadonlyMap<string, Record<string, unknown>> | undefined
   readonly collectionName: string
 }
 
@@ -177,8 +185,51 @@ async function runLookupPresent(
   return result
 }
 
+/**
+ * One field's `lookup` descriptor as it appears on a `ViaBinding.
+ * describeFragment()` payload (#650 Task 7 — the first real consumer,
+ * `with-shape/introspection/describe.ts`'s `buildDescription`, imports this
+ * type directly; `describe.ts` is NOT under `kernel/**`, so it's free to
+ * import concrete shape/ types the way it already does for
+ * `LookupDescriptor`/`MoneyDescriptor`/etc.). `dimension` is OMITTED (not
+ * emitted as `''`) for a bare `enumOf()` descriptor — the #650 Task 2
+ * `dimension:''` sentinel resolved: no dimension name means no `dimension`
+ * key, not a meaningless empty string (T2 carry, #650 Task 7).
+ */
+export interface LookupDescribeFragmentEntry {
+  readonly dimension?: string
+  readonly backing: LookupBacking
+  readonly vocabulary: Vocabulary
+  readonly key: string
+  readonly altKeys?: readonly string[]
+  readonly present?: { readonly label: string; readonly by?: string }
+  readonly sortBy?: string
+  readonly onDelete: OnDelete
+  /** Statically-known closed-vocabulary key set (declared `keys`, or a static table's own keys). Omitted when membership lives only in the backing collection/dictionary (open vocabulary, or closed with no declared `keys`). */
+  readonly keys?: readonly string[]
+}
+
+/** The `'lookup'` binding's `describeFragment()` payload shape. */
+export interface LookupDescribeFragment {
+  readonly lookupFields: Record<string, LookupDescribeFragmentEntry>
+}
+
 function buildLookupDescribeFragment(cfg: LookupViaConfig): Record<string, unknown> {
-  return { lookupFields: Object.keys(cfg.lookupFields) }
+  const lookupFields: Record<string, LookupDescribeFragmentEntry> = {}
+  for (const [field, desc] of Object.entries(cfg.lookupFields)) {
+    lookupFields[field] = {
+      ...(desc.dimension !== '' ? { dimension: desc.dimension } : {}),
+      backing: desc.backing,
+      vocabulary: desc.vocabulary,
+      key: desc.key,
+      onDelete: desc.onDelete,
+      ...(desc.altKeys !== undefined ? { altKeys: desc.altKeys } : {}),
+      ...(desc.present !== undefined ? { present: desc.present } : {}),
+      ...(desc.sortBy !== undefined ? { sortBy: desc.sortBy } : {}),
+      ...(desc.keys !== undefined ? { keys: desc.keys } : {}),
+    }
+  }
+  return { lookupFields }
 }
 
 /**
@@ -266,19 +317,23 @@ async function runLookupEnforceWrite(record: Record<string, unknown>, cfg: Looku
 
 /**
  * `compareForOrder` — exact ordering for a `sortBy`-declared lookup field
- * against the sync snapshot (#650 Task 6, spec §5, conflict resolution 4).
- * Opt-in: undeclared `sortBy` (every dictKey/staticDict alias and every
- * lookup field declared before this task) returns `undefined` — falls
- * through to the generic stored-value comparator, byte-identical to today.
- * Static tier reads `descriptor.table` directly; reserved tier reads
- * `cfg.snapshotFor` (the SAME live cache `presentForJoin`'s lookup half
- * reads — see `snapshot.ts`'s file header); matrix tier's `snapshotFor`
- * call returns `undefined` (deferred, see `LookupViaConfig.snapshotFor`'s
- * doc comment) so this gracefully falls through too. The hook has no
- * locale parameter (`via.ts:128-129`, unchanged) — closes over the
- * descriptor's own `displayLocale` (the same locale-less-hinge default
- * `runLookupPresent` already uses); a `sortBy` field whose value isn't
- * locale-keyed (`present.by` undefined) never needs one.
+ * against the sync snapshot (#650 Task 6, spec §5, conflict resolution 4;
+ * matrix-tier coverage added #650 Task 7). Opt-in: undeclared `sortBy`
+ * (every dictKey/staticDict alias and every lookup field declared before
+ * Task 6) returns `undefined` — falls through to the generic stored-value
+ * comparator, byte-identical to today. Static tier reads `descriptor.table`
+ * directly; reserved AND matrix (collection) tier both read `cfg.snapshotFor`
+ * (the SAME live cache `presentForJoin`'s lookup half reads — see
+ * `snapshot.ts`'s file header). The hook has no locale parameter
+ * (`via.ts:128-129`, unchanged) — closes over the descriptor's own
+ * `displayLocale` (the same locale-less-hinge default `runLookupPresent`
+ * already uses); a `sortBy` field whose value isn't locale-keyed
+ * (`present.by` undefined) never needs one. A `by`-keyed `sortBy` field
+ * with NO declared `displayLocale` degrades to comparing the raw canonical
+ * keys (silent — `LookupSnapshot.compareKeys` never throws; declare-time
+ * warning at `descriptor.ts`'s `lookup()` factory; use
+ * `orderBy(field, dir, {by:'label'})` — `resolveOrderLabel` below — for a
+ * PER-CALL locale instead).
  */
 function compareLookupOrder(field: string, a: unknown, b: unknown, cfg: LookupViaConfig): number | undefined {
   if (typeof a !== 'string' || typeof b !== 'string') return undefined
@@ -286,9 +341,35 @@ function compareLookupOrder(field: string, a: unknown, b: unknown, cfg: LookupVi
   if (!desc || desc.sortBy === undefined) return undefined
   const rows = desc.backing === 'static'
     ? (desc.table ? new Map(Object.entries(desc.table)) : undefined)
-    : cfg.snapshotFor?.(desc.dimension)
+    : cfg.snapshotFor?.(desc)
   if (!rows) return undefined
   return buildLookupSnapshot(desc.dimension, rows, desc).compareKeys(a, b, desc.displayLocale ?? '')
+}
+
+/**
+ * `resolveOrderLabel` — per-key, PER-CALL-locale label resolution for
+ * `orderBy(field, dir, { by: 'label' })` (#650 Task 7, spec §6 / seam map
+ * Part 10 surprise 6's option (b)) — the channel `compareForOrder` above
+ * structurally cannot serve, since `ViaBinding.compareForOrder` carries no
+ * locale parameter. Consumed by `kernel/query/builder.ts`'s
+ * `buildOrderLabelMaps` as the fallback for lookup fields the legacy dict
+ * registries don't bridge (matrix tier; reserved/static tier already
+ * resolves via that bridge — `JoinContext.resolveDictSource` — tried
+ * FIRST by the caller, see `registry.ts`'s `collectLookupDictCompat` doc
+ * comment). Reuses the exact same `cfg.snapshotFor`/`buildLookupSnapshot`
+ * machinery as `compareLookupOrder` above, just with the per-call `locale`
+ * in place of the descriptor's own `displayLocale` — falling back to
+ * `displayLocale` only when the call itself is locale-less, the same
+ * hinge order `runLookupPresent` already uses.
+ */
+function resolveLookupOrderLabel(field: string, key: string, locale: string | undefined, cfg: LookupViaConfig): string | undefined {
+  const desc = cfg.lookupFields[field]
+  if (!desc) return undefined
+  const rows = desc.backing === 'static'
+    ? (desc.table ? new Map(Object.entries(desc.table)) : undefined)
+    : cfg.snapshotFor?.(desc)
+  if (!rows) return undefined
+  return buildLookupSnapshot(desc.dimension, rows, desc).label(key, locale ?? desc.displayLocale ?? '')
 }
 
 export function lookupBinding(cfg: LookupViaConfig): ViaBinding {
@@ -301,6 +382,7 @@ export function lookupBinding(cfg: LookupViaConfig): ViaBinding {
     enforceWrite: (record) => runLookupEnforceWrite(record, cfg),
     present: async (record, ctx) => runLookupPresent(record, ctx, cfg),
     compareForOrder: (field, a, b) => compareLookupOrder(field, a, b, cfg),
+    resolveOrderLabel: (field, key, locale) => resolveLookupOrderLabel(field, key, locale, cfg),
     describeFragment: () => buildLookupDescribeFragment(cfg),
   }
 }
