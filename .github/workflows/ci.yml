@@ -23,7 +23,7 @@ permissions:
 # default heap or it dies with ERR_WORKER_OUT_OF_MEMORY. Applies to every
 # job that builds (build, lint+typecheck, test, interop).
 env:
-  NODE_OPTIONS: --max-old-space-size=8192
+  NODE_OPTIONS: --max-old-space-size=12288
 
 jobs:
   # ── Architecture invariants ──────────────────────────────────────────
