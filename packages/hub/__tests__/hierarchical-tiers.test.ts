@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, ConflictError, TierNotGrantedError, TierDemoteDeniedError } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
+import { rewrapBodyToDek } from '../src/kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, GhostRecord, CrossTierAccessEvent } from '../src/index.js'
 
 interface Doc {
@@ -255,6 +256,47 @@ describe('v0.18 hierarchical access', () => {
       await vault.revokeDelegation(token.id)
       const store = (db as unknown as { options: { store: NoydbStore } }).options.store
       expect(await store.get('v1', '_delegations', token.id)).toBeNull()
+    })
+  })
+
+  describe('sealed fields at tier > 0 (#635)', () => {
+    it('getAtTier surfaces a sealed field on a tier>0 record instead of silently omitting it', async () => {
+      const { db, vault } = await freshVault()
+      // Sealed under the collection's tier-0 DEK (no perRecordKeys → legacy,
+      // DEK-derived sealed key — the trickier of the two derivations, since
+      // it is NOT the tier DEK the record's body ends up wrapped under).
+      const docs = vault.collection<Doc>('docs', { tiers: [0, 1], sensitive: ['body'] })
+      await docs.put('d1', { id: 'd1', title: 'Top', body: 'classified payload' })
+
+      const store = (db as unknown as { options: { store: NoydbStore } }).options.store
+      const tier0Env = (await store.get('v1', 'docs', 'd1'))!
+      expect(tier0Env._sealed?.body).toBeDefined()
+
+      // Hand-construct the tier>0 envelope `elevate()` would produce IF it
+      // carried `_sealed` forward (a separate, pre-existing gap — see the
+      // task report; not exercised here so this test isolates the getAtTier
+      // read-side fix under #635). Sealed slots are CEK-/tier-0-DEK-derived,
+      // never tier-DEK-derived (tier writes never seal fields), so `_sealed`
+      // survives a body re-wrap to a different tier's DEK unchanged.
+      const getDEK = (vault as unknown as { getDEK(name: string): Promise<CryptoKey> }).getDEK
+      const tier0Dek = await getDEK('docs')
+      const tier1Dek = await getDEK('docs#1')
+      const body = await rewrapBodyToDek(tier0Env, tier0Dek, tier1Dek)
+      const tier1Env: EncryptedEnvelope = {
+        ...tier0Env,
+        _v: tier0Env._v + 1,
+        _iv: body._iv,
+        _data: body._data,
+        _tier: 1,
+        ...(body._cek !== undefined ? { _cek: body._cek } : {}),
+        ...(tier0Env._sealed !== undefined ? { _sealed: tier0Env._sealed } : {}),
+      }
+      await store.put('v1', 'docs', 'd1', tier1Env)
+
+      const out = await docs.getAtTier('d1') as Doc
+      expect(out.title).toBe('Top')
+      // Pre-fix this was `undefined` — a silent omission, not a crash.
+      expect(out.body).toBe('classified payload')
     })
   })
 

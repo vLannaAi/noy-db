@@ -1687,7 +1687,12 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-audit/portability/request-withdrawal.ts', 4],
   ['packages/hub/src/with-audit/portability/withdraw-accessible.ts', 2],
   ['packages/hub/src/with-audit/sealed-record/index.ts', 4],
-  ['packages/hub/src/with-audit/tiers/index.ts', 22],
+  // #635: `getAtTier`'s tier>0 leg now processes `_sealed` slots (reads
+  // `envelope._sealed` to detect + forward the blob map to
+  // `RecordCodec.applySealedSlots`) — 2 new accesses, reviewed & justified
+  // (parity with the tier-0 leg, which already goes through `decryptRecord`'s
+  // own `_sealed` handling).
+  ['packages/hub/src/with-audit/tiers/index.ts', 24],
   ['packages/hub/src/with-cargo/adopt-partition.ts', 8],
   ['packages/hub/src/with-cargo/extract-partition.ts', 26],
   ['packages/hub/src/with-commit/history/history.ts', 2],
