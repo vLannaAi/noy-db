@@ -22,6 +22,9 @@ import { classified } from '../../src/shape/via-classified/presets.js'
 import { withClassified } from '../../src/shape/via-classified/index.js'
 import type { ClassifiedFieldSpec } from '../../src/shape/via-classified/index.js'
 import { inlineMemory } from '../classified/harness.js'
+import { dictKey } from '../../src/shape/via-i18n/dictionary.js'
+import { withI18n } from '../../src/shape/via-i18n/index.js'
+import { dict } from '../../src/shape/via-lookup/descriptor.js'
 
 interface Item extends Record<string, unknown> {
   id: string
@@ -189,6 +192,121 @@ describe('computed(virtual) — read-time, never-stored mode (#638 Task 7)', () 
     // quantized the computed output before persistence.
     const raw = await c._getStoredRecord('a')
     expect((raw as Priced)?.total).toBeDefined()
+  })
+
+  // #631 review round 2 — the collision guard's `computed` exemption (kernel/
+  // collection-config.ts#guardCrossBindingFieldCollisions) covers `money`/`i18n`/`lookup`
+  // uniformly, on the theory that `mergeViaFields` folds `via()`-composition and two
+  // independent sugar-map declarations into byte-IDENTICAL merged field maps — so if one
+  // style genuinely composes, the other must too (provenance is erased before the guard
+  // ever sees the config). Money's own proof is the pair of tests directly above; these
+  // pin the SAME claim for the `i18n` (dictKey) and `lookup` (dict()) families, in BOTH
+  // declaration styles, and — mirroring the money virtual-mode test above — pin the known
+  // present-ORDER limitation in virtual mode too (i18n/lookup's `present()` runs BEFORE
+  // computed's, per `compileViaBindings`'s money→i18n→lookup→classified→blob→computed
+  // ordering, so a virtual field's label can never be dressed off a value that doesn't
+  // exist yet at i18n/lookup's `present()` time — this is NOT a reason to drop the family
+  // from the exemption; materialized mode below is what proves the family genuinely
+  // composes).
+  describe('composed grammar — computed + i18n/lookup families (#631 collision-guard exemption pins)', () => {
+    interface Order extends Record<string, unknown> { id: string; base: number; status?: string; statusLabel?: string }
+
+    async function labeledVault() {
+      const store = inlineMemory()
+      const db = await createNoydb({
+        store, user: 'alice', secret: 'via-computed-i18n-lookup-2026', i18nStrategy: withI18n(),
+      })
+      const v = await db.openVault('v1')
+      await v.dictionary('status').putAll({
+        draft: { en: 'Draft', th: 'ฉบับร่าง' },
+        paid: { en: 'Paid', th: 'ชำระแล้ว' },
+      })
+      return v
+    }
+
+    const statusFn = (r: Record<string, unknown>): string => ((r.base as number) >= 10 ? 'paid' : 'draft')
+
+    it('via(computed(fn, { mode: "materialized" }), dictKey(...)) on one field — dictKey label dressing applies to the computed output (i18n family)', async () => {
+      const v = await labeledVault()
+      const c = v.collection<Order>('orders', {
+        viaFields: {
+          status: via(computed(statusFn, { mode: 'materialized' }), dictKey('status', ['draft', 'paid'] as const)),
+        },
+      })
+      await c.put('a', { id: 'a', base: 25 })
+      const read = await c.get('a', { locale: 'th' })
+      expect(read?.status).toBe('paid')
+      expect(read?.statusLabel).toBe('ชำระแล้ว')
+      // materialized: STORED — the computed output is a plain field by the time dictKey's
+      // (no-op on write) binding and money-precedent-style read dressing see it.
+      const raw = await c._getStoredRecord('a')
+      expect((raw as Order)?.status).toBe('paid')
+    })
+
+    it('two-sugar-maps (no via()): computed: {...} + dictKeyFields: {...} on the SAME field dresses <field>Label identically to the via()-composed form above (i18n family)', async () => {
+      const v = await labeledVault()
+      const c = v.collection<Order>('orders', {
+        computed: { status: statusFn },
+        dictKeyFields: { status: dictKey('status', ['draft', 'paid'] as const) },
+      })
+      await c.put('a', { id: 'a', base: 3 })
+      const read = await c.get('a', { locale: 'th' })
+      expect(read?.status).toBe('draft')
+      expect(read?.statusLabel).toBe('ฉบับร่าง')
+    })
+
+    it('via(computed(fn, { mode: "virtual" }), dictKey(...)) on one field — KNOWN LIMITATION: dictKey\'s present() runs BEFORE the virtual value exists, so no label is dressed (mirrors the money virtual-mode limitation above)', async () => {
+      const v = await labeledVault()
+      const c = v.collection<Order>('orders', {
+        viaFields: {
+          status: via(computed(statusFn, { deps: ['base'], mode: 'virtual' }), dictKey('status', ['draft', 'paid'] as const)),
+        },
+      })
+      await c.put('a', { id: 'a', base: 25 })
+      const read = await c.get('a', { locale: 'th' }) as Order
+      expect(read.status).toBe('paid') // the virtual value itself still computes correctly
+      expect(read.statusLabel).toBeUndefined() // NOT dressed — i18n's present() already ran
+      const raw = await c._getStoredRecord('a')
+      expect('status' in (raw as Record<string, unknown>)).toBe(false) // never stored (virtual)
+    })
+
+    it('via(computed(fn, { mode: "materialized" }), dict(...)) on one field — lookup label dressing applies to the computed output (lookup family)', async () => {
+      const v = await labeledVault()
+      const c = v.collection<Order>('orders', {
+        viaFields: {
+          status: via(computed(statusFn, { mode: 'materialized' }), dict('status')),
+        },
+      })
+      await c.put('a', { id: 'a', base: 25 })
+      const read = await c.get('a', { locale: 'th' })
+      expect(read?.status).toBe('paid')
+      expect(read?.statusLabel).toBe('ชำระแล้ว')
+    })
+
+    it('two-sugar-maps (no via()): computed: {...} + lookupFields: {...} on the SAME field dresses <field>Label identically to the via()-composed form above (lookup family)', async () => {
+      const v = await labeledVault()
+      const c = v.collection<Order>('orders', {
+        computed: { status: statusFn },
+        lookupFields: { status: dict('status') },
+      })
+      await c.put('a', { id: 'a', base: 3 })
+      const read = await c.get('a', { locale: 'th' })
+      expect(read?.status).toBe('draft')
+      expect(read?.statusLabel).toBe('ฉบับร่าง')
+    })
+
+    it('via(computed(fn, { mode: "virtual" }), dict(...)) on one field — same present-order limitation as dictKey above: no label dressed (lookup family)', async () => {
+      const v = await labeledVault()
+      const c = v.collection<Order>('orders', {
+        viaFields: {
+          status: via(computed(statusFn, { deps: ['base'], mode: 'virtual' }), dict('status')),
+        },
+      })
+      await c.put('a', { id: 'a', base: 25 })
+      const read = await c.get('a', { locale: 'th' }) as Order
+      expect(read.status).toBe('paid')
+      expect(read.statusLabel).toBeUndefined()
+    })
   })
 
   it('a depsless virtual field on a non-classified collection is legal and always non-queryable', async () => {

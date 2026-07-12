@@ -567,13 +567,46 @@ const VIA_FIELD_MAP_FAMILY: Readonly<Record<string, string>> = {
  * because that's the only seam that also sees `classifiedFields`/`blobFields` — neither is
  * part of `ViaFieldSources`, so `mergeViaFields` never sees them.
  *
- * EXEMPT: `computed` colliding with `money`/`i18n`/`lookup` on the same field —
- * `via(computed(fn), money(...))` is the documented, tested composition path
- * (`computed/virtual.test.ts`'s "composed grammar" tests; `docs/subsystems/via-computed.md`).
- * Since `via()` only accepts money/i18n/computed/lookup descriptors (`mergeViaFields` throws
- * on any other `_viaBrand`), a computed+classified or computed+blob same-field pairing can
- * never arise from that composer — it can only come from mistakenly naming the same field in
- * `computed`/`viaFields` AND `classifiedFields`/`blobFields`, which this guard still refuses.
+ * WHY FAMILY-BASED, NOT PROVENANCE-BASED (#631 review, round 2 — Controller ruling): a field
+ * declared via `via(computed(fn), money(...))` and a field declared via two independent sugar
+ * maps (`computed: { total: fn }` + `moneyFields: { total: money(...) }`) are NOT
+ * distinguishable here — `mergeViaFields` (via-compose.ts) folds both declaration STYLES into
+ * the IDENTICAL merged per-family field maps this function receives; provenance (which style
+ * produced a given map entry) is erased before this guard ever runs. Narrowing the exemption to
+ * "only via()-composed fields" would therefore require threading a second, parallel
+ * provenance-tracking data structure through `mergeViaFields` for the sole purpose of refusing a
+ * config that is BEHAVIORALLY IDENTICAL to the sanctioned one — refusing it would be a
+ * behavior-lock violation (breaking a legal, meaningful config), not a bug fix. The exemption is
+ * therefore keyed on the FAMILY SET alone, and instead earned empirically per family (below).
+ *
+ * EXEMPT (test-earned, not merely asserted): `computed` colliding with EXACTLY ONE of
+ * `money`/`i18n`/`lookup` on the same field. `via()`'s descriptor loop only accepts
+ * money/i18n/computed/lookup `_viaBrand`s (`mergeViaFields` throws on any other brand), so a
+ * computed+classified or computed+blob same-field pairing can never arise from composition — it
+ * can only come from mistakenly naming the same field in `computed`/`viaFields` AND
+ * `classifiedFields`/`blobFields`, which this guard still refuses. For the three families that
+ * CAN legitimately arise, each is pinned by an end-to-end runtime test proving the composition
+ * does something real (not just "doesn't throw") — see `computed/virtual.test.ts`:
+ *   - money: the "composed grammar" tests (materialized-mode money formatting the computed
+ *     output; the ORIGINAL evidence this exemption started from — see the money DOES/does NOT
+ *     format the computed output pair).
+ *   - i18n (dictKey) / lookup (dict()): the "composed grammar — computed + i18n/lookup
+ *     families (#631 collision-guard exemption pins)" block, BOTH declaration styles
+ *     (`via(computed(...), dictKey(...)/dict(...))` and the two-independent-sugar-maps form),
+ *     materialized mode — proven to dress `<field>Label` off the computed output identically
+ *     either way (the provenance-erasure claim above, empirically confirmed). Virtual mode for
+ *     both families hits the SAME present-ORDER limitation money's own virtual composed-grammar
+ *     test already documents (i18n/lookup's `present()` runs BEFORE computed's — a virtual field
+ *     is never stored, so there is nothing to dress yet); pinned as a known limitation, not
+ *     grounds to drop the family from the exemption (materialized mode is what proves the family
+ *     genuinely composes).
+ *
+ * 3-CLAIMANT TIGHTENING (#631 review, round 2): the exemption requires EXACTLY TWO claimant
+ * source-keys, not just two families. A field named in `computed` + BOTH `i18nFields` AND
+ * `dictKeyFields` collapses to the same two families (`{computed, i18n}` — `dictKeyFields`
+ * shares the `i18n` family) but is a genuine THREE-claimant collision: two independent i18n
+ * sugar keys both claiming the field is itself a mistake this guard exists to catch, and must
+ * not slip through because the family SET happens to match the earned exemption's shape.
  */
 function guardCrossBindingFieldCollisions(
   fieldMaps: Readonly<Record<string, Record<string, unknown> | undefined>>,
@@ -589,9 +622,10 @@ function guardCrossBindingFieldCollisions(
   for (const [field, sourceKeys] of claimantsByField) {
     const families = new Set([...sourceKeys].map((key) => VIA_FIELD_MAP_FAMILY[key]))
     if (families.size < 2) continue // same family via two sugar keys (e.g. i18n/dictKey) — not this guard's job
-    if (families.size === 2 && families.has('computed')) {
+    // Exactly two CLAIMANTS (not just two families) — see "3-CLAIMANT TIGHTENING" above.
+    if (sourceKeys.size === 2 && families.has('computed')) {
       const other = [...families].find((f) => f !== 'computed')
-      if (other === 'money' || other === 'i18n' || other === 'lookup') continue // composed grammar (#638)
+      if (other === 'money' || other === 'i18n' || other === 'lookup') continue // composed grammar, test-earned (#638/#631)
     }
     const keys = [...sourceKeys].sort().map((k) => `\`${k}\``)
     const joined = keys.length === 2 ? keys.join(' and ') : `${keys.slice(0, -1).join(', ')}, and ${keys[keys.length - 1]}`

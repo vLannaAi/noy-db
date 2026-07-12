@@ -8,7 +8,9 @@ import type { ClassifiedGuardCtx } from '../../src/port/with/classified-strategy
 import { via } from '../../src/kernel/via-compose.js'
 import { computed } from '../../src/shape/via-computed/descriptor.js'
 import { money } from '../../src/shape/via-money/descriptor.js'
-import { enumOf } from '../../src/shape/via-lookup/descriptor.js'
+import { enumOf, dict } from '../../src/shape/via-lookup/descriptor.js'
+import { dictKey } from '../../src/shape/via-i18n/dictionary.js'
+import { i18nText } from '../../src/shape/via-i18n/core.js'
 import { ValidationError } from '../../src/kernel/errors.js'
 
 // Synthetic opts — resolveCollectionConfig/compileViaBindings never call methods
@@ -254,5 +256,70 @@ describe('via config-compile seam — cross-binding same-field collision guard (
 
     const bindings = compileViaBindings(opts, emptyGuardCtx())
     expect(bindings.map((b) => b.brand)).toEqual(['money', 'computed'])
+  })
+
+  it('control: via(computed(...), dictKey(...)) composing on the SAME field is NOT refused (i18n family, #631 round 2)', () => {
+    const opts = {
+      ...syntheticOpts(),
+      viaFields: {
+        status: via(
+          computed((r) => (r.n as number) > 0 ? 'paid' : 'draft', { mode: 'materialized' }),
+          dictKey('status', ['draft', 'paid'] as const),
+        ),
+      },
+    } as CollectionOpts<unknown>
+
+    expect(() => compileViaBindings(opts, emptyGuardCtx())).not.toThrow()
+  })
+
+  it('control: via(computed(...), dict(...)) composing on the SAME field is NOT refused (lookup family, #631 round 2)', () => {
+    const opts = {
+      ...syntheticOpts(),
+      viaFields: {
+        status: via(
+          computed((r) => (r.n as number) > 0 ? 'paid' : 'draft', { mode: 'materialized' }),
+          dict('status'),
+        ),
+      },
+    } as CollectionOpts<unknown>
+
+    expect(() => compileViaBindings(opts, emptyGuardCtx())).not.toThrow()
+  })
+
+  it('control: computed: {...} + dictKeyFields: {...} two-sugar-maps (no via()) composing on the SAME field is NOT refused (i18n family, #631 round 2)', () => {
+    const opts = {
+      ...syntheticOpts(),
+      computed: { status: (r: Record<string, unknown>) => (r.n as number) > 0 ? 'paid' : 'draft' },
+      dictKeyFields: { status: dictKey('status', ['draft', 'paid'] as const) },
+    } as CollectionOpts<unknown>
+
+    expect(() => compileViaBindings(opts, emptyGuardCtx())).not.toThrow()
+  })
+
+  it('control: computed: {...} + lookupFields: {...} two-sugar-maps (no via()) composing on the SAME field is NOT refused (lookup family, #631 round 2)', () => {
+    const opts = {
+      ...syntheticOpts(),
+      computed: { status: (r: Record<string, unknown>) => (r.n as number) > 0 ? 'paid' : 'draft' },
+      lookupFields: { status: dict('status') },
+    } as CollectionOpts<unknown>
+
+    expect(() => compileViaBindings(opts, emptyGuardCtx())).not.toThrow()
+  })
+
+  it('throws (3-claimant tightening): computed + i18nFields + dictKeyFields on ONE field — family-collapse must NOT exempt a 3rd independent claimant (#631 review fix)', () => {
+    // i18nFields and dictKeyFields both map to the SAME 'i18n' family, so the naive
+    // families.size===2 check would have wrongly exempted this as "computed + i18n" —
+    // but there are THREE independent claimants (computed, i18nFields, dictKeyFields), and
+    // two of them (i18nFields/dictKeyFields) are themselves colliding on the same field name,
+    // which is exactly the mistake this guard exists to catch.
+    const opts = {
+      ...syntheticOpts(),
+      computed: { status: (r: Record<string, unknown>) => (r.n as number) > 0 ? 'paid' : 'draft' },
+      i18nFields: { status: i18nText({ languages: ['en', 'th'], required: 'all' }) },
+      dictKeyFields: { status: dictKey('status', ['draft', 'paid'] as const) },
+    } as CollectionOpts<unknown>
+
+    expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(ValidationError)
+    expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(/"status"/)
   })
 })
