@@ -30,9 +30,13 @@ contract: via(blob())                                      // externalized binar
 > `via(blob())` as spelled above remain unrunnable until the composer grows
 > those brands. Phase C's `computed` entry is shipped and runnable exactly as
 > spelled above, including the `money(...)` stack on the same field (see
-> [`docs/subsystems/via-computed.md`](via-computed.md)). The phase D entries
-> (`indexed`, `ref`, `searchable`) remain unshipped design sketches, not yet
-> runnable.
+> [`docs/subsystems/via-computed.md`](via-computed.md)). Phase D shipped a
+> **different, more complete spelling** than the `indexed`/`ref`/`searchable`
+> sketch above: `lookupFields`/`via(lookup(...))` — one binding, three
+> backing tiers (enum/dict/first-class collection), altKeys, vocabulary, and
+> `restrict`/`cascade`/`nullify` reference semantics (see
+> [`docs/subsystems/via-lookup.md`](via-lookup.md)). The literal `indexed()`/
+> `ref()`/`searchable()` spellings above remain unshipped design sketches.
 
 ## The grammar (the naming system this arc completes)
 
@@ -126,7 +130,7 @@ The via-port lands in five phases, each with its own feature set, integration de
 | **A** | Core port (contract, registry, pipeline runner), `via-money`, `via-i18n` (sugar compatibility) | Landed on `feat/623-via-port`, unreleased | #623 (milestone #28) |
 | **B** | Security features: `via-classified`, `via-blob`; posture enforcement (query/export/forget); `ViaCryptoCtx` (`sealedSlots`/`reservedEnvelopes`) | Landed on `feat/629-via-phase-b`, unreleased | #629 (milestone #28) |
 | **C** | Formula & graph: the `ViaGraph` dependency graph + taint algebra, `via-computed` (virtual + materialized), taint enforcement (fixes #636), sync/cutover/restore dispatch (fixes #621), frozen-output skip+audit (fixes #637), forget fanout (fixes #622) | Landed on `feat/638-via-phase-c`, unreleased | #638 (milestone #28) |
-| **D** | Lookup layer: `via-ref` (FK deps), `via-indexed`, `via-searchable` — index/search maintenance onto the choke point | Design | issue TBD |
+| **D** | Lookup layer: the `via-lookup` binding (`lookup`/`enum`/`dict`, three backing tiers, altKeys, vocabulary, `restrict`/`cascade`/`nullify` ref semantics) | Landed on `feat/650-via-phase-d`, unreleased | #650 (milestone #28) |
 | **E** | External SPI — publish the contract; plugin sandboxing; posture non-forgeability | Deferred | TBD |
 
 Each phase is self-contained; work in earlier phases does not block later ones. Phase A ships with zero via-features in the kernel — all behavior lives in the features themselves, tree-shaken away if unused.
@@ -249,6 +253,37 @@ See [`docs/subsystems/via-computed.md`](via-computed.md) for the `computed(fn, {
 feature itself — declaring fields, virtual vs. materialized semantics, composition with other
 features, the declare-time guard and its known limit, and the binding architecture.
 
+### Phase D — the lookup layer: `lookup`/`enum`/`dict`, altKeys, vocabulary, ref semantics
+
+Phase D (#650) collapses the legacy `dictKey()`/`staticDict()` code-field pattern and a
+first-class reference-collection pattern into **one** `'lookup'` `ViaBinding` with three backing
+tiers (enum: inline keys, no store; dict: a reserved `_dict_<name>` micro-collection; matrix: a
+first-class collection like `countries`). `dictKey()`/`staticDict()` become **aliases** onto this
+binding — byte-identical stored envelopes, `describe()` output, and join dressing, locked by
+`packages/hub/__tests__/via/lookup-alias-parity.test.ts`. New capability the aliases don't have:
+`altKeys` (candidate values that normalize to a canonical key on `ingest`, e.g. an ISO3 code
+normalizing to its ISO2 canonical), `vocabulary: 'closed'` write-time membership refusal (closing
+#649, where the dictKey doc comment promised this and the code didn't do it), and
+`restrict`/`cascade`/`nullify` reference semantics on delete and `forget()` (closing #648, where
+`DictKeyInUseError` was declared, documented, and never thrown). #647 additionally makes reserved
+(`_dict_*`) collections participate in sync for the first time — they used to bypass the mutation
+choke point and the dirty log entirely, so dictionary edits never crossed `push()`/`pull()`, only
+backup/bundle export.
+
+Task 6 also retires the #626 kernel→shape grandfather: `kernel/query/join.ts` no longer imports
+`shape/via-i18n/core.js` directly for join-layer locale resolution — it calls a sync
+`presentForJoin` hook the `Collection` builds from its own i18n + lookup bindings instead. Task 7
+extends that same sync snapshot+locale seam to the matrix tier (Task 6 had only wired reserved
+tier) and wires `ViaBinding.describeFragment` — declared since #623, zero consumers until now —
+into `describe()`'s new normalized `lookup` block. Both architecture guards this phase touches
+(`via-layering`, `via-enclave-isolation`) end the phase with **empty** allowlists, each proven to
+still fire on a synthetic violation (`via-layering-empty.test.ts`, `via-enclave-empty.test.ts`).
+
+See [`docs/subsystems/via-lookup.md`](via-lookup.md) for the full feature — tiers, altKeys,
+vocabulary, presentation/join-dressing, sorting, reference semantics, reserved-tier sync, and the
+`describe()` `lookup` block, all backed by `packages/hub/__tests__/via/countries-matrix.test.ts`'s
+canonical countries-matrix example.
+
 ## See also
 
 - [`docs/superpowers/specs/2026-07-10-via-port-design.md`](../superpowers/specs/2026-07-10-via-port-design.md) — full phase A design spec
@@ -259,8 +294,9 @@ features, the declare-time guard and its known limit, and the binding architectu
 - [`docs/subsystems/via-classified.md`](via-classified.md) — classified feature docs
 - [`docs/subsystems/via-blob.md`](via-blob.md) — blob feature docs
 - [`docs/subsystems/via-computed.md`](via-computed.md) — computed feature docs (virtual + materialized)
-- `packages/hub/src/kernel/via.ts` — the port contract and kernel runner (incl. `ViaCryptoCtx`, `ViaEraseCtx`/`ViaEraseReport`)
-- `packages/hub/src/kernel/via-pipeline.ts` — the phased runner (incl. `postureFor`, `redactForExport`, `eraseSealed`)
+- [`docs/subsystems/via-lookup.md`](via-lookup.md) — phase D: lookup feature docs (`lookup`/`enum`/`dict`)
+- `packages/hub/src/kernel/via.ts` — the port contract and kernel runner (incl. `ViaCryptoCtx`, `ViaEraseCtx`/`ViaEraseReport`, `resolveOrderLabel`)
+- `packages/hub/src/kernel/via-pipeline.ts` — the phased runner (incl. `postureFor`, `redactForExport`, `eraseSealed`, `describeFragments`)
 - `packages/hub/src/kernel/via-compose.ts` — the `via()` composer + sugar/`viaFields` merge
 - `packages/hub/src/kernel/enclave/record-keys/sealed-slots.ts` — `ViaCryptoCtx`'s kernel-side capability factories
 - `packages/hub/src/kernel/via-graph.ts` — phase C: the `ViaGraph` dependency graph + taint algebra
@@ -269,5 +305,6 @@ features, the declare-time guard and its known limit, and the binding architectu
 - `packages/hub/src/shape/via-money/` — phase A: money binding
 - `packages/hub/src/shape/via-i18n/` — phase A: i18n binding
 - `packages/hub/src/shape/via-classified/` — phase B: classified binding
+- `packages/hub/src/shape/via-lookup/` — phase D: the lookup binding (descriptors, registry, snapshot, handle)
 - `packages/hub/src/shape/via-blob/` — phase B: blob binding
 - `packages/hub/src/shape/via-computed/` — phase C: computed binding
