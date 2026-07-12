@@ -78,12 +78,12 @@ export function resolveRollupDeleteIntents<S extends { source: string; rollup?: 
  *  so it's re-resolved here, post-boundary, instead of carried across it. `undefined` if the
  *  intent's originating strategy was unregistered between collect time and wave time (residual
  *  gap, freshness-only). */
-export function findRollupSpecForIntent<S extends { source: string; rollup?: { field: string } }>(
+export function findRollupSpecForIntent<S extends { source: string; rollup?: { from: string; field: string } }>(
   registry: { strategiesForSource(name: string): ReadonlyArray<{ spec: S }> } | undefined,
   collectionName: string,
   intent: RollupDeleteIntent,
 ): S | undefined {
-  return registry?.strategiesForSource(collectionName).find((s) => s.spec.source === intent.into && s.spec.rollup?.field === intent.field)?.spec
+  return registry?.strategiesForSource(collectionName).find((s) => s.spec.source === intent.into && s.spec.rollup?.field === intent.field && s.spec.rollup?.from === collectionName)?.spec
 }
 
 /** One dedup ledger for a single wave — a target is recomputed at most once (mark-on-check). */
@@ -103,7 +103,7 @@ export interface VaultLike {
   readonly graph: ViaGraph
   _getCollection(name: string): Collection<Record<string, unknown>> | undefined
   /** #640 (#644 item 3) — structured wave-error surfacing, additive to the existing console.warn. */
-  emit(event: string, payload: unknown): void
+  _emit(event: string, payload: unknown): void
 }
 
 /**
@@ -143,7 +143,7 @@ export async function runGraphDispatchWave(vault: VaultLike, batch: GraphBatch):
         // #644 item 3: ADDITIVELY (never in place of the warn) emit a structured event too,
         // so a listener doesn't have to scrape console output to react to a wave failure.
         console.warn(`[via-dispatch] wave recompute failed for ${collectionName}/${id}:`, err)
-        vault.emit('derivation:wave-error', { collection: collectionName, id, error: err })
+        vault._emit('derivation:wave-error', { collection: collectionName, id, error: err })
       }
     }
     // #640 — delete-kind touches: the deleted child's rollup-parent intents, resolved (sync,
@@ -155,7 +155,7 @@ export async function runGraphDispatchWave(vault: VaultLike, batch: GraphBatch):
         await coll._recomputeDeletedRollups(intents, wave)
       } catch (err) {
         console.warn(`[via-dispatch] wave delete-recompute failed for ${collectionName}/${id}:`, err)
-        vault.emit('derivation:wave-error', { collection: collectionName, id, error: err })
+        vault._emit('derivation:wave-error', { collection: collectionName, id, error: err })
       }
     }
   }

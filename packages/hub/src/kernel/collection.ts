@@ -3854,7 +3854,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     }
   }
 
-  /** @internal — the current in-memory record without a store read (for conflict capture). */
+  /** @internal — the current in-memory record without a store read (for conflict capture); also the #640 FK-recovery read on a sync-applied delete — misses on a cold or evicted child (lazy LRU eviction OR an un-hydrated eager collection whose first sync op is a delete), not "lazy-mode" only. */
   _peekCached(id: string): T | null {
     const entry = this.lazy && this.lru ? this.lru.get(id) : this.cache.get(id)
     return entry ? entry.record : null

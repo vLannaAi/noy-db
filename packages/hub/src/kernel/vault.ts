@@ -1330,8 +1330,8 @@ export class Vault {
     return this.collectionCache.get(name) as Collection<Record<string, unknown>> | undefined
   }
 
-  /** @internal #640 (#644 item 3) — `VaultLike.emit`: the wave's structured error surfacing. */
-  emit(event: string, payload: unknown): void { (this.emitter.emit as (ev: string, pl: unknown) => void)(event, payload) }
+  /** @internal #640 (#644 item 3) — `VaultLike._emit`: the wave's structured error surfacing. */
+  _emit(event: string, payload: unknown): void { (this.emitter.emit as (ev: string, pl: unknown) => void)(event, payload) }
 
   /**
    * @internal #589 → #604. Physically remove delete markers with `_ts` strictly
