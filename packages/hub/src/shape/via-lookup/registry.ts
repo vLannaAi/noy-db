@@ -273,6 +273,8 @@ export interface MaterializedBacking {
  * the CHE/SWZ drift class: two different rows must never claim the same
  * candidate key). `rows` is keyed by canonical key (`row[descriptor.key]`
  * for the matrix tier; the dimension's own key for static/reserved).
+ * An altKey candidate VALUE may be a string or number — both normalize via
+ * `coerceLookupKey` (#651 Task 3); non-scalar/absent values are skipped.
  * Pure — no I/O. Throws `ValidationError` on collision.
  */
 export function materializeBackingTable(

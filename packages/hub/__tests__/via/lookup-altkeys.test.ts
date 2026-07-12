@@ -93,6 +93,25 @@ describe('materializeBackingTable (#650 Task 3) — pure registry function', () 
     // The canonical key itself never appears as an altIndex source (only 'USA' does).
     expect(result.altIndex.has('US')).toBe(false)
   })
+
+  it('accepts a numeric altKey value, normalizing it via coerceLookupKey (#651 Task 3 delta 3 — numeric widening)', () => {
+    const desc = lookup('countries', { key: 'iso2', altKeys: ['callingCode'] })
+    const rows = new Map<string, Record<string, unknown>>([
+      ['US', { iso2: 'US', callingCode: 1 }],
+    ])
+    const result = materializeBackingTable(desc, rows)
+    expect(result.altIndex.get('1')).toBe('US')
+  })
+
+  it('throws ValidationError when a numeric altKey value coerces to the same string as another row\'s string altKey (ownership-uniqueness holds across numeric/string)', () => {
+    const desc = lookup('countries', { key: 'iso2', altKeys: ['callingCode'] })
+    const rows = new Map<string, Record<string, unknown>>([
+      ['US', { iso2: 'US', callingCode: 1 }],
+      // XX's callingCode is the STRING '1' — coerces to the same candidate as US's numeric 1.
+      ['XX', { iso2: 'XX', callingCode: '1' }],
+    ])
+    expect(() => materializeBackingTable(desc, rows)).toThrow(ValidationError)
+  })
 })
 
 describe('lookup() altKeys ingest normalization — matrix (collection) tier end-to-end', () => {
