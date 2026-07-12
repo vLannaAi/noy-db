@@ -312,9 +312,17 @@ export function applyTaintOverlay(coll: unknown, graph: ViaGraph, name: string):
   const c = coll as { via: ViaPipeline | undefined; codec: { setVia(via: ViaPipeline | undefined): void } }
   const sealAll = defaultPosture?.encryptedAtRest === 'sealed'
   const needsTaintBinding = sealFields.size > 0 || virtualExportRedact.size > 0 || sealAll
+  // #642 Fix wave 1 — strip a PRIOR 'taint' binding before (maybe) appending a fresh one: a
+  // base config compiled by `compileViaBindings` never carries 'taint' itself (only this
+  // function ever constructs one), so any 'taint' entry already on `c.via.bindings` is a
+  // leftover from an earlier `applyTaintOverlay` call on THIS SAME collection (fresh-open +
+  // every `reapplyDependentOverlays` refresh) — without stripping it first, each re-apply
+  // accumulated one more binding onto the list (harmless in effect, since every lookup only
+  // ever consults the LAST match, but unbounded and wrong).
+  const existingBindings = (c.via?.bindings ?? []).filter((b) => b.brand !== 'taint')
   const bindings = needsTaintBinding
-    ? [...(c.via?.bindings ?? []), taintBinding(sealFields, virtualExportRedact, sealAll)]
-    : (c.via?.bindings ?? [])
+    ? [...existingBindings, taintBinding(sealFields, virtualExportRedact, sealAll)]
+    : existingBindings
   const taint: ViaTaintOverlay = {
     postures: postures ?? EMPTY_POSTURE_MAP, sealFields, provenance,
     ...(defaultPosture !== undefined ? { defaultPosture } : {}),

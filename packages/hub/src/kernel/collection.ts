@@ -2120,7 +2120,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   async _getStoredRecord(id: string): Promise<T | null> {
     let raw: T | null
     if (this.lazy && this.lru) {
-      if (this.sensitiveFields.size > 0) {
+      if (this.sensitiveFields.size > 0 || this.via?.hasAtRestHooks === true) {
         // Sealed collection (lazy mirror of the eager `resolvePriorValues`):
         // the LRU holds {@link Sealed} handles for sensitive fields (non-
         // residency), but `_getStoredRecord` is the reverse-denorm / rollup
