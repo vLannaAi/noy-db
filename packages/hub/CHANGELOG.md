@@ -1,5 +1,231 @@
 # Changelog — hub
 
+## 0.3.0-pre.9
+
+### Minor Changes
+
+- The Via port (#629, phase B): classified fields and blobs join phase A's money/i18n as
+  kernel-orchestrated via-features, and every binding's declared `ViaPosture` — `encryptedAtRest`,
+  `queryable`, `exportable`, `forgettable` — is now an **enforced** contract instead of
+  documentation. `via-classified` (`shape/via-classified/`) seals `'recoverable'` fields at rest,
+  enforces preset validation and `storage: 'never'` rejection before a write reaches the store, and
+  participates in erasure; `via-blob` (`shape/via-blob/`) is a deliberately thin declaration +
+  posture binding — blob content crypto stays service-side (`with-shape/blobs/`), never routed
+  through the kernel's field-feature pipeline. Query, export, and forget all now consult posture
+  generically (no per-feature brand checks): the query DSL refuses a `queryable: 'none'` field
+  (new `FieldNotQueryableError` for `blobFields` — classified's own `det-exact` query behavior is
+  unchanged, a byte-for-byte parity pin); `Vault.exportStream()`/`exportJSON()` deliberately redact
+  an `exportable: false` field to the literal `'[sealed]'` on the record itself, ahead of the
+  pre-existing `SealedHandle.toJSON()` accident that produced the same string as a side effect
+  (both layers now verified independently); `vault.forget()` consults `forgettable` and folds each
+  sealed-posture binding's `erase()` hook into its report, with parity-pinned shred/residue counts.
+  New kernel machinery, `ViaCryptoCtx` (`sealedSlots` + `reservedEnvelopes`, both in
+  `kernel/enclave/record-keys/sealed-slots.ts`), gives via-features a scoped, key-free door into
+  per-record/per-collection crypto — the first consumer is `via-i18n`'s dictionary handle, which
+  this phase reroutes off a direct `kernel/enclave` import onto `reservedEnvelopes('_dict_')`,
+  **retiring the one remaining `via-enclave-isolation` grandfather** (that allowlist is now empty;
+  `via-layering`'s allowlist is unchanged, still exactly `kernel/query/join.ts` → #626).
+
+  **Downstream export output change:** the default (non-`redact`-option) export of a classified
+  field via `@noy-db/as-csv`/`@noy-db/as-sql`/`@noy-db/as-xml` changes bytes — pre-#629 these
+  satellites saw a live `SealedHandle` object and fell through to `JSON.stringify`-shaped output
+  (`"""[sealed]"""` in a CSV cell; a `jsonb` SQL column with literal `'"[sealed]"'`); post-#629 they
+  see the plain string `'[sealed]'` directly (a bare `[sealed]` CSV cell; a `text` SQL column with
+  literal `'[sealed]'`). The new output is the intended one — the old bytes were an accidental echo
+  of a live, `.reveal()`-capable handle reaching an export stream, which this phase's deliberate
+  redaction closes.
+
+  **Two erase-hook code paths ship real and unit-tested but stay production-dormant by design:**
+  the sealed-CEK `_sealed_cek/*` host-delivery envelope purge (`via-classified`) and the blob-shred
+  purge (`via-blob`) are both proven, by their respective pre-existing forget/erasure suites, to be
+  vault-level operations unconditional on any given collection declaring `classifiedFields`/
+  `blobFields` — routing either exclusively through its via `erase()` hook would silently regress
+  collections that don't declare the field but still exercise `.blob()`/`sealRecordToHost()`.
+  `vault.forget()` keeps calling both directly; the via bindings' `erase()` hooks carry only the
+  classification/participation they legitimately own (classified's `_sealed`-slot shred/residue
+  accounting, which IS live and wired). Making the purge scoping collection-declaration-aware is a
+  future product decision, not a gap in this phase.
+
+- The Via port (#638, phase C): a per-vault dependency graph (`ViaGraph`, `kernel/via-graph.ts`)
+  now connects every derivation, rollup, materialized view, and `computed` field to the sources it
+  reads, and enforces four structural fixes that were previously either silently wrong or a design
+  gap:
+
+  - **#636 — derived fields now inherit their strictest source's security posture.** A
+    `computed` field whose `deps` include a classified source used to silently copy that source's
+    plaintext (or a derivative of it) into an ordinary, unredacted field — the taint algebra
+    (`foldPosture`) now folds `encryptedAtRest`/`queryable`/`exportable`/`forgettable` from every
+    source, and a materialized field folding to `encryptedAtRest: 'sealed'` is actually sealed at
+    rest (the same `ctx.sealedSlots` capability `via-classified` uses); a virtual field (never
+    stored) is redacted on every read instead. **BEHAVIOR CHANGE, pre-1.0, deliberate security
+    fix:** any existing `computed`-from-classified configuration now inherits the classified
+    posture where it previously did not — such a field's `get()`/`list()`/export/query behavior
+    changes from plaintext to sealed/redacted/refused after upgrading.
+  - **#621 — sync-applied, cutover, and restore writes now dispatch derivations.** Previously only
+    a local `put()` triggered a collection's derivations/rollups/materialized views; a write
+    applied by `pull()`/`push()`/schema cutover/restore silently skipped dispatch entirely. A
+    batched, per-target-deduped wave now runs once at the end of a sync session (and around
+    cutover/restore) — N synced children of one rollup parent recompute the parent exactly once,
+    not N times; a collection with no dependents in the graph is skipped with zero decrypt cost
+    (unchanged for money/i18n-only collections).
+  - **#622 — `vault.forget()` now fans out to derived residue.** Forgetting a record used to leave
+    its derived copies and aggregate contributions behind. Record-grain derived artifacts (MV
+    rows, array-shape derivation rows, same-id record-shape derivation copies) are now erased;
+    aggregate-grain rollups are recomputed without the forgotten contribution in open periods, or
+    skip + audit in frozen ones — the subject's own record is still unconditionally shredded
+    either way.
+  - **#637 — a frozen-period derivation output now skips + audits instead of failing the source
+    write.** A derivation/rollup/MV output landing in a closed period used to throw
+    `PeriodClosedError` straight through the _legal_ write that triggered the recompute (live
+    local-write dispatch, `deriveAll()`, `refreshView()`, and — after the #621 fix above — the
+    sync dispatch wave too). It now skips the write (the historical output stands) and emits a
+    new `'derivation:skipped-frozen'` event, plus a `'lifecycle'` audit-ledger entry when
+    `withHistory()` is active. In the sync dispatch wave specifically, one frozen (or otherwise
+    failing) target in a batch no longer aborts the whole `pull()`/`push()` or starves a co-batched
+    healthy target.
+
+  **The declare-time typo guard (closes the #636 "typo reopening"):** on a collection that also
+  declares classified fields, a `computed` entry with no declared `deps` — or with a `deps` entry
+  naming an unknown field — now throws `ValidationError` at construction (an opaque function could
+  otherwise silently copy a classified field's plaintext with no way for the graph to know). On a
+  non-classified collection, `deps` may still name any field, including a plain field with no via
+  feature declared on it at all — there is no schema-introspection API to validate against, and an
+  unregistered dep folds to the default (untainted) posture, which is safe. **KNOWN LIMIT** (pinned,
+  not silently left): the guard only checks that a `deps` entry names _some_ known field, not that
+  it names the field the function actually reads — `deps: ['amount']` on a function that actually
+  reads `ssn` still passes construction and still leaks, because the graph edge folds from
+  `amount`'s posture, not `ssn`'s. Closing this fully needs runtime read-tracking or a
+  schema-introspection capability outside this phase's scope. See
+  [`docs/subsystems/via-computed.md`](../docs/subsystems/via-computed.md) for the declaration-order
+  asymmetry this guard has (a single call combining a `storage: 'never'` classified field with a
+  depsless `computed` field is refused; the identical pairing split across two separate
+  `vault.collection()` calls is accepted, by design — a `never`-storage value cannot structurally
+  reach a computed field's output) and its reconcile-path scope limit (a `deps` entry naming a
+  classified field declared in an _earlier_, separate call currently over-refuses; the workaround is
+  to declare both together in one call).
+
+  **`computed(fn, { deps, mode })` ships as a full via-feature**, composable through `via(...)`
+  (`via(computed(fn, { deps: [...], mode: 'virtual' }))`) and through an extended `computed: {
+field: { fn, deps, mode } }` sugar form — both additive. `mode: 'materialized'` (the default) is
+  byte-for-byte the prior eager write-time compute. `mode: 'virtual'` is new: the field is computed
+  fresh on every read, never stored (absent from `_data`), and unconditionally
+  `queryable: 'none'`. **Composition semantics are pinned for both modes** — `computed` always
+  compiles last in the via-binding stack, so `via(computed(...), money(...))` on the _same_ field
+  behaves differently per mode: in `mode: 'virtual'`, money's `present()` runs before the computed
+  value exists, so the raw computed number survives unformatted; in `mode: 'materialized'`
+  (default), the computed value is merged into the record before `encodeWrite`, so money's own
+  encode/decode/present hooks format it normally, exactly like a plain money field. The formerly
+  `@internal` `computedDeps` staging option (an interim seam from earlier in this phase, explicitly
+  documented as "do not depend on this shape") is **removed** — folded into each `computed` entry's
+  own `{ fn, deps?, mode? }` shape.
+
+  **Additive surfaces** (non-breaking): `vault.deriveAll()`'s result gains a `skippedFrozen` counter,
+  distinct from `derived` (a frozen-skip is not counted as a successful write); `ForgetResult` gains
+  `derivedRecordsErased: number`, `derivedAggregatesRecomputed: number`, and
+  `derivedResidueFrozen: readonly string[]` (all pre-existing `ForgetResult` fields are byte-shape
+  unchanged); the kernel event map gains `'derivation:skipped-frozen'`
+  (`db.on('derivation:skipped-frozen', handler)`).
+
+  See [`docs/subsystems/via.md`](../docs/subsystems/via.md) (Phase C section) and
+  [`docs/subsystems/via-computed.md`](../docs/subsystems/via-computed.md) for the full story,
+  including every example above traced to its shipped test.
+
+- The Via port (#650, phase D): a new `'lookup'` via-feature — `lookup()` / `enum()` / `dict()` —
+  collapses the legacy `dictKey()`/`staticDict()` code-field pattern and a first-class
+  reference-collection pattern into **one** binding with three backing tiers: `enum` (inline keys,
+  no store), `dict` (a reserved `_dict_<name>` micro-collection — the native spelling of `dict()`,
+  what `dictKey()` compiles onto), and `matrix` (a first-class collection like `countries` — the
+  native spelling of `lookup()`'s default `backing: 'collection'`, what `staticDict()`'s table-based
+  sibling `lookup(name, { backing: 'static', table })` also compiles onto for its own tier).
+
+  **`dictKey()`/`staticDict()` are now aliases**, not deprecated spellings — internally they build
+  the equivalent `LookupDescriptor` shape and validate against it, but they still compile onto the
+  **`'i18n'`** via-binding, not the new `'lookup'` one. Their stored envelopes, the
+  `type`/`widget`/`dict` slice of `describe()` output, and `.join()` dressing stay byte-identical to
+  their native equivalent (`packages/hub/__tests__/via/lookup-alias-parity.test.ts`), but they do
+  **not** gain the new `.lookup` describe() block below (only a native `lookup()`/`enum()`/`dict()`
+  field produces one). Existing code using either sugar continues to work unchanged.
+
+  **New capability, additive:**
+
+  - `altKeys` — declare candidate values (e.g. an ISO3 code, a phone call-prefix) that normalize to
+    the canonical key on `ingest`, sync and pure, from an already-materialized backing snapshot (no
+    store read per `put()`).
+  - `vocabulary: 'closed'` — write-time membership refusal (`UnknownLookupKeyError`) against the
+    backing dimension's **actual current rows**, checked live, not a hardcoded universe. `'open'`
+    (the `dictKey()`/`dict()` default) is unaffected. The dict tier's closed membership specifically
+    is declared `keys` **union** the reserved dictionary's live rows (a declared key is known even
+    before any row for it exists; a live row for an undeclared key is known too) — pinned by
+    `lookup-vocabulary.test.ts:96`. Matrix tier has no declared key list at all — membership is
+    purely the backing collection's live rows.
+  - `sortBy` / `orderBy(field, dir, { by: 'label' })` — exact ordering by the resolved label, either
+    fixed (`compareForOrder`, needs a declared `displayLocale`) or per-call (`{ by: 'label' }`,
+    resolves at the query's own locale — a genuinely different sort order per call, not cached).
+
+  **BEHAVIOR CHANGES (deliberate, pre-1.0, `@next` only):**
+
+  - **#649 — closed-vocabulary membership is now real.** The `dictKey()` doc comment always claimed
+    that a declared key set was enforced on `put()`; it never actually was (the runtime `keys` array
+    was silently dropped at registration). `dictKey()` itself is UNCHANGED (still open — closing
+    this for the alias was explicitly out of scope, to avoid silently breaking existing dictKey
+    collections). The fix landed on the native `lookup()`/`enum()`/`dict()` spellings' own
+    `vocabulary: 'closed'` opt-in only.
+  - **#648 — `restrict` is the default reference semantics for a declared lookup field, and it is
+    now enforced.** Deleting (or `forget()`-ing) a backing dictionary/collection row that a declared
+    lookup field still references now throws `DictKeyInUseError` naming the referencing collection
+    and count, refusing the delete before any mutation. `DictKeyInUseError` was declared, exported,
+    and documented since before this phase, but its throw site was an empty comment block — this is
+    its first-ever implementation. `cascade` (tombstones/deletes the referencing records) and
+    `nullify` (nulls the referencing field via an ordinary `put()`) are opt-in per declaration
+    (`onDelete`), propagating additively through both plain deletes and `forget()`
+    (`ForgetResult.lookupReferencesCascaded`/`lookupReferencesNullified`/`lookupReferencesResidue`,
+    new additive fields — `lookupReferencesResidue` reports any `cascade`/`nullify` propagation
+    skipped because a reference's compare-key couldn't be resolved even from the live pre-shred
+    backing row, always empty in the ordinary case, never silent when non-empty — every pre-existing
+    `ForgetResult` field is unchanged). **A plain dictionary delete with no declared
+    lookup-referencing field is completely unaffected** — this only fires for dimensions a
+    `lookupFields`/`via(lookup(...))` declaration actually points at.
+  - **Matrix-tier `sortBy` was silently inert through Task 6; it is now functional.** `sortBy` was
+    accepted at declare time on a matrix-tier (`backing: 'collection'`) lookup field since it
+    shipped, but `compareForOrder` had no route for that tier — a plain `orderBy()` on such a field
+    silently fell back to raw stored-code order, no warning, no error. This task wires the matrix
+    branch through the same sync snapshot `presentForJoin` already reads (`registry.ts`'s
+    `buildLookupSnapshotRows`, keyed by `descriptor.key`), so a `sortBy` + `displayLocale`-declared
+    matrix field's plain `orderBy()` now genuinely sorts by its resolved label, same as the reserved
+    tier already did. Reserved-tier `sortBy` is unaffected.
+  - **#647 — reserved (`_dict_*`) collections now participate in sync.** Before this phase,
+    `vault.dictionary()` writes bypassed the mutation choke point entirely (raw adapter I/O, no
+    dirty-log entry) and `SyncEngine.pull()` skipped every `_`-prefixed collection by the store
+    contract — dictionaries never crossed `push()`/`pull()`, only backup/bundle export. Reserved
+    lookup writes now dirty-log and dispatch like any other write, and `pull()` additionally
+    enumerates an explicit reserved-lookup prefix registry through the ordinary apply path.
+    **Deletes travel as version-ordered delete-markers**, the same #589 law every ordinary
+    collection's sync-safe delete already follows — a deleted dictionary key can no longer be
+    silently resurrected by a stale peer's next push.
+
+  **#626 retired**: `kernel/query/join.ts` no longer imports `shape/via-i18n/core.js` — it calls a
+  sync `presentForJoin` hook the `Collection` builds from its own i18n + lookup bindings instead
+  (now covering the matrix tier too, not just reserved). The `via-layering` architecture guard's
+  allowlist (`VIA_SHAPE_ALLOWLIST`) is EMPTY, proven to still fire on a synthetic violation. The
+  sibling `via-enclave-isolation` guard's allowlist (`VIA_ENCLAVE_ALLOWLIST`) has also been empty
+  since phase B and gains the same synthetic-fire proof (both in `via-guards-empty.test.ts`).
+
+  **`describe()` gains a normalized `lookup` block**, sourced from `ViaBinding.describeFragment()` —
+  declared since phase A, unconsumed until now. Present alongside (not replacing) the pre-existing
+  `dict` block, which stays byte-stable for the `dictKey()`/`staticDict()` alias. Carries
+  `dimension`/`backing`/`vocabulary`/`key`/`altKeys`/`present`/`sortBy`/`onDelete`, and the
+  statically-known closed-vocabulary key set where one exists.
+
+  **Removed**: `vault.applyLocale()` — a full parallel i18n+dict+static label-resolution path with
+  zero production callers (superseded by `via.present`, orphaned since the phase A/C cutover).
+  Dead public API; no behavior change for any caller (there were none).
+
+  See [`docs/subsystems/via.md`](../docs/subsystems/via.md) (Phase D section) and
+  [`docs/subsystems/via-lookup.md`](../docs/subsystems/via-lookup.md) for the full story — the
+  canonical countries-matrix example, every capability traced to its shipped test.
+
+- The Via port (#623, phase A): a kernel-owned field-feature SPI. Everything a field can be is now a **via-feature** — a per-field declaration plugging into one phased pipeline (write: ingest → encode; read: present) with a brand-keyed binder registry generalizing the #553 declaration-links-engine pattern. **money and i18n are fully retrofitted** behind the port: the kernel imports nothing from the feature layer (closes #612), enforced by two new architecture rules (`via-layering`, `via-enclave-isolation`) with exactly two documented grandfathers (`kernel/query/join.ts` → #626; `via-i18n/dictionary.ts` → phase-B ViaCryptoCtx). New public surface (additive): `via(...)` composer + the `viaFields` collection option — existing spellings (`moneyFields`, `i18nFields`, `dictKeyFields`) are preserved as sugar compiling to identical bindings (byte-identical stored envelopes, identical `describe()`). Also: an origin-tagged mutation choke point lands with strict behavior parity (the socket phase C plugs the dependency graph into — #621/#622); generic path utilities moved to `kernel/paths`; `I18nStrategy`/`NO_I18N`/dict predicates moved to the kernel port (`port/with/i18n-strategy`). Folder moves: `with-shape/money` → `shape/via-money`, `with-shape/i18n` → `shape/via-i18n` (subpath exports unchanged). Kernel net effect: collection.ts −232 lines (first ratchet-down since Phase 5); 20 money call sites + 10 i18n value bindings + 7 type inversions collapse to one grandfathered import. Upgrade note: materialized views with money `where()` clauses re-materialize once after upgrade (query-hash format changed; self-healing). Behavior is otherwise unchanged — the full money/i18n suites pass unmodified.
+
 ## 0.3.0-pre.8
 
 ### Minor Changes
