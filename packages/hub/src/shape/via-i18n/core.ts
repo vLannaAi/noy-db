@@ -550,6 +550,23 @@ export function applyI18nLocale(
 }
 
 /**
+ * Sync i18n-text-only present-for-join dressing — the exact `join`-layer
+ * partial application `kernel/query/join.ts` used to import and call
+ * directly before #626's retirement (#650 Task 6): fixes `fallback`
+ * `undefined` and `layer` `'join'`. `shape/via-lookup/snapshot.ts`'s
+ * `buildPresentForJoin` composes this with the lookup-label half to build
+ * the `JoinableSource.presentForJoin` hook the join executor now calls
+ * instead of reaching into this module.
+ */
+export function presentI18nForJoin(
+  record: Record<string, unknown>,
+  i18nFields: Record<string, I18nTextDescriptor>,
+  locale: string,
+): Record<string, unknown> {
+  return applyI18nLocale(record, i18nFields, locale, undefined, 'join')
+}
+
+/**
  * Remove the internal densify provenance marker (`_i18nFilled`) from a
  * read-facing record. NON-mutating: returns the same object when the
  * marker is absent, otherwise a shallow copy without the marker.

@@ -1430,9 +1430,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../../with-lookup/aggregate/reducers.js',
     '../../with-lookup/indexing/eager-indexes.js',
   ]],
-  ['packages/hub/src/kernel/query/join.ts', [
-    '../../shape/via-i18n/core.js',
-  ]],
   ['packages/hub/src/kernel/query/scan-builder.ts', [
     '../../with-lookup/aggregate/aggregation.js',
     '../../with-lookup/aggregate/reducers.js',
@@ -1873,15 +1870,18 @@ function checkEnclaveClassifyIndexOnly() {
 // `shape/via-classified/{resolve,guards,write,errors}.js` — while the
 // classified binding was DORMANT (no compile entry yet). #629 Task 6 (kernel
 // cutover) routed those calls through the Via pipeline/`port/with/` seam
-// instead and retired every entry in that batch: the allowlist is back to
+// instead and retired every entry in that batch: the allowlist was back to
 // exactly the one #626 baseline.
+//
+// #650 Task 6 retired that last baseline too: `join.ts` no longer imports
+// `shape/via-i18n/core.js` — it calls the sync `presentForJoin` hook the
+// `Collection` builds from its own i18n + lookup bindings instead (routed
+// through `port/with/lookup-strategy.ts`, never a direct shape/ import).
+// The allowlist is now EMPTY and MUST STAY EMPTY — do not add a new entry;
+// `via-layering-empty.test.ts` proves both that this map is empty AND that
+// the guard still fires on a synthetic kernel→shape/ import.
 
-const VIA_SHAPE_ALLOWLIST = new Map([
-  // #626: the one join-layer i18n exception (comment lives at the import
-  // site in join.ts) — join-layer i18n is sync + i18n-text-only; converging
-  // it onto the Via seam is #626's job.
-  ['packages/hub/src/kernel/query/join.ts', ['../../shape/via-i18n/core.js']],
-])
+const VIA_SHAPE_ALLOWLIST = new Map([])
 
 function checkViaLayering() {
   const hubSrc = join(PACKAGES_DIR, 'hub', 'src')

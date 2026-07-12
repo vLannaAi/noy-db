@@ -91,11 +91,10 @@ import {
 } from './refs.js'
 import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor, StaticDictDescriptor } from '../port/with/i18n-strategy.js'
 import { isDictCollectionName, isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
-// #650 Task 1 (via-lookup extraction) — the pure dict-registry helpers now
-// live in shape/via-lookup/registry.ts, reached only through this port seam
-// (never shape/via-lookup/* directly — Check 14 via-layering). Aliased to
-// avoid colliding with Vault's own same-named public delegator methods below.
-// #650 Task 2 — resolveLabelFromMap/collectLookupDictCompat: the
+// #650 Task 1 (via-lookup extraction) — the pure dict-registry helpers now live in
+// shape/via-lookup/registry.ts, reached only through this port seam (never shape/via-lookup/*
+// directly — Check 14 via-layering). Aliased to avoid colliding with Vault's own same-named
+// public delegator methods below. Task 2's resolveLabelFromMap/collectLookupDictCompat is the
 // alias-equivalence bridge shared by the i18n + lookup bindings.
 import {
   enforceStaticDictOnPut as enforceStaticDictOnPutHelper,
@@ -105,6 +104,7 @@ import {
   collectLookupDictCompat,
   checkLookupMembership, buildLookupAltIndex,
   dictCollectionName, registerLookupRefEdges, // #650 Task 4/5
+  buildLookupSnapshotRows, // #650 Task 6
   type LookupDescriptor,
 } from '../port/with/lookup-strategy.js'
 import { isLinkCollectionName, type LinkSpec, type LinkSetHandle } from '../with-shape/links/names.js'
@@ -1109,13 +1109,11 @@ export class Vault {
       if (options?.computed !== undefined) collOpts.computed = options.computed as ComputedFields
       if (options?.classifiedFields !== undefined) collOpts.classifiedFields = options.classifiedFields
       if (effectiveViaFields.dictKeyFields !== undefined || effectiveViaFields.lookupFields !== undefined) {
-        // Build the label resolver callback for this collection. A static
-        // dict resolves from its in-memory table — no dictionary()
-        // lookup, no _dict_* read — while a plain dictKey resolves through
-        // the encrypted _dict_* handle as before. Shared verbatim by the
-        // lookup binding (#650 Task 2) — native lookup()/dict() reserved/
-        // static(+table) dimensions register into the SAME staticByName
-        // registry above, so this one resolver serves both bindings.
+        // Build the label resolver callback for this collection. A static dict resolves from
+        // its in-memory table — no dictionary() lookup, no _dict_* read — while a plain dictKey
+        // resolves through the encrypted _dict_* handle as before. Shared verbatim by the lookup
+        // binding (#650 Task 2) — native lookup()/dict() reserved/static(+table) dimensions
+        // register into the SAME staticByName registry above, so this one resolver serves both.
         collOpts.dictLabelResolver = async (dictName, key, locale, fallback) => {
           const stat = this.staticByName.get(dictName)
           if (stat) {
@@ -1137,6 +1135,7 @@ export class Vault {
         collOpts.lookupFields = options?.lookupFields
         collOpts.membership = (field, key) => checkLookupMembership(effectiveViaFields.lookupFields![field]!, key, (n) => this.dictionary(n), (n) => this.collection(n))
         collOpts.getAltIndex = (d) => buildLookupAltIndex(d, (n) => this.dictionary(n), (n) => this.collection<Record<string, unknown>>(n))
+        collOpts.snapshotFor = (d) => buildLookupSnapshotRows(d, (n) => this.reservedLookupCollections.has(dictCollectionName(n)), (n) => this.dictionary(n)) // #650 Task 6
       }
       // i18n / staticDict validation on put — enforced via the compartment's
       // put hook. staticDict adds put-time code validation.

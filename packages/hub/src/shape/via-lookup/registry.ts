@@ -429,3 +429,33 @@ export function registerLookupRefEdges(
     graph.registerDerived(e.referencing, e.sources, 'ref', 'record', e.onDelete, e.keyField)
   }
 }
+
+/**
+ * `LookupViaConfig.snapshotFor`'s vault-built row source (#650 Task 6,
+ * spec §5) — reserved-tier ONLY: `dimension`'s rows come straight from the
+ * SAME `LookupHandle.snapshotEntries()` write-through cache
+ * `dictLabelResolver`/`resolveDictSource` already read (no second copy),
+ * keyed by each entry's own canonical `key` (reserved tier's `key` field is
+ * always `'id'` by construction — `dict()`'s factory hardcodes it — so no
+ * re-keying is needed). `isReservedDimension` is the vault's
+ * `reservedLookupCollections` membership test; returns `undefined` for any
+ * non-reserved (static/matrix) dimension — the caller (`binding.ts`'s
+ * `compareForOrder`, `snapshot.ts`'s `presentLookupForJoin`) handles static
+ * tier directly from `descriptor.table` and gracefully skips matrix tier
+ * (deferred — no vault-resident `dimension -> LookupDescriptor` registry
+ * exists yet to resolve a matrix dimension's `key` field; see
+ * `task-6-report.md`'s Concerns).
+ */
+export function buildLookupSnapshotRows(
+  dimension: string,
+  isReservedDimension: (dimension: string) => boolean,
+  getDictionary: (dimension: string) => LookupHandle,
+): ReadonlyMap<string, Record<string, unknown>> | undefined {
+  if (!isReservedDimension(dimension)) return undefined
+  const rows = new Map<string, Record<string, unknown>>()
+  for (const entry of getDictionary(dimension).snapshotEntries()) {
+    const key = entry['key']
+    if (typeof key === 'string') rows.set(key, entry)
+  }
+  return rows
+}

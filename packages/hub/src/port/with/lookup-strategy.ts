@@ -36,10 +36,12 @@ import {
   checkLookupMembership,
   buildLookupAltIndex,
   registerLookupRefEdges,
+  buildLookupSnapshotRows,
   type DictReferencingCollection,
   type LookupDictCompat,
   type MaterializedBacking,
 } from '../../shape/via-lookup/registry.js'
+import { buildPresentForJoin } from '../../shape/via-lookup/snapshot.js'
 import type { LookupDescriptor } from '../../shape/via-lookup/descriptor.js'
 
 /**
@@ -163,6 +165,13 @@ export type { MaterializedBacking }
 
 // #650 Task 5 — registers a collection's lookup-fields' cross-collection 'ref' graph edges.
 export { registerLookupRefEdges }
+
+// #650 Task 6 — the sync snapshot+locale seam (#626 retirement, spec §5):
+// `snapshotFor`'s vault-built row source + the combined presentForJoin
+// builder `kernel/collection-config.ts` calls to build the
+// `JoinableSource.presentForJoin` hook `kernel/query/join.ts` consumes.
+export { buildLookupSnapshotRows, buildPresentForJoin }
+export type { LookupSnapshot } from '../../shape/via-lookup/snapshot.js'
 
 /** Runtime predicate for detecting a `LookupDescriptor` (any of the three tiers). */
 export function isLookupDescriptor(x: unknown): x is LookupDescriptor {

@@ -47,6 +47,7 @@ import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, Dicti
 // each call `linkLookupVia()` themselves, so `viaBinder('lookup')` is
 // already resolvable by the time a `lookupFields` entry exists).
 import type { LookupDescriptor, MaterializedBacking } from '../port/with/lookup-strategy.js'
+import { buildPresentForJoin } from '../port/with/lookup-strategy.js'
 import type { ComputedFields, ComputedFn, ComputedFieldEntry } from '../with-formula/computed/index.js'
 // #638 Task 7 — the value import (not just `import type`) forces the port module's eager
 // `linkComputedVia()` to run whenever this file loads (collection-config.ts is always in the
@@ -308,6 +309,14 @@ export interface CollectionOpts<T> {
   membership?: ((field: string, key: string) => boolean | Promise<boolean>) | undefined
   /** — altKeys `ingest` normalization source (#650 Task 3). Provided by the Vault. */
   getAltIndex?: ((desc: LookupDescriptor) => MaterializedBacking | undefined) | undefined
+  /**
+   * — sync materialized `key -> row` rows for a lookup dimension (#650 Task
+   * 6, spec §5's snapshot+locale seam). Provided by the Vault; feeds both
+   * the `'lookup'` binding's `compareForOrder` and this collection's
+   * `presentForJoin` hook (`resolveCollectionConfig` builds the latter via
+   * `buildPresentForJoin`, below).
+   */
+  snapshotFor?: ((dimension: string) => ReadonlyMap<string, Record<string, unknown>> | undefined) | undefined
   /**
    * translator callback from Noydb. When present, missing
    * translations for `autoTranslate: true` i18nText fields are generated
@@ -618,6 +627,7 @@ export function compileViaBindings<T>(
       ...(opts.getLookupBacking !== undefined ? { getLookupBacking: opts.getLookupBacking } : {}),
       ...(opts.membership !== undefined ? { membership: opts.membership } : {}),
       ...(opts.getAltIndex !== undefined ? { getAltIndex: opts.getAltIndex } : {}),
+      ...(opts.snapshotFor !== undefined ? { snapshotFor: opts.snapshotFor } : {}),
       collectionName: opts.name,
     }))
   }
@@ -1008,6 +1018,10 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     vectorSet: opts.embeddings ? new VectorSet() : undefined,
     dictKeyFields: effectiveViaFields.dictKeyFields,
     lookupFields: effectiveViaFields.lookupFields,
+    // #650 Task 6 — the sync join-dressing hook (#626 retirement, spec §5);
+    // `undefined` when this collection declares neither i18nText nor lookup
+    // fields, matching today's `i18nFields`-absent JoinableSource shape.
+    presentForJoin: buildPresentForJoin(effectiveViaFields.i18nFields, effectiveViaFields.lookupFields, opts.snapshotFor),
     fieldMeta: opts.fieldMeta,
     meta: opts.meta,
     _refs: opts.declaredRefs ?? {},

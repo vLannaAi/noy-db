@@ -368,6 +368,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /** Field name → `LookupDescriptor` for native `lookup()`/`enumOf()`/`dict()` fields (#650 Task 2) — describe()-only in this task. */
   private readonly lookupFields: Record<string, LookupDescriptor> | undefined
+  /** Sync join-dressing hook (#650 Task 6, #626 retirement) — `querySourceForJoin()`'s `presentForJoin`. */
+  private readonly presentForJoin: ((record: unknown, locale: string) => unknown) | undefined
 
   /** Consumer-neutral per-field descriptors declared via `fieldMeta`; read by `getFieldMeta()`, merged by `describe()`. */
   private fieldMeta: Record<string, FieldMeta> | undefined
@@ -671,6 +673,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.vectorSet = cfg.vectorSet
     this.dictKeyFields = cfg.dictKeyFields
     this.lookupFields = cfg.lookupFields
+    this.presentForJoin = cfg.presentForJoin
     this.fieldMeta = cfg.fieldMeta
     this.meta = cfg.meta
     this._refs = cfg._refs
@@ -3359,8 +3362,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * silently miss records — consistent with the `query()` /
    * `list()` lazy-mode policy. If this becomes a blocker for a
    * real consumer, the fix is to add an async `scan()`-backed
-   * variant of this method, which is exactly what  streaming
-   * joins will need anyway.
+   * variant of this method, which is exactly what streaming joins will need anyway.
    */
   querySourceForJoin(): JoinableSource {
     if (this.lazy) {
@@ -3388,9 +3390,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         this.emitter.on('change', handler)
         return () => this.emitter.off('change', handler)
       },
-      // Expose this (right-side) collection's i18nText descriptors so
-      // the join executor can resolve joined i18n fields at the `join` layer.
-      ...(this.i18nFields !== undefined ? { i18nFields: this.i18nFields } : {}),
+      // Sync join dressing (#650 Task 6, #626 retirement) — i18n-text + lookup-label, from this collection's own bindings.
+      ...(this.presentForJoin !== undefined ? { presentForJoin: this.presentForJoin } : {}),
     }
   }
 
