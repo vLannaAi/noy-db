@@ -10,6 +10,8 @@ import { describe, it, expect, vi } from 'vitest'
 import { createNoydb, withDerivation, withRollup } from '../../src/index.js'
 import { withSync } from '../../src/with-party/sync/index.js'
 import { lookup } from '../../src/shape/via-lookup/descriptor.js'
+import { via } from '../../src/kernel/via-compose.js'
+import { computed } from '../../src/shape/via-computed/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 function memory(): NoydbStore {
@@ -149,7 +151,10 @@ describe('sync dispatch wave — id-threaded decrypt for a per-record-keyed sour
       lifecycle: 'eager',
     })
     const store = memory()
-    const db1 = await createNoydb({ store, user: 'alice', secret: SECRET, derivationStrategies: [handle] })
+    // db1 does NOT register the derivation — it's a plain writer, so `seen`/`doc-meta` can only
+    // have come from db2's OWN wave-driven decrypt+derive (#646 db2-only-registration mandate —
+    // mirrors sync-delete-rollup.test.ts's fixture discipline).
+    const db1 = await createNoydb({ store, user: 'alice', secret: SECRET })
     const v1 = await db1.openVault('demo')
     const docs1 = v1.collection<Doc>('docs', { perRecordKeys: true })
     await docs1.put('seed', { id: 'seed', secret: 'zzzzzzzz' }) // mints + persists the shared per-record-keyed collection state
@@ -168,6 +173,49 @@ describe('sync dispatch wave — id-threaded decrypt for a per-record-keyed sour
     expect(seen).toBe('abcdefghij') // the wave's decrypt (id: 'd1') recovered the RIGHT plaintext
     expect(await v2.collection<{ len: number } & Record<string, unknown>>('doc-meta').get('d1')).toMatchObject({ len: 10 })
     db1.close(); db2.close()
+  })
+})
+
+describe('sync dispatch wave — virtual computed fields never ride the sync payload (#646 cm23)', () => {
+  interface Item extends Record<string, unknown> { id: string; amount: number; doubled?: number }
+
+  it('pull(): a virtual computed field is absent from the pushed envelope AND independently recomputed by the puller, never transmitted', async () => {
+    const remote = memory()
+    // Both sides declare the SAME `mode: 'virtual'` field — unlike the derivation/rollup/MV
+    // pins above, a virtual field never writes a side effect into the store (it's excluded
+    // from `_data` by construction — `computed/virtual.test.ts` test (b)'s local pin), so
+    // there is no shared-write channel for a db2-only-registration split to guard against
+    // here; the guarantee under test is the ABSENCE itself, structurally, end-to-end over a
+    // real push()/pull() cycle (previously only proven for a single local writer).
+    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), encrypt: false })
+    const vA = await dbA.openVault('demo')
+    const itemsA = vA.collection<Item>('items', {
+      viaFields: { doubled: via(computed((r) => (r.amount as number) * 2, { deps: ['amount'], mode: 'virtual' })) },
+    })
+    await itemsA.put('r1', { id: 'r1', amount: 21 })
+    await dbA.push('demo')
+
+    // Structural: with `encrypt: false` the envelope's `_data` is the plain JSON-stringified
+    // record (`RecordCodec.buildPlaintextEnvelope`) — the pushed envelope on the wire never
+    // contains the virtual field's key at all, not merely a redacted/sealed placeholder.
+    const rawEnv = await remote.get('demo', 'items', 'r1')
+    expect(rawEnv).not.toBeNull()
+    expect(rawEnv!._data).not.toContain('doubled')
+
+    const dbB = await createNoydb({ store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), encrypt: false })
+    const vB = await dbB.openVault('demo')
+    const itemsB = vB.collection<Item>('items', {
+      viaFields: { doubled: via(computed((r) => (r.amount as number) * 2, { deps: ['amount'], mode: 'virtual' })) },
+    })
+    await dbB.pull('demo')
+
+    // The puller's own raw stored record has no `doubled` slot either — it was never
+    // received over sync, only ever recomputed fresh on read from its own local config.
+    const rawB = await itemsB._getStoredRecord('r1')
+    expect(rawB).not.toBeNull()
+    expect('doubled' in (rawB as Record<string, unknown>)).toBe(false)
+    expect((await itemsB.get('r1'))?.doubled).toBe(42) // recomputed independently, not transmitted
+    dbA.close(); dbB.close()
   })
 })
 

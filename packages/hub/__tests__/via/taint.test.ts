@@ -279,4 +279,48 @@ describe('#638 Task 3 review fix — reconcile-path codec flip is sound (behavio
     await expect((rec1.ssn as SealedHandle<unknown>).reveal()).resolves.toBe('123-45-6789')
     expect(rec1.ssnLeak).toBeUndefined() // never computed — this record predates ssnLeak's declaration
   })
+
+  /**
+   * #646 cm15 — the test above reads `r1` back through `c`, the SAME collection
+   * instance that wrote it (pre-reconcile) and has kept it warm in its eager cache
+   * ever since; that `get()` may be satisfied entirely from the in-memory record
+   * object, without ever re-running the codec's decrypt path under the POST-reconcile
+   * `via` snapshot. This test replays the identical fresh-construction +
+   * reconcile-attach sequence, but the assertion below runs against a SECOND, FRESH
+   * `createNoydb`/`openVault`/`collection()` session that never itself wrote `r1` —
+   * its cache starts empty for that id, so `c2.get('r1')` can only be satisfied by
+   * decrypting the persisted envelope through the (freshly re-flipped) via-hook codec.
+   * Envelope-empirical proof of the SAME cross-read safety claim, not a cache replay.
+   */
+  it('#646 cm15 — the pre-reconcile record cross-read is envelope-empirical (fresh session, not the eager cache)', async () => {
+    const store = inlineMemory()
+
+    const db1 = await createNoydb({ store, user: 'a', secret: 'reconcile-taint-cm15', classifiedStrategy: withClassified() })
+    const v1 = await db1.openVault('v1')
+    const c1 = v1.collection<Person>('people', { sensitive: ['ssn'] })
+    await c1.put('r1', { id: 'r1', name: 'Alice', ssn: '123-45-6789' })
+    v1.collection<Person>('people', {
+      classifiedFields: { ssn: ssnSpec() },
+      computed: { ssnLeak: { fn: (r) => r.ssn, deps: ['ssn'] } },
+    })
+    db1.close()
+
+    // Fresh session: same fresh + reconcile sequence, but this collection instance
+    // never put() r1 — its cache starts cold for that id.
+    const db2 = await createNoydb({ store, user: 'a', secret: 'reconcile-taint-cm15', classifiedStrategy: withClassified() })
+    const v2 = await db2.openVault('v1')
+    const c2 = v2.collection<Person>('people', { sensitive: ['ssn'] })
+    v2.collection<Person>('people', {
+      classifiedFields: { ssn: ssnSpec() },
+      computed: { ssnLeak: { fn: (r) => r.ssn, deps: ['ssn'] } },
+    })
+
+    const rec1 = await c2.get('r1') as Record<string, unknown>
+    expect(rec1.id).toBe('r1')
+    expect(rec1.name).toBe('Alice')
+    expect(rec1.ssn).toBeInstanceOf(SealedHandle)
+    await expect((rec1.ssn as SealedHandle<unknown>).reveal()).resolves.toBe('123-45-6789')
+    expect(rec1.ssnLeak).toBeUndefined() // never computed at write time — r1 predates ssnLeak's declaration
+    db2.close()
+  })
 })
