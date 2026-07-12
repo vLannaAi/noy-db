@@ -272,11 +272,29 @@ export function commitReconcileGraphEdges(graph: ViaGraph, name: string, plan: R
  * automatically follow a later `this.via` reassignment — `RecordCodec.
  * setVia` re-syncs it so `encryptRecord`/`decryptRecord` seal/unseal
  * through the taint binding too, not a stale pre-taint pipeline.
+ *
+ * #642 — `graph.taintedPostures(name)` also carries the collection's `'*'`
+ * target (a derivation/MV/overlay OUTPUT collection's whole-record fold,
+ * `via-graph.ts`'s `taintedPostures`/`taintSealedFields` already surface it
+ * under the literal key `'*'`, no `via-graph.ts` change needed). Split it off
+ * BEFORE building the field-specific overlay — `'*'` is never a real record
+ * field — and re-derive it as `defaultPosture` through the SAME
+ * `buildTaintOverlay` sealed→`queryable:'none'` clamp (reused, not
+ * duplicated, by feeding it a one-entry map). A sealed default folds into
+ * the SAME single `taintBinding` call via `sealAllFields` — every field
+ * (present-time, at-rest) is covered without a second binding.
  */
 export function applyTaintOverlay(coll: unknown, graph: ViaGraph, name: string): void {
-  const postures = buildTaintOverlay(graph.taintedPostures(name), graph.taintSealedFields(name))
-  if (!postures) return
-  const sealFields = graph.taintSealedFields(name)
+  const raw = graph.taintedPostures(name)
+  const rawDefault = raw.get('*')
+  const rawFields = rawDefault === undefined ? raw : new Map([...raw].filter(([field]) => field !== '*'))
+  const allSealFields = graph.taintSealedFields(name)
+  const sealFields = allSealFields.has('*') ? new Set([...allSealFields].filter((f) => f !== '*')) : allSealFields
+  const postures = buildTaintOverlay(rawFields, sealFields)
+  const defaultPosture = rawDefault === undefined
+    ? undefined
+    : buildTaintOverlay(new Map([['*', rawDefault]]), allSealFields)?.get('*')
+  if (!postures && defaultPosture === undefined) return
   const provenance = graph.taintProvenance(name)
   // #638 Task 7 — a virtual computed field is never sealed (`taintSealedFields` already
   // excludes `grain: 'virtual'` — nothing is stored, so nothing to seal), but a TAINTED
@@ -286,15 +304,54 @@ export function applyTaintOverlay(coll: unknown, graph: ViaGraph, name: string):
   // enough — the plain `get()`/`list()` path must be closed too).
   const virtualFields = graph.virtualFields(name)
   const virtualExportRedact = new Set<string>()
-  for (const [field, posture] of postures) {
-    if (posture.exportable === false && virtualFields.has(field)) virtualExportRedact.add(field)
+  if (postures) {
+    for (const [field, posture] of postures) {
+      if (posture.exportable === false && virtualFields.has(field)) virtualExportRedact.add(field)
+    }
   }
   const c = coll as { via: ViaPipeline | undefined; codec: { setVia(via: ViaPipeline | undefined): void } }
-  const needsTaintBinding = sealFields.size > 0 || virtualExportRedact.size > 0
+  const sealAll = defaultPosture?.encryptedAtRest === 'sealed'
+  const needsTaintBinding = sealFields.size > 0 || virtualExportRedact.size > 0 || sealAll
   const bindings = needsTaintBinding
-    ? [...(c.via?.bindings ?? []), taintBinding(sealFields, virtualExportRedact)]
+    ? [...(c.via?.bindings ?? []), taintBinding(sealFields, virtualExportRedact, sealAll)]
     : (c.via?.bindings ?? [])
-  const taint: ViaTaintOverlay = { postures, sealFields, provenance }
+  const taint: ViaTaintOverlay = {
+    postures: postures ?? EMPTY_POSTURE_MAP, sealFields, provenance,
+    ...(defaultPosture !== undefined ? { defaultPosture } : {}),
+  }
   c.via = ViaPipeline.build(bindings, taint)
   c.codec.setVia(c.via)
 }
+
+/**
+ * #642 — the cross-collection re-apply gap (seam map finding 4/10): when the
+ * OUTPUT/parent collection was opened (its overlay built) BEFORE the
+ * classified SOURCE collection ever registered a field, the output's `'*'`
+ * fold (or a rollup's real-field fold) was computed against an empty/stale
+ * source posture. `applyTaintOverlay` alone never re-fires for an already-
+ * open dependent — this hook closes that: after `name` registers its OWN
+ * field postures (called right after `applyTaintOverlay(coll, graph, name)`
+ * at each collection-construction call site), re-run `applyTaintOverlay` for
+ * every OPEN collection that graph-depends on `name`.
+ *
+ * Pure wiring — re-applies OVERLAYS only (a pipeline rebuild), never
+ * re-registers a graph edge (`registerDerived`'s at-most-once contract, D-2
+ * wave-2 law, is untouched). `graph.dependentsOf(name)` already excludes
+ * `'ref'` edges (a referencing field must not seal just because its backing
+ * dimension changed — the phase-D lookup identity contract). A dependent
+ * collection that hasn't been opened yet (`getOpenCollection` returns
+ * `undefined`) is skipped — it will fold correctly on its OWN first-open
+ * `applyTaintOverlay` call, which reads the graph fresh.
+ */
+export function reapplyDependentOverlays(
+  graph: ViaGraph, name: string,
+  getOpenCollection: (n: string) => unknown,
+): void {
+  const targets = new Set(graph.dependentsOf(name).map((edge) => edge.target.collection))
+  for (const target of targets) {
+    const coll = getOpenCollection(target)
+    if (coll !== undefined) applyTaintOverlay(coll, graph, target)
+  }
+}
+
+const EMPTY_POSTURE_MAP: ReadonlyMap<string, ViaPosture> = new Map()

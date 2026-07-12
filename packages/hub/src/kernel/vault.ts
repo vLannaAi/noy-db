@@ -117,7 +117,7 @@ import { isViaInstalled } from './via.js'
 import { mergeViaFields, type ViaFieldSpec } from './via-compose.js'
 import { exportRedact } from './via-pipeline.js'
 import { ViaGraph } from './via-graph.js'
-import { registerCollectionGraphSources, validateReconcileGraphEdges, commitReconcileGraphEdges, applyTaintOverlay, type ReconcileGraphOptions } from './via-graph-wiring.js'
+import { registerCollectionGraphSources, validateReconcileGraphEdges, commitReconcileGraphEdges, applyTaintOverlay, reapplyDependentOverlays, type ReconcileGraphOptions } from './via-graph-wiring.js'
 import { runGraphDispatchWave, putDerivedOutput, ledgerAuditHook, forgetDerivedFanout, type GraphBatch, type ForgetFanoutStats } from './via-dispatch.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 // Type-only imports for the guard + derivation services. The
@@ -1160,9 +1160,7 @@ export class Vault {
         collOpts.fieldMeta = options.fieldMeta
       }
       // meta: thread through to the collection; surfaced via getMeta() / describe().
-      if (options?.meta !== undefined) {
-        collOpts.meta = options.meta
-      }
+      if (options?.meta !== undefined) collOpts.meta = options.meta
       // Pass a snapshot of the outbound refs for describe() (sync, config-only).
       if (options?.refs !== undefined) {
         collOpts.declaredRefs = this.refRegistry.getOutbound(collectionName)
@@ -1172,6 +1170,7 @@ export class Vault {
       registerCollectionGraphSources(this.graph, collectionName, collOpts)
       registerLookupRefEdges(this.graph, collectionName, effectiveViaFields.lookupFields) // #650 Task 5
       applyTaintOverlay(coll, this.graph, collectionName) // #638 Task 3: seal + gate any freshly-tainted field
+      reapplyDependentOverlays(this.graph, collectionName, (n) => this._getCollection(n)) // #642: refresh dependents opened before this source
 
       // Pre-build the lexical index on open when opted in. Fire-and-forget,
       // eager-only; warmIndex() no-ops when no textIndexes are declared and throws

@@ -638,15 +638,23 @@ export class RecordCodec<T> {
   }
 
   /**
-   * Replace a record's declared sensitive fields with {@link Sealed} handles
-   * built from the just-written envelope's `_sealed` slots, leaving every
-   * other field as its plaintext value. Used to populate the cache on the
-   * write path without ever materialising sealed plaintext into it. Returns
-   * `record` untouched when the collection seals nothing.
+   * Replace every field the just-written envelope actually sealed with a
+   * {@link Sealed} handle, leaving every other field as its plaintext value.
+   * Used to populate the cache on the write path without ever materialising
+   * sealed plaintext into it. Returns `record` untouched when nothing was
+   * sealed. Keys off `envelope._sealed` itself (#642 fix) — NOT
+   * `this.ctx.sensitiveFields`, which only names the inline `sensitive:[...]`/
+   * classified-recoverable field set: a collection whose sealing comes
+   * entirely from the `taint` via-binding (a derivation/MV output or rollup
+   * target folded sealed from a classified SOURCE collection, #642) declares
+   * no local `sensitiveFields` at all, so that stale gate skipped this
+   * conversion and left a just-written taint-sealed field as cached
+   * plaintext — read back correctly ONLY after a cold cache miss (`get()`'s
+   * own `decodeAtRest` call, unaffected by this gate) forced a fresh decrypt.
    */
   async toCacheRecord(record: T, envelope: EncryptedEnvelope, id?: string): Promise<T> {
     const sealed = envelope._sealed
-    if (sealed === undefined || !this.ctx.storeCiphertext || this.ctx.sensitiveFields.size === 0) {
+    if (sealed === undefined || !this.ctx.storeCiphertext) {
       return record
     }
     const cek = await this.resolveEnvelopeCek(envelope, id)

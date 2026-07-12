@@ -1658,11 +1658,11 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * {@link Sealed} handles for sensitive fields (non-residency), so when the
    * collection seals anything we re-decrypt the stored envelope to materialise
    * real values — re-encrypting a handle would otherwise persist the marker
-   * `'[sealed]'` in place of the value. Collections that seal nothing read the
-   * cache directly (no extra I/O), matching the previous behaviour exactly.
+   * `'[sealed]'` in place of the value. `via?.hasAtRestHooks` (#642) catches
+   * hook-only sealing (taint/classified, no local `sensitiveFields`).
    */
   private async resolvePriorValues(id: string): Promise<{ record: T; version: number } | undefined> {
-    if (this.sensitiveFields.size > 0) {
+    if (this.sensitiveFields.size > 0 || this.via?.hasAtRestHooks === true) {
       const env = await this.adapter.get(this.vault, this.name, id)
       if (!env || isTombstone(env, this.storeCiphertext)) return undefined
       const rec = await this.codec.decryptRecord(env, { skipValidation: true, id })
