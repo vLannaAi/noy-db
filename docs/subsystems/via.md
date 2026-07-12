@@ -255,6 +255,14 @@ field, not that it names the field `fn` actually reads. Both limits share the sa
 runtime read-tracking or schema-aware dependency validation) and are candidates for the same future
 fix.
 
+**KNOWN LIMIT — the MV leg is currently theoretical for classified sources.** All three MV refresh
+modes (eager/lazy/manual) pre-open their source collection during `openVault`'s
+`_initMaterializedViews` (the spec's `query()` callback runs at registration time), and the
+pre-existing classified retro-declare guard (`ClassifiedConfigError`, `collection.ts:1357`) then
+refuses `classifiedFields` declared on that already-open source — so an MV over a classified source
+is structurally unreachable today, even though the fold above would apply mechanically the moment
+that ordering constraint ever lifts.
+
 **Sync/cutover/restore dispatch (#621)** closes the gap where a sync-applied write never triggered
 its derivations/materialized views — only a *local* `put()` did. A batched, per-target-deduped wave
 (`kernel/via-dispatch.ts#runGraphDispatchWave`) now runs once at the end of `pull()`/`push()`

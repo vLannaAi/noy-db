@@ -22,6 +22,7 @@ import { i18nBinding } from '../../src/shape/via-i18n/binding.js'
 import { classifiedBinding } from '../../src/shape/via-classified/binding.js'
 import { blobBinding } from '../../src/shape/via-blob/binding.js'
 import { ViaPipeline } from '../../src/kernel/via-pipeline.js'
+import type { ViaPosture } from '../../src/kernel/via.js'
 import { NO_I18N } from '../../src/port/with/i18n-strategy.js'
 import { inlineMemory } from '../classified/harness.js'
 
@@ -67,6 +68,20 @@ describe('ViaPipeline.postureFor (#629 Task 8 — new small pipeline accessor)',
 
   it('undefined when no binding is compiled (zero-via)', () => {
     expect(ViaPipeline.build([])).toBeUndefined()
+  })
+
+  it('#642 — defaultPosture fallback: postureFor returns it for any field when no binding/taint entry covers it (non-sealed collection default)', () => {
+    const defaultPosture: ViaPosture = { encryptedAtRest: 'envelope', queryable: 'full', exportable: true, forgettable: true }
+    const p = ViaPipeline.build([], { postures: new Map(), sealFields: new Set(), defaultPosture })!
+    expect(p.postureFor('anyField')).toEqual(defaultPosture)
+  })
+
+  it('#642 — a field-specific taint posture still wins over defaultPosture', () => {
+    const defaultPosture: ViaPosture = { encryptedAtRest: 'envelope', queryable: 'full', exportable: true, forgettable: true }
+    const fieldPosture: ViaPosture = { encryptedAtRest: 'sealed', queryable: 'det-exact', exportable: false, forgettable: true }
+    const p = ViaPipeline.build([], { postures: new Map([['ssn', fieldPosture]]), sealFields: new Set(), defaultPosture })!
+    expect(p.postureFor('ssn')).toEqual(fieldPosture)
+    expect(p.postureFor('other')).toEqual(defaultPosture)
   })
 })
 

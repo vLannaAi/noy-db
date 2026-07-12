@@ -77,6 +77,24 @@ describe("ViaGraph — kind- & axis-scoped '*' posture fold (#642)", () => {
     expect(posture?.encryptedAtRest).toBe('sealed')
   })
 
+  it("an 'mv' edge folds sealed identically to derivation/rollup — kind-scoping includes mv", () => {
+    const g = new ViaGraph()
+    g.registerField('src4', 'ssn', CLASSIFIED)
+    g.registerDerived({ collection: 'out4', field: '*' }, [{ collection: 'src4', field: '*' }], 'mv', 'record')
+
+    const posture = g.effectivePosture({ collection: 'out4', field: '*' })
+    expect(posture?.encryptedAtRest).toBe('sealed')
+  })
+
+  it("an 'overlay' edge folds sealed identically — kind-scoping includes overlay", () => {
+    const g = new ViaGraph()
+    g.registerField('src5', 'ssn', CLASSIFIED)
+    g.registerDerived({ collection: 'out5', field: '*' }, [{ collection: 'src5', field: '*' }], 'overlay', 'record')
+
+    const posture = g.effectivePosture({ collection: 'out5', field: '*' })
+    expect(posture?.encryptedAtRest).toBe('sealed')
+  })
+
   it('ordering is free: registering the classified source field AFTER the derivation edge still folds sealed (cache cleared on the late registerField)', () => {
     const g = new ViaGraph()
     g.registerDerived({ collection: 'lateOut', field: '*' }, [{ collection: 'lateSrc', field: '*' }], 'derivation', 'record')
