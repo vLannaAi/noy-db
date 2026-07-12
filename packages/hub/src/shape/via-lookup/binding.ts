@@ -45,8 +45,13 @@ import { buildLookupSnapshot } from './snapshot.js'
 export interface LookupViaConfig {
   readonly lookupFields: Record<string, LookupDescriptor>
   readonly lookupLabelResolver?: (dimension: string, key: string, locale: string, fallback?: unknown) => Promise<string | undefined>
-  /** `dimension -> ((key) => backing row | undefined)` — the matrix (collection) tier's present-time source. */
-  readonly getLookupBacking?: (dimension: string) => ((key: string) => Promise<Record<string, unknown> | undefined>) | undefined
+  /**
+   * The matrix (collection) tier's present-time backing-row source, keyed by the full
+   * descriptor (not a bare dimension name) so the closure can resolve by `descriptor.key`,
+   * not the backing row's PUT-id (#651 Task 3 — the same descriptor-gaining dispatch Task 7
+   * already applied to `snapshotFor`).
+   */
+  readonly getLookupBacking?: (descriptor: LookupDescriptor) => (key: string) => Promise<Record<string, unknown> | undefined>
   /** Closed-vocabulary write-time membership test (#650 Task 3) — `(field, key) => known?`. */
   readonly membership?: (field: string, key: string) => boolean | Promise<boolean>
   /** Sync per-descriptor altKey index — `ingest`'s normalization source (#650 Task 3). */
@@ -89,7 +94,7 @@ async function fetchLookupLabel(
   cfg: LookupViaConfig,
 ): Promise<string | undefined> {
   if (desc.backing === 'collection') {
-    const getRow = cfg.getLookupBacking?.(desc.dimension)
+    const getRow = cfg.getLookupBacking?.(desc)
     const row = getRow ? await getRow(key) : undefined
     const labelField = desc.present?.label
     if (!row || labelField === undefined) return undefined

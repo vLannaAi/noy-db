@@ -78,6 +78,14 @@ tier: `getCollection(dimension).querySourceForJoin().snapshot()`; reserved tier:
 write-through cache) — no store I/O per `put()`. Matrix-tier altKeys require the backing collection
 to be open in eager (default, non-`{prefetch:false}`) mode.
 
+An altKey candidate row VALUE may be a string or a number — both normalize through the same
+`coerceLookupKey` core (a numeric `callingCode: 1` row value builds the altIndex entry `'1'`, same
+as a string `'1'` would), and the ownership-uniqueness check (no two rows may claim the same
+candidate) holds across the numeric/string boundary too — a numeric `1` on one row and the string
+`'1'` on another still collide and throw `ValidationError` (`lookup-altkeys.test.ts`, "accepts a
+numeric altKey value" / "throws ValidationError when a numeric altKey value coerces to the same
+string as another row's string altKey").
+
 ### Vocabulary — open vs closed, and sparse population
 
 `vocabulary: 'closed'` refuses an unknown key at write time with `UnknownLookupKeyError`:
@@ -120,17 +128,23 @@ live-rows set: a `vocabulary: 'closed'` field refuses even a genuinely valid, al
 until the dimension is hydrated. Open the backing collection (matrix tier; eager mode, the default —
 not `{prefetch:false}`) or call `await vault.dictionary(name).list()` (dict tier) first — the exact
 same populate-first requirement `altKeys` normalization has above. This fails safe (refuses rather
-than silently accepts an unverified key), but is easy to trip over on a fresh instance.
+than silently accepts an unverified key), but is easy to trip over on a fresh instance. Membership
+has never had a live fallback — it is pure-snapshot for both tiers. The matrix tier's *presentation*
+path (`<field>Label` resolution, below) is different: it preserves a live cold-session fallback, but
+**only** for the default `key: 'id'` (#651, closed).
 
 ## Presentation — `<field>Label`, in reads and in joins
 
 Reading with a locale resolves `<field>Label` on the SAME record (direct `present()`, works for
 reserved/static tiers via the vault-built label resolver). For matrix tier, direct (non-join) reads
-currently resolve the backing row by the backing collection's own PUT-id via `.get()` — **not** by
-`descriptor.key`. For the default `key: 'id'` those are the same thing, but for a custom canonical
-key like this doc's own `key: 'iso2'` recipe above, a direct `present()` read silently omits
-`<field>Label` instead of resolving it (tracked as #651) — use the join path below, or declare
-`key: 'id'`, until that's closed. Joining to a collection that itself declares a lookup field
+resolve the backing row through the SAME descriptor-keyed sync snapshot the join path uses
+(`resolveBackingRowKey`, #651 Task 3) — keyed by `descriptor.key`, never the backing collection's own
+PUT-id, so a custom canonical key like this doc's own `key: 'iso2'` recipe above resolves
+`<field>Label` correctly on a direct read too, not just through a join. The snapshot route needs the
+dimension collection open/populated in this session (the cold-session caveat above); the default
+`key: 'id'` tier ALONE keeps a live `.get()` fallback on a snapshot miss (construct+hydrate
+on-demand cold-session behavior, preserved unchanged) — for `key !== 'id'` the snapshot is the sole
+source of truth, per the caveat above. Joining to a collection that itself declares a lookup field
 resolves that field's label on the JOINED side too — the **snapshot+locale seam** (#650 Task 6,
 extended to matrix tier in Task 7), which correctly keys by `descriptor.key`, not the PUT-id:
 
@@ -229,6 +243,37 @@ site (closing seam-map surprise 3).
 A plain delete on a dictionary/collection row that **no** declared lookup field anywhere actually
 references is completely unaffected by any of this — `onDelete` only fires for dimensions a
 `lookupFields`/`via(lookup(...))` declaration actually points at.
+
+### Unresolvable compare-key: restrict fails closed, propagation residue-reports (#654)
+
+A matrix dimension with a non-default `key` resolves its compare-key by reading `row[key]` off the
+backing row (`resolveLookupCompareKey`). If that row is corrupted — the `key` field is missing or
+holds a non-string/non-number value — the compare-key **cannot be resolved**. Two policies apply,
+by `onDelete` mode:
+
+- **`restrict`** fails CLOSED: the delete/forget REFUSES with `RestrictRefUnresolvableError`
+  (`errors.ts`) naming the dimension, the row's key, and the unresolvable edge
+  (`"collection.field"`). Whether a referencer exists can't be proven, so the row is not deleted —
+  the same "cannot prove no references ⇒ do not delete" reasoning `DictKeyInUseError` already
+  applies when references ARE provably present.
+  ```ts
+  await expect(countries.delete('row-broken')).rejects.toThrow(RestrictRefUnresolvableError)
+  // err.dimension === 'countries'; err.key === 'row-broken'; err.referencing === 'orders.country'
+  ```
+- **`cascade`/`nullify`** residue-report instead: the delete PROCEEDS (only `restrict` edges are
+  fail-closed), but the un-propagated edge is never silently dropped — it's reported on a
+  structured `lookup:propagation-residue` event (`{ vault, dimension, key, residue }`, `residue`
+  entries formatted `backing:key:collection.field`), the ordinary-delete counterpart of the forget
+  path's `ForgetResult.lookupReferencesResidue` channel (which is unaffected — its own edges were
+  already residue-reported before #654).
+  ```ts
+  db.on('lookup:propagation-residue', (e) => { /* e.residue: ['countries:row-broken:orders.country'] */ })
+  await countries.delete('row-broken')   // still succeeds
+  ```
+
+A resolvable edge (the `key` field present and scalar) behaves exactly as before #654 in every
+mode — this is a corruption-class-rarity refinement, not a change to the common path (see
+`packages/hub/__tests__/via/lookup-restrict-unresolvable.test.ts`).
 
 ## Reserved-tier sync — dictionaries now travel (#647)
 

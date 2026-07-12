@@ -725,7 +725,14 @@ const KERNEL_SURFACE_BUDGET = {
   // to carry left the kernel spine for the shape/via-* feature layer. Locked
   // in to the ACTUAL measured line count (readFileSync(...).split('\n').length)
   // — no slack.
-  'packages/hub/src/kernel/collection.ts': 4473,
+  // Lowered 4473→4472 (2026-07-13, via-consolidation Task 6 final re-ratchet,
+  // #642/#651/#640/#654): the arc's Task 5 fix wave landed the file 1 line
+  // UNDER ceiling (the #640 rollup-on-delete work funded its own growth via
+  // shrink-first folds) and no later task in the arc touched this file —
+  // ratcheting the ceiling down to the actual per the checker's own
+  // ratchet-to-actual convention, so the margin isn't silently carried
+  // forward as slack for an unrelated future change.
+  'packages/hub/src/kernel/collection.ts': 4472,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -956,7 +963,14 @@ const KERNEL_SURFACE_BUDGET = {
   // spent and is removed here per the checker's ratchet-to-actual
   // convention (phase D's final task). Locked in to the ACTUAL measured
   // line count (readFileSync(...).split('\n').length) — no slack.
-  'packages/hub/src/kernel/vault.ts': 3940,
+  // Lowered 3940→3939 (2026-07-13, via-consolidation Task 6 final re-ratchet,
+  // #642/#651/#640/#654): the arc's Task 2 fix wave (#642) funded its
+  // `reapplyDependentOverlays` call by collapsing an adjacent `if` block,
+  // landing the file 1 line UNDER ceiling; Task 3 (#651) and Task 4 (#654)
+  // each landed net-zero edits back at that same actual, never spending the
+  // margin. Ratcheting down to the actual per the checker's ratchet-to-actual
+  // convention, same reasoning as collection.ts above.
+  'packages/hub/src/kernel/vault.ts': 3939,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

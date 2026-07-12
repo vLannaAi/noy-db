@@ -49,6 +49,7 @@ import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, Dicti
 import type { LookupDescriptor, MaterializedBacking } from '../port/with/lookup-strategy.js'
 import { buildPresentForJoin } from '../port/with/lookup-strategy.js'
 import type { ComputedFields, ComputedFn, ComputedFieldEntry } from '../with-formula/computed/index.js'
+import type { RollupDeleteIntent } from './via-dispatch.js'
 // #638 Task 7 — the value import (not just `import type`) forces the port module's eager
 // `linkComputedVia()` to run whenever this file loads (collection-config.ts is always in the
 // dependency graph), so `viaBinder('computed')` is resolvable before `compileViaBindings` needs it.
@@ -303,8 +304,10 @@ export interface CollectionOpts<T> {
   lookupLabelResolver?:
     | ((dimension: string, key: string, locale: string, fallback?: string | readonly string[]) => Promise<string | undefined>)
     | undefined
-  /** — the matrix (`backing:'collection'`) tier's present-time row accessor. Provided by the Vault. */
-  getLookupBacking?: ((dimension: string) => ((key: string) => Promise<Record<string, unknown> | undefined>) | undefined) | undefined
+  /** — the matrix (`backing:'collection'`) tier's present-time row accessor, keyed by the full
+   *  descriptor so it can resolve by `descriptor.key`, not the backing row's PUT-id (#651 Task 3).
+   *  Provided by the Vault. */
+  getLookupBacking?: ((descriptor: LookupDescriptor) => (key: string) => Promise<Record<string, unknown> | undefined>) | undefined
   /** — closed-vocabulary write-time membership test (#650 Task 3). Provided by the Vault. */
   membership?: ((field: string, key: string) => boolean | Promise<boolean>) | undefined
   /** — altKeys `ingest` normalization source (#650 Task 3). Provided by the Vault. */
@@ -512,8 +515,12 @@ export interface CollectionOpts<T> {
    * #638 Task 4 — thin collector hook wired by the Vault (`Vault._collectGraphTouch`). Every
    * `sync-apply`/`cutover`/`restore` mutation origin calls `collect(this.name, id)`; a no-op
    * when no batch is open (`_beginGraphBatch()` wasn't called) or the vault has no graph.
+   * `collectDelete` (#640) is the sync-apply delete socket — the resolved rollup-parent intents
+   * for a deleted record, captured pre-invalidation.
    */
-  graphDispatch?: { collect(collection: string, id: string): void } | undefined
+  graphDispatch?:
+    | { collect(collection: string, id: string): void; collectDelete(collection: string, id: string, intents: readonly RollupDeleteIntent[]): void }
+    | undefined
 }
 
 /** One normalized `ComputedFields` entry — a plain `ComputedFn` or a `ComputedFieldEntry`

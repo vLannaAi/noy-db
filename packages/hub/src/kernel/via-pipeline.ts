@@ -20,15 +20,21 @@ export interface ViaTaintOverlay {
   readonly postures: ReadonlyMap<string, ViaPosture>
   readonly sealFields: ReadonlySet<string>
   readonly provenance?: ReadonlyMap<string, readonly string[]>
+  /** #642 — the whole-record floor for a derivation/MV/overlay OUTPUT collection (the '*' target's
+   *  folded, clamped effective posture). postureFor falls back to it for ANY field; redactForExport
+   *  picks it up per-field; a sealed default drives taintBinding's sealAllFields mode. O(1) read. */
+  readonly defaultPosture?: ViaPosture
 }
 
 export class ViaPipeline {
   private constructor(readonly bindings: readonly ViaBinding[], readonly taint?: ViaTaintOverlay) {}
 
   /** undefined when there is nothing to enforce — the zero-via fast path is
-   *  `this.via === undefined` (#553: keeps an all-plain collection sync). */
+   *  `this.via === undefined` (#553: keeps an all-plain collection sync). A
+   *  `'*'`-defaulted output collection (#642) counts as "something to enforce"
+   *  even with zero field-specific postures and zero bindings. */
   static build(bindings: readonly ViaBinding[], taint?: ViaTaintOverlay): ViaPipeline | undefined {
-    if (bindings.length === 0 && (!taint || taint.postures.size === 0)) return undefined
+    if (bindings.length === 0 && (!taint || (taint.postures.size === 0 && taint.defaultPosture === undefined))) return undefined
     return new ViaPipeline(bindings, taint)
   }
 
@@ -168,7 +174,9 @@ export class ViaPipeline {
     for (const b of this.bindings) {
       if (b.covers?.(field)) return b.posture
     }
-    return undefined
+    // #642 — a '*'-defaulted output collection's whole-record floor: O(1) read,
+    // no fold (the fold ran once at applyTaintOverlay/reapply time).
+    return this.taint?.defaultPosture
   }
 
   /**

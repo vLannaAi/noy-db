@@ -155,7 +155,7 @@ describe('mutation-choke-point origin parity (#623 task 10, #621)', () => {
     // around every applyRemote call, per §3) — flip: phase C now dispatches on flush.
     // parity-pin: #621 — phase C changes this (was: no event, no derivation dispatch).
     v2._beginGraphBatch()
-    await v2._invalidateSyncApplied('pdfs', 'doc1')
+    await v2._invalidateSyncApplied('pdfs', 'doc1', 'put')
     await v2._flushGraphBatch()
 
     expect(changed2).toBe(1) // parity-pin: #621 — phase C changes this (the derived pdf-meta/doc1 output write)
@@ -187,7 +187,7 @@ describe('mutation-choke-point origin parity (#623 task 10, #621)', () => {
     await v1.collection<Invoice>('invoices').put('inv-1', { id: 'inv-1', status: 'open', amount: 100 }) // db1's own local-write, into the shared store
 
     v2._beginGraphBatch()
-    await v2._invalidateSyncApplied('invoices', 'inv-1')
+    await v2._invalidateSyncApplied('invoices', 'inv-1', 'put')
     await v2._flushGraphBatch()
 
     expect(await v2.collection<Invoice>('open-invoices').get('inv-1')).toMatchObject({ amount: 100 })

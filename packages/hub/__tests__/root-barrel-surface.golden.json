@@ -164,6 +164,7 @@
     "RefScopeError",
     "ReservedCollectionNameError",
     "ReservedVaultNameError",
+    "RestrictRefUnresolvableError",
     "SCHEMAS_COLLECTION",
     "SEALED_PASSPHRASE_RECORD_ID",
     "STATE_VAULT_NAME",

@@ -127,6 +127,55 @@ async function decodeTaintAtRest(
 }
 
 /**
+ * #642 `sealAllFields` mode — seal EVERY own field carrying a defined value,
+ * except reserved/internal keys (`_`-prefixed, e.g. `_derivedFrom` — the
+ * derivation/MV output provenance tag, which must stay a plain metadata
+ * object, never sealed). Mirrors {@link encodeTaintAtRest} but iterates
+ * `Object.keys(record)` instead of a fixed field list — a `'*'`-defaulted
+ * output collection's field names are runtime `derive()` products, unknown
+ * at declare time.
+ */
+async function encodeTaintAtRestAll(
+  record: Record<string, unknown>,
+  crypto: ViaCryptoCtx,
+): Promise<{ record: Record<string, unknown>; sealed?: Record<string, SealedSlotRef> }> {
+  let open = record
+  let sealed: Record<string, SealedSlotRef> | undefined
+  for (const field of Object.keys(record)) {
+    if (field.startsWith('_')) continue
+    const value = record[field]
+    if (value === undefined) continue
+    const ref = await crypto.sealedSlots.seal(field, value)
+    if (open === record) open = { ...record }
+    delete open[field]
+    sealed ??= {}
+    sealed[field] = ref
+  }
+  return sealed ? { record: open, sealed } : { record }
+}
+
+/**
+ * #642 `sealAllFields` mode — restore every key PRESENT IN THE RECORD'S OWN
+ * `sealed` map (no fixed field list to consult — the field set is whatever
+ * {@link encodeTaintAtRestAll} actually sealed for this particular record).
+ */
+async function decodeTaintAtRestAll(
+  record: Record<string, unknown>,
+  sealed: Record<string, SealedSlotRef>,
+  crypto: ViaCryptoCtx,
+  opts: { asHandles: boolean },
+): Promise<Record<string, unknown>> {
+  let out = record
+  for (const [field, ref] of Object.entries(sealed)) {
+    if (out === record) out = { ...record }
+    out[field] = opts.asHandles
+      ? new SealedHandle(() => crypto.sealedSlots.unseal(field, ref))
+      : await crypto.sealedSlots.unseal(field, ref)
+  }
+  return out
+}
+
+/**
  * The `taint` binding: seals `sealFields` at rest via `ctx.sealedSlots`,
  * presenting them as sealed handles on read — exactly as classified does,
  * reusing the same phase-B capability. `covers` = membership in `sealFields`
@@ -156,18 +205,30 @@ async function decodeTaintAtRest(
  * field (no materialized-sealed field) must NOT flip
  * `ViaPipeline.hasAtRestHooks`, which would wrongly route it onto the async
  * at-rest-hook codec path for nothing to seal.
+ *
+ * `sealAllFields` (#642, default `false`) — whole-record seal for a
+ * `'*'`-defaulted derivation/MV/overlay OUTPUT collection: `covers` claims
+ * every non-`_`-prefixed field, and `encodeAtRest`/`decodeAtRest` route
+ * through {@link encodeTaintAtRestAll}/{@link decodeTaintAtRestAll} instead
+ * of the fixed `sealFields` list (moot in this mode — sealing everything is
+ * already a superset of any field-specific taint on the same collection).
  */
-export function taintBinding(sealFields: ReadonlySet<string>, presentRedactFields: ReadonlySet<string> = EMPTY_STRING_SET): ViaBinding {
+export function taintBinding(
+  sealFields: ReadonlySet<string>,
+  presentRedactFields: ReadonlySet<string> = EMPTY_STRING_SET,
+  sealAllFields = false,
+): ViaBinding {
   const fields = [...sealFields]
   const redactFields = [...presentRedactFields]
   return {
     brand: 'taint',
     posture: { encryptedAtRest: 'sealed', queryable: 'none', exportable: false, forgettable: true },
-    covers: (field) => sealFields.has(field) || presentRedactFields.has(field),
-    ...(fields.length > 0 ? {
-      encodeAtRest: (record: Record<string, unknown>, crypto: ViaCryptoCtx) => encodeTaintAtRest(record, crypto, fields),
+    covers: (field) => sealAllFields ? !field.startsWith('_') : (sealFields.has(field) || presentRedactFields.has(field)),
+    ...((sealAllFields || fields.length > 0) ? {
+      encodeAtRest: (record: Record<string, unknown>, crypto: ViaCryptoCtx) =>
+        sealAllFields ? encodeTaintAtRestAll(record, crypto) : encodeTaintAtRest(record, crypto, fields),
       decodeAtRest: (record: Record<string, unknown>, sealed: Record<string, SealedSlotRef>, crypto: ViaCryptoCtx, opts: { asHandles: boolean }) =>
-        decodeTaintAtRest(record, sealed, crypto, opts, fields),
+        sealAllFields ? decodeTaintAtRestAll(record, sealed, crypto, opts) : decodeTaintAtRest(record, sealed, crypto, opts, fields),
     } : {}),
     ...(redactFields.length > 0 ? {
       present: (record: Record<string, unknown>) => {

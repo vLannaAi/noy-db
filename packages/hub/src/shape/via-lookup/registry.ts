@@ -273,6 +273,8 @@ export interface MaterializedBacking {
  * the CHE/SWZ drift class: two different rows must never claim the same
  * candidate key). `rows` is keyed by canonical key (`row[descriptor.key]`
  * for the matrix tier; the dimension's own key for static/reserved).
+ * An altKey candidate VALUE may be a string or number — both normalize via
+ * `coerceLookupKey` (#651 Task 3); non-scalar/absent values are skipped.
  * Pure — no I/O. Throws `ValidationError` on collision.
  */
 export function materializeBackingTable(
@@ -289,8 +291,8 @@ export function materializeBackingTable(
   const altFields = descriptor.altKeys ?? []
   for (const [canonicalKey, row] of rows) {
     for (const altField of altFields) {
-      const value = row[altField]
-      if (typeof value !== 'string' || value === '') continue
+      const value = coerceLookupKey(row[altField])
+      if (value === undefined || value === '') continue
       const existingOwner = owner.get(value)
       if (existingOwner !== undefined && existingOwner !== canonicalKey) {
         throw new ValidationError(
@@ -336,6 +338,46 @@ export function checkLookupMembership(
 }
 
 /**
+ * The ONE guarded key coercion (#651 Task 3, dm12) — string/number values
+ * coerce to their canonical `String()` form; everything else (`null`,
+ * `undefined`, objects, …) coerces to `undefined`. Every consumer that turns
+ * a raw record field into a lookup key routes through this, closing the
+ * bare-`String()` `"undefined"`/`"null"`-key poisoning class (seam map
+ * finding 6): a row whose key field is genuinely absent must never mint the
+ * literal candidate string `"undefined"`.
+ */
+export function coerceLookupKey(raw: unknown): string | undefined {
+  return typeof raw === 'string' || typeof raw === 'number' ? String(raw) : undefined
+}
+
+/**
+ * Resolve a backing row's canonical key VALUE — `coerceLookupKey(row[descriptor.key])`
+ * (#651 Task 3). The matrix tier's `row[descriptor.key]`, never the row's own PUT-id
+ * when the two differ (`descriptor.key !== 'id'`).
+ */
+export function resolveBackingRowKey(
+  descriptor: LookupDescriptor,
+  row: Record<string, unknown>,
+): string | undefined {
+  return coerceLookupKey(row[descriptor.key])
+}
+
+/**
+ * The referencing-side match predicate — does `rec[field]` (coerced) equal an
+ * already-coerced `compareKey` (#651 Task 3)? Shared by every site that scans a
+ * referencing collection for rows pointing at a given backing key
+ * (`with-shape/links/vault-facade.ts`'s ref-delete propagation, `kernel/via-dispatch.ts`'s
+ * forget-fanout twin).
+ */
+export function matchesReferencingValue(
+  rec: Record<string, unknown>,
+  field: string,
+  compareKey: string,
+): boolean {
+  return coerceLookupKey(rec[field]) === compareKey
+}
+
+/**
  * Materialize a lookup dimension's altKey index from whatever backing data
  * is synchronously available (#650 Task 3 — the `ingest` source). Static:
  * the in-config table. Reserved: the reserved handle's live write-through
@@ -347,6 +389,9 @@ export function checkLookupMembership(
  * existing join precedent, a dimension collection this vault session has
  * not yet opened/populated sees an empty snapshot (no altKey normalization
  * until it has rows) — open/populate it first for normalization to apply.
+ * A matrix row whose `descriptor.key` field coerces to `undefined` (missing/
+ * non-scalar) is SKIPPED — never enters the index under a poisoned
+ * `"undefined"` key (#651 Task 3, dm12).
  */
 export function buildLookupAltIndex(
   descriptor: LookupDescriptor,
@@ -361,15 +406,13 @@ export function buildLookupAltIndex(
     return materializeBackingTable(descriptor, new Map(entries.map((e) => [String(e['key']), e])))
   }
   const rows = getCollection(descriptor.dimension).querySourceForJoin().snapshot()
-  return materializeBackingTable(
-    descriptor,
-    new Map(
-      rows.map((r) => {
-        const row = r as Record<string, unknown>
-        return [String(row[descriptor.key]), row] as const
-      }),
-    ),
-  )
+  const keyed = new Map<string, Record<string, unknown>>()
+  for (const r of rows) {
+    const row = r as Record<string, unknown>
+    const key = resolveBackingRowKey(descriptor, row)
+    if (key !== undefined) keyed.set(key, row)
+  }
+  return materializeBackingTable(descriptor, keyed)
 }
 
 /** One cross-collection `'ref'` graph edge a lookup field declares (#650 Task 5). Module-private —
@@ -448,10 +491,11 @@ export function registerLookupRefEdges(
  * - **collection** (matrix): rows come from `getCollection(dimension).
  *   querySourceForJoin().snapshot()` — the SAME sync, already-live cache
  *   `buildLookupAltIndex`'s matrix branch (above, this file) and `.join()`
- *   itself already read — re-keyed by `String(row[descriptor.key])`, NOT
- *   the row's own PUT-id (which may differ when `key !== 'id'`; the exact
+ *   itself already read — re-keyed via `resolveBackingRowKey(descriptor, row)`,
+ *   NOT the row's own PUT-id (which may differ when `key !== 'id'`; the exact
  *   distinction the #650 Task 3 review fix already applies to
- *   `checkLookupMembership`'s matrix branch).
+ *   `checkLookupMembership`'s matrix branch). A row whose `descriptor.key`
+ *   field coerces to `undefined` is skipped (#651 Task 3, dm12).
  * - **static**: never routed here — `descriptor.table` is read directly by
  *   the caller (`binding.ts`'s `compareLookupOrder`/`resolveLookupOrderLabel`,
  *   `snapshot.ts`'s `presentLookupForJoin`); no vault call needed.
@@ -479,7 +523,8 @@ export function buildLookupSnapshotRows(
     const rows = new Map<string, Record<string, unknown>>()
     for (const r of rawRows) {
       const row = r as Record<string, unknown>
-      rows.set(String(row[descriptor.key]), row)
+      const key = resolveBackingRowKey(descriptor, row)
+      if (key !== undefined) rows.set(key, row)
     }
     return rows
   }

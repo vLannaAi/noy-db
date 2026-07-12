@@ -40,6 +40,7 @@
  *       │    ├─ ReservedCollectionNameError
  *       │    ├─ DictKeyMissingError
  *       │    ├─ DictKeyInUseError
+ *       │    ├─ RestrictRefUnresolvableError — restrict edge's compare-key unresolvable (#654)
  *       │    ├─ MissingTranslationError
  *       │    ├─ LocaleNotSpecifiedError
  *       │    ├─ ScriptViolationError
@@ -1414,6 +1415,36 @@ export class DictKeyInUseError extends NoydbError {
     this.key = key
     this.usedBy = usedBy
     this.count = count
+  }
+}
+
+/**
+ * Thrown by `VaultLinks.checkLookupRefsRestrict()` (#654) when a `restrict`-mode lookup-ref
+ * edge's compare-key cannot be resolved from the backing row — a matrix dimension with a
+ * non-default `key` whose row is missing that field or holds a non-string/non-number value
+ * (corruption-class rarity). Whether the referencer still points at this row can't be proven
+ * either way, so the delete/forget is refused rather than silently allowed through — the
+ * fail-closed twin of `DictKeyInUseError` ("cannot prove no references ⇒ do not delete").
+ */
+export class RestrictRefUnresolvableError extends NoydbError {
+  /** The dimension (backing collection/dictionary) whose row's compare-key was unresolvable. */
+  readonly dimension: string
+  /** The backing row's key (its PUT-id) that was being deleted/forgotten. */
+  readonly key: string
+  /** The unresolvable restrict edge, formatted `"collection.field"`. */
+  readonly referencing: string
+
+  constructor(dimension: string, key: string, referencing: string) {
+    super(
+      'RESTRICT_REF_UNRESOLVABLE',
+      `Cannot delete "${dimension}" key "${key}": the restrict-mode reference from "${referencing}" ` +
+        `could not be resolved (its compare-key is unreadable on the backing row). Refusing to ` +
+        `delete — cannot prove no references exist.`,
+    )
+    this.name = 'RestrictRefUnresolvableError'
+    this.dimension = dimension
+    this.key = key
+    this.referencing = referencing
   }
 }
 

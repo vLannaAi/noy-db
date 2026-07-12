@@ -45,6 +45,24 @@ export function foldPosture(a: ViaPosture, b: ViaPosture): ViaPosture {
   }
 }
 
+/** Security-axes-only fold for a wildcard collection node (#642): sealed-wins encryptedAtRest,
+ *  AND exportable, OR forgettable — queryable is NOT folded (stays base.queryable; the sealed
+ *  clamp to 'none' is buildTaintOverlay's job, so inheriting `sealed` never over-restricts a
+ *  blob-adjacent output to unqueryable). Pure; exported for unit testing. Distinct from
+ *  {@link foldPosture} (which folds all four axes) — do NOT reuse foldPosture here. */
+export function foldWildcardSecurity(base: ViaPosture, contributor: ViaPosture): ViaPosture {
+  return {
+    encryptedAtRest: base.encryptedAtRest === 'sealed' || contributor.encryptedAtRest === 'sealed' ? 'sealed' : 'envelope',
+    queryable: base.queryable,
+    exportable: base.exportable && contributor.exportable,
+    forgettable: base.forgettable || contributor.forgettable,
+  }
+}
+
+// the folded formula kinds a '*' source contributes its collection-fold to (ref keeps identity):
+type FoldedKind = 'derivation' | 'rollup' | 'mv' | 'overlay'
+const FOLDED_KINDS: ReadonlySet<EdgeKind> = new Set<FoldedKind>(['derivation', 'rollup', 'mv', 'overlay'])
+
 /** Whether `p` is exactly the plain, non-taint baseline (Task 3 — `taintProvenance`). */
 function isDefaultPosture(p: ViaPosture): boolean {
   return p.encryptedAtRest === DEFAULT_POSTURE.encryptedAtRest && p.queryable === DEFAULT_POSTURE.queryable &&
@@ -89,6 +107,11 @@ export class ViaGraph {
   private readonly _out = new Map<string, FieldRef[]>()
   /** Memoized effective posture per derived target node id. */
   private readonly _effectiveCache = new Map<string, ViaPosture>()
+  /** Memoized whole-collection security-axes fold for `'*'` wildcard LEAF nodes (#642),
+   *  keyed by collection name — see {@link _wildcardContribution}. Cleared alongside
+   *  `_effectiveCache` on every `registerField`/`registerDerived` (a later-registered
+   *  field must re-fold on the next read — registration ordering is free). */
+  private readonly _wildcardCache = new Map<string, ViaPosture>()
   /** Collections with at least one classified field (#638 Task 2 fix wave 2,
    *  Finding I1 — the reconcile path's combined-state leak guard memory). */
   private readonly _classifiedCollections = new Set<string>()
@@ -105,6 +128,7 @@ export class ViaGraph {
     if (this._posture.has(id)) return
     this._posture.set(id, posture)
     this._effectiveCache.clear()
+    this._wildcardCache.clear()
   }
 
   /** A derived target depends on `sources` (may be cross-collection). `kind`/`grain`
@@ -126,6 +150,7 @@ export class ViaGraph {
       else this._out.set(sourceId, [target])
     }
     this._effectiveCache.clear()
+    this._wildcardCache.clear()
   }
 
   /** Whether `target` already has a registered in-edge — lets a caller skip
@@ -192,11 +217,43 @@ export class ViaGraph {
     return this._posture.get(id) ?? DEFAULT_POSTURE
   }
 
-  /** A node's posture contribution when folded into a dependent: recurse if it is
-   *  itself derived, else its declared/default posture. */
-  private _contribution(id: string): ViaPosture {
+  /** A node's posture contribution when folded into a dependent: recurse if it is itself
+   *  derived; else its declared/default posture — UNLESS it is a `'*'` LEAF node consumed
+   *  by a folded formula kind (#642, `derivation|rollup|mv|overlay`), in which case it
+   *  contributes its collection's whole-record security fold ({@link _wildcardContribution}).
+   *  `kind` is the CONSUMING edge's kind, threaded from {@link _computeEffective}. `'ref'`
+   *  edges (and the provenance-only untyped call, `kind` left `undefined`) keep `'*'` =
+   *  identity — the phase-D lookup reliance (`shape/via-lookup/registry.ts:392-397`) that a
+   *  referencing field must not seal just because its dimension collection has a classified
+   *  column. */
+  private _contribution(id: string, kind?: EdgeKind): ViaPosture {
     const edge = this._in.get(id)
-    return edge ? this._computeEffective(id, edge) : this._declaredPosture(id)
+    if (edge) return this._computeEffective(id, edge)
+    if (kind !== undefined && FOLDED_KINDS.has(kind) && id.endsWith(`${SEP}*`)) {
+      return this._wildcardContribution(id.slice(0, -2))
+    }
+    return this._declaredPosture(id)
+  }
+
+  /** Lazy fold (#642) of a collection's REGISTERED field postures on the security axes only
+   *  ({@link foldWildcardSecurity} — sealed-wins encryptedAtRest, AND exportable, OR
+   *  forgettable; queryable stays at DEFAULT_POSTURE's 'full', never folded), seeded at
+   *  DEFAULT_POSTURE. This is the collection-level posture a `'*'` LEAF node contributes to a
+   *  folded-kind formula edge (derivation/rollup/mv/overlay) — see {@link _contribution}. A
+   *  plain (unregistered) field contributes nothing (the identity), so the fold is strictly
+   *  more conservative than deps-based taint and never hits the KNOWN-LIMIT wall (it names no
+   *  fields — seam map §1d). Memoized per collection in `_wildcardCache`. */
+  private _wildcardContribution(collection: string): ViaPosture {
+    const cached = this._wildcardCache.get(collection)
+    if (cached) return cached
+    let result = DEFAULT_POSTURE
+    const prefix = `${collection}${SEP}`
+    for (const [id, posture] of this._posture) {
+      if (!id.startsWith(prefix) || id === `${prefix}*`) continue
+      result = foldWildcardSecurity(result, posture)
+    }
+    this._wildcardCache.set(collection, result)
+    return result
   }
 
   private _computeEffective(id: string, edge: DerivedEdge): ViaPosture {
@@ -204,7 +261,7 @@ export class ViaGraph {
     if (cached) return cached
     let result = DEFAULT_POSTURE
     for (const source of edge.sources) {
-      result = foldPosture(result, this._contribution(nodeId(source)))
+      result = foldPosture(result, this._contribution(nodeId(source), edge.kind))
     }
     // #638 Task 7 — a virtual field is computed fresh on every read and never
     // stored, so it is structurally unqueryable regardless of what its
