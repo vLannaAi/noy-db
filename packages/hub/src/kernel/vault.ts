@@ -103,6 +103,7 @@ import {
   updateReferencingRecords,
   resolveLabelFromMap,
   collectLookupDictCompat,
+  checkLookupMembership, buildLookupAltIndex,
   type LookupDescriptor,
 } from '../port/with/lookup-strategy.js'
 import { isLinkCollectionName, type LinkSpec, type LinkSetHandle } from '../with-shape/links/names.js'
@@ -1155,13 +1156,12 @@ export class Vault {
         collOpts.dictKeyFields = options?.dictKeyFields
       }
       if (effectiveViaFields.lookupFields !== undefined) {
-        // Reserved/static tiers share the resolver above (both closures
-        // resolve through the same staticByName/dictionary() chain); the
-        // matrix (collection) tier reads a backing row's declared
-        // present.label field via this vault.collection().get() accessor.
+        // membership/getAltIndex (#650 Task 3) are vault-built closures — never a collection handle.
         collOpts.lookupLabelResolver = collOpts.dictLabelResolver
         collOpts.getLookupBacking = (dimension: string) => async (key: string) => (await this.collection<Record<string, unknown>>(dimension).get(key)) ?? undefined
         collOpts.lookupFields = options?.lookupFields
+        collOpts.membership = (field, key) => checkLookupMembership(effectiveViaFields.lookupFields![field]!, key, (n) => this.dictionary(n), (n) => this.collection(n))
+        collOpts.getAltIndex = (d) => buildLookupAltIndex(d, (n) => this.dictionary(n), (n) => this.collection<Record<string, unknown>>(n))
       }
       // i18n / staticDict validation on put — enforced via the compartment's
       // put hook. staticDict adds put-time code validation.

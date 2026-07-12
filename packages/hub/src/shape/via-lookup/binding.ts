@@ -24,7 +24,9 @@ import type { ViaBinding, ViaReadCtx } from '../../kernel/via.js'
 import { installViaBinder } from '../../kernel/via.js'
 import type { LookupDescriptor } from './descriptor.js'
 import { resolvePolicy, type Layer } from '../via-i18n/policy.js'
-import { LocaleNotSpecifiedError } from '../../kernel/errors.js'
+import { LocaleNotSpecifiedError, UnknownLookupKeyError } from '../../kernel/errors.js'
+import { getAtPath, setAtPathInPlace } from '../../kernel/paths.js'
+import type { MaterializedBacking } from './registry.js'
 
 /**
  * Config a collection's lookup declarations resolve to — the binding's
@@ -38,7 +40,10 @@ export interface LookupViaConfig {
   readonly lookupLabelResolver?: (dimension: string, key: string, locale: string, fallback?: unknown) => Promise<string | undefined>
   /** `dimension -> ((key) => backing row | undefined)` — the matrix (collection) tier's present-time source. */
   readonly getLookupBacking?: (dimension: string) => ((key: string) => Promise<Record<string, unknown> | undefined>) | undefined
+  /** Closed-vocabulary write-time membership test (#650 Task 3) — `(field, key) => known?`. */
   readonly membership?: (field: string, key: string) => boolean | Promise<boolean>
+  /** Sync per-descriptor altKey index — `ingest`'s normalization source (#650 Task 3). */
+  readonly getAltIndex?: (desc: LookupDescriptor) => MaterializedBacking | undefined
   readonly snapshotFor?: (dimension: string) => ReadonlyMap<string, Record<string, unknown>> | undefined
   readonly collectionName: string
 }
@@ -165,12 +170,60 @@ function buildLookupDescribeFragment(cfg: LookupViaConfig): Record<string, unkno
   return { lookupFields: Object.keys(cfg.lookupFields) }
 }
 
+/**
+ * `ingest` — altKey candidate values normalize to the canonical key (#650
+ * Task 3, spec §3). Pure, sync, idempotent (a canonical key maps to
+ * itself); no store read — consults the pre-materialized
+ * `cfg.getAltIndex(desc)`. The money `canonicalizeIncomingMoney` precedent
+ * (`via.ts:108`).
+ */
+function runLookupIngest(record: Record<string, unknown>, cfg: LookupViaConfig): Record<string, unknown> {
+  const withAltKeys = Object.entries(cfg.lookupFields).filter(([, d]) => (d.altKeys?.length ?? 0) > 0)
+  if (withAltKeys.length === 0) return record
+
+  let result = record
+  for (const [field, desc] of withAltKeys) {
+    const backing = cfg.getAltIndex?.(desc)
+    if (!backing || backing.altIndex.size === 0) continue
+    const values = getAtPath(record, field)
+    if (values.length !== 1) continue
+    const value = values[0]
+    if (typeof value !== 'string') continue
+    const canonical = backing.altIndex.get(value)
+    if (canonical === undefined || canonical === value) continue
+    if (result === record) result = { ...record }
+    setAtPathInPlace(result, field, canonical)
+  }
+  return result
+}
+
+/**
+ * `enforceWrite` — closed-vocabulary write refusal (#650 Task 3, spec §3).
+ * Runs only for `vocabulary:'closed'` fields; `'open'` (the dictKey/dict
+ * default) skips the check entirely, so #649's fix is additive — existing
+ * dictKey/staticDict collections are unaffected. `ctx` carries no
+ * cross-collection door (`id`/`vault`/`prior`/`emit` only, unchanged) —
+ * membership is a vault-built closure on `cfg`, per spec.
+ */
+async function runLookupEnforceWrite(record: Record<string, unknown>, cfg: LookupViaConfig): Promise<void> {
+  for (const [field, desc] of Object.entries(cfg.lookupFields)) {
+    if (desc.vocabulary !== 'closed') continue
+    for (const value of getAtPath(record, field)) {
+      if (typeof value !== 'string') continue
+      const known = cfg.membership ? await cfg.membership(field, value) : true
+      if (!known) throw new UnknownLookupKeyError(desc.dimension, field, value)
+    }
+  }
+}
+
 export function lookupBinding(cfg: LookupViaConfig): ViaBinding {
   return {
     brand: 'lookup',
     posture: { encryptedAtRest: 'envelope', queryable: 'full', exportable: true, forgettable: false },
     reservedPrefixes: ['_dict_', '_lookup_'],
     covers: (field) => field in cfg.lookupFields,
+    ingest: (record) => runLookupIngest(record, cfg),
+    enforceWrite: (record) => runLookupEnforceWrite(record, cfg),
     present: async (record, ctx) => runLookupPresent(record, ctx, cfg),
     describeFragment: () => buildLookupDescribeFragment(cfg),
   }

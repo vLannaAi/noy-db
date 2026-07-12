@@ -11,7 +11,7 @@
  */
 
 import { getAtPath } from '../../kernel/paths.js'
-import { UnknownDictCodeError } from '../../kernel/errors.js'
+import { UnknownDictCodeError, ValidationError } from '../../kernel/errors.js'
 import type { JoinableSource } from '../../kernel/query/index.js'
 import type { StaticDictDescriptor } from '../../port/with/i18n-strategy.js'
 import type { LookupHandle } from './handle.js'
@@ -252,4 +252,120 @@ export function collectLookupDictCompat(
     }
   }
   return { dictFieldMap, staticEntries }
+}
+
+/**
+ * A lookup dimension's sync membership/altKey table, materialized from its
+ * backing rows (#650 Task 3). `keys` is every canonical key present;
+ * `altIndex` maps an altKey candidate VALUE to its owning canonical key.
+ */
+export interface MaterializedBacking {
+  /** Canonical key values present in the materialized rows. */
+  readonly keys: ReadonlySet<string>
+  /** altKey candidate value -> canonical key. */
+  readonly altIndex: ReadonlyMap<string, string>
+}
+
+/**
+ * Build a lookup dimension's altKey index from its backing rows, enforcing
+ * declare/warm-time uniqueness across `key ∪ altKeys` values (#650 Task 3 —
+ * the CHE/SWZ drift class: two different rows must never claim the same
+ * candidate key). `rows` is keyed by canonical key (`row[descriptor.key]`
+ * for the matrix tier; the dimension's own key for static/reserved).
+ * Pure — no I/O. Throws `ValidationError` on collision.
+ */
+export function materializeBackingTable(
+  descriptor: LookupDescriptor,
+  rows: ReadonlyMap<string, Record<string, unknown>>,
+): MaterializedBacking {
+  const keys = new Set<string>(rows.keys())
+  // Every value that has claimed ownership so far (canonical keys seed it) —
+  // the union `key ∪ altKeys` uniqueness set the spec requires.
+  const owner = new Map<string, string>()
+  for (const key of keys) owner.set(key, key)
+
+  const altIndex = new Map<string, string>()
+  const altFields = descriptor.altKeys ?? []
+  for (const [canonicalKey, row] of rows) {
+    for (const altField of altFields) {
+      const value = row[altField]
+      if (typeof value !== 'string' || value === '') continue
+      const existingOwner = owner.get(value)
+      if (existingOwner !== undefined && existingOwner !== canonicalKey) {
+        throw new ValidationError(
+          `lookup "${descriptor.dimension}": altKey field "${altField}" value "${value}" is claimed by ` +
+            `both "${existingOwner}" and "${canonicalKey}" — key/altKey values must be unique across the dimension.`,
+        )
+      }
+      owner.set(value, canonicalKey)
+      altIndex.set(value, canonicalKey)
+    }
+  }
+  return { keys, altIndex }
+}
+
+/**
+ * Closed-vocabulary membership test for one candidate key (#650 Task 3).
+ * Static tier: sync, against the in-config key set (declared `keys`, or the
+ * table's own keys when table-bearing). Reserved tier: sync — the declared
+ * `keys` union the reserved handle's live write-through snapshot (closes
+ * #649 for the native `dict()` spelling: the declared-keys promise the old
+ * `dictKey()` doc comment made falsely). Matrix (collection) tier: awaits a
+ * targeted `get(key)` on the backing collection — the `enforceRefsOnPut`
+ * async precedent (`with-shape/links/vault-facade.ts:113`).
+ */
+export function checkLookupMembership(
+  descriptor: LookupDescriptor,
+  key: string,
+  getDictionary: (dimension: string) => LookupHandle,
+  getCollection: (dimension: string) => { get(id: string): Promise<unknown> },
+): boolean | Promise<boolean> {
+  if (descriptor.backing === 'static') {
+    const known = descriptor.keys ?? (descriptor.table ? Object.keys(descriptor.table) : [])
+    return known.includes(key)
+  }
+  if (descriptor.backing === 'reserved') {
+    if ((descriptor.keys ?? []).includes(key)) return true
+    return getDictionary(descriptor.dimension).snapshotEntries().some((e) => e['key'] === key)
+  }
+  return getCollection(descriptor.dimension)
+    .get(key)
+    .then((row) => row !== undefined && row !== null)
+}
+
+/**
+ * Materialize a lookup dimension's altKey index from whatever backing data
+ * is synchronously available (#650 Task 3 — the `ingest` source). Static:
+ * the in-config table. Reserved: the reserved handle's live write-through
+ * cache (the same warm-via-put()/list() cache `resolveDictSource` already
+ * relies on). Matrix (collection): the backing collection's own in-memory
+ * eager cache via `querySourceForJoin()` — already public, already the
+ * mechanism `.join()` uses (`with-shape/links/vault-facade.ts`'s
+ * `resolveSource`); no new I/O, no fire-and-forget warm step. Like that
+ * existing join precedent, a dimension collection this vault session has
+ * not yet opened/populated sees an empty snapshot (no altKey normalization
+ * until it has rows) — open/populate it first for normalization to apply.
+ */
+export function buildLookupAltIndex(
+  descriptor: LookupDescriptor,
+  getDictionary: (dimension: string) => LookupHandle,
+  getCollection: (dimension: string) => { querySourceForJoin(): JoinableSource },
+): MaterializedBacking {
+  if (descriptor.backing === 'static') {
+    return materializeBackingTable(descriptor, new Map(Object.entries(descriptor.table ?? {})))
+  }
+  if (descriptor.backing === 'reserved') {
+    const entries = getDictionary(descriptor.dimension).snapshotEntries()
+    return materializeBackingTable(descriptor, new Map(entries.map((e) => [String(e['key']), e])))
+  }
+  const rows = getCollection(descriptor.dimension).querySourceForJoin().snapshot()
+  return materializeBackingTable(
+    descriptor,
+    new Map(
+      rows.map((r) => {
+        const row = r as Record<string, unknown>
+        return [String(row[descriptor.key]), row] as const
+      }),
+    ),
+  )
 }

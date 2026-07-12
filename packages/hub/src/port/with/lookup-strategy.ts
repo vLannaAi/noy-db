@@ -32,8 +32,12 @@ import {
   resolveLabelFromMap,
   collectLookupDictCompat,
   lookupToStaticDictCompat,
+  materializeBackingTable,
+  checkLookupMembership,
+  buildLookupAltIndex,
   type DictReferencingCollection,
   type LookupDictCompat,
+  type MaterializedBacking,
 } from '../../shape/via-lookup/registry.js'
 import type { LookupDescriptor } from '../../shape/via-lookup/descriptor.js'
 
@@ -129,6 +133,12 @@ export type { DictReferencingCollection }
 // descriptors, mirroring `isI18nTextDescriptor`/`isDictKeyDescriptor` below.
 export { resolveLabelFromMap, collectLookupDictCompat, lookupToStaticDictCompat }
 export type { LookupDictCompat }
+
+// #650 Task 3 — altKeys ingest normalization + open/closed vocabulary
+// governance: the declare/warm-time altIndex builder + the membership test
+// vault.ts's `membership`/`getAltIndex` closures delegate to.
+export { materializeBackingTable, checkLookupMembership, buildLookupAltIndex }
+export type { MaterializedBacking }
 
 /** Runtime predicate for detecting a `LookupDescriptor` (any of the three tiers). */
 export function isLookupDescriptor(x: unknown): x is LookupDescriptor {

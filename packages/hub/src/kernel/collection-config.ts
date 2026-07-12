@@ -46,7 +46,7 @@ import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, Dicti
 // imports above; no eager value import needed (lookup()/enumOf()/dict()
 // each call `linkLookupVia()` themselves, so `viaBinder('lookup')` is
 // already resolvable by the time a `lookupFields` entry exists).
-import type { LookupDescriptor } from '../port/with/lookup-strategy.js'
+import type { LookupDescriptor, MaterializedBacking } from '../port/with/lookup-strategy.js'
 import type { ComputedFields, ComputedFn, ComputedFieldEntry } from '../with-formula/computed/index.js'
 // #638 Task 7 — the value import (not just `import type`) forces the port module's eager
 // `linkComputedVia()` to run whenever this file loads (collection-config.ts is always in the
@@ -304,6 +304,10 @@ export interface CollectionOpts<T> {
     | undefined
   /** — the matrix (`backing:'collection'`) tier's present-time row accessor. Provided by the Vault. */
   getLookupBacking?: ((dimension: string) => ((key: string) => Promise<Record<string, unknown> | undefined>) | undefined) | undefined
+  /** — closed-vocabulary write-time membership test (#650 Task 3). Provided by the Vault. */
+  membership?: ((field: string, key: string) => boolean | Promise<boolean>) | undefined
+  /** — altKeys `ingest` normalization source (#650 Task 3). Provided by the Vault. */
+  getAltIndex?: ((desc: LookupDescriptor) => MaterializedBacking | undefined) | undefined
   /**
    * translator callback from Noydb. When present, missing
    * translations for `autoTranslate: true` i18nText fields are generated
@@ -612,6 +616,8 @@ export function compileViaBindings<T>(
       lookupFields,
       ...(opts.lookupLabelResolver !== undefined ? { lookupLabelResolver: opts.lookupLabelResolver } : {}),
       ...(opts.getLookupBacking !== undefined ? { getLookupBacking: opts.getLookupBacking } : {}),
+      ...(opts.membership !== undefined ? { membership: opts.membership } : {}),
+      ...(opts.getAltIndex !== undefined ? { getAltIndex: opts.getAltIndex } : {}),
       collectionName: opts.name,
     }))
   }
