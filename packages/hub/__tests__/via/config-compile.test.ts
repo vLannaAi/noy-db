@@ -8,6 +8,8 @@ import type { ClassifiedGuardCtx } from '../../src/port/with/classified-strategy
 import { via } from '../../src/kernel/via-compose.js'
 import { computed } from '../../src/shape/via-computed/descriptor.js'
 import { money } from '../../src/shape/via-money/descriptor.js'
+import { enumOf } from '../../src/shape/via-lookup/descriptor.js'
+import { ValidationError } from '../../src/kernel/errors.js'
 
 // Synthetic opts — resolveCollectionConfig/compileViaBindings never call methods
 // on adapter/keyring/getDEK, only forward them, so undefined stand-ins are safe.
@@ -196,5 +198,61 @@ describe('via config-compile seam — computed (#638 Task 7)', () => {
     const cfg = resolveCollectionConfig(opts)
     expect(cfg.computed).toBeDefined()
     expect(Object.keys(cfg.computed!)).toEqual(['total'])
+  })
+})
+
+describe('via config-compile seam — cross-binding same-field collision guard (#631)', () => {
+  it('throws when the same field is claimed by moneyFields AND blobFields', () => {
+    const opts = {
+      ...syntheticOpts(),
+      moneyFields: { amount: money({ currency: 'EUR' }) },
+      blobFields: { amount: {} },
+    } as CollectionOpts<unknown>
+
+    expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(ValidationError)
+    expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(/"amount"/)
+    expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(/moneyFields/)
+    expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(/blobFields/)
+  })
+
+  it('throws when the same field is claimed by classifiedFields AND lookupFields', () => {
+    const opts = {
+      ...syntheticOpts(),
+      classifiedFields: { ssn: classified.email() },
+      lookupFields: { ssn: enumOf(['a', 'b'] as const) },
+    } as CollectionOpts<unknown>
+
+    expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(ValidationError)
+    expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(/"ssn"/)
+    expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(/classifiedFields/)
+    expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(/lookupFields/)
+  })
+
+  it('does NOT throw for a classified group descriptor whose resolved member field collides with blobFields (group key itself is not a field name)', () => {
+    // `classified.creditCard({ pan: 'pan' })`'s top-level key is `card`, but the real
+    // sealed field is `pan` (resolveClassifiedFields flattens group members) — a
+    // `blobFields` entry literally named `card` does NOT collide with anything real.
+    const opts = {
+      ...syntheticOpts(),
+      classifiedFields: { card: classified.creditCard({ pan: 'pan' }) },
+      blobFields: { card: {} },
+    } as CollectionOpts<unknown>
+
+    expect(() => compileViaBindings(opts, emptyGuardCtx())).not.toThrow()
+  })
+
+  it('control: via(computed(...), money(...)) composing on the SAME field is NOT refused — the documented composition path (#638)', () => {
+    const opts = {
+      ...syntheticOpts(),
+      viaFields: {
+        total: via(
+          computed((r) => (r.qty as number) * 2, { deps: ['qty'], mode: 'virtual' }),
+          money({ currency: 'EUR', scale: 2 }),
+        ),
+      },
+    } as CollectionOpts<unknown>
+
+    const bindings = compileViaBindings(opts, emptyGuardCtx())
+    expect(bindings.map((b) => b.brand)).toEqual(['money', 'computed'])
   })
 })

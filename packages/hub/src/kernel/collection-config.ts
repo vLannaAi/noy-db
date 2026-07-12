@@ -547,6 +547,61 @@ function unifyComputedFields<T>(opts: CollectionOpts<T>, viaComputedFields: Reco
   return { ...(opts.computed ?? {}), ...(viaComputedFields ?? {}) }
 }
 
+/** Maps each per-family field-map's option key to its binding family name — used only by
+ *  {@link guardCrossBindingFieldCollisions} to tell a genuine cross-family collision apart
+ *  from the SAME family surfaced through two sugar keys (`i18nFields` + `dictKeyFields` both
+ *  feed the ONE 'i18n' binder — not this guard's job; a family's own duplicate handling
+ *  stays wherever it already lives). */
+const VIA_FIELD_MAP_FAMILY: Readonly<Record<string, string>> = {
+  moneyFields: 'money', i18nFields: 'i18n', dictKeyFields: 'i18n', lookupFields: 'lookup',
+  classifiedFields: 'classified', blobFields: 'blob', computed: 'computed',
+}
+
+/**
+ * #631 — declare-time cross-binding same-field collision guard. Today the same field named
+ * in two DIFFERENT via-binding families (e.g. the same field in both `moneyFields` and
+ * `blobFields`) resolves silently by compile-order first-wins in `ViaPipeline`'s per-field
+ * posture/clause lookup — undefined pipeline behavior for a config that is almost certainly a
+ * mistake. `mergeViaFields` already guards sugar-vs-`viaFields` and `dictKeyFields`-vs-
+ * `lookupFields` collisions (#623 Task 9); this runs one step later, in `compileViaBindings`,
+ * because that's the only seam that also sees `classifiedFields`/`blobFields` — neither is
+ * part of `ViaFieldSources`, so `mergeViaFields` never sees them.
+ *
+ * EXEMPT: `computed` colliding with `money`/`i18n`/`lookup` on the same field —
+ * `via(computed(fn), money(...))` is the documented, tested composition path
+ * (`computed/virtual.test.ts`'s "composed grammar" tests; `docs/subsystems/via-computed.md`).
+ * Since `via()` only accepts money/i18n/computed/lookup descriptors (`mergeViaFields` throws
+ * on any other `_viaBrand`), a computed+classified or computed+blob same-field pairing can
+ * never arise from that composer — it can only come from mistakenly naming the same field in
+ * `computed`/`viaFields` AND `classifiedFields`/`blobFields`, which this guard still refuses.
+ */
+function guardCrossBindingFieldCollisions(
+  fieldMaps: Readonly<Record<string, Record<string, unknown> | undefined>>,
+): void {
+  const claimantsByField = new Map<string, Set<string>>()
+  for (const [sourceKey, map] of Object.entries(fieldMaps)) {
+    for (const field of Object.keys(map ?? {})) {
+      const claimants = claimantsByField.get(field) ?? new Set<string>()
+      claimants.add(sourceKey)
+      claimantsByField.set(field, claimants)
+    }
+  }
+  for (const [field, sourceKeys] of claimantsByField) {
+    const families = new Set([...sourceKeys].map((key) => VIA_FIELD_MAP_FAMILY[key]))
+    if (families.size < 2) continue // same family via two sugar keys (e.g. i18n/dictKey) — not this guard's job
+    if (families.size === 2 && families.has('computed')) {
+      const other = [...families].find((f) => f !== 'computed')
+      if (other === 'money' || other === 'i18n' || other === 'lookup') continue // composed grammar (#638)
+    }
+    const keys = [...sourceKeys].sort().map((k) => `\`${k}\``)
+    const joined = keys.length === 2 ? keys.join(' and ') : `${keys.slice(0, -1).join(', ')}, and ${keys[keys.length - 1]}`
+    throw new ValidationError(
+      `compileViaBindings(): field "${field}" is declared in both ${joined} — a field cannot be claimed by two ` +
+      'different via-binding families. Declare it in one place only.',
+    )
+  }
+}
+
 /**
  * Compile a collection's declared config into the ordered list of `ViaBinding`s
  * for its `ViaPipeline`.
@@ -599,6 +654,15 @@ export function compileViaBindings<T>(
   eraseCfgOut?: { classified?: ClassifiedViaConfig },
 ): ViaBinding[] {
   const { moneyFields, i18nFields, dictKeyFields, computedFields, lookupFields } = mergeViaFields(opts)
+  const allComputedFields = unifyComputedFields(opts, computedFields)
+  guardCrossBindingFieldCollisions({
+    moneyFields, i18nFields, dictKeyFields, lookupFields,
+    classifiedFields: opts.classifiedFields !== undefined
+      ? resolveClassifiedFields(opts.name, opts.classifiedFields).byField
+      : undefined,
+    blobFields: opts.blobFields,
+    computed: allComputedFields,
+  })
   const bindings: ViaBinding[] = []
   if (moneyFields) bindings.push(viaBinder('money')(moneyFields))
   if (i18nFields || dictKeyFields) {
@@ -655,7 +719,7 @@ export function compileViaBindings<T>(
     }))
   }
   const virtualFields = new Map<string, ComputedDescriptor>()
-  for (const [field, entry] of Object.entries(unifyComputedFields(opts, computedFields))) {
+  for (const [field, entry] of Object.entries(allComputedFields)) {
     const parts = computedEntryParts(entry)
     if (parts.mode === 'virtual') {
       virtualFields.set(field, { _viaBrand: 'computed', fn: parts.fn, mode: 'virtual', ...(parts.deps !== undefined ? { deps: parts.deps } : {}) })
