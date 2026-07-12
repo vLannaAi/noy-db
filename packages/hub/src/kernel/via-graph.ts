@@ -297,9 +297,15 @@ export class ViaGraph {
     return out
   }
 
-  /** Dispatch (Task 4): every derived target triggered by a write to `collection`. */
+  /** Dispatch (Task 4): every derived target triggered by a write to `collection`. Excludes
+   *  `'ref'` edges (#650 Task 5 review, folded Minor) — a `'ref'` edge is consulted only by the
+   *  delete/forget-time restrict/cascade/nullify path ({@link referencingEdgesOf}), never by the
+   *  sync/cutover/restore dispatch wave (`runGraphDispatchWave`); counting it here defeated that
+   *  wave's zero-cost early-continue, costing every write to a referenced backing collection an
+   *  unconditional decrypt + two no-op dispatch passes. {@link derivedArtifactsOf} (erasure
+   *  fanout) still includes `'ref'` edges — the forget path genuinely needs them. */
   dependentsOf(collection: string): ReadonlyArray<{ readonly target: FieldRef; readonly kind: EdgeKind; readonly grain: Grain }> {
-    return this._targetsDependingOn(collection)
+    return this._targetsDependingOn(collection).filter((edge) => edge.kind !== 'ref')
   }
 
   /** Erasure (Task 6): derived artifacts of a forgotten record whose source is `collection`. */

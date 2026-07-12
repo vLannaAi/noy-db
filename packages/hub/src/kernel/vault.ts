@@ -2283,13 +2283,13 @@ export class Vault {
     const indexResidue: string[] = []
     const blobsEnabled = this.blobStrategy !== undefined
     const actor = this.keyring.userId
-    const fanoutStats: ForgetFanoutStats = { recordsErased: 0, aggregatesRecomputed: 0, residueFrozen: [], lookupReferencesCascaded: 0, lookupReferencesNullified: 0 }
+    const fanoutStats: ForgetFanoutStats = { recordsErased: 0, aggregatesRecomputed: 0, residueFrozen: [], lookupReferencesCascaded: 0, lookupReferencesNullified: 0, lookupReferencesResidue: [] }
 
     for (const ref of allRefs) {
       const coll = this.collection<Record<string, unknown>>(ref.collection)
       const satelliteOf = (ref as { satelliteOf?: string }).satelliteOf
       const perRecordKeys = this.forgetStrategy.subjects[satelliteOf ?? ref.collection] !== undefined // #591 classification inheritance
-      await this.linksEnforcer.checkLookupRefsRestrict(this.graph, ref.collection, ref.collection, ref.id) // #650 (#648) — restrict BEFORE any shred; cascade/nullify propagate after, additively, via forgetDerivedFanout
+      const lookupCompareKeys = await this.linksEnforcer.checkLookupRefsRestrict(this.graph, ref.collection, ref.collection, ref.id) // #650 (#648) — restrict BEFORE any shred; ALSO live-resolves every ref edge's compare-key (#650 review, Important fix — no post-shred decode needed by forgetDerivedFanout)
 
       // Detect an un-migrated record BEFORE shredding: a perRecordKeys
       // collection whose live envelope still carries a body but no `_cek`
@@ -2361,7 +2361,7 @@ export class Vault {
       if (shred !== null) {
         recordsShredded++
         collections.add(ref.collection)
-        await forgetDerivedFanout(this, { collection: ref.collection, id: ref.id }, live, fanoutStats)
+        await forgetDerivedFanout(this, { collection: ref.collection, id: ref.id }, live, fanoutStats, lookupCompareKeys)
       }
 
       // Tombstone every history version (idempotent — already-shredded skip).
@@ -2475,7 +2475,7 @@ export class Vault {
       derivedRecordsErased: fanoutStats.recordsErased,
       derivedAggregatesRecomputed: fanoutStats.aggregatesRecomputed,
       derivedResidueFrozen: fanoutStats.residueFrozen,
-      lookupReferencesCascaded: fanoutStats.lookupReferencesCascaded, lookupReferencesNullified: fanoutStats.lookupReferencesNullified, // #650 Task 5
+      lookupReferencesCascaded: fanoutStats.lookupReferencesCascaded, lookupReferencesNullified: fanoutStats.lookupReferencesNullified, lookupReferencesResidue: fanoutStats.lookupReferencesResidue, // #650 Task 5 (+ review Important fix: residue)
     }
   }
 

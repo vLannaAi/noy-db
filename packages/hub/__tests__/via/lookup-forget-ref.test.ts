@@ -16,7 +16,7 @@
  * on `ForgetResult` — every assertion below failed (restrict never refused;
  * cascade/nullify never propagated; the new fields were `undefined`).
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { createNoydb } from '../../src/index.js'
 import { lookup } from '../../src/shape/via-lookup/descriptor.js'
 import { withForgetCascade } from '../../src/with-audit/forget/index.js'
@@ -125,6 +125,59 @@ describe('forget() × lookup ref semantics (#650 Task 5, fixes #648)', () => {
     expect(await countries.get('US-internal')).toBeNull()
   })
 
+  it('(b3) cascade with a non-default descriptor.key: propagation still happens even when the PRE-tombstone envelope DECODE fails — the compare-key is resolved from the LIVE row BEFORE the shred, not from a post-shred decode (#650 Task 5 review, Important fix)', async () => {
+    interface CountryKeyed extends Record<string, unknown> { id: string; subjectId: string; iso2: string }
+    const db = await createNoydb({
+      store: memory(), user: 'alice', secret: 'lookup-forget-ref-cascade-decodefail-2026',
+      historyStrategy: withHistory(),
+      forgetStrategy: withForgetCascade({ subjects: { countries: 'subjectId' } }),
+    })
+    const vault = await db.openVault('firm')
+    const countries = vault.collection<CountryKeyed>('countries', {})
+    const travelers = vault.collection<Traveler>('travelers', {
+      lookupFields: { country: lookup('countries', { key: 'iso2', onDelete: 'cascade' }) },
+    })
+    await countries.put('US-internal', { id: 'US-internal', subjectId: 'subj-1', iso2: 'US' })
+    await travelers.put('t1', { id: 't1', country: 'US' })
+
+    // Stub out the PRE-tombstone envelope decode the OLD implementation depended on for a
+    // non-'id' keyField — on unfixed HEAD this made the fanout's compareKey resolve to
+    // `undefined` and silently `continue`, leaving 't1' un-cascaded with NO report entry.
+    vi.spyOn(countries, '_decodeEnvelope').mockResolvedValue(null)
+
+    const result = await vault.forget('subj-1')
+
+    expect(result.lookupReferencesCascaded).toBe(1) // propagated anyway — resolved live, pre-shred
+    expect(result.lookupReferencesResidue).toEqual([])
+    expect(await travelers.get('t1')).toBeNull()
+    expect(await countries.get('US-internal')).toBeNull()
+  })
+
+  it('(b4) cascade with a non-default descriptor.key: when the LIVE pre-shred resolve ALSO fails (row unreadable), propagation is skipped but reported via lookupReferencesResidue — never silently (#650 Task 5 review, Important fix)', async () => {
+    interface CountryKeyed extends Record<string, unknown> { id: string; subjectId: string; iso2: string }
+    const db = await createNoydb({
+      store: memory(), user: 'alice', secret: 'lookup-forget-ref-cascade-doublefail-2026',
+      historyStrategy: withHistory(),
+      forgetStrategy: withForgetCascade({ subjects: { countries: 'subjectId' } }),
+    })
+    const vault = await db.openVault('firm')
+    const countries = vault.collection<CountryKeyed>('countries', {})
+    const travelers = vault.collection<Traveler>('travelers', {
+      lookupFields: { country: lookup('countries', { key: 'iso2', onDelete: 'cascade' }) },
+    })
+    await countries.put('US-internal', { id: 'US-internal', subjectId: 'subj-1', iso2: 'US' })
+    await travelers.put('t1', { id: 't1', country: 'US' })
+
+    // The backing row is unreadable even LIVE, pre-shred — the double-failure path.
+    vi.spyOn(countries, 'get').mockResolvedValue(null)
+
+    const result = await vault.forget('subj-1')
+
+    expect(result.lookupReferencesCascaded).toBe(0)
+    expect(result.lookupReferencesResidue).toEqual(['countries:US-internal:travelers.country'])
+    expect(await travelers.get('t1')).not.toBeNull() // skipped, but reported — never silently dropped
+  })
+
   it('(c) nullify: the fanout reports lookupReferencesNullified === 1; the referencing field is cleared; the subject is fully shredded', async () => {
     const db = await createNoydb({
       store: memory(), user: 'alice', secret: 'lookup-forget-ref-nullify-2026',
@@ -163,13 +216,15 @@ describe('forget() × lookup ref semantics (#650 Task 5, fixes #648)', () => {
     expect(result.recordsShredded).toBe(1)
     expect(result.lookupReferencesCascaded).toBe(0)
     expect(result.lookupReferencesNullified).toBe(0)
-    // Every pre-#650 key is still present (byte-unchanged) — the two new
-    // fields are strictly additive to the existing set.
+    expect(result.lookupReferencesResidue).toEqual([])
+    // Every pre-#650 key is still present (byte-unchanged) — the new fields
+    // (incl. lookupReferencesResidue, #650 Task 5 review Important fix) are
+    // strictly additive to the existing set.
     expect(Object.keys(result).sort()).toEqual([
       'blobResidueCollections', 'blobsRetainedShared', 'blobsShredded', 'collections',
       'derivedAggregatesRecomputed', 'derivedRecordsErased', 'derivedResidueFrozen',
       'historyVersionsShredded', 'indexPostingsPurged', 'indexResidue', 'ledgerEntry',
-      'lookupReferencesCascaded', 'lookupReferencesNullified',
+      'lookupReferencesCascaded', 'lookupReferencesNullified', 'lookupReferencesResidue',
       'recordsShredded', 'sealedCekEnvelopesPurged', 'sealedCekResidue', 'sealedFieldsShredded',
       'sealedResidue', 'subject', 'unmigratedRecords',
     ])

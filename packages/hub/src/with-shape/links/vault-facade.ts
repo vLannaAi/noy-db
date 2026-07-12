@@ -299,7 +299,7 @@ export class VaultLinks {
   }
 
   /**
-   * Phase 1 (#650 Task 5, #648) — restrict check ONLY, never mutates. Throws
+   * Phase 1 (#650 Task 5, #648) — restrict check, never mutates. Throws
    * `DictKeyInUseError(dimension, key, usedBy, count)` naming the FIRST referencing collection
    * still holding a matching record, for every `onDelete:'restrict'` edge the graph's O(1)
    * `referencingEdgesOf(backingCollection)` reverse lookup finds pointing at this dimension. A
@@ -307,19 +307,27 @@ export class VaultLinks {
    * dangling (today's behavior, unaffected). Called by `Vault.forget()` BEFORE any shred (the
    * spec §4 "restrict refuses before any shred" design decision) — cascade/nullify propagation
    * for the SAME edges happens separately, after the shred, via `forgetDerivedFanout`.
+   *
+   * Also resolves (and RETURNS) the live compare-key for EVERY referencing edge, restrict AND
+   * cascade/nullify alike (#650 Task 5 review, Important fix): `forgetDerivedFanout`'s cascade/
+   * nullify propagation runs AFTER `_writeTombstone`, when a non-`'id'` `keyField`'s value can no
+   * longer be read off the (now-shredded) row — resolving it HERE, at the one point every
+   * referencing edge's backing row is still guaranteed live, eliminates that post-shred
+   * dependency. A `keyField` this can't resolve (row unreadable) maps to `undefined` in the
+   * returned map so the caller can report it as residue instead of silently skipping the edge.
    */
-  async checkLookupRefsRestrict(graph: ViaGraph, dimension: string, backingCollection: string, key: string): Promise<void> {
+  async checkLookupRefsRestrict(graph: ViaGraph, dimension: string, backingCollection: string, key: string): Promise<ReadonlyMap<string, string | undefined>> {
     const keyCache = new Map<string, string | undefined>()
     for (const { referencing, onDelete, keyField } of graph.referencingEdgesOf(backingCollection)) {
-      if (onDelete !== 'restrict') continue
       const compareKey = await this.resolveLookupCompareKey(backingCollection, key, keyField, keyCache)
-      if (compareKey === undefined) continue
+      if (onDelete !== 'restrict' || compareKey === undefined) continue
       const coll = this.deps.collection<Record<string, unknown>>(referencing.collection)
       const matches = await this.findLookupReferencingRecords(coll, referencing.field, compareKey)
       if (matches.length > 0) {
         throw new DictKeyInUseError(dimension, key, referencing.collection, matches.length)
       }
     }
+    return keyCache
   }
 
   /**

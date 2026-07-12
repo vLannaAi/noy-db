@@ -181,6 +181,11 @@ export interface ForgetFanoutStats {
   lookupReferencesCascaded: number
   /** #650 Task 5 (#648) — referencing fields cleared via a `'ref'` edge's `nullify` policy. */
   lookupReferencesNullified: number
+  /** #650 Task 5 review (Important fix) — `'ref'` edges whose compare-key could NOT be resolved,
+   *  even from the LIVE pre-shred row (the backing row itself is unreadable) — propagation was
+   *  skipped for these, reported here so the skip is never silent. `backing:key:collection.field`
+   *  entries, one per un-propagated edge. */
+  readonly lookupReferencesResidue: string[]
 }
 
 /**
@@ -194,13 +199,17 @@ export interface ForgetFanoutStats {
  * ones. Mutates `stats` in place. `envelope` is `ref`'s PRE-tombstone envelope, decoded only if
  * a rollup edge is actually present — the #553 zero-cost-skip discipline: no decrypt for the
  * common case of a forgotten record with no aggregate-grain consumer, and no work at all when
- * `ref.collection` has no graph out-edges.
+ * `ref.collection` has no graph out-edges. `lookupCompareKeys` is the `'ref'` edges' compare-key
+ * map, resolved from the LIVE row BEFORE any shred (`VaultLinks.checkLookupRefsRestrict`'s return
+ * value — `Vault.forget()`'s pre-shred restrict check doubles as the live-resolve pass) — see
+ * {@link applyLookupRefsFanout}.
  */
 export async function forgetDerivedFanout(
   vault: VaultLike,
   ref: { readonly collection: string; readonly id: string },
   envelope: EncryptedEnvelope | null,
   stats: ForgetFanoutStats,
+  lookupCompareKeys: ReadonlyMap<string, string | undefined>,
 ): Promise<void> {
   const edges = vault.graph.derivedArtifactsOf(ref.collection)
   if (edges.length === 0) return
@@ -214,15 +223,15 @@ export async function forgetDerivedFanout(
   // (with-shape/links/vault-facade.ts) — the kernel spine may not statically import a with-*
   // service (port-layering, the #638 Task 5 via-dispatch.ts precedent). A referencing edge whose
   // dimension uses a non-default `key` (matrix tier only) needs the backing row's OWN value at
-  // that field, not its PUT-id — but the row is ALREADY tombstoned by now, so it's read from the
-  // PRE-tombstone `envelope` (decoded only when such an edge actually exists — #553 zero-cost-skip).
+  // that field, not its PUT-id — the row is ALREADY tombstoned by now, so it's read from
+  // `lookupCompareKeys`, resolved by the caller from the LIVE row BEFORE the shred (#650 Task 5
+  // review, Important fix — eliminates the post-shred envelope-decode dependency this used to
+  // have, which silently skipped propagation whenever that decode failed).
   if (edges.some((e) => e.kind === 'ref')) {
-    const refEdges = vault.graph.referencingEdgesOf(ref.collection)
-    const needsPriorRecord = envelope && refEdges.some((e) => e.onDelete !== 'restrict' && e.keyField !== 'id')
-    const priorRecord = needsPriorRecord ? await coll._decodeEnvelope(envelope, ref.id) : null
-    const { cascaded, nullified } = await applyLookupRefsFanout(vault, ref.collection, ref.id, priorRecord)
+    const { cascaded, nullified, residue } = await applyLookupRefsFanout(vault, ref.collection, ref.id, lookupCompareKeys)
     stats.lookupReferencesCascaded += cascaded
     stats.lookupReferencesNullified += nullified
+    stats.lookupReferencesResidue.push(...residue)
   }
 
   if (edges.some((e) => e.kind === 'mv')) {
@@ -254,26 +263,28 @@ export async function forgetDerivedFanout(
  * see {@link forgetDerivedFanout}'s call site comment). `restrict` edges are skipped here: the
  * forget loop's `checkLookupRefsRestrict`-equivalent call already refused (or the reference no
  * longer existed) BEFORE `_writeTombstone` ran, so by the time this runs only cascade/nullify
- * remain to propagate. `priorRecord` is the backing row's PRE-tombstone value (or `null`) — needed
- * only to resolve a non-`'id'` `keyField` edge's compare value, since the live row is already
- * shredded by the time this runs (mirrors Task 3's membership review fix, Important 1).
+ * remain to propagate. `compareKeys` is the non-`'id'`-`keyField` compare-value map, resolved by
+ * the caller from the LIVE row BEFORE the shred (#650 Task 5 review, Important fix) — the live row
+ * is already shredded by the time THIS function runs, so it can no longer resolve one itself. A
+ * `keyField` absent from (or `undefined` in) the map means that live resolve failed too — the edge
+ * is reported as residue instead of silently skipped (never a bare `continue` with no trace).
  */
 async function applyLookupRefsFanout(
   vault: VaultLike,
   backing: string,
   key: string,
-  priorRecord: Record<string, unknown> | null,
-): Promise<{ cascaded: number; nullified: number }> {
+  compareKeys: ReadonlyMap<string, string | undefined>,
+): Promise<{ cascaded: number; nullified: number; residue: string[] }> {
   let cascaded = 0
   let nullified = 0
+  const residue: string[] = []
   for (const { referencing, onDelete, keyField } of vault.graph.referencingEdgesOf(backing)) {
     if (onDelete === 'restrict') continue
-    let compareKey: string | undefined = key
-    if (keyField !== 'id') {
-      const raw = priorRecord?.[keyField]
-      compareKey = typeof raw === 'string' || typeof raw === 'number' ? String(raw) : undefined
+    const compareKey = keyField === 'id' ? key : compareKeys.get(keyField)
+    if (compareKey === undefined) {
+      residue.push(`${backing}:${key}:${referencing.collection}.${referencing.field}`)
+      continue
     }
-    if (compareKey === undefined) continue
     const coll = vault._getCollection(referencing.collection)
     if (!coll) continue
     const matches = (await coll.list()).filter((rec) => String(rec[referencing.field]) === compareKey)
@@ -289,5 +300,5 @@ async function applyLookupRefsFanout(
       }
     }
   }
-  return { cascaded, nullified }
+  return { cascaded, nullified, residue }
 }
