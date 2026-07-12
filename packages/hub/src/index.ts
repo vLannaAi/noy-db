@@ -903,6 +903,15 @@ export {
   UnknownDictCodeError,
 } from './kernel/errors.js'
 
+// lookup — the `lookup`/`enum`/`dict` via-feature (phase D): one binding,
+// three backing tiers (static/reserved/collection) that `dictKey()`/
+// `staticDict()` above compile onto as aliases. `enumOf` is the function's
+// own name (`enum` is a reserved word); `enum` is re-exported alongside it
+// as the documented spelling — both names refer to the identical function.
+export { lookup, dict, enumOf, enum } from './shape/via-lookup/index.js'
+export { UnknownLookupKeyError } from './kernel/errors.js'
+export type { LookupDescriptor, Vocabulary, OnDelete } from './shape/via-lookup/index.js'
+
 // Locale read options + translator audit log
 export type { LocaleReadOptions } from './kernel/types.js'
 

@@ -98,12 +98,29 @@ is — this is what makes **sparse, populate-only-used** dimensions safe:
 await expect(orders.put('o4', { id: 'o4', country: 'ZA' })).rejects.toThrow(UnknownLookupKeyError)
 ```
 
-(both from `countries-matrix.test.ts`). `dictKey()` and its native equivalent `dict()` default to
-`vocabulary: 'open'` — unaffected; this is additive (#649). `staticDict()` is a separate case: it's
-closed-by-construction via its own `validateCodes` option (default `true`), which throws
-`UnknownDictCodeError` on an unknown code — a different mechanism and error class from
-`vocabulary: 'closed'`'s `UnknownLookupKeyError`, predating this phase and unchanged by it. Pass
-`{ validateCodes: false }` to `staticDict()` for open codes.
+(both from `countries-matrix.test.ts`). The **dict tier differs**: its closed membership is declared
+`keys` **union** the reserved dictionary's live rows (`checkLookupMembership`'s reserved branch) —
+a key in the descriptor's own `keys` list is always known, even before any row for it exists in
+`_dict_<name>`, and a live row for an undeclared key is known too
+(`lookup-vocabulary.test.ts`'s "closed with NO declared keys validates against the live dict handle
+snapshot" case). `dictKey()` and its native equivalent `dict()` default to `vocabulary: 'open'` —
+unaffected; this is additive (#649). `staticDict()` is a separate case: it's closed-by-construction
+via its own `validateCodes` option (default `true`), which throws `UnknownDictCodeError` on an
+unknown code — a different mechanism and error class from `vocabulary: 'closed'`'s
+`UnknownLookupKeyError`, predating this phase and unchanged by it. Pass `{ validateCodes: false }`
+to `staticDict()` for open codes.
+
+**Cold-session caveat.** Both tiers' live-rows side reads a cache materialized during **this
+session**, not a fresh store read on every `put()` — matrix tier reads the backing collection's own
+in-memory eager cache; dict tier reads the reserved dictionary's write-through cache. A **cold
+session** — a freshly opened vault, or one right after a `sync().pull()` — that hasn't yet
+opened/populated the matrix-tier backing collection, or warmed the dict-tier dictionary cache (dict
+tier's declared `keys`, if any, still work — only its live-rows half is affected), sees an EMPTY
+live-rows set: a `vocabulary: 'closed'` field refuses even a genuinely valid, already-persisted key
+until the dimension is hydrated. Open the backing collection (matrix tier; eager mode, the default —
+not `{prefetch:false}`) or call `await vault.dictionary(name).list()` (dict tier) first — the exact
+same populate-first requirement `altKeys` normalization has above. This fails safe (refuses rather
+than silently accepts an unverified key), but is easy to trip over on a fresh instance.
 
 ## Presentation — `<field>Label`, in reads and in joins
 
@@ -125,7 +142,7 @@ rows[0].order.countryLabel  // 'สหรัฐอเมริกา' — dresse
 (`countries-matrix.test.ts`, "presentForJoin dresses a matrix-tier field on a REFERENCING
 collection"). This retires the #626 kernel→shape grandfather: `kernel/query/join.ts` no longer
 imports `shape/via-i18n/core.js` — it calls a sync `presentForJoin` hook the `Collection` builds
-from its own i18n + lookup bindings (`packages/hub/__tests__/via/via-layering-empty.test.ts` proves
+from its own i18n + lookup bindings (`packages/hub/__tests__/via/via-guards-empty.test.ts` proves
 the allowlist that used to carry this one grandfathered import is now EMPTY, and that the guard
 still fires on a synthetic kernel→shape import).
 
@@ -267,8 +284,8 @@ holds the pure declare/warm-time helpers (`materializeBackingTable`, `checkLooku
 `buildLookupAltIndex`, `buildLookupSnapshotRows`); `snapshot.ts` is the sync
 join/locale/order-label seam (`LookupSnapshot`, `buildPresentForJoin`). Reached from the kernel
 spine only through `port/with/lookup-strategy.ts` — no `kernel/**` file imports `shape/via-lookup/`
-(or any `shape/**`) directly (`via-layering-empty.test.ts`/`via-enclave-empty.test.ts` prove both
-architecture-guard allowlists are EMPTY and still fire on a synthetic violation).
+(or any `shape/**`) directly (`via-guards-empty.test.ts` proves both architecture-guard allowlists
+are EMPTY and still fire on a synthetic violation).
 
 ## See also
 

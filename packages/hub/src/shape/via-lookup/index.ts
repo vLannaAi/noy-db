@@ -2,9 +2,12 @@
  * `shape/via-lookup/` barrel — the dict/enum-tier lookup engine (#650
  * Task 1 — via-lookup extraction, phase D of the Via port).
  *
- * Not a public package subpath yet (no `@noy-db/hub/lookup` entry) —
- * consumed today only through `port/with/lookup-strategy.ts` and, for the
- * existing `vault.dictionary()` surface, through `shape/via-i18n/active.ts`.
+ * Not a dedicated public package subpath (no `@noy-db/hub/lookup` entry) —
+ * its declaration surface (`lookup`/`enumOf`/`enum`/`dict` + the public
+ * types) is re-exported from the root `@noy-db/hub` barrel (`src/index.ts`)
+ * instead. This module itself is reached from the kernel spine only through
+ * `port/with/lookup-strategy.ts`, and, for the existing `vault.dictionary()`
+ * surface, through `shape/via-i18n/active.ts`.
  */
 
 export { LookupHandle, DictionaryHandle, DICT_COLLECTION_PREFIX, dictCollectionName, type DictEntry, type DictionaryOptions } from './handle.js'

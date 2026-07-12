@@ -2,7 +2,7 @@
  * The sync lookup snapshot + locale seam (#650 Task 6, spec §5) — the
  * combined seam that serves join dressing (`presentForJoin`), dimension
  * sort (`compareForOrder`), and #626's retirement (`join.ts` no longer
- * imports `shape/via-i18n/core.js`; see `via-layering-empty.test.ts` for
+ * imports `shape/via-i18n/core.js`; see `via-guards-empty.test.ts` for
  * the guard-level proof).
  *
  * RED (pre-Task-6): `JoinableSource` had no `presentForJoin` hook — a

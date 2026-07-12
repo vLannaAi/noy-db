@@ -116,14 +116,20 @@ export interface LookupStrategy {
 
 function notEnabled(op: string): Error {
   return new Error(
-    `${op} requires the lookup strategy. Pass \`lookupStrategy: withLookup()\` to ` +
-    '`createNoydb({ ... })` (import `withLookup` from `@noy-db/hub`\'s via-lookup module).',
+    `${op}: the NO_LOOKUP stub was reached, which should be unreachable today — there is no ` +
+    '`lookupStrategy` `createNoydb({ ... })` option yet to select this stub over the real one; ' +
+    '`vault.dictionary()` always resolves through `withLookup()` (see `shape/via-i18n/active.ts`\'s ' +
+    'delegation). This is forward scaffolding for a later task (mirrors `NO_I18N`\'s shape) — if you ' +
+    'hit this, it indicates a bug, not a missing opt-in.',
   )
 }
 
 /**
- * No-lookup stub. Construction throws with an actionable pointer — mirrors
- * `NO_I18N.buildDictionaryHandle`.
+ * No-lookup stub. Mirrors `NO_I18N.buildDictionaryHandle`'s shape, but unlike `NO_I18N` (wired as
+ * `vault.ts`'s `opts.i18nStrategy ?? NO_I18N` default), nothing selects this stub today — there is
+ * no `lookupStrategy` option on `createNoydb()`; `vault.dictionary()`'s only construction path
+ * (`Vault.i18nStrategy.buildDictionaryHandle` → `withLookup().buildLookupHandle`) never reaches
+ * here. Kept as forward scaffolding for a later task that wires an independent lookup opt-in.
  */
 export const NO_LOOKUP: LookupStrategy = {
   buildLookupHandle() {

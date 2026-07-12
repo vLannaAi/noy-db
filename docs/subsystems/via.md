@@ -277,7 +277,9 @@ extends that same sync snapshot+locale seam to the matrix tier (Task 6 had only 
 tier) and wires `ViaBinding.describeFragment` — declared since #623, zero consumers until now —
 into `describe()`'s new normalized `lookup` block. Both architecture guards this phase touches
 (`via-layering`, `via-enclave-isolation`) end the phase with **empty** allowlists, each proven to
-still fire on a synthetic violation (`via-layering-empty.test.ts`, `via-enclave-empty.test.ts`).
+still fire on a synthetic violation (`via-guards-empty.test.ts` — both guards' synthetic-fire
+proofs live in one file, merged #650 whole-branch fix wave to remove a shared-working-tree race
+between two subprocess-driven test files).
 
 See [`docs/subsystems/via-lookup.md`](via-lookup.md) for the full feature — tiers, altKeys,
 vocabulary, presentation/join-dressing, sorting, reference semantics, reserved-tier sync, and the
