@@ -104,6 +104,7 @@ import {
   resolveLabelFromMap,
   collectLookupDictCompat,
   checkLookupMembership, buildLookupAltIndex,
+  dictCollectionName, // #650 Task 4
   type LookupDescriptor,
 } from '../port/with/lookup-strategy.js'
 import { isLinkCollectionName, type LinkSpec, type LinkSetHandle } from '../with-shape/links/names.js'
@@ -370,60 +371,28 @@ export class Vault {
   private consentContext: ConsentContext | null = null
 
 
-  /**
-   * Registry of dictKey fields declared across all collections in this
-   * vault. Keyed by collection name → field name → dictionary name.
-   * Used by `DictionaryHandle.rename()` to find and update all records
-   * referencing a renamed key.
-   *
-   * Populated by `collection()` when the `dictKeyFields` option is passed.
-   */
-  private readonly dictKeyFieldRegistry = new Map<
-    string, // collection name
-    Record<string, string> // field name → dictionary name
-  >()
+  /** dictKeyField registry: collection name → field name → dictionary name — `DictionaryHandle.rename()`'s reference-update source; populated by `collection()` from `dictKeyFields`. */
+  private readonly dictKeyFieldRegistry = new Map<string, Record<string, string>>()
 
-  /**
-   * Names of dictionaries backed by a `staticDict()` descriptor.
-   * A static dict skips the `dictKeyFieldRegistry` rename machinery, but the
-   * vault must still *know* a name is static so `vault.dictionary(name)` can
-   * refuse mutation (`StaticDictReadonlyError`). Populated at `collection()`
-   * config time whenever a `StaticDictDescriptor` is seen.
-   */
+  /** Names of `staticDict()`-backed dictionaries (skip rename tracking; `vault.dictionary(name)` refuses mutation on these via `StaticDictReadonlyError`). Populated at `collection()` config time. */
   private readonly staticDictNames = new Set<string>()
 
-  /**
-   * Static-dict descriptors keyed by dictionary name. Backs the
-   * read-path label resolver (resolve from the in-memory table) and the
-   * query-seam `resolveDictSource` snapshot. Last writer wins when the same
-   * name is registered by multiple collections (identical-across-vaults by
-   * construction, so the tables match).
-   */
+  /** Static-dict descriptors by dictionary name — backs the read-path label resolver and the `resolveDictSource` snapshot. Last writer wins across collections (tables match by construction). */
   private readonly staticByName = new Map<string, StaticDictDescriptor>()
 
-  /**
-   * Per-collection map of field name → StaticDictDescriptor. Used by
-   * `enforceStaticDictOnPut` to validate stored codes against `desc.keys`.
-   */
-  private readonly staticDescriptorByField = new Map<
-    string, // collection name
-    Record<string, StaticDictDescriptor>
-  >()
+  /** Per-collection field name → StaticDictDescriptor, validated by `enforceStaticDictOnPut`. */
+  private readonly staticDescriptorByField = new Map<string, Record<string, StaticDictDescriptor>>()
 
-  /**
-   * Registry of i18nText fields declared across all collections. Keyed
-   * by collection name → field name → I18nTextDescriptor. Used by
-   * `applyI18nLocale` on reads and by `validateI18nTextValue` on puts.
-   *
-   * Populated by `collection()` when the `i18nFields` option is passed.
-   */
-  private readonly i18nFieldRegistry = new Map<
-    string, // collection name
-    Record<string, I18nTextDescriptor>
-  >()
+  /** i18nText fields: collection name → field name → descriptor. Used by `applyI18nLocale`/`validateI18nTextValue`; populated by `collection()` from `i18nFields`. */
+  private readonly i18nFieldRegistry = new Map<string, Record<string, I18nTextDescriptor>>()
 
   /** Cache of DictionaryHandle instances, one per dictionary name. */
   private readonly dictionaryCache = new Map<string, DictionaryHandle>()
+
+  /** #650 Task 4 (#647) — declared reserved-lookup collection name → dimension name, for dimensions
+   *  with `backing:'reserved'` (dict()/dictKey()). The explicit sync-pull registry: NOT a blanket
+   *  underscore-glob — populated at `collection()`-declare time and at `dictionary()`-call time. */
+  private readonly reservedLookupCollections = new Map<string, string>()
 
   /** Registered link specs, keyed by link name; set by `vault.link()`. */
   private readonly linkRegistry = new Map<string, LinkSpec>()
@@ -958,6 +927,12 @@ export class Vault {
         }
         if (Object.keys(dictFieldMap).length > 0) {
           this.dictKeyFieldRegistry.set(collectionName, dictFieldMap)
+          // #650 Task 4 (#647) — declare these dimensions' _dict_* collections into the
+          // reserved-lookup sync registry NOW, at schema-declare time — before any local
+          // dictionary() call/write/read touches them this session.
+          for (const dictName of new Set(Object.values(dictFieldMap))) {
+            this.reservedLookupCollections.set(dictCollectionName(dictName), dictName)
+          }
         }
         if (Object.keys(staticFieldMap).length > 0) {
           this.staticDescriptorByField.set(collectionName, staticFieldMap)
@@ -1303,11 +1278,26 @@ export class Vault {
     await coll._applyRemoteChange(docId, action)
   }
 
-  /** @internal #598: refresh cache entries a sync-applied write rewrote underneath us. No-op if not loaded this session. */
+  /** @internal #598: refresh cache entries a sync-applied write rewrote underneath us. No-op if not loaded this session.
+   *  #650 Task 4 (#647): a reserved-lookup collection has no `Collection` instance — instead, refresh
+   *  its already-warmed `LookupHandle._syncCache` (membership/altIndex/snapshot reads never see a
+   *  stale verdict for a pulled vocabulary edit) and collect the touch into any open graph batch
+   *  (the sync-apply wave-reachability seam Task 5's ref edges will use). No-op if never warmed. */
   async _invalidateSyncApplied(collection: string, id: string): Promise<void> {
     const coll = this.collectionCache.get(collection)
-    if (!coll) return
-    await coll._onRecordMutated(id, 'put', 'sync-apply')
+    if (coll) {
+      await coll._onRecordMutated(id, 'put', 'sync-apply')
+      return
+    }
+    const dimName = this.reservedLookupCollections.get(collection)
+    if (dimName === undefined) return
+    await this.dictionaryCache.get(dimName)?._refreshSyncCache(id)
+    this._collectGraphTouch(collection, id)
+  }
+
+  /** @internal #650 Task 4 (#647) — declared reserved-lookup collection names, for `SyncEngine.pull()`'s explicit prefix registry. */
+  _reservedLookupCollectionNames(): readonly string[] {
+    return [...this.reservedLookupCollections.keys()]
   }
 
   /** @internal #638 Task 4 — open a graph-dispatch touch batch (sync pull()/push()/cutover). */
@@ -1556,6 +1546,7 @@ export class Vault {
     if (this.staticDictNames.has(name)) {
       throw new StaticDictReadonlyError(name)
     }
+    this.reservedLookupCollections.set(dictCollectionName(name), name) // #650 Task 4 (#647)
     let handle = this.dictionaryCache.get(name)
     if (!handle) {
       handle = this.i18nStrategy.buildDictionaryHandle<Keys>({
@@ -1581,6 +1572,14 @@ export class Vault {
           )
         },
         emitter: this.emitter,
+        // #650 Task 4 (#647) — choke-point participation for LOCAL writes: dirty-log tracking
+        // (same callback Collections get) + a one-shot graph-dispatch wave open/collect/flush
+        // (the local-write origin's thin `graphDispatch.collect`-equivalent; a #553 zero-cost
+        // no-op today with no ref edges registered yet — Task 5 gives it dependents to recompute).
+        onDirty: this.onDirty,
+        onRecordMutated: async (collection, id) => {
+          this._beginGraphBatch(); this._collectGraphTouch(collection, id); await this._flushGraphBatch()
+        },
       })
       this.dictionaryCache.set(name, handle)
     }

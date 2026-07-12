@@ -35,6 +35,8 @@ export function withLookup(): LookupStrategy {
         opts.options,
         opts.findAndUpdateReferences,
         opts.emitter,
+        opts.onDirty, // #650 Task 4
+        opts.onRecordMutated, // #650 Task 4
       )
     },
   }

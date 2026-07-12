@@ -21,6 +21,14 @@ import type { SyncPolicy } from '../../kernel/sync-policy.js'
 import { SyncScheduler } from '../../kernel/sync-policy.js'
 import { isTombstoneShape, isDeleteMarker } from '../../kernel/enclave/index.js'
 
+/** #650 Task 4 (#647) — the declared reserved-lookup (`_dict_*`/`_lookup_*`) collection-name
+ *  registry a `SyncEngine` enumerates on pull. Explicit, not a blanket underscore-glob — other
+ *  `_`-prefixed namespaces keep their `loadAll`-skip semantics untouched. */
+export interface ReservedLookupSource {
+  /** Declared reserved-lookup collection names to enumerate on pull. */
+  collections(): readonly string[]
+}
+
 /** Sync engine: dirty tracking, push, pull, conflict resolution, scheduling. */
 export class SyncEngine {
   private readonly local: NoydbStore
@@ -69,6 +77,16 @@ export class SyncEngine {
   /** Wire the graph-dispatch batch controller (#638 Task 4). Same injection pattern as `setCacheInvalidator`. */
   setGraphBatchController(controller: { begin(): void; flush(): Promise<void> }): void {
     this.graphBatchController = controller
+  }
+
+  /** #650 Task 4 (#647): declared reserved-lookup collections `pull()` enumerates explicitly (the
+   *  store's `list()` does not skip `_`-prefixed names, unlike `loadAll()`). Wired by the vault at
+   *  open, same injection pattern as `setCacheInvalidator`/`setGraphBatchController`. */
+  private reservedLookup?: ReservedLookupSource
+
+  /** Wire the reserved-lookup source (#650 Task 4). */
+  setReservedLookupSource(source: ReservedLookupSource): void {
+    this.reservedLookup = source
   }
 
   constructor(opts: {
@@ -440,6 +458,29 @@ export class SyncEngine {
               }
             }
             // Same version or local is newer — skip (push will handle)
+          } catch (err) {
+            errors.push(err instanceof Error ? err : new Error(String(err)))
+          }
+        }
+      }
+
+      // #650 Task 4 (#647) — reserved lookup collections (`_dict_*`/`_lookup_*`) are invisible to
+      // `remote.loadAll()` above (the store contract skips `_`-prefixed names) but DO sync via
+      // this EXPLICIT, declared registry — not a blanket underscore-glob; other `_` namespaces
+      // keep their `loadAll`-skip semantics untouched. Applied through the SAME `applyRemote` path,
+      // still inside this try block, BEFORE `persistMeta`/`flush` below — so a pulled vocabulary
+      // row lands before the wave (flushed at the end of `pull()`) recomputes any dependent.
+      for (const collName of this.reservedLookup?.collections() ?? []) {
+        if (filter && !filter.has(collName)) continue
+        for (const id of await this.remote.list(this.vault, collName)) {
+          try {
+            const remoteEnvelope = await this.remote.get(this.vault, collName, id)
+            if (!remoteEnvelope) continue
+            const localEnvelope = await this.local.get(this.vault, collName, id)
+            if (!localEnvelope || remoteEnvelope._v > localEnvelope._v) {
+              await this.applyRemote(collName, id, remoteEnvelope)
+              pulled++
+            }
           } catch (err) {
             errors.push(err instanceof Error ? err : new Error(String(err)))
           }

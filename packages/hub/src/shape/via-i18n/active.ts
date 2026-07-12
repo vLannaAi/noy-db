@@ -58,6 +58,8 @@ export function withI18n(): I18nStrategy {
         options: opts.options,
         findAndUpdateReferences: opts.findAndUpdateReferences,
         emitter: opts.emitter,
+        onDirty: opts.onDirty, // #650 Task 4
+        onRecordMutated: opts.onRecordMutated, // #650 Task 4
       })
     },
   }

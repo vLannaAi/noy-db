@@ -73,9 +73,9 @@ export interface BuildLookupHandleOptions<Keys extends string = string> {
     | ((dimension: string, oldKey: string, newKey: string) => Promise<void>)
     | undefined
   readonly emitter: NoydbEventEmitter
-  /** #647 (Task 4) — choke-point participation hooks; undefined in this task (pure move). */
-  readonly onDirty?: (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>
-  readonly onRecordMutated?: (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>
+  /** #650 Task 4 (#647) — choke-point participation hooks. */
+  readonly onDirty?: ((collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>) | undefined
+  readonly onRecordMutated?: ((collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>) | undefined
   /**
    * Used by the active strategy to satisfy the generic-key parameter on the
    * returned handle. The NO_LOOKUP stub never reads it. Mirrors
@@ -126,6 +126,10 @@ export function isLookupCollectionName(name: string): boolean {
 // above, just too large to duplicate inline like that one is).
 export { enforceStaticDictOnPut, resolveDictSource, updateReferencingRecords }
 export type { DictReferencingCollection }
+
+// #650 Task 4 (#647) — the reserved-collection naming helper `vault.ts`'s sync-registry
+// bookkeeping needs (mapping a declared dimension name to its `_dict_<name>` collection name).
+export { dictCollectionName } from '../../shape/via-lookup/handle.js'
 
 // #650 Task 2 — the alias-equivalence bridge (`resolveLabelFromMap` +
 // `collectLookupDictCompat`/`lookupToStaticDictCompat`) + the runtime

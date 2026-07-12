@@ -82,6 +82,9 @@ export interface BuildDictionaryHandleOptions<Keys extends string = string> {
    */
   // marker generic — runtime sees no value
   _keyMarker?: Keys
+  /** #650 Task 4 (#647) — choke-point participation hooks, passed through to `buildLookupHandle`. */
+  onDirty?: ((collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>) | undefined
+  onRecordMutated?: ((collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>) | undefined
 }
 
 /**

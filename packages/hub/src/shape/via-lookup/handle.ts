@@ -130,6 +130,10 @@ export class LookupHandle<Keys extends string = string> {
         ) => Promise<void>)
       | undefined,
     private readonly emitter: NoydbEventEmitter,
+    /** #650 Task 4 (#647) — dirty-log participation hook (origin `local-write`), threaded from `BuildLookupHandleOptions`. */
+    private readonly onDirty?: (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>,
+    /** #650 Task 4 — thin `graphDispatch.collect`-equivalent; opens/collects/flushes a one-shot wave for this touch. */
+    private readonly onRecordMutated?: (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>,
   ) {
     this.collName = dictCollectionName(dictionaryName)
   }
@@ -180,6 +184,17 @@ export class LookupHandle<Keys extends string = string> {
     return JSON.parse(json) as DictEntry
   }
 
+  /** @internal #650 Task 4 — re-read `key`'s CURRENT adapter truth into `_syncCache` (delete the
+   *  cache entry when the key is now gone). Called by `Vault._invalidateSyncApplied` after a
+   *  reserved-lookup row applies via sync, so an already-warmed snapshot/membership/altIndex read
+   *  never sees a stale verdict for a pulled vocabulary edit — the same invalidation a local
+   *  put()/delete()/rename() already triggers via `_syncCache.set`/`delete` above. */
+  async _refreshSyncCache(key: string): Promise<void> {
+    const envelope = await this.adapter.get(this.compartmentName, this.collName, key)
+    if (!envelope) { this._syncCache.delete(key); return }
+    this._syncCache.set(key, await this.decryptEntry(envelope))
+  }
+
   // ─── Public API ───────────────────────────────────────────────────
 
   /**
@@ -211,12 +226,18 @@ export class LookupHandle<Keys extends string = string> {
     // Maintain synchronous cache for dict-join snapshot
     this._syncCache.set(key, entry)
 
+    // #650 Task 4 (#647) — choke-point participation: dirty-log tracking BEFORE the emit (mirrors
+    // Collection._onRecordMutated's local-write order), then the wave-open hook AFTER.
+    await this.onDirty?.(this.collName, key, 'put', version)
+
     this.emitter.emit('change', {
       vault: this.compartmentName,
       collection: this.collName,
       id: key,
       action: 'put',
     })
+
+    await this.onRecordMutated?.(this.collName, key, 'put', version)
 
     if (this.ledger) {
       await this.ledger.append({
@@ -294,12 +315,17 @@ export class LookupHandle<Keys extends string = string> {
     // Maintain synchronous cache for dict-join snapshot
     this._syncCache.delete(key)
 
+    // #650 Task 4 (#647) — same choke-point ordering as put() above.
+    await this.onDirty?.(this.collName, key, 'delete', existing._v)
+
     this.emitter.emit('change', {
       vault: this.compartmentName,
       collection: this.collName,
       id: key,
       action: 'delete',
     })
+
+    await this.onRecordMutated?.(this.collName, key, 'delete', existing._v)
 
     if (this.ledger) {
       await this.ledger.append({
@@ -371,18 +397,24 @@ export class LookupHandle<Keys extends string = string> {
     this._syncCache.delete(oldKey)
     this._syncCache.set(newKey, newEntry)
 
+    // #650 Task 4 (#647) — same choke-point ordering as put()/delete() above, for BOTH touches.
+    await this.onDirty?.(this.collName, oldKey, 'delete', existing._v)
     this.emitter.emit('change', {
       vault: this.compartmentName,
       collection: this.collName,
       id: oldKey,
       action: 'delete',
     })
+    await this.onRecordMutated?.(this.collName, oldKey, 'delete', existing._v)
+
+    await this.onDirty?.(this.collName, newKey, 'put', 1)
     this.emitter.emit('change', {
       vault: this.compartmentName,
       collection: this.collName,
       id: newKey,
       action: 'put',
     })
+    await this.onRecordMutated?.(this.collName, newKey, 'put', 1)
 
     // 5. Ledger — record the rename as delete(oldKey) + put(newKey)
     // so verifyBackupIntegrity()'s data-cross-check matches reality
