@@ -1465,10 +1465,30 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
 ])
 
 // Matches a static `import`/`export … from '…'` clause (named `{…}`,
-// `* as x`, or bare `*`); multi-line clauses are fine since `[^}]` already
-// spans newlines. Dynamic `import(…)` calls never match (no `from`).
+// `* as x`, bare `*`, or a default binding optionally combined with a named
+// or namespace clause, e.g. `import x from '…'` / `import x, { y } from
+// '…'`); multi-line clauses are fine since `[^}]` already spans newlines.
+// Dynamic `import(…)` calls never match (no `from`).
 const STATIC_IMPORT_FROM_RE =
-  /(?:import|export)\s+(?:type\s+)?(?:\*\s+as\s+\S+|\{[^}]*\}|\*)\s*from\s*['"]([^'"]+)['"]/g
+  /(?:import|export)\s+(?:type\s+)?(?:\*\s+as\s+\S+|\{[^}]*\}|\*|[A-Za-z_$][\w$]*(?:\s*,\s*(?:\*\s+as\s+\S+|\{[^}]*\}))?)\s*from\s*['"]([^'"]+)['"]/g
+
+// Matches a side-effect-only static import — `import '…'` (no binding
+// clause, no `from` keyword) — which STATIC_IMPORT_FROM_RE can never match
+// since it requires `from`. #632.
+const SIDE_EFFECT_IMPORT_RE = /\bimport\s*['"]([^'"]+)['"]/g
+
+/**
+ * All static import/export specifiers in `code` — both `… from '…'` clauses
+ * (STATIC_IMPORT_FROM_RE) and side-effect-only `import '…'` statements
+ * (SIDE_EFFECT_IMPORT_RE). #632: the two forms used to be scanned
+ * separately (and side-effect imports not at all); every layering guard
+ * below now goes through this single helper so both are always covered
+ * together.
+ */
+function* staticImportSpecs(code) {
+  for (const m of code.matchAll(STATIC_IMPORT_FROM_RE)) yield m[1]
+  for (const m of code.matchAll(SIDE_EFFECT_IMPORT_RE)) yield m[1]
+}
 
 /** Path of a resolved import, relative to `hub/src`, POSIX-separated. */
 function importTargetRelToHubSrc(fromFile, spec, hubSrc) {
@@ -1491,8 +1511,7 @@ function checkPortLayering() {
     const rel = relative(ROOT, file)
     const allowedImports = PRE_EXISTING_SPINE_SERVICE_IMPORTS.get(rel)
     const code = stripComments(readFileSync(file, 'utf8'))
-    for (const m of code.matchAll(STATIC_IMPORT_FROM_RE)) {
-      const spec = m[1]
+    for (const spec of staticImportSpecs(code)) {
       if (!spec.startsWith('.')) continue // only relative imports resolve inside hub/src
       if (allowedImports?.includes(spec)) continue // frozen baseline import — grandfathered
       const target = importTargetRelToHubSrc(file, spec, hubSrc)
@@ -1525,8 +1544,7 @@ function checkPortLayering() {
     walkTsFiles(join(portDir, portName), (file, content) => {
       const rel = relative(ROOT, file)
       const code = stripComments(content)
-      for (const m of code.matchAll(STATIC_IMPORT_FROM_RE)) {
-        const spec = m[1]
+      for (const spec of staticImportSpecs(code)) {
         if (!spec.startsWith('.')) continue
         const target = importTargetRelToHubSrc(file, spec, hubSrc)
         if (target.startsWith('port/with/')) continue // the hook seam — always an allowed target
@@ -1572,8 +1590,7 @@ function checkEnclaveBarrelOnly() {
     const insideEnclave = !relative(enclaveDir, file).startsWith('..')
     const code = stripComments(content)
 
-    for (const m of code.matchAll(STATIC_IMPORT_FROM_RE)) {
-      const spec = m[1]
+    for (const spec of staticImportSpecs(code)) {
       if (!spec.startsWith('.')) continue
       const target = importTargetRelToHubSrc(file, spec, hubSrc)
 
@@ -1913,8 +1930,7 @@ function checkViaLayering() {
     const rel = relative(ROOT, file)
     const allowedImports = VIA_SHAPE_ALLOWLIST.get(rel)
     const code = stripComments(readFileSync(file, 'utf8'))
-    for (const m of code.matchAll(STATIC_IMPORT_FROM_RE)) {
-      const spec = m[1]
+    for (const spec of staticImportSpecs(code)) {
       if (!spec.startsWith('.')) continue // only relative imports resolve inside hub/src
       if (allowedImports?.includes(spec)) continue // frozen baseline import — grandfathered
       const target = importTargetRelToHubSrc(file, spec, hubSrc)
@@ -1966,8 +1982,7 @@ function checkViaEnclaveIsolation() {
       const rel = relative(ROOT, file)
       const allowedImports = VIA_ENCLAVE_ALLOWLIST.get(rel)
       const code = stripComments(content)
-      for (const m of code.matchAll(STATIC_IMPORT_FROM_RE)) {
-        const spec = m[1]
+      for (const spec of staticImportSpecs(code)) {
         if (!spec.startsWith('.')) continue // only relative imports resolve inside hub/src
         if (allowedImports?.includes(spec)) continue // frozen baseline import — grandfathered
         const target = importTargetRelToHubSrc(file, spec, hubSrc)
