@@ -269,6 +269,20 @@ function getAltIndexOrThrow(field: string, desc: LookupDescriptor, cfg: LookupVi
  * itself); no store read — consults the pre-materialized
  * `cfg.getAltIndex(desc)`. The money `canonicalizeIncomingMoney` precedent
  * (`via.ts:108`).
+ *
+ * A `[].`-wildcard multi-value path (`getAtPath` resolves >1 entries — an
+ * array of nested objects, e.g. `'lines[].country'`, the same wildcard
+ * convention `runLookupPresent` above already handles) normalizes EVERY
+ * element's leaf value, not just a lone scalar (#652 fix — this used to bail
+ * out entirely here while `runLookupEnforceWrite` below validated every
+ * value unnormalized, so a legitimate altKey in an array position was
+ * wrongly refused by closed-vocabulary enforcement). `setAtPathInPlace`
+ * can't write into a `[].`-wildcard path, so the array is reconstructed
+ * immutably instead, mirroring `runLookupPresent`'s own `field.includes
+ * ('[].')` branch. A plain field whose OWN value is a bare array (not a
+ * `[].`-wildcard path) is a different, untouched shape — `getAtPath`
+ * resolves it to one opaque value, so it still falls through the
+ * `values.length !== 1` / `typeof value !== 'string'` checks below unchanged.
  */
 function runLookupIngest(record: Record<string, unknown>, cfg: LookupViaConfig): Record<string, unknown> {
   const withAltKeys = Object.entries(cfg.lookupFields).filter(([, d]) => (d.altKeys?.length ?? 0) > 0)
@@ -278,13 +292,29 @@ function runLookupIngest(record: Record<string, unknown>, cfg: LookupViaConfig):
   for (const [field, desc] of withAltKeys) {
     const backing = getAltIndexOrThrow(field, desc, cfg)
     if (!backing || backing.altIndex.size === 0) continue
+
+    if (field.includes('[].')) {
+      const [arrayKey, leaf] = field.split('[].')
+      if (!leaf || leaf.includes('.')) continue
+      const arr = record[arrayKey!]
+      if (!Array.isArray(arr)) continue
+      let changed = false
+      const normalized = arr.map((item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return item
+        const value = (item as Record<string, unknown>)[leaf]
+        if (typeof value !== 'string') return item
+        const canonical = backing.altIndex.get(value)
+        if (canonical === undefined || canonical === value) return item
+        changed = true
+        return { ...(item as Record<string, unknown>), [leaf]: canonical }
+      })
+      if (!changed) continue
+      if (result === record) result = { ...record }
+      result[arrayKey!] = normalized
+      continue
+    }
+
     const values = getAtPath(record, field)
-    // Multi-value fields ([].-wildcard/array-typed paths — `getAtPath`
-    // returns >1 entries) bail out of normalization here (follow-up
-    // flagged, #650 Task 3 review; no behavior change this wave).
-    // `runLookupEnforceWrite` below has no such bail, so a closed-vocabulary
-    // array field can see an un-normalized altKey value refused even though
-    // the candidate is a legitimate, just-not-yet-canonicalized altKey.
     if (values.length !== 1) continue
     const value = values[0]
     if (typeof value !== 'string') continue
@@ -307,11 +337,11 @@ function runLookupIngest(record: Record<string, unknown>, cfg: LookupViaConfig):
 async function runLookupEnforceWrite(record: Record<string, unknown>, cfg: LookupViaConfig): Promise<void> {
   for (const [field, desc] of Object.entries(cfg.lookupFields)) {
     if (desc.vocabulary !== 'closed') continue
-    // Unlike `runLookupIngest` (which bails on multi-value fields), this
-    // checks every value `getAtPath` returns — including array elements
-    // ingest never got a chance to normalize. See the asymmetry note at
-    // `runLookupIngest`'s bail-out (#650 Task 3 review; no behavior change
-    // this wave).
+    // Checks every value `getAtPath` returns — for a `[].`-wildcard
+    // multi-value path, that's every element's leaf value.
+    // `runLookupIngest` above now normalizes each of those elements first
+    // (#652), so what lands here for a `[].`-wildcard field is already
+    // canonical; this loop's job stays membership, not normalization.
     for (const value of getAtPath(record, field)) {
       if (typeof value !== 'string') continue
       const known = cfg.membership ? await cfg.membership(field, value) : true
