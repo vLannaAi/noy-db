@@ -1960,7 +1960,7 @@ function checkViaEnclaveIsolation() {
         if (target.startsWith('kernel/enclave/')) {
           fail(
             'via-enclave-isolation',
-            `${rel} statically imports enclave path "${spec}" — src/shape/via-*/** (the Via port's feature layer) may not reach kernel/enclave/ directly, not even the barrel; crypto should reach a feature only via ctx (phase B's ViaCryptoCtx, milestone #28), except the frozen baseline in VIA_ENCLAVE_ALLOWLIST.`,
+            `${rel} statically imports enclave path "${spec}" — src/shape/via-*/** (the Via port's feature layer) may not reach kernel/enclave/ directly, not even the barrel; crypto should reach a feature only via ctx (phase B's ViaCryptoCtx, milestone #28). VIA_ENCLAVE_ALLOWLIST is EMPTY (the DictionaryHandle baseline it once held was retired by #629 Task 4) — there is no grandfathered import left to match.`,
             file,
           )
         }

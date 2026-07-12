@@ -40,7 +40,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
 import { withI18n } from '../../src/shape/via-i18n/index.js'
-import { lookup } from '../../src/shape/via-lookup/descriptor.js'
+import { lookup, enumOf } from '../../src/shape/via-lookup/descriptor.js'
 import { ref } from '../../src/kernel/refs.js'
 import { UnknownLookupKeyError, ConflictError } from '../../src/kernel/errors.js'
 import type { Noydb } from '../../src/kernel/noydb.js'
@@ -194,6 +194,35 @@ describe('countries matrix — describe() consumes describeFragment (first-ever 
       // no `keys` — matrix-tier closed-vocabulary membership lives in the
       // backing collection's actual rows, not a statically declared list.
     })
+    expect(field?.widget).toBe('select')
+  })
+})
+
+// Docs-audit fix wave, finding 6: the `describe() consumes describeFragment` test above only
+// covers the matrix tier's `dimension`-PRESENT case; a bare `enumOf()` field (no backing store, no
+// dimension name — the `dimension: ''` internal sentinel, `descriptor.ts`) was never asserted
+// against `describe()`. `buildLookupDescribeFragment` (`binding.ts`) omits the `dimension` key
+// entirely for it (not an empty string); pin that shape here.
+describe('enumOf() — describe() lookup block omits `dimension` for the bare enum tier (#650 Task 7, docs-audit finding 6)', () => {
+  interface StatusRow extends Record<string, unknown> { id: string; status: string }
+
+  it('emits backing/vocabulary/key/onDelete/keys with NO `dimension` property at all', async () => {
+    const db = await freshDb()
+    const vault = await db.openVault('v')
+    const items = vault.collection<StatusRow>('items', {
+      lookupFields: { status: enumOf(['draft', 'paid'] as const) },
+    })
+
+    const described = items.describe()
+    const field = described.fields.find((f) => f.key === 'status')
+    expect(field?.lookup).toEqual({
+      backing: 'static',
+      vocabulary: 'closed',
+      key: 'id',
+      onDelete: 'restrict',
+      keys: ['draft', 'paid'],
+    })
+    expect(field?.lookup).not.toHaveProperty('dimension')
     expect(field?.widget).toBe('select')
   })
 })

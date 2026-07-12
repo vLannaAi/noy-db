@@ -4,8 +4,12 @@
 patterns — `dictKey()`/`staticDict()` (the legacy `via-i18n` dict tier), and the open question of
 "what if the code refers to a whole reference collection instead of a code table" — into **one**
 `ViaBinding` (`brand: 'lookup'`) with **three backing tiers**. `dictKey()`/`staticDict()` still
-work, unchanged, as **aliases** onto this binding — byte-identical stored envelopes, `describe()`
-output, and join dressing, locked by `packages/hub/__tests__/via/lookup-alias-parity.test.ts`.
+work, unchanged — they compile onto the **`'i18n'`** via-binding, not the `'lookup'` one described
+here; their stored envelopes, `type`/`widget`/`dict` describe() block, and `.join()` dressing stay
+byte-identical to the native equivalent (locked by
+`packages/hub/__tests__/via/lookup-alias-parity.test.ts`), but they do **not** gain the new
+`.lookup` describe() block (see the "describe()" section below) — only a native
+`lookup()`/`enum()`/`dict()` field produces one.
 
 ## The three tiers — one descriptor shape, `backing` decides
 
@@ -94,16 +98,24 @@ is — this is what makes **sparse, populate-only-used** dimensions safe:
 await expect(orders.put('o4', { id: 'o4', country: 'ZA' })).rejects.toThrow(UnknownLookupKeyError)
 ```
 
-(both from `countries-matrix.test.ts`). `dictKey()`/`staticDict()` and their `dict()`/`lookup(open)`
-native equivalents default to `vocabulary: 'open'` — unaffected; this is additive (#649).
+(both from `countries-matrix.test.ts`). `dictKey()` and its native equivalent `dict()` default to
+`vocabulary: 'open'` — unaffected; this is additive (#649). `staticDict()` is a separate case: it's
+closed-by-construction via its own `validateCodes` option (default `true`), which throws
+`UnknownDictCodeError` on an unknown code — a different mechanism and error class from
+`vocabulary: 'closed'`'s `UnknownLookupKeyError`, predating this phase and unchanged by it. Pass
+`{ validateCodes: false }` to `staticDict()` for open codes.
 
 ## Presentation — `<field>Label`, in reads and in joins
 
 Reading with a locale resolves `<field>Label` on the SAME record (direct `present()`, works for
-reserved/static tiers via the vault-built label resolver, and for matrix tier via the backing
-collection's own `get()`). Joining to a collection that itself declares a lookup field resolves
-that field's label on the JOINED side too — the **snapshot+locale seam** (#650 Task 6, extended to
-matrix tier in Task 7):
+reserved/static tiers via the vault-built label resolver). For matrix tier, direct (non-join) reads
+currently resolve the backing row by the backing collection's own PUT-id via `.get()` — **not** by
+`descriptor.key`. For the default `key: 'id'` those are the same thing, but for a custom canonical
+key like this doc's own `key: 'iso2'` recipe above, a direct `present()` read silently omits
+`<field>Label` instead of resolving it (tracked as #651) — use the join path below, or declare
+`key: 'id'`, until that's closed. Joining to a collection that itself declares a lookup field
+resolves that field's label on the JOINED side too — the **snapshot+locale seam** (#650 Task 6,
+extended to matrix tier in Task 7), which correctly keys by `descriptor.key`, not the PUT-id:
 
 ```ts
 const rows = shipments.query().join('orderId', { as: 'order' }).toArray({ locale: 'th' })
@@ -125,11 +137,21 @@ needs a **per-call** one:
 
 ```ts
 // (a) compareForOrder — PLAIN orderBy(), no {by:'label'} — needs a declared `displayLocale`
-//     (the field's own fixed locale) since there's no per-call one to fall back to:
-orders.query().orderBy('country', 'asc').toArray()
+//     (the field's own fixed locale) since there's no per-call one to fall back to. The `orders`
+//     collection declared above does NOT set one — add it to the `country` lookup() descriptor:
+const ordersFixedLocale = vault.collection<Order>('orders-display-locale', {
+  lookupFields: {
+    country: lookup('countries', {
+      key: 'iso2', present: { label: 'name', by: 'locale' }, sortBy: 'name',
+      backing: 'collection', displayLocale: 'en', // <- new, required for channel (a)
+    }),
+  },
+})
+ordersFixedLocale.query().orderBy('country', 'asc').toArray()
 // sorts by the resolved `name` at the descriptor's own `displayLocale` — 'South Africa' < 'United States'
 
-// (b) orderBy({by:'label'}) — resolves at the QUERY's own per-call locale:
+// (b) orderBy({by:'label'}) — resolves at the QUERY's own per-call locale, no displayLocale needed,
+//     so this works on the ORIGINAL `orders` (no `country` field redeclaration required):
 orders.query().orderBy('country', 'asc', { by: 'label' }).toArray({ locale: 'en' })  // ZA, US
 orders.query().orderBy('country', 'asc', { by: 'label' }).toArray({ locale: 'th' })  // US, ZA — a DIFFERENT order
 ```
@@ -141,6 +163,13 @@ addition: `builder.ts`'s `buildOrderLabelMaps` falls back to a new `ViaPipeline.
 hook for lookup fields the legacy dict-registry bridge doesn't cover (matrix tier) — reserved/
 static-tier fields (including `dictKey()`/`staticDict()`) keep resolving through the pre-existing
 bridge, tried first, unchanged.
+
+**Silent degrade if you skip `displayLocale`.** A `sortBy` field whose `present.by` is locale-keyed
+(as `country` above is) but has no declared `displayLocale` does not throw — `compareForOrder`
+degrades to comparing the raw stored keys (code order) with no warning at query time. `lookup()`
+fires a one-time `console.warn` at DECLARE time when it detects `sortBy` + locale-keyed `present.by`
+with no `displayLocale` (`descriptor.ts`'s `warnIfSortByNeedsDisplayLocale`) — watch for it, or use
+channel (b)'s per-call `{ by: 'label' }` instead, which needs no `displayLocale` at all.
 
 ## Reference semantics — `restrict` (default) / `cascade` / `nullify`
 
@@ -179,6 +208,10 @@ pre-existing `ForgetResult` field is unchanged).
 `DictKeyInUseError` (`errors.ts`) was declared and documented since before this phase but never
 actually thrown — `lookup-ref-semantics.test.ts` is its first-ever coverage AND first-ever throw
 site (closing seam-map surprise 3).
+
+A plain delete on a dictionary/collection row that **no** declared lookup field anywhere actually
+references is completely unaffected by any of this — `onDelete` only fires for dimensions a
+`lookupFields`/`via(lookup(...))` declaration actually points at.
 
 ## Reserved-tier sync — dictionaries now travel (#647)
 
@@ -241,7 +274,7 @@ architecture-guard allowlists are EMPTY and still fire on a synthetic violation)
 
 - [`docs/subsystems/via.md`](via.md) — the Via port overview, phases, architecture guards
 - [`docs/subsystems/via-i18n.md`](via-i18n.md) — `i18nText()` + the `dictKey()`/`staticDict()`
-  alias story (both now compile onto this binding)
+  alias story (byte-parity with, not compiled onto, this binding — see the top of this page)
 - `packages/hub/src/shape/via-lookup/` — descriptors, binding, registry, snapshot, handle
 - `packages/hub/__tests__/via/countries-matrix.test.ts` — the canonical end-to-end example (source
   of every code snippet on this page)

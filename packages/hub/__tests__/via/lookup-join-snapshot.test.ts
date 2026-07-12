@@ -187,12 +187,23 @@ describe('compareForOrder — plain orderBy on a sortBy-declared reserved lookup
     expect(out.map((r) => r.id)).toEqual(['r2', 'r1']) // aaa < zzz — raw code order, unaffected
   })
 
-  it('matrix-tier sortBy gracefully falls back to code-order — snapshotFor is reserved-tier only in this task (deferred, see task-6-report.md Concerns)', async () => {
+  // Was 'matrix-tier sortBy gracefully falls back to code-order' — pinned Task 6's deferred gap
+  // (compareForOrder had no matrix-tier route yet, so a plain orderBy() always fell back to raw
+  // code order). #650 Task 7 closed that gap (registry.ts's buildLookupSnapshotRows now routes
+  // the matrix tier too), but this test kept passing anyway: its old fixture ('United States'/
+  // 'Thailand') happens to alphabetize the SAME way its codes do ('TH' < 'US' either by code or by
+  // name), so the assertion below never actually observed the new behavior — coincidentally green
+  // for the wrong reason. Docs-audit fix wave: re-pin the CURRENT (now-functional) behavior with a
+  // fixture whose names deliberately sort OPPOSITE to their codes, so a code-order regression
+  // would fail this test again.
+  it('matrix-tier sortBy now resolves via the sync snapshot — sorts by label, not raw code (#650 Task 7)', async () => {
     const db = await freshDb()
     const vault = await db.openVault('v')
     const countries = vault.collection<{ id: string; name: string } & Record<string, unknown>>('countries', {})
-    await countries.put('US', { id: 'US', name: 'United States' })
-    await countries.put('TH', { id: 'TH', name: 'Thailand' })
+    // Raw code order is 'TH' < 'US'; names are chosen so label order is the OPPOSITE ('Argentina'
+    // < 'Zimbabwe' puts US first) — proves a genuine label sort, not a coincidental code match.
+    await countries.put('US', { id: 'US', name: 'Argentina' })
+    await countries.put('TH', { id: 'TH', name: 'Zimbabwe' })
     const orders = vault.collection<{ id: string; country: string } & Record<string, unknown>>('orders-matrix', {
       lookupFields: { country: lookup('countries', { present: { label: 'name' }, sortBy: 'name' }) },
     })
@@ -200,7 +211,7 @@ describe('compareForOrder — plain orderBy on a sortBy-declared reserved lookup
     await orders.put('o2', { id: 'o2', country: 'TH' })
 
     const out = orders.query().orderBy('country', 'asc').toArray()
-    expect(out.map((r) => r.id)).toEqual(['o2', 'o1']) // TH < US by raw CODE — compareForOrder returns undefined for matrix tier
+    expect(out.map((r) => r.id)).toEqual(['o1', 'o2']) // Argentina(US) < Zimbabwe(TH) — label order, opposite of raw code order (TH<US)
   })
 })
 
