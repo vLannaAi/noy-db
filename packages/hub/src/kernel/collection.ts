@@ -383,8 +383,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /** Money field descriptors keyed by field path, typed as the opaque {@link ViaDescriptor} marker
    *  (the kernel never inspects the concrete shape); `put()` quantizes to a scaled-int string,
    *  `get()`/`list()` decode back. Mutable so {@link _applyMoneyFields} can attach. */
-  private moneyFields: Record<string, ViaDescriptor> | undefined
-  private via: ViaPipeline | undefined // compiled Via pipeline (money, i18n); rebuilt by {@link _applyMoneyFields}
+  private moneyFields: Record<string, ViaDescriptor> | undefined; private via: ViaPipeline | undefined // compiled Via pipeline (money, i18n); rebuilt by {@link _applyMoneyFields}
 
   /**
    * Computed scalar fields, evaluated first on every `put()`. Mutable for
@@ -4423,6 +4422,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   async _onViaErase(id: string, live: EncryptedEnvelope): Promise<ViaEraseReport | undefined> { return this.via ? this.via.eraseSealed({ id, vault: this.vault, live, crypto: await this.codec.eraseCryptoCtx(id, live) }) : undefined } // @internal forget()'s per-ref via-erase fold (#629 T10)
+  get _via(): ViaPipeline | undefined { return this.via } // @internal exportRedact()'s typed reach-in accessor (fixes #634)
   /**
    * Bind the {@link TiersContext} the tier ops need. The `cekCache` is passed
    * by reference (the SAME `Lru` the kernel's read/write path owns) so an
