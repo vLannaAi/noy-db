@@ -374,6 +374,40 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
     // untainted computed field — not a channel for 'email' plaintext.
     expect(vault.graph.effectivePosture({ collection: 'threehop', field: 'email_domain' })).toBeUndefined()
   })
+
+  it('#645 — a reconcile-attached computed field may reference a classified field declared in an EARLIER, separate call, without re-declaring it', async () => {
+    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'graph-edges-645-cross-call-2026' })
+    const vault = await db.openVault('demo')
+    // Call 1: fresh construction — declares the classified field only.
+    vault.collection('cross-call-deps', { classifiedFields: { ssn: classified.email() } })
+    // Call 2: reconcile — attaches a computed field whose `deps` names 'ssn'
+    // WITHOUT re-declaring classifiedFields. Before the #645 fix, the
+    // reconcile path's knownFields universe was scoped to THIS call's own
+    // options only (`collectKnownFieldNames`), so it had no memory of 'ssn'
+    // — even though the graph already registered it from call 1 — and
+    // spuriously refused with "does not name a declared field".
+    expect(() =>
+      vault.collection('cross-call-deps', {
+        computed: { total: { fn: (r: Record<string, unknown>) => String(r.ssn).length, deps: ['ssn'] } },
+      }),
+    ).not.toThrow()
+    const posture = vault.graph.effectivePosture({ collection: 'cross-call-deps', field: 'total' })
+    expect(posture?.encryptedAtRest).toBe('sealed')
+    expect(posture?.exportable).toBe(false)
+  })
+
+  it('#645 CONTROL: a reconcile-attached computed field with a genuinely UNKNOWN/mistyped dep still throws — the graph-memory union only adds ACTUALLY-registered fields', async () => {
+    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'graph-edges-645-control-2026' })
+    const vault = await db.openVault('demo')
+    vault.collection('cross-call-typo', { classifiedFields: { ssn: classified.email() } })
+    expect(() =>
+      vault.collection('cross-call-typo', {
+        // 'sssn' — a typo; never registered by any prior call, so it must
+        // still be refused even with the graph's field memory unioned in.
+        computed: { total: { fn: (r: Record<string, unknown>) => String(r.ssn).length, deps: ['sssn'] } },
+      }),
+    ).toThrow(ValidationError)
+  })
 })
 
 describe('resolveViaBindingDepsEdges — the general via-bindings deps path (#638 Task 2)', () => {

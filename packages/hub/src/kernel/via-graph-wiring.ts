@@ -202,15 +202,22 @@ export function validateReconcileGraphEdges(graph: ViaGraph, name: string, optio
         )
       }
     }
-    // #638 Task 7 review CRITICAL fix — scoped to THIS reconcile call's own options
-    // (mirrors the fresh path's `knownFields`, built once per `vault.collection()` call;
-    // `resolveComputedEdges`'s doc comment covers the residual cross-call/known-but-wrong
-    // limits).
-    const knownFields = collectKnownFieldNames({
-      moneyFields: options.moneyFields,
-      classifiedFields: resolvedClassified?.byField,
-      computed: options.computed,
-    })
+    // #638 Task 7 review CRITICAL fix, #645 fix — THIS reconcile call's own options
+    // (mirrors the fresh path's `knownFields`, built once per `vault.collection()` call)
+    // UNIONED with `graph.knownFieldNames`'s cross-call memory of fields an EARLIER,
+    // separate `vault.collection()` call already registered — without the union, a
+    // computed field attached here whose `deps` correctly names a field declared
+    // earlier (and never re-declared, since re-declaring is unnecessary) was
+    // spuriously refused as unknown. `resolveComputedEdges`'s doc comment covers the
+    // remaining residual known-but-wrong limits (unchanged by this fix).
+    const knownFields = new Set([
+      ...collectKnownFieldNames({
+        moneyFields: options.moneyFields,
+        classifiedFields: resolvedClassified?.byField,
+        computed: options.computed,
+      }),
+      ...graph.knownFieldNames(name),
+    ])
     edges = resolveComputedEdges(name, options.computed, combinedHasClassified, knownFields)
     const depFields = new Set(edges.map((edge) => edge.target.field))
     depslessComputedFields = Object.keys(options.computed).filter((field) => !depFields.has(field))

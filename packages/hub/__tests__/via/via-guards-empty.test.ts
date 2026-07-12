@@ -104,6 +104,62 @@ describe('via-layering allowlist ends EMPTY (#650 Task 6, #626 retirement)', () 
     const after = runArchitectureCheck()
     expect(after.status).toBe(0)
   })
+
+  // #632: STATIC_IMPORT_FROM_RE (shared by port-layering, enclave-barrel-only,
+  // via-layering, and via-enclave-isolation) originally only matched
+  // `import/export … from '…'` clauses with a named/`* as`/bare-`*` binding.
+  // Side-effect imports (`import '…'`, no binding, no `from`) and default
+  // imports (`import x from '…'`) silently slipped every guard that shares
+  // this regex. These two tests reuse the via-layering recipe above (same
+  // real target, shape/via-i18n/core.js) with those two forms instead of a
+  // named import, proving the widened scanner now catches them too. Kept in
+  // THIS file (not a new one) to avoid the exact cross-file subprocess race
+  // documented at the top of this file — a second file invoking
+  // check-architecture.mjs concurrently could observe the other's synthetic
+  // file mid-run.
+  const SIDE_EFFECT_SYNTHETIC_FILE = repoPath(
+    'packages/hub/src/kernel/__via_layering_side_effect_synthetic__.ts',
+  )
+  const DEFAULT_IMPORT_SYNTHETIC_FILE = repoPath(
+    'packages/hub/src/kernel/__via_layering_default_synthetic__.ts',
+  )
+
+  it('the guard fires on a synthetic side-effect import (`import "../shape/…"`, no `from` clause) (#632)', () => {
+    expect(existsSync(SIDE_EFFECT_SYNTHETIC_FILE)).toBe(false)
+    writeFileSync(SIDE_EFFECT_SYNTHETIC_FILE, "import '../shape/via-i18n/core.js'\n")
+    try {
+      const result = runArchitectureCheck()
+      expect(result.status).not.toBe(0)
+      expect(result.output).toMatch(/via-layering/)
+      expect(result.output).toMatch(/__via_layering_side_effect_synthetic__/)
+    } finally {
+      unlinkSync(SIDE_EFFECT_SYNTHETIC_FILE)
+    }
+    // Reverted — the checker is clean again, proving the failure above was
+    // caused by the synthetic file and not some other pre-existing drift.
+    const after = runArchitectureCheck()
+    expect(after.status).toBe(0)
+  })
+
+  it('the guard fires on a synthetic default import (`import x from "../shape/…"`) (#632)', () => {
+    expect(existsSync(DEFAULT_IMPORT_SYNTHETIC_FILE)).toBe(false)
+    writeFileSync(
+      DEFAULT_IMPORT_SYNTHETIC_FILE,
+      "import applyI18nLocale from '../shape/via-i18n/core.js'\nexport const _syntheticDefaultImportProbe = applyI18nLocale\n",
+    )
+    try {
+      const result = runArchitectureCheck()
+      expect(result.status).not.toBe(0)
+      expect(result.output).toMatch(/via-layering/)
+      expect(result.output).toMatch(/__via_layering_default_synthetic__/)
+    } finally {
+      unlinkSync(DEFAULT_IMPORT_SYNTHETIC_FILE)
+    }
+    // Reverted — the checker is clean again, proving the failure above was
+    // caused by the synthetic file and not some other pre-existing drift.
+    const after = runArchitectureCheck()
+    expect(after.status).toBe(0)
+  })
 })
 
 describe('via-enclave-isolation allowlist stays EMPTY (#650 Task 7)', () => {

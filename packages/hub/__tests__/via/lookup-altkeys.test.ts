@@ -16,7 +16,7 @@ import { createNoydb } from '../../src/kernel/noydb.js'
 import { withI18n } from '../../src/shape/via-i18n/index.js'
 import { lookup } from '../../src/shape/via-lookup/descriptor.js'
 import { materializeBackingTable } from '../../src/shape/via-lookup/registry.js'
-import { ValidationError, ConflictError } from '../../src/kernel/errors.js'
+import { ValidationError, ConflictError, UnknownLookupKeyError } from '../../src/kernel/errors.js'
 import type { Noydb } from '../../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 
@@ -179,5 +179,132 @@ describe('lookup() altKeys ingest normalization — matrix (collection) tier end
     await orders.put('o1', { id: 'o1', country: 'ZZZ' })
     const stored = await orders._getStoredRecord('o1')
     expect(stored?.country).toBe('ZZZ')
+  })
+})
+
+/**
+ * #652 — lookup ingest/enforceWrite multi-value (`[].`-wildcard path)
+ * asymmetry (RATIFIED option A: element-wise normalize). `runLookupIngest`
+ * used to bail whenever `getAtPath` resolved more than one value for a
+ * field — which only happens for a `[].`-wildcard path over an array of
+ * nested objects (e.g. `'lines[].country'`, mirroring the SAME wildcard
+ * convention `runLookupPresent` already handles at `binding.ts:159`) — so
+ * such a field's altKey candidates were never normalized. Meanwhile
+ * `runLookupEnforceWrite` has no such bail and validates every value
+ * `getAtPath` returns, so a closed-vocabulary `[].`-wildcard field could see
+ * a legitimate, just-not-yet-canonicalized altKey wrongly refused (the exact
+ * bug #652 filed — reproduced by the "closed vocabulary" case below).
+ *
+ * A plain top-level field whose OWN value is an array (e.g. a bare
+ * `tags: ['a','b']`) is a DIFFERENT shape: `getAtPath` resolves it to a
+ * single opaque value (the whole array, wrapped: `[['a','b']]`, length 1)
+ * rather than splitting it — `values.length !== 1` is never true for it, and
+ * `runLookupEnforceWrite`'s `typeof value !== 'string'` guard already skips
+ * it today. That shape isn't touched by this fix (see task-4-report.md's
+ * "edge-shape decisions" for the scoping rationale) — only the getAtPath
+ * multi-value (`[].`-wildcard) case the stale comments actually described.
+ *
+ * RED (pre-fix): the first "ingests to canonical" assertion below failed
+ * (leaf values held raw altKeys, unnormalized); the "closed vocabulary"
+ * case failed by throwing `UnknownLookupKeyError` for a legitimate altKey.
+ */
+describe('lookup() altKeys ingest normalization — [].-wildcard multi-value paths, element-wise (#652)', () => {
+  interface Country extends Record<string, unknown> { id: string; iso2: string; iso3: string; callPrefix: string }
+  interface OrderLine { country: string }
+  interface Order extends Record<string, unknown> { id: string; lines: OrderLine[] }
+
+  async function seed() {
+    const db = await freshDb()
+    const vault = await db.openVault('v')
+    const countries = vault.collection<Country>('countries', {})
+    await countries.put('US', { id: 'US', iso2: 'US', iso3: 'USA', callPrefix: '+1' })
+    await countries.put('TH', { id: 'TH', iso2: 'TH', iso3: 'THA', callPrefix: '+66' })
+    return { countries, vault }
+  }
+
+  it('normalizes every element\'s altKey candidate to the canonical key on ingest', async () => {
+    const { vault } = await seed()
+    const orders = vault.collection<Order>('orders-lines', {
+      lookupFields: { 'lines[].country': lookup('countries', { key: 'iso2', altKeys: ['iso3', 'callPrefix'] }) },
+    })
+
+    await orders.put('o1', { id: 'o1', lines: [{ country: 'USA' }, { country: '+66' }] })
+    const stored = await orders._getStoredRecord('o1')
+    expect(stored?.lines).toEqual([{ country: 'US' }, { country: 'TH' }])
+  })
+
+  it('mixed array — an altKey, an already-canonical key, and (open vocabulary) an unknown value pass through untouched', async () => {
+    const { vault } = await seed()
+    const orders = vault.collection<Order>('orders-lines-mixed', {
+      lookupFields: { 'lines[].country': lookup('countries', { key: 'iso2', altKeys: ['iso3', 'callPrefix'] }) },
+    })
+
+    await orders.put('o1', { id: 'o1', lines: [{ country: 'USA' }, { country: 'TH' }, { country: 'ZZZ' }] })
+    const stored = await orders._getStoredRecord('o1')
+    // 'USA' -> 'US' (altKey), 'TH' -> 'TH' (already canonical), 'ZZZ' has no
+    // altIndex match and is an open vocabulary — passes through unchanged.
+    expect(stored?.lines).toEqual([{ country: 'US' }, { country: 'TH' }, { country: 'ZZZ' }])
+  })
+
+  it('empty array is a no-op', async () => {
+    const { vault } = await seed()
+    const orders = vault.collection<Order>('orders-lines-empty', {
+      lookupFields: { 'lines[].country': lookup('countries', { key: 'iso2', altKeys: ['iso3'] }) },
+    })
+
+    await orders.put('o1', { id: 'o1', lines: [] })
+    const stored = await orders._getStoredRecord('o1')
+    expect(stored?.lines).toEqual([])
+  })
+
+  it('duplicate elements after normalization are kept as-is (pass-through, principle of least surprise — pinned decision, not deduped)', async () => {
+    const { vault } = await seed()
+    const orders = vault.collection<Order>('orders-lines-dupes', {
+      lookupFields: { 'lines[].country': lookup('countries', { key: 'iso2', altKeys: ['iso3', 'callPrefix'] }) },
+    })
+
+    // 'USA' and '+1' both normalize to 'US' — the normalized array keeps
+    // both resulting entries rather than deduping them; ingest normalizes
+    // values in place, it does not change the record's cardinality/shape.
+    await orders.put('o1', { id: 'o1', lines: [{ country: 'USA' }, { country: '+1' }] })
+    const stored = await orders._getStoredRecord('o1')
+    expect(stored?.lines).toEqual([{ country: 'US' }, { country: 'US' }])
+  })
+
+  it('idempotent: an already-all-canonical array passes through unchanged', async () => {
+    const { vault } = await seed()
+    const orders = vault.collection<Order>('orders-lines-canonical', {
+      lookupFields: { 'lines[].country': lookup('countries', { key: 'iso2', altKeys: ['iso3', 'callPrefix'] }) },
+    })
+
+    await orders.put('o1', { id: 'o1', lines: [{ country: 'US' }, { country: 'TH' }] })
+    const stored = await orders._getStoredRecord('o1')
+    expect(stored?.lines).toEqual([{ country: 'US' }, { country: 'TH' }])
+  })
+
+  it('closed vocabulary: a legitimate altKey in an array position normalizes and is accepted (the exact bug #652 filed — it used to be wrongly refused)', async () => {
+    const { vault } = await seed()
+    const orders = vault.collection<Order>('orders-lines-closed', {
+      lookupFields: {
+        'lines[].country': lookup('countries', { key: 'iso2', altKeys: ['iso3', 'callPrefix'], vocabulary: 'closed' }),
+      },
+    })
+
+    await expect(orders.put('o1', { id: 'o1', lines: [{ country: 'USA' }, { country: 'TH' }] })).resolves.not.toThrow()
+    const stored = await orders._getStoredRecord('o1')
+    expect(stored?.lines).toEqual([{ country: 'US' }, { country: 'TH' }])
+  })
+
+  it('closed vocabulary: a genuinely unknown element is still refused by enforceWrite — ingest does not duplicate that job', async () => {
+    const { vault } = await seed()
+    const orders = vault.collection<Order>('orders-lines-closed-refuse', {
+      lookupFields: {
+        'lines[].country': lookup('countries', { key: 'iso2', altKeys: ['iso3', 'callPrefix'], vocabulary: 'closed' }),
+      },
+    })
+
+    await expect(
+      orders.put('o2', { id: 'o2', lines: [{ country: 'USA' }, { country: 'ZZ' }] }),
+    ).rejects.toThrow(UnknownLookupKeyError)
   })
 })

@@ -186,14 +186,31 @@ export async function getAtTier<T>(ctx: TiersContext<T>, id: string): Promise<T 
   // unwrap under the tier DEK then decrypt the body under the CEK. Legacy
   // tiered records decrypt directly under the tier DEK.
   let plaintext: string
+  let cek: EnclaveKey | undefined
   if (envelope._cek !== undefined) {
-    const cek = await unwrapCek(envelope._cek, dek)
+    cek = await unwrapCek(envelope._cek, dek)
     ctx.cekCache?.set(id, cek, 1)
     plaintext = await decrypt(envelope._iv, envelope._data, cek)
   } else {
     plaintext = await decrypt(envelope._iv, envelope._data, dek)
   }
-  const record = JSON.parse(plaintext) as T
+  let record = JSON.parse(plaintext) as T
+
+  // #635: this manual-decrypt leg never went through `decryptRecord`, so it
+  // never processed `_sealed` slots — an elevated classified record read
+  // back through here would return the body WITHOUT its sealed fields
+  // (silent omission). `applySealedSlots` is the same post-processing
+  // `decryptRecord`'s tier-0 branch above gets for free, extracted so it can
+  // take OUR already-unwrapped `cek` (unwrapped under the TIER dek above)
+  // instead of resolving one itself under the collection DEK the way
+  // `decryptRecord`/`resolveEnvelopeCek` would — which would be the wrong
+  // key for a `_cek` wrapped under a tier DEK. `sealedAsHandles` is omitted
+  // (default false) to match this function's OWN tier-0 branch above
+  // (`ctx.codec.decryptRecord(envelope, { id })`, no `sealedAsHandles`) —
+  // both tiers return sealed fields inline-decrypted, not as handles.
+  if (envelope._sealed !== undefined) {
+    record = await ctx.codec.applySealedSlots(record, envelope._sealed, cek, { id })
+  }
 
   ctx.emitCrossTierEvent({
     actor: ctx.keyring.userId,

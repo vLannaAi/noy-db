@@ -322,15 +322,24 @@ export class ViaPipeline {
 export const EXPORT_REDACTION_MARKER = '[sealed]'
 
 /**
- * `vault.ts`'s `exportStream()` reach-in (#629 Task 9): apply the owning
- * collection's export redaction to one decoded record. `via` is a private
- * `Collection` field — reached by name, mirroring the existing
- * `(coll as any)._classifySealedShred`/`_writeTombstone` convention
- * `vault.ts`'s `forget()` already uses for collection-internal access.
+ * Structural shape `exportRedact` needs from a collection: just the typed
+ * `_via` accessor `Collection` exposes (`kernel/collection.ts`, #634). A
+ * named interface rather than the real `Collection` type, because
+ * `collection.ts` imports `ViaPipeline` from this module — importing
+ * `Collection` back here would be circular.
  */
-export function exportRedact(coll: unknown, record: unknown): unknown {
+interface HasViaPipeline {
+  readonly _via: ViaPipeline | undefined
+}
+
+/**
+ * `vault.ts`'s `exportStream()` reach-in (#629 Task 9): apply the owning
+ * collection's export redaction to one decoded record. Typed via {@link
+ * HasViaPipeline} against `Collection`'s `_via` accessor (#634) — replaces
+ * the earlier untyped any-cast reach-in.
+ */
+export function exportRedact(coll: HasViaPipeline, record: unknown): unknown {
   if (record === null || typeof record !== 'object') return record
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const via = (coll as any).via as ViaPipeline | undefined
+  const via = coll._via
   return via ? via.redactForExport(record as Record<string, unknown>) : record
 }

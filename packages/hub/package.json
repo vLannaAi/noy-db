@@ -200,7 +200,7 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "node --max-old-space-size=12288 ../../node_modules/tsup/dist/cli-default.js",
     "test": "vitest run",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.typetest.json && tsc --noEmit -p tsconfig.tests.json",

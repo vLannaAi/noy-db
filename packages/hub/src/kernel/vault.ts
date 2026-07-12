@@ -839,6 +839,7 @@ export class Vault {
     }
 
     let coll = this.collectionCache.get(collectionName)
+    const effectiveViaFields = mergeViaFields({ moneyFields: options?.moneyFields, i18nFields: options?.i18nFields, dictKeyFields: options?.dictKeyFields, lookupFields: options?.lookupFields, viaFields: options?.viaFields }) // #627: merged view feeds both late-attach reconcile (below) and fresh construct
     // Two-phase reconcile (#638 Task 2 wave 2, Findings I1/I2/M1/M2): validate
     // combined existing+incoming computed/classified state before any
     // _apply* below mutates, commit graph edges only once every _apply*
@@ -849,8 +850,8 @@ export class Vault {
     const reconcilePlan = coll && (options?.computed || options?.classifiedFields)
       ? validateReconcileGraphEdges(this.graph, collectionName, options as unknown as ReconcileGraphOptions)
       : undefined
-    if (coll && options?.moneyFields) {
-      coll._applyMoneyFields(options.moneyFields)
+    if (coll && effectiveViaFields.moneyFields) {
+      coll._applyMoneyFields(effectiveViaFields.moneyFields)
     }
     if (coll && options?.computed) {
       coll._applyComputed(options.computed as ComputedFields)
@@ -871,7 +872,6 @@ export class Vault {
       applyTaintOverlay(coll, this.graph, collectionName) // #638 Task 3: a late attach can newly taint an already-built pipeline
     }
     if (!coll) {
-      const effectiveViaFields = mergeViaFields({ moneyFields: options?.moneyFields, i18nFields: options?.i18nFields, dictKeyFields: options?.dictKeyFields, lookupFields: options?.lookupFields, viaFields: options?.viaFields })
       // Register ref declarations (if any) with the vault-level
       // registry BEFORE constructing the Collection. This way the
       // first put() on the new collection already sees its refs via

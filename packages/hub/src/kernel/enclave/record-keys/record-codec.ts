@@ -666,6 +666,64 @@ export class RecordCodec<T> {
   }
 
   /**
+   * Apply `_sealed`-slot post-processing to an ALREADY-DECRYPTED `record`:
+   * restore each `_sealed[field]` blob inline (`sealedAsHandles` falsy) or
+   * as an opaque {@link Sealed} handle (`sealedAsHandles: true`), routing
+   * through a via pipeline's `decodeAtRest` hook when one is declared.
+   * Extracted byte-parity from `decryptRecord`'s inline block (#635) so a
+   * caller that resolves its OWN per-record CEK under a DIFFERENT DEK than
+   * this codec's `this.ctx.getDEK()` — namely the tier>0 `getAtTier` leg in
+   * `with-audit/tiers/index.ts`, whose `_cek` is wrapped under the TIER DEK,
+   * not the collection DEK `decryptRecord`/`resolveEnvelopeCek` always
+   * unwrap under — can still get correct sealed-slot handling without
+   * routing its whole read through `decryptRecord` (which would resolve the
+   * wrong DEK for it).
+   *
+   * Zero-knowledge: takes only the already-resolved per-record `cek` (or
+   * `undefined` for a legacy/no-CEK record) — the same shape `makeSealedHandle`
+   * already takes above. Never the keyring, never a raw DEK: the legacy
+   * fallback key stays fully internal to `sealKeyMaterial`/`viaCryptoCtx`,
+   * which close over THIS codec's own `getDEK` (permanently bound to
+   * `this.ctx.name`'s tier-0 DEK at construction) — so even when called from
+   * a tier>0 context, the legacy-fallback key resolution is correct: sealed
+   * fields are always sealed under the CEK or the collection's tier-0 DEK,
+   * never a tier DEK (tier writes don't seal fields; `_sealed` reaches a
+   * tiered envelope only via a tier-0 write later elevated).
+   */
+  async applySealedSlots(
+    record: T,
+    sealed: Record<string, string>,
+    cek: EnclaveKey | undefined,
+    opts: { id?: string; sealedAsHandles?: boolean } = {},
+  ): Promise<T> {
+    if (this.ctx.via?.hasAtRestHooks) {
+      if (opts.id === undefined) {
+        throw new Error(
+          `RecordCodec.decryptRecord: collection "${this.ctx.name}" has via at-rest hooks but this read ` +
+          'path supplied no record id (needed to scope the sealed-slot capability) — caller bug.',
+        )
+      }
+      const sealedRefs: Record<string, SealedSlotRef> = {}
+      for (const [field, blob] of Object.entries(sealed)) {
+        const { iv, data } = parseSealedSlot(blob)
+        sealedRefs[field] = { iv, data }
+      }
+      return await this.ctx.via.decodeAtRest(
+        record as unknown as Record<string, unknown>,
+        sealedRefs,
+        this.viaCryptoCtx(opts.id, cek),
+        { asHandles: opts.sealedAsHandles === true },
+      ) as unknown as T
+    }
+    return await unsealFields(
+      record as unknown as Record<string, unknown>,
+      sealed,
+      this.sealKeyMaterial(cek),
+      { asHandles: opts.sealedAsHandles === true },
+    ) as unknown as T
+  }
+
+  /**
    * Decrypt an envelope into a record of type `T`.
    *
    * When a schema is attached, the decrypted value is validated before
@@ -710,32 +768,10 @@ export class RecordCodec<T> {
     // always takes the `else` branch, unchanged.
     if (envelope._sealed !== undefined && this.ctx.storeCiphertext) {
       const sealedCek = await this.resolveEnvelopeCek(envelope, opts.id)
-      if (this.ctx.via?.hasAtRestHooks) {
-        if (opts.id === undefined) {
-          throw new Error(
-            `RecordCodec.decryptRecord: collection "${this.ctx.name}" has via at-rest hooks but this read ` +
-            'path supplied no record id (needed to scope the sealed-slot capability) — caller bug.',
-          )
-        }
-        const sealedRefs: Record<string, SealedSlotRef> = {}
-        for (const [field, blob] of Object.entries(envelope._sealed)) {
-          const { iv, data } = parseSealedSlot(blob)
-          sealedRefs[field] = { iv, data }
-        }
-        record = await this.ctx.via.decodeAtRest(
-          record as unknown as Record<string, unknown>,
-          sealedRefs,
-          this.viaCryptoCtx(opts.id, sealedCek),
-          { asHandles: opts.sealedAsHandles === true },
-        ) as unknown as T
-      } else {
-        record = await unsealFields(
-          record as unknown as Record<string, unknown>,
-          envelope._sealed,
-          this.sealKeyMaterial(sealedCek),
-          { asHandles: opts.sealedAsHandles === true },
-        ) as unknown as T
-      }
+      record = await this.applySealedSlots(record, envelope._sealed, sealedCek, {
+        ...(opts.id !== undefined ? { id: opts.id } : {}),
+        ...(opts.sealedAsHandles !== undefined ? { sealedAsHandles: opts.sealedAsHandles } : {}),
+      })
     }
 
     // Skip output validation when sealed fields are returned as handles:

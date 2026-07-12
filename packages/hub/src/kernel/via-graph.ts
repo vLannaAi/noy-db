@@ -182,6 +182,30 @@ export class ViaGraph {
     return this._depslessComputed.get(collection) ?? EMPTY_SET
   }
 
+  /** Every field name the graph already has memory of for `collection` — from an
+   *  EARLIER, separate `vault.collection()` call (registered postures, derived
+   *  targets, depsless-computed names) — regardless of which via feature declared
+   *  it. #645 — `via-graph-wiring.ts`'s reconcile-path `knownFields` universe
+   *  (`collectKnownFieldNames`) is scoped to THIS call's own options only, so a
+   *  computed field attached in a LATER call whose `deps` correctly names a field
+   *  declared in an EARLIER call was spuriously refused as "unknown"; this method
+   *  lets that call site union in the graph's cross-call memory. Excludes the `'*'`
+   *  wildcard target (an overlay/derivation whole-record fold node, never a real
+   *  record field — see {@link registerDerived}'s doc comment). */
+  knownFieldNames(collection: string): ReadonlySet<string> {
+    const out = new Set<string>()
+    const prefix = `${collection}${SEP}`
+    for (const id of this._posture.keys()) {
+      if (id.startsWith(prefix)) out.add(id.slice(prefix.length))
+    }
+    for (const edge of this._in.values()) {
+      if (edge.target.collection === collection && edge.target.field !== '*') out.add(edge.target.field)
+    }
+    const depsless = this._depslessComputed.get(collection)
+    if (depsless) for (const field of depsless) out.add(field)
+    return out
+  }
+
   /** Reject cycles at declare time (vault open). Throws `DerivationCycleError` for a
    *  derivation/rollup/computed cycle, `MaterializedViewCycleError` for an MV cycle —
    *  same classes + message shape the registries throw today (behavior lock). */

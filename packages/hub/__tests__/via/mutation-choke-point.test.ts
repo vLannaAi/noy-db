@@ -173,10 +173,11 @@ describe('mutation-choke-point origin parity (#623 task 10, #621)', () => {
       refresh: 'eager',
     })
     const store = memory()
-    const db1 = await createNoydb({ store, user: 'alice', secret: SECRET, materializedViewStrategies: [openInvoicesMV] })
+    // db1 does NOT register the MV strategy — it's a plain writer, so whatever `open-invoices`
+    // row db2 ends up with can only have come from db2's OWN wave-driven recompute (#646
+    // db2-only-registration mandate — mirrors sync-delete-rollup.test.ts's fixture discipline).
+    const db1 = await createNoydb({ store, user: 'alice', secret: SECRET })
     const v1 = await db1.openVault('demo')
-    // 'open' status so the MV materializes a row — mints + persists the shared 'open-invoices'
-    // collection DEK before db2 ever opens (mirrors the derivation test's 'seed' comment above).
     await v1.collection<Invoice>('invoices').put('seed', { id: 'seed', status: 'open', amount: 1 })
 
     const db2 = await createNoydb({ store, user: 'alice', secret: SECRET, materializedViewStrategies: [openInvoicesMV] })
