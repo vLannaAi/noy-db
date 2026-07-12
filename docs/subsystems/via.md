@@ -186,6 +186,75 @@ declaration-order asymmetry between the single-call and cross-call versions of t
 classified posture — sealed at rest / non-exportable / non-queryable — where it previously did not;
 this is a deliberate, pre-1.0 security fix (see the [changeset](../../.changeset/via-phase-c.md)).
 
+### Formula-output posture (#642) — the #636-principle completion
+
+#636/#638's taint enforcement covered a `computed` field's own declared `deps`; it left one gap
+open, demonstrated live during the phase C whole-branch review: a with-formula edge
+(derivation/rollup/MV) folds its effective posture from its source's whole-record `'*'` node, which
+never carried a registered posture at all — it always fell back to `DEFAULT_POSTURE`, no matter how
+classified the source collection was. A derive/rollup/MV `fn` receives DECRYPTED records by design
+(`sealedAsHandles: false`), so a `fn` that copied a classified field's plaintext into its output
+landed that plaintext UNSEALED — exportable, queryable, synced. **#642 closes it: every formula
+output derived from a classified-bearing collection is now sealed at rest / non-exportable /
+query-refused by default**, for both target shapes:
+
+- **Rollup targets** (a REAL field on the parent, e.g. `buyers.total`) — inherits the fold
+  automatically through the existing field-specific taint overlay; no separate opt-in.
+- **Derivation/MV/overlay OUTPUT collections** (the whole-record `'*'` target) — a new
+  collection-level `defaultPosture` fallback (`ViaTaintOverlay.defaultPosture`,
+  `ViaPipeline.postureFor`'s O(1) fallback, no fold-per-call) seals every non-`_`-prefixed field of
+  the output record (`taintBinding`'s `sealAllFields` mode; `_derivedFrom` and other reserved keys
+  are explicitly excluded).
+
+```ts
+const people = v.collection<Person>('people', { classifiedFields: { ssn: ssnSpec() } })
+const leaks = v.collection<Leak>('leaks')          // a plain derivation OUTPUT collection
+await people.put('p1', { id: 'p1', name: 'Alice', ssn: '123-45-6789' })
+;(await leaks.get('p1'))?.ssnCopy   // SealedHandle — sealed at rest, not plaintext
+leaks.query().where('ssnCopy', '==', '123-45-6789')   // throws FieldNotQueryableError
+```
+
+(from `packages/hub/__tests__/via/formula-output-posture.test.ts`, Shape A — the derivation-output
+case; Shape B pins the identical three surfaces — at-rest/query/export — for a rollup target).
+**No migration story**: pre-1.0, no shipped consumer uses formula outputs today, so there is nothing
+to migrate.
+
+**Axis-scoped, not a blanket clamp.** The fold only tightens the axes a classified source can
+actually justify — `encryptedAtRest` (sealed wins), `exportable` (AND), `forgettable` (OR, since a
+forgettable source forces its derived output forgettable too) — `queryable` is left at the base
+posture's own value and is never pulled down by a wildcard contributor. A blob/money/i18n-only
+source (never classified) therefore never clamps a formula output's queryability — only its
+`forgettable` bit may OR in:
+
+```ts
+// source collection has only a blob field (queryable:'none', forgettable:true) — no classified field
+posture.queryable    // 'full' — NOT 'none'; blob does not propagate its own unqueryability
+posture.forgettable  // true — BLOB's forgettable:true still ORs in
+```
+
+(`packages/hub/__tests__/via/wildcard-fold.test.ts`, "TRAP 2"). A `ref` edge's `'*'` source is
+excluded from the fold entirely — the fold is kind-scoped to `derivation`/`rollup`/`mv`/`overlay`
+edges only, not `ref`/`computed` — so a lookup-referencing field stays `DEFAULT_POSTURE` even when
+its backing dimension has a classified field, keeping the countries-matrix recipe byte-identical
+(`wildcard-fold.test.ts`, "TRAP 1").
+
+**Explicit per-declaration declassification is deferred to phase E** — not built here; there is
+currently no way to opt a formula output field back out of an inherited seal.
+
+**KNOWN LIMIT — reconcile-path ordering gap.** The cross-collection re-apply
+(`reapplyDependentOverlays`) that keeps an already-open dependent's overlay fresh when its source
+registers a classified field late is wired at the fresh-`vault.collection()`-construction call site
+only. A classified field attached to an already-open source via **reconcile** (a second
+`vault.collection()` call on the same name, not a fresh open) does not refresh an already-open
+DEPENDENT's stale overlay — only the reconciled collection's own overlay refreshes. Not covered by
+any test; a follow-up candidate, not fixed in this pass. See also
+[`docs/subsystems/via-computed.md`](via-computed.md) (its "Declare-time guard" section) for the
+sibling KNOWN LIMIT on the `computed` side — a `deps` entry naming a real-but-**wrong** field still
+passes construction and still leaks, since the guard only validates that `deps` names *some* known
+field, not that it names the field `fn` actually reads. Both limits share the same root cause (no
+runtime read-tracking or schema-aware dependency validation) and are candidates for the same future
+fix.
+
 **Sync/cutover/restore dispatch (#621)** closes the gap where a sync-applied write never triggered
 its derivations/materialized views — only a *local* `put()` did. A batched, per-target-deduped wave
 (`kernel/via-dispatch.ts#runGraphDispatchWave`) now runs once at the end of `pull()`/`push()`
@@ -204,6 +273,51 @@ expect(computeCalls).toBe(2) // 1 wave-driven (deduped from 3) + 1 self-triggere
 (from `packages/hub/__tests__/via/sync-dispatch.test.ts`; the flipped choke-point pin —
 `mutation-choke-point.test.ts`'s "sync-apply ... invalidates cache AND dispatches derivations" test
 — is the exact parity pin phase A/B left as a documented gap, now closed).
+
+**Sync-applied deletes now recompute rollup parents too (#640).** Before this pass,
+`_invalidateSyncApplied` hardcoded every sync-applied mutation as a `'put'`, so a remotely-deleted
+rollup child never recomputed its parent aggregate — only a *local* delete did
+(`dispatchRollupsOnDelete`). The choke point (`with-party/team/sync.ts`'s `SyncEngine.applyRemote`)
+now classifies each applied envelope as `'put'` or `'delete'` and threads the action through the
+widened `cacheInvalidator` seam; `GraphBatch` gains a delete leg (`GraphTouch.deletes: Map<string,
+readonly RollupDeleteIntent[]>`, ids/names only — no record payload, no key material); the dispatch
+wave (`runGraphDispatchWave`) routes deleted ids to the SAME rollup-recompute trio a local delete
+uses (batched, deduped per parent+field), never `dispatchDerivations`/MV-on-delete — mirroring the
+`mutation-choke-point.test.ts:85-99` pin that a delete is dispatch-inert for derivations/MVs, both
+locally and over sync:
+
+```ts
+// db2 pulls a delete of a rollup child from db1; orderCount is registered ONLY on db2
+await db2.sync('demo')  // pull()
+;(await db2Buyers.get('b1'))?.orderCount  // recomputed WITHOUT the deleted child — not stale
+```
+
+(from `packages/hub/__tests__/via/sync-delete-rollup.test.ts`). **KNOWN LIMIT — the miss scope.**
+The deleted child's prior (pre-invalidation) value is read from the LRU/cache (`_peekCached`)
+synchronously, right before the cache entry is dropped, so the parent-resolving intents can be
+computed with no extra I/O. If that read misses — a **cold or evicted child** (lazy-mode LRU
+eviction of the child before the sync-apply lands) **or an un-hydrated eager collection whose first
+sync op for that child is a delete** (`ensureHydrated()` never ran, so the eager cache never held a
+record to peek) — the miss is silent and freshness-only: that one child's rollup-parent intents are
+skipped, no recompute happens for it, and no error is raised. Correctness is otherwise intact (the
+recompute reads the REMAINING children from the store, so nothing double-counts); this is a
+follow-up candidate, not fixed here. The sync-delete path also stays narrower than the local-delete
+path by design: it recomputes only the rollup leg, not `dispatchMaterializedViewsOnDelete`/
+`dispatchArrayDerivationsOnDelete` — both #640's issue text and the `mutation-choke-point.test.ts`
+pin scope sync-delete dispatch to rollups only; wiring MV/array-derivation-on-delete into the
+sync-delete wave is a candidate follow-up, not a regression of this pass.
+
+**Riders.** `push()`/`pull()` now wrap `persistMeta()` in a `finally` that flushes the graph batch
+even when `persistMeta()` throws — previously a throw there left `_graphBatch` open, silently
+dropping that wave's touches until the next `begin()` replaced it (#644 item 1). Both the puts leg
+and the new deletes leg of the dispatch wave additionally emit a structured
+`'derivation:wave-error'` event (`{ collection, id, error }`) alongside the pre-existing
+`console.warn` on a non-`PeriodClosedError` per-id failure, so a pull that completed with a failed
+recompute is programmatically discoverable, not just logged (#644 item 3):
+
+```ts
+db.on('derivation:wave-error', (e) => { /* e.collection, e.id, e.error */ })
+```
 
 **Frozen-output rule (#637)**: before phase C, a derivation/rollup/MV output landing in a period
 [closed](periods.md) threw `PeriodClosedError` straight through the *legal source write* that
@@ -310,3 +424,9 @@ canonical countries-matrix example.
 - `packages/hub/src/shape/via-lookup/` — phase D: the lookup binding (descriptors, registry, snapshot, handle)
 - `packages/hub/src/shape/via-blob/` — phase B: blob binding
 - `packages/hub/src/shape/via-computed/` — phase C: computed binding
+- `packages/hub/__tests__/via/formula-output-posture.test.ts` — the #642 formula-output posture
+  suite (both target shapes × three surfaces + the ordering gap)
+- `packages/hub/__tests__/via/wildcard-fold.test.ts` — the #642 `ViaGraph` `'*'`-fold unit suite
+  (axis-scoping, kind-scoping, the ref-identity/blob traps)
+- `packages/hub/__tests__/via/sync-delete-rollup.test.ts` — the #640 sync-applied-delete rollup
+  recompute suite (dedup/ordering/freshness + the `derivation:wave-error` event)

@@ -78,6 +78,14 @@ tier: `getCollection(dimension).querySourceForJoin().snapshot()`; reserved tier:
 write-through cache) — no store I/O per `put()`. Matrix-tier altKeys require the backing collection
 to be open in eager (default, non-`{prefetch:false}`) mode.
 
+An altKey candidate row VALUE may be a string or a number — both normalize through the same
+`coerceLookupKey` core (a numeric `callingCode: 1` row value builds the altIndex entry `'1'`, same
+as a string `'1'` would), and the ownership-uniqueness check (no two rows may claim the same
+candidate) holds across the numeric/string boundary too — a numeric `1` on one row and the string
+`'1'` on another still collide and throw `ValidationError` (`lookup-altkeys.test.ts`, "accepts a
+numeric altKey value" / "throws ValidationError when a numeric altKey value coerces to the same
+string as another row's string altKey").
+
 ### Vocabulary — open vs closed, and sparse population
 
 `vocabulary: 'closed'` refuses an unknown key at write time with `UnknownLookupKeyError`:
