@@ -184,6 +184,30 @@ export function moneyScaledValue(stored: unknown, desc: MoneyDescriptor): bigint
 }
 
 /**
+ * The `ViaBinding.canonicalizeIndexKey` implementation for money (#672) —
+ * bucket an eager index's money field entries by the BigInt-normalized
+ * scaled-int string, not the raw stored bytes, so a pre-declaration /
+ * non-canonical value (e.g. `'0100'`) lands under the SAME key a canonical
+ * write produces (`'100'`). Only FIXED-mode declared money fields
+ * participate — multi-mode stores `{ amount, currency }`, which has no
+ * single bucketable scalar (mirrors `moneyIndexProbe`'s fixed-only gate,
+ * `via/money/where.ts`). `undefined` when `field` isn't a declared
+ * fixed-mode money field, or the stored value doesn't parse — in both
+ * cases the caller falls back to the raw stringified bucket, which is
+ * exactly what the scan (`evaluateMoneyClause`) also treats as a
+ * non-match, preserving fast-path/scan parity.
+ */
+export function canonicalizeMoneyIndexKey(
+  field: string,
+  rawValue: unknown,
+  moneyFields: Record<string, MoneyDescriptor>,
+): string | undefined {
+  const desc = moneyFields[field]
+  if (!desc || desc.mode !== 'fixed') return undefined
+  return moneyScaledValue(rawValue, desc)?.toString()
+}
+
+/**
  * Decode ONE stored field value to its read shape, or `null` when the
  * stored value is malformed (defensive — never brick a read).
  */
@@ -217,6 +241,55 @@ function decodeValue(
     currency,
     scale,
   }
+}
+
+/**
+ * money's `presentLate` hook (#669) — for each field in `virtualMoney` (money ∩
+ * virtual-mode computed on the SAME field), quantize the computed fn's fresh
+ * MAJOR-UNITS output to the descriptor's scale (with its declared rounding)
+ * and present it EXACTLY like a stored money field: the exact decimal string
+ * (via {@link formatScaledInt}), plus `<field>Formatted`/`<field>Number` when
+ * `locale !== 'raw'`. NEVER the scaled-int decode {@link decodeMoneyFields}
+ * runs for a genuinely-stored value — that would misread a virtual field's
+ * raw major-unit `21` as 21 SCALED units (`'0.21'`, the #665 corruption this
+ * must not reintroduce). Runs AFTER computed's `present()` (the pipeline's
+ * `presentLate` fold point, `kernel/via/pipeline.ts`), so `record[field]`
+ * already holds the fn's fresh output by the time this runs.
+ *
+ * Absent/null value → left untouched (nothing to dress). Unparseable value
+ * (fails `parseToScaledInt` — e.g. excess precision with no declared
+ * rounding) → left RAW, no throw: read-time dressing must never brick a
+ * read. Fixed-mode fields only — a virtual field's computed output has no
+ * natural `{ amount, currency }` shape to parse for multi-currency mode.
+ */
+export function presentVirtualMoneyFields<T extends Record<string, unknown>>(
+  record: T,
+  moneyFields: Record<string, MoneyDescriptor>,
+  virtualMoney: ReadonlySet<string>,
+  locale: string | undefined,
+): T {
+  let out: Record<string, unknown> = record
+  const format = locale !== 'raw'
+  const fmtLocale = typeof locale === 'string' && locale !== 'raw' ? locale : 'en-US'
+  for (const field of virtualMoney) {
+    const desc = moneyFields[field]
+    if (!desc || desc.mode !== 'fixed') continue
+    const raw = out[field]
+    if (raw === null || raw === undefined) continue
+    if (typeof raw !== 'number' && typeof raw !== 'string') continue
+    const currency = desc.fixedCurrency!
+    const scale = desc.scaleFor(currency)
+    const r = parseToScaledInt(raw, scale, desc.rounding)
+    if (!r.ok) continue // unparseable / excess precision with no rounding declared — leave raw, no throw
+    if (out === record) out = { ...record }
+    const decimal = formatScaledInt(r.value, scale)
+    out[field] = decimal
+    if (format) {
+      out[`${field}Formatted`] = formatCurrency(decimal, currency, scale, fmtLocale)
+      out[`${field}Number`] = Number(decimal)
+    }
+  }
+  return out as T
 }
 
 /**

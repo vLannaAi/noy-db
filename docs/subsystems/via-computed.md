@@ -107,27 +107,31 @@ particular field composition. Two tradeoffs fall out of this fixed order, both p
 three-way (money, computed, rest), not two-way (computed, rest), partition. See the "Composition"
 section below for the value-shape reason money must keep its pre-#665 present position.
 
-## Composition — `via(computed(...), money(...))`: money formats materialized, not virtual
+## Composition — `via(computed(...), money(...))`: money formats materialized AND virtual (#669)
 
 `compileViaBindings` always runs `computed` **last** in the feature stack (money → i18n →
 classified → blob → computed), so a computed `fn`'s `deps` can read other fields' already-decoded
 presentation (a money-quantized amount, an i18n-resolved label). Composing computed **with**
-another feature on the **same field** is legal in both modes, but the two modes behave oppositely
-because of this ordering, pinned as two separate, deliberate assertions:
+another feature on the **same field** is legal in both modes, and — since #669 — both modes end
+up money-formatted, though via two different mechanisms:
 
 ```ts
-// VIRTUAL: money's present() runs first (nothing to decode yet), computed's runs last and
-// unconditionally overwrites — the raw computed number survives, NOT a money-formatted string.
+// VIRTUAL: money's ORDINARY present() explicitly skips a field that is both money and
+// virtual-mode computed (nothing to decode yet at that point in the fold — the #665 invariant
+// keeps money's stored-field decode ahead of computed). A separate presentLate hook (#669) then
+// quantizes the fn's fresh MAJOR-UNITS output to the field's scale/rounding and presents it
+// exactly like a stored money field.
 const c = v.collection<Priced>('priced', {
   viaFields: { doubledPrice: via(computed((r) => (r.base as number) * 2, { deps: ['base'], mode: 'virtual' }), money({ currency: 'EUR', scale: 2 })) },
 })
 await c.put('a', { id: 'a', base: 10.5 })
-;(await c.get('a'))?.doubledPrice // 21 (a plain number, not '21.00')
+;(await c.get('a'))?.doubledPrice          // '21.00' — quantized decimal string, not the raw '21'
+;(await c.get('a'))?.doubledPriceFormatted // defined — dressed under a real (non-'raw') locale
 ```
 
 ```ts
 // MATERIALIZED (default): computed's output is evaluated before encodeWrite, so money's own
-// encode/decode/present hooks cover it exactly like a plain money field.
+// encode/decode/present hooks cover it exactly like a plain money field — unchanged by #669.
 const c = v.collection<Priced>('priced', {
   viaFields: { total: via(computed((r) => (r.base as number) * 2, { deps: ['base'], mode: 'materialized' }), money({ currency: 'EUR', scale: 2 })) },
 })
@@ -136,8 +140,26 @@ await c.put('a', { id: 'a', base: 10.5 })
 ```
 
 (both from `virtual.test.ts` — "composed grammar" and "composed grammar (MATERIALIZED default)").
-Money-decorating-a-virtual-field's-own-output (i.e. having money format the computed value in
-`mode: 'virtual'`) is a known, accepted limitation, not implemented.
+The virtual case is implemented via `ViaBinding.presentLate` (`kernel/via/index.ts`) — a hook
+that runs after every binding's ordinary `present()` in the money+computed present-order segment
+(see the Present order section above), before the "everything else" segment (i18n/lookup
+dressing, taint redaction). An fn output that fails to parse at the field's scale (excess
+precision with no `rounding` declared) is left RAW, no throw:
+
+```ts
+const c = v.collection<Priced>('priced', {
+  viaFields: { amount: via(computed(() => 21.005, { mode: 'virtual' }), money({ currency: 'EUR', scale: 2 })) },
+})
+await c.put('a', { id: 'a' })
+;(await c.get('a'))?.amount // 21.005 — raw, untouched (no rounding declared, excess precision)
+```
+
+With a declared `rounding` (e.g. `'half-up'`), the same `21.005` quantizes to `'21.01'` instead of
+being left raw. Fixed-mode fields only — a virtual field's output has no natural
+`{ amount, currency }` shape to parse for multi-currency mode. A taint-redacted virtual field's
+`<field>Formatted`/`<field>Number` companions are stripped along with the base field (see the
+comment on the companion-stripping loop in `kernel/via/taint-binding.ts`), not left leaking the
+pre-redaction value.
 
 ## Taint propagation — inherits the strictest source posture (#636)
 
@@ -315,7 +337,7 @@ documented as "do not depend on this shape") is **removed**, not aliased — fol
 - `packages/hub/src/kernel/via/pipeline.ts` — `ViaPipeline._presentOrder` (#665's present-phase-only
   three-way partition: money, then computed, then everything else)
 - `packages/hub/src/via/computed/` — `computed()`/`ComputedDescriptor`/`computedBinding`
-- `packages/hub/__tests__/computed/virtual.test.ts` — the `mode: 'virtual'` suite (22 tests, incl.
+- `packages/hub/__tests__/computed/virtual.test.ts` — the `mode: 'virtual'` suite (27 tests, incl.
   the `'#665 present-order — second-order effects'` describe block backing the tradeoffs above)
 - `packages/hub/__tests__/via/computed-binding.test.ts` — the binding unit suite (6 tests)
 - `packages/hub/__tests__/via/taint.test.ts` — the #636 taint-propagation regression suite

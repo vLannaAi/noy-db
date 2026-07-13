@@ -129,6 +129,34 @@ describe('ViaPipeline', () => {
     expect(result.seq).toEqual(['a.present', 'b.present'])
   })
 
+  // #669/#671 review — presentLate is a mid-fold hook: it must run at the boundary
+  // BETWEEN the money+computed present segment and the "everything else" (rest) present
+  // segment (`pipeline.ts:175-187`'s `_presentLateBoundary`), not after the rest segment.
+  // Mutation evidence: moving the presentLate fold to run AFTER the rest-segment loop still
+  // passed every other test in this suite — nothing pinned the ORDERING itself. A 'money'
+  // binding's presentLate dresses a field; a synthetic rest-brand binding's present() (which
+  // runs in the third loop) must observe the DRESSED value, proving presentLate ran first.
+  it('presentLate runs BEFORE the "everything else" present segment — a rest-brand binding\'s present() sees the presentLate-dressed value, not the pre-dressed one (#669 boundary)', async () => {
+    const observed: unknown[] = []
+    const dresser: ViaBinding = {
+      brand: 'money',
+      posture: { encryptedAtRest: 'envelope', queryable: 'ordered', exportable: true, forgettable: true },
+      presentLate: async (r) => ({ ...(r as Record<string, unknown>), tag: 'dressed' }),
+    }
+    const rest: ViaBinding = {
+      brand: 'rest-brand',
+      posture: { encryptedAtRest: 'envelope', queryable: 'full', exportable: true, forgettable: true },
+      present: async (r) => {
+        observed.push((r as Record<string, unknown>).tag)
+        return r
+      },
+    }
+    const p = ViaPipeline.build([dresser, rest])!
+    const ctx: ViaReadCtx = { layer: 'test' }
+    await p.present({ tag: 'original' }, ctx)
+    expect(observed).toEqual(['dressed'])
+  })
+
   it('buildClause first-covering-wins', () => {
     const p = ViaPipeline.build([fixtureBindingA(), fixtureBindingB()])!
     const clause = p.buildClause('x', 'eq', 'value')

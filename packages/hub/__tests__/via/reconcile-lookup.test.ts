@@ -105,10 +105,11 @@ describe('#664 Part 2b — reserved (dict) tier lookup late-attach reconcile', (
   })
 
   it('dictKeyFieldRegistry is populated by the late-attach — proven via LookupHandle.rename()\'s referencing-record rewrite (choke-point participation)', async () => {
-    // Open vocabulary here (dict()'s default) — a CLOSED field's rename interacts with
-    // LookupHandle.rename()'s own cache-update ordering (the new key's write-through cache entry
-    // lands AFTER the referencing-record rewrite step) independently of #664; open vocabulary
-    // isolates the one thing this test is proving — that the late-attach wired
+    // Open vocabulary here (dict()'s default). rename()'s own cache-update ordering bug (the new
+    // key's write-through cache entry landing AFTER the referencing-record rewrite step, which
+    // made a CLOSED field self-refuse) was fixed in #670 — a FRESH-declared closed field's
+    // rename() is covered by lookup-closed-rename.test.ts. Open vocabulary stays here only to
+    // isolate the one thing THIS test is proving — that the late-attach wired
     // `dictKeyFieldRegistry`, the registry `findAndUpdateReferences`/`updateReferencingRecords`
     // reads to find which collections reference this dictionary.
     const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-reconcile-lookup-dict-2', i18nStrategy: withI18n() })

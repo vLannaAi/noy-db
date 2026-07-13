@@ -426,10 +426,12 @@ guard** that already ran at fresh construction (refusing two via families claimi
 now also runs on every late-attach call, both within the incoming call's own fields and against
 the collection's already-declared fields — no partial attach on a collision. See
 [`docs/subsystems/via-lookup.md`](via-lookup.md#late-attach-reconcile--tier-scoped-664) for the
-full tier-by-tier story, the collision guard's exact behavior, and three known late-attach
-residuals (`describeAsync({resolveDictLabels:true})`, `describe()`'s legacy top-level field list,
-and join-side `presentForJoin` dressing — each captured once at fresh construction and not
-re-derived by a later reconcile call).
+full tier-by-tier story, the collision guard's exact behavior, and (at the time of #664/#31) three
+known late-attach residuals (`describeAsync({resolveDictLabels:true})`, `describe()`'s legacy
+top-level field list, and join-side `presentForJoin` dressing — each captured once at fresh
+construction and not re-derived by a later reconcile call). All three, plus two more of the same
+root cause found during milestone #32, were closed by #671 — see the linked section for the
+current, fixed state.
 
 **Declare-time mutual-rollup cycle refusal (#639).** Two (or more) `withRollup()` strategies whose
 targets mutually depend on each other (collection A rolls a value into B's field `x`; B rolls a
@@ -480,8 +482,10 @@ lookup shape, including at a dotted (non-wildcard) path.
 an optional `ViaBinding.indexProbe(op, payload)` hook lets a binding hand the query builder a
 STORED-form operand for a direct index bucket lookup on `==`/`in`, restoring the fast path phase A
 originally lost for money fields (multi-currency money and every other operator still scan — there
-is no single stored-form value a hash index can serve for those). Ships with an honest mixed-era
-caveat for pre-money-declaration legacy data (documented on the money page).
+is no single stored-form value a hash index can serve for those). The initial mixed-era caveat for
+pre-money-declaration legacy data was closed for eager-mode collections by #672's index-key
+canonicalizer (documented on the money page); a lazy-mode (`prefetch: false`) boundary remains,
+tracked separately.
 
 ## See also
 

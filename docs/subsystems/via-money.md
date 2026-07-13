@@ -58,6 +58,36 @@ no locale is passed) and `<field>Number` (a JS `number`) as read-time virtuals �
 with `{ locale: 'raw' }`, which returns only the canonical decimal (or `{ amount, currency }` in
 multi mode) with no virtuals.
 
+## Composing with a virtual computed field (#669)
+
+`via(computed(fn, { mode: 'virtual' }), money(...))` on the SAME field — a virtual computed
+field's `fn` output composed with money — is a legal, DRESSED composition, not merely
+accepted-but-undressed: money quantizes the fn's MAJOR-UNITS return value to the field's scale
+(applying the descriptor's declared `rounding`) and presents it exactly like a stored money
+field — the canonical decimal string, plus `<field>Formatted`/`<field>Number` whenever a real
+(non-`'raw'`) locale is in effect:
+
+```ts
+const c = v.collection<Priced>('priced', {
+  viaFields: {
+    doubledPrice: via(computed((r) => (r.base as number) * 2, { deps: ['base'], mode: 'virtual' }), money({ currency: 'EUR', scale: 2 })),
+  },
+})
+await c.put('a', { id: 'a', base: 10.5 })
+;(await c.get('a'))?.doubledPrice           // '21.00' — quantized decimal string
+;(await c.get('a'))?.doubledPriceFormatted  // defined — dressed like any stored money field
+```
+
+An fn output that fails to parse at the field's scale (excess precision with no `rounding`
+declared) is left RAW, no throw — read-time dressing must never brick a read. Fixed-mode fields
+only; a virtual field's output has no natural `{ amount, currency }` shape for multi-currency
+mode. Materialized-mode `computed` fields were already dressed before #669 (the fn's output
+merges into the record before money's ordinary write-time `encodeWrite` runs); this closes the
+matching virtual-mode gap. A taint-redacted virtual field's `Formatted`/`Number` companions are
+stripped along with the base field, not left leaking the pre-redaction value. See
+[`docs/subsystems/via-computed.md`](via-computed.md) (the "Composition" section) for the full
+ordering story (`ViaBinding.presentLate`).
+
 ## Query & aggregate
 
 `where()` predicates on money fields quantize operands to the field's scale at build time
@@ -78,18 +108,22 @@ full scan. Multi-currency (`currencies:`) fields and every operator besides `==`
 can serve for those (`packages/hub/__tests__/money/where-comparison.test.ts`, "indexed fast path
 agrees with the scan" describe block, spy-proven against `lookupEqual`/`lookupIn`).
 
-**Honest limit — mixed-era data.** The fast path is byte-exact for every record written through
-the money write path: `quantizeMoneyFields` always produces a canonical BigInt digit string
-(no leading zeros), and the index buckets that exact string. A record whose stored value
-predates the field's `money()` declaration, or otherwise bypassed the money write path, may hold
-a non-canonical scaled string (e.g. `'0100'` instead of `'100'`) — the index buckets it under
-that raw, non-canonical string, so an `==`/`in` probe for the canonical amount misses it, while
-the fallback scan (which re-parses the stored value via `BigInt(actual).toString()`) still
-matches it correctly. In other words: **the indexed fast path returns the canonical subset of
-matches; the scan always returns every match.** A re-`put()` of a legacy record canonicalizes
-its stored form going forward, closing the gap for that record. A money-aware index-key
-canonicalization (bucketing by the BigInt-normalized form rather than the raw stored string)
-would close this gap generally — filed as a follow-up, not implemented here.
+**Mixed-era data (#672).** A record whose stored value predates the field's `money()`
+declaration, or otherwise bypassed the money write path, may hold a non-canonical scaled string
+(e.g. `'0100'` instead of `'100'`). The eager index no longer buckets it under that raw string:
+`CollectionIndexes` consults a money-aware index-key canonicalizer (`ViaPipeline.
+canonicalizeIndexKey`, backed by `moneyScaledValue`'s BigInt re-parse) whenever it mutates a
+bucket, so a legacy value lands in the SAME bucket a canonical write produces — an `==`/`in` probe
+for the canonical amount finds it, matching the fallback scan exactly. The guarantee holds across
+**every** eager-index bucket-mutation site — build (incl. rebuild-on-hydrate), `put()` (upsert),
+and `delete()` (remove) — so updating or deleting a legacy record cleans up its canonical bucket
+correctly instead of stranding the id there (a gap the initial #672 fix left open, closed in
+review).
+
+**Boundary: eager mode only.** Lazy-mode collections (`prefetch: false`) keep their own durable
+`PersistedCollectionIndex` side-cars, which bucket by the raw stored value and do not consult
+money canonicalization. A lazy-mode collection with mixed-era money data can still see its fast
+path diverge from a forced scan; that gap is tracked separately, not fixed here.
 
 ## See also
 

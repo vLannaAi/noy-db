@@ -133,6 +133,17 @@ has never had a live fallback — it is pure-snapshot for both tiers. The matrix
 path (`<field>Label` resolution, below) is different: it preserves a live cold-session fallback, but
 **only** for the default `key: 'id'` (#651, closed).
 
+**`rename()` and closed vocabulary (#670).** `LookupHandle.rename(oldKey, newKey)` is the
+sanctioned mass-mutation path for a dictionary key that live records reference. Before #670,
+renaming a key on a `vocabulary: 'closed'` field could self-refuse with `UnknownLookupKeyError`:
+`rename()` rewrote referencing records (step 3) before publishing `newKey` into the sync cache
+`enforceWrite`'s closed-vocabulary membership check reads, so the rewrite's own write of `newKey`
+looked like an unknown key. The fix reorders the sync-cache publish to happen immediately after
+`newKey` is durably written (step 2), before any referencing record is rewritten — mid-rename,
+**both** `oldKey` and `newKey` are legitimately members (the correct transition semantics: records
+are moving from old to new), and `oldKey` stays a member until its own removal completes at the
+end of `rename()`. See `packages/hub/__tests__/via/lookup-closed-rename.test.ts`.
+
 ## Bare-array fields — element-wise support (#661)
 
 A plain field whose OWN value is an array (`tags: ['USA', '+66']` on `tags: lookup('countries',
@@ -220,31 +231,55 @@ A single late-attach call may combine `i18nFields`/`dictKeyFields` on one field 
 on a DIFFERENT field; both attach from that one call (`reconcile-lookup.test.ts`'s `t8r1` describe
 block pins this against a future dispatch collapse).
 
-**Known limits — three late-attach residuals**, all rooted in the same cause: a handful of
-`Collection` fields (`getDictionary`, `i18nFields`, `dictKeyFields`, `lookupFields`,
-`presentForJoin`) are captured ONCE, at fresh construction, from the constructor's `cfg` — late-
-attach rebuilds the `ViaPipeline` (`coll._setVia`) but has no seam to reassign these separate,
-private-readonly instance fields:
+**Five late-attach residuals — all fixed (#671).** A handful of `Collection` fields
+(`getDictionary`, `i18nFields`, `dictKeyFields`, `lookupFields`, `presentForJoin`) used to be
+captured ONCE, at fresh construction, from the constructor's `cfg`; late-attach rebuilt the
+`ViaPipeline` (`coll._setVia`) but had no seam to reassign these separate, private-readonly
+instance fields. Two more residuals shared the same "construction-frozen state reconcile can't
+refresh" root cause but lived outside these lookup-specific fields. All five are closed now:
 
-- **`getDictionary`/`resolveDictLabels`** — `collection.describeAsync({ resolveDictLabels: true })`
-  resolves a dynamic dict's live labels via `this.getDictionary`, which stays `undefined` if the
-  collection was constructed with no `dictKeyFields`/`lookupFields` at all (exactly the case a
-  late-attach starts from). A late-attached dict-backed field's labels stay unresolved by
-  `resolveDictLabels: true` — the sync inline-`labels` fallback (if declared) still works.
-- **`describe()`'s top-level field list** — the legacy per-field `type`/`widget`/`dict` derivation
-  (`buildDescription`) reads `this.dictKeyFields`/`this.i18nFields`/`this.lookupFields`, the same
-  construction-time snapshot — a late-attached field may not appear in that top-level list at all
-  (unless the schema also names it). The NEW `.lookup` describeFragment block (`ViaPipeline.
-  describeFragments()`) is unaffected — it folds `_via.bindings` live, so it DOES reflect a
-  late-attached field correctly; only the older list-derivation path is stale.
-- **`presentForJoin`** — captured once from `cfg.presentForJoin` at construction. When a collection
-  is the TARGET of `.join()` (or a matrix-tier lookup's backing dimension), a lookup/i18n field
-  late-attached onto it will not dress `<field>Label` through the join-presentation path, even
-  though it dresses correctly on a DIRECT read of that same collection.
+- **`getDictionary`/`resolveDictLabels` (item 1)** — `collection.describeAsync({
+  resolveDictLabels: true })` resolves a dynamic dict's live labels via `this.getDictionary`,
+  which used to stay `undefined` if the collection was constructed with no
+  `dictKeyFields`/`lookupFields` at all (exactly the case a late-attach starts from). Fixed: a
+  late-attached dict-backed field's labels now resolve correctly under
+  `resolveDictLabels: true` too.
+- **`describe()`'s top-level field list (item 2)** — the legacy per-field `type`/`widget`/`dict`
+  derivation (`buildDescription`) reads `this.dictKeyFields`/`this.i18nFields`/`this.lookupFields`,
+  the same construction-time snapshot — a late-attached field used to be missing from that
+  top-level list (unless the schema also named it), even though the NEWER `.lookup`
+  describeFragment block (`ViaPipeline.describeFragments()`, which folds `_via.bindings` live) was
+  already correct. Fixed: a late-attached field's legacy list entry is now deep-equal to the same
+  declaration made at fresh construction.
+- **`presentForJoin` (item 3)** — captured once from `cfg.presentForJoin` at construction. When a
+  collection is the TARGET of `.join()` (or a matrix-tier lookup's backing dimension), a lookup/
+  i18n field late-attached onto it used to not dress `<field>Label` through the join-presentation
+  path, even though it dressed correctly on a DIRECT read of that same collection. Fixed: join-
+  dressing now covers a late-attached field too.
+- **Taint overlay dropped on a money- or classified-only late-attach (item 4)** —
+  `_applyMoneyFields`/`_applyClassifiedFields` (`kernel/collection.ts`) used to rebuild `this.via`
+  via the bare one-arg `ViaPipeline.build(bindings)` call, silently defaulting `taint` to
+  `undefined` and dropping an already-materialized overlay (e.g. reconciling `moneyFields` onto a
+  collection that already has a classified+computed taint overlay from an earlier call). Fixed:
+  both rebuild paths thread `this.via?.taint` through their own `ViaPipeline.build(...)` call, so a
+  late money- or classified-only attach can no longer silently un-taint an already-sealed field.
+- **`assertAcyclic` false-positive on mutual FK lookups (item 5)** — two collections each
+  declaring a lookup/ref field pointing at the other (legitimate mutual foreign keys) used to trip
+  `ViaGraph.assertAcyclic()`'s declare-time cycle check and throw `DerivationCycleError` —
+  `kind: 'ref'` edges exist for cascade/rename machinery (`referencingEdgesOf`, the `onDelete:
+  restrict/cascade/nullify` semantics above), never derivation ordering, and were never meant to
+  participate in cycle detection. Fixed: `assertAcyclic`'s traversal now excludes `kind: 'ref'`
+  consuming edges — a genuine derivation/rollup/MV cycle still throws; a mutual-FK-only "cycle"
+  no longer does.
 
-None of these are fixed here — they're recorded as known limits so a late-attach consumer that
-also needs `describeAsync({resolveDictLabels:true})`, a complete `describe()` field list, or
-join-dressing on the late-attached side knows to declare the field at fresh construction instead.
+Items 1-3 are fixed by one new writer seam, `Collection._reconcileReadState` (mirrors the
+pre-existing `_setVia`, `kernel/collection.ts`) — `kernel/via/reconcile.ts` calls it once per
+reconcile pass with merged descriptor maps (construction-time entries win on collision, the same
+rule the #664 collision guard already enforces upstream) plus a rebuilt `getDictionary`/
+`presentForJoin` closure pair. See `packages/hub/__tests__/via/reconcile-read-state.test.ts` (items
+1-3), `packages/hub/__tests__/via/reconcile-taint.test.ts` (item 4), and
+`packages/hub/__tests__/via/graph.test.ts` (item 5). A late-attach consumer no longer needs to
+fall back to declaring these fields at fresh construction instead.
 
 ## Presentation — `<field>Label`, in reads and in joins
 
@@ -461,3 +496,8 @@ are EMPTY and still fire on a synthetic violation).
   enforceWrite, top-level and dotted-path shapes
 - `packages/hub/__tests__/via/reconcile-lookup.test.ts` — #664: the late-attach reconcile suite
   (tier-by-tier attach, matrix refusal, graph edges, collision guard, combined-family attach)
+- `packages/hub/__tests__/via/lookup-closed-rename.test.ts` — #670: `rename()`'s sync-cache
+  ordering fix on a closed-vocabulary field
+- `packages/hub/__tests__/via/reconcile-read-state.test.ts`, `reconcile-taint.test.ts`,
+  `graph.test.ts` — #671: the five late-attach residuals (read-state refresh, taint-overlay
+  threading, ref-edge cycle exemption)

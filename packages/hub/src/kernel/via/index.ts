@@ -117,6 +117,20 @@ export interface ViaBinding {
   decodeAtRest?(record: Record<string, unknown>, sealed: Record<string, SealedSlotRef>, crypto: ViaCryptoCtx, opts: { asHandles: boolean }): Promise<Record<string, unknown>>
   /** Read-time presentation (money decode+virtuals; i18n locale/labels/strip). May be async. */
   present?(record: Record<string, unknown>, ctx: ViaReadCtx): Awaitable<Record<string, unknown>>
+  /**
+   * Late read-time presentation (#669) — runs AFTER every binding's `present()` in the
+   * money+computed present-order segment (`ViaPipeline`'s `_presentOrder`, `kernel/via/
+   * pipeline.ts`), BEFORE the "everything else" segment (i18n/lookup dressing, taint
+   * redaction) runs. Exists for a binding that needs to react to a virtual computed
+   * field's fresh OWN-field output before anything dresses it (money's MAJOR-UNITS
+   * quantize-and-present for a field that is BOTH money AND `mode:'virtual'` computed) —
+   * `present()` alone can't express "run after computed for THESE fields only, before
+   * computed for all others", since it's a per-BINDING fold, not per-field. Folded over
+   * `bindings` in declaration order (mirrors every other per-binding fold), so lookup/
+   * i18n dressing and taint/redaction (both in the "everything else" segment) still see
+   * the already-dressed value.
+   */
+  presentLate?(record: Record<string, unknown>, ctx: ViaReadCtx): Awaitable<Record<string, unknown>>
   // ── query participation (ALL SYNC — #553) ──
   /** Returns an opaque clause payload when this binding covers `field`, else undefined. */
   // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
@@ -137,6 +151,20 @@ export interface ViaBinding {
    */
   // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
   indexProbe?(op: string, payload: unknown): unknown | undefined
+  /**
+   * Optional: canonicalize a raw STORED field value into the bucket key an
+   * eager index should use (#672) — lets `CollectionIndexes` group a
+   * pre-declaration / non-canonical stored value (e.g. a money field's
+   * leftover `'0100'` written before its `money()` declaration) under the
+   * SAME key a canonical write produces (`'100'`), so the index-probe fast
+   * path (`indexProbe` above) and the fallback scan (`evaluateClause`)
+   * agree on which records match. `undefined` means "not mine / can't
+   * canonicalize this value" — the caller buckets the raw stringified
+   * value, unchanged from before this hook existed. MUST agree with what
+   * this binding's own `evaluateClause`/`indexProbe` treat as equal, or
+   * the fast path and the scan will disagree.
+   */
+  canonicalizeIndexKey?(field: string, rawValue: unknown): string | undefined
   /** Decode a raw stored record for query/scan results and callback views ('raw' — no virtuals). */
   decodeResults?(record: unknown): unknown
   /** Exact ordering for a covered field; undefined when the field is not covered. */

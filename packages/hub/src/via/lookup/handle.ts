@@ -433,6 +433,14 @@ export class LookupHandle<Keys extends string = string> {
       newEnvelope,
     )
 
+    // #670 — publish newKey to the sync cache BEFORE step 3 rewrites referencing records: a
+    // vocabulary:'closed' referencing field's enforceWrite reads checkLookupMembership ->
+    // snapshotEntries() -> this._syncCache, so if newKey isn't a member yet, step 3's own write of
+    // newKey into those records self-refuses with UnknownLookupKeyError. Transition semantics:
+    // mid-rename BOTH oldKey and newKey are legitimately members (records are transitioning
+    // old->new during the rewrite) — oldKey stays a member until its removal completes below.
+    this._syncCache.set(newKey, newEntry)
+
     // 3. Update all referencing records in registered collections
     if (this.findAndUpdateReferences) {
       await this.findAndUpdateReferences(this.dictionaryName, oldKey, newKey)
@@ -448,9 +456,9 @@ export class LookupHandle<Keys extends string = string> {
       await this.adapter.delete(this.compartmentName, this.collName, oldKey)
     }
 
-    // Maintain synchronous cache for dict-join snapshot
+    // Maintain synchronous cache for dict-join snapshot — oldKey's removal from the cache lands
+    // here (after step 3), completing the old->new membership transition begun above.
     this._syncCache.delete(oldKey)
-    this._syncCache.set(newKey, newEntry)
 
     // #650 Task 4 (#647) — same choke-point ordering as put()/delete() above, for BOTH touches.
     // #647 fix wave 1: oldKey's dirty action is 'put' (not 'delete') — see delete()'s comment
