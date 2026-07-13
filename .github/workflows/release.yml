@@ -82,10 +82,14 @@ concurrency:
 permissions:
   contents: read
 
-# Hub's dts build (28 subpath entries, large type surface) needs more than
-# the default heap or tsup's rollup-dts worker dies with ERR_WORKER_OUT_OF_MEMORY.
+# Was 12288: hub's dts build used to bundle each subpath entry's
+# declaration graph independently (tsup's rollup-dts worker), which grew
+# past 8GB across ~39 entries. #660 replaced it with a single plain
+# `tsc --emitDeclarationOnly` pass (packages/hub/scripts/build.mjs), which
+# peaks under 500MB — see .superpowers/sdd/m26-task-2-report.md. This cap
+# is now just a generic safety margin for any job that builds/tests.
 env:
-  NODE_OPTIONS: --max-old-space-size=12288
+  NODE_OPTIONS: --max-old-space-size=4096
 
 jobs:
   # ── Gate 1: strict verification ──────────────────────────────────────

@@ -1,4 +1,5 @@
 import { defineConfig } from 'tsup'
+import { ENTRIES } from './tsup.entries.mjs'
 
 /**
  * Build config — spec.
@@ -17,57 +18,33 @@ import { defineConfig } from 'tsup'
  * One class definition; `instanceof` works again across subpaths. The
  * package is ESM-only, so this single build is the whole story — there
  * is no CJS single-bundle mode to reconcile against.
+ *
+ * `dts` generation does NOT happen through this config (#660): tsup's
+ * `dts: true` ran a single rollup-plugin-dts worker that BUNDLES each
+ * entry's declaration graph, duplicating any type reachable from more
+ * than one entry into an independent copy per entry/chunk. Two problems:
+ * peak RSS grew past 8GB processing all ~39 entries' graphs in one
+ * process, AND — the correctness-critical one — a class with private
+ * fields (e.g. `LedgerStore`, reachable from `history`/`periods`/`with`/
+ * `pod`/the root barrel) got re-declared independently per duplicate,
+ * which TypeScript then treats as nominally distinct types across those
+ * subpaths (`tsconfig.tests.json`'s dist-import test caught this on a
+ * batched-tsup-invocations trial). `scripts/build.mjs` instead runs this
+ * JS build with `dts: false` (below) and separately invokes plain
+ * `tsc --emitDeclarationOnly` (see tsconfig.dts.json): one program, one
+ * declaration per source module, cross-referenced by relative import —
+ * no bundling, no duplication, no nominal-type risk, and (measured)
+ * far cheaper than rollup-plugin-dts. package.json's exports map `types`
+ * conditions point at the mirrored src/-shaped output tsc produces;
+ * `default` still points at this file's flat subpath JS bundle — the two
+ * conditions don't need to (and don't) share a directory layout.
  */
-const ENTRIES = {
-  index: 'src/index.ts',
-  'i18n/index': 'src/via/i18n/index.ts',
-  'team/index': 'src/with-party/team/index.ts',
-  'broker/index': 'src/with-party/broker/index.ts',
-  'session/index': 'src/with-party/session/index.ts',
-  'history/index': 'src/with-commit/history/index.ts',
-  'forget/index': 'src/with-audit/forget/index.ts',
-  'sealed-record/index': 'src/with-audit/sealed-record/index.ts',
-  'query/index': 'src/kernel/query/index.ts',
-  'blobs/index': 'src/via/blob/index.ts',
-  'indexing/index': 'src/with-lookup/indexing/index.ts',
-  'lazy/index': 'src/with-store/lazy/index.ts',
-  'aggregate/index': 'src/with-lookup/aggregate/index.ts',
-  'crdt/index': 'src/with-commit/crdt/index.ts',
-  'bundle/index': 'src/legacy/bundle.ts',
-  'pod/index': 'src/with-pod/index.ts',
-  'consent/index': 'src/with-audit/consent/index.ts',
-  'periods/index': 'src/with-audit/periods/index.ts',
-  'guards/index': 'src/with-audit/guards/index.ts',
-  'shadow/index': 'src/with-fork/shadow/index.ts',
-  'snapshots/index': 'src/with-fork/snapshots/index.ts',
-  'tx/index': 'src/with-commit/tx/index.ts',
-  'derivations/index': 'src/with-formula/derivations/index.ts',
-  'materialized-views/index': 'src/with-formula/materialized-views/index.ts',
-  'overlay-views/index': 'src/with-formula/overlay-views/index.ts',
-  'sync/index': 'src/with-party/sync/index.ts',
-  'util/index': 'src/kernel/util/index.ts',
-  'attestation/index': 'src/with-audit/attestation/index.ts',
-  'classified/index': 'src/via/classified/index.ts',
-  'satellites/index': 'src/with-shape/satellites/index.ts',
-  'tiers/index': 'src/with-audit/tiers/index.ts',
-  'portability/index': 'src/with-audit/portability/index.ts',
-  'cargo/index': 'src/with-cargo/index.ts',
-  'to/index': 'src/port/to/index.ts',
-  'with/index': 'src/port/with/index.ts',
-  'ui/index': 'src/port/ui/index.ts',
-  'by/index': 'src/port/by/index.ts',
-  'on/index': 'src/port/on/index.ts',
-  'at/index': 'src/port/at/index.ts',
-  'in/index': 'src/port/in/index.ts',
-  'as/index': 'src/port/as/index.ts',
-}
-
 // ESM build with code splitting — shared chunks deduplicated so
 // class identity holds across subpath boundaries.
 export default defineConfig({
   entry: ENTRIES,
   format: ['esm'],
-  dts: true,
+  dts: false,
   clean: true,
   splitting: true,
   sourcemap: true,

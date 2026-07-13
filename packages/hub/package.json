@@ -21,163 +21,163 @@
       "default": "./dist/index.js"
     },
     "./i18n": {
-      "types": "./dist/i18n/index.d.ts",
+      "types": "./dist/via/i18n/index.d.ts",
       "default": "./dist/i18n/index.js"
     },
     "./team": {
-      "types": "./dist/team/index.d.ts",
+      "types": "./dist/with-party/team/index.d.ts",
       "default": "./dist/team/index.js"
     },
     "./broker": {
-      "types": "./dist/broker/index.d.ts",
+      "types": "./dist/with-party/broker/index.d.ts",
       "default": "./dist/broker/index.js"
     },
     "./session": {
-      "types": "./dist/session/index.d.ts",
+      "types": "./dist/with-party/session/index.d.ts",
       "default": "./dist/session/index.js"
     },
     "./history": {
-      "types": "./dist/history/index.d.ts",
+      "types": "./dist/with-commit/history/index.d.ts",
       "default": "./dist/history/index.js"
     },
     "./forget": {
-      "types": "./dist/forget/index.d.ts",
+      "types": "./dist/with-audit/forget/index.d.ts",
       "default": "./dist/forget/index.js"
     },
     "./sealed-record": {
-      "types": "./dist/sealed-record/index.d.ts",
+      "types": "./dist/with-audit/sealed-record/index.d.ts",
       "default": "./dist/sealed-record/index.js"
     },
     "./query": {
-      "types": "./dist/query/index.d.ts",
+      "types": "./dist/kernel/query/index.d.ts",
       "default": "./dist/query/index.js"
     },
     "./blobs": {
-      "types": "./dist/blobs/index.d.ts",
+      "types": "./dist/via/blob/index.d.ts",
       "default": "./dist/blobs/index.js"
     },
     "./indexing": {
-      "types": "./dist/indexing/index.d.ts",
+      "types": "./dist/with-lookup/indexing/index.d.ts",
       "default": "./dist/indexing/index.js"
     },
     "./lazy": {
-      "types": "./dist/lazy/index.d.ts",
+      "types": "./dist/with-store/lazy/index.d.ts",
       "default": "./dist/lazy/index.js"
     },
     "./aggregate": {
-      "types": "./dist/aggregate/index.d.ts",
+      "types": "./dist/with-lookup/aggregate/index.d.ts",
       "default": "./dist/aggregate/index.js"
     },
     "./crdt": {
-      "types": "./dist/crdt/index.d.ts",
+      "types": "./dist/with-commit/crdt/index.d.ts",
       "default": "./dist/crdt/index.js"
     },
     "./bundle": {
-      "types": "./dist/bundle/index.d.ts",
+      "types": "./dist/legacy/bundle.d.ts",
       "default": "./dist/bundle/index.js"
     },
     "./consent": {
-      "types": "./dist/consent/index.d.ts",
+      "types": "./dist/with-audit/consent/index.d.ts",
       "default": "./dist/consent/index.js"
     },
     "./periods": {
-      "types": "./dist/periods/index.d.ts",
+      "types": "./dist/with-audit/periods/index.d.ts",
       "default": "./dist/periods/index.js"
     },
     "./guards": {
-      "types": "./dist/guards/index.d.ts",
+      "types": "./dist/with-audit/guards/index.d.ts",
       "default": "./dist/guards/index.js"
     },
     "./shadow": {
-      "types": "./dist/shadow/index.d.ts",
+      "types": "./dist/with-fork/shadow/index.d.ts",
       "default": "./dist/shadow/index.js"
     },
     "./snapshots": {
-      "types": "./dist/snapshots/index.d.ts",
+      "types": "./dist/with-fork/snapshots/index.d.ts",
       "default": "./dist/snapshots/index.js"
     },
     "./tx": {
-      "types": "./dist/tx/index.d.ts",
+      "types": "./dist/with-commit/tx/index.d.ts",
       "default": "./dist/tx/index.js"
     },
     "./derivations": {
-      "types": "./dist/derivations/index.d.ts",
+      "types": "./dist/with-formula/derivations/index.d.ts",
       "default": "./dist/derivations/index.js"
     },
     "./materialized-views": {
-      "types": "./dist/materialized-views/index.d.ts",
+      "types": "./dist/with-formula/materialized-views/index.d.ts",
       "default": "./dist/materialized-views/index.js"
     },
     "./overlay-views": {
-      "types": "./dist/overlay-views/index.d.ts",
+      "types": "./dist/with-formula/overlay-views/index.d.ts",
       "default": "./dist/overlay-views/index.js"
     },
     "./sync": {
-      "types": "./dist/sync/index.d.ts",
+      "types": "./dist/with-party/sync/index.d.ts",
       "default": "./dist/sync/index.js"
     },
     "./util": {
-      "types": "./dist/util/index.d.ts",
+      "types": "./dist/kernel/util/index.d.ts",
       "default": "./dist/util/index.js"
     },
     "./attestation": {
-      "types": "./dist/attestation/index.d.ts",
+      "types": "./dist/with-audit/attestation/index.d.ts",
       "default": "./dist/attestation/index.js"
     },
     "./classified": {
-      "types": "./dist/classified/index.d.ts",
+      "types": "./dist/via/classified/index.d.ts",
       "default": "./dist/classified/index.js"
     },
     "./satellites": {
-      "types": "./dist/satellites/index.d.ts",
+      "types": "./dist/with-shape/satellites/index.d.ts",
       "default": "./dist/satellites/index.js"
     },
     "./tiers": {
-      "types": "./dist/tiers/index.d.ts",
+      "types": "./dist/with-audit/tiers/index.d.ts",
       "default": "./dist/tiers/index.js"
     },
     "./portability": {
-      "types": "./dist/portability/index.d.ts",
+      "types": "./dist/with-audit/portability/index.d.ts",
       "default": "./dist/portability/index.js"
     },
     "./cargo": {
-      "types": "./dist/cargo/index.d.ts",
+      "types": "./dist/with-cargo/index.d.ts",
       "default": "./dist/cargo/index.js"
     },
     "./pod": {
-      "types": "./dist/pod/index.d.ts",
+      "types": "./dist/with-pod/index.d.ts",
       "default": "./dist/pod/index.js"
     },
     "./to": {
-      "types": "./dist/to/index.d.ts",
+      "types": "./dist/port/to/index.d.ts",
       "default": "./dist/to/index.js"
     },
     "./with": {
-      "types": "./dist/with/index.d.ts",
+      "types": "./dist/port/with/index.d.ts",
       "default": "./dist/with/index.js"
     },
     "./ui": {
-      "types": "./dist/ui/index.d.ts",
+      "types": "./dist/port/ui/index.d.ts",
       "default": "./dist/ui/index.js"
     },
     "./by": {
-      "types": "./dist/by/index.d.ts",
+      "types": "./dist/port/by/index.d.ts",
       "default": "./dist/by/index.js"
     },
     "./on": {
-      "types": "./dist/on/index.d.ts",
+      "types": "./dist/port/on/index.d.ts",
       "default": "./dist/on/index.js"
     },
     "./at": {
-      "types": "./dist/at/index.d.ts",
+      "types": "./dist/port/at/index.d.ts",
       "default": "./dist/at/index.js"
     },
     "./in": {
-      "types": "./dist/in/index.d.ts",
+      "types": "./dist/port/in/index.d.ts",
       "default": "./dist/in/index.js"
     },
     "./as": {
-      "types": "./dist/as/index.d.ts",
+      "types": "./dist/port/as/index.d.ts",
       "default": "./dist/as/index.js"
     }
   },
@@ -192,7 +192,7 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "build": "node --max-old-space-size=12288 ../../node_modules/tsup/dist/cli-default.js",
+    "build": "node scripts/build.mjs",
     "test": "vitest run",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.typetest.json && tsc --noEmit -p tsconfig.tests.json",
