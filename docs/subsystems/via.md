@@ -119,7 +119,7 @@ The kernel enforces two new **architecture rules** (checked by `pnpm check:archi
 1. **`kernel` imports nothing from `via/*`** — all via-features are in the `via/` layer; the kernel holds only the port contract and runner. One frozen grandfather: `kernel/query/join.ts` imports i18n's `applyI18nLocale` from `via/i18n/core.js` for join-layer presentation (sync, i18n-text-only resolution of a joined right-side field) — issue #626 tracks converging it onto the Via seam instead.
 2. **`via/*` never imports `kernel/enclave/`** — this rule bans importing the enclave, not "crypto.subtle directly": crypto should reach a feature only through a scoped context (`ViaCryptoCtx`). Phase B built `ViaCryptoCtx` (the kernel's `sealedSlots`/`reservedEnvelopes` capability factories, `kernel/enclave/record-keys/sealed-slots.ts`) and used it to reroute `via/i18n/dictionary.ts`'s `DictionaryHandle` off its former direct `kernel/enclave/index.js` import (the one grandfather this rule used to carry, predating #623) onto `reservedEnvelopes('_dict_')` — **the allowlist is now empty** and every `via/**` file, including the new `via-classified`/`via-blob`, is enclave-clean by construction — statically; the rule only bans a static `import ... from`. The reveal/verify engines reach the enclave through the Check-13-allowlisted (`enclave-classify-index-only`) dynamic strategy seam in `via/classified/active.ts` (`await import('../../kernel/enclave/classify/...')`), which Check 15 does not see.
 
-`ViaCryptoCtx` is kernel-internal machinery for feature *authors* (a `ViaBinding`'s `encodeAtRest`/`decodeAtRest`/`erase` hooks receive it as a parameter — see `kernel/via.ts`) — not something a collection consumer calls directly. `sealedSlots` seals/unseals individual fields into their own `iv:data` slot under per-record key material (the mechanism `via-classified` seals recoverable fields with); `reservedEnvelopes(prefix)` is a whole-envelope encrypt/decrypt door scoped to collection names under a declared prefix, for reserved kernel-managed collections like `_dict_*` (see `packages/hub/__tests__/via/crypto-ctx.test.ts`).
+`ViaCryptoCtx` is kernel-internal machinery for feature *authors* (a `ViaBinding`'s `encodeAtRest`/`decodeAtRest`/`erase` hooks receive it as a parameter — see `kernel/via/index.ts`) — not something a collection consumer calls directly. `sealedSlots` seals/unseals individual fields into their own `iv:data` slot under per-record key material (the mechanism `via-classified` seals recoverable fields with); `reservedEnvelopes(prefix)` is a whole-envelope encrypt/decrypt door scoped to collection names under a declared prefix, for reserved kernel-managed collections like `_dict_*` (see `packages/hub/__tests__/via/crypto-ctx.test.ts`).
 
 ## Implementation phases
 
@@ -147,7 +147,7 @@ Phase B retrofits the two remaining security-sensitive field kinds — classifie
 ### Phase C — dependency graph, taint enforcement, sync dispatch, frozen-output, forget fanout
 
 Phase C adds the one dependency graph every derived value flows through: `ViaGraph`
-(`kernel/via-graph.ts`), a per-vault, kernel-owned model of *what depends on what* and *what
+(`kernel/via/graph.ts`), a per-vault, kernel-owned model of *what depends on what* and *what
 security posture a derived value inherits*. Every derivation/rollup/MV strategy, every `computed`
 `deps` entry, and every `ViaBinding.deps` declaration registers into it at collection-declare time;
 `assertAcyclic()` supersedes the derivation/MV registries' own local cycle-detection DFS with one
@@ -265,7 +265,7 @@ that ordering constraint ever lifts.
 
 **Sync/cutover/restore dispatch (#621)** closes the gap where a sync-applied write never triggered
 its derivations/materialized views — only a *local* `put()` did. A batched, per-target-deduped wave
-(`kernel/via-dispatch.ts#runGraphDispatchWave`) now runs once at the end of `pull()`/`push()`
+(`kernel/via/dispatch.ts#runGraphDispatchWave`) now runs once at the end of `pull()`/`push()`
 (`Vault._beginGraphBatch`/`_flushGraphBatch`, wired into `SyncEngine`), and also on schema cutover
 and restore. Per-target dedup means N synced children of one rollup parent recompute the parent
 exactly once, not N times; a collection with zero dependents in the graph is skipped entirely with
@@ -416,7 +416,7 @@ Five follow-up fixes, landed together on one branch, close gaps the phase A-D re
 `vault.collection(name, {...})` call against an already-open collection ("late attach" /
 "reconcile") always supported `moneyFields`/`computed`/`fieldMeta`/`meta`/`classifiedFields` — but
 `i18nFields`/`dictKeyFields`/`lookupFields` on that same kind of call were silently ignored before
-this fix, with no error. `kernel/via-reconcile.ts` closes the gap by rebuilding the collection's
+this fix, with no error. `kernel/via/reconcile.ts` closes the gap by rebuilding the collection's
 `ViaPipeline` in place (`Collection._setVia`, the writer seam #666 added for exactly this). Every
 tier attaches, with one deliberate exception: a lookup field backed by another first-class
 collection (the "matrix" tier) REFUSES to late-attach unless that backing collection is already
@@ -494,13 +494,13 @@ caveat for pre-money-declaration legacy data (documented on the money page).
 - [`docs/subsystems/via-blob.md`](via-blob.md) — blob feature docs
 - [`docs/subsystems/via-computed.md`](via-computed.md) — computed feature docs (virtual + materialized)
 - [`docs/subsystems/via-lookup.md`](via-lookup.md) — phase D: lookup feature docs (`lookup`/`enum`/`dict`)
-- `packages/hub/src/kernel/via.ts` — the port contract and kernel runner (incl. `ViaCryptoCtx`, `ViaEraseCtx`/`ViaEraseReport`, `resolveOrderLabel`)
-- `packages/hub/src/kernel/via-pipeline.ts` — the phased runner (incl. `postureFor`, `redactForExport`, `eraseSealed`, `describeFragments`)
-- `packages/hub/src/kernel/via-compose.ts` — the `via()` composer + sugar/`viaFields` merge
+- `packages/hub/src/kernel/via/index.ts` — the port contract and kernel runner (incl. `ViaCryptoCtx`, `ViaEraseCtx`/`ViaEraseReport`, `resolveOrderLabel`)
+- `packages/hub/src/kernel/via/pipeline.ts` — the phased runner (incl. `postureFor`, `redactForExport`, `eraseSealed`, `describeFragments`)
+- `packages/hub/src/kernel/via/compose.ts` — the `via()` composer + sugar/`viaFields` merge
 - `packages/hub/src/kernel/enclave/record-keys/sealed-slots.ts` — `ViaCryptoCtx`'s kernel-side capability factories
-- `packages/hub/src/kernel/via-graph.ts` — phase C: the `ViaGraph` dependency graph + taint algebra
-- `packages/hub/src/kernel/via-dispatch.ts` — phase C: sync/cutover/restore batched dispatch wave, `putDerivedOutput`, forget fanout
-- `packages/hub/src/kernel/via-taint-binding.ts` — phase C: the taint-enforcement `ViaBinding`
+- `packages/hub/src/kernel/via/graph.ts` — phase C: the `ViaGraph` dependency graph + taint algebra
+- `packages/hub/src/kernel/via/dispatch.ts` — phase C: sync/cutover/restore batched dispatch wave, `putDerivedOutput`, forget fanout
+- `packages/hub/src/kernel/via/taint-binding.ts` — phase C: the taint-enforcement `ViaBinding`
 - `packages/hub/src/via/money/` — phase A: money binding
 - `packages/hub/src/via/i18n/` — phase A: i18n binding
 - `packages/hub/src/via/classified/` — phase B: classified binding
@@ -513,7 +513,7 @@ caveat for pre-money-declaration legacy data (documented on the money page).
   (axis-scoping, kind-scoping, the ref-identity/blob traps)
 - `packages/hub/__tests__/via/sync-delete-rollup.test.ts` — the #640 sync-applied-delete rollup
   recompute suite (dedup/ordering/freshness + the `derivation:wave-error` event)
-- `packages/hub/src/kernel/via-reconcile.ts` — milestone #31: the late-attach reconcile dispatch
+- `packages/hub/src/kernel/via/reconcile.ts` — milestone #31: the late-attach reconcile dispatch
   (i18n/dictKey/lookup, #664)
 - `packages/hub/__tests__/via/reconcile-lookup.test.ts`, `reconcile-i18n-dictkey.test.ts`,
   `reconcile-guard.test.ts` — milestone #31: the #664 late-attach suites (tier coverage, collision

@@ -23,7 +23,7 @@ import { createNoydb, withDerivation, withRollup, FieldNotQueryableError, Sealed
 import { withClassified } from '../../src/via/classified/index.js'
 import type { ClassifiedFieldSpec } from '../../src/via/classified/index.js'
 import { inlineMemory, spyStore } from '../classified/harness.js'
-import { reapplyDependentOverlays } from '../../src/kernel/via-graph-wiring.js'
+import { reapplyDependentOverlays } from '../../src/kernel/via/graph-wiring.js'
 
 const ssnSpec = (): ClassifiedFieldSpec => ({
   _noydbClassified: true, preset: 'test-ssn', storage: 'recoverable',
@@ -202,7 +202,7 @@ describe('#642 Task 2 — cross-collection re-apply ordering gap (seam map findi
  *           case), spreading it into the patch and writing it back re-seals
  *           `SealedHandle.toJSON()`'s `'[sealed]'` marker string in place of
  *           the real value — a silent, permanent data-corrupting bug.
- * 2. `applyTaintOverlay` (via-graph-wiring.ts) appends a fresh `taintBinding`
+ * 2. `applyTaintOverlay` (via/graph-wiring.ts) appends a fresh `taintBinding`
  *    onto the existing bindings list without stripping a PRIOR one — every
  *    `reapplyDependentOverlays` pass (#642's cross-collection re-apply gap
  *    fix) accumulates one more `brand: 'taint'` binding (benign in effect —

@@ -1,5 +1,5 @@
 import { MaterializedViewSourceUnknownError } from '../../kernel/errors.js'
-import type { ViaGraph, FieldRef, EdgeKind, Grain } from '../../kernel/via-graph.js'
+import type { ViaGraph, FieldRef, EdgeKind, Grain } from '../../kernel/via/graph.js'
 import type { Clause, FieldClause } from '../../kernel/query/predicate.js'
 import type { DeclaredPredicate } from '../../kernel/query/builder.js'
 import { analyzeDependencies, summarizeQueryPlan, summarizeUnionPlan } from './dependency-analyzer.js'

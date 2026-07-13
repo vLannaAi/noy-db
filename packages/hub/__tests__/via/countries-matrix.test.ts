@@ -21,7 +21,7 @@
  *   (b) `orderBy(..., {by:'label'})` — the PER-CALL-locale channel
  *       `compareForOrder` structurally cannot serve (no locale param).
  *       `kernel/query/builder.ts`'s `buildOrderLabelMaps` now falls back to
- *       `ViaPipeline.resolveOrderLabel` (new `via.ts`/`via-pipeline.ts`
+ *       `ViaPipeline.resolveOrderLabel` (new `via/index.ts`/`via/pipeline.ts`
  *       hook, #650 Task 7) for fields the legacy dict-registry bridge
  *       doesn't cover — proven here by sorting the SAME two countries at
  *       TWO DIFFERENT locales and getting two DIFFERENT orders.

@@ -11,8 +11,8 @@ import {
 import { classified } from '../../src/via/classified/presets.js'
 import { i18nText } from '../../src/via/i18n/core.js'
 import { resolveComputedEdges, resolveViaBindingDepsEdges } from '../../src/kernel/collection-config.js'
-import { DEFAULT_POSTURE } from '../../src/kernel/via-graph.js'
-import type { ViaBinding } from '../../src/kernel/via.js'
+import { DEFAULT_POSTURE } from '../../src/kernel/via/graph.js'
+import type { ViaBinding } from '../../src/kernel/via/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 import type { ClassifiedFieldSpec } from '../../src/via/classified/index.js'
 
@@ -414,7 +414,7 @@ describe('resolveViaBindingDepsEdges — the general via-bindings deps path (#63
   // No shipped binding declares `deps` today (money/i18n/classified/blob
   // don't) — these are direct unit tests of the general path a future
   // derive-bearing binding (phase C Task 7's `computed` via-binding) plugs
-  // into (per the via.ts doc comment this task made truthful).
+  // into (per the via/index.ts doc comment this task made truthful).
   function fixtureBinding(overrides: Partial<ViaBinding>): ViaBinding {
     return { brand: 'fixture', posture: DEFAULT_POSTURE, ...overrides }
   }

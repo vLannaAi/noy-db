@@ -1,5 +1,5 @@
 import { DerivationCycleError } from '../../kernel/errors.js'
-import { ViaGraph, type FieldRef, type EdgeKind, type Grain } from '../../kernel/via-graph.js'
+import { ViaGraph, type FieldRef, type EdgeKind, type Grain } from '../../kernel/via/graph.js'
 import { computeStrategyHash } from './strategy-hash.js'
 import type { DerivationStrategy } from './types.js'
 
@@ -7,7 +7,7 @@ import type { DerivationStrategy } from './types.js'
  * Whole-record artifact-grain field marker (#638 Task 2). A derivation's
  * `derive()`/a rollup's `compute()` reads the WHOLE source record — there is
  * no single declared field to point at — so a trigger/output collection is
- * modelled as one artifact node per collection (`kernel/via-graph.ts`'s
+ * modelled as one artifact node per collection (`kernel/via/graph.ts`'s
  * "Artifact-grain targets... modelled as a field node whose field is the
  * artifact key" convention). MUST match `materialized-views/registry.ts`'s
  * and `vault.ts`'s overlay-edge marker so cross-registry edges (a derivation

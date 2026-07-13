@@ -1,4 +1,4 @@
-// kernel/via-taint-binding.ts — the kernel-resident `taint` ViaBinding
+// kernel/via/taint-binding.ts — the kernel-resident `taint` ViaBinding
 // (#638 Task 3, closes the reproduced #636 leak).
 //
 // Bridges `ViaGraph`'s assigned effective postures (Task 1/2) into the SAME
@@ -18,12 +18,12 @@
 //
 // Neither is registered via `installViaBinder`/`viaBinder('taint')` — unlike
 // money/i18n/classified/blob, a `taint` binding is never user-declared; it is
-// constructed directly by `via-graph-wiring.ts#applyTaintOverlay`, the one
+// constructed directly by `via/graph-wiring.ts#applyTaintOverlay`, the one
 // caller, right after the graph has this collection's edges.
-import type { ViaBinding, ViaCryptoCtx, SealedSlotRef, ViaPosture } from './via.js'
-import { SealedHandle } from './types.js'
-import { DEFAULT_POSTURE } from './via-graph.js'
-import { EXPORT_REDACTION_MARKER } from './via-pipeline.js'
+import type { ViaBinding, ViaCryptoCtx, SealedSlotRef, ViaPosture } from './index.js'
+import { SealedHandle } from '../types.js'
+import { DEFAULT_POSTURE } from './graph.js'
+import { EXPORT_REDACTION_MARKER } from './pipeline.js'
 
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set()
 
@@ -76,7 +76,7 @@ export function buildTaintOverlay(
  * slot via `crypto.sealedSlots`, peeling it out of the record. Mirrors
  * `via/classified/binding.ts#encodeClassifiedAtRest` exactly (same
  * capability, different field list — duplicated rather than imported so
- * this file never reaches into `via/**`, matching `via-graph-wiring.ts`'s
+ * this file never reaches into `via/**`, matching `via/graph-wiring.ts`'s
  * own documented-duplication precedent for `CLASSIFIED_POSTURE`).
  */
 async function encodeTaintAtRest(
@@ -192,7 +192,7 @@ async function decodeTaintAtRestAll(
  *
  * `presentRedactFields` (#638 Task 7, default empty) — tainted VIRTUAL
  * computed fields (never sealed — nothing to encodeAtRest/decodeAtRest;
- * `via-graph-wiring.ts#applyTaintOverlay` computes this set as
+ * `via/graph-wiring.ts#applyTaintOverlay` computes this set as
  * `graph.virtualFields(name) ∩ { field : postures.get(field).exportable ===
  * false }`). This binding is appended AFTER whatever `compileViaBindings`
  * built (including the `computed` binding), so its `present` hook — when

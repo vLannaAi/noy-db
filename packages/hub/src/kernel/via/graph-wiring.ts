@@ -1,4 +1,4 @@
-// kernel/via-graph-wiring.ts — thin per-vault wiring that feeds `ViaGraph`
+// kernel/via/graph-wiring.ts — thin per-vault wiring that feeds `ViaGraph`
 // from the collection-declare edge sources (via bindings' `deps`, `computed`)
 // at collection-construction time (#638 Task 2). The with-formula (derivation/
 // MV/overlay) edge sources are registered directly by `Vault._initDerivations`/
@@ -6,16 +6,16 @@
 // `edges()` accessors — this file only covers the per-collection sources,
 // which fire on every `Vault.collection()` call, not just vaults that declare
 // a derivation/MV/overlay strategy.
-import type { ViaGraph } from './via-graph.js'
-import type { ViaPosture } from './via.js'
+import type { ViaGraph } from './graph.js'
+import type { ViaPosture } from './index.js'
 import {
   resolveCollectionConfig, resolveComputedEdges, computedEntryParts, collectKnownFieldNames,
   type CollectionOpts, type GraphEdge,
-} from './collection-config.js'
-import { resolveClassifiedFields, type ClassifiedEntry } from '../port/with/classified-strategy.js'
-import { ValidationError } from './errors.js'
-import { ViaPipeline, type ViaTaintOverlay, type HasWritableViaPipeline } from './via-pipeline.js'
-import { buildTaintOverlay, taintBinding } from './via-taint-binding.js'
+} from '../collection-config.js'
+import { resolveClassifiedFields, type ClassifiedEntry } from '../../port/with/classified-strategy.js'
+import { ValidationError } from '../errors.js'
+import { ViaPipeline, type ViaTaintOverlay, type HasWritableViaPipeline } from './pipeline.js'
+import { buildTaintOverlay, taintBinding } from './taint-binding.js'
 
 // `ComputedFields` is a with-formula/computed type; the kernel spine may not
 // statically import a with-* service (S5 port-layering — see
@@ -257,7 +257,7 @@ export function commitReconcileGraphEdges(graph: ViaGraph, name: string, plan: R
 /**
  * Rebuild `coll`'s Via pipeline with the graph's taint overlay layered on
  * (#638 Task 3 — the assignment→enforcement bridge): `postureFor` (query
- * gate + `redactForExport`, `kernel/via-pipeline.ts`) enforces it with zero
+ * gate + `redactForExport`, `kernel/via/pipeline.ts`) enforces it with zero
  * new surface, and any field the overlay resolves to `encryptedAtRest:
  * 'sealed'` gets the `taint` binding added so it is ACTUALLY sealed at rest
  * via `ctx.sealedSlots` (the same mechanism classified uses).
@@ -281,8 +281,8 @@ export function commitReconcileGraphEdges(graph: ViaGraph, name: string, plan: R
  *
  * #642 — `graph.taintedPostures(name)` also carries the collection's `'*'`
  * target (a derivation/MV/overlay OUTPUT collection's whole-record fold,
- * `via-graph.ts`'s `taintedPostures`/`taintSealedFields` already surface it
- * under the literal key `'*'`, no `via-graph.ts` change needed). Split it off
+ * `via/graph.ts`'s `taintedPostures`/`taintSealedFields` already surface it
+ * under the literal key `'*'`, no `via/graph.ts` change needed). Split it off
  * BEFORE building the field-specific overlay — `'*'` is never a real record
  * field — and re-derive it as `defaultPosture` through the SAME
  * `buildTaintOverlay` sealed→`queryable:'none'` clamp (reused, not

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { installViaBinder, isViaInstalled, viaBinder, type ViaBinding } from '../../src/kernel/via.js'
+import { installViaBinder, isViaInstalled, viaBinder, type ViaBinding } from '../../src/kernel/via/index.js'
 import { NoydbError } from '../../src/kernel/errors.js'
 
 describe('via port', () => {

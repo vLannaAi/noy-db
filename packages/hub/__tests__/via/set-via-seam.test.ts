@@ -1,6 +1,6 @@
 /**
  * #666 — `Collection._setVia` writer seam: the typed replacement for
- * `via-graph-wiring.ts`'s untyped `coll as { via; codec: { setVia } }` cast.
+ * `via/graph-wiring.ts`'s untyped `coll as { via; codec: { setVia } }` cast.
  *
  * Contract: `_setVia(pipeline)` must do BOTH of the cast site's two old
  * steps — reassign the live `this.via` AND resync `this.codec`'s own
@@ -13,8 +13,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb, SealedHandle } from '../../src/index.js'
-import { ViaPipeline } from '../../src/kernel/via-pipeline.js'
-import { taintBinding } from '../../src/kernel/via-taint-binding.js'
+import { ViaPipeline } from '../../src/kernel/via/pipeline.js'
+import { taintBinding } from '../../src/kernel/via/taint-binding.js'
 import { inlineMemory } from '../classified/harness.js'
 
 interface Item extends Record<string, unknown> {

@@ -1,6 +1,6 @@
-// kernel/via.ts — the ONLY kernel-resident via surface.
-import { NoydbError } from './errors.js'
-import type { EncryptedEnvelope } from './types.js'
+// kernel/via/index.ts — the ONLY kernel-resident via surface.
+import { NoydbError } from '../errors.js'
+import type { EncryptedEnvelope } from '../types.js'
 
 /** Awaitable type for potentially async results. */
 type Awaitable<T> = T | Promise<T>

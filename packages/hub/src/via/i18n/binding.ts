@@ -14,8 +14,8 @@
  * `i18nText()`, `dictKey()`, `staticDict()` each call {@link linkI18nVia}
  * first — the same #553 pattern `money()` uses.
  */
-import type { ViaBinding, ViaWriteCtx, ViaReadCtx } from '../../kernel/via.js'
-import { installViaBinder } from '../../kernel/via.js'
+import type { ViaBinding, ViaWriteCtx, ViaReadCtx } from '../../kernel/via/index.js'
+import { installViaBinder } from '../../kernel/via/index.js'
 import type { I18nTextDescriptor } from './core.js'
 import { stripI18nFilled } from './core.js'
 import type { DictKeyDescriptor, StaticDictDescriptor } from './dictionary.js'

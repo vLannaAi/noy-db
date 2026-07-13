@@ -13,7 +13,7 @@
 import { getAtPath } from '../../kernel/paths.js'
 import { UnknownDictCodeError, ValidationError } from '../../kernel/errors.js'
 import type { JoinableSource } from '../../kernel/query/index.js'
-import type { FieldRef, ViaGraph } from '../../kernel/via-graph.js'
+import type { FieldRef, ViaGraph } from '../../kernel/via/graph.js'
 import type { StaticDictDescriptor } from '../../port/with/i18n-strategy.js'
 import { dictCollectionName, type LookupHandle } from './handle.js'
 import type { LookupDescriptor, OnDelete } from './descriptor.js'
@@ -366,7 +366,7 @@ export function resolveBackingRowKey(
  * The referencing-side match predicate — does `rec[field]` (coerced) equal an
  * already-coerced `compareKey` (#651 Task 3)? Shared by every site that scans a
  * referencing collection for rows pointing at a given backing key
- * (`with-shape/links/vault-facade.ts`'s ref-delete propagation, `kernel/via-dispatch.ts`'s
+ * (`with-shape/links/vault-facade.ts`'s ref-delete propagation, `kernel/via/dispatch.ts`'s
  * forget-fanout twin).
  */
 export function matchesReferencingValue(

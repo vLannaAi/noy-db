@@ -6,8 +6,8 @@
  * `kernel/money-runtime.ts` seam used, now the only one (Task 6 cut the
  * query DSL over to this binding and deleted the legacy seam).
  */
-import type { ViaBinding } from '../../kernel/via.js'
-import { installViaBinder } from '../../kernel/via.js'
+import type { ViaBinding } from '../../kernel/via/index.js'
+import { installViaBinder } from '../../kernel/via/index.js'
 import type { MoneyDescriptor } from './descriptor.js'
 import { quantizeMoneyFields, decodeMoneyFields, canonicalizeStoredMoney, canonicalizeIncomingMoney, moneyScaledValue } from './normalize.js'
 import { validateMoneyFieldPaths } from './paths.js'

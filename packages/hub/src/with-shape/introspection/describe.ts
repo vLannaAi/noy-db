@@ -15,7 +15,7 @@ import type { FieldMeta } from './field-meta.js'
 import { resolveFieldMeta, validateFieldMetaKeys, FieldMetaUnknownFieldError, humanizeFieldKey } from './field-meta.js'
 import type { CollectionMeta } from './meta.js'
 import type { MoneyDescriptor } from '../../via/money/descriptor.js'
-import type { ViaDescriptor, ViaPosture } from '../../kernel/via.js'
+import type { ViaDescriptor, ViaPosture } from '../../kernel/via/index.js'
 import type { DictKeyDescriptor, StaticDictDescriptor } from '../../via/i18n/dictionary.js'
 import { isStaticDictDescriptor } from '../../via/i18n/dictionary.js'
 // #650 Task 2 — native lookup()/enumOf()/dict() fields (separate from
@@ -26,7 +26,7 @@ import { isStaticDictDescriptor } from '../../via/i18n/dictionary.js'
 // labels" fallback, same as an unresolved dynamic dictKey).
 import type { LookupDescriptor } from '../../via/lookup/descriptor.js'
 // #650 Task 7 — the 'lookup' binding's describeFragment payload shape (the
-// first-ever ViaBinding.describeFragment consumer, via.ts:136). describe.ts
+// first-ever ViaBinding.describeFragment consumer, via/index.ts:136). describe.ts
 // is NOT under kernel/**, so importing this via/ type directly is fine
 // (Check 14 via-layering only restricts the kernel spine).
 import type { LookupDescribeFragment, LookupDescribeFragmentEntry } from '../../via/lookup/binding.js'
@@ -279,7 +279,7 @@ export interface BuildDescriptionInput {
   /**
    * Per-binding `describeFragment()` output, keyed by binding brand (#650
    * Task 7 — first-ever consumer of `ViaBinding.describeFragment`,
-   * `via.ts:136`). `Collection.describe()`/`describeAsync()` build this
+   * `via/index.ts:136`). `Collection.describe()`/`describeAsync()` build this
    * from `this.via?.describeFragments()`. The `'lookup'` brand's fragment
    * feeds the `lookup` block below; `'blob'`'s feeds the `blob` block
    * (#657, the second consumer). Other brands' fragments ride along unread
@@ -531,7 +531,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
     // block, byte-stable for the alias) — routing through the fragment is
     // the point: `backing`/`vocabulary`/`key`/`onDelete` have no other
     // source in this function, so their presence here is itself proof the
-    // describeFragment seam (declared via.ts:136, zero consumers before
+    // describeFragment seam (declared via/index.ts:136, zero consumers before
     // this task) carries data end to end from binding to describe() output.
     const lookupFragmentEntry: LookupDescribeFragmentEntry | undefined = lookupFragments?.[key]
     if (lookupFragmentEntry !== undefined) {

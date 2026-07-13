@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { DerivationCycleError, MaterializedViewCycleError } from '../../src/kernel/errors.js'
-import { ViaGraph, DEFAULT_POSTURE, foldPosture } from '../../src/kernel/via-graph.js'
-import type { ViaPosture } from '../../src/kernel/via.js'
+import { ViaGraph, DEFAULT_POSTURE, foldPosture } from '../../src/kernel/via/graph.js'
+import type { ViaPosture } from '../../src/kernel/via/index.js'
 
 // Real postures from the shipped bindings (via/classified/binding.ts:213,
 // via/money/binding.ts:23) — used as realistic fixtures, not re-declared

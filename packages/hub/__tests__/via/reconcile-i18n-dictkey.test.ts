@@ -2,7 +2,7 @@
  * #664 Part 2 — the i18n/dictKey late-attach reconcile machinery. Pre-#664, `i18nFields`/
  * `dictKeyFields` on a SECOND-OR-LATER `vault.collection()` call were silently ignored — only
  * the fresh-construction branch ever wired them (no `_applyI18nFields`/`_applyDictKeyFields`
- * existed). `via-reconcile.ts`'s `reconcileI18nFields`/`reconcileDictKeyFields` close that gap by
+ * existed). `via/reconcile.ts`'s `reconcileI18nFields`/`reconcileDictKeyFields` close that gap by
  * rebuilding the pipeline through `Collection._setVia` (#666) and wiring the same vault registries
  * fresh construction populates.
  */

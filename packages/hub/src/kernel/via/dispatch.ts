@@ -1,4 +1,4 @@
-// kernel/via-dispatch.ts — the batched, origin-aware sync/cutover/restore dispatch wave
+// kernel/via/dispatch.ts — the batched, origin-aware sync/cutover/restore dispatch wave
 // (Via port phase C, #638 Task 4, fixes #621).
 //
 // `Collection._onRecordMutated`'s `sync-apply`/`cutover`/`restore` cases feed touched
@@ -11,11 +11,11 @@
 // records feeding the SAME rollup/MV target recompute exactly once (per-target dedup).
 // See docs/superpowers/specs/2026-07-11-via-phase-c-design.md §3.
 
-import type { ViaGraph } from './via-graph.js'
-import type { Collection } from './collection.js'
-import type { EncryptedEnvelope } from './types.js'
-import { PeriodClosedError } from './errors.js'
-import { matchesReferencingValue } from '../port/with/lookup-strategy.js'
+import type { ViaGraph } from './graph.js'
+import type { Collection } from '../collection.js'
+import type { EncryptedEnvelope } from '../types.js'
+import { PeriodClosedError } from '../errors.js'
+import { matchesReferencingValue } from '../../port/with/lookup-strategy.js'
 
 /** One deleted child's resolved rollup PARENT intent (#640) — ids + a field name only. A
  *  resolved `parentId` is an id, same class as any touched record id — never a stored value. */
@@ -57,7 +57,7 @@ export function touchFor(batch: GraphBatch, collection: string): GraphTouch {
  *  a one-line delegator under the kernel-surface ceiling. `registry` is `this.derivationSource
  *  ?.registry()`; `collectionName` is `this.name` (the CHILD/`rollup.from` side). Generic over
  *  the registry's own spec shape so this file never imports a `with-formula` type (port-layering
- *  — via-dispatch.ts must not gain a with-* import). */
+ *  — via/dispatch.ts must not gain a with-* import). */
 export function resolveRollupDeleteIntents<S extends { source: string; rollup?: { from: string; key: string; field: string } }>(
   registry: { strategiesForSource(name: string): ReadonlyArray<{ spec: S }> } | undefined,
   collectionName: string,
@@ -306,7 +306,7 @@ export async function forgetDerivedFanout(
   // The I/O shell (loop shape, collection accessor) is duplicated, not imported, from
   // `VaultLinks.applyLookupRefsPropagation`/`checkLookupRefsRestrict` (with-shape/links/
   // vault-facade.ts) — the kernel spine may not statically import a with-* service
-  // (port-layering, the #638 Task 5 via-dispatch.ts precedent); `vault._getCollection` is
+  // (port-layering, the #638 Task 5 via/dispatch.ts precedent); `vault._getCollection` is
   // cached-only while `VaultLinks`' accessor constructs. The pure match predicate itself is
   // shared through the port seam (#651 Task 3 — `matchesReferencingValue`, `port/with/
   // lookup-strategy.ts`), so only the shell, not the coercion logic, stays duplicated. A

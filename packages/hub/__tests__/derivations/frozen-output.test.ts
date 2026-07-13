@@ -14,7 +14,7 @@ import { withPeriods } from '../../src/with-audit/periods/index.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
 import { withSync } from '../../src/with-party/sync/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
-import type { DerivationSkippedFrozen } from '../../src/kernel/via-dispatch.js'
+import type { DerivationSkippedFrozen } from '../../src/kernel/via/dispatch.js'
 
 function memory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()

@@ -24,7 +24,7 @@ import { encrypt, decrypt, deriveSealedFieldKey, deriveSealedFieldKeyFromCek, ty
 import { dualReadSealedSlot } from './sealed-slot.js'
 import { NOYDB_FORMAT_VERSION, SealedHandle, type EncryptedEnvelope } from '../../types.js'
 import { ValidationError } from '../../errors.js'
-import type { SealedSlotRef, ViaCryptoCtx } from '../../via.js'
+import type { SealedSlotRef, ViaCryptoCtx } from '../../via/index.js'
 
 /**
  * Key material for one collection's sealed-field derivation. `cek`, when

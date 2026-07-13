@@ -1,7 +1,7 @@
 /**
  * computed strategy seam (#638 Task 7 — mirrors `port/with/{classified,blob}-strategy.ts`).
  * Lives on the `/with` port (the one seam the kernel spine may import statically) so
- * `kernel/via-compose.ts`/`kernel/collection-config.ts` can read a `via(computed(...))`
+ * `kernel/via/compose.ts`/`kernel/collection-config.ts` can read a `via(computed(...))`
  * descriptor's shape without a spine→`src/via/**` static import (via-layering, Check 14).
  *
  * Installs the computed via-binder EAGERLY — the classified/blob precedent, not money/

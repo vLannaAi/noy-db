@@ -31,8 +31,8 @@
  * `queryable: 'none'`); it does not participate in clause building or
  * evaluation.
  */
-import type { ViaBinding, ViaEraseCtx, ViaEraseReport } from '../../kernel/via.js'
-import { installViaBinder } from '../../kernel/via.js'
+import type { ViaBinding, ViaEraseCtx, ViaEraseReport } from '../../kernel/via/index.js'
+import { installViaBinder } from '../../kernel/via/index.js'
 import type { BlobFieldsConfig } from '../../with-shape/blobs/blob-compaction.js'
 
 /**

@@ -1,5 +1,5 @@
 /**
- * kernel/via-reconcile.ts — #664 the late-attach reconcile-path dispatch.
+ * kernel/via/reconcile.ts — #664 the late-attach reconcile-path dispatch.
  *
  * `vault.ts`'s reconcile branch (a SECOND-OR-LATER `vault.collection(name, {...})` call on an
  * already-open collection) used to be a flat 5-branch `if (coll && X) coll._applyX(...)` ladder
@@ -8,12 +8,12 @@
  * moves that whole ladder OUT of `vault.ts` (a kernel-surface-ceiling-guarded file) into ONE
  * dispatch entry point, {@link reconcileViaAttach}, that:
  *
- *  1. runs the late-attach collision guard ({@link guardReconcileCollisions}, via-compose.ts)
+ *  1. runs the late-attach collision guard ({@link guardReconcileCollisions}, via/compose.ts)
  *     BEFORE any mutation — both the incoming×incoming and existing×incoming recipes;
  *  2. routes the FIVE pre-existing reconciles (money/computed/fieldMeta/meta/classified) through
  *     their unchanged `Collection._applyX` methods (collection.ts is NOT touched — this dispatch
  *     only orchestrates, matching the pre-#664 call order exactly);
- *  3. commits the two-phase graph-edge reconcile (`via-graph-wiring.ts`) + taint overlay, exactly
+ *  3. commits the two-phase graph-edge reconcile (`via/graph-wiring.ts`) + taint overlay, exactly
  *     as before;
  *  4. wires i18n/dictKey late-attach via {@link reconcileI18nFields}/{@link reconcileDictKeyFields}
  *     — rebuilding the pipeline through {@link Collection._setVia} (#666's writer seam), mirroring
@@ -34,25 +34,25 @@
  * `checkPortLayering`), so `vault.ts` passes `this` once its relevant fields are readable from
  * outside the class (see `Vault`'s field declarations).
  */
-import type { Collection } from './collection.js'
-import { ViaPipeline, type HasWritableViaPipeline } from './via-pipeline.js'
-import { viaBinder, type ViaBinding } from './via.js'
-import { guardReconcileCollisions, type MergedViaFields } from './via-compose.js'
-import type { ViaGraph } from './via-graph.js'
+import type { Collection } from '../collection.js'
+import { ViaPipeline, type HasWritableViaPipeline } from './pipeline.js'
+import { viaBinder, type ViaBinding } from './index.js'
+import { guardReconcileCollisions, type MergedViaFields } from './compose.js'
+import type { ViaGraph } from './graph.js'
 import {
   validateReconcileGraphEdges, commitReconcileGraphEdges, applyTaintOverlay,
   type ReconcileGraphOptions,
-} from './via-graph-wiring.js'
-import { ValidationError } from './errors.js'
-import { resolveClassifiedFields } from '../port/with/classified-strategy.js'
+} from './graph-wiring.js'
+import { ValidationError } from '../errors.js'
+import { resolveClassifiedFields } from '../../port/with/classified-strategy.js'
 import {
   isStaticDictDescriptor,
   type I18nStrategy, type I18nTextDescriptor, type DictKeyDescriptor, type StaticDictDescriptor, type DictionaryHandle,
-} from '../port/with/i18n-strategy.js'
+} from '../../port/with/i18n-strategy.js'
 import {
   resolveLabelFromMap, dictCollectionName, collectLookupDictCompat, checkLookupMembership, buildLookupAltIndex,
   buildLookupSnapshotRows, registerLookupRefEdges, type LookupDescriptor,
-} from '../port/with/lookup-strategy.js'
+} from '../../port/with/lookup-strategy.js'
 
 type AnyCollection = Collection<Record<string, unknown>>
 
@@ -62,7 +62,7 @@ type AnyCollection = Collection<Record<string, unknown>>
  * DERIVED off `Collection` itself via `Parameters<...>` rather than imported by name — several
  * (`FieldMeta`, `CollectionMeta`, `ComputedFields`) are with-* service types the kernel spine may
  * not statically import (S5 port-layering); deriving them off the already-typed `Collection`
- * method avoids a second, duplicate type declaration too (mirrors `via-graph-wiring.ts`'s
+ * method avoids a second, duplicate type declaration too (mirrors `via/graph-wiring.ts`'s
  * `ComputedFieldsParam` trick).
  */
 export interface ReconcilableCollection extends HasWritableViaPipeline {
@@ -160,7 +160,7 @@ function insertLookupBinding(existing: readonly ViaBinding[], lookupBindingObj: 
  * reads, never a private `Collection` field reach-around; `collection.ts` is untouched by #664).
  *
  * Callers MUST run this BEFORE any `_apply*` mutation for the WHOLE reconcile call (Finding-M2
- * ordering law, `via-graph-wiring.ts#validateReconcileGraphEdges`'s doc comment) — see
+ * ordering law, `via/graph-wiring.ts#validateReconcileGraphEdges`'s doc comment) — see
  * {@link reconcileViaAttach}'s own early call, which runs this ahead of money/computed/classified
  * apply so a combined call (e.g. `moneyFields` + a not-yet-open matrix `lookupFields` entry) never
  * partially mutates money state before the whole call is refused. Also re-run at the top of

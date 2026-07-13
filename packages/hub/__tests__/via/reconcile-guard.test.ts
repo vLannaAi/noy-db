@@ -20,7 +20,7 @@ import { createNoydb, withDerivation } from '../../src/index.js'
 import { ValidationError } from '../../src/kernel/errors.js'
 import { money } from '../../src/via/money/descriptor.js'
 import { classified } from '../../src/via/classified/presets.js'
-import { via } from '../../src/kernel/via-compose.js'
+import { via } from '../../src/kernel/via/compose.js'
 import { inlineMemory } from '../classified/harness.js'
 
 interface Card extends Record<string, unknown> {
@@ -124,7 +124,7 @@ describe('#664 Part 1 — late-attach reconcile collision guard', () => {
 /**
  * CRITICAL fix (opus task review on #664a) — `guardReconcileCollisions` mapped EVERY existing
  * binding covering a field (via `covers?.(field)`) straight to a family through
- * `VIA_FIELD_MAP_FAMILY`, including the `taint` binding (`kernel/via-taint-binding.ts`, brand
+ * `VIA_FIELD_MAP_FAMILY`, including the `taint` binding (`kernel/via/taint-binding.ts`, brand
  * `'taint'`) — a posture OVERLAY, not a field-owning family. Under `sealAll` its `covers()` is
  * true for EVERY non-`_` field, and even in fixed-field-list mode it covers any field the graph
  * folded a non-default posture onto (e.g. a materialized computed field deriving from a

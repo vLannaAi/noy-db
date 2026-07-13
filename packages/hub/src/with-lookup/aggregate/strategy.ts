@@ -20,7 +20,7 @@ import type {
   AggregationUpstream,
 } from './aggregation.js'
 import type { GroupedQuery, GroupedQueryN } from './groupby.js'
-import type { ViaPipeline } from '../../kernel/via-pipeline.js'
+import type { ViaPipeline } from '../../kernel/via/pipeline.js'
 
 /**
  * Seam interface. `@internal` — will promote to public only when the

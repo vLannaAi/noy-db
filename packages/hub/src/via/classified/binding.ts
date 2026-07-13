@@ -24,8 +24,8 @@
  * mirrors today's "door 1" (`collection-config.ts`'s
  * `resolveCollectionConfig`). Both may throw `ClassifiedConfigError`.
  */
-import type { ViaBinding, ViaWriteCtx, ViaCryptoCtx, SealedSlotRef, ViaEraseCtx, ViaEraseReport } from '../../kernel/via.js'
-import { installViaBinder } from '../../kernel/via.js'
+import type { ViaBinding, ViaWriteCtx, ViaCryptoCtx, SealedSlotRef, ViaEraseCtx, ViaEraseReport } from '../../kernel/via/index.js'
+import { installViaBinder } from '../../kernel/via/index.js'
 import { SealedHandle } from '../../kernel/types.js'
 import { resolveClassifiedFields, type ClassifiedEntry } from './resolve.js'
 import { guardClassifiedCompat, type ClassifiedGuardCtx } from './guards.js'

@@ -1942,7 +1942,7 @@ function checkViaLayering() {
       if (/^via\//.test(target)) {
         fail(
           'via-layering',
-          `${rel} statically imports feature-layer path "${spec}" — the kernel spine may not reach into src/via/** (the Via port's feature layer). VIA_SHAPE_ALLOWLIST is EMPTY (the #626 baseline it once held was retired by #650 Task 6) — there is no grandfathered import left to match. Route through the Via port (kernel/via.ts) instead.`,
+          `${rel} statically imports feature-layer path "${spec}" — the kernel spine may not reach into src/via/** (the Via port's feature layer). VIA_SHAPE_ALLOWLIST is EMPTY (the #626 baseline it once held was retired by #650 Task 6) — there is no grandfathered import left to match. Route through the Via port (kernel/via/index.ts) instead.`,
           file,
         )
       }

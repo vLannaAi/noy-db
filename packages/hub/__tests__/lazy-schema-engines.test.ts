@@ -9,7 +9,7 @@
 // when its declaration is present.
 //
 // NOTE on ordering: the money Via binder installs into module-level state
-// (kernel/via.ts's `binders` map) when `money()` is first called, so the
+// (kernel/via/index.ts's `binders` map) when `money()` is first called, so the
 // "not installed" assertions run FIRST in this file (vitest runs a file's
 // tests sequentially, and each test file gets its own module registry).
 
@@ -17,7 +17,7 @@ import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../src/index.js'
 import { money } from '../src/via/money/descriptor.js'
-import { isViaInstalled, viaBinder } from '../src/kernel/via.js'
+import { isViaInstalled, viaBinder } from '../src/kernel/via/index.js'
 import { withAggregate } from '../src/with-lookup/aggregate/index.js'
 import { sum } from '../src/with-lookup/aggregate/reducers.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'

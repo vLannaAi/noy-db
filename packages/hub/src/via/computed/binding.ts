@@ -11,21 +11,21 @@
  * `decodeAtRest` — the field never appears in `_data` or any `_sealed`
  * slot), and its posture is fixed `queryable: 'none'` — there is no stored/
  * indexed form to query against, regardless of what its sources would
- * otherwise permit (`ViaGraph`'s grain-'virtual' clamp, `kernel/via-graph.ts`,
+ * otherwise permit (`ViaGraph`'s grain-'virtual' clamp, `kernel/via/graph.ts`,
  * is the belt; this binding's own static posture is the suspenders for a
  * depsless virtual field, which registers no graph edge at all).
  *
  * Export/read redaction for a TAINTED virtual field (sourced from a
  * classified/sealed field) is NOT this binding's job — it stays ignorant of
  * taint, exactly like `evalComputedFields` stays ignorant of it for
- * materialized fields. `kernel/via-taint-binding.ts#taintBinding` (appended
- * to the pipeline by `via-graph-wiring.ts#applyTaintOverlay`, AFTER this
+ * materialized fields. `kernel/via/taint-binding.ts#taintBinding` (appended
+ * to the pipeline by `via/graph-wiring.ts#applyTaintOverlay`, AFTER this
  * binding) overwrites a tainted virtual field's value with the same
  * `EXPORT_REDACTION_MARKER` on every present() — the one enforcement seam
  * every via feature's taint already routes through.
  */
-import type { ViaBinding, ViaPosture } from '../../kernel/via.js'
-import { installViaBinder } from '../../kernel/via.js'
+import type { ViaBinding, ViaPosture } from '../../kernel/via/index.js'
+import { installViaBinder } from '../../kernel/via/index.js'
 import type { ComputedDescriptor } from './descriptor.js'
 
 export interface ComputedViaConfig {

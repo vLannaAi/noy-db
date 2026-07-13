@@ -3,7 +3,7 @@
  * from other fields on the same record (#638 Task 7, spec §6). Composes
  * with `via()` (the locked grammar since phase A: `via(computed(fn, { deps,
  * mode }), money('EUR'))`), grouped by `_viaBrand` like every other via
- * feature (`kernel/via-compose.ts#mergeViaFields`).
+ * feature (`kernel/via/compose.ts#mergeViaFields`).
  *
  * `mode` picks where the function runs:
  *  - `'materialized'` (default) — TODAY's stage-5 write-time eager compute
@@ -21,7 +21,7 @@
  * classified fields (`kernel/collection-config.ts#resolveComputedEdges`
  * refuses it — closes the #636 opaque-function leak).
  */
-import type { ViaDescriptor } from '../../kernel/via.js'
+import type { ViaDescriptor } from '../../kernel/via/index.js'
 
 export interface ComputedDescriptor extends ViaDescriptor {
   readonly _viaBrand: 'computed'

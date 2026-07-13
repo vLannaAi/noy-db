@@ -1,6 +1,6 @@
 import type { Collection } from '../../kernel/collection.js'
 import type { TxContext } from '../../with-commit/tx/transaction.js'
-import type { PutDerivedOutputCtx } from '../../kernel/via-dispatch.js'
+import type { PutDerivedOutputCtx } from '../../kernel/via/dispatch.js'
 import type { MaterializedViewRegistry } from './registry.js'
 // Type-only — runtime class loaded via dynamic import in
 // `resolveStaleMVOnRead` only when a stale flag actually fires.

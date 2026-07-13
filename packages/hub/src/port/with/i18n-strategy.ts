@@ -44,7 +44,7 @@ import type { I18nTextDescriptor } from '../../via/i18n/core.js'
 import type { Layer } from '../../via/i18n/policy.js'
 import type { ScriptWarning } from '../../via/i18n/script.js'
 import type { DictKeyDescriptor, DictionaryHandle, DictionaryOptions, StaticDictDescriptor } from '../../via/i18n/dictionary.js'
-import type { ViaCryptoCtx } from '../../kernel/via.js'
+import type { ViaCryptoCtx } from '../../kernel/via/index.js'
 import type { EncryptedEnvelope } from '../../kernel/types.js'
 
 /**
@@ -214,7 +214,7 @@ export function isStaticDictDescriptor(x: unknown): x is StaticDictDescriptor {
 /**
  * Runtime predicate for detecting an I18nTextDescriptor. Pure tag check —
  * moved here (#623 Task 11) alongside `isStaticDictDescriptor` so
- * `kernel/via-compose.ts` (`mergeViaFields`'s descriptor-shape classification)
+ * `kernel/via/compose.ts` (`mergeViaFields`'s descriptor-shape classification)
  * can reach it through the port instead of importing `via/i18n/core.js`
  * directly. Re-exported from that module for compat with existing importers.
  */

@@ -30,7 +30,7 @@ import { moneyBinding } from '../../src/via/money/binding.js'
 import { i18nBinding } from '../../src/via/i18n/binding.js'
 import { classifiedBinding } from '../../src/via/classified/binding.js'
 import { blobBinding } from '../../src/via/blob/binding.js'
-import { ViaPipeline, EXPORT_REDACTION_MARKER } from '../../src/kernel/via-pipeline.js'
+import { ViaPipeline, EXPORT_REDACTION_MARKER } from '../../src/kernel/via/pipeline.js'
 import { NO_I18N } from '../../src/port/with/i18n-strategy.js'
 import { inlineMemory } from '../classified/harness.js'
 

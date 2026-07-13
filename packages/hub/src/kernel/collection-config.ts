@@ -49,7 +49,7 @@ import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, Dicti
 import type { LookupDescriptor, MaterializedBacking } from '../port/with/lookup-strategy.js'
 import { buildPresentForJoin } from '../port/with/lookup-strategy.js'
 import type { ComputedFields, ComputedFn, ComputedFieldEntry } from '../with-formula/computed/index.js'
-import type { RollupDeleteIntent } from './via-dispatch.js'
+import type { RollupDeleteIntent } from './via/dispatch.js'
 // #638 Task 7 — the value import (not just `import type`) forces the port module's eager
 // `linkComputedVia()` to run whenever this file loads (collection-config.ts is always in the
 // dependency graph), so `viaBinder('computed')` is resolvable before `compileViaBindings` needs it.
@@ -60,7 +60,7 @@ import {
   type ClassifiedEntry, type ResolvedClassified, type ClassifiedGuardCtx, type ClassifiedStrategy, type ClassifiedViaConfig,
 } from '../port/with/classified-strategy.js'
 import { ClassifiedConfigError, ValidationError } from './errors.js'
-import type { FieldRef, Grain } from './via-graph.js'
+import type { FieldRef, Grain } from './via/graph.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
 import type { RefDescriptor } from './refs.js'
@@ -74,9 +74,9 @@ import type { MaterializedViewRegistry } from '../with-formula/materialized-view
 import type { MVQueryContext } from '../with-formula/materialized-views/types.js'
 import type { Collection, OnDirtyCallback, CacheOptions } from './collection.js'
 import type { LazyStrategy } from '../port/with/lazy-strategy.js'
-import { ViaPipeline } from './via-pipeline.js'
-import { viaBinder, type ViaBinding, type ViaDescriptor } from './via.js'
-import { mergeViaFields, guardCrossBindingFieldCollisions, type ViaFieldSpec } from './via-compose.js'
+import { ViaPipeline } from './via/pipeline.js'
+import { viaBinder, type ViaBinding, type ViaDescriptor } from './via/index.js'
+import { mergeViaFields, guardCrossBindingFieldCollisions, type ViaFieldSpec } from './via/compose.js'
 
 /**
  * Raw options handed to the {@link Collection} constructor by the Vault.
@@ -525,7 +525,7 @@ export interface CollectionOpts<T> {
 
 /** One normalized `ComputedFields` entry — a plain `ComputedFn` or a `ComputedFieldEntry`
  *  reduced to its parts, `mode` always defaulted (#638 Task 7). Exported so
- *  `via-graph-wiring.ts`'s reconcile-path guard can check `mode` without duplicating
+ *  `via/graph-wiring.ts`'s reconcile-path guard can check `mode` without duplicating
  *  the plain-fn-vs-object-form normalization. */
 export interface ComputedEntryParts { readonly fn: ComputedFn; readonly deps?: readonly string[]; readonly mode: 'materialized' | 'virtual' }
 
@@ -536,7 +536,7 @@ export function computedEntryParts(entry: ComputedFn | ComputedFieldEntry): Comp
 
 /**
  * #638 Task 7 — union the `computed:` sugar option with `via(computed(...))`-declared
- * entries (`kernel/via-compose.ts#mergeViaFields`'s `computedFields` output) into ONE
+ * entries (`kernel/via/compose.ts#mergeViaFields`'s `computedFields` output) into ONE
  * per-field map. NEVER includes `resolvedClassified.riderComputed` — that sanctioned
  * classified→computed channel (seam map Part 4) stays outside every guard this map feeds
  * (`resolveComputedEdges`'s depsless-on-classified refusal, the rider-name collision check).
@@ -574,8 +574,8 @@ function unifyComputedFields<T>(opts: CollectionOpts<T>, viaComputedFields: Reco
  * `present` hook must run AFTER money's own `present` so a virtual field's
  * `deps` read the decoded (quantized) amount, not the raw stored form; at
  * present-time i18n/lookup's DRESSING now runs AFTER computed instead (#665
- * `_presentOrder`, `via-pipeline.ts` — compile order here is unchanged).
- * `via-graph-wiring.ts#applyTaintOverlay` appends the `taint`
+ * `_presentOrder`, `via/pipeline.ts` — compile order here is unchanged).
+ * `via/graph-wiring.ts#applyTaintOverlay` appends the `taint`
  * binding after WHATEVER this function returns, so taint's present-time
  * redaction always runs after computed's regardless of this ordering.
  * {@link Collection._applyMoneyFields} PREPENDS money for the same reason
@@ -638,7 +638,7 @@ export function compileViaBindings<T>(
   // SEPARATE binding from i18n above — dictKey()/staticDict() stay on the
   // i18n binding (the alias, unchanged); a collection declaring BOTH
   // dictKeyFields and lookupFields compiles both bindings.
-  // must move together with via-reconcile.ts's lookup binder-config block (reconcileLookupFields,
+  // must move together with via/reconcile.ts's lookup binder-config block (reconcileLookupFields,
   // the `viaBinder('lookup')({...})` call) (#664) — same option-shape contract.
   if (lookupFields !== undefined) {
     bindings.push(viaBinder('lookup')({
@@ -694,7 +694,7 @@ export interface GraphEdge { readonly target: FieldRef; readonly sources: readon
  * plain-field dep on a non-classified collection); the Task 7 review's CRITICAL finding
  * (a typo'd dep on a CLASSIFIED collection reopens the #636 leak) restored a
  * classified-only slice of it, scoped through this SAME helper rather than a
- * hand-rolled second universe — exported so `via-graph-wiring.ts`'s reconcile path can
+ * hand-rolled second universe — exported so `via/graph-wiring.ts`'s reconcile path can
  * build its own call-scoped knownFields the identical way the fresh path does.
  */
 export function collectKnownFieldNames(parts: {
@@ -732,7 +732,7 @@ const EMPTY_KNOWN_FIELDS: ReadonlySet<string> = new Set()
  * collection also declares classified fields (`hasClassifiedFields`), in which case an
  * opaque computed function could silently copy a classified field's plaintext into an
  * ordinary, unredacted field (the #636 leak) — refused at declare time, regardless of
- * `mode` (a virtual field's read-time redaction, `via-taint-binding.ts`, only fires for a
+ * `mode` (a virtual field's read-time redaction, `via/taint-binding.ts`, only fires for a
  * field the graph actually taints — a depsless one never is).
  *
  * A `deps` entry may name ANY field — including a PLAIN field with no via feature
@@ -1056,7 +1056,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     viaDepsEdges,
     // #638 Task 7 — every declared computed field name (both modes, both surfaces); the
     // reconcile path's cross-call depsless-computed leak-guard memory
-    // (`via-graph-wiring.ts#registerCollectionGraphSources`) reads this instead of
+    // (`via/graph-wiring.ts#registerCollectionGraphSources`) reads this instead of
     // `Object.keys(opts.computed ?? {})` alone, so a via(computed(...))-declared field
     // participates in that guard identically to a sugar-declared one.
     computedFieldNames: Object.keys(allComputed),

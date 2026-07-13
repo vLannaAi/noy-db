@@ -5,7 +5,7 @@ import { money } from '../../src/via/money/descriptor.js'
 import { i18nText } from '../../src/via/i18n/core.js'
 import { dictKey } from '../../src/via/i18n/dictionary.js'
 import { withI18n } from '../../src/via/i18n/index.js'
-import { via, isViaFieldSpec } from '../../src/kernel/via-compose.js'
+import { via, isViaFieldSpec } from '../../src/kernel/via/compose.js'
 import { ValidationError } from '../../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
