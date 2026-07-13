@@ -1265,6 +1265,17 @@ export type ConflictStrategy =
  * - `'manual'` — emits `sync:conflict` with a `resolve` callback. Call
  *   `resolve(winner)` synchronously to commit or `resolve(null)` to defer.
  * - Custom fn — synchronous `(local: T, remote: T) => T`. Must be pure.
+ *
+ * **Delete-vs-edit caveat:** `'last-writer-wins'`, `'first-writer-wins'`,
+ * and `'manual'` compare/hand over raw envelopes, so an edit CAN win over
+ * a delete marker (a later `_ts`, an earlier `_v`, or the app's own
+ * `resolve()` choice). A custom fn, and the CRDT merge modes `'lww-map'`/
+ * `'rga'` (`crdtStrategy`), CANNOT: their shared resolver wrapper decrypts
+ * both sides first and short-circuits to whichever side is the
+ * shredded/tombstoned one *before* the merge function (or CRDT merge)
+ * ever runs — delete unconditionally wins. CRDT mode `'yjs'` is the
+ * exception among CRDT modes: it never decrypts and falls back to a
+ * plain higher-`_v`-wins compare, so an edit can beat a delete there too.
  */
 export type ConflictPolicy<T> =
   | 'last-writer-wins'

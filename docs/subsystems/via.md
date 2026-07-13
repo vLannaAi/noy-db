@@ -50,6 +50,8 @@ noy-db speaks **prepositions**; the grain is the tier. `for` and `with` are JS r
 
 **Collection = the meeting point, not a tier.** Everything collection-level decomposes: per-collection *configuration* of `with-` services (conflictPolicy, crdt, lazy), kernel-fixed validation (schema), aggregated field declarations (sugar for per-field `via(...)`), and collection *topology* already defined by `with-` factories. No third preposition.
 
+**Delete-vs-edit conflict caveat:** a custom-fn `conflictPolicy` and the CRDT merge modes `'lww-map'`/`'rga'` can never keep an edit over a delete marker — the shared resolver wrapper checks for a shredded/tombstoned side first and returns it unconditionally, before either the merge fn or the CRDT merge runs. `'last-writer-wins'`, `'first-writer-wins'`, `'manual'`, and CRDT mode `'yjs'` (which falls back to a raw version compare, no decrypt) do NOT special-case delete markers, so an edit can win there. See `ConflictPolicy<T>` in `kernel/types.ts`.
+
 ## The `via()` composer
 
 Fields declare their features using `via(...)`, the unified field-feature declaration surface. `viaFields` is a **sibling** collection option next to `schema` — never a key inside `schema` — and holds one `via(...)` per declared field:

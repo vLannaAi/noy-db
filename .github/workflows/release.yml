@@ -383,3 +383,47 @@ jobs:
           echo "- npm dist-tag: \`${{ steps.dist_tag.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Provenance: enabled (look for the ✓ on https://www.npmjs.com/package/@noy-db/hub)" >> "$GITHUB_STEP_SUMMARY"
+
+      # #600: tell noy-db-docs a fresh publish needs a doc-sync (the
+      # registry/llms.txt + llms-full.txt regeneration). Opens a tracking
+      # issue in the docs repo carrying the version/tag, the dist-tag
+      # channel, a link back to this run, and the packages that just went
+      # out — reusing the same version/channel values as the Summarise
+      # step above, not recomputed.
+      #
+      # continue-on-error: true — a noy-db-docs outage, or a
+      # not-yet-provisioned secret, must NEVER fail a publish that already
+      # succeeded; the step just no-ops and doc-sync is triggered by hand.
+      #
+      # DOCS_SYNC_TOKEN is a fine-grained PAT with Issues:write on
+      # vLannaAi/noy-db-docs, provisioned by the maintainer in this repo's
+      # Settings → Secrets before the pre.11 publish — the default
+      # GITHUB_TOKEN is repo-scoped and cannot open issues cross-repo.
+      # Without it this step no-ops (continue-on-error) and doc-sync must
+      # be triggered manually.
+      - name: Notify noy-db-docs of a new publish
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.DOCS_SYNC_TOKEN }}
+        run: |
+          VERSION="${{ github.event.release.tag_name || github.ref_name }}"
+          CHANNEL="${{ steps.dist_tag.outputs.tag }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          PACKAGES=$(pnpm ls -r --filter '@noy-db/*' --depth -1 --json | jq -r '.[].name' | sort)
+
+          {
+            echo "Release \`$VERSION\` was just published to npm dist-tag \`$CHANNEL\`."
+            echo ""
+            echo "- Channel: \`$CHANNEL\`"
+            echo "- Run: $RUN_URL"
+            echo ""
+            echo "Published packages:"
+            echo "$PACKAGES" | sed 's/^/- /'
+            echo "- create-noy-db"
+            echo ""
+            echo "Please run the doc-sync (registry/llms.txt + llms-full.txt regeneration) for this release — see \`docs.manifest.json\` for the last-synced version per channel."
+          } > /tmp/doc-sync-issue-body.md
+
+          gh issue create -R vLannaAi/noy-db-docs \
+            --title "doc-sync needed: $VERSION @$CHANNEL" \
+            --body-file /tmp/doc-sync-issue-body.md
