@@ -113,13 +113,13 @@ import type { EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
 import { getAtPath } from './paths.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import { NO_I18N, type I18nStrategy, type I18nTextDescriptor } from '../port/with/i18n-strategy.js'
-import { isViaInstalled } from './via.js'
-import { mergeViaFields, type ViaFieldSpec } from './via-compose.js'
-import { exportRedact } from './via-pipeline.js'
-import { ViaGraph } from './via-graph.js'
-import { registerCollectionGraphSources, applyTaintOverlay, reapplyDependentOverlays } from './via-graph-wiring.js'
-import { reconcileViaAttach, type ViaReconcileVaultCtx } from './via-reconcile.js'
-import { runGraphDispatchWave, putDerivedOutput, ledgerAuditHook, forgetDerivedFanout, touchFor, type GraphBatch, type ForgetFanoutStats, type RollupDeleteIntent } from './via-dispatch.js'
+import { isViaInstalled } from './via/index.js'
+import { mergeViaFields, type ViaFieldSpec } from './via/compose.js'
+import { exportRedact } from './via/pipeline.js'
+import { ViaGraph } from './via/graph.js'
+import { registerCollectionGraphSources, applyTaintOverlay, reapplyDependentOverlays } from './via/graph-wiring.js'
+import { reconcileViaAttach, type ViaReconcileVaultCtx } from './via/reconcile.js'
+import { runGraphDispatchWave, putDerivedOutput, ledgerAuditHook, forgetDerivedFanout, touchFor, type GraphBatch, type ForgetFanoutStats, type RollupDeleteIntent } from './via/dispatch.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 // Type-only imports for the guard + derivation services. The
 // runtime classes are loaded on demand via `await import(...)` inside
@@ -383,7 +383,7 @@ export class Vault {
   /** Per-collection field name → StaticDictDescriptor, validated by `enforceStaticDictOnPut`. */
   private readonly staticDescriptorByField = new Map<string, Record<string, StaticDictDescriptor>>()
 
-  /** i18nText fields: collection name → field name → descriptor. Used by `applyI18nLocale`/`validateI18nTextValue`; populated by `collection()` from `i18nFields`. Private — the #664 `via-reconcile.ts` dispatch reads these through {@link _viaReconcileCtx}'s structural bag, not `this` directly (a plain structural bag, never a `Vault` import — S5 port-layering forbids the kernel spine from reaching a with-* service, and this file's own reconcile-ladder logic moved OUT into that unguarded module). */
+  /** i18nText fields: collection name → field name → descriptor. Used by `applyI18nLocale`/`validateI18nTextValue`; populated by `collection()` from `i18nFields`. Private — the #664 `via/reconcile.ts` dispatch reads these through {@link _viaReconcileCtx}'s structural bag, not `this` directly (a plain structural bag, never a `Vault` import — S5 port-layering forbids the kernel spine from reaching a with-* service, and this file's own reconcile-ladder logic moved OUT into that unguarded module). */
   private readonly i18nFieldRegistry = new Map<string, Record<string, I18nTextDescriptor>>()
 
   /** Cache of DictionaryHandle instances, one per dictionary name. */
@@ -654,7 +654,7 @@ export class Vault {
    * Lazy mode + indexes is rejected at construction time — see the
    * Collection constructor for the rationale.
    */
-  /** Assembles {@link ViaReconcileVaultCtx} — the plain structural bag the #664 `via-reconcile.ts`
+  /** Assembles {@link ViaReconcileVaultCtx} — the plain structural bag the #664 `via/reconcile.ts`
    *  dispatch reads/writes — from this vault's OWN privates, rather than passing `this` itself. */
   private _viaReconcileCtx(): ViaReconcileVaultCtx {
     return {
@@ -857,7 +857,7 @@ export class Vault {
     const effectiveViaFields = mergeViaFields({ moneyFields: options?.moneyFields, i18nFields: options?.i18nFields, dictKeyFields: options?.dictKeyFields, lookupFields: options?.lookupFields, viaFields: options?.viaFields }) // #627: merged view feeds both late-attach reconcile (below) and fresh construct
     // #664 — the whole late-attach reconcile ladder (collision guard, the five pre-existing
     // _apply* reconciles, the two-phase graph-edge/taint commit, and the new i18n/dictKey
-    // machinery) now lives behind ONE dispatch call in the unguarded via-reconcile.ts, not
+    // machinery) now lives behind ONE dispatch call in the unguarded via/reconcile.ts, not
     // inlined here. `Collection._applyX`'s own first-wins semantics are unchanged; this file
     // only threads the field-declaring options + this vault's registries through.
     if (coll) {
@@ -1129,7 +1129,7 @@ export class Vault {
       }
       if (effectiveViaFields.lookupFields !== undefined) {
         // membership/getAltIndex (#650 Task 3) are vault-built closures — never a collection handle.
-        // must move together with via-reconcile.ts's five lookup closures (#664).
+        // must move together with via/reconcile.ts's five lookup closures (#664).
         collOpts.lookupLabelResolver = collOpts.dictLabelResolver
         collOpts.getLookupBacking = (desc: LookupDescriptor) => async (key: string) => // #651: snapshot-first (sole truth for key!=='id'); id-tier alone falls back to a live cold-session .get()
           buildLookupSnapshotRows(desc, (n) => this.reservedLookupCollections.has(dictCollectionName(n)), (n) => this.dictionary(n), (n) => this.collection<Record<string, unknown>>(n))?.get(key) ?? (desc.key === 'id' ? (await this.collection<Record<string, unknown>>(desc.dimension).get(key)) ?? undefined : undefined)

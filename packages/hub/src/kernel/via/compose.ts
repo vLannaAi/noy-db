@@ -11,27 +11,27 @@
  * descriptor's `_viaBrand` and merges it with the sugar keys, throwing when
  * the same field is declared in both places (#623 Task 9).
  */
-import { ValidationError } from './errors.js'
-import type { ViaBinding, ViaDescriptor } from './via.js'
-import type { ViaPipeline } from './via-pipeline.js'
+import { ValidationError } from '../errors.js'
+import type { ViaBinding, ViaDescriptor } from './index.js'
+import type { ViaPipeline } from './pipeline.js'
 // Types + shape-classification predicates reach through the kernel's own
 // `port/with/` hook seam (never `src/via/` directly) — #623 Task 11.
 // `isI18nTextDescriptor`/`isDictKeyDescriptor` are pure tag checks moved
 // onto the port alongside `isStaticDictDescriptor` (see i18n-strategy.ts);
 // the descriptor types were already port-owned re-exports (#623 Task 8).
-import type { DictKeyDescriptor, I18nTextDescriptor, StaticDictDescriptor } from '../port/with/i18n-strategy.js'
-import { isDictKeyDescriptor, isI18nTextDescriptor, isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
+import type { DictKeyDescriptor, I18nTextDescriptor, StaticDictDescriptor } from '../../port/with/i18n-strategy.js'
+import { isDictKeyDescriptor, isI18nTextDescriptor, isStaticDictDescriptor } from '../../port/with/i18n-strategy.js'
 // `ComputedDescriptor` is a type-only need — the eager link that makes
 // `viaBinder('computed')` resolvable lives in `collection-config.ts`'s value
 // import of this same port module (#638 Task 7).
-import type { ComputedDescriptor } from '../port/with/computed-strategy.js'
+import type { ComputedDescriptor } from '../../port/with/computed-strategy.js'
 // #650 Task 2 — `LookupDescriptor`/`isLookupDescriptor` reach through the
 // SAME kernel port seam (no new `src/via/**` specifier here; `linkLookupVia()`
 // already ran when the caller constructed the descriptor via `lookup()`/
 // `enumOf()`/`dict()`, so `viaBinder('lookup')` is resolvable with no eager
 // import needed here, mirroring i18n/money — see `descriptor.ts`).
-import type { LookupDescriptor } from '../port/with/lookup-strategy.js'
-import { isLookupDescriptor } from '../port/with/lookup-strategy.js'
+import type { LookupDescriptor } from '../../port/with/lookup-strategy.js'
+import { isLookupDescriptor } from '../../port/with/lookup-strategy.js'
 
 /** Tagged container returned by {@link via}. Readonly — never mutated after construction. */
 export interface ViaFieldSpec {
@@ -272,7 +272,7 @@ export function guardCrossBindingFieldCollisions(
  *    THIS call's incoming family map claims the SAME field for a DIFFERENT family (e.g. call-1
  *    `classifiedFields:['ssn']`, call-2 `moneyFields:{ssn}`) — undetectable by (a) alone since
  *    the collision spans two calls. Read via the LIVE collection's compiled bindings
- *    (`coll._via.bindings`): each `ViaBinding.covers(field)` (`via.ts`) plus its `brand` tells us
+ *    (`coll._via.bindings`): each `ViaBinding.covers(field)` (`via/index.ts`) plus its `brand` tells us
  *    which family already owns the field, mapped through the SAME {@link VIA_FIELD_MAP_FAMILY}
  *    the incoming side uses — no new collection.ts surface needed.
  *
@@ -294,7 +294,7 @@ export function guardReconcileCollisions(
   if (!existingVia) return
   // `taint` is a posture OVERLAY, not a field-owning family — under `sealAll` its `covers()` is
   // true for every non-`_` field, so it must never be mapped through VIA_FIELD_MAP_FAMILY here
-  // (same exclusion precedent as via-graph-wiring.ts's `.filter(b => b.brand !== 'taint')`).
+  // (same exclusion precedent as via/graph-wiring.ts's `.filter(b => b.brand !== 'taint')`).
   const existingBindings: readonly ViaBinding[] = existingVia.bindings.filter((b) => b.brand !== 'taint')
   for (const [sourceKey, map] of Object.entries(incomingFieldMaps)) {
     const incomingFamily = VIA_FIELD_MAP_FAMILY[sourceKey]

@@ -19,7 +19,7 @@ import type { ReducerBuilder } from '../../with-lookup/aggregate/reducers.js'
 import { reducerBuilder } from '../../with-lookup/aggregate/reducers.js'
 import type { GroupedQuery, GroupedQueryN } from '../../with-lookup/aggregate/groupby.js'
 import { NO_AGGREGATE, type AggregateStrategy } from '../../with-lookup/aggregate/strategy.js'
-import type { ViaPipeline } from '../via-pipeline.js'
+import type { ViaPipeline } from '../via/pipeline.js'
 
 export interface OrderBy {
   readonly field: string

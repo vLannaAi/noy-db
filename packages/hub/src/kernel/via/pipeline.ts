@@ -1,5 +1,5 @@
-import type { ViaBinding, ViaPosture, ViaWriteCtx, ViaReadCtx, ViaCryptoCtx, SealedSlotRef, ViaEraseCtx, ViaEraseReport } from './via.js'
-import { ValidationError, FieldNotQueryableError } from './errors.js'
+import type { ViaBinding, ViaPosture, ViaWriteCtx, ViaReadCtx, ViaCryptoCtx, SealedSlotRef, ViaEraseCtx, ViaEraseReport } from './index.js'
+import { ValidationError, FieldNotQueryableError } from '../errors.js'
 
 /** Opaque per-clause query payload carried on FieldClause (replaces the money-only slot). */
 export interface ViaClause {
@@ -10,7 +10,7 @@ export interface ViaClause {
 /**
  * The graph-computed taint overlay (#638 Task 3) — `postureFor`'s
  * assignment→enforcement bridge. `postures`/`sealFields` are the
- * enforcement-facing shapes `via-taint-binding.ts#buildTaintOverlay`
+ * enforcement-facing shapes `via/taint-binding.ts#buildTaintOverlay`
  * produces from `ViaGraph.taintedPostures`/`taintSealedFields`;
  * `provenance` (optional — introspection only, never consulted by
  * `postureFor`) is `ViaGraph.taintProvenance`'s output, surfaced by
@@ -65,10 +65,10 @@ export class ViaPipeline {
    * all ran under money-first. i18n/lookup are genuine dressing consumers
    * (they only ADD, never rewrite), so they stay after computed, which is
    * the fix #665 intended. A `'taint'` binding (appended LAST by
-   * `via-graph-wiring.ts#applyTaintOverlay`) stays last here too (it's
+   * `via/graph-wiring.ts#applyTaintOverlay`) stays last here too (it's
    * neither money nor computed, so it lands at the tail of the "everything
    * else" slice), preserving its "runs after computed, redacts tainted
-   * virtual output" contract (`via-taint-binding.ts`'s `taintBinding` doc
+   * virtual output" contract (`via/taint-binding.ts`'s `taintBinding` doc
    * comment).
    *
    * Money-dressing a virtual computed field's OWN output (the composed
@@ -234,7 +234,7 @@ export class ViaPipeline {
    * derived field's assigned (most-restrictive-of-sources) posture wins over
    * whatever a binding would otherwise report for that field name (no
    * binding covers a computed/derived field today, so this never actually
-   * shadows one — see `via-taint-binding.ts`'s `taintBinding.covers`, which
+   * shadows one — see `via/taint-binding.ts`'s `taintBinding.covers`, which
    * only claims the sealed subset for `encodeAtRest`/`decodeAtRest`, not for
    * this lookup).
    */
@@ -366,7 +366,7 @@ export class ViaPipeline {
   /**
    * Fold every binding's `describeFragment()` into one `brand -> fragment`
    * map (#650 Task 7 — the first-ever consumer; `describeFragment` was
-   * declared at `via.ts:136` since #623 with zero callers until this task).
+   * declared at `via/index.ts:136` since #623 with zero callers until this task).
    * `undefined` when no compiled binding implements it. Consumed by
    * `Collection.describe()`/`describeAsync()`, threaded to `buildDescription`
    * as `BuildDescriptionInput.viaFragments`.
@@ -403,7 +403,7 @@ interface HasViaPipeline {
 }
 
 /**
- * Widened sibling of {@link HasViaPipeline}: `via-graph-wiring.ts`'s
+ * Widened sibling of {@link HasViaPipeline}: `via/graph-wiring.ts`'s
  * `applyTaintOverlay` (#666) needs to REASSIGN the live pipeline, not just
  * read it — `_setVia` is `Collection`'s typed writer seam (`kernel/
  * collection.ts`, beside `_via`), replacing the earlier untyped `coll as {

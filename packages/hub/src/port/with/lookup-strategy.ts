@@ -23,7 +23,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { LedgerStore } from '../../with-commit/history/ledger/store.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
-import type { ViaCryptoCtx } from '../../kernel/via.js'
+import type { ViaCryptoCtx } from '../../kernel/via/index.js'
 import type { LookupHandle, DictionaryOptions } from '../../via/lookup/handle.js'
 import {
   enforceStaticDictOnPut,
@@ -161,7 +161,7 @@ export { dictCollectionName } from '../../via/lookup/handle.js'
 
 // #650 Task 2 — the alias-equivalence bridge (`resolveLabelFromMap` +
 // `collectLookupDictCompat`/`lookupToStaticDictCompat`) + the runtime
-// brand/shape predicates `via-compose.ts` needs to route `'lookup'`-branded
+// brand/shape predicates `via/compose.ts` needs to route `'lookup'`-branded
 // descriptors, mirroring `isI18nTextDescriptor`/`isDictKeyDescriptor` below.
 export { resolveLabelFromMap, collectLookupDictCompat, lookupToStaticDictCompat }
 export type { LookupDictCompat }
@@ -184,7 +184,7 @@ export type { LookupSnapshot } from '../../via/lookup/snapshot.js'
 
 // #651 Task 3 — the ONE descriptor-keyed key-resolution core (guarded coercion +
 // backing-row-key resolve + referencing-value match) — every consumer (vault.ts,
-// with-shape/links/vault-facade.ts, kernel/via-dispatch.ts) routes through here,
+// with-shape/links/vault-facade.ts, kernel/via/dispatch.ts) routes through here,
 // never a bare `String()`, ending the dm12 dialect drift.
 export { coerceLookupKey, resolveBackingRowKey, matchesReferencingValue }
 

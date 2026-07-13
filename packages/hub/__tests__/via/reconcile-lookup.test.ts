@@ -250,7 +250,7 @@ describe('#664 Part 2b — first-wins: a second, later lookupFields call is a no
 })
 
 describe('t8r1 — combined single-call late-attach (i18n/dictKey + lookup on DIFFERENT fields): pins the separate-if dispatch', () => {
-  // `reconcileViaAttach` (via-reconcile.ts) dispatches i18n/dictKey and lookup through two
+  // `reconcileViaAttach` (via/reconcile.ts) dispatches i18n/dictKey and lookup through two
   // SEPARATE `if` statements, deliberately not chained as an else-if (see its own doc comment) —
   // because a single vault.collection() call may legally declare i18nFields/dictKeyFields on one
   // field AND lookupFields on a DIFFERENT field in the SAME call. A future collapse onto a shared

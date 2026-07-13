@@ -21,7 +21,7 @@
  * `ssnLast4` (truncated copy) are sealed at rest here, exactly as before.
  * `__tests__/computed/virtual.test.ts` (#638 Task 7) is the dedicated
  * `mode: 'virtual'` suite — a virtual field's taint redaction rides
- * `present()` without ever touching `_sealed`, per `via-taint-binding.ts`'s
+ * `present()` without ever touching `_sealed`, per `via/taint-binding.ts`'s
  * `presentRedactFields`.
  */
 import { describe, it, expect } from 'vitest'

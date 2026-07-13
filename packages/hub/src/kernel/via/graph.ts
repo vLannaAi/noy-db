@@ -1,12 +1,12 @@
-// kernel/via-graph.ts — the per-vault ViaGraph dependency model (Via port phase C, #638).
+// kernel/via/graph.ts — the per-vault ViaGraph dependency model (Via port phase C, #638).
 //
 // Metadata-only dependency graph over (collection, field) nodes: source-field
 // postures, derived-field edges, and the taint (effective-posture) algebra.
 // NEVER stores record values or key material — see
 // docs/superpowers/specs/2026-07-11-via-phase-c-design.md §1/§2.
 
-import { DerivationCycleError, MaterializedViewCycleError } from './errors.js'
-import type { ViaPosture } from './via.js'
+import { DerivationCycleError, MaterializedViewCycleError } from '../errors.js'
+import type { ViaPosture } from './index.js'
 
 /** A (collection, field) node. Artifact-grain targets (rollup field, MV row-class,
  *  overlay output) are modelled as a field node whose `field` is the artifact key. */
@@ -185,7 +185,7 @@ export class ViaGraph {
   /** Every field name the graph already has memory of for `collection` — from an
    *  EARLIER, separate `vault.collection()` call (registered postures, derived
    *  targets, depsless-computed names) — regardless of which via feature declared
-   *  it. #645 — `via-graph-wiring.ts`'s reconcile-path `knownFields` universe
+   *  it. #645 — `via/graph-wiring.ts`'s reconcile-path `knownFields` universe
    *  (`collectKnownFieldNames`) is scoped to THIS call's own options only, so a
    *  computed field attached in a LATER call whose `deps` correctly names a field
    *  declared in an EARLIER call was spuriously refused as "unknown"; this method
@@ -361,7 +361,7 @@ export class ViaGraph {
   }
 
   /** Fields on `collection` whose registered edge is `grain === 'virtual'` (#638 Task 7) —
-   *  `via-graph-wiring.ts#applyTaintOverlay` intersects this with `exportable === false`
+   *  `via/graph-wiring.ts#applyTaintOverlay` intersects this with `exportable === false`
    *  postures to know which virtual fields need PRESENT-TIME (not just export-time)
    *  redaction, since a virtual field's value is only ever materialized inside `present()`. */
   virtualFields(collection: string): ReadonlySet<string> {

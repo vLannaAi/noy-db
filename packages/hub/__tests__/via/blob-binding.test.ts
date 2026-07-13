@@ -10,8 +10,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import { blobBinding, linkBlobVia, type BlobViaConfig } from '../../src/via/blob/binding.js'
 import type { BlobFieldsConfig } from '../../src/with-shape/blobs/blob-compaction.js'
-import { ViaPipeline } from '../../src/kernel/via-pipeline.js'
-import { isViaInstalled, viaBinder, type ViaCryptoCtx, type ViaEraseCtx, type ViaEraseReport } from '../../src/kernel/via.js'
+import { ViaPipeline } from '../../src/kernel/via/pipeline.js'
+import { isViaInstalled, viaBinder, type ViaCryptoCtx, type ViaEraseCtx, type ViaEraseReport } from '../../src/kernel/via/index.js'
 
 const unusedCrypto: ViaCryptoCtx = {
   sealedSlots: {

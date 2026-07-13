@@ -10,7 +10,7 @@ import { classified } from '../../src/via/classified/presets.js'
 import type { ClassifiedGuardCtx } from '../../src/via/classified/guards.js'
 import { ClassifiedConfigError } from '../../src/kernel/errors.js'
 import { ClassifiedNeverStoredError, ClassifiedValidationError } from '../../src/via/classified/errors.js'
-import type { ViaCryptoCtx, ViaWriteCtx, ViaEraseCtx } from '../../src/kernel/via.js'
+import type { ViaCryptoCtx, ViaWriteCtx, ViaEraseCtx } from '../../src/kernel/via/index.js'
 import { SealedHandle } from '../../src/kernel/types.js'
 
 function guardCtx(over: Partial<ClassifiedGuardCtx> = {}): ClassifiedGuardCtx {

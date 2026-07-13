@@ -38,7 +38,7 @@ import type { TxStrategy } from '../with-commit/tx/strategy.js'
 import type { HistoryStrategy } from '../with-commit/history/strategy.js'
 import type { ForgetStrategy } from '../with-audit/forget/strategy.js'
 import type { SnapshotStrategy } from '../with-fork/snapshots/strategy.js'
-import type { DerivationSkippedFrozen } from './via-dispatch.js'
+import type { DerivationSkippedFrozen } from './via/dispatch.js'
 import type { AttestationStrategy } from '../with-audit/attestation/strategy.js'
 import type { ClassifiedStrategy } from '../port/with/classified-strategy.js'
 import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
@@ -65,7 +65,7 @@ import type { ShamirRecoveryProvider } from '../with-party/team/shamir-recovery-
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { CoordinationProvider } from '../port/by/types.js'
 import type { ScriptWarning } from '../port/with/i18n-strategy.js'
-import type { ViaDescriptor } from './via.js'
+import type { ViaDescriptor } from './via/index.js'
 import type { EnclaveKey } from './enclave/index.js'
 
 /** Format version for encrypted record envelopes. */
@@ -1433,7 +1433,7 @@ export interface NoydbEventMap {
   /**
    * #638 Task 5 — a dispatch-driven derivation/rollup/MV output write targeted a row whose
    * period is closed. The write is SKIPPED (the historical value stands); the SOURCE write
-   * that triggered the recompute still succeeded. See `kernel/via-dispatch.ts#putDerivedOutput`.
+   * that triggered the recompute still succeeded. See `kernel/via/dispatch.ts#putDerivedOutput`.
    * `source.id` may be a non-record sentinel (e.g. `'refreshView'`) for manual bulk-refresh-
    * triggered skips, not a real source record id.
    */
@@ -1453,7 +1453,7 @@ export interface NoydbEventMap {
    * (a genuine decrypt failure, a derive()/executor bug, a schema violation on the output, ...).
    * ADDITIVE to the existing `console.warn` in `runGraphDispatchWave` — never replaces it, so no
    * listener-dependent silence. One event per failed (collection, id); the wave still isolates
-   * the failure to just that one record. See `kernel/via-dispatch.ts#runGraphDispatchWave`.
+   * the failure to just that one record. See `kernel/via/dispatch.ts#runGraphDispatchWave`.
    */
   'derivation:wave-error': { collection: string; id: string; error: unknown }
 }

@@ -72,8 +72,8 @@ import { reducerBuilder } from './reducers.js'
 import { canonicalGroupKey } from './canonical-key.js'
 import { GroupCardinalityError } from '../../kernel/errors.js'
 import type { MoneyDescriptor } from '../../via/money/descriptor.js'
-import type { ViaPipeline } from '../../kernel/via-pipeline.js'
-import { viaBinder } from '../../kernel/via.js'
+import type { ViaPipeline } from '../../kernel/via/pipeline.js'
+import { viaBinder } from '../../kernel/via/index.js'
 import { applyI18nLocale, type I18nTextDescriptor } from '../../via/i18n/core.js'
 
 /**

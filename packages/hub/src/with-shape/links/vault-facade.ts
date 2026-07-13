@@ -29,7 +29,7 @@ import type { JoinableSource } from '../../kernel/query/index.js'
 import type { Collection } from '../../kernel/collection.js'
 import type { NoydbStore } from '../../kernel/types.js'
 import type { TxContext } from '../../with-commit/tx/transaction.js'
-import type { ViaGraph } from '../../kernel/via-graph.js'
+import type { ViaGraph } from '../../kernel/via/graph.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
 import { DictKeyInUseError, RestrictRefUnresolvableError } from '../../kernel/errors.js'
 import { coerceLookupKey, matchesReferencingValue } from '../../port/with/lookup-strategy.js'
@@ -354,7 +354,7 @@ export class VaultLinks {
    *
    * #654: an edge whose compare-key can't be resolved is no longer a bare silent `continue` — it
    * pushes a `backing:key:collection.field` entry onto `residue` (mirroring
-   * `applyLookupRefsFanout`'s forget-path residue format, `kernel/via-dispatch.ts`) so the caller
+   * `applyLookupRefsFanout`'s forget-path residue format, `kernel/via/dispatch.ts`) so the caller
    * (`enforceLookupRefsOnDelete` below) can surface it instead of dropping it on the floor.
    */
   async applyLookupRefsPropagation(graph: ViaGraph, backingCollection: string, key: string): Promise<{ cascaded: number; nullified: number; residue: string[] }> {

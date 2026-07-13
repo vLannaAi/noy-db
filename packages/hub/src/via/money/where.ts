@@ -36,7 +36,7 @@ interface MoneyOperandEntry {
 
 /**
  * The opaque `via` clause payload for a `where()` over a declared money
- * field (see `ViaBinding.buildClause` in kernel/via.ts). `entries` holds
+ * field (see `ViaBinding.buildClause` in kernel/via/index.ts). `entries` holds
  * one element for comparison ops, two for `between` (lo, hi — same
  * currency), N for `in`.
  */
@@ -134,7 +134,7 @@ export function moneyFieldClause(
 
 /**
  * The `via` index-probe operand for a `where()` over a declared money
- * field (see `ViaBinding.indexProbe` in kernel/via.ts) — the STORED-form
+ * field (see `ViaBinding.indexProbe` in kernel/via/index.ts) — the STORED-form
  * value `CollectionIndexes.lookupEqual`/`lookupIn` (`with-lookup/indexing/
  * eager-indexes.ts`) can bucket directly.
  *

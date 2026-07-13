@@ -8,14 +8,14 @@
  * `queryable: 'none'` (`FieldNotQueryableError` via the existing posture
  * gate), and — when its declared `deps` include a classified/tainted source
  * — redacted with the SAME `EXPORT_REDACTION_MARKER` on every read, not just
- * export (`via-taint-binding.ts`'s extended `presentRedactFields`).
+ * export (`via/taint-binding.ts`'s extended `presentRedactFields`).
  * Materialized mode (the default) is BYTE-FOR-BYTE today's stage-5 eager
  * compute — the parity test below pins it against the plain `computed:`
  * sugar form.
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb, FieldNotQueryableError, ValidationError, SealedHandle } from '../../src/index.js'
-import { via } from '../../src/kernel/via-compose.js'
+import { via } from '../../src/kernel/via/compose.js'
 import { computed } from '../../src/via/computed/descriptor.js'
 import { money } from '../../src/via/money/descriptor.js'
 import { classified } from '../../src/via/classified/presets.js'
@@ -136,7 +136,7 @@ describe('computed(virtual) — read-time, never-stored mode (#638 Task 7)', () 
   it('composed grammar: via(computed(...), money(...)) on one field is accepted and computes, but money never dresses the virtual output — KNOWN LIMITATION (value-shape, not ordering)', async () => {
     // Decision 5's locked grammar (`via(computed(fn, { deps, mode }), money('EUR'))`) —
     // this pins that the composition is LEGAL and produces the computed function's raw
-    // result, undressed. `_presentOrder` (`kernel/via-pipeline.ts`) is a THREE-WAY
+    // result, undressed. `_presentOrder` (`kernel/via/pipeline.ts`) is a THREE-WAY
     // partition (money-brand bindings, then computed-brand bindings, then everything
     // else) that deliberately keeps money FIRST, at its pre-#665 present position — an
     // early #665 draft ran money AFTER computed (a two-way computed-first partition) and
@@ -242,7 +242,7 @@ describe('computed(virtual) — read-time, never-stored mode (#638 Task 7)', () 
   // pin the SAME claim for the `i18n` (dictKey) and `lookup` (dict()) families, in BOTH
   // declaration styles, and — since #665 — pin that virtual mode now dresses too:
   // `ViaPipeline`'s `present()` folds over a present-phase-local `_presentOrder`
-  // (`kernel/via-pipeline.ts`) that puts every `'computed'`-brand binding first, so a
+  // (`kernel/via/pipeline.ts`) that puts every `'computed'`-brand binding first, so a
   // virtual field's value exists BEFORE i18n/lookup's dressing `present()` hooks run on
   // it (previously `compileViaBindings`'s money→i18n→lookup→classified→blob→computed
   // ordering ran computed LAST, so a virtual field's label could never be dressed off a
@@ -350,7 +350,7 @@ describe('computed(virtual) — read-time, never-stored mode (#638 Task 7)', () 
   })
 
   // #665 second-order effects — pinned explicitly so the design choice is on the record,
-  // not just implicit in `_presentOrder`'s partition (`kernel/via-pipeline.ts`).
+  // not just implicit in `_presentOrder`'s partition (`kernel/via/pipeline.ts`).
   describe('#665 present-order — second-order effects (pinned, not just implicit)', () => {
     it('(a) chained virtual computeds: a LATER-declared field reading an EARLIER-declared virtual field\'s output works — declaration order, not a topo sort, and unaffected by #665', async () => {
       // The `computed` binding is ONE ViaBinding covering every virtual field on the

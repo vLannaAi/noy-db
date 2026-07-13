@@ -19,7 +19,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
-import type { ViaCryptoCtx } from '../../kernel/via.js'
+import type { ViaCryptoCtx } from '../../kernel/via/index.js'
 import type { LedgerStore } from '../../with-commit/history/ledger/store.js'
 import { envelopePayloadHash } from '../../with-commit/history/ledger/hash.js'
 import {

@@ -7,10 +7,10 @@ import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
 import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../port/with/i18n-strategy.js'
 import { isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
 import type { LookupDescriptor } from '../port/with/lookup-strategy.js'
-import { ViaPipeline } from './via-pipeline.js'
-import { viaBinder, type ViaDescriptor, type ViaWriteCtx, type ViaEraseReport } from './via.js'
+import { ViaPipeline } from './via/pipeline.js'
+import { viaBinder, type ViaDescriptor, type ViaWriteCtx, type ViaEraseReport } from './via/index.js'
 import type { MutationOrigin } from './mutation.js'
-import { putDerivedOutput, ledgerAuditHook, resolveRollupDeleteIntents, findRollupSpecForIntent, type WaveContext, type RollupOutcome, type RollupDeleteIntent } from './via-dispatch.js'
+import { putDerivedOutput, ledgerAuditHook, resolveRollupDeleteIntents, findRollupSpecForIntent, type WaveContext, type RollupOutcome, type RollupDeleteIntent } from './via/dispatch.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import {
   isTombstone,
@@ -2239,7 +2239,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     return putDerivedOutput(intoColl, parentId, patched, this.#dispatchCtx(source))
   }
 
-  /** @internal #640 — this deleted child's rollup PARENT intents (see via-dispatch.ts#resolveRollupDeleteIntents). */
+  /** @internal #640 — this deleted child's rollup PARENT intents (see via/dispatch.ts#resolveRollupDeleteIntents). */
   _rollupDeleteIntents(deleted: T): RollupDeleteIntent[] {
     return resolveRollupDeleteIntents(this.derivationSource?.registry(), this.name, deleted as Record<string, unknown>)
   }

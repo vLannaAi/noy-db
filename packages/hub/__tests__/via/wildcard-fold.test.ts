@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { ViaGraph, DEFAULT_POSTURE, foldWildcardSecurity } from '../../src/kernel/via-graph.js'
-import type { ViaPosture } from '../../src/kernel/via.js'
+import { ViaGraph, DEFAULT_POSTURE, foldWildcardSecurity } from '../../src/kernel/via/graph.js'
+import type { ViaPosture } from '../../src/kernel/via/index.js'
 
 // Real postures from the shipped bindings (via/classified/binding.ts:213,
 // via/blob/binding.ts:107) — used as realistic fixtures, not re-declared via

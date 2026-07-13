@@ -27,8 +27,8 @@ import { mintBidxTag } from '../classify/bidx.js'
 import { normalizeForVerify } from '../classify/normalize.js'
 import { validateSchemaOutput, type StandardSchemaV1 } from '../../schema.js'
 import type { Lru } from '../../cache/index.js'
-import type { ViaCryptoCtx, SealedSlotRef } from '../../via.js'
-import type { ViaPipeline } from '../../via-pipeline.js'
+import type { ViaCryptoCtx, SealedSlotRef } from '../../via/index.js'
+import type { ViaPipeline } from '../../via/pipeline.js'
 
 /**
  * One classified per-slot verdict from {@link RecordCodec.classifySealedShred}.
@@ -99,7 +99,7 @@ export interface RecordCodecContext<T> {
    * at-rest hook) stays byte/behavior-identical (#629 Task 3).
    *
    * Mutable (not `readonly`, #638 Task 3): `Collection.via` can be
-   * reassigned post-construction (the taint overlay, `via-graph-wiring.ts#
+   * reassigned post-construction (the taint overlay, `via/graph-wiring.ts#
    * applyTaintOverlay`) — `RecordCodec.setVia` below keeps this in sync so
    * at-rest hooks read the LIVE pipeline, not a stale construction-time
    * snapshot.
@@ -112,7 +112,7 @@ export class RecordCodec<T> {
 
   /**
    * @internal Update the live Via pipeline this codec's at-rest hooks read
-   * (#638 Task 3) — called by `via-graph-wiring.ts#applyTaintOverlay` right
+   * (#638 Task 3) — called by `via/graph-wiring.ts#applyTaintOverlay` right
    * after it reassigns `Collection.via`, so `hasAtRestHooks`/`encodeAtRest`/
    * `decodeAtRest` see the newly-added `taint` binding instead of the
    * pipeline snapshot captured when this codec was constructed.
@@ -334,7 +334,7 @@ export class RecordCodec<T> {
     // `sensitive: [...]` collection option; since #629, `classifiedFields`-
     // declared fields seal through their own via-binding hook, and since
     // #638 so does any field the taint graph seals — `via/classified/
-    // binding.ts` and `kernel/via-taint-binding.ts`, respectively). The
+    // binding.ts` and `kernel/via/taint-binding.ts`, respectively). The
     // zero-via fast path (no `via`, or a pipeline with no at-rest hooks,
     // e.g. money-only) always takes the `else if` branch, unchanged.
     let openRecord = record

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import type { ViaBinding, ViaReadCtx, ViaWriteCtx } from '../../src/kernel/via.js'
-import { ViaPipeline, type ViaClause } from '../../src/kernel/via-pipeline.js'
+import type { ViaBinding, ViaReadCtx, ViaWriteCtx } from '../../src/kernel/via/index.js'
+import { ViaPipeline, type ViaClause } from '../../src/kernel/via/pipeline.js'
 
 const fixtureBindingA = (): ViaBinding => ({
   brand: 'a',

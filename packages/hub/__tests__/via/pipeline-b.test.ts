@@ -6,8 +6,8 @@
  * choose between the hook path and today's inline sealed-slot path.
  */
 import { describe, it, expect } from 'vitest'
-import type { ViaBinding, ViaWriteCtx, ViaEraseCtx, ViaCryptoCtx, ViaPosture } from '../../src/kernel/via.js'
-import { ViaPipeline } from '../../src/kernel/via-pipeline.js'
+import type { ViaBinding, ViaWriteCtx, ViaEraseCtx, ViaCryptoCtx, ViaPosture } from '../../src/kernel/via/index.js'
+import { ViaPipeline } from '../../src/kernel/via/pipeline.js'
 import { ValidationError } from '../../src/kernel/errors.js'
 
 const posture = (): ViaPosture => ({ encryptedAtRest: 'envelope', queryable: 'full', exportable: true, forgettable: true })

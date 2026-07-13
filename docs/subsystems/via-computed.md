@@ -312,7 +312,7 @@ documented as "do not depend on this shape") is **removed**, not aliased — fol
   `computed(virtual)` plugs into)
 - [`docs/subsystems/via-classified.md`](via-classified.md) — the classified feature (the usual taint
   *source*)
-- `packages/hub/src/kernel/via-pipeline.ts` — `ViaPipeline._presentOrder` (#665's present-phase-only
+- `packages/hub/src/kernel/via/pipeline.ts` — `ViaPipeline._presentOrder` (#665's present-phase-only
   three-way partition: money, then computed, then everything else)
 - `packages/hub/src/via/computed/` — `computed()`/`ComputedDescriptor`/`computedBinding`
 - `packages/hub/__tests__/computed/virtual.test.ts` — the `mode: 'virtual'` suite (22 tests, incl.

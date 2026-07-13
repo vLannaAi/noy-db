@@ -14,8 +14,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import { RecordCodec, type RecordCodecContext } from '../../src/kernel/enclave/record-keys/record-codec.js'
-import { ViaPipeline } from '../../src/kernel/via-pipeline.js'
-import type { ViaBinding, ViaPosture } from '../../src/kernel/via.js'
+import { ViaPipeline } from '../../src/kernel/via/pipeline.js'
+import type { ViaBinding, ViaPosture } from '../../src/kernel/via/index.js'
 import { generateDEK, decrypt, type EnclaveKey } from '../../src/kernel/enclave/index.js'
 import { SealedHandle, type EncryptedEnvelope } from '../../src/kernel/types.js'
 import { NO_CRDT } from '../../src/with-commit/crdt/strategy.js'

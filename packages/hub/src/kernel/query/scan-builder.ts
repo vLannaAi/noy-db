@@ -69,7 +69,7 @@ import type {
 } from '../../with-lookup/aggregate/aggregation.js'
 import type { JoinContext, JoinLeg, JoinableSource } from './join.js'
 import { DanglingReferenceError, FieldNotQueryableError } from '../errors.js'
-import type { ViaPipeline } from '../via-pipeline.js'
+import type { ViaPipeline } from '../via/pipeline.js'
 
 /**
  * Page provider — the Collection-shaped hook the builder calls to

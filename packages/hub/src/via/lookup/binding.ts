@@ -18,7 +18,7 @@
  * `buildClause` (label-predicate queries) is still undeclared — out of scope
  * for #650. `compareForOrder` (#650 Task 6, spec §5; matrix tier added Task
  * 7) resolves a `sortBy`-declared field's ordering via `cfg.snapshotFor`'s
- * sync snapshot; the hook signature is UNCHANGED (`via.ts:128-129` — no
+ * sync snapshot; the hook signature is UNCHANGED (`via/index.ts:128-129` — no
  * locale param), so it closes over each descriptor's own `displayLocale`
  * (the same locale-less-hinge default `runLookupPresent`'s
  * `hasStaticDisplay` branch already uses). `resolveOrderLabel` (#650 Task
@@ -27,8 +27,8 @@
  * first-ever consumed `ViaBinding.describeFragment` implementation — see
  * `with-shape/introspection/describe.ts`'s `buildDescription`.
  */
-import type { ViaBinding, ViaReadCtx } from '../../kernel/via.js'
-import { installViaBinder } from '../../kernel/via.js'
+import type { ViaBinding, ViaReadCtx } from '../../kernel/via/index.js'
+import { installViaBinder } from '../../kernel/via/index.js'
 import type { LookupDescriptor, LookupBacking, Vocabulary, OnDelete } from './descriptor.js'
 import { resolvePolicy, type Layer } from '../i18n/policy.js'
 import { LocaleNotSpecifiedError, UnknownLookupKeyError, ValidationError } from '../../kernel/errors.js'
@@ -277,7 +277,7 @@ function getAltIndexOrThrow(field: string, desc: LookupDescriptor, cfg: LookupVi
  * Task 3, spec §3). Pure, sync, idempotent (a canonical key maps to
  * itself); no store read — consults the pre-materialized
  * `cfg.getAltIndex(desc)`. The money `canonicalizeIncomingMoney` precedent
- * (`via.ts:108`).
+ * (`via/index.ts:108`).
  *
  * A `[].`-wildcard multi-value path (`getAtPath` resolves >1 entries — an
  * array of nested objects, e.g. `'lines[].country'`, the same wildcard
@@ -406,7 +406,7 @@ async function runLookupEnforceWrite(record: Record<string, unknown>, cfg: Looku
  * directly; reserved AND matrix (collection) tier both read `cfg.snapshotFor`
  * (the SAME live cache `presentForJoin`'s lookup half reads — see
  * `snapshot.ts`'s file header). The hook has no locale parameter
- * (`via.ts:128-129`, unchanged) — closes over the descriptor's own
+ * (`via/index.ts:128-129`, unchanged) — closes over the descriptor's own
  * `displayLocale` (the same locale-less-hinge default `runLookupPresent`
  * already uses); a `sortBy` field whose value isn't locale-keyed
  * (`present.by` undefined) never needs one. A `by`-keyed `sortBy` field
