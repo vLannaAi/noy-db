@@ -137,6 +137,20 @@ export interface ViaBinding {
    */
   // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
   indexProbe?(op: string, payload: unknown): unknown | undefined
+  /**
+   * Optional: canonicalize a raw STORED field value into the bucket key an
+   * eager index should use (#672) — lets `CollectionIndexes` group a
+   * pre-declaration / non-canonical stored value (e.g. a money field's
+   * leftover `'0100'` written before its `money()` declaration) under the
+   * SAME key a canonical write produces (`'100'`), so the index-probe fast
+   * path (`indexProbe` above) and the fallback scan (`evaluateClause`)
+   * agree on which records match. `undefined` means "not mine / can't
+   * canonicalize this value" — the caller buckets the raw stringified
+   * value, unchanged from before this hook existed. MUST agree with what
+   * this binding's own `evaluateClause`/`indexProbe` treat as equal, or
+   * the fast path and the scan will disagree.
+   */
+  canonicalizeIndexKey?(field: string, rawValue: unknown): string | undefined
   /** Decode a raw stored record for query/scan results and callback views ('raw' — no virtuals). */
   decodeResults?(record: unknown): unknown
   /** Exact ordering for a covered field; undefined when the field is not covered. */

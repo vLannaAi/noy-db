@@ -84,12 +84,21 @@ export class CollectionIndexes {
   /**
    * Build all declared indexes from a snapshot of records.
    * Called once per hydration. O(N × indexes.size).
+   *
+   * `canonicalize` (#672) — an optional per-field bucket-key canonicalizer
+   * (money-aware via `ViaPipeline.canonicalizeIndexKey`), consulted before
+   * the raw `stringifyKey` fallback so a pre-declaration / non-canonical
+   * stored value (e.g. a legacy `'0100'`) is bucketed under the same key a
+   * canonical write produces.
    */
-  build<T>(records: ReadonlyArray<{ id: string; record: T }>): void {
+  build<T>(
+    records: ReadonlyArray<{ id: string; record: T }>,
+    canonicalize?: (field: string, value: unknown) => string | undefined,
+  ): void {
     for (const idx of this.indexes.values()) {
       idx.buckets.clear()
       for (const { id, record } of records) {
-        addToIndex(idx, id, record)
+        addToIndex(idx, id, record, canonicalize)
       }
     }
   }
@@ -182,10 +191,15 @@ function stringifyKey(value: unknown): string {
   return '\0OBJECT\0'
 }
 
-function addToIndex<T>(idx: HashIndex, id: string, record: T): void {
+function addToIndex<T>(
+  idx: HashIndex,
+  id: string,
+  record: T,
+  canonicalize?: (field: string, value: unknown) => string | undefined,
+): void {
   const value = readPath(record, idx.field)
   if (value === null || value === undefined) return
-  const key = stringifyKey(value)
+  const key = canonicalize?.(idx.field, value) ?? stringifyKey(value)
   let bucket = idx.buckets.get(key)
   if (!bucket) {
     bucket = new Set()
@@ -194,10 +208,15 @@ function addToIndex<T>(idx: HashIndex, id: string, record: T): void {
   bucket.add(id)
 }
 
-function removeFromIndex<T>(idx: HashIndex, id: string, record: T): void {
+function removeFromIndex<T>(
+  idx: HashIndex,
+  id: string,
+  record: T,
+  canonicalize?: (field: string, value: unknown) => string | undefined,
+): void {
   const value = readPath(record, idx.field)
   if (value === null || value === undefined) return
-  const key = stringifyKey(value)
+  const key = canonicalize?.(idx.field, value) ?? stringifyKey(value)
   const bucket = idx.buckets.get(key)
   if (!bucket) return
   bucket.delete(id)

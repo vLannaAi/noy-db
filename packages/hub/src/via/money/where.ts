@@ -153,21 +153,19 @@ export function moneyFieldClause(
  *   single stored-form value the hash index can serve, so they return
  *   `undefined` too — the caller falls back to a scan.
  *
- * MIXED-ERA CAVEAT: byte-exactness above holds for every record written
- * through the money write path (`quantizeMoneyFields`), which always
- * produces a canonical BigInt digit string. A record whose stored value
- * predates the field's `money()` declaration, or otherwise bypassed
- * `quantizeMoneyFields`, may hold a NON-canonical scaled string (e.g.
- * `'0100'` instead of `'100'`) — the index buckets it under that raw
- * string (`CollectionIndexes#addToIndex` reads the field verbatim, no
- * BigInt re-parse), so an `==`/`in` probe for the canonical `'100'` misses
- * it, while the fallback scan (`evaluateMoneyClause`'s `readStored`, which
- * DOES re-parse via `BigInt(actual).toString()`) still matches it. The fast
- * path is therefore byte-exact for the canonical (money-write-path) subset
- * of records, not literally every stored byte sequence; a re-`put()` of the
- * legacy record canonicalizes it going forward. A money-aware index-key
- * canonicalization (bucket by the BigInt-normalized form, not the raw
- * string) would close this gap — filed as a follow-up, not fixed here.
+ * MIXED-ERA DATA (#672, fixed): a record whose stored value predates the
+ * field's `money()` declaration, or otherwise bypassed `quantizeMoneyFields`,
+ * may hold a NON-canonical scaled string (e.g. `'0100'` instead of `'100'`).
+ * `CollectionIndexes#addToIndex`/`build` no longer bucket it under that raw
+ * string verbatim — they first consult `ViaPipeline.canonicalizeIndexKey`
+ * (money's implementation: `canonicalizeMoneyIndexKey`, `via/money/
+ * normalize.ts`), which re-parses the stored value the same way the scan's
+ * `evaluateMoneyClause`/`readStored` does (`BigInt(actual).toString()`), so
+ * the legacy record lands in the SAME bucket a canonical write produces and
+ * an `==`/`in` probe for `'100'` finds it. The two-string byte-identity
+ * argument above still explains WHY a canonical write's probe hits directly
+ * (no canonicalization needed for the common case); this note only covers
+ * the pre-declaration tail.
  */
 // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
 export function moneyIndexProbe(op: Operator, payload: MoneyWhereOperand): unknown | undefined {

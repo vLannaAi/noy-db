@@ -9,7 +9,7 @@
 import type { ViaBinding } from '../../kernel/via/index.js'
 import { installViaBinder } from '../../kernel/via/index.js'
 import type { MoneyDescriptor } from './descriptor.js'
-import { quantizeMoneyFields, decodeMoneyFields, canonicalizeStoredMoney, canonicalizeIncomingMoney, moneyScaledValue } from './normalize.js'
+import { quantizeMoneyFields, decodeMoneyFields, canonicalizeStoredMoney, canonicalizeIncomingMoney, moneyScaledValue, canonicalizeMoneyIndexKey } from './normalize.js'
 import { validateMoneyFieldPaths } from './paths.js'
 import { moneyFieldClause, evaluateMoneyClause, moneyIndexProbe, type MoneyWhereOperand } from './where.js'
 import { wrapMoneyReducers } from './money-reducer.js'
@@ -33,6 +33,7 @@ export function moneyBinding(moneyFields: Record<string, MoneyDescriptor>): ViaB
     },
     evaluateClause: (actual, op, payload) => evaluateMoneyClause(actual, op as Operator, payload as MoneyWhereOperand),
     indexProbe: (op, payload) => moneyIndexProbe(op as Operator, payload as MoneyWhereOperand),
+    canonicalizeIndexKey: (field, rawValue) => canonicalizeMoneyIndexKey(field, rawValue, moneyFields),
     decodeResults: (r) => decodeMoneyFields(r as Record<string, unknown>, moneyFields, 'raw'),
     compareForOrder: (field, a, b) => {
       const desc = moneyFields[field]

@@ -196,6 +196,22 @@ export class ViaPipeline {
     return b?.indexProbe ? b.indexProbe(op, clause.payload) : undefined
   }
 
+  /**
+   * Resolve a raw STORED field value to its canonical eager-index bucket
+   * key (#672) — folds every binding's `canonicalizeIndexKey`, first
+   * non-undefined wins (same fold discipline as `buildClause`). `undefined`
+   * means no binding claims `field` (or the value can't be canonicalized)
+   * — the caller buckets the raw stringified value, unchanged from before
+   * this hook existed.
+   */
+  canonicalizeIndexKey(field: string, rawValue: unknown): string | undefined {
+    for (const b of this.bindings) {
+      const key = b.canonicalizeIndexKey?.(field, rawValue)
+      if (key !== undefined) return key
+    }
+    return undefined
+  }
+
   decodeResults(record: unknown): unknown {
     let r = record
     for (const b of this.bindings) if (b.decodeResults) r = b.decodeResults(r)

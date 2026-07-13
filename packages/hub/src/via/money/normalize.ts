@@ -184,6 +184,30 @@ export function moneyScaledValue(stored: unknown, desc: MoneyDescriptor): bigint
 }
 
 /**
+ * The `ViaBinding.canonicalizeIndexKey` implementation for money (#672) —
+ * bucket an eager index's money field entries by the BigInt-normalized
+ * scaled-int string, not the raw stored bytes, so a pre-declaration /
+ * non-canonical value (e.g. `'0100'`) lands under the SAME key a canonical
+ * write produces (`'100'`). Only FIXED-mode declared money fields
+ * participate — multi-mode stores `{ amount, currency }`, which has no
+ * single bucketable scalar (mirrors `moneyIndexProbe`'s fixed-only gate,
+ * `via/money/where.ts`). `undefined` when `field` isn't a declared
+ * fixed-mode money field, or the stored value doesn't parse — in both
+ * cases the caller falls back to the raw stringified bucket, which is
+ * exactly what the scan (`evaluateMoneyClause`) also treats as a
+ * non-match, preserving fast-path/scan parity.
+ */
+export function canonicalizeMoneyIndexKey(
+  field: string,
+  rawValue: unknown,
+  moneyFields: Record<string, MoneyDescriptor>,
+): string | undefined {
+  const desc = moneyFields[field]
+  if (!desc || desc.mode !== 'fixed') return undefined
+  return moneyScaledValue(rawValue, desc)?.toString()
+}
+
+/**
  * Decode ONE stored field value to its read shape, or `null` when the
  * stored value is malformed (defensive — never brick a read).
  */

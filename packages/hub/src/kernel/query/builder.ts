@@ -1129,14 +1129,13 @@ function candidateRecords(source: InternalSource, clauses: readonly Clause[]): C
     // via `ViaBinding.indexProbe`) — the STORED-form operand for a direct
     // probe (fixed-mode money `==`/`in` today). When it's absent, skip the
     // index fast path for this clause; the fallback scan evaluates it via
-    // `clause.via.evaluate`. MIXED-ERA CAVEAT (money): this probe hits the
-    // index bucket keyed by the RAW stored string; a legacy non-canonical
-    // scaled value (predates the field's money() declaration) is bucketed
-    // under its raw form and misses a canonical probe, while the scan
-    // fallback (`evaluateMoneyClause`) re-parses via BigInt and still
-    // matches it — see `moneyIndexProbe`'s doc comment (via-money/where.ts)
-    // for the full caveat; a money-aware index-key canonicalization is a
-    // filed follow-up, not implemented here.
+    // `clause.via.evaluate`. MIXED-ERA DATA (money, #672 fixed): the index
+    // bucket this probe hits is no longer keyed by the RAW stored string —
+    // `CollectionIndexes` canonicalizes money keys through `ViaPipeline.
+    // canonicalizeIndexKey` on build/rebuild, so a legacy non-canonical
+    // scaled value (predates the field's money() declaration) lands in the
+    // SAME bucket a canonical probe looks up — see `moneyIndexProbe`'s doc
+    // comment (via-money/where.ts) for the full story.
     if (clause.via && clause.via.indexValue === undefined) continue
     const probeValue = clause.via ? clause.via.indexValue : clause.value
 

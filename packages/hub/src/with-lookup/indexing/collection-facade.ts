@@ -50,6 +50,12 @@ export interface IndexingContext<T> {
   readonly uniqueConstraints: UniqueConstraintSet | null
   /** The lazy-mode persisted-index mirror, or null (SHARED reference). */
   readonly persistedIndexes: PersistedCollectionIndex | null
+  /**
+   * Canonicalize a raw stored field value to its eager-index bucket key
+   * (#672 — money-aware via `ViaPipeline.canonicalizeIndexKey`). `undefined`
+   * when no `via` pipeline is compiled, or no binding claims the field.
+   */
+  readonly canonicalizeIndexKey?: (field: string, value: unknown) => string | undefined
   /** Hydrate the eager cache before rebuilding from it. */
   ensureHydrated(): Promise<void>
   /** Bulk-load the persisted-index mirror from side-cars (lazy mode). */
@@ -142,7 +148,7 @@ export function rebuildEagerIndexesFromCache<T>(ctx: IndexingContext<T>): void {
   for (const [id, entry] of ctx.cache) {
     snapshot.push({ id, record: entry.record })
   }
-  eager.build(snapshot)
+  eager.build(snapshot, ctx.canonicalizeIndexKey)
 }
 
 /**

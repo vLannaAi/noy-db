@@ -2029,8 +2029,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     } else {
       this.cache.set(id, { record: await this._toCacheableRecord(record, envelope, id), version })
       // Update secondary indexes incrementally — no-op if no indexes are
-      // declared. Pass the previous record (if any) so old buckets are
-      // cleaned up before the new value is added.
+      // declared. Pass the previous record (if any) so old buckets are cleaned up before the new value is added.
       this.indexes?.upsert(id, record, existing ? existing.record : null)
       // Update unique-constraint maps to reflect the successful write.
       this.uniqueConstraints?.upsert(id, record, existing?.record)
@@ -4461,6 +4460,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       lazy: this.lazy,
       emitter: this.emitter,
       indexes: this.indexes,
+      ...(this.via ? { canonicalizeIndexKey: (f: string, v: unknown) => this.via!.canonicalizeIndexKey(f, v) } : {}),
       uniqueConstraints: this.uniqueConstraints,
       persistedIndexes: this.persistedIndexes,
       ensureHydrated: () => this.ensureHydrated(),
