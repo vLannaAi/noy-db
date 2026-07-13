@@ -130,3 +130,15 @@ export { evaluateKofN } from './classify/kofn.js'
 // dynamic-import seam and is not part of the fork contract.
 export { deriveClassifyIndexKey, deriveClassifyIndexSalt, mintBidxTag } from './classify/bidx.js'
 export { computeBidxTarget } from './classify/find.js'
+
+// ─── broker (proof derivation + challenge/verify, #479 slice 2) ─────
+// ADDITIVE per Enclave Contract v1. A fork must provide these five; the
+// seed lifecycle + network/cache orchestration (with-party/broker/**) sits
+// behind its own dynamic-import seam and is not part of the fork contract.
+export {
+  deriveBrokerProofBits,
+  deriveBrokerProofKey,
+  computeBrokerProof,
+  issueChallenge,
+  verifyBrokerProof,
+} from './broker/proof.js'
