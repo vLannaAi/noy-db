@@ -1,5 +1,275 @@
 # Changelog — hub
 
+## 0.3.0-pre.10
+
+### Minor Changes
+
+- Retire the `/adapter`, `/kernel`, and `/describe` deprecated subpath aliases (legacy retirement, phase 1). This is a coordinated removal, not a deprecation: all known consumers were verified migrated before the aliases were pulled. `noy-db-to`'s stores bind `@noy-db/hub/to` (0 remaining `/adapter` references); `klum-db`'s lobby binds `@noy-db/hub/cargo` (0 remaining `/kernel` references); `@noy-db/ui`/`@noy-db/ui-nuxt` bind `@noy-db/hub/ui` (0 remaining `/describe` references). In-repo consumers (`to-memory`, `to-file`, `to-browser-idb`, `by-peer`, `by-tabs`, the `test-adapter-conformance` harness) were migrated in the same commit — `/adapter` → `/to`, `/kernel` → `/cargo`.
+
+  `/adapter` and `/describe`'s backing `src/legacy/*.ts` files are deleted outright — nothing referenced them internally. `src/legacy/kernel.ts` survives on disk (unpublished): `@noy-db/hub/cargo` re-exports its runtime-helper/error-class/type surface as its internal floor (`export * from '../legacy/kernel.js'`), so the file stays as an implementation detail of `/cargo`, not as a published subpath — the `./kernel` entry is gone from both `tsup.config.ts` and the `package.json` exports map.
+
+  `/bundle` is untouched and stays published — klum-db's interchange still binds it; its migration to `/pod` + `/cargo` is tracked as phase 2/3. Old published `@noy-db/hub` versions keep their `/adapter`, `/kernel`, `/describe` aliases; this only shapes the next release.
+
+  Removed the now-redundant golden freeze tests for the retired aliases (`adapter-surface-golden.test.ts`, `adapter-seam.test.ts`, `kernel-surface-golden.test.ts`, `kernel-surface.test.ts`, and their baseline JSON fixtures). `kernel-api-surface-golden.test.ts` (the `Noydb`/`Vault`/`Collection` prototype freeze) and `cargo-surface-golden.test.ts` are untouched — the latter still reads `src/legacy/kernel.ts` directly as part of its own mechanism, which is exactly why that file had to stay.
+
+- Milestone #31 via backlog closure — six issues (#666, #664, #639, #665, #661, #625), one branch.
+
+  - **#666 — `Collection._setVia(pipeline)` writer seam.** Internal refactor: the untyped
+    `coll as { via; codec: { setVia } }` cast `applyTaintOverlay` used to reassign a collection's
+    compiled `ViaPipeline` is replaced by a typed method. No observable behavior change; it exists
+    to give #664's late-attach machinery a sound way to rebuild the pipeline from outside
+    `collection.ts`.
+
+  - **#664 — late-attach (reconcile) parity for `i18nFields`/`dictKeyFields`/`lookupFields`.** A
+    SECOND-OR-LATER `vault.collection(name, {...})` call against an already-open collection always
+    supported `moneyFields`/`computed`/`fieldMeta`/`meta`/`classifiedFields`; these three families
+    were silently ignored on that path with no error. Now they attach: enum/static-tier lookup
+    fields attach cleanly (self-contained, no vault registry touch); reserved-tier (`dict()`) attach
+    additionally wires the same vault registries fresh construction populates (sync + reference-graph
+    both see the field immediately). **Matrix-tier lookup fields (`backing: 'collection'`) REFUSE to
+    late-attach** with a `ValidationError` naming the field/dimension/remedy unless the backing
+    collection is already open, this vault session, in eager (prefetch-enabled) mode — this is a
+    deliberate scope limit, not a bug: a lazy or not-yet-open backing dimension fails LOUD at
+    declare time instead of surfacing a confusing error the first time a query touches the field.
+    The pre-existing declare-time collision guard (two via families claiming the same field) now
+    also runs on every late-attach call, both within one call's own incoming fields and against the
+    collection's already-declared fields. Three known late-attach residuals, documented, not fixed
+    in this pass: `describeAsync({resolveDictLabels:true})`, `describe()`'s legacy top-level field
+    list, and join-side `presentForJoin` dressing — each reads a `Collection` field captured once at
+    fresh construction, not re-derived by a later reconcile call.
+
+  - **#639 — mutual/rotating rollup cycles now refused at declare time.** Two or more `withRollup()`
+    strategies whose targets mutually depend on each other used to be silently declarable — the
+    cycle was invisible to the dependency graph's cycle check because a rollup's target is a field
+    the graph only ever writes into, never reads from. `ViaGraph.assertAcyclic()`'s traversal now
+    additionally treats a real-field write as also being a write to its owning collection, closing
+    the gap. Fires at `Noydb.openVault()` (every derivation/MV strategy validates at vault open), and
+    throws `DerivationCycleError` — the same class every other declare-time cycle already throws.
+    Deliberately scoped to rollup-shaped cycles only; no runtime depth/reentrancy guard was added
+    (a declare-time sentinel fix, not a cycle breaker).
+
+  - **#665 — computed-first present order; `<field>Label`/`<field>Formatted` dressing now sees a
+    virtual computed field's output.** Before this fix, `computed`'s `present()` hook ran LAST, so
+    i18n/lookup's dressing hooks ran before a `mode: 'virtual'` computed field's value existed —
+    dressing was always a no-op for a composed field. `ViaPipeline._presentOrder` reorders the
+    PRESENT phase only (every other phase keeps the existing money-first compile order) so computed
+    runs before i18n/lookup. **Money is explicitly carved OUT of the generic reorder and kept in its
+    original present position** (a three-way partition: money, then computed, then everything else)
+    — money's `present()` DECODES its input as a stored scaled-int, unlike i18n/lookup which only
+    ADD a dressing key; running money after a virtual computed on the same field would misread the
+    computed output's raw major-unit number as a scaled-int and corrupt the value, not just leave it
+    undressed. **Two tradeoffs, pinned as tests, not follow-ups:** (1) a virtual computed field can
+    no longer read another field's dressing output (`<field>Label`/`Formatted`) — that composition
+    direction was never in this fix's scope and silently regresses if anyone relied on it; (2)
+    chained virtual computeds stay declaration-order-sensitive (a later-declared virtual field can
+    read an earlier-declared one's output; the reverse falls back to the reader's sentinel) — this
+    was already true before #665 and is unrelated to the present-order fix, just documented
+    alongside it. **Money-decorating-a-virtual-computed-field's-own-output stays an explicit,
+    out-of-scope KNOWN LIMITATION** — closing it needs a quantize-the-computed-output decision, not
+    an ordering fix; filed as a wrap-up follow-up.
+
+  - **#661 — bare-array lookup fields gain element-wise support.** A plain field whose own value is
+    an array (distinct from the pre-existing `[].`-wildcard multi-value path) had ZERO enforcement —
+    `getAtPath` resolved it to one opaque value, so both the altKey-normalizing `ingest` hook and the
+    closed-vocabulary `enforceWrite` hook silently skipped it; any value, known or not, passed
+    `put()` under `vocabulary: 'closed'`. Both hooks now handle this shape element-wise, reusing the
+    same canonical core the scalar and `[].`-wildcard paths already use — including at a dotted,
+    non-wildcard path (`'meta.tags'`), which works with no dedicated code since the underlying path
+    helpers already resolve dotted paths generically.
+
+  - **#625 — `ViaBinding.indexProbe` restores the index-accelerated fast path for fixed-mode money
+    `where()`.** A new, optional hook lets a binding hand the query builder a STORED-form operand for
+    a direct index-bucket lookup on `==`/`in`; without it (multi-currency money, every other
+    operator), the query builder falls back to a full scan, unchanged. This restores a fast path
+    phase A lost for money fields specifically. **Honest mixed-era caveat**: the fast path is
+    byte-exact for every record written through the money write path (which always produces a
+    canonical scaled-integer digit string); a legacy record whose stored value predates the field's
+    `money()` declaration may hold a non-canonical scaled string (e.g. `'0100'` instead of `'100'`)
+    — the index buckets it under that raw string and a canonical `==`/`in` probe misses it, while
+    the fallback scan (which re-parses via `BigInt`) still matches it correctly. The indexed fast
+    path therefore returns the canonical subset of matches, not literally every stored byte
+    sequence; a re-`put()` of a legacy record canonicalizes it going forward. A money-aware
+    index-key canonicalization would close this generally — filed as a wrap-up follow-up, not
+    implemented here.
+
+  **Additive surface, no breaking change:** `ViaBinding.indexProbe?(op, payload): unknown | undefined`
+  (kernel/via.ts) is a new optional hook — a type-level addition every existing binding is free to
+  leave unimplemented (falls back to a scan, unchanged behavior). Verified no `**/*golden*` file
+  changed anywhere on this branch (`git diff a2c80969..HEAD -- '**/golden*'` — empty), so no frozen
+  public-surface snapshot needed regenerating for any of the six issues above.
+
+  See [`docs/subsystems/via.md`](../docs/subsystems/via.md) (new "Milestone #31" section),
+  [`docs/subsystems/via-lookup.md`](../docs/subsystems/via-lookup.md) (late-attach + bare-array
+  sections), [`docs/subsystems/via-computed.md`](../docs/subsystems/via-computed.md) (present-order
+  section), and [`docs/subsystems/via-money.md`](../docs/subsystems/via-money.md) (indexing section)
+  for the full story, every example traced to a shipped test.
+
+- Milestone #32 via follow-ups — four issues closed.
+
+  - **#670** — `LookupHandle.rename()` publishes the new key to the sync cache before rewriting referencing records, so renaming a key on a `vocabulary: 'closed'` field no longer self-refuses with `UnknownLookupKeyError`; mid-rename, both the old and new keys are legitimately members.
+  - **#672** — Money-aware eager-index key canonicalization now runs at every bucket-mutation site (build/rebuild-on-hydrate, `put()`, `delete()`), via a new `ViaBinding.canonicalizeIndexKey` hook. A mixed-era (pre-money-declaration) legacy value's index fast path now agrees with the fallback scan instead of stranding it under its raw, non-canonical key. Boundary: lazy-mode (`prefetch: false`) collections keep their own raw-bucketing `PersistedCollectionIndex` side-car, unaffected — tracked separately.
+  - **#669** — Money now dresses a virtual computed field's own output (`via(computed(fn, {mode:'virtual'}), money(...))` on the same field) as MAJOR UNITS: the fn's return value is quantized to the currency scale (per the descriptor's declared rounding) and presented exactly like a stored money field — decimal string, `<field>Formatted`, `<field>Number` — via a new `ViaBinding.presentLate` hook. Unparseable/absent output is left raw, no throw. A taint-redacted virtual field's `Formatted`/`Number` companions are stripped along with the base field.
+  - **#671** — Five late-attach (reconcile) residuals fixed: (1) `getDictionary`/`resolveDictLabels` now resolves a late-attached dict field's labels, (2) `describe()`'s legacy top-level field list now includes late-attached fields, (3) `presentForJoin` now dresses late-attached i18n/lookup fields through the join path, (4) a money- or classified-only late-attach no longer silently drops an already-materialized taint overlay, (5) `ViaGraph.assertAcyclic()` no longer false-positives on legitimate mutual-FK `lookup`/`ref` edges between two collections. Items 1-3 ride a new `Collection._reconcileReadState` writer seam.
+
+- Via consolidation (milestone #30): four latent gaps surfaced by the phase A–D whole-branch
+  reviews — #642, #651, #654, #640 — plus riders on #644 (items 1+3) and #646 (fixture discipline).
+  No shipped consumer uses any of the affected surfaces yet (pre-1.0), so none of this carries a
+  migration story.
+
+  - **#642 — formula outputs derived from a classified-bearing collection are now sealed at rest,
+    non-exportable, and query-refused by default (BEHAVIOR CHANGE, the #636-principle completion).**
+    #636/#638 closed the leak for a `computed` field's own declared `deps`; a with-formula edge
+    (derivation/rollup/MV) still folded its posture from its source's whole-record `'*'` node, which
+    never carried a registered posture and always fell back to max-permissive — so a derive/rollup/MV
+    `fn` (which receives DECRYPTED records by design) that copied a classified field's plaintext
+    landed it UNSEALED in the output: exportable, queryable, synced. Both target shapes are now
+    covered — **rollup targets** (a real field on the parent) inherit the fold automatically through
+    the existing field-specific taint overlay; **derivation/MV/overlay output collections** (`'*'`
+    targets) gain a collection-level default posture that seals every non-`_`-prefixed field of the
+    output record. The fold is axis-scoped, not a blanket clamp: only `encryptedAtRest`/`exportable`/
+    `forgettable` fold from a classified source; `queryable` is left at the base posture and is never
+    pulled down by a blob/money/i18n-only source, and a `ref` edge's `'*'` source is excluded from the
+    fold entirely (kept at identity, so a lookup-referencing field never seals just because its
+    backing dimension happens to have a classified column — the countries-matrix recipe stays
+    byte-identical). **No migration**: pre-1.0, no shipped consumer reads a formula output today, so
+    there is nothing to migrate — a deliberate, ratified security-correct default. Explicit
+    per-declaration declassification is deferred to phase E, not built here. **KNOWN LIMIT**: the MV
+    leg is currently theoretical for classified sources — all three MV refresh modes pre-open their
+    source collection at `openVault`, and the pre-existing classified retro-declare guard then refuses
+    classifying it there, so the fold applies mechanically but is structurally unreachable today.
+    Landing this exposed
+    three genuine, pre-existing latent bugs in the at-rest cache layer — all three gated on a
+    collection's _local_ `sensitiveFields` being non-empty, which was always true historically because
+    a sealed field always co-occurred with a locally-declared classified field until a
+    taint-only-sealed collection (zero local `sensitiveFields`, sealed entirely via the graph fold)
+    became reachable: `RecordCodec.toCacheRecord` (a write-then-immediate-`get()` returned cached
+    plaintext instead of a `SealedHandle`), `Collection.resolvePriorValues`, and the `_getStoredRecord`
+    lazy-mode branch (both of the latter, left unfixed, broke the self-write cycle-termination guard
+    for a rollup patching its own parent — an **infinite write loop**, not a wrong-value bug).
+    `resolvePriorValues` and the `_getStoredRecord` lazy branch are now gated on
+    `sensitiveFields.size > 0 || via?.hasAtRestHooks === true`; `toCacheRecord`'s equivalent stale gate
+    was removed outright — the envelope's own `_sealed` presence fully determines whether wrapping is
+    needed.
+  - **#651 — one canonical key-resolution core; matrix direct-read `present()` dressing now works for
+    a non-default `key`.** A matrix lookup declared with `key !== 'id'` (e.g. `lookup('countries', {
+key: 'iso2' })`) previously resolved its DIRECT (non-join) `<field>Label` read by the backing
+    collection's PUT-id, not `descriptor.key` — silently omitting the label for exactly the canonical
+    recipe this feature exists for. `coerceLookupKey`/`resolveBackingRowKey`/`matchesReferencingValue`
+    are now the one shared key-resolution core all six call sites converge on (snapshot rows, altKey
+    index, membership check, compare-key resolution, the restrict/propagation match predicate, and
+    `getLookupBacking`'s direct-read closure) — ending a bare-`String()`-vs-guarded-coercion drift
+    between them. Two poisoning classes close as a result: a backing row missing its `descriptor.key`
+    field no longer enters the snapshot/altIndex under the literal string `"undefined"` (previously a
+    closed-vocabulary field could wrongly accept `"undefined"` as a valid key); and a nullified or
+    never-set referencing field no longer bare-`String()`-coerces to the literal `"null"`/`"undefined"`
+    and spuriously matches a dimension whose canonical key genuinely is that string. An altKey
+    candidate row VALUE may now be a string or a number — both normalize through the same core
+    (deliberate uniformity, not a new capability anyone asked for), and the ownership-uniqueness
+    collision check still fires across the numeric/string boundary (a numeric `1` and a string `'1'`
+    on two different rows still throw `ValidationError`).
+  - **#654 — an unresolvable restrict edge now REFUSES instead of silently letting the delete through;
+    ordinary-delete propagation residue-reports instead of silently dropping.** A `restrict`-mode
+    lookup edge whose compare-key can't be resolved (a corrupted backing row — the `key` field missing
+    or non-scalar) used to `continue` past the check entirely, deleting/forgetting the row with no
+    proof references don't exist. It now throws the new `RestrictRefUnresolvableError` (root-exported,
+    `{ dimension, key, referencing }`), the same "cannot prove no references ⇒ refuse" reasoning
+    `DictKeyInUseError` already applies when references ARE provably present. The `cascade`/`nullify`
+    ordinary-delete propagation path's twin failure (previously a bare `continue`, no report channel
+    at all) now proceeds but reports the skipped edge on a new `lookup:propagation-residue` event
+    (`{ vault, dimension, key, residue }`) — the ordinary-delete counterpart of the pre-existing
+    `forget()`-path `ForgetResult.lookupReferencesResidue` channel, which is unaffected. A resolvable
+    edge behaves exactly as before in every mode; this is a corruption-class-rarity refinement, not a
+    change to the common path.
+  - **#640 — sync-applied deletes now recompute rollup parents.** Previously, only a _local_ delete
+    triggered `dispatchRollupsOnDelete`; a remotely-deleted rollup child pulled over sync left its
+    parent aggregate stale indefinitely. The sync-apply choke point now classifies each applied
+    envelope as a put or a delete and threads deleted ids, batched and per-parent-deduped, through the
+    same dispatch wave `pull()`/`push()`/cutover/restore already run — routed to the rollup-recompute
+    trio only, never `dispatchDerivations`/MV-on-delete, mirroring the existing local-delete dispatch
+    boundary. **KNOWN LIMIT, stated honestly**: the deleted child's rollup-parent intents are resolved
+    from a synchronous pre-invalidation cache peek with no extra I/O; if that peek misses — a cold or
+    evicted child (lazy-mode LRU eviction before the sync-apply lands) **or** an un-hydrated eager
+    collection whose first sync operation for that child is itself a delete — the miss is silent and
+    freshness-only: that one child's contribution to the parent goes uncounted until the next sibling
+    write recomputes the parent from scratch. Correctness elsewhere is unaffected (the recompute always
+    reads the remaining children from the store, so nothing double-counts). Riders: `push()`/`pull()`
+    now flush the graph batch in a `finally` around `persistMeta()`, so a throw there no longer leaves
+    a stale open batch silently dropping the next wave's touches (#644 item 1); both the puts and
+    deletes legs of the dispatch wave now additionally emit a structured `'derivation:wave-error'`
+    event (`{ collection, id, error }`) alongside the pre-existing `console.warn`, so a sync that
+    completed with a failed per-id recompute is programmatically discoverable, not just logged (#644
+    item 3).
+
+  **Additive surfaces** (non-breaking): `RestrictRefUnresolvableError` (root-exported, alongside
+  `DictKeyInUseError`); the kernel event map gains `'lookup:propagation-residue'` and
+  `'derivation:wave-error'`.
+
+  See [`docs/subsystems/via.md`](../docs/subsystems/via.md) (Phase C section — the #642
+  formula-output-posture and #640 sync-delete-rollup subsections) and
+  [`docs/subsystems/via-lookup.md`](../docs/subsystems/via-lookup.md) (the #651 key-resolution/altKey
+  notes and the #654 restrict/propagation policy section) for the full story, every example traced to
+  its shipped test.
+
+### Patch Changes
+
+- Fix three `describe()` fidelity gaps (#657):
+
+  - A field declared only via `blobFields` was invisible in `describe()` — or, with a `fieldMeta` entry, appeared as `type:'unknown', widget:'text', editable:true`, actively wrong for binary content. The `'blob'` binding's `describeFragment()` is now consumed (mirroring the existing `'lookup'` consumer), so a blobFields field always appears with `type:'blob'`, `widget:'file'`, `editable:false`, and a `blob: { retainDays, ..., queryable:'none' }` block.
+  - Async `describe({}).constraints` no longer leaks zod's `.int()` ±`Number.MAX_SAFE_INTEGER` safe-integer sentinel as `minimum`/`maximum` — those are JS-representability facts, not authored validation intent. An authored bound on a non-`.int()` field is untouched.
+  - The static tier of `lookup()`/`dict()` (table-backed, no declared `keys`) now emits `lookup.keys` from the table's own key set, matching the `DescribedField.lookup` docblock's promise. Reserved/matrix tiers are unaffected.
+
+  - Note: `toJSONSchema()` currently degrades the new `type: 'blob'` to JSON-Schema `type: 'string'` with no marker — a describe()-only fidelity pass; the JSON-Schema story is a separate follow-up.
+
+- Via hardening round 2 (milestone #30 closure batch): nine small, independent hardening fixes on
+  top of the merged via-consolidation pass, plus a build-script rider. No shipped consumer uses any
+  of the affected surfaces yet (pre-1.0).
+
+  - **#632** — the static-import scanner (`scripts/check-architecture.mjs`) now also catches
+    side-effect imports (`import './x.js'`) and default imports (`import x from './x.js'`), not just
+    named/namespace imports. Both new forms are proven by a synthetic-violation canary; the guard
+    stays green on the real tree.
+  - **#645** — the reconcile computed-deps validator's "known fields" universe now unions
+    `ViaGraph`'s own field memory with the current call's options-derived set. A two-call scenario
+    (classified field declared in call 1, a computed field's `deps` naming it in call 2) no longer
+    spuriously refuses with "does not name a declared field".
+  - **#631** — a declare-time cross-binding guard refuses two different binding families (e.g.
+    `moneyFields` + `blobFields`) claiming the same field name. The exemption set is earned, not
+    assumed: `{computed,money}`, `{computed,i18n}`, and `{computed,lookup}` compositions are proven
+    legal by dedicated pins, and the guard is tightened to exactly-two-claimants. Classified/blob
+    collisions always refuse. The guard is construction-time; the late-attach reconcile path remains
+    narrower (a colliding re-open still half-applies as before — tracked follow-up).
+  - **#652** — lookup ingest now normalizes an array-valued (`[].`-wildcard) field element-wise,
+    matching `enforceWrite`'s existing all-elements semantics, instead of bailing on
+    `values.length !== 1`. Single-value behavior is unchanged. (Bare-array — non-`[].`-wildcard —
+    shape is a separate, still-open gap tracked by #661.)
+  - **#635** — an elevated-tier (`tier > 0`) read now processes `_sealed` slots through the same
+    `applySealedSlots` codec helper `decryptRecord` already uses, instead of falling back to raw
+    plaintext-shaped JSON. Tier-0 and tier>0 reads now share one contract. (The write-side
+    elevate/demote gap is separate and tracked by #662.)
+  - **#627** — `viaFields` sugar (e.g. `viaFields: { price: money('EUR') }`) now participates in the
+    late-attach reconcile path the same way the raw `moneyFields` sugar key already did — driven off
+    the merged `mergeViaFields` view, not the raw sugar key alone. A colliding late-attach
+    declaration now refuses loudly instead of silently no-op'ing.
+  - **#634** — `exportRedact`'s `(coll as any).via` reach-in is replaced by a typed internal `_via`
+    accessor; no behavior change, just removes the any-cast.
+  - **#641** — lazy materialized-view resolve-on-read now respects the frozen-output rule in both
+    strict and non-strict modes: a read whose MV output row falls in a frozen period returns the
+    historical row, skips the write, and emits `derivation:skipped-frozen` — it no longer lets a
+    `PeriodClosedError` escape through a read path.
+  - **#646** — the two remaining vacuous two-instance sync pins (`mutation-choke-point.test.ts`'s
+    MV sync-apply pin, `sync-dispatch.test.ts`'s id-threaded-decrypt pin) are retrofitted to
+    db2-only strategy registration, so a passing assertion can only be satisfied by the puller's own
+    wave-driven dispatch, not a shared-store write riding along from the local writer. Adds the two
+    net-new tests the issue's mutation-testing pass flagged as missing: cm23 (a virtual computed
+    field's structural absence from the sync payload, proven end-to-end over a real push()/pull()
+    cycle) and cm15 (the reconcile cross-read taint assertion, replayed against a fresh session so
+    the read is envelope-empirical rather than served from the writer's own warm cache).
+
+  Rider: the hub package's `build` script now carries the DTS worker's heap flag via `execArgv`
+  instead of requiring it in the caller's environment — plain `pnpm build` works with no env setup.
+  (#660 tracks the underlying type-surface fix that makes the larger heap necessary in the first
+  place.)
+
 ## 0.3.0-pre.9
 
 ### Minor Changes
