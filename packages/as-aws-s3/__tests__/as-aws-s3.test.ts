@@ -6,9 +6,29 @@
  * static credentials — SigV4 presigning is local crypto, so it runs offline.
  * No AWS credentials and no live calls are used.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { S3Client } from '@aws-sdk/client-s3'
 import { asAwsS3 } from '../src/index.js'
+import type { StoreCredentials } from '@noy-db/hub'
+
+// Spy on `new S3Client(config)` (no network mocking) by wrapping the real
+// class: a subclass records the config it's constructed with, then delegates
+// to `super()` so existing behavior (incl. the real-client presigned-URL
+// tests below) is unaffected. Captures the `credentials` field wired by
+// asAwsS3's #479 refresh-hook option.
+const { capturedConfigs } = vi.hoisted(() => ({ capturedConfigs: [] as Array<Record<string, unknown>> }))
+vi.mock('@aws-sdk/client-s3', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@aws-sdk/client-s3')>()
+  return {
+    ...actual,
+    S3Client: class extends actual.S3Client {
+      constructor(config: Record<string, unknown>) {
+        capturedConfigs.push(config)
+        super(config as ConstructorParameters<typeof actual.S3Client>[0])
+      }
+    },
+  }
+})
 
 function fakeClient(handlers: Record<string, (input: Record<string, unknown>) => unknown>) {
   const sent: Array<{ name: string; input: Record<string, unknown> }> = []
@@ -118,5 +138,55 @@ describe('as-aws-s3 — presigned URLs (real client, dummy creds, offline)', () 
     expect(url).toContain('big.mp4')
     expect(url).toContain('X-Amz-Signature=')
     expect(url).toContain('X-Amz-Expires=300')
+  })
+})
+
+describe('as-aws-s3 — credentials refresh hook (#479, spying on S3Client construction)', () => {
+  beforeEach(() => {
+    capturedConfigs.length = 0
+  })
+
+  it('V-A4: no `credentials` option preserves the ambient chain (no `credentials` key on config)', () => {
+    asAwsS3({ bucket: 'b' })
+    expect(capturedConfigs).toHaveLength(1)
+    expect('credentials' in capturedConfigs[0]!).toBe(false)
+  })
+
+  it('V-A4: a `credentials` option wires a functional AwsCredentialIdentityProvider', async () => {
+    const source = async (): Promise<StoreCredentials> => ({
+      kind: 'aws',
+      accessKeyId: 'AKIAEXAMPLE',
+      secretAccessKey: 'examplesecretkey',
+      sessionToken: 'tok',
+      expiresAt: '2026-01-01T00:00:00.000Z',
+    })
+    asAwsS3({ bucket: 'b', credentials: source })
+    const config = capturedConfigs[0]!
+    expect(typeof config.credentials).toBe('function')
+    const identity = await (config.credentials as () => Promise<Record<string, unknown>>)()
+    expect(identity).toEqual({
+      accessKeyId: 'AKIAEXAMPLE',
+      secretAccessKey: 'examplesecretkey',
+      sessionToken: 'tok',
+      expiration: new Date('2026-01-01T00:00:00.000Z'),
+    })
+  })
+
+  it('V-A0: mapAws maps `expiresAt` to a `Date`; a missing `expiresAt` yields `expiration: undefined`', async () => {
+    const source = async (): Promise<StoreCredentials> => ({
+      kind: 'aws',
+      accessKeyId: 'AKIAEXAMPLE',
+      secretAccessKey: 'examplesecretkey',
+    })
+    asAwsS3({ bucket: 'b', credentials: source })
+    const identity = await (capturedConfigs[0]!.credentials as () => Promise<Record<string, unknown>>)()
+    expect(identity.expiration).toBeUndefined()
+  })
+
+  it('the pre-built `client` escape hatch is unchanged: `credentials` is ignored when `client` is supplied', () => {
+    const fc = fakeClient({})
+    const source = async (): Promise<StoreCredentials> => ({ kind: 'aws', accessKeyId: 'a', secretAccessKey: 's' })
+    asAwsS3({ bucket: 'b', client: fc as unknown as S3Client, credentials: source })
+    expect(capturedConfigs).toHaveLength(0)
   })
 })

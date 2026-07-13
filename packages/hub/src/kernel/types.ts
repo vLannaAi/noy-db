@@ -2084,6 +2084,21 @@ export interface StoreAuth {
   flow: 'static' | 'oauth' | 'kerberos' | 'implicit'
 }
 
+/** Vendor-neutral short-lived store credentials. `kind` is the credential-PAYLOAD
+ *  discriminator — orthogonal to StoreAuthKind ('iam'|'api-key'|…), which is unchanged. */
+export type StoreCredentials =
+  | { readonly kind: 'aws'
+      readonly accessKeyId: string
+      readonly secretAccessKey: string
+      readonly sessionToken?: string
+      readonly expiresAt?: string }              // ISO 8601
+  | { readonly kind: 'token'                     // postgres/turso/supabase/webdav/bearer — a LATER slice
+      readonly token: string
+      readonly expiresAt?: string }
+
+/** Refresh hook a store calls when it has no credentials or they are near expiry. */
+export type StoreCredentialSource = () => Promise<StoreCredentials>
+
 /**
  * The store's authoritative clock as a bounded-uncertainty interval
  * (Spanner TrueTime model). True time is provably within [earliest, latest];

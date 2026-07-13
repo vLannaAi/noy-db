@@ -805,6 +805,8 @@
     "StoreAuthKind",
     "StoreCacheOptions",
     "StoreCapabilities",
+    "StoreCredentialSource",
+    "StoreCredentials",
     "StoreMiddleware",
     "StoreOperation",
     "StoreTime",
