@@ -6,19 +6,19 @@
     },
     "lazy": {
       "minifiedBytes": 1582,
-      "gzippedBytes": 539
+      "gzippedBytes": 540
     },
     "team": {
       "minifiedBytes": 1716,
       "gzippedBytes": 595
     },
     "broker": {
-      "minifiedBytes": 2488,
-      "gzippedBytes": 1025
+      "minifiedBytes": 2606,
+      "gzippedBytes": 1094
     },
     "history": {
       "minifiedBytes": 6095,
-      "gzippedBytes": 2321
+      "gzippedBytes": 2320
     },
     "classified": {
       "minifiedBytes": 2844,
@@ -26,16 +26,16 @@
     },
     "blobs": {
       "minifiedBytes": 1584,
-      "gzippedBytes": 551
+      "gzippedBytes": 552
     },
     "analytics": {
       "minifiedBytes": 2367,
-      "gzippedBytes": 898
+      "gzippedBytes": 899
     },
     "all-on": {
       "minifiedBytes": 30626,
       "gzippedBytes": 9431
     }
   },
-  "updatedAt": "2026-07-13T17:10:31.558Z"
+  "updatedAt": "2026-07-13T18:26:17.668Z"
 }
