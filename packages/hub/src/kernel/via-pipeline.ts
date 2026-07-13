@@ -27,7 +27,32 @@ export interface ViaTaintOverlay {
 }
 
 export class ViaPipeline {
-  private constructor(readonly bindings: readonly ViaBinding[], readonly taint?: ViaTaintOverlay) {}
+  /**
+   * Present-phase-ONLY order (#665) — a stable partition of `bindings`
+   * computed once here at construction: every `'computed'`-brand binding
+   * first, everything else in its existing relative order. `present()`
+   * folds over this instead of `bindings` so a `mode: 'virtual'` computed
+   * field's value exists before money/i18n/lookup's dressing `present()`
+   * hooks run on it (today's `compileViaBindings` order is money→i18n→
+   * lookup→classified→blob→computed, `collection-config.ts:643`, so
+   * dressing unconditionally ran BEFORE the value it dresses existed).
+   * EVERY other phase (`ingest`/`encodeWrite`/`encodeAtRest`/`enforceWrite`/
+   * etc.) keeps folding over `bindings` unchanged — those write/query phases
+   * need money-first (`_applyMoneyFields` PREPENDS money, `_applyClassifiedFields`
+   * APPENDS classified to preserve it, `kernel/collection.ts:1275-1284,1364-1368`).
+   * Only computed PRODUCES a value at present-time; money/i18n/lookup only
+   * CONSUME/dress, so this partition is the full topological order — no
+   * general topo sort is needed. A `'taint'` binding (appended LAST by
+   * `via-graph-wiring.ts#applyTaintOverlay`) stays last here too (it's
+   * non-computed, so it lands at the tail of the "everything else" slice),
+   * preserving its "runs after computed, redacts tainted virtual output"
+   * contract (`via-taint-binding.ts`'s `taintBinding` doc comment).
+   */
+  private readonly _presentOrder: readonly ViaBinding[]
+
+  private constructor(readonly bindings: readonly ViaBinding[], readonly taint?: ViaTaintOverlay) {
+    this._presentOrder = [...bindings.filter((b) => b.brand === 'computed'), ...bindings.filter((b) => b.brand !== 'computed')]
+  }
 
   /** undefined when there is nothing to enforce — the zero-via fast path is
    *  `this.via === undefined` (#553: keeps an all-plain collection sync). A
@@ -108,7 +133,7 @@ export class ViaPipeline {
 
   async present(record: Record<string, unknown>, ctx: ViaReadCtx): Promise<Record<string, unknown>> {
     let r = record
-    for (const b of this.bindings) if (b.present) r = await b.present(r, ctx)
+    for (const b of this._presentOrder) if (b.present) r = await b.present(r, ctx)
     return r
   }
 
