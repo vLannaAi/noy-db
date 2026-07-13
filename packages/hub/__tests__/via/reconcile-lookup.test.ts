@@ -13,15 +13,20 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/index.js'
 import { withI18n } from '../../src/shape/via-i18n/index.js'
+import { i18nText } from '../../src/shape/via-i18n/core.js'
+import { staticDict } from '../../src/shape/via-i18n/dictionary.js'
 import { lookup, enumOf, dict } from '../../src/shape/via-lookup/descriptor.js'
 import { money } from '../../src/shape/via-money/descriptor.js'
-import { UnknownLookupKeyError, DictKeyInUseError, ValidationError } from '../../src/kernel/errors.js'
+import { UnknownLookupKeyError, UnknownDictCodeError, DictKeyInUseError, ValidationError } from '../../src/kernel/errors.js'
 import { inlineMemory } from '../classified/harness.js'
 
 interface Order extends Record<string, unknown> { id: string; status: string }
 interface Country extends Record<string, unknown> { id: string; name: string }
 interface Traveler extends Record<string, unknown> { id: string; country: string }
 interface Item extends Record<string, unknown> { id: string; amount: number }
+interface Ticket extends Record<string, unknown> { id: string; memo?: Record<string, string>; status?: string; category?: string }
+
+const CIVIL_STATUS = { single: { en: 'Single', th: 'โสด' }, married: { en: 'Married', th: 'สมรส' } } as const
 
 const STATUS_TABLE = { paid: { en: 'Paid' }, due: { en: 'Due' } } as const
 
@@ -241,5 +246,60 @@ describe('#664 Part 2b — first-wins: a second, later lookupFields call is a no
     })).not.toThrow()
     // The FIRST config won — 'open' (not a member of the third call's key set) still passes.
     await expect(second.put('t1', { id: 't1', status: 'open' })).resolves.not.toThrow()
+  })
+})
+
+describe('t8r1 — combined single-call late-attach (i18n/dictKey + lookup on DIFFERENT fields): pins the separate-if dispatch', () => {
+  // `reconcileViaAttach` (via-reconcile.ts) dispatches i18n/dictKey and lookup through two
+  // SEPARATE `if` statements, deliberately not chained as an else-if (see its own doc comment) —
+  // because a single vault.collection() call may legally declare i18nFields/dictKeyFields on one
+  // field AND lookupFields on a DIFFERENT field in the SAME call. A future collapse onto a shared
+  // else-if ladder would silently drop whichever half runs second — these tests exercise BOTH
+  // halves activating from ONE call, so such a regression fails loudly.
+  it('(i) i18nFields (field A: memo) + lookupFields (field B: status) in ONE late-attach call: BOTH function afterward', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-t8r1-i18n-lookup-1', i18nStrategy: withI18n() })
+    const vault = await db.openVault('t8r1-a', { locale: 'en' })
+
+    const first = vault.collection<Ticket>('tickets-combo', {})
+    await first.put('t0', { id: 't0', memo: { en: 'pre' }, status: 'anything-goes' }) // pre-attach: unenforced
+
+    const second = vault.collection<Ticket>('tickets-combo', {
+      i18nFields: { memo: i18nText({ languages: ['en', 'th'], required: 'any' }) },
+      lookupFields: { status: enumOf(['open', 'closed']) },
+    })
+    expect(second).toBe(first)
+
+    // i18n half: memo resolves per-locale on a NEW write.
+    await second.put('t1', { id: 't1', memo: { en: 'Hello', th: 'สวัสดี' }, status: 'open' })
+    const t1 = await second.get('t1', { locale: 'th' })
+    expect(t1?.memo).toBe('สวัสดี')
+
+    // lookup half: status vocabulary enforces on a NEW write.
+    await expect(second.put('t2', { id: 't2', memo: { en: 'x' }, status: 'bogus' })).rejects.toThrow(UnknownLookupKeyError)
+    await expect(second.put('t3', { id: 't3', memo: { en: 'x' }, status: 'closed' })).resolves.not.toThrow()
+  })
+
+  it('(ii) dictKeyFields (field A: status) + lookupFields (field B: category) in ONE late-attach call: BOTH function afterward', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-t8r1-dictkey-lookup-1', i18nStrategy: withI18n() })
+    const vault = await db.openVault('t8r1-b', { locale: 'th' })
+
+    const first = vault.collection<Ticket>('tickets-combo-2', {})
+    await first.put('t0', { id: 't0', status: 'anything-goes', category: 'anything-goes' }) // pre-attach: unenforced
+
+    const second = vault.collection<Ticket>('tickets-combo-2', {
+      dictKeyFields: { status: staticDict('t8r1-civil-status', CIVIL_STATUS) },
+      lookupFields: { category: enumOf(['bug', 'feature']) },
+    })
+    expect(second).toBe(first)
+
+    // dictKey half: closed-vocab enforcement + <field>Label dressing.
+    await expect(second.put('t1', { id: 't1', status: 'not-a-key', category: 'bug' })).rejects.toThrow(UnknownDictCodeError)
+    await second.put('t2', { id: 't2', status: 'married', category: 'bug' })
+    const t2 = await second.get('t2', { locale: 'th' })
+    expect(t2?.['statusLabel']).toBe('สมรส')
+
+    // lookup half: category vocabulary enforces.
+    await expect(second.put('t3', { id: 't3', status: 'married', category: 'not-a-category' })).rejects.toThrow(UnknownLookupKeyError)
+    await expect(second.put('t4', { id: 't4', status: 'married', category: 'feature' })).resolves.not.toThrow()
   })
 })

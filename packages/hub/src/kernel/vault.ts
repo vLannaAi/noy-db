@@ -1129,6 +1129,7 @@ export class Vault {
       }
       if (effectiveViaFields.lookupFields !== undefined) {
         // membership/getAltIndex (#650 Task 3) are vault-built closures — never a collection handle.
+        // must move together with via-reconcile.ts's five lookup closures (#664).
         collOpts.lookupLabelResolver = collOpts.dictLabelResolver
         collOpts.getLookupBacking = (desc: LookupDescriptor) => async (key: string) => // #651: snapshot-first (sole truth for key!=='id'); id-tier alone falls back to a live cold-session .get()
           buildLookupSnapshotRows(desc, (n) => this.reservedLookupCollections.has(dictCollectionName(n)), (n) => this.dictionary(n), (n) => this.collection<Record<string, unknown>>(n))?.get(key) ?? (desc.key === 'id' ? (await this.collection<Record<string, unknown>>(desc.dimension).get(key)) ?? undefined : undefined)

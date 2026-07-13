@@ -77,6 +77,7 @@ async function freshDb(): Promise<Noydb> {
 
 interface Country extends Record<string, unknown> { id: string; iso2: string; iso3: string; callPrefix: string }
 interface Order extends Record<string, unknown> { id: string; tags: unknown[] }
+interface OrderWithMeta extends Record<string, unknown> { id: string; meta: { tags: unknown[] } }
 
 async function seed() {
   const db = await freshDb()
@@ -221,6 +222,33 @@ describe('lookup() bare-array field — enforceWrite closed-vocabulary membershi
     await expect(orders.put('o1', { id: 'o1', tags: ['US', 42, null] })).resolves.not.toThrow()
     const stored = await orders._getStoredRecord('o1')
     expect(stored?.tags).toEqual(['US', 42, null])
+  })
+})
+
+describe('lookup() bare-array field at a DOTTED (non-wildcard) path — same element-wise support (t8d4)', () => {
+  // 'meta.tags' is a bare array at a NESTED path, distinct from BOTH the top-level bare-array
+  // shape above and the 'lines[].country' wildcard shape — `getAtPath`/`setAtPathInPlace`
+  // (kernel/paths.ts) resolve dotted paths generically, so the same Array.isArray branches in
+  // `runLookupIngest`/`runLookupEnforceWrite` cover this shape with no dedicated code.
+  it('normalizes every element\'s altKey candidate to the canonical key on ingest, at a dotted path', async () => {
+    const { vault } = await seed()
+    const orders = vault.collection<OrderWithMeta>('orders-bare-dotted', {
+      lookupFields: { 'meta.tags': lookup('countries', { key: 'iso2', altKeys: ['iso3', 'callPrefix'] }) },
+    })
+
+    await orders.put('o1', { id: 'o1', meta: { tags: ['USA', '+66'] } })
+    const stored = await orders._getStoredRecord('o1')
+    expect(stored?.meta).toEqual({ tags: ['US', 'TH'] })
+  })
+
+  it('closed vocabulary refuses an unknown element at a dotted path', async () => {
+    const { vault } = await seed()
+    const orders = vault.collection<OrderWithMeta>('orders-bare-dotted-closed', {
+      lookupFields: { 'meta.tags': lookup('countries', { key: 'iso2', vocabulary: 'closed' }) },
+    })
+
+    await expect(orders.put('o1', { id: 'o1', meta: { tags: ['US', 'ZZZ'] } })).rejects.toThrow(UnknownLookupKeyError)
+    await expect(orders.put('o2', { id: 'o2', meta: { tags: ['US', 'TH'] } })).resolves.not.toThrow()
   })
 })
 

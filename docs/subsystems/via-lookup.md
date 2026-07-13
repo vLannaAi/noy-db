@@ -133,6 +133,119 @@ has never had a live fallback — it is pure-snapshot for both tiers. The matrix
 path (`<field>Label` resolution, below) is different: it preserves a live cold-session fallback, but
 **only** for the default `key: 'id'` (#651, closed).
 
+## Bare-array fields — element-wise support (#661)
+
+A plain field whose OWN value is an array (`tags: ['USA', '+66']` on `tags: lookup('countries',
+{...})`) is a DIFFERENT shape from the `[].`-wildcard multi-value path above (`'lines[].country'`
+— an array of nested objects). `getAtPath` resolves a bare array to ONE opaque value, not N split
+entries, so both write-time hooks (`ingest`'s altKey normalization, `enforceWrite`'s closed-vocab
+membership check) treat the bare-array shape element-wise, reusing the exact same
+`backing.altIndex`/`cfg.membership` core the scalar and `[].`-wildcard paths already use — no
+parallel coercion path:
+
+```ts
+const orders = vault.collection<Order>('orders', {
+  lookupFields: { tags: lookup('countries', { key: 'iso2', altKeys: ['iso3', 'callPrefix'] }) },
+})
+await orders.put('o1', { id: 'o1', tags: ['USA', '+66'] })
+;(await orders._getStoredRecord('o1'))?.tags   // ['US', 'TH'] — each element normalized
+
+const closed = vault.collection<Order>('orders-closed', {
+  lookupFields: { tags: lookup('countries', { key: 'iso2', vocabulary: 'closed' }) },
+})
+await expect(closed.put('o1', { id: 'o1', tags: ['ZZZ', 'totally-bogus'] }))
+  .rejects.toThrow(UnknownLookupKeyError)   // refuses on the FIRST unknown element
+```
+
+(`packages/hub/__tests__/via/lookup-bare-array.test.ts`). Duplicate elements after normalization
+are kept as-is, not deduped (ingest normalizes values in place — it never changes cardinality, the
+same #652 decision the `[].`-wildcard shape already made); a non-string element (number, object,
+`null`) is skipped in both hooks, mirroring the scalar branch's own skip; an empty array is a
+no-op in both hooks, even under `vocabulary: 'closed'`.
+
+This works identically at a **dotted, non-wildcard path** (`'meta.tags': [...]` for a nested
+`{ meta: { tags: [...] } }` shape) — `getAtPath`/`setAtPathInPlace` (`kernel/paths.ts`) resolve
+dotted paths generically, so no dedicated code is needed for the nested case; the same
+`Array.isArray` branch that handles a top-level `tags` field handles `meta.tags` too:
+
+```ts
+const orders = vault.collection<OrderWithMeta>('orders-meta', {
+  lookupFields: { 'meta.tags': lookup('countries', { key: 'iso2', altKeys: ['iso3', 'callPrefix'] }) },
+})
+await orders.put('o1', { id: 'o1', meta: { tags: ['USA', '+66'] } })
+;(await orders._getStoredRecord('o1'))?.meta   // { tags: ['US', 'TH'] }
+```
+
+(`lookup-bare-array.test.ts`, "at a DOTTED (non-wildcard) path" describe block).
+
+## Late-attach (reconcile) — tier-scoped, #664
+
+`lookupFields`/`i18nFields`/`dictKeyFields` can be declared on a SECOND-OR-LATER
+`vault.collection(name, {...})` call against an already-open collection (a "late attach" /
+"reconcile"), not just at fresh construction. Before #664 this was silently ignored — the fields
+were simply dropped, no error, no effect. `via-reconcile.ts` closes that gap, tier-scoped:
+
+- **enum** (`backing:'static'`, no `table`) / **static** (`+table`) — a clean, self-contained
+  attach: membership/labels come from the declared `keys`/`table` alone, no vault registry touch.
+- **reserved** (`dict()`) — attaches AND additionally wires the same vault registries fresh
+  construction populates (`reservedLookupCollections`/`dictKeyFieldRegistry`), so sync and the
+  reference-graph both see the late-attached field immediately.
+- **matrix** (`backing:'collection'`) — **refuses** with a `ValidationError` naming the field, the
+  backing dimension, and the remedy, unless the backing collection is ALREADY open in this vault
+  session AND prefetch-enabled (`{ prefetch: false }` also refuses, with a different message):
+  ```ts
+  vault.collection<Traveler>('travelers', {})   // no 'countries' opened yet
+  expect(() => vault.collection<Traveler>('travelers', {
+    lookupFields: { country: lookup('countries') },
+  })).toThrow(/matrix field "country".*dimension "countries".*not open/)
+  ```
+  Opening the backing collection first (eager mode, the default) makes the SAME late-attach
+  succeed. (`packages/hub/__tests__/via/reconcile-lookup.test.ts`, "matrix (collection) tier"
+  describe block.)
+
+Closed-vocabulary enforcement, altKey normalization, and `<field>Label` dressing all activate
+LIVE, immediately post-attach — including for records that were written BEFORE the attach (read-
+time dressing/membership are evaluated per-call, not cached at write time). The one true
+future-writes-only limit is normalization/enforcement itself: a record written before the attach
+never ran altKey-ingest or closed-vocab enforceWrite, so its stored value stays whatever it was —
+enforcement is not retroactive. Reference-graph edges (`onDelete: restrict/cascade/nullify`) are
+registered at attach time and are live immediately too — `ViaGraph.referencingEdgesOf` sees them
+the moment the late-attach call returns, no separate wiring needed.
+
+**The #664 collision guard** runs BEFORE any late-attach mutation, for the whole call: an
+incoming field that collides with an ALREADY-declared field of a different via family (e.g.
+late-attaching `lookupFields: { amount: enumOf(...) }` onto a field already owned by
+`moneyFields`) throws `ValidationError` naming the field and both families — no partial attach.
+A single late-attach call may combine `i18nFields`/`dictKeyFields` on one field AND `lookupFields`
+on a DIFFERENT field; both attach from that one call (`reconcile-lookup.test.ts`'s `t8r1` describe
+block pins this against a future dispatch collapse).
+
+**Known limits — three late-attach residuals**, all rooted in the same cause: a handful of
+`Collection` fields (`getDictionary`, `i18nFields`, `dictKeyFields`, `lookupFields`,
+`presentForJoin`) are captured ONCE, at fresh construction, from the constructor's `cfg` — late-
+attach rebuilds the `ViaPipeline` (`coll._setVia`) but has no seam to reassign these separate,
+private-readonly instance fields:
+
+- **`getDictionary`/`resolveDictLabels`** — `collection.describeAsync({ resolveDictLabels: true })`
+  resolves a dynamic dict's live labels via `this.getDictionary`, which stays `undefined` if the
+  collection was constructed with no `dictKeyFields`/`lookupFields` at all (exactly the case a
+  late-attach starts from). A late-attached dict-backed field's labels stay unresolved by
+  `resolveDictLabels: true` — the sync inline-`labels` fallback (if declared) still works.
+- **`describe()`'s top-level field list** — the legacy per-field `type`/`widget`/`dict` derivation
+  (`buildDescription`) reads `this.dictKeyFields`/`this.i18nFields`/`this.lookupFields`, the same
+  construction-time snapshot — a late-attached field may not appear in that top-level list at all
+  (unless the schema also names it). The NEW `.lookup` describeFragment block (`ViaPipeline.
+  describeFragments()`) is unaffected — it folds `_via.bindings` live, so it DOES reflect a
+  late-attached field correctly; only the older list-derivation path is stale.
+- **`presentForJoin`** — captured once from `cfg.presentForJoin` at construction. When a collection
+  is the TARGET of `.join()` (or a matrix-tier lookup's backing dimension), a lookup/i18n field
+  late-attached onto it will not dress `<field>Label` through the join-presentation path, even
+  though it dresses correctly on a DIRECT read of that same collection.
+
+None of these are fixed here — they're recorded as known limits so a late-attach consumer that
+also needs `describeAsync({resolveDictLabels:true})`, a complete `describe()` field list, or
+join-dressing on the late-attached side knows to declare the field at fresh construction instead.
+
 ## Presentation — `<field>Label`, in reads and in joins
 
 Reading with a locale resolves `<field>Label` on the SAME record (direct `present()`, works for
@@ -344,3 +457,7 @@ are EMPTY and still fire on a synthetic violation).
   `lookup-vocabulary.test.ts`, `lookup-ref-semantics.test.ts`, `lookup-forget-ref.test.ts`,
   `lookup-reserved-sync.test.ts`, `lookup-alias-parity.test.ts`, `lookup-extraction-parity.test.ts`,
   `lookup-join-snapshot.test.ts` — the per-tier/per-capability suites
+- `packages/hub/__tests__/via/lookup-bare-array.test.ts` — #661: bare-array element-wise ingest +
+  enforceWrite, top-level and dotted-path shapes
+- `packages/hub/__tests__/via/reconcile-lookup.test.ts` — #664: the late-attach reconcile suite
+  (tier-by-tier attach, matrix refusal, graph edges, collision guard, combined-family attach)

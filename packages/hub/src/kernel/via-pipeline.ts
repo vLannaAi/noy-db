@@ -36,12 +36,16 @@ export class ViaPipeline {
    * instead of `bindings` so a `mode: 'virtual'` computed field's value
    * exists before i18n/lookup's dressing `present()` hooks run on it
    * (today's `compileViaBindings` order is money→i18n→lookup→classified→
-   * blob→computed, `collection-config.ts:643`, so dressing unconditionally
-   * ran BEFORE the value it dresses existed). EVERY other phase (`ingest`/
-   * `encodeWrite`/`encodeAtRest`/`enforceWrite`/etc.) keeps folding over
-   * `bindings` unchanged — those write/query phases need money-first
-   * (`_applyMoneyFields` PREPENDS money, `_applyClassifiedFields` APPENDS
-   * classified to preserve it, `kernel/collection.ts:1275-1284,1364-1368`).
+   * blob→computed, `collection-config.ts:554`, so dressing unconditionally
+   * ran BEFORE the value it dresses existed). This reorder is binding-level,
+   * not conditioned on any particular field composition — it applies to
+   * EVERY collection that compiles a `'computed'` binding at all, not only
+   * ones stacking a dresser on the SAME field as a computed one. EVERY other
+   * phase (`ingest`/`encodeWrite`/`encodeAtRest`/`enforceWrite`/etc.) keeps
+   * folding over `bindings` unchanged — those write/query phases need
+   * money-first (`_applyMoneyFields` PREPENDS money, `_applyClassifiedFields`
+   * APPENDS classified to preserve it, `kernel/collection.ts:1275-1284,1364-
+   * 1368`).
    *
    * Money is deliberately carved OUT of the generic "everything else" slice
    * and kept FIRST — the original two-way `[computed..., rest...]` partition

@@ -637,6 +637,8 @@ export function compileViaBindings<T>(
   // SEPARATE binding from i18n above — dictKey()/staticDict() stay on the
   // i18n binding (the alias, unchanged); a collection declaring BOTH
   // dictKeyFields and lookupFields compiles both bindings.
+  // must move together with via-reconcile.ts's lookup binder-config block (reconcileLookupFields,
+  // the `viaBinder('lookup')({...})` call) (#664) — same option-shape contract.
   if (lookupFields !== undefined) {
     bindings.push(viaBinder('lookup')({
       lookupFields,

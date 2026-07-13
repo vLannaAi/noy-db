@@ -354,8 +354,12 @@ export function reconcileLookupFields(
     vaultCtx.staticDescriptorByField.set(name, staticFieldMap)
   }
 
+  // must move together with collection-config.ts:641-649's lookup slot (#664) — same
+  // viaBinder('lookup') option-shape contract.
   const binding = viaBinder('lookup')({
     lookupFields,
+    // must move together with vault.ts:1132-1138's five lookup closures (#664) — same
+    // lookupLabelResolver/getLookupBacking/membership/getAltIndex/snapshotFor construction.
     lookupLabelResolver: buildDictLabelResolver(vaultCtx),
     getLookupBacking: (desc: LookupDescriptor) => async (key: string) =>
       buildLookupSnapshotRows(desc, (n) => vaultCtx.reservedLookupCollections.has(dictCollectionName(n)), (n) => vaultCtx.dictionary(n), (n) => vaultCtx.getCollection(n))?.get(key) ??

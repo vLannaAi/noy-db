@@ -320,6 +320,10 @@ function runLookupIngest(record: Record<string, unknown>, cfg: LookupViaConfig):
     if (values.length !== 1) continue
     const value = values[0]
 
+    // `getAtPath`/`setAtPathInPlace` resolve `field` generically, dotted
+    // paths included (e.g. 'meta.tags') — do not rewrite this branch to a
+    // direct `record[field]` bracket access, which would silently stop
+    // normalizing/enforcing a dotted-non-wildcard bare-array field (#661).
     if (Array.isArray(value)) {
       if (value.length === 0) continue
       let changed = false

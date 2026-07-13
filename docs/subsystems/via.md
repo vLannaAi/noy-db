@@ -408,6 +408,81 @@ vocabulary, presentation/join-dressing, sorting, reference semantics, reserved-t
 `describe()` `lookup` block, all backed by `packages/hub/__tests__/via/countries-matrix.test.ts`'s
 canonical countries-matrix example.
 
+### Milestone #31 — late-attach parity, cycle detection at declare time
+
+Four follow-up fixes, landed together on one branch, close gaps the phase A-D reviews surfaced.
+
+**Late-attach (reconcile) parity for i18n/dictKey/lookup (#664).** A SECOND-OR-LATER
+`vault.collection(name, {...})` call against an already-open collection ("late attach" /
+"reconcile") always supported `moneyFields`/`computed`/`fieldMeta`/`meta`/`classifiedFields` — but
+`i18nFields`/`dictKeyFields`/`lookupFields` on that same kind of call were silently ignored before
+this fix, with no error. `kernel/via-reconcile.ts` closes the gap by rebuilding the collection's
+`ViaPipeline` in place (`Collection._setVia`, the writer seam #666 added for exactly this). Every
+tier attaches, with one deliberate exception: a lookup field backed by another first-class
+collection (the "matrix" tier) REFUSES to late-attach unless that backing collection is already
+open, in this vault session, in eager (prefetch-enabled) mode — a clear `ValidationError` at
+declare time beats a confusing failure the first time a query touches the field. **The collision
+guard** that already ran at fresh construction (refusing two via families claiming the same field)
+now also runs on every late-attach call, both within the incoming call's own fields and against
+the collection's already-declared fields — no partial attach on a collision. See
+[`docs/subsystems/via-lookup.md`](via-lookup.md#late-attach-reconcile--tier-scoped-664) for the
+full tier-by-tier story, the collision guard's exact behavior, and three known late-attach
+residuals (`describeAsync({resolveDictLabels:true})`, `describe()`'s legacy top-level field list,
+and join-side `presentForJoin` dressing — each captured once at fresh construction and not
+re-derived by a later reconcile call).
+
+**Declare-time mutual-rollup cycle refusal (#639).** Two (or more) `withRollup()` strategies whose
+targets mutually depend on each other (collection A rolls a value into B's field `x`; B rolls a
+value into A's field `y`) used to be silently *declarable* — the cycle was invisible to
+`ViaGraph.assertAcyclic()`'s traversal, because a rollup's target is a real field node that the
+graph writes into but never reads FROM, so the depth-first search dead-ended on it instead of
+looping back. The fix teaches `assertAcyclic`'s traversal (not the graph's stored edges — a
+purely traversal-local expansion, so no new edge is materialized and no posture-folding input
+changes) that writing a real field on a collection is *also* a write to that collection: visiting
+field node `(C, f)` now additionally expands the edges sourced at `(C, '*')`, closing the missing
+reachability step. The refusal fires at `Noydb.openVault()` time (not at `withRollup()`
+construction, and not at a later `.collection()` call) — every derivation/MV strategy validates
+against the graph during vault open — and throws `DerivationCycleError`, the same class every
+other declare-time cycle (a plain derivation loop, an MV cycle) already throws:
+
+```ts
+const bRollsUpA = withRollup({ from: 'a', key: 'aId', into: 'b', field: 'x', compute: () => 0 })
+const aRollsUpB = withRollup({ from: 'b', key: 'bId', into: 'a', field: 'y', compute: () => 0 })
+const db = await createNoydb({ store, user, secret, derivationStrategies: [bRollsUpA, aRollsUpB] })
+await expect(db.openVault('demo')).rejects.toBeInstanceOf(DerivationCycleError)
+```
+
+(from `packages/hub/__tests__/derivations/rollup.test.ts`, "mutual/rotating cycle refusal at
+declare time" — covers a 2-collection mutual cycle, a 3-collection rotation, and an acyclic chain
+control that still resolves). Scope is deliberately narrow: a rollup-shaped cycle only (field→`'*'`
+containment); the symmetric `'*'`→field expansion that would catch an exotic whole-record-
+derivation-output↔field-computed cycle was evaluated and explicitly NOT built — it would tighten
+detection to full write-reachability and risk rejecting derivation+computed graphs that pass
+today, a broader behavior change than this issue asked for. No runtime depth/reentrancy guard was
+added either — this is a declare-time sentinel fix, not a runtime cycle breaker.
+
+**Computed-first present order (#665)** — see
+[`docs/subsystems/via-computed.md`](via-computed.md#present-order-665--computed-runs-before-dressing-after-money)
+for the full story: a virtual `computed` field's output now exists before i18n/lookup's dressing
+`present()` hooks run on it (previously dressing ran first and found nothing to dress), with money
+carved out to keep its own pre-#665 present position (money DECODES its input, unlike i18n/lookup
+which only ADD a `Label`/`Formatted` key — running money after a virtual computed on the same
+field would misread the computed field's raw major-unit output as a stored scaled-int).
+
+**Bare-array lookup fields (#661)** — see
+[`docs/subsystems/via-lookup.md`](via-lookup.md#bare-array-fields--element-wise-support-661): a
+plain field whose own value is an array (not the pre-existing `[].`-wildcard multi-value path) now
+gets the same element-wise altKey normalization and closed-vocabulary enforcement as every other
+lookup shape, including at a dotted (non-wildcard) path.
+
+**`indexProbe` — the index-accelerated fast path restored for fixed-mode money `where()` (#625)**
+— see [`docs/subsystems/via-money.md`](via-money.md#indexing--the-fast-path-and-an-honest-mixed-era-caveat-625):
+an optional `ViaBinding.indexProbe(op, payload)` hook lets a binding hand the query builder a
+STORED-form operand for a direct index bucket lookup on `==`/`in`, restoring the fast path phase A
+originally lost for money fields (multi-currency money and every other operator still scan — there
+is no single stored-form value a hash index can serve for those). Ships with an honest mixed-era
+caveat for pre-money-declaration legacy data (documented on the money page).
+
 ## See also
 
 - [`docs/superpowers/specs/2026-07-10-via-port-design.md`](../superpowers/specs/2026-07-10-via-port-design.md) — full phase A design spec
@@ -438,3 +513,10 @@ canonical countries-matrix example.
   (axis-scoping, kind-scoping, the ref-identity/blob traps)
 - `packages/hub/__tests__/via/sync-delete-rollup.test.ts` — the #640 sync-applied-delete rollup
   recompute suite (dedup/ordering/freshness + the `derivation:wave-error` event)
+- `packages/hub/src/kernel/via-reconcile.ts` — milestone #31: the late-attach reconcile dispatch
+  (i18n/dictKey/lookup, #664)
+- `packages/hub/__tests__/via/reconcile-lookup.test.ts`, `reconcile-i18n-dictkey.test.ts`,
+  `reconcile-guard.test.ts` — milestone #31: the #664 late-attach suites (tier coverage, collision
+  guard, combined-family single-call attach)
+- `packages/hub/__tests__/via/graph.test.ts`, `packages/hub/__tests__/derivations/rollup.test.ts`
+  — milestone #31: the #639 mutual-rollup declare-time cycle refusal suites

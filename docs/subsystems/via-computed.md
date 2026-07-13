@@ -73,6 +73,40 @@ const viaCol = viaVaultDb.collection<Item>('items', { viaFields: { doubled: via(
 `this.via.encodeWrite` runs — its output merges into the record exactly like user input, so any
 other feature stacked on the same field (money, i18n) applies to it normally.
 
+## Present order (#665) — computed runs before dressing, after money
+
+`present()` is a fold over each collection's compiled `ViaBinding`s. The COMPILE order is fixed
+(money→i18n→lookup→classified→blob→computed, `collection-config.ts:554`), but `present()` folds
+over a separate, present-phase-ONLY order: money bindings first, then computed bindings, then
+everything else (i18n/lookup/classified/blob/taint), each group keeping its existing relative
+order (`ViaPipeline._presentOrder`, `via-pipeline.ts`). This applies to every collection that
+compiles a `'computed'` binding at all — it is a binding-level reorder, not conditioned on any
+particular field composition. Two tradeoffs fall out of this fixed order, both pinned by tests:
+
+- **A virtual computed field can no longer read another field's DRESSING output.** Before #665,
+  computed ran last, so a virtual field's `fn` could legally read an i18n/lookup `<field>Label`
+  or `<field>Formatted` value another binding had just added to the SAME record. After #665,
+  computed (which only PRODUCES values) runs before the dressers (which only ADD a `Label`/
+  `Formatted` key), so that composition silently stops working — the dressing key simply doesn't
+  exist yet when the virtual `fn` runs. This direction (dressing → computed) was never in #665's
+  ratified scope (the scope is computed → dressing, on the SAME field); no shipped collection
+  exercised it before the fix. Pinned as a KNOWN LIMITATION *introduced by* #665 in
+  `packages/hub/__tests__/computed/virtual.test.ts`, describe block `'#665 present-order —
+  second-order effects'`, test `(b)`.
+- **Chained virtual computeds stay declaration-order-sensitive.** `computedBinding.present` loops
+  its `Map` of virtual fields in **declaration order** and mutates the same threaded record as it
+  goes, so a later-declared virtual field's `fn` can read an earlier-declared one's already-set
+  output — entirely internal to the single `'computed'` binding, independent of where that binding
+  sits in the outer present-phase fold, both before and after #665. Declaring the dependency in
+  reverse order (the reader before the field it reads) falls back to whatever sentinel the `fn`
+  handles a missing value with — not a topological sort. Pinned in the same describe block, tests
+  `(a)` (forward declaration order — reads correctly) and `(a2)` (reverse declaration order — known
+  limitation, reads the pre-set sentinel).
+
+**Money is NOT a clean instance of either tradeoff above** — it is the reason `_presentOrder` is a
+three-way (money, computed, rest), not two-way (computed, rest), partition. See the "Composition"
+section below for the value-shape reason money must keep its pre-#665 present position.
+
 ## Composition — `via(computed(...), money(...))`: money formats materialized, not virtual
 
 `compileViaBindings` always runs `computed` **last** in the feature stack (money → i18n →
@@ -278,8 +312,11 @@ documented as "do not depend on this shape") is **removed**, not aliased — fol
   `computed(virtual)` plugs into)
 - [`docs/subsystems/via-classified.md`](via-classified.md) — the classified feature (the usual taint
   *source*)
+- `packages/hub/src/kernel/via-pipeline.ts` — `ViaPipeline._presentOrder` (#665's present-phase-only
+  three-way partition: money, then computed, then everything else)
 - `packages/hub/src/shape/via-computed/` — `computed()`/`ComputedDescriptor`/`computedBinding`
-- `packages/hub/__tests__/computed/virtual.test.ts` — the `mode: 'virtual'` suite (12 tests)
+- `packages/hub/__tests__/computed/virtual.test.ts` — the `mode: 'virtual'` suite (22 tests, incl.
+  the `'#665 present-order — second-order effects'` describe block backing the tradeoffs above)
 - `packages/hub/__tests__/via/computed-binding.test.ts` — the binding unit suite (6 tests)
 - `packages/hub/__tests__/via/taint.test.ts` — the #636 taint-propagation regression suite
 - `packages/hub/__tests__/via/graph-edges.test.ts` — the declare-time guard + reconcile-path suite
