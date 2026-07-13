@@ -213,6 +213,30 @@ export class ViaGraph {
     const visited = new Set<string>()
     const stack: string[] = []
 
+    /** #639 — containment expansion: writing a real field `f` on collection `C` is
+     *  a write to `C`, so it must ALSO reach every whole-record (`'*'`) dependent of
+     *  `C` — the missing reachability step that made mutual/rotating rollup cycles
+     *  invisible (a rollup target is always a real field node and never itself a
+     *  graph SOURCE, so the old `_out.get(id)`-only walk dead-ended on it).
+     *
+     *  TRAVERSAL-LOCAL ONLY (law, #642): this is a virtual adjacency computed
+     *  during the DFS walk, reading `_out` only. It must NEVER be materialized via
+     *  `registerDerived` (no new `(C,f)→(C,'*')` edge) and must NEVER touch `_in` —
+     *  putting `(C,'*')` into `_in` would flip `_contribution('C\0*')` from the
+     *  `_wildcardContribution` fold (`#642`) onto the `_computeEffective` path,
+     *  bleeding cycle-reachability taint into `foldWildcardSecurity`'s posture
+     *  fold. Posture folding (`_contribution`/`_computeEffective`/
+     *  `_wildcardContribution`) never reads `_out`, so an expansion that reads
+     *  `_out` only is provably unable to perturb it. */
+    const neighboursOf = (id: string): readonly FieldRef[] => {
+      const own = this._out.get(id)
+      const sep = id.indexOf(SEP)
+      if (id.slice(sep + 1) === '*') return own ?? []
+      const wildcard = this._out.get(`${id.slice(0, sep)}${SEP}*`)
+      if (!wildcard) return own ?? []
+      return own ? [...own, ...wildcard] : wildcard
+    }
+
     const visit = (id: string): void => {
       const idx = stack.indexOf(id)
       if (idx !== -1) {
@@ -224,10 +248,7 @@ export class ViaGraph {
       }
       if (visited.has(id)) return
       stack.push(id)
-      const dependents = this._out.get(id)
-      if (dependents) {
-        for (const dependent of dependents) visit(nodeId(dependent))
-      }
+      for (const dependent of neighboursOf(id)) visit(nodeId(dependent))
       stack.pop()
       visited.add(id)
     }

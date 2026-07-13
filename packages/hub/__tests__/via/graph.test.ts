@@ -192,6 +192,59 @@ describe('ViaGraph — cycle rejection (assertAcyclic)', () => {
       expect((e as DerivationCycleError).message).toMatch(/cycle/i)
     }
   })
+
+  // #639 — mutual/rotating rollup cycles. Rollup edges are shaped
+  // `(from,'*') → (into, field)`: the target is a REAL field node, so
+  // pre-#639 the DFS (which only recurses through `_out.get(id)`) dead-ended
+  // on it — nothing was ever sourced AT a rollup target — and the cycle was
+  // invisible. The fix is a DFS-local containment expansion: visiting a real
+  // field node `(C,f)` also expands `(C,'*')`'s out-edges (a write to a real
+  // field is a write to the collection, which triggers every whole-record
+  // dependent of it).
+  it('a mutual rollup cycle (A rollup B.x, B rollup A.y) is now caught — was silently accepted pre-#639', () => {
+    const g = new ViaGraph()
+    // "A rollup into B.x": B.x aggregates A's children.
+    g.registerDerived({ collection: 'B', field: 'x' }, [{ collection: 'A', field: '*' }], 'rollup', 'aggregate')
+    // "B rollup into A.y": A.y aggregates B's children.
+    g.registerDerived({ collection: 'A', field: 'y' }, [{ collection: 'B', field: '*' }], 'rollup', 'aggregate')
+    expect(() => g.assertAcyclic()).toThrow(DerivationCycleError)
+  })
+
+  it('the mutual-rollup cycle path names both real field nodes (message-shape pin)', () => {
+    const g = new ViaGraph()
+    g.registerDerived({ collection: 'B', field: 'x' }, [{ collection: 'A', field: '*' }], 'rollup', 'aggregate')
+    g.registerDerived({ collection: 'A', field: 'y' }, [{ collection: 'B', field: '*' }], 'rollup', 'aggregate')
+    try {
+      g.assertAcyclic()
+      expect.fail('expected assertAcyclic to throw')
+    } catch (e) {
+      expect(e).toBeInstanceOf(DerivationCycleError)
+      const path = (e as DerivationCycleError).path
+      // No '*' hop is surfaced for a pure rollup↔rollup cycle — containment
+      // is inlined into the visiting field node's neighbour set, never
+      // itself pushed onto the traversal stack — so the message reads as a
+      // plain field-to-field chain, comprehensible without annotation.
+      expect(path).toContain('A.y')
+      expect(path).toContain('B.x')
+      expect(path.some(p => p.includes('*'))).toBe(false)
+      expect((e as DerivationCycleError).message).toMatch(/^Derivation graph contains a cycle: .*→.*Refusing to open vault/)
+    }
+  })
+
+  it('a three-collection rollup rotation (A→B.x, B→C.y, C→A.z) is also caught', () => {
+    const g = new ViaGraph()
+    g.registerDerived({ collection: 'B', field: 'x' }, [{ collection: 'A', field: '*' }], 'rollup', 'aggregate')
+    g.registerDerived({ collection: 'C', field: 'y' }, [{ collection: 'B', field: '*' }], 'rollup', 'aggregate')
+    g.registerDerived({ collection: 'A', field: 'z' }, [{ collection: 'C', field: '*' }], 'rollup', 'aggregate')
+    expect(() => g.assertAcyclic()).toThrow(DerivationCycleError)
+  })
+
+  it('an acyclic rollup chain (A→B.x; B→C.z) still declares fine (control)', () => {
+    const g = new ViaGraph()
+    g.registerDerived({ collection: 'B', field: 'x' }, [{ collection: 'A', field: '*' }], 'rollup', 'aggregate')
+    g.registerDerived({ collection: 'C', field: 'z' }, [{ collection: 'B', field: '*' }], 'rollup', 'aggregate')
+    expect(() => g.assertAcyclic()).not.toThrow()
+  })
 })
 
 describe('ViaGraph — taintedPostures / taintSealedFields (Task 3 overlay)', () => {
