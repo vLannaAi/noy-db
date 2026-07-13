@@ -244,6 +244,11 @@ export function taintBinding(
             // them (not overwrite with the marker: the marker on `field` is the leak
             // signal, and inventing a `${field}Formatted` marker key that an un-redacted
             // read wouldn't always carry would be its own lie). Reviewed #669 finding.
+            // Deliberate over-redaction: a user-authored STORED field that happens to be
+            // named `${field}Formatted`/`${field}Number` beside a redacted virtual field is
+            // also stripped here — fails closed, no leak; the collision is pathological and
+            // narrowing it would require money-field knowledge this generic taint binding
+            // deliberately doesn't have.
             const formattedKey = `${field}Formatted`
             const numberKey = `${field}Number`
             if (formattedKey in out) delete out[formattedKey]

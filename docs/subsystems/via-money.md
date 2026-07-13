@@ -58,6 +58,36 @@ no locale is passed) and `<field>Number` (a JS `number`) as read-time virtuals �
 with `{ locale: 'raw' }`, which returns only the canonical decimal (or `{ amount, currency }` in
 multi mode) with no virtuals.
 
+## Composing with a virtual computed field (#669)
+
+`via(computed(fn, { mode: 'virtual' }), money(...))` on the SAME field — a virtual computed
+field's `fn` output composed with money — is a legal, DRESSED composition, not merely
+accepted-but-undressed: money quantizes the fn's MAJOR-UNITS return value to the field's scale
+(applying the descriptor's declared `rounding`) and presents it exactly like a stored money
+field — the canonical decimal string, plus `<field>Formatted`/`<field>Number` whenever a real
+(non-`'raw'`) locale is in effect:
+
+```ts
+const c = v.collection<Priced>('priced', {
+  viaFields: {
+    doubledPrice: via(computed((r) => (r.base as number) * 2, { deps: ['base'], mode: 'virtual' }), money({ currency: 'EUR', scale: 2 })),
+  },
+})
+await c.put('a', { id: 'a', base: 10.5 })
+;(await c.get('a'))?.doubledPrice           // '21.00' — quantized decimal string
+;(await c.get('a'))?.doubledPriceFormatted  // defined — dressed like any stored money field
+```
+
+An fn output that fails to parse at the field's scale (excess precision with no `rounding`
+declared) is left RAW, no throw — read-time dressing must never brick a read. Fixed-mode fields
+only; a virtual field's output has no natural `{ amount, currency }` shape for multi-currency
+mode. Materialized-mode `computed` fields were already dressed before #669 (the fn's output
+merges into the record before money's ordinary write-time `encodeWrite` runs); this closes the
+matching virtual-mode gap. A taint-redacted virtual field's `Formatted`/`Number` companions are
+stripped along with the base field, not left leaking the pre-redaction value. See
+[`docs/subsystems/via-computed.md`](via-computed.md) (the "Composition" section) for the full
+ordering story (`ViaBinding.presentLate`).
+
 ## Query & aggregate
 
 `where()` predicates on money fields quantize operands to the field's scale at build time
