@@ -1368,8 +1368,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     })])
   }
 
-  /** @internal — used only in tests; do not read in production code. */
-  get _ramCiphertext(): boolean { return this.ramCiphertext }
+  get _ramCiphertext(): boolean { return this.ramCiphertext } // @internal — used only in tests; do not read in production code.
 
   /**
    * Get a single record by ID.
@@ -4423,6 +4422,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   async _onViaErase(id: string, live: EncryptedEnvelope): Promise<ViaEraseReport | undefined> { return this.via ? this.via.eraseSealed({ id, vault: this.vault, live, crypto: await this.codec.eraseCryptoCtx(id, live) }) : undefined } // @internal forget()'s per-ref via-erase fold (#629 T10)
   get _via(): ViaPipeline | undefined { return this.via } // @internal exportRedact()'s typed reach-in accessor (fixes #634)
+  _setVia(pipeline: ViaPipeline | undefined): void { this.via = pipeline; this.codec.setVia(this.via) } // @internal applyTaintOverlay()'s typed writer seam — assigns `via` + resyncs the codec (fixes #666)
   /**
    * Bind the {@link TiersContext} the tier ops need. The `cekCache` is passed
    * by reference (the SAME `Lru` the kernel's read/write path owns) so an

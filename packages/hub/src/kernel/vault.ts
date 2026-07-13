@@ -869,7 +869,7 @@ export class Vault {
     }
     if (reconcilePlan) {
       commitReconcileGraphEdges(this.graph, collectionName, reconcilePlan)
-      applyTaintOverlay(coll, this.graph, collectionName) // #638 Task 3: a late attach can newly taint an already-built pipeline
+      applyTaintOverlay(coll!, this.graph, collectionName) // #638 Task 3: a late attach can newly taint an already-built pipeline (coll is non-null: reconcilePlan is only set when `coll && …`, #666)
     }
     if (!coll) {
       // Register ref declarations (if any) with the vault-level

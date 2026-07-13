@@ -333,6 +333,19 @@ interface HasViaPipeline {
 }
 
 /**
+ * Widened sibling of {@link HasViaPipeline}: `via-graph-wiring.ts`'s
+ * `applyTaintOverlay` (#666) needs to REASSIGN the live pipeline, not just
+ * read it — `_setVia` is `Collection`'s typed writer seam (`kernel/
+ * collection.ts`, beside `_via`), replacing the earlier untyped `coll as {
+ * via; codec: { setVia } }` cast. Exported (unlike `HasViaPipeline`) because
+ * its one consumer lives in a different module.
+ */
+export interface HasWritableViaPipeline {
+  readonly _via: ViaPipeline | undefined
+  _setVia(pipeline: ViaPipeline | undefined): void
+}
+
+/**
  * `vault.ts`'s `exportStream()` reach-in (#629 Task 9): apply the owning
  * collection's export redaction to one decoded record. Typed via {@link
  * HasViaPipeline} against `Collection`'s `_via` accessor (#634) — replaces
