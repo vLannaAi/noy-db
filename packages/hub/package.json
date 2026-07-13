@@ -136,10 +136,6 @@
       "types": "./dist/portability/index.d.ts",
       "default": "./dist/portability/index.js"
     },
-    "./kernel": {
-      "types": "./dist/kernel/index.d.ts",
-      "default": "./dist/kernel/index.js"
-    },
     "./cargo": {
       "types": "./dist/cargo/index.d.ts",
       "default": "./dist/cargo/index.js"
@@ -147,10 +143,6 @@
     "./pod": {
       "types": "./dist/pod/index.d.ts",
       "default": "./dist/pod/index.js"
-    },
-    "./adapter": {
-      "types": "./dist/adapter/index.d.ts",
-      "default": "./dist/adapter/index.js"
     },
     "./to": {
       "types": "./dist/to/index.d.ts",
@@ -167,10 +159,6 @@
     "./by": {
       "types": "./dist/by/index.d.ts",
       "default": "./dist/by/index.js"
-    },
-    "./describe": {
-      "types": "./dist/describe/index.d.ts",
-      "default": "./dist/describe/index.js"
     },
     "./on": {
       "types": "./dist/on/index.d.ts",

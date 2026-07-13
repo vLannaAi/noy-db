@@ -5,11 +5,11 @@
  * — construct a config by hand, exercise each hook.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { classifiedBinding, type ClassifiedViaConfig, type ClassifiedShredSlot } from '../../src/shape/via-classified/binding.js'
-import { classified } from '../../src/shape/via-classified/presets.js'
-import type { ClassifiedGuardCtx } from '../../src/shape/via-classified/guards.js'
+import { classifiedBinding, type ClassifiedViaConfig, type ClassifiedShredSlot } from '../../src/via/classified/binding.js'
+import { classified } from '../../src/via/classified/presets.js'
+import type { ClassifiedGuardCtx } from '../../src/via/classified/guards.js'
 import { ClassifiedConfigError } from '../../src/kernel/errors.js'
-import { ClassifiedNeverStoredError, ClassifiedValidationError } from '../../src/shape/via-classified/errors.js'
+import { ClassifiedNeverStoredError, ClassifiedValidationError } from '../../src/via/classified/errors.js'
 import type { ViaCryptoCtx, ViaWriteCtx, ViaEraseCtx } from '../../src/kernel/via.js'
 import { SealedHandle } from '../../src/kernel/types.js'
 

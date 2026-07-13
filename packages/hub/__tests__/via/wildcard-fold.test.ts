@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { ViaGraph, DEFAULT_POSTURE, foldWildcardSecurity } from '../../src/kernel/via-graph.js'
 import type { ViaPosture } from '../../src/kernel/via.js'
 
-// Real postures from the shipped bindings (shape/via-classified/binding.ts:213,
-// shape/via-blob/binding.ts:107) — used as realistic fixtures, not re-declared via
-// any shape/** import (the graph itself never imports shape/**).
+// Real postures from the shipped bindings (via/classified/binding.ts:213,
+// via/blob/binding.ts:107) — used as realistic fixtures, not re-declared via
+// any via/** import (the graph itself never imports via/**).
 const CLASSIFIED: ViaPosture = { encryptedAtRest: 'sealed', queryable: 'det-exact', exportable: false, forgettable: true }
 const BLOB: ViaPosture = { encryptedAtRest: 'envelope', queryable: 'none', exportable: true, forgettable: true }
 

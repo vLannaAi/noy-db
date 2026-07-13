@@ -25,11 +25,11 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/index.js'
 import { SealedHandle } from '../../src/index.js'
-import { classified, withClassified } from '../../src/shape/via-classified/index.js'
-import { moneyBinding } from '../../src/shape/via-money/binding.js'
-import { i18nBinding } from '../../src/shape/via-i18n/binding.js'
-import { classifiedBinding } from '../../src/shape/via-classified/binding.js'
-import { blobBinding } from '../../src/shape/via-blob/binding.js'
+import { classified, withClassified } from '../../src/via/classified/index.js'
+import { moneyBinding } from '../../src/via/money/binding.js'
+import { i18nBinding } from '../../src/via/i18n/binding.js'
+import { classifiedBinding } from '../../src/via/classified/binding.js'
+import { blobBinding } from '../../src/via/blob/binding.js'
 import { ViaPipeline, EXPORT_REDACTION_MARKER } from '../../src/kernel/via-pipeline.js'
 import { NO_I18N } from '../../src/port/with/i18n-strategy.js'
 import { inlineMemory } from '../classified/harness.js'
@@ -179,8 +179,8 @@ describe('PARITY: money "exportable:true" and i18n "exportable:true" export beha
   })
 
   it('i18n dictKeyFields field exports its stored stable key, unredacted', async () => {
-    const { withI18n } = await import('../../src/shape/via-i18n/index.js')
-    const { dictKey } = await import('../../src/shape/via-i18n/dictionary.js')
+    const { withI18n } = await import('../../src/via/i18n/index.js')
+    const { dictKey } = await import('../../src/via/i18n/dictionary.js')
     const db = await createNoydb({ store: inlineMemory(), user: 'a', secret: 'pw-export-i18n-1', i18nStrategy: withI18n() })
     const v = await db.openVault('v1')
     const statusDict = v.dictionary('status')

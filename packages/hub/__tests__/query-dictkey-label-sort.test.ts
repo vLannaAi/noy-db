@@ -7,8 +7,8 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
-import { withI18n } from '../src/shape/via-i18n/index.js'
-import { staticDict } from '../src/shape/via-i18n/dictionary.js'
+import { withI18n } from '../src/via/i18n/index.js'
+import { staticDict } from '../src/via/i18n/dictionary.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

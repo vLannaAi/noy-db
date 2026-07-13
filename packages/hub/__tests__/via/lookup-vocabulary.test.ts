@@ -13,10 +13,10 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
-import { withI18n } from '../../src/shape/via-i18n/index.js'
-import { dictKey } from '../../src/shape/via-i18n/dictionary.js'
+import { withI18n } from '../../src/via/i18n/index.js'
+import { dictKey } from '../../src/via/i18n/dictionary.js'
 import { via } from '../../src/kernel/via-compose.js'
-import { lookup, enumOf, dict } from '../../src/shape/via-lookup/descriptor.js'
+import { lookup, enumOf, dict } from '../../src/via/lookup/descriptor.js'
 import { UnknownLookupKeyError, ConflictError } from '../../src/kernel/errors.js'
 import type { ViaWriteCtx } from '../../src/kernel/via.js'
 import type { Noydb } from '../../src/kernel/noydb.js'

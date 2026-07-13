@@ -6,7 +6,7 @@
  * `Noydb` handle exposes AND is the one the schema fence actually dispatches
  * through (setFence / reportPresence / reachableWriters / readFence), not the
  * built-in `StoreCoordinationProvider` default. This is the contract
- * `@klum-db/lobby` binds to via `@noy-db/hub/kernel`.
+ * `@klum-db/lobby` binds to via `@noy-db/hub/cargo`.
  */
 import { describe, expect, it, expectTypeOf } from 'vitest'
 import { z } from 'zod'

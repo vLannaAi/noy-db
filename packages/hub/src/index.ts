@@ -822,13 +822,13 @@ export {
   dictCollectionName,
   DictionaryHandle,
   DICT_COLLECTION_PREFIX,
-} from './shape/via-i18n/dictionary.js'
+} from './via/i18n/dictionary.js'
 export type {
   DictKeyDescriptor,
   StaticDictDescriptor,
   DictEntry,
   DictionaryOptions,
-} from './shape/via-i18n/dictionary.js'
+} from './via/i18n/dictionary.js'
 
 // i18n — i18nText
 export {
@@ -837,8 +837,8 @@ export {
   validateI18nTextValue,
   resolveI18nText,
   applyI18nLocale,
-} from './shape/via-i18n/core.js'
-export type { I18nTextOptions, I18nTextDescriptor, ResolveI18nOptions, I18nMap } from './shape/via-i18n/core.js'
+} from './via/i18n/core.js'
+export type { I18nTextOptions, I18nTextDescriptor, ResolveI18nOptions, I18nMap } from './via/i18n/core.js'
 
 // money — currency-safe decimal field descriptor
 export {
@@ -853,7 +853,7 @@ export {
   asMoney,
   isMoneyString,
   moneyNumber,
-} from './shape/via-money/index.js'
+} from './via/money/index.js'
 export type {
   MoneyDescriptor,
   MoneyOptions,
@@ -864,7 +864,7 @@ export type {
   MulRateOptions,
   AllocateOptions,
   MoneyString,
-} from './shape/via-money/index.js'
+} from './via/money/index.js'
 
 // via — public field composer (declares a field's Via feature(s) without a sugar key)
 export { via, isViaFieldSpec } from './kernel/via-compose.js'
@@ -873,22 +873,22 @@ export type { ViaPosture, ViaDescriptor } from './kernel/via.js'
 export type { DerivationSkippedFrozen } from './kernel/via-dispatch.js'
 
 // classified — preset catalog (creditCard/birthDate/email/phone) + validators
-export { classified, luhnCheck, isClassifiedFieldSpec, isClassifiedGroup, resolveClassifiedFields, ClassifiedConfigError, ClassifiedNeverStoredError, ClassifiedValidationError, ClassifiedRevealError, ClassifiedVerifyError, ClassifiedRotationError } from './shape/via-classified/index.js'
-export type { ClassifiedFieldSpec, ClassifiedGroup, ClassifiedEntry, ClassifiedList, ClassifiedStorage, ClassifiedVerdict } from './shape/via-classified/index.js'
+export { classified, luhnCheck, isClassifiedFieldSpec, isClassifiedGroup, resolveClassifiedFields, ClassifiedConfigError, ClassifiedNeverStoredError, ClassifiedValidationError, ClassifiedRevealError, ClassifiedVerifyError, ClassifiedRotationError } from './via/classified/index.js'
+export type { ClassifiedFieldSpec, ClassifiedGroup, ClassifiedEntry, ClassifiedList, ClassifiedStorage, ClassifiedVerdict } from './via/classified/index.js'
 
 // computed — schema-owned computed scalar fields
 export { evalComputedFields, ComputedFieldError } from './with-formula/computed/index.js'
 export type { ComputedFields, ComputedFn, ComputedFieldEntry } from './with-formula/computed/index.js'
 
 // computed — via-feature declaration factory (materialized default / virtual read-time mode)
-export { computed, isComputedDescriptor } from './shape/via-computed/descriptor.js'
-export type { ComputedDescriptor } from './shape/via-computed/descriptor.js'
+export { computed, isComputedDescriptor } from './via/computed/descriptor.js'
+export type { ComputedDescriptor } from './via/computed/descriptor.js'
 
 // i18n — resolution policy + script enforcement
-export { resolvePolicy } from './shape/via-i18n/policy.js'
-export type { OnMissing, Layer, OnMissingPolicy } from './shape/via-i18n/policy.js'
-export { inferScripts, enforceScript } from './shape/via-i18n/script.js'
-export type { ScriptWarning } from './shape/via-i18n/script.js'
+export { resolvePolicy } from './via/i18n/policy.js'
+export type { OnMissing, Layer, OnMissingPolicy } from './via/i18n/policy.js'
+export { inferScripts, enforceScript } from './via/i18n/script.js'
+export type { ScriptWarning } from './via/i18n/script.js'
 
 // i18n errors
 export {
@@ -908,9 +908,9 @@ export {
 // `staticDict()` above compile onto as aliases. `enumOf` is the function's
 // own name (`enum` is a reserved word); `enum` is re-exported alongside it
 // as the documented spelling — both names refer to the identical function.
-export { lookup, dict, enumOf, enum } from './shape/via-lookup/index.js'
+export { lookup, dict, enumOf, enum } from './via/lookup/index.js'
 export { UnknownLookupKeyError, RestrictRefUnresolvableError } from './kernel/errors.js'
-export type { LookupDescriptor, Vocabulary, OnDelete } from './shape/via-lookup/index.js'
+export type { LookupDescriptor, Vocabulary, OnDelete } from './via/lookup/index.js'
 
 // Locale read options + translator audit log
 export type { LocaleReadOptions } from './kernel/types.js'

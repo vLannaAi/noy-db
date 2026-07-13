@@ -20,9 +20,9 @@ import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { inlineMemory, type InlineMemoryStore } from './harness.js'
 import { createNoydb } from '../../src/kernel/noydb.js'
-import { classified } from '../../src/shape/via-classified/presets.js'
+import { classified } from '../../src/via/classified/presets.js'
 import { ClassifiedConfigError } from '../../src/kernel/errors.js'
-import type { ClassifiedFieldSpec } from '../../src/shape/via-classified/descriptor.js'
+import type { ClassifiedFieldSpec } from '../../src/via/classified/descriptor.js'
 import type { EncryptedEnvelope } from '../../src/kernel/types.js'
 import {
   persistSchemaIfNeeded,

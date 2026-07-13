@@ -9,7 +9,7 @@
  * Core imports `BlobStrategy` as a TYPE-ONLY symbol and `NO_BLOBS` as a
  * minimal runtime stub. Neither pulls in the heavy `BlobSet` / chunk /
  * MIME machinery — those only arrive when the consumer explicitly
- * imports `@noy-db/hub/blobs` (see `shape/via-blob/index.ts` →
+ * imports `@noy-db/hub/blobs` (see `via/blob/index.ts` →
  * `withBlobs()` factory).
  *
  * This file is intentionally tiny so the bundler keeps it in the graph
@@ -23,7 +23,7 @@ import type { NoydbStore } from '../../kernel/types.js'
 import type { ObjectProjection } from '../../with-shape/blobs/object-projection.js'
 import type { BlobFieldsConfig } from '../../with-shape/blobs/blob-compaction.js'
 import type { EnclaveKey } from '../../kernel/enclave/index.js'
-import { linkBlobVia } from '../../shape/via-blob/binding.js'
+import { linkBlobVia } from '../../via/blob/binding.js'
 
 // Install the blob Via binder EAGERLY (#629 Task 7) — `blobFields` policies
 // are plain object literals (there is no `blob.*()` declaration factory to

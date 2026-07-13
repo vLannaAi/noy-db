@@ -24,10 +24,10 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
-import { withI18n } from '../../src/shape/via-i18n/index.js'
+import { withI18n } from '../../src/via/i18n/index.js'
 import { withSync } from '../../src/with-party/sync/index.js'
 import { SyncEngine, type ReservedLookupSource } from '../../src/with-party/team/sync.js'
-import { dict } from '../../src/shape/via-lookup/descriptor.js'
+import { dict } from '../../src/via/lookup/descriptor.js'
 import { NoydbEventEmitter } from '../../src/kernel/events.js'
 import { ConflictError } from '../../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'

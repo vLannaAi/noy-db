@@ -7,8 +7,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb, SealedHandle, FieldNotQueryableError } from '../../src/index.js'
-import { money } from '../../src/shape/via-money/descriptor.js'
-import { classified } from '../../src/shape/via-classified/presets.js'
+import { money } from '../../src/via/money/descriptor.js'
+import { classified } from '../../src/via/classified/presets.js'
 import { withForgetCascade } from '../../src/with-audit/forget/index.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
 import { EXPORT_REDACTION_MARKER } from '../../src/kernel/via-pipeline.js'

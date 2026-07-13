@@ -1,10 +1,10 @@
 /**
  * `_dict_*` reserved-collection storage engine — `LookupHandle`.
  *
- * Verbatim move of `DictionaryHandle` out of `shape/via-i18n/dictionary.ts`
+ * Verbatim move of `DictionaryHandle` out of `via/i18n/dictionary.ts`
  * (#650 Task 1 — via-lookup extraction, phase D). The class is renamed to
  * `LookupHandle` (the dict tier is one backing kind the eventual lookup
- * layer supports); `shape/via-i18n/dictionary.ts` re-exports it as
+ * layer supports); `via/i18n/dictionary.ts` re-exports it as
  * `DictionaryHandle` for one release so existing importers compile
  * unchanged. `DictEntry` / `DictionaryOptions` / `DICT_COLLECTION_PREFIX` /
  * `dictCollectionName` move with it — they were exclusively consumed by
@@ -30,7 +30,7 @@ import {
 /**
  * Delete-marker predicate, duplicated (not imported) from
  * `kernel/enclave/record-keys/tombstone.ts`'s `isDeleteMarker` (#647 fix wave 1).
- * `shape/via-lookup/**` may not statically import `kernel/enclave/` — not even the barrel
+ * `via/lookup/**` may not statically import `kernel/enclave/` — not even the barrel
  * (Check 15, `via-enclave-isolation`) — and this predicate carries zero crypto/protected-body
  * surface (just the `_del` protocol-header field, not `_iv`/`_data`), so duplicating it here
  * mirrors the same call `port/with/i18n-strategy.ts` already makes for `isDictCollectionName`
@@ -151,7 +151,7 @@ export class LookupHandle<Keys extends string = string> {
      * #647 fix wave 1 — mints a version-ordered delete-marker envelope (the reserved-tier
      * mirror of #589's ordinary-collection delete marker). Injected rather than imported:
      * `buildDeleteMarker` constructs the envelope's protected-body fields (`_iv`/`_data`), and
-     * `shape/via-lookup/**` may not reach `kernel/enclave/` directly (Check 11
+     * `via/lookup/**` may not reach `kernel/enclave/` directly (Check 11
      * `enclave-body-only` / Check 15 `via-enclave-isolation`) — the Vault binds the real
      * `kernel/enclave` function at construction time, same pattern as `reservedEnvelopes` above.
      */
@@ -559,6 +559,6 @@ export class LookupHandle<Keys extends string = string> {
 }
 
 // Compat alias — existing importers of `DictionaryHandle` (the pre-#650
-// name) keep compiling unchanged. `shape/via-i18n/dictionary.ts` re-exports
+// name) keep compiling unchanged. `via/i18n/dictionary.ts` re-exports
 // this same binding for one release.
 export { LookupHandle as DictionaryHandle }

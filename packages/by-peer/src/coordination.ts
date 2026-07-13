@@ -36,7 +36,7 @@
  */
 
 import type { PeerChannel } from './channel.js'
-import type { CoordinationProvider, FenceState, WriterPresence } from '@noy-db/hub/kernel'
+import type { CoordinationProvider, FenceState, WriterPresence } from '@noy-db/hub/cargo'
 
 /** Default fence when a vault has never been fenced. */
 const DEFAULT_FENCE: FenceState = { currentSchemaVersion: 0, fenceState: 'normal' }

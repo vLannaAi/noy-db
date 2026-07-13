@@ -30,11 +30,11 @@ import { applyI18nLocale, validateI18nTextValue } from './core.js'
 import { enforceScript } from './script.js'
 import { computeExemptFills, densify } from './densify.js'
 import type { DictionaryHandle } from './dictionary.js'
-import { withLookup } from '../via-lookup/active.js'
+import { withLookup } from '../lookup/active.js'
 
 export function withI18n(): I18nStrategy {
   // #650 Task 1: the handle-construction logic moved to
-  // shape/via-lookup/active.ts (LookupHandle, renamed from
+  // via/lookup/active.ts (LookupHandle, renamed from
   // DictionaryHandle, new home). buildDictionaryHandle below is now a
   // thin field-name translator over buildLookupHandle — same handle.
   const lookup = withLookup()

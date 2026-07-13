@@ -16,7 +16,7 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../src/index.js'
-import { money } from '../src/shape/via-money/descriptor.js'
+import { money } from '../src/via/money/descriptor.js'
 import { isViaInstalled, viaBinder } from '../src/kernel/via.js'
 import { withAggregate } from '../src/with-lookup/aggregate/index.js'
 import { sum } from '../src/with-lookup/aggregate/reducers.js'

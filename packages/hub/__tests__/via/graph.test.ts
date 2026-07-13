@@ -3,9 +3,9 @@ import { DerivationCycleError, MaterializedViewCycleError } from '../../src/kern
 import { ViaGraph, DEFAULT_POSTURE, foldPosture } from '../../src/kernel/via-graph.js'
 import type { ViaPosture } from '../../src/kernel/via.js'
 
-// Real postures from the shipped bindings (shape/via-classified/binding.ts:213,
-// shape/via-money/binding.ts:23) — used as realistic fixtures, not re-declared
-// via any shape/** import (the graph itself never imports shape/**).
+// Real postures from the shipped bindings (via/classified/binding.ts:213,
+// via/money/binding.ts:23) — used as realistic fixtures, not re-declared
+// via any via/** import (the graph itself never imports via/**).
 const CLASSIFIED: ViaPosture = { encryptedAtRest: 'sealed', queryable: 'det-exact', exportable: false, forgettable: true }
 const MONEY: ViaPosture = { encryptedAtRest: 'envelope', queryable: 'ordered', exportable: true, forgettable: true }
 

@@ -26,11 +26,11 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb, count, sum, FieldNotQueryableError } from '../../src/index.js'
-import { withClassified } from '../../src/shape/via-classified/index.js'
-import type { ClassifiedFieldSpec } from '../../src/shape/via-classified/index.js'
+import { withClassified } from '../../src/via/classified/index.js'
+import type { ClassifiedFieldSpec } from '../../src/via/classified/index.js'
 import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
 import { SealedHandle } from '../../src/index.js'
-import { money } from '../../src/shape/via-money/descriptor.js'
+import { money } from '../../src/via/money/descriptor.js'
 import { inlineMemory } from '../classified/harness.js'
 
 interface Person extends Record<string, unknown> {

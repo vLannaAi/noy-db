@@ -1,13 +1,13 @@
 /**
- * i18n strategy seam (#623 Task 7 — moved out of `shape/via-i18n/strategy.ts`
- * and `shape/via-i18n/dictionary.ts`, precedent: `port/with/lazy-strategy.ts`).
+ * i18n strategy seam (#623 Task 7 — moved out of `via/i18n/strategy.ts`
+ * and `via/i18n/dictionary.ts`, precedent: `port/with/lazy-strategy.ts`).
  * Lives on the `/with` port (the one seam the kernel spine may import
  * statically) so `Collection`/`Vault` can hold the `NO_I18N` default and the
  * two reserved-name/brand predicates without a spine→service static import.
  *
  * Core imports `I18nStrategy` type-only + `NO_I18N` stub; real
  * `applyI18nLocale` / `validateI18nTextValue` / `DictionaryHandle` are only
- * reachable via `withI18n()` in `shape/via-i18n/active.ts`.
+ * reachable via `withI18n()` in `via/i18n/active.ts`.
  *
  * Solo apps that don't use `i18nText()` fields, don't declare `dictKey()`
  * fields, and don't open a `vault.dictionary(...)` handle ship none of the
@@ -28,8 +28,8 @@
  *   user code calls `vault.dictionary(...)`.
  *
  * #650 Task 1 (via-lookup extraction, phase D): the real
- * `buildDictionaryHandle` (in `shape/via-i18n/active.ts`) now delegates to
- * `withLookup().buildLookupHandle` (`shape/via-lookup/active.ts`) — same
+ * `buildDictionaryHandle` (in `via/i18n/active.ts`) now delegates to
+ * `withLookup().buildLookupHandle` (`via/lookup/active.ts`) — same
  * handle (`LookupHandle`, aliased as `DictionaryHandle`), new home. This
  * interface's shape is unchanged.
  *
@@ -40,10 +40,10 @@ import type { NoydbStore } from '../../kernel/types.js'
 import type { LedgerStore } from '../../with-commit/history/ledger/store.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
-import type { I18nTextDescriptor } from '../../shape/via-i18n/core.js'
-import type { Layer } from '../../shape/via-i18n/policy.js'
-import type { ScriptWarning } from '../../shape/via-i18n/script.js'
-import type { DictKeyDescriptor, DictionaryHandle, DictionaryOptions, StaticDictDescriptor } from '../../shape/via-i18n/dictionary.js'
+import type { I18nTextDescriptor } from '../../via/i18n/core.js'
+import type { Layer } from '../../via/i18n/policy.js'
+import type { ScriptWarning } from '../../via/i18n/script.js'
+import type { DictKeyDescriptor, DictionaryHandle, DictionaryOptions, StaticDictDescriptor } from '../../via/i18n/dictionary.js'
 import type { ViaCryptoCtx } from '../../kernel/via.js'
 import type { EncryptedEnvelope } from '../../kernel/types.js'
 
@@ -193,8 +193,8 @@ export const NO_I18N: I18nStrategy = {
 /**
  * Return true when a collection name is a reserved dictionary collection
  * (the `_dict_*` prefix). Mirrors `DICT_COLLECTION_PREFIX` — now on
- * `shape/via-lookup/handle.ts` (#650 Task 1), re-exported from
- * `shape/via-i18n/dictionary.ts` for compat — duplicated here (not
+ * `via/lookup/handle.ts` (#650 Task 1), re-exported from
+ * `via/i18n/dictionary.ts` for compat — duplicated here (not
  * imported) so this port has no VALUE dependency back on the feature; keep
  * the two in sync if the prefix ever changes.
  */
@@ -215,7 +215,7 @@ export function isStaticDictDescriptor(x: unknown): x is StaticDictDescriptor {
  * Runtime predicate for detecting an I18nTextDescriptor. Pure tag check —
  * moved here (#623 Task 11) alongside `isStaticDictDescriptor` so
  * `kernel/via-compose.ts` (`mergeViaFields`'s descriptor-shape classification)
- * can reach it through the port instead of importing `shape/via-i18n/core.js`
+ * can reach it through the port instead of importing `via/i18n/core.js`
  * directly. Re-exported from that module for compat with existing importers.
  */
 export function isI18nTextDescriptor(x: unknown): x is I18nTextDescriptor {
@@ -229,7 +229,7 @@ export function isI18nTextDescriptor(x: unknown): x is I18nTextDescriptor {
 /**
  * Runtime predicate for detecting a DictKeyDescriptor. Pure tag check —
  * moved here (#623 Task 11) for the same reason as `isI18nTextDescriptor`
- * above. Re-exported from `shape/via-i18n/dictionary.js` for compat with
+ * above. Re-exported from `via/i18n/dictionary.js` for compat with
  * existing importers.
  */
 export function isDictKeyDescriptor(x: unknown): x is DictKeyDescriptor {
@@ -243,11 +243,11 @@ export function isDictKeyDescriptor(x: unknown): x is DictKeyDescriptor {
 /**
  * Type-only re-exports (#623 Task 8) — the kernel spine (collection.ts,
  * collection-config.ts, vault.ts, types.ts) imports these descriptor/handle
- * types through the port instead of reaching into `shape/via-i18n/*`
+ * types through the port instead of reaching into `via/i18n/*`
  * directly, so `src/kernel/**` carries no via-i18n specifier at all.
  * `isolatedModules: true` erases these at build time — no runtime coupling.
  */
-export type { I18nTextDescriptor } from '../../shape/via-i18n/core.js'
-export type { DictKeyDescriptor, DictionaryHandle, DictionaryOptions, StaticDictDescriptor } from '../../shape/via-i18n/dictionary.js'
-export type { Layer } from '../../shape/via-i18n/policy.js'
-export type { ScriptWarning } from '../../shape/via-i18n/script.js'
+export type { I18nTextDescriptor } from '../../via/i18n/core.js'
+export type { DictKeyDescriptor, DictionaryHandle, DictionaryOptions, StaticDictDescriptor } from '../../via/i18n/dictionary.js'
+export type { Layer } from '../../via/i18n/policy.js'
+export type { ScriptWarning } from '../../via/i18n/script.js'

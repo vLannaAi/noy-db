@@ -214,7 +214,7 @@ export type ReservedEnvelopeDekResolver = (collection: string) => Promise<Enclav
 /**
  * Build a `ViaCryptoCtx.reservedEnvelopes` capability: a whole-envelope
  * encrypt/decrypt door scoped to collection names under a declared prefix
- * (e.g. `_dict_`) — the shape `shape/via-i18n/dictionary.ts`'s
+ * (e.g. `_dict_`) — the shape `via/i18n/dictionary.ts`'s
  * `DictionaryHandle` needs (seam map Part 3): build JSON → encrypt under a
  * DEK → wrap in an `EncryptedEnvelope`; decrypt → JSON text. No per-record
  * CEK — reserved envelopes are whole-DEK-encrypted, same as the dictionary

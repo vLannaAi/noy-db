@@ -14,7 +14,7 @@ import { withSearch } from '../src/index.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { withForgetCascade } from '../src/with-audit/forget/index.js'
-import { withI18n } from '../src/shape/via-i18n/index.js'
+import { withI18n } from '../src/via/i18n/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 
 /** In-memory store exposing raw envelopes + a get helper for reserved cols. */

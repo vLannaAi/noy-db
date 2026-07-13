@@ -16,15 +16,15 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, FieldNotQueryableError, ValidationError, SealedHandle } from '../../src/index.js'
 import { via } from '../../src/kernel/via-compose.js'
-import { computed } from '../../src/shape/via-computed/descriptor.js'
-import { money } from '../../src/shape/via-money/descriptor.js'
-import { classified } from '../../src/shape/via-classified/presets.js'
-import { withClassified } from '../../src/shape/via-classified/index.js'
-import type { ClassifiedFieldSpec } from '../../src/shape/via-classified/index.js'
+import { computed } from '../../src/via/computed/descriptor.js'
+import { money } from '../../src/via/money/descriptor.js'
+import { classified } from '../../src/via/classified/presets.js'
+import { withClassified } from '../../src/via/classified/index.js'
+import type { ClassifiedFieldSpec } from '../../src/via/classified/index.js'
 import { inlineMemory } from '../classified/harness.js'
-import { dictKey } from '../../src/shape/via-i18n/dictionary.js'
-import { withI18n } from '../../src/shape/via-i18n/index.js'
-import { dict } from '../../src/shape/via-lookup/descriptor.js'
+import { dictKey } from '../../src/via/i18n/dictionary.js'
+import { withI18n } from '../../src/via/i18n/index.js'
+import { dict } from '../../src/via/lookup/descriptor.js'
 
 interface Item extends Record<string, unknown> {
   id: string
@@ -354,7 +354,7 @@ describe('computed(virtual) — read-time, never-stored mode (#638 Task 7)', () 
   describe('#665 present-order — second-order effects (pinned, not just implicit)', () => {
     it('(a) chained virtual computeds: a LATER-declared field reading an EARLIER-declared virtual field\'s output works — declaration order, not a topo sort, and unaffected by #665', async () => {
       // The `computed` binding is ONE ViaBinding covering every virtual field on the
-      // collection (`shape/via-computed/binding.ts`'s `present` loops `cfg.virtualFields`,
+      // collection (`via/computed/binding.ts`'s `present` loops `cfg.virtualFields`,
       // a Map in DECLARATION order, mutating the SAME threaded record as it goes) — so
       // chaining across two virtual computed fields is entirely INTERNAL to that one
       // binding's present() and was never affected by where `computed` sits in the outer

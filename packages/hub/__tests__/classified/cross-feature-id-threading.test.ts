@@ -15,7 +15,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
-import { classified } from '../../src/shape/via-classified/presets.js'
+import { classified } from '../../src/via/classified/presets.js'
 import { withTiers } from '../../src/with-audit/tiers/index.js'
 import { withIndexing } from '../../src/with-lookup/indexing/index.js'
 import { inlineMemory } from './harness.js'

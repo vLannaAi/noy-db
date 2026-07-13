@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
-import { i18nBinding } from '../../src/shape/via-i18n/binding.js'
-import { i18nText } from '../../src/shape/via-i18n/core.js'
-import { dictKey } from '../../src/shape/via-i18n/dictionary.js'
+import { i18nBinding } from '../../src/via/i18n/binding.js'
+import { i18nText } from '../../src/via/i18n/core.js'
+import { dictKey } from '../../src/via/i18n/dictionary.js'
 import type { I18nStrategy } from '../../src/port/with/i18n-strategy.js'
 
 /** Minimal stub strategy — a locale map collapses to its requested slot; every other hook is a no-op. */

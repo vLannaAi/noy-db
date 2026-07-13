@@ -11,15 +11,15 @@
  * branches bare-`String()`-keyed a row missing its `descriptor.key` field as the
  * literal key `"undefined"`, which a closed vocabulary's membership check then
  * wrongly ACCEPTED. GREEN (post-Task-3): both close via the ONE canonical
- * `coerceLookupKey`/`resolveBackingRowKey` core in `shape/via-lookup/registry.ts`.
+ * `coerceLookupKey`/`resolveBackingRowKey` core in `via/lookup/registry.ts`.
  *
  * Reuses the countries-matrix inline harness (`countries-matrix.test.ts`).
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
-import { withI18n } from '../../src/shape/via-i18n/index.js'
-import { lookup } from '../../src/shape/via-lookup/descriptor.js'
-import { coerceLookupKey, resolveBackingRowKey } from '../../src/shape/via-lookup/registry.js'
+import { withI18n } from '../../src/via/i18n/index.js'
+import { lookup } from '../../src/via/lookup/descriptor.js'
+import { coerceLookupKey, resolveBackingRowKey } from '../../src/via/lookup/registry.js'
 import { UnknownLookupKeyError, ConflictError } from '../../src/kernel/errors.js'
 import type { Noydb } from '../../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'

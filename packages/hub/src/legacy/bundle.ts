@@ -7,6 +7,12 @@
  *   partition-transfer ops at `@noy-db/hub/cargo`. This barrel re-exports
  *   the union so existing `@noy-db/hub/bundle` pins keep resolving the
  *   same surface. Prefer `/pod` and `/cargo` in new code.
+ *
+ * `/adapter` and `/describe` were retired (and their `src/legacy/*.ts` files
+ * deleted) in the same sweep that left this one standing — `/bundle` survives
+ * as a published subpath until klum-db's interchange migrates off it (tracked
+ * as phase 2/3). `kernel.ts` also remains in this folder, but only as
+ * `/cargo`'s internal re-export floor — it is no longer a published subpath.
  */
 
 // ─── Artifact (.noydb container format) → @noy-db/hub/pod ──

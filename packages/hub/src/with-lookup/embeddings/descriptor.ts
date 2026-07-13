@@ -1,5 +1,5 @@
 /** Per-collection embedding config (L2). The encode hook is host/remote — no bundled model. */
-import { getAtPath } from '../../shape/via-i18n/core.js'
+import { getAtPath } from '../../via/i18n/core.js'
 
 export interface EmbeddingDescriptor {
   readonly source: string | readonly string[]

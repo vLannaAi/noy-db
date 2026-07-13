@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { computedBinding } from '../../src/shape/via-computed/binding.js'
-import type { ComputedDescriptor } from '../../src/shape/via-computed/descriptor.js'
+import { computedBinding } from '../../src/via/computed/binding.js'
+import type { ComputedDescriptor } from '../../src/via/computed/descriptor.js'
 
 function virtualDescriptor(fn: (record: Record<string, unknown>) => unknown, deps?: readonly string[]): ComputedDescriptor {
   return { _viaBrand: 'computed', fn, mode: 'virtual', ...(deps !== undefined ? { deps } : {}) }

@@ -6,7 +6,7 @@ side-collections (`BlobSet`), not the record's own envelope. Since #629 (phase B
 declaration itself is a **via-feature** (`_viaBrand: 'blob'`): it participates in the same
 posture-enforcement machinery money/i18n/classified do (see [`docs/subsystems/via.md`](via.md)) —
 but the binding is deliberately **thin**. Blob content crypto is real chunked-AEAD/key-lifecycle
-engine work that the `via-enclave-isolation` architecture rule forbids under `shape/via-*`, so
+engine work that the `via-enclave-isolation` architecture rule forbids under `via/*`, so
 that machinery stays exactly where it was pre-#629, at `with-shape/blobs/` (service-side); the
 via binding contributes only declaration + posture + `describeFragment` + an `erase` hook.
 
@@ -136,7 +136,7 @@ available for a future collection-scoping-aware caller. See
 
 ## Architecture
 
-`blobBinding(cfg)` (`packages/hub/src/shape/via-blob/binding.ts`) returns a `ViaBinding` with
+`blobBinding(cfg)` (`packages/hub/src/via/blob/binding.ts`) returns a `ViaBinding` with
 `brand: 'blob'` and
 `posture: { encryptedAtRest: 'envelope', queryable: 'none', exportable: true, forgettable: true }`.
 It declares **no** write/read pipeline hooks at all — no `enforceWrite`, no `encodeAtRest`/
@@ -160,7 +160,7 @@ const pipeline = ViaPipeline.build([blobBinding(cfg())])
 expect(pipeline!.hasAtRestHooks).toBe(false)
 ```
 
-`via-blob`'s barrel (`packages/hub/src/shape/via-blob/index.ts`, subpath `@noy-db/hub/blobs`) is
+`via-blob`'s barrel (`packages/hub/src/via/blob/index.ts`, subpath `@noy-db/hub/blobs`) is
 where `withBlobs()` and the declarative/strategy layer live; `BlobSet`, `mime-magic`,
 `blob-compaction`, and `export-blobs` — the actual content-crypto machinery — stay at
 `packages/hub/src/with-shape/blobs/`, re-exported through the same barrel for backward
@@ -171,7 +171,7 @@ compatibility. `via-blob` never imports `kernel/enclave/` and never touches `Via
 
 - [`docs/subsystems/via.md`](via.md) — the Via port (field features, unified pipeline, phases)
 - [`docs/subsystems/via-classified.md`](via-classified.md) — the sibling phase-B security feature
-- `packages/hub/src/shape/via-blob/` — the thin binding + strategy/barrel
+- `packages/hub/src/via/blob/` — the thin binding + strategy/barrel
 - `packages/hub/src/with-shape/blobs/` — `BlobSet` + compaction + export-blobs (service-side content crypto)
 - `packages/hub/__tests__/via/blob-binding.test.ts`, `packages/hub/__tests__/via/query-posture-b.test.ts`, `packages/hub/__tests__/via/export-posture-b.test.ts` — the phase-B binding/posture suites
 - `packages/hub/__tests__/blob-compaction.test.ts`, `packages/hub/__tests__/per-blob-cek.test.ts` — the pre-existing content/compaction/forget suites

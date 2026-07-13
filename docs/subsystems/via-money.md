@@ -94,4 +94,4 @@ would close this gap generally — filed as a follow-up, not implemented here.
 ## See also
 
 - [`docs/subsystems/via.md`](via.md) — the Via port (field features, unified pipeline, phases)
-- `packages/hub/src/shape/via-money/` — the descriptor, binding, and arithmetic engine
+- `packages/hub/src/via/money/` — the descriptor, binding, and arithmetic engine

@@ -15,12 +15,12 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb, count, sum, FieldNotQueryableError } from '../../src/index.js'
-import { classified, withClassified } from '../../src/shape/via-classified/index.js'
+import { classified, withClassified } from '../../src/via/classified/index.js'
 import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
-import { moneyBinding } from '../../src/shape/via-money/binding.js'
-import { i18nBinding } from '../../src/shape/via-i18n/binding.js'
-import { classifiedBinding } from '../../src/shape/via-classified/binding.js'
-import { blobBinding } from '../../src/shape/via-blob/binding.js'
+import { moneyBinding } from '../../src/via/money/binding.js'
+import { i18nBinding } from '../../src/via/i18n/binding.js'
+import { classifiedBinding } from '../../src/via/classified/binding.js'
+import { blobBinding } from '../../src/via/blob/binding.js'
 import { ViaPipeline } from '../../src/kernel/via-pipeline.js'
 import type { ViaPosture } from '../../src/kernel/via.js'
 import { NO_I18N } from '../../src/port/with/i18n-strategy.js'
@@ -208,8 +208,8 @@ describe('PARITY: money "ordered" and i18n "full" query behavior unaffected', ()
   })
 
   it('i18n dictKeyFields field where()/orderBy() still work exactly as before — queries/sorts the stored stable key, not a locale label (#629 Task 8 fix wave 1, Minor 1)', async () => {
-    const { withI18n } = await import('../../src/shape/via-i18n/index.js')
-    const { dictKey } = await import('../../src/shape/via-i18n/dictionary.js')
+    const { withI18n } = await import('../../src/via/i18n/index.js')
+    const { dictKey } = await import('../../src/via/i18n/dictionary.js')
     const db = await createNoydb({ store: inlineMemory(), user: 'a', secret: 'pw-parity-i18n', i18nStrategy: withI18n() })
     const v = await db.openVault('v1')
     const statusDict = v.dictionary('status')

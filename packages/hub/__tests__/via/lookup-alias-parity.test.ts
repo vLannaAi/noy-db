@@ -8,10 +8,10 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
-import { withI18n } from '../../src/shape/via-i18n/index.js'
-import { dictKey, staticDict } from '../../src/shape/via-i18n/dictionary.js'
+import { withI18n } from '../../src/via/i18n/index.js'
+import { dictKey, staticDict } from '../../src/via/i18n/dictionary.js'
 import { via } from '../../src/kernel/via-compose.js'
-import { lookup, dict } from '../../src/shape/via-lookup/descriptor.js'
+import { lookup, dict } from '../../src/via/lookup/descriptor.js'
 import { ConflictError } from '../../src/kernel/errors.js'
 import type { Noydb } from '../../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'

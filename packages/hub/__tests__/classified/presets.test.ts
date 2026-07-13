@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { classified, luhnCheck } from '../../src/shape/via-classified/index.js'
-import { resolveClassifiedFields } from '../../src/shape/via-classified/resolve.js'
+import { classified, luhnCheck } from '../../src/via/classified/index.js'
+import { resolveClassifiedFields } from '../../src/via/classified/resolve.js'
 
 describe('classified presets', () => {
   it('luhnCheck accepts a valid PAN and rejects a corrupted one', () => {

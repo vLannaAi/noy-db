@@ -20,8 +20,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withDerivation, withRollup, FieldNotQueryableError, SealedHandle } from '../../src/index.js'
-import { withClassified } from '../../src/shape/via-classified/index.js'
-import type { ClassifiedFieldSpec } from '../../src/shape/via-classified/index.js'
+import { withClassified } from '../../src/via/classified/index.js'
+import type { ClassifiedFieldSpec } from '../../src/via/classified/index.js'
 import { inlineMemory, spyStore } from '../classified/harness.js'
 import { reapplyDependentOverlays } from '../../src/kernel/via-graph-wiring.js'
 

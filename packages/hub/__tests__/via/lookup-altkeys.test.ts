@@ -13,9 +13,9 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
-import { withI18n } from '../../src/shape/via-i18n/index.js'
-import { lookup } from '../../src/shape/via-lookup/descriptor.js'
-import { materializeBackingTable } from '../../src/shape/via-lookup/registry.js'
+import { withI18n } from '../../src/via/i18n/index.js'
+import { lookup } from '../../src/via/lookup/descriptor.js'
+import { materializeBackingTable } from '../../src/via/lookup/registry.js'
 import { ValidationError, ConflictError, UnknownLookupKeyError } from '../../src/kernel/errors.js'
 import type { Noydb } from '../../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'

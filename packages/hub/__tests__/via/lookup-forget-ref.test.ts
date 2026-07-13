@@ -18,11 +18,11 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import { createNoydb } from '../../src/index.js'
-import { lookup } from '../../src/shape/via-lookup/descriptor.js'
+import { lookup } from '../../src/via/lookup/descriptor.js'
 import { withForgetCascade } from '../../src/with-audit/forget/index.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
-import { withClassified } from '../../src/shape/via-classified/index.js'
-import { classified } from '../../src/shape/via-classified/presets.js'
+import { withClassified } from '../../src/via/classified/index.js'
+import { classified } from '../../src/via/classified/presets.js'
 import { DictKeyInUseError } from '../../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 

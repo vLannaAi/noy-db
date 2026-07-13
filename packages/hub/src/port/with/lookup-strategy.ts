@@ -3,11 +3,11 @@
  * Via port; precedent: `port/with/i18n-strategy.ts`). Lives on the `/with`
  * port (the one seam the kernel spine may import statically) so `Vault` can
  * reach the dict-registry pure helpers and the `LookupHandle`/`NO_LOOKUP`
- * types without a spine→`shape/` static import (Check 14 via-layering bans
+ * types without a spine→`via/` static import (Check 14 via-layering bans
  * that; `port/with/` is always allowed, Check 9's sanctioned exception).
  *
  * `kernel/vault.ts` imports ONLY this module for lookup — never
- * `shape/via-lookup/*` directly.
+ * `via/lookup/*` directly.
  *
  * This task (#650 Task 1) is a pure move: `Vault.dictionary()` still
  * constructs its handle through `i18nStrategy.buildDictionaryHandle`
@@ -24,7 +24,7 @@ import type { LedgerStore } from '../../with-commit/history/ledger/store.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
 import type { ViaCryptoCtx } from '../../kernel/via.js'
-import type { LookupHandle, DictionaryOptions } from '../../shape/via-lookup/handle.js'
+import type { LookupHandle, DictionaryOptions } from '../../via/lookup/handle.js'
 import {
   enforceStaticDictOnPut,
   resolveDictSource,
@@ -43,9 +43,9 @@ import {
   type DictReferencingCollection,
   type LookupDictCompat,
   type MaterializedBacking,
-} from '../../shape/via-lookup/registry.js'
-import { buildPresentForJoin } from '../../shape/via-lookup/snapshot.js'
-import type { LookupDescriptor } from '../../shape/via-lookup/descriptor.js'
+} from '../../via/lookup/registry.js'
+import { buildPresentForJoin } from '../../via/lookup/snapshot.js'
+import type { LookupDescriptor } from '../../via/lookup/descriptor.js'
 
 /**
  * Backing options for `LookupStrategy.buildLookupHandle` — same shape as
@@ -81,7 +81,7 @@ export interface BuildLookupHandleOptions<Keys extends string = string> {
   readonly emitter: NoydbEventEmitter
   /**
    * #647 fix wave 1 — mints a version-ordered delete-marker envelope. Bound by the Vault to the
-   * real `kernel/enclave` `buildDeleteMarker` function — `LookupHandle` (`shape/via-lookup/**`)
+   * real `kernel/enclave` `buildDeleteMarker` function — `LookupHandle` (`via/lookup/**`)
    * may not import `kernel/enclave/` itself (Check 11/15), so this capability is injected the
    * same way `reservedEnvelopes` above is.
    */
@@ -121,7 +121,7 @@ function notEnabled(op: string): Error {
   return new Error(
     `${op}: the NO_LOOKUP stub was reached, which should be unreachable today — there is no ` +
     '`lookupStrategy` `createNoydb({ ... })` option yet to select this stub over the real one; ' +
-    '`vault.dictionary()` always resolves through `withLookup()` (see `shape/via-i18n/active.ts`\'s ' +
+    '`vault.dictionary()` always resolves through `withLookup()` (see `via/i18n/active.ts`\'s ' +
     'delegation). This is forward scaffolding for a later task (mirrors `NO_I18N`\'s shape) — if you ' +
     'hit this, it indicates a bug, not a missing opt-in.',
   )
@@ -157,7 +157,7 @@ export type { DictReferencingCollection }
 
 // #650 Task 4 (#647) — the reserved-collection naming helper `vault.ts`'s sync-registry
 // bookkeeping needs (mapping a declared dimension name to its `_dict_<name>` collection name).
-export { dictCollectionName } from '../../shape/via-lookup/handle.js'
+export { dictCollectionName } from '../../via/lookup/handle.js'
 
 // #650 Task 2 — the alias-equivalence bridge (`resolveLabelFromMap` +
 // `collectLookupDictCompat`/`lookupToStaticDictCompat`) + the runtime
@@ -180,7 +180,7 @@ export { registerLookupRefEdges }
 // builder `kernel/collection-config.ts` calls to build the
 // `JoinableSource.presentForJoin` hook `kernel/query/join.ts` consumes.
 export { buildLookupSnapshotRows, buildPresentForJoin }
-export type { LookupSnapshot } from '../../shape/via-lookup/snapshot.js'
+export type { LookupSnapshot } from '../../via/lookup/snapshot.js'
 
 // #651 Task 3 — the ONE descriptor-keyed key-resolution core (guarded coercion +
 // backing-row-key resolve + referencing-value match) — every consumer (vault.ts,
@@ -204,11 +204,11 @@ export function isEnumDescriptor(x: unknown): x is LookupDescriptor {
 
 /**
  * Type-only re-exports — the kernel spine imports these descriptor/handle
- * types through the port instead of reaching into `shape/via-lookup/*` or
- * `shape/via-i18n/*` directly. `isolatedModules: true` erases these at
+ * types through the port instead of reaching into `via/lookup/*` or
+ * `via/i18n/*` directly. `isolatedModules: true` erases these at
  * build time — no runtime coupling.
  */
-export type { LookupHandle, DictEntry, DictionaryOptions } from '../../shape/via-lookup/handle.js'
-export type { LookupDescriptor, Vocabulary, LookupBacking, OnDelete } from '../../shape/via-lookup/descriptor.js'
-export type { LookupViaConfig } from '../../shape/via-lookup/binding.js'
-export type { DictKeyDescriptor, StaticDictDescriptor } from '../../shape/via-i18n/dictionary.js'
+export type { LookupHandle, DictEntry, DictionaryOptions } from '../../via/lookup/handle.js'
+export type { LookupDescriptor, Vocabulary, LookupBacking, OnDelete } from '../../via/lookup/descriptor.js'
+export type { LookupViaConfig } from '../../via/lookup/binding.js'
+export type { DictKeyDescriptor, StaticDictDescriptor } from '../../via/i18n/dictionary.js'

@@ -7,7 +7,7 @@
  * enroll shapes those packages read and write. `on-recovery` already
  * consumes `mintPaperRecoveryEntry`/`PaperRecoveryEntry` from the root
  * barrel (`@noy-db/hub`); this subpath is the stable, named port onto the
- * same values, mirroring `@noy-db/hub/kernel`.
+ * same values, mirroring `@noy-db/hub/cargo`.
  *
  * NOTE: these primitives are implemented in `with-party/team/*` (the
  * multi-user keyring service), not in the kernel spine proper — same

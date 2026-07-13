@@ -1,7 +1,7 @@
 /**
  * Generic dotted-path / `[]`-wildcard record helpers. Kernel-owned:
  * these carry zero i18n logic — they were extracted out of
- * `shape/via-i18n/core.ts` (Task 7, #623) so kernel call-sites (put-time
+ * `via/i18n/core.ts` (Task 7, #623) so kernel call-sites (put-time
  * validation, densify) can import them without a spine→service edge.
  *
  * @internal

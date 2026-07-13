@@ -271,7 +271,7 @@ expect(() => v.collection<Item>('items', {
 
 ## Architecture
 
-`computedBinding(cfg)` (`packages/hub/src/shape/via-computed/binding.ts`) returns a `ViaBinding`
+`computedBinding(cfg)` (`packages/hub/src/via/computed/binding.ts`) returns a `ViaBinding`
 with `brand: 'computed'` and a **fixed** posture — `queryable: 'none'` unconditionally, independent
 of taint:
 
@@ -314,7 +314,7 @@ documented as "do not depend on this shape") is **removed**, not aliased — fol
   *source*)
 - `packages/hub/src/kernel/via-pipeline.ts` — `ViaPipeline._presentOrder` (#665's present-phase-only
   three-way partition: money, then computed, then everything else)
-- `packages/hub/src/shape/via-computed/` — `computed()`/`ComputedDescriptor`/`computedBinding`
+- `packages/hub/src/via/computed/` — `computed()`/`ComputedDescriptor`/`computedBinding`
 - `packages/hub/__tests__/computed/virtual.test.ts` — the `mode: 'virtual'` suite (22 tests, incl.
   the `'#665 present-order — second-order effects'` describe block backing the tradeoffs above)
 - `packages/hub/__tests__/via/computed-binding.test.ts` — the binding unit suite (6 tests)

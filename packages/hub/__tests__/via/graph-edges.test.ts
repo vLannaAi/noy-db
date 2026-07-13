@@ -8,13 +8,13 @@ import {
   MaterializedViewCycleError,
   ValidationError,
 } from '../../src/index.js'
-import { classified } from '../../src/shape/via-classified/presets.js'
-import { i18nText } from '../../src/shape/via-i18n/core.js'
+import { classified } from '../../src/via/classified/presets.js'
+import { i18nText } from '../../src/via/i18n/core.js'
 import { resolveComputedEdges, resolveViaBindingDepsEdges } from '../../src/kernel/collection-config.js'
 import { DEFAULT_POSTURE } from '../../src/kernel/via-graph.js'
 import type { ViaBinding } from '../../src/kernel/via.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
-import type { ClassifiedFieldSpec } from '../../src/shape/via-classified/index.js'
+import type { ClassifiedFieldSpec } from '../../src/via/classified/index.js'
 
 /** A `storage: 'never'` spec-literal (mirrors classified/threading.test.ts's
  *  `neverSpec`) — safe to declare on the reconcile path (post auto-creation),

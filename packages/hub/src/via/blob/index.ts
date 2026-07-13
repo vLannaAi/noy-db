@@ -8,10 +8,10 @@
  * `mime-magic` (MIME detection from magic bytes), `blob-compaction`
  * (TTL eviction via `blobFields`), `export-blobs` (bulk export
  * primitive), and the legacy `attachments` API. The barrel + the
- * `withBlobs()` factory live here in `shape/via-blob/` (#629 Task 7);
+ * `withBlobs()` factory live here in `via/blob/` (#629 Task 7);
  * the content-crypto machinery itself stays in `with-shape/blobs/`
  * (service-side — it does real chunk AEAD/key-lifecycle work the
- * `via-enclave-isolation` guard forbids under `shape/via-*`).
+ * `via-enclave-isolation` guard forbids under `via/*`).
  *
  * Hub's root barrel (`@noy-db/hub`) still re-exports `BlobSet` + the
  * MIME helpers for backward compatibility with `@noy-db/as-blob`,

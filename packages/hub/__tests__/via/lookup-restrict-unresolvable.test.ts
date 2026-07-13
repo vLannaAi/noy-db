@@ -16,7 +16,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
 import { withForgetCascade } from '../../src/with-audit/forget/index.js'
-import { lookup } from '../../src/shape/via-lookup/descriptor.js'
+import { lookup } from '../../src/via/lookup/descriptor.js'
 import { DictKeyInUseError, RestrictRefUnresolvableError, ConflictError } from '../../src/kernel/errors.js'
 import type { Noydb } from '../../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'

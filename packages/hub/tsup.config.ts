@@ -20,14 +20,14 @@ import { defineConfig } from 'tsup'
  */
 const ENTRIES = {
   index: 'src/index.ts',
-  'i18n/index': 'src/shape/via-i18n/index.ts',
+  'i18n/index': 'src/via/i18n/index.ts',
   'team/index': 'src/with-party/team/index.ts',
   'session/index': 'src/with-party/session/index.ts',
   'history/index': 'src/with-commit/history/index.ts',
   'forget/index': 'src/with-audit/forget/index.ts',
   'sealed-record/index': 'src/with-audit/sealed-record/index.ts',
   'query/index': 'src/kernel/query/index.ts',
-  'blobs/index': 'src/shape/via-blob/index.ts',
+  'blobs/index': 'src/via/blob/index.ts',
   'indexing/index': 'src/with-lookup/indexing/index.ts',
   'lazy/index': 'src/with-store/lazy/index.ts',
   'aggregate/index': 'src/with-lookup/aggregate/index.ts',
@@ -46,20 +46,14 @@ const ENTRIES = {
   'sync/index': 'src/with-party/sync/index.ts',
   'util/index': 'src/kernel/util/index.ts',
   'attestation/index': 'src/with-audit/attestation/index.ts',
-  'classified/index': 'src/shape/via-classified/index.ts',
+  'classified/index': 'src/via/classified/index.ts',
   'satellites/index': 'src/with-shape/satellites/index.ts',
   'tiers/index': 'src/with-audit/tiers/index.ts',
   'portability/index': 'src/with-audit/portability/index.ts',
-  'kernel/index': 'src/legacy/kernel.ts',
   'cargo/index': 'src/with-cargo/index.ts',
-  'adapter/index': 'src/legacy/adapter.ts',
   'to/index': 'src/port/to/index.ts',
   'with/index': 'src/port/with/index.ts',
   'ui/index': 'src/port/ui/index.ts',
-  // Deprecated alias: re-exports the 'ui/index' surface, kept so
-  // `dist/describe/index.js` (the pre-S5 `./describe` subpath) continues
-  // to exist. See src/legacy/describe.ts.
-  'describe/index': 'src/legacy/describe.ts',
   'by/index': 'src/port/by/index.ts',
   'on/index': 'src/port/on/index.ts',
   'at/index': 'src/port/at/index.ts',

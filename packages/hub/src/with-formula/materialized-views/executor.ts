@@ -7,7 +7,7 @@ import type { RegisteredMV } from './registry.js'
 import { wrapDbWithPredicates } from './registry.js'
 import { groupAndReduce } from '../../with-lookup/aggregate/groupby.js'
 import { canonicalGroupKey } from '../../with-lookup/aggregate/canonical-key.js'
-import { applyI18nLocale, type I18nTextDescriptor } from '../../shape/via-i18n/core.js'
+import { applyI18nLocale, type I18nTextDescriptor } from '../../via/i18n/core.js'
 import { putDerivedOutput, type PutDerivedOutputCtx } from '../../kernel/via-dispatch.js'
 
 /**

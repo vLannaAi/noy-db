@@ -22,7 +22,7 @@
 
 import { channelCoordination } from '@noy-db/by-peer'
 import type { PeerChannel } from '@noy-db/by-peer'
-import type { CoordinationProvider } from '@noy-db/hub/kernel'
+import type { CoordinationProvider } from '@noy-db/hub/cargo'
 
 /**
  * Build a real-time {@link CoordinationProvider} backed by a {@link PeerChannel}
