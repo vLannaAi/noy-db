@@ -20,7 +20,7 @@
 // plain tsc is both far cheaper AND correct (see
 // .superpowers/sdd/m26-task-2-report.md for the numbers).
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { ENTRIES } from '../tsup.entries.mjs'
 
 const TSUP_CLI = '../../node_modules/tsup/dist/cli-default.js'
@@ -118,6 +118,37 @@ console.log('[build] pass 2/2: declarations (tsc --emitDeclarationOnly, one prog
   }
   if (missing.length > 0) {
     fail(`missing mirrored declaration file(s) for entries: ${missing.join(', ')} — check package.json's exports map "types" targets and tsup.entries.mjs are in sync`)
+  }
+}
+
+// Sanity check: package.json's "exports" map is the CONSUMER-FACING contract
+// (not tsup.entries.mjs, which is internal) — every subpath's "types" and
+// "default" target must exist in dist/, or a stale/typo'd exports entry
+// would ship broken consumer types with nothing to catch it.
+{
+  const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
+  const missing = []
+  for (const [subpath, condition] of Object.entries(pkg.exports)) {
+    if (typeof condition === 'string') {
+      if (!existsSync(condition.replace(/^\.\//, ''))) missing.push(`${subpath} -> ${condition}`)
+      continue
+    }
+    for (const key of ['types', 'import', 'default']) {
+      const target = condition[key]
+      if (typeof target === 'string' && !existsSync(target.replace(/^\.\//, ''))) {
+        missing.push(`${subpath} [${key}] -> ${target}`)
+      }
+    }
+  }
+  if (missing.length > 0) {
+    fail(
+      [
+        `package.json "exports" map has ${missing.length} target(s) missing from dist/:`,
+        ...missing.map((m) => `  - ${m}`),
+        'This means a subpath\'s exports entry is stale or typo\'d relative to src/ — fix the',
+        'exports map (or the src move that orphaned it) so every published subpath resolves.',
+      ].join('\n'),
+    )
   }
 }
 
