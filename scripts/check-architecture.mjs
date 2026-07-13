@@ -1129,7 +1129,7 @@ function checkNoOutboundKlumImport() {
       if (klumStatic.test(code) || klumDynamic.test(code)) {
         fail(
           'no-outbound-klum-import',
-          `${relative(ROOT, file)} imports from @klum-db. No @noy-db package (hub core OR edge adapter) may depend on the orchestration package — the dependency runs the other way (@klum-db/lobby depends on @noy-db/hub/kernel + edge adapters).`,
+          `${relative(ROOT, file)} imports from @klum-db. No @noy-db package (hub core OR edge adapter) may depend on the orchestration package — the dependency runs the other way (@klum-db/lobby depends on @noy-db/hub/cargo + edge adapters).`,
           file,
         )
       }

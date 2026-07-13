@@ -7,12 +7,12 @@
  * envelope, its `DescribedField` element, the async `DescribeOptions`, and the
  * descriptive-metadata building blocks (`CollectionMeta`, `FieldMeta`, `SemanticType`).
  * Type-only — `describe()` itself is a method on `Collection`, reached via the root
- * barrel / `/kernel`. These same names also remain exported from the root barrel
+ * barrel / `/cargo`. These same names also remain exported from the root barrel
  * (this subpath is purely additive); ui can migrate to the narrow seam on its own
  * schedule. Treat it as a contract — additive changes only; removals are breaking.
  *
- * The pre-existing `./describe` subpath is now a deprecated alias built from
- * `../legacy/describe.ts`, which re-exports this same surface.
+ * The pre-existing `./describe` subpath has been retired (coordinated removal;
+ * consumers migrated to `/ui`).
  *
  * @packageDocumentation
  */

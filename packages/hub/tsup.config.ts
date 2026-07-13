@@ -50,16 +50,10 @@ const ENTRIES = {
   'satellites/index': 'src/with-shape/satellites/index.ts',
   'tiers/index': 'src/with-audit/tiers/index.ts',
   'portability/index': 'src/with-audit/portability/index.ts',
-  'kernel/index': 'src/legacy/kernel.ts',
   'cargo/index': 'src/with-cargo/index.ts',
-  'adapter/index': 'src/legacy/adapter.ts',
   'to/index': 'src/port/to/index.ts',
   'with/index': 'src/port/with/index.ts',
   'ui/index': 'src/port/ui/index.ts',
-  // Deprecated alias: re-exports the 'ui/index' surface, kept so
-  // `dist/describe/index.js` (the pre-S5 `./describe` subpath) continues
-  // to exist. See src/legacy/describe.ts.
-  'describe/index': 'src/legacy/describe.ts',
   'by/index': 'src/port/by/index.ts',
   'on/index': 'src/port/on/index.ts',
   'at/index': 'src/port/at/index.ts',

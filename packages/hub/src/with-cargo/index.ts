@@ -1,18 +1,20 @@
 /**
  * **@noy-db/hub/cargo** — the orchestration seam klum binds. Canonical
- * successor to `/kernel` (which remains as a deprecated alias).
+ * successor to `/kernel` (the published `/kernel` subpath alias has been
+ * retired — coordinated removal, consumers migrated).
  *
  * `cargo` is the layer of services + interfaces required to **manage pods** —
  * the multi-vault management plane klum-db binds: custody, deed, diff,
  * distributed query, addressing, and change-observation. It consolidates the
- * whole current `/kernel` runtime floor plus the orchestration delta.
+ * runtime floor formerly published as `/kernel` plus the orchestration delta.
  *
  * See docs/superpowers/specs/2026-07-01-noydb-architecture-lexicon.md.
  *
  * @packageDocumentation
  */
 
-// The runtime floor — the whole current /kernel surface.
+// The runtime floor — unpublished now that `/kernel` the subpath is retired;
+// `src/legacy/kernel.ts` survives only as this re-export source.
 export * from '../legacy/kernel.js'
 
 // Custody & ownership.

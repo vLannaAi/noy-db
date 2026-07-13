@@ -31,8 +31,8 @@
  * @packageDocumentation
  */
 
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub/adapter'
-import { ConflictError } from '@noy-db/hub/adapter'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub/to'
+import { ConflictError } from '@noy-db/hub/to'
 
 /**
  * Options for `browserIdbStore()`.

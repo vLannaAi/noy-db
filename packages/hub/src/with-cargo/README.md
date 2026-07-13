@@ -9,9 +9,10 @@ orchestration delta klum previously pulled from the bare `@noy-db/hub` root
 barrel, so an outward orchestrator binds **one** narrow subpath instead of
 reaching into hub internals.
 
-`/kernel` (`src/legacy/kernel.ts`) remains as a **deprecated alias** for existing
-pins and will **not be removed** without a coordinated version bump. New
-orchestration consumers should bind `/cargo`. The export surface is frozen by
+The published `/kernel` subpath has been **retired** (coordinated removal;
+consumers migrated to `/cargo`). `src/legacy/kernel.ts` still exists on disk,
+but only as `/cargo`'s internal re-export floor — it is no longer built as a
+subpath entry. All orchestration consumers bind `/cargo`. The export surface is frozen by
 `__tests__/cargo-surface-golden.test.ts` against `cargo-surface.golden.json`, so
 changes to the seam are deliberate and reviewed (additive-only).
 
