@@ -51,7 +51,7 @@ import {
 } from '../../port/with/i18n-strategy.js'
 import {
   resolveLabelFromMap, dictCollectionName, collectLookupDictCompat, checkLookupMembership, buildLookupAltIndex,
-  buildLookupSnapshotRows, registerLookupRefEdges, type LookupDescriptor,
+  buildLookupSnapshotRows, registerLookupRefEdges, buildPresentForJoin, type LookupDescriptor,
 } from '../../port/with/lookup-strategy.js'
 
 type AnyCollection = Collection<Record<string, unknown>>
@@ -71,6 +71,9 @@ export interface ReconcilableCollection extends HasWritableViaPipeline {
   _applyFieldMeta(fieldMeta: Parameters<AnyCollection['_applyFieldMeta']>[0]): void
   _applyMeta(meta: Parameters<AnyCollection['_applyMeta']>[0]): void
   _applyClassifiedFields(classifiedFields: Parameters<AnyCollection['_applyClassifiedFields']>[0]): void
+  /** #671 items 1-3 — the reader + writer seam for `getDictionary`/legacy describe() lists/`presentForJoin`. */
+  readonly _viaFieldsSnapshot: AnyCollection['_viaFieldsSnapshot']
+  _reconcileReadState(patch: Parameters<AnyCollection['_reconcileReadState']>[0]): void
 }
 
 /** The vault-resident state/closures the i18n/dictKey late-attach wiring reads and writes —
@@ -375,6 +378,57 @@ export function reconcileLookupFields(
   registerLookupRefEdges(graph, name, lookupFields)
 }
 
+/** Vault-resident lookup-row source for {@link buildPresentForJoin}'s label dressing — factors out
+ *  the SAME `reservedLookupCollections`/`dictionary`/`getCollection` wiring {@link reconcileLookupFields}
+ *  builds inline for its own `snapshotFor`/`getLookupBacking`, so {@link reconcileCollectionReadState}
+ *  (which may run when only i18n — not lookup — was newly attached, over a PRE-EXISTING lookup
+ *  family) can reuse it without duplicating the vaultCtx plumbing. */
+function buildSnapshotFor(vaultCtx: ViaReconcileVaultCtx) {
+  return (d: LookupDescriptor) =>
+    buildLookupSnapshotRows(d, (n) => vaultCtx.reservedLookupCollections.has(dictCollectionName(n)), (n) => vaultCtx.dictionary(n), (n) => vaultCtx.getCollection(n))
+}
+
+/**
+ * #671 items 1-3 — refresh the THREE construction-frozen `Collection` read-side residuals a
+ * late-attach used to leave stale: `getDictionary` (describe()'s dict-label resolution / the
+ * search-index's label pre-computation), the legacy `describe()` top-level dictKeyFields/
+ * i18nFields/lookupFields KEY LISTS (the PER-FIELD `describeFragment` is already correct — this is
+ * specifically the separately-frozen list feeding `buildDescription`'s field-list/widget
+ * derivation), and `presentForJoin` (`querySourceForJoin()`'s join-dressing hook).
+ *
+ * No-op unless THIS call actually attached a NEW family — `i18nJustAttached`/`lookupJustAttached`
+ * mirror {@link reconcileI18nFields}/{@link reconcileLookupFields}'s own first-wins gate (a
+ * redundant re-declare must stay a no-op here too, or an already-refused field would smuggle its
+ * way into the read-state via this side door). `getDictionary` mirrors `vault.ts`'s
+ * construction-time gate (`dictKeyFields || lookupFields`, never bare i18nText alone).
+ * `presentForJoin` is rebuilt via {@link buildPresentForJoin} (the `port/with/lookup-strategy.js`
+ * re-export — the SAME Check-14-legal channel `collection-config.ts` uses for the fresh-
+ * construction build) over the UNION of the collection's PRE-existing i18nFields/lookupFields
+ * ({@link Collection._viaFieldsSnapshot}, read BEFORE this call's own writes below) and whatever
+ * this call just attached — covering the mixed case (e.g. lookup already present at construction,
+ * i18n late-attached now) as well as the bare-then-declare one the test suite exercises.
+ */
+function reconcileCollectionReadState(
+  coll: ReconcilableCollection, vaultCtx: ViaReconcileVaultCtx,
+  plan: ReconcileLateAttachPlan, hadI18n: boolean, hadLookup: boolean,
+): void {
+  const i18nJustAttached = !hadI18n && hasI18nBinding(coll)
+  const lookupJustAttached = !hadLookup && hasLookupBinding(coll)
+  if (!i18nJustAttached && !lookupJustAttached) return
+  const dictKeyFields = i18nJustAttached ? plan.effectiveViaFields.dictKeyFields : undefined
+  const i18nFieldsLate = i18nJustAttached ? plan.effectiveViaFields.i18nFields : undefined
+  const lookupFieldsLate = lookupJustAttached ? plan.effectiveViaFields.lookupFields : undefined
+  const snap = coll._viaFieldsSnapshot
+  const presentForJoin = buildPresentForJoin({ ...snap.i18nFields, ...i18nFieldsLate }, { ...snap.lookupFields, ...lookupFieldsLate }, buildSnapshotFor(vaultCtx))
+  coll._reconcileReadState({
+    ...(dictKeyFields !== undefined ? { dictKeyFields } : {}),
+    ...(i18nFieldsLate !== undefined ? { i18nFields: i18nFieldsLate } : {}),
+    ...(lookupFieldsLate !== undefined ? { lookupFields: lookupFieldsLate } : {}),
+    ...(dictKeyFields !== undefined || lookupFieldsLate !== undefined ? { getDictionary: async (n: string) => vaultCtx.dictionary(n) } : {}),
+    ...(presentForJoin !== undefined ? { presentForJoin } : {}),
+  })
+}
+
 /** The late-attach reconcile call's field-declaring options — the slice of `vault.collection()`'s
  *  `options` a reconcile call may carry, plus the `mergeViaFields` output that feeds both the
  *  guard and the money/i18n/dictKey/lookup reconciles. `blobFields` has no `_apply*` door (guard
@@ -438,6 +492,8 @@ export function reconcileViaAttach(
     commitReconcileGraphEdges(graph, name, reconcilePlan)
     applyTaintOverlay(coll, graph, name)
   }
+  const hadI18n = hasI18nBinding(coll)
+  const hadLookup = hasLookupBinding(coll)
   if (plan.effectiveViaFields.i18nFields !== undefined) {
     reconcileI18nFields(coll, vaultCtx, name, plan.effectiveViaFields.i18nFields, plan.effectiveViaFields.dictKeyFields)
   } else if (plan.effectiveViaFields.dictKeyFields !== undefined) {
@@ -452,4 +508,5 @@ export function reconcileViaAttach(
   if (plan.effectiveViaFields.lookupFields !== undefined) {
     reconcileLookupFields(coll, vaultCtx, graph, name, plan.effectiveViaFields.lookupFields)
   }
+  reconcileCollectionReadState(coll, vaultCtx, plan, hadI18n, hadLookup)
 }

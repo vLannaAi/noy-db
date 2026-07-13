@@ -344,10 +344,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   private readonly defaultLocale: string | undefined
 
-  /** Field name → `I18nTextDescriptor` for `i18nText()` fields (`i18nFields` option); write/read
-   *  runs through the compiled `via` i18n binding — this remains for `describe()`
-   *  and the search-index build path. */
-  private readonly i18nFields: Record<string, I18nTextDescriptor> | undefined
+  /** Field name → `I18nTextDescriptor` for `i18nText()` fields (`i18nFields` option); write/read runs through the compiled `via` i18n binding — this remains for `describe()` and the search-index build path. Mutable — see {@link _reconcileReadState} (#671 item 2). */
+  private i18nFields: Record<string, I18nTextDescriptor> | undefined
 
   /** The configured string fields exposed to `retrieve()`; `undefined` for ordinary collections (zero-cost). */
   private readonly textIndexes: readonly string[] | undefined
@@ -362,14 +360,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /** In-memory vector set, populated lazily from `_vec` sidecars; `undefined` when no embedding config is declared. */
   private vectorSet: VectorSet | undefined
 
-  /** Field name → `DictKeyDescriptor` for `dictKey()` fields; used by `get()`/`list()` to add
-   *  `<field>Label` virtual fields when a locale is requested. */
-  private readonly dictKeyFields: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
+  /** Field name → `DictKeyDescriptor` for `dictKey()` fields; used by `get()`/`list()` to add `<field>Label` virtual fields when a locale is requested. Mutable — see {@link _reconcileReadState} (#671 item 2). */
+  private dictKeyFields: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
 
-  /** Field name → `LookupDescriptor` for native `lookup()`/`enumOf()`/`dict()` fields (#650 Task 2) — describe()-only in this task. */
-  private readonly lookupFields: Record<string, LookupDescriptor> | undefined
-  /** Sync join-dressing hook (#650 Task 6, #626 retirement) — `querySourceForJoin()`'s `presentForJoin`. */
-  private readonly presentForJoin: ((record: unknown, locale: string) => unknown) | undefined
+  /** Field name → `LookupDescriptor` for native `lookup()`/`enumOf()`/`dict()` fields (#650 Task 2) — describe()-only in this task. Mutable — see {@link _reconcileReadState} (#671 item 2). */
+  private lookupFields: Record<string, LookupDescriptor> | undefined
+  /** Sync join-dressing hook (#650 Task 6, #626 retirement) — `querySourceForJoin()`'s `presentForJoin`. Mutable — see {@link _reconcileReadState} (#671 item 3). */
+  private presentForJoin: ((record: unknown, locale: string) => unknown) | undefined
 
   /** Consumer-neutral per-field descriptors declared via `fieldMeta`; read by `getFieldMeta()`, merged by `describe()`. */
   private fieldMeta: Record<string, FieldMeta> | undefined
@@ -425,12 +422,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   private readonly classifiedStrategy: ClassifiedStrategy
 
-  /**
-   * Async callback provided by the Vault to open a dynamic
-   * dictionary handle (for label-map pre-computation in the search index).
-   * Only used in `resolveDictLabelMaps()`; static dicts bypass this entirely.
-   */
-  private readonly getDictionary: ((name: string) => Promise<DictionaryHandle>) | undefined
+  /** Async callback provided by the Vault to open a dynamic dictionary handle (for label-map pre-computation in the search index). Only used in `resolveDictLabelMaps()`; static dicts bypass this entirely. Mutable, assign-once — see {@link _reconcileReadState} (#671 item 1). */
+  private getDictionary: ((name: string) => Promise<DictionaryHandle>) | undefined
 
   /**
    * declared deterministic fields. `null` when the feature
@@ -4422,6 +4415,14 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   async _onViaErase(id: string, live: EncryptedEnvelope): Promise<ViaEraseReport | undefined> { return this.via ? this.via.eraseSealed({ id, vault: this.vault, live, crypto: await this.codec.eraseCryptoCtx(id, live) }) : undefined } // @internal forget()'s per-ref via-erase fold (#629 T10)
   get _via(): ViaPipeline | undefined { return this.via } // @internal exportRedact()'s typed reach-in accessor (fixes #634)
   _setVia(pipeline: ViaPipeline | undefined): void { this.via = pipeline; this.codec.setVia(this.via) } // @internal applyTaintOverlay()'s typed writer seam — assigns `via` + resyncs the codec (fixes #666)
+  get _viaFieldsSnapshot(): { i18nFields: Record<string, I18nTextDescriptor> | undefined; lookupFields: Record<string, LookupDescriptor> | undefined } { return { i18nFields: this.i18nFields, lookupFields: this.lookupFields } } // @internal reconcile.ts's presentForJoin-rebuild union reader (#671 item 3)
+  _reconcileReadState(patch: { dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor>; i18nFields?: Record<string, I18nTextDescriptor>; lookupFields?: Record<string, LookupDescriptor>; getDictionary?: (name: string) => Promise<DictionaryHandle>; presentForJoin?: (record: unknown, locale: string) => unknown }): void { // @internal reconcile.ts's ONE late-attach writer for #671 items 1-3 — descriptor maps merge (construction wins on collision), getDictionary/presentForJoin assign (getDictionary never clobbers a live closure)
+    if (patch.dictKeyFields) this.dictKeyFields = { ...patch.dictKeyFields, ...this.dictKeyFields }
+    if (patch.i18nFields) this.i18nFields = { ...patch.i18nFields, ...this.i18nFields }
+    if (patch.lookupFields) this.lookupFields = { ...patch.lookupFields, ...this.lookupFields }
+    if (patch.getDictionary && this.getDictionary === undefined) this.getDictionary = patch.getDictionary
+    if (patch.presentForJoin) this.presentForJoin = patch.presentForJoin
+  }
   /**
    * Bind the {@link TiersContext} the tier ops need. The `cekCache` is passed
    * by reference (the SAME `Lru` the kernel's read/write path owns) so an
