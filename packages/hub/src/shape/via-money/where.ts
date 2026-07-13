@@ -132,6 +132,35 @@ export function moneyFieldClause(
   }
 }
 
+/**
+ * The `via` index-probe operand for a `where()` over a declared money
+ * field (see `ViaBinding.indexProbe` in kernel/via.ts) — the STORED-form
+ * value `CollectionIndexes.lookupEqual`/`lookupIn` (`with-lookup/indexing/
+ * eager-indexes.ts`) can bucket directly.
+ *
+ * Only FIXED-mode `==`/`in` are sound:
+ * - fixed-mode stores a bare scaled-int digit string (no currency
+ *   component), and `entries[i].scaled` is built by {@link parseOperand}
+ *   via the exact same `parseToScaledInt(...).value.toString()` path
+ *   `quantizeMoneyFields` (`via-money/normalize.ts#quantizeAmount`) uses
+ *   to produce the STORED value — so the two strings are byte-identical
+ *   by construction, and `stringifyKey` (which passes a string through
+ *   unchanged) buckets them the same way.
+ * - multi-mode stores `{ amount, currency }` — the index would stringify
+ *   that object to its no-match `'\0OBJECT\0'` sentinel — so multi-mode
+ *   always returns `undefined` (no sound probe).
+ * - every op besides `==`/`in` (range comparisons, `between`) has no
+ *   single stored-form value the hash index can serve, so they return
+ *   `undefined` too — the caller falls back to a scan.
+ */
+// eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
+export function moneyIndexProbe(op: Operator, payload: MoneyWhereOperand): unknown | undefined {
+  if (payload.mode !== 'fixed') return undefined
+  if (op === '==') return payload.entries[0]?.scaled
+  if (op === 'in') return payload.entries.map(e => e.scaled)
+  return undefined
+}
+
 /** Read a raw STORED money value into scaled space, or null if absent/malformed. */
 function readStored(actual: unknown, operand: MoneyWhereOperand): MoneyOperandEntry | null {
   let amount: unknown

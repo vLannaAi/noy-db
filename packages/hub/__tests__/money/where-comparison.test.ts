@@ -1,7 +1,9 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { z } from 'zod'
 import { createNoydb, money, MoneyUnsupportedError } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
+import { withIndexing } from '../../src/with-lookup/indexing/index.js'
+import { CollectionIndexes } from '../../src/with-lookup/indexing/eager-indexes.js'
 
 // #336 — where() on a declared money field accepts MAJOR-unit operands
 // and compares BigInt-exact in scaled-integer space. Before this,
@@ -181,11 +183,20 @@ describe('money where() — multi-currency mode (#336)', () => {
   })
 })
 
-describe('money where() — indexed fast path agrees with the scan (#336)', () => {
-  it('equality over an indexed fixed-mode money field returns the same rows', async () => {
+describe('money where() — indexed fast path agrees with the scan (#336, hardened for #625)', () => {
+  // #625: the original version of this suite declared `indexes: ['total']`
+  // but never passed `indexStrategy: withIndexing()` to createNoydb, so
+  // `getIndexes()` returned null (builder.ts's index fast path never
+  // engages without it) and every "indexed" query below silently ran a
+  // full scan — the assertions happened to pass, but they proved nothing
+  // about the index. Every test in this suite now opts in for real and
+  // spies on `CollectionIndexes.lookupEqual`/`lookupIn` to prove which
+  // path actually ran.
+  async function seedIndexedFixed() {
     const db = await createNoydb({
       store: memory(), user: 'alice',
       secret: 'money-where-indexed-passphrase-2026',
+      indexStrategy: withIndexing(),
     })
     const vault = await db.openVault('books')
     const col = vault.collection<Invoice>('invoices', {
@@ -196,8 +207,102 @@ describe('money where() — indexed fast path agrees with the scan (#336)', () =
     await col.put('a', { id: 'a', total: 99.5, status: 'open' })
     await col.put('b', { id: 'b', total: '100.00', status: 'open' })
     await col.put('c', { id: 'c', total: 100, status: 'paid' })
+    return col
+  }
 
-    const hit = col.query().where('total', '==', 100).toArray()
-    expect(hit.map(r => r.id).sort()).toEqual(['b', 'c'])
+  it('== hits CollectionIndexes.lookupEqual (fast path proven, not just correct output)', async () => {
+    const col = await seedIndexedFixed()
+    const spy = vi.spyOn(CollectionIndexes.prototype, 'lookupEqual')
+    try {
+      const hit = col.query().where('total', '==', 100).toArray()
+      expect(hit.map(r => r.id).sort()).toEqual(['b', 'c'])
+      expect(spy).toHaveBeenCalledTimes(1)
+      // Byte-parity evidence (seam-map §4's dependency flag): the probed
+      // value handed to the index is the exact STORED scaled-int digit
+      // string quantizeMoneyFields would have written for 100 THB @
+      // scale 2 ('10000'), not the caller's major-unit operand (100) —
+      // this is what makes the bucket hit (and 'b'/'c' come back) instead
+      // of a silent miss against an empty bucket.
+      expect(spy).toHaveBeenCalledWith('total', '10000')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it("'in' hits CollectionIndexes.lookupIn (fast path proven)", async () => {
+    const col = await seedIndexedFixed()
+    const spy = vi.spyOn(CollectionIndexes.prototype, 'lookupIn')
+    try {
+      const hit = col.query().where('total', 'in', [99.5, 100]).toArray()
+      expect(hit.map(r => r.id).sort()).toEqual(['a', 'b', 'c'])
+      expect(spy).toHaveBeenCalledTimes(1)
+      expect(spy).toHaveBeenCalledWith('total', ['9950', '10000'])
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('multi-currency money never probes the index — always scans, results still correct', async () => {
+    const db = await createNoydb({
+      store: memory(), user: 'alice',
+      secret: 'money-where-indexed-multi-passphrase-2026',
+      indexStrategy: withIndexing(),
+    })
+    const vault = await db.openVault('books')
+    const col = vault.collection<{ id: string; amount: unknown } & Record<string, unknown>>('payments', {
+      schema: z.object({ id: z.string(), amount: z.unknown() }),
+      moneyFields: { amount: money({ currencies: ['EUR', 'USD'] }) },
+      indexes: ['amount'],
+    })
+    await col.put('e1', { id: 'e1', amount: { amount: 100, currency: 'EUR' } })
+    await col.put('u1', { id: 'u1', amount: { amount: 100, currency: 'USD' } })
+
+    const spy = vi.spyOn(CollectionIndexes.prototype, 'lookupEqual')
+    try {
+      const hit = col.query().where('amount', '==', { amount: 100, currency: 'EUR' }).toArray()
+      expect(hit.map(r => r.id)).toEqual(['e1'])
+      expect(spy).not.toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('a range operator (>=) never probes the index — always scans, results still correct', async () => {
+    const col = await seedIndexedFixed()
+    const eqSpy = vi.spyOn(CollectionIndexes.prototype, 'lookupEqual')
+    const inSpy = vi.spyOn(CollectionIndexes.prototype, 'lookupIn')
+    try {
+      const hit = col.query().where('total', '>=', 100).toArray()
+      expect(hit.map(r => r.id).sort()).toEqual(['b', 'c'])
+      expect(eqSpy).not.toHaveBeenCalled()
+      expect(inSpy).not.toHaveBeenCalled()
+    } finally {
+      eqSpy.mockRestore()
+      inSpy.mockRestore()
+    }
+  })
+
+  it('a non-money indexed field keeps hitting the fast path unchanged (behavior lock)', async () => {
+    const db = await createNoydb({
+      store: memory(), user: 'alice',
+      secret: 'money-where-indexed-status-passphrase-2026',
+      indexStrategy: withIndexing(),
+    })
+    const vault = await db.openVault('books')
+    const col = vault.collection<Invoice>('invoices', {
+      schema: invoiceSchema,
+      indexes: ['status'],
+    })
+    await col.put('a', { id: 'a', total: 1, status: 'open' })
+    await col.put('b', { id: 'b', total: 2, status: 'paid' })
+
+    const spy = vi.spyOn(CollectionIndexes.prototype, 'lookupEqual')
+    try {
+      const hit = col.query().where('status', '==', 'paid').toArray()
+      expect(hit.map(r => r.id)).toEqual(['b'])
+      expect(spy).toHaveBeenCalledWith('status', 'paid')
+    } finally {
+      spy.mockRestore()
+    }
   })
 })

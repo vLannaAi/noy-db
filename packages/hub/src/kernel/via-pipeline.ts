@@ -180,6 +180,18 @@ export class ViaPipeline {
     return b?.evaluateClause ? b.evaluateClause(actual, op, clause.payload) : false
   }
 
+  /**
+   * Resolve a `buildClause` payload to an index-probe operand (#625) —
+   * mirrors `evaluateClause`'s brand dispatch. `undefined` (a binding
+   * with no `indexProbe`, or one that declines to probe this op/payload)
+   * means the caller (`candidateRecords()`) must fall back to a scan.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
+  indexProbe(clause: ViaClause, op: string): unknown | undefined {
+    const b = this.bindings.find((x) => x.brand === clause.brand)
+    return b?.indexProbe ? b.indexProbe(op, clause.payload) : undefined
+  }
+
   decodeResults(record: unknown): unknown {
     let r = record
     for (const b of this.bindings) if (b.decodeResults) r = b.decodeResults(r)
