@@ -410,7 +410,7 @@ canonical countries-matrix example.
 
 ### Milestone #31 — late-attach parity, cycle detection at declare time
 
-Four follow-up fixes, landed together on one branch, close gaps the phase A-D reviews surfaced.
+Five follow-up fixes, landed together on one branch, close gaps the phase A-D reviews surfaced.
 
 **Late-attach (reconcile) parity for i18n/dictKey/lookup (#664).** A SECOND-OR-LATER
 `vault.collection(name, {...})` call against an already-open collection ("late attach" /

@@ -129,7 +129,7 @@ function hasLookupBinding(coll: ReconcilableCollection): boolean {
 }
 
 /** lookup slots right after i18n, before classified/blob/computed/taint — the SAME
- *  money→i18n→lookup→classified→blob→computed compile order (collection-config.ts:640-650).
+ *  money→i18n→lookup→classified→blob→computed compile order (collection-config.ts:554).
  *  Late-attach only ever inserts ONE lookup binding (first-wins — see {@link hasLookupBinding}),
  *  so scanning for the first binding that must come AFTER lookup is enough (mirrors
  *  {@link insertI18nBinding}'s own reasoning); an i18n binding present at insert time is already
@@ -354,11 +354,11 @@ export function reconcileLookupFields(
     vaultCtx.staticDescriptorByField.set(name, staticFieldMap)
   }
 
-  // must move together with collection-config.ts:641-649's lookup slot (#664) — same
+  // must move together with collection-config.ts:642-651's lookup slot (#664) — same
   // viaBinder('lookup') option-shape contract.
   const binding = viaBinder('lookup')({
     lookupFields,
-    // must move together with vault.ts:1132-1138's five lookup closures (#664) — same
+    // must move together with vault.ts:1133-1139's five lookup closures (#664) — same
     // lookupLabelResolver/getLookupBacking/membership/getAltIndex/snapshotFor construction.
     lookupLabelResolver: buildDictLabelResolver(vaultCtx),
     getLookupBacking: (desc: LookupDescriptor) => async (key: string) =>
@@ -445,7 +445,7 @@ export function reconcileViaAttach(
   }
   // Deliberately a separate `if`, not another `else if` on the i18n/dictKey pair above: lookup is
   // a THIRD, independent binding family (compileViaBindings compiles it in its own `if
-  // (lookupFields !== undefined)` block, collection-config.ts:640-650 — not folded into the i18n
+  // (lookupFields !== undefined)` block, collection-config.ts:642-651 — not folded into the i18n
   // binding the way dictKeyFields is) — a single `vault.collection()` call may legally declare
   // BOTH i18nFields (or dictKeyFields) on one field AND lookupFields on another, and chaining this
   // onto the SAME else-if ladder would silently drop the lookupFields half of such a call.

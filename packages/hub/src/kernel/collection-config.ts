@@ -571,10 +571,11 @@ function unifyComputedFields<T>(opts: CollectionOpts<T>, viaComputedFields: Reco
  * declares NO write/read pipeline hooks (blob content is out-of-band
  * `BlobSet` side-collections — it must never flip `hasAtRestHooks`), only
  * `erase`/`describeFragment`. Computed compiles LAST (#638 Task 7) — its
- * `present` hook is the only one it declares, and it must run AFTER money/
- * i18n's own `present` so a virtual field's `deps` can read their decoded
- * output (money-quantized amount, i18n-resolved label), not their raw
- * stored form. `via-graph-wiring.ts#applyTaintOverlay` appends the `taint`
+ * `present` hook must run AFTER money's own `present` so a virtual field's
+ * `deps` read the decoded (quantized) amount, not the raw stored form; at
+ * present-time i18n/lookup's DRESSING now runs AFTER computed instead (#665
+ * `_presentOrder`, `via-pipeline.ts` — compile order here is unchanged).
+ * `via-graph-wiring.ts#applyTaintOverlay` appends the `taint`
  * binding after WHATEVER this function returns, so taint's present-time
  * redaction always runs after computed's regardless of this ordering.
  * {@link Collection._applyMoneyFields} PREPENDS money for the same reason
