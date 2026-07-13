@@ -47,6 +47,7 @@ import type { PortabilityStrategy } from '../with-audit/portability/strategy.js'
 import type { SequenceStrategy } from '../with-commit/sequence/strategy.js'
 import type { CustodyStrategy } from '../with-party/custody/strategy.js'
 import type { TeamStrategy } from '../port/with/team-strategy.js'
+import type { BrokerStrategy } from '../port/with/broker-strategy.js'
 import type { LazyStrategy } from '../port/with/lazy-strategy.js'
 import type { SearchStrategy } from '../with-lookup/search/strategy.js'
 import type { CargoStrategy } from '../with-cargo/strategy.js'
@@ -2400,6 +2401,15 @@ export interface NoydbOptions {
    * against).
    */
   readonly teamStrategy?: TeamStrategy
+  /**
+   * Tree-shake seam — optional credential-broker capability (#479). Pass
+   * `brokerStrategy: withBroker(config)` from `@noy-db/hub/broker` to
+   * enable `vault.broker()` (`.enroll()` / `.rotate()` /
+   * `.credentialSource(profile?)`). When omitted, `vault.broker()` throws
+   * `BrokerNotEnabledError` and the seed lifecycle + network/cache engine
+   * are reached only via opt-in.
+   */
+  readonly brokerStrategy?: BrokerStrategy
   /**
    * Opt-in seam — the `lazy` service (#267). Pass `withLazy()` from
    * `@noy-db/hub/lazy` to explicitly enable lazy mode's bounded-LRU

@@ -22,6 +22,7 @@ const ENTRIES = {
   index: 'src/index.ts',
   'i18n/index': 'src/via/i18n/index.ts',
   'team/index': 'src/with-party/team/index.ts',
+  'broker/index': 'src/with-party/broker/index.ts',
   'session/index': 'src/with-party/session/index.ts',
   'history/index': 'src/with-commit/history/index.ts',
   'forget/index': 'src/with-audit/forget/index.ts',

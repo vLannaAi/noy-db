@@ -241,9 +241,7 @@ export class Noydb {
     this.options = options
     // Debug-plaintext is an unencrypted-only inspection mode; combining it with
     // encryption is meaningless and unsafe, so reject the coupling loudly.
-    if (options.debugPlaintext === true && options.encrypt !== false) {
-      throw new DebugPlaintextError()
-    }
+    if (options.debugPlaintext === true && options.encrypt !== false) throw new DebugPlaintextError()
     if (options.debugPlaintext === true) {
       console.warn(
         '[noydb] debugPlaintext is ON — records are stored UNENCRYPTED and laid ' +
@@ -549,9 +547,7 @@ export class Noydb {
     // Tier-1 unlock — passphrase / getKeyring callbacks both yield the
     // most-privileged tier. Tier-2 / tier-3 unlocks install
     // a lower tier here when they land.
-    if (!this.activeTier.has(name)) {
-      this.activeTier.set(name, 1)
-    }
+    if (!this.activeTier.has(name)) this.activeTier.set(name, 1)
     // Load + persist the policy document. First call: persist the
     // developer-supplied policy (or default preset). Later calls: read
     // whatever's on disk and merge any developer override on top.
@@ -636,6 +632,7 @@ export class Noydb {
       ...(this.options.tiersStrategy !== undefined ? { tiersStrategy: this.options.tiersStrategy } : {}),
       ...(this.options.searchStrategy !== undefined ? { searchStrategy: this.options.searchStrategy } : {}),
       ...(this.options.cargoStrategy !== undefined ? { cargoStrategy: this.options.cargoStrategy } : {}),
+      ...(this.options.brokerStrategy !== undefined ? { brokerStrategy: this.options.brokerStrategy } : {}),
       ...(this.options.consentStrategy !== undefined ? { consentStrategy: this.options.consentStrategy } : {}),
       ...(this.options.periodsStrategy !== undefined ? { periodsStrategy: this.options.periodsStrategy } : {}),
       ...(this.options.shadowStrategy !== undefined ? { shadowStrategy: this.options.shadowStrategy } : {}),
@@ -725,6 +722,7 @@ export class Noydb {
       ...(this.options.tiersStrategy !== undefined ? { tiersStrategy: this.options.tiersStrategy } : {}),
       ...(this.options.searchStrategy !== undefined ? { searchStrategy: this.options.searchStrategy } : {}),
       ...(this.options.cargoStrategy !== undefined ? { cargoStrategy: this.options.cargoStrategy } : {}),
+      ...(this.options.brokerStrategy !== undefined ? { brokerStrategy: this.options.brokerStrategy } : {}),
       ...(this.options.consentStrategy !== undefined ? { consentStrategy: this.options.consentStrategy } : {}),
       ...(this.options.periodsStrategy !== undefined ? { periodsStrategy: this.options.periodsStrategy } : {}),
       ...(this.options.shadowStrategy !== undefined ? { shadowStrategy: this.options.shadowStrategy } : {}),
@@ -768,6 +766,7 @@ export class Noydb {
       ...(this.options.tiersStrategy !== undefined ? { tiersStrategy: this.options.tiersStrategy } : {}),
       ...(this.options.searchStrategy !== undefined ? { searchStrategy: this.options.searchStrategy } : {}),
       ...(this.options.cargoStrategy !== undefined ? { cargoStrategy: this.options.cargoStrategy } : {}),
+      ...(this.options.brokerStrategy !== undefined ? { brokerStrategy: this.options.brokerStrategy } : {}),
       ...(this.options.consentStrategy !== undefined ? { consentStrategy: this.options.consentStrategy } : {}),
       ...(this.options.periodsStrategy !== undefined ? { periodsStrategy: this.options.periodsStrategy } : {}),
       ...(this.options.shadowStrategy !== undefined ? { shadowStrategy: this.options.shadowStrategy } : {}),

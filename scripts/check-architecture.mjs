@@ -354,6 +354,7 @@ const STRATEGY_GATED_APIS = [
   { api: /\.dictionary\s*\(/,  option: 'i18nStrategy',    factory: 'withI18n' },
   { api: /\.lazyQuery\s*\(/,   option: 'indexStrategy',   factory: 'withIndexing' },
   { api: /\.exportBlobs\s*\(/, option: 'blobStrategy',    factory: 'withBlobs' },
+  { api: /\.broker\s*\(\s*\)/, option: 'brokerStrategy',  factory: 'withBroker' },
 ]
 
 // Per-file exceptions: files that legitimately invoke a gated API

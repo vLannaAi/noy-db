@@ -62,10 +62,13 @@
     "writeEnvelopeBody"
   ],
   "types": [
+    "BrokerProofCanonicalParts",
     "DeterministicContext",
     "EnclaveKey",
+    "IssuedChallenge",
     "PassphraseKeyUsage",
     "SealedShredSlot",
-    "SealingContext"
+    "SealingContext",
+    "VerifyBrokerProofArgs"
   ]
 }
