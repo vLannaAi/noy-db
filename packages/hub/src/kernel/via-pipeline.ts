@@ -28,30 +28,59 @@ export interface ViaTaintOverlay {
 
 export class ViaPipeline {
   /**
-   * Present-phase-ONLY order (#665) — a stable partition of `bindings`
-   * computed once here at construction: every `'computed'`-brand binding
-   * first, everything else in its existing relative order. `present()`
-   * folds over this instead of `bindings` so a `mode: 'virtual'` computed
-   * field's value exists before money/i18n/lookup's dressing `present()`
-   * hooks run on it (today's `compileViaBindings` order is money→i18n→
-   * lookup→classified→blob→computed, `collection-config.ts:643`, so
-   * dressing unconditionally ran BEFORE the value it dresses existed).
-   * EVERY other phase (`ingest`/`encodeWrite`/`encodeAtRest`/`enforceWrite`/
-   * etc.) keeps folding over `bindings` unchanged — those write/query phases
-   * need money-first (`_applyMoneyFields` PREPENDS money, `_applyClassifiedFields`
-   * APPENDS classified to preserve it, `kernel/collection.ts:1275-1284,1364-1368`).
-   * Only computed PRODUCES a value at present-time; money/i18n/lookup only
-   * CONSUME/dress, so this partition is the full topological order — no
-   * general topo sort is needed. A `'taint'` binding (appended LAST by
+   * Present-phase-ONLY order (#665, corrected under #665 review) — a stable
+   * THREE-WAY partition of `bindings` computed once here at construction:
+   * every `'money'`-brand binding first (existing relative order), then
+   * every `'computed'`-brand binding (existing relative order), then
+   * everything else (existing relative order). `present()` folds over this
+   * instead of `bindings` so a `mode: 'virtual'` computed field's value
+   * exists before i18n/lookup's dressing `present()` hooks run on it
+   * (today's `compileViaBindings` order is money→i18n→lookup→classified→
+   * blob→computed, `collection-config.ts:643`, so dressing unconditionally
+   * ran BEFORE the value it dresses existed). EVERY other phase (`ingest`/
+   * `encodeWrite`/`encodeAtRest`/`enforceWrite`/etc.) keeps folding over
+   * `bindings` unchanged — those write/query phases need money-first
+   * (`_applyMoneyFields` PREPENDS money, `_applyClassifiedFields` APPENDS
+   * classified to preserve it, `kernel/collection.ts:1275-1284,1364-1368`).
+   *
+   * Money is deliberately carved OUT of the generic "everything else" slice
+   * and kept FIRST — the original two-way `[computed..., rest...]` partition
+   * regressed money's composed-field behavior from a benign missing-dressing
+   * gap into VALUE CORRUPTION: money's `present()` DECODES its input as a
+   * STORED SCALED-INT (and derives `<field>Formatted` from it) — it is not a
+   * pure dressing CONSUMER like i18n/lookup, which only ADD a `<field>Label`
+   * key and never rewrite the field's own value. Running money AFTER
+   * computed on a field composing `computed(virtual)` + `money(...)` on
+   * ITSELF means money's decode sees the virtual field's raw MAJOR-unit
+   * output (e.g. `21`) and misreads it as a scaled-int, producing a
+   * corrupted value (`'0.21'`) instead of the pre-#665 result (the raw `21`
+   * surviving untouched, with no `Formatted` key added — a benign
+   * missing-dressing gap, not a wrong value). Money-first restores money's
+   * exact pre-#665 present position — byte-identical money behavior; the
+   * materialized composition pins from the #631 work and the money suites
+   * all ran under money-first. i18n/lookup are genuine dressing consumers
+   * (they only ADD, never rewrite), so they stay after computed, which is
+   * the fix #665 intended. A `'taint'` binding (appended LAST by
    * `via-graph-wiring.ts#applyTaintOverlay`) stays last here too (it's
-   * non-computed, so it lands at the tail of the "everything else" slice),
-   * preserving its "runs after computed, redacts tainted virtual output"
-   * contract (`via-taint-binding.ts`'s `taintBinding` doc comment).
+   * neither money nor computed, so it lands at the tail of the "everything
+   * else" slice), preserving its "runs after computed, redacts tainted
+   * virtual output" contract (`via-taint-binding.ts`'s `taintBinding` doc
+   * comment).
+   *
+   * Money-dressing a virtual computed field's OWN output (the composed
+   * `computed(virtual) + money` case) remains a KNOWN LIMITATION —
+   * reordering alone cannot fix it; money would need to quantize/reinterpret
+   * a major-unit value as a stored scaled-int, a value-shape decision left
+   * for a filed follow-up, not resolved by this partition.
    */
   private readonly _presentOrder: readonly ViaBinding[]
 
   private constructor(readonly bindings: readonly ViaBinding[], readonly taint?: ViaTaintOverlay) {
-    this._presentOrder = [...bindings.filter((b) => b.brand === 'computed'), ...bindings.filter((b) => b.brand !== 'computed')]
+    this._presentOrder = [
+      ...bindings.filter((b) => b.brand === 'money'),
+      ...bindings.filter((b) => b.brand === 'computed'),
+      ...bindings.filter((b) => b.brand !== 'money' && b.brand !== 'computed'),
+    ]
   }
 
   /** undefined when there is nothing to enforce — the zero-via fast path is

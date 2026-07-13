@@ -133,25 +133,27 @@ describe('computed(virtual) — read-time, never-stored mode (#638 Task 7)', () 
     ).not.toThrow()
   })
 
-  it('composed grammar: via(computed(...), money(...)) on one field is accepted and computes, but money MIS-DECODES the virtual output — KNOWN LIMITATION, out of #665\'s scope (value-shape, not ordering)', async () => {
+  it('composed grammar: via(computed(...), money(...)) on one field is accepted and computes, but money never dresses the virtual output — KNOWN LIMITATION (value-shape, not ordering)', async () => {
     // Decision 5's locked grammar (`via(computed(fn, { deps, mode }), money('EUR'))`) —
-    // this pins that the composition is LEGAL. #665 (`kernel/via-pipeline.ts`'s
-    // `_presentOrder`) reorders `present()` to run every `'computed'`-brand binding
-    // FIRST so i18n/lookup's dressing hooks can see a virtual field's value (see the
-    // dictKey/dict tests below) — but money is not a pure dressing CONSUMER like i18n/
-    // lookup: `decodeMoneyFields` (`via-money/binding.ts`) unconditionally treats its
-    // present()-time input as the STORED SCALED-INT form and derives both the decoded
-    // amount and `<field>Formatted` from it. A virtual computed field's output is a raw
-    // MAJOR-unit number (`21`), never quantized/stored — so now that money's present()
-    // runs AFTER computed's on this composed-on-itself field (previously computed ran
-    // LAST and unconditionally overwrote whatever money had set, so the raw `21`
-    // survived untouched), money misreads `21` as 21 SCALED units and decodes it as
-    // `'0.21'` EUR — a REPRESENTATION mismatch, not just a missing-dressing gap. #665's
-    // issue explicitly parks money virtual-dressing as a follow-up (needs a
-    // quantize-the-computed-output decision before money can be let anywhere near a
-    // virtual field's own output); this test pins the corrected present-order's actual,
-    // still-wrong, still-documented-as-a-known-limitation output for this composition.
-    interface Priced extends Record<string, unknown> { id: string; base: number; doubledPrice?: string | number }
+    // this pins that the composition is LEGAL and produces the computed function's raw
+    // result, undressed. `_presentOrder` (`kernel/via-pipeline.ts`) is a THREE-WAY
+    // partition (money-brand bindings, then computed-brand bindings, then everything
+    // else) that deliberately keeps money FIRST, at its pre-#665 present position — an
+    // early #665 draft ran money AFTER computed (a two-way computed-first partition) and
+    // that regressed this composition from a benign missing-dressing gap into VALUE
+    // CORRUPTION: money's `present()` (`decodeMoneyFields`, `via-money/binding.ts`)
+    // unconditionally treats its input as a STORED SCALED-INT and derives both the
+    // decoded amount and `<field>Formatted` from it, so a virtual computed field's raw
+    // MAJOR-unit output (`21`) was misread as 21 SCALED units and decoded to `'0.21'`
+    // EUR — wrong VALUE, not just missing dressing. With money restored to first, money's
+    // present() runs BEFORE the virtual value exists (nothing stored to decode yet) and
+    // computed's present() unconditionally sets the field afterward, so the raw computed
+    // number survives untouched and no `<field>Formatted` key is ever added — exactly
+    // the pre-#665 shape. This is a value-shape limitation, not an ordering one: money
+    // would need a quantize-the-computed-output decision (is `21` already scaled, or
+    // does money need to scale it?) before it could safely dress a virtual field's own
+    // output, and that decision is left for a filed follow-up, not resolved by ordering.
+    interface Priced extends Record<string, unknown> { id: string; base: number; doubledPrice?: string | number; doubledPriceFormatted?: string }
     const store = inlineMemory()
     const db = await createNoydb({ store, user: 'alice', secret: 'via-computed-virtual-stack-2026' })
     const v = await db.openVault('v1')
@@ -165,8 +167,38 @@ describe('computed(virtual) — read-time, never-stored mode (#638 Task 7)', () 
     })
     await c.put('a', { id: 'a', base: 10.5 })
     const read = await c.get('a')
-    expect(read?.doubledPrice).toBe('0.21') // NOT 21 — money mis-decodes the raw major-unit `21` as a scaled-int
+    expect(read?.doubledPrice).toBe(21)
+    expect(read?.doubledPriceFormatted).toBeUndefined() // no dressing — money's present() ran before the virtual value existed
     expect(() => c.query().where('doubledPrice', '==', 21)).toThrow(FieldNotQueryableError)
+  })
+
+  it('#665 regression pin: composed via(computed(virtual), money(...)) NEVER produces a scaled-down string like \'0.21\' — pins the three-way present partition (money-first) against a future regression to a generic computed-first order', async () => {
+    // This is the corruption case an EARLIER, REJECTED #665 draft actually produced (a
+    // two-way `[computed..., rest...]` partition ran money's decode AFTER the virtual
+    // value existed, so money misread the raw major-unit `21` as a scaled-int and
+    // decoded it to `'0.21'` EUR). The test above pins the (benign) KNOWN LIMITATION
+    // shape; this test pins the ABSENCE of the corrupted shape specifically, so a future
+    // change that reintroduces a generic computed-first partition (dropping money's
+    // carve-out) fails loudly here, not just via the KNOWN LIMITATION test's exact-value
+    // assertion. Asserts both value AND type — a scaled-down numeric `0.21` would be just
+    // as wrong as the string `'0.21'`.
+    interface Priced extends Record<string, unknown> { id: string; base: number; doubledPrice?: string | number }
+    const store = inlineMemory()
+    const db = await createNoydb({ store, user: 'alice', secret: 'via-computed-virtual-stack-regression-2026' })
+    const v = await db.openVault('v1')
+    const c = v.collection<Priced>('priced', {
+      viaFields: {
+        doubledPrice: via(
+          computed((r) => (r.base as number) * 2, { deps: ['base'], mode: 'virtual' }),
+          money({ currency: 'EUR', scale: 2 }),
+        ),
+      },
+    })
+    await c.put('a', { id: 'a', base: 10.5 })
+    const read = await c.get('a')
+    expect(read?.doubledPrice).not.toBe('0.21')
+    expect(read?.doubledPrice).toBe(21)
+    expect(typeof read?.doubledPrice).toBe('number')
   })
 
   it('composed grammar (MATERIALIZED default): via(computed(fn, { mode: "materialized" }), money(...)) on one field — money DOES format the computed output (pins the OPPOSITE of the virtual-mode case above)', async () => {
