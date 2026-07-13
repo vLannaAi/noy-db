@@ -15,13 +15,17 @@
  *     only orchestrates, matching the pre-#664 call order exactly);
  *  3. commits the two-phase graph-edge reconcile (`via-graph-wiring.ts`) + taint overlay, exactly
  *     as before;
- *  4. NEWLY wires i18n/dictKey late-attach via {@link reconcileI18nFields}/
- *     {@link reconcileDictKeyFields} — rebuilding the pipeline through {@link Collection._setVia}
- *     (#666's writer seam), mirroring the fresh-construction wiring
- *     (`collection-config.ts#compileViaBindings`'s i18n slot + `vault.ts`'s registry population)
- *     without duplicating it in a second place. lookupFields reconcile is a SEPARATE, later task
- *     — the `plan`/dispatch shape below is deliberately structured so a `reconcileLookupFields`
- *     branch slots in alongside i18n/dictKey without reshaping this function.
+ *  4. wires i18n/dictKey late-attach via {@link reconcileI18nFields}/{@link reconcileDictKeyFields}
+ *     — rebuilding the pipeline through {@link Collection._setVia} (#666's writer seam), mirroring
+ *     the fresh-construction wiring (`collection-config.ts#compileViaBindings`'s i18n slot +
+ *     `vault.ts`'s registry population) without duplicating it in a second place;
+ *  5. (#664 Part 2b) wires lookup()/enumOf()/dict() late-attach via {@link reconcileLookupFields}
+ *     — tier-scoped: enum/static tiers are a clean, self-contained attach; the reserved (dict)
+ *     tier additionally updates the SAME vault registries the fresh path populates
+ *     (`dictKeyFieldRegistry`/`reservedLookupCollections`/`staticDescriptorByField`/`staticByName`/
+ *     `staticDictNames`, via `collectLookupDictCompat`); the matrix (`backing:'collection'`) tier
+ *     is gated by {@link refuseUnattachableMatrixLookupFields} — refuses with a `ValidationError`
+ *     unless the backing collection is already open (this vault session) and prefetch-enabled.
  *
  * `ViaReconcileVaultCtx` takes the vault-resident registry Maps/closures the i18n/dictKey wiring
  * needs as a plain structural bag of ARGUMENTS (mirroring `shape/via-lookup/registry.ts`'s own
@@ -39,12 +43,16 @@ import {
   validateReconcileGraphEdges, commitReconcileGraphEdges, applyTaintOverlay,
   type ReconcileGraphOptions,
 } from './via-graph-wiring.js'
+import { ValidationError } from './errors.js'
 import { resolveClassifiedFields } from '../port/with/classified-strategy.js'
 import {
   isStaticDictDescriptor,
   type I18nStrategy, type I18nTextDescriptor, type DictKeyDescriptor, type StaticDictDescriptor, type DictionaryHandle,
 } from '../port/with/i18n-strategy.js'
-import { resolveLabelFromMap, dictCollectionName } from '../port/with/lookup-strategy.js'
+import {
+  resolveLabelFromMap, dictCollectionName, collectLookupDictCompat, checkLookupMembership, buildLookupAltIndex,
+  buildLookupSnapshotRows, registerLookupRefEdges, type LookupDescriptor,
+} from '../port/with/lookup-strategy.js'
 
 type AnyCollection = Collection<Record<string, unknown>>
 
@@ -87,6 +95,15 @@ export interface ViaReconcileVaultCtx {
   dictionary(name: string): DictionaryHandle
   enforceI18nOnPut(collectionName: string, record: unknown): void
   enforceStaticDictOnPut(collectionName: string, record: unknown): void
+  /** #664 Part 2b — the matrix-tier lookup late-attach gate: "is this dimension already open in
+   *  this vault session" (never constructs a fresh collection) — `Vault._getCollection`. */
+  getOpenCollection(name: string): AnyCollection | undefined
+  /** #664 Part 2b — the vault's CONSTRUCTING collection accessor the lookup binding's lazy
+   *  closures (`getLookupBacking`/`membership`/`getAltIndex`/`snapshotFor`) read through — mirrors
+   *  `vault.ts`'s fresh-construct `(n) => this.collection<Record<string, unknown>>(n)` closure
+   *  verbatim. Only ever invoked, for a matrix-tier dimension, once {@link getOpenCollection}'s
+   *  gate has already confirmed it is open — never the door that opens it. */
+  getCollection(name: string): AnyCollection
 }
 
 function hasI18nBinding(coll: ReconcilableCollection): boolean {
@@ -105,6 +122,79 @@ function insertI18nBinding(existing: readonly ViaBinding[], i18nBinding: ViaBind
   const idx = existing.findIndex((b) =>
     b.brand === 'lookup' || b.brand === 'classified' || b.brand === 'blob' || b.brand === 'computed' || b.brand === 'taint')
   return idx === -1 ? [...existing, i18nBinding] : [...existing.slice(0, idx), i18nBinding, ...existing.slice(idx)]
+}
+
+function hasLookupBinding(coll: ReconcilableCollection): boolean {
+  return (coll._via?.bindings ?? []).some((b) => b.brand === 'lookup')
+}
+
+/** lookup slots right after i18n, before classified/blob/computed/taint — the SAME
+ *  money→i18n→lookup→classified→blob→computed compile order (collection-config.ts:640-650).
+ *  Late-attach only ever inserts ONE lookup binding (first-wins — see {@link hasLookupBinding}),
+ *  so scanning for the first binding that must come AFTER lookup is enough (mirrors
+ *  {@link insertI18nBinding}'s own reasoning); an i18n binding present at insert time is already
+ *  earlier in `existing` (either compiled fresh, or late-attached by an EARLIER reconcile call —
+ *  {@link insertI18nBinding}'s own stop-list includes `'lookup'`, so the reverse ordering is
+ *  symmetric regardless of which family attaches first). */
+function insertLookupBinding(existing: readonly ViaBinding[], lookupBindingObj: ViaBinding): ViaBinding[] {
+  const idx = existing.findIndex((b) => b.brand === 'classified' || b.brand === 'blob' || b.brand === 'computed' || b.brand === 'taint')
+  return idx === -1 ? [...existing, lookupBindingObj] : [...existing.slice(0, idx), lookupBindingObj, ...existing.slice(idx)]
+}
+
+/**
+ * #664 Part 2b — the matrix (`backing:'collection'`) tier's late-attach gate. Unlike enum/static
+ * (self-contained) or reserved (vault-registry-backed), matrix reads ANOTHER live collection's
+ * cache via `querySourceForJoin()` — `getLookupBacking`/`membership`/`getAltIndex`/`snapshotFor`
+ * (built below in {@link reconcileLookupFields}) are all vault-built closures that stay lazy,
+ * mirroring the fresh-construct path exactly. At FRESH construction that laziness is harmless —
+ * the backing dimension may simply not exist yet, and the closures only ever fire once it does.
+ * A LATE attach is different: the vault is already mid-session, so silently deferring would let a
+ * matrix field attach onto a dimension that never opens (or opens lazy) this session, surfacing
+ * the confusing join-branded lazy-mode error on some UNRELATED later put()/read() instead of at
+ * the point of declaration — the exact silent-deferral failure class `getAltIndexOrThrow`
+ * (`shape/via-lookup/binding.ts:252-264`) already refuses for altKeys specifically. This closes it
+ * for the field's very existence: REFUSE eagerly, at attach time, with a `ValidationError` naming
+ * the field, the dimension, and the remedy, unless the backing dimension is ALREADY open (in THIS
+ * vault session — `vaultCtx.getOpenCollection`, which never constructs) AND prefetch-enabled
+ * (probed via `querySourceForJoin()` itself — the SAME lazy-mode signal `getAltIndexOrThrow`
+ * reads, never a private `Collection` field reach-around; `collection.ts` is untouched by #664).
+ *
+ * Callers MUST run this BEFORE any `_apply*` mutation for the WHOLE reconcile call (Finding-M2
+ * ordering law, `via-graph-wiring.ts#validateReconcileGraphEdges`'s doc comment) — see
+ * {@link reconcileViaAttach}'s own early call, which runs this ahead of money/computed/classified
+ * apply so a combined call (e.g. `moneyFields` + a not-yet-open matrix `lookupFields` entry) never
+ * partially mutates money state before the whole call is refused. Also re-run at the top of
+ * {@link reconcileLookupFields} itself (cheap, pure, idempotent) so a direct/standalone caller of
+ * that function stays self-protecting too.
+ */
+function refuseUnattachableMatrixLookupFields(
+  vaultCtx: ViaReconcileVaultCtx,
+  lookupFields: Record<string, LookupDescriptor>,
+): void {
+  for (const [field, desc] of Object.entries(lookupFields)) {
+    if (desc.backing !== 'collection') continue
+    const backing = vaultCtx.getOpenCollection(desc.dimension)
+    if (!backing) {
+      throw new ValidationError(
+        `lookup: matrix field "${field}" (backing dimension "${desc.dimension}") cannot be late-attached — ` +
+        `"${desc.dimension}" is not open in this vault session yet. Open it first, e.g. ` +
+        `vault.collection('${desc.dimension}', { ... }), with prefetch enabled (the default) before ` +
+        `attaching "${field}" via a later vault.collection() call.`,
+      )
+    }
+    try {
+      backing.querySourceForJoin()
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('lazy-mode')) {
+        throw new ValidationError(
+          `lookup: matrix field "${field}" (backing dimension "${desc.dimension}") cannot be late-attached — ` +
+          `"${desc.dimension}" is open in lazy mode ({ prefetch: false }). Re-open "${desc.dimension}" ` +
+          `without { prefetch: false } (eager mode, the default) before attaching "${field}".`,
+        )
+      }
+      throw err
+    }
+  }
 }
 
 /** Mirrors `vault.ts`'s `collOpts.dictLabelResolver` closure (:1117-1125) verbatim — a static
@@ -216,6 +306,71 @@ export function reconcileDictKeyFields(
   rebuildI18nBinding(coll, vaultCtx, name, undefined, dictKeyFields)
 }
 
+/**
+ * #664 Part 2b — late-attach lookup()/enumOf()/dict() fields, tier-scoped (issue #664, spec-
+ * ratified tier policy):
+ *
+ *  - **enum** (`backing:'static'`, no `table`) / **static** (`+table`) — self-contained:
+ *    membership/labels come from the declared `keys`/`table` alone, no vault registry touch, no
+ *    cross-collection read. Clean attach, same shape as i18n/dictKey's own reconcile door.
+ *  - **reserved** (`dict()` / `lookup(dim, { backing:'reserved' })`) — additionally registers into
+ *    the SAME vault registries the fresh path populates (`vault.ts`'s dictKeyFields/lookupFields
+ *    registry-population loop) — `dictKeyFieldRegistry`/`reservedLookupCollections` for a bare
+ *    dict field; `staticDescriptorByField`/`staticByName`/`staticDictNames` for a table-bearing
+ *    static field — via `collectLookupDictCompat` (#650 Task 2's alias-equivalence bridge, the
+ *    SAME helper the fresh path already calls), reused verbatim, not duplicated.
+ *  - **matrix** (`backing:'collection'`) — gated by {@link refuseUnattachableMatrixLookupFields}.
+ *
+ * First-wins (mirrors {@link reconcileI18nFields}): a no-op once the collection already has a
+ * 'lookup' binding, whether from fresh construction or an earlier reconcile call.
+ *
+ * Post-attach, registers the SAME cross-collection `'ref'` graph edges the fresh path does
+ * (`registerLookupRefEdges` — internally skips the static tier, which has no backing collection to
+ * reference-check) — `ViaGraph.referencingEdgesOf` sees them immediately, so delete-time
+ * restrict/cascade/nullify semantics are live post-attach too, same as a fresh declaration.
+ */
+export function reconcileLookupFields(
+  coll: ReconcilableCollection, vaultCtx: ViaReconcileVaultCtx, graph: ViaGraph, name: string,
+  lookupFields: Record<string, LookupDescriptor> | undefined,
+): void {
+  if (lookupFields === undefined) return
+  if (hasLookupBinding(coll)) return
+  refuseUnattachableMatrixLookupFields(vaultCtx, lookupFields) // standalone-caller safety net — see its own doc comment
+
+  const compat = collectLookupDictCompat(lookupFields)
+  if (Object.keys(compat.dictFieldMap).length > 0) {
+    vaultCtx.dictKeyFieldRegistry.set(name, { ...(vaultCtx.dictKeyFieldRegistry.get(name) ?? {}), ...compat.dictFieldMap })
+    for (const dictName of new Set(Object.values(compat.dictFieldMap))) {
+      vaultCtx.reservedLookupCollections.set(dictCollectionName(dictName), dictName)
+    }
+  }
+  if (compat.staticEntries.length > 0) {
+    const staticFieldMap = { ...(vaultCtx.staticDescriptorByField.get(name) ?? {}) }
+    for (const [field, desc] of compat.staticEntries) {
+      staticFieldMap[field] = desc
+      vaultCtx.staticDictNames.add(desc.name)
+      vaultCtx.staticByName.set(desc.name, desc)
+    }
+    vaultCtx.staticDescriptorByField.set(name, staticFieldMap)
+  }
+
+  const binding = viaBinder('lookup')({
+    lookupFields,
+    lookupLabelResolver: buildDictLabelResolver(vaultCtx),
+    getLookupBacking: (desc: LookupDescriptor) => async (key: string) =>
+      buildLookupSnapshotRows(desc, (n) => vaultCtx.reservedLookupCollections.has(dictCollectionName(n)), (n) => vaultCtx.dictionary(n), (n) => vaultCtx.getCollection(n))?.get(key) ??
+        (desc.key === 'id' ? ((await vaultCtx.getCollection(desc.dimension).get(key)) ?? undefined) : undefined),
+    membership: (field: string, key: string) => checkLookupMembership(lookupFields[field]!, key, (n) => vaultCtx.dictionary(n), (n) => vaultCtx.getCollection(n)),
+    getAltIndex: (d: LookupDescriptor) => buildLookupAltIndex(d, (n) => vaultCtx.dictionary(n), (n) => vaultCtx.getCollection(n)),
+    snapshotFor: (d: LookupDescriptor) =>
+      buildLookupSnapshotRows(d, (n) => vaultCtx.reservedLookupCollections.has(dictCollectionName(n)), (n) => vaultCtx.dictionary(n), (n) => vaultCtx.getCollection(n)),
+    collectionName: name,
+  })
+  const existing = coll._via?.bindings ?? []
+  coll._setVia(ViaPipeline.build(insertLookupBinding(existing, binding), coll._via?.taint))
+  registerLookupRefEdges(graph, name, lookupFields)
+}
+
 /** The late-attach reconcile call's field-declaring options — the slice of `vault.collection()`'s
  *  `options` a reconcile call may carry, plus the `mergeViaFields` output that feeds both the
  *  guard and the money/i18n/dictKey/lookup reconciles. `blobFields` has no `_apply*` door (guard
@@ -232,11 +387,9 @@ export interface ReconcileLateAttachPlan {
 
 /**
  * #664 — the ONE late-attach reconcile dispatch `vault.ts` calls, replacing its former 5-branch
- * `_apply*` ladder. Order: guard (before any mutation) → the five pre-existing reconciles,
- * UNCHANGED call order/semantics → graph-edge commit + taint overlay (unchanged) → i18n/dictKey
- * (new). `lookupFields` is intentionally NOT dispatched here yet — a future
- * `reconcileLookupFields` branch slots in as one more `else if` on `plan.effectiveViaFields.lookupFields`
- * without touching anything above it.
+ * `_apply*` ladder. Order: guard (before any mutation) → the matrix-tier lookup gate (also before
+ * any mutation — see below) → the five pre-existing reconciles, UNCHANGED call order/semantics →
+ * graph-edge commit + taint overlay (unchanged) → i18n/dictKey → lookup (#664 Part 2b).
  */
 export function reconcileViaAttach(
   coll: ReconcilableCollection, graph: ViaGraph, name: string,
@@ -251,6 +404,14 @@ export function reconcileViaAttach(
     blobFields: plan.blobFields,
     computed: { ...(plan.computed ?? {}), ...(plan.effectiveViaFields.computedFields ?? {}) },
   })
+  // #664 Part 2b — the matrix-tier lookup gate must run here, BEFORE money/computed/classified
+  // apply below (Finding-M2 ordering law — see `refuseUnattachableMatrixLookupFields`'s own doc
+  // comment): deferring it to `reconcileLookupFields`'s own call site near the bottom of this
+  // function would let a combined call (e.g. `moneyFields` + a not-yet-open matrix `lookupFields`
+  // entry) partially mutate money state before the whole call is ultimately refused.
+  if (plan.effectiveViaFields.lookupFields !== undefined && !hasLookupBinding(coll)) {
+    refuseUnattachableMatrixLookupFields(vaultCtx, plan.effectiveViaFields.lookupFields)
+  }
 
   const reconcilePlan = (plan.computed || plan.classifiedFields)
     ? validateReconcileGraphEdges(graph, name, {
@@ -277,5 +438,14 @@ export function reconcileViaAttach(
     reconcileI18nFields(coll, vaultCtx, name, plan.effectiveViaFields.i18nFields, plan.effectiveViaFields.dictKeyFields)
   } else if (plan.effectiveViaFields.dictKeyFields !== undefined) {
     reconcileDictKeyFields(coll, vaultCtx, name, plan.effectiveViaFields.dictKeyFields)
+  }
+  // Deliberately a separate `if`, not another `else if` on the i18n/dictKey pair above: lookup is
+  // a THIRD, independent binding family (compileViaBindings compiles it in its own `if
+  // (lookupFields !== undefined)` block, collection-config.ts:640-650 — not folded into the i18n
+  // binding the way dictKeyFields is) — a single `vault.collection()` call may legally declare
+  // BOTH i18nFields (or dictKeyFields) on one field AND lookupFields on another, and chaining this
+  // onto the SAME else-if ladder would silently drop the lookupFields half of such a call.
+  if (plan.effectiveViaFields.lookupFields !== undefined) {
+    reconcileLookupFields(coll, vaultCtx, graph, name, plan.effectiveViaFields.lookupFields)
   }
 }

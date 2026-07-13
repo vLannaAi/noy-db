@@ -661,7 +661,7 @@ export class Vault {
       i18nStrategy: this.i18nStrategy, locale: this.locale, translateText: this.translateText,
       i18nFieldRegistry: this.i18nFieldRegistry, dictKeyFieldRegistry: this.dictKeyFieldRegistry,
       staticDescriptorByField: this.staticDescriptorByField, reservedLookupCollections: this.reservedLookupCollections,
-      staticByName: this.staticByName, staticDictNames: this.staticDictNames,
+      staticByName: this.staticByName, staticDictNames: this.staticDictNames, getOpenCollection: (n) => this._getCollection(n), getCollection: (n) => this.collection<Record<string, unknown>>(n),
       dictionary: (name) => this.dictionary(name),
       enforceI18nOnPut: (collectionName, record) => this.enforceI18nOnPut(collectionName, record),
       enforceStaticDictOnPut: (collectionName, record) => this.enforceStaticDictOnPut(collectionName, record),
