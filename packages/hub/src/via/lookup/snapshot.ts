@@ -1,6 +1,6 @@
 /**
  * The sync lookup snapshot + join/locale seam (#650 Task 6, spec §5 — "the
- * snapshot+locale seam"). Retires the #626 kernel→shape grandfather:
+ * snapshot+locale seam"). Retires the #626 kernel→via grandfather:
  * `kernel/query/join.ts` no longer imports `via/i18n/core.js` directly
  * — it calls the `presentForJoin` hook this file's `buildPresentForJoin`
  * builds instead (seam map Part 2 item 4, the #626 reviewer-spec'd shape:
