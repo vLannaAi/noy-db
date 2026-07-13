@@ -35,6 +35,15 @@ export interface SubjectDeclaration {
    * for every forgotten ref. Default `false`/absent = today's unconditional
    * behavior (byte-identical). See `purge-scope.ts` for the partition logic
    * and the `scopedPurgeResidue` skip-reporting this enables.
+   *
+   * **Footgun:** a bare `sensitive: [...]` collection — no `classifiedFields`
+   * (no classified via binder compiled in) — counts as UNDECLARED for the
+   * sealed-CEK arm. Under `scopedPurge: true`, its `_sealed_cek` host-delivery
+   * envelopes are SKIPPED, not purged (reported via `scopedPurgeResidue`,
+   * reason `'skipped-undeclared-sealed-cek'`) even if that collection called
+   * `sealRecordToHost()` — the sealed CEK stays recoverable by that granted
+   * host until purged. Add a `classifiedFields` binding to close the gap, or
+   * leave `scopedPurge` off/false for the unconditional (always-purged) default.
    */
   readonly scopedPurge?: boolean
 }
@@ -160,12 +169,16 @@ export interface ForgetResult {
   readonly scopedPurgeResidue: readonly ScopedPurgeResidueNotice[]
 }
 
+/** #633 — the two `scopedPurgeResidue` skip reasons. Single source of truth: `purge-scope.ts`
+ *  (the port-internal partition helpers) imports this rather than redeclaring it. */
+export type ScopedPurgeResidueReason = 'skipped-undeclared-sealed-cek' | 'skipped-undeclared-blob-scan'
+
 /** #633 — one `ForgetResult.scopedPurgeResidue` entry: an undeclared collection's sealed-CEK
  *  entries left unpurged, or its blob scan skipped entirely, under `scopedPurge`. `count` is the
  *  number of `_sealed_cek` entries left in place (sealed-cek reason) or the number of refs whose
  *  blob scan was skipped (blob-scan reason) — aggregated per collection across the whole call. */
 export interface ScopedPurgeResidueNotice {
-  readonly reason: 'skipped-undeclared-sealed-cek' | 'skipped-undeclared-blob-scan'
+  readonly reason: ScopedPurgeResidueReason
   readonly collection: string
   readonly count: number
 }

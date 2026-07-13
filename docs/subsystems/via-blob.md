@@ -124,15 +124,39 @@ await expect(b.erase!(eraseCtxFixture())).resolves.toEqual(report)
 
 (from `packages/hub/__tests__/via/blob-binding.test.ts`). **This hook is not wired into
 production, on purpose.** `vault.forget()`'s blob-shred call site
-(`this.collection(ref.collection).blob(ref.id).shredAllForRecord()`) is gated **only** on whether
-the vault's `blobStrategy` is configured — never on whether the specific collection declared
-`blobFields` — proven by `per-blob-cek.test.ts`/`forget.test.ts`, which crypto-shred blobs on
-`forget()` for collections calling `.blob(id)` with **no** `blobFields` declaration at all. Routing
+(`this.collection(ref.collection).blob(ref.id).shredAllForRecord()`) is gated by DEFAULT **only**
+on whether the vault's `blobStrategy` is configured — never on whether the specific collection
+declared `blobFields` — proven by `per-blob-cek.test.ts`/`forget.test.ts`, which crypto-shred blobs
+on `forget()` for collections calling `.blob(id)` with **no** `blobFields` declaration at all. Routing
 blob-shred exclusively through this binding's `erase()` hook would silently stop crypto-shredding
 blobs for every such collection, so `vault.forget()` keeps calling
 `collection.blob(id).shredAllForRecord()` directly; `purgeBlobsForRecord` stays real, tested, and
 available for a future collection-scoping-aware caller. See
 [`via.md`](via.md) (Phase B section) for the identical note on classified's sealed-CEK purge.
+
+### #633 — the opt-in `scopedPurge` knob, blob arm
+
+The same `SubjectDeclaration.scopedPurge` knob documented in
+[`via-classified.md`](via-classified.md#633--the-opt-in-scopedpurge-knob) also gates this arm, keyed
+off whether the collection declared a `blobFields` config (`this.blobFieldsRegistry.has(ref.collection)`
+inside `vault.forget()`) rather than any `classifiedFields` binding:
+
+```ts
+const declared = vault.collection('invoicesDeclared', { blobFields: { 'contract.pdf': {} } })
+// undeclared: no blobFields option, yet `.blob(id)` is still called directly —
+// exactly the gap #633 names.
+const undeclared = vault.collection('invoicesUndeclared')
+```
+
+Under `scopedPurge: true`, an undeclared collection's blob scan is skipped **entirely** — no
+`.blob(id).shredAllForRecord()` call AND no `_blob_slots_<collection>` residue-detection `list()`
+call either, which is the perf win scoping buys (`scoped-purge.test.ts` (c) spies the store's
+`list()` calls to pin that the skipped collection is never scanned at all). The skip is reported,
+never silent: `ForgetResult.scopedPurgeResidue` gains a `{ reason:
+'skipped-undeclared-blob-scan', collection, count }` entry, `count` counting the refs whose scan was
+skipped (aggregated per collection across the whole `forget()` call). The undeclared collection's
+blobs survive completely untouched — never scanned, never shredded — until either `blobFields` is
+declared for it or `scopedPurge` is turned off.
 
 ## Architecture
 

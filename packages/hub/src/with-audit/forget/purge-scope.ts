@@ -21,10 +21,7 @@
  *
  * @module
  */
-
-/** The two new #633 residue reason strings, reported through the existing
- *  `ForgetResult.scopedPurgeResidue` channel (additive, never a silent skip). */
-export type ScopedPurgeResidueReason = 'skipped-undeclared-sealed-cek' | 'skipped-undeclared-blob-scan'
+import type { ScopedPurgeResidueReason } from './strategy.js'
 
 /**
  * Partitions an already-fetched vault-wide `_sealed_cek` key listing into

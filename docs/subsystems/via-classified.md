@@ -169,7 +169,7 @@ are byte-identical to the pre-#629 path for the same scenarios (a normally-writt
 slot is shredded; a legacy DEK-derived slot is reported as residue, not shredded) — this is a
 parity guarantee, not new behavior.
 
-**One piece stays vault-level and unconditional, by design:** the sealed-CEK
+**One piece stays vault-level and unconditional BY DEFAULT, by design:** the sealed-CEK
 `_sealed_cek/<collection>/<id>/*` host-delivery envelope purge is proven (by the pre-existing
 `forget-sealed-erasure.test.ts` H-1 suite) to run on *any* collection using `sealRecordToHost()`,
 independent of whether it declares `classifiedFields` — a bare `sensitive: [...]` collection with
@@ -178,6 +178,50 @@ hook would silently regress those undeclared collections, so `vault.forget()` ke
 directly; the via binding's own `purgeSealedCekEnvelopes` closure exists and is unit-tested
 (`packages/hub/__tests__/via/classified-binding.test.ts`) but is not wired into production. See
 [`via.md`](via.md) (Phase B section) for the same note as it applies to blobs.
+
+### #633 — the opt-in `scopedPurge` knob
+
+`SubjectDeclaration.scopedPurge` (`@noy-db/hub/forget`, threaded through `withForgetCascade`) scopes
+the unconditional sealed-CEK purge above to declaration-backed collections only:
+
+```ts
+forgetStrategy: withForgetCascade({
+  subjects: { contacts: 'subjectId', people: 'subjectId' },
+  scopedPurge: true,
+})
+```
+
+**Default (`scopedPurge` absent/false) stays fully unconditional — byte-identical to pre-#633
+behavior** — precisely because a `classifiedFields` binding is a *necessary-but-not-sufficient*
+proxy for "this collection may hold a sealed CEK": `sealRecordToHost()` can be called on any
+collection regardless of whether it declares one, so scoping by default would silently narrow the
+erasure promise. Opting in trades that completeness for cost: a deployment with many
+`sealRecordToHost()`-adjacent-but-undeclared collections can skip a lot of dead-weight prefix
+scanning by declaring only the collections that actually use it, at the price of having to review
+residue reports for the rest.
+
+When `scopedPurge: true`:
+
+- **Declared** — a collection with `classifiedFields` compiled in (`coll._via?.hasAtRestHooks ===
+  true`) gets its `_sealed_cek` entries purged exactly as today.
+- **Undeclared** — every other collection's `_sealed_cek` entries for the forgotten subject are
+  LEFT IN PLACE and reported, never silently dropped: `ForgetResult.scopedPurgeResidue` gains a
+  `{ reason: 'skipped-undeclared-sealed-cek', collection, count }` entry (`count` = entries left in
+  place, aggregated per collection across the whole `forget()` call).
+
+**Footgun:** a bare `sensitive: [...]` collection — sensitive fields declared but no
+`classifiedFields` binding — counts as UNDECLARED here. `scoped-purge.test.ts` (b) pins exactly
+this: a `people` collection with `sensitive: ['ssn']` (no classified binder) that has been sealed to
+a host keeps its `_sealed_cek` envelope after `forget()` under `scopedPurge: true` — the sealed CEK
+remains recoverable by that granted host until the entries are purged some other way. Add a
+`classifiedFields` binding (even just wrapping the same field) to bring a collection into scope, or
+leave `scopedPurge` off for collections that only use bare `sensitive`.
+
+The knob lives on the resolved `ForgetStrategy`, which is set once at `createNoydb()` and threaded
+identically into every `Vault` from that instance — same per-instance granularity as `subjects`
+itself. Two independently-configured `createNoydb()` calls (one scoped, one not) behave
+independently — see `scoped-purge.test.ts` (d). See [`via-blob.md`](via-blob.md#forget--erasure) for
+the identical knob as it applies to the blob arm.
 
 ## Architecture
 
