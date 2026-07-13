@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { enrollSeed, rotateSeed, mintStoreCredentials } from '../../src/with-party/broker/seed.js'
-import type { BrokerCtx, BrokerConfig } from '../../src/port/with/broker-strategy.js'
+import type { BrokerSeedCtx, BrokerConfig } from '../../src/port/with/broker-strategy.js'
 import { createOwnerKeyring, grant, loadKeyring, ensureCollectionDEK } from '../../src/with-party/team/keyring.js'
 import type { UnlockedKeyring } from '../../src/with-party/team/keyring.js'
 import { BROKER_COLLECTION } from '../../src/with-party/team/reserved-secret-collections.js'
@@ -18,7 +18,7 @@ function config(host: ReturnType<typeof makeTestHost>, overrides: Partial<Broker
   return { brokerId: 'broker-1', endpoint: 'https://broker.example.com', fetch: host.fetch, ...overrides }
 }
 
-function ctx(store: NoydbStore, keyring: UnlockedKeyring, cfg: BrokerConfig): BrokerCtx {
+function ctx(store: NoydbStore, keyring: UnlockedKeyring, cfg: BrokerConfig): BrokerSeedCtx {
   return { store, vault: VAULT, keyring, config: cfg }
 }
 

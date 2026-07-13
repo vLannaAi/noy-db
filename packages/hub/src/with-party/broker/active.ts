@@ -36,10 +36,9 @@ export function withBroker(config: BrokerConfig): BrokerStrategy {
   const cache = new Map<string, CacheEntry>()
 
   return {
-    config,
     async enroll(ctx) {
       const { enrollSeed } = await import('./seed.js')
-      return enrollSeed(ctx)
+      return enrollSeed({ ...ctx, config })
     },
     async rotate(ctx) {
       // Quiesce (I5): let any in-flight round-trip finish (it may still be
@@ -50,7 +49,7 @@ export function withBroker(config: BrokerConfig): BrokerStrategy {
       await Promise.allSettled(inFlight)
       cache.clear()
       const { rotateSeed } = await import('./seed.js')
-      return rotateSeed(ctx)
+      return rotateSeed({ ...ctx, config })
     },
     credentialSource(ctx: BrokerCtx, profile?: string): StoreCredentialSource {
       const key = profile ?? ''
@@ -64,11 +63,11 @@ export function withBroker(config: BrokerConfig): BrokerStrategy {
         if (entry.cached && now < entry.cached.validUntil) return entry.cached.creds
         if (entry.inFlight) return entry.inFlight
 
-        const skewMs = ctx.config.skewMs ?? DEFAULT_SKEW_MS
+        const skewMs = config.skewMs ?? DEFAULT_SKEW_MS
         const capturedEntry = entry
         const inFlight = (async () => {
           const { mintStoreCredentials } = await import('./seed.js')
-          const creds = await mintStoreCredentials(ctx, profile)
+          const creds = await mintStoreCredentials({ ...ctx, config }, profile)
           capturedEntry.cached = { creds, validUntil: cacheFloor(creds, skewMs) }
           return creds
         })()

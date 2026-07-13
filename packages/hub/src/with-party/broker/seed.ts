@@ -7,7 +7,9 @@
  * `_sync_credentials`: this is transport-auth material, not the
  * custodian's operational scope).
  *
- * Three operations, each a free function taking a {@link BrokerCtx}:
+ * Three operations, each a free function taking a {@link BrokerSeedCtx}
+ * (the {@link BrokerCtx} threaded through `with-party/broker/active.ts`,
+ * augmented there with the `config` its closure was built with):
  *
  *  - {@link enrollSeed} — two-phase commit (I9): create-if-absent CAS the
  *    seed (I4), then register its derived proof key with the broker host,
@@ -55,7 +57,7 @@ import {
   BrokerEnrolmentError,
   BrokerProofError,
 } from '../../kernel/errors.js'
-import type { BrokerCtx, BrokerConfig } from '../../port/with/broker-strategy.js'
+import type { BrokerSeedCtx, BrokerConfig } from '../../port/with/broker-strategy.js'
 
 /** The `_broker/<brokerId>` record payload (spec §3). */
 export interface BrokerSeedRecord {
@@ -215,7 +217,7 @@ async function postEnroll(config: BrokerConfig, vault: string, proofBits: Uint8A
  * on a 2xx mark the record `registered: true`. Requires owner/admin role
  * and (for first-seed creation only) the KEK.
  */
-export async function enrollSeed(ctx: BrokerCtx): Promise<void> {
+export async function enrollSeed(ctx: BrokerSeedCtx): Promise<void> {
   const { store, vault, keyring, config } = ctx
   const { seedBytes, record, dek, version } = await ensureSeedRecord(store, vault, keyring, config)
   if (record.registered) {
@@ -252,7 +254,7 @@ export async function enrollSeed(ctx: BrokerCtx): Promise<void> {
  * epoch) is the caller's job — `with-party/broker/active.ts` — since the
  * cache lives in that closure, not here.
  */
-export async function rotateSeed(ctx: BrokerCtx): Promise<void> {
+export async function rotateSeed(ctx: BrokerSeedCtx): Promise<void> {
   const { store, vault, keyring, config } = ctx
   requireAdminAccess(keyring)
   const dek = await brokerDek(store, vault, keyring)
@@ -265,7 +267,7 @@ export async function rotateSeed(ctx: BrokerCtx): Promise<void> {
   }
 
   const newSeedBytes = globalThis.crypto.getRandomValues(new Uint8Array(32))
-  const newProofBits = await deriveBrokerProofBits(newSeedBytes.slice(), vault, config.brokerId)
+  const newProofBits = await deriveBrokerProofBits(newSeedBytes, vault, config.brokerId)
   try {
     await postEnroll(config, vault, newProofBits)
   } finally {
@@ -292,7 +294,7 @@ export async function rotateSeed(ctx: BrokerCtx): Promise<void> {
  * enrolment yet (`registered !== true` — I9/V23), never degrading into an
  * opaque {@link BrokerProofError}.
  */
-export async function mintStoreCredentials(ctx: BrokerCtx, profile?: string): Promise<StoreCredentials> {
+export async function mintStoreCredentials(ctx: BrokerSeedCtx, profile?: string): Promise<StoreCredentials> {
   const { store, vault, keyring, config } = ctx
   requireAdminAccess(keyring)
   const dek = await brokerDek(store, vault, keyring)

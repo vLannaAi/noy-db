@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { withBroker } from '../../src/with-party/broker/active.js'
-import type { BrokerCtx, BrokerConfig } from '../../src/port/with/broker-strategy.js'
+import type { BrokerSeedCtx, BrokerConfig } from '../../src/port/with/broker-strategy.js'
 import { createOwnerKeyring } from '../../src/with-party/team/keyring.js'
 import { enrollSeed } from '../../src/with-party/broker/seed.js'
 import { NetworkError, BrokerProofError } from '../../src/kernel/errors.js'
@@ -21,7 +21,7 @@ async function setUp(hostOpts: Parameters<typeof makeTestHost>[0] = {}) {
     brokerId: 'broker-1', endpoint: 'https://broker.example.com',
     attestation: () => 'dev-token', fetch: host.fetch,
   }
-  const ctx: BrokerCtx = { store, vault: VAULT, keyring: owner, config }
+  const ctx: BrokerSeedCtx = { store, vault: VAULT, keyring: owner, config }
   await enrollSeed(ctx)
   return { store, owner, host, config, ctx }
 }
@@ -45,7 +45,7 @@ describe('broker credentialSource cache', () => {
       credentials: () => ({ kind: 'aws', accessKeyId: 'A', secretAccessKey: 'B', expiresAt: nearExpiry }),
     })
     const strategy = withBroker({ ...ctx.config, skewMs: 500 })
-    const source = strategy.credentialSource({ ...ctx, config: { ...ctx.config, skewMs: 500 } }, 'read')
+    const source = strategy.credentialSource(ctx, 'read')
 
     const first = await source()
     expect(host.calls.credentials).toBe(1)
@@ -76,7 +76,7 @@ describe('broker credentialSource cache', () => {
     })
     const cfgWithSkew: BrokerConfig = { ...ctx.config, skewMs: 60_000 }
     const strategy = withBroker(cfgWithSkew)
-    const source = strategy.credentialSource({ ...ctx, config: cfgWithSkew }, 'read')
+    const source = strategy.credentialSource(ctx, 'read')
 
     await source()
     const callsAfterFirst = host.calls.credentials
@@ -91,7 +91,7 @@ describe('broker credentialSource cache', () => {
     const throwingFetch = (async () => { throw new TypeError('fetch failed') }) as typeof fetch
     const cfgDown: BrokerConfig = { ...ctx.config, fetch: throwingFetch }
     const strategy = withBroker(cfgDown)
-    const source = strategy.credentialSource({ ...ctx, config: cfgDown }, 'read')
+    const source = strategy.credentialSource(ctx, 'read')
 
     await expect(source()).rejects.toThrow(NetworkError)
   })
@@ -143,7 +143,7 @@ describe('broker credentialSource cache', () => {
 
     // A call AFTER rotate mints fresh (cache was cleared) under the new seed.
     const callsBefore = host.calls.credentials
-    const post = await strategy.credentialSource({ store, vault: VAULT, keyring: owner, config: ctx.config }, 'read')()
+    const post = await strategy.credentialSource({ store, vault: VAULT, keyring: owner }, 'read')()
     expect(post).toMatchObject({ kind: 'aws' })
     expect(host.calls.credentials).toBe(callsBefore + 1)
   })

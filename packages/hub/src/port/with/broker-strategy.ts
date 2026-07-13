@@ -5,10 +5,13 @@
  * static import — the same idiom as `port/with/team-strategy.ts`.
  *
  * `BrokerCtx` bundles what the `_broker` seed lifecycle needs (`store`/
- * `vault`/`keyring`) with what the network/cache layer needs (`config`, the
- * `BrokerConfig` the strategy was built with) into one argument, so
- * `BrokerStrategy`'s three methods stay uniform. `NO_BROKER` (the floor
- * default) has no `config` — every method throws before touching `ctx`.
+ * `vault`/`keyring`) into one argument, so `BrokerStrategy`'s three methods
+ * stay uniform. The `BrokerConfig` a strategy was built with is NOT part of
+ * this port-level ctx — `withBroker(config)` (`with-party/broker/active.ts`)
+ * keeps it in its own closure and injects it into the richer
+ * {@link BrokerSeedCtx} it passes to the `_broker` seed ops
+ * (`enrollSeed`/`rotateSeed`/`mintStoreCredentials`). `NO_BROKER` (the floor
+ * default) never builds a ctx — every method throws first.
  * @internal
  */
 import type { NoydbStore, StoreCredentialSource } from '../../kernel/types.js'
@@ -35,12 +38,22 @@ export interface BrokerConfig {
 
 /**
  * Per-call context a {@link BrokerStrategy} method needs: the seed API's
- * `store`/`vault`/`keyring`, plus the network client's `config`.
+ * `store`/`vault`/`keyring`.
  */
 export interface BrokerCtx {
   readonly store: NoydbStore
   readonly vault: string
   readonly keyring: UnlockedKeyring
+}
+
+/**
+ * {@link BrokerCtx} augmented with the `BrokerConfig` the `_broker` seed ops
+ * (`enrollSeed`/`rotateSeed`/`mintStoreCredentials`) need. `withBroker(config)`
+ * (`with-party/broker/active.ts`) builds this by injecting its closed-over
+ * `config` into the port-level `BrokerCtx` it receives — the port interface
+ * itself never carries `config`.
+ */
+export interface BrokerSeedCtx extends BrokerCtx {
   readonly config: BrokerConfig
 }
 
@@ -56,12 +69,6 @@ export interface CredentialBrokerHandle {
 
 /** The opt-in strategy contract `withBroker(config)` implements. */
 export interface BrokerStrategy {
-  /**
-   * The `BrokerConfig` this strategy was built with — `NO_BROKER` has none
-   * (every method throws before reading it). Exposed so `vault.broker()`
-   * can build a {@link BrokerCtx} without a separate `NoydbOptions` field.
-   */
-  readonly config?: BrokerConfig | undefined
   enroll(ctx: BrokerCtx): Promise<void>
   rotate(ctx: BrokerCtx): Promise<void>
   credentialSource(ctx: BrokerCtx, profile?: string): StoreCredentialSource
@@ -92,7 +99,7 @@ export function buildCredentialBrokerHandle(
   vault: string,
   getKeyring: () => UnlockedKeyring,
 ): CredentialBrokerHandle {
-  const ctx = (): BrokerCtx => ({ store, vault, keyring: getKeyring(), config: strategy.config as BrokerConfig })
+  const ctx = (): BrokerCtx => ({ store, vault, keyring: getKeyring() })
   return {
     enroll: () => strategy.enroll(ctx()),
     rotate: () => strategy.rotate(ctx()),
