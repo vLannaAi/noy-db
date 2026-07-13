@@ -237,6 +237,17 @@ export function taintBinding(
           if (field in out) {
             if (out === record) out = { ...record }
             out[field] = EXPORT_REDACTION_MARKER
+            // Money's presentLate (#669, `via/money/normalize.ts#presentVirtualMoneyFields`)
+            // dresses a virtual money field's fresh output into `<field>Formatted`/
+            // `<field>Number` companions BEFORE this present() (taint's) runs. Redacting
+            // only `field` leaves those companions holding the un-redacted value — DELETE
+            // them (not overwrite with the marker: the marker on `field` is the leak
+            // signal, and inventing a `${field}Formatted` marker key that an un-redacted
+            // read wouldn't always carry would be its own lie). Reviewed #669 finding.
+            const formattedKey = `${field}Formatted`
+            const numberKey = `${field}Number`
+            if (formattedKey in out) delete out[formattedKey]
+            if (numberKey in out) delete out[numberKey]
           }
         }
         return out

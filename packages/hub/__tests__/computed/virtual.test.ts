@@ -578,6 +578,70 @@ describe('computed(virtual) — read-time, never-stored mode (#638 Task 7)', () 
     expect(() => c.query().where('ssnLeak', '==', '123-45-6789')).toThrow(FieldNotQueryableError)
   })
 
+  it('#669 review: a tainted virtual field composed with money is redacted on the base field AND its Formatted/Number companions — the companions must not leak the value the base field just sealed', async () => {
+    interface Person extends Record<string, unknown> { id: string; ssn: string; leak?: string | number; leakFormatted?: string; leakNumber?: number }
+    const ssnSpec = (): ClassifiedFieldSpec => ({
+      _noydbClassified: true, preset: 'test-ssn', storage: 'recoverable',
+      list: { kind: 'omit' }, sensitivity: 'secret',
+    })
+    const store = inlineMemory()
+    const db = await createNoydb({
+      store, user: 'alice', secret: 'via-computed-virtual-money-taint-2026', classifiedStrategy: withClassified(),
+    })
+    const v = await db.openVault('v1')
+    const c = v.collection<Person>('people', {
+      classifiedFields: { ssn: ssnSpec() },
+      viaFields: {
+        leak: via(
+          computed(() => 21, { deps: ['ssn'], mode: 'virtual' }),
+          money({ currency: 'EUR', scale: 2 }),
+        ),
+      },
+    })
+    await c.put('r1', { id: 'r1', ssn: '123-45-6789' })
+
+    const rec = await c.get('r1')
+    expect(rec?.leak).toBe('[sealed]')
+    // the leak: money's presentLate dresses the virtual field's fresh (untainted-looking)
+    // '21' output into `leakFormatted`/`leakNumber` BEFORE taint's present-redaction
+    // overwrites the base field — those companions must be stripped too, not just the base.
+    expect(rec?.leakFormatted).toBeUndefined()
+    expect(rec?.leakNumber).toBeUndefined()
+    expect('leakFormatted' in (rec as Record<string, unknown>)).toBe(false)
+    expect('leakNumber' in (rec as Record<string, unknown>)).toBe(false)
+  })
+
+  it('reachability nuance: a virtual money field whose fn reads the sealed source directly (rather than merely declaring it via `deps`) never produces Formatted/Number siblings in the first place — a SealedHandle coerces to NaN, which money treats as unparseable, independent of taint redaction', async () => {
+    interface Person extends Record<string, unknown> { id: string; ssn: string; leak?: string | number; leakFormatted?: string; leakNumber?: number }
+    const ssnSpec = (): ClassifiedFieldSpec => ({
+      _noydbClassified: true, preset: 'test-ssn', storage: 'recoverable',
+      list: { kind: 'omit' }, sensitivity: 'secret',
+    })
+    const store = inlineMemory()
+    const db = await createNoydb({
+      store, user: 'alice', secret: 'via-computed-virtual-money-taint-reachability-2026', classifiedStrategy: withClassified(),
+    })
+    const v = await db.openVault('v1')
+    const c = v.collection<Person>('people', {
+      classifiedFields: { ssn: ssnSpec() },
+      viaFields: {
+        leak: via(
+          computed((r) => Number(r.ssn), { deps: ['ssn'], mode: 'virtual' }),
+          money({ currency: 'EUR', scale: 2 }),
+        ),
+      },
+    })
+    await c.put('r1', { id: 'r1', ssn: '123-45-6789' })
+
+    const rec = await c.get('r1')
+    // still redacted (declared deps taint it regardless of what the fn actually reaches) —
+    // but the NaN the SealedHandle coerces to was already unparseable, so no companions
+    // were ever produced for taint's present-redaction to have to strip.
+    expect(rec?.leak).toBe('[sealed]')
+    expect(rec?.leakFormatted).toBeUndefined()
+    expect(rec?.leakNumber).toBeUndefined()
+  })
+
   it('mode: "virtual" has no late-attach reconcile door — declaring it on a reconcile call throws', async () => {
     const store = inlineMemory()
     const db = await createNoydb({ store, user: 'alice', secret: 'via-computed-virtual-reconcile-2026' })
