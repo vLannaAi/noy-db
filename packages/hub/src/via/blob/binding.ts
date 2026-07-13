@@ -75,6 +75,30 @@ async function eraseBlobs(ctx: ViaEraseCtx, cfg: BlobViaConfig): Promise<ViaEras
 }
 
 /**
+ * One field's blob knobs as they appear on `describeFragment()`'s payload
+ * (#657 — the second real `ViaBinding.describeFragment` consumer after
+ * `lookup`'s; see `with-shape/introspection/describe.ts`'s `buildDescription`).
+ * Declarative scalars (`retainDays`/`external`/`public`/`backlink`) verbatim;
+ * predicate knobs (`evictWhen`/`legalHold`/`retainUntil` — functions over the
+ * decrypted record) as presence flags, since a predicate has no serializable
+ * form — mirrors `buildBlobDescribeFragment`'s per-field shape below.
+ */
+export interface BlobDescribeFragmentEntry {
+  readonly retainDays?: number
+  readonly evictWhen?: true
+  readonly legalHold?: true
+  readonly retainUntil?: true
+  readonly external?: true
+  readonly public?: true
+  readonly backlink?: string
+}
+
+/** The `'blob'` binding's `describeFragment()` payload shape. */
+export interface BlobDescribeFragment {
+  readonly blobFields: Record<string, BlobDescribeFragmentEntry>
+}
+
+/**
  * `{ blobFields: { <field>: <knobs> } }` — declarative scalars
  * (`retainDays`/`external`/`public`/`backlink`) verbatim; predicate knobs
  * (`evictWhen`/`legalHold`/`retainUntil` — functions over the decrypted
