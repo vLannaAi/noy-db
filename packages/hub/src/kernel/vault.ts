@@ -117,7 +117,8 @@ import { isViaInstalled } from './via.js'
 import { mergeViaFields, type ViaFieldSpec } from './via-compose.js'
 import { exportRedact } from './via-pipeline.js'
 import { ViaGraph } from './via-graph.js'
-import { registerCollectionGraphSources, validateReconcileGraphEdges, commitReconcileGraphEdges, applyTaintOverlay, reapplyDependentOverlays, type ReconcileGraphOptions } from './via-graph-wiring.js'
+import { registerCollectionGraphSources, applyTaintOverlay, reapplyDependentOverlays } from './via-graph-wiring.js'
+import { reconcileViaAttach } from './via-reconcile.js'
 import { runGraphDispatchWave, putDerivedOutput, ledgerAuditHook, forgetDerivedFanout, touchFor, type GraphBatch, type ForgetFanoutStats, type RollupDeleteIntent } from './via-dispatch.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 // Type-only imports for the guard + derivation services. The
@@ -223,7 +224,7 @@ export class Vault {
   private readonly shadowStrategy: ShadowStrategy
   private readonly historyStrategy: HistoryStrategy
   private readonly forgetStrategy: ForgetStrategy
-  private readonly i18nStrategy: I18nStrategy
+  readonly i18nStrategy: I18nStrategy // not `private` — the #664 via-reconcile.ts dispatch reads it through `ViaReconcileVaultCtx` (never a `Vault` import there, S5 port-layering)
   private readonly syncStrategy: SyncStrategy
   private readonly classifiedStrategy: ClassifiedStrategy
   /** Per-vault guard registry; `null` until `_initGuards()` runs (or for vaults that never register
@@ -350,7 +351,7 @@ export class Vault {
    * when per-call `{ locale }` options are not specified on individual
    * `get()`/`list()` calls.
    */
-  private locale: string | undefined
+  locale: string | undefined
 
   /**
    * Vault-level descriptive metadata. Set once at construction via
@@ -371,19 +372,19 @@ export class Vault {
   private consentContext: ConsentContext | null = null
 
   /** dictKeyField registry: collection name → field name → dictionary name — `DictionaryHandle.rename()`'s reference-update source; populated by `collection()` from `dictKeyFields`. */
-  private readonly dictKeyFieldRegistry = new Map<string, Record<string, string>>()
+  readonly dictKeyFieldRegistry = new Map<string, Record<string, string>>()
 
   /** Names of `staticDict()`-backed dictionaries (skip rename tracking; `vault.dictionary(name)` refuses mutation on these via `StaticDictReadonlyError`). Populated at `collection()` config time. */
-  private readonly staticDictNames = new Set<string>()
+  readonly staticDictNames = new Set<string>()
 
   /** Static-dict descriptors by dictionary name — backs the read-path label resolver and the `resolveDictSource` snapshot. Last writer wins across collections (tables match by construction). */
-  private readonly staticByName = new Map<string, StaticDictDescriptor>()
+  readonly staticByName = new Map<string, StaticDictDescriptor>()
 
   /** Per-collection field name → StaticDictDescriptor, validated by `enforceStaticDictOnPut`. */
-  private readonly staticDescriptorByField = new Map<string, Record<string, StaticDictDescriptor>>()
+  readonly staticDescriptorByField = new Map<string, Record<string, StaticDictDescriptor>>()
 
-  /** i18nText fields: collection name → field name → descriptor. Used by `applyI18nLocale`/`validateI18nTextValue`; populated by `collection()` from `i18nFields`. */
-  private readonly i18nFieldRegistry = new Map<string, Record<string, I18nTextDescriptor>>()
+  /** i18nText fields: collection name → field name → descriptor. Used by `applyI18nLocale`/`validateI18nTextValue`; populated by `collection()` from `i18nFields`. Not `private` — these five registries + `i18nStrategy`/`translateText` are read by the #664 `via-reconcile.ts` dispatch through `ViaReconcileVaultCtx` (a plain structural bag, never a `Vault` import — S5 port-layering forbids the kernel spine from reaching a with-* service, and this file's own reconcile-ladder logic moved OUT into that unguarded module). */
+  readonly i18nFieldRegistry = new Map<string, Record<string, I18nTextDescriptor>>()
 
   /** Cache of DictionaryHandle instances, one per dictionary name. */
   private readonly dictionaryCache = new Map<string, DictionaryHandle>()
@@ -391,7 +392,7 @@ export class Vault {
   /** #650 Task 4 (#647) — declared reserved-lookup collection name → dimension name, for dimensions
    *  with `backing:'reserved'` (dict()/dictKey()). The explicit sync-pull registry: NOT a blanket
    *  underscore-glob — populated at `collection()`-declare time and at `dictionary()`-call time. */
-  private readonly reservedLookupCollections = new Map<string, string>()
+  readonly reservedLookupCollections = new Map<string, string>()
 
   /** Registered link specs, keyed by link name; set by `vault.link()`. */
   private readonly linkRegistry = new Map<string, LinkSpec>()
@@ -413,7 +414,7 @@ export class Vault {
    * Optional translator callback threaded from `Noydb.invokeTranslator`.
    * Present only when `plaintextTranslator` was configured on `createNoydb()`.
    */
-  private readonly translateText:
+  readonly translateText:
     | ((text: string, from: string, to: string, field: string, collection: string) => Promise<string>)
     | undefined
 
@@ -840,36 +841,20 @@ export class Vault {
 
     let coll = this.collectionCache.get(collectionName)
     const effectiveViaFields = mergeViaFields({ moneyFields: options?.moneyFields, i18nFields: options?.i18nFields, dictKeyFields: options?.dictKeyFields, lookupFields: options?.lookupFields, viaFields: options?.viaFields }) // #627: merged view feeds both late-attach reconcile (below) and fresh construct
-    // Two-phase reconcile (#638 Task 2 wave 2, Findings I1/I2/M1/M2): validate
-    // combined existing+incoming computed/classified state before any
-    // _apply* below mutates, commit graph edges only once every _apply*
-    // succeeds (see via-graph-wiring.ts). The branches below reconcile a
-    // field-declaring option onto a collection MV dependency analysis may
-    // have auto-created bare during openVault, before this real
-    // declaration; each is first-wins.
-    const reconcilePlan = coll && (options?.computed || options?.classifiedFields)
-      ? validateReconcileGraphEdges(this.graph, collectionName, options as unknown as ReconcileGraphOptions)
-      : undefined
-    if (coll && effectiveViaFields.moneyFields) {
-      coll._applyMoneyFields(effectiveViaFields.moneyFields)
-    }
-    if (coll && options?.computed) {
-      coll._applyComputed(options.computed as ComputedFields)
-    }
-    if (coll && options?.fieldMeta) {
-      coll._applyFieldMeta(options.fieldMeta)
-    }
-    if (coll && options?.meta) {
-      coll._applyMeta(options.meta)
-    }
-    if (coll && options?.classifiedFields) {
-      // Cannot retro-seal — only merges rider computed fields; see
-      // Collection._applyClassifiedFields's own doc comment for the R1-R8 matrix.
-      coll._applyClassifiedFields(options.classifiedFields)
-    }
-    if (coll && reconcilePlan) {
-      commitReconcileGraphEdges(this.graph, collectionName, reconcilePlan)
-      applyTaintOverlay(coll, this.graph, collectionName) // #638 Task 3: a late attach can newly taint an already-built pipeline (#666: structural guard, no assertion)
+    // #664 — the whole late-attach reconcile ladder (collision guard, the five pre-existing
+    // _apply* reconciles, the two-phase graph-edge/taint commit, and the new i18n/dictKey
+    // machinery) now lives behind ONE dispatch call in the unguarded via-reconcile.ts, not
+    // inlined here. `Collection._applyX`'s own first-wins semantics are unchanged; this file
+    // only threads the field-declaring options + this vault's registries through.
+    if (coll) {
+      reconcileViaAttach(coll, this.graph, collectionName, this, {
+        effectiveViaFields,
+        ...(options?.computed !== undefined ? { computed: options.computed as ComputedFields } : {}),
+        ...(options?.fieldMeta !== undefined ? { fieldMeta: options.fieldMeta } : {}),
+        ...(options?.meta !== undefined ? { meta: options.meta } : {}),
+        ...(options?.classifiedFields !== undefined ? { classifiedFields: options.classifiedFields } : {}),
+        ...(options?.blobFields !== undefined ? { blobFields: options.blobFields } : {}),
+      })
     }
     if (!coll) {
       // Register ref declarations (if any) with the vault-level
