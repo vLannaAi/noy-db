@@ -2,7 +2,7 @@
  * `_broker` seed lifecycle — `with-party/broker/seed.ts` (#479 slice 2b).
  * Vector ids map 1:1 to the credential-broker spec's §8 conformance list.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { enrollSeed, rotateSeed, mintStoreCredentials } from '../../src/with-party/broker/seed.js'
 import type { BrokerSeedCtx, BrokerConfig } from '../../src/port/with/broker-strategy.js'
 import { createOwnerKeyring, grant, loadKeyring, ensureCollectionDEK } from '../../src/with-party/team/keyring.js'
@@ -195,5 +195,67 @@ describe('broker seed lifecycle', () => {
     // sanity: ensureCollectionDEK for _broker resolves the SAME dek the module used (no drift)
     const getDek = await ensureCollectionDEK(store, VAULT, owner)
     await expect(getDek(BROKER_COLLECTION)).resolves.toBeDefined()
+  })
+
+  // ─── F5 zeroing fence ────────────────────────────────────────────────
+  // A prior mutation-testing pass removed ALL of enrollSeed's zeroing
+  // (both `seedBytes.fill(0)` calls + the `proofBits` finally) and the rest
+  // of the broker suite stayed green — the F5 seed-lifecycle zeroing
+  // property was unfenced. These spy on `Uint8Array.prototype.fill` and
+  // assert the EXACT zeroing-call count each path makes; removing any one
+  // `fill(0)` drops the count and fails the test.
+
+  it('F5: a fresh enroll() zeros the seed bytes and the derived proof bits (the only 2 zeroing calls on this path)', async () => {
+    const store = memoryStore()
+    const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
+    const host = makeTestHost({ requireAttestation: true })
+    const cfg = config(host, { attestation: () => 'dev-token' })
+
+    const fillSpy = vi.spyOn(Uint8Array.prototype, 'fill')
+    try {
+      await enrollSeed(ctx(store, owner, cfg))
+      const zeroFillCalls = fillSpy.mock.calls.filter(([v]) => v === 0)
+      // seed.ts: `seedBytes.fill(0)` (post proof-derivation) + `proofBits.fill(0)`
+      // (the postEnroll finally) — removing either drops this below 2.
+      expect(zeroFillCalls.length).toBe(2)
+    } finally {
+      fillSpy.mockRestore()
+    }
+  })
+
+  it('F5: an idempotent re-enroll() (already registered) still zeros the re-read seed copy', async () => {
+    const store = memoryStore()
+    const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
+    const host = makeTestHost({ requireAttestation: true })
+    const cfg = config(host, { attestation: () => 'dev-token' })
+    await enrollSeed(ctx(store, owner, cfg)) // first call: registers
+
+    const fillSpy = vi.spyOn(Uint8Array.prototype, 'fill')
+    try {
+      await enrollSeed(ctx(store, owner, cfg)) // second call: early-return (already registered) path
+      const zeroFillCalls = fillSpy.mock.calls.filter(([v]) => v === 0)
+      expect(zeroFillCalls.length).toBe(1)
+    } finally {
+      fillSpy.mockRestore()
+    }
+  })
+
+  it('F5: rotateSeed() zeros the new seed bytes and the new proof bits (the only 2 zeroing calls on this path)', async () => {
+    const store = memoryStore()
+    const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
+    const host = makeTestHost({ requireAttestation: true })
+    const cfg = config(host, { attestation: () => 'dev-token' })
+    await enrollSeed(ctx(store, owner, cfg)) // enroll first, so rotate takes the swap path, not the delegate-to-enroll path
+
+    const fillSpy = vi.spyOn(Uint8Array.prototype, 'fill')
+    try {
+      await rotateSeed(ctx(store, owner, cfg))
+      const zeroFillCalls = fillSpy.mock.calls.filter(([v]) => v === 0)
+      // seed.ts: `newProofBits.fill(0)` (the postEnroll finally) + `newSeedBytes.fill(0)`
+      // (before persisting the rotated record) — removing either drops this below 2.
+      expect(zeroFillCalls.length).toBe(2)
+    } finally {
+      fillSpy.mockRestore()
+    }
   })
 })

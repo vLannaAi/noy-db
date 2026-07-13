@@ -67,8 +67,8 @@ export interface TestHost {
 export interface TestHostOptions {
   /** Require a bearer attestation header on /enroll (V10). */
   requireAttestation?: boolean
-  /** Fixed credentials payload /credentials returns on a verified proof. */
-  credentials?: () => Record<string, unknown>
+  /** Credentials payload /credentials returns on a verified proof (vaultId/brokerId in scope so a test can mint distinct creds per vault). */
+  credentials?: (vaultId: string, brokerId: string) => Record<string, unknown>
   /** Force /credentials to always 401 (simulates a down/misconfigured host, distinct from a network failure). */
   rejectProofs?: boolean
 }
@@ -147,7 +147,7 @@ export function makeTestHost(opts: TestHostOptions = {}): TestHost {
         }
       }
       if (!ok) return new Response(null, { status: 401 })
-      const creds = opts.credentials?.() ?? {
+      const creds = opts.credentials?.(body.vaultId as string, body.brokerId as string) ?? {
         kind: 'aws',
         accessKeyId: 'AKIDTEST',
         secretAccessKey: 'secret',

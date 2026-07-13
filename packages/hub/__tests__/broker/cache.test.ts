@@ -147,4 +147,46 @@ describe('broker credentialSource cache', () => {
     expect(post).toMatchObject({ kind: 'aws' })
     expect(host.calls.credentials).toBe(callsBefore + 1)
   })
+
+  it('C1: two vaults sharing ONE withBroker() strategy get DISTINCT credentials via SEPARATE round trips (no cross-vault cache collision)', async () => {
+    const VAULT_A = 'vault-a'
+    const VAULT_B = 'vault-b'
+    const store = memoryStore()
+    const ownerA = await createOwnerKeyring(store, VAULT_A, 'owner', 'owner-pw')
+    const ownerB = await createOwnerKeyring(store, VAULT_B, 'owner', 'owner-pw')
+    const host = makeTestHost({
+      requireAttestation: true,
+      // Mint a DISTINCT credential per vaultId so a collided cache would be caught by value, not just by count.
+      credentials: (vaultId) => ({
+        kind: 'aws',
+        accessKeyId: `AKID-${vaultId}`,
+        secretAccessKey: 'secret',
+        sessionToken: `token-${vaultId}`,
+        expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+      }),
+    })
+    const config: BrokerConfig = {
+      brokerId: 'broker-1', endpoint: 'https://broker.example.com',
+      attestation: () => 'dev-token', fetch: host.fetch,
+    }
+    const ctxA: BrokerSeedCtx = { store, vault: VAULT_A, keyring: ownerA, config }
+    const ctxB: BrokerSeedCtx = { store, vault: VAULT_B, keyring: ownerB, config }
+    await enrollSeed(ctxA)
+    await enrollSeed(ctxB)
+
+    // ONE shared strategy instance — ONE single-flight cache closure — used by both vaults,
+    // exactly like `vault.broker()` shares one `BrokerStrategy` across every vault of a
+    // `createNoydb()` instance.
+    const strategy = withBroker(config)
+    const sourceA = strategy.credentialSource(ctxA, 'read')
+    const sourceB = strategy.credentialSource(ctxB, 'read')
+
+    const credsA = await sourceA()
+    const credsB = await sourceB()
+
+    expect(host.calls.credentials).toBe(2) // each vault made its OWN round trip — no shared-cache hit
+    expect(credsA).not.toEqual(credsB)
+    expect((credsA as { accessKeyId: string }).accessKeyId).toBe('AKID-vault-a')
+    expect((credsB as { accessKeyId: string }).accessKeyId).toBe('AKID-vault-b')
+  })
 })

@@ -9,10 +9,15 @@
  * trip) is reachable only through the `@noy-db/hub/broker` subpath and
  * never enters the single-user floor bundle.
  *
- * The single-flight, per-profile refresh cache (H-6/I6) lives HERE, in this
- * factory's closure — shared across every `credentialSource(profile)` call
- * for this one broker instance, so `rotate()` can quiesce it (await any
- * in-flight round-trip, then drop it) before the seed swap.
+ * The single-flight, per-vault-per-profile refresh cache (H-6/I6) lives
+ * HERE, in this factory's closure — shared across every `credentialSource(profile)`
+ * call for this one broker instance (in turn shared across every vault of a
+ * `createNoydb()` instance — `vault.broker()` passes the SAME `BrokerStrategy`
+ * for all of them), so `rotate()` can quiesce it (await any in-flight
+ * round-trip, then drop it) before the seed swap. The cache key is
+ * `${vault}\0${profile}` — keyed by vault FIRST, or two vaults sharing this
+ * one strategy would collide and hand vault-B a cached credential minted
+ * (and STS-scoped) for vault-A.
  */
 import type { BrokerStrategy, BrokerConfig, BrokerCtx } from '../../port/with/broker-strategy.js'
 import type { StoreCredentials, StoreCredentialSource } from '../../kernel/types.js'
@@ -43,16 +48,20 @@ export function withBroker(config: BrokerConfig): BrokerStrategy {
     async rotate(ctx) {
       // Quiesce (I5): let any in-flight round-trip finish (it may still be
       // proving under the pre-rotation seed) before the local record is
-      // overwritten, then drop the cache so every future call starts fresh
-      // under the new seed.
-      const inFlight = [...cache.values()].map((e) => e.inFlight).filter((p): p is Promise<StoreCredentials> => p !== undefined)
+      // overwritten, then drop the cache — scoped to THIS vault's entries
+      // only (`${ctx.vault}\0`-prefixed keys). A global cache.clear() here
+      // would blow away every OTHER vault's cache on this shared strategy
+      // too — same root cause as the cross-vault read collision this fixes.
+      const vaultPrefix = `${ctx.vault}\0`
+      const scoped = [...cache.entries()].filter(([key]) => key.startsWith(vaultPrefix))
+      const inFlight = scoped.map(([, e]) => e.inFlight).filter((p): p is Promise<StoreCredentials> => p !== undefined)
       await Promise.allSettled(inFlight)
-      cache.clear()
+      for (const [key] of scoped) cache.delete(key)
       const { rotateSeed } = await import('./seed.js')
       return rotateSeed({ ...ctx, config })
     },
     credentialSource(ctx: BrokerCtx, profile?: string): StoreCredentialSource {
-      const key = profile ?? ''
+      const key = `${ctx.vault}\0${profile ?? ''}`
       return async () => {
         let entry = cache.get(key)
         if (!entry) {
