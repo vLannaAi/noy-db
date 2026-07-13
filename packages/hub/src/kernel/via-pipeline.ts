@@ -340,8 +340,7 @@ interface HasViaPipeline {
  * via; codec: { setVia } }` cast. Exported (unlike `HasViaPipeline`) because
  * its one consumer lives in a different module.
  */
-export interface HasWritableViaPipeline {
-  readonly _via: ViaPipeline | undefined
+export interface HasWritableViaPipeline extends HasViaPipeline {
   _setVia(pipeline: ViaPipeline | undefined): void
 }
 
