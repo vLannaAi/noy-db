@@ -2,9 +2,8 @@
 //
 // Shared by tsup.config.ts (the JS build — one invocation, all entries,
 // `splitting: true` for cross-subpath class identity) and
-// scripts/build.mjs (the batched dts-only builds — see that file for why
-// dts generation runs in separate child processes instead of alongside
-// the JS build).
+// scripts/build.mjs (the single plain `tsc --emitDeclarationOnly` declaration
+// pass — see that file for why it replaced tsup's rollup-dts bundling).
 export const ENTRIES = {
   index: 'src/index.ts',
   'i18n/index': 'src/via/i18n/index.ts',
