@@ -153,19 +153,30 @@ export function moneyFieldClause(
  *   single stored-form value the hash index can serve, so they return
  *   `undefined` too — the caller falls back to a scan.
  *
- * MIXED-ERA DATA (#672, fixed): a record whose stored value predates the
- * field's `money()` declaration, or otherwise bypassed `quantizeMoneyFields`,
- * may hold a NON-canonical scaled string (e.g. `'0100'` instead of `'100'`).
- * `CollectionIndexes#addToIndex`/`build` no longer bucket it under that raw
- * string verbatim — they first consult `ViaPipeline.canonicalizeIndexKey`
- * (money's implementation: `canonicalizeMoneyIndexKey`, `via/money/
- * normalize.ts`), which re-parses the stored value the same way the scan's
- * `evaluateMoneyClause`/`readStored` does (`BigInt(actual).toString()`), so
- * the legacy record lands in the SAME bucket a canonical write produces and
- * an `==`/`in` probe for `'100'` finds it. The two-string byte-identity
- * argument above still explains WHY a canonical write's probe hits directly
- * (no canonicalization needed for the common case); this note only covers
- * the pre-declaration tail.
+ * MIXED-ERA DATA (#672, fixed — including the #672 review's C1 finding): a
+ * record whose stored value predates the field's `money()` declaration, or
+ * otherwise bypassed `quantizeMoneyFields`, may hold a NON-canonical scaled
+ * string (e.g. `'0100'` instead of `'100'`). `CollectionIndexes` no longer
+ * buckets it under that raw string verbatim at ANY bucket-mutation site —
+ * `build`, `upsert`, and `remove` all consult the same registered
+ * canonicalizer (`ViaPipeline.canonicalizeIndexKey`; money's implementation:
+ * `canonicalizeMoneyIndexKey`, `via/money/normalize.ts`), which re-parses the
+ * stored value the same way the scan's `evaluateMoneyClause`/`readStored`
+ * does (`BigInt(actual).toString()`). So the legacy record lands in the SAME
+ * bucket a canonical write produces, an `==`/`in` probe for `'100'` finds it,
+ * and — because add and remove now agree on that bucket — a later `put()`
+ * (update) or `delete()` of that same legacy record cleans up the correct
+ * bucket instead of stranding the id under a bucket the removal could never
+ * reach. The two-string byte-identity argument above still explains WHY a
+ * canonical write's probe hits directly (no canonicalization needed for the
+ * common case); this note covers the pre-declaration tail.
+ *
+ * Boundary: this guarantee is EAGER-mode only (`CollectionIndexes`, this
+ * file's index probe). LAZY mode's `PersistedCollectionIndex`
+ * (`with-lookup/indexing/persisted-indexes.ts`) keeps its own raw bucketing
+ * and does not consult money canonicalization — a lazy-mode mixed-era record
+ * can still diverge between its fast path and a forced scan. Tracked
+ * separately, not fixed here.
  */
 // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
 export function moneyIndexProbe(op: Operator, payload: MoneyWhereOperand): unknown | undefined {

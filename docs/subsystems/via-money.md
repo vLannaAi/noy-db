@@ -82,11 +82,18 @@ agrees with the scan" describe block, spy-proven against `lookupEqual`/`lookupIn
 declaration, or otherwise bypassed the money write path, may hold a non-canonical scaled string
 (e.g. `'0100'` instead of `'100'`). The eager index no longer buckets it under that raw string:
 `CollectionIndexes` consults a money-aware index-key canonicalizer (`ViaPipeline.
-canonicalizeIndexKey`, backed by `moneyScaledValue`'s BigInt re-parse) whenever it builds or
-rebuilds a money field's buckets, so a legacy value lands in the SAME bucket a canonical write
-produces — an `==`/`in` probe for the canonical amount finds it, matching the fallback scan
-exactly. The canonicalizer is applied on eager-index build/rebuild (including rebuild-on-hydrate);
-a re-`put()` of a legacy record still canonicalizes its stored form going forward, same as before.
+canonicalizeIndexKey`, backed by `moneyScaledValue`'s BigInt re-parse) whenever it mutates a
+bucket, so a legacy value lands in the SAME bucket a canonical write produces — an `==`/`in` probe
+for the canonical amount finds it, matching the fallback scan exactly. The guarantee holds across
+**every** eager-index bucket-mutation site — build (incl. rebuild-on-hydrate), `put()` (upsert),
+and `delete()` (remove) — so updating or deleting a legacy record cleans up its canonical bucket
+correctly instead of stranding the id there (a gap the initial #672 fix left open, closed in
+review).
+
+**Boundary: eager mode only.** Lazy-mode collections (`prefetch: false`) keep their own durable
+`PersistedCollectionIndex` side-cars, which bucket by the raw stored value and do not consult
+money canonicalization. A lazy-mode collection with mixed-era money data can still see its fast
+path diverge from a forced scan; that gap is tracked separately, not fixed here.
 
 ## See also
 

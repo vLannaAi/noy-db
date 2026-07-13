@@ -71,6 +71,17 @@ async function openMoneyIndexedSession(adapter: NoydbStore) {
   return { db, col }
 }
 
+/** Same money declaration as `openMoneyIndexedSession`, but no `indexStrategy` — `getIndexes()` returns null, forcing the scan. */
+async function openMoneyForcedScanSession(adapter: NoydbStore) {
+  const db = await createNoydb({ store: adapter, user: USER, secret: PASS })
+  const vault = await db.openVault(VAULT)
+  const col = vault.collection<Item>(COLL, {
+    schema: itemSchema,
+    moneyFields: { amount: money({ currency: 'EUR', scale: 2 }) },
+  })
+  return { db, col }
+}
+
 describe('money index-key canonicalization (#672)', () => {
   it('mixed-era fast path: a legacy non-canonical record and a canonical record both match == via the index', async () => {
     const adapter = persistentMemory()
@@ -119,6 +130,108 @@ describe('money index-key canonicalization (#672)', () => {
       spy.mockRestore()
     }
     db.close()
+  })
+
+  // #672 review C1: canonicalizer was wired into `build()` only — `upsert`/
+  // `remove` (the incremental put/delete path) still bucketed by the raw
+  // stringified value, so a legacy record's bucket membership went
+  // asymmetric the moment it was mutated. These three tests exercise every
+  // bucket-mutation dimension: update, delete, and delete-then-recreate.
+  describe('mutation-dimension parity (#672 review C1)', () => {
+    it('(a) update: mutating a legacy record clears its old canonical bucket on both paths', async () => {
+      const adapter = persistentMemory()
+      await seedLegacyRecord(adapter) // 'legacy' stored raw '0100'
+
+      const { db, col } = await openMoneyIndexedSession(adapter)
+      // Force hydration + eager-index BUILD first, so 'legacy' lands in the
+      // canonicalized '100' bucket exactly like the C1 repro describes —
+      // then the update below must go through `upsert()` -> `remove()`.
+      await col.list()
+      await col.put('legacy', { id: 'legacy', amount: 2 }) // update through the money write path
+
+      const spy = vi.spyOn(CollectionIndexes.prototype, 'lookupEqual')
+      let fastOld: string[]
+      let fastNew: string[]
+      try {
+        fastOld = col.query().where('amount', '==', 1).toArray().map((r) => r.id).sort()
+        fastNew = col.query().where('amount', '==', 2).toArray().map((r) => r.id).sort()
+        expect(spy).toHaveBeenCalled()
+      } finally {
+        spy.mockRestore()
+      }
+      db.close()
+
+      const { db: dbScan, col: colScan } = await openMoneyForcedScanSession(adapter)
+      await colScan.list()
+      const scanOld = colScan.query().where('amount', '==', 1).toArray().map((r) => r.id).sort()
+      const scanNew = colScan.query().where('amount', '==', 2).toArray().map((r) => r.id).sort()
+      dbScan.close()
+
+      expect(fastOld).toEqual(scanOld)
+      expect(fastOld).toEqual([]) // must NOT still return the stale-bucket 'legacy' id
+      expect(fastNew).toEqual(scanNew)
+      expect(fastNew).toEqual(['legacy'])
+    })
+
+    it('(b) delete: deleting a legacy record clears it from the canonical bucket on both paths', async () => {
+      const adapter = persistentMemory()
+      await seedLegacyRecord(adapter)
+
+      const { db, col } = await openMoneyIndexedSession(adapter)
+      await col.list() // build canonicalizes 'legacy' into bucket '100'
+      await col.delete('legacy')
+
+      const spy = vi.spyOn(CollectionIndexes.prototype, 'lookupEqual')
+      let fast: string[]
+      try {
+        fast = col.query().where('amount', '==', 1).toArray().map((r) => r.id)
+        expect(spy).toHaveBeenCalled()
+      } finally {
+        spy.mockRestore()
+      }
+      db.close()
+
+      const { db: dbScan, col: colScan } = await openMoneyForcedScanSession(adapter)
+      await colScan.list()
+      const scan = colScan.query().where('amount', '==', 1).toArray().map((r) => r.id)
+      dbScan.close()
+
+      expect(fast).toEqual([])
+      expect(scan).toEqual([])
+    })
+
+    it('(c) delete-then-recreate: reusing the same id with a different amount is not stranded in the old bucket', async () => {
+      const adapter = persistentMemory()
+      await seedLegacyRecord(adapter)
+
+      const { db, col } = await openMoneyIndexedSession(adapter)
+      await col.list() // build canonicalizes 'legacy' into bucket '100'
+      await col.delete('legacy')
+      await col.put('legacy', { id: 'legacy', amount: 3 }) // recreate same id, different amount
+
+      const spy = vi.spyOn(CollectionIndexes.prototype, 'lookupEqual')
+      let fastOld: string[]
+      let fastNew: string[]
+      try {
+        fastOld = col.query().where('amount', '==', 1).toArray().map((r) => r.id)
+        fastNew = col.query().where('amount', '==', 3).toArray().map((r) => r.id)
+        expect(spy).toHaveBeenCalled()
+      } finally {
+        spy.mockRestore()
+      }
+      db.close()
+
+      const { db: dbScan, col: colScan } = await openMoneyForcedScanSession(adapter)
+      await colScan.list()
+      const scanOld = colScan.query().where('amount', '==', 1).toArray().map((r) => r.id)
+      const scanNew = colScan.query().where('amount', '==', 3).toArray().map((r) => r.id)
+      dbScan.close()
+
+      expect(fastOld).toEqual(scanOld)
+      expect(fastOld).toEqual([])
+      expect(fastNew).toEqual(scanNew)
+      expect(fastNew).toEqual(['legacy'])
+    })
   })
 
   describe('scan parity across mixed-era stored shapes', () => {

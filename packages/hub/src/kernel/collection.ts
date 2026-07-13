@@ -871,6 +871,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       defs: opts.indexes ?? [],
       lazy: this.lazy,
     })
+    this.indexes?.setCanonicalizer((f, v) => this.via?.canonicalizeIndexKey(f, v)) // #672 review C1: one-time canonicalizer registration; lazy `this.via` read survives late `_setVia` (#666)
 
     // Unique-constraint enforcement (eager mode only). Declaring `unique` on
     // a lazy/CRDT/tiered collection throws UnsupportedIndexOptionError here —
@@ -4460,7 +4461,6 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       lazy: this.lazy,
       emitter: this.emitter,
       indexes: this.indexes,
-      ...(this.via ? { canonicalizeIndexKey: (f: string, v: unknown) => this.via!.canonicalizeIndexKey(f, v) } : {}),
       uniqueConstraints: this.uniqueConstraints,
       persistedIndexes: this.persistedIndexes,
       ensureHydrated: () => this.ensureHydrated(),
