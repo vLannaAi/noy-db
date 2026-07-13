@@ -298,7 +298,7 @@ export function groupAndReduce<R>(
   // kernel's Via port rather than a Query-attached pipeline — `moneyFields`
   // here is the MV spec's OWN descriptor map, not a collection's.
   if (moneyFields) {
-    spec = viaBinder('money')(moneyFields).wrapReducers!(spec) as AggregateSpec
+    spec = viaBinder('money')({ moneyFields }).wrapReducers!(spec) as AggregateSpec
   }
 
   // Bucket value is { keyValues, records } so the output row can stamp

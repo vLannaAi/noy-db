@@ -107,7 +107,7 @@ import type { MaterializedViewRegistry } from '../with-formula/materialized-view
 import type { MVQueryContext } from '../with-formula/materialized-views/types.js'
 import type { MaterializedViewExecutor as MVExecutorType } from '../with-formula/materialized-views/executor.js'
 import type * as MVStaleModule from '../with-formula/materialized-views/stale.js'
-import { resolveCollectionConfig, type CollectionOpts } from './collection-config.js'
+import { resolveCollectionConfig, resolveVirtualMoneyFields, type CollectionOpts } from './collection-config.js'
 import { loadEvalComputedFields } from '../with-formula/computed/lazy.js'
 
 /**
@@ -974,9 +974,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   describe(): CollectionDescription
   describe(opts: DescribeOptions): Promise<CollectionDescription>
   describe(opts?: DescribeOptions): CollectionDescription | Promise<CollectionDescription> {
-    if (opts) {
-      return this.describeAsync(opts)
-    }
+    if (opts) return this.describeAsync(opts)
     return buildDescription({
       collection: this.name,
       fieldMeta: this.fieldMeta,
@@ -1282,7 +1280,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   _applyMoneyFields(moneyFields: Record<string, ViaDescriptor>): void {
     if (this.moneyFields !== undefined) return
-    this.via = ViaPipeline.build([viaBinder('money')(moneyFields), ...(this.via?.bindings ?? [])])
+    const virtualMoney = resolveVirtualMoneyFields(Object.keys(moneyFields), (f) => this.via?.bindings.find((b) => b.brand === 'computed')?.covers?.(f) ?? false) // #669
+    this.via = ViaPipeline.build([viaBinder('money')({ moneyFields, ...(virtualMoney.size > 0 ? { virtualMoneyFields: virtualMoney } : {}) }), ...(this.via?.bindings ?? [])])
     this.moneyFields = moneyFields
   }
 

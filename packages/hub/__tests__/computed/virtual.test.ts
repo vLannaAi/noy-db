@@ -133,26 +133,26 @@ describe('computed(virtual) — read-time, never-stored mode (#638 Task 7)', () 
     ).not.toThrow()
   })
 
-  it('composed grammar: via(computed(...), money(...)) on one field is accepted and computes, but money never dresses the virtual output — KNOWN LIMITATION (value-shape, not ordering)', async () => {
+  it('composed grammar: via(computed(...), money(...)) on one field is accepted and computes — money dresses the virtual output as MAJOR UNITS (#669)', async () => {
     // Decision 5's locked grammar (`via(computed(fn, { deps, mode }), money('EUR'))`) —
-    // this pins that the composition is LEGAL and produces the computed function's raw
-    // result, undressed. `_presentOrder` (`kernel/via/pipeline.ts`) is a THREE-WAY
+    // this pins that the composition is LEGAL and that money now DRESSES the computed
+    // function's raw result. `_presentOrder` (`kernel/via/pipeline.ts`) is a THREE-WAY
     // partition (money-brand bindings, then computed-brand bindings, then everything
-    // else) that deliberately keeps money FIRST, at its pre-#665 present position — an
-    // early #665 draft ran money AFTER computed (a two-way computed-first partition) and
-    // that regressed this composition from a benign missing-dressing gap into VALUE
-    // CORRUPTION: money's `present()` (`decodeMoneyFields`, `via-money/binding.ts`)
-    // unconditionally treats its input as a STORED SCALED-INT and derives both the
-    // decoded amount and `<field>Formatted` from it, so a virtual computed field's raw
-    // MAJOR-unit output (`21`) was misread as 21 SCALED units and decoded to `'0.21'`
-    // EUR — wrong VALUE, not just missing dressing. With money restored to first, money's
-    // present() runs BEFORE the virtual value exists (nothing stored to decode yet) and
-    // computed's present() unconditionally sets the field afterward, so the raw computed
-    // number survives untouched and no `<field>Formatted` key is ever added — exactly
-    // the pre-#665 shape. This is a value-shape limitation, not an ordering one: money
-    // would need a quantize-the-computed-output decision (is `21` already scaled, or
-    // does money need to scale it?) before it could safely dress a virtual field's own
-    // output, and that decision is left for a filed follow-up, not resolved by ordering.
+    // else) that deliberately keeps money's ORDINARY `present()` FIRST, at its pre-#665
+    // present position — money's `decodeMoneyFields` unconditionally treats its input as
+    // a STORED SCALED-INT, so running it AFTER computed on a field composing
+    // `computed(virtual)` + `money(...)` on ITSELF would misread the raw MAJOR-unit
+    // output (`21`) as 21 SCALED units and decode it to `'0.21'` EUR — wrong VALUE, the
+    // #665 corruption the regression pin directly below still fences against. #669
+    // resolves the composed-field value-shape question a different way: money's
+    // ORDINARY present() explicitly SKIPS a field that is BOTH money AND virtual-mode
+    // computed (there is nothing stored to decode yet at that point in the fold anyway),
+    // and a NEW `presentLate` hook (`kernel/via/index.ts`) — which runs AFTER
+    // money+computed's present() but BEFORE the "everything else" dressing segment —
+    // quantizes the virtual field's fresh MAJOR-UNITS output to the descriptor's
+    // scale/rounding and presents it EXACTLY like a stored money field: the decimal
+    // string, plus `<field>Formatted`/`<field>Number` when a real (non-'raw') locale is
+    // in effect.
     interface Priced extends Record<string, unknown> { id: string; base: number; doubledPrice?: string | number; doubledPriceFormatted?: string }
     const store = inlineMemory()
     const db = await createNoydb({ store, user: 'alice', secret: 'via-computed-virtual-stack-2026' })
@@ -167,8 +167,8 @@ describe('computed(virtual) — read-time, never-stored mode (#638 Task 7)', () 
     })
     await c.put('a', { id: 'a', base: 10.5 })
     const read = await c.get('a')
-    expect(read?.doubledPrice).toBe(21)
-    expect(read?.doubledPriceFormatted).toBeUndefined() // no dressing — money's present() ran before the virtual value existed
+    expect(read?.doubledPrice).toBe('21.00')
+    expect(read?.doubledPriceFormatted).toBeDefined() // dressed — a real (non-'raw') locale is in effect by default
     expect(() => c.query().where('doubledPrice', '==', 21)).toThrow(FieldNotQueryableError)
   })
 
@@ -176,12 +176,15 @@ describe('computed(virtual) — read-time, never-stored mode (#638 Task 7)', () 
     // This is the corruption case an EARLIER, REJECTED #665 draft actually produced (a
     // two-way `[computed..., rest...]` partition ran money's decode AFTER the virtual
     // value existed, so money misread the raw major-unit `21` as a scaled-int and
-    // decoded it to `'0.21'` EUR). The test above pins the (benign) KNOWN LIMITATION
-    // shape; this test pins the ABSENCE of the corrupted shape specifically, so a future
-    // change that reintroduces a generic computed-first partition (dropping money's
-    // carve-out) fails loudly here, not just via the KNOWN LIMITATION test's exact-value
-    // assertion. Asserts both value AND type — a scaled-down numeric `0.21` would be just
-    // as wrong as the string `'0.21'`.
+    // decoded it to `'0.21'` EUR). THE FENCE is the `not.toBe('0.21')` assertion directly
+    // below — it must never be removed, whatever else this test's assertions become: a
+    // future change that reintroduces a generic computed-first partition (dropping
+    // money's money+computed carve-out) must fail loudly here. Its two companions were
+    // rewritten under #669: money now DELIBERATELY dresses a virtual field composed on
+    // itself via the quantize-and-present `presentLate` hook (a value-shape decision, not
+    // the corrupted stored-scaled-int decode this test fences against) — so
+    // `doubledPrice` is the quantized decimal STRING `'21.00'`, not the raw NUMBER `21`
+    // #665 originally left it as.
     interface Priced extends Record<string, unknown> { id: string; base: number; doubledPrice?: string | number }
     const store = inlineMemory()
     const db = await createNoydb({ store, user: 'alice', secret: 'via-computed-virtual-stack-regression-2026' })
@@ -196,9 +199,9 @@ describe('computed(virtual) — read-time, never-stored mode (#638 Task 7)', () 
     })
     await c.put('a', { id: 'a', base: 10.5 })
     const read = await c.get('a')
-    expect(read?.doubledPrice).not.toBe('0.21')
-    expect(read?.doubledPrice).toBe(21)
-    expect(typeof read?.doubledPrice).toBe('number')
+    expect(read?.doubledPrice).not.toBe('0.21') // THE FENCE — never remove
+    expect(read?.doubledPrice).toBe('21.00')
+    expect(typeof read?.doubledPrice).toBe('string')
   })
 
   it('composed grammar (MATERIALIZED default): via(computed(fn, { mode: "materialized" }), money(...)) on one field — money DOES format the computed output (pins the OPPOSITE of the virtual-mode case above)', async () => {
@@ -233,6 +236,89 @@ describe('computed(virtual) — read-time, never-stored mode (#638 Task 7)', () 
     expect((raw as Priced)?.total).toBeDefined()
   })
 
+  it('#669: virtual computed output with excess precision quantizes per the money descriptor\'s DECLARED rounding (21.005 EUR, half-up, scale 2 -> \'21.01\')', async () => {
+    interface Priced extends Record<string, unknown> { id: string; amount?: string | number }
+    const store = inlineMemory()
+    const db = await createNoydb({ store, user: 'alice', secret: 'via-computed-virtual-money-rounding-2026' })
+    const v = await db.openVault('v1')
+    const c = v.collection<Priced>('priced', {
+      viaFields: {
+        amount: via(
+          computed(() => 21.005, { mode: 'virtual' }),
+          money({ currency: 'EUR', scale: 2, rounding: 'half-up' }),
+        ),
+      },
+    })
+    await c.put('a', { id: 'a' })
+    const read = await c.get('a')
+    expect(read?.amount).toBe('21.01')
+  })
+
+  it('#669: virtual computed output with excess precision and NO declared rounding is left RAW — no throw, no dressing', async () => {
+    interface Priced extends Record<string, unknown> { id: string; amount?: string | number; amountFormatted?: string }
+    const store = inlineMemory()
+    const db = await createNoydb({ store, user: 'alice', secret: 'via-computed-virtual-money-norounding-2026' })
+    const v = await db.openVault('v1')
+    const c = v.collection<Priced>('priced', {
+      viaFields: {
+        amount: via(
+          computed(() => 21.005, { mode: 'virtual' }),
+          money({ currency: 'EUR', scale: 2 }),
+        ),
+      },
+    })
+    await c.put('a', { id: 'a' })
+    const read = await c.get('a')
+    expect(read?.amount).toBe(21.005) // raw, untouched — parseToScaledInt refused (excess precision, no rounding declared)
+    expect(read?.amountFormatted).toBeUndefined() // no dressing on a failed quantize
+  })
+
+  it('#669 late-attach parity: money reconciling onto a collection that already has a virtual computed field dresses it identically to a fresh single-call composition', async () => {
+    // `guardReconcileCollisions` (kernel/via/compose.ts) exempts EXACTLY this pairing —
+    // an existing 'computed' binding + an incoming 'money' family declaration on the same
+    // field is legal late-attach, mirroring the fresh-construction exemption 1:1 (a
+    // composition legal in one `vault.collection()` call must stay legal split across
+    // two). `_applyMoneyFields` (kernel/collection.ts) must derive the SAME money∩virtual
+    // intersection `compileViaBindings` computes for the fresh path, from the
+    // ALREADY-COMPILED `computed` binding it finds in `this.via.bindings` (there is no
+    // materialized `this.computed` entry to read here — virtual mode never populates it).
+    interface Priced extends Record<string, unknown> { id: string; base: number; doubledPrice?: string | number; doubledPriceFormatted?: string }
+    const store = inlineMemory()
+    const db = await createNoydb({ store, user: 'alice', secret: 'via-computed-virtual-money-late-attach-2026' })
+    const freshVault = await db.openVault('fresh')
+    const lateVault = await db.openVault('late')
+
+    const fresh = freshVault.collection<Priced>('priced', {
+      viaFields: {
+        doubledPrice: via(
+          computed((r) => (r.base as number) * 2, { deps: ['base'], mode: 'virtual' }),
+          money({ currency: 'EUR', scale: 2 }),
+        ),
+      },
+    })
+
+    // First call: virtual computed only — no money yet.
+    const lateFirst = lateVault.collection<Priced>('priced', {
+      viaFields: {
+        doubledPrice: via(computed((r) => (r.base as number) * 2, { deps: ['base'], mode: 'virtual' })),
+      },
+    })
+    // Second call: money reconciles onto the ALREADY-open collection (`_applyMoneyFields`).
+    const lateSecond = lateVault.collection<Priced>('priced', {
+      moneyFields: { doubledPrice: money({ currency: 'EUR', scale: 2 }) },
+    })
+    expect(lateSecond).toBe(lateFirst) // reconciled onto the SAME instance, not a fresh one
+
+    await fresh.put('a', { id: 'a', base: 10.5 })
+    await lateSecond.put('a', { id: 'a', base: 10.5 })
+
+    const freshRead = await fresh.get('a')
+    const lateRead = await lateSecond.get('a')
+    expect(lateRead).toEqual(freshRead)
+    expect(lateRead?.doubledPrice).toBe('21.00')
+    expect(lateRead?.doubledPriceFormatted).toBeDefined()
+  })
+
   // #631 review round 2 — the collision guard's `computed` exemption (kernel/
   // collection-config.ts#guardCrossBindingFieldCollisions) covers `money`/`i18n`/`lookup`
   // uniformly, on the theory that `mergeViaFields` folds `via()`-composition and two
@@ -246,8 +332,9 @@ describe('computed(virtual) — read-time, never-stored mode (#638 Task 7)', () 
   // virtual field's value exists BEFORE i18n/lookup's dressing `present()` hooks run on
   // it (previously `compileViaBindings`'s money→i18n→lookup→classified→blob→computed
   // ordering ran computed LAST, so a virtual field's label could never be dressed off a
-  // value that didn't exist yet). Money is the one family #665 deliberately does NOT fix
-  // for the composed-on-itself case — see the KNOWN LIMITATION test above and its comment.
+  // value that didn't exist yet). Money was the one family #665 deliberately did NOT fix
+  // for the composed-on-itself case — #669 (above) closed that gap with a separate
+  // `presentLate` hook, not a change to this ordering.
   describe('composed grammar — computed + i18n/lookup families (#631 collision-guard exemption pins)', () => {
     interface Order extends Record<string, unknown> { id: string; base: number; status?: string; statusLabel?: string }
 

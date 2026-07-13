@@ -244,6 +244,55 @@ function decodeValue(
 }
 
 /**
+ * money's `presentLate` hook (#669) — for each field in `virtualMoney` (money ∩
+ * virtual-mode computed on the SAME field), quantize the computed fn's fresh
+ * MAJOR-UNITS output to the descriptor's scale (with its declared rounding)
+ * and present it EXACTLY like a stored money field: the exact decimal string
+ * (via {@link formatScaledInt}), plus `<field>Formatted`/`<field>Number` when
+ * `locale !== 'raw'`. NEVER the scaled-int decode {@link decodeMoneyFields}
+ * runs for a genuinely-stored value — that would misread a virtual field's
+ * raw major-unit `21` as 21 SCALED units (`'0.21'`, the #665 corruption this
+ * must not reintroduce). Runs AFTER computed's `present()` (the pipeline's
+ * `presentLate` fold point, `kernel/via/pipeline.ts`), so `record[field]`
+ * already holds the fn's fresh output by the time this runs.
+ *
+ * Absent/null value → left untouched (nothing to dress). Unparseable value
+ * (fails `parseToScaledInt` — e.g. excess precision with no declared
+ * rounding) → left RAW, no throw: read-time dressing must never brick a
+ * read. Fixed-mode fields only — a virtual field's computed output has no
+ * natural `{ amount, currency }` shape to parse for multi-currency mode.
+ */
+export function presentVirtualMoneyFields<T extends Record<string, unknown>>(
+  record: T,
+  moneyFields: Record<string, MoneyDescriptor>,
+  virtualMoney: ReadonlySet<string>,
+  locale: string | undefined,
+): T {
+  let out: Record<string, unknown> = record
+  const format = locale !== 'raw'
+  const fmtLocale = typeof locale === 'string' && locale !== 'raw' ? locale : 'en-US'
+  for (const field of virtualMoney) {
+    const desc = moneyFields[field]
+    if (!desc || desc.mode !== 'fixed') continue
+    const raw = out[field]
+    if (raw === null || raw === undefined) continue
+    if (typeof raw !== 'number' && typeof raw !== 'string') continue
+    const currency = desc.fixedCurrency!
+    const scale = desc.scaleFor(currency)
+    const r = parseToScaledInt(raw, scale, desc.rounding)
+    if (!r.ok) continue // unparseable / excess precision with no rounding declared — leave raw, no throw
+    if (out === record) out = { ...record }
+    const decimal = formatScaledInt(r.value, scale)
+    out[field] = decimal
+    if (format) {
+      out[`${field}Formatted`] = formatCurrency(decimal, currency, scale, fmtLocale)
+      out[`${field}Number`] = Number(decimal)
+    }
+  }
+  return out as T
+}
+
+/**
  * Convert money fields in `record` from stored form to the read shape:
  * an exact decimal string, plus `<field>Formatted` / `<field>Number`
  * virtuals when `locale !== 'raw'`. Returns a shallow clone (deep along

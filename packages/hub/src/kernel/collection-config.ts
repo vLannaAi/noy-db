@@ -610,7 +610,22 @@ export function compileViaBindings<T>(
     computed: allComputedFields,
   })
   const bindings: ViaBinding[] = []
-  if (moneyFields) bindings.push(viaBinder('money')(moneyFields))
+  // #669 — hoisted above the money push (was built at the tail of this function, alongside
+  // the `computed` binding push below) so money's own binding config can be told which of
+  // ITS fields are ALSO virtual-mode computed (the money+virtual-on-the-same-field
+  // MAJOR-UNITS case) — money needs this at construction time; nothing else in this
+  // function depends on the hoist.
+  const virtualFields = new Map<string, ComputedDescriptor>()
+  for (const [field, entry] of Object.entries(allComputedFields)) {
+    const parts = computedEntryParts(entry)
+    if (parts.mode === 'virtual') {
+      virtualFields.set(field, { _viaBrand: 'computed', fn: parts.fn, mode: 'virtual', ...(parts.deps !== undefined ? { deps: parts.deps } : {}) })
+    }
+  }
+  if (moneyFields) {
+    const virtualMoney = resolveVirtualMoneyFields(Object.keys(moneyFields), (f) => virtualFields.has(f))
+    bindings.push(viaBinder('money')({ moneyFields, ...(virtualMoney.size > 0 ? { virtualMoneyFields: virtualMoney } : {}) }))
+  }
   if (i18nFields || dictKeyFields) {
     // Densify-enabled subset (fields opting into `densifyOnWrite: true`) —
     // undefined when none opt in, so the write path skips densify work
@@ -666,17 +681,33 @@ export function compileViaBindings<T>(
       collectionName: opts.name,
     }))
   }
-  const virtualFields = new Map<string, ComputedDescriptor>()
-  for (const [field, entry] of Object.entries(allComputedFields)) {
-    const parts = computedEntryParts(entry)
-    if (parts.mode === 'virtual') {
-      virtualFields.set(field, { _viaBrand: 'computed', fn: parts.fn, mode: 'virtual', ...(parts.deps !== undefined ? { deps: parts.deps } : {}) })
-    }
-  }
   if (virtualFields.size > 0) {
     bindings.push(viaBinder('computed')({ virtualFields }))
   }
   return bindings
+}
+
+/**
+ * The money∩virtual-mode-computed field-name intersection (#669) — shared by
+ * `compileViaBindings` above (fresh construction, `isVirtual` closes over the just-built
+ * `virtualFields` Map) and {@link Collection._applyMoneyFields} (late-attach, `isVirtual`
+ * closes over the already-compiled pipeline's `computed` binding instead — virtual-mode
+ * computed fields have no late-attach door of their own (declaring one on a reconcile call
+ * throws), so by the time money reconciles onto an existing collection, any virtual field
+ * is already sitting in `bindings`, never in `this.computed`: `resolveCollectionConfig`
+ * deliberately excludes virtual-mode entries from the map it assigns to `this.computed`,
+ * since that field feeds ONLY the write-time `evalComputedFields` path — see
+ * `materializedComputed` above). Both callers get the identical intersection semantics from
+ * one function, so money's `presentLate` MAJOR-UNITS dressing (`via/money/binding.ts`) can
+ * never silently disagree between the fresh and late-attach paths.
+ */
+export function resolveVirtualMoneyFields(
+  moneyFieldNames: Iterable<string>,
+  isVirtual: (field: string) => boolean,
+): Set<string> {
+  const out = new Set<string>()
+  for (const field of moneyFieldNames) if (isVirtual(field)) out.add(field)
+  return out
 }
 
 /** One `ViaGraph.registerDerived` call's worth of edge data — target + sources,

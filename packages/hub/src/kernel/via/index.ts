@@ -117,6 +117,20 @@ export interface ViaBinding {
   decodeAtRest?(record: Record<string, unknown>, sealed: Record<string, SealedSlotRef>, crypto: ViaCryptoCtx, opts: { asHandles: boolean }): Promise<Record<string, unknown>>
   /** Read-time presentation (money decode+virtuals; i18n locale/labels/strip). May be async. */
   present?(record: Record<string, unknown>, ctx: ViaReadCtx): Awaitable<Record<string, unknown>>
+  /**
+   * Late read-time presentation (#669) — runs AFTER every binding's `present()` in the
+   * money+computed present-order segment (`ViaPipeline`'s `_presentOrder`, `kernel/via/
+   * pipeline.ts`), BEFORE the "everything else" segment (i18n/lookup dressing, taint
+   * redaction) runs. Exists for a binding that needs to react to a virtual computed
+   * field's fresh OWN-field output before anything dresses it (money's MAJOR-UNITS
+   * quantize-and-present for a field that is BOTH money AND `mode:'virtual'` computed) —
+   * `present()` alone can't express "run after computed for THESE fields only, before
+   * computed for all others", since it's a per-BINDING fold, not per-field. Folded over
+   * `bindings` in declaration order (mirrors every other per-binding fold), so lookup/
+   * i18n dressing and taint/redaction (both in the "everything else" segment) still see
+   * the already-dressed value.
+   */
+  presentLate?(record: Record<string, unknown>, ctx: ViaReadCtx): Awaitable<Record<string, unknown>>
   // ── query participation (ALL SYNC — #553) ──
   /** Returns an opaque clause payload when this binding covers `field`, else undefined. */
   // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
