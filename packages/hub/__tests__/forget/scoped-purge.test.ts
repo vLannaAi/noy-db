@@ -18,7 +18,7 @@
  *  (c) SCOPED mode, blob arm — a `blobFields`-declared collection's blob
  *      shreds; an undeclared collection's blob scan is SKIPPED ENTIRELY (no
  *      `_blob_slots_*` list() call) + reported as residue.
- *  (d) per-vault independence — two independently-configured vaults (one
+ *  (d) per-instance independence — two independently-configured instances (one
  *      scoped, one not) behave independently off the same recipe.
  */
 import { describe, it, expect } from 'vitest'
@@ -218,7 +218,7 @@ describe('forget() scopedPurge — (c) SCOPED mode: blob arm', () => {
   })
 })
 
-describe('forget() scopedPurge — (d) per-vault independence', () => {
+describe('forget() scopedPurge — (d) per-instance independence', () => {
   it('a scoped vault and an unscoped vault behave independently off the same recipe', async () => {
     async function buildVault(scopedPurge: boolean | undefined) {
       const store = memory()

@@ -44,6 +44,9 @@ export interface SubjectDeclaration {
    * `sealRecordToHost()` — the sealed CEK stays recoverable by that granted
    * host until purged. Add a `classifiedFields` binding to close the gap, or
    * leave `scopedPurge` off/false for the unconditional (always-purged) default.
+   * The declaration signal is session-local: a declared collection never opened
+   * (with its config) before `forget()` in this session counts as UNDECLARED —
+   * open it first, or its entries are skipped-and-reported.
    */
   readonly scopedPurge?: boolean
 }

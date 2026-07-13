@@ -203,7 +203,11 @@ residue reports for the rest.
 When `scopedPurge: true`:
 
 - **Declared** — a collection with `classifiedFields` compiled in (`coll._via?.hasAtRestHooks ===
-  true`) gets its `_sealed_cek` entries purged exactly as today.
+  true`; a materialized taint-sealed at-rest binding also qualifies) gets its `_sealed_cek` entries
+  purged exactly as today. **Cold-session caveat:** the declaration signal is session-local — a
+  collection declared in app code but never opened (with its config) before `forget()` in this
+  session resolves as *undeclared*: its entries are skipped-and-reported, not purged. Open declared
+  collections before `forget()`, or their entries land in `scopedPurgeResidue`.
 - **Undeclared** — every other collection's `_sealed_cek` entries for the forgotten subject are
   LEFT IN PLACE and reported, never silently dropped: `ForgetResult.scopedPurgeResidue` gains a
   `{ reason: 'skipped-undeclared-sealed-cek', collection, count }` entry (`count` = entries left in
