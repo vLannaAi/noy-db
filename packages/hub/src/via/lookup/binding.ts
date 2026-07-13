@@ -240,7 +240,7 @@ function buildLookupDescribeFragment(cfg: LookupViaConfig): Record<string, unkno
       // never fires for them — their `keys` emission is unchanged.
       ...(desc.keys !== undefined
         ? { keys: desc.keys }
-        : desc.table !== undefined ? { keys: Object.keys(desc.table) } : {}),
+        : desc.backing === 'static' && desc.table !== undefined ? { keys: Object.keys(desc.table) } : {}),
     }
   }
   return { lookupFields }
