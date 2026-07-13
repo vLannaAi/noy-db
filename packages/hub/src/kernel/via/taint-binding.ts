@@ -244,15 +244,22 @@ export function taintBinding(
             // them (not overwrite with the marker: the marker on `field` is the leak
             // signal, and inventing a `${field}Formatted` marker key that an un-redacted
             // read wouldn't always carry would be its own lie). Reviewed #669 finding.
+            // `${field}Label` is the SAME companion shape for dictKey/lookup's label
+            // dressing (`via/i18n`/`via/lookup`'s `present()` hooks, same emission
+            // convention, same BEFORE-taint ordering) — a dict/lookup key is a closed
+            // vocabulary, so the label reveals the sealed value exactly (#671 review
+            // finding: `statusLabel: 'PAID-TH'` beside a redacted `status: '[sealed]'`).
             // Deliberate over-redaction: a user-authored STORED field that happens to be
-            // named `${field}Formatted`/`${field}Number` beside a redacted virtual field is
-            // also stripped here — fails closed, no leak; the collision is pathological and
-            // narrowing it would require money-field knowledge this generic taint binding
-            // deliberately doesn't have.
+            // named `${field}Formatted`/`${field}Number`/`${field}Label` beside a redacted
+            // virtual field is also stripped here — fails closed, no leak; the collision is
+            // pathological and narrowing it would require money/i18n/lookup-field knowledge
+            // this generic taint binding deliberately doesn't have.
             const formattedKey = `${field}Formatted`
             const numberKey = `${field}Number`
+            const labelKey = `${field}Label`
             if (formattedKey in out) delete out[formattedKey]
             if (numberKey in out) delete out[numberKey]
+            if (labelKey in out) delete out[labelKey]
           }
         }
         return out

@@ -611,6 +611,42 @@ describe('computed(virtual) — read-time, never-stored mode (#638 Task 7)', () 
     expect('leakNumber' in (rec as Record<string, unknown>)).toBe(false)
   })
 
+  it('#671 review: a tainted virtual field composed with dictKey is redacted on the base field AND its Label companion — the label must not leak the value the base field just sealed (a dict key is a closed vocabulary, so the label reveals the sealed value exactly)', async () => {
+    interface Person extends Record<string, unknown> { id: string; ssn: string; leak?: string; leakLabel?: string }
+    const ssnSpec = (): ClassifiedFieldSpec => ({
+      _noydbClassified: true, preset: 'test-ssn', storage: 'recoverable',
+      list: { kind: 'omit' }, sensitivity: 'secret',
+    })
+    const store = inlineMemory()
+    const db = await createNoydb({
+      store, user: 'alice', secret: 'via-computed-virtual-dictkey-taint-2026',
+      classifiedStrategy: withClassified(), i18nStrategy: withI18n(),
+    })
+    const v = await db.openVault('v1')
+    await v.dictionary('leak').putAll({
+      paid: { en: 'Paid', th: 'PAID-TH' },
+    })
+    const c = v.collection<Person>('people', {
+      classifiedFields: { ssn: ssnSpec() },
+      viaFields: {
+        leak: via(
+          computed(() => 'paid', { deps: ['ssn'], mode: 'virtual' }),
+          dictKey('leak', ['paid'] as const),
+        ),
+      },
+    })
+    await c.put('r1', { id: 'r1', ssn: '123-45-6789' })
+
+    const rec = await c.get('r1', { locale: 'th' })
+    expect(rec?.leak).toBe('[sealed]')
+    // the leak: dictKey's present() dresses the virtual field's fresh (untainted-looking)
+    // 'paid' output into `leakLabel` BEFORE taint's present-redaction overwrites the base
+    // field — a dict key is a closed vocabulary, so `leakLabel` reveals the sealed value
+    // exactly; the companion must be stripped too, not just the base.
+    expect(rec?.leakLabel).toBeUndefined()
+    expect('leakLabel' in (rec as Record<string, unknown>)).toBe(false)
+  })
+
   it('reachability nuance: a virtual money field whose fn reads the sealed source directly (rather than merely declaring it via `deps`) never produces Formatted/Number siblings in the first place — a SealedHandle coerces to NaN, which money treats as unparseable, independent of taint redaction', async () => {
     interface Person extends Record<string, unknown> { id: string; ssn: string; leak?: string | number; leakFormatted?: string; leakNumber?: number }
     const ssnSpec = (): ClassifiedFieldSpec => ({

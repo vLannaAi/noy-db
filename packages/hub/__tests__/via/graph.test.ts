@@ -276,6 +276,29 @@ describe('ViaGraph — cycle rejection (assertAcyclic)', () => {
     g.registerDerived({ collection: 'A', field: 'x' }, [{ collection: 'B', field: 'y' }], 'ref', 'record', 'restrict', 'id')
     expect(() => g.assertAcyclic()).not.toThrow()
   })
+
+  // #671 item 5 review — pins the WILDCARD-SLICE half of the ref-edge filter
+  // (`neighboursOf`'s `wildcard` variable, graph.ts:242) as distinct from the own-slice
+  // filter (`own`, graph.ts:239): mutation evidence showed reverting JUST the wildcard half
+  // still passed the whole suite, because no existing fixture put a REAL (non-wildcard)
+  // field in a position to inherit a ref edge via ITS OWN collection's '*' containment slice
+  // while that ref edge's target also closes a cycle back to it via a genuine (non-ref) edge.
+  it('a real field inherits a ref edge only through its collection\'s wildcard containment slice — the ref edge must still be excluded there too, so assertAcyclic() does NOT throw (#671 item 5, wildcard-slice half of the filter)', () => {
+    const g = new ViaGraph()
+    // countries.name is itself a derivation SOURCE (customers.countryName derives from it) —
+    // a real, non-wildcard field the top-level DFS visits directly via `_out.keys()`.
+    g.registerDerived({ collection: 'customers', field: 'countryName' }, [{ collection: 'countries', field: 'name' }], 'derivation', 'record')
+    // A ref edge sourced at countries' wildcard ('*') slice — customers.homeCountry is a
+    // lookup-ref field pointing at the countries dimension (mirrors registerLookupRefEdges'
+    // call shape). countries.name's OWN out-edges never reach customers.homeCountry — it is
+    // reachable ONLY via containment inheritance from countries.* here.
+    g.registerDerived({ collection: 'customers', field: 'homeCountry' }, [{ collection: 'countries', field: '*' }], 'ref', 'record', 'restrict', 'id')
+    // customers.homeCountry is ALSO a genuine (non-ref) derivation source for countries.name —
+    // closing a cycle back to countries.name, but ONLY reachable from countries.name via the
+    // wildcard-inherited ref edge above (never through countries.name's own out-edges).
+    g.registerDerived({ collection: 'countries', field: 'name' }, [{ collection: 'customers', field: 'homeCountry' }], 'derivation', 'record')
+    expect(() => g.assertAcyclic()).not.toThrow()
+  })
 })
 
 describe('ViaGraph — taintedPostures / taintSealedFields (Task 3 overlay)', () => {
