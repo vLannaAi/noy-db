@@ -14,7 +14,7 @@ import {
 } from './collection-config.js'
 import { resolveClassifiedFields, type ClassifiedEntry } from '../port/with/classified-strategy.js'
 import { ValidationError } from './errors.js'
-import { ViaPipeline, type ViaTaintOverlay } from './via-pipeline.js'
+import { ViaPipeline, type ViaTaintOverlay, type HasWritableViaPipeline } from './via-pipeline.js'
 import { buildTaintOverlay, taintBinding } from './via-taint-binding.js'
 
 // `ComputedFields` is a with-formula/computed type; the kernel spine may not
@@ -270,15 +270,14 @@ export function commitReconcileGraphEdges(graph: ViaGraph, name: string, plan: R
  * computed field can newly taint a field an EARLIER call already built the
  * pipeline for, so both call sites must refresh.
  *
- * Reaches into `coll`'s private `via`/`codec` fields the same way
- * `via-pipeline.ts`'s `exportRedact` and `vault.ts`'s `forget()` already do
- * (grep `_classifySealedShred`/`_writeTombstone`) — no new Collection
- * method, so this never touches the ceiling-locked `collection.ts`. The
+ * Writes through `Collection._setVia` (`kernel/collection.ts`, #666) rather
+ * than the old untyped structural-cast reach-in — `_setVia` does both of the
+ * cast site's old two steps itself: reassigns `this.via` AND resyncs the
  * codec's OWN `via` snapshot (captured at construction, `collection.ts`'s
- * `this.codec = new RecordCodec({..., via: this.via})`) does not
- * automatically follow a later `this.via` reassignment — `RecordCodec.
- * setVia` re-syncs it so `encryptRecord`/`decryptRecord` seal/unseal
- * through the taint binding too, not a stale pre-taint pipeline.
+ * `this.codec = new RecordCodec({..., via: this.via})`, which does not
+ * automatically follow a later `this.via` reassignment) so `encryptRecord`/
+ * `decryptRecord` seal/unseal through the taint binding too, not a stale
+ * pre-taint pipeline.
  *
  * #642 — `graph.taintedPostures(name)` also carries the collection's `'*'`
  * target (a derivation/MV/overlay OUTPUT collection's whole-record fold,
@@ -291,7 +290,7 @@ export function commitReconcileGraphEdges(graph: ViaGraph, name: string, plan: R
  * the SAME single `taintBinding` call via `sealAllFields` — every field
  * (present-time, at-rest) is covered without a second binding.
  */
-export function applyTaintOverlay(coll: unknown, graph: ViaGraph, name: string): void {
+export function applyTaintOverlay(coll: HasWritableViaPipeline, graph: ViaGraph, name: string): void {
   const raw = graph.taintedPostures(name)
   const rawDefault = raw.get('*')
   const rawFields = rawDefault === undefined ? raw : new Map([...raw].filter(([field]) => field !== '*'))
@@ -316,17 +315,16 @@ export function applyTaintOverlay(coll: unknown, graph: ViaGraph, name: string):
       if (posture.exportable === false && virtualFields.has(field)) virtualExportRedact.add(field)
     }
   }
-  const c = coll as { via: ViaPipeline | undefined; codec: { setVia(via: ViaPipeline | undefined): void } }
   const sealAll = defaultPosture?.encryptedAtRest === 'sealed'
   const needsTaintBinding = sealFields.size > 0 || virtualExportRedact.size > 0 || sealAll
   // #642 Fix wave 1 — strip a PRIOR 'taint' binding before (maybe) appending a fresh one: a
   // base config compiled by `compileViaBindings` never carries 'taint' itself (only this
-  // function ever constructs one), so any 'taint' entry already on `c.via.bindings` is a
+  // function ever constructs one), so any 'taint' entry already on `coll._via.bindings` is a
   // leftover from an earlier `applyTaintOverlay` call on THIS SAME collection (fresh-open +
   // every `reapplyDependentOverlays` refresh) — without stripping it first, each re-apply
   // accumulated one more binding onto the list (harmless in effect, since every lookup only
   // ever consults the LAST match, but unbounded and wrong).
-  const existingBindings = (c.via?.bindings ?? []).filter((b) => b.brand !== 'taint')
+  const existingBindings = (coll._via?.bindings ?? []).filter((b) => b.brand !== 'taint')
   const bindings = needsTaintBinding
     ? [...existingBindings, taintBinding(sealFields, virtualExportRedact, sealAll)]
     : existingBindings
@@ -334,8 +332,7 @@ export function applyTaintOverlay(coll: unknown, graph: ViaGraph, name: string):
     postures: postures ?? EMPTY_POSTURE_MAP, sealFields, provenance,
     ...(defaultPosture !== undefined ? { defaultPosture } : {}),
   }
-  c.via = ViaPipeline.build(bindings, taint)
-  c.codec.setVia(c.via)
+  coll._setVia(ViaPipeline.build(bindings, taint))
 }
 
 /**
@@ -360,7 +357,7 @@ export function applyTaintOverlay(coll: unknown, graph: ViaGraph, name: string):
  */
 export function reapplyDependentOverlays(
   graph: ViaGraph, name: string,
-  getOpenCollection: (n: string) => unknown,
+  getOpenCollection: (n: string) => HasWritableViaPipeline | undefined,
 ): void {
   const targets = new Set(graph.dependentsOf(name).map((edge) => edge.target.collection))
   for (const target of targets) {

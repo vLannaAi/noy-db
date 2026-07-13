@@ -43,6 +43,15 @@ export interface FieldClause {
     readonly brand: string
     readonly payload: unknown
     readonly evaluate: (actual: unknown, op: string) => boolean
+    /**
+     * The binding's `indexProbe` result for this clause's op/payload
+     * (#625) — the STORED-form operand `candidateRecords()` (`kernel/
+     * query/builder.ts`) can hand to `CollectionIndexes.lookupEqual`/
+     * `lookupIn` for a fast path. `undefined` (no `indexProbe` hook, or
+     * the binding declined to probe this op) means the field must fall
+     * back to a linear scan via `evaluate` above.
+     */
+    readonly indexValue?: unknown
   }
 }
 

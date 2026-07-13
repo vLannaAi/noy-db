@@ -298,6 +298,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
             brand: viaClause.brand,
             payload: viaClause.payload,
             evaluate: (actual: unknown, evalOp: string) => via!.evaluateClause(viaClause, actual, evalOp),
+            indexValue: via!.indexProbe(viaClause, op),
           },
         }
       : { type: 'field', field, op, value }
@@ -1120,19 +1121,30 @@ function candidateRecords(source: InternalSource, clauses: readonly Clause[]): C
     if (clause.type !== 'field') continue
     if (!indexes.has(clause.field)) continue
     // A Via-covered clause (e.g. money) only carries a build-time
-    // evaluator payload for per-record comparison — `buildClause` does
-    // not rewrite `clause.value` into the index's stored representation
+    // evaluator payload for per-record comparison by default — `buildClause`
+    // does not rewrite `clause.value` into the index's stored representation
     // (e.g. multi-currency money operands are `{ amount, currency }`
     // objects; the index would stringify their keys to a no-match
-    // sentinel). Skip the index fast path for these clauses; the
-    // fallback scan evaluates them via `clause.via.evaluate`.
-    if (clause.via) continue
+    // sentinel). A binding MAY additionally supply `indexValue` (#625,
+    // via `ViaBinding.indexProbe`) — the STORED-form operand for a direct
+    // probe (fixed-mode money `==`/`in` today). When it's absent, skip the
+    // index fast path for this clause; the fallback scan evaluates it via
+    // `clause.via.evaluate`. MIXED-ERA CAVEAT (money): this probe hits the
+    // index bucket keyed by the RAW stored string; a legacy non-canonical
+    // scaled value (predates the field's money() declaration) is bucketed
+    // under its raw form and misses a canonical probe, while the scan
+    // fallback (`evaluateMoneyClause`) re-parses via BigInt and still
+    // matches it — see `moneyIndexProbe`'s doc comment (via-money/where.ts)
+    // for the full caveat; a money-aware index-key canonicalization is a
+    // filed follow-up, not implemented here.
+    if (clause.via && clause.via.indexValue === undefined) continue
+    const probeValue = clause.via ? clause.via.indexValue : clause.value
 
     let ids: ReadonlySet<string> | null = null
     if (clause.op === '==') {
-      ids = indexes.lookupEqual(clause.field, clause.value)
-    } else if (clause.op === 'in' && Array.isArray(clause.value)) {
-      ids = indexes.lookupIn(clause.field, clause.value)
+      ids = indexes.lookupEqual(clause.field, probeValue)
+    } else if (clause.op === 'in' && Array.isArray(probeValue)) {
+      ids = indexes.lookupIn(clause.field, probeValue)
     }
 
     if (ids !== null) {

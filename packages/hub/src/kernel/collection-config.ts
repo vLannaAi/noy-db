@@ -76,7 +76,7 @@ import type { Collection, OnDirtyCallback, CacheOptions } from './collection.js'
 import type { LazyStrategy } from '../port/with/lazy-strategy.js'
 import { ViaPipeline } from './via-pipeline.js'
 import { viaBinder, type ViaBinding, type ViaDescriptor } from './via.js'
-import { mergeViaFields, type ViaFieldSpec } from './via-compose.js'
+import { mergeViaFields, guardCrossBindingFieldCollisions, type ViaFieldSpec } from './via-compose.js'
 
 /**
  * Raw options handed to the {@link Collection} constructor by the Vault.
@@ -547,95 +547,6 @@ function unifyComputedFields<T>(opts: CollectionOpts<T>, viaComputedFields: Reco
   return { ...(opts.computed ?? {}), ...(viaComputedFields ?? {}) }
 }
 
-/** Maps each per-family field-map's option key to its binding family name — used only by
- *  {@link guardCrossBindingFieldCollisions} to tell a genuine cross-family collision apart
- *  from the SAME family surfaced through two sugar keys (`i18nFields` + `dictKeyFields` both
- *  feed the ONE 'i18n' binder — not this guard's job; a family's own duplicate handling
- *  stays wherever it already lives). */
-const VIA_FIELD_MAP_FAMILY: Readonly<Record<string, string>> = {
-  moneyFields: 'money', i18nFields: 'i18n', dictKeyFields: 'i18n', lookupFields: 'lookup',
-  classifiedFields: 'classified', blobFields: 'blob', computed: 'computed',
-}
-
-/**
- * #631 — declare-time cross-binding same-field collision guard. Today the same field named
- * in two DIFFERENT via-binding families (e.g. the same field in both `moneyFields` and
- * `blobFields`) resolves silently by compile-order first-wins in `ViaPipeline`'s per-field
- * posture/clause lookup — undefined pipeline behavior for a config that is almost certainly a
- * mistake. `mergeViaFields` already guards sugar-vs-`viaFields` and `dictKeyFields`-vs-
- * `lookupFields` collisions (#623 Task 9); this runs one step later, in `compileViaBindings`,
- * because that's the only seam that also sees `classifiedFields`/`blobFields` — neither is
- * part of `ViaFieldSources`, so `mergeViaFields` never sees them.
- *
- * WHY FAMILY-BASED, NOT PROVENANCE-BASED (#631 review, round 2 — Controller ruling): a field
- * declared via `via(computed(fn), money(...))` and a field declared via two independent sugar
- * maps (`computed: { total: fn }` + `moneyFields: { total: money(...) }`) are NOT
- * distinguishable here — `mergeViaFields` (via-compose.ts) folds both declaration STYLES into
- * the IDENTICAL merged per-family field maps this function receives; provenance (which style
- * produced a given map entry) is erased before this guard ever runs. Narrowing the exemption to
- * "only via()-composed fields" would therefore require threading a second, parallel
- * provenance-tracking data structure through `mergeViaFields` for the sole purpose of refusing a
- * config that is BEHAVIORALLY IDENTICAL to the sanctioned one — refusing it would be a
- * behavior-lock violation (breaking a legal, meaningful config), not a bug fix. The exemption is
- * therefore keyed on the FAMILY SET alone, and instead earned empirically per family (below).
- *
- * EXEMPT (test-earned, not merely asserted): `computed` colliding with EXACTLY ONE of
- * `money`/`i18n`/`lookup` on the same field. `via()`'s descriptor loop only accepts
- * money/i18n/computed/lookup `_viaBrand`s (`mergeViaFields` throws on any other brand), so a
- * computed+classified or computed+blob same-field pairing can never arise from composition — it
- * can only come from mistakenly naming the same field in `computed`/`viaFields` AND
- * `classifiedFields`/`blobFields`, which this guard still refuses. For the three families that
- * CAN legitimately arise, each is pinned by an end-to-end runtime test proving the composition
- * does something real (not just "doesn't throw") — see `computed/virtual.test.ts`:
- *   - money: the "composed grammar" tests (materialized-mode money formatting the computed
- *     output; the ORIGINAL evidence this exemption started from — see the money DOES/does NOT
- *     format the computed output pair).
- *   - i18n (dictKey) / lookup (dict()): the "composed grammar — computed + i18n/lookup
- *     families (#631 collision-guard exemption pins)" block, BOTH declaration styles
- *     (`via(computed(...), dictKey(...)/dict(...))` and the two-independent-sugar-maps form),
- *     materialized mode — proven to dress `<field>Label` off the computed output identically
- *     either way (the provenance-erasure claim above, empirically confirmed). Virtual mode for
- *     both families hits the SAME present-ORDER limitation money's own virtual composed-grammar
- *     test already documents (i18n/lookup's `present()` runs BEFORE computed's — a virtual field
- *     is never stored, so there is nothing to dress yet); pinned as a known limitation, not
- *     grounds to drop the family from the exemption (materialized mode is what proves the family
- *     genuinely composes).
- *
- * 3-CLAIMANT TIGHTENING (#631 review, round 2): the exemption requires EXACTLY TWO claimant
- * source-keys, not just two families. A field named in `computed` + BOTH `i18nFields` AND
- * `dictKeyFields` collapses to the same two families (`{computed, i18n}` — `dictKeyFields`
- * shares the `i18n` family) but is a genuine THREE-claimant collision: two independent i18n
- * sugar keys both claiming the field is itself a mistake this guard exists to catch, and must
- * not slip through because the family SET happens to match the earned exemption's shape.
- */
-function guardCrossBindingFieldCollisions(
-  fieldMaps: Readonly<Record<string, Record<string, unknown> | undefined>>,
-): void {
-  const claimantsByField = new Map<string, Set<string>>()
-  for (const [sourceKey, map] of Object.entries(fieldMaps)) {
-    for (const field of Object.keys(map ?? {})) {
-      const claimants = claimantsByField.get(field) ?? new Set<string>()
-      claimants.add(sourceKey)
-      claimantsByField.set(field, claimants)
-    }
-  }
-  for (const [field, sourceKeys] of claimantsByField) {
-    const families = new Set([...sourceKeys].map((key) => VIA_FIELD_MAP_FAMILY[key]))
-    if (families.size < 2) continue // same family via two sugar keys (e.g. i18n/dictKey) — not this guard's job
-    // Exactly two CLAIMANTS (not just two families) — see "3-CLAIMANT TIGHTENING" above.
-    if (sourceKeys.size === 2 && families.has('computed')) {
-      const other = [...families].find((f) => f !== 'computed')
-      if (other === 'money' || other === 'i18n' || other === 'lookup') continue // composed grammar, test-earned (#638/#631)
-    }
-    const keys = [...sourceKeys].sort().map((k) => `\`${k}\``)
-    const joined = keys.length === 2 ? keys.join(' and ') : `${keys.slice(0, -1).join(', ')}, and ${keys[keys.length - 1]}`
-    throw new ValidationError(
-      `compileViaBindings(): field "${field}" is declared in both ${joined} — a field cannot be claimed by two ` +
-      'different via-binding families. Declare it in one place only.',
-    )
-  }
-}
-
 /**
  * Compile a collection's declared config into the ordered list of `ViaBinding`s
  * for its `ViaPipeline`.
@@ -660,10 +571,11 @@ function guardCrossBindingFieldCollisions(
  * declares NO write/read pipeline hooks (blob content is out-of-band
  * `BlobSet` side-collections — it must never flip `hasAtRestHooks`), only
  * `erase`/`describeFragment`. Computed compiles LAST (#638 Task 7) — its
- * `present` hook is the only one it declares, and it must run AFTER money/
- * i18n's own `present` so a virtual field's `deps` can read their decoded
- * output (money-quantized amount, i18n-resolved label), not their raw
- * stored form. `via-graph-wiring.ts#applyTaintOverlay` appends the `taint`
+ * `present` hook must run AFTER money's own `present` so a virtual field's
+ * `deps` read the decoded (quantized) amount, not the raw stored form; at
+ * present-time i18n/lookup's DRESSING now runs AFTER computed instead (#665
+ * `_presentOrder`, `via-pipeline.ts` — compile order here is unchanged).
+ * `via-graph-wiring.ts#applyTaintOverlay` appends the `taint`
  * binding after WHATEVER this function returns, so taint's present-time
  * redaction always runs after computed's regardless of this ordering.
  * {@link Collection._applyMoneyFields} PREPENDS money for the same reason
@@ -726,6 +638,8 @@ export function compileViaBindings<T>(
   // SEPARATE binding from i18n above — dictKey()/staticDict() stay on the
   // i18n binding (the alias, unchanged); a collection declaring BOTH
   // dictKeyFields and lookupFields compiles both bindings.
+  // must move together with via-reconcile.ts's lookup binder-config block (reconcileLookupFields,
+  // the `viaBinder('lookup')({...})` call) (#664) — same option-shape contract.
   if (lookupFields !== undefined) {
     bindings.push(viaBinder('lookup')({
       lookupFields,

@@ -11,7 +11,7 @@ import { installViaBinder } from '../../kernel/via.js'
 import type { MoneyDescriptor } from './descriptor.js'
 import { quantizeMoneyFields, decodeMoneyFields, canonicalizeStoredMoney, canonicalizeIncomingMoney, moneyScaledValue } from './normalize.js'
 import { validateMoneyFieldPaths } from './paths.js'
-import { moneyFieldClause, evaluateMoneyClause, type MoneyWhereOperand } from './where.js'
+import { moneyFieldClause, evaluateMoneyClause, moneyIndexProbe, type MoneyWhereOperand } from './where.js'
 import { wrapMoneyReducers } from './money-reducer.js'
 import type { Operator } from '../../kernel/query/predicate.js'
 import type { AggregateSpec } from '../../with-lookup/aggregate/aggregation.js'
@@ -32,6 +32,7 @@ export function moneyBinding(moneyFields: Record<string, MoneyDescriptor>): ViaB
       return moneyFieldClause(field, op as Operator, value, desc) // the MoneyWhereOperand payload
     },
     evaluateClause: (actual, op, payload) => evaluateMoneyClause(actual, op as Operator, payload as MoneyWhereOperand),
+    indexProbe: (op, payload) => moneyIndexProbe(op as Operator, payload as MoneyWhereOperand),
     decodeResults: (r) => decodeMoneyFields(r as Record<string, unknown>, moneyFields, 'raw'),
     compareForOrder: (field, a, b) => {
       const desc = moneyFields[field]

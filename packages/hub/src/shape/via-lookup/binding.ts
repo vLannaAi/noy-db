@@ -279,10 +279,12 @@ function getAltIndexOrThrow(field: string, desc: LookupDescriptor, cfg: LookupVi
  * wrongly refused by closed-vocabulary enforcement). `setAtPathInPlace`
  * can't write into a `[].`-wildcard path, so the array is reconstructed
  * immutably instead, mirroring `runLookupPresent`'s own `field.includes
- * ('[].')` branch. A plain field whose OWN value is a bare array (not a
- * `[].`-wildcard path) is a different, untouched shape — `getAtPath`
- * resolves it to one opaque value, so it still falls through the
- * `values.length !== 1` / `typeof value !== 'string'` checks below unchanged.
+ * ('[].')` branch. A plain field whose OWN value is a bare top-level array
+ * (not a `[].`-wildcard path) gets the SAME element-wise normalization
+ * against `backing.altIndex` (#661 fix — `getAtPath` resolves it to one
+ * opaque value, so the array itself is `values[0]`; a non-string element is
+ * left untouched, mirroring the scalar branch's own `typeof !== 'string'`
+ * skip — no parallel coercion invented for this shape).
  */
 function runLookupIngest(record: Record<string, unknown>, cfg: LookupViaConfig): Record<string, unknown> {
   const withAltKeys = Object.entries(cfg.lookupFields).filter(([, d]) => (d.altKeys?.length ?? 0) > 0)
@@ -317,6 +319,27 @@ function runLookupIngest(record: Record<string, unknown>, cfg: LookupViaConfig):
     const values = getAtPath(record, field)
     if (values.length !== 1) continue
     const value = values[0]
+
+    // `getAtPath`/`setAtPathInPlace` resolve `field` generically, dotted
+    // paths included (e.g. 'meta.tags') — do not rewrite this branch to a
+    // direct `record[field]` bracket access, which would silently stop
+    // normalizing/enforcing a dotted-non-wildcard bare-array field (#661).
+    if (Array.isArray(value)) {
+      if (value.length === 0) continue
+      let changed = false
+      const normalized = value.map((el) => {
+        if (typeof el !== 'string') return el
+        const canonical = backing.altIndex.get(el)
+        if (canonical === undefined || canonical === el) return el
+        changed = true
+        return canonical
+      })
+      if (!changed) continue
+      if (result === record) result = { ...record }
+      setAtPathInPlace(result, field, normalized)
+      continue
+    }
+
     if (typeof value !== 'string') continue
     const canonical = backing.altIndex.get(value)
     if (canonical === undefined || canonical === value) continue
@@ -343,6 +366,20 @@ async function runLookupEnforceWrite(record: Record<string, unknown>, cfg: Looku
     // (#652), so what lands here for a `[].`-wildcard field is already
     // canonical; this loop's job stays membership, not normalization.
     for (const value of getAtPath(record, field)) {
+      // A plain field whose OWN value is a bare top-level array (#661) —
+      // `runLookupIngest` above has already normalized its elements'
+      // altKeys, so membership-check each element through the SAME
+      // `cfg.membership` closure the scalar branch below uses, refusing on
+      // the first unknown one. A non-string element is skipped, mirroring
+      // the scalar branch's own skip.
+      if (Array.isArray(value)) {
+        for (const el of value) {
+          if (typeof el !== 'string') continue
+          const known = cfg.membership ? await cfg.membership(field, el) : true
+          if (!known) throw new UnknownLookupKeyError(desc.dimension, field, el)
+        }
+        continue
+      }
       if (typeof value !== 'string') continue
       const known = cfg.membership ? await cfg.membership(field, value) : true
       if (!known) throw new UnknownLookupKeyError(desc.dimension, field, value)

@@ -123,6 +123,20 @@ export interface ViaBinding {
   buildClause?(field: string, op: string, value: unknown): unknown | undefined
   /** Evaluate a payload produced by buildClause against a raw stored value. */
   evaluateClause?(actual: unknown, op: string, payload: unknown): boolean
+  /**
+   * Optional: the STORED-form operand for a direct secondary-index probe
+   * against a payload produced by `buildClause` (#625) — lets
+   * `candidateRecords()` (`query/builder.ts`) hit `CollectionIndexes.
+   * lookupEqual`/`lookupIn` for `==`/`in` clauses instead of falling back
+   * to a linear scan + per-record `evaluateClause`. Returning `undefined`
+   * means "no sound probe for this op/payload" (e.g. a comparison whose
+   * stored form isn't a single index-bucketable value, or an op the index
+   * can't serve) — the caller falls back to the scan. A binding that
+   * never implements this hook always falls back, unchanged from before
+   * this hook existed.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
+  indexProbe?(op: string, payload: unknown): unknown | undefined
   /** Decode a raw stored record for query/scan results and callback views ('raw' — no virtuals). */
   decodeResults?(record: unknown): unknown
   /** Exact ordering for a covered field; undefined when the field is not covered. */

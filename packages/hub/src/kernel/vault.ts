@@ -117,7 +117,8 @@ import { isViaInstalled } from './via.js'
 import { mergeViaFields, type ViaFieldSpec } from './via-compose.js'
 import { exportRedact } from './via-pipeline.js'
 import { ViaGraph } from './via-graph.js'
-import { registerCollectionGraphSources, validateReconcileGraphEdges, commitReconcileGraphEdges, applyTaintOverlay, reapplyDependentOverlays, type ReconcileGraphOptions } from './via-graph-wiring.js'
+import { registerCollectionGraphSources, applyTaintOverlay, reapplyDependentOverlays } from './via-graph-wiring.js'
+import { reconcileViaAttach, type ViaReconcileVaultCtx } from './via-reconcile.js'
 import { runGraphDispatchWave, putDerivedOutput, ledgerAuditHook, forgetDerivedFanout, touchFor, type GraphBatch, type ForgetFanoutStats, type RollupDeleteIntent } from './via-dispatch.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 // Type-only imports for the guard + derivation services. The
@@ -382,7 +383,7 @@ export class Vault {
   /** Per-collection field name → StaticDictDescriptor, validated by `enforceStaticDictOnPut`. */
   private readonly staticDescriptorByField = new Map<string, Record<string, StaticDictDescriptor>>()
 
-  /** i18nText fields: collection name → field name → descriptor. Used by `applyI18nLocale`/`validateI18nTextValue`; populated by `collection()` from `i18nFields`. */
+  /** i18nText fields: collection name → field name → descriptor. Used by `applyI18nLocale`/`validateI18nTextValue`; populated by `collection()` from `i18nFields`. Private — the #664 `via-reconcile.ts` dispatch reads these through {@link _viaReconcileCtx}'s structural bag, not `this` directly (a plain structural bag, never a `Vault` import — S5 port-layering forbids the kernel spine from reaching a with-* service, and this file's own reconcile-ladder logic moved OUT into that unguarded module). */
   private readonly i18nFieldRegistry = new Map<string, Record<string, I18nTextDescriptor>>()
 
   /** Cache of DictionaryHandle instances, one per dictionary name. */
@@ -653,6 +654,20 @@ export class Vault {
    * Lazy mode + indexes is rejected at construction time — see the
    * Collection constructor for the rationale.
    */
+  /** Assembles {@link ViaReconcileVaultCtx} — the plain structural bag the #664 `via-reconcile.ts`
+   *  dispatch reads/writes — from this vault's OWN privates, rather than passing `this` itself. */
+  private _viaReconcileCtx(): ViaReconcileVaultCtx {
+    return {
+      i18nStrategy: this.i18nStrategy, locale: this.locale, translateText: this.translateText,
+      i18nFieldRegistry: this.i18nFieldRegistry, dictKeyFieldRegistry: this.dictKeyFieldRegistry,
+      staticDescriptorByField: this.staticDescriptorByField, reservedLookupCollections: this.reservedLookupCollections,
+      staticByName: this.staticByName, staticDictNames: this.staticDictNames, getOpenCollection: (n) => this._getCollection(n), getCollection: (n) => this.collection<Record<string, unknown>>(n),
+      dictionary: (name) => this.dictionary(name),
+      enforceI18nOnPut: (collectionName, record) => this.enforceI18nOnPut(collectionName, record),
+      enforceStaticDictOnPut: (collectionName, record) => this.enforceStaticDictOnPut(collectionName, record),
+    }
+  }
+
   collection<T, S extends keyof T & string = never, Q extends keyof T & string = never, M extends keyof T & string = never>(collectionName: string, options?: {
     indexes?: readonly IndexDefFor<IndexFieldName<T, S, Q>>[]
     /** — auto-reconcile policy for persisted-index drift. */
@@ -840,36 +855,20 @@ export class Vault {
 
     let coll = this.collectionCache.get(collectionName)
     const effectiveViaFields = mergeViaFields({ moneyFields: options?.moneyFields, i18nFields: options?.i18nFields, dictKeyFields: options?.dictKeyFields, lookupFields: options?.lookupFields, viaFields: options?.viaFields }) // #627: merged view feeds both late-attach reconcile (below) and fresh construct
-    // Two-phase reconcile (#638 Task 2 wave 2, Findings I1/I2/M1/M2): validate
-    // combined existing+incoming computed/classified state before any
-    // _apply* below mutates, commit graph edges only once every _apply*
-    // succeeds (see via-graph-wiring.ts). The branches below reconcile a
-    // field-declaring option onto a collection MV dependency analysis may
-    // have auto-created bare during openVault, before this real
-    // declaration; each is first-wins.
-    const reconcilePlan = coll && (options?.computed || options?.classifiedFields)
-      ? validateReconcileGraphEdges(this.graph, collectionName, options as unknown as ReconcileGraphOptions)
-      : undefined
-    if (coll && effectiveViaFields.moneyFields) {
-      coll._applyMoneyFields(effectiveViaFields.moneyFields)
-    }
-    if (coll && options?.computed) {
-      coll._applyComputed(options.computed as ComputedFields)
-    }
-    if (coll && options?.fieldMeta) {
-      coll._applyFieldMeta(options.fieldMeta)
-    }
-    if (coll && options?.meta) {
-      coll._applyMeta(options.meta)
-    }
-    if (coll && options?.classifiedFields) {
-      // Cannot retro-seal — only merges rider computed fields; see
-      // Collection._applyClassifiedFields's own doc comment for the R1-R8 matrix.
-      coll._applyClassifiedFields(options.classifiedFields)
-    }
-    if (reconcilePlan) {
-      commitReconcileGraphEdges(this.graph, collectionName, reconcilePlan)
-      applyTaintOverlay(coll, this.graph, collectionName) // #638 Task 3: a late attach can newly taint an already-built pipeline
+    // #664 — the whole late-attach reconcile ladder (collision guard, the five pre-existing
+    // _apply* reconciles, the two-phase graph-edge/taint commit, and the new i18n/dictKey
+    // machinery) now lives behind ONE dispatch call in the unguarded via-reconcile.ts, not
+    // inlined here. `Collection._applyX`'s own first-wins semantics are unchanged; this file
+    // only threads the field-declaring options + this vault's registries through.
+    if (coll) {
+      reconcileViaAttach(coll, this.graph, collectionName, this._viaReconcileCtx(), {
+        effectiveViaFields,
+        ...(options?.computed !== undefined ? { computed: options.computed as ComputedFields } : {}),
+        ...(options?.fieldMeta !== undefined ? { fieldMeta: options.fieldMeta } : {}),
+        ...(options?.meta !== undefined ? { meta: options.meta } : {}),
+        ...(options?.classifiedFields !== undefined ? { classifiedFields: options.classifiedFields } : {}),
+        ...(options?.blobFields !== undefined ? { blobFields: options.blobFields } : {}),
+      })
     }
     if (!coll) {
       // Register ref declarations (if any) with the vault-level
@@ -1130,6 +1129,7 @@ export class Vault {
       }
       if (effectiveViaFields.lookupFields !== undefined) {
         // membership/getAltIndex (#650 Task 3) are vault-built closures — never a collection handle.
+        // must move together with via-reconcile.ts's five lookup closures (#664).
         collOpts.lookupLabelResolver = collOpts.dictLabelResolver
         collOpts.getLookupBacking = (desc: LookupDescriptor) => async (key: string) => // #651: snapshot-first (sole truth for key!=='id'); id-tier alone falls back to a live cold-session .get()
           buildLookupSnapshotRows(desc, (n) => this.reservedLookupCollections.has(dictCollectionName(n)), (n) => this.dictionary(n), (n) => this.collection<Record<string, unknown>>(n))?.get(key) ?? (desc.key === 'id' ? (await this.collection<Record<string, unknown>>(desc.dimension).get(key)) ?? undefined : undefined)

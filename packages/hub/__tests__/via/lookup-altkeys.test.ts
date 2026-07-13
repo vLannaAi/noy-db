@@ -198,11 +198,9 @@ describe('lookup() altKeys ingest normalization — matrix (collection) tier end
  * A plain top-level field whose OWN value is an array (e.g. a bare
  * `tags: ['a','b']`) is a DIFFERENT shape: `getAtPath` resolves it to a
  * single opaque value (the whole array, wrapped: `[['a','b']]`, length 1)
- * rather than splitting it — `values.length !== 1` is never true for it, and
- * `runLookupEnforceWrite`'s `typeof value !== 'string'` guard already skips
- * it today. That shape isn't touched by this fix (see task-4-report.md's
- * "edge-shape decisions" for the scoping rationale) — only the getAtPath
- * multi-value (`[].`-wildcard) case the stale comments actually described.
+ * rather than splitting it — that shape wasn't touched by THIS fix; it got
+ * its own element-wise ingest + enforceWrite fix in #661, see
+ * `lookup-bare-array.test.ts`.
  *
  * RED (pre-fix): the first "ingests to canonical" assertion below failed
  * (leaf values held raw altKeys, unnormalized); the "closed vocabulary"

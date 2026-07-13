@@ -132,6 +132,51 @@ export function moneyFieldClause(
   }
 }
 
+/**
+ * The `via` index-probe operand for a `where()` over a declared money
+ * field (see `ViaBinding.indexProbe` in kernel/via.ts) — the STORED-form
+ * value `CollectionIndexes.lookupEqual`/`lookupIn` (`with-lookup/indexing/
+ * eager-indexes.ts`) can bucket directly.
+ *
+ * Only FIXED-mode `==`/`in` are sound:
+ * - fixed-mode stores a bare scaled-int digit string (no currency
+ *   component), and `entries[i].scaled` is built by {@link parseOperand}
+ *   via the exact same `parseToScaledInt(...).value.toString()` path
+ *   `quantizeMoneyFields` (`via-money/normalize.ts#quantizeAmount`) uses
+ *   to produce the STORED value — so the two strings are byte-identical
+ *   by construction, and `stringifyKey` (which passes a string through
+ *   unchanged) buckets them the same way.
+ * - multi-mode stores `{ amount, currency }` — the index would stringify
+ *   that object to its no-match `'\0OBJECT\0'` sentinel — so multi-mode
+ *   always returns `undefined` (no sound probe).
+ * - every op besides `==`/`in` (range comparisons, `between`) has no
+ *   single stored-form value the hash index can serve, so they return
+ *   `undefined` too — the caller falls back to a scan.
+ *
+ * MIXED-ERA CAVEAT: byte-exactness above holds for every record written
+ * through the money write path (`quantizeMoneyFields`), which always
+ * produces a canonical BigInt digit string. A record whose stored value
+ * predates the field's `money()` declaration, or otherwise bypassed
+ * `quantizeMoneyFields`, may hold a NON-canonical scaled string (e.g.
+ * `'0100'` instead of `'100'`) — the index buckets it under that raw
+ * string (`CollectionIndexes#addToIndex` reads the field verbatim, no
+ * BigInt re-parse), so an `==`/`in` probe for the canonical `'100'` misses
+ * it, while the fallback scan (`evaluateMoneyClause`'s `readStored`, which
+ * DOES re-parse via `BigInt(actual).toString()`) still matches it. The fast
+ * path is therefore byte-exact for the canonical (money-write-path) subset
+ * of records, not literally every stored byte sequence; a re-`put()` of the
+ * legacy record canonicalizes it going forward. A money-aware index-key
+ * canonicalization (bucket by the BigInt-normalized form, not the raw
+ * string) would close this gap — filed as a follow-up, not fixed here.
+ */
+// eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
+export function moneyIndexProbe(op: Operator, payload: MoneyWhereOperand): unknown | undefined {
+  if (payload.mode !== 'fixed') return undefined
+  if (op === '==') return payload.entries[0]?.scaled
+  if (op === 'in') return payload.entries.map(e => e.scaled)
+  return undefined
+}
+
 /** Read a raw STORED money value into scaled space, or null if absent/malformed. */
 function readStored(actual: unknown, operand: MoneyWhereOperand): MoneyOperandEntry | null {
   let amount: unknown

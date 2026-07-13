@@ -12,7 +12,8 @@
  * the same field is declared in both places (#623 Task 9).
  */
 import { ValidationError } from './errors.js'
-import type { ViaDescriptor } from './via.js'
+import type { ViaBinding, ViaDescriptor } from './via.js'
+import type { ViaPipeline } from './via-pipeline.js'
 // Types + shape-classification predicates reach through the kernel's own
 // `port/with/` hook seam (never `src/shape/` directly) — #623 Task 11.
 // `isI18nTextDescriptor`/`isDictKeyDescriptor` are pure tag checks moved
@@ -154,5 +155,165 @@ export function mergeViaFields(sources: ViaFieldSources): MergedViaFields {
     dictKeyFields: Object.keys(viaDictKey).length > 0 ? { ...(sources.dictKeyFields ?? {}), ...viaDictKey } : sources.dictKeyFields,
     computedFields: Object.keys(viaComputed).length > 0 ? viaComputed : undefined,
     lookupFields: Object.keys(viaLookup).length > 0 ? { ...(sources.lookupFields ?? {}), ...viaLookup } : sources.lookupFields,
+  }
+}
+
+/** Maps each per-family field-map's option key to its binding family name — used by
+ *  {@link guardCrossBindingFieldCollisions}/{@link guardReconcileCollisions} to tell a genuine
+ *  cross-family collision apart from the SAME family surfaced through two sugar keys
+ *  (`i18nFields` + `dictKeyFields` both feed the ONE 'i18n' binder — not this guard's job; a
+ *  family's own duplicate handling stays wherever it already lives). Moved here from
+ *  `collection-config.ts` (#664 Part 1) — that module now imports `guardCrossBindingFieldCollisions`
+ *  back from here instead (a circular import the other way: `collection-config.ts` already
+ *  imports FROM this module for `mergeViaFields`). Module-private — only the two guards above,
+ *  both in this file, read it. */
+const VIA_FIELD_MAP_FAMILY: Readonly<Record<string, string>> = {
+  moneyFields: 'money', i18nFields: 'i18n', dictKeyFields: 'i18n', lookupFields: 'lookup',
+  classifiedFields: 'classified', blobFields: 'blob', computed: 'computed',
+}
+
+/**
+ * #631 — declare-time cross-binding same-field collision guard. Today the same field named
+ * in two DIFFERENT via-binding families (e.g. the same field in both `moneyFields` and
+ * `blobFields`) resolves silently by compile-order first-wins in `ViaPipeline`'s per-field
+ * posture/clause lookup — undefined pipeline behavior for a config that is almost certainly a
+ * mistake. `mergeViaFields` already guards sugar-vs-`viaFields` and `dictKeyFields`-vs-
+ * `lookupFields` collisions (#623 Task 9); this runs one step later, in `compileViaBindings`
+ * (fresh construction) or {@link guardReconcileCollisions} (late-attach reconcile), because
+ * those are the only seams that also see `classifiedFields`/`blobFields` — neither is part of
+ * `ViaFieldSources`, so `mergeViaFields` never sees them.
+ *
+ * WHY FAMILY-BASED, NOT PROVENANCE-BASED (#631 review, round 2 — Controller ruling): a field
+ * declared via `via(computed(fn), money(...))` and a field declared via two independent sugar
+ * maps (`computed: { total: fn }` + `moneyFields: { total: money(...) }`) are NOT
+ * distinguishable here — `mergeViaFields` folds both declaration STYLES into the IDENTICAL
+ * merged per-family field maps this function receives; provenance (which style produced a given
+ * map entry) is erased before this guard ever runs. Narrowing the exemption to "only
+ * via()-composed fields" would therefore require threading a second, parallel
+ * provenance-tracking data structure through `mergeViaFields` for the sole purpose of refusing a
+ * config that is BEHAVIORALLY IDENTICAL to the sanctioned one — refusing it would be a
+ * behavior-lock violation (breaking a legal, meaningful config), not a bug fix. The exemption is
+ * therefore keyed on the FAMILY SET alone, and instead earned empirically per family (below).
+ *
+ * EXEMPT (test-earned, not merely asserted): `computed` colliding with EXACTLY ONE of
+ * `money`/`i18n`/`lookup` on the same field. `via()`'s descriptor loop only accepts
+ * money/i18n/computed/lookup `_viaBrand`s (`mergeViaFields` throws on any other brand), so a
+ * computed+classified or computed+blob same-field pairing can never arise from composition — it
+ * can only come from mistakenly naming the same field in `computed`/`viaFields` AND
+ * `classifiedFields`/`blobFields`, which this guard still refuses. For the three families that
+ * CAN legitimately arise, each is pinned by an end-to-end runtime test proving the composition
+ * does something real (not just "doesn't throw") — see `computed/virtual.test.ts`:
+ *   - money: the "composed grammar" tests (materialized-mode money formatting the computed
+ *     output; the ORIGINAL evidence this exemption started from — see the money DOES/does NOT
+ *     format the computed output pair).
+ *   - i18n (dictKey) / lookup (dict()): the "composed grammar — computed + i18n/lookup
+ *     families (#631 collision-guard exemption pins)" block, BOTH declaration styles
+ *     (`via(computed(...), dictKey(...)/dict(...))` and the two-independent-sugar-maps form),
+ *     materialized mode — proven to dress `<field>Label` off the computed output identically
+ *     either way (the provenance-erasure claim above, empirically confirmed). Virtual mode for
+ *     both families hits the SAME present-ORDER limitation money's own virtual composed-grammar
+ *     test already documents (i18n/lookup's `present()` runs BEFORE computed's — a virtual field
+ *     is never stored, so there is nothing to dress yet); pinned as a known limitation, not
+ *     grounds to drop the family from the exemption (materialized mode is what proves the family
+ *     genuinely composes).
+ *
+ * 3-CLAIMANT TIGHTENING (#631 review, round 2): the exemption requires EXACTLY TWO claimant
+ * source-keys, not just two families. A field named in `computed` + BOTH `i18nFields` AND
+ * `dictKeyFields` collapses to the same two families (`{computed, i18n}` — `dictKeyFields`
+ * shares the `i18n` family) but is a genuine THREE-claimant collision: two independent i18n
+ * sugar keys both claiming the field is itself a mistake this guard exists to catch, and must
+ * not slip through because the family SET happens to match the earned exemption's shape.
+ */
+export function guardCrossBindingFieldCollisions(
+  fieldMaps: Readonly<Record<string, Record<string, unknown> | undefined>>,
+  // Minor fix (opus task review on #664a) — caller-accurate error prefix: fresh construction
+  // (`collection-config.ts`) keeps the old default; {@link guardReconcileCollisions} (the
+  // late-attach reconcile path) passes its OWN name instead of this function silently claiming
+  // to be `compileViaBindings()` on a call it never made.
+  callerPrefix = 'compileViaBindings()',
+): void {
+  const claimantsByField = new Map<string, Set<string>>()
+  for (const [sourceKey, map] of Object.entries(fieldMaps)) {
+    for (const field of Object.keys(map ?? {})) {
+      const claimants = claimantsByField.get(field) ?? new Set<string>()
+      claimants.add(sourceKey)
+      claimantsByField.set(field, claimants)
+    }
+  }
+  for (const [field, sourceKeys] of claimantsByField) {
+    const families = new Set([...sourceKeys].map((key) => VIA_FIELD_MAP_FAMILY[key]))
+    if (families.size < 2) continue // same family via two sugar keys (e.g. i18n/dictKey) — not this guard's job
+    // Exactly two CLAIMANTS (not just two families) — see "3-CLAIMANT TIGHTENING" above.
+    if (sourceKeys.size === 2 && families.has('computed')) {
+      const other = [...families].find((f) => f !== 'computed')
+      if (other === 'money' || other === 'i18n' || other === 'lookup') continue // composed grammar, test-earned (#638/#631)
+    }
+    const keys = [...sourceKeys].sort().map((k) => `\`${k}\``)
+    const joined = keys.length === 2 ? keys.join(' and ') : `${keys.slice(0, -1).join(', ')}, and ${keys[keys.length - 1]}`
+    throw new ValidationError(
+      `${callerPrefix}: field "${field}" is declared in both ${joined} — a field cannot be claimed by two ` +
+      'different via-binding families. Declare it in one place only.',
+    )
+  }
+}
+
+/**
+ * #664 Part 1 — the late-attach reconcile-path sibling of {@link guardCrossBindingFieldCollisions}.
+ * `vault.ts`'s reconcile ladder (a second-or-later `vault.collection(name, {...})` call on an
+ * ALREADY-open collection) never ran the fresh-construction guard above, so two probe recipes
+ * slipped through (round-2 fable review, 2026-07-13):
+ *
+ *  - **(a) incoming×incoming** — the SAME reconcile call names a field in two different
+ *    families (e.g. `moneyFields`+`blobFields` both claiming `"amount"`). Fix: re-run
+ *    {@link guardCrossBindingFieldCollisions} verbatim over THIS call's own merged field maps —
+ *    identical semantics to fresh construction, just invoked one call later.
+ *  - **(b) existing×incoming** — an EARLIER call already compiled a binding covering a field
+ *    (money reconciled onto it, or it shipped with the collection's first declaration), and
+ *    THIS call's incoming family map claims the SAME field for a DIFFERENT family (e.g. call-1
+ *    `classifiedFields:['ssn']`, call-2 `moneyFields:{ssn}`) — undetectable by (a) alone since
+ *    the collision spans two calls. Read via the LIVE collection's compiled bindings
+ *    (`coll._via.bindings`): each `ViaBinding.covers(field)` (`via.ts`) plus its `brand` tells us
+ *    which family already owns the field, mapped through the SAME {@link VIA_FIELD_MAP_FAMILY}
+ *    the incoming side uses — no new collection.ts surface needed.
+ *
+ * Both sub-checks honor the SAME #631 exemption (`{computed,money}`/`{computed,i18n}`/
+ * `{computed,lookup}`, exactly-two-claimants) as the fresh guard — a composition that would be
+ * legal in one `vault.collection()` call (`via(computed(fn), money(...))`) must stay legal when
+ * split across two calls (computed declared fresh, money late-attached), since the two paths are
+ * behaviorally equivalent by the same provenance-erasure argument {@link guardCrossBindingFieldCollisions}
+ * documents. `existingFamilies` is collected as a SET (every binding covering the field, not just
+ * the first match) so an already-legally-composed pair (e.g. existing `{computed, money}`) is
+ * checked against the incoming family individually — a THIRD family colliding with either half
+ * is still refused.
+ */
+export function guardReconcileCollisions(
+  existingVia: ViaPipeline | undefined,
+  incomingFieldMaps: Readonly<Record<string, Record<string, unknown> | undefined>>,
+): void {
+  guardCrossBindingFieldCollisions(incomingFieldMaps, 'guardReconcileCollisions()') // (a) incoming×incoming
+  if (!existingVia) return
+  // `taint` is a posture OVERLAY, not a field-owning family — under `sealAll` its `covers()` is
+  // true for every non-`_` field, so it must never be mapped through VIA_FIELD_MAP_FAMILY here
+  // (same exclusion precedent as via-graph-wiring.ts's `.filter(b => b.brand !== 'taint')`).
+  const existingBindings: readonly ViaBinding[] = existingVia.bindings.filter((b) => b.brand !== 'taint')
+  for (const [sourceKey, map] of Object.entries(incomingFieldMaps)) {
+    const incomingFamily = VIA_FIELD_MAP_FAMILY[sourceKey]
+    if (incomingFamily === undefined) continue
+    for (const field of Object.keys(map ?? {})) {
+      const existingFamilies = new Set(
+        existingBindings.filter((b) => b.covers?.(field)).map((b) => b.brand),
+      )
+      for (const existingFamily of existingFamilies) {
+        if (existingFamily === incomingFamily) continue // same family — first-wins on the _apply* side handles it
+        const isExempt = (existingFamily === 'computed' && (incomingFamily === 'money' || incomingFamily === 'i18n' || incomingFamily === 'lookup'))
+          || (incomingFamily === 'computed' && (existingFamily === 'money' || existingFamily === 'i18n' || existingFamily === 'lookup'))
+        if (isExempt) continue // composed grammar, test-earned (#638/#631) — legal fresh, stays legal late
+        throw new ValidationError(
+          `vault.collection(): field "${field}" is already bound by the "${existingFamily}" via family on this ` +
+          `collection — an incoming \`${sourceKey}\` declaration cannot claim it for a different family ` +
+          `("${incomingFamily}"). Declare it in one place only.`,
+        )
+      }
+    }
   }
 }

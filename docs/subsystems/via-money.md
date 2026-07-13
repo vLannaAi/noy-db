@@ -66,6 +66,31 @@ their exact BigInt-based equivalents — no floating-point drift. **`avg()` is n
 a money field and throws `MoneyUnsupportedError`; divide `sum()` by `count()` at the boundary
 instead.
 
+### Indexing — the fast path, and an honest mixed-era caveat (#625)
+
+A declared money field indexed via `indexes: [...]` + `indexStrategy: withIndexing()` gets an
+index-accelerated fast path for `where(field, '==', ...)` and `where(field, 'in', ...)` in
+**fixed mode only** — `ViaBinding.indexProbe` hands the query builder the exact STORED-form
+scaled-integer digit string (the same one `quantizeMoneyFields` writes), so the index bucket
+lookup (`CollectionIndexes.lookupEqual`/`lookupIn`) hits directly instead of falling back to a
+full scan. Multi-currency (`currencies:`) fields and every operator besides `==`/`in`
+(`between`, range comparisons) always scan — there is no single stored-form value a hash index
+can serve for those (`packages/hub/__tests__/money/where-comparison.test.ts`, "indexed fast path
+agrees with the scan" describe block, spy-proven against `lookupEqual`/`lookupIn`).
+
+**Honest limit — mixed-era data.** The fast path is byte-exact for every record written through
+the money write path: `quantizeMoneyFields` always produces a canonical BigInt digit string
+(no leading zeros), and the index buckets that exact string. A record whose stored value
+predates the field's `money()` declaration, or otherwise bypassed the money write path, may hold
+a non-canonical scaled string (e.g. `'0100'` instead of `'100'`) — the index buckets it under
+that raw, non-canonical string, so an `==`/`in` probe for the canonical amount misses it, while
+the fallback scan (which re-parses the stored value via `BigInt(actual).toString()`) still
+matches it correctly. In other words: **the indexed fast path returns the canonical subset of
+matches; the scan always returns every match.** A re-`put()` of a legacy record canonicalizes
+its stored form going forward, closing the gap for that record. A money-aware index-key
+canonicalization (bucketing by the BigInt-normalized form rather than the raw stored string)
+would close this gap generally — filed as a follow-up, not implemented here.
+
 ## See also
 
 - [`docs/subsystems/via.md`](via.md) — the Via port (field features, unified pipeline, phases)
