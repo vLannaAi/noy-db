@@ -227,6 +227,53 @@ describe('enumOf() — describe() lookup block omits `dimension` for the bare en
   })
 })
 
+// #657 finding 3 — the DescribedField.lookup docblock promises `keys` for
+// "a static table's own keys", but a table-backed static tier (the
+// lookup(dim, {backing:'static', table}) form staticDict() compiles onto)
+// omitted them. Issue's exact repro shape: static backing, closed
+// vocabulary, table, NO declared `keys`.
+describe('lookup(backing:"static", table) — describe() emits keys from the table (#657 finding 3)', () => {
+  const GENRE_LABELS = {
+    rock: { en: 'Rock' },
+    jazz: { en: 'Jazz' },
+  }
+
+  interface AlbumRow extends Record<string, unknown> { id: string; genre: string }
+
+  it('emits `lookup.keys` = the table\'s own key set when no `keys` was declared', async () => {
+    const db = await freshDb()
+    const vault = await db.openVault('v')
+    const albums = vault.collection<AlbumRow>('albums', {
+      lookupFields: {
+        genre: lookup('genre', {
+          backing: 'static',
+          table: GENRE_LABELS,
+          vocabulary: 'closed',
+          displayLocale: 'en',
+          sortBy: 'label',
+        }),
+      },
+    })
+
+    const field = albums.describe().fields.find((f) => f.key === 'genre')
+    expect(field?.lookup?.keys).toEqual(['rock', 'jazz'])
+  })
+
+  // Control: reserved (dict-tier) backing with no declared `keys` and no
+  // `table` has no statically-known key set — `keys` emission stays
+  // unchanged (undefined), same as before this fix.
+  it('control: reserved-tier lookup with no declared keys and no table still omits `keys`', async () => {
+    const db = await freshDb()
+    const vault = await db.openVault('v')
+    const tickets = vault.collection('tickets', {
+      lookupFields: { priority: lookup('priority', { backing: 'reserved' }) },
+    })
+
+    const field = tickets.describe().fields.find((f) => f.key === 'priority')
+    expect(field?.lookup).not.toHaveProperty('keys')
+  })
+})
+
 describe('countries matrix — compareForOrder: plain orderBy on a sortBy-declared matrix field (#650 Task 7, binding carry 1a)', () => {
   it('sorts by the resolved localized name via the sync snapshot, even without {by:"label"}, when displayLocale is declared', async () => {
     const db = await freshDb()

@@ -87,3 +87,39 @@ describe('async describe({}) surfaces validator constraints', () => {
     expect('constraints' in n).toBe(false)
   })
 })
+
+// #657 finding 2 — zod v4's native toJSONSchema() injects ±Number.MAX_SAFE_INTEGER
+// bounds on every `.int()` field (a JS-safe-integer representability fact, not
+// authored validation intent). Repros adapted from the issue.
+describe('#657 — .int() ±MAX_SAFE_INTEGER sentinel is filtered out of constraints', () => {
+  it('a bare z.number().int() field emits NO minimum/maximum in constraints', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-int-sentinel-1' })
+    const v = await db.openVault('int1')
+    const col = v.collection('bands', {
+      schema: z.object({ id: z.string(), formedYear: z.number().int() }),
+    })
+    const formedYear = (await col.describe({})).fields.find((f) => f.key === 'formedYear')!
+    expect(formedYear.constraints?.minimum).toBeUndefined()
+    expect(formedYear.constraints?.maximum).toBeUndefined()
+  })
+
+  it('z.number().int().min(1) keeps the authored minimum but omits the derived maximum sentinel', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-int-sentinel-2' })
+    const v = await db.openVault('int2')
+    const col = v.collection('bands', {
+      schema: z.object({ id: z.string(), trackCount: z.number().int().min(1) }),
+    })
+    const trackCount = (await col.describe({})).fields.find((f) => f.key === 'trackCount')!
+    expect(trackCount.constraints).toEqual({ minimum: 1 })
+  })
+
+  it('explicit .min(5).max(10) on a non-int number field is untouched', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-int-sentinel-3' })
+    const v = await db.openVault('int3')
+    const col = v.collection('items', {
+      schema: z.object({ id: z.string(), n: z.number().min(5).max(10) }),
+    })
+    const n = (await col.describe({})).fields.find((f) => f.key === 'n')!
+    expect(n.constraints).toEqual({ minimum: 5, maximum: 10 })
+  })
+})

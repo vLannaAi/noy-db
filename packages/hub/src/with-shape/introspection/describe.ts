@@ -30,6 +30,10 @@ import type { LookupDescriptor } from '../../via/lookup/descriptor.js'
 // is NOT under kernel/**, so importing this via/ type directly is fine
 // (Check 14 via-layering only restricts the kernel spine).
 import type { LookupDescribeFragment, LookupDescribeFragmentEntry } from '../../via/lookup/binding.js'
+// #657 — the 'blob' binding's describeFragment payload shape (the second-ever
+// ViaBinding.describeFragment consumer, after lookup above). Same rationale:
+// describe.ts is not under kernel/**, so importing this via/ type is fine.
+import type { BlobDescribeFragment, BlobDescribeFragmentEntry } from '../../via/blob/binding.js'
 import type { I18nTextDescriptor } from '../../via/i18n/core.js'
 import type { ComputedFields } from '../../with-formula/computed/index.js'
 import type { RefDescriptor } from '../../kernel/refs.js'
@@ -105,6 +109,26 @@ export interface DescribedField {
      * deployment wanting it gated can gate this behind its value-bearing door.
      */
     readonly equatable?: true
+  }
+  /**
+   * Present only for a field declared via `blobFields` (#657) — out-of-band
+   * attachment storage (`collection.blob(id)`), never a sealed or plaintext
+   * record field. `queryable` mirrors the binding's fixed `ViaPosture`
+   * (blob content is never indexed — always `'none'`); the rest mirrors the
+   * declared `blobFields[field]` policy verbatim (scalars) or as a presence
+   * flag (predicate knobs — a predicate has no serializable form). Sourced
+   * from the `'blob'` binding's `describeFragment()`, the same
+   * `viaFragments` door the `lookup` block above is sourced from.
+   */
+  readonly blob?: {
+    readonly retainDays?: number
+    readonly evictWhen?: true
+    readonly legalHold?: true
+    readonly retainUntil?: true
+    readonly external?: true
+    readonly public?: true
+    readonly backlink?: string
+    readonly queryable: 'none'
   }
   /**
    * Present only for a graph-tainted derived field (#638 Task 3 — computed/
@@ -256,9 +280,10 @@ export interface BuildDescriptionInput {
    * Per-binding `describeFragment()` output, keyed by binding brand (#650
    * Task 7 — first-ever consumer of `ViaBinding.describeFragment`,
    * `via.ts:136`). `Collection.describe()`/`describeAsync()` build this
-   * from `this.via?.describeFragments()`. Only the `'lookup'` brand's
-   * fragment is consumed today (the `lookup` block below); other brands'
-   * fragments ride along unread until they gain a consumer too.
+   * from `this.via?.describeFragments()`. The `'lookup'` brand's fragment
+   * feeds the `lookup` block below; `'blob'`'s feeds the `blob` block
+   * (#657, the second consumer). Other brands' fragments ride along unread
+   * until they gain a consumer too.
    */
   readonly viaFragments?: Record<string, Record<string, unknown>> | undefined
 }
@@ -278,6 +303,8 @@ function deriveWidget(opts: {
   dict?: unknown
   /** #650 Task 7 — same 'select' outcome as `dict` (today always co-present for a lookup field via the existing `dict` block; kept as its own check so a future lookup-only field, with no `dict` block, still derives 'select'). */
   lookup?: unknown
+  /** #657 — a blobFields-declared field derives the 'file' widget, never the 'text' default (binary content, not a text input). */
+  blob?: unknown
   resolvedWidget?: string
 }): string {
   if (opts.resolvedWidget !== undefined) return opts.resolvedWidget
@@ -297,6 +324,7 @@ function deriveWidget(opts: {
       return 'number'
   }
   if (opts.dict !== undefined || opts.lookup !== undefined) return 'select'
+  if (opts.blob !== undefined) return 'file'
   if (opts.type === 'boolean') return 'checkbox'
   if (opts.type === 'number') return 'number'
   return 'text'
@@ -321,6 +349,15 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
   // `describeFragment` consumption the task wires up.
   const lookupFragments = (input.viaFragments?.['lookup'] as LookupDescribeFragment | undefined)?.lookupFields
 
+  // #657 — the 'blob' binding's describeFragment, keyed per field (same
+  // routing pattern as lookupFragments above). A blobFields-declared field
+  // has no other config-map source (unlike money/dict/lookup/i18n/classified,
+  // each of which is fed a dedicated map below) — `blobFragments` is BOTH
+  // this field's block source AND (via its keys) how it joins `allKeys` at
+  // all, since otherwise a blobFields-only field with no fieldMeta entry is
+  // invisible in describe() (#657 finding 1).
+  const blobFragments = (input.viaFragments?.['blob'] as BlobDescribeFragment | undefined)?.blobFields
+
   // When zodFields is present AND non-empty (async path, validator successfully derived
   // a schema): validate fieldMeta keys against the real known-field set = config keys ∪
   // zodFields keys. This is the carry from Task 1: vault.ts couldn't do this synchronously
@@ -337,6 +374,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
       ...Object.keys(zodFields),
       ...Object.keys(i18nFields ?? {}),
       ...Object.keys(lookupFields ?? {}),
+      ...Object.keys(blobFragments ?? {}),
     ])
     validateFieldMetaKeys(collection, fieldMeta, knownFields)
   }
@@ -352,6 +390,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
     ...Object.keys(zodFields ?? {}),
     ...Object.keys(i18nFields ?? {}),
     ...Object.keys(classified ?? {}),
+    ...Object.keys(blobFragments ?? {}),
   ])
 
   const fields: DescribedField[] = []
@@ -367,6 +406,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
     const isComputed = computed !== undefined && key in computed
     const i18nDesc = i18nFields?.[key]
     const cls = classified?.[key]
+    const blobFragmentEntry: BlobDescribeFragmentEntry | undefined = blobFragments?.[key]
     const taintPosture = taint?.postures.get(key)
 
     // ── Infer type + structural extras ────────────────────────────────────
@@ -377,6 +417,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
     let dictBlock: DescribedField['dict'] | undefined
     let refBlock: DescribedField['ref'] | undefined
     let lookupBlock: DescribedField['lookup'] | undefined
+    let blobBlock: DescribedField['blob'] | undefined
 
     if (money) {
       type = 'number'
@@ -473,6 +514,15 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
       type = 'string'
     } else if (isComputed) {
       // type already initialized to zod?.type ?? 'unknown' above; no re-set needed
+    } else if (blobFragmentEntry !== undefined) {
+      // #657 finding 1 — a blobFields-only field (no schema/money/dict/
+      // lookup/i18n config) was previously invisible; with a fieldMeta
+      // entry it fell through to the 'unknown'/'text'/editable:true default,
+      // actively wrong for binary content. `type` is a plain `string` on
+      // DescribedField (not a closed union), so 'blob' is not a breaking
+      // union extension.
+      type = 'blob'
+      blobBlock = { ...blobFragmentEntry, queryable: 'none' }
     }
 
     // ── lookup block (#650 Task 7 — first-ever ViaBinding.describeFragment
@@ -528,15 +578,18 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
       ...(resolved.semanticType !== undefined ? { semanticType: resolved.semanticType } : {}),
       ...(dictBlock !== undefined ? { dict: dictBlock } : {}),
       ...(lookupBlock !== undefined ? { lookup: lookupBlock } : {}),
+      ...(blobBlock !== undefined ? { blob: blobBlock } : {}),
       ...(resolved.widget !== undefined ? { resolvedWidget: resolved.widget } : {}),
     })
 
-    // ── Editable: false for computed, id, provenance-stamped fields ────────
+    // ── Editable: false for computed, id, provenance-stamped, blob fields ──
     // Provenance fields (_source, _sourceTs) are envelope-level metadata, not
     // user schema fields — they won't appear as keys in fieldMeta so this check
     // is implicitly handled (they'd never appear in allKeys). Explicitly guard
-    // computed + 'id' as the two structural non-editable cases.
-    const editable = !isComputed && key !== 'id'
+    // computed + 'id' as the two structural non-editable cases. A blobFields
+    // field (#657) is never written through the record codec — it's mutated
+    // exclusively via `collection.blob(id)` — so it is never editable either.
+    const editable = !isComputed && key !== 'id' && blobBlock === undefined
 
     // ── Assemble the field (exactOptionalPropertyTypes-safe spreads) ───────
     const field: DescribedField = {
@@ -558,6 +611,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
       ...(moneyBlock !== undefined ? { money: moneyBlock } : {}),
       ...(dictBlock !== undefined ? { dict: dictBlock } : {}),
       ...(lookupBlock !== undefined ? { lookup: lookupBlock } : {}),
+      ...(blobBlock !== undefined ? { blob: blobBlock } : {}),
       ...(isComputed ? { computed: true as const } : {}),
       ...(i18nBlock !== undefined ? { i18n: i18nBlock } : {}),
       widget,

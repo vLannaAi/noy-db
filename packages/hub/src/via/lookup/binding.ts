@@ -231,7 +231,16 @@ function buildLookupDescribeFragment(cfg: LookupViaConfig): Record<string, unkno
       ...(desc.altKeys !== undefined ? { altKeys: desc.altKeys } : {}),
       ...(desc.present !== undefined ? { present: desc.present } : {}),
       ...(desc.sortBy !== undefined ? { sortBy: desc.sortBy } : {}),
-      ...(desc.keys !== undefined ? { keys: desc.keys } : {}),
+      // #657 — static tier: when no `keys` was explicitly declared but a
+      // `table` was (the staticDict()-equivalent `lookup(dim, {backing:
+      // 'static', table})` shape), the table's own key set IS the
+      // statically-known closed-vocabulary set the DescribedField.lookup
+      // docblock promises ("declared `keys`, OR a static table's own
+      // keys"). Reserved/matrix tiers never carry `table`, so this branch
+      // never fires for them — their `keys` emission is unchanged.
+      ...(desc.keys !== undefined
+        ? { keys: desc.keys }
+        : desc.table !== undefined ? { keys: Object.keys(desc.table) } : {}),
     }
   }
   return { lookupFields }
