@@ -1,0 +1,10 @@
+{
+  "//": "Declaration-only emit for the published dist/**/*.d.ts (#660). A plain tsc program mirrors src/ 1:1 into dist/ — one declaration site per module, cross-referenced by relative import instead of being bundled/duplicated per subpath by rollup-plugin-dts. See scripts/build.mjs and package.json's exports map `types` targets.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "declarationMap": false
+  },
+  "include": ["src"]
+}

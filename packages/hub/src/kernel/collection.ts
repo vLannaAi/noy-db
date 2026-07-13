@@ -3,7 +3,7 @@ import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
 import { resolveClassifiedFields, guardClassifiedCompat, type ClassifiedEntry, type ClassifiedFieldSpec, type ResolvedClassified, type ClassifiedGuardCtx, type ClassifiedStrategy, type ClassifiedVerifyCtx } from '../port/with/classified-strategy.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from '../with-commit/crdt/crdt.js'
-import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
+import type { CrdtStrategy } from './types.js' // direct, not via crdt/strategy.js — avoids a dts cycle (#667)
 import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../port/with/i18n-strategy.js'
 import { isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
 import type { LookupDescriptor } from '../port/with/lookup-strategy.js'

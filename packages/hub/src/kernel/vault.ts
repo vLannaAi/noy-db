@@ -56,7 +56,7 @@ import type { DeferredNumberingConfig } from '../with-commit/numbering/descripto
 import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
 import type { LazyStrategy } from '../port/with/lazy-strategy.js'
 import type { AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
-import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
+import type { CrdtStrategy } from './types.js' // direct, not via crdt/strategy.js — avoids a dts cycle (#667)
 import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
 import type { SearchStrategy } from '../with-lookup/search/strategy.js'
 import { NO_CARGO, type CargoStrategy } from '../with-cargo/strategy.js'

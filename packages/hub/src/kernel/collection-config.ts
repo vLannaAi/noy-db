@@ -29,7 +29,12 @@ import type { SchemaFenceController } from '../with-shape/schema-update/fence-co
 import type { StandardSchemaV1 } from './schema.js'
 import type { LedgerStore } from '../with-commit/history/ledger/index.js'
 import type { CrdtMode } from '../with-commit/crdt/crdt.js'
-import { NO_CRDT, type CrdtStrategy } from '../with-commit/crdt/strategy.js'
+// CrdtStrategy imported directly from ./types.js (not with-commit/crdt/strategy.js)
+// — #667: collection-config.ts sits in the shared dts chunk with types.ts, so
+// routing this through strategy.ts's re-export closed a cycle in the dts rollup
+// graph. NO_CRDT (a runtime value, only defined in strategy.ts) still comes from there.
+import { NO_CRDT } from '../with-commit/crdt/strategy.js'
+import type { CrdtStrategy } from './types.js'
 import { NO_HISTORY, type HistoryStrategy } from '../with-commit/history/strategy.js'
 import { NO_I18N, type I18nStrategy } from '../port/with/i18n-strategy.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
