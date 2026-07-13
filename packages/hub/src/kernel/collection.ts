@@ -1281,7 +1281,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   _applyMoneyFields(moneyFields: Record<string, ViaDescriptor>): void {
     if (this.moneyFields !== undefined) return
     const virtualMoney = resolveVirtualMoneyFields(Object.keys(moneyFields), (f) => this.via?.bindings.find((b) => b.brand === 'computed')?.covers?.(f) ?? false) // #669
-    this.via = ViaPipeline.build([viaBinder('money')({ moneyFields, ...(virtualMoney.size > 0 ? { virtualMoneyFields: virtualMoney } : {}) }), ...(this.via?.bindings ?? [])])
+    this.via = ViaPipeline.build([viaBinder('money')({ moneyFields, ...(virtualMoney.size > 0 ? { virtualMoneyFields: virtualMoney } : {}) }), ...(this.via?.bindings ?? [])], this.via?.taint) // #671 item 4 — thread taint through the rebuild
     this.moneyFields = moneyFields
   }
 
@@ -1365,7 +1365,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // is money→i18n→classified; this keeps classified last regardless of order.
     this.via = ViaPipeline.build([...(this.via?.bindings ?? []), viaBinder('classified')({
       entries: classifiedFields, collectionName: this.name, guardCtx: this.classifiedGuardCtx, classifySealedShred: (live: unknown) => this.codec.classifySealedShred(live as EncryptedEnvelope), // #629 T10
-    })])
+    })], this.via?.taint) // #671 item 4 — thread taint through the rebuild (code-level consistency; masked today by the reconcilePlan applyTaintOverlay re-run)
   }
 
   get _ramCiphertext(): boolean { return this.ramCiphertext } // @internal — used only in tests; do not read in production code.

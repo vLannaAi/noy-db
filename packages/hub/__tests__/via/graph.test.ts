@@ -245,6 +245,37 @@ describe('ViaGraph — cycle rejection (assertAcyclic)', () => {
     g.registerDerived({ collection: 'C', field: 'z' }, [{ collection: 'B', field: '*' }], 'rollup', 'aggregate')
     expect(() => g.assertAcyclic()).not.toThrow()
   })
+
+  // #671 item 5 — `assertAcyclic`'s DFS walked `_out` with no filtering by edge kind, so a
+  // legal mutual FK lookup (two collections each referencing the other via a `kind:'ref'`
+  // edge) spuriously threw `DerivationCycleError`. `neighboursOf` must exclude `'ref'`-kind
+  // consuming edges — mutual FKs are legal; ref edges exist for cascade/rename machinery
+  // (`referencingEdgesOf`/delete-time restrict/cascade/nullify), not derivation ordering.
+  it('mutual kind:\'ref\' edges (legal mutual FK lookups) do NOT throw — ref edges are not derivation-ordering edges (#671 item 5)', () => {
+    const g = new ViaGraph()
+    // Mirrors registerLookupRefEdges' call shape (via/lookup/registry.ts:471-473):
+    // graph.registerDerived(referencing, sources, 'ref', 'record', onDelete, keyField).
+    g.registerDerived({ collection: 'customers', field: 'homeCountry' }, [{ collection: 'countries', field: '*' }], 'ref', 'record', 'restrict', 'id')
+    g.registerDerived({ collection: 'countries', field: 'capitalOf' }, [{ collection: 'customers', field: '*' }], 'ref', 'record', 'restrict', 'id')
+    expect(() => g.assertAcyclic()).not.toThrow()
+  })
+
+  it('a genuine derived (non-ref) cycle still throws — the ref-edge filter does not blanket-exempt every cycle', () => {
+    const g = new ViaGraph()
+    g.registerDerived({ collection: 'w', field: 'a' }, [{ collection: 'w', field: 'b' }], 'derivation', 'record')
+    g.registerDerived({ collection: 'w', field: 'b' }, [{ collection: 'w', field: 'a' }], 'derivation', 'record')
+    expect(() => g.assertAcyclic()).toThrow(DerivationCycleError)
+  })
+
+  it('a mixed shape where the only cycle-closing edge is a ref edge does not throw', () => {
+    const g = new ViaGraph()
+    // B.y is a genuine derivation sourced from A.x...
+    g.registerDerived({ collection: 'B', field: 'y' }, [{ collection: 'A', field: 'x' }], 'derivation', 'record')
+    // ...and A.x is itself a lookup-ref field pointing back at B.y — the ONLY edge that
+    // would close the loop is this ref edge, so it must not throw.
+    g.registerDerived({ collection: 'A', field: 'x' }, [{ collection: 'B', field: 'y' }], 'ref', 'record', 'restrict', 'id')
+    expect(() => g.assertAcyclic()).not.toThrow()
+  })
 })
 
 describe('ViaGraph — taintedPostures / taintSealedFields (Task 3 overlay)', () => {

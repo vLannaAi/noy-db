@@ -242,10 +242,10 @@ function registerDictKeyRegistries(
 
 /** Mirrors `compileViaBindings`'s i18n slot (collection-config.ts:702-723) — same densify-subset
  *  computation, same config shape handed to `viaBinder('i18n')`. `defaultPosture`/taint is
- *  preserved across the rebuild (unlike `_applyMoneyFields`/`_applyClassifiedFields`, which drop
- *  it — those rely on a same-call `applyTaintOverlay` re-run when computed/classifiedFields is
- *  also present; i18n/dictKey have no such re-run, so dropping it here would silently un-taint an
- *  already-tainted field on a collection that happens to ALSO gain i18n late). */
+ *  preserved across the rebuild, same as `_applyMoneyFields`/`_applyClassifiedFields`
+ *  (`kernel/collection.ts`, #671 item 4 fix) — every rebuild path threads `coll._via?.taint`
+ *  through its own `ViaPipeline.build(...)` call now, so none of them depends on a same-call
+ *  `applyTaintOverlay` re-run to avoid silently un-tainting an already-tainted field. */
 function rebuildI18nBinding(
   coll: ReconcilableCollection, vaultCtx: ViaReconcileVaultCtx, name: string,
   i18nFields: Record<string, I18nTextDescriptor> | undefined,

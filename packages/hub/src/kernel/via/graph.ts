@@ -228,13 +228,20 @@ export class ViaGraph {
      *  fold. Posture folding (`_contribution`/`_computeEffective`/
      *  `_wildcardContribution`) never reads `_out`, so an expansion that reads
      *  `_out` only is provably unable to perturb it. */
+    // #671 item 5 — exclude `kind:'ref'` consuming edges: mutual FK lookups (two
+    // collections each referencing the other) are legal and must not be treated as a
+    // derivation cycle. Ref edges exist for cascade/rename machinery
+    // (`referencingEdgesOf`/delete-time restrict/cascade/nullify), never derivation
+    // ordering, so they carry no ordering constraint here. `_out` stores bare
+    // `FieldRef` targets (no kind) — the kind lives on `_in`, keyed by the target.
+    const notRefEdge = (t: FieldRef): boolean => this._in.get(nodeId(t))?.kind !== 'ref'
     const neighboursOf = (id: string): readonly FieldRef[] => {
-      const own = this._out.get(id)
+      const own = (this._out.get(id) ?? []).filter(notRefEdge)
       const sep = id.indexOf(SEP)
-      if (id.slice(sep + 1) === '*') return own ?? []
-      const wildcard = this._out.get(`${id.slice(0, sep)}${SEP}*`)
-      if (!wildcard) return own ?? []
-      return own ? [...own, ...wildcard] : wildcard
+      if (id.slice(sep + 1) === '*') return own
+      const wildcard = (this._out.get(`${id.slice(0, sep)}${SEP}*`) ?? []).filter(notRefEdge)
+      if (wildcard.length === 0) return own
+      return [...own, ...wildcard]
     }
 
     const visit = (id: string): void => {
