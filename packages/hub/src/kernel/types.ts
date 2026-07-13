@@ -30,7 +30,6 @@ import type { BlobStrategy } from '../port/with/blob-strategy.js'
 import type { ArchiveStrategy } from '../with-fork/archive/index.js'
 import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
 import type { AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
-import type { LwwMapState, RgaState, YjsState } from '../with-commit/crdt/crdt.js'
 import type { ConsentStrategy } from '../with-audit/consent/strategy.js'
 import type { PeriodsStrategy } from '../with-audit/periods/strategy.js'
 import type { ShadowStrategy } from '../with-fork/shadow/strategy.js'
@@ -1840,10 +1839,47 @@ export interface PresencePeer<P> {
 /** Per-collection CRDT mode. */
 export type CrdtMode = 'lww-map' | 'rga' | 'yjs'
 
-export type CrdtState = LwwMapState | RgaState | YjsState
+// Hoisted from with-commit/crdt/crdt.ts (C3 — #667: breaks the
+// types.ts ↔ crdt.ts cycle by making crdt.ts's re-export of these
+// three types leaf-ward only). crdt.ts re-exports them from here so
+// existing importers of that module are unaffected.
 
-// Re-exported from crdt.ts so consumers only need one import path.
-export type { LwwMapState, RgaState, YjsState } from '../with-commit/crdt/crdt.js'
+/**
+ * Per-field last-write-wins registers.
+ * Each field carries its latest value and the ISO timestamp of the last write.
+ * Merge: for each field, keep the entry with the lexicographically higher `ts`.
+ */
+export interface LwwMapState {
+  readonly _crdt: 'lww-map'
+  readonly fields: Record<string, { readonly v: unknown; readonly ts: string }>
+}
+
+/**
+ * Simplified Replicated Growable Array.
+ * Items are assigned stable NID (noy-db id) strings on first insertion.
+ * Deleted items are tracked as tombstones so concurrent removals commute.
+ *
+ * The resolved snapshot is the ordered list of non-tombstoned `v` values.
+ */
+export interface RgaState {
+  readonly _crdt: 'rga'
+  readonly items: ReadonlyArray<{ readonly nid: string; readonly v: unknown }>
+  readonly tombstones: readonly string[]
+}
+
+/**
+ * Yjs binary state marker. `update` is base64(Y.encodeStateAsUpdate()).
+ * Core stores and retrieves the blob opaquely. `@noy-db/yjs` is responsible
+ * for encoding, decoding, and merging via `Y.mergeUpdates`.
+ * Core falls back to last-write-wins (higher `_v`) for conflict resolution.
+ */
+export interface YjsState {
+  readonly _crdt: 'yjs'
+  /** base64-encoded Y.encodeStateAsUpdate() bytes. */
+  readonly update: string
+}
+
+export type CrdtState = LwwMapState | RgaState | YjsState
 
 /**
  * Seam interface. `@internal`.
