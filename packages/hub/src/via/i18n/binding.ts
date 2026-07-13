@@ -2,7 +2,7 @@
  * The i18n `ViaBinding` — wires the i18n engine (auto-translate/script
  * enforcement/validation/densify on write; locale + dict-label presentation
  * on read) into the kernel's generic Via port. Mirrors
- * `shape/via-money/binding.ts`'s #553 static-link pattern.
+ * `via/money/binding.ts`'s #553 static-link pattern.
  *
  * LIVE (#623 Task 8 wired the cutover): `i18nBinding()`/`linkI18nVia()` are
  * the real put/read path for every i18n-declaring collection —
@@ -203,7 +203,7 @@ async function runI18nWriteStages(
  * resolution + `_i18nFilled` stripping. Adapted from
  * `applyLocaleToRecord`'s i18n+dict+strip portions (`collection.ts:4184-
  * 4301`) — the money-decode portion of that method is a separate binding
- * (`shape/via-money`) and is NOT this function's concern.
+ * (`via/money`) and is NOT this function's concern.
  */
 async function runI18nPresent(
   record: Record<string, unknown>,

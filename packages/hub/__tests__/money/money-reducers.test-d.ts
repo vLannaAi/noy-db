@@ -8,7 +8,7 @@
 import { describe, it, expectTypeOf } from 'vitest'
 import { moneySum, moneyMin, moneyMax, sum } from '../../src/index.js'
 import type { Reducer } from '../../src/index.js'
-import type { MoneyString } from '../../src/shape/via-money/branded.js'
+import type { MoneyString } from '../../src/via/money/branded.js'
 
 describe('money reducer constructors — type contract', () => {
   it('moneySum is Reducer<MoneyString> (not number)', () => {

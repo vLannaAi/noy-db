@@ -28,7 +28,7 @@
  *     unless the backing collection is already open (this vault session) and prefetch-enabled.
  *
  * `ViaReconcileVaultCtx` takes the vault-resident registry Maps/closures the i18n/dictKey wiring
- * needs as a plain structural bag of ARGUMENTS (mirroring `shape/via-lookup/registry.ts`'s own
+ * needs as a plain structural bag of ARGUMENTS (mirroring `via/lookup/registry.ts`'s own
  * "#650 Task 1" extraction pattern) — never a `Vault` import (this file is part of the kernel
  * spine's `port/with/`-only import discipline — S5 port-layering, `scripts/check-architecture.mjs`
  * `checkPortLayering`), so `vault.ts` passes `this` once its relevant fields are readable from
@@ -152,7 +152,7 @@ function insertLookupBinding(existing: readonly ViaBinding[], lookupBindingObj: 
  * matrix field attach onto a dimension that never opens (or opens lazy) this session, surfacing
  * the confusing join-branded lazy-mode error on some UNRELATED later put()/read() instead of at
  * the point of declaration — the exact silent-deferral failure class `getAltIndexOrThrow`
- * (`shape/via-lookup/binding.ts:252-264`) already refuses for altKeys specifically. This closes it
+ * (`via/lookup/binding.ts:252-264`) already refuses for altKeys specifically. This closes it
  * for the field's very existence: REFUSE eagerly, at attach time, with a `ValidationError` naming
  * the field, the dimension, and the remedy, unless the backing dimension is ALREADY open (in THIS
  * vault session — `vaultCtx.getOpenCollection`, which never constructs) AND prefetch-enabled

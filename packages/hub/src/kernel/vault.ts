@@ -92,7 +92,7 @@ import {
 import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor, StaticDictDescriptor } from '../port/with/i18n-strategy.js'
 import { isDictCollectionName, isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
 // #650 Task 1 (via-lookup extraction) — the pure dict-registry helpers now live in
-// shape/via-lookup/registry.ts, reached only through this port seam (never shape/via-lookup/*
+// via/lookup/registry.ts, reached only through this port seam (never via/lookup/*
 // directly — Check 14 via-layering). Aliased to avoid colliding with Vault's own same-named
 // public delegator methods below. Task 2's resolveLabelFromMap/collectLookupDictCompat is the
 // alias-equivalence bridge shared by the i18n + lookup bindings.
@@ -1519,7 +1519,7 @@ export class Vault {
    * `{ validateCodes: false }`.
    *
    * Delegates through the Via registry — see {@link enforceI18nOnPut}. The
-   * per-field validation itself lives in `shape/via-lookup/registry.ts`
+   * per-field validation itself lives in `via/lookup/registry.ts`
    * (#650 Task 1 extraction), reached via `port/with/lookup-strategy.ts`.
    */
   enforceStaticDictOnPut(collectionName: string, record: unknown): void {
@@ -1569,7 +1569,7 @@ export class Vault {
         options,
         // findAndUpdateReferences: rewrite dictKey fields in all
         // registered collections when rename() is called. Body extracted to
-        // shape/via-lookup/registry.ts (#650 Task 1) — reached via the
+        // via/lookup/registry.ts (#650 Task 1) — reached via the
         // port/with/lookup-strategy.ts seam.
         findAndUpdateReferences: async (dictionaryName, oldKey, newKey) => {
           await updateReferencingRecords(
@@ -1658,7 +1658,7 @@ export class Vault {
    * records — one per dictionary entry — keyed by the stable key. Returns
    * `null` when `field` is not a dictKey in `leftCollection`.
    *
-   * Body extracted to `shape/via-lookup/registry.ts` (#650 Task 1) —
+   * Body extracted to `via/lookup/registry.ts` (#650 Task 1) —
    * reached via the `port/with/lookup-strategy.ts` seam. See that
    * function's doc comment for the static-vs-dynamic-dict split and the
    * cache-warming caveat.

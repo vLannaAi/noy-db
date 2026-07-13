@@ -8,9 +8,9 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/index.js'
-import { withI18n } from '../../src/shape/via-i18n/index.js'
-import { i18nText } from '../../src/shape/via-i18n/core.js'
-import { dictKey, staticDict } from '../../src/shape/via-i18n/dictionary.js'
+import { withI18n } from '../../src/via/i18n/index.js'
+import { i18nText } from '../../src/via/i18n/core.js'
+import { dictKey, staticDict } from '../../src/via/i18n/dictionary.js'
 import { UnknownDictCodeError } from '../../src/kernel/errors.js'
 import { inlineMemory } from '../classified/harness.js'
 

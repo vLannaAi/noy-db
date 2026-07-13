@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   resolveClassifiedFields, ClassifiedConfigError,
   type ClassifiedFieldSpec, type ClassifiedGroup,
-} from '../../src/shape/via-classified/resolve.js'
+} from '../../src/via/classified/resolve.js'
 
 const spec = (over: Partial<ClassifiedFieldSpec> = {}): ClassifiedFieldSpec => ({
   _noydbClassified: true, preset: 'test', storage: 'recoverable',

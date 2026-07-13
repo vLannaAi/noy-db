@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError, DebugPlaintextError, DebugReservedFieldError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
-import { withBlobs } from '../src/shape/via-blob/index.js'
+import { withBlobs } from '../src/via/blob/index.js'
 import { readPlaintextRecord } from '../src/kernel/debug.js'
 
 function makeStore(): NoydbStore {

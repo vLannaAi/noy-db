@@ -1,7 +1,7 @@
 /**
  * The `'lookup'` `ViaBinding` — wires the lookup engine (present-time label
  * dressing across all three backing tiers) into the kernel's generic Via
- * port. Mirrors `shape/via-i18n/binding.ts`'s #553 static-link pattern; the
+ * port. Mirrors `via/i18n/binding.ts`'s #553 static-link pattern; the
  * present-time label-dressing algorithm below is adapted from
  * `via-i18n/binding.ts:253-337` (the same wildcard/array/scalar handling,
  * the same `onMissing`/`substitute` policy engine), generalized to branch on
@@ -30,7 +30,7 @@
 import type { ViaBinding, ViaReadCtx } from '../../kernel/via.js'
 import { installViaBinder } from '../../kernel/via.js'
 import type { LookupDescriptor, LookupBacking, Vocabulary, OnDelete } from './descriptor.js'
-import { resolvePolicy, type Layer } from '../via-i18n/policy.js'
+import { resolvePolicy, type Layer } from '../i18n/policy.js'
 import { LocaleNotSpecifiedError, UnknownLookupKeyError, ValidationError } from '../../kernel/errors.js'
 import { getAtPath, setAtPathInPlace } from '../../kernel/paths.js'
 import type { MaterializedBacking } from './registry.js'
@@ -195,7 +195,7 @@ async function runLookupPresent(
  * describeFragment()` payload (#650 Task 7 — the first real consumer,
  * `with-shape/introspection/describe.ts`'s `buildDescription`, imports this
  * type directly; `describe.ts` is NOT under `kernel/**`, so it's free to
- * import concrete shape/ types the way it already does for
+ * import concrete via/ types the way it already does for
  * `LookupDescriptor`/`MoneyDescriptor`/etc.). `dimension` is OMITTED (not
  * emitted as `''`) for a bare `enumOf()` descriptor — the #650 Task 2
  * `dimension:''` sentinel resolved: no dimension name means no `dimension`

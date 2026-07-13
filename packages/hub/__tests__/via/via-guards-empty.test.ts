@@ -17,10 +17,10 @@
  * entirely without weakening either guard's coverage. Every assertion below
  * is byte-identical to its original file; only the file boundary changed.
  *
- * - `VIA_SHAPE_ALLOWLIST` (Check 14, `via-layering`, the kernel→shape
+ * - `VIA_SHAPE_ALLOWLIST` (Check 14, `via-layering`, the kernel→via
  *   direction) — empty since #650 Task 6.
  * - `VIA_ENCLAVE_ALLOWLIST` (Check 15, `via-enclave-isolation`, the reverse
- *   shape→kernel/enclave direction) — empty since #629 Task 4, gained its
+ *   via→kernel/enclave direction) — empty since #629 Task 4, gained its
  *   own synthetic-fire proof in #650 Task 7.
  */
 import { describe, it, expect } from 'vitest'
@@ -39,11 +39,11 @@ const JOIN_TS = repoPath('packages/hub/src/kernel/query/join.ts')
 // is the mechanical way to prove the guard still fires, without touching any
 // real kernel file.
 const LAYERING_SYNTHETIC_FILE = repoPath('packages/hub/src/kernel/__via_layering_synthetic__.ts')
-// Any *.ts file under packages/hub/src/shape/via-*/** is scanned by
+// Any *.ts file under packages/hub/src/via/** is scanned by
 // checkViaEnclaveIsolation — planting a throwaway file directly there is the
 // mechanical way to prove the guard still fires, without touching any real
-// shape/ file. via-lookup/ is a via-* dir; any via-* dir works.
-const ENCLAVE_SYNTHETIC_FILE = repoPath('packages/hub/src/shape/via-lookup/__via_enclave_synthetic__.ts')
+// via/ file. lookup/ is a via family dir; any via family dir works.
+const ENCLAVE_SYNTHETIC_FILE = repoPath('packages/hub/src/via/lookup/__via_enclave_synthetic__.ts')
 
 interface CheckResult {
   readonly status: number
@@ -65,7 +65,7 @@ function runArchitectureCheck(): CheckResult {
 }
 
 describe('via-layering allowlist ends EMPTY (#650 Task 6, #626 retirement)', () => {
-  it('VIA_SHAPE_ALLOWLIST is the empty map — no grandfathered kernel→shape import remains', () => {
+  it('VIA_SHAPE_ALLOWLIST is the empty map — no grandfathered kernel→via import remains', () => {
     const src = readFileSync(CHECK_SCRIPT, 'utf8')
     const m = src.match(/const VIA_SHAPE_ALLOWLIST = new Map\(\[([\s\S]*?)\]\)/)
     expect(m).not.toBeNull()
@@ -73,10 +73,10 @@ describe('via-layering allowlist ends EMPTY (#650 Task 6, #626 retirement)', () 
     expect(body).toBe('')
   })
 
-  it('join.ts no longer imports shape/via-i18n (or any shape/) directly', () => {
+  it('join.ts no longer imports via/i18n (or any via/) directly', () => {
     const joinSrc = readFileSync(JOIN_TS, 'utf8')
-    expect(joinSrc).not.toMatch(/shape\/via-i18n/)
-    expect(joinSrc).not.toMatch(/from ['"].*\/shape\//)
+    expect(joinSrc).not.toMatch(/via\/i18n/)
+    expect(joinSrc).not.toMatch(/from ['"].*\/via\//)
   })
 
   it('check-architecture.mjs passes clean at HEAD (via-layering included)', () => {
@@ -85,11 +85,11 @@ describe('via-layering allowlist ends EMPTY (#650 Task 6, #626 retirement)', () 
     expect(result.output).toMatch(/Architecture invariants OK/)
   })
 
-  it('the guard still FIRES on a synthetic kernel/** -> shape/** import (the phase-B deletion recipe)', () => {
+  it('the guard still FIRES on a synthetic kernel/** -> via/** import (the phase-B deletion recipe)', () => {
     expect(existsSync(LAYERING_SYNTHETIC_FILE)).toBe(false)
     writeFileSync(
       LAYERING_SYNTHETIC_FILE,
-      "import { applyI18nLocale } from '../shape/via-i18n/core.js'\nexport const _syntheticViaLayeringProbe = applyI18nLocale\n",
+      "import { applyI18nLocale } from '../via/i18n/core.js'\nexport const _syntheticViaLayeringProbe = applyI18nLocale\n",
     )
     try {
       const result = runArchitectureCheck()
@@ -111,7 +111,7 @@ describe('via-layering allowlist ends EMPTY (#650 Task 6, #626 retirement)', () 
   // Side-effect imports (`import '…'`, no binding, no `from`) and default
   // imports (`import x from '…'`) silently slipped every guard that shares
   // this regex. These two tests reuse the via-layering recipe above (same
-  // real target, shape/via-i18n/core.js) with those two forms instead of a
+  // real target, via/i18n/core.js) with those two forms instead of a
   // named import, proving the widened scanner now catches them too. Kept in
   // THIS file (not a new one) to avoid the exact cross-file subprocess race
   // documented at the top of this file — a second file invoking
@@ -124,9 +124,9 @@ describe('via-layering allowlist ends EMPTY (#650 Task 6, #626 retirement)', () 
     'packages/hub/src/kernel/__via_layering_default_synthetic__.ts',
   )
 
-  it('the guard fires on a synthetic side-effect import (`import "../shape/…"`, no `from` clause) (#632)', () => {
+  it('the guard fires on a synthetic side-effect import (`import "../via/…"`, no `from` clause) (#632)', () => {
     expect(existsSync(SIDE_EFFECT_SYNTHETIC_FILE)).toBe(false)
-    writeFileSync(SIDE_EFFECT_SYNTHETIC_FILE, "import '../shape/via-i18n/core.js'\n")
+    writeFileSync(SIDE_EFFECT_SYNTHETIC_FILE, "import '../via/i18n/core.js'\n")
     try {
       const result = runArchitectureCheck()
       expect(result.status).not.toBe(0)
@@ -141,11 +141,11 @@ describe('via-layering allowlist ends EMPTY (#650 Task 6, #626 retirement)', () 
     expect(after.status).toBe(0)
   })
 
-  it('the guard fires on a synthetic default import (`import x from "../shape/…"`) (#632)', () => {
+  it('the guard fires on a synthetic default import (`import x from "../via/…"`) (#632)', () => {
     expect(existsSync(DEFAULT_IMPORT_SYNTHETIC_FILE)).toBe(false)
     writeFileSync(
       DEFAULT_IMPORT_SYNTHETIC_FILE,
-      "import applyI18nLocale from '../shape/via-i18n/core.js'\nexport const _syntheticDefaultImportProbe = applyI18nLocale\n",
+      "import applyI18nLocale from '../via/i18n/core.js'\nexport const _syntheticDefaultImportProbe = applyI18nLocale\n",
     )
     try {
       const result = runArchitectureCheck()
@@ -163,7 +163,7 @@ describe('via-layering allowlist ends EMPTY (#650 Task 6, #626 retirement)', () 
 })
 
 describe('via-enclave-isolation allowlist stays EMPTY (#650 Task 7)', () => {
-  it('VIA_ENCLAVE_ALLOWLIST is the empty map — no grandfathered shape->enclave import remains', () => {
+  it('VIA_ENCLAVE_ALLOWLIST is the empty map — no grandfathered via->enclave import remains', () => {
     const src = readFileSync(CHECK_SCRIPT, 'utf8')
     const m = src.match(/const VIA_ENCLAVE_ALLOWLIST = new Map\(\[([\s\S]*?)\]\)/)
     expect(m).not.toBeNull()
@@ -177,7 +177,7 @@ describe('via-enclave-isolation allowlist stays EMPTY (#650 Task 7)', () => {
     expect(result.output).toMatch(/Architecture invariants OK/)
   })
 
-  it('the guard still FIRES on a synthetic shape/via-*/** -> kernel/enclave/ import', () => {
+  it('the guard still FIRES on a synthetic via/** -> kernel/enclave/ import', () => {
     expect(existsSync(ENCLAVE_SYNTHETIC_FILE)).toBe(false)
     writeFileSync(
       ENCLAVE_SYNTHETIC_FILE,

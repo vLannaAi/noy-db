@@ -13,7 +13,7 @@
  *
  * `dek` is typed as the bare `CryptoKey` global rather than `EnclaveKey`
  * (`kernel/enclave/crypto.ts`'s alias for the same type) — this file lives
- * under `shape/via-classified/`, which the `via-enclave-isolation`
+ * under `via/classified/`, which the `via-enclave-isolation`
  * architecture guard (#629) forbids from importing `kernel/enclave/` at
  * all, even type-only.
  *

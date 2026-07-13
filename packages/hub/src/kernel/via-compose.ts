@@ -15,7 +15,7 @@ import { ValidationError } from './errors.js'
 import type { ViaBinding, ViaDescriptor } from './via.js'
 import type { ViaPipeline } from './via-pipeline.js'
 // Types + shape-classification predicates reach through the kernel's own
-// `port/with/` hook seam (never `src/shape/` directly) — #623 Task 11.
+// `port/with/` hook seam (never `src/via/` directly) — #623 Task 11.
 // `isI18nTextDescriptor`/`isDictKeyDescriptor` are pure tag checks moved
 // onto the port alongside `isStaticDictDescriptor` (see i18n-strategy.ts);
 // the descriptor types were already port-owned re-exports (#623 Task 8).
@@ -26,7 +26,7 @@ import { isDictKeyDescriptor, isI18nTextDescriptor, isStaticDictDescriptor } fro
 // import of this same port module (#638 Task 7).
 import type { ComputedDescriptor } from '../port/with/computed-strategy.js'
 // #650 Task 2 — `LookupDescriptor`/`isLookupDescriptor` reach through the
-// SAME kernel port seam (no new `src/shape/**` specifier here; `linkLookupVia()`
+// SAME kernel port seam (no new `src/via/**` specifier here; `linkLookupVia()`
 // already ran when the caller constructed the descriptor via `lookup()`/
 // `enumOf()`/`dict()`, so `viaBinder('lookup')` is resolvable with no eager
 // import needed here, mirroring i18n/money — see `descriptor.ts`).

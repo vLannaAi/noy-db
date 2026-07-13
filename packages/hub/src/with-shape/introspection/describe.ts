@@ -14,26 +14,26 @@
 import type { FieldMeta } from './field-meta.js'
 import { resolveFieldMeta, validateFieldMetaKeys, FieldMetaUnknownFieldError, humanizeFieldKey } from './field-meta.js'
 import type { CollectionMeta } from './meta.js'
-import type { MoneyDescriptor } from '../../shape/via-money/descriptor.js'
+import type { MoneyDescriptor } from '../../via/money/descriptor.js'
 import type { ViaDescriptor, ViaPosture } from '../../kernel/via.js'
-import type { DictKeyDescriptor, StaticDictDescriptor } from '../../shape/via-i18n/dictionary.js'
-import { isStaticDictDescriptor } from '../../shape/via-i18n/dictionary.js'
+import type { DictKeyDescriptor, StaticDictDescriptor } from '../../via/i18n/dictionary.js'
+import { isStaticDictDescriptor } from '../../via/i18n/dictionary.js'
 // #650 Task 2 — native lookup()/enumOf()/dict() fields (separate from
 // dictKeyFields above, which stays the dictKey()/staticDict() alias's own
 // input). Emits the SAME `dict` block shape for byte-parity (the tiers this
 // covers — 'static' with a table, 'reserved' — are the alias-equivalent
 // ones; a first-class 'collection' backing degrades to the "no resolved
 // labels" fallback, same as an unresolved dynamic dictKey).
-import type { LookupDescriptor } from '../../shape/via-lookup/descriptor.js'
+import type { LookupDescriptor } from '../../via/lookup/descriptor.js'
 // #650 Task 7 — the 'lookup' binding's describeFragment payload shape (the
 // first-ever ViaBinding.describeFragment consumer, via.ts:136). describe.ts
-// is NOT under kernel/**, so importing this shape/ type directly is fine
+// is NOT under kernel/**, so importing this via/ type directly is fine
 // (Check 14 via-layering only restricts the kernel spine).
-import type { LookupDescribeFragment, LookupDescribeFragmentEntry } from '../../shape/via-lookup/binding.js'
-import type { I18nTextDescriptor } from '../../shape/via-i18n/core.js'
+import type { LookupDescribeFragment, LookupDescribeFragmentEntry } from '../../via/lookup/binding.js'
+import type { I18nTextDescriptor } from '../../via/i18n/core.js'
 import type { ComputedFields } from '../../with-formula/computed/index.js'
 import type { RefDescriptor } from '../../kernel/refs.js'
-import type { ClassifiedFieldSpec } from '../../shape/via-classified/descriptor.js'
+import type { ClassifiedFieldSpec } from '../../via/classified/descriptor.js'
 import { derivePersistedSchema, isZod4Schema } from '../persisted-schemas/derive.js'
 import { jsonSchemaToFields } from './fields.js'
 

@@ -20,7 +20,7 @@
  * `dictKey()`.
  */
 
-import type { OnMissingPolicy } from '../via-i18n/policy.js'
+import type { OnMissingPolicy } from '../i18n/policy.js'
 import { linkLookupVia } from './binding.js'
 
 /** `'closed'` = enum semantics (membership enforced, Task 3); `'open'` permits unknown keys. */

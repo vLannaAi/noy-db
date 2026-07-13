@@ -20,8 +20,8 @@ export type EdgeKind = 'computed' | 'derivation' | 'rollup' | 'mv' | 'overlay' |
 export type Grain = 'record' | 'aggregate' | 'virtual'
 
 /** Delete/forget-time referential policy for a `'ref'` edge (#650 Task 5, spec §4) — duplicated
- *  (not imported) from `shape/via-lookup/descriptor.ts`'s `OnDelete`: the kernel spine may not
- *  statically import `shape/**` (Check 14, `via-layering`). Keep the two in sync by hand. */
+ *  (not imported) from `via/lookup/descriptor.ts`'s `OnDelete`: the kernel spine may not
+ *  statically import `via/**` (Check 14, `via-layering`). Keep the two in sync by hand. */
 export type OnDelete = 'restrict' | 'cascade' | 'nullify'
 
 /** Plain (non-via) field baseline — max-permissive; taint only ever tightens. */
@@ -268,7 +268,7 @@ export class ViaGraph {
    *  contributes its collection's whole-record security fold ({@link _wildcardContribution}).
    *  `kind` is the CONSUMING edge's kind, threaded from {@link _computeEffective}. `'ref'`
    *  edges (and the provenance-only untyped call, `kind` left `undefined`) keep `'*'` =
-   *  identity — the phase-D lookup reliance (`shape/via-lookup/registry.ts:392-397`) that a
+   *  identity — the phase-D lookup reliance (`via/lookup/registry.ts:392-397`) that a
    *  referencing field must not seal just because its dimension collection has a classified
    *  column. */
   private _contribution(id: string, kind?: EdgeKind): ViaPosture {

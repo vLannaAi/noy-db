@@ -18,8 +18,8 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withDerivation } from '../../src/index.js'
 import { ValidationError } from '../../src/kernel/errors.js'
-import { money } from '../../src/shape/via-money/descriptor.js'
-import { classified } from '../../src/shape/via-classified/presets.js'
+import { money } from '../../src/via/money/descriptor.js'
+import { classified } from '../../src/via/classified/presets.js'
 import { via } from '../../src/kernel/via-compose.js'
 import { inlineMemory } from '../classified/harness.js'
 

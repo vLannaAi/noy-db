@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, NoydbBundleStore } from '../src/kernel/types.js'
 import { ConflictError, BundleVersionConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
-import { withBlobs } from '../src/shape/via-blob/index.js'
+import { withBlobs } from '../src/via/blob/index.js'
 import {
   BLOB_INDEX_COLLECTION,
   BLOB_CHUNKS_COLLECTION,

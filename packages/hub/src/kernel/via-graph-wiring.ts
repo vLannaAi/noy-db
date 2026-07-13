@@ -25,7 +25,7 @@ import { buildTaintOverlay, taintBinding } from './via-taint-binding.js'
 // directly here.
 type ComputedFieldsParam = NonNullable<Parameters<typeof resolveComputedEdges>[1]>
 
-// The classified via-binding's fixed posture (`shape/via-classified/binding.ts`'s
+// The classified via-binding's fixed posture (`via/classified/binding.ts`'s
 // `classifiedBinding().posture` — byte-for-byte duplicate, uniform across every
 // storage form, stable since #629 Task 5). Duplicated here rather than
 // imported: the reconcile commit path (unlike fresh construction) has no

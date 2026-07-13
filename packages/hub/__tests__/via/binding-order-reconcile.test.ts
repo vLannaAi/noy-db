@@ -19,9 +19,9 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/index.js'
-import { withI18n } from '../../src/shape/via-i18n/index.js'
-import { i18nText } from '../../src/shape/via-i18n/core.js'
-import { money } from '../../src/shape/via-money/descriptor.js'
+import { withI18n } from '../../src/via/i18n/index.js'
+import { i18nText } from '../../src/via/i18n/core.js'
+import { money } from '../../src/via/money/descriptor.js'
 import { via } from '../../src/kernel/via-compose.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 

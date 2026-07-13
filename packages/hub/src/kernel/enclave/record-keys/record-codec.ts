@@ -333,7 +333,7 @@ export class RecordCodec<T> {
     // `hasAtRestHooks` (the inline path now serves only the plain
     // `sensitive: [...]` collection option; since #629, `classifiedFields`-
     // declared fields seal through their own via-binding hook, and since
-    // #638 so does any field the taint graph seals — `shape/via-classified/
+    // #638 so does any field the taint graph seals — `via/classified/
     // binding.ts` and `kernel/via-taint-binding.ts`, respectively). The
     // zero-via fast path (no `via`, or a pipeline with no at-rest hooks,
     // e.g. money-only) always takes the `else if` branch, unchanged.

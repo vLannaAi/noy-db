@@ -1,11 +1,11 @@
 /**
  * Classified strategy seam (#629 Task 5 — moved out of
- * `shape/via-classified/strategy.ts`, precedent: `port/with/i18n-strategy.ts`).
+ * `via/classified/strategy.ts`, precedent: `port/with/i18n-strategy.ts`).
  * Lives on the `/with` port (the one seam the kernel spine may import
  * statically) so `Collection`/`Vault` can hold the `NO_CLASSIFIED` default
  * without a spine→service static import.
  *
- * This file (unlike `shape/via-classified/**`) is NOT subject to the
+ * This file (unlike `via/classified/**`) is NOT subject to the
  * `via-enclave-isolation` architecture guard — it may import `EnclaveKey`
  * from the enclave barrel freely, the same way `port/with/i18n-strategy.ts`
  * did before #629 Task 4's DictionaryHandle cutover.
@@ -15,33 +15,33 @@
  *
  * @internal
  */
-import type { ClassifiedFieldSpec } from '../../shape/via-classified/descriptor.js'
+import type { ClassifiedFieldSpec } from '../../via/classified/descriptor.js'
 import { ClassifiedNotEnabledError } from '../../kernel/errors.js'
 import type { EncryptedEnvelope } from '../../kernel/types.js'
 import type { EnclaveKey } from '../../kernel/enclave/index.js'
-import { linkClassifiedVia } from '../../shape/via-classified/binding.js'
+import { linkClassifiedVia } from '../../via/classified/binding.js'
 
 // #629 Task 10 — re-export the classified binding's erase-cfg TYPE (not
-// `shape/via-classified/binding.js` directly) so the kernel spine can name
+// `via/classified/binding.js` directly) so the kernel spine can name
 // it for the post-construction `classifySealedShred` wiring, same rationale
 // as `resolveClassifiedFields`/`guardClassifiedCompat` above.
-export type { ClassifiedViaConfig } from '../../shape/via-classified/binding.js'
+export type { ClassifiedViaConfig } from '../../via/classified/binding.js'
 
 export type { ClassifiedVerdict } from '../../kernel/types.js'
 import type { ClassifiedVerdict } from '../../kernel/types.js'
 
 // #629 Task 6 — the classified binding's construction-time resolve/guard,
-// re-exported here (not `shape/via-classified/{resolve,guards}.js` directly)
+// re-exported here (not `via/classified/{resolve,guards}.js` directly)
 // so the kernel spine keeps importing only this one `/with` port seam, same
 // rationale as `NO_CLASSIFIED` below.
-export { resolveClassifiedFields, type ClassifiedEntry, type ResolvedClassified } from '../../shape/via-classified/resolve.js'
-export { guardClassifiedCompat, type ClassifiedGuardCtx } from '../../shape/via-classified/guards.js'
+export { resolveClassifiedFields, type ClassifiedEntry, type ResolvedClassified } from '../../via/classified/resolve.js'
+export { guardClassifiedCompat, type ClassifiedGuardCtx } from '../../via/classified/guards.js'
 export type { ClassifiedFieldSpec }
 
 // Install the classified Via binder EAGERLY — unlike money()/i18nText(),
 // several classified fixtures (both hub tests and consumer code) build a raw
 // `ClassifiedFieldSpec` object literal without ever calling a
-// `classified.*()` preset (bypassing `shape/via-classified/presets.ts`
+// `classified.*()` preset (bypassing `via/classified/presets.ts`
 // entirely — an intentionally supported pattern, see that module's Task 5
 // doc comment). Linking lazily at preset-call time (the money/i18n pattern)
 // would leave `viaBinder('classified')` unlinked for those declarations.

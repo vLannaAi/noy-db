@@ -1,7 +1,7 @@
 /**
  * The sync lookup snapshot + join/locale seam (#650 Task 6, spec §5 — "the
  * snapshot+locale seam"). Retires the #626 kernel→shape grandfather:
- * `kernel/query/join.ts` no longer imports `shape/via-i18n/core.js` directly
+ * `kernel/query/join.ts` no longer imports `via/i18n/core.js` directly
  * — it calls the `presentForJoin` hook this file's `buildPresentForJoin`
  * builds instead (seam map Part 2 item 4, the #626 reviewer-spec'd shape:
  * a sync `presentI18nForJoin`-class hook on `JoinableSource`).
@@ -19,7 +19,7 @@
  *   - join dressing (`presentForJoin`, consumed by `kernel/query/join.ts`
  *     via `JoinableSource.presentForJoin`)
  *   - dimension sort (`compareForOrder`, consumed by
- *     `shape/via-lookup/binding.ts`'s `ViaBinding.compareForOrder` closure)
+ *     `via/lookup/binding.ts`'s `ViaBinding.compareForOrder` closure)
  *   - per-call-locale order-label resolution (`resolveOrderLabel`, #650
  *     Task 7 — the `orderBy(..., {by:'label'})` channel `compareForOrder`
  *     structurally can't serve, no locale param; consumed by
@@ -33,7 +33,7 @@
  * transform over already-materialized rows; no store read, no Promise.
  */
 import type { LookupDescriptor } from './descriptor.js'
-import { presentI18nForJoin, type I18nTextDescriptor } from '../via-i18n/core.js'
+import { presentI18nForJoin, type I18nTextDescriptor } from '../i18n/core.js'
 
 /** A lookup dimension's sync materialized view — see file header. */
 export interface LookupSnapshot {

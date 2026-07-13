@@ -37,7 +37,7 @@ named by its own arguments (`pan`, `cvc`). A single-field preset (`email()`, `bi
 `phone()`, `password()`, `secretAnswer()`) has no such indirection — the `classifiedFields` map
 key IS the record field name, e.g. `classifiedFields: { email: classified.email() }`.
 
-Presets (`packages/hub/src/shape/via-classified/presets.ts`):
+Presets (`packages/hub/src/via/classified/presets.ts`):
 
 | Preset | Storage | Notes |
 |---|---|---|
@@ -181,7 +181,7 @@ directly; the via binding's own `purgeSealedCekEnvelopes` closure exists and is 
 
 ## Architecture
 
-`classifiedBinding(cfg)` (`packages/hub/src/shape/via-classified/binding.ts`) returns a
+`classifiedBinding(cfg)` (`packages/hub/src/via/classified/binding.ts`) returns a
 `ViaBinding` with `brand: 'classified'` and
 `posture: { encryptedAtRest: 'sealed', queryable: 'det-exact', exportable: false, forgettable: true }`.
 `compileViaBindings` (`kernel/collection-config.ts`) compiles it in whenever a collection declares
@@ -212,6 +212,6 @@ does not see.
 
 - [`docs/subsystems/via.md`](via.md) — the Via port (field features, unified pipeline, phases)
 - [`docs/subsystems/via-blob.md`](via-blob.md) — the sibling phase-B security feature
-- `packages/hub/src/shape/via-classified/` — presets, binding, descriptors, guards, errors
+- `packages/hub/src/via/classified/` — presets, binding, descriptors, guards, errors
 - `packages/hub/__tests__/classified/` — the pre-existing reveal/verify/digest suites
 - `packages/hub/__tests__/via/classified-binding.test.ts`, `packages/hub/__tests__/via/query-posture-b.test.ts`, `packages/hub/__tests__/via/export-posture-b.test.ts`, `packages/hub/__tests__/via/forget-classified-erase.test.ts` — the phase-B binding/posture suites

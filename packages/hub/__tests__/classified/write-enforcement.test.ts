@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
-import { classified, ClassifiedNeverStoredError, ClassifiedValidationError } from '../../src/shape/via-classified/index.js'
+import { classified, ClassifiedNeverStoredError, ClassifiedValidationError } from '../../src/via/classified/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 import { ConflictError } from '../../src/kernel/errors.js'
 

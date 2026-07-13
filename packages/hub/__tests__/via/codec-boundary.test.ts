@@ -19,8 +19,8 @@ import type { ViaBinding, ViaPosture } from '../../src/kernel/via.js'
 import { generateDEK, decrypt, type EnclaveKey } from '../../src/kernel/enclave/index.js'
 import { SealedHandle, type EncryptedEnvelope } from '../../src/kernel/types.js'
 import { NO_CRDT } from '../../src/with-commit/crdt/strategy.js'
-import { classifiedBinding } from '../../src/shape/via-classified/binding.js'
-import { classified } from '../../src/shape/via-classified/presets.js'
+import { classifiedBinding } from '../../src/via/classified/binding.js'
+import { classified } from '../../src/via/classified/presets.js'
 
 const posture = (): ViaPosture => ({ encryptedAtRest: 'sealed', queryable: 'none', exportable: false, forgettable: true })
 

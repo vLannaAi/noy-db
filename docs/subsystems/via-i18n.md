@@ -128,4 +128,4 @@ collections, and deletes the old key. `staticDict()` fields have no dictionary a
 ## See also
 
 - [`docs/subsystems/via.md`](via.md) — the Via port (field features, unified pipeline, phases)
-- `packages/hub/src/shape/via-i18n/` — the descriptors, binding, and dictionary machinery
+- `packages/hub/src/via/i18n/` — the descriptors, binding, and dictionary machinery

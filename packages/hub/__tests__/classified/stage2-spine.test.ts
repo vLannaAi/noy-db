@@ -5,8 +5,8 @@ import {
 } from '../../src/kernel/errors.js'
 import {
   ClassifiedConfigError as ShimConfig, ClassifiedRevealError as ShimReveal,
-} from '../../src/shape/via-classified/errors.js'
-import type { ClassifiedFieldSpec } from '../../src/shape/via-classified/descriptor.js'
+} from '../../src/via/classified/errors.js'
+import type { ClassifiedFieldSpec } from '../../src/via/classified/descriptor.js'
 
 describe('stage-2 spine', () => {
   it('EncryptedEnvelope accepts a _vdig ciphertext map', () => {

@@ -13,7 +13,7 @@
  *    i18n-`Label` precedent, seam map Part 4): computed fresh on every
  *    read, NEVER stored, `queryable: 'none'`, excluded from export unless
  *    its declared `deps` permit (identical taint rule to materialized —
- *    see `shape/via-computed/binding.ts`).
+ *    see `via/computed/binding.ts`).
  *
  * `deps` names the OTHER fields `fn` reads — feeds `ViaGraph` (Task 1/2) so
  * a source's taint (e.g. a classified field) propagates to this derived

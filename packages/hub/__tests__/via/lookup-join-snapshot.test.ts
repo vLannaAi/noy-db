@@ -2,7 +2,7 @@
  * The sync lookup snapshot + locale seam (#650 Task 6, spec §5) — the
  * combined seam that serves join dressing (`presentForJoin`), dimension
  * sort (`compareForOrder`), and #626's retirement (`join.ts` no longer
- * imports `shape/via-i18n/core.js`; see `via-guards-empty.test.ts` for
+ * imports `via/i18n/core.js`; see `via-guards-empty.test.ts` for
  * the guard-level proof).
  *
  * RED (pre-Task-6): `JoinableSource` had no `presentForJoin` hook — a
@@ -15,10 +15,10 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
-import { withI18n } from '../../src/shape/via-i18n/index.js'
-import { i18nText } from '../../src/shape/via-i18n/core.js'
-import { lookup, dict } from '../../src/shape/via-lookup/descriptor.js'
-import { buildLookupSnapshot } from '../../src/shape/via-lookup/snapshot.js'
+import { withI18n } from '../../src/via/i18n/index.js'
+import { i18nText } from '../../src/via/i18n/core.js'
+import { lookup, dict } from '../../src/via/lookup/descriptor.js'
+import { buildLookupSnapshot } from '../../src/via/lookup/snapshot.js'
 import { ref } from '../../src/kernel/refs.js'
 import { ConflictError } from '../../src/kernel/errors.js'
 import type { Noydb } from '../../src/kernel/noydb.js'

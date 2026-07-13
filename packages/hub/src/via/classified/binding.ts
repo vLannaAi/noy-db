@@ -1,8 +1,8 @@
 /**
  * The classified `ViaBinding` (#629 Task 5, LIVE since Task 6) — wires
  * classified-fields declaration/write-enforcement/at-rest sealing/erasure
- * into the kernel's generic Via port. Mirrors `shape/via-money/binding.ts`'s
- * inline declaration-time validation and `shape/via-i18n/binding.ts`'s
+ * into the kernel's generic Via port. Mirrors `via/money/binding.ts`'s
+ * inline declaration-time validation and `via/i18n/binding.ts`'s
  * `linkXVia` static-link pattern — except the link itself is EAGER
  * (`port/with/classified-strategy.ts` calls `linkClassifiedVia()` at module
  * load, not lazily from a `classified.*()` preset call): several fixtures

@@ -5,7 +5,7 @@
 // phase-B enforcement surfaces (`ViaPipeline.postureFor` → query gate +
 // `redactForExport`) and, for the subset the graph marks sealed, seals the
 // field's VALUE at rest via `ctx.sealedSlots` — byte-for-byte the same
-// capability `shape/via-classified/binding.ts` uses, no new crypto path.
+// capability `via/classified/binding.ts` uses, no new crypto path.
 //
 // This file owns two independent things:
 //   1. `buildTaintOverlay` — a PURE transform from the graph's raw per-field
@@ -74,9 +74,9 @@ export function buildTaintOverlay(
 /**
  * Seal every named field present with a defined value into its own sealed
  * slot via `crypto.sealedSlots`, peeling it out of the record. Mirrors
- * `shape/via-classified/binding.ts#encodeClassifiedAtRest` exactly (same
+ * `via/classified/binding.ts#encodeClassifiedAtRest` exactly (same
  * capability, different field list — duplicated rather than imported so
- * this file never reaches into `shape/**`, matching `via-graph-wiring.ts`'s
+ * this file never reaches into `via/**`, matching `via-graph-wiring.ts`'s
  * own documented-duplication precedent for `CLASSIFIED_POSTURE`).
  */
 async function encodeTaintAtRest(

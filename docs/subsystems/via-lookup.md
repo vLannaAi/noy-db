@@ -267,11 +267,11 @@ rows[0].order.countryLabel  // 'สหรัฐอเมริกา' — dresse
 ```
 
 (`countries-matrix.test.ts`, "presentForJoin dresses a matrix-tier field on a REFERENCING
-collection"). This retires the #626 kernel→shape grandfather: `kernel/query/join.ts` no longer
-imports `shape/via-i18n/core.js` — it calls a sync `presentForJoin` hook the `Collection` builds
+collection"). This retires the #626 kernel→via grandfather: `kernel/query/join.ts` no longer
+imports `via/i18n/core.js` — it calls a sync `presentForJoin` hook the `Collection` builds
 from its own i18n + lookup bindings (`packages/hub/__tests__/via/via-guards-empty.test.ts` proves
 the allowlist that used to carry this one grandfathered import is now EMPTY, and that the guard
-still fires on a synthetic kernel→shape import).
+still fires on a synthetic kernel→via import).
 
 ## Sorting by the resolved label
 
@@ -435,14 +435,14 @@ widget from; the `@noy-db/ui` widget itself is the sibling repo's follow-up, not
 
 ## Architecture
 
-`shape/via-lookup/` (`descriptor.ts`, `binding.ts`, `registry.ts`, `snapshot.ts`, `handle.ts`,
+`via/lookup/` (`descriptor.ts`, `binding.ts`, `registry.ts`, `snapshot.ts`, `handle.ts`,
 `active.ts`) is the whole feature. `LookupHandle` (renamed from `DictionaryHandle`, which
-`shape/via-i18n/dictionary.ts` still re-exports for compat) is the `_dict_*` engine; `registry.ts`
+`via/i18n/dictionary.ts` still re-exports for compat) is the `_dict_*` engine; `registry.ts`
 holds the pure declare/warm-time helpers (`materializeBackingTable`, `checkLookupMembership`,
 `buildLookupAltIndex`, `buildLookupSnapshotRows`); `snapshot.ts` is the sync
 join/locale/order-label seam (`LookupSnapshot`, `buildPresentForJoin`). Reached from the kernel
-spine only through `port/with/lookup-strategy.ts` — no `kernel/**` file imports `shape/via-lookup/`
-(or any `shape/**`) directly (`via-guards-empty.test.ts` proves both architecture-guard allowlists
+spine only through `port/with/lookup-strategy.ts` — no `kernel/**` file imports `via/lookup/`
+(or any `via/**`) directly (`via-guards-empty.test.ts` proves both architecture-guard allowlists
 are EMPTY and still fire on a synthetic violation).
 
 ## See also
@@ -450,7 +450,7 @@ are EMPTY and still fire on a synthetic violation).
 - [`docs/subsystems/via.md`](via.md) — the Via port overview, phases, architecture guards
 - [`docs/subsystems/via-i18n.md`](via-i18n.md) — `i18nText()` + the `dictKey()`/`staticDict()`
   alias story (byte-parity with, not compiled onto, this binding — see the top of this page)
-- `packages/hub/src/shape/via-lookup/` — descriptors, binding, registry, snapshot, handle
+- `packages/hub/src/via/lookup/` — descriptors, binding, registry, snapshot, handle
 - `packages/hub/__tests__/via/countries-matrix.test.ts` — the canonical end-to-end example (source
   of every code snippet on this page)
 - `packages/hub/__tests__/via/lookup-binding.test.ts`, `lookup-altkeys.test.ts`,

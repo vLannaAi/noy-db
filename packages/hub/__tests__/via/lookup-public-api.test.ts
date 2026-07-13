@@ -5,7 +5,7 @@
  * from the root `@noy-db/hub` barrel (`src/index.ts`).
  *
  * Every import below goes THROUGH the barrel (`../../src/index.js`), not a
- * relative `shape/via-lookup/*` path — this file fails to even compile if
+ * relative `via/lookup/*` path — this file fails to even compile if
  * any of these exports vanish from `src/index.ts` again. Before this wave,
  * a consumer following `docs/subsystems/via-lookup.md`'s own
  * `import { lookup, enum as enumOf, dict } from '@noy-db/hub'` line had no
@@ -24,7 +24,7 @@ import {
   UnknownLookupKeyError,
 } from '../../src/index.js'
 import type { LookupDescriptor, Vocabulary, OnDelete } from '../../src/index.js'
-import { withI18n } from '../../src/shape/via-i18n/index.js'
+import { withI18n } from '../../src/via/i18n/index.js'
 import { ConflictError } from '../../src/kernel/errors.js'
 import type { Noydb } from '../../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'

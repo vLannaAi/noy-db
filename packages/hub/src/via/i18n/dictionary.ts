@@ -32,7 +32,7 @@
  *
  * The storage engine (`DictionaryHandle`, `DictEntry`, `DictionaryOptions`,
  * `DICT_COLLECTION_PREFIX`, `dictCollectionName`) moved to
- * `shape/via-lookup/handle.ts` (#650 Task 1 — via-lookup extraction, phase
+ * `via/lookup/handle.ts` (#650 Task 1 — via-lookup extraction, phase
  * D of the Via port) and is renamed `LookupHandle` there; re-exported here
  * under the original names for one release so existing importers of this
  * module compile unchanged. This file keeps only the descriptor factories
@@ -44,24 +44,24 @@ import { linkI18nVia } from './binding.js'
 // #650 Task 2 — type-only: dictKey()/staticDict() construct the equivalent
 // LookupDescriptor shape internally (the reserved/static tiers via-lookup's
 // dict()/lookup(static) also produce) before adapting it to their own
-// legacy public return shape. No runtime dependency on shape/via-lookup.
-import type { LookupDescriptor } from '../via-lookup/descriptor.js'
+// legacy public return shape. No runtime dependency on via/lookup.
+import type { LookupDescriptor } from '../lookup/descriptor.js'
 
 // `isDictCollectionName` now lives on the kernel port (#623 Task 7,
 // port/with/i18n-strategy.ts) — re-exported here for compat. Its `'_dict_'`
 // check is a duplicate of DICT_COLLECTION_PREFIX (now on
-// shape/via-lookup/handle.ts, not an import, to avoid a port→feature value
+// via/lookup/handle.ts, not an import, to avoid a port→feature value
 // dependency); keep the two in sync.
 export { isDictCollectionName } from '../../port/with/i18n-strategy.js'
 
-// Storage-engine re-exports (#650 Task 1 — moved to shape/via-lookup/handle.ts).
+// Storage-engine re-exports (#650 Task 1 — moved to via/lookup/handle.ts).
 export {
   DictionaryHandle,
   DICT_COLLECTION_PREFIX,
   dictCollectionName,
   type DictEntry,
   type DictionaryOptions,
-} from '../via-lookup/handle.js'
+} from '../lookup/handle.js'
 
 // ─── DictKey descriptor ────────────────────────────────────────────────
 

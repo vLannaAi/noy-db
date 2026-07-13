@@ -18,13 +18,13 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
 import { inlineMemory, spyStore, type InlineMemoryStore } from './harness.js'
-import { classified } from '../../src/shape/via-classified/presets.js'
-import { withClassified } from '../../src/shape/via-classified/active.js'
+import { classified } from '../../src/via/classified/presets.js'
+import { withClassified } from '../../src/via/classified/active.js'
 import { withConsent } from '../../src/with-audit/consent/index.js'
 import { ClassifiedVerifyError } from '../../src/kernel/errors.js'
 import type { EncryptedEnvelope } from '../../src/kernel/types.js'
-import type { ClassifiedStrategy } from '../../src/shape/via-classified/strategy.js'
-import type { ClassifiedEntry } from '../../src/shape/via-classified/descriptor.js'
+import type { ClassifiedStrategy } from '../../src/via/classified/strategy.js'
+import type { ClassifiedEntry } from '../../src/via/classified/descriptor.js'
 
 let seq = 0
 async function openEquatable(

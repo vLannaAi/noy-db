@@ -2,7 +2,7 @@
  * #650 Task 1 — via-lookup extraction behavior lock.
  *
  * The dict registry/handle block moved out of `kernel/vault.ts` into
- * `shape/via-lookup/{handle,registry,active}.ts` + the new
+ * `via/lookup/{handle,registry,active}.ts` + the new
  * `port/with/lookup-strategy.ts` seam (byte-parity — the existing dict
  * suites are the primary lock; this file additionally pins that
  * `LookupHandle` — the renamed `DictionaryHandle` — is importable from its
@@ -11,8 +11,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
-import { withI18n } from '../../src/shape/via-i18n/index.js'
-import { LookupHandle } from '../../src/shape/via-lookup/handle.js'
+import { withI18n } from '../../src/via/i18n/index.js'
+import { LookupHandle } from '../../src/via/lookup/handle.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, ChangeEvent } from '../../src/kernel/types.js'
 import { ConflictError } from '../../src/kernel/errors.js'
 

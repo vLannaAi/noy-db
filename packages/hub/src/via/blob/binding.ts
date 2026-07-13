@@ -12,7 +12,7 @@
  * legal-hold/exportBlobs machinery stays service-side in
  * `with-shape/blobs/` (the i18n-dictionary precedent — that machinery
  * does real chunk AEAD + key-lifecycle work `via-enclave-isolation`
- * forbids under `shape/via-*`).
+ * forbids under `via/*`).
  *
  * Like classified (see `port/with/classified-strategy.ts`), the link is
  * EAGER — `port/with/blob-strategy.ts` calls {@link linkBlobVia} at module
