@@ -254,6 +254,12 @@ export function reconcileViaAttach(
 
   const reconcilePlan = (plan.computed || plan.classifiedFields)
     ? validateReconcileGraphEdges(graph, name, {
+        // `moneyFields` here is the MERGED view (`plan.effectiveViaFields.moneyFields`), not the
+        // raw incoming `moneyFields` option — intentional (controller ruling, #664a review): a
+        // via()-spelled money field must count in this call's `knownFields` for computed `deps`
+        // validation exactly like a sugar-keyed one does, the #627-consistent semantics. Pre-#664
+        // this reconciled via a blind `options as unknown as ReconcileGraphOptions` cast, which
+        // silently read the RAW option instead — never intentional, just uncovered before now.
         moneyFields: plan.effectiveViaFields.moneyFields, classifiedFields: plan.classifiedFields, computed: plan.computed,
       } as ReconcileGraphOptions)
     : undefined

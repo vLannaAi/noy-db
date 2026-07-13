@@ -118,7 +118,7 @@ import { mergeViaFields, type ViaFieldSpec } from './via-compose.js'
 import { exportRedact } from './via-pipeline.js'
 import { ViaGraph } from './via-graph.js'
 import { registerCollectionGraphSources, applyTaintOverlay, reapplyDependentOverlays } from './via-graph-wiring.js'
-import { reconcileViaAttach } from './via-reconcile.js'
+import { reconcileViaAttach, type ViaReconcileVaultCtx } from './via-reconcile.js'
 import { runGraphDispatchWave, putDerivedOutput, ledgerAuditHook, forgetDerivedFanout, touchFor, type GraphBatch, type ForgetFanoutStats, type RollupDeleteIntent } from './via-dispatch.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 // Type-only imports for the guard + derivation services. The
@@ -224,7 +224,7 @@ export class Vault {
   private readonly shadowStrategy: ShadowStrategy
   private readonly historyStrategy: HistoryStrategy
   private readonly forgetStrategy: ForgetStrategy
-  readonly i18nStrategy: I18nStrategy // not `private` — the #664 via-reconcile.ts dispatch reads it through `ViaReconcileVaultCtx` (never a `Vault` import there, S5 port-layering)
+  private readonly i18nStrategy: I18nStrategy
   private readonly syncStrategy: SyncStrategy
   private readonly classifiedStrategy: ClassifiedStrategy
   /** Per-vault guard registry; `null` until `_initGuards()` runs (or for vaults that never register
@@ -351,7 +351,7 @@ export class Vault {
    * when per-call `{ locale }` options are not specified on individual
    * `get()`/`list()` calls.
    */
-  locale: string | undefined
+  private locale: string | undefined
 
   /**
    * Vault-level descriptive metadata. Set once at construction via
@@ -372,19 +372,19 @@ export class Vault {
   private consentContext: ConsentContext | null = null
 
   /** dictKeyField registry: collection name → field name → dictionary name — `DictionaryHandle.rename()`'s reference-update source; populated by `collection()` from `dictKeyFields`. */
-  readonly dictKeyFieldRegistry = new Map<string, Record<string, string>>()
+  private readonly dictKeyFieldRegistry = new Map<string, Record<string, string>>()
 
   /** Names of `staticDict()`-backed dictionaries (skip rename tracking; `vault.dictionary(name)` refuses mutation on these via `StaticDictReadonlyError`). Populated at `collection()` config time. */
-  readonly staticDictNames = new Set<string>()
+  private readonly staticDictNames = new Set<string>()
 
   /** Static-dict descriptors by dictionary name — backs the read-path label resolver and the `resolveDictSource` snapshot. Last writer wins across collections (tables match by construction). */
-  readonly staticByName = new Map<string, StaticDictDescriptor>()
+  private readonly staticByName = new Map<string, StaticDictDescriptor>()
 
   /** Per-collection field name → StaticDictDescriptor, validated by `enforceStaticDictOnPut`. */
-  readonly staticDescriptorByField = new Map<string, Record<string, StaticDictDescriptor>>()
+  private readonly staticDescriptorByField = new Map<string, Record<string, StaticDictDescriptor>>()
 
-  /** i18nText fields: collection name → field name → descriptor. Used by `applyI18nLocale`/`validateI18nTextValue`; populated by `collection()` from `i18nFields`. Not `private` — these five registries + `i18nStrategy`/`translateText` are read by the #664 `via-reconcile.ts` dispatch through `ViaReconcileVaultCtx` (a plain structural bag, never a `Vault` import — S5 port-layering forbids the kernel spine from reaching a with-* service, and this file's own reconcile-ladder logic moved OUT into that unguarded module). */
-  readonly i18nFieldRegistry = new Map<string, Record<string, I18nTextDescriptor>>()
+  /** i18nText fields: collection name → field name → descriptor. Used by `applyI18nLocale`/`validateI18nTextValue`; populated by `collection()` from `i18nFields`. Private — the #664 `via-reconcile.ts` dispatch reads these through {@link _viaReconcileCtx}'s structural bag, not `this` directly (a plain structural bag, never a `Vault` import — S5 port-layering forbids the kernel spine from reaching a with-* service, and this file's own reconcile-ladder logic moved OUT into that unguarded module). */
+  private readonly i18nFieldRegistry = new Map<string, Record<string, I18nTextDescriptor>>()
 
   /** Cache of DictionaryHandle instances, one per dictionary name. */
   private readonly dictionaryCache = new Map<string, DictionaryHandle>()
@@ -392,7 +392,7 @@ export class Vault {
   /** #650 Task 4 (#647) — declared reserved-lookup collection name → dimension name, for dimensions
    *  with `backing:'reserved'` (dict()/dictKey()). The explicit sync-pull registry: NOT a blanket
    *  underscore-glob — populated at `collection()`-declare time and at `dictionary()`-call time. */
-  readonly reservedLookupCollections = new Map<string, string>()
+  private readonly reservedLookupCollections = new Map<string, string>()
 
   /** Registered link specs, keyed by link name; set by `vault.link()`. */
   private readonly linkRegistry = new Map<string, LinkSpec>()
@@ -414,7 +414,7 @@ export class Vault {
    * Optional translator callback threaded from `Noydb.invokeTranslator`.
    * Present only when `plaintextTranslator` was configured on `createNoydb()`.
    */
-  readonly translateText:
+  private readonly translateText:
     | ((text: string, from: string, to: string, field: string, collection: string) => Promise<string>)
     | undefined
 
@@ -654,6 +654,20 @@ export class Vault {
    * Lazy mode + indexes is rejected at construction time — see the
    * Collection constructor for the rationale.
    */
+  /** Assembles {@link ViaReconcileVaultCtx} — the plain structural bag the #664 `via-reconcile.ts`
+   *  dispatch reads/writes — from this vault's OWN privates, rather than passing `this` itself. */
+  private _viaReconcileCtx(): ViaReconcileVaultCtx {
+    return {
+      i18nStrategy: this.i18nStrategy, locale: this.locale, translateText: this.translateText,
+      i18nFieldRegistry: this.i18nFieldRegistry, dictKeyFieldRegistry: this.dictKeyFieldRegistry,
+      staticDescriptorByField: this.staticDescriptorByField, reservedLookupCollections: this.reservedLookupCollections,
+      staticByName: this.staticByName, staticDictNames: this.staticDictNames,
+      dictionary: (name) => this.dictionary(name),
+      enforceI18nOnPut: (collectionName, record) => this.enforceI18nOnPut(collectionName, record),
+      enforceStaticDictOnPut: (collectionName, record) => this.enforceStaticDictOnPut(collectionName, record),
+    }
+  }
+
   collection<T, S extends keyof T & string = never, Q extends keyof T & string = never, M extends keyof T & string = never>(collectionName: string, options?: {
     indexes?: readonly IndexDefFor<IndexFieldName<T, S, Q>>[]
     /** — auto-reconcile policy for persisted-index drift. */
@@ -847,7 +861,7 @@ export class Vault {
     // inlined here. `Collection._applyX`'s own first-wins semantics are unchanged; this file
     // only threads the field-declaring options + this vault's registries through.
     if (coll) {
-      reconcileViaAttach(coll, this.graph, collectionName, this, {
+      reconcileViaAttach(coll, this.graph, collectionName, this._viaReconcileCtx(), {
         effectiveViaFields,
         ...(options?.computed !== undefined ? { computed: options.computed as ComputedFields } : {}),
         ...(options?.fieldMeta !== undefined ? { fieldMeta: options.fieldMeta } : {}),

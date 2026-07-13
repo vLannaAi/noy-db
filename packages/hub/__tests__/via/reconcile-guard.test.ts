@@ -16,7 +16,7 @@
  * when SPLIT across two `vault.collection()` calls, not just within one.
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb } from '../../src/index.js'
+import { createNoydb, withDerivation } from '../../src/index.js'
 import { ValidationError } from '../../src/kernel/errors.js'
 import { money } from '../../src/shape/via-money/descriptor.js'
 import { classified } from '../../src/shape/via-classified/presets.js'
@@ -117,6 +117,71 @@ describe('#664 Part 1 — late-attach reconcile collision guard', () => {
     })
     expect(() => vault.collection<Card>('cards', {
       moneyFields: { amount: money({ currency: 'EUR', scale: 2 }) },
+    })).not.toThrow()
+  })
+})
+
+/**
+ * CRITICAL fix (opus task review on #664a) — `guardReconcileCollisions` mapped EVERY existing
+ * binding covering a field (via `covers?.(field)`) straight to a family through
+ * `VIA_FIELD_MAP_FAMILY`, including the `taint` binding (`kernel/via-taint-binding.ts`, brand
+ * `'taint'`) — a posture OVERLAY, not a field-owning family. Under `sealAll` its `covers()` is
+ * true for EVERY non-`_` field, and even in fixed-field-list mode it covers any field the graph
+ * folded a non-default posture onto (e.g. a materialized computed field deriving from a
+ * classified source) — so any late-attach onto such a field threw spuriously, even a legal
+ * idempotent re-declare. Both recipes below reproduce today (pre-fix) and must NOT throw once
+ * `guardReconcileCollisions` excludes `'taint'` before the family mapping.
+ */
+describe('#664a CRITICAL fix — guardReconcileCollisions ignores the `taint` posture-overlay binding', () => {
+  it('(a) a materialized computed field derived from a classified source, re-declared identically on a second vault.collection() call, does not throw', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'a', secret: 'pw-reconcile-guard-taint-1' })
+    const vault = await db.openVault('v1')
+
+    // Materialized (default) mode `computed` entry — compiles NO 'computed' via binding
+    // (only virtual mode does); "ssnLeak" is covered ONLY by the graph-folded `taint`
+    // overlay, since its sole dep ("ssn") is classified.
+    const first = vault.collection<Person>('people', {
+      classifiedFields: { ssn: classified.email() },
+      computed: { ssnLeak: { fn: (r) => r['ssn'], deps: ['ssn'] } },
+    })
+
+    // Re-declaring the SAME computed field identically on a second call is a pre-#664
+    // legal idempotent re-declare (first-wins on `Collection._applyComputed`) — must stay legal.
+    const second = vault.collection<Person>('people', {
+      computed: { ssnLeak: { fn: (r) => r['ssn'], deps: ['ssn'] } },
+    })
+    expect(second).toBe(first)
+  })
+
+  it('(b) late-attach moneyFields onto a DIFFERENT field of a collection whose taint overlay is sealAll (whole-record-sealed via a classified source) does not throw', async () => {
+    interface LeakSource extends Record<string, unknown> { id: string; ssn: string }
+    interface LeakOutput extends Record<string, unknown> { ssnCopy?: string; amount?: number | string }
+
+    function leakDerivation() {
+      return withDerivation<LeakSource, { leak: { ssnCopy: string } }>({
+        source: 'people-taint-b',
+        deterministic: true,
+        outputs: { leak: { shape: 'record', collection: 'leaks-taint-b' } },
+        derive: (s) => ({ leak: { ssnCopy: s.ssn } }),
+        lifecycle: 'eager',
+      })
+    }
+
+    const db = await createNoydb({
+      store: inlineMemory(), user: 'a', secret: 'pw-reconcile-guard-taint-2',
+      derivationStrategies: [leakDerivation()],
+    })
+    const vault = await db.openVault('v1')
+
+    // Source opened BEFORE the '*'-target output — the output's whole-record fold is
+    // computed at ITS OWN construction, from the graph's already-registered classified field.
+    vault.collection<LeakSource>('people-taint-b', { classifiedFields: { ssn: classified.email() } })
+    vault.collection<LeakOutput>('leaks-taint-b') // sealAll — `covers()` is true for every non-`_` field
+
+    // Late-attach money on a DIFFERENT field ("amount", never derived/written) — the ONLY
+    // thing already covering it is the `taint` overlay; that must not count as a family collision.
+    expect(() => vault.collection<LeakOutput>('leaks-taint-b', {
+      moneyFields: { amount: money({ currency: 'USD', scale: 2 }) },
     })).not.toThrow()
   })
 })

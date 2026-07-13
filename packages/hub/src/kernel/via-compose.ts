@@ -226,6 +226,11 @@ const VIA_FIELD_MAP_FAMILY: Readonly<Record<string, string>> = {
  */
 export function guardCrossBindingFieldCollisions(
   fieldMaps: Readonly<Record<string, Record<string, unknown> | undefined>>,
+  // Minor fix (opus task review on #664a) — caller-accurate error prefix: fresh construction
+  // (`collection-config.ts`) keeps the old default; {@link guardReconcileCollisions} (the
+  // late-attach reconcile path) passes its OWN name instead of this function silently claiming
+  // to be `compileViaBindings()` on a call it never made.
+  callerPrefix = 'compileViaBindings()',
 ): void {
   const claimantsByField = new Map<string, Set<string>>()
   for (const [sourceKey, map] of Object.entries(fieldMaps)) {
@@ -246,7 +251,7 @@ export function guardCrossBindingFieldCollisions(
     const keys = [...sourceKeys].sort().map((k) => `\`${k}\``)
     const joined = keys.length === 2 ? keys.join(' and ') : `${keys.slice(0, -1).join(', ')}, and ${keys[keys.length - 1]}`
     throw new ValidationError(
-      `compileViaBindings(): field "${field}" is declared in both ${joined} — a field cannot be claimed by two ` +
+      `${callerPrefix}: field "${field}" is declared in both ${joined} — a field cannot be claimed by two ` +
       'different via-binding families. Declare it in one place only.',
     )
   }
@@ -285,9 +290,12 @@ export function guardReconcileCollisions(
   existingVia: ViaPipeline | undefined,
   incomingFieldMaps: Readonly<Record<string, Record<string, unknown> | undefined>>,
 ): void {
-  guardCrossBindingFieldCollisions(incomingFieldMaps) // (a) incoming×incoming
+  guardCrossBindingFieldCollisions(incomingFieldMaps, 'guardReconcileCollisions()') // (a) incoming×incoming
   if (!existingVia) return
-  const existingBindings: readonly ViaBinding[] = existingVia.bindings
+  // `taint` is a posture OVERLAY, not a field-owning family — under `sealAll` its `covers()` is
+  // true for every non-`_` field, so it must never be mapped through VIA_FIELD_MAP_FAMILY here
+  // (same exclusion precedent as via-graph-wiring.ts's `.filter(b => b.brand !== 'taint')`).
+  const existingBindings: readonly ViaBinding[] = existingVia.bindings.filter((b) => b.brand !== 'taint')
   for (const [sourceKey, map] of Object.entries(incomingFieldMaps)) {
     const incomingFamily = VIA_FIELD_MAP_FAMILY[sourceKey]
     if (incomingFamily === undefined) continue
