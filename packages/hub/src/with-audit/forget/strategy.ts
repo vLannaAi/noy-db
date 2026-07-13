@@ -29,6 +29,14 @@ import type { LedgerEntry } from '../../with-commit/history/ledger/entry.js'
  */
 export interface SubjectDeclaration {
   readonly subjects: Record<string, string>
+  /**
+   * #633 — opt-in: gate the vault-level `_sealed_cek` and blob purges on
+   * per-collection via declarations instead of running them unconditionally
+   * for every forgotten ref. Default `false`/absent = today's unconditional
+   * behavior (byte-identical). See `purge-scope.ts` for the partition logic
+   * and the `scopedPurgeResidue` skip-reporting this enables.
+   */
+  readonly scopedPurge?: boolean
 }
 
 /**
@@ -40,6 +48,8 @@ export interface SubjectDeclaration {
 export interface ForgetStrategy {
   /** Collection → subject-field (dotted path). Empty under `NO_FORGET`. */
   readonly subjects: Readonly<Record<string, string>>
+  /** #633 — see {@link SubjectDeclaration.scopedPurge}. */
+  readonly scopedPurge?: boolean
 }
 
 /**
@@ -144,4 +154,18 @@ export interface ForgetResult {
    *  even from the LIVE pre-shred backing row — cascade/nullify propagation was SKIPPED for these.
    *  Always empty in the ordinary case; non-empty means the skip is reported, never silent. */
   readonly lookupReferencesResidue: readonly string[]
+  /** #633 — scoped-purge skip notices (opt-in `scopedPurge`, see {@link SubjectDeclaration}).
+   *  Always empty under the unconditional default. Non-empty means a `_sealed_cek` entry or a
+   *  blob scan was skipped for an undeclared collection — reported, never a silent skip. */
+  readonly scopedPurgeResidue: readonly ScopedPurgeResidueNotice[]
+}
+
+/** #633 — one `ForgetResult.scopedPurgeResidue` entry: an undeclared collection's sealed-CEK
+ *  entries left unpurged, or its blob scan skipped entirely, under `scopedPurge`. `count` is the
+ *  number of `_sealed_cek` entries left in place (sealed-cek reason) or the number of refs whose
+ *  blob scan was skipped (blob-scan reason) — aggregated per collection across the whole call. */
+export interface ScopedPurgeResidueNotice {
+  readonly reason: 'skipped-undeclared-sealed-cek' | 'skipped-undeclared-blob-scan'
+  readonly collection: string
+  readonly count: number
 }

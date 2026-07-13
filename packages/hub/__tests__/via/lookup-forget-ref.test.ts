@@ -225,7 +225,7 @@ describe('forget() × lookup ref semantics (#650 Task 5, fixes #648)', () => {
       'derivedAggregatesRecomputed', 'derivedRecordsErased', 'derivedResidueFrozen',
       'historyVersionsShredded', 'indexPostingsPurged', 'indexResidue', 'ledgerEntry',
       'lookupReferencesCascaded', 'lookupReferencesNullified', 'lookupReferencesResidue',
-      'recordsShredded', 'sealedCekEnvelopesPurged', 'sealedCekResidue', 'sealedFieldsShredded',
+      'recordsShredded', 'scopedPurgeResidue', 'sealedCekEnvelopesPurged', 'sealedCekResidue', 'sealedFieldsShredded',
       'sealedResidue', 'subject', 'unmigratedRecords',
     ])
   })

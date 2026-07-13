@@ -218,7 +218,7 @@ describe('forget() fanout to derived residue (#622)', () => {
       'derivedAggregatesRecomputed', 'derivedRecordsErased', 'derivedResidueFrozen',
       'historyVersionsShredded', 'indexPostingsPurged', 'indexResidue', 'ledgerEntry',
       'lookupReferencesCascaded', 'lookupReferencesNullified', 'lookupReferencesResidue',
-      'recordsShredded', 'sealedCekEnvelopesPurged', 'sealedCekResidue', 'sealedFieldsShredded',
+      'recordsShredded', 'scopedPurgeResidue', 'sealedCekEnvelopesPurged', 'sealedCekResidue', 'sealedFieldsShredded',
       'sealedResidue', 'subject', 'unmigratedRecords',
     ])
   })
