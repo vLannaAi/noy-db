@@ -30,5 +30,5 @@ import type { SubjectDeclaration, ForgetStrategy } from './strategy.js'
  * ```
  */
 export function withForgetCascade(opts: SubjectDeclaration): ForgetStrategy {
-  return { subjects: { ...opts.subjects } }
+  return { subjects: { ...opts.subjects }, ...(opts.scopedPurge !== undefined ? { scopedPurge: opts.scopedPurge } : {}) }
 }

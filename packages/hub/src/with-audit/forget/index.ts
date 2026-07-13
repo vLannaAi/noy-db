@@ -27,6 +27,7 @@ export type {
   SubjectDeclaration,
   ForgetStrategy,
   ForgetResult,
+  ScopedPurgeResidueNotice,
 } from './strategy.js'
 export type { SubjectRef } from './subject-index.js'
 export { SUBJECT_INDEX_COLLECTION } from './subject-index.js'

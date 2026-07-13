@@ -2273,22 +2273,19 @@ export class Vault {
     // is never itself in the subject index, so synthesize its ref or it survives.
     const allRefs = expandRefsWithSatellites(refs, this.satelliteRegistry)
 
-    let recordsShredded = 0
-    let historyVersionsShredded = 0
-    const collections = new Set<string>()
-    const unmigratedRecords: string[] = []
+    let recordsShredded = 0; let historyVersionsShredded = 0
+    const collections = new Set<string>(); const unmigratedRecords: string[] = []
     const blobResidueCollections = new Set<string>()
-    let blobsShredded = 0
-    let blobsRetainedShared = 0
-    let indexPostingsPurged = 0
-    let sealedFieldsShredded = 0
-    let sealedCekEnvelopesPurged = 0
-    const sealedCekResidue: string[] = []
-    const sealedResidue: string[] = []
-    const indexResidue: string[] = []
+    let blobsShredded = 0; let blobsRetainedShared = 0; let indexPostingsPurged = 0
+    let sealedFieldsShredded = 0; let sealedCekEnvelopesPurged = 0
+    const sealedCekResidue: string[] = []; const sealedResidue: string[] = []; const indexResidue: string[] = []
     const blobsEnabled = this.blobStrategy !== undefined
     const actor = this.keyring.userId
     const fanoutStats: ForgetFanoutStats = { recordsErased: 0, aggregatesRecomputed: 0, residueFrozen: [], lookupReferencesCascaded: 0, lookupReferencesNullified: 0, lookupReferencesResidue: [] }
+    // #633 — scoped-purge per-collection skip accumulators (empty under the unconditional default); lazy (S4 gate: kernel spine → with-* service via dynamic import()).
+    const { partitionSealedCekKeys, shouldSkipBlobScan, bumpResidueCount, residueNoticesFromMap } = await import('../with-audit/forget/purge-scope.js')
+    const scopedPurge = this.forgetStrategy.scopedPurge === true
+    const sealedCekScopedSkipped = new Map<string, number>(); const blobScopedSkipped = new Map<string, number>()
 
     for (const ref of allRefs) {
       const coll = this.collection<Record<string, unknown>>(ref.collection)
@@ -2343,12 +2340,12 @@ export class Vault {
       const cekPrefix = `${ref.collection}/${ref.id}/`
       try {
         const cekKeys = await this.adapter.list(this.name, SEALED_CEK_NS)
-        for (const key of cekKeys) {
-          if (key.startsWith(cekPrefix)) {
-            await this.adapter.delete(this.name, SEALED_CEK_NS, key)
-            sealedCekEnvelopesPurged++
-          }
+        const { toPurge, skippedCount } = partitionSealedCekKeys(cekKeys, cekPrefix, scopedPurge, coll._via?.hasAtRestHooks === true) // #633
+        for (const key of toPurge) {
+          await this.adapter.delete(this.name, SEALED_CEK_NS, key)
+          sealedCekEnvelopesPurged++
         }
+        bumpResidueCount(sealedCekScopedSkipped, ref.collection, skippedCount)
       } catch {
         sealedCekResidue.push(`${ref.collection}:${ref.id}`)
       }
@@ -2394,7 +2391,9 @@ export class Vault {
       // copy is the BlobObject's wrapped `_cek`; deleting it at refCount 0
       // shreds the content. Legacy blobs (no `_cek`) or a session without the
       // blob service cannot be shredded → reported as residue.
-      if (blobsEnabled) {
+      if (blobsEnabled && shouldSkipBlobScan(scopedPurge, this.blobFieldsRegistry.has(ref.collection))) {
+        bumpResidueCount(blobScopedSkipped, ref.collection, 1) // #633 — perf win: no per-collection list() scan
+      } else if (blobsEnabled) {
         const r = await this.collection<Record<string, unknown>>(ref.collection)
           .blob(ref.id)
           .shredAllForRecord()
@@ -2461,6 +2460,7 @@ export class Vault {
       }),
     })
 
+    const scopedPurgeResidue = [...residueNoticesFromMap(sealedCekScopedSkipped, 'skipped-undeclared-sealed-cek'), ...residueNoticesFromMap(blobScopedSkipped, 'skipped-undeclared-blob-scan')] // #633
     return {
       subject: subjectId,
       recordsShredded,
@@ -2480,7 +2480,7 @@ export class Vault {
       derivedRecordsErased: fanoutStats.recordsErased,
       derivedAggregatesRecomputed: fanoutStats.aggregatesRecomputed,
       derivedResidueFrozen: fanoutStats.residueFrozen,
-      lookupReferencesCascaded: fanoutStats.lookupReferencesCascaded, lookupReferencesNullified: fanoutStats.lookupReferencesNullified, lookupReferencesResidue: fanoutStats.lookupReferencesResidue, // #650 Task 5 (+ review Important fix: residue)
+      lookupReferencesCascaded: fanoutStats.lookupReferencesCascaded, lookupReferencesNullified: fanoutStats.lookupReferencesNullified, lookupReferencesResidue: fanoutStats.lookupReferencesResidue, scopedPurgeResidue, // #650 Task 5 (+ review Important fix: residue) + #633
     }
   }
 

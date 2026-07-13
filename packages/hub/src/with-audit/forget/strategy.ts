@@ -29,6 +29,26 @@ import type { LedgerEntry } from '../../with-commit/history/ledger/entry.js'
  */
 export interface SubjectDeclaration {
   readonly subjects: Record<string, string>
+  /**
+   * #633 — opt-in: gate the vault-level `_sealed_cek` and blob purges on
+   * per-collection via declarations instead of running them unconditionally
+   * for every forgotten ref. Default `false`/absent = today's unconditional
+   * behavior (byte-identical). See `purge-scope.ts` for the partition logic
+   * and the `scopedPurgeResidue` skip-reporting this enables.
+   *
+   * **Footgun:** a bare `sensitive: [...]` collection — no `classifiedFields`
+   * (no classified via binder compiled in) — counts as UNDECLARED for the
+   * sealed-CEK arm. Under `scopedPurge: true`, its `_sealed_cek` host-delivery
+   * envelopes are SKIPPED, not purged (reported via `scopedPurgeResidue`,
+   * reason `'skipped-undeclared-sealed-cek'`) even if that collection called
+   * `sealRecordToHost()` — the sealed CEK stays recoverable by that granted
+   * host until purged. Add a `classifiedFields` binding to close the gap, or
+   * leave `scopedPurge` off/false for the unconditional (always-purged) default.
+   * The declaration signal is session-local: a declared collection never opened
+   * (with its config) before `forget()` in this session counts as UNDECLARED —
+   * open it first, or its entries are skipped-and-reported.
+   */
+  readonly scopedPurge?: boolean
 }
 
 /**
@@ -40,6 +60,8 @@ export interface SubjectDeclaration {
 export interface ForgetStrategy {
   /** Collection → subject-field (dotted path). Empty under `NO_FORGET`. */
   readonly subjects: Readonly<Record<string, string>>
+  /** #633 — see {@link SubjectDeclaration.scopedPurge}. */
+  readonly scopedPurge?: boolean
 }
 
 /**
@@ -144,4 +166,22 @@ export interface ForgetResult {
    *  even from the LIVE pre-shred backing row — cascade/nullify propagation was SKIPPED for these.
    *  Always empty in the ordinary case; non-empty means the skip is reported, never silent. */
   readonly lookupReferencesResidue: readonly string[]
+  /** #633 — scoped-purge skip notices (opt-in `scopedPurge`, see {@link SubjectDeclaration}).
+   *  Always empty under the unconditional default. Non-empty means a `_sealed_cek` entry or a
+   *  blob scan was skipped for an undeclared collection — reported, never a silent skip. */
+  readonly scopedPurgeResidue: readonly ScopedPurgeResidueNotice[]
+}
+
+/** #633 — the two `scopedPurgeResidue` skip reasons. Single source of truth: `purge-scope.ts`
+ *  (the port-internal partition helpers) imports this rather than redeclaring it. */
+export type ScopedPurgeResidueReason = 'skipped-undeclared-sealed-cek' | 'skipped-undeclared-blob-scan'
+
+/** #633 — one `ForgetResult.scopedPurgeResidue` entry: an undeclared collection's sealed-CEK
+ *  entries left unpurged, or its blob scan skipped entirely, under `scopedPurge`. `count` is the
+ *  number of `_sealed_cek` entries left in place (sealed-cek reason) or the number of refs whose
+ *  blob scan was skipped (blob-scan reason) — aggregated per collection across the whole call. */
+export interface ScopedPurgeResidueNotice {
+  readonly reason: ScopedPurgeResidueReason
+  readonly collection: string
+  readonly count: number
 }
