@@ -60,6 +60,7 @@ import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
 import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
 import type { SearchStrategy } from '../with-lookup/search/strategy.js'
 import { NO_CARGO, type CargoStrategy } from '../with-cargo/strategy.js'
+import { NO_BROKER, buildCredentialBrokerHandle, type BrokerStrategy, type CredentialBrokerHandle } from '../port/with/broker-strategy.js'
 //  — import from leaf modules (NOT from ./history/ledger/index.js
 // or store.js) so the LedgerStore class never reaches the floor
 // bundle. The leaf files hold pure constants + a tiny hash helper;
@@ -215,6 +216,7 @@ export class Vault {
   /** Cargo (partition extraction) strategy — `NO_CARGO` (throwing) unless `withCargo()` was passed.
    *  Public so the `extractPartition` free function (which takes a `Vault`) routes through it. */
   readonly cargoStrategy: CargoStrategy
+  private readonly brokerStrategy: BrokerStrategy
   private readonly sealedRecordStrategy: SealedRecordStrategy
   private readonly portabilityStrategy: PortabilityStrategy
   private readonly sequenceStrategy: SequenceStrategy
@@ -459,6 +461,7 @@ export class Vault {
     tiersStrategy?: TiersStrategy | undefined
     searchStrategy?: SearchStrategy | undefined
     cargoStrategy?: CargoStrategy | undefined
+    brokerStrategy?: BrokerStrategy | undefined
     consentStrategy?: ConsentStrategy | undefined
     periodsStrategy?: PeriodsStrategy | undefined
     shadowStrategy?: ShadowStrategy | undefined
@@ -505,6 +508,7 @@ export class Vault {
     this.tiersStrategy = opts.tiersStrategy
     this.searchStrategy = opts.searchStrategy
     this.cargoStrategy = opts.cargoStrategy ?? NO_CARGO
+    this.brokerStrategy = opts.brokerStrategy ?? NO_BROKER
     this.sealedRecordStrategy = opts.sealedRecordStrategy ?? NO_SEALED_RECORD
     this.portabilityStrategy = opts.portabilityStrategy ?? NO_PORTABILITY
     this.sequenceStrategy = opts.sequenceStrategy ?? NO_SEQUENCE
@@ -813,26 +817,18 @@ export class Vault {
       }
     }
     // Guard: reject reserved _dict_* names
-    if (isDictCollectionName(collectionName)) {
-      throw new ReservedCollectionNameError(collectionName)
-    }
+    if (isDictCollectionName(collectionName)) throw new ReservedCollectionNameError(collectionName)
     // Guard: reject the internal _sequences collection — use vault.sequence() instead.
-    if (collectionName === SEQUENCE_COLLECTION) {
-      throw new ReservedCollectionNameError(collectionName)
-    }
+    if (collectionName === SEQUENCE_COLLECTION) throw new ReservedCollectionNameError(collectionName)
     // Guard: reject reserved _links_* names — use vault.link()/vault.links() instead.
-    if (isLinkCollectionName(collectionName)) {
-      throw new ReservedCollectionNameError(collectionName)
-    }
+    if (isLinkCollectionName(collectionName)) throw new ReservedCollectionNameError(collectionName)
     // Guard: reject secret-bearing reserved names (`_sync_credentials`,
     // `_broker`). Their record CONTENTS are directly-usable secrets, so they
     // must never be reachable through the generic public collection handle —
     // they are served only by their dedicated, owner/admin-gated API. Serving
     // them here would decrypt with whatever DEK the caller's keyring holds,
     // bypassing that gate. See reserved-secret-collections.ts.
-    if (isSecretBearingReservedCollection(collectionName)) {
-      throw new ReservedCollectionNameError(collectionName)
-    }
+    if (isSecretBearingReservedCollection(collectionName)) throw new ReservedCollectionNameError(collectionName)
 
     if (this.satelliteRegistry?.byJoined(collectionName)) { // #591: joined handle — not a directly reachable collection
       throw new SatelliteConfigError(`"${collectionName}" is a joined handle — use vault.joined('${collectionName}'), not vault.collection().`)
@@ -1552,9 +1548,7 @@ export class Vault {
     // A staticDict has no _dict_* collection and no mutation surface —
     // its labels are code constants. Refuse the handle so put/putAll/rename/
     // delete can never be attempted against a static name.
-    if (this.staticDictNames.has(name)) {
-      throw new StaticDictReadonlyError(name)
-    }
+    if (this.staticDictNames.has(name)) throw new StaticDictReadonlyError(name)
     this.reservedLookupCollections.set(dictCollectionName(name), name) // #650 Task 4 (#647)
     let handle = this.dictionaryCache.get(name)
     if (!handle) {
@@ -2956,6 +2950,11 @@ export class Vault {
    */
   frame(): VaultFrame {
     return this.shadowStrategy.buildFrame(this)
+  }
+
+  /** Credential-broker handle (#479); `NO_BROKER` throws unless `brokerStrategy: withBroker(config)` was passed to createNoydb(). */
+  broker(): CredentialBrokerHandle {
+    return buildCredentialBrokerHandle(this.brokerStrategy, this.adapter, this.name, () => this.keyring)
   }
 
   /**

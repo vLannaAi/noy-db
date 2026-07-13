@@ -9,11 +9,14 @@
     "buildDeleteMarker",
     "buildTombstone",
     "computeBidxTarget",
+    "computeBrokerProof",
     "ctEqualTags",
     "decrypt",
     "decryptBytes",
     "decryptBytesWithAAD",
     "decryptDeterministic",
+    "deriveBrokerProofBits",
+    "deriveBrokerProofKey",
     "deriveClassifyIndexKey",
     "deriveClassifyIndexSalt",
     "deriveDeterministicKey",
@@ -39,6 +42,7 @@
     "isDeleteMarker",
     "isTombstone",
     "isTombstoneShape",
+    "issueChallenge",
     "makeReservedEnvelopes",
     "mintBidxTag",
     "openEnvelopeJson",
@@ -52,15 +56,19 @@
     "sha256Hex",
     "unwrapCek",
     "unwrapKey",
+    "verifyBrokerProof",
     "wrapCek",
     "wrapKey",
     "writeEnvelopeBody"
   ],
   "types": [
+    "BrokerProofCanonicalParts",
     "DeterministicContext",
     "EnclaveKey",
+    "IssuedChallenge",
     "PassphraseKeyUsage",
     "SealedShredSlot",
-    "SealingContext"
+    "SealingContext",
+    "VerifyBrokerProofArgs"
   ]
 }

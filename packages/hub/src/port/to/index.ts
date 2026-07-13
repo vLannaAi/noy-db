@@ -23,6 +23,8 @@ export type {
   VaultSnapshot,
   TxOp,
   StoreCapabilities,
+  StoreCredentials,
+  StoreCredentialSource,
   StoreTime,
   ListPageResult,
 } from '../../kernel/types.js'

@@ -28,6 +28,10 @@
       "types": "./dist/team/index.d.ts",
       "default": "./dist/team/index.js"
     },
+    "./broker": {
+      "types": "./dist/broker/index.d.ts",
+      "default": "./dist/broker/index.js"
+    },
     "./session": {
       "types": "./dist/session/index.d.ts",
       "default": "./dist/session/index.js"

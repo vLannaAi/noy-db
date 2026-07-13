@@ -145,6 +145,8 @@ export type {
   StoreAuthKind,
   StoreAuth,
   StoreCapabilities,
+  StoreCredentials,
+  StoreCredentialSource,
 } from './kernel/types.js'
 
 // Blob store

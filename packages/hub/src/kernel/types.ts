@@ -47,6 +47,7 @@ import type { PortabilityStrategy } from '../with-audit/portability/strategy.js'
 import type { SequenceStrategy } from '../with-commit/sequence/strategy.js'
 import type { CustodyStrategy } from '../with-party/custody/strategy.js'
 import type { TeamStrategy } from '../port/with/team-strategy.js'
+import type { BrokerStrategy } from '../port/with/broker-strategy.js'
 import type { LazyStrategy } from '../port/with/lazy-strategy.js'
 import type { SearchStrategy } from '../with-lookup/search/strategy.js'
 import type { CargoStrategy } from '../with-cargo/strategy.js'
@@ -2084,6 +2085,21 @@ export interface StoreAuth {
   flow: 'static' | 'oauth' | 'kerberos' | 'implicit'
 }
 
+/** Vendor-neutral short-lived store credentials. `kind` is the credential-PAYLOAD
+ *  discriminator — orthogonal to StoreAuthKind ('iam'|'api-key'|…), which is unchanged. */
+export type StoreCredentials =
+  | { readonly kind: 'aws'
+      readonly accessKeyId: string
+      readonly secretAccessKey: string
+      readonly sessionToken?: string
+      readonly expiresAt?: string }              // ISO 8601
+  | { readonly kind: 'token'                     // postgres/turso/supabase/webdav/bearer — a LATER slice
+      readonly token: string
+      readonly expiresAt?: string }
+
+/** Refresh hook a store calls when it has no credentials or they are near expiry. */
+export type StoreCredentialSource = () => Promise<StoreCredentials>
+
 /**
  * The store's authoritative clock as a bounded-uncertainty interval
  * (Spanner TrueTime model). True time is provably within [earliest, latest];
@@ -2385,6 +2401,15 @@ export interface NoydbOptions {
    * against).
    */
   readonly teamStrategy?: TeamStrategy
+  /**
+   * Tree-shake seam — optional credential-broker capability (#479). Pass
+   * `brokerStrategy: withBroker(config)` from `@noy-db/hub/broker` to
+   * enable `vault.broker()` (`.enroll()` / `.rotate()` /
+   * `.credentialSource(profile?)`). When omitted, `vault.broker()` throws
+   * `BrokerNotEnabledError` and the seed lifecycle + network/cache engine
+   * are reached only via opt-in.
+   */
+  readonly brokerStrategy?: BrokerStrategy
   /**
    * Opt-in seam — the `lazy` service (#267). Pass `withLazy()` from
    * `@noy-db/hub/lazy` to explicitly enable lazy mode's bounded-LRU

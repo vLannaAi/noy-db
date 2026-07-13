@@ -119,6 +119,13 @@ const SCENARIOS = [
       // are linked only by withTeam() (team subpath) / withCustody(), never
       // by the single-user floor:
       'rotateKeys',            // team keyring re-key engine
+      // #479 credential broker -- the seed lifecycle + network/cache engine
+      // is linked only by withBroker() (broker subpath), never by the
+      // single-user floor; NO_BROKER (the throwing stub) is the only thing
+      // the floor ever sees:
+      'enrollSeed',            // _broker seed CAS-enrol engine
+      'rotateSeed',            // _broker seed quiesce-then-swap rotate engine
+      'mintStoreCredentials',  // challenge/response round-trip engine
       // #629 Task 7 -- the blob Via binder links eagerly (port/with/
       // blob-strategy.ts), but the binding is hook-free glue: the BlobSet
       // machinery must still only arrive via the @noy-db/hub/blobs subpath.
@@ -146,6 +153,17 @@ const SCENARIOS = [
       import { withTeam } from '@noy-db/hub/team'
       const teamStrategy = withTeam()
       export { createNoydb, teamStrategy }
+    `,
+    leakCanaries: [],
+  },
+  {
+    name: 'broker',
+    description: 'createNoydb + withBroker (#479 credential broker)',
+    code: `
+      import { createNoydb } from '@noy-db/hub'
+      import { withBroker } from '@noy-db/hub/broker'
+      const brokerStrategy = withBroker({ brokerId: 'b', endpoint: 'https://broker.example.com' })
+      export { createNoydb, brokerStrategy }
     `,
     leakCanaries: [],
   },
@@ -296,6 +314,7 @@ async function buildScenario(scenario) {
       '@noy-db/hub/shadow': join(HUB_DIR, 'dist', 'shadow', 'index.js'),
       '@noy-db/hub/tx': join(HUB_DIR, 'dist', 'tx', 'index.js'),
       '@noy-db/hub/team': join(HUB_DIR, 'dist', 'team', 'index.js'),
+      '@noy-db/hub/broker': join(HUB_DIR, 'dist', 'broker', 'index.js'),
       '@noy-db/hub/lazy': join(HUB_DIR, 'dist', 'lazy', 'index.js'),
     },
     logLevel: 'silent',
@@ -340,6 +359,7 @@ async function buildScenario(scenario) {
       '@noy-db/hub/shadow': join(HUB_DIR, 'dist', 'shadow', 'index.js'),
       '@noy-db/hub/tx': join(HUB_DIR, 'dist', 'tx', 'index.js'),
       '@noy-db/hub/team': join(HUB_DIR, 'dist', 'team', 'index.js'),
+      '@noy-db/hub/broker': join(HUB_DIR, 'dist', 'broker', 'index.js'),
       '@noy-db/hub/lazy': join(HUB_DIR, 'dist', 'lazy', 'index.js'),
     },
     logLevel: 'silent',

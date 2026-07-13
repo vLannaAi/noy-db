@@ -1924,6 +1924,50 @@ export class CargoNotEnabledError extends NoydbError {
   }
 }
 
+// ─── Broker Errors (#479 credential broker) ───────────────
+
+/**
+ * Thrown when `vault.broker()` is called without opting into the broker
+ * capability (the default `NO_BROKER` stub). Opt in with
+ * `brokerStrategy: withBroker(config)` from "@noy-db/hub/broker" in
+ * createNoydb().
+ */
+export class BrokerNotEnabledError extends NoydbError {
+  constructor(
+    message = 'Credential-broker operations require the broker capability. ' +
+      'Pass `brokerStrategy: withBroker(config)` (from "@noy-db/hub/broker") to createNoydb().',
+  ) {
+    super('BROKER_NOT_ENABLED', message)
+    this.name = 'BrokerNotEnabledError'
+  }
+}
+
+/**
+ * Thrown when the `_broker` seed cannot be enrolled with the broker host:
+ * `enroll()`/`rotate()` called on a DEK-only keyring (KEK required to
+ * provision the `_broker` DEK on first use — R-B8/I3), a `/enroll` POST
+ * refused for lacking a valid dev-backend attestation (R-B3), or
+ * `credentialSource()` called on a seed whose `/enroll` never completed
+ * successfully (`registered !== true` — a partial enrol, I9).
+ */
+export class BrokerEnrolmentError extends NoydbError {
+  constructor(message = 'Credential-broker enrolment failed') {
+    super('BROKER_ENROLMENT_ERROR', message)
+    this.name = 'BrokerEnrolmentError'
+  }
+}
+
+/**
+ * Thrown when the broker host rejects a submitted challenge proof (MAC
+ * mismatch, expired `expiresAt`, or a reused/burned challenge — R-B5).
+ */
+export class BrokerProofError extends NoydbError {
+  constructor(message = 'Broker rejected the challenge proof') {
+    super('BROKER_PROOF_ERROR', message)
+    this.name = 'BrokerProofError'
+  }
+}
+
 // ─── Session Errors ───────────────────────────────────────
 
 /**
