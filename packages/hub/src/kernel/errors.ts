@@ -2978,7 +2978,7 @@ export class ClassifiedRotationError extends Error {
 
 /**
  * A satellite-collection declaration or operation violated the refusal
- * matrix (R-S1…R-S9) of the satellite-collections design. The message
+ * matrix (R-S1…R-S10) of the satellite-collections design. The message
  * always names the R-S id.
  */
 export class SatelliteConfigError extends NoydbError {

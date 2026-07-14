@@ -142,6 +142,7 @@ import type { SatelliteRegistry } from '../with-shape/satellites/registry.js'
 import { makeJoinedHandle } from '../with-shape/satellites/joined.js'
 import type { JoinedHandle } from '../with-shape/satellites/types.js'
 import { expandRefsWithSatellites } from '../with-shape/satellites/forget.js'
+import { migrateSatelliteCek } from '../with-shape/satellites/migrate-cek.js'
 import {
   type PeriodRecord,
   type ClosePeriodOptions,
@@ -1228,6 +1229,17 @@ export class Vault {
       spec, base: () => this.collection(spec.base), satellite: () => this.collection(spec.satellite),
       adapter: this.adapter, vaultName: this.name, registry: this.satelliteRegistry!,
     })
+  }
+
+  /**
+   * Migrate an existing satellite's records onto per-record CEKs (#599) —
+   * unblocks R-S7 when a base gains forget coverage after its satellite was
+   * already declared without `perRecordKeys`. Call BEFORE re-declaring with
+   * `{ satelliteOf, perRecordKeys: true }` AND before this collection serves
+   * writes (unfenced walk — see {@link migrateSatelliteCek}); resumable.
+   */
+  async migrateSatellitePerRecordKeys(satelliteName: string): Promise<{ migrated: number }> {
+    return migrateSatelliteCek(satelliteName, this.collection(satelliteName, { perRecordKeys: true }))
   }
 
   /**

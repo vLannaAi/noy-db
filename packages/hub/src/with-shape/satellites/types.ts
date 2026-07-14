@@ -13,6 +13,17 @@ export interface PairingMarker {
   readonly base: string
   readonly fieldsHash: string
   readonly joined?: string | undefined
+  /**
+   * Lifetime epoch (#597) — an opaque, stable-per-collection-lifetime stamp
+   * minted the first time this marker is persisted and carried forward
+   * unchanged by every later re-declare of the SAME collection. Optional:
+   * markers persisted before this field existed have none. Deliberately
+   * excluded from `satelliteMarkersEqual` — see that function's comment.
+   * ADDITIVE ONLY today: there is no delete-collection API, so a stale
+   * marker on a reused name is unreachable; the epoch-MISMATCH rejection
+   * this would enable is a deferred follow-up once name reuse is possible.
+   */
+  readonly epoch?: string
 }
 
 /**

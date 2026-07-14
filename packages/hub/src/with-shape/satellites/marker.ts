@@ -13,7 +13,16 @@ import type { PairingMarker, SatelliteSpec } from './types.js'
 export async function ensureSatelliteMarker(
   store: NoydbStore, vaultName: string, spec: SatelliteSpec, dek: EnclaveKey,
 ): Promise<void> {
-  const next: PairingMarker = { base: spec.base, fieldsHash: hashFields(spec.fields), joined: spec.joined }
+  // #597: `epoch` only matters the first time this marker is ever persisted —
+  // when a `prior` marker already exists below we return without ever using
+  // it, so re-declaring a LIVE collection never mints (or compares) a new
+  // epoch; the persisted one is carried forward untouched. Stamped here as a
+  // timestamp (mirrors `derivedAt` in persisted-schemas/register.ts) rather
+  // than a counter, since there's nothing to count from yet.
+  const next: PairingMarker = {
+    base: spec.base, fieldsHash: hashFields(spec.fields), joined: spec.joined,
+    epoch: new Date().toISOString(),
+  }
   const { loadPersistedSchema } = await import('../persisted-schemas/storage.js')
   const persisted = await loadPersistedSchema(store, vaultName, spec.satellite, dek)
   const prior = persisted?.satellite

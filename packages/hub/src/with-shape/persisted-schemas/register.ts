@@ -192,6 +192,17 @@ export async function persistSatelliteMarker(opts: {
   }
 }
 
+// #597: both equality checks below deliberately do NOT compare `epoch`. A
+// live collection re-opening itself computes a fresh epoch candidate on
+// every declare (marker.ts / config-drift.ts) that must still be treated as
+// "the same marker" so the no-op fast path fires and the already-persisted
+// epoch is left untouched — that's what makes epoch stable across re-opens.
+// Comparing epoch here would break that fast path today, with no
+// corresponding benefit: there is no delete-collection API yet, so a
+// mismatched epoch can't (yet) mean "this name was reused for a genuinely
+// new collection." Wiring an epoch-mismatch REJECTION is a deferred
+// follow-up for whenever collection deletion ships.
+
 function satelliteMarkersEqual(a: PairingMarker, b: PairingMarker): boolean {
   return a.base === b.base && a.fieldsHash === b.fieldsHash && (a.joined ?? null) === (b.joined ?? null)
 }

@@ -13,10 +13,10 @@ describe('SatelliteRegistry', () => {
     expect(r.isPairMember('msgs')).toBe(true)
   })
 
-  it('R-S1(v1): refuses a second satellite on the same base', () => {
+  it('R-S10: refuses a second satellite on the same base', () => {
     const r = new SatelliteRegistry()
     r.register(spec)
-    expect(() => r.register({ base: 'msgs', satellite: 'msgs_att', fields: ['att'] })).toThrowError(/R-S1/)
+    expect(() => r.register({ base: 'msgs', satellite: 'msgs_att', fields: ['att'] })).toThrowError(/R-S10/)
   })
 
   it('R-S3: refuses registering a spec whose satellite name is already registered as a base (order-inverted chain)', () => {
