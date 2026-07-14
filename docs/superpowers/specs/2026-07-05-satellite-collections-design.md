@@ -259,3 +259,18 @@ detail discovered while building the rule it implements.
   precludes a lazy (async-import) spine for the core machinery. True lazy-loading of the
   proxy/fan-out engines behind the declaration seam remains a possible future optimization
   (shared with the #553 lazy-import debt the money/computed/classified ③ siblings already carry).
+
+- **The persisted pairing marker gains a `epoch` field, additive-only (#597, 2026-07-14).** The
+  marker is keyed purely by collection name (`_schemas/<name>`), with no tie to a collection's
+  *lifetime* — since noy-db has no delete-collection API today, this is latent, not reachable, but
+  worth closing before it becomes a footgun. `PairingMarker.epoch` (`with-shape/satellites/types.ts`)
+  and its classified twin `ClassifiedMarker.epoch` (`kernel/types.ts`) are an optional ISO-8601
+  timestamp minted the first time a marker is ever persisted for a given collection name, and
+  carried forward unchanged on every later re-declare of the SAME collection (`marker.ts`'s
+  `ensureSatelliteMarker` only mints a candidate epoch for the branch where no prior marker exists;
+  `satelliteMarkersEqual`/the classified `markersEqual` in `with-shape/persisted-schemas/register.ts`
+  deliberately exclude `epoch` from equality, so a live collection re-declaring itself still hits the
+  existing "same marker, no-op" fast path and never overwrites the persisted epoch). **The
+  epoch-MISMATCH REJECTION itself is deferred** — there is nothing to reject against yet, since a
+  name can't currently be freed and reused. Wiring that check is a follow-up for whenever a
+  delete-collection API ships.

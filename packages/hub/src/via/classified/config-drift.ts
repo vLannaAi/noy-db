@@ -21,11 +21,21 @@
  */
 import type { NoydbStore, VdigFieldPolicy, ClassifiedMarker } from '../../kernel/types.js'
 
-/** Build the marker for a handle's digest-only field map, or null when it declares none. */
+/**
+ * Build the marker for a handle's digest-only field map, or null when it
+ * declares none. `epoch` (#597) is stamped fresh on every call, but only
+ * ever lands in storage on a genuine first-write or a real reconfiguration —
+ * `persistClassifiedMarker`'s equality check (register.ts) ignores epoch, so
+ * an identical re-declare's freshly-stamped value is discarded as a no-op
+ * and the already-persisted epoch is left untouched (stable per lifetime).
+ */
 function markerForFields(vdigFields: ReadonlyMap<string, VdigFieldPolicy> | null): ClassifiedMarker | null {
   if (vdigFields === null || vdigFields.size === 0) return null
   const digestOnly = [...vdigFields.keys()]
-  return { digestOnly, equatable: digestOnly.filter((f) => vdigFields.get(f)?.equatable === true) }
+  return {
+    digestOnly, equatable: digestOnly.filter((f) => vdigFields.get(f)?.equatable === true),
+    epoch: new Date().toISOString(),
+  }
 }
 
 /**
