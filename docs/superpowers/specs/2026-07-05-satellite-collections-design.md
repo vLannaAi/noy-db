@@ -101,6 +101,7 @@ Each satellite **is a normal collection** for writes, indexing, and storage — 
 | R-S7 | a satellite declared on a base covered by `forgetStrategy.subjects` without `perRecordKeys`; **and** adding forget coverage over a base whose existing satellite lacks `perRecordKeys`, until an explicit satellite CEK migration has run | declaration / `withForgetCascade` config time | `SatelliteConfigError` — loud refusal, never silent auto-enable of a key mode |
 | R-S8 | `crdtMode` on either member of a satellite pair (v1 — revert cannot compensate a merge; § CRDT) | declaration | `SatelliteConfigError` |
 | R-S9 | a declaration whose (`satelliteOf`, `fields` hash, `joined`) mismatches the persisted pairing marker in `_schemas` (config drift across app versions) | declaration / marker reconcile | `SatelliteConfigError` — evolve the marker deliberately, don't redeclare divergently |
+| R-S10 | a base already has a registered satellite — v1 scope limit, not a routing-ambiguity rule (contrast R-S1); retires when the N-satellites-per-base extension lifts the one-satellite-per-base limit | declaration (registry) | `SatelliteConfigError` |
 
 ## Integration with existing primitives
 
@@ -148,7 +149,7 @@ Filed (blocking-adjacent, not owned by this feature):
 
 Future satellite improvements (analysis preserved from the 2026-07-07 audit; file as issues when scheduled):
 
-- **N satellites per base.** Pairwise-disjoint `fields` lists (R-S1 generalizes), joined handle merges base ⊕ *all* satellites, `joined` declarable by at most one satellite of a base, marker becomes a list. Explicitly a versioned extension of the joined-merge contract — do not slip it in.
+- **N satellites per base.** Pairwise-disjoint `fields` lists (R-S1 generalizes), joined handle merges base ⊕ *all* satellites, `joined` declarable by at most one satellite of a base, marker becomes a list (retires R-S10, the v1 one-satellite-per-base scope guard). Explicitly a versioned extension of the joined-merge contract — do not slip it in.
 - **CRDT pair members (lift R-S8).** Requires roll-forward-only fan-out semantics (never revert a CRDT leg — the correct compensation for a merge is another merge) and a serialization story that does not depend on the write-queue seams CRDT writes bypass (`collection.ts:1600` TODO).
 - **Pair-aware conflict resolution.** Upgrade from v1's documented field-group granularity to a resolver hook that sees both envelopes of a pair as one logical record; requires sync-engine pair awareness (resolvers are keyed per collection today, `sync.ts:43,90`).
 - **Resumable encrypted backfill ("split an existing collection").** Per-record relocation of `fields` out of live base envelopes under the `hub/migrations` reserved slot; must define merge precedence for the transition window (old-field-in-base vs satellite) and be crash-resumable. Unblocks the advisor's recommendation for existing data.
@@ -193,7 +194,7 @@ Forget:
 - Post-forget, a late-arriving satellite put for the tombstoned base id is unreachable through every enumerated surface (observational containment; resurrection *prevention* vectors are parked on #590).
 
 Refusals & config:
-- R-S1 (base-overlap cross-check), R-S3 (satellite-of-satellite), R-S5 (missing/empty/id-bearing `fields`, `joined` collision, cross-check contradiction), R-S6 (orphan put), R-S7 (both clauses: declaration and retro-coverage-without-migration), R-S8 (`crdtMode` on either member), R-S9 (re-declaration mismatching the persisted pairing marker).
+- R-S1 (base-overlap cross-check), R-S3 (satellite-of-satellite), R-S5 (missing/empty/id-bearing `fields`, `joined` collision, cross-check contradiction), R-S6 (orphan put), R-S7 (both clauses: declaration and retro-coverage-without-migration), R-S8 (`crdtMode` on either member), R-S9 (re-declaration mismatching the persisted pairing marker), R-S10 (v1 one-satellite-per-base scope limit).
 - The pairing marker persists to `_schemas` on first declaration; a second client with a divergent `fields` list is refused (R-S9) rather than silently splitting records differently.
 
 Conflict granularity (documented behavior, asserted as such):

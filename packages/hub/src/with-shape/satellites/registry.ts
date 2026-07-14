@@ -10,7 +10,7 @@ export class SatelliteRegistry {
 
   register(spec: SatelliteSpec): void {
     if (this.byBase.has(spec.base)) {
-      throw new SatelliteConfigError(`R-S1: base "${spec.base}" already has satellite "${this.byBase.get(spec.base)!.satellite}" — v1 allows exactly one satellite per base.`)
+      throw new SatelliteConfigError(`R-S10: base "${spec.base}" already has satellite "${this.byBase.get(spec.base)!.satellite}" — v1 allows exactly one satellite per base.`)
     }
     // R-S3, order-inverted direction: `spec.satellite` was already declared as
     // a BASE (some other satellite is satelliteOf it) — registering it as a
