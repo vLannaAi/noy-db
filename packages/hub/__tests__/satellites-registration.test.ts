@@ -100,7 +100,7 @@ describe('satellite declaration wiring (#591)', () => {
     vault.collection<Msg>('msgs', { schema: z.object({ subject: z.string(), from: z.string() }) })
     vault.collection<Msg>('msgs_text', { satelliteOf: 'msgs', fields: ['subject', 'body'] })
     await vi.waitFor(async () => {
-      await expect(vault.collection<Msg>('msgs_text').put('x', { subject: 's' })).rejects.toThrowError(/R-S1/)
+      await expect(vault.collection<Msg>('msgs_text').put('x', { subject: 's' })).rejects.toThrowError(/R-S1:/)
     })
   })
 

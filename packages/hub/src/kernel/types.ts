@@ -264,13 +264,19 @@ export interface ClassifiedMarker {
    * Lifetime epoch (#597) — same shape/intent as `PairingMarker.epoch`
    * (`with-shape/satellites/types.ts`): an opaque, stable-per-collection-
    * lifetime stamp minted the first time this marker is persisted and
-   * carried forward unchanged by every later re-persist for the SAME
-   * collection. Optional: markers persisted before this field existed have
-   * none. Deliberately excluded from the classified-marker equality check in
+   * carried forward unchanged by an IDENTICAL re-persist for the SAME
+   * collection (the equality fast path). NOTE: unlike `PairingMarker` (whose
+   * R-S9 refuses divergent redeclares), a classified marker IS rewritten
+   * wholesale on a genuine reconfiguration (changed digestOnly/equatable
+   * set) — so the epoch re-stamps to the fresh value then (see
+   * `config-drift.ts`'s `markerForFields`). Optional: markers persisted
+   * before this field existed have none. Deliberately excluded from the
+   * classified-marker equality check in
    * `with-shape/persisted-schemas/register.ts`. ADDITIVE ONLY today: no
    * delete-collection API exists yet, so a stale marker on a reused name is
    * unreachable; the epoch-MISMATCH rejection this would enable is a
-   * deferred follow-up once name reuse is possible.
+   * deferred follow-up once name reuse is possible — whoever wires it must
+   * first make reconfiguration carry the prior epoch forward.
    */
   readonly epoch?: string
 }
