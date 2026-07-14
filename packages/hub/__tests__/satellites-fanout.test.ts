@@ -148,6 +148,24 @@ describe('joined fan-out', () => {
     expect(changes.last('msgs')).toMatchObject({ id: 'x', action: 'delete' })
   })
 
+  it('#596: a satellite leg whose write THROWS must not drop a PRE-EXISTING dirty entry for the same id', async () => {
+    const { vault, spy, dirtyLog, deps } = await openPair()
+    // A legitimate, unsynced direct write to msgs_text/x — NOT part of the
+    // fan-out about to fail. This is the dirty entry the bug drops.
+    await vault.collection<Msg>('msgs').put('x', { from: 'a' })
+    await vault.collection<Msg>('msgs_text').put('x', { subject: 's0', body: 'B0' })
+    expect(dirtyLog.entriesFor('msgs_text', 'x')).toHaveLength(1)
+
+    spy.failNextPutFor('msgs_text')
+    await expect(joinedPut(deps(), 'x', { from: 'a2', subject: 's2', body: 'B2' })).rejects.toThrow()
+
+    // The satellite leg's put never landed (it threw), so it must not be
+    // treated as a write that needs dirty-compensation on revert — the
+    // pre-existing legitimate dirty entry must survive.
+    expect(dirtyLog.entriesFor('msgs_text', 'x')).toHaveLength(1)
+    expect((await vault.collection<Msg>('msgs_text').get('x'))?.body).toBe('B0') // unchanged
+  })
+
   it('pair delete removes the satellite leg first; failure reverts', async () => {
     const { vault, spy, changes, deps } = await openPair()
     await joinedPut(deps(), 'x', { from: 'a', body: 'B' })

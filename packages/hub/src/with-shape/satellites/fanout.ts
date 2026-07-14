@@ -52,6 +52,16 @@ interface Leg {
   readonly id: string
   readonly prior: EncryptedEnvelope | null
   readonly handle: CollectionHandle
+  /**
+   * True once this leg's `put`/`delete` actually completed (#596). A leg is
+   * snapshotted (for the raw-envelope revert) BEFORE its write is attempted,
+   * so a leg whose write THROWS is still in `executed` with `wrote: false` —
+   * its envelope-revert is a harmless no-op (nothing changed), but it must
+   * NOT be dirty-compensated: `_compensateRevertedWrite` → `removeDirty`
+   * keys only on (collection, id) and would otherwise drop a pre-existing,
+   * unrelated dirty entry for the same id.
+   */
+  wrote: boolean
 }
 
 /** Best-effort revert of every executed leg, in reverse order, then per-leg compensation. */
@@ -60,7 +70,8 @@ async function revertAndCompensate(deps: FanoutDeps, executed: readonly Leg[]): 
     try {
       if (leg.prior !== null) await deps.adapter.put(deps.vaultName, leg.coll, leg.id, leg.prior)
       else await deps.adapter.delete(deps.vaultName, leg.coll, leg.id)
-      await leg.handle._compensateRevertedWrite(leg.id)
+      // #596: only a leg whose write actually landed needs dirty-compensation.
+      if (leg.wrote) await leg.handle._compensateRevertedWrite(leg.id)
     } catch {
       // best-effort, matches `revertExecuted` semantics (with-commit/tx/transaction.ts:632) —
       // surfacing a revert-path failure would mask the original error that triggered the rollback.
@@ -84,8 +95,10 @@ export async function joinedPut(deps: FanoutDeps, id: string, record: Record<str
   return deps.registry.withPairLock(deps.spec.base, async () => {
     const executed: Leg[] = []
     const run = async (handle: CollectionHandle, coll: string, rec: Record<string, unknown>): Promise<void> => {
-      executed.push({ coll, id, prior: await deps.adapter.get(deps.vaultName, coll, id), handle })
+      const leg: Leg = { coll, id, prior: await deps.adapter.get(deps.vaultName, coll, id), handle, wrote: false }
+      executed.push(leg)
       await handle.put(id, rec)
+      leg.wrote = true // #596: only mark dirty-compensation-eligible once the write lands
     }
     try {
       await run(base, deps.spec.base, baseRec)          // base leg FIRST (convergence rule 3)
@@ -104,8 +117,10 @@ export async function pairDelete(deps: FanoutDeps, id: string): Promise<void> {
   return deps.registry.withPairLock(deps.spec.base, async () => {
     const executed: Leg[] = []
     const run = async (handle: CollectionHandle, coll: string): Promise<void> => {
-      executed.push({ coll, id, prior: await deps.adapter.get(deps.vaultName, coll, id), handle })
+      const leg: Leg = { coll, id, prior: await deps.adapter.get(deps.vaultName, coll, id), handle, wrote: false }
+      executed.push(leg)
       await handle.delete(id)
+      leg.wrote = true // #596: only mark dirty-compensation-eligible once the delete lands
     }
     try {
       await run(satellite, deps.spec.satellite)         // satellite leg FIRST (convergence rule 3)
