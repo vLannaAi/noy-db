@@ -207,11 +207,22 @@ describe('lazy-mode money index-key canonicalization + probe (#677)', () => {
       expect(preHit.map((r) => r.id)).toEqual(['legacy']) // pins the ingest-side canonicalization this test depends on
       await col.put('legacy', { id: 'legacy', amount: 2 }) // update through the money write path
 
+      // Fence the upsert remove-old canonicalize site directly (#677 review F1):
+      // `.toArray()` alone can't see a stranded bucket — the #684 post-filter
+      // rejects the stale decoded record either way — so spy on what the index
+      // makes the query FETCH. A canonicalized remove-old empties bucket '1', so
+      // the old-value query fetches nothing; a stranded 'legacy' would be looked
+      // up and fetched (then post-filter-rejected), leaking through here.
+      const getSpy = vi.spyOn(col, 'get')
       const oldHit = await col.lazyQuery().where('amount', '==', '1').toArray()
+      const oldHitFetched = getSpy.mock.calls.map((c) => c[0])
+      getSpy.mockClear()
       const newHit = await col.lazyQuery().where('amount', '==', '2').toArray()
+      getSpy.mockRestore()
       db.close()
 
       expect(oldHit.map((r) => r.id)).toEqual([]) // must NOT still return the stale-bucket 'legacy' id
+      expect(oldHitFetched).not.toContain('legacy') // and must NOT linger in the old '1' bucket
       expect(newHit.map((r) => r.id)).toEqual(['legacy'])
     })
 

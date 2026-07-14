@@ -103,10 +103,13 @@ index-accelerated fast path for `where(field, '==', ...)` and `where(field, 'in'
 **fixed mode only** — `ViaBinding.indexProbe` hands the query builder the exact STORED-form
 scaled-integer digit string (the same one `quantizeMoneyFields` writes), so the index bucket
 lookup (`CollectionIndexes.lookupEqual`/`lookupIn`) hits directly instead of falling back to a
-full scan. Multi-currency (`currencies:`) fields always scan in both modes — there is no single
+full scan. Multi-currency (`currencies:`) fields always scan in **eager** mode — there is no single
 stored-form value a hash index can serve for a `{ amount, currency }` shape
 (`packages/hub/__tests__/money/where-comparison.test.ts`, "indexed fast path agrees with the scan"
-describe block, spy-proven against `lookupEqual`/`lookupIn`). Range/`between` always scan in EAGER
+describe block, spy-proven against `lookupEqual`/`lookupIn`). On **lazy** mode there is no scan
+fallback: a multi-currency clause dispatches raw through `lookupEqual`/`lookupIn` (the `{ amount,
+currency }` object buckets under `\0OBJECT\0`), so end-to-end correctness there is bounded by the
+same `LazyQuery` Via-awareness gap as fixed-mode — tracked in #684. Range/`between` always scan in EAGER
 mode (no range probe is ever emitted); LAZY mode's range behavior is different — see below.
 
 **Mixed-era data (#672).** A record whose stored value predates the field's `money()`
