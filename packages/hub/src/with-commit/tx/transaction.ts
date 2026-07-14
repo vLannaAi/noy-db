@@ -72,6 +72,7 @@ import type { GuardExecutor as GuardExecutorModule } from '../../with-audit/guar
 import type { LedgerEntry } from '../history/ledger/entry.js'
 import type { TransactionInvariant } from './invariants.js'
 import type { GuardChange, GuardContext, ReadOnlyVaultFacade } from '../../with-audit/guards/types.js'
+import { bestEffortRevert } from '../../kernel/best-effort-revert.js'
 
 /** One op buffered inside a running `TxContext`. @internal */
 export interface StagedOp {
@@ -602,6 +603,11 @@ export async function runTransaction<T>(
  * state can still reconstruct it by walking the ledger through the
  * failed-tx timestamp.
  *
+ * Delegates the reverse/best-effort/raw-revert shape to the shared
+ * `bestEffortRevert` helper (`kernel/best-effort-revert.ts`); the cache
+ * invalidation below rides along as that helper's per-leg `compensate`
+ * callback, gated on `db` exactly as before.
+ *
  * @internal — shared between `runTransaction` and
  * `Collection.putManyAtomic`. Both register source ops + nested
  * derivation side-effect ops onto `_executed`; this helper unwinds the
@@ -612,28 +618,28 @@ export async function revertExecuted(
   store: Noydb['_store'],
   db?: Noydb,
 ): Promise<void> {
-  for (const { op, priorEnvelope } of executed.slice().reverse()) {
-    try {
-      if (priorEnvelope) {
-        await store.put(op.vaultName, op.collectionName, op.id, priorEnvelope)
-      } else {
-        await store.delete(op.vaultName, op.collectionName, op.id)
-      }
-      // Sync the Collection-layer cache with what we just wrote at
-      // the raw store. Without this, eager-mode `get` would still
-      // return the rolled-back record from its in-memory map. The
-      // Collection's `_invalidateCacheEntry` is a no-op when the
-      // collection hasn't yet been hydrated.
-      if (db) {
-        const coll = db.vault(op.vaultName).collection(op.collectionName)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (coll as any)._invalidateCacheEntry(op.id)
-      }
-    } catch {
-      // swallow — best-effort. Surfacing the revert error would mask
-      // the original one that triggered the rollback.
-    }
-  }
+  const legs = executed.map(({ op, priorEnvelope }) => ({
+    vaultName: op.vaultName,
+    collectionName: op.collectionName,
+    id: op.id,
+    prior: priorEnvelope,
+  }))
+  await bestEffortRevert(
+    legs,
+    store,
+    db
+      ? async (leg) => {
+          // Sync the Collection-layer cache with what we just wrote at
+          // the raw store. Without this, eager-mode `get` would still
+          // return the rolled-back record from its in-memory map. The
+          // Collection's `_invalidateCacheEntry` is a no-op when the
+          // collection hasn't yet been hydrated.
+          const coll = db.vault(leg.vaultName).collection(leg.collectionName)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (coll as any)._invalidateCacheEntry(leg.id)
+        }
+      : undefined,
+  )
 }
 
 function keyOf(op: StagedOp): string {
