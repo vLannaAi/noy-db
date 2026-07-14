@@ -277,7 +277,13 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   const now = new Date().toISOString()
   const body = await rewrapBodyToDek(envelope, fromDek, toDek)
   if (body.cek) ctx.cekCache?.set(id, body.cek, 1)
+  // #662: spread every slot the source carries (_sealed/_det/_vdig/_bidx/
+  // _source/_sourceTs/_debug) through UNCHANGED, then override only
+  // the fields a tier move manages. rewrapBodyToDek preserves the CEK, so no
+  // passenger slot is re-keyed by the move. The old field-literal dropped every
+  // unlisted slot.
   const next: EncryptedEnvelope = {
+    ...envelope,
     _noydb: NOYDB_FORMAT_VERSION,
     _v: envelope._v + 1,
     _ts: now,
@@ -333,14 +339,20 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
   const now = new Date().toISOString()
   const body = await rewrapBodyToDek(envelope, fromDek, toDek)
   if (body.cek) ctx.cekCache?.set(id, body.cek, 1)
+  // #662: same passenger carry-through as elevate(). demote additionally CLEARS
+  // `_elevatedBy` (the demote right is consumed) and OMITS `_tier` at tier 0, so
+  // both are destructured out of the spread rather than carried.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- excluded from ...carried
+  const { _elevatedBy, _tier: _priorTier, ...carried } = envelope
   const next: EncryptedEnvelope = {
+    ...carried,
     _noydb: NOYDB_FORMAT_VERSION,
     _v: envelope._v + 1,
     _ts: now,
     _iv: body._iv,
     _data: body._data,
     _by: ctx.keyring.userId,
-    ...(toTier > 0 && { _tier: toTier }),
+    ...(toTier > 0 ? { _tier: toTier } : {}),
     ...(body._cek !== undefined ? { _cek: body._cek } : {}),
   }
   await ctx.adapter.put(ctx.vault, ctx.name, id, next)

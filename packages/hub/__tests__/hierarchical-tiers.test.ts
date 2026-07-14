@@ -300,6 +300,74 @@ describe('v0.18 hierarchical access', () => {
     })
   })
 
+  describe('elevate/demote preserve every envelope slot on a tier move (#662)', () => {
+    it('elevate carries _sealed forward', async () => {
+      const { db, vault } = await freshVault()
+      const docs = vault.collection<Doc>('docs', { tiers: [0, 1], sensitive: ['body'] })
+      await docs.put('d1', { id: 'd1', title: 'Top', body: 'classified payload' })
+
+      const store = (db as unknown as { options: { store: NoydbStore } }).options.store
+      const tier0Env = (await store.get('v1', 'docs', 'd1'))!
+      const sealed0 = tier0Env._sealed!.body
+      expect(sealed0).toBeDefined()
+
+      await docs.elevate('d1', 1)
+
+      const tier1Env = (await store.get('v1', 'docs', 'd1'))!
+      expect(tier1Env._tier).toBe(1)
+      // Pre-fix: the field-literal rebuild dropped `_sealed` entirely.
+      expect(tier1Env._sealed?.body).toBe(sealed0)
+
+      const out = await docs.getAtTier('d1') as Doc
+      expect(out.body).toBe('classified payload')
+    })
+
+    it('demote round-trips _sealed', async () => {
+      const { db, vault } = await freshVault()
+      const docs = vault.collection<Doc>('docs', { tiers: [0, 1], sensitive: ['body'] })
+      await docs.put('d1', { id: 'd1', title: 'Top', body: 'classified payload' })
+
+      const store = (db as unknown as { options: { store: NoydbStore } }).options.store
+      const tier0Env = (await store.get('v1', 'docs', 'd1'))!
+      const sealed0 = tier0Env._sealed!.body
+
+      await docs.elevate('d1', 1)
+      await docs.demote('d1', 0)
+
+      const tier0EnvAfter = (await store.get('v1', 'docs', 'd1'))!
+      expect(tier0EnvAfter._tier).toBeUndefined()
+      expect(tier0EnvAfter._elevatedBy).toBeUndefined()
+      // Pre-fix: the field-literal rebuild dropped `_sealed` entirely.
+      expect(tier0EnvAfter._sealed?.body).toBe(sealed0)
+
+      const out = await docs.getAtTier('d1') as Doc
+      expect(out.body).toBe('classified payload')
+    })
+
+    it('a sibling passenger slot (_source/_sourceTs) also survives elevate', async () => {
+      // `_det` (deterministicFields) needs an extra `acknowledgeDeterministicRisk:
+      // true` opt-in; provenance's `_source`/`_sourceTs` needs only
+      // `{ provenance: true }` plus a `source` option on `put()`, so it's the
+      // simplest sibling slot to exercise here.
+      const { db, vault } = await freshVault()
+      const docs = vault.collection<Doc>('docs', { tiers: [0, 1], provenance: true })
+      await docs.put('d1', { id: 'd1', title: 'Top', body: 'b' }, { source: 'registry-A' })
+
+      const store = (db as unknown as { options: { store: NoydbStore } }).options.store
+      const tier0Env = (await store.get('v1', 'docs', 'd1'))!
+      expect(tier0Env._source).toBe('registry-A')
+      const sourceTs0 = tier0Env._sourceTs
+
+      await docs.elevate('d1', 1)
+
+      const tier1Env = (await store.get('v1', 'docs', 'd1'))!
+      expect(tier1Env._tier).toBe(1)
+      // Pre-fix: the field-literal rebuild dropped `_source`/`_sourceTs` entirely.
+      expect(tier1Env._source).toBe('registry-A')
+      expect(tier1Env._sourceTs).toBe(sourceTs0)
+    })
+  })
+
   it('tiers disabled by default throws on putAtTier', async () => {
     const { vault } = await freshVault()
     const docs = vault.collection<Doc>('docs')
