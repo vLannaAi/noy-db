@@ -487,8 +487,11 @@ STORED-form operand for a direct index bucket lookup on `==`/`in`, restoring the
 originally lost for money fields (multi-currency money and every other operator still scan — there
 is no single stored-form value a hash index can serve for those). The initial mixed-era caveat for
 pre-money-declaration legacy data was closed for eager-mode collections by #672's index-key
-canonicalizer (documented on the money page); a lazy-mode (`prefetch: false`) boundary remains,
-tracked separately.
+canonicalizer, and for lazy-mode (`prefetch: false`) collections by #677's matching
+`PersistedCollectionIndex` bucket + probe canonicalizer (documented on the money page). A
+separate lazy-mode boundary remains: `LazyQuery.where()` doesn't build a `clause.via`, so
+end-to-end lazy money `==`/`in` queries at `scale > 0` still return an empty `.toArray()` —
+tracked in #684.
 
 ## See also
 

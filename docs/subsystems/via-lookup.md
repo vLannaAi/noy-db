@@ -281,6 +281,19 @@ rule the #664 collision guard already enforces upstream) plus a rebuilt `getDict
 `packages/hub/__tests__/via/graph.test.ts` (item 5). A late-attach consumer no longer needs to
 fall back to declaring these fields at fresh construction instead.
 
+**Follow-up latent hazard in the item 5 fix (#678).** The item 5 filter (`kind !== 'ref'`)
+originally read that `kind` back off the TARGET's `_in` entry — its CURRENT, possibly-overwritten
+registration — instead of the specific `_out` edge's own kind at registration time. A dual-role
+target registered computed-then-ref (#631's exempt composition order) has its `_in` entry's
+`kind` overwritten from `'computed'` to `'ref'` by the second `registerDerived` call, so the
+filter wrongly excluded that target's genuine computed edge from the cycle-detection DFS — hiding
+a real derivation cycle running through it. Fixed: `_out` edges now carry their own `kind` at
+registration (`ViaGraph`'s `OutEdge`), and both `assertAcyclic`'s `notRefEdge` filter and
+`referencingEdgesOf` read `kind` edge-local instead of re-derefing `_in`. Latent in production
+today — `assertAcyclic()` runs once at `openVault()`, strictly before any `vault.collection()`
+call populates `_in`/`_out` — this is a regression guard for a future reachable path, not an
+observed failure. See `packages/hub/__tests__/via/graph.test.ts`'s "dual-role target" test.
+
 ## Presentation — `<field>Label`, in reads and in joins
 
 Reading with a locale resolves `<field>Label` on the SAME record (direct `present()`, works for

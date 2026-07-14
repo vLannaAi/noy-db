@@ -103,10 +103,14 @@ index-accelerated fast path for `where(field, '==', ...)` and `where(field, 'in'
 **fixed mode only** — `ViaBinding.indexProbe` hands the query builder the exact STORED-form
 scaled-integer digit string (the same one `quantizeMoneyFields` writes), so the index bucket
 lookup (`CollectionIndexes.lookupEqual`/`lookupIn`) hits directly instead of falling back to a
-full scan. Multi-currency (`currencies:`) fields and every operator besides `==`/`in`
-(`between`, range comparisons) always scan — there is no single stored-form value a hash index
-can serve for those (`packages/hub/__tests__/money/where-comparison.test.ts`, "indexed fast path
-agrees with the scan" describe block, spy-proven against `lookupEqual`/`lookupIn`).
+full scan. Multi-currency (`currencies:`) fields always scan in **eager** mode — there is no single
+stored-form value a hash index can serve for a `{ amount, currency }` shape
+(`packages/hub/__tests__/money/where-comparison.test.ts`, "indexed fast path agrees with the scan"
+describe block, spy-proven against `lookupEqual`/`lookupIn`). On **lazy** mode there is no scan
+fallback: a multi-currency clause dispatches raw through `lookupEqual`/`lookupIn` (the `{ amount,
+currency }` object buckets under `\0OBJECT\0`), so end-to-end correctness there is bounded by the
+same `LazyQuery` Via-awareness gap as fixed-mode — tracked in #684. Range/`between` always scan in EAGER
+mode (no range probe is ever emitted); LAZY mode's range behavior is different — see below.
 
 **Mixed-era data (#672).** A record whose stored value predates the field's `money()`
 declaration, or otherwise bypassed the money write path, may hold a non-canonical scaled string
@@ -120,10 +124,39 @@ and `delete()` (remove) — so updating or deleting a legacy record cleans up it
 correctly instead of stranding the id there (a gap the initial #672 fix left open, closed in
 review).
 
-**Boundary: eager mode only.** Lazy-mode collections (`prefetch: false`) keep their own durable
-`PersistedCollectionIndex` side-cars, which bucket by the raw stored value and do not consult
-money canonicalization. A lazy-mode collection with mixed-era money data can still see its fast
-path diverge from a forced scan; that gap is tracked separately, not fixed here.
+**Lazy mode (#677).** Lazy-mode collections (`prefetch: false`) keep their own durable
+`PersistedCollectionIndex` side-cars — a separate implementation from the eager
+`CollectionIndexes`, but now with the SAME canonicalization guarantee. Every bucket-mutation site
+(`ingest` bulk-load from side-cars, `upsert`, `remove`) consults the same registered
+`ViaPipeline.canonicalizeIndexKey`, and the lazy query planner (`lazy-builder.ts`'s
+`resolveCandidateIds()`) canonicalizes an `==`/`in` probe value before calling
+`lookupEqual`/`lookupIn` — mirroring the eager path's `candidateRecords()` resolving
+`clause.via.indexValue` before its own lookup. A legacy non-canonical record and a canonical one
+now land in, and are found via, the same bucket on the lazy fast path too. Range/`between` do
+**not** behave the same across modes: eager mode's `moneyIndexProbe` never emits a range probe, so
+`candidateRecords()` never calls an index for a money range clause and always scans. Lazy mode's
+`resolveCandidateIds()` dispatches EVERY range clause — including money fields — through
+`PersistedCollectionIndex.lookupRange` unconditionally, with **no scan fallback**; the comparison
+is on the raw, uncanonicalized typed value, so a money field's lazy-mode range correctness (e.g.
+mixed-era or non-canonical stored values) is a live, pre-existing gap, tracked in #684.
+Because a lazy-mode legacy record predating the field's `indexes: [...]` declaration has no
+`_idx/<field>/*` side-car at all until backfilled, `reconcileOnOpen: 'auto'` (or an explicit
+`collection.reconcileIndex()`/`rebuildIndexes()` call) is required for such a record to become
+visible to the fast path.
+
+**Residual boundary, not fixed by #677 — tracked in #684.** `LazyQuery`'s post-filter
+(`lazy-builder.ts`'s `matchesAll`) re-evaluates every clause — including the index-driving one —
+against the DECODED record (`getRecord()` runs `via.present()`), via the generic (non-Via-aware)
+`evaluateClause`, because `LazyQuery.where()` never builds a `clause.via` the way
+`Query.where()`/`ScanBuilder.where()` do. At `scale: 0` this doesn't surface (decode is an
+identity transform). At `scale > 0` it does, and it is NOT merely a "pass the stored form"
+workaround: even a query value spelled correctly in the field's STORED (canonical scaled-int)
+form reaches the right candidate ids via the index, but the post-filter then compares that same
+raw value against the DECODED record (e.g. `'100'` vs `'1.00'`) and rejects every match. **The
+practical result: `lazyQuery().where(moneyField, ...).toArray()` returns an empty array
+end-to-end for any money field with `scale > 0`, regardless of how the query value is spelled.**
+Only the index layer itself (bucket + probe canonicalization, #677) is fixed today; full parity
+with `scan().where()` (Via-aware post-filtering, major-unit quantization) is tracked in #684.
 
 ## See also
 

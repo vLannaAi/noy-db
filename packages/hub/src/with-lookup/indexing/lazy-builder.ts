@@ -41,6 +41,18 @@ export interface LazyOrderBy {
 export interface LazyQuerySource<T> {
   readonly collectionName: string
   readonly persistedIndexes: PersistedCollectionIndex
+  /**
+   * Per-field bucket-key canonicalizer (#677 — lazy twin of the eager
+   * `candidateRecords()` probe-resolution in `kernel/query/builder.ts`).
+   * Consulted in `resolveCandidateIds()` for `==`/`in` clause values
+   * BEFORE calling `lookupEqual`/`lookupIn`, so a mixed-era stored value
+   * (money) probes the SAME canonical bucket the write path now
+   * populates. A narrow closure — not the whole `ViaPipeline` — keeps
+   * the with-lookup/kernel seam thin. `undefined` (no via, or no binding
+   * covers the field) is the common case: falls back to the raw value,
+   * unchanged from today.
+   */
+  canonicalizeIndexKey?(field: string, value: unknown): string | undefined
   /** Ensure `_idx/<field>/*` side-cars have been bulk-loaded into the mirror. */
   ensurePersistedIndexesLoaded(): Promise<void>
   /** Decrypt one record by id, or return null if it's gone. */
@@ -180,15 +192,29 @@ export class LazyQuery<T, S extends keyof T = never, Q extends keyof T & string 
 
     for (const clause of this.plan.clauses) {
       if (clause.op === '==') {
-        const ids = idx.lookupEqual(clause.field, clause.value)
+        // #677: canonicalize the probe value BEFORE the lookup — same
+        // "resolve before lookupEqual" shape as eager's `candidateRecords()`
+        // (which resolves `clause.via.indexValue` first), but through the
+        // narrower `canonicalizeIndexKey` seam: lazy mode never quantizes
+        // major units, so the caller must already pass the field's STORED
+        // form. `undefined` (no via coverage) falls back to the raw clause
+        // value, unchanged from today.
+        const probe = this.source.canonicalizeIndexKey?.(clause.field, clause.value) ?? clause.value
+        const ids = idx.lookupEqual(clause.field, probe)
         if (ids) return [...ids]
       } else if (clause.op === 'in' && Array.isArray(clause.value)) {
-        const ids = idx.lookupIn(clause.field, clause.value as readonly unknown[])
+        const probes = clause.value.map(v => this.source.canonicalizeIndexKey?.(clause.field, v) ?? v)
+        const ids = idx.lookupIn(clause.field, probes)
         if (ids) return [...ids]
       } else if (isRangeOp(clause.op)) {
-        // range predicates on an indexed field dispatch
+        // range predicates on an indexed field dispatch unconditionally
         // through `lookupRange`, which compares on the original typed
-        // value (no numeric-lexicographic landmines).
+        // value (no numeric-lexicographic landmines). NOT canonicalized
+        // (#677) — unlike eager mode, where `moneyIndexProbe` never emits
+        // a range probe so a money range clause always scans, THIS path
+        // has no scan fallback: a money field's raw/uncanonicalized typed
+        // comparison here is a live, pre-existing correctness gap, tracked
+        // in #684.
         const ids = idx.lookupRange(clause.field, clause.op, clause.value)
         if (ids) return [...ids]
       }

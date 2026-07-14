@@ -269,8 +269,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /**
    * In-memory unique-constraint enforcement for eager mode.
-   * `null` when no `unique:true` indexes are declared on this collection,
-   * or when the collection is in lazy mode (which throws at registration).
+   * `null` when no `unique:true` indexes are declared on this collection, or when the collection is in lazy mode (which throws at registration).
    */
   private readonly uniqueConstraints: UniqueConstraintSet | null
 
@@ -294,8 +293,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
-   * Accessor for the persisted-mirror (lazy-mode) index. Returns `null`
-   * when indexing is disabled or the collection is in eager mode.
+   * Accessor for the persisted-mirror (lazy-mode) index. Returns `null` when indexing is disabled or the collection is in eager mode.
    */
   private get persistedIndexes(): PersistedCollectionIndex | null {
     return this.indexState.getPersistedIndexes()
@@ -865,6 +863,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       lazy: this.lazy,
     })
     this.indexes?.setCanonicalizer((f, v) => this.via?.canonicalizeIndexKey(f, v)) // #672 review C1: one-time canonicalizer registration; lazy `this.via` read survives late `_setVia` (#666)
+    this.persistedIndexes?.setCanonicalizer((f, v) => this.via?.canonicalizeIndexKey(f, v)) // #677: lazy twin of the line above
 
     // Unique-constraint enforcement (eager mode only). Declaring `unique` on
     // a lazy/CRDT/tiered collection throws UnsupportedIndexOptionError here —
@@ -4287,6 +4286,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const source: LazyQuerySource<T> = {
       collectionName: this.name,
       persistedIndexes: persisted,
+      canonicalizeIndexKey: (f: string, v: unknown) => this.via?.canonicalizeIndexKey(f, v),
       ensurePersistedIndexesLoaded: () => this.ensurePersistedIndexesLoaded(),
       getRecord: (id: string) => this.get(id) as unknown as Promise<T | null>,
     }

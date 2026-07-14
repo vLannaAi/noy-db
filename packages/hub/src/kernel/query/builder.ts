@@ -1137,9 +1137,15 @@ function candidateRecords(source: InternalSource, clauses: readonly Clause[]): C
     // build/rebuild, so a legacy non-canonical scaled value (predates the
     // field's money() declaration) lands in — and stays in — the SAME bucket
     // a canonical probe looks up, across later put()/delete() too. LAZY
-    // mode's `PersistedCollectionIndex` keeps raw bucketing (out of scope) —
-    // see `moneyIndexProbe`'s doc comment (via-money/where.ts) for the full
-    // story.
+    // mode's `PersistedCollectionIndex` gained the SAME guarantee (#677) —
+    // its bucket-mutation sites (`ingest`/`upsert`/`remove`) canonicalize
+    // through the same `ViaPipeline.canonicalizeIndexKey`, and its probe
+    // path (`lazy-builder.ts`'s `resolveCandidateIds()`) canonicalizes the
+    // `==`/`in` lookup value before calling `lookupEqual`/`lookupIn` — see
+    // `moneyIndexProbe`'s doc comment (via-money/where.ts) for the full
+    // story, including the boundary that remains (lazy mode's post-filter
+    // is not Via-aware, so end-to-end `lazyQuery().where()` money parity
+    // with this eager path is tracked in #684).
     if (clause.via && clause.via.indexValue === undefined) continue
     const probeValue = clause.via ? clause.via.indexValue : clause.value
 
