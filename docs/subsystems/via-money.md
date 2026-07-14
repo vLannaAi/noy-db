@@ -120,10 +120,30 @@ and `delete()` (remove) — so updating or deleting a legacy record cleans up it
 correctly instead of stranding the id there (a gap the initial #672 fix left open, closed in
 review).
 
-**Boundary: eager mode only.** Lazy-mode collections (`prefetch: false`) keep their own durable
-`PersistedCollectionIndex` side-cars, which bucket by the raw stored value and do not consult
-money canonicalization. A lazy-mode collection with mixed-era money data can still see its fast
-path diverge from a forced scan; that gap is tracked separately, not fixed here.
+**Lazy mode (#677).** Lazy-mode collections (`prefetch: false`) keep their own durable
+`PersistedCollectionIndex` side-cars — a separate implementation from the eager
+`CollectionIndexes`, but now with the SAME canonicalization guarantee. Every bucket-mutation site
+(`ingest` bulk-load from side-cars, `upsert`, `remove`) consults the same registered
+`ViaPipeline.canonicalizeIndexKey`, and the lazy query planner (`lazy-builder.ts`'s
+`resolveCandidateIds()`) canonicalizes an `==`/`in` probe value before calling
+`lookupEqual`/`lookupIn` — mirroring the eager path's `candidateRecords()` resolving
+`clause.via.indexValue` before its own lookup. A legacy non-canonical record and a canonical one
+now land in, and are found via, the same bucket on the lazy fast path too. Range/`between` stay
+scan-only on lazy mode exactly as on eager (`PersistedCollectionIndex.lookupRange` compares
+original typed values, not bucket keys — canonicalization doesn't apply there on either mode).
+Because a lazy-mode legacy record predating the field's `indexes: [...]` declaration has no
+`_idx/<field>/*` side-car at all until backfilled, `reconcileOnOpen: 'auto'` (or an explicit
+`collection.reconcileIndex()`/`rebuildIndexes()` call) is required for such a record to become
+visible to the fast path.
+
+**Residual boundary, not fixed by #677.** `LazyQuery`'s post-filter (`lazy-builder.ts`'s
+`matchesAll`) re-evaluates every clause — including the index-driving one — against the DECODED
+record (`getRecord()` runs `via.present()`), via the generic (non-Via-aware) `evaluateClause`,
+because `LazyQuery.where()` never builds a `clause.via` the way `Query.where()`/`ScanBuilder.
+where()` do. So `lazyQuery().where(moneyField, ...)` still needs the query value passed in the
+field's STORED (canonical scaled-int) form, not major units, for the fast path to be reachable at
+all — full parity with `scan().where()` (which quantizes major units via `buildClause`) is a
+separate, tracked follow-up, not a canonicalization gap.
 
 ## See also
 

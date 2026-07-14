@@ -171,12 +171,27 @@ export function moneyFieldClause(
  * canonical write's probe hits directly (no canonicalization needed for the
  * common case); this note covers the pre-declaration tail.
  *
- * Boundary: this guarantee is EAGER-mode only (`CollectionIndexes`, this
- * file's index probe). LAZY mode's `PersistedCollectionIndex`
- * (`with-lookup/indexing/persisted-indexes.ts`) keeps its own raw bucketing
- * and does not consult money canonicalization — a lazy-mode mixed-era record
- * can still diverge between its fast path and a forced scan. Tracked
- * separately, not fixed here.
+ * Boundary — CLOSED for the index layer (#677): LAZY mode's
+ * `PersistedCollectionIndex` (`with-lookup/indexing/persisted-indexes.ts`)
+ * now consults the SAME `ViaPipeline.canonicalizeIndexKey` at every
+ * bucket-mutation site (`ingest`/`upsert`/`remove`) as `CollectionIndexes`
+ * does, and its query path (`with-lookup/indexing/lazy-builder.ts`'s
+ * `resolveCandidateIds()`) canonicalizes the `==`/`in` probe value before
+ * calling `lookupEqual`/`lookupIn` — mirroring `candidateRecords()` above
+ * resolving `indexValue` before its own `lookupEqual`/`lookupIn` call. A
+ * lazy-mode mixed-era record's bucket and a canonicalized probe now agree,
+ * the same as eager mode.
+ *
+ * Residual boundary, NOT fixed by #677: `LazyQuery`'s post-filter
+ * (`lazy-builder.ts`'s `matchesAll`) re-evaluates every clause — including
+ * the index-driving one — against the DECODED record (`getRecord()` runs
+ * `via.present()`), using the generic (non-Via-aware) `evaluateClause`,
+ * because `LazyQuery.where()` never builds a `clause.via` the way
+ * `Query.where()`/`ScanBuilder.where()` do. So `lazyQuery().where()` on a
+ * money field still needs the query value passed in the field's STORED
+ * (canonical scaled-int) form for the fast path to be reachable at all, and
+ * full `.toArray()` parity with `scan().where()` (which quantizes major
+ * units) is a separate, tracked follow-up — not a canonicalization gap.
  */
 // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
 export function moneyIndexProbe(op: Operator, payload: MoneyWhereOperand): unknown | undefined {
