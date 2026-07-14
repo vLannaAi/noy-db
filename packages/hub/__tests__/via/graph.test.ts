@@ -299,6 +299,34 @@ describe('ViaGraph — cycle rejection (assertAcyclic)', () => {
     g.registerDerived({ collection: 'countries', field: 'name' }, [{ collection: 'customers', field: 'homeCountry' }], 'derivation', 'record')
     expect(() => g.assertAcyclic()).not.toThrow()
   })
+
+  // #678 — `_in` is single-slot per target: `registerDerived`'s `_in.set` REPLACES the
+  // whole edge, so a dual-role target (e.g. a `computed(fn,{deps})` field ALSO composed
+  // with a lookup/ref, #631's exempt {computed, lookup} pair) that registers computed
+  // FIRST then ref SECOND (mirrors the real call order, graph-wiring.ts:71-72 →
+  // vault.ts:1168, both inside the same `vault.collection()` call) has its `_in` entry's
+  // `kind` overwritten from 'computed' to 'ref'. `assertAcyclic`'s pre-fix ref-edge filter
+  // asked `_in.get(nodeId(t))?.kind !== 'ref'` — the TARGET's current (post-overwrite)
+  // kind, not the SPECIFIC edge's kind — so it wrongly excluded the dual-role target from
+  // the DFS, hiding a genuine derivation cycle through its computed edge.
+  it('a dual-role target (computed THEN ref, #631 composition order) does not hide a genuine derivation cycle through its computed edge (#678)', () => {
+    const g = new ViaGraph()
+    // T is dual-role: a computed field (sourced from A) ALSO composed with a ref/lookup
+    // edge (sourced from B) — registered computed-first, ref-second, mirroring the real
+    // vault.ts:1167→1168 order.
+    g.registerDerived({ collection: 'c', field: 'T' }, [{ collection: 'c', field: 'A' }], 'computed', 'record')
+    g.registerDerived({ collection: 'c', field: 'T' }, [{ collection: 'c', field: 'B' }], 'ref', 'record', 'restrict', 'id')
+    // A genuine cycle through T's COMPUTED edge: A depends on T, T depends on A.
+    g.registerDerived({ collection: 'c', field: 'A' }, [{ collection: 'c', field: 'T' }], 'computed', 'record')
+    expect(() => g.assertAcyclic()).toThrow(DerivationCycleError)
+  })
+
+  it('companion: a legitimate mutual-FK ref-only cycle still does NOT throw even alongside the dual-role fix (#671 behavior preserved, #678)', () => {
+    const g = new ViaGraph()
+    g.registerDerived({ collection: 'customers', field: 'homeCountry' }, [{ collection: 'countries', field: '*' }], 'ref', 'record', 'restrict', 'id')
+    g.registerDerived({ collection: 'countries', field: 'capitalOf' }, [{ collection: 'customers', field: '*' }], 'ref', 'record', 'restrict', 'id')
+    expect(() => g.assertAcyclic()).not.toThrow()
+  })
 })
 
 describe('ViaGraph — taintedPostures / taintSealedFields (Task 3 overlay)', () => {

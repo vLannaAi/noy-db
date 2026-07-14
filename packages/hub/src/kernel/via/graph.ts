@@ -69,6 +69,13 @@ function isDefaultPosture(p: ViaPosture): boolean {
     p.exportable === DEFAULT_POSTURE.exportable && p.forgettable === DEFAULT_POSTURE.forgettable
 }
 
+/** One `_out` entry — a `source -> target` derived edge, carrying its OWN registration's
+ *  `kind` (#678). `kind` must be edge-local, not re-derived from `_in`: `_in` is single-slot
+ *  per target and can be overwritten by a LATER `registerDerived` call on the SAME target
+ *  (a dual-role target, e.g. #631's exempt {computed, lookup} field composition) — asking
+ *  `_in` for "this target's current kind" answers the wrong question for a specific edge. */
+interface OutEdge { readonly target: FieldRef; readonly kind: EdgeKind }
+
 /** One registered `registerDerived` call — a target's whole in-edge set. */
 interface DerivedEdge {
   readonly target: FieldRef
@@ -103,8 +110,9 @@ export class ViaGraph {
   private readonly _posture = new Map<string, ViaPosture>()
   /** Every derived target's registration, keyed by the target's node id. */
   private readonly _in = new Map<string, DerivedEdge>()
-  /** source node id -> derived targets that depend on it (dispatch/erasure). */
-  private readonly _out = new Map<string, FieldRef[]>()
+  /** source node id -> derived edges that depend on it (dispatch/erasure), each carrying
+   *  its own registration's `kind` (#678 — see {@link OutEdge}). */
+  private readonly _out = new Map<string, OutEdge[]>()
   /** Memoized effective posture per derived target node id. */
   private readonly _effectiveCache = new Map<string, ViaPosture>()
   /** Memoized whole-collection security-axes fold for `'*'` wildcard LEAF nodes (#642),
@@ -145,9 +153,10 @@ export class ViaGraph {
     })
     for (const source of sources) {
       const sourceId = nodeId(source)
+      const outEdge: OutEdge = { target, kind }
       const dependents = this._out.get(sourceId)
-      if (dependents) dependents.push(target)
-      else this._out.set(sourceId, [target])
+      if (dependents) dependents.push(outEdge)
+      else this._out.set(sourceId, [outEdge])
     }
     this._effectiveCache.clear()
     this._wildcardCache.clear()
@@ -232,14 +241,20 @@ export class ViaGraph {
     // collections each referencing the other) are legal and must not be treated as a
     // derivation cycle. Ref edges exist for cascade/rename machinery
     // (`referencingEdgesOf`/delete-time restrict/cascade/nullify), never derivation
-    // ordering, so they carry no ordering constraint here. `_out` stores bare
-    // `FieldRef` targets (no kind) — the kind lives on `_in`, keyed by the target.
-    const notRefEdge = (t: FieldRef): boolean => this._in.get(nodeId(t))?.kind !== 'ref'
+    // ordering, so they carry no ordering constraint here. #678 — `kind` is read off
+    // THIS `_out` entry (edge-local), NOT re-derefed from `_in`: a dual-role target
+    // (e.g. #631's exempt {computed, lookup} composition) can have its `_in` entry's
+    // `kind` overwritten by a LATER `registerDerived` call for the SAME target, so
+    // asking `_in` "what kind is `t` registered as NOW" wrongly excluded a real
+    // computed edge from the DFS as if it were a ref edge, hiding a genuine
+    // derivation cycle. Asking "what kind is THIS specific edge" is correct
+    // regardless of what else was later registered for the target.
+    const notRefEdge = (entry: OutEdge): boolean => entry.kind !== 'ref'
     const neighboursOf = (id: string): readonly FieldRef[] => {
-      const own = (this._out.get(id) ?? []).filter(notRefEdge)
+      const own = (this._out.get(id) ?? []).filter(notRefEdge).map((entry) => entry.target)
       const sep = id.indexOf(SEP)
       if (id.slice(sep + 1) === '*') return own
-      const wildcard = (this._out.get(`${id.slice(0, sep)}${SEP}*`) ?? []).filter(notRefEdge)
+      const wildcard = (this._out.get(`${id.slice(0, sep)}${SEP}*`) ?? []).filter(notRefEdge).map((entry) => entry.target)
       if (wildcard.length === 0) return own
       return [...own, ...wildcard]
     }
@@ -432,10 +447,17 @@ export class ViaGraph {
     const targets = this._out.get(nodeId({ collection: backing, field: '*' }))
     if (!targets) return []
     const out: Array<{ referencing: FieldRef; onDelete: OnDelete; keyField: string }> = []
-    for (const target of targets) {
-      const edge = this._in.get(nodeId(target))
-      if (edge?.kind === 'ref' && edge.onDelete !== undefined) {
-        out.push({ referencing: target, onDelete: edge.onDelete, keyField: edge.keyField ?? 'id' })
+    for (const entry of targets) {
+      // #678 — `kind` is read directly off THIS `_out` entry (edge-local) instead of
+      // re-derefing `_in`. This also fixes the symmetric ref-vanishes hazard: under a
+      // registration order where a LATER `registerDerived` call for the same target
+      // overwrites `_in`'s kind away from `'ref'`, the old `_in`-derefing check would
+      // silently drop a genuine referencing edge from cascade/nullify delete machinery
+      // even though this specific edge was truly registered as `'ref'`.
+      if (entry.kind !== 'ref') continue
+      const edge = this._in.get(nodeId(entry.target))
+      if (edge?.onDelete !== undefined) {
+        out.push({ referencing: entry.target, onDelete: edge.onDelete, keyField: edge.keyField ?? 'id' })
       }
     }
     return out
