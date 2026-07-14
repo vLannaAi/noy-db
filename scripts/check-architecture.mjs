@@ -733,7 +733,18 @@ const KERNEL_SURFACE_BUDGET = {
   // ratcheting the ceiling down to the actual per the checker's own
   // ratchet-to-actual convention, so the margin isn't silently carried
   // forward as slack for an unrelated future change.
-  'packages/hub/src/kernel/collection.ts': 4472,
+  // Bumped 4472→4503 (2026-07-15, #606: per-collection marker-id set to skip
+  // the redundant adapter.get on synced-eager insert): a `Set<string>` field
+  // + population at hydration (both paths)/local-delete/the sync-tab-cutover
+  // choke point, plus the gated read at the #589 continuity check and the
+  // clear on re-create success.
+  // Bumped 4503→4521 (2026-07-15, #606 adversarial-review fix): moved the
+  // marker-id maintenance in `_invalidateCacheEntry` above the `!hydrated`
+  // gate (a marker landing mid-hydration was never recorded, permanently
+  // for the session) and added a synchronous pre-switch maintenance step in
+  // `_onRecordMutated` to close the await-window race against a concurrent
+  // put. Comments explaining both fixes account for the growth.
+  'packages/hub/src/kernel/collection.ts': 4521,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
