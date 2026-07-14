@@ -971,7 +971,14 @@ const KERNEL_SURFACE_BUDGET = {
   // each landed net-zero edits back at that same actual, never spending the
   // margin. Ratcheting down to the actual per the checker's ratchet-to-actual
   // convention, same reasoning as collection.ts above.
-  'packages/hub/src/kernel/vault.ts': 3939,
+  // Bumped 3939→3950 (2026-07-14, #599 m22 Task 4): `migrateSatellitePerRecordKeys(name)`
+  // — a thin call-site (mirrors the `joined()` pattern immediately above it)
+  // that opens the satellite collection with `perRecordKeys: true` (bypassing
+  // R-S7 by never entering `declareSatellite` — no `satelliteOf` is passed)
+  // and delegates the per-record re-encrypt walk to
+  // `with-shape/satellites/migrate-cek.ts`. Genuinely core: a new public
+  // Vault method, same tier as `runSchemaCutover`/`abortSchemaCutover`.
+  'packages/hub/src/kernel/vault.ts': 3950,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

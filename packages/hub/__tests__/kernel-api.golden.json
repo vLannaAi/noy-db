@@ -129,6 +129,7 @@
     "listPeriods",
     "load",
     "makeGetDEK",
+    "migrateSatellitePerRecordKeys",
     "onCrossTierAccess",
     "openPeriod",
     "publishRevocationList",
