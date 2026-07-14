@@ -329,10 +329,16 @@ export class PersistedCollectionIndex {
    * NOT canonicalized (#677): this method compares `value` against the
    * ORIGINAL TYPED `state.values`, not a stringified bucket key, so a
    * `canonicalizeIndexKey`-shaped (`string | undefined`) result would not
-   * even type-check as a bound here. Mirrors the eager-mode boundary —
-   * `moneyIndexProbe` (`via/money/where.ts`) only ever probes `==`/`in`;
-   * range comparisons on a money field have never had an index fast path
-   * on EITHER mode and always fall back to a scan.
+   * even type-check as a bound here. This does NOT mirror eager mode the
+   * way `lookupEqual`/`lookupIn` do: `moneyIndexProbe` (`via/money/
+   * where.ts`) never emits a range probe, so EAGER mode's `candidateRecords`
+   * never calls an index for a range clause and always scans. LAZY mode's
+   * `resolveCandidateIds()` (`lazy-builder.ts`) dispatches every range
+   * clause through THIS method unconditionally, including money fields —
+   * there is no scan fallback here. Because the comparison is raw/typed
+   * and not canonicalized, a money field's lazy range correctness (e.g.
+   * mixed-era or non-canonical stored values) is a live, pre-existing gap,
+   * tracked in #684 — not yet fixed.
    */
   lookupRange(
     field: string,

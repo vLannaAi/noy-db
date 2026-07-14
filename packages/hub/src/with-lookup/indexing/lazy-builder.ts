@@ -207,12 +207,14 @@ export class LazyQuery<T, S extends keyof T = never, Q extends keyof T & string 
         const ids = idx.lookupIn(clause.field, probes)
         if (ids) return [...ids]
       } else if (isRangeOp(clause.op)) {
-        // range predicates on an indexed field dispatch
+        // range predicates on an indexed field dispatch unconditionally
         // through `lookupRange`, which compares on the original typed
         // value (no numeric-lexicographic landmines). NOT canonicalized
-        // (#677) — `lookupRange` compares typed values, not stringified
-        // bucket keys, and (mirroring eager's `moneyIndexProbe`) a money
-        // field has never had a range index fast path on either mode.
+        // (#677) — unlike eager mode, where `moneyIndexProbe` never emits
+        // a range probe so a money range clause always scans, THIS path
+        // has no scan fallback: a money field's raw/uncanonicalized typed
+        // comparison here is a live, pre-existing correctness gap, tracked
+        // in #684.
         const ids = idx.lookupRange(clause.field, clause.op, clause.value)
         if (ids) return [...ids]
       }

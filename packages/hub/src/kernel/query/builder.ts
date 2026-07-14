@@ -1145,7 +1145,7 @@ function candidateRecords(source: InternalSource, clauses: readonly Clause[]): C
     // `moneyIndexProbe`'s doc comment (via-money/where.ts) for the full
     // story, including the boundary that remains (lazy mode's post-filter
     // is not Via-aware, so end-to-end `lazyQuery().where()` money parity
-    // with this eager path needs a follow-up).
+    // with this eager path is tracked in #684).
     if (clause.via && clause.via.indexValue === undefined) continue
     const probeValue = clause.via ? clause.via.indexValue : clause.value
 
