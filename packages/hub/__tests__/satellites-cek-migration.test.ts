@@ -28,6 +28,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withForgetCascade } from '../src/with-audit/forget/index.js'
 import { memory } from '../../to-memory/src/index.js'
+import { SatelliteConfigError } from '../src/kernel/errors.js'
 import type { NoydbStore } from '../src/kernel/types.js'
 
 const SECRET = 'satellites-cek-migration-test-1234'
@@ -139,6 +140,42 @@ describe('satellite per-record-CEK migration (#599)', () => {
     // assertion above beyond the ciphertext-shape checks).
     expect(await vault2.joined<Msg>('msgs_full').get('x')).toMatchObject({ subject: 's1', body: 'B1' })
     expect(await vault2.joined<Msg>('msgs_full').get('y')).toMatchObject({ subject: 's2', body: 'B2' })
+  })
+
+  it('mode-assertion: refuses to migrate a satellite already opened this session without perRecordKeys (review Important 1)', async () => {
+    const rawStore = memory()
+    const vault1 = await declareV1(rawStore)
+    await vault1.joined('msgs_full').put('x', { from: 'alice@x', subject: 's1', body: 'B1' })
+    await vault1.joined('msgs_full').put('y', { from: 'alice@x', subject: 's2', body: 'B2' })
+
+    const versionBeforeX = (await rawStore.get('v1', 'msgs_text', 'x'))?._v
+    const versionBeforeY = (await rawStore.get('v1', 'msgs_text', 'y'))?._v
+
+    const vault2 = await reopenV2(rawStore)
+    // Incidental bare open THIS SESSION, without perRecordKeys — e.g. some
+    // unrelated code path touches the collection before the migration runs.
+    // The vault's collection cache is first-wins with no mismatch guard, so
+    // migrateSatellitePerRecordKeys below would otherwise cache-HIT this
+    // instance instead of the perRecordKeys:true one it asked for.
+    vault2.collection<Msg>('msgs_text', {})
+
+    let caught: unknown
+    try {
+      await vault2.migrateSatellitePerRecordKeys('msgs_text')
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(SatelliteConfigError)
+    expect((caught as Error).message).toMatch(/"msgs_text".*already opened this session without perRecordKeys/)
+
+    // No silent success: the walk must NOT have run — records were not
+    // re-encrypted under the shared DEK (version unchanged, still no _cek).
+    const envX = await rawStore.get('v1', 'msgs_text', 'x')
+    const envY = await rawStore.get('v1', 'msgs_text', 'y')
+    expect(envX?._v).toBe(versionBeforeX)
+    expect(envY?._v).toBe(versionBeforeY)
+    expect(envX?._cek).toBeUndefined()
+    expect(envY?._cek).toBeUndefined()
   })
 
   it('R-S7 still refuses a normal declare that never ran the migration (gate unaffected)', async () => {

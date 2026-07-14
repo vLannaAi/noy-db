@@ -1235,11 +1235,11 @@ export class Vault {
    * Migrate an existing satellite's records onto per-record CEKs (#599) —
    * unblocks R-S7 when a base gains forget coverage after its satellite was
    * already declared without `perRecordKeys`. Call BEFORE re-declaring with
-   * `{ satelliteOf, perRecordKeys: true }`; resumable — safe to re-run after
-   * a failure (an already-`_cek` record reuses it, never re-minted).
+   * `{ satelliteOf, perRecordKeys: true }` AND before this collection serves
+   * writes (unfenced walk — see {@link migrateSatelliteCek}); resumable.
    */
   async migrateSatellitePerRecordKeys(satelliteName: string): Promise<{ migrated: number }> {
-    return migrateSatelliteCek(this.collection(satelliteName, { perRecordKeys: true }))
+    return migrateSatelliteCek(satelliteName, this.collection(satelliteName, { perRecordKeys: true }))
   }
 
   /**
