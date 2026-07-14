@@ -28,6 +28,7 @@ import { withI18n } from '../../src/via/i18n/index.js'
 import { withSync } from '../../src/with-party/sync/index.js'
 import { SyncEngine, type ReservedLookupSource } from '../../src/with-party/team/sync.js'
 import { dict } from '../../src/via/lookup/descriptor.js'
+import { reservedDictDepsOf } from '../../src/via/lookup/registry.js'
 import { NoydbEventEmitter } from '../../src/kernel/events.js'
 import { ConflictError } from '../../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
@@ -308,5 +309,76 @@ describe('reserved-lookup sync (#647, #650 Task 4)', () => {
     expect(await vC.dictionary('status').get('paid')).toBeNull()
 
     dbA.close(); dbB.close(); dbC.close()
+  })
+
+  // ─── #653 — partial sync must auto-include the reserved dicts a named collection depends on ───
+
+  it('#653: partial pull([\'orders\']) still resolves the reserved dict orders depends on (literal filter would drop _dict_status)', async () => {
+    const remote = memory()
+    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+    const dbB = await createNoydb({ store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+
+    const vA = await dbA.openVault('demo')
+    vA.collection<Order>('orders', { lookupFields: { status: dict('status') } })
+    await vA.dictionary('status').put('paid', { en: 'Paid' })
+    await vA.collection<Order>('orders').put('o1', { id: 'o1', status: 'paid' })
+    await dbA.push('demo')
+
+    const vB = await dbB.openVault('demo')
+    vB.collection<Order>('orders', { lookupFields: { status: dict('status') } })
+
+    // Adopters never name `_dict_*` in a partial-sync filter — only 'orders' is named here.
+    const pull1 = await dbB.pull('demo', { collections: ['orders'] })
+    expect(pull1.errors).toHaveLength(0)
+
+    // #653: a collections-filtered pull must still auto-include orders' reserved dict dependency.
+    // Pre-fix, the literal filter drops `_dict_status` — this resolves to `undefined`.
+    expect(await vB.dictionary('status').get('paid')).toEqual({ en: 'Paid' })
+    const dressed = await vB.collection<Order>('orders').get('o1', { locale: 'en' })
+    expect(dressed?.statusLabel).toBe('Paid')
+
+    dbA.close(); dbB.close()
+  })
+
+  it('#653: partial pull of a collection with NO lookup fields does not over-pull an unrelated dict', async () => {
+    interface Payment extends Record<string, unknown> { id: string; amount: number }
+    const remote = memory()
+    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+    const dbB = await createNoydb({ store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+
+    const vA = await dbA.openVault('demo')
+    vA.collection<Order>('orders', { lookupFields: { status: dict('status') } })
+    await vA.dictionary('status').put('paid', { en: 'Paid' })
+    await vA.collection<Order>('orders').put('o1', { id: 'o1', status: 'paid' })
+    vA.collection<Payment>('payments')
+    await vA.collection<Payment>('payments').put('p1', { id: 'p1', amount: 100 })
+    await dbA.push('demo')
+
+    const vB = await dbB.openVault('demo')
+    // Both a dict-backed collection AND the unrelated, lookup-field-free 'payments' are declared —
+    // only 'payments' is named in the filter below.
+    vB.collection<Order>('orders', { lookupFields: { status: dict('status') } })
+    vB.collection<Payment>('payments')
+
+    const pull1 = await dbB.pull('demo', { collections: ['payments'] })
+    expect(pull1.errors).toHaveLength(0)
+
+    expect(await vB.collection<Payment>('payments').get('p1')).toEqual({ id: 'p1', amount: 100 })
+    // Guard against over-pulling: 'orders' was never named, so its dict dependency must stay absent.
+    expect(await vB.dictionary('status').get('paid')).toBeNull()
+
+    dbA.close(); dbB.close()
+  })
+})
+
+describe('reservedDictDepsOf (#653 unit)', () => {
+  it('maps a named collection to its one-hop reserved dict dependency', () => {
+    const registry = new Map([['orders', { status: 'status' }]])
+    expect(reservedDictDepsOf(['orders'], registry)).toEqual(['_dict_status'])
+  })
+
+  it('returns empty for a named collection with no lookup-field dependencies', () => {
+    const registry = new Map([['orders', { status: 'status' }]])
+    expect(reservedDictDepsOf(['payments'], registry)).toEqual([])
   })
 })

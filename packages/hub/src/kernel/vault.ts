@@ -106,6 +106,7 @@ import {
   checkLookupMembership, buildLookupAltIndex,
   dictCollectionName, registerLookupRefEdges, // #650 Task 4/5
   buildLookupSnapshotRows, // #650 Task 6
+  reservedDictDepsOf, // #653
   type LookupDescriptor,
 } from '../port/with/lookup-strategy.js'
 import { isLinkCollectionName, type LinkSpec, type LinkSetHandle } from '../with-shape/links/names.js'
@@ -1306,6 +1307,13 @@ export class Vault {
   /** @internal #650 Task 4 (#647) — declared reserved-lookup collection names, for `SyncEngine.pull()`'s explicit prefix registry. */
   _reservedLookupCollectionNames(): readonly string[] {
     return [...this.reservedLookupCollections.keys()]
+  }
+
+  /** @internal #653 — one-hop reserved-dict deps of `names`, for `SyncEngine`'s partial-sync
+   *  filter expansion. Provably complete at one hop: `vault.collection()` refuses `_dict_*`
+   *  names, so a dict can never itself declare lookup fields (no dict-of-dict chain). */
+  _reservedDictDepsOf(names: readonly string[]): readonly string[] {
+    return reservedDictDepsOf(names, this.dictKeyFieldRegistry)
   }
 
   /** @internal #638 Task 4 — open a graph-dispatch touch batch (sync pull()/push()/cutover). */

@@ -91,6 +91,18 @@ export class SyncEngine {
     this.reservedLookup = source
   }
 
+  /** #653: expands a (pair-expanded) collection-name filter to include the reserved `_dict_*`
+   *  collections those names depend on via their lookup fields — mirrors `pairExpander` so a
+   *  partial `push`/`pull({collections:[...]})` never drops the dictionary a named collection's
+   *  labels/membership rely on. Wired from the vault's `dictKeyFieldRegistry` via
+   *  `setReservedDictExpander`. `undefined` when no dict-backed collection has ever been declared. */
+  private reservedDictExpander?: (names: readonly string[]) => readonly string[]
+
+  /** Wire the reserved-dict expansion function (#653). Same injection pattern as `setPairExpander`. */
+  setReservedDictExpander(expander: (names: readonly string[]) => readonly string[]): void {
+    this.reservedDictExpander = expander
+  }
+
   constructor(opts: {
     local: NoydbStore
     remote: NoydbStore
@@ -217,8 +229,11 @@ export class SyncEngine {
     const errors: Error[] = []
     const completed: number[] = []
 
-    // Partial sync: expand the filter to cover satellite pair partners (#591 rule 5b)
-    const filter = options?.collections ? new Set(this.pairExpander?.(options.collections) ?? options.collections) : null
+    // Partial sync: expand the filter to cover satellite pair partners (#591 rule 5b), then the
+    // reserved `_dict_*` collections those (expanded) names depend on (#653) — a locally-dirty
+    // dict edit pushes alongside push({collections:['orders']}), symmetric with pull below.
+    const expanded = options?.collections ? (this.pairExpander?.(options.collections) ?? options.collections) : null
+    const filter = expanded ? new Set([...expanded, ...(this.reservedDictExpander?.(expanded) ?? [])]) : null
 
     for (let i = 0; i < this.dirty.length; i++) {
       const entry = this.dirty[i]!
@@ -356,8 +371,12 @@ export class SyncEngine {
     const erasures: ErasureEnforcement[] = []
     const errors: Error[] = []
 
-    // Partial sync: expand the filter to cover satellite pair partners (#591 rule 5b)
-    const filter = options?.collections ? new Set(this.pairExpander?.(options.collections) ?? options.collections) : null
+    // Partial sync: expand the filter to cover satellite pair partners (#591 rule 5b), then the
+    // reserved `_dict_*` collections those (expanded) names depend on (#653) — adopters never
+    // name `_dict_*` in a `collections` filter, so a named collection's lookup-field dependency
+    // must be pulled alongside it or its labels/membership go stale.
+    const expanded = options?.collections ? (this.pairExpander?.(options.collections) ?? options.collections) : null
+    const filter = expanded ? new Set([...expanded, ...(this.reservedDictExpander?.(expanded) ?? [])]) : null
 
     try {
       const remoteSnapshot = await this.remote.loadAll(this.vault)

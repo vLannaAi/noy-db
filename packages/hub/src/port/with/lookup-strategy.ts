@@ -32,6 +32,7 @@ import {
   resolveLabelFromMap,
   collectLookupDictCompat,
   lookupToStaticDictCompat,
+  reservedDictDepsOf,
   materializeBackingTable,
   checkLookupMembership,
   buildLookupAltIndex,
@@ -165,6 +166,10 @@ export { dictCollectionName } from '../../via/lookup/handle.js'
 // descriptors, mirroring `isI18nTextDescriptor`/`isDictKeyDescriptor` below.
 export { resolveLabelFromMap, collectLookupDictCompat, lookupToStaticDictCompat }
 export type { LookupDictCompat }
+
+// #653 — partial-sync reserved-dict expansion: maps a set of named collections to the
+// one-hop `_dict_*` deps their lookup fields reference, off `dictKeyFieldRegistry`.
+export { reservedDictDepsOf }
 
 // #650 Task 3 — altKeys ingest normalization + open/closed vocabulary
 // governance: the declare/warm-time altIndex builder + the membership test

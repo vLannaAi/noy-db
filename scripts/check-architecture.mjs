@@ -978,7 +978,11 @@ const KERNEL_SURFACE_BUDGET = {
   // and delegates the per-record re-encrypt walk to
   // `with-shape/satellites/migrate-cek.ts`. Genuinely core: a new public
   // Vault method, same tier as `runSchemaCutover`/`abortSchemaCutover`.
-  'packages/hub/src/kernel/vault.ts': 3950,
+  // Bumped 3950→3958 (2026-07-15, #653: reserved-dict-deps delegator for partial-sync
+  // expansion): `_reservedDictDepsOf(names)` — a thin delegator (same tier as
+  // `_reservedLookupCollectionNames()` beside it) to `reservedDictDepsOf` in
+  // `via/lookup/registry.ts`, reached through the existing lookup-strategy port import.
+  'packages/hub/src/kernel/vault.ts': 3958,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
