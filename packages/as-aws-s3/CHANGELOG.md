@@ -1,5 +1,44 @@
 # @noy-db/as-aws-s3
 
+## 1.0.0-pre.11
+
+### Minor Changes
+
+- Credential broker (#479, slices 1+2): passphrase-bound, rolling, non-extractable store-auth.
+
+  Slice 1 (adapter seam): `StoreCredentials`/`StoreCredentialSource` on `@noy-db/hub`'s `/to` port
+  (additive, golden-bumped) and a `credentials?: StoreCredentialSource` option on `@noy-db/as-aws-s3`
+  (`asAwsS3({ credentials })`), wired as a functional AWS SDK credential provider so
+  `memoizeIdentityProvider` re-invokes it at each credential's own expiry.
+
+  Slice 2 (service): new opt-in `@noy-db/hub/broker` (`withBroker()`, `vault.broker()`) — enrol a
+  per-vault `_broker` seed (CAS create-if-absent, owner/admin-gated, KEK required only on first
+  enrolment), then mint short-lived cloud credentials via a challenge/response HMAC proof
+  (HKDF-derived, non-extractable `['sign']` key) against a broker host, with a single-flight
+  per-profile refresh cache and a quiesce-then-swap `rotate()`. Ships `kernel/enclave/broker/proof.ts`
+  (the proof crypto: `deriveBrokerProofBits`/`deriveBrokerProofKey`/`computeBrokerProof`/
+  `issueChallenge`/`verifyBrokerProof`), the `_broker` reserved-collection guard + grant-exclusion
+  (rides the already-shipped secret-bearing-reserved-collection guard), the three new error classes
+  (`BrokerNotEnabledError`, `BrokerEnrolmentError`, `BrokerProofError`), and a `docs/subsystems/broker.md`
+  service page with the threat-model candor table and a reference Lambda/STS broker host documenting
+  the four mandated host obligations (KMS-wrap registered proof keys at rest, atomic burn-on-presentation
+  challenge consumption, SHOULD rate-limit `/credentials`, accept old+new registration on rotate).
+  SERVICES.md gains the Cluster G row.
+
+  Bundle impact: 0 bytes when not opted in (`NO_BROKER` stub + dynamic-import seam).
+
+  Deferred: slice 3 (sealed-to-instance credential delivery + non-extractable instance keypair) is
+  not part of this release — see the spec's OQ4. `noy-db-to`'s `to-aws-dynamo`/`to-aws-s3` adoption
+  (the `credentials` option + the required hub peer-floor bump) is a separate, manually-gated
+  follow-up in that repo once this hub minor is published.
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0-pre.11
+
 ## 1.0.0-pre.10
 
 ### Patch Changes

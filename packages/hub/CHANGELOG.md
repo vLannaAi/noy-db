@@ -1,5 +1,100 @@
 # Changelog — hub
 
+## 0.3.0-pre.11
+
+### Minor Changes
+
+- Credential broker (#479, slices 1+2): passphrase-bound, rolling, non-extractable store-auth.
+
+  Slice 1 (adapter seam): `StoreCredentials`/`StoreCredentialSource` on `@noy-db/hub`'s `/to` port
+  (additive, golden-bumped) and a `credentials?: StoreCredentialSource` option on `@noy-db/as-aws-s3`
+  (`asAwsS3({ credentials })`), wired as a functional AWS SDK credential provider so
+  `memoizeIdentityProvider` re-invokes it at each credential's own expiry.
+
+  Slice 2 (service): new opt-in `@noy-db/hub/broker` (`withBroker()`, `vault.broker()`) — enrol a
+  per-vault `_broker` seed (CAS create-if-absent, owner/admin-gated, KEK required only on first
+  enrolment), then mint short-lived cloud credentials via a challenge/response HMAC proof
+  (HKDF-derived, non-extractable `['sign']` key) against a broker host, with a single-flight
+  per-profile refresh cache and a quiesce-then-swap `rotate()`. Ships `kernel/enclave/broker/proof.ts`
+  (the proof crypto: `deriveBrokerProofBits`/`deriveBrokerProofKey`/`computeBrokerProof`/
+  `issueChallenge`/`verifyBrokerProof`), the `_broker` reserved-collection guard + grant-exclusion
+  (rides the already-shipped secret-bearing-reserved-collection guard), the three new error classes
+  (`BrokerNotEnabledError`, `BrokerEnrolmentError`, `BrokerProofError`), and a `docs/subsystems/broker.md`
+  service page with the threat-model candor table and a reference Lambda/STS broker host documenting
+  the four mandated host obligations (KMS-wrap registered proof keys at rest, atomic burn-on-presentation
+  challenge consumption, SHOULD rate-limit `/credentials`, accept old+new registration on rotate).
+  SERVICES.md gains the Cluster G row.
+
+  Bundle impact: 0 bytes when not opted in (`NO_BROKER` stub + dynamic-import seam).
+
+  Deferred: slice 3 (sealed-to-instance credential delivery + non-extractable instance keypair) is
+  not part of this release — see the spec's OQ4. `noy-db-to`'s `to-aws-dynamo`/`to-aws-s3` adoption
+  (the `credentials` option + the required hub peer-floor bump) is a separate, manually-gated
+  follow-up in that repo once this hub minor is published.
+
+- Opt-in `scopedPurge` forget-strategy knob (#633). `withForgetCascade({ scopedPurge: true })` gates
+  `vault.forget()`'s two vault-level purges — the `_sealed_cek` host-delivery envelope purge and the
+  blob crypto-shred scan — on a per-collection via-declaration signal (`classifiedFields` for the
+  sealed-CEK arm, `blobFields` for the blob arm) instead of running them unconditionally over every
+  forgotten ref. Default (`scopedPurge` absent/false) stays fully unconditional — byte-identical to
+  today's behavior — because a declaration is a necessary-but-not-sufficient proxy:
+  `sealRecordToHost()` and `.blob(id)` both work on collections that never declared anything, so
+  scoping by default would silently narrow the erasure promise.
+
+  When scoped, an undeclared collection's purge is never silently skipped: `ForgetResult` gains a new
+  additive field, `scopedPurgeResidue: readonly { reason, collection, count }[]`, with reasons
+  `'skipped-undeclared-sealed-cek'` and `'skipped-undeclared-blob-scan'` — always empty under the
+  unconditional default. The blob arm's scoped skip is also a perf win: an undeclared collection's
+  scan is skipped entirely, with no `_blob_slots_<collection>` `list()` call at all. The knob rides
+  `ForgetStrategy` the same way `subjects` does — set once per `createNoydb()` instance, threaded
+  identically into every `Vault` opened from it.
+
+  **Footgun:** a bare `sensitive: [...]` collection with no `classifiedFields` binding counts as
+  UNDECLARED for the sealed-CEK arm — under `scopedPurge: true` its sealed-CEK envelopes are
+  skipped-and-reported, not purged, even if `sealRecordToHost()` was called on it.
+
+- Milestone #26 — docs/release infra + a CRDT build-warning fix + a delete-conflict caveat.
+
+  - **#660 (hub minor trigger): DTS build memory.** The hub's declaration build blew past 8GB peak
+    RSS (measured ~4.9GB steady-state, up to ~9GB peak footprint), forcing a
+    `--max-old-space-size=12288` cap in both CI workflows and the package's own `build` script.
+    Replaced tsup's `dts: true` (rollup-plugin-dts bundling) with a single plain
+    `tsc --emitDeclarationOnly` pass (`packages/hub/tsconfig.dts.json`), wrapped in an RSS guard
+    (`packages/hub/scripts/build.mjs`). Peak RSS dropped ~4.9GB → ~410-435MB (~91% reduction);
+    `.github/workflows/ci.yml` / `release.yml` `NODE_OPTIONS` dropped 12288 → 4096.
+    **Shipped `.d.ts` layout changed**: instead of tsup's flat bundled-per-subpath files, `dist/**`
+    now mirrors `src/`'s directory tree 1:1 (e.g. `dist/with-commit/history/index.d.ts` instead of
+    `dist/history/index.d.ts`), so the file count went from 54 to 398. All 41 `package.json`
+    `exports[...].types` targets were retargeted accordingly. The public API, types, and import
+    specifiers are unchanged — every subpath still resolves the same way through `exports` — but the
+    on-disk layout behind that map is different, which is why this is a **minor**, not a patch, per
+    pre-1.0 convention for consumer-visible packaging changes. A build-time guard now also verifies
+    every `exports` target (`types`/`import`/`default`) actually resolves to a file in `dist/` after
+    build, catching a stale/typo'd subpath before it ships.
+  - **#667**: fixed a Rollup dts circular-dependency warning between `kernel/types.ts` and
+    `with-commit/crdt/strategy.ts` (`CrdtStrategy` re-export cycle). Hoisted `LwwMapState`/
+    `RgaState`/`YjsState` into `kernel/types.ts` alongside the other CRDT types, and redirected the
+    `CrdtStrategy` type import in `vault.ts`/`collection.ts`/`collection-config.ts` from the indirect
+    `with-commit/crdt/strategy.js` re-export to the direct `kernel/types.js` origin. No runtime
+    behavior change; no public API change.
+  - **#600**: `release.yml`'s `publish` job now opens a `noy-db-docs` issue (`continue-on-error`,
+    via a `DOCS_SYNC_TOKEN` PAT) on every successful publish, carrying the version/tag, npm
+    dist-tag, run link, and the list of published `@noy-db/*` packages — so the docs repo's doc-sync
+    has a trigger instead of relying on someone noticing a new release.
+  - **#607**: added a JSDoc caveat to `ConflictPolicy<T>` (`kernel/types.ts`) — and mirrored in
+    `docs/subsystems/via.md` — documenting that `'last-writer-wins'`/`'first-writer-wins'`/`'manual'`
+    compare raw envelopes, so an edit _can_ beat a delete marker, whereas a custom-fn resolver and
+    the CRDT modes `'lww-map'`/`'rga'` decrypt both sides first and unconditionally let a
+    shred/tombstone win before the merge function ever runs (`'yjs'` is the one CRDT-mode exception:
+    it never decrypts and falls back to a plain higher-`_v` compare, so an edit can win there too).
+    Doc-only; no behavior change.
+  - **#624**: taxonomy-convergence analysis for the `noy-db-docs` migration (PR #498) — a gap
+    analysis (9 verified divergences between `SERVICES.md`/`packages/hub/src/**` and
+    `noy-db-docs`'s `features.yaml`/taxonomy), a `feature-schema.json`/`features.yaml` proposal,
+    two new ADRs (`docs/adr/0001-minimal-kernel-core.md`, `docs/adr/0002-placement-is-not-opt-in.md`
+    — the first ADRs in this repo), and an 18-step migration checklist. Analysis/docs only; nothing
+    in `packages/**` changed.
+
 ## 0.3.0-pre.10
 
 ### Minor Changes
