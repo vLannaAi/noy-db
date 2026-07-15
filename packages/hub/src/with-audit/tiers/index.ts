@@ -289,7 +289,6 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   const now = new Date().toISOString()
   const body = await rewrapBodyToDek(envelope, fromDek, toDek)
   if (body.cek) ctx.cekCache?.set(id, body.cek, 1)
-  ctx.syncCache(id, null)
   // #662: spread every slot the source carries (_sealed/_det/_vdig/_bidx/
   // _source/_sourceTs/_debug) through UNCHANGED, then override only
   // the fields a tier move manages. rewrapBodyToDek preserves the CEK, so no
@@ -308,6 +307,9 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
     ...(body._cek !== undefined ? { _cek: body._cek } : {}),
   }
   await ctx.adapter.put(ctx.vault, ctx.name, id, next)
+  // Evict only once the write landed — a throwing put must not blind the
+  // eager cache to a still-valid tier-0 record (same ordering as demote).
+  ctx.syncCache(id, null)
 
   ctx.emitCrossTierEvent({
     actor: ctx.keyring.userId,
