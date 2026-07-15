@@ -25,6 +25,7 @@ import {
   type EnclaveKey,
   type SealedShredSlot,
 } from './enclave/index.js'
+import { countLiveEnvelopes } from './lazy-count.js'
 import {
   classifySealedShred as classifySealedShredImpl,
   type TiersContext,
@@ -3193,8 +3194,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
           if (op.collectionName === this.name) {
             await this._invalidateCacheEntry(op.id)
           } else if (this.derivationSource) {
-            const sibling = this.derivationSource.getCollection(op.collectionName)
-            await sibling._invalidateCacheEntry(op.id)
+            await this.derivationSource.getCollection(op.collectionName)._invalidateCacheEntry(op.id)
           }
         } catch { /* best-effort */ }
       }
@@ -3564,13 +3564,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /**
    * Count records in the collection.
    *
-   * In eager mode this returns the in-memory cache size (instant). In
-   * lazy mode it asks the adapter via `list()` to enumerate ids — slower
-   * but still correct, and avoids loading any record bodies into memory.
+   * In eager mode this returns the in-memory cache size (instant). In lazy
+   * mode it counts only LIVE tier-0 envelopes via envelope inspection — no
+   * record bodies loaded — matching eager's tombstone/tier exclusion (#706).
    */
   async count(): Promise<number> {
     if (this.lazy) {
-      return (await this.adapter.list(this.vault, this.name)).length
+      return countLiveEnvelopes(this.adapter, this.vault, this.name, this.storeCiphertext)
     }
     await this.ensureHydrated()
     return this.cache.size

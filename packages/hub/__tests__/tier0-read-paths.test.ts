@@ -14,6 +14,7 @@ import { createNoydb, ConflictError } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withClassified } from '../src/via/classified/active.js'
 import { classified } from '../src/via/classified/presets.js'
+import { buildDeleteMarker } from '../src/kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
 
 function memoryStore(): NoydbStore {
@@ -333,5 +334,39 @@ describe('#706 listPage/scan: elevated records are invisible — no leak, no bri
     const seen: string[] = []
     for await (const rec of docs.scan({ pageSize: 1 })) seen.push(rec.name as string)
     expect(seen).toEqual(['stays'])
+  })
+})
+
+describe('#706 lazy count(): eager parity — elevated and deleted envelopes are not counted', () => {
+  it('lazy count matches eager count with an elevated record present', async () => {
+    const store = memoryStore()
+    const open = async (lazy: boolean) => {
+      const db = await createNoydb({ store, user: 'owner', secret: 'pw-706-count', tiersStrategy: withTiers() })
+      const vault = await db.openVault('v1')
+      return vault.collection<User>(lazy ? 'lc' : 'lc', lazy
+        ? { tiers: [0, 1], perRecordKeys: true, prefetch: false, cache: { maxRecords: 100 } }
+        : { tiers: [0, 1], perRecordKeys: true })
+    }
+    const docs = await open(true)
+    await docs.put('a', { name: 'a' })
+    await docs.put('b', { name: 'b' })
+    await docs.elevate('b', 1)
+    // Pre-#706: lazy count() returned raw adapter.list().length = 2.
+    expect(await docs.count()).toBe(1)
+    const eager = await open(false) // cold second session, eager mode, same store
+    expect(await eager.count()).toBe(1) // parity (hydration skips elevated, #701)
+  })
+
+  it('lazy count skips a hand-written delete-marker (raw list() counted it)', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({ store, user: 'owner', secret: 'pw-706-count-del', tiersStrategy: withTiers() })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<User>('mc', { tiers: [0, 1], perRecordKeys: true, prefetch: false, cache: { maxRecords: 100 } })
+    await docs.put('a', { name: 'a' })
+    await docs.put('gone', { name: 'gone' })
+    const live = (await store.get('v1', 'mc', 'gone'))!
+    await store.put('v1', 'mc', 'gone', buildDeleteMarker(live._v, 'owner'))
+    // Pre-#706: raw adapter.list().length counted the marker id too (== 2).
+    expect(await docs.count()).toBe(1)
   })
 })
