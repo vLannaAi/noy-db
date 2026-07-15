@@ -239,12 +239,25 @@ export class LazyQuery<T, S extends keyof T = never, Q extends keyof T & string 
     // composite mirror lookup is O(matches) vs single-field +
     // post-filter on the decrypted candidate set.
     const eqMap = new Map<string, unknown>()
+    const viaFields = new Set<string>()
     for (const clause of this.plan.clauses) {
-      if (clause.op === '==') eqMap.set(clause.field, clause.value)
+      if (clause.op === '==') {
+        eqMap.set(clause.field, clause.value)
+        // #696: the composite mirror buckets on `stringifyKey(tuple)` built
+        // from the RAW clause values — the per-field money canonicalizer
+        // (`canonicalizeIndexKey`) only ever keys off a single field name,
+        // never the joined composite key, so a Via-covered field's tuple
+        // slot never lands in the same bucket a canonical write produced.
+        // Track which `==` fields are Via-covered so the composite branch
+        // below can skip them and fall through to the single-field
+        // Via-aware path (already correct for money) instead.
+        if (clause.via) viaFields.add(clause.field)
+      }
     }
     if (eqMap.size >= 2) {
       for (const def of idx.definitions()) {
         if (def.kind !== 'composite') continue
+        if (def.fields.some(f => viaFields.has(f))) continue
         if (def.fields.every(f => eqMap.has(f))) {
           const tuple = def.fields.map(f => eqMap.get(f))
           const ids = idx.lookupEqual(def.key, tuple)

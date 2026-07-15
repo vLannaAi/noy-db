@@ -826,3 +826,103 @@ describe('lazy-mode orderBy is Via-aware (#695)', () => {
     expect(descLazy).toEqual(descEager)
   })
 })
+
+// #696 — `resolveCandidateIds()`'s composite fast path builds `eqMap` from
+// RAW `clause.value` (the major-unit operand, e.g. `1`) and probes
+// `idx.lookupEqual(def.key, tuple)`. The composite mirror buckets on
+// `stringifyKey(tuple)` — the per-field money canonicalizer
+// (`ViaPipeline.canonicalizeIndexKey`) only ever keys off a SINGLE field
+// name, never the joined composite key (`'amount|tag'`), so a composite that
+// covers a money field never lands the write-side bucket and the raw-operand
+// tuple never matches it: `lookupEqual` returns an empty (but non-null) Set,
+// so the fast path returns `[]` instead of falling back. The fix skips the
+// composite fast path when any covered `==` clause is Via-covered, falling
+// through to the already-Via-aware single-field path below it.
+describe('lazy-mode composite-index == skips the fast path for Via-covered fields (#696)', () => {
+  interface Row extends Record<string, unknown> {
+    id: string
+    amount: number | string
+    tag: string
+  }
+  const rowSchema = z.object({ id: z.string(), amount: z.union([z.number(), z.string()]), tag: z.string() })
+
+  /** scale:2 lazy session — single index on 'amount' (required for the single-field fallback) PLUS a composite over ['amount', 'tag']. */
+  async function openLazySession(adapter: NoydbStore) {
+    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+    const vault = await db.openVault(VAULT)
+    const col = vault.collection<Row>(COLL, {
+      schema: rowSchema,
+      prefetch: false,
+      cache: { maxRecords: 100 },
+      moneyFields: { amount: money({ currency: 'EUR', scale: 2 }) },
+      indexes: ['amount', ['amount', 'tag']],
+      reconcileOnOpen: 'auto',
+    })
+    return { db, col }
+  }
+
+  /** Eager counterpart — same moneyFields/indexes, for the mandatory eager-vs-lazy parity assertion. */
+  async function openEagerSession(adapter: NoydbStore) {
+    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+    const vault = await db.openVault(VAULT)
+    const col = vault.collection<Row>(COLL, {
+      schema: rowSchema,
+      moneyFields: { amount: money({ currency: 'EUR', scale: 2 }) },
+      indexes: ['amount', ['amount', 'tag']],
+    })
+    return { db, col }
+  }
+
+  async function seedDataset(adapter: NoydbStore): Promise<void> {
+    const db = await createNoydb({ store: adapter, user: USER, secret: PASS })
+    const vault = await db.openVault(VAULT)
+    const col = vault.collection<Row>(COLL, {
+      schema: rowSchema,
+      moneyFields: { amount: money({ currency: 'EUR', scale: 2 }) },
+    })
+    await col.put('r1', { id: 'r1', amount: 1, tag: 'x' })
+    await col.put('r2', { id: 'r2', amount: 1, tag: 'y' })
+    await col.put('r3', { id: 'r3', amount: 2, tag: 'x' })
+    db.close()
+  }
+
+  it('== + == on a composite covering a money field falls through to the single-field Via-aware path', async () => {
+    const adapter = persistentMemory()
+    await seedDataset(adapter)
+
+    const { db, col } = await openLazySession(adapter)
+    const hit = await col.lazyQuery().where('amount', '==', 1).where('tag', '==', 'x').toArray()
+    db.close()
+
+    // Pre-#696: the composite fast path probed a tuple built from the RAW
+    // major-unit operand (`1`) against buckets keyed on the raw stored
+    // value, canonicalized under a field name ('amount|tag') the money
+    // binding never covers — the probe missed and this returned [].
+    expect(hit.map((r) => r.id)).toEqual(['r1'])
+  })
+
+  // MANDATORY parity: lazy must agree with eager on the result-id set — the
+  // real #696 regression guard.
+  it('eager and lazy agree on the result-id set', async () => {
+    const adapter = persistentMemory()
+    await seedDataset(adapter)
+
+    // Open + hydrate EAGER first, before the lazy session's `reconcileOnOpen:
+    // 'auto'` gets a chance to persist `_idx/*` side-cars into the SAME
+    // adapter (same ordering requirement as the suites above).
+    const { db: dbEager, col: colEager } = await openEagerSession(adapter)
+    await colEager.list() // force hydration
+
+    const { db: dbLazy, col: colLazy } = await openLazySession(adapter)
+
+    const lazyIds = (await colLazy.lazyQuery().where('amount', '==', 1).where('tag', '==', 'x').toArray())
+      .map((r) => r.id).sort()
+    const eagerIds = colEager.query().where('amount', '==', 1).where('tag', '==', 'x').toArray()
+      .map((r) => r.id).sort()
+
+    dbLazy.close()
+    dbEager.close()
+
+    expect(lazyIds).toEqual(eagerIds)
+  })
+})
