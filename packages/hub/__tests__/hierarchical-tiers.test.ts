@@ -418,3 +418,26 @@ describe('#691 fold-ins: tier moves × record cache × tombstones', () => {
     await expect(docs.demote('gone', 0)).rejects.toThrow(/not found/)
   })
 })
+
+describe('#702 putAtTier maintains the record cache', () => {
+  it('putAtTier(tier>0) over a cached id evicts — plain get() stops serving the pre-move plaintext', async () => {
+    const { vault } = await freshVault()
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1] })
+    await docs.put('p1', { id: 'p1', title: 'Old', body: 'plain' })
+    expect((await docs.get('p1'))?.title).toBe('Old') // cache warm
+    await docs.putAtTier('p1', { id: 'p1', title: 'New', body: 'secret' }, 1)
+    // Pre-#702: the eager cache still served { title: 'Old' } — clearance-free.
+    expect(await docs.get('p1')).toBeNull()
+    expect(((await docs.getAtTier('p1')) as Doc | null)?.title).toBe('New')
+  })
+
+  it('putAtTier(tier 0) over a cached id re-seeds — plain get() serves the NEW content', async () => {
+    const { vault } = await freshVault()
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1] })
+    await docs.put('p2', { id: 'p2', title: 'V1', body: 'x' })
+    expect((await docs.get('p2'))?.title).toBe('V1')
+    await docs.putAtTier('p2', { id: 'p2', title: 'V2', body: 'y' }, 0)
+    // Pre-#702: stale 'V1' from the untouched cache.
+    expect((await docs.get('p2'))?.title).toBe('V2')
+  })
+})

@@ -146,6 +146,16 @@ export async function putAtTier<T>(
 
   await ctx.adapter.put(ctx.vault, ctx.name, id, envelope)
 
+  // #702: keep the record cache coherent with the raw write — same law as
+  // elevate/demote (#691): tier > 0 → invisible on tier-0 surfaces (evict);
+  // tier 0 → this is an ordinary write, re-seed via the canonical decode.
+  if (tier > 0) {
+    ctx.syncCache(id, null)
+  } else {
+    const rec = await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
+    ctx.syncCache(id, rec !== null ? { record: rec, version: envelope._v } : null)
+  }
+
   if (tier > 0) {
     ctx.emitCrossTierEvent({
       actor: ctx.keyring.userId,
