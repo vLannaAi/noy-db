@@ -1395,6 +1395,25 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    *          `null` if not found.
    */
   async get(id: string, locale?: LocaleReadOptions): Promise<SealedView<T, S> | null> {
+    const record = await this.#getRaw(id)
+    if (record === null) return null
+    // The cache/decrypt path already substituted Sealed handles for declared
+    // sensitive fields (S); the cast reflects that runtime shape. For
+    // collections with no sensitive fields S = never and SealedView<T, never>
+    // collapses to T, so this is a no-op widening.
+    return this.applyLocaleToRecord(record, locale) as unknown as SealedView<T, S>
+  }
+
+  /**
+   * Raw fetch: cache/adapter → decrypt → tombstone-null, WITHOUT `present()`.
+   * Split out of `get()` (#684) so `lazyQuery()`'s `LazyQuerySource` can hand
+   * `LazyQuery`'s post-filter the RAW (stored-form) record a `clause.via`
+   * evaluator (e.g. money) needs — `present()`/locale decode is applied only
+   * to survivors, via `applyLocaleToRecord` (see `lazyQuery()` below). `get()`
+   * itself is unchanged: raw fetch, then `applyLocaleToRecord`, same order
+   * as before this split.
+   */
+  async #getRaw(id: string): Promise<T | null> {
     // --- Lazy derivation resolution ---
     // If this collection is the output of a lazy-mode derivation
     // strategy, consult the stale map and re-derive on demand before
@@ -1443,11 +1462,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
     if (record === null) return null
     await this.onAccess?.('get', id)
-    // The cache/decrypt path already substituted Sealed handles for declared
-    // sensitive fields (S); the cast reflects that runtime shape. For
-    // collections with no sensitive fields S = never and SealedView<T, never>
-    // collapses to T, so this is a no-op widening.
-    return this.applyLocaleToRecord(record, locale) as unknown as SealedView<T, S>
+    return record
   }
 
   /**
@@ -4346,7 +4361,11 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       persistedIndexes: persisted,
       canonicalizeIndexKey: (f: string, v: unknown) => this.via?.canonicalizeIndexKey(f, v),
       ensurePersistedIndexesLoaded: () => this.ensurePersistedIndexesLoaded(),
-      getRecord: (id: string) => this.get(id) as unknown as Promise<T | null>,
+      // #684: raw-fetch seam — post-filter runs against the RAW record;
+      // only survivors are decoded via `decodeRecord` below.
+      getRawRecord: (id: string) => this.#getRaw(id),
+      decodeRecord: (record: unknown) => this.applyLocaleToRecord(record as T, undefined),
+      via: () => this.via,
     }
     return new LazyQuery<T, S, Q>(source)
   }

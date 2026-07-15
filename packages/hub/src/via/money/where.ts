@@ -182,20 +182,22 @@ export function moneyFieldClause(
  * lazy-mode mixed-era record's bucket and a canonicalized probe now agree,
  * the same as eager mode.
  *
- * Residual boundary, NOT fixed by #677 — tracked in #684: `LazyQuery`'s
- * post-filter (`lazy-builder.ts`'s `matchesAll`) re-evaluates every clause
- * — including the index-driving one — against the DECODED record
- * (`getRecord()` runs `via.present()`), using the generic (non-Via-aware)
- * `evaluateClause`, because `LazyQuery.where()` never builds a `clause.via`
- * the way `Query.where()`/`ScanBuilder.where()` do. At `scale: 0` this
- * doesn't surface (decode is identity). At `scale > 0` it does — even a
- * query value spelled in the field's STORED (canonical scaled-int) form
- * reaches the right candidate ids via the index, but the post-filter then
- * rejects every one of them (raw vs decoded mismatch). Practical result:
- * `lazyQuery().where()` on a money field with `scale > 0` returns an EMPTY
- * `.toArray()` end-to-end, no matter how the query value is spelled. Only
- * the index layer (this file + #677) is fixed; full parity with
- * `scan().where()` is tracked in #684.
+ * Residual boundary CLOSED by #684: `LazyQuery.where()` now builds
+ * `clause.via` exactly like `Query.where()`/`ScanBuilder.where()` do, and
+ * `LazyQuery`'s post-filter (`lazy-builder.ts`'s `toArray()`) runs it
+ * against the RAW record (a dedicated raw-fetch seam on `Collection`, split
+ * out of `get()`) instead of the DECODED one — `clause.via.evaluate` (this
+ * file's {@link evaluateMoneyClause}) now sees the same stored-form
+ * operand/actual-value space eager's `filterRecords` does, at any `scale`.
+ * Only survivors are decoded (`present()`) on the way out. Money RANGE
+ * clauses additionally route around `PersistedCollectionIndex.lookupRange`
+ * (raw/typed, wrong space for scaled-int money) — `resolveCandidateIds()`
+ * enumerates the field's indexed ids instead and lets this now-via-aware
+ * post-filter apply the correct BigInt-exact comparison. `lazyQuery().
+ * where()` on a money field now agrees with `scan().where()` /
+ * `query().where()` at every `scale` — for `.where()` results specifically.
+ * `orderBy` ordering is a separate, still-open lazy-vs-eager divergence,
+ * tracked in #695.
  */
 // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
 export function moneyIndexProbe(op: Operator, payload: MoneyWhereOperand): unknown | undefined {
