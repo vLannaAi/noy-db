@@ -59,10 +59,15 @@ function declareAll(persisted: PersistedCollectionIndex, defs: readonly IndexDef
   for (const def of defs) {
     if (typeof def === 'string') {
       persisted.declare(def)
-    } else if (Array.isArray(def)) {
-      persisted.declareComposite(def as readonly string[])
     } else {
-      persisted.declareComposite((def as { fields: readonly string[] }).fields)
+      const fields = Array.isArray(def) ? (def as readonly string[]) : (def as { fields: readonly string[] }).fields
+      // #698: decompose a composite into its component single-field indexes
+      // (like the eager branch above), so a composite-only declaration still
+      // provides the single-field driver the #696 Via-covered fall-through
+      // and single-field queries need. The composite mirror is kept for the
+      // multi-field fast path.
+      for (const f of fields) persisted.declare(f)
+      persisted.declareComposite(fields)
     }
   }
 }

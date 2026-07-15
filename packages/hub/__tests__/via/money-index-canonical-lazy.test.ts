@@ -926,3 +926,107 @@ describe('lazy-mode composite-index == skips the fast path for Via-covered field
     expect(lazyIds).toEqual(eagerIds)
   })
 })
+
+// #698 — a composite-ONLY lazy declaration (`indexes: [['amount', 'tag']]`,
+// no standalone `'amount'` entry) declared only the composite mirror in
+// `declareAll` (`with-lookup/indexing/active.ts`). After #696 made the
+// composite `==` fast path skip Via-covered (money) fields and fall through
+// to the single-field Via-aware path, that fallback had no driver — the
+// field was never `declare()`d singly — so `resolveCandidateIds()` returned
+// null and `toArray()` threw `IndexRequiredError` where eager (which always
+// decomposes a composite into its component single-field indexes, see the
+// eager branch in `withIndexing()`) returns results. The fix decomposes a
+// composite into its component single-field indexes on declare, like eager,
+// keeping the composite mirror for the multi-field fast path.
+describe('lazy-mode composite-ONLY declaration decomposes into component singles (#698)', () => {
+  interface Row extends Record<string, unknown> {
+    id: string
+    amount: number | string
+    tag: string
+  }
+  const rowSchema = z.object({ id: z.string(), amount: z.union([z.number(), z.string()]), tag: z.string() })
+
+  /** scale:2 lazy session — COMPOSITE-ONLY over ['amount', 'tag']; no standalone 'amount' index entry. */
+  async function openCompositeOnlyLazySession(adapter: NoydbStore) {
+    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+    const vault = await db.openVault(VAULT)
+    const col = vault.collection<Row>(COLL, {
+      schema: rowSchema,
+      prefetch: false,
+      cache: { maxRecords: 100 },
+      moneyFields: { amount: money({ currency: 'EUR', scale: 2 }) },
+      indexes: [['amount', 'tag']],
+      reconcileOnOpen: 'auto',
+    })
+    return { db, col }
+  }
+
+  /** Eager counterpart — same moneyFields, same composite-only declaration, for the mandatory eager-parity assertion. */
+  async function openCompositeOnlyEagerSession(adapter: NoydbStore) {
+    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+    const vault = await db.openVault(VAULT)
+    const col = vault.collection<Row>(COLL, {
+      schema: rowSchema,
+      moneyFields: { amount: money({ currency: 'EUR', scale: 2 }) },
+      indexes: [['amount', 'tag']],
+    })
+    return { db, col }
+  }
+
+  async function seedDataset(adapter: NoydbStore): Promise<void> {
+    const db = await createNoydb({ store: adapter, user: USER, secret: PASS })
+    const vault = await db.openVault(VAULT)
+    const col = vault.collection<Row>(COLL, {
+      schema: rowSchema,
+      moneyFields: { amount: money({ currency: 'EUR', scale: 2 }) },
+    })
+    await col.put('r1', { id: 'r1', amount: 1, tag: 'x' })
+    await col.put('r2', { id: 'r2', amount: 1, tag: 'y' })
+    await col.put('r3', { id: 'r3', amount: 2, tag: 'x' })
+    db.close()
+  }
+
+  it('composite-only + money, double == returns the correct row (was IndexRequiredError), matching eager', async () => {
+    const adapter = persistentMemory()
+    await seedDataset(adapter)
+
+    const { db: dbEager, col: colEager } = await openCompositeOnlyEagerSession(adapter)
+    await colEager.list() // force eager hydration
+
+    const { db: dbLazy, col: colLazy } = await openCompositeOnlyLazySession(adapter)
+
+    // Pre-#698: the composite fast path skips this Via-covered clause (#696)
+    // and falls through to the single-field path — but 'amount' was never
+    // declared singly (composite-only declaration), so `resolveCandidateIds`
+    // returned null and this threw IndexRequiredError.
+    const lazyHit = await colLazy.lazyQuery().where('amount', '==', 1).where('tag', '==', 'x').toArray()
+    const eagerHit = colEager.query().where('amount', '==', 1).where('tag', '==', 'x').toArray()
+
+    dbLazy.close()
+    dbEager.close()
+
+    expect(lazyHit.map((r) => r.id)).toEqual(['r1'])
+    expect(lazyHit.map((r) => r.id).sort()).toEqual(eagerHit.map((r) => r.id).sort())
+  })
+
+  it('composite-only + single-field query on the covered money field returns the right rows (was IndexRequiredError)', async () => {
+    const adapter = persistentMemory()
+    await seedDataset(adapter)
+
+    const { db: dbEager, col: colEager } = await openCompositeOnlyEagerSession(adapter)
+    await colEager.list() // force eager hydration
+
+    const { db: dbLazy, col: colLazy } = await openCompositeOnlyLazySession(adapter)
+
+    // Pre-#698: 'amount' has no single-field driver on a composite-only
+    // declaration, so this single-clause query threw IndexRequiredError.
+    const lazyHit = await colLazy.lazyQuery().where('amount', '==', 1).toArray()
+    const eagerHit = colEager.query().where('amount', '==', 1).toArray()
+
+    dbLazy.close()
+    dbEager.close()
+
+    expect(lazyHit.map((r) => r.id).sort()).toEqual(['r1', 'r2'])
+    expect(lazyHit.map((r) => r.id).sort()).toEqual(eagerHit.map((r) => r.id).sort())
+  })
+})
