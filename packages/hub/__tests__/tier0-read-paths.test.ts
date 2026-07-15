@@ -128,4 +128,61 @@ describe('#691 verify doors: elevated ≡ missing', () => {
     expect(await cold.users.findByDigest('password', 'pw-one-moves-111')).toEqual([])
     expect(await cold.users.findByDigest('password', 'pw-zero-stays-00')).toEqual(['u0'])
   }, 60_000)
+
+  it('findByDigest same-scan abort: elevated record sharing a tier-0 candidate\'s _bidx tag does not hide the tier-0 hit', async () => {
+    const h = tieredClassifiedHarness()
+    const { users } = await h.open()
+    await users.put('u0', { name: 'a', password: 'shared-secret-pw', email: 'z@example.com', a1: 'x', a2: 'y' })
+    await users.put('u1', { name: 'b', password: 'shared-secret-pw', email: 'o@example.com', a1: 'x', a2: 'y' })
+    await users.elevate('u1', 1)
+
+    expect(await users.findByDigest('password', 'shared-secret-pw')).toEqual(['u0'])
+  }, 60_000)
+})
+
+describe('#691 det scans: elevated records are skipped', () => {
+  function tieredDetHarness() {
+    const store = memoryStore()
+    const open = async () => {
+      const db = await createNoydb({ store, user: 'owner', secret: 'pw-691-det', tiersStrategy: withTiers() })
+      const vault = await db.openVault('v1')
+      const accounts = vault.collection<User>('accounts', {
+        perRecordKeys: true,
+        tiers: [0, 1],
+        deterministicFields: ['email'],
+        acknowledgeDeterministicRisk: true,
+        prefetch: false, // lazy mode: sidesteps eager ensureHydrated() (out of scope — separate pre-existing gap, not a #691 det-scan door)
+        cache: { maxRecords: 100 },
+      })
+      return { vault, accounts }
+    }
+    return { store, open }
+  }
+
+  it('warm (elevating) session: findByDet must NOT leak the elevated record via the cekCache', async () => {
+    const h = tieredDetHarness()
+    const { accounts } = await h.open()
+    await accounts.put('e1', { name: 'leaky', email: 'x@y.z' })
+    await accounts.elevate('e1', 1) // caches the CEK — pre-#691 findByDet then SUCCEEDS here, audit-free
+    expect(await accounts.findByDet('email', 'x@y.z')).toBeNull()
+  })
+
+  it('cold session: det scans skip the elevated match instead of throwing, and keep tier-0 matches', async () => {
+    const h = tieredDetHarness()
+    const { accounts } = await h.open()
+    await accounts.put('a0', { name: 'a', email: 'shared@y.z' })
+    await accounts.put('b0', { name: 'b', email: 'shared@y.z' })
+    await accounts.put('e1', { name: 'c', email: 'shared@y.z' })
+    await accounts.elevate('e1', 1)
+
+    const cold = await h.open()
+    // Pre-#691: the scan throws on e1's tier-wrapped key material, ABORTING
+    // the whole query and losing a0/b0.
+    const hits = await cold.accounts.queryByDet('email', 'shared@y.z')
+    expect(hits.map(r => r.name).sort()).toEqual(['a', 'b'])
+    // findByDet on a value only the elevated record carries → null, no throw.
+    await cold.accounts.put('solo', { name: 's', email: 'solo@y.z' })
+    await cold.accounts.elevate('solo', 1)
+    expect(await cold.accounts.findByDet('email', 'solo@y.z')).toBeNull()
+  })
 })
