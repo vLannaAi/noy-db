@@ -23,7 +23,7 @@
 export { withTiers } from './active.js'
 export { NO_TIERS, type TiersStrategy } from './strategy.js'
 export { TiersNotEnabledError } from '../../kernel/errors.js'
-import { encrypt, decrypt, unwrapCek, rewrapBodyToDek, type RecordCodec, type EnclaveKey, type SealedShredSlot } from '../../kernel/enclave/index.js'
+import { encrypt, decrypt, unwrapCek, rewrapBodyToDek, isDeleteMarker, isTombstoneShape, type RecordCodec, type EnclaveKey, type SealedShredSlot } from '../../kernel/enclave/index.js'
 import { TierDemoteDeniedError } from '../../kernel/errors.js'
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
@@ -56,6 +56,8 @@ export interface TiersContext<T> {
    * owns. `null` → no caching.
    */
   readonly cekCache: Lru<string, EnclaveKey> | null
+  /** Evict the collection's decoded-record cache entry after a tier move rewraps the envelope (#691). */
+  evictCache(id: string): void
   /** Emit `_source`/`_sourceTs` provenance fields when a source is supplied. */
   readonly provenance: boolean
   /** Declared tiers, or null when the feature is off. */
@@ -257,7 +259,9 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   assertTierAccess(ctx.keyring, ctx.name, toTier)
 
   const envelope = await ctx.adapter.get(ctx.vault, ctx.name, id)
-  if (!envelope) throw new Error(`Record "${id}" not found in collection "${ctx.name}"`)
+  if (!envelope || isDeleteMarker(envelope) || isTombstoneShape(envelope)) {
+    throw new Error(`Record "${id}" not found in collection "${ctx.name}"`)
+  }
   const fromTier = envelope._tier ?? 0
   if (toTier === fromTier) return
   if (toTier < fromTier) {
@@ -277,6 +281,7 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   const now = new Date().toISOString()
   const body = await rewrapBodyToDek(envelope, fromDek, toDek)
   if (body.cek) ctx.cekCache?.set(id, body.cek, 1)
+  ctx.evictCache(id)
   // #662: spread every slot the source carries (_sealed/_det/_vdig/_bidx/
   // _source/_sourceTs/_debug) through UNCHANGED, then override only
   // the fields a tier move manages. rewrapBodyToDek preserves the CEK, so no
@@ -316,7 +321,9 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
   if (toTier < 0) throw new Error(`Cannot demote to negative tier ${toTier}`)
 
   const envelope = await ctx.adapter.get(ctx.vault, ctx.name, id)
-  if (!envelope) throw new Error(`Record "${id}" not found in collection "${ctx.name}"`)
+  if (!envelope || isDeleteMarker(envelope) || isTombstoneShape(envelope)) {
+    throw new Error(`Record "${id}" not found in collection "${ctx.name}"`)
+  }
   const fromTier = envelope._tier ?? 0
   if (toTier === fromTier) return
   if (toTier > fromTier) {
@@ -339,6 +346,7 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
   const now = new Date().toISOString()
   const body = await rewrapBodyToDek(envelope, fromDek, toDek)
   if (body.cek) ctx.cekCache?.set(id, body.cek, 1)
+  ctx.evictCache(id)
   // #662: same passenger carry-through as elevate(). demote additionally CLEARS
   // `_elevatedBy` (the demote right is consumed) and OMITS `_tier` at tier 0, so
   // both are destructured out of the spread rather than carried.
