@@ -7,6 +7,9 @@
  * text door (verifyTextField) has no real PBKDF2 of its own, so it pays the
  * pad UNCONDITIONALLY — every outcome, including a real compare, costs the
  * same one PBKDF2 unit (no inverted exists-vs-absent oracle).
+ * Elevated records (_tier > 0, with-audit tier moves) are non-comparable
+ * through every door and pad-false exactly like missing records (#691) —
+ * the tier-aware read surface is getAtTier, never verify.
  * Throws are reserved for caller/config bugs (ClassifiedVerifyError /
  * ClassifiedConfigError) and are exempt from the pad by design (R6 note).
  * @module
@@ -60,7 +63,12 @@ export async function verifyDigestField(
   policy: VdigFieldPolicy,
 ): Promise<ClassifiedVerdict> {
   const env = await ctx.getEnvelope(id)
-  if (env === null) return padFalse()
+  // #691: an elevated envelope (_tier > 0) is non-comparable through every
+  // tier-0 door — its key material is tier-DEK-wrapped and must never be
+  // resolved here (the elevating session's warm cekCache would otherwise
+  // leak past the tier audit). Exactly the missing-record pad path, checked
+  // BEFORE the R6 residue probe so tier-0 callers learn nothing.
+  if (env === null || (env._tier ?? 0) > 0) return padFalse()
   const blob = env._vdig?.[field]
   if (blob === undefined) {
     if (env._sealed?.[field] !== undefined) refuseSealedResidue(ctx.collection, field)
@@ -106,7 +114,7 @@ export async function verifyTextField(
   const env = await ctx.getEnvelope(id)
   const blob = env?._sealed?.[field]
   let stored: string | undefined
-  if (env !== null && blob !== undefined) {
+  if (env !== null && (env._tier ?? 0) === 0 && blob !== undefined) { // #691: elevated ≡ missing
     const cek = await ctx.resolveCek(env)
     const dek = await ctx.getDEK()
     try {
@@ -148,7 +156,11 @@ export async function matchGroupFields(
     normalized.set(m.field, normalizeForVerify(m.policy.normalize, answer))
   }
 
-  const env = await ctx.getEnvelope(id)
+  const fetched = await ctx.getEnvelope(id)
+  // #691: elevated ≡ missing — nulling the view here also skips the R6
+  // residue probe (a tier-0 caller must not learn an elevated record's
+  // storage form) and forces the cek-undefined pad path for every member.
+  const env = fetched === null || (fetched._tier ?? 0) > 0 ? null : fetched
   if (env !== null) {
     for (const m of members) { // R6 evidence — uniform, before any PBKDF2
       if (env._sealed?.[m.field] !== undefined && env._vdig?.[m.field] === undefined) {
