@@ -167,7 +167,7 @@ describe('joined fan-out', () => {
   })
 
   it('pair delete removes the satellite leg first; failure reverts', async () => {
-    const { vault, spy, changes, deps } = await openPair()
+    const { vault, spy, changes, deps, dirtyLog } = await openPair()
     await joinedPut(deps(), 'x', { from: 'a', body: 'B' })
     spy.reset()
     await vault.collection<Msg>('msgs').delete('x') // through the public base-proxy delete override
@@ -187,6 +187,9 @@ describe('joined fan-out', () => {
     await expect(vault.collection<Msg>('msgs').delete('y')).rejects.toThrow()
     expect(await spy.raw.get('v1', 'msgs_text', 'y')).toEqual(priorEnvelope) // satellite ENVELOPE restored byte-for-byte
     expect(changes.last('msgs_text')).toMatchObject({ id: 'y', action: 'put' }) // restored → 'put'
+    // #687: assert the dirty-log side of compensation directly (not just the
+    // change-event proxy) — the reverted satellite leg's dirty entry is cleaned.
+    expect(dirtyLog.entriesFor('msgs_text', 'y')).toEqual([])
     await new Promise(r => setTimeout(r, 0)) // let subscribe()'s async hydration settle
     expect(subEvents.at(-1)).toMatchObject({ type: 'put', id: 'y', record: { body: 'C' } })
   })
