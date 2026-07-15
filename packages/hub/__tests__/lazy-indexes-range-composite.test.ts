@@ -161,13 +161,15 @@ describe('composite (multi-field) indexes', () => {
     await coll.put('r-1', { id: 'r-1', clientId: 'c-A', period: '2026-Q1', amount: 10 })
     await coll.put('r-2', { id: 'r-2', clientId: 'c-B', period: '2026-Q1', amount: 20 })
 
-    // This particular call-site lacks an indexable driver (no
-    // composite-covering equality, no orderBy), so it surfaces
-    // IndexRequiredError — but only because of the no-driver guard,
-    // not because `clientId` was rejected as unindexed.
-    await expect(
-      coll.lazyQuery().where('clientId', '==', 'c-A').toArray(),
-    ).rejects.toThrow(IndexRequiredError)
+    // #698: `declareAll` now decomposes a composite declaration into its
+    // component single-field indexes too (mirroring eager), so `clientId`
+    // has its own single-field driver here even though only the composite
+    // was declared — this now resolves via the fast path instead of
+    // surfacing IndexRequiredError (the pre-#698 behavior this test used to
+    // pin, when the composite-only declaration left `clientId` with no
+    // usable driver).
+    const rows = await coll.lazyQuery().where('clientId', '==', 'c-A').toArray()
+    expect(rows.map(r => r.id)).toEqual(['r-1'])
   })
 
   it('rejects composite declaration where a field name contains the `|` delimiter', async () => {

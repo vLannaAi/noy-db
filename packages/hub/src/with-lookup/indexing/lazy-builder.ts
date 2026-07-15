@@ -26,8 +26,9 @@
 import type { Clause, FieldClause, Operator } from '../../kernel/query/predicate.js'
 import { evaluateClause, readPath } from '../../kernel/query/predicate.js'
 import type { PersistedCollectionIndex } from './persisted-indexes.js'
-import { IndexRequiredError } from '../../kernel/errors.js'
+import { IndexRequiredError, FieldNotQueryableError } from '../../kernel/errors.js'
 import type { QueryField } from '../../kernel/types.js'
+import type { ViaPipeline } from '../../kernel/via/pipeline.js'
 
 export interface LazyOrderBy {
   readonly field: string
@@ -55,8 +56,28 @@ export interface LazyQuerySource<T> {
   canonicalizeIndexKey?(field: string, value: unknown): string | undefined
   /** Ensure `_idx/<field>/*` side-cars have been bulk-loaded into the mirror. */
   ensurePersistedIndexesLoaded(): Promise<void>
-  /** Decrypt one record by id, or return null if it's gone. */
-  getRecord(id: string): Promise<T | null>
+  /**
+   * Decrypt one record by id in RAW (pre-`present()`, stored-form) shape,
+   * or return null if it's gone (#684 — the raw-fetch seam). Used by the
+   * post-filter (`toArray()`) so a `clause.via.evaluate` (e.g. money) sees
+   * the same operand/actual-value space as eager's `filterRecords` — the
+   * DECODED form (e.g. money's canonical decimal) is only materialized
+   * for survivors, via {@link decodeRecord}.
+   */
+  getRawRecord(id: string): Promise<unknown>
+  /**
+   * Apply this collection's locale/virtual-field decode (`present()`) to a
+   * RAW record already known to match — the output-side twin of
+   * {@link getRawRecord}. Mirrors eager's `Query.decodeVia`.
+   */
+  decodeRecord(record: unknown): Promise<T>
+  /**
+   * This collection's compiled Via pipeline (money, i18n, …), read lazily
+   * (a method, not a captured value) so a late `_setVia` (#666) is honored
+   * — same closure discipline as {@link canonicalizeIndexKey}. `undefined`
+   * when the collection has no Via-covered fields.
+   */
+  via(): ViaPipeline | undefined
 }
 
 interface LazyPlan {
@@ -83,7 +104,36 @@ export class LazyQuery<T, S extends keyof T = never, Q extends keyof T & string 
   }
 
   where<V>(field: QueryField<T, S, Q>, op: Operator, value: V): LazyQuery<T, S, Q> {
-    const clause: FieldClause = { type: 'field', field, op, value }
+    // A Via-covered field (e.g. money) compares in major units, BigInt-exact
+    // in scaled space — same build-time operand rewrite + `clause.via`
+    // attachment as `Query.where()` (`kernel/query/builder.ts`) and
+    // `ScanBuilder.where()` (`kernel/query/scan-builder.ts`). Before #684
+    // this method built a bare clause with no `clause.via` at all, so the
+    // post-filter fell through to the generic (non-Via-aware) comparison —
+    // see `toArray()` below for the raw-record post-filter this feeds.
+    const via = this.source.via()
+    // Consults the Via pipeline's posture BEFORE building a clause — same
+    // gate as `Query.where()` (builder.ts) / `ScanBuilder.where()`
+    // (scan-builder.ts): a field whose posture is `queryable: 'none'`
+    // (e.g. a `blobFields` slot) throws `FieldNotQueryableError` here, at
+    // the call site, instead of building a bare clause that later surfaces
+    // as a deferred `IndexRequiredError` from `toArray()`.
+    if (via?.postureFor(field)?.queryable === 'none') throw new FieldNotQueryableError(field)
+    const viaClause = via?.buildClause(field, op, value)
+    const clause: FieldClause = viaClause
+      ? {
+          type: 'field',
+          field,
+          op,
+          value,
+          via: {
+            brand: viaClause.brand,
+            payload: viaClause.payload,
+            evaluate: (actual: unknown, evalOp: string) => via!.evaluateClause(viaClause, actual, evalOp),
+            indexValue: via!.indexProbe(viaClause, op),
+          },
+        }
+      : { type: 'field', field, op, value }
     return new LazyQuery<T, S, Q>(this.source, {
       ...this.plan,
       clauses: [...this.plan.clauses, clause],
@@ -132,24 +182,37 @@ export class LazyQuery<T, S extends keyof T = never, Q extends keyof T & string 
       })
     }
 
-    const records: T[] = []
+    // #684: post-filter the RAW record (mirrors eager's filterRecords on the
+    // raw snapshot) so `clause.via.evaluate` sees the same stored-form
+    // operand/actual-value space `buildClause` quantized into at where()
+    // time. Survivors stay RAW here — #695 sorts them via-aware in that
+    // same stored-form space (mirroring eager's `sortRecords(result, ...,
+    // source.via, ...)` in `kernel/query/builder.ts`) before anything is
+    // decoded (`present()`).
+    const survivors: T[] = []
     for (const id of candidateIds) {
-      const record = await this.source.getRecord(id)
-      if (record === null) continue
-      if (!matchesAll(record, this.plan.clauses)) continue
-      records.push(record)
+      const raw = await this.source.getRawRecord(id)
+      if (raw === null) continue
+      if (!matchesAll(raw, this.plan.clauses)) continue
+      survivors.push(raw as T)
     }
 
+    // #695: sort the RAW survivors via-aware — a money field's stored form
+    // (scaled-integer string) sorts lexicographically wrong under the
+    // generic comparator ('10.00' < '2.00' once decoded); `via.compareForOrder`
+    // compares in the correct (BigInt-exact scaled) space, same as eager.
     const sorted = this.plan.orderBy.length > 0
-      ? sortRecords(records, this.plan.orderBy)
-      : records
+      ? sortRecords(survivors, this.plan.orderBy, this.source.via())
+      : survivors
 
     const offset = this.plan.offset > 0 ? this.plan.offset : 0
-    const limited = this.plan.limit === undefined
+    const page = this.plan.limit === undefined
       ? sorted.slice(offset)
       : sorted.slice(offset, offset + this.plan.limit)
 
-    return limited
+    // Decode only the final page — fewer decodes than the pre-#695 code,
+    // which decoded every survivor before sorting/slicing.
+    return Promise.all(page.map(r => this.source.decodeRecord(r)))
   }
 
   async first(): Promise<T | null> {
@@ -176,12 +239,25 @@ export class LazyQuery<T, S extends keyof T = never, Q extends keyof T & string 
     // composite mirror lookup is O(matches) vs single-field +
     // post-filter on the decrypted candidate set.
     const eqMap = new Map<string, unknown>()
+    const viaFields = new Set<string>()
     for (const clause of this.plan.clauses) {
-      if (clause.op === '==') eqMap.set(clause.field, clause.value)
+      if (clause.op === '==') {
+        eqMap.set(clause.field, clause.value)
+        // #696: the composite mirror buckets on `stringifyKey(tuple)` built
+        // from the RAW clause values — the per-field money canonicalizer
+        // (`canonicalizeIndexKey`) only ever keys off a single field name,
+        // never the joined composite key, so a Via-covered field's tuple
+        // slot never lands in the same bucket a canonical write produced.
+        // Track which `==` fields are Via-covered so the composite branch
+        // below can skip them and fall through to the single-field
+        // Via-aware path (already correct for money) instead.
+        if (clause.via) viaFields.add(clause.field)
+      }
     }
     if (eqMap.size >= 2) {
       for (const def of idx.definitions()) {
         if (def.kind !== 'composite') continue
+        if (def.fields.some(f => viaFields.has(f))) continue
         if (def.fields.every(f => eqMap.has(f))) {
           const tuple = def.fields.map(f => eqMap.get(f))
           const ids = idx.lookupEqual(def.key, tuple)
@@ -192,29 +268,73 @@ export class LazyQuery<T, S extends keyof T = never, Q extends keyof T & string 
 
     for (const clause of this.plan.clauses) {
       if (clause.op === '==') {
+        if (clause.via) {
+          // #684: prefer `clause.via.indexValue` — the same STORED-form
+          // probe operand eager's `candidateRecords()` resolves first
+          // (`kernel/query/builder.ts`). `undefined` means the binding
+          // declined to probe this op/payload (e.g. money multi-mode) — no
+          // sound equality bucket exists. Eager's `candidateRecords()`
+          // handles this by skipping the index-eligibility check for the
+          // clause and falling back to a full scan (`builder.ts:1176`); the
+          // lazy equivalent (#684 review-fix 2) is the same move the RANGE branch
+          // below already makes — enumerate the field's full indexed id
+          // set via `orderedBy` and let the (now via-aware) post-filter in
+          // `toArray()` decide, instead of throwing `IndexRequiredError`.
+          if (clause.via.indexValue === undefined) {
+            const entries = idx.orderedBy(clause.field, 'asc')
+            if (entries) return entries.map(e => e.recordId)
+            continue
+          }
+          const ids = idx.lookupEqual(clause.field, clause.via.indexValue)
+          if (ids) return [...ids]
+          continue
+        }
         // #677: canonicalize the probe value BEFORE the lookup — same
-        // "resolve before lookupEqual" shape as eager's `candidateRecords()`
-        // (which resolves `clause.via.indexValue` first), but through the
-        // narrower `canonicalizeIndexKey` seam: lazy mode never quantizes
-        // major units, so the caller must already pass the field's STORED
-        // form. `undefined` (no via coverage) falls back to the raw clause
-        // value, unchanged from today.
+        // "resolve before lookupEqual" shape as eager's `candidateRecords()`,
+        // but through the narrower `canonicalizeIndexKey` seam, used only on
+        // this NON-via path. `undefined` (no via coverage) falls back to the
+        // raw clause value, unchanged from today.
         const probe = this.source.canonicalizeIndexKey?.(clause.field, clause.value) ?? clause.value
         const ids = idx.lookupEqual(clause.field, probe)
         if (ids) return [...ids]
       } else if (clause.op === 'in' && Array.isArray(clause.value)) {
+        if (clause.via) {
+          // Same #684 review-fix 2 fallback as the `==` branch above — a via
+          // payload that declines to probe (e.g. money multi-mode) still
+          // has a sound candidate superset via `orderedBy`.
+          if (clause.via.indexValue === undefined) {
+            const entries = idx.orderedBy(clause.field, 'asc')
+            if (entries) return entries.map(e => e.recordId)
+            continue
+          }
+          if (!Array.isArray(clause.via.indexValue)) continue
+          const ids = idx.lookupIn(clause.field, clause.via.indexValue)
+          if (ids) return [...ids]
+          continue
+        }
         const probes = clause.value.map(v => this.source.canonicalizeIndexKey?.(clause.field, v) ?? v)
         const ids = idx.lookupIn(clause.field, probes)
         if (ids) return [...ids]
       } else if (isRangeOp(clause.op)) {
-        // range predicates on an indexed field dispatch unconditionally
-        // through `lookupRange`, which compares on the original typed
-        // value (no numeric-lexicographic landmines). NOT canonicalized
-        // (#677) — unlike eager mode, where `moneyIndexProbe` never emits
-        // a range probe so a money range clause always scans, THIS path
-        // has no scan fallback: a money field's raw/uncanonicalized typed
-        // comparison here is a live, pre-existing correctness gap, tracked
-        // in #684.
+        if (clause.via) {
+          // #684: a Via-covered range clause (e.g. money) cannot trust
+          // `lookupRange` — it compares the ORIGINAL TYPED stored value,
+          // wrong space for a binding whose stored form isn't directly
+          // orderable that way (money: BigInt-exact scaled-int compare).
+          // No binding emits a range `indexProbe` either (see
+          // `moneyIndexProbe`), so there's no sound bucket lookup at all.
+          // Enumerate the field's full indexed id set via `orderedBy` — the
+          // same superset a scan would consider, just scoped to indexed ids
+          // — and let the (now via-aware) post-filter in `toArray()` apply
+          // the correct scaled-space comparison. Replaces the old
+          // "always trust lookupRange, no scan fallback" gap.
+          const entries = idx.orderedBy(clause.field, 'asc')
+          if (entries) return entries.map(e => e.recordId)
+          continue
+        }
+        // range predicates on a NON-via indexed field dispatch through
+        // `lookupRange`, which compares on the original typed value (no
+        // numeric-lexicographic landmines).
         const ids = idx.lookupRange(clause.field, clause.op, clause.value)
         if (ids) return [...ids]
       }
@@ -265,12 +385,18 @@ function matchesAll(record: unknown, clauses: readonly Clause[]): boolean {
   return true
 }
 
-function sortRecords<T>(records: T[], orderBy: readonly LazyOrderBy[]): T[] {
+function sortRecords<T>(records: T[], orderBy: readonly LazyOrderBy[], via?: ViaPipeline): T[] {
   return [...records].sort((a, b) => {
     for (const { field, direction } of orderBy) {
       const av = readPath(a, field)
       const bv = readPath(b, field)
-      const cmp = compareValues(av, bv)
+      // #695: a Via-covered field (e.g. money) may store a representation
+      // the generic comparator would order wrong — ask the pipeline for an
+      // exact ordering first, same as eager's `sortRecords` in
+      // `kernel/query/builder.ts`. `undefined` (no via, or the field isn't
+      // covered) falls back to the generic comparator, unchanged from today.
+      const viaCmp = via?.compareForOrder(field, av, bv)
+      const cmp = viaCmp !== undefined ? viaCmp : compareValues(av, bv)
       if (cmp !== 0) return direction === 'asc' ? cmp : -cmp
     }
     return 0

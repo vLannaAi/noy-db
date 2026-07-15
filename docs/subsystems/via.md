@@ -504,9 +504,11 @@ is no single stored-form value a hash index can serve for those). The initial mi
 pre-money-declaration legacy data was closed for eager-mode collections by #672's index-key
 canonicalizer, and for lazy-mode (`prefetch: false`) collections by #677's matching
 `PersistedCollectionIndex` bucket + probe canonicalizer (documented on the money page). A
-separate lazy-mode boundary remains: `LazyQuery.where()` doesn't build a `clause.via`, so
-end-to-end lazy money `==`/`in` queries at `scale > 0` still return an empty `.toArray()` —
-tracked in #684.
+separate lazy-mode boundary — `LazyQuery.where()` not building a `clause.via`, which left
+end-to-end lazy money `==`/`in` queries at `scale > 0` returning an empty `.toArray()` — was
+closed by #684: `LazyQuery.where()` now builds `clause.via` and the post-filter runs Via-aware
+against the raw stored record, matching `scan()`/`query()` at every scale (see the money page for
+the full story, including the still-open `orderBy` ordering item, #695).
 
 ## See also
 

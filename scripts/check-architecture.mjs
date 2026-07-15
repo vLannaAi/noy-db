@@ -747,7 +747,18 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4521→4529 (2026-07-15, #693: tab-coordination fallback for the marker-set gate):
   // `tabCoordinated` private field + constructor assignment + the gate's fallback
   // condition/comment at the #589/#606 re-create check.
-  'packages/hub/src/kernel/collection.ts': 4529,
+  // Bumped 4529→4530 (2026-07-15, #686: money() late-attach re-canonicalization):
+  // one line in `_applyMoneyFields` — `if (this.hydrated) this.rebuildEagerIndexesFromCache()`
+  // — reusing the existing hydrate-time rebuild helper, zero new state.
+  // Bumped 4530→4549 (2026-07-15, #684: lazy raw-fetch seam for via-aware
+  // post-filter): `get()` split into a terse public delegate + a new private
+  // `#getRaw()` (byte-identical body, minus the final `applyLocaleToRecord`
+  // call) so `lazyQuery()`'s `LazyQuerySource` can hand `LazyQuery`'s
+  // post-filter the RAW (stored-form) record a `clause.via` evaluator (e.g.
+  // money) needs — plus doc comments on both and the widened
+  // `LazyQuerySource` literal (`getRawRecord`/`decodeRecord`/`via` replacing
+  // `getRecord`).
+  'packages/hub/src/kernel/collection.ts': 4549,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.

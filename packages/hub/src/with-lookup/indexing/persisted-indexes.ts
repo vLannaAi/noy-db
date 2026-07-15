@@ -332,13 +332,16 @@ export class PersistedCollectionIndex {
    * even type-check as a bound here. This does NOT mirror eager mode the
    * way `lookupEqual`/`lookupIn` do: `moneyIndexProbe` (`via/money/
    * where.ts`) never emits a range probe, so EAGER mode's `candidateRecords`
-   * never calls an index for a range clause and always scans. LAZY mode's
-   * `resolveCandidateIds()` (`lazy-builder.ts`) dispatches every range
-   * clause through THIS method unconditionally, including money fields —
-   * there is no scan fallback here. Because the comparison is raw/typed
-   * and not canonicalized, a money field's lazy range correctness (e.g.
-   * mixed-era or non-canonical stored values) is a live, pre-existing gap,
-   * tracked in #684 — not yet fixed.
+   * never calls an index for a range clause and always scans.
+   *
+   * LAZY mode's `resolveCandidateIds()` (`lazy-builder.ts`) no longer
+   * dispatches a Via-covered (e.g. money) range clause through THIS method
+   * at all (#684) — it enumerates the field's indexed ids via `orderedBy()`
+   * instead and leaves the raw/typed comparison here for the (now
+   * Via-aware) post-filter to redo correctly in scaled-int space. A
+   * NON-via range clause still dispatches through this method exactly as
+   * before — the raw/typed comparison here is correct and sufficient for
+   * fields with no decode-transforming Via binding.
    */
   lookupRange(
     field: string,

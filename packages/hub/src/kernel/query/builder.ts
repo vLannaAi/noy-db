@@ -1143,9 +1143,9 @@ function candidateRecords(source: InternalSource, clauses: readonly Clause[]): C
     // path (`lazy-builder.ts`'s `resolveCandidateIds()`) canonicalizes the
     // `==`/`in` lookup value before calling `lookupEqual`/`lookupIn` — see
     // `moneyIndexProbe`'s doc comment (via-money/where.ts) for the full
-    // story, including the boundary that remains (lazy mode's post-filter
-    // is not Via-aware, so end-to-end `lazyQuery().where()` money parity
-    // with this eager path is tracked in #684).
+    // story — lazy mode's post-filter is now Via-aware too (#684), so
+    // end-to-end `lazyQuery().where()` money parity with this eager path
+    // holds at every scale (`orderBy` ordering parity remains open, #695).
     if (clause.via && clause.via.indexValue === undefined) continue
     const probeValue = clause.via ? clause.via.indexValue : clause.value
 

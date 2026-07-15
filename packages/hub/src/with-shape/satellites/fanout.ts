@@ -60,6 +60,21 @@ interface Leg extends BestEffortRevertLeg {
    * NOT be dirty-compensated: `_compensateRevertedWrite` → `removeDirty`
    * keys only on (collection, id) and would otherwise drop a pre-existing,
    * unrelated dirty entry for the same id.
+   *
+   * KNOWN LIMITATION (#687), accepted: the reverse hazard is inherent. A leg
+   * whose `put`/`delete` COMMITS its dirty entry (via `onDirty`) but then
+   * THROWS in the post-`onDirty` dispatch phase — a strict-mode `withFormula`
+   * derivation / materialized-view recompute run inside `_putInternal`/
+   * `_doDelete` with no try/catch — leaves `wrote: false`, so
+   * `revertAndCompensate` skips compensation and this leg's OWN just-created
+   * dirty entry is orphaned (the raw envelope still reverts correctly).
+   * Reachable only with satellites + a strict formula/MV on the same
+   * collection whose recompute throws mid-fan-out; the sole harm is one
+   * self-healing sync-push cycle (a redundant no-op push or ordinary conflict
+   * resolution — no data loss; the entry is spliced out every cycle). A
+   * precise fix would diff the dirty log before/after each leg regardless of
+   * whether the write threw (needs `FanoutDeps` plumbing) — deferred as
+   * disproportionate to the harm.
    */
   wrote: boolean
 }
