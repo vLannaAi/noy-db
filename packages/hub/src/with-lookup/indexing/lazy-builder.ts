@@ -185,26 +185,34 @@ export class LazyQuery<T, S extends keyof T = never, Q extends keyof T & string 
     // #684: post-filter the RAW record (mirrors eager's filterRecords on the
     // raw snapshot) so `clause.via.evaluate` sees the same stored-form
     // operand/actual-value space `buildClause` quantized into at where()
-    // time. Only survivors get decoded (`present()`) on the way out — same
-    // "filter raw, decode last" order as `Query.toArray()`'s `decodeVia`.
-    const records: T[] = []
+    // time. Survivors stay RAW here — #695 sorts them via-aware in that
+    // same stored-form space (mirroring eager's `sortRecords(result, ...,
+    // source.via, ...)` in `kernel/query/builder.ts`) before anything is
+    // decoded (`present()`).
+    const survivors: T[] = []
     for (const id of candidateIds) {
       const raw = await this.source.getRawRecord(id)
       if (raw === null) continue
       if (!matchesAll(raw, this.plan.clauses)) continue
-      records.push(await this.source.decodeRecord(raw))
+      survivors.push(raw as T)
     }
 
+    // #695: sort the RAW survivors via-aware — a money field's stored form
+    // (scaled-integer string) sorts lexicographically wrong under the
+    // generic comparator ('10.00' < '2.00' once decoded); `via.compareForOrder`
+    // compares in the correct (BigInt-exact scaled) space, same as eager.
     const sorted = this.plan.orderBy.length > 0
-      ? sortRecords(records, this.plan.orderBy)
-      : records
+      ? sortRecords(survivors, this.plan.orderBy, this.source.via())
+      : survivors
 
     const offset = this.plan.offset > 0 ? this.plan.offset : 0
-    const limited = this.plan.limit === undefined
+    const page = this.plan.limit === undefined
       ? sorted.slice(offset)
       : sorted.slice(offset, offset + this.plan.limit)
 
-    return limited
+    // Decode only the final page — fewer decodes than the pre-#695 code,
+    // which decoded every survivor before sorting/slicing.
+    return Promise.all(page.map(r => this.source.decodeRecord(r)))
   }
 
   async first(): Promise<T | null> {
@@ -364,12 +372,18 @@ function matchesAll(record: unknown, clauses: readonly Clause[]): boolean {
   return true
 }
 
-function sortRecords<T>(records: T[], orderBy: readonly LazyOrderBy[]): T[] {
+function sortRecords<T>(records: T[], orderBy: readonly LazyOrderBy[], via?: ViaPipeline): T[] {
   return [...records].sort((a, b) => {
     for (const { field, direction } of orderBy) {
       const av = readPath(a, field)
       const bv = readPath(b, field)
-      const cmp = compareValues(av, bv)
+      // #695: a Via-covered field (e.g. money) may store a representation
+      // the generic comparator would order wrong — ask the pipeline for an
+      // exact ordering first, same as eager's `sortRecords` in
+      // `kernel/query/builder.ts`. `undefined` (no via, or the field isn't
+      // covered) falls back to the generic comparator, unchanged from today.
+      const viaCmp = via?.compareForOrder(field, av, bv)
+      const cmp = viaCmp !== undefined ? viaCmp : compareValues(av, bv)
       if (cmp !== 0) return direction === 'asc' ? cmp : -cmp
     }
     return 0

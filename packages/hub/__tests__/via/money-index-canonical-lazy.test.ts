@@ -718,3 +718,111 @@ describe('lazy-mode multi-currency money == / in (#684 review-fix 2 — parity w
     dbEager.close()
   })
 })
+
+// #695 — `LazyQuery.toArray()` decoded every survivor BEFORE sorting, then
+// sorted the DECODED records with the generic (non-Via-aware) comparator.
+// At scale:2, money's decoded form is a decimal string ('1.00'), so `orderBy`
+// ordered money lexicographically ('10.00' < '2.00'), diverging from eager's
+// `sortRecords(result, plan.orderBy, source.via, labelMaps)` in
+// `kernel/query/builder.ts`, which sorts the RAW (stored-form) records
+// via-aware (`via.compareForOrder`) and decodes only afterward. The fix
+// mirrors that: sort RAW survivors via-aware, slice offset/limit, decode
+// only the returned page.
+describe('lazy-mode orderBy is Via-aware (#695)', () => {
+  /** scale:2 lazy session — decode is NOT identity, same #684 repro precondition. */
+  async function openLazySession(adapter: NoydbStore) {
+    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+    const vault = await db.openVault(VAULT)
+    const col = vault.collection<Item>(COLL, {
+      schema: itemSchema,
+      prefetch: false,
+      cache: { maxRecords: 100 },
+      moneyFields: { amount: money({ currency: 'EUR', scale: 2 }) },
+      indexes: ['amount'],
+      reconcileOnOpen: 'auto',
+    })
+    return { db, col }
+  }
+
+  /** Eager counterpart — same moneyFields/indexes, for the mandatory eager-vs-lazy order parity assertion. */
+  async function openEagerSession(adapter: NoydbStore) {
+    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+    const vault = await db.openVault(VAULT)
+    const col = vault.collection<Item>(COLL, {
+      schema: itemSchema,
+      moneyFields: { amount: money({ currency: 'EUR', scale: 2 }) },
+      indexes: ['amount'],
+    })
+    return { db, col }
+  }
+
+  /**
+   * amount 1 -> stored '100', 2 -> '200', 10 -> '1000' (scale:2 quantization).
+   * Written through a PLAIN money session (no `indexStrategy`) so the adapter
+   * holds only the three canonical `Item` records — same reasoning as
+   * `seedDataset` in the #684 suite above (keeps the adapter safe to layer
+   * either a lazy-indexed or an eager-indexed read session on top).
+   */
+  async function seedDataset(adapter: NoydbStore): Promise<void> {
+    const db = await createNoydb({ store: adapter, user: USER, secret: PASS })
+    const vault = await db.openVault(VAULT)
+    const col = vault.collection<Item>(COLL, {
+      schema: itemSchema,
+      moneyFields: { amount: money({ currency: 'EUR', scale: 2 }) },
+    })
+    await col.put('r1', { id: 'r1', amount: 1 })
+    await col.put('r2', { id: 'r2', amount: 2 })
+    await col.put('r10', { id: 'r10', amount: 10 })
+    db.close()
+  }
+
+  it('orderBy asc sorts money numerically, not lexicographically', async () => {
+    const adapter = persistentMemory()
+    await seedDataset(adapter)
+
+    const { db, col } = await openLazySession(adapter)
+    const rows = await col.lazyQuery().orderBy('amount', 'asc').toArray()
+    db.close()
+
+    // Pre-#695: the DECODED decimal strings ('1.00', '2.00', '10.00') sorted
+    // lexicographically -> ['r1', 'r10', 'r2']. Numeric order is r1, r2, r10.
+    expect(rows.map((r) => r.id)).toEqual(['r1', 'r2', 'r10'])
+  })
+
+  it('orderBy desc sorts money numerically', async () => {
+    const adapter = persistentMemory()
+    await seedDataset(adapter)
+
+    const { db, col } = await openLazySession(adapter)
+    const rows = await col.lazyQuery().orderBy('amount', 'desc').toArray()
+    db.close()
+
+    expect(rows.map((r) => r.id)).toEqual(['r10', 'r2', 'r1'])
+  })
+
+  // MANDATORY parity: lazy must agree with eager on the ORDER (not just the
+  // result-id set) — the real #695 regression guard.
+  it('eager and lazy agree on order, asc and desc', async () => {
+    const adapter = persistentMemory()
+    await seedDataset(adapter)
+
+    // Open + hydrate EAGER first, before the lazy session's `reconcileOnOpen:
+    // 'auto'` gets a chance to persist `_idx/amount/*` side-cars into the
+    // SAME adapter (same ordering requirement as the #684 parity test above).
+    const { db: dbEager, col: colEager } = await openEagerSession(adapter)
+    await colEager.list() // force hydration
+
+    const { db: dbLazy, col: colLazy } = await openLazySession(adapter)
+
+    const ascLazy = (await colLazy.lazyQuery().orderBy('amount', 'asc').toArray()).map((r) => r.id)
+    const ascEager = colEager.query().orderBy('amount', 'asc').toArray().map((r) => r.id)
+    const descLazy = (await colLazy.lazyQuery().orderBy('amount', 'desc').toArray()).map((r) => r.id)
+    const descEager = colEager.query().orderBy('amount', 'desc').toArray().map((r) => r.id)
+
+    dbLazy.close()
+    dbEager.close()
+
+    expect(ascLazy).toEqual(ascEager)
+    expect(descLazy).toEqual(descEager)
+  })
+})
