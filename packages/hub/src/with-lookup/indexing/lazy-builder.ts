@@ -255,7 +255,7 @@ export class LazyQuery<T, S extends keyof T = never, Q extends keyof T & string 
           // sound equality bucket exists. Eager's `candidateRecords()`
           // handles this by skipping the index-eligibility check for the
           // clause and falling back to a full scan (`builder.ts:1176`); the
-          // lazy equivalent (#695 FIX 2) is the same move the RANGE branch
+          // lazy equivalent (#684 review-fix 2) is the same move the RANGE branch
           // below already makes — enumerate the field's full indexed id
           // set via `orderedBy` and let the (now via-aware) post-filter in
           // `toArray()` decide, instead of throwing `IndexRequiredError`.
@@ -278,7 +278,7 @@ export class LazyQuery<T, S extends keyof T = never, Q extends keyof T & string 
         if (ids) return [...ids]
       } else if (clause.op === 'in' && Array.isArray(clause.value)) {
         if (clause.via) {
-          // Same #695 FIX 2 fallback as the `==` branch above — a via
+          // Same #684 review-fix 2 fallback as the `==` branch above — a via
           // payload that declines to probe (e.g. money multi-mode) still
           // has a sound candidate superset via `orderedBy`.
           if (clause.via.indexValue === undefined) {
