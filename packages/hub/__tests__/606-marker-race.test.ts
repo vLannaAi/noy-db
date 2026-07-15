@@ -109,8 +109,7 @@ describe('#606 adversarial: marker lands mid-hydration', () => {
     // markerIds says "not a marker" → the gate skips the store read → _v=1.
     await b.put('ghost', { body: 're-created' })
     const raw = localB.raw(V, 'notes', 'ghost')!
-    console.log('re-created ghost _v =', raw._v, '(3 = correct continuity, 1 = divergence)')
-    expect(raw._v).toBe(3) // #589 invariant — FAILS if the set diverged
+    expect(raw._v).toBe(3) // #589 invariant — FAILS if the set diverged (1 = divergence)
     dbB.close()
   })
 })

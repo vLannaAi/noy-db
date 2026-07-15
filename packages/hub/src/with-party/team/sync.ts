@@ -94,8 +94,9 @@ export class SyncEngine {
   /** #653: expands a (pair-expanded) collection-name filter to include the reserved `_dict_*`
    *  collections those names depend on via their lookup fields — mirrors `pairExpander` so a
    *  partial `push`/`pull({collections:[...]})` never drops the dictionary a named collection's
-   *  labels/membership rely on. Wired from the vault's `dictKeyFieldRegistry` via
-   *  `setReservedDictExpander`. `undefined` when no dict-backed collection has ever been declared. */
+   *  labels/membership rely on. Wired unconditionally from the vault's `dictKeyFieldRegistry` via
+   *  `setReservedDictExpander` (returns `[]` when the vault has no dict-backed collections); only
+   *  `undefined` on a standalone engine that was never vault-attached. */
   private reservedDictExpander?: (names: readonly string[]) => readonly string[]
 
   /** Wire the reserved-dict expansion function (#653). Same injection pattern as `setPairExpander`. */
