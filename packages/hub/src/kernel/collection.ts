@@ -1447,8 +1447,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         const envelope = await this.adapter.get(this.vault, this.name, id)
         if (!envelope) return null
         // Tombstone tolerance (decision 5): a shredded record carries no
-        // body / CEK. Reads return null rather than throwing TamperedError.
-        if (isTombstone(envelope, this.storeCiphertext) || isDeleteMarker(envelope)) return null
+        // body / CEK. Reads return null rather than throwing TamperedError. #701: elevated records are invisible — gate BEFORE decrypt, or the warm cekCache serves tier plaintext.
+        if (isTombstone(envelope, this.storeCiphertext) || isDeleteMarker(envelope) || (envelope._tier ?? 0) > 0) return null
         record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
         if (record === null) return null
         this.lru.set(id, { record, version: envelope._v }, estimateRecordBytes(record))
@@ -3924,7 +3924,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const ids = await this.adapter.list(this.vault, this.name)
     for (const id of ids) {
       const envelope = await this.adapter.get(this.vault, this.name, id)
-      if (envelope && !isTombstone(envelope, this.storeCiphertext) && !isDeleteMarker(envelope)) {
+      if (envelope && !isTombstone(envelope, this.storeCiphertext) && !isDeleteMarker(envelope) && (envelope._tier ?? 0) === 0) {
         const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
         if (record === null) continue
         this.cache.set(id, { record, version: envelope._v })
@@ -3941,7 +3941,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   async hydrateFromSnapshot(records: Record<string, EncryptedEnvelope>): Promise<void> {
     for (const [id, envelope] of Object.entries(records)) {
       if (isDeleteMarker(envelope)) { this.markerIds.add(id); continue } // #606: seed from a pre-loaded snapshot too
-      if (isTombstone(envelope, this.storeCiphertext)) continue
+      if (isTombstone(envelope, this.storeCiphertext) || (envelope._tier ?? 0) > 0) continue
       const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
       if (record === null) continue
       this.cache.set(id, { record, version: envelope._v })
@@ -4512,7 +4512,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       keyring: this.keyring,
       codec: this.codec,
       cekCache: this.cekCache,
-      syncCache: (id: string, e: { record: T; version: number } | null) => { if (e) this.cache.set(id, e); else { this.cache.delete(id); this.lru?.remove(id) } },
+      syncCache: (id: string, e: { record: T; version: number } | null) => { if (e) this.cache.set(id, e); else this.cache.delete(id); this.lru?.remove(id) },
       provenance: this.provenance,
       tiers: this.tiers,
       tierMode: this.tierMode,

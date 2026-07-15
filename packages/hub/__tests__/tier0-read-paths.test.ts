@@ -186,3 +186,74 @@ describe('#691 det scans: elevated records are skipped', () => {
     expect(await cold.accounts.findByDet('email', 'solo@y.z')).toBeNull()
   })
 })
+
+describe('#701 hydration / lazy reads / reveal: elevated records are invisible, never a brick or leak', () => {
+  function eagerTierHarness() {
+    const store = memoryStore()
+    const open = async () => {
+      const db = await createNoydb({ store, user: 'owner', secret: 'pw-701', tiersStrategy: withTiers() })
+      const vault = await db.openVault('v1')
+      const docs = vault.collection<User>('docs', { tiers: [0, 1], perRecordKeys: true })
+      return { vault, docs }
+    }
+    return { store, open }
+  }
+
+  it('cold-session eager hydration skips the elevated record instead of bricking the collection', async () => {
+    const h = eagerTierHarness()
+    const { docs } = await h.open()
+    await docs.put('a', { name: 'stays' })
+    await docs.put('b', { name: 'moves' })
+    await docs.elevate('b', 1)
+
+    // Pre-#701: the first decrypt of b's tier-wrapped envelope during cold
+    // hydration threw, aborting the loop — get('a') / any read or write on
+    // the whole collection rejected.
+    const cold = await h.open()
+    expect((await cold.docs.get('a'))?.name).toBe('stays')
+    expect(await cold.docs.get('b')).toBeNull()          // invisible, not an error
+    await cold.docs.put('c', { name: 'writable' })       // collection is usable
+    expect((await cold.docs.get('c'))?.name).toBe('writable')
+  })
+
+  it('vault-snapshot hydration path (hydrateFromSnapshot) also skips the elevated record — no in-repo caller reaches this loop otherwise, so it is exercised directly', async () => {
+    const h = eagerTierHarness()
+    const { docs } = await h.open()
+    await docs.put('a', { name: 'stays' })
+    await docs.put('b', { name: 'moves' })
+    await docs.elevate('b', 1)
+
+    const cold = await h.open() // fresh, un-hydrated Collection over the same store
+    const snapshot = await h.store.loadAll('v1')
+    await cold.docs.hydrateFromSnapshot(snapshot['docs'] ?? {})
+    expect((await cold.docs.get('a'))?.name).toBe('stays')
+    expect(await cold.docs.get('b')).toBeNull()
+  })
+
+  it('lazy direct-address read: null in BOTH sessions (warm pre-#701 LEAKED via cekCache, cold threw)', async () => {
+    const store = memoryStore()
+    const open = async () => {
+      const db = await createNoydb({ store, user: 'owner', secret: 'pw-701-lazy', tiersStrategy: withTiers() })
+      const vault = await db.openVault('v1')
+      const docs = vault.collection<User>('ldocs', { tiers: [0, 1], perRecordKeys: true, prefetch: false, cache: { maxRecords: 100 } })
+      return { docs }
+    }
+    const { docs } = await open()
+    await docs.put('e1', { name: 'leaky' })
+    await docs.elevate('e1', 1) // evicts the LRU (#700) and caches the CEK
+    expect(await docs.get('e1')).toBeNull()   // warm: pre-#701 returned plaintext (leak)
+    const cold = await open()
+    expect(await cold.docs.get('e1')).toBeNull() // cold: pre-#701 threw
+  })
+
+  it('reveal on an elevated record throws the domain not-found error, not a raw crypto error', async () => {
+    const h = tieredClassifiedHarness()
+    const { users } = await h.open()
+    await users.put('r1', { name: 'n', password: 'pw-reveal-r1-xx', email: 'r@example.com', a1: 'x', a2: 'y' })
+    expect(await users.reveal('r1', 'email')).toBe('r@example.com')
+    await users.elevate('r1', 1)
+    // Elevated ≡ missing on this tier-0 surface — same error/message class as
+    // a genuinely absent id, no elevation disclosure, never InvalidKeyError.
+    await expect(users.reveal('r1', 'email')).rejects.toThrow(/not found/)
+  }, 60_000)
+})

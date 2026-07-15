@@ -58,12 +58,14 @@ export interface TiersContext<T> {
   readonly cekCache: Lru<string, EnclaveKey> | null
   /**
    * Sync the collection's decoded-record cache after a tier move rewraps the
-   * envelope (#691). `null` → evict the eager cache entry and the lazy LRU
-   * (the lazy LRU never needs re-seeding: its `#getRaw` has an adapter
-   * fallback on a miss, so evicting it on every move stays correct). An
-   * `entry` → set the eager cache to the given decoded record/version (used
-   * only by `demote()` when landing back at tier 0 — the record is tier-0
-   * again, so it must stay plain-`get()`-readable in the same session).
+   * envelope (#691). The lazy LRU is evicted on EVERY call — it is never
+   * re-seeded, since a lazy `#getRaw` miss refetches and decodes the fresh
+   * envelope via its adapter fallback (a stale LRU entry after a tier-0
+   * `putAtTier` overwrite was the #702 lazy-mode gap). `null` → also evict
+   * the eager cache entry; an `entry` → set the eager cache to the given
+   * decoded record/version (used by `demote()` landing back at tier 0 and
+   * `putAtTier`'s tier-0 write, #702 — the record is tier-0, so it must stay
+   * plain-`get()`-readable in-session).
    */
   syncCache(id: string, entry: { record: T; version: number } | null): void
   /** Emit `_source`/`_sourceTs` provenance fields when a source is supplied. */
@@ -145,6 +147,16 @@ export async function putAtTier<T>(
   }
 
   await ctx.adapter.put(ctx.vault, ctx.name, id, envelope)
+
+  // #702: keep the record cache coherent with the raw write — same law as
+  // elevate/demote (#691): tier > 0 → invisible on tier-0 surfaces (evict);
+  // tier 0 → this is an ordinary write, re-seed via the canonical decode.
+  if (tier > 0) {
+    ctx.syncCache(id, null)
+  } else {
+    const rec = await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
+    ctx.syncCache(id, rec !== null ? { record: rec, version: envelope._v } : null)
+  }
 
   if (tier > 0) {
     ctx.emitCrossTierEvent({
