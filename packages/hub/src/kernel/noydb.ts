@@ -683,6 +683,7 @@ export class Noydb {
       engine.setCacheInvalidator((collection, id, action) => comp._invalidateSyncApplied(collection, id, action))
       engine.setGraphBatchController({ begin: () => comp._beginGraphBatch(), flush: () => comp._flushGraphBatch() })
       engine.setReservedLookupSource({ collections: () => comp._reservedLookupCollectionNames() }) // #650 Task 4
+      engine.setReservedDictExpander(names => comp._reservedDictDepsOf(names)) // #653
     })
     // Initialise the optional guard + derivation registries via dynamic-import — no-ops when the
     // corresponding strategies array is empty/unset, keeping the service code out of the floor bundle.
@@ -1653,6 +1654,17 @@ export class Noydb {
    */
   get coordination(): CoordinationProvider {
     return this.coordinationProvider
+  }
+
+  /**
+   * #693: true when multi-tab coordination is active at all — presence/election
+   * alone (`propagateWrites: false`) or full write-propagation — a peer tab can
+   * write this instance's shared store out-of-band either way, so per-collection
+   * marker-id sets are not authoritative and the re-create gate must fall back to
+   * a store read. Live (tab coordination is enable/disable-able at runtime).
+   */
+  get _tabCoordinationActive(): boolean {
+    return this.tabCoordinator !== undefined
   }
 
   /**

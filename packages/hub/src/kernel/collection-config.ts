@@ -126,6 +126,13 @@ export interface CollectionOpts<T> {
   historyConfigExplicit?: boolean | undefined
   onDirty?: OnDirtyCallback | undefined
   /**
+   * #693: live check for whether multi-tab coordination is active at all
+   * (`Noydb._tabCoordinationActive`). When true, the shared local store may be
+   * written out-of-band by another tab, so the #606 marker-id-set gate falls
+   * back to an unconditional store read on re-create.
+   */
+  tabCoordinated?: (() => boolean) | undefined
+  /**
    * tree-shake seam. When omitted, `collection.blob(id)` throws
    * with a pointer at the `@noy-db/hub/blobs` subpath. When set (via
    * `createNoydb({ blobStrategy: blobs() })`), blob storage is live.
@@ -1062,6 +1069,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     reconcileOnOpen: opts.reconcileOnOpen ?? 'off',
     getDEK: opts.getDEK,
     onDirty: opts.onDirty,
+    tabCoordinated: opts.tabCoordinated,
     historyConfig: opts.historyConfig ?? { enabled: true },
     historyConfigExplicit: opts.historyConfigExplicit ?? false,
     schema: opts.schema,

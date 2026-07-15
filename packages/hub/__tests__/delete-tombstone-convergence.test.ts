@@ -11,11 +11,26 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withSync } from '../src/with-party/sync/index.js'
-import { isDeleteMarker } from '../src/kernel/enclave/record-keys/tombstone.js'
+import { isDeleteMarker, buildDeleteMarker } from '../src/kernel/enclave/record-keys/tombstone.js'
 
-/** In-memory store exposing raw stored envelopes for white-box assertions. */
-function memory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
+/**
+ * In-memory store exposing raw stored envelopes for white-box assertions,
+ * plus a `_getCalls`/`_getCallsFor`/`_resetCounters()` set (pattern ported
+ * from lazy-hydration.test.ts) so #606's perf fix — skip the redundant
+ * `adapter.get` on a genuinely-new insert — can be proven by call count,
+ * not just by behavior. `_getCallsFor(col, id)` isolates reads to the
+ * collection/id under test, since a single `put()` also drives unrelated
+ * store reads (the schema-fence check on every write, the sync engine's
+ * one-time `_sync/meta` load) that must not be mistaken for the #606 gate.
+ */
+function memory(): NoydbStore & {
+  raw(c: string, col: string, id: string): EncryptedEnvelope | undefined
+  _getCalls: number
+  _getCallsFor(col: string, id: string): number
+  _resetCounters(): void
+} {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
+  const calls: { col: string; id: string }[] = []
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
     let coll = comp.get(col); if (!coll) { coll = new Map(); comp.set(col, coll) }
@@ -23,7 +38,13 @@ function memory(): NoydbStore & { raw(c: string, col: string, id: string): Encry
   }
   return {
     raw(c, col, id) { return store.get(c)?.get(col)?.get(id) },
-    async get(c, col, id) { return store.get(c)?.get(col)?.get(id) ?? null },
+    get _getCalls() { return calls.length },
+    _getCallsFor(col, id) { return calls.filter(x => x.col === col && x.id === id).length },
+    _resetCounters() { calls.length = 0 },
+    async get(c, col, id) {
+      calls.push({ col, id })
+      return store.get(c)?.get(col)?.get(id) ?? null
+    },
     async put(c, col, id, env, ev) {
       const coll = gc(c, col); const ex = coll.get(id)
       if (ev !== undefined && ex && ex._v !== ev) throw new ConflictError(ex._v)
@@ -93,12 +114,78 @@ describe('re-create version continuity (#589)', () => {
     const notes = (await db.openVault(V)).collection<Note>('notes')
     await notes.put('n1', { body: 'v1' })        // _v=1
     await notes.delete('n1')                      // marker _v=2
+
+    // #606: the re-create put MUST still consult the store here — this is the
+    // one case the marker-id set exists to let through. A regression that made
+    // the gate "always skip" would silently reintroduce #589 (version resets
+    // to 1 instead of continuing past the marker).
+    local._resetCounters()
     await notes.put('n1', { body: 're-created' }) // must be _v=3, NOT _v=1
+    expect(local._getCallsFor('notes', 'n1')).toBeGreaterThan(0)
 
     const raw = local.raw(V, 'notes', 'n1')!
     expect(isDeleteMarker(raw)).toBe(false)       // live again
     expect(raw._v).toBe(3)                        // marker._v (2) + 1
     expect((await notes.get('n1'))!.body).toBe('re-created')
+    db.close()
+  })
+
+  it('#606 perf: a genuinely-new insert into a synced eager collection never reads the store', async () => {
+    const local = memory(); const remote = memory()
+    const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
+    const notes = (await db.openVault(V)).collection<Note>('notes')
+
+    local._resetCounters()
+    await notes.put('brand-new', { body: 'v1' })
+    // No marker was ever recorded for this id, so the #589 continuity gate
+    // must not fall back to an `adapter.get` — that unconditional read is
+    // exactly what #606 removes for the common (non-re-create) insert case.
+    // (Filtered to this id: a synced put legitimately touches the store for
+    // unrelated reasons — the schema-fence check, the sync engine's one-time
+    // `_sync/meta` load — which must not be mistaken for the #606 gate.)
+    expect(local._getCallsFor('notes', 'brand-new')).toBe(0)
+    db.close()
+  })
+
+  it('#606: hydration from a store with a pre-existing marker seeds the marker-id set — a re-create on a fresh instance still continues the version', async () => {
+    const local = memory(); const remote = memory()
+    // Seed the raw store directly with a delete marker BEFORE any Collection
+    // ever opens it — simulates a cold session / process restart where the
+    // marker landed on disk in a previous run (or via another peer's sync
+    // write) and this instance's `ensureHydrated()` is the ONLY thing that
+    // can discover it, as opposed to a live delete populating the set.
+    await local.put(V, 'notes', 'n1', buildDeleteMarker(2, 'peer'))
+
+    const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
+    const notes = (await db.openVault(V)).collection<Note>('notes')
+
+    // Confirm the marker reads as absent before touching it (sanity check
+    // that hydration filtered it out of the eager cache, as #589 requires).
+    expect(await notes.get('n1')).toBeNull()
+
+    // The put's own `ensureHydrated()` call is what discovers the marker on
+    // this fresh instance; the re-create must continue past it (_v=3), not
+    // reset to 1 — proving `markerIds` was populated by hydration, not just
+    // by a live local delete.
+    await notes.put('n1', { body: 're-created' })
+    const raw = local.raw(V, 'notes', 'n1')!
+    expect(isDeleteMarker(raw)).toBe(false)
+    expect(raw._v).toBe(3) // marker._v (2) + 1, NOT reset to 1
+    expect((await notes.get('n1'))!.body).toBe('re-created')
+    db.close()
+  })
+
+  it('#606: a second put to the same id right after a re-create does not consult-then-read again', async () => {
+    const local = memory(); const remote = memory()
+    const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
+    const notes = (await db.openVault(V)).collection<Note>('notes')
+    await notes.put('n1', { body: 'v1' })
+    await notes.delete('n1')
+    await notes.put('n1', { body: 're-created' }) // marker consulted; markerIds.delete('n1') must fire here
+
+    local._resetCounters()
+    await notes.put('n1', { body: 'edited-again' }) // live, cached record — no store read expected
+    expect(local._getCallsFor('notes', 'n1')).toBe(0)
     db.close()
   })
 })

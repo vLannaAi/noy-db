@@ -209,6 +209,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private readonly activeTxId: (() => string | null) | undefined
   private readonly getDEK: (collectionName: string) => Promise<EnclaveKey>
   private readonly onDirty: OnDirtyCallback | undefined
+  /** #693: live check — true when multi-tab write-propagation is active; gates the #606 marker-id-set fallback read. */
+  private readonly tabCoordinated: (() => boolean) | undefined
   private readonly historyConfig: HistoryConfig
   /** True when the caller explicitly provided a `historyConfig` option (vs. inheriting the vault default). */
   private readonly historyConfigExplicit: boolean
@@ -237,6 +239,21 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   // doesn't need a runtime branch on every cache access.
   private readonly cache = new Map<string, { record: T; version: number }>()
   private hydrated = false
+
+  /**
+   * #606: ids known to carry a delete marker in the store — lets the #589
+   * re-create version-continuity gate in `_putInternal` read the store ONLY
+   * for a known marker prior, instead of unconditionally on every insert.
+   * Populated on hydration (`ensureHydrated`/`hydrateFromSnapshot`), local
+   * delete (`_doDelete`), and the sync/tab/cutover choke point
+   * (`_invalidateCacheEntry`). Accepted drift: `vault._purgeDeleteMarkers`/
+   * `_purgeMarkersOn` remove markers directly on the raw store, bypassing
+   * Collection, so this set can hold stale ids after a purge on an
+   * already-loaded collection — perf-only and self-healing (a stale id just
+   * costs one `adapter.get` that returns non-marker/null, and version
+   * resolution falls back to 1 correctly). Do not try to wire purge into it.
+   */
+  private readonly markerIds = new Set<string>()
 
   /**
    * Lazy mode flag. `true` when constructed with `prefetch: false`.
@@ -640,6 +657,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.reconcileOnOpen = cfg.reconcileOnOpen
     this.getDEK = cfg.getDEK
     this.onDirty = cfg.onDirty
+    this.tabCoordinated = cfg.tabCoordinated
     this.historyConfig = cfg.historyConfig
     this.historyConfigExplicit = cfg.historyConfigExplicit
     this.schema = cfg.schema
@@ -1908,7 +1926,18 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // tombstones (`isTombstone`, no `_del`) are terminal and are NOT
     // continued — they still reset to 1.
     if (!existing && this.onDirty) {
-      if (priorRaw === null) priorRaw = await this.adapter.get(this.vault, this.name, id)
+      // #606: only fall back to a store read when this id is a KNOWN marker
+      // — markers are filtered out of the eager cache, so `!existing` alone
+      // can't distinguish a re-create from a genuinely-new insert, and most
+      // inserts are the latter. The lazy branch above may have already read
+      // the raw envelope on an LRU miss regardless of `markerIds` (preserved
+      // as-is); this only gates the previously-unconditional second read.
+      // #693: when the store may be written out-of-band by another tab (write-relay active),
+      // markerIds isn't authoritative during the broadcast-latency window — fall back to the
+      // pre-#606 unconditional read so a cross-tab marker is never missed.
+      if (priorRaw === null && (this.markerIds.has(id) || this.tabCoordinated?.())) {
+        priorRaw = await this.adapter.get(this.vault, this.name, id)
+      }
       if (priorRaw && isDeleteMarker(priorRaw)) version = priorRaw._v + 1
     }
 
@@ -1958,6 +1987,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
     const envelope = await this.codec.encryptRecord(record, version, cek, options?.source, options?.sourceTs, vdigCtx, id)
     await this.adapter.put(this.vault, this.name, id, envelope)
+    this.markerIds.delete(id) // #606: the live body just overwrote any marker prior — no-op if `id` wasn't one
 
     // C-A/R10: persist the x-classified marker on the first classified write
     // (cross-session drift signal). Memoized; no-op for non-classified handles.
@@ -2707,6 +2737,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       if (!live || isTombstone(live, this.storeCiphertext) || isDeleteMarker(live)) return
       markerVersion = live._v + 1
       await this.adapter.put(this.vault, this.name, id, buildDeleteMarker(markerVersion, this.keyring.userId))
+      this.markerIds.add(id) // #606: this id now carries a marker — the #589 continuity gate should consult it on re-create
     } else {
       await this.adapter.delete(this.vault, this.name, id)
     }
@@ -3737,9 +3768,19 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       this.lru.remove(id)
       return
     }
+    const envelope = await this.adapter.get(this.vault, this.name, id)
+    // #606: this is the single choke point every sync-apply / tab-mirror /
+    // cutover write (plus tx/derivation-revert restores) funnels through, so
+    // it's also where the marker-id set tracks a remote marker landing or
+    // clearing. MUST run before the `!hydrated` gate below — a marker can
+    // land while this collection is still mid-hydration, and hydration
+    // snapshots its id list at loop start, so it can never recover an id it
+    // never listed. Missing this here permanently drops the id from
+    // `markerIds` for the session and reintroduces the #589 divergence.
+    if (envelope && isDeleteMarker(envelope)) this.markerIds.add(id)
+    else this.markerIds.delete(id)
     if (!this.hydrated) return
     const previous = this.cache.get(id)
-    const envelope = await this.adapter.get(this.vault, this.name, id)
     if (!envelope) {
       this.cache.delete(id)
       if (previous) {
@@ -3798,6 +3839,19 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     origin: MutationOrigin,
     ctx?: { readonly record?: T; readonly version?: number },
   ): Promise<void> {
+    // #606: maintain `markerIds` synchronously, in the SAME continuation as
+    // the caller's own `local.put` of this envelope (no `await` between
+    // them) — closes the window where a concurrent `put(id)` could read the
+    // set before `_invalidateCacheEntry`'s (awaited, below) maintenance
+    // catches up. A superset for a moment on a sync-applied tombstone is
+    // harmless — `_invalidateCacheEntry`'s read refines it, and a re-create
+    // racing ahead of that just does one extra (correct) store read. Gated to
+    // eager+synced: lazy mode never consults `markerIds`, and unsynced
+    // collections never see markers.
+    if (this.onDirty && !this.lazy) {
+      if (action === 'delete') this.markerIds.add(id)
+      else this.markerIds.delete(id)
+    }
     switch (origin) {
       case 'local-write': {
         const record = ctx!.record!
@@ -3859,6 +3913,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
         if (record === null) continue
         this.cache.set(id, { record, version: envelope._v })
+      } else if (envelope && isDeleteMarker(envelope)) {
+        this.markerIds.add(id) // #606: seed the marker-id set from disk on cold hydration
       }
     }
     this.hydrated = true
@@ -3869,7 +3925,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /** Hydrate from a pre-loaded snapshot (used by Vault). */
   async hydrateFromSnapshot(records: Record<string, EncryptedEnvelope>): Promise<void> {
     for (const [id, envelope] of Object.entries(records)) {
-      if (isTombstone(envelope, this.storeCiphertext) || isDeleteMarker(envelope)) continue
+      if (isDeleteMarker(envelope)) { this.markerIds.add(id); continue } // #606: seed from a pre-loaded snapshot too
+      if (isTombstone(envelope, this.storeCiphertext)) continue
       const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
       if (record === null) continue
       this.cache.set(id, { record, version: envelope._v })

@@ -256,6 +256,27 @@ export function collectLookupDictCompat(
 }
 
 /**
+ * Reserved-dict deps of a set of named collections (#653) — the `_dict_*`
+ * collections partial sync must auto-include alongside a `collections`
+ * filter, mirroring `SyncEngine`'s existing satellite-pair expansion.
+ * One hop is provably complete: `vault.collection()` refuses `_dict_*`
+ * names, so a dict can never itself declare lookup fields — no
+ * dict-of-dict chain to recurse through.
+ */
+export function reservedDictDepsOf(
+  names: readonly string[],
+  dictKeyFieldRegistry: ReadonlyMap<string, Record<string, string>>,
+): readonly string[] {
+  const out = new Set<string>()
+  for (const name of names) {
+    const fieldMap = dictKeyFieldRegistry.get(name)
+    if (!fieldMap) continue
+    for (const dictName of Object.values(fieldMap)) out.add(dictCollectionName(dictName))
+  }
+  return [...out]
+}
+
+/**
  * A lookup dimension's sync membership/altKey table, materialized from its
  * backing rows (#650 Task 3). `keys` is every canonical key present;
  * `altIndex` maps an altKey candidate VALUE to its owning canonical key.

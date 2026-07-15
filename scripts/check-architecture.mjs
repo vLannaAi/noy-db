@@ -733,7 +733,21 @@ const KERNEL_SURFACE_BUDGET = {
   // ratcheting the ceiling down to the actual per the checker's own
   // ratchet-to-actual convention, so the margin isn't silently carried
   // forward as slack for an unrelated future change.
-  'packages/hub/src/kernel/collection.ts': 4472,
+  // Bumped 4472→4503 (2026-07-15, #606: per-collection marker-id set to skip
+  // the redundant adapter.get on synced-eager insert): a `Set<string>` field
+  // + population at hydration (both paths)/local-delete/the sync-tab-cutover
+  // choke point, plus the gated read at the #589 continuity check and the
+  // clear on re-create success.
+  // Bumped 4503→4521 (2026-07-15, #606 adversarial-review fix): moved the
+  // marker-id maintenance in `_invalidateCacheEntry` above the `!hydrated`
+  // gate (a marker landing mid-hydration was never recorded, permanently
+  // for the session) and added a synchronous pre-switch maintenance step in
+  // `_onRecordMutated` to close the await-window race against a concurrent
+  // put. Comments explaining both fixes account for the growth.
+  // Bumped 4521→4529 (2026-07-15, #693: tab-coordination fallback for the marker-set gate):
+  // `tabCoordinated` private field + constructor assignment + the gate's fallback
+  // condition/comment at the #589/#606 re-create check.
+  'packages/hub/src/kernel/collection.ts': 4529,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -978,7 +992,13 @@ const KERNEL_SURFACE_BUDGET = {
   // and delegates the per-record re-encrypt walk to
   // `with-shape/satellites/migrate-cek.ts`. Genuinely core: a new public
   // Vault method, same tier as `runSchemaCutover`/`abortSchemaCutover`.
-  'packages/hub/src/kernel/vault.ts': 3950,
+  // Bumped 3950→3958 (2026-07-15, #653: reserved-dict-deps delegator for partial-sync
+  // expansion): `_reservedDictDepsOf(names)` — a thin delegator (same tier as
+  // `_reservedLookupCollectionNames()` beside it) to `reservedDictDepsOf` in
+  // `via/lookup/registry.ts`, reached through the existing lookup-strategy port import.
+  // Bumped 3958→3959 (2026-07-15, #693: tab-coordination fallback for the marker-set gate):
+  // one `tabCoordinated: () => this.noydb._tabWritesRelayed` line threaded into collOpts.
+  'packages/hub/src/kernel/vault.ts': 3959,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -1086,7 +1106,14 @@ const KERNEL_SURFACE_BUDGET = {
   // call-site, filters/maps the already-computed `targets` array.
   // Bumped 2375→2385 (2026-07-10, #616): role-gate the sync primary (emptyPullResult
   // factory + pull() no-op + sync() primary ternary branch for push-only sinks).
-  'packages/hub/src/kernel/noydb.ts': 2385,
+  // Bumped 2385→2396 (2026-07-15, #693: tab-coordination fallback for the marker-set gate):
+  // `_tabCoordinationActive` internal live getter (`tabCoordinator !== undefined`) — the
+  // dynamic signal Vault threads into every Collection so the #606 re-create gate can fall
+  // back to an unconditional store read whenever multi-tab coordination is active at all
+  // (presence/election alone or full write-propagation), not only while writes are relayed
+  // (review fix: `propagateWrites: false` left `writeRelay` unset, so the narrower signal
+  // missed a peer tab's delete-marker on a shared store — permanent #589-class data loss).
+  'packages/hub/src/kernel/noydb.ts': 2396,
 }
 
 function checkKernelSurface() {

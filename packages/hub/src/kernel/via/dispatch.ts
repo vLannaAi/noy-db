@@ -148,11 +148,25 @@ export async function runGraphDispatchWave(vault: VaultLike, batch: GraphBatch):
     }
     // #640 — delete-kind touches: the deleted child's rollup-parent intents, resolved (sync,
     // pre-invalidation) at collect time by `Collection._rollupDeleteIntents`. Same per-id
-    // isolation as the puts loop above; never routed through `dispatchDerivations` (the
-    // mutation-choke-point.test.ts:85-99 pin — sync-applied deletes are rollup-on-delete only).
+    // isolation as the puts loop above. #658: the wave now ALSO heals MV rows and array-shape
+    // derivation output rows for the deleted child — parity with the local-delete boundary
+    // (`Collection._doDelete`'s `!internal` block, which already calls all three). Still never
+    // routed through `dispatchDerivations` (the mutation-choke-point.test.ts:85-99 pin — sync-
+    // applied deletes never RE-DERIVE); `dispatchMaterializedViewsOnDelete`/
+    // `dispatchArrayDerivationsOnDelete` only need `id` (MV refresh recomputes+diffs; array-
+    // derivation reads its per-source sidecar) and never call `derive()`, so the pin holds.
     for (const [id, intents] of touch.deletes) {
       try {
         await coll._recomputeDeletedRollups(intents, wave)
+        // #658: record-shape same-id outputs are left untouched (eraseRecordShapeToo defaults
+        // false), matching local delete — the user deletes those directly if wanted.
+        // #658: TODO dedup MV refresh per wave — `dispatchMaterializedViewsOnDelete` doesn't
+        // accept a `WaveContext` (unlike the put-path `dispatchMaterializedViews`), so N deleted
+        // children of one eager MV in a batch each trigger a full refresh pass. Threading `wave`
+        // through would touch collection.ts's zero-slack kernel-surface ceiling for a perf-only
+        // win; correctness doesn't depend on it (idempotent per source-id) — left as a follow-up.
+        await coll.dispatchMaterializedViewsOnDelete(id)
+        await coll.dispatchArrayDerivationsOnDelete(id)
       } catch (err) {
         console.warn(`[via-dispatch] wave delete-recompute failed for ${collectionName}/${id}:`, err)
         vault._emit('derivation:wave-error', { collection: collectionName, id, error: err })
