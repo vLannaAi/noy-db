@@ -4512,7 +4512,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       keyring: this.keyring,
       codec: this.codec,
       cekCache: this.cekCache,
-      syncCache: (id: string, e: { record: T; version: number } | null) => { if (e) this.cache.set(id, e); else { this.cache.delete(id); this.lru?.remove(id) } },
+      syncCache: (id: string, e: { record: T; version: number } | null) => { if (e) this.cache.set(id, e); else this.cache.delete(id); this.lru?.remove(id) },
       provenance: this.provenance,
       tiers: this.tiers,
       tierMode: this.tierMode,

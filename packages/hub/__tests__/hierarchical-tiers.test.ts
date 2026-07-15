@@ -440,4 +440,20 @@ describe('#702 putAtTier maintains the record cache', () => {
     // Pre-#702: stale 'V1' from the untouched cache.
     expect((await docs.get('p2'))?.title).toBe('V2')
   })
+
+  it('LAZY mode: putAtTier(tier 0) over an LRU-cached id serves the NEW content (LRU evicted, adapter refetch)', async () => {
+    const { vault } = await freshVault()
+    const docs = vault.collection<Doc>('ldocs', { tiers: [0, 1], prefetch: false, cache: { maxRecords: 100 } })
+    await docs.put('p3', { id: 'p3', title: 'L1', body: 'x' })
+    expect((await docs.get('p3'))?.title).toBe('L1') // LRU warm
+    await docs.putAtTier('p3', { id: 'p3', title: 'L2', body: 'y' }, 0)
+    // Whole-branch review finding: syncCache's entry branch seeded only the
+    // eager Map — lazy reads consult the LRU, which kept serving stale 'L1'.
+    // The LRU is now evicted on every sync; the lazy miss refetches + decodes
+    // the fresh tier-0 envelope via the adapter fallback.
+    expect((await docs.get('p3'))?.title).toBe('L2')
+    // And the tier>0 overwrite stays invisible on the lazy surface too.
+    await docs.putAtTier('p3', { id: 'p3', title: 'L3', body: 'z' }, 1)
+    expect(await docs.get('p3')).toBeNull()
+  })
 })
