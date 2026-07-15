@@ -54,6 +54,29 @@ function memoryStore(): NoydbStore {
   }
 }
 
+/**
+ * #706 fixture: wraps a base store with a native `listPage` implementation
+ * (sorted-id cursor pagination), mirroring `to-memory`'s `listPage`. Lets
+ * tests exercise the native `decryptPage` path, not just the fallback.
+ */
+function withListPage(base: NoydbStore): NoydbStore {
+  return {
+    ...base,
+    async listPage(vault, collection, cursor, limit = 100) {
+      const ids = (await base.list(vault, collection)).slice().sort()
+      const start = cursor ? parseInt(cursor, 10) : 0
+      const end = Math.min(start + limit, ids.length)
+      const items: Array<{ id: string; envelope: EncryptedEnvelope }> = []
+      for (let i = start; i < end; i++) {
+        const id = ids[i]!
+        const envelope = await base.get(vault, collection, id)
+        if (envelope) items.push({ id, envelope })
+      }
+      return { items, nextCursor: end < ids.length ? String(end) : null }
+    },
+  }
+}
+
 interface User extends Record<string, unknown> { name?: string; password?: string; email?: string; a1?: string; a2?: string }
 
 /** One store, reopenable: open() twice = cold second session over the same ciphertext. */
@@ -256,4 +279,59 @@ describe('#701 hydration / lazy reads / reveal: elevated records are invisible, 
     // a genuinely absent id, no elevation disclosure, never InvalidKeyError.
     await expect(users.reveal('r1', 'email')).rejects.toThrow(/not found/)
   }, 60_000)
+})
+
+describe('#706 listPage/scan: elevated records are invisible — no leak, no brick, no cache poisoning', () => {
+  function pageHarness(native: boolean) {
+    const base = memoryStore()
+    const store = native ? withListPage(base) : base
+    const open = async () => {
+      const db = await createNoydb({ store, user: 'owner', secret: 'pw-706', tiersStrategy: withTiers() })
+      const vault = await db.openVault('v1')
+      const docs = vault.collection<User>('docs', { tiers: [0, 1], perRecordKeys: true })
+      return { docs }
+    }
+    return { open }
+  }
+
+  for (const native of [false, true]) {
+    const label = native ? 'native adapter.listPage' : 'fallback list()+get()'
+    it(`${label}: warm session — elevated record absent from the page, cache NOT poisoned`, async () => {
+      const h = pageHarness(native)
+      const { docs } = await h.open()
+      await docs.put('a', { name: 'stays' })
+      await docs.put('b', { name: 'moves' })
+      await docs.elevate('b', 1)
+      // Pre-#706 (warm, perRecordKeys): b's plaintext egressed in page.items
+      // via the warm cekCache — audit-free — and the opportunistic cache fill
+      // seeded the eager cache with it.
+      const page = await docs.listPage({ limit: 10 })
+      expect(page.items.map(r => r.name)).toEqual(['stays'])
+      expect(await docs.get('b')).toBeNull() // poisoning pin: the fill never saw b
+    })
+
+    it(`${label}: cold session — the scan survives the elevated record`, async () => {
+      const h = pageHarness(native)
+      const { docs } = await h.open()
+      await docs.put('a', { name: 'stays' })
+      await docs.put('b', { name: 'moves' })
+      await docs.elevate('b', 1)
+      const cold = await h.open()
+      // Pre-#706: InvalidKeyError from the first elevated envelope bricked
+      // every listPage/scan/aggregate over the collection.
+      const page = await cold.docs.listPage({ limit: 10 })
+      expect(page.items.map(r => r.name)).toEqual(['stays'])
+    })
+  }
+
+  it('scan (and aggregate) over a collection with an elevated record yields only tier-0 rows', async () => {
+    const h = pageHarness(false)
+    const { docs } = await h.open()
+    await docs.put('a', { name: 'stays' })
+    await docs.put('b', { name: 'moves' })
+    await docs.elevate('b', 1)
+    const seen: string[] = []
+    for await (const rec of docs.scan({ pageSize: 1 })) seen.push(rec.name as string)
+    expect(seen).toEqual(['stays'])
+  })
 })

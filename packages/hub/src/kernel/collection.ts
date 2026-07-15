@@ -3626,7 +3626,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     for (let i = start; i < end; i++) {
       const id = ids[i]!
       const envelope = await this.adapter.get(this.vault, this.name, id)
-      if (envelope) {
+      if (envelope && (envelope._tier ?? 0) === 0) {
         const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
         if (record === null) continue // shredded (tombstone) — skip
         items.push(record)
@@ -3728,8 +3728,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   ): Promise<Array<{ id: string; record: T; version: number }>> {
     const out: Array<{ id: string; record: T; version: number }> = []
     for (const { id, envelope } of items) {
-      // Public scan/listPage output (and the opportunistic cache fill in
-      // listPage) — sealed fields surface as handles, never plaintext.
+      // Public scan/listPage output + opportunistic cache fill — sealed fields stay handles; elevated records are invisible (#706: gate BEFORE decrypt or the warm cekCache leaks tier plaintext, audit-free).
+      if ((envelope._tier ?? 0) > 0) continue
       const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
       if (record === null) continue // shredded (tombstone) — skip the page row
       out.push({ id, record, version: envelope._v })
