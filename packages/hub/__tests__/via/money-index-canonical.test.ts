@@ -322,4 +322,69 @@ describe('money index-key canonicalization (#672)', () => {
       dbScan.close()
     })
   })
+
+  // #686 — money() late-attached via a SECOND vault.collection() call, after
+  // an earlier vault.collection(name, { indexes: [...] }) call (no
+  // moneyFields) already triggered eager-index hydration. Rows indexed
+  // before the money declaration sat in raw-form buckets (`stringifyKey`
+  // output) forever — canonical ==/in probes never read raw buckets, so
+  // those legacy rows were silently under-returned until the next full
+  // rebuild. Unlike the #672 suite above (which declares moneyFields +
+  // indexes in ONE call), this exercises the two-call late-attach path.
+  describe('money() late-attach onto an already-hydrated eager index (#686)', () => {
+    it('a row indexed before the late-attached money() declaration is found by a canonical == probe without an explicit rebuildIndexes()', async () => {
+      const adapter = persistentMemory()
+      const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+      const vault = await db.openVault(VAULT)
+
+      // First call: indexes only, no moneyFields — triggers eager hydration
+      // with 'pre' bucketed under its RAW stringified value ('0100').
+      const colIndexedOnly = vault.collection<Item>(COLL, { schema: itemSchema, indexes: ['amount'] })
+      await colIndexedOnly.put('pre', { id: 'pre', amount: '0100' })
+      await colIndexedOnly.list() // force hydration + eager build of the raw '0100' bucket
+
+      // Second call, same collection: money() late-attach.
+      const col = vault.collection<Item>(COLL, {
+        schema: itemSchema,
+        moneyFields: { amount: money({ currency: 'EUR', scale: 2 }) },
+      })
+
+      const spy = vi.spyOn(CollectionIndexes.prototype, 'lookupEqual')
+      try {
+        // WITHOUT calling rebuildIndexes() — canonical probe key '100'.
+        const hit = col.query().where('amount', '==', 1).toArray()
+        expect(hit.map((r) => r.id)).toEqual(['pre'])
+        expect(spy).toHaveBeenCalledWith('amount', '100')
+      } finally {
+        spy.mockRestore()
+      }
+      db.close()
+    })
+
+    it('rebuildIndexes() also fixes the same strand (the pre-existing manual escape hatch keeps working)', async () => {
+      const adapter = persistentMemory()
+      const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+      const vault = await db.openVault(VAULT)
+
+      const colIndexedOnly = vault.collection<Item>(COLL, { schema: itemSchema, indexes: ['amount'] })
+      await colIndexedOnly.put('pre', { id: 'pre', amount: '0100' })
+      await colIndexedOnly.list()
+
+      const col = vault.collection<Item>(COLL, {
+        schema: itemSchema,
+        moneyFields: { amount: money({ currency: 'EUR', scale: 2 }) },
+      })
+      await col.rebuildIndexes()
+
+      const spy = vi.spyOn(CollectionIndexes.prototype, 'lookupEqual')
+      try {
+        const hit = col.query().where('amount', '==', 1).toArray()
+        expect(hit.map((r) => r.id)).toEqual(['pre'])
+        expect(spy).toHaveBeenCalledWith('amount', '100')
+      } finally {
+        spy.mockRestore()
+      }
+      db.close()
+    })
+  })
 })

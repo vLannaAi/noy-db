@@ -747,7 +747,10 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4521→4529 (2026-07-15, #693: tab-coordination fallback for the marker-set gate):
   // `tabCoordinated` private field + constructor assignment + the gate's fallback
   // condition/comment at the #589/#606 re-create check.
-  'packages/hub/src/kernel/collection.ts': 4529,
+  // Bumped 4529→4530 (2026-07-15, #686: money() late-attach re-canonicalization):
+  // one line in `_applyMoneyFields` — `if (this.hydrated) this.rebuildEagerIndexesFromCache()`
+  // — reusing the existing hydrate-time rebuild helper, zero new state.
+  'packages/hub/src/kernel/collection.ts': 4530,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.

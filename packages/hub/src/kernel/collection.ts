@@ -1293,6 +1293,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const virtualMoney = resolveVirtualMoneyFields(Object.keys(moneyFields), (f) => this.via?.bindings.find((b) => b.brand === 'computed')?.covers?.(f) ?? false) // #669
     this.via = ViaPipeline.build([viaBinder('money')({ moneyFields, ...(virtualMoney.size > 0 ? { virtualMoneyFields: virtualMoney } : {}) }), ...(this.via?.bindings ?? [])], this.via?.taint) // #671 item 4 — thread taint through the rebuild
     this.moneyFields = moneyFields
+    if (this.hydrated) this.rebuildEagerIndexesFromCache() // #686: re-canonicalize buckets built before this money late-attach
   }
 
   /** @internal — attach computed fields post-construction. See {@link _applyMoneyFields}. */

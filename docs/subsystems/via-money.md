@@ -124,6 +124,17 @@ and `delete()` (remove) — so updating or deleting a legacy record cleans up it
 correctly instead of stranding the id there (a gap the initial #672 fix left open, closed in
 review).
 
+**Eager late-attach (#686).** `money()` can also arrive on an existing, already-hydrated
+collection via a SECOND `vault.collection(name, { moneyFields })` call — e.g. an earlier
+`vault.collection(name, { indexes: [...] })` call (no `moneyFields`) already triggered eager-index
+hydration and built its buckets from raw stringified values. `_applyMoneyFields` now detects an
+already-hydrated collection and re-runs the eager-index rebuild (the same
+`rebuildEagerIndexesFromCache` hydrate-on-open uses) as part of attaching the money declaration, so
+rows indexed before the late-attach are re-canonicalized immediately — no gap window, and no manual
+`rebuildIndexes()` call required. Before this fix such rows were silently under-returned by a
+canonical `==`/`in` probe until the next full rebuild (was: self-corrected only on the next
+hydrate-from-cold or an explicit `rebuildIndexes()`).
+
 **Lazy mode (#677).** Lazy-mode collections (`prefetch: false`) keep their own durable
 `PersistedCollectionIndex` side-cars — a separate implementation from the eager
 `CollectionIndexes`, but now with the SAME canonicalization guarantee. Every bucket-mutation site
