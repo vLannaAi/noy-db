@@ -293,9 +293,8 @@ now classifies each applied envelope as `'put'` or `'delete'` and threads the ac
 widened `cacheInvalidator` seam; `GraphBatch` gains a delete leg (`GraphTouch.deletes: Map<string,
 readonly RollupDeleteIntent[]>`, ids/names only — no record payload, no key material); the dispatch
 wave (`runGraphDispatchWave`) routes deleted ids to the SAME rollup-recompute trio a local delete
-uses (batched, deduped per parent+field), never `dispatchDerivations`/MV-on-delete — mirroring the
-`mutation-choke-point.test.ts:85-99` pin that a delete is dispatch-inert for derivations/MVs, both
-locally and over sync:
+uses (batched, deduped per parent+field), never `dispatchDerivations` — mirroring the
+`mutation-choke-point.test.ts:85-99` pin that a delete never RE-DERIVEs, both locally and over sync:
 
 ```ts
 // db2 pulls a delete of a rollup child from db1; orderCount is registered ONLY on db2
@@ -311,12 +310,28 @@ eviction of the child before the sync-apply lands) **or an un-hydrated eager col
 sync op for that child is a delete** (`ensureHydrated()` never ran, so the eager cache never held a
 record to peek) — the miss is silent and freshness-only: that one child's rollup-parent intents are
 skipped, no recompute happens for it, and no error is raised. Correctness is otherwise intact (the
-recompute reads the REMAINING children from the store, so nothing double-counts); this is a
-follow-up candidate, not fixed here. The sync-delete path also stays narrower than the local-delete
-path by design: it recomputes only the rollup leg, not `dispatchMaterializedViewsOnDelete`/
-`dispatchArrayDerivationsOnDelete` — both #640's issue text and the `mutation-choke-point.test.ts`
-pin scope sync-delete dispatch to rollups only; wiring MV/array-derivation-on-delete into the
-sync-delete wave is a candidate follow-up, not a regression of this pass.
+recompute reads the REMAINING children from the store, so nothing double-counts); this cold-child
+gap remains a follow-up candidate, not fixed here — it also gates the MV/array-derivation healing
+described below (both read the same `_peekCached`-gated touch).
+
+**Sync-applied deletes now heal MV rows and array-derivation outputs too (#658), closing the
+rollup-only gap above.** #640 (this pass) scoped the sync-delete wave to the rollup leg only, so a
+remotely-deleted child left its MV mirror rows and array-shape derivation output rows stale —
+diverging from the local-delete path (`Collection._doDelete`'s `!internal` block), which already
+calls `dispatchRollupsOnDelete` + `dispatchMaterializedViewsOnDelete` +
+`dispatchArrayDerivationsOnDelete` for every delete. #658 closes that divergence: the wave's
+deletes loop now also calls `dispatchMaterializedViewsOnDelete`/`dispatchArrayDerivationsOnDelete`
+per touched id, inside the same per-id isolation `try` as the rollup recompute. Both calls need
+only the id (MV refresh recomputes the query fresh and diffs; array-derivation reads its per-source
+fanout sidecar) and never call `derive()`, so the `dispatchDerivations`/never-RE-DERIVE pin above
+still holds. Record-shape same-id derivation outputs stay untouched on the sync-delete path too
+(`eraseRecordShapeToo` defaults `false`), matching local delete
+(from `packages/hub/__tests__/via/sync-delete-derivation.test.ts`). **Perf follow-up, not fixed
+here:** unlike the put-path `dispatchMaterializedViews`, `dispatchMaterializedViewsOnDelete` takes
+no `WaveContext`, so N children deleted from one eager MV in the same batch each trigger a full
+refresh pass instead of deduping to one — correctness is unaffected (idempotent per source-id);
+threading a wave through would touch collection.ts's zero-slack kernel-surface ceiling for a
+perf-only win.
 
 **Riders.** `push()`/`pull()` now wrap `persistMeta()` in a `finally` that flushes the graph batch
 even when `persistMeta()` throws — previously a throw there left `_graphBatch` open, silently
