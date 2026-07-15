@@ -1657,6 +1657,17 @@ export class Noydb {
   }
 
   /**
+   * #693: true when multi-tab coordination is active at all — presence/election
+   * alone (`propagateWrites: false`) or full write-propagation — a peer tab can
+   * write this instance's shared store out-of-band either way, so per-collection
+   * marker-id sets are not authoritative and the re-create gate must fall back to
+   * a store read. Live (tab coordination is enable/disable-able at runtime).
+   */
+  get _tabCoordinationActive(): boolean {
+    return this.tabCoordinator !== undefined
+  }
+
+  /**
    * Soft-lock a single vault: clear its in-memory keyring, DEKs, vault
    * instance, sync engine, policy enforcer, and active-tier entry —
    * WITHOUT destroying the `Noydb` instance.

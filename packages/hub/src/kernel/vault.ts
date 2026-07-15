@@ -989,6 +989,7 @@ export class Vault {
         schemaFence: this.schemaFence,
         getDEK: this.getDEK,
         onDirty: this.onDirty,
+        tabCoordinated: () => this.noydb._tabCoordinationActive, // #693: re-create gate fallback
         historyConfig: effectiveHistoryConfig,
         historyConfigExplicit: options?.historyConfig !== undefined,
         // thread the vault-wide blob strategy into every

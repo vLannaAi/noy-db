@@ -744,7 +744,10 @@ const KERNEL_SURFACE_BUDGET = {
   // for the session) and added a synchronous pre-switch maintenance step in
   // `_onRecordMutated` to close the await-window race against a concurrent
   // put. Comments explaining both fixes account for the growth.
-  'packages/hub/src/kernel/collection.ts': 4521,
+  // Bumped 4521→4529 (2026-07-15, #693: tab-coordination fallback for the marker-set gate):
+  // `tabCoordinated` private field + constructor assignment + the gate's fallback
+  // condition/comment at the #589/#606 re-create check.
+  'packages/hub/src/kernel/collection.ts': 4529,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -993,7 +996,9 @@ const KERNEL_SURFACE_BUDGET = {
   // expansion): `_reservedDictDepsOf(names)` — a thin delegator (same tier as
   // `_reservedLookupCollectionNames()` beside it) to `reservedDictDepsOf` in
   // `via/lookup/registry.ts`, reached through the existing lookup-strategy port import.
-  'packages/hub/src/kernel/vault.ts': 3958,
+  // Bumped 3958→3959 (2026-07-15, #693: tab-coordination fallback for the marker-set gate):
+  // one `tabCoordinated: () => this.noydb._tabWritesRelayed` line threaded into collOpts.
+  'packages/hub/src/kernel/vault.ts': 3959,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -1101,7 +1106,14 @@ const KERNEL_SURFACE_BUDGET = {
   // call-site, filters/maps the already-computed `targets` array.
   // Bumped 2375→2385 (2026-07-10, #616): role-gate the sync primary (emptyPullResult
   // factory + pull() no-op + sync() primary ternary branch for push-only sinks).
-  'packages/hub/src/kernel/noydb.ts': 2385,
+  // Bumped 2385→2396 (2026-07-15, #693: tab-coordination fallback for the marker-set gate):
+  // `_tabCoordinationActive` internal live getter (`tabCoordinator !== undefined`) — the
+  // dynamic signal Vault threads into every Collection so the #606 re-create gate can fall
+  // back to an unconditional store read whenever multi-tab coordination is active at all
+  // (presence/election alone or full write-propagation), not only while writes are relayed
+  // (review fix: `propagateWrites: false` left `writeRelay` unset, so the narrower signal
+  // missed a peer tab's delete-marker on a shared store — permanent #589-class data loss).
+  'packages/hub/src/kernel/noydb.ts': 2396,
 }
 
 function checkKernelSurface() {

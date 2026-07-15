@@ -209,6 +209,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private readonly activeTxId: (() => string | null) | undefined
   private readonly getDEK: (collectionName: string) => Promise<EnclaveKey>
   private readonly onDirty: OnDirtyCallback | undefined
+  /** #693: live check — true when multi-tab write-propagation is active; gates the #606 marker-id-set fallback read. */
+  private readonly tabCoordinated: (() => boolean) | undefined
   private readonly historyConfig: HistoryConfig
   /** True when the caller explicitly provided a `historyConfig` option (vs. inheriting the vault default). */
   private readonly historyConfigExplicit: boolean
@@ -655,6 +657,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.reconcileOnOpen = cfg.reconcileOnOpen
     this.getDEK = cfg.getDEK
     this.onDirty = cfg.onDirty
+    this.tabCoordinated = cfg.tabCoordinated
     this.historyConfig = cfg.historyConfig
     this.historyConfigExplicit = cfg.historyConfigExplicit
     this.schema = cfg.schema
@@ -1929,7 +1932,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       // inserts are the latter. The lazy branch above may have already read
       // the raw envelope on an LRU miss regardless of `markerIds` (preserved
       // as-is); this only gates the previously-unconditional second read.
-      if (priorRaw === null && this.markerIds.has(id)) priorRaw = await this.adapter.get(this.vault, this.name, id)
+      // #693: when the store may be written out-of-band by another tab (write-relay active),
+      // markerIds isn't authoritative during the broadcast-latency window — fall back to the
+      // pre-#606 unconditional read so a cross-tab marker is never missed.
+      if (priorRaw === null && (this.markerIds.has(id) || this.tabCoordinated?.())) {
+        priorRaw = await this.adapter.get(this.vault, this.name, id)
+      }
       if (priorRaw && isDeleteMarker(priorRaw)) version = priorRaw._v + 1
     }
 
