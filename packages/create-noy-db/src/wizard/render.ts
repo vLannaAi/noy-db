@@ -34,6 +34,15 @@ export interface RenderTokens {
   DEVTOOLS: string
   /** A literal `[...]` block of seed records, or `[]` if `sampleData` is false. */
   SEED_INVOICES: string
+  /**
+   * The version every `@noy-db/*` dependency (and the template's own
+   * `create-noy-db` devDep) is pinned to, written as `^{{NOYDB_VERSION}}`
+   * in template `package.json`s. Filled from this package's own version
+   * (see `ownVersion()`), so scaffolded apps always depend on the family
+   * line the wizard itself shipped with — template pins can never drift
+   * from published reality again (#703).
+   */
+  NOYDB_VERSION: string
 }
 
 /**
@@ -130,4 +139,22 @@ export function templateDir(name: string): string {
   const here = fileURLToPath(import.meta.url)
   const packageRoot = path.resolve(path.dirname(here), '..', '..')
   return path.join(packageRoot, 'templates', name)
+}
+
+let cachedOwnVersion: string | undefined
+
+/**
+ * This package's own version, read from its `package.json` (a sibling of
+ * `dist/` and `templates/`, same layout reasoning as `templateDir`). The
+ * wizard versions in lockstep with the `@noy-db/*` family, so this is the
+ * value `{{NOYDB_VERSION}}` resolves to at scaffold time.
+ */
+export async function ownVersion(): Promise<string> {
+  if (cachedOwnVersion === undefined) {
+    const here = fileURLToPath(import.meta.url)
+    const packageRoot = path.resolve(path.dirname(here), '..', '..')
+    const raw = await fs.readFile(path.join(packageRoot, 'package.json'), 'utf8')
+    cachedOwnVersion = (JSON.parse(raw) as { version: string }).version
+  }
+  return cachedOwnVersion
 }
