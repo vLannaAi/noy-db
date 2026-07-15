@@ -56,8 +56,16 @@ export interface TiersContext<T> {
    * owns. `null` → no caching.
    */
   readonly cekCache: Lru<string, EnclaveKey> | null
-  /** Evict the collection's decoded-record cache entry after a tier move rewraps the envelope (#691). */
-  evictCache(id: string): void
+  /**
+   * Sync the collection's decoded-record cache after a tier move rewraps the
+   * envelope (#691). `null` → evict the eager cache entry and the lazy LRU
+   * (the lazy LRU never needs re-seeding: its `#getRaw` has an adapter
+   * fallback on a miss, so evicting it on every move stays correct). An
+   * `entry` → set the eager cache to the given decoded record/version (used
+   * only by `demote()` when landing back at tier 0 — the record is tier-0
+   * again, so it must stay plain-`get()`-readable in the same session).
+   */
+  syncCache(id: string, entry: { record: T; version: number } | null): void
   /** Emit `_source`/`_sourceTs` provenance fields when a source is supplied. */
   readonly provenance: boolean
   /** Declared tiers, or null when the feature is off. */
@@ -281,7 +289,7 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   const now = new Date().toISOString()
   const body = await rewrapBodyToDek(envelope, fromDek, toDek)
   if (body.cek) ctx.cekCache?.set(id, body.cek, 1)
-  ctx.evictCache(id)
+  ctx.syncCache(id, null)
   // #662: spread every slot the source carries (_sealed/_det/_vdig/_bidx/
   // _source/_sourceTs/_debug) through UNCHANGED, then override only
   // the fields a tier move manages. rewrapBodyToDek preserves the CEK, so no
@@ -346,7 +354,6 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
   const now = new Date().toISOString()
   const body = await rewrapBodyToDek(envelope, fromDek, toDek)
   if (body.cek) ctx.cekCache?.set(id, body.cek, 1)
-  ctx.evictCache(id)
   // #662: same passenger carry-through as elevate(). demote additionally CLEARS
   // `_elevatedBy` (the demote right is consumed) and OMITS `_tier` at tier 0, so
   // both are destructured out of the spread rather than carried.
@@ -364,6 +371,20 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
     ...(body._cek !== undefined ? { _cek: body._cek } : {}),
   }
   await ctx.adapter.put(ctx.vault, ctx.name, id, next)
+
+  // #691: landing back at tier 0 makes this a plain tier-0 record again — it
+  // must stay plain-get()-readable in the same session, so re-seed the
+  // eager cache from the just-written (now tier-0-keyed) envelope through
+  // the canonical codec path, the same decode collection.ts's own eager
+  // hydration / lazy cache-miss paths use. A demote that lands on an
+  // intermediate elevated tier (toTier > 0) still evicts: the record stays
+  // above tier 0 and must remain invisible on tier-0 surfaces.
+  if (toTier === 0) {
+    const rec = await ctx.codec.decryptRecord(next, { id, sealedAsHandles: true })
+    ctx.syncCache(id, rec !== null ? { record: rec, version: next._v } : null)
+  } else {
+    ctx.syncCache(id, null)
+  }
 
   ctx.emitCrossTierEvent({
     actor: ctx.keyring.userId,

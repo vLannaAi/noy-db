@@ -391,7 +391,7 @@ describe('#691 fold-ins: tier moves × record cache × tombstones', () => {
     expect(((await docs.getAtTier('d1')) as Doc | null)?.title).toBe('Loose')
   })
 
-  it('demote also evicts', async () => {
+  it('demote also evicts, and demote-to-tier-0 re-seeds the cache so plain get() stays readable', async () => {
     const { vault } = await freshVault()
     const docs = vault.collection<Doc>('docs', { tiers: [0, 1] })
     await docs.put('d2', { id: 'd2', title: 'Down', body: 'again' })
@@ -401,6 +401,9 @@ describe('#691 fold-ins: tier moves × record cache × tombstones', () => {
     // entry must not have survived the two raw envelope rewrites in between.
     // (Eviction on both moves; a fresh getAtTier round-trips the content.)
     expect(((await docs.getAtTier('d2')) as Doc | null)?.title).toBe('Down')
+    // A record demoted back to tier 0 IS a tier-0 record: it must be
+    // plain-get()-readable in the same session, not just via getAtTier().
+    expect((await docs.get('d2'))?.title).toBe('Down')
   })
 
   it('elevate/demote on a delete-marker throw not-found, not TamperedError', async () => {

@@ -219,13 +219,7 @@ describe('per-record CEK — slice 4: tiers', () => {
     expect(demoted._tier).toBeUndefined()
     expect(demoted._cek).toBeDefined()
     expect(await cek.getAtTier('d-1')).toMatchObject({ name: 'secret' })
-    // #691: elevate/demote evict the eager decoded-record cache (never leaving a
-    // stale/clearance-free entry behind after a tier move). The demoted-to-0
-    // record is immediately decryptable again via the sanctioned getAtTier()
-    // surface above; the plain eager get() cache isn't repopulated until the
-    // next hydration (same known ensureHydrated limitation noted elsewhere),
-    // so a same-session plain get() reads null rather than serving anything stale.
-    expect(await cek.get('d-1')).toBeNull()
+    expect(await cek.get('d-1')).toMatchObject({ name: 'secret' })
   })
 })
 
