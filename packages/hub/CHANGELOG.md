@@ -1,5 +1,65 @@
 # Changelog — hub
 
+## 0.3.0-pre.12
+
+### Minor Changes
+
+- Satellite collections v1 follow-ups (milestone #22).
+
+  - **#596 (fix):** a satellite fan-out leg whose write throws no longer drops a pre-existing
+    dirty entry for the same `(collection, id)` — a data-loss bug where a legitimate, already-queued
+    sync write could silently vanish when a _different_ leg of a joined put/pair delete failed.
+    `Leg` now tracks a `wrote` flag; dirty-compensation is skipped for a leg that never actually
+    wrote. A narrow, pre-existing edge case (a leg whose write lands but throws afterward, during
+    derivation/materialized-view dispatch) is out of scope for this fix and tracked separately as #687.
+  - **#595 (rename, no behavior change):** the one-satellite-per-base v1 scope guard's refusal id
+    moves `R-S1` → `R-S10`, freeing `R-S1` for the design's real fields-overlap routing-ambiguity
+    rule (`post-register.ts`), which was always the documented R-S1 but shared the id with the
+    scope guard in the shipped v1 error string.
+  - **#597 (additive):** persisted satellite pairing markers and classified markers now carry an
+    optional `epoch` (ISO-8601, stamped on first persist, stable across every later re-declare/no-op
+    fast path — deliberately excluded from marker equality). A latent reuse-staleness guard for
+    when a collection name gets freed and reused; the epoch-mismatch _rejection_ itself is deferred
+    until a delete-collection API exists — there's nothing to reject against yet.
+  - **#599 (new public API):** `Vault.migrateSatellitePerRecordKeys(satelliteName)` unblocks R-S7
+    retro-coverage — walks an existing satellite's records via `_applyCutoverTransform`, minting a
+    distinct per-record CEK for each, so a satellite declared before forget-coverage was added can
+    be migrated into `perRecordKeys` mode instead of being permanently stuck behind R-S7's refusal.
+    Resumable (already-migrated records keep their CEK on a re-run); asserts the collection wasn't
+    already opened this session without `perRecordKeys` (throws `SatelliteConfigError` otherwise);
+    no vault-wide fence/quiesce — run it before the satellite collection serves other traffic.
+  - **Bounded #588 consolidation:** `kernel/best-effort-revert.ts` — a shared best-effort-revert
+    helper now consumed by both satellite fan-out (`with-shape/satellites/fanout.ts`) and
+    `with-commit`'s transaction revert (`with-commit/tx/transaction.ts`), replacing two near-identical
+    reverse-iterate/put-or-delete loops with one. Internal-only (not part of any public barrel).
+    #588's actual ask — a kernel cross-collection atomic-write primitive — remains descoped/parked
+    (closed not-planned): it's adapter-contract-breaking (ripples to every `to-*` store in the
+    sibling `noy-db-to` repo plus the `adapter-conformance` harness) and needs its own design spec;
+    revisit on a real torn-pair report or when that cross-repo adapter work is independently scheduled.
+
+### Patch Changes
+
+- Milestone #29 sync-engine follow-ups.
+
+  - **#653** — Partial sync (`pull`/`push({ collections })`) now auto-includes the reserved `_dict_*` dictionaries a named collection's lookup fields depend on (mirrors the satellite-pair expansion), so labels and membership no longer go stale on partially-synced instances.
+  - **#606** — A per-collection marker-id set skips the redundant, usually-null `adapter.get` on every synced-eager insert that #589's re-create version-continuity gate previously forced.
+  - **#693** — Under multi-tab coordination sharing one store, the re-create gate falls back to the pre-#606 unconditional store read (the marker-id set is per-instance and can't see a peer tab's out-of-band delete-marker until the relay lands) — closing a data-loss window.
+  - **#658** — Sync-applied deletes now heal materialized-view rows and array-shape derivation outputs, matching the local-delete boundary (previously the sync-delete wave was rollup-only).
+
+- Milestone #33 via follow-ups — two internal correctness fixes.
+
+  - **#678** — `ViaGraph.assertAcyclic()`'s ref-edge filter now keys on the edge itself, not the target. Previously it re-derefed the target's `_in` entry for `kind`, which a later `registerDerived` call could have overwritten (e.g. a dual-role target registered computed-then-ref, #631's exempt composition order) — silently excluding a genuine computed edge from the cycle-detection DFS and hiding a real derivation cycle. `_out` edges now carry their own `kind` at registration; the filter and `referencingEdgesOf` both read it edge-local. Latent regression guard — not reachable in production today (`assertAcyclic()` runs once at `openVault()`, before `_in`/`_out` is populated).
+  - **#677** — Lazy-mode `PersistedCollectionIndex` now canonicalizes money index keys at every bucket-mutation site (`ingest`/`upsert`/`remove`) and canonicalizes the `==`/`in` probe value before lookup, mirroring eager mode's #672 fix. A lazy-mode mixed-era (pre-money-declaration) record now agrees with the fallback scan the same way an eager one does. The end-to-end gap this fix did NOT close — `LazyQuery.where()` never built a `clause.via`, so `lazyQuery().where(moneyField, ...).toArray()` returned empty at `scale > 0`, and lazy money range clauses dispatched through `lookupRange` with no scan fallback — was tracked in #684 and is CLOSED in this same release (see the via-port lazy/index follow-ups entry).
+
+- Via-port follow-ups — lazy/index correctness.
+
+  - **#684** — Lazy queries are now Via-aware end-to-end. `LazyQuery.where()` builds a `clause.via` and the lazy post-filter runs against the RAW stored record (mirroring eager: filter stored-form, decode survivors on output), fixing money (and any decode-transforming via) lazy queries that previously returned empty at `scale > 0` under every query spelling. Money range clauses enumerate the field index and post-filter via-aware (closing the no-scan-fallback hole); `==`/`in` prefer `clause.via.indexValue`, and the `queryable: 'none'` posture guard + multi-currency `==`/`in` now match eager. The `LazyQuerySource` shape on the `@noy-db/hub/indexing` subpath changed (a raw-fetch seam added) — pre-1.0, no external implementer exists. Lazy `orderBy` ordering parity for money is a separate, still-open item (#695).
+  - **#695** — Lazy `orderBy` on a money field is now Via-aware: `toArray()` sorts the RAW survivors via `ViaPipeline.compareForOrder` (scaled BigInt compare, mirroring eager) and decodes only the returned page, so money orders numerically instead of lexicographically (`'10.00'` no longer sorts before `'2.00'`).
+  - **#696** — The lazy composite-index `==` fast path is skipped when a covered clause is Via-covered (money), falling through to the already-Via-aware single-field path — a money field in a composite index no longer misses (returned `[]`).
+  - **#698** — Lazy now decomposes a composite index into its component single-field indexes on declare (matching eager), so a composite-ONLY declaration serves single-field queries and the #696 fall-through instead of throwing `IndexRequiredError`. (Adds per-component single-field side-cars, the same tradeoff eager makes.)
+  - **#686** — Late-attaching `money()` (a second `vault.collection()` call) onto an already-built EAGER index now re-canonicalizes the existing buckets, so rows indexed before the money declaration are no longer silently under-returned by canonical `==`/`in` probes until the next rebuild.
+  - **#687** — Documented (as an accepted known limitation) the narrow satellites fan-out post-`onDirty`-dispatch-throw orphaned-dirty-entry hazard (harm: one self-healing sync-push cycle), and hardened the pair-delete revert test with a direct dirty-log assertion.
+
 ## 0.3.0-pre.11
 
 ### Minor Changes
