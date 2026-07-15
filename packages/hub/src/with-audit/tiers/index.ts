@@ -62,8 +62,8 @@ export interface TiersContext<T> {
    * (the lazy LRU never needs re-seeding: its `#getRaw` has an adapter
    * fallback on a miss, so evicting it on every move stays correct). An
    * `entry` → set the eager cache to the given decoded record/version (used
-   * only by `demote()` when landing back at tier 0 — the record is tier-0
-   * again, so it must stay plain-`get()`-readable in the same session).
+   * by `demote()` landing back at tier 0 and `putAtTier`'s tier-0 write, #702
+   * — the record is tier-0, so it must stay plain-`get()`-readable in-session).
    */
   syncCache(id: string, entry: { record: T; version: number } | null): void
   /** Emit `_source`/`_sourceTs` provenance fields when a source is supplied. */
