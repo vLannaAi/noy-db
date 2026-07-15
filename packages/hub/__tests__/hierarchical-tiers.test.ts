@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, ConflictError, TierNotGrantedError, TierDemoteDeniedError } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
-import { rewrapBodyToDek } from '../src/kernel/enclave/index.js'
+import { rewrapBodyToDek, buildDeleteMarker } from '../src/kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, GhostRecord, CrossTierAccessEvent } from '../src/index.js'
 
 interface Doc {
@@ -373,5 +373,48 @@ describe('v0.18 hierarchical access', () => {
     const docs = vault.collection<Doc>('docs')
     await expect(docs.putAtTier('d1', { id: 'd1', title: 't', body: 'b' }, 1))
       .rejects.toThrow(/tiers are not enabled/)
+  })
+})
+
+describe('#691 fold-ins: tier moves × record cache × tombstones', () => {
+  it('elevate evicts the eager record cache — plain get() no longer serves pre-move plaintext', async () => {
+    const { vault } = await freshVault()
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1] })
+    await docs.put('d1', { id: 'd1', title: 'Loose', body: 'lips' })
+    expect((await docs.get('d1'))?.title).toBe('Loose') // cache warm
+    await docs.elevate('d1', 1)
+    // Pre-#691: the eager cache still holds the decoded record, so the plain
+    // tier-0 get() serves an elevated record's plaintext with ZERO key
+    // resolution. Post-fix: evicted → eager get() is cache-authoritative → null.
+    expect(await docs.get('d1')).toBeNull()
+    // The sanctioned surface still reads it fine in the elevating session.
+    expect(((await docs.getAtTier('d1')) as Doc | null)?.title).toBe('Loose')
+  })
+
+  it('demote also evicts, and demote-to-tier-0 re-seeds the cache so plain get() stays readable', async () => {
+    const { vault } = await freshVault()
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1] })
+    await docs.put('d2', { id: 'd2', title: 'Down', body: 'again' })
+    await docs.elevate('d2', 1)
+    await docs.demote('d2', 0)
+    // After demote-to-0 the record is tier-0 again; the pre-elevate cache
+    // entry must not have survived the two raw envelope rewrites in between.
+    // (Eviction on both moves; a fresh getAtTier round-trips the content.)
+    expect(((await docs.getAtTier('d2')) as Doc | null)?.title).toBe('Down')
+    // A record demoted back to tier 0 IS a tier-0 record: it must be
+    // plain-get()-readable in the same session, not just via getAtTier().
+    expect((await docs.get('d2'))?.title).toBe('Down')
+  })
+
+  it('elevate/demote on a delete-marker throw not-found, not TamperedError', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({ store, secret: 'pw', user: 'owner', tiersStrategy: withTiers() })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1] })
+    await docs.put('gone', { id: 'gone', title: 'x', body: 'y' })
+    const live = (await store.get('v1', 'docs', 'gone'))!
+    await store.put('v1', 'docs', 'gone', buildDeleteMarker(live._v, 'owner'))
+    await expect(docs.elevate('gone', 1)).rejects.toThrow(/not found/)
+    await expect(docs.demote('gone', 0)).rejects.toThrow(/not found/)
   })
 })

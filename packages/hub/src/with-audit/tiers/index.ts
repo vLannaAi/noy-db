@@ -23,7 +23,7 @@
 export { withTiers } from './active.js'
 export { NO_TIERS, type TiersStrategy } from './strategy.js'
 export { TiersNotEnabledError } from '../../kernel/errors.js'
-import { encrypt, decrypt, unwrapCek, rewrapBodyToDek, type RecordCodec, type EnclaveKey, type SealedShredSlot } from '../../kernel/enclave/index.js'
+import { encrypt, decrypt, unwrapCek, rewrapBodyToDek, isDeleteMarker, isTombstoneShape, type RecordCodec, type EnclaveKey, type SealedShredSlot } from '../../kernel/enclave/index.js'
 import { TierDemoteDeniedError } from '../../kernel/errors.js'
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
@@ -56,6 +56,16 @@ export interface TiersContext<T> {
    * owns. `null` → no caching.
    */
   readonly cekCache: Lru<string, EnclaveKey> | null
+  /**
+   * Sync the collection's decoded-record cache after a tier move rewraps the
+   * envelope (#691). `null` → evict the eager cache entry and the lazy LRU
+   * (the lazy LRU never needs re-seeding: its `#getRaw` has an adapter
+   * fallback on a miss, so evicting it on every move stays correct). An
+   * `entry` → set the eager cache to the given decoded record/version (used
+   * only by `demote()` when landing back at tier 0 — the record is tier-0
+   * again, so it must stay plain-`get()`-readable in the same session).
+   */
+  syncCache(id: string, entry: { record: T; version: number } | null): void
   /** Emit `_source`/`_sourceTs` provenance fields when a source is supplied. */
   readonly provenance: boolean
   /** Declared tiers, or null when the feature is off. */
@@ -257,7 +267,9 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   assertTierAccess(ctx.keyring, ctx.name, toTier)
 
   const envelope = await ctx.adapter.get(ctx.vault, ctx.name, id)
-  if (!envelope) throw new Error(`Record "${id}" not found in collection "${ctx.name}"`)
+  if (!envelope || isDeleteMarker(envelope) || isTombstoneShape(envelope)) {
+    throw new Error(`Record "${id}" not found in collection "${ctx.name}"`)
+  }
   const fromTier = envelope._tier ?? 0
   if (toTier === fromTier) return
   if (toTier < fromTier) {
@@ -295,6 +307,9 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
     ...(body._cek !== undefined ? { _cek: body._cek } : {}),
   }
   await ctx.adapter.put(ctx.vault, ctx.name, id, next)
+  // Evict only once the write landed — a throwing put must not blind the
+  // eager cache to a still-valid tier-0 record (same ordering as demote).
+  ctx.syncCache(id, null)
 
   ctx.emitCrossTierEvent({
     actor: ctx.keyring.userId,
@@ -316,7 +331,9 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
   if (toTier < 0) throw new Error(`Cannot demote to negative tier ${toTier}`)
 
   const envelope = await ctx.adapter.get(ctx.vault, ctx.name, id)
-  if (!envelope) throw new Error(`Record "${id}" not found in collection "${ctx.name}"`)
+  if (!envelope || isDeleteMarker(envelope) || isTombstoneShape(envelope)) {
+    throw new Error(`Record "${id}" not found in collection "${ctx.name}"`)
+  }
   const fromTier = envelope._tier ?? 0
   if (toTier === fromTier) return
   if (toTier > fromTier) {
@@ -356,6 +373,20 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
     ...(body._cek !== undefined ? { _cek: body._cek } : {}),
   }
   await ctx.adapter.put(ctx.vault, ctx.name, id, next)
+
+  // #691: landing back at tier 0 makes this a plain tier-0 record again — it
+  // must stay plain-get()-readable in the same session, so re-seed the
+  // eager cache from the just-written (now tier-0-keyed) envelope through
+  // the canonical codec path, the same decode collection.ts's own eager
+  // hydration / lazy cache-miss paths use. A demote that lands on an
+  // intermediate elevated tier (toTier > 0) still evicts: the record stays
+  // above tier 0 and must remain invisible on tier-0 surfaces.
+  if (toTier === 0) {
+    const rec = await ctx.codec.decryptRecord(next, { id, sealedAsHandles: true })
+    ctx.syncCache(id, rec !== null ? { record: rec, version: next._v } : null)
+  } else {
+    ctx.syncCache(id, null)
+  }
 
   ctx.emitCrossTierEvent({
     actor: ctx.keyring.userId,

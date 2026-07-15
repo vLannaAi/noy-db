@@ -3570,8 +3570,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   async count(): Promise<number> {
     if (this.lazy) {
-      const ids = await this.adapter.list(this.vault, this.name)
-      return ids.length
+      return (await this.adapter.list(this.vault, this.name)).length
     }
     await this.ensureHydrated()
     return this.cache.size
@@ -4513,6 +4512,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       keyring: this.keyring,
       codec: this.codec,
       cekCache: this.cekCache,
+      syncCache: (id: string, e: { record: T; version: number } | null) => { if (e) this.cache.set(id, e); else { this.cache.delete(id); this.lru?.remove(id) } },
       provenance: this.provenance,
       tiers: this.tiers,
       tierMode: this.tierMode,
