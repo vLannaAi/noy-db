@@ -3513,10 +3513,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   async diff(id: string, versionA: number, versionB?: number): Promise<DiffEntry[]> {
     const recordA = versionA === 0 ? null : await this.resolveVersion(id, versionA)
-    const recordB = versionB === undefined || versionB === 0
+    return this.historyStrategy.diff(recordA, versionB === undefined || versionB === 0
       ? (versionB === 0 ? null : await this.resolveCurrentOrVersion(id))
-      : await this.resolveVersion(id, versionB)
-    return this.historyStrategy.diff(recordA, recordB)
+      : await this.resolveVersion(id, versionB))
   }
 
   /** Resolve a version: try history first, then check if it's the current version. */
@@ -4513,6 +4512,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       syncIndexes: (id: string, rec: T | null, version?: number) => syncTierIndexesImpl(this.indexingContext(), id, rec, version),
       syncSearch: (id: string, rec: T | null, version?: number) => syncTierSearchImpl(this.searchContext(), id, rec, version),
       syncHistory: async (id: string, fromDek: EnclaveKey, toDek: EnclaveKey) => this.historyStrategy.rewrapHistory(this.adapter, this.vault, this.name, id, fromDek, toDek, await this.getDEK(this.name)),
+      syncLedger: async (id: string) => { await this.ledger?.purgeRecordDeltas(this.name, id) },
       provenance: this.provenance,
       tiers: this.tiers,
       tierMode: this.tierMode,

@@ -364,6 +364,45 @@ export class LedgerStore {
     return JSON.parse(json) as JsonPatch
   }
 
+  /**
+   * Purge a record's tier-0-era plaintext deltas (#729). Deletes each
+   * `_ledger_deltas/<paddedIndex>` row whose entry matches
+   * `(collection, id)` and carries a delta, then returns the count
+   * deleted.
+   *
+   * Chain-safe by construction: `verify()` recomputes the tamper-chain
+   * from each `_ledger` entry's own canonical fields — including the
+   * stored `deltaHash` field, which lives on the entry, not on the
+   * `_ledger_deltas` row — and never re-reads `_ledger_deltas`.
+   * Deleting a delta row therefore cannot break `verify()`.
+   * `reconstruct()` already treats a missing delta (`loadDelta` →
+   * `null`) as a pruned stop, so a purge just makes the pre-purge
+   * plaintext unreachable rather than corrupting anything.
+   *
+   * No `_ledger` entry is touched and nothing is re-encrypted — this
+   * is irreversible (the deleted plaintext cannot be recovered) but
+   * leaves the entry metadata (that the record was mutated, at which
+   * version/timestamp/actor) fully intact for audit purposes.
+   */
+  async purgeRecordDeltas(collection: string, id: string): Promise<number> {
+    const entries = await this.loadAllEntries()
+    let purged = 0
+    for (const entry of entries) {
+      if (entry.collection !== collection || entry.id !== id) continue
+      if (entry.deltaHash === undefined) continue
+      const key = paddedIndex(entry.index)
+      // adapter.delete() is a void no-op on an already-missing key, so
+      // check for the row's presence first — the count must reflect
+      // rows actually removed (idempotent repeat purges return 0), not
+      // the number of delta-bearing entries (which never changes).
+      const existing = await this.adapter.get(this.vault, LEDGER_DELTAS_COLLECTION, key)
+      if (!existing) continue
+      await this.adapter.delete(this.vault, LEDGER_DELTAS_COLLECTION, key)
+      purged++
+    }
+    return purged
+  }
+
   /** Encrypt a JSON Patch into an envelope for storage. Mirrors encryptEntry. */
   private async encryptDelta(patch: JsonPatch): Promise<EncryptedEnvelope> {
     const json = JSON.stringify(patch)
