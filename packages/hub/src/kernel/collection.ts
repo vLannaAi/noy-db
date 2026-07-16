@@ -3458,10 +3458,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /** Get version history for a record, newest first. */
   async history(id: string, options?: HistoryOptions): Promise<HistoryEntry<T>[]> {
-    if (await liveRecordIsElevated(this.adapter, this.vault, this.name, id)) return [] // #712: elevated ≡ invisible
     const envelopes = await this.historyStrategy.getHistoryEntries(
       this.adapter, this.vault, this.name, id, options,
     )
+    if (await liveRecordIsElevated(this.adapter, this.vault, this.name, id)) return [] // #712: elevated ≡ invisible
 
     const entries: HistoryEntry<T>[] = []
     for (const env of envelopes) {

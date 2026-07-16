@@ -556,4 +556,22 @@ describe('#712 read-gate: elevated records leak no prior-version plaintext, warm
     await docs.elevate('c1', 1)
     expect(await docs.getRaw('c1')).toBeNull()
   })
+
+  it('history() rejects uniformly for absent/tier0/elevated on a tiers-only collection with no history strategy — no notEnabled short-circuit oracle', async () => {
+    const store = memoryStore()
+    // No historyStrategy: getHistoryEntries() must throw notEnabled for ALL
+    // three cases, uniformly. Pre-fix, the elevated-record gate sat BEFORE the
+    // getHistoryEntries() call and short-circuited it to `[]`, distinguishing
+    // an elevated id from an absent/tier-0 id (both of which threw).
+    const db = await createNoydb({ store, user: 'owner', secret: 'pw-712rg', tiersStrategy: withTiers() })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<User>('docs', { tiers: [0, 1], perRecordKeys: true })
+    await docs.put('t0', { name: 'tier0' })
+    await docs.put('e1', { name: 'elevated' })
+    await docs.elevate('e1', 1)
+
+    await expect(docs.history('absent-id')).rejects.toThrow(/requires the history strategy/)
+    await expect(docs.history('t0')).rejects.toThrow(/requires the history strategy/)
+    await expect(docs.history('e1')).rejects.toThrow(/requires the history strategy/)
+  })
 })
