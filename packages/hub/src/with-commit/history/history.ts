@@ -1,6 +1,6 @@
 import type { NoydbStore, EncryptedEnvelope, HistoryOptions, PruneOptions } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { isTombstone, isTombstoneShape, rewrapBodyToDek, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { isTombstone, isTombstoneShape, rewrapEnvelope, type EnclaveKey } from '../../kernel/enclave/index.js'
 
 /**
  * History storage convention:
@@ -256,22 +256,16 @@ export async function rewrapHistory(
     // Already a tombstone (forgotten/shredded version)? Nothing to rewrap.
     if (isTombstoneShape(env)) continue
 
-    let body
+    let next: EncryptedEnvelope
     try {
-      body = await rewrapBodyToDek(env, fromDek, toDek)
+      next = await rewrapEnvelope(env, fromDek, toDek)
     } catch (err) {
       if (!tier0Dek) throw err
       // Legacy fallback: retry once under the tier-0 DEK. A failure here is
       // real corruption, not a tier mismatch — let it propagate.
-      body = await rewrapBodyToDek(env, tier0Dek, toDek)
+      next = await rewrapEnvelope(env, tier0Dek, toDek)
     }
 
-    const next: EncryptedEnvelope = {
-      ...env,
-      _iv: body._iv,
-      _data: body._data,
-      ...(body._cek !== undefined ? { _cek: body._cek } : {}),
-    }
     await adapter.put(vault, HISTORY_COLLECTION, id, next)
   }
 }

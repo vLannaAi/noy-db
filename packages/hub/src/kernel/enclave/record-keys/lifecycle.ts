@@ -87,3 +87,33 @@ export async function rewrapBodyToDek(
   const { iv, data } = await encrypt(plaintext, toDek)
   return { _iv: iv, _data: data, cek: null }
 }
+
+/**
+ * Move a FULL stored envelope from `fromDek` to `toDek`, preserving every
+ * field other than the re-keyed body (`_iv`/`_data`/`_cek`) unchanged.
+ *
+ * Body-field access (`_iv`/`_data`/`_cek`) is sanctioned inside the enclave;
+ * this lets callers outside it (e.g. `with-commit/history`'s history
+ * re-keying) get back a ready-to-store envelope without reading those fields
+ * themselves. Mirrors the spread-merge idiom `with-audit/tiers/index.ts`'s
+ * `elevate()`/`demote()` use to apply `rewrapBodyToDek`'s result to the live
+ * envelope, generalized to any envelope shape (history callers don't bump
+ * `_v`/`_ts`/`_tier` the way a tier move does).
+ */
+export async function rewrapEnvelope(
+  envelope: EncryptedEnvelope,
+  fromDek: EnclaveKey,
+  toDek: EnclaveKey,
+): Promise<EncryptedEnvelope> {
+  const body = await rewrapBodyToDek(envelope, fromDek, toDek)
+  const next: EncryptedEnvelope = {
+    ...envelope,
+    _iv: body._iv,
+    _data: body._data,
+    ...(body._cek !== undefined ? { _cek: body._cek } : {}),
+  }
+  if (body._cek === undefined && envelope._cek !== undefined) {
+    delete (next as { _cek?: string })._cek
+  }
+  return next
+}

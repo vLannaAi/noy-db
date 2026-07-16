@@ -51,6 +51,7 @@
     "resolveStableCek",
     "revokeSealedRecord",
     "rewrapBodyToDek",
+    "rewrapEnvelope",
     "rotateRecordCek",
     "sealRecordToHost",
     "sha256Hex",
