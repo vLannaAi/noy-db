@@ -203,6 +203,11 @@ export async function rebuildIndexes<T>(ctx: IndexingContext<T>): Promise<void> 
   for (const recordId of canonicalIds) {
     const envelope = await ctx.adapter.get(ctx.vault, ctx.name, recordId)
     if (!envelope) continue
+    // #709: an elevated record must not be (re)indexed — the sidecar stores the
+    // PLAINTEXT field value under the tier-0 DEK, so minting one here would
+    // publish what elevation is meant to hide. Gate BEFORE the decrypt: a warm
+    // cekCache would otherwise let it succeed (and a cold session throw).
+    if ((envelope._tier ?? 0) > 0) continue
     const record = await ctx.codec.decryptRecord(envelope, { skipValidation: true, id: recordId })
     if (record === null) continue // shredded (tombstone) — no side-car to build
     await maintainPersistedIndexesOnPut(ctx, recordId, record, null, envelope._v)
@@ -278,6 +283,7 @@ export async function reconcileIndex<T>(
     if (id.startsWith('_')) continue
     const env = await ctx.adapter.get(ctx.vault, ctx.name, id)
     if (!env) continue
+    if ((env._tier ?? 0) > 0) continue // #709: skip elevated records — see rebuildIndexes' gate above
     const record = await ctx.codec.decryptRecord(env, { skipValidation: true, id })
     // Shredded (tombstone) canonical record: treat like a vanished record —
     // leave its `id` in `sidecarIds` so any lingering side-car is marked
