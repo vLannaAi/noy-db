@@ -12,6 +12,7 @@ import { createNoydb, TierWriteRefusedError } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { withCrdt } from '../src/with-commit/crdt/index.js'
+import { assertTierWritable } from '../src/kernel/tier-visibility.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
 import { ConflictError } from '../src/index.js'
 
@@ -123,13 +124,36 @@ describe('#715/#716 write ring: tier-0 put/delete over an elevated record are re
     expect(((await docs.getAtTier('d1')) as Doc | null)?.title).toBe('sanctioned')
   })
 
-  it('tier-0 records and non-tiered collections are unaffected (no extra cost, no refusal)', async () => {
+  it('a tier-0 record in a tiered collection is unaffected — put/delete proceed normally', async () => {
     const { docs } = await open()
     await docs.put('d0', { id: 'd0', title: 'plain', body: 'x' })
     await docs.put('d0', { id: 'd0', title: 'updated', body: 'y' })   // tier-0 overwrite fine
     expect((await docs.get('d0'))?.title).toBe('updated')
     await docs.delete('d0')
     expect(await docs.get('d0')).toBeNull()
+  })
+
+  it('a collection that never declares tiers is unaffected — put/delete proceed normally', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({ store, secret: 'pw-715-nt', user: 'owner' })
+    const vault = await db.openVault('v1')
+    const plain = vault.collection<Doc>('plain', {})   // no `tiers` → this.tiers === null
+    await plain.put('p1', { id: 'p1', title: 'a', body: 'x' })
+    await plain.put('p1', { id: 'p1', title: 'b', body: 'y' })
+    expect((await plain.get('p1'))?.title).toBe('b')
+    await plain.delete('p1')
+    expect(await plain.get('p1')).toBeNull()
+  })
+
+  it('assertTierWritable costs a non-tiered collection ZERO adapter round-trips', async () => {
+    // The `no extra cost` half of the design's cost gate, pinned directly:
+    // with tiers off the helper must short-circuit BEFORE touching the store.
+    // Asserted against an adapter that throws if consulted at all — a call
+    // count could drift silently, this cannot.
+    const exploding = new Proxy({} as NoydbStore, {
+      get() { throw new Error('assertTierWritable touched the adapter with tiers disabled') },
+    })
+    await expect(assertTierWritable(exploding, 'v1', 'plain', 'p1', false)).resolves.toBeUndefined()
   })
 
   it('#716: after the refusal, an elevated record’s history stays hidden (delete cannot erase the signal)', async () => {
