@@ -15,6 +15,7 @@ import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withClassified } from '../src/via/classified/active.js'
 import { classified } from '../src/via/classified/presets.js'
 import { withHistory } from '../src/with-commit/history/index.js'
+import { withCrdt } from '../src/with-commit/crdt/index.js'
 import { withI18n } from '../src/via/i18n/index.js'
 import { i18nText } from '../src/via/i18n/core.js'
 import { buildDeleteMarker } from '../src/kernel/enclave/index.js'
@@ -444,5 +445,53 @@ describe('#707 write-path prior reads: elevated ≡ missing to hooks/gates/audit
     // history snapshot — a PERSISTENT leak into the store, not just a transient read.
     const history = await users.history('u1')
     expect(history.some(h => (h.record as User).email === 'top-secret-elevated@example.com')).toBe(false)
+  })
+})
+
+describe('#712 read-gate: elevated records leak no prior-version plaintext, warm or cold', () => {
+  function historyHarness() {
+    const store = memoryStore()
+    const open = async () => {
+      const db = await createNoydb({ store, user: 'owner', secret: 'pw-712', tiersStrategy: withTiers(), historyStrategy: withHistory() })
+      const vault = await db.openVault('v1')
+      const docs = vault.collection<User>('docs', { tiers: [0, 1], perRecordKeys: true })
+      return { docs }
+    }
+    return { store, open }
+  }
+
+  it('history() and getVersion() are empty for an elevated record — warm AND cold', async () => {
+    const h = historyHarness()
+    const { docs } = await h.open()
+    await docs.put('d1', { name: 'v1-secret' })
+    await docs.put('d1', { name: 'v2-secret' })
+    await docs.elevate('d1', 1)
+    // Pre-#712: BOTH returned the prior-version plaintext (history envelopes keep tier-0 CEKs).
+    expect(await docs.history('d1')).toEqual([])
+    expect(await docs.getVersion('d1', 1)).toBeNull()
+    await expect(docs.revert('d1', 1)).rejects.toThrow()      // inherits getVersion → not found
+    const cold = await h.open()
+    expect(await cold.docs.history('d1')).toEqual([])
+    expect(await cold.docs.getVersion('d1', 1)).toBeNull()
+  })
+
+  it('history stays readable after demote back to tier 0', async () => {
+    const h = historyHarness()
+    const { docs } = await h.open()
+    await docs.put('d2', { name: 'a' })
+    await docs.put('d2', { name: 'b' })
+    await docs.elevate('d2', 1)
+    await docs.demote('d2', 0)
+    expect((await docs.history('d2')).length).toBeGreaterThan(0) // demoted record IS tier-0
+  })
+
+  it('CRDT getRaw returns null for an elevated record instead of throwing', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({ store, user: 'owner', secret: 'pw-712c', tiersStrategy: withTiers(), crdtStrategy: withCrdt() })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<User>('cdocs', { tiers: [0, 1], crdt: 'lww-map' })
+    await docs.put('c1', { name: 'x' })
+    await docs.elevate('c1', 1)
+    expect(await docs.getRaw('c1')).toBeNull()
   })
 })

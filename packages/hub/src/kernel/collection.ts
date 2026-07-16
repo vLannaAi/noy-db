@@ -26,6 +26,7 @@ import {
   type SealedShredSlot,
 } from './enclave/index.js'
 import { countLiveEnvelopes } from './lazy-count.js'
+import { liveRecordIsElevated } from './tier-visibility.js'
 import {
   classifySealedShred as classifySealedShredImpl,
   type TiersContext,
@@ -1480,7 +1481,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       )
     }
     const envelope = await this.adapter.get(this.vault, this.name, id)
-    if (!envelope) return null
+    if (!envelope || (envelope._tier ?? 0) > 0) return null
     const json = await this.codec.decryptJsonString(envelope)
     if (json === null) return null // shredded (tombstone)
     return JSON.parse(json) as CrdtState
@@ -3457,12 +3458,14 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /** Get version history for a record, newest first. */
   async history(id: string, options?: HistoryOptions): Promise<HistoryEntry<T>[]> {
+    if (await liveRecordIsElevated(this.adapter, this.vault, this.name, id)) return [] // #712: elevated ≡ invisible
     const envelopes = await this.historyStrategy.getHistoryEntries(
       this.adapter, this.vault, this.name, id, options,
     )
 
     const entries: HistoryEntry<T>[] = []
     for (const env of envelopes) {
+      if ((env._tier ?? 0) > 0) continue // #712: defensive — a per-version tiered snapshot
       // History reads skip schema validation — see getVersion() docs.
       const record = await this.codec.decryptRecord(env, { skipValidation: true, id })
       // Shredded (tombstoned) history version: the body is permanently gone,
@@ -3492,7 +3495,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const envelope = await this.historyStrategy.getVersionEnvelope(
       this.adapter, this.vault, this.name, id, version,
     )
-    if (!envelope) return null
+    if (!envelope || (envelope._tier ?? 0) > 0 || await liveRecordIsElevated(this.adapter, this.vault, this.name, id)) return null
     return this.codec.decryptRecord(envelope, { skipValidation: true, id })
   }
 
