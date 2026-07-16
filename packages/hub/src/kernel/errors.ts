@@ -716,6 +716,40 @@ export class TierNotGrantedError extends NoydbError {
 }
 
 /**
+ * Thrown when a tier-0 `put()` or `delete()` targets a record whose LIVE
+ * envelope is elevated (`_tier > 0`) — regardless of whether the caller
+ * holds the tier's DEK. `put()`/`delete()` are the tier-0 write APIs;
+ * the sanctioned way to write an elevated record is `putAtTier()`,
+ * `elevate()`, or `demote()`.
+ *
+ * Distinct from `TierNotGrantedError`, which means "no DEK for tier N"
+ * and refuses only non-holders. This error refuses HOLDERS too — the
+ * problem isn't clearance, it's that `put()`/`delete()` are the wrong
+ * API for an already-elevated record (a tier-0 `put()` over one would
+ * otherwise silently demote it; a tier-0 `delete()` would write a
+ * marker with no `_tier`, erasing the elevation signal). It is also
+ * distinct from the read-path invisibility gate (`liveRecordIsElevated`
+ * in `tier-visibility.ts`), which throws nothing — elevated records
+ * simply read as absent there. This is a write-path refusal, not a
+ * read-path ghost.
+ */
+export class TierWriteRefusedError extends NoydbError {
+  readonly tier: number
+  readonly collection: string
+
+  constructor(collection: string, tier: number) {
+    super(
+      'TIER_WRITE_REFUSED',
+      `put()/delete() cannot write to record in collection "${collection}" — ` +
+        `it is elevated to tier ${tier}. Use putAtTier()/elevate()/demote() instead.`,
+    )
+    this.name = 'TierWriteRefusedError'
+    this.collection = collection
+    this.tier = tier
+  }
+}
+
+/**
  * Thrown when an elevated-handle operation runs after the elevation's
  * TTL expired. Reads continue at the original tier; only writes
  * through the scoped handle flip to throwing once expired.
