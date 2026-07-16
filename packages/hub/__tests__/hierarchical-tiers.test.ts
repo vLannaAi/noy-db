@@ -191,6 +191,34 @@ describe('v0.18 hierarchical access', () => {
       await expect(docs.putAtTier('d2', { id: 'd2', title: 't', body: 'b' }, 2))
         .rejects.toBeInstanceOf(TierNotGrantedError)
     })
+
+    it('putAtTier over a record at a tier the caller lacks throws TierNotGrantedError and mints NO from-tier DEK (#712 whole-branch fix-1)', async () => {
+      const { vault } = await freshVault()
+      const docs = vault.collection<Doc>('docs', { tiers: [0, 1, 2] })
+      // Owner mints both tier-1 and tier-2 DEKs, then parks d1 at tier 2.
+      await docs.putAtTier('seed', { id: 'seed', title: 's', body: 'b' }, 1)
+      await docs.putAtTier('d1', { id: 'd1', title: 'Top', body: 'secret' }, 2)
+
+      // Simulate an operator whose keyring holds tier-1 but NOT tier-2 —
+      // cleared for the TARGET tier of the call below, but not for the
+      // EXISTING tier of the record it targets.
+      const kr = (vault as unknown as { keyring: { deks: Map<string, CryptoKey>; role: string } }).keyring
+      kr.deks.delete('docs#2')
+      kr.role = 'operator'
+      expect(kr.deks.has('docs#1')).toBe(true)
+      expect(kr.deks.has('docs#2')).toBe(false)
+
+      // putAtTier(d1, ..., 1): target tier 1 is granted, but d1 currently
+      // sits at tier 2, which this caller was never cleared for. Before the
+      // fix, the from-tier `getDEK('docs#2')` inside the history-rewrap path
+      // would silently MINT a fresh tier-2 DEK into this keyring. It must
+      // instead throw before ever reaching that mint.
+      await expect(docs.putAtTier('d1', { id: 'd1', title: 'Moved', body: 'x' }, 1))
+        .rejects.toBeInstanceOf(TierNotGrantedError)
+
+      // No bogus docs#2 DEK was minted as a side effect of the refused call.
+      expect(kr.deks.has('docs#2')).toBe(false)
+    })
   })
 
   describe('cross-tier audit', () => {

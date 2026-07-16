@@ -117,3 +117,46 @@ export async function rewrapEnvelope(
   }
   return next
 }
+
+/**
+ * Is `envelope` ALREADY wrapped under `dek` (a per-record CEK wrapped under
+ * `dek`, or — legacy, no `_cek` — the body itself decryptable under `dek`)?
+ *
+ * A toDek-first idempotency check for retry-safe rewrap loops (#712 crash
+ * atomicity, `with-commit/history/history.ts`'s `rewrapHistory`): a crash
+ * mid-rewrap can strand some entries already moved to `toDek` while others
+ * remain under `fromDek`. Calling this with `toDek` before attempting the
+ * `fromDek` rewrap lets the caller skip an already-migrated entry instead of
+ * re-wrapping it (a re-wrap would be a correctness no-op but doubles as an
+ * unnecessary write) — and, more importantly, tells a retry loop that this
+ * entry needs no `fromDek` unwrap attempt at all, so a crash that landed some
+ * entries under `toDek` doesn't wedge on those already-moved entries.
+ *
+ * AES-KW (CEK unwrap) and AES-GCM (direct decrypt) are both authenticated —
+ * unwrap/decrypt under the wrong key throws, never silently returns garbage
+ * — so a caught error here reliably means "not wrapped under `dek`", not a
+ * corrupt envelope (a genuinely corrupt envelope also throws under the
+ * correct key, but callers that reach this helper only do so as a
+ * best-effort probe before their own decisive fromDek attempt, which still
+ * surfaces real corruption).
+ *
+ * Body-field access (`_iv`/`_data`/`_cek`) is sanctioned inside the enclave —
+ * this is the sanctioned door so callers outside it (history.ts) never read
+ * those fields themselves, preserving the check-architecture body-access
+ * ratchet.
+ */
+export async function isRewrappedUnder(
+  envelope: Pick<EncryptedEnvelope, '_iv' | '_data' | '_cek'>,
+  dek: EnclaveKey,
+): Promise<boolean> {
+  try {
+    if (envelope._cek !== undefined) {
+      await unwrapCek(envelope._cek, dek)
+    } else {
+      await decrypt(envelope._iv, envelope._data, dek)
+    }
+    return true
+  } catch {
+    return false
+  }
+}

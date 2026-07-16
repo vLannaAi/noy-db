@@ -1,6 +1,6 @@
 import type { NoydbStore, EncryptedEnvelope, HistoryOptions, PruneOptions } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { isTombstone, isTombstoneShape, rewrapEnvelope, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { isTombstone, isTombstoneShape, rewrapEnvelope, isRewrappedUnder, type EnclaveKey } from '../../kernel/enclave/index.js'
 
 /**
  * History storage convention:
@@ -237,6 +237,23 @@ export async function tombstoneHistory(
  * always wrapped under `toDek` regardless of which `fromDek` succeeded. A
  * rewrap that fails under BOTH keys re-throws — that is real corruption, not
  * a tier mismatch, and must not be swallowed.
+ *
+ * **Crash-atomicity / idempotency (#712 whole-branch-fix-3).** This loop has
+ * no transaction around it: a crash after some entries have been rewritten
+ * under `toDek` but before the loop finishes leaves the record's history
+ * split across two keys. A retry of the SAME call must not re-fail on the
+ * entries that already made it — so each entry is probed with
+ * `isRewrappedUnder(env, toDek)` FIRST; a match means it's already at the
+ * target key and is skipped (put nothing). This makes same-target retries
+ * and demote-after-crash fully self-healing. It does NOT close every crash
+ * window: a crash that lands SOME entries under `toDek` while the record's
+ * NEXT move target differs from this call's `toDek` (an intermediate-tier
+ * crash — e.g. elevate 0→1 crashes mid-loop, then the record is moved 1→2)
+ * still finds those entries unreadable under either `fromDek` or the
+ * tier-0 fallback, since `toDek` is a third key the next call never probes
+ * for. That residual window is an accepted, fail-closed limitation (see
+ * `.changeset/history-at-rest.md` and the design doc) — availability is
+ * lost, never confidentiality.
  */
 export async function rewrapHistory(
   adapter: NoydbStore,
@@ -255,6 +272,10 @@ export async function rewrapHistory(
     if (!env) continue
     // Already a tombstone (forgotten/shredded version)? Nothing to rewrap.
     if (isTombstoneShape(env)) continue
+    // #712/whole-branch-fix-3: toDek-first idempotency skip — already at the
+    // target key (a same-target retry, or demote-after-crash landing back on
+    // a key it already reached)? Nothing to do; put nothing.
+    if (await isRewrappedUnder(env, toDek)) continue
 
     let next: EncryptedEnvelope
     try {

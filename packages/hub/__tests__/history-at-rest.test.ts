@@ -232,6 +232,53 @@ describe('rewrapHistory — primitive', () => {
 
     await expect(rewrapHistory(store, VAULT, 'docs', 'd1', wrongDek1, toDek, wrongDek2)).rejects.toThrow()
   })
+
+  it('idempotent: calling rewrapHistory twice with the same from/to is a no-op the second time — entries stay unchanged (#712 whole-branch fix-3)', async () => {
+    const store = memory()
+    const fromDek = await generateDEK()
+    const toDek = await generateDEK()
+    const id = historyId('docs', 'd1', 1)
+    await store.put(VAULT, HISTORY_COLLECTION, id, await buildCekEnvelope('v1-secret', fromDek, 1))
+
+    await rewrapHistory(store, VAULT, 'docs', 'd1', fromDek, toDek)
+    const afterFirst = await store.get(VAULT, HISTORY_COLLECTION, id)
+
+    // Second call with the SAME (now stale) fromDek: without the toDek-first
+    // idempotency skip, this would try to unwrap an already-toDek-wrapped
+    // CEK under the stale fromDek and throw — the exact "retry re-fails
+    // under both keys" wedge the fix closes for same-target retries.
+    await rewrapHistory(store, VAULT, 'docs', 'd1', fromDek, toDek)
+    const afterSecond = await store.get(VAULT, HISTORY_COLLECTION, id)
+
+    expect(afterSecond).toEqual(afterFirst)
+    const cek = await unwrapCek(afterSecond!._cek!, toDek)
+    expect(await decrypt(afterSecond!._iv, afterSecond!._data, cek)).toBe('v1-secret')
+  })
+
+  it('skips entries already wrapped under toDek — a crash-recovery retry does not re-touch already-migrated entries (#712 whole-branch fix-3)', async () => {
+    const store = memory()
+    const fromDek = await generateDEK()
+    const toDek = await generateDEK()
+    const idV1 = historyId('docs', 'd1', 1)
+    const idV2 = historyId('docs', 'd1', 2)
+    // Simulate a crash mid-loop: v1 already migrated to toDek, v2 still
+    // stranded under fromDek.
+    const originalV1 = await buildCekEnvelope('v1-secret', toDek, 1)
+    await store.put(VAULT, HISTORY_COLLECTION, idV1, originalV1)
+    await store.put(VAULT, HISTORY_COLLECTION, idV2, await buildCekEnvelope('v2-secret', fromDek, 2))
+
+    await rewrapHistory(store, VAULT, 'docs', 'd1', fromDek, toDek)
+
+    // v1 was already at the target key — left byte-for-byte untouched (skipped,
+    // not re-encrypted).
+    const afterV1 = await store.get(VAULT, HISTORY_COLLECTION, idV1)
+    expect(afterV1).toEqual(originalV1)
+    // v2 was migrated by this call, same as the ordinary rewrap path.
+    const afterV2 = await store.get(VAULT, HISTORY_COLLECTION, idV2)
+    const cek2 = await unwrapCek(afterV2!._cek!, toDek)
+    expect(await decrypt(afterV2!._iv, afterV2!._data, cek2)).toBe('v2-secret')
+    await expect(unwrapCek(afterV2!._cek!, fromDek)).rejects.toThrow()
+  })
 })
 
 // ---------------------------------------------------------------------------
