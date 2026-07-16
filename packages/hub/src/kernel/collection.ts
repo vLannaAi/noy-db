@@ -79,7 +79,7 @@ import { PersistedIndexStore } from '../with-lookup/search/persisted-index-store
 import type { RetrieveOptions, RetrieveHit } from '../with-lookup/search/retrieve-types.js'
 import { DerivationCapExceededError } from './errors.js'
 import type { VectorSet, EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
-import { buildUniqueConstraintSet, type UniqueConstraintSet } from '../with-lookup/indexing/unique-constraints.js'
+import { buildUniqueConstraintSet, assertTierComposition, type UniqueConstraintSet } from '../with-lookup/indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
 import { buildDescription, deriveZodFields, type CollectionDescription, type DescribeOptions } from '../with-shape/introspection/describe.js'
 import type { CollectionConfig } from '../with-shape/introspection/types.js'
@@ -885,14 +885,14 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.indexes?.setCanonicalizer((f, v) => this.via?.canonicalizeIndexKey(f, v)) // #672 review C1: one-time canonicalizer registration; lazy `this.via` read survives late `_setVia` (#666)
     this.persistedIndexes?.setCanonicalizer((f, v) => this.via?.canonicalizeIndexKey(f, v)) // #677: lazy twin of the line above
 
-    // Unique-constraint enforcement (eager mode only). Declaring `unique` on
-    // a lazy/CRDT/tiered collection throws UnsupportedIndexOptionError here —
-    // see buildUniqueConstraintSet (kept out of this kernel file).
+    // Unique-constraint enforcement (eager mode only; UnsupportedIndexOptionError)
+    // + tier-composition guard (`tiers + blobFields` throws UnsupportedTierCompositionError,
+    // #724) — see buildUniqueConstraintSet / assertTierComposition, kept out of this kernel file.
     this.uniqueConstraints = buildUniqueConstraintSet(this.name, opts.indexes, {
       lazy: this.lazy,
       crdt: this.crdtMode != null,
       tiered: this.tiers != null,
-    })
+    }); assertTierComposition(this.name, { tiers: this.tiers != null, blobFields: this.blobFields })
   }
   /**
    * Return the Standard Schema validator attached to this collection,

@@ -17,8 +17,9 @@
 
 import { readPath } from '../../kernel/query/predicate.js'
 import { canonicalGroupKey } from '../aggregate/canonical-key.js'
-import { UniqueConstraintError, UnsupportedIndexOptionError } from '../../kernel/errors.js'
+import { UniqueConstraintError, UnsupportedIndexOptionError, UnsupportedTierCompositionError } from '../../kernel/errors.js'
 import type { IndexDef } from './eager-indexes.js'
+import type { BlobFieldsConfig } from '../../with-shape/blobs/blob-compaction.js'
 
 interface Constraint {
   readonly fields: readonly string[]
@@ -162,4 +163,73 @@ export function buildUniqueConstraintSet(
     )
   }
   return new UniqueConstraintSet(collectionName, uniqueDefs)
+}
+
+/**
+ * Tier-composition guard (#724 / Arc 7 of the tier-invisibility campaign).
+ *
+ * Refuses `tiers` declared together with a derived-artifact feature whose
+ * crypto has not yet been made tier-aware — i.e. a feature `elevate()` /
+ * `demote()` does not re-key when a record moves tiers, so an elevated
+ * record's data for that feature would stay readable at tier 0. The check
+ * runs once, at `vault.collection()` registration (called from the
+ * `Collection` constructor beside `buildUniqueConstraintSet`, and kept in
+ * this file rather than a `with-audit/tiers/` sibling so the already-
+ * grandfathered spine→service import specifier is reused instead of adding
+ * a new one — see `PRE_EXISTING_SPINE_SERVICE_IMPORTS` in
+ * `scripts/check-architecture.mjs`), so the leak becomes a loud
+ * `UnsupportedTierCompositionError` instead of silent at-rest plaintext.
+ *
+ * ## #724 verified: `tiers + blobFields` leaks
+ *
+ * `collection.blob(id)` (`Collection.blob()`) never checks the live
+ * record's tier before returning a `BlobSet` handle, and `BlobSet`'s crypto
+ * is entirely orthogonal to the tier ladder:
+ *  - the slot map (`_blob_slots_{collection}/{id}`) is encrypted under the
+ *    collection's TIER-0 DEK (`getDEK(name)` ≡ `dekKey(name, 0)` — see
+ *    `dekKey` in `with-party/team/tiers.ts`), never a tier-N DEK;
+ *  - chunk content (`_blob_index` / `_blob_chunks`) is encrypted under the
+ *    vault-shared `_blob` DEK (`BLOB_COLLECTION`), which has no tier
+ *    dimension at all.
+ * `elevate()`/`demote()` (`with-audit/tiers/index.ts`) rewrap only the live
+ * record body, `_history` snapshots (#712), and index side-cars — blob slots
+ * and chunks are untouched. A caller whose keyring never held the record's
+ * elevated tier DEK can still open `collection.blob(id).get(slot)` and read
+ * full plaintext, even though `collection.get(id)` correctly reports the
+ * same record as invisible. See `__tests__/tier-composition-guard.test.ts`
+ * for the reproduction.
+ *
+ * ## Safe today — no check needed here
+ *
+ * Field indexes, search (`textIndexes`/`embeddings`), `withHistory`
+ * (snapshot keys are rewrapped by `elevate()`/`demote()`, #712), and the
+ * decoded-record cache (evicted on tier moves) are already tier-safe. They
+ * are not enumerated below; only known-unsafe features are refused, so any
+ * combination not named here passes silently by default.
+ *
+ * ## Deliberately NOT handled here
+ *
+ * - `ledger` — `withHistory` threads a ledger writer onto every tiered
+ *   collection by default in shipped usage; refusing `tiers + ledger` would
+ *   break that default. A ledger-specific tier-rekey handler (rewrap ledger
+ *   entries, or scope ledger visibility to tier) is a separate arc.
+ * - materialized-view (MV) output — an MV's fanout spec lives on the
+ *   SOURCE collection, not on the MV collection's own config, so it is not
+ *   visible at `vault.collection()` registration time and this guard cannot
+ *   detect it structurally.
+ */
+export function assertTierComposition(
+  collectionName: string,
+  cfg: { readonly tiers: boolean; readonly blobFields: BlobFieldsConfig | undefined },
+): void {
+  if (!cfg.tiers) return
+  if (cfg.blobFields !== undefined && Object.keys(cfg.blobFields).length > 0) {
+    throw new UnsupportedTierCompositionError(
+      'blobs',
+      `Collection "${collectionName}": blobFields are not supported together with tiers (#724) — ` +
+        `blob chunk content is encrypted under a vault-shared DEK that elevate()/demote() do not ` +
+        `re-key, so an elevated record's blob attachments would remain readable at tier 0. Use a ` +
+        `non-tiered collection for blob-bearing records until a blob tier-rekey handler ships.`,
+    )
+  }
 }

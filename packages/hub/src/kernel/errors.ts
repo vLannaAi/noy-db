@@ -750,6 +750,26 @@ export class TierWriteRefusedError extends NoydbError {
 }
 
 /**
+ * Thrown at `vault.collection()` registration when `tiers` is declared
+ * together with a derived-artifact feature whose crypto has not yet been
+ * made tier-aware (elevate()/demote() do not re-key it), so an elevated
+ * record's data would stay readable at tier 0. Mirrors
+ * `UnsupportedIndexOptionError` — the refusal happens loudly at
+ * registration instead of leaking silently at rest.
+ *
+ * `feature` names the incompatible feature (e.g. `'blobs'`) so catch
+ * blocks can pattern-match without inspecting the error message.
+ */
+export class UnsupportedTierCompositionError extends NoydbError {
+  readonly feature: string
+  constructor(feature: string, message: string) {
+    super('UNSUPPORTED_TIER_COMPOSITION', message)
+    this.name = 'UnsupportedTierCompositionError'
+    this.feature = feature
+  }
+}
+
+/**
  * Thrown when an elevated-handle operation runs after the elevation's
  * TTL expired. Reads continue at the original tier; only writes
  * through the scoped handle flip to throwing once expired.
