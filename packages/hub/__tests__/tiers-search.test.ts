@@ -187,3 +187,25 @@ describe('#721 vector (_vec)', () => {
     expect((await cold.docs.similarTo(qVec)).map(x => x.id)).toContain('e1')
   })
 })
+
+describe('#721 defense-in-depth: buildVectorLoad gate', () => {
+  it('skips a surviving _vec row whose owning record is elevated', async () => {
+    // Simulates a legacy sidecar (written before this fix) or one whose
+    // best-effort purge on elevate() failed: elevate() removes the _vec row
+    // as usual, then we hand-write it straight back — a survivor Task 1's
+    // purge cannot reach. buildVectorLoad must still exclude it by checking
+    // the owning record's live tier, not merely trust every _vec row it lists.
+    const h = searchHarness({ embeddings: true })
+    const { docs } = await h.open()
+    await docs.put('leaky', { id: 'leaky', body: 'alpha' })
+    const vecRow = await h.store.get('v1', '_vec', 'leaky') // capture a real _vec envelope
+    expect(vecRow).not.toBeNull()
+
+    await docs.elevate('leaky', 1) // Task 1 purges it…
+    await h.store.put('v1', '_vec', 'leaky', vecRow!) // …simulate a legacy/failed-purge survivor
+
+    const cold = await h.open()
+    const qVec = await ENCODER.encode('alpha')
+    expect((await cold.docs.similarTo(qVec)).map(x => x.id)).not.toContain('leaky')
+  })
+})
