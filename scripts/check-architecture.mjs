@@ -1741,7 +1741,15 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-audit/tiers/index.ts', 24],
   ['packages/hub/src/with-cargo/adopt-partition.ts', 8],
   ['packages/hub/src/with-cargo/extract-partition.ts', 26],
-  ['packages/hub/src/with-commit/history/history.ts', 2],
+  // #712 (at-rest hardening): `rewrapHistory` re-keys a `_history` snapshot's
+  // `_iv`/`_data`/`_cek` from `rewrapBodyToDek`'s output — the exact same
+  // spread-merge idiom `tiers/index.ts`'s `elevate()`/`demote()` already use
+  // (grandfathered there at 24) to apply their own `rewrapBodyToDek` result
+  // to the live envelope. Up from 2 (the pre-existing `tombstoneHistory`
+  // literal `_iv: ''`/`_data: ''`) by 7: the new envelope construction's
+  // `_iv:`/`body._iv`, `_data:`/`body._data`, and `body._cek` (used twice —
+  // the presence check and the conditional spread) + `_cek:`.
+  ['packages/hub/src/with-commit/history/history.ts', 9],
   ['packages/hub/src/with-commit/history/ledger/store.ts', 11],
   ['packages/hub/src/with-commit/history/time-machine.ts', 3],
   ['packages/hub/src/with-commit/numbering/index.ts', 5],
