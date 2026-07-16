@@ -26,7 +26,7 @@ import {
   type SealedShredSlot,
 } from './enclave/index.js'
 import { countLiveEnvelopes } from './lazy-count.js'
-import { liveRecordIsElevated } from './tier-visibility.js'
+import { liveRecordIsElevated, assertTierWritable } from './tier-visibility.js'
 import {
   classifySealedShred as classifySealedShredImpl,
   type TiersContext,
@@ -1728,6 +1728,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (!hasWritePermission(this.keyring, this.name)) {
       throw new ReadOnlyError()
     }
+    // #715: elevated record ⇒ tier-0 API refuses (putAtTier/elevate/demote remedy) — see assertTierWritable's doc.
+    await assertTierWritable(this.adapter, this.vault, this.name, id, this.tiers !== null)
 
     // One canonical money encoding from the FIRST pipeline stage:
     // gates, computed fields, and schema validation all see the decoded
@@ -1868,8 +1870,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
       if (existingResolved && this.historyConfig.enabled !== false) {
         // History snapshot of the PRIOR version — does NOT carry source from the new write
-        const vdigCtx = this.vdigFields !== null ? { id, prev: existingEnvelope } : undefined
-        const histEnvelope = await this.codec.encryptRecord(existingResolved.record, existingResolved.version, cek, undefined, undefined, vdigCtx, id)
+        const histEnvelope = await this.codec.encryptRecord(existingResolved.record, existingResolved.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: existingEnvelope } : undefined, id)
         await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, histEnvelope)
         this.emitter.emit('history:save', { vault: this.vault, collection: this.name, id, version: existingResolved.version })
         if (this.historyConfig.maxVersions) {
@@ -1982,8 +1983,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // CRITICAL: the history snapshot is a record of the PRIOR version — it must
     // NOT carry the source from the current write (source belongs to the new write only).
     if (existing && this.historyConfig.enabled !== false) {
-      const historyEnvelope = await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, vdigCtx, id)
-      await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, historyEnvelope)
+      await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, vdigCtx, id))
 
       this.emitter.emit('history:save', {
         vault: this.vault,
@@ -2668,6 +2668,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (!hasWritePermission(this.keyring, this.name)) {
       throw new ReadOnlyError()
     }
+    // #716: public deletes only — see assertTierWritable's doc + Step 5 investigation for `internal`.
+    await assertTierWritable(this.adapter, this.vault, this.name, id, !internal && this.tiers !== null)
 
     // Gate bus (Track A) — fires for ALL deletes (carrying `internal`), so a
     // gate handler can collect amendment changes on system-internal deletes
@@ -2725,8 +2727,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (existing && this.historyConfig.enabled !== false) {
       const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
       const prevForVdig = this.vdigFields !== null ? await this.adapter.get(this.vault, this.name, id) : null
-      const historyEnvelope = await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: prevForVdig } : undefined, id)
-      await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, historyEnvelope)
+      await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: prevForVdig } : undefined, id))
     }
 
     // Capture the previous envelope's payloadHash BEFORE delete so we
@@ -3774,8 +3775,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   async _compensateRevertedWrite(id: string): Promise<void> {
     await this._invalidateCacheEntry(id)
     await this.onDirty?.(this.name, id, 'revert', 0)
-    const restored = await this.get(id) // rare revert path — one read buys a semantically-correct event
-    this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: restored !== null ? 'put' : 'delete' })
+    this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: (await this.get(id)) !== null ? 'put' : 'delete' }) // rare revert path — one read buys a semantically-correct event
   }
 
   async _invalidateCacheEntry(id: string): Promise<void> {
