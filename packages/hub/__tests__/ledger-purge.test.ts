@@ -128,6 +128,31 @@ describe('LedgerStore.purgeRecordDeltas (#729)', () => {
     expect((await ledger.entries()).some((e) => e.id === 'a')).toBe(true)
   })
 
+  it('scopes the purge to (collection, id) — a same-id record in a DIFFERENT collection is untouched', async () => {
+    // The ledger is vault-wide; the filter must match the (collection, id)
+    // pair, not id alone — else purging docs/x would wrongly delete notes/x.
+    const company = await db.openVault('demo-co')
+    const docs = company.collection<Doc>('docs')
+    const notes = company.collection<Doc>('notes')
+    const ledger = company.ledger()
+
+    await docs.put('x', { id: 'x', body: 'docs-x-v1' })
+    await docs.put('x', { id: 'x', body: 'docs-x-v2' })      // docs/x delta
+    await notes.put('x', { id: 'x', body: 'notes-x-v1' })
+    await notes.put('x', { id: 'x', body: 'notes-x-v2' })    // notes/x delta — same id, other collection
+
+    const entries = await ledger.entries()
+    const docsX = entries.find((e) => e.collection === 'docs' && e.id === 'x' && e.deltaHash !== undefined)!
+    const notesX = entries.find((e) => e.collection === 'notes' && e.id === 'x' && e.deltaHash !== undefined)!
+
+    const purged = await ledger.purgeRecordDeltas('docs', 'x')
+    expect(purged).toBe(1)
+
+    expect(await adapter.get('demo-co', '_ledger_deltas', paddedIndex(docsX.index))).toBeNull()      // purged
+    expect(await adapter.get('demo-co', '_ledger_deltas', paddedIndex(notesX.index))).not.toBeNull() // NOT purged — different collection
+    expect((await ledger.verify()).ok).toBe(true)
+  })
+
   it('is idempotent — purging already-purged deltas is a no-op that keeps verify() ok', async () => {
     const company = await db.openVault('demo-co')
     const docs = company.collection<Doc>('docs')
