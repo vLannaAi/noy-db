@@ -212,6 +212,7 @@
     "UnknownLookupKeyError",
     "UnknownShardError",
     "UnsupportedIndexOptionError",
+    "UnsupportedTierCompositionError",
     "UserApi",
     "UserEnvelopeOversizedError",
     "VISIBILITY_RECORD_PREFIX",
