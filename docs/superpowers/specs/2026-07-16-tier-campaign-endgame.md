@@ -16,10 +16,12 @@ Every leak has one shape: **a derived artifact is encrypted under the collection
 | `_history` snapshots | `tombstoneHistory` | `syncHistory` (rewrap) | ~ #712 in flight |
 | MV / rollup outputs | `forgetDerivedFanout` (#622) | — none | ❌ #722 |
 | blob content | `shredAllForRecord` | — none | ❌ #724 (unverified) |
+| `_ledger_deltas` (JSON-Patch plaintext deltas) | — **none found** | — none | ❌ #729 (under the *ledger* DEK, not even a `forget()` scrub) |
+| time-machine read path (`vault.at`) | n/a (read surface) | read-gate gap | ❌ #730 (read-gate bypass, not an at-rest artifact) |
 | sealed-field CEKs | shred | `rewrapBodyToDek` passenger | ✅ pre-existing |
 | subject-ref index | `_removeSubjectRef` | n/a (not plaintext-derived) | ✅ n/a |
 
-**The list is complete.** Nothing outside it persists record-derived plaintext under the tier-0 DEK (verified by the #721 whole-branch `adapter.put` sweep — no third search artifact; and by this inventory being the full `forget()` purge set). That is the convergence proof: the endgame is finite and named.
+**Correction (2026-07-16, from #712's whole-branch sweep):** the earlier claim "the list is complete" was **wrong** — the sweep found `_ledger_deltas` (#729), a derived artifact holding an elevated record's tier-0-era plaintext deltas under the *ledger* DEK, with no `forget()` scrub site *and* no tier-move analogue; and a read-gate bypass in the time-machine path (#730). The lesson: "complete" is only ever provisional until an adversarial `adapter.put`/`encryptRecord` sweep confirms it — which is exactly what the whole-branch reviews do, and why the seam's **registration guard** (below) is the real durable fix rather than any static inventory. The `_ledger_deltas` artifact is now added to Step 2's registration set; the guard would have refused `tiers + ledger` at registration and surfaced it as a loud error instead of a silent leak.
 
 ## The missing seam (the real architectural signal)
 
