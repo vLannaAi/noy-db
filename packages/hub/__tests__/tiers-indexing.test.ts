@@ -94,6 +94,27 @@ async function openLazyIndexed() {
   return { store: h.store, ...opened }
 }
 
+/**
+ * An eager, tiered, indexed collection: default `prefetch` (eager,
+ * in-memory `CollectionIndexes` mirror, synchronous `.query().toArray()`)
+ * + `tiers: [0, 1]` + `indexes: ['salary']`.
+ */
+async function openEagerIndexed() {
+  const db = await createNoydb({
+    store: memoryStore(),
+    user: 'owner',
+    secret: SECRET,
+    indexStrategy: withIndexing(),
+    tiersStrategy: withTiers(),
+  })
+  const vault = await db.openVault('v1')
+  const docs = vault.collection<Emp>('docs', {
+    indexes: ['salary'],
+    tiers: [0, 1],
+  })
+  return { db, vault, docs }
+}
+
 describe('#709 facade loops skip elevated records', () => {
   it('rebuildIndexes: warm session must NOT mint a tier-0 sidecar from an elevated record', async () => {
     const { store, docs } = await openLazyIndexed()
@@ -123,5 +144,47 @@ describe('#709 facade loops skip elevated records', () => {
     await docs.elevate('e1', 1)
     await docs.reconcileIndex('salary')
     expect(await store.get('v1', 'docs', '_idx/salary/e1')).toBeNull()
+  })
+})
+
+describe('#709 tier ops maintain indexes', () => {
+  it('LAZY: elevate purges the record’s persisted sidecar; demote restores it', async () => {
+    const { store, docs } = await openLazyIndexed()
+    await docs.put('e1', { id: 'e1', salary: 200000 })
+    expect(await store.get('v1', 'docs', '_idx/salary/e1')).not.toBeNull()
+    await docs.elevate('e1', 1)
+    // Pre-#709: the sidecar survived, tier-0-readable, holding salary=200000 —
+    // elevating never hid the indexed value (the forget() precedent, unapplied).
+    expect(await store.get('v1', 'docs', '_idx/salary/e1')).toBeNull()
+    await docs.demote('e1', 0)
+    expect(await store.get('v1', 'docs', '_idx/salary/e1')).not.toBeNull()   // tier-0 again → indexed again
+  })
+
+  it('LAZY: putAtTier(>0) purges; putAtTier(0) maintains the sidecar at the NEW value', async () => {
+    const { store, docs } = await openLazyIndexed()
+    await docs.put('p1', { id: 'p1', salary: 100 })
+    await docs.putAtTier('p1', { id: 'p1', salary: 999 }, 1)
+    expect(await store.get('v1', 'docs', '_idx/salary/p1')).toBeNull()
+    await docs.putAtTier('p1', { id: 'p1', salary: 555 }, 0)
+    expect(await store.get('v1', 'docs', '_idx/salary/p1')).not.toBeNull()
+  })
+
+  it('EAGER: an elevated record is not returned by an index-driven query', async () => {
+    const { docs } = await openEagerIndexed()   // eager + tiers + indexes
+    await docs.put('e1', { id: 'e1', salary: 200000 })
+    await docs.put('t0', { id: 't0', salary: 200000 })
+    await docs.elevate('e1', 1)
+    const hits = docs.query().where('salary', '==', 200000).toArray()
+    expect(hits.map(r => r.id)).toEqual(['t0'])
+  })
+
+  it('EAGER: putAtTier(id, rec, 0) refreshes the index — no stale false positive on the OLD value', async () => {
+    const { docs } = await openEagerIndexed()
+    await docs.put('p1', { id: 'p1', salary: 100 })
+    await docs.putAtTier('p1', { id: 'p1', salary: 555 }, 0)
+    // Pre-#709: the stale entry 100→p1 survived AND index hits are never
+    // re-verified (builder.ts:1160-1166 drops the clause) → a silent false positive.
+    expect(docs.query().where('salary', '==', 100).toArray().length).toBe(0)
+    expect(docs.query().where('salary', '==', 555).toArray().map(r => r.id)).toEqual(['p1'])
   })
 })

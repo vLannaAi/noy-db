@@ -455,3 +455,45 @@ export async function purgePersistedIndexes<T>(ctx: IndexingContext<T>, id: stri
   }
   return { purged, residue }
 }
+
+/**
+ * Sync this collection's indexes after a tier move (#709). Persisted
+ * `_idx/<field>/<recordId>` side-cars are always encrypted under the
+ * tier-0 DEK regardless of the record's own tier, and the eager in-memory
+ * `CollectionIndexes` mirror holds plaintext bucket values too — so both
+ * leak an elevated record's indexed field values unless swept the same way
+ * `purgePersistedIndexes` already sweeps them for `forget()` ("forget()
+ * crypto-shreds the body but keeps the collection DEK, under which these
+ * side-cars are encrypted — so without this they leave the indexed field
+ * VALUES readable", `purgePersistedIndexes` above).
+ *
+ * `record === null` — the record just left tier 0: purge its persisted
+ * side-cars (content-free, no decrypt needed) and drop its eager-mirror
+ * entry, read from `ctx.cache` (the caller's pre-write value — the caller
+ * MUST invoke this before evicting/overwriting that cache entry, so it
+ * still reflects the value being replaced).
+ *
+ * `record` given — the record is tier-0 again: (re)build its entries from
+ * that record, using the SAME pre-write `ctx.cache` read as the previous
+ * value so a stale bucket (e.g. a same-tier `putAtTier` value change) is
+ * cleaned up rather than left as a false-positive hit. `version` stamps
+ * the rebuilt side-car's own envelope version.
+ *
+ * No-ops fast when the collection has neither index kind declared.
+ */
+export async function syncTierIndexes<T>(
+  ctx: IndexingContext<T>,
+  id: string,
+  record: T | null,
+  version?: number,
+): Promise<void> {
+  if (!ctx.indexes && !ctx.persistedIndexes) return
+  const prior = ctx.cache.get(id)?.record ?? null
+  if (record === null) {
+    await purgePersistedIndexes(ctx, id)
+    if (prior) ctx.indexes?.remove(id, prior)
+  } else {
+    await maintainPersistedIndexesOnPut(ctx, id, record, prior, version ?? 1)
+    ctx.indexes?.upsert(id, record, prior)
+  }
+}

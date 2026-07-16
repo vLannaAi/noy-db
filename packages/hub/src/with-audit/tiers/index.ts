@@ -68,6 +68,23 @@ export interface TiersContext<T> {
    * plain-`get()`-readable in-session).
    */
   syncCache(id: string, entry: { record: T; version: number } | null): void
+  /**
+   * Sync the collection's indexes after a tier move rewraps the envelope
+   * (#709). Persisted `_idx/<field>/<recordId>` side-cars hold the indexed
+   * field's PLAINTEXT value and are always encrypted under the tier-0 DEK,
+   * whatever the record's own tier — the same leak class `forget()` fixed
+   * via `purgePersistedIndexes` ("forget() crypto-shreds the body but keeps
+   * the collection DEK, under which these side-cars are encrypted — so
+   * without this they leave the indexed field VALUES readable"). `null` →
+   * the record just left tier 0: purge its persisted side-cars and drop its
+   * in-memory index entries. A record → it is tier-0 again: (re)build its
+   * entries from that record. Call this BEFORE {@link syncCache} — the
+   * implementation reads the pre-write cached value as "previous" to clean
+   * up stale index buckets, so it must run while that entry is still live.
+   * `version` stamps a rebuilt side-car's own envelope version (ignored on
+   * purge).
+   */
+  syncIndexes(id: string, record: T | null, version?: number): Promise<void>
   /** Emit `_source`/`_sourceTs` provenance fields when a source is supplied. */
   readonly provenance: boolean
   /** Declared tiers, or null when the feature is off. */
@@ -148,13 +165,17 @@ export async function putAtTier<T>(
 
   await ctx.adapter.put(ctx.vault, ctx.name, id, envelope)
 
-  // #702: keep the record cache coherent with the raw write — same law as
-  // elevate/demote (#691): tier > 0 → invisible on tier-0 surfaces (evict);
-  // tier 0 → this is an ordinary write, re-seed via the canonical decode.
+  // #702/#709: keep the record cache AND indexes coherent with the raw
+  // write — same law as elevate/demote (#691): tier > 0 → invisible on
+  // tier-0 surfaces (evict + purge); tier 0 → an ordinary write (re-seed +
+  // reindex). syncIndexes runs first — it needs the pre-write cache entry
+  // as "previous", which syncCache is about to overwrite/evict.
   if (tier > 0) {
+    await ctx.syncIndexes(id, null)
     ctx.syncCache(id, null)
   } else {
     const rec = await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
+    await ctx.syncIndexes(id, rec, envelope._v)
     ctx.syncCache(id, rec !== null ? { record: rec, version: envelope._v } : null)
   }
 
@@ -319,8 +340,12 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
     ...(body._cek !== undefined ? { _cek: body._cek } : {}),
   }
   await ctx.adapter.put(ctx.vault, ctx.name, id, next)
-  // Evict only once the write landed — a throwing put must not blind the
-  // eager cache to a still-valid tier-0 record (same ordering as demote).
+  // Evict/purge only once the write landed — a throwing put must not blind
+  // the eager cache or leave a readable index behind for a still-valid
+  // tier-0 record (same ordering as demote). #709: syncIndexes runs first —
+  // it needs the pre-elevation cache entry as "previous" to clean the
+  // eager index bucket; the persisted side-car purge is content-free.
+  await ctx.syncIndexes(id, null)
   ctx.syncCache(id, null)
 
   ctx.emitCrossTierEvent({
@@ -386,17 +411,22 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
   }
   await ctx.adapter.put(ctx.vault, ctx.name, id, next)
 
-  // #691: landing back at tier 0 makes this a plain tier-0 record again — it
-  // must stay plain-get()-readable in the same session, so re-seed the
-  // eager cache from the just-written (now tier-0-keyed) envelope through
-  // the canonical codec path, the same decode collection.ts's own eager
-  // hydration / lazy cache-miss paths use. A demote that lands on an
-  // intermediate elevated tier (toTier > 0) still evicts: the record stays
-  // above tier 0 and must remain invisible on tier-0 surfaces.
+  // #691/#709: landing back at tier 0 makes this a plain tier-0 record
+  // again — it must stay plain-get()-readable AND indexed in the same
+  // session, so re-seed the eager cache and rebuild its index entries from
+  // the just-written (now tier-0-keyed) envelope through the canonical
+  // codec path, the same decode collection.ts's own eager hydration / lazy
+  // cache-miss paths use — reused for both, no double-decrypt. A demote
+  // that lands on an intermediate elevated tier (toTier > 0) still evicts
+  // + purges: the record stays above tier 0 and must remain invisible on
+  // tier-0 surfaces, unindexed. syncIndexes runs first in both branches —
+  // it needs the pre-demote cache entry as "previous".
   if (toTier === 0) {
     const rec = await ctx.codec.decryptRecord(next, { id, sealedAsHandles: true })
+    await ctx.syncIndexes(id, rec, next._v)
     ctx.syncCache(id, rec !== null ? { record: rec, version: next._v } : null)
   } else {
+    await ctx.syncIndexes(id, null)
     ctx.syncCache(id, null)
   }
 
