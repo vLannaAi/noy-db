@@ -450,8 +450,11 @@ describe('#707 write-path prior reads: elevated ≡ missing to hooks/gates/audit
     await docs.elevate('d1', 1) // evicts the LRU (#700) and caches the CEK — warm cekCache
     // Pre-#707: the lazy branch's adapter.get() miss fell through to an ungated
     // decrypt, and the warm cekCache let it succeed — `before` was { name: 'secret' }.
-    // Post-#715/#716: the write ring refuses this put() outright, before #priorForHook
-    // even runs — a strictly stronger guarantee than #707's nulled-prior fix.
+    // Post-#715/#716: the write ring refuses the put — but #priorForHook still
+    // RUNS first (it fires in the put() wrapper, before _putInternal's choke
+    // point), so #707's mask is still what keeps `before` off the elevated
+    // plaintext. This asserts BOTH: the mask holds across every hook call, and
+    // the write is refused. Neither guarantee subsumes the other.
     await expect(docs.put('d1', { name: 'overwrite' })).rejects.toBeInstanceOf(TierWriteRefusedError)
     expect(priors.some((p) => (p as User | null)?.name === 'secret')).toBe(false)
   })
