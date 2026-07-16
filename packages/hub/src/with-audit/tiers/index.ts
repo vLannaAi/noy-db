@@ -108,6 +108,24 @@ export interface TiersContext<T> {
    * recompute. No-op when the strategy is `NO_HISTORY`.
    */
   syncHistory(id: string, fromDek: EnclaveKey, toDek: EnclaveKey): Promise<void>
+  /**
+   * Purge a record's tier-0-era plaintext ledger deltas after a tier move
+   * lands it above tier 0 (#729). The audit ledger is a flat, vault-wide,
+   * hash-chained log — a record's reverse-JSON-Patch deltas in
+   * `_ledger_deltas` are encrypted under one collection-wide `_ledger` DEK
+   * (not the record's own tier DEK), so `elevate()`/`putAtTier()`'s live-body
+   * rewrap never moves them: they stay readable at rest to any tier-0
+   * caller, the same leak class `syncHistory` closed for `_history`
+   * snapshots. Chain-safe: `verify()` reads only `_ledger` entry fields
+   * (including `deltaHash`, which lives on the entry, not the deleted delta
+   * row), never `_ledger_deltas`, so a purge cannot break it.
+   * **Irreversible** — the deleted plaintext cannot be restored by
+   * `demote()`. **Metadata-retained** — the `_ledger` entries (that the
+   * record was mutated, at which version/timestamp/actor) are untouched;
+   * only the delta *content* is purged. No-op when the collection has no
+   * ledger (`withHistory()` not enabled).
+   */
+  syncLedger(id: string): Promise<void>
   /** Emit `_source`/`_sourceTs` provenance fields when a source is supplied. */
   readonly provenance: boolean
   /** Declared tiers, or null when the feature is off. */
@@ -207,6 +225,9 @@ export async function putAtTier<T>(
   if (tier > 0) {
     await ctx.syncIndexes(id, null)
     ctx.syncCache(id, null)
+    // #729: the record lands above tier 0 — purge its tier-0-era plaintext
+    // ledger deltas (irreversible; a tier-0 putAtTier(0) has nothing to purge).
+    await ctx.syncLedger(id)
   } else {
     const rec = await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
     await ctx.syncIndexes(id, rec, envelope._v)
@@ -403,6 +424,9 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   // #721: same purge law as syncIndexes above — the record left tier 0, so
   // its _vec sidecar is purged and _ftindex is invalidated.
   await ctx.syncSearch(id, null)
+  // #729: elevate always lands the record at tier > 0 — purge its
+  // tier-0-era plaintext ledger deltas (irreversible; entry metadata stays).
+  await ctx.syncLedger(id)
 
   ctx.emitCrossTierEvent({
     actor: ctx.keyring.userId,

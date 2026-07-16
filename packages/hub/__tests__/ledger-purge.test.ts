@@ -18,6 +18,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
+import { withTiers } from '../src/with-audit/tiers/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { paddedIndex } from '../src/with-commit/history/ledger/entry.js'
@@ -142,5 +143,111 @@ describe('LedgerStore.purgeRecordDeltas (#729)', () => {
     expect(second).toBe(0)
 
     expect((await ledger.verify()).ok).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// #729 integration: TiersContext.syncLedger wired into elevate/putAtTier.
+// ---------------------------------------------------------------------------
+
+interface TieredDoc {
+  id: string
+  body: string
+}
+
+/** withHistory() (⇒ ledger) + withTiers([0,1]) — the fixture for the
+ * elevate/putAtTier integration tests below. */
+async function openTieredLedger() {
+  const adapter = memory()
+  const db = await createNoydb({
+    store: adapter,
+    user: 'owner', historyStrategy: withHistory(), tiersStrategy: withTiers(),
+    secret: 'test-passphrase-1234',
+  })
+  const company = await db.openVault('demo-co')
+  const docs = company.collection<TieredDoc>('docs', { tiers: [0, 1] })
+  const ledger = company.ledger()
+  return { company, docs, ledger, adapter }
+}
+
+describe('#729 tier ops purge the record’s ledger deltas at rest', () => {
+  it('elevate purges d1’s _ledger_deltas row; verify() stays ok; reconstruct can no longer recover the pre-elevation plaintext; a sibling’s delta is untouched', async () => {
+    const { docs, ledger, adapter } = await openTieredLedger()
+
+    await docs.put('d1', { id: 'd1', body: 'v1' })
+    await docs.put('d1', { id: 'd1', body: 'v2' }) // → a delta capturing v1's fields
+    await docs.put('sib', { id: 'sib', body: 's1' })
+    await docs.put('sib', { id: 'sib', body: 's2' }) // sibling's own delta, must survive d1's purge
+
+    const entries = await ledger.entries()
+    const d1Delta = entries.find((e) => e.collection === 'docs' && e.id === 'd1' && e.deltaHash !== undefined)
+    const sibDelta = entries.find((e) => e.collection === 'docs' && e.id === 'sib' && e.deltaHash !== undefined)
+    expect(d1Delta).toBeDefined()
+    expect(sibDelta).toBeDefined()
+
+    // PRE-elevate: the raw delta row exists and reconstruct recovers v1's plaintext.
+    expect(await adapter.get('demo-co', '_ledger_deltas', paddedIndex(d1Delta!.index))).not.toBeNull()
+    const current = await docs.get('d1')
+    expect(current).not.toBeNull()
+    const preElevate = await ledger.reconstruct<TieredDoc>('docs', 'd1', current!, 1)
+    expect(preElevate).toEqual({ id: 'd1', body: 'v1' })
+
+    await docs.elevate('d1', 1)
+
+    // POST-elevate: the raw delta row is gone.
+    expect(await adapter.get('demo-co', '_ledger_deltas', paddedIndex(d1Delta!.index))).toBeNull()
+    // THE INVARIANT: the tamper-chain is untouched by the purge.
+    expect((await ledger.verify()).ok).toBe(true)
+    // reconstruct can no longer walk back to v1 — the delta it needs is gone.
+    const postElevate = await ledger.reconstruct<TieredDoc>('docs', 'd1', current!, 1)
+    expect(postElevate).not.toEqual({ id: 'd1', body: 'v1' })
+    expect(postElevate).toBeNull()
+    // A sibling record's delta is untouched by d1's elevate.
+    expect(await adapter.get('demo-co', '_ledger_deltas', paddedIndex(sibDelta!.index))).not.toBeNull()
+  })
+
+  it('putAtTier(id, record, tier > 0) over a record with deltas also purges them', async () => {
+    const { docs, ledger, adapter } = await openTieredLedger()
+
+    await docs.put('d1', { id: 'd1', body: 'v1' })
+    await docs.put('d1', { id: 'd1', body: 'v2' })
+    const entries = await ledger.entries()
+    const delta = entries.find((e) => e.collection === 'docs' && e.id === 'd1' && e.deltaHash !== undefined)
+    expect(delta).toBeDefined()
+    expect(await adapter.get('demo-co', '_ledger_deltas', paddedIndex(delta!.index))).not.toBeNull()
+
+    await docs.putAtTier('d1', { id: 'd1', body: 'v3' }, 1)
+
+    expect(await adapter.get('demo-co', '_ledger_deltas', paddedIndex(delta!.index))).toBeNull()
+    expect((await ledger.verify()).ok).toBe(true)
+  })
+
+  it('a non-elevated (tier-0) record keeps its deltas — a plain putAtTier(..., 0) does not purge', async () => {
+    const { docs, ledger, adapter } = await openTieredLedger()
+
+    await docs.put('d1', { id: 'd1', body: 'v1' })
+    await docs.put('d1', { id: 'd1', body: 'v2' })
+    const entries = await ledger.entries()
+    const delta = entries.find((e) => e.collection === 'docs' && e.id === 'd1' && e.deltaHash !== undefined)
+    expect(delta).toBeDefined()
+
+    await docs.putAtTier('d1', { id: 'd1', body: 'v3' }, 0)
+
+    expect(await adapter.get('demo-co', '_ledger_deltas', paddedIndex(delta!.index))).not.toBeNull()
+    expect((await ledger.verify()).ok).toBe(true)
+  })
+
+  it('entries() still lists d1’s mutation metadata after elevate — the audit record of the change survives', async () => {
+    const { docs, ledger } = await openTieredLedger()
+
+    await docs.put('d1', { id: 'd1', body: 'v1' })
+    await docs.put('d1', { id: 'd1', body: 'v2' })
+    await docs.elevate('d1', 1)
+
+    const entries = await ledger.entries()
+    const d1Entries = entries.filter((e) => e.collection === 'docs' && e.id === 'd1')
+    // Both the genesis put and the update put are still recorded.
+    expect(d1Entries.length).toBe(2)
+    expect(d1Entries.some((e) => e.deltaHash !== undefined)).toBe(true)
   })
 })
