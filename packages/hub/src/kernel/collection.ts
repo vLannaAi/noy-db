@@ -45,6 +45,7 @@ import {
   maintainPersistedIndexesOnPut as maintainPersistedIndexesOnPutImpl,
   maintainPersistedIndexesOnDelete as maintainPersistedIndexesOnDeleteImpl,
   purgePersistedIndexes as purgePersistedIndexesImpl,
+  syncTierIndexes as syncTierIndexesImpl,
   type IndexingContext,
 } from '../with-lookup/indexing/collection-facade.js'
 import { ConflictError, ReadOnlyError, ClassifiedConfigError, ClassifiedRevealError, ClassifiedVerifyError } from './errors.js'
@@ -788,8 +789,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         if (localJson === null) return local
         if (remoteJson === null) return remote
         const localState = JSON.parse(localJson) as CrdtState
-        const remoteState = JSON.parse(remoteJson) as CrdtState
-        const merged = this.crdtStrategy.mergeCrdtStates(localState, remoteState)
+        const merged = this.crdtStrategy.mergeCrdtStates(localState, JSON.parse(remoteJson) as CrdtState)
         const mergedVersion = Math.max(local._v, remote._v) + 1
         const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
         return this.codec.encryptJsonString(JSON.stringify(merged), mergedVersion, cek)
@@ -1843,8 +1843,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
             }
           }
         }
-        const arr = Array.isArray(record) ? record : [record]
-        crdtState = this.crdtStrategy.buildRgaState(arr, existingState, generateULID)
+        crdtState = this.crdtStrategy.buildRgaState(Array.isArray(record) ? record : [record], existingState, generateULID)
       } else {
         // yjs: record is the base64 update string (produced by @noy-db/yjs)
         crdtState = { _crdt: 'yjs', update: record as unknown as string }
@@ -4513,6 +4512,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       codec: this.codec,
       cekCache: this.cekCache,
       syncCache: (id: string, e: { record: T; version: number } | null) => { if (e) this.cache.set(id, e); else this.cache.delete(id); this.lru?.remove(id) },
+      syncIndexes: (id: string, rec: T | null, version?: number) => syncTierIndexesImpl(this.indexingContext(), id, rec, version),
       provenance: this.provenance,
       tiers: this.tiers,
       tierMode: this.tierMode,
