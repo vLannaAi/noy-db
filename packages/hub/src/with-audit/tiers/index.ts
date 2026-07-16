@@ -96,6 +96,18 @@ export interface TiersContext<T> {
    *  `_ftindex` (rebuild includes it). No-op fast when the collection has no
    *  search. */
   syncSearch(id: string, record: T | null, version?: number): Promise<void>
+  /**
+   * Sync a record's `_history` snapshots after a tier move rewraps the live
+   * envelope (#712, at-rest hardening). Each snapshot carries its own key
+   * material (a direct DEK wrap, or a per-record `_cek` itself wrapped under
+   * the tier DEK) — `elevate()`'s live-body rewrap moves only the live
+   * envelope, leaving prior versions decryptable at rest under the tier the
+   * record has moved away from (the same leak class `forget()`'s
+   * `tombstoneHistory` closed for erasure). `fromDek`/`toDek` are the SAME
+   * DEKs the caller already resolved for the live rewrap — reuse them, don't
+   * recompute. No-op when the strategy is `NO_HISTORY`.
+   */
+  syncHistory(id: string, fromDek: EnclaveKey, toDek: EnclaveKey): Promise<void>
   /** Emit `_source`/`_sourceTs` provenance fields when a source is supplied. */
   readonly provenance: boolean
   /** Declared tiers, or null when the feature is off. */
@@ -160,6 +172,17 @@ export async function putAtTier<T>(
   const dek = await ctx.getDEK(key)
 
   const existing = await ctx.adapter.get(ctx.vault, ctx.name, id)
+  // #712/whole-branch-fix-1: putAtTier moves the record OFF its existing
+  // tier, same as elevate/demote — so the caller must also be cleared for
+  // that existing tier, not just the target. Without this, a member holding
+  // only the target tier's DEK could putAtTier over a record parked at a
+  // tier they've never been granted; the from-tier `getDEK` below would then
+  // silently MINT a fresh DEK for that tier into their keyring (a
+  // non-cleared caller creating tier key material inside the trust
+  // boundary — see `assertTierAccess`'s doc comment). Gate here, BEFORE any
+  // from-tier getDEK/syncHistory call, so the mint never happens; owner/
+  // admin/custodian still bypass (they may mint, same as elevate/demote).
+  assertTierAccess(ctx.keyring, ctx.name, existing?._tier ?? 0)
   const version = existing ? existing._v + 1 : 1
   const json = JSON.stringify(record)
   const { iv, data } = await encrypt(json, dek)
@@ -209,6 +232,20 @@ export async function putAtTier<T>(
         elevatedFrom: opts.elevation.fromTier,
       }),
     })
+  }
+
+  // #712/whole-branch-fix-2: syncHistory runs LAST — after syncIndexes/
+  // syncCache/syncSearch (and the cross-tier emit) have already landed. Its
+  // own throw (adapter I/O, the Fix-1 assertion, the rewrap) then strands
+  // only the `_history` artifact instead of leaving indexes/cache/search
+  // unsynced behind an already-moved live record (would conditionally
+  // reopen #709/#721/#723 on the error path). A direct putAtTier also moves
+  // the record's tier — its history snapshots (if any exist from an earlier
+  // tier-0 put()) must follow, same as elevate/demote. Skip when the record
+  // was already at this tier (no move, nothing to rewrap).
+  const fromKey = dekKey(ctx.name, existing?._tier ?? 0)
+  if (fromKey !== key) {
+    await ctx.syncHistory(id, await ctx.getDEK(fromKey), dek)
   }
 }
 
@@ -376,6 +413,15 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
     op: 'elevate',
     ts: now,
   })
+
+  // #712/whole-branch-fix-2: syncHistory runs LAST — after syncIndexes/
+  // syncCache/syncSearch/the cross-tier emit have already landed, so its own
+  // throw (adapter I/O, the rewrap) strands only the `_history` artifact
+  // instead of leaving indexes/cache/search unsynced behind an already-moved
+  // live record (would conditionally reopen #709/#721/#723 on the error
+  // path). Rewraps prior-version history snapshots to the SAME toTier DEK —
+  // otherwise they stay decryptable at rest under fromDek forever.
+  await ctx.syncHistory(id, fromDek, toDek)
 }
 
 /**
@@ -463,6 +509,15 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
     op: 'demote',
     ts: now,
   })
+
+  // #712/whole-branch-fix-2: syncHistory runs LAST — after syncIndexes/
+  // syncCache/syncSearch/the cross-tier emit have already landed, so its own
+  // throw (adapter I/O, the rewrap) strands only the `_history` artifact
+  // instead of leaving indexes/cache/search unsynced behind an already-moved
+  // live record (would conditionally reopen #709/#721/#723 on the error
+  // path). Rewraps history snapshots the same direction as the live body —
+  // demote restores tier-0 (or intermediate-tier) readability at rest.
+  await ctx.syncHistory(id, fromDek, toDek)
 }
 
 /**

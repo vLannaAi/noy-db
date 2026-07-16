@@ -92,7 +92,7 @@ export {
   importCek,
 } from './crypto.js'
 export type { PassphraseKeyUsage } from './crypto.js'
-export { resolveStableCek, rewrapBodyToDek } from './record-keys/lifecycle.js'
+export { resolveStableCek, rewrapBodyToDek, rewrapEnvelope, isRewrappedUnder } from './record-keys/lifecycle.js'
 
 // ─── record codec ──────────────────────────────────────────────────
 export { RecordCodec } from './record-keys/record-codec.js'

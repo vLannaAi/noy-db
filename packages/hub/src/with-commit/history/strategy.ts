@@ -136,6 +136,25 @@ export interface HistoryStrategy {
   ): Promise<number>
 
   /**
+   * Re-key every `_history` snapshot of a record from `fromDek` to `toDek`
+   * on a tier move (elevate/demote/putAtTier), mirroring the live-body
+   * rewrap so prior versions are not left decryptable at rest under a tier
+   * the record has moved away from. Optional `tier0Dek` enables the legacy
+   * fallback for snapshots written before this rewrap existed (see
+   * `history.ts` for the full contract). No-op under `NO_HISTORY` (no
+   * history = nothing to rewrap).
+   */
+  rewrapHistory(
+    adapter: NoydbStore,
+    vault: string,
+    collection: string,
+    recordId: string,
+    fromDek: EnclaveKey,
+    toDek: EnclaveKey,
+    tier0Dek?: EnclaveKey,
+  ): Promise<void>
+
+  /**
    * Compute the SHA-256 hash of an envelope's encrypted payload, used
    * by `LedgerStore.append` to track tamper-evidence. Returns the
    * empty string under `NO_HISTORY` (the call site is gated by
@@ -200,6 +219,7 @@ export const NO_HISTORY: HistoryStrategy = {
   async pruneHistory() { return 0 },
   async clearHistory() { return 0 },
   async tombstoneHistory() { return 0 },
+  async rewrapHistory() {},
   async envelopePayloadHash() { return '' },
   computePatch() { return [] },
   diff() { throw notEnabled('collection.diff()') },

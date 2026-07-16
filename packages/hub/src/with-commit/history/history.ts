@@ -1,6 +1,6 @@
 import type { NoydbStore, EncryptedEnvelope, HistoryOptions, PruneOptions } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { isTombstone } from '../../kernel/enclave/index.js'
+import { isTombstone, isTombstoneShape, rewrapEnvelope, isRewrappedUnder, type EnclaveKey } from '../../kernel/enclave/index.js'
 
 /**
  * History storage convention:
@@ -209,4 +209,84 @@ export async function tombstoneHistory(
     count++
   }
   return count
+}
+
+/**
+ * Re-key every `_history` snapshot of a record from `fromDek` to `toDek`.
+ * Mirrors what `rewrapBodyToDek` already does for a record's LIVE body on a
+ * tier move (elevate/demote/putAtTier) — each `_history` envelope also
+ * carries its own `_cek`, wrapped under the collection's tier-0 DEK at write
+ * time (`record-codec.ts`), so a tier move that rewraps only the live
+ * envelope leaves prior versions decryptable at rest under the tier the
+ * record left. This is defense-in-depth *beneath* the read-gate
+ * (`history()`/`getVersion()` already return empty for an elevated record;
+ * this protects the ciphertext even if that gate is bypassed).
+ *
+ * Rewraps content in place — unlike `tombstoneHistory`, it does NOT blank
+ * `_iv`/`_data`/`_cek` — so a subsequent `demote()` restores tier-0
+ * readability. Tombstone-shaped entries (a forgotten/shredded version —
+ * blanked `_data`, no `_cek`) are skipped: there is no key material left to
+ * rewrap.
+ *
+ * **Legacy fallback.** A snapshot written before this fix stays wrapped
+ * under the tier-0 DEK even after its live record has since moved tiers, so
+ * a rewrap attempted with a tier-N `fromDek` fails to unwrap/decrypt. When
+ * the caller supplies `tier0Dek`, a failed rewrap is retried once with
+ * `tier0Dek` as `fromDek` (the only other key a pre-fix snapshot can be
+ * wrapped under — history is written only by tier-0 `put()`). The output is
+ * always wrapped under `toDek` regardless of which `fromDek` succeeded. A
+ * rewrap that fails under BOTH keys re-throws — that is real corruption, not
+ * a tier mismatch, and must not be swallowed.
+ *
+ * **Crash-atomicity / idempotency (#712 whole-branch-fix-3).** This loop has
+ * no transaction around it: a crash after some entries have been rewritten
+ * under `toDek` but before the loop finishes leaves the record's history
+ * split across two keys. A retry of the SAME call must not re-fail on the
+ * entries that already made it — so each entry is probed with
+ * `isRewrappedUnder(env, toDek)` FIRST; a match means it's already at the
+ * target key and is skipped (put nothing). This makes same-target retries
+ * and demote-after-crash fully self-healing. It does NOT close every crash
+ * window: a crash that lands SOME entries under `toDek` while the record's
+ * NEXT move target differs from this call's `toDek` (an intermediate-tier
+ * crash — e.g. elevate 0→1 crashes mid-loop, then the record is moved 1→2)
+ * still finds those entries unreadable under either `fromDek` or the
+ * tier-0 fallback, since `toDek` is a third key the next call never probes
+ * for. That residual window is an accepted, fail-closed limitation (see
+ * `.changeset/history-at-rest.md` and the design doc) — availability is
+ * lost, never confidentiality.
+ */
+export async function rewrapHistory(
+  adapter: NoydbStore,
+  vault: string,
+  collection: string,
+  recordId: string,
+  fromDek: EnclaveKey,
+  toDek: EnclaveKey,
+  tier0Dek?: EnclaveKey,
+): Promise<void> {
+  const allIds = await adapter.list(vault, HISTORY_COLLECTION)
+  const matchingIds = allIds.filter(id => matchesPrefix(id, collection, recordId))
+
+  for (const id of matchingIds) {
+    const env = await adapter.get(vault, HISTORY_COLLECTION, id)
+    if (!env) continue
+    // Already a tombstone (forgotten/shredded version)? Nothing to rewrap.
+    if (isTombstoneShape(env)) continue
+    // #712/whole-branch-fix-3: toDek-first idempotency skip — already at the
+    // target key (a same-target retry, or demote-after-crash landing back on
+    // a key it already reached)? Nothing to do; put nothing.
+    if (await isRewrappedUnder(env, toDek)) continue
+
+    let next: EncryptedEnvelope
+    try {
+      next = await rewrapEnvelope(env, fromDek, toDek)
+    } catch (err) {
+      if (!tier0Dek) throw err
+      // Legacy fallback: retry once under the tier-0 DEK. A failure here is
+      // real corruption, not a tier mismatch — let it propagate.
+      next = await rewrapEnvelope(env, tier0Dek, toDek)
+    }
+
+    await adapter.put(vault, HISTORY_COLLECTION, id, next)
+  }
 }
