@@ -85,6 +85,17 @@ export interface TiersContext<T> {
    * purge).
    */
   syncIndexes(id: string, record: T | null, version?: number): Promise<void>
+  /** Sync the collection's SEARCH artifacts after a tier move (#721). Both the
+   *  lexical `_ftindex` blob and the `_vec/<id>` embedding are encrypted under
+   *  the tier-0 DEK and hold the record's derived plaintext (full field text /
+   *  a text-invertible vector), so leaving them means elevation never hid what
+   *  the record was searchable by — the `forget()` precedent, unapplied to
+   *  elevate. `null` → the record left tier 0: purge its `_vec`, and
+   *  invalidate the `_ftindex` blob (the cache-driven rebuild then excludes
+   *  it). A record → it is tier-0 again: re-embed it, and invalidate
+   *  `_ftindex` (rebuild includes it). No-op fast when the collection has no
+   *  search. */
+  syncSearch(id: string, record: T | null, version?: number): Promise<void>
   /** Emit `_source`/`_sourceTs` provenance fields when a source is supplied. */
   readonly provenance: boolean
   /** Declared tiers, or null when the feature is off. */
@@ -178,6 +189,11 @@ export async function putAtTier<T>(
     await ctx.syncIndexes(id, rec, envelope._v)
     ctx.syncCache(id, rec !== null ? { record: rec, version: envelope._v } : null)
   }
+  // #721: search artifacts follow the same tier > 0 → purge / tier 0 →
+  // re-embed law as syncIndexes above. No ordering dependency on syncCache —
+  // the _ftindex rebuild is deferred to the next retrieve() and _vec re-embed
+  // reads `record` directly, not the cache.
+  await ctx.syncSearch(id, tier > 0 ? null : record, envelope._v)
 
   if (tier > 0) {
     ctx.emitCrossTierEvent({
@@ -347,6 +363,9 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   // eager index bucket; the persisted side-car purge is content-free.
   await ctx.syncIndexes(id, null)
   ctx.syncCache(id, null)
+  // #721: same purge law as syncIndexes above — the record left tier 0, so
+  // its _vec sidecar is purged and _ftindex is invalidated.
+  await ctx.syncSearch(id, null)
 
   ctx.emitCrossTierEvent({
     actor: ctx.keyring.userId,
@@ -425,9 +444,14 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
     const rec = await ctx.codec.decryptRecord(next, { id, sealedAsHandles: true })
     await ctx.syncIndexes(id, rec, next._v)
     ctx.syncCache(id, rec !== null ? { record: rec, version: next._v } : null)
+    // #721: reuse the decode above — no double-decrypt. The record is tier-0
+    // again, so re-embed its _vec and invalidate _ftindex to include it.
+    await ctx.syncSearch(id, rec, next._v)
   } else {
     await ctx.syncIndexes(id, null)
     ctx.syncCache(id, null)
+    // #721: still above tier 0 — purge _vec, invalidate _ftindex.
+    await ctx.syncSearch(id, null)
   }
 
   ctx.emitCrossTierEvent({
