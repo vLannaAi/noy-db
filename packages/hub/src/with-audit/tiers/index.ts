@@ -96,6 +96,18 @@ export interface TiersContext<T> {
    *  `_ftindex` (rebuild includes it). No-op fast when the collection has no
    *  search. */
   syncSearch(id: string, record: T | null, version?: number): Promise<void>
+  /**
+   * Sync a record's `_history` snapshots after a tier move rewraps the live
+   * envelope (#712, at-rest hardening). Each snapshot carries its own key
+   * material (a direct DEK wrap, or a per-record `_cek` itself wrapped under
+   * the tier DEK) — `elevate()`'s live-body rewrap moves only the live
+   * envelope, leaving prior versions decryptable at rest under the tier the
+   * record has moved away from (the same leak class `forget()`'s
+   * `tombstoneHistory` closed for erasure). `fromDek`/`toDek` are the SAME
+   * DEKs the caller already resolved for the live rewrap — reuse them, don't
+   * recompute. No-op when the strategy is `NO_HISTORY`.
+   */
+  syncHistory(id: string, fromDek: EnclaveKey, toDek: EnclaveKey): Promise<void>
   /** Emit `_source`/`_sourceTs` provenance fields when a source is supplied. */
   readonly provenance: boolean
   /** Declared tiers, or null when the feature is off. */
@@ -175,6 +187,15 @@ export async function putAtTier<T>(
   }
 
   await ctx.adapter.put(ctx.vault, ctx.name, id, envelope)
+
+  // #712: a direct putAtTier also moves the record's tier — its history
+  // snapshots (if any exist from an earlier tier-0 put()) must follow, same
+  // as elevate/demote. Skip when the record was already at this tier (no
+  // move, nothing to rewrap).
+  const fromKey = dekKey(ctx.name, existing?._tier ?? 0)
+  if (fromKey !== key) {
+    await ctx.syncHistory(id, await ctx.getDEK(fromKey), dek)
+  }
 
   // #702/#709: keep the record cache AND indexes coherent with the raw
   // write — same law as elevate/demote (#691): tier > 0 → invisible on
@@ -356,6 +377,9 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
     ...(body._cek !== undefined ? { _cek: body._cek } : {}),
   }
   await ctx.adapter.put(ctx.vault, ctx.name, id, next)
+  // #712: rewrap prior-version history snapshots to the SAME toTier DEK —
+  // otherwise they stay decryptable at rest under fromDek forever.
+  await ctx.syncHistory(id, fromDek, toDek)
   // Evict/purge only once the write landed — a throwing put must not blind
   // the eager cache or leave a readable index behind for a still-valid
   // tier-0 record (same ordering as demote). #709: syncIndexes runs first —
@@ -429,6 +453,9 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
     ...(body._cek !== undefined ? { _cek: body._cek } : {}),
   }
   await ctx.adapter.put(ctx.vault, ctx.name, id, next)
+  // #712: rewrap history snapshots the same direction as the live body —
+  // demote restores tier-0 (or intermediate-tier) readability at rest.
+  await ctx.syncHistory(id, fromDek, toDek)
 
   // #691/#709: landing back at tier 0 makes this a plain tier-0 record
   // again — it must stay plain-get()-readable AND indexed in the same

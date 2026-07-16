@@ -1869,8 +1869,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
       if (existingResolved && this.historyConfig.enabled !== false) {
         // History snapshot of the PRIOR version — does NOT carry source from the new write
-        const histEnvelope = await this.codec.encryptRecord(existingResolved.record, existingResolved.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: existingEnvelope } : undefined, id)
-        await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, histEnvelope)
+        await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord(existingResolved.record, existingResolved.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: existingEnvelope } : undefined, id))
         this.emitter.emit('history:save', { vault: this.vault, collection: this.name, id, version: existingResolved.version })
         if (this.historyConfig.maxVersions) {
           await this.historyStrategy.pruneHistory(this.adapter, this.vault, this.name, id, { keepVersions: this.historyConfig.maxVersions })
@@ -4513,6 +4512,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       syncCache: (id: string, e: { record: T; version: number } | null) => { if (e) this.cache.set(id, e); else this.cache.delete(id); this.lru?.remove(id) },
       syncIndexes: (id: string, rec: T | null, version?: number) => syncTierIndexesImpl(this.indexingContext(), id, rec, version),
       syncSearch: (id: string, rec: T | null, version?: number) => syncTierSearchImpl(this.searchContext(), id, rec, version),
+      syncHistory: async (id: string, fromDek: EnclaveKey, toDek: EnclaveKey) => this.historyStrategy.rewrapHistory(this.adapter, this.vault, this.name, id, fromDek, toDek, await this.getDEK(this.name)),
       provenance: this.provenance,
       tiers: this.tiers,
       tierMode: this.tierMode,
