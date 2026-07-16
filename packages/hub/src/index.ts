@@ -971,7 +971,7 @@ export { EnclaveNotSupportedError } from './kernel/errors.js'
 
 // hierarchical access
 export type { GhostRecord, TierMode, CrossTierAccessEvent } from './kernel/types.js'
-export { TierNotGrantedError, TierDemoteDeniedError, DelegationTargetMissingError } from './kernel/errors.js'
+export { TierNotGrantedError, TierDemoteDeniedError, DelegationTargetMissingError, TierWriteRefusedError } from './kernel/errors.js'
 
 // lazy-mode index errors
 export { IndexRequiredError, IndexWriteFailureError } from './kernel/errors.js'

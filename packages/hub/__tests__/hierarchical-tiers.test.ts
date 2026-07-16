@@ -191,6 +191,34 @@ describe('v0.18 hierarchical access', () => {
       await expect(docs.putAtTier('d2', { id: 'd2', title: 't', body: 'b' }, 2))
         .rejects.toBeInstanceOf(TierNotGrantedError)
     })
+
+    it('putAtTier over a record at a tier the caller lacks throws TierNotGrantedError and mints NO from-tier DEK (#712 whole-branch fix-1)', async () => {
+      const { vault } = await freshVault()
+      const docs = vault.collection<Doc>('docs', { tiers: [0, 1, 2] })
+      // Owner mints both tier-1 and tier-2 DEKs, then parks d1 at tier 2.
+      await docs.putAtTier('seed', { id: 'seed', title: 's', body: 'b' }, 1)
+      await docs.putAtTier('d1', { id: 'd1', title: 'Top', body: 'secret' }, 2)
+
+      // Simulate an operator whose keyring holds tier-1 but NOT tier-2 —
+      // cleared for the TARGET tier of the call below, but not for the
+      // EXISTING tier of the record it targets.
+      const kr = (vault as unknown as { keyring: { deks: Map<string, CryptoKey>; role: string } }).keyring
+      kr.deks.delete('docs#2')
+      kr.role = 'operator'
+      expect(kr.deks.has('docs#1')).toBe(true)
+      expect(kr.deks.has('docs#2')).toBe(false)
+
+      // putAtTier(d1, ..., 1): target tier 1 is granted, but d1 currently
+      // sits at tier 2, which this caller was never cleared for. Before the
+      // fix, the from-tier `getDEK('docs#2')` inside the history-rewrap path
+      // would silently MINT a fresh tier-2 DEK into this keyring. It must
+      // instead throw before ever reaching that mint.
+      await expect(docs.putAtTier('d1', { id: 'd1', title: 'Moved', body: 'x' }, 1))
+        .rejects.toBeInstanceOf(TierNotGrantedError)
+
+      // No bogus docs#2 DEK was minted as a side effect of the refused call.
+      expect(kr.deks.has('docs#2')).toBe(false)
+    })
   })
 
   describe('cross-tier audit', () => {
@@ -416,5 +444,44 @@ describe('#691 fold-ins: tier moves × record cache × tombstones', () => {
     await store.put('v1', 'docs', 'gone', buildDeleteMarker(live._v, 'owner'))
     await expect(docs.elevate('gone', 1)).rejects.toThrow(/not found/)
     await expect(docs.demote('gone', 0)).rejects.toThrow(/not found/)
+  })
+})
+
+describe('#702 putAtTier maintains the record cache', () => {
+  it('putAtTier(tier>0) over a cached id evicts — plain get() stops serving the pre-move plaintext', async () => {
+    const { vault } = await freshVault()
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1] })
+    await docs.put('p1', { id: 'p1', title: 'Old', body: 'plain' })
+    expect((await docs.get('p1'))?.title).toBe('Old') // cache warm
+    await docs.putAtTier('p1', { id: 'p1', title: 'New', body: 'secret' }, 1)
+    // Pre-#702: the eager cache still served { title: 'Old' } — clearance-free.
+    expect(await docs.get('p1')).toBeNull()
+    expect(((await docs.getAtTier('p1')) as Doc | null)?.title).toBe('New')
+  })
+
+  it('putAtTier(tier 0) over a cached id re-seeds — plain get() serves the NEW content', async () => {
+    const { vault } = await freshVault()
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1] })
+    await docs.put('p2', { id: 'p2', title: 'V1', body: 'x' })
+    expect((await docs.get('p2'))?.title).toBe('V1')
+    await docs.putAtTier('p2', { id: 'p2', title: 'V2', body: 'y' }, 0)
+    // Pre-#702: stale 'V1' from the untouched cache.
+    expect((await docs.get('p2'))?.title).toBe('V2')
+  })
+
+  it('LAZY mode: putAtTier(tier 0) over an LRU-cached id serves the NEW content (LRU evicted, adapter refetch)', async () => {
+    const { vault } = await freshVault()
+    const docs = vault.collection<Doc>('ldocs', { tiers: [0, 1], prefetch: false, cache: { maxRecords: 100 } })
+    await docs.put('p3', { id: 'p3', title: 'L1', body: 'x' })
+    expect((await docs.get('p3'))?.title).toBe('L1') // LRU warm
+    await docs.putAtTier('p3', { id: 'p3', title: 'L2', body: 'y' }, 0)
+    // Whole-branch review finding: syncCache's entry branch seeded only the
+    // eager Map — lazy reads consult the LRU, which kept serving stale 'L1'.
+    // The LRU is now evicted on every sync; the lazy miss refetches + decodes
+    // the fresh tier-0 envelope via the adapter fallback.
+    expect((await docs.get('p3'))?.title).toBe('L2')
+    // And the tier>0 overwrite stays invisible on the lazy surface too.
+    await docs.putAtTier('p3', { id: 'p3', title: 'L3', body: 'z' }, 1)
+    expect(await docs.get('p3')).toBeNull()
   })
 })

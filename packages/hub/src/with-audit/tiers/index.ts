@@ -58,14 +58,56 @@ export interface TiersContext<T> {
   readonly cekCache: Lru<string, EnclaveKey> | null
   /**
    * Sync the collection's decoded-record cache after a tier move rewraps the
-   * envelope (#691). `null` → evict the eager cache entry and the lazy LRU
-   * (the lazy LRU never needs re-seeding: its `#getRaw` has an adapter
-   * fallback on a miss, so evicting it on every move stays correct). An
-   * `entry` → set the eager cache to the given decoded record/version (used
-   * only by `demote()` when landing back at tier 0 — the record is tier-0
-   * again, so it must stay plain-`get()`-readable in the same session).
+   * envelope (#691). The lazy LRU is evicted on EVERY call — it is never
+   * re-seeded, since a lazy `#getRaw` miss refetches and decodes the fresh
+   * envelope via its adapter fallback (a stale LRU entry after a tier-0
+   * `putAtTier` overwrite was the #702 lazy-mode gap). `null` → also evict
+   * the eager cache entry; an `entry` → set the eager cache to the given
+   * decoded record/version (used by `demote()` landing back at tier 0 and
+   * `putAtTier`'s tier-0 write, #702 — the record is tier-0, so it must stay
+   * plain-`get()`-readable in-session).
    */
   syncCache(id: string, entry: { record: T; version: number } | null): void
+  /**
+   * Sync the collection's indexes after a tier move rewraps the envelope
+   * (#709). Persisted `_idx/<field>/<recordId>` side-cars hold the indexed
+   * field's PLAINTEXT value and are always encrypted under the tier-0 DEK,
+   * whatever the record's own tier — the same leak class `forget()` fixed
+   * via `purgePersistedIndexes` ("forget() crypto-shreds the body but keeps
+   * the collection DEK, under which these side-cars are encrypted — so
+   * without this they leave the indexed field VALUES readable"). `null` →
+   * the record just left tier 0: purge its persisted side-cars and drop its
+   * in-memory index entries. A record → it is tier-0 again: (re)build its
+   * entries from that record. Call this BEFORE {@link syncCache} — the
+   * implementation reads the pre-write cached value as "previous" to clean
+   * up stale index buckets, so it must run while that entry is still live.
+   * `version` stamps a rebuilt side-car's own envelope version (ignored on
+   * purge).
+   */
+  syncIndexes(id: string, record: T | null, version?: number): Promise<void>
+  /** Sync the collection's SEARCH artifacts after a tier move (#721). Both the
+   *  lexical `_ftindex` blob and the `_vec/<id>` embedding are encrypted under
+   *  the tier-0 DEK and hold the record's derived plaintext (full field text /
+   *  a text-invertible vector), so leaving them means elevation never hid what
+   *  the record was searchable by — the `forget()` precedent, unapplied to
+   *  elevate. `null` → the record left tier 0: purge its `_vec`, and
+   *  invalidate the `_ftindex` blob (the cache-driven rebuild then excludes
+   *  it). A record → it is tier-0 again: re-embed it, and invalidate
+   *  `_ftindex` (rebuild includes it). No-op fast when the collection has no
+   *  search. */
+  syncSearch(id: string, record: T | null, version?: number): Promise<void>
+  /**
+   * Sync a record's `_history` snapshots after a tier move rewraps the live
+   * envelope (#712, at-rest hardening). Each snapshot carries its own key
+   * material (a direct DEK wrap, or a per-record `_cek` itself wrapped under
+   * the tier DEK) — `elevate()`'s live-body rewrap moves only the live
+   * envelope, leaving prior versions decryptable at rest under the tier the
+   * record has moved away from (the same leak class `forget()`'s
+   * `tombstoneHistory` closed for erasure). `fromDek`/`toDek` are the SAME
+   * DEKs the caller already resolved for the live rewrap — reuse them, don't
+   * recompute. No-op when the strategy is `NO_HISTORY`.
+   */
+  syncHistory(id: string, fromDek: EnclaveKey, toDek: EnclaveKey): Promise<void>
   /** Emit `_source`/`_sourceTs` provenance fields when a source is supplied. */
   readonly provenance: boolean
   /** Declared tiers, or null when the feature is off. */
@@ -130,6 +172,17 @@ export async function putAtTier<T>(
   const dek = await ctx.getDEK(key)
 
   const existing = await ctx.adapter.get(ctx.vault, ctx.name, id)
+  // #712/whole-branch-fix-1: putAtTier moves the record OFF its existing
+  // tier, same as elevate/demote — so the caller must also be cleared for
+  // that existing tier, not just the target. Without this, a member holding
+  // only the target tier's DEK could putAtTier over a record parked at a
+  // tier they've never been granted; the from-tier `getDEK` below would then
+  // silently MINT a fresh DEK for that tier into their keyring (a
+  // non-cleared caller creating tier key material inside the trust
+  // boundary — see `assertTierAccess`'s doc comment). Gate here, BEFORE any
+  // from-tier getDEK/syncHistory call, so the mint never happens; owner/
+  // admin/custodian still bypass (they may mint, same as elevate/demote).
+  assertTierAccess(ctx.keyring, ctx.name, existing?._tier ?? 0)
   const version = existing ? existing._v + 1 : 1
   const json = JSON.stringify(record)
   const { iv, data } = await encrypt(json, dek)
@@ -146,6 +199,25 @@ export async function putAtTier<T>(
 
   await ctx.adapter.put(ctx.vault, ctx.name, id, envelope)
 
+  // #702/#709: keep the record cache AND indexes coherent with the raw
+  // write — same law as elevate/demote (#691): tier > 0 → invisible on
+  // tier-0 surfaces (evict + purge); tier 0 → an ordinary write (re-seed +
+  // reindex). syncIndexes runs first — it needs the pre-write cache entry
+  // as "previous", which syncCache is about to overwrite/evict.
+  if (tier > 0) {
+    await ctx.syncIndexes(id, null)
+    ctx.syncCache(id, null)
+  } else {
+    const rec = await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
+    await ctx.syncIndexes(id, rec, envelope._v)
+    ctx.syncCache(id, rec !== null ? { record: rec, version: envelope._v } : null)
+  }
+  // #721: search artifacts follow the same tier > 0 → purge / tier 0 →
+  // re-embed law as syncIndexes above. No ordering dependency on syncCache —
+  // the _ftindex rebuild is deferred to the next retrieve() and _vec re-embed
+  // reads `record` directly, not the cache.
+  await ctx.syncSearch(id, tier > 0 ? null : record, envelope._v)
+
   if (tier > 0) {
     ctx.emitCrossTierEvent({
       actor: ctx.keyring.userId,
@@ -160,6 +232,20 @@ export async function putAtTier<T>(
         elevatedFrom: opts.elevation.fromTier,
       }),
     })
+  }
+
+  // #712/whole-branch-fix-2: syncHistory runs LAST — after syncIndexes/
+  // syncCache/syncSearch (and the cross-tier emit) have already landed. Its
+  // own throw (adapter I/O, the Fix-1 assertion, the rewrap) then strands
+  // only the `_history` artifact instead of leaving indexes/cache/search
+  // unsynced behind an already-moved live record (would conditionally
+  // reopen #709/#721/#723 on the error path). A direct putAtTier also moves
+  // the record's tier — its history snapshots (if any exist from an earlier
+  // tier-0 put()) must follow, same as elevate/demote. Skip when the record
+  // was already at this tier (no move, nothing to rewrap).
+  const fromKey = dekKey(ctx.name, existing?._tier ?? 0)
+  if (fromKey !== key) {
+    await ctx.syncHistory(id, await ctx.getDEK(fromKey), dek)
   }
 }
 
@@ -307,9 +393,16 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
     ...(body._cek !== undefined ? { _cek: body._cek } : {}),
   }
   await ctx.adapter.put(ctx.vault, ctx.name, id, next)
-  // Evict only once the write landed — a throwing put must not blind the
-  // eager cache to a still-valid tier-0 record (same ordering as demote).
+  // Evict/purge only once the write landed — a throwing put must not blind
+  // the eager cache or leave a readable index behind for a still-valid
+  // tier-0 record (same ordering as demote). #709: syncIndexes runs first —
+  // it needs the pre-elevation cache entry as "previous" to clean the
+  // eager index bucket; the persisted side-car purge is content-free.
+  await ctx.syncIndexes(id, null)
   ctx.syncCache(id, null)
+  // #721: same purge law as syncIndexes above — the record left tier 0, so
+  // its _vec sidecar is purged and _ftindex is invalidated.
+  await ctx.syncSearch(id, null)
 
   ctx.emitCrossTierEvent({
     actor: ctx.keyring.userId,
@@ -320,6 +413,15 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
     op: 'elevate',
     ts: now,
   })
+
+  // #712/whole-branch-fix-2: syncHistory runs LAST — after syncIndexes/
+  // syncCache/syncSearch/the cross-tier emit have already landed, so its own
+  // throw (adapter I/O, the rewrap) strands only the `_history` artifact
+  // instead of leaving indexes/cache/search unsynced behind an already-moved
+  // live record (would conditionally reopen #709/#721/#723 on the error
+  // path). Rewraps prior-version history snapshots to the SAME toTier DEK —
+  // otherwise they stay decryptable at rest under fromDek forever.
+  await ctx.syncHistory(id, fromDek, toDek)
 }
 
 /**
@@ -374,18 +476,28 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
   }
   await ctx.adapter.put(ctx.vault, ctx.name, id, next)
 
-  // #691: landing back at tier 0 makes this a plain tier-0 record again — it
-  // must stay plain-get()-readable in the same session, so re-seed the
-  // eager cache from the just-written (now tier-0-keyed) envelope through
-  // the canonical codec path, the same decode collection.ts's own eager
-  // hydration / lazy cache-miss paths use. A demote that lands on an
-  // intermediate elevated tier (toTier > 0) still evicts: the record stays
-  // above tier 0 and must remain invisible on tier-0 surfaces.
+  // #691/#709: landing back at tier 0 makes this a plain tier-0 record
+  // again — it must stay plain-get()-readable AND indexed in the same
+  // session, so re-seed the eager cache and rebuild its index entries from
+  // the just-written (now tier-0-keyed) envelope through the canonical
+  // codec path, the same decode collection.ts's own eager hydration / lazy
+  // cache-miss paths use — reused for both, no double-decrypt. A demote
+  // that lands on an intermediate elevated tier (toTier > 0) still evicts
+  // + purges: the record stays above tier 0 and must remain invisible on
+  // tier-0 surfaces, unindexed. syncIndexes runs first in both branches —
+  // it needs the pre-demote cache entry as "previous".
   if (toTier === 0) {
     const rec = await ctx.codec.decryptRecord(next, { id, sealedAsHandles: true })
+    await ctx.syncIndexes(id, rec, next._v)
     ctx.syncCache(id, rec !== null ? { record: rec, version: next._v } : null)
+    // #721: reuse the decode above — no double-decrypt. The record is tier-0
+    // again, so re-embed its _vec and invalidate _ftindex to include it.
+    await ctx.syncSearch(id, rec, next._v)
   } else {
+    await ctx.syncIndexes(id, null)
     ctx.syncCache(id, null)
+    // #721: still above tier 0 — purge _vec, invalidate _ftindex.
+    await ctx.syncSearch(id, null)
   }
 
   ctx.emitCrossTierEvent({
@@ -397,6 +509,15 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
     op: 'demote',
     ts: now,
   })
+
+  // #712/whole-branch-fix-2: syncHistory runs LAST — after syncIndexes/
+  // syncCache/syncSearch/the cross-tier emit have already landed, so its own
+  // throw (adapter I/O, the rewrap) strands only the `_history` artifact
+  // instead of leaving indexes/cache/search unsynced behind an already-moved
+  // live record (would conditionally reopen #709/#721/#723 on the error
+  // path). Rewraps history snapshots the same direction as the live body —
+  // demote restores tier-0 (or intermediate-tier) readability at rest.
+  await ctx.syncHistory(id, fromDek, toDek)
 }
 
 /**

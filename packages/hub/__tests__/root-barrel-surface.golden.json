@@ -199,6 +199,7 @@
     "TeamNotEnabledError",
     "TierDemoteDeniedError",
     "TierNotGrantedError",
+    "TierWriteRefusedError",
     "TiersNotEnabledError",
     "TranslatorNotConfiguredError",
     "TxCollection",

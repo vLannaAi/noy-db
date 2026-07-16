@@ -10,11 +10,17 @@
  * through findByDet with no CrossTierAccessEvent.
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb, ConflictError } from '../src/index.js'
+import { createNoydb, ConflictError, TierWriteRefusedError } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withClassified } from '../src/via/classified/active.js'
 import { classified } from '../src/via/classified/presets.js'
+import { withHistory } from '../src/with-commit/history/index.js'
+import { withCrdt } from '../src/with-commit/crdt/index.js'
+import { withI18n } from '../src/via/i18n/index.js'
+import { i18nText } from '../src/via/i18n/core.js'
+import { buildDeleteMarker } from '../src/kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
+import type { GatePutEvent } from '../src/port/with/service-bus.js'
 
 function memoryStore(): NoydbStore {
   const data = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -52,6 +58,55 @@ function memoryStore(): NoydbStore {
       data.set(v, vm)
     },
   }
+}
+
+/**
+ * #706 fixture: wraps a base store with a native `listPage` implementation
+ * (sorted-id cursor pagination), mirroring `to-memory`'s `listPage`. Lets
+ * tests exercise the native `decryptPage` path, not just the fallback.
+ */
+function withListPage(base: NoydbStore): NoydbStore {
+  return {
+    ...base,
+    async listPage(vault, collection, cursor, limit = 100) {
+      const ids = (await base.list(vault, collection)).slice().sort()
+      const start = cursor ? parseInt(cursor, 10) : 0
+      const end = Math.min(start + limit, ids.length)
+      const items: Array<{ id: string; envelope: EncryptedEnvelope }> = []
+      for (let i = start; i < end; i++) {
+        const id = ids[i]!
+        const envelope = await base.get(vault, collection, id)
+        if (envelope) items.push({ id, envelope })
+      }
+      return { items, nextCursor: end < ids.length ? String(end) : null }
+    },
+  }
+}
+
+/**
+ * #713 fixture: wraps a store and counts adapter-level round-trips to
+ * `get`/`listPage`, so tests can pin the batched count() path avoiding the
+ * per-id `get()` fan-out that the pre-#713 `list()+get()` loop made. Counts
+ * only calls made directly on this wrapper — `withListPage`'s own internal
+ * `base.get` calls (used to build a page) are NOT counted, matching what a
+ * real remote store's `listPage` looks like from the caller's side: one
+ * round-trip per page, no per-id fetch.
+ */
+function withCallCounts(base: NoydbStore, counts: { get: number; listPage: number }): NoydbStore {
+  const wrapped: NoydbStore = {
+    ...base,
+    async get(v, c, id) {
+      counts.get++
+      return base.get(v, c, id)
+    },
+  }
+  if (base.listPage) {
+    wrapped.listPage = async (v, c, cursor, limit) => {
+      counts.listPage++
+      return base.listPage!(v, c, cursor, limit)
+    }
+  }
+  return wrapped
 }
 
 interface User extends Record<string, unknown> { name?: string; password?: string; email?: string; a1?: string; a2?: string }
@@ -184,5 +239,346 @@ describe('#691 det scans: elevated records are skipped', () => {
     await cold.accounts.put('solo', { name: 's', email: 'solo@y.z' })
     await cold.accounts.elevate('solo', 1)
     expect(await cold.accounts.findByDet('email', 'solo@y.z')).toBeNull()
+  })
+})
+
+describe('#701 hydration / lazy reads / reveal: elevated records are invisible, never a brick or leak', () => {
+  function eagerTierHarness() {
+    const store = memoryStore()
+    const open = async () => {
+      const db = await createNoydb({ store, user: 'owner', secret: 'pw-701', tiersStrategy: withTiers() })
+      const vault = await db.openVault('v1')
+      const docs = vault.collection<User>('docs', { tiers: [0, 1], perRecordKeys: true })
+      return { vault, docs }
+    }
+    return { store, open }
+  }
+
+  it('cold-session eager hydration skips the elevated record instead of bricking the collection', async () => {
+    const h = eagerTierHarness()
+    const { docs } = await h.open()
+    await docs.put('a', { name: 'stays' })
+    await docs.put('b', { name: 'moves' })
+    await docs.elevate('b', 1)
+
+    // Pre-#701: the first decrypt of b's tier-wrapped envelope during cold
+    // hydration threw, aborting the loop — get('a') / any read or write on
+    // the whole collection rejected.
+    const cold = await h.open()
+    expect((await cold.docs.get('a'))?.name).toBe('stays')
+    expect(await cold.docs.get('b')).toBeNull()          // invisible, not an error
+    await cold.docs.put('c', { name: 'writable' })       // collection is usable
+    expect((await cold.docs.get('c'))?.name).toBe('writable')
+  })
+
+  it('vault-snapshot hydration path (hydrateFromSnapshot) also skips the elevated record — no in-repo caller reaches this loop otherwise, so it is exercised directly', async () => {
+    const h = eagerTierHarness()
+    const { docs } = await h.open()
+    await docs.put('a', { name: 'stays' })
+    await docs.put('b', { name: 'moves' })
+    await docs.elevate('b', 1)
+
+    const cold = await h.open() // fresh, un-hydrated Collection over the same store
+    const snapshot = await h.store.loadAll('v1')
+    await cold.docs.hydrateFromSnapshot(snapshot['docs'] ?? {})
+    expect((await cold.docs.get('a'))?.name).toBe('stays')
+    expect(await cold.docs.get('b')).toBeNull()
+  })
+
+  it('lazy direct-address read: null in BOTH sessions (warm pre-#701 LEAKED via cekCache, cold threw)', async () => {
+    const store = memoryStore()
+    const open = async () => {
+      const db = await createNoydb({ store, user: 'owner', secret: 'pw-701-lazy', tiersStrategy: withTiers() })
+      const vault = await db.openVault('v1')
+      const docs = vault.collection<User>('ldocs', { tiers: [0, 1], perRecordKeys: true, prefetch: false, cache: { maxRecords: 100 } })
+      return { docs }
+    }
+    const { docs } = await open()
+    await docs.put('e1', { name: 'leaky' })
+    await docs.elevate('e1', 1) // evicts the LRU (#700) and caches the CEK
+    expect(await docs.get('e1')).toBeNull()   // warm: pre-#701 returned plaintext (leak)
+    const cold = await open()
+    expect(await cold.docs.get('e1')).toBeNull() // cold: pre-#701 threw
+  })
+
+  it('reveal on an elevated record throws the domain not-found error, not a raw crypto error', async () => {
+    const h = tieredClassifiedHarness()
+    const { users } = await h.open()
+    await users.put('r1', { name: 'n', password: 'pw-reveal-r1-xx', email: 'r@example.com', a1: 'x', a2: 'y' })
+    expect(await users.reveal('r1', 'email')).toBe('r@example.com')
+    await users.elevate('r1', 1)
+    // Elevated ≡ missing on this tier-0 surface — same error/message class as
+    // a genuinely absent id, no elevation disclosure, never InvalidKeyError.
+    await expect(users.reveal('r1', 'email')).rejects.toThrow(/not found/)
+  }, 60_000)
+})
+
+describe('#706 listPage/scan: elevated records are invisible — no leak, no brick, no cache poisoning', () => {
+  function pageHarness(native: boolean) {
+    const base = memoryStore()
+    const store = native ? withListPage(base) : base
+    const open = async () => {
+      const db = await createNoydb({ store, user: 'owner', secret: 'pw-706', tiersStrategy: withTiers() })
+      const vault = await db.openVault('v1')
+      const docs = vault.collection<User>('docs', { tiers: [0, 1], perRecordKeys: true })
+      return { docs }
+    }
+    return { open }
+  }
+
+  for (const native of [false, true]) {
+    const label = native ? 'native adapter.listPage' : 'fallback list()+get()'
+    it(`${label}: warm session — elevated record absent from the page, cache NOT poisoned`, async () => {
+      const h = pageHarness(native)
+      const { docs } = await h.open()
+      await docs.put('a', { name: 'stays' })
+      await docs.put('b', { name: 'moves' })
+      await docs.elevate('b', 1)
+      // Pre-#706 (warm, perRecordKeys): b's plaintext egressed in page.items
+      // via the warm cekCache — audit-free — and the opportunistic cache fill
+      // seeded the eager cache with it.
+      const page = await docs.listPage({ limit: 10 })
+      expect(page.items.map(r => r.name)).toEqual(['stays'])
+      expect(await docs.get('b')).toBeNull() // poisoning pin: the fill never saw b
+    })
+
+    it(`${label}: cold session — the scan survives the elevated record`, async () => {
+      const h = pageHarness(native)
+      const { docs } = await h.open()
+      await docs.put('a', { name: 'stays' })
+      await docs.put('b', { name: 'moves' })
+      await docs.elevate('b', 1)
+      const cold = await h.open()
+      // Pre-#706: InvalidKeyError from the first elevated envelope bricked
+      // every listPage/scan/aggregate over the collection.
+      const page = await cold.docs.listPage({ limit: 10 })
+      expect(page.items.map(r => r.name)).toEqual(['stays'])
+    })
+  }
+
+  it('scan (and aggregate) over a collection with an elevated record yields only tier-0 rows', async () => {
+    const h = pageHarness(false)
+    const { docs } = await h.open()
+    await docs.put('a', { name: 'stays' })
+    await docs.put('b', { name: 'moves' })
+    await docs.elevate('b', 1)
+    const seen: string[] = []
+    for await (const rec of docs.scan({ pageSize: 1 })) seen.push(rec.name as string)
+    expect(seen).toEqual(['stays'])
+  })
+})
+
+describe('#706 lazy count(): eager parity — elevated and deleted envelopes are not counted', () => {
+  it('lazy count matches eager count with an elevated record present', async () => {
+    const store = memoryStore()
+    const open = async (lazy: boolean) => {
+      const db = await createNoydb({ store, user: 'owner', secret: 'pw-706-count', tiersStrategy: withTiers() })
+      const vault = await db.openVault('v1')
+      return vault.collection<User>(lazy ? 'lc' : 'lc', lazy
+        ? { tiers: [0, 1], perRecordKeys: true, prefetch: false, cache: { maxRecords: 100 } }
+        : { tiers: [0, 1], perRecordKeys: true })
+    }
+    const docs = await open(true)
+    await docs.put('a', { name: 'a' })
+    await docs.put('b', { name: 'b' })
+    await docs.elevate('b', 1)
+    // Pre-#706: lazy count() returned raw adapter.list().length = 2.
+    expect(await docs.count()).toBe(1)
+    const eager = await open(false) // cold second session, eager mode, same store
+    expect(await eager.count()).toBe(1) // parity (hydration skips elevated, #701)
+  })
+
+  it('lazy count skips a hand-written delete-marker (raw list() counted it)', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({ store, user: 'owner', secret: 'pw-706-count-del', tiersStrategy: withTiers() })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<User>('mc', { tiers: [0, 1], perRecordKeys: true, prefetch: false, cache: { maxRecords: 100 } })
+    await docs.put('a', { name: 'a' })
+    await docs.put('gone', { name: 'gone' })
+    const live = (await store.get('v1', 'mc', 'gone'))!
+    await store.put('v1', 'mc', 'gone', buildDeleteMarker(live._v, 'owner'))
+    // Pre-#706: raw adapter.list().length counted the marker id too (== 2).
+    expect(await docs.count()).toBe(1)
+  })
+})
+
+describe('#713 lazy count() batches via adapter.listPage — behavior parity, fewer round-trips', () => {
+  it('native listPage store: same count as the fallback, zero per-id get() calls (RED pre-#713: 3 gets)', async () => {
+    const base = memoryStore()
+    const nativeCounts = { get: 0, listPage: 0 }
+    const store = withCallCounts(withListPage(base), nativeCounts)
+    const db = await createNoydb({ store, user: 'owner', secret: 'pw-713', tiersStrategy: withTiers() })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<User>('docs', { tiers: [0, 1], perRecordKeys: true, prefetch: false, cache: { maxRecords: 100 } })
+    await docs.put('a', { name: 'a' })   // live tier-0 — counted
+    await docs.put('b', { name: 'b' })   // elevated below — not counted
+    await docs.put('c', { name: 'c' })   // delete-marked below — not counted
+    await docs.elevate('b', 1)
+    const live = (await store.get('v1', 'docs', 'c'))!
+    await store.put('v1', 'docs', 'c', buildDeleteMarker(live._v, 'owner'))
+    nativeCounts.get = 0
+    nativeCounts.listPage = 0 // reset after setup writes — only count() below matters
+    expect(await docs.count()).toBe(1) // only 'a' is live tier-0 — parity with fallback
+    expect(nativeCounts.get).toBe(0) // no per-id get() at all on the native path
+    expect(nativeCounts.listPage).toBeGreaterThanOrEqual(1)
+  })
+
+  it('fallback (no listPage) store: same count, list()+get() path still works', async () => {
+    const store = memoryStore() // no listPage — exercises the fallback branch
+    const db = await createNoydb({ store, user: 'owner', secret: 'pw-713-fb', tiersStrategy: withTiers() })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<User>('docs', { tiers: [0, 1], perRecordKeys: true, prefetch: false, cache: { maxRecords: 100 } })
+    await docs.put('a', { name: 'a' })
+    await docs.put('b', { name: 'b' })
+    await docs.put('c', { name: 'c' })
+    await docs.elevate('b', 1)
+    const live = (await store.get('v1', 'docs', 'c'))!
+    await store.put('v1', 'docs', 'c', buildDeleteMarker(live._v, 'owner'))
+    expect(await docs.count()).toBe(1)
+  })
+})
+
+describe('#707 write-path prior reads: elevated ≡ missing to hooks/gates/audit', () => {
+  it('onBeforeWrite sees a null prior for a put over an elevated id, never the elevated plaintext (#priorForHook, lazy)', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({ store, user: 'owner', secret: 'pw-707', tiersStrategy: withTiers() })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<User>('docs', { tiers: [0, 1], perRecordKeys: true, prefetch: false, cache: { maxRecords: 100 } })
+    const priors: unknown[] = []
+    db.onBeforeWrite((e) => { priors.push(e.before) })
+    await docs.put('d1', { name: 'secret' })
+    await docs.elevate('d1', 1) // evicts the LRU (#700) and caches the CEK — warm cekCache
+    // Pre-#707: the lazy branch's adapter.get() miss fell through to an ungated
+    // decrypt, and the warm cekCache let it succeed — `before` was { name: 'secret' }.
+    // Post-#715/#716: the write ring refuses the put — but #priorForHook still
+    // RUNS first (it fires in the put() wrapper, before _putInternal's choke
+    // point), so #707's mask is still what keeps `before` off the elevated
+    // plaintext. This asserts BOTH: the mask holds across every hook call, and
+    // the write is refused. Neither guarantee subsumes the other.
+    await expect(docs.put('d1', { name: 'overwrite' })).rejects.toBeInstanceOf(TierWriteRefusedError)
+    expect(priors.some((p) => (p as User | null)?.name === 'secret')).toBe(false)
+  })
+
+  it('a beforePut gate handler needing the prior sees existing:null for an elevated id (resolveGatePrior)', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({ store, user: 'owner', secret: 'pw-707b', tiersStrategy: withTiers() })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<User>('docs', { tiers: [0, 1], perRecordKeys: true })
+    const seen: GatePutEvent[] = []
+    db._subsystemBus.registerGate('beforePut', (e) => { seen.push(e) }) // default needsPrior: true
+    await docs.put('d1', { name: 'secret' })
+    await docs.elevate('d1', 1) // warm cekCache
+    // Pre-#707: the try/catch masked the tier boundary — the warm cekCache let
+    // decryptRecord succeed and `existing` carried the elevated plaintext.
+    // (The envelope itself, and its version/timestamp, may still surface —
+    // only the DECRYPTED content is gated to null, same as a genuine decrypt failure.)
+    // Post-#715/#716: the write ring refuses this put() outright, before the gate
+    // bus dispatch — resolveGatePrior never runs, so the gate never fires at all.
+    const seenBefore = seen.length
+    await expect(docs.put('d1', { name: 'overwrite' })).rejects.toBeInstanceOf(TierWriteRefusedError)
+    expect(seen.length).toBe(seenBefore)
+  })
+
+  it('i18nProvenance over an elevated id returns undefined, not the prior densify marker (resolveDensifyPrior, lazy)', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({ store, user: 'owner', secret: 'pw-707c', tiersStrategy: withTiers(), i18nStrategy: withI18n() })
+    const vault = await db.openVault('v1', { locale: 'en' })
+    const docs = vault.collection<{ name: Record<string, string> } & Record<string, unknown>>('docs', {
+      tiers: [0, 1], perRecordKeys: true, prefetch: false, cache: { maxRecords: 100 },
+      i18nFields: { name: i18nText({ languages: ['th', 'en'], required: 'any', substitute: ['en', 'th'], densifyOnWrite: true }) },
+    })
+    await docs.put('d1', { name: { th: 'สมชาย' } }) // en filled from th → real _i18nFilled marker
+    await docs.elevate('d1', 1) // evicts the LRU, warm cekCache
+    // Pre-#707: the lazy branch's adapter.get() miss fell through to an ungated
+    // decrypt (warm cekCache) and returned the elevated record's real _i18nFilled marker.
+    expect(await docs.i18nProvenance('d1')).toBeUndefined()
+  })
+
+  it('an eager classified put over an elevated id writes no history snapshot of the elevated plaintext (resolvePriorValues)', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, user: 'owner', secret: 'pw-707d',
+      tiersStrategy: withTiers(), classifiedStrategy: withClassified(), historyStrategy: withHistory(),
+    })
+    const vault = await db.openVault('v1')
+    const users = vault.collection<User>('users', {
+      perRecordKeys: true, tiers: [0, 1], acknowledgeEquatableRisk: true,
+      classifiedFields: { email: classified.email() }, // recoverable (sealed) — plaintext round-trips, unlike a digest-only field
+    })
+    await users.put('u1', { name: 'n', email: 'top-secret-elevated@example.com' })
+    await users.elevate('u1', 1) // warm cekCache
+    // Pre-#707: resolvePriorValues re-decrypted the elevated envelope (warm
+    // cekCache) and put() re-encrypted that plaintext into a NEW, tier-0-wrapped
+    // history snapshot — a PERSISTENT leak into the store, not just a transient read.
+    // Post-#715/#716: the write ring refuses this put() outright — no history write at all.
+    await expect(users.put('u1', { name: 'n2', email: 'new@example.com' })).rejects.toBeInstanceOf(TierWriteRefusedError)
+    const history = await users.history('u1')
+    expect(history.some(h => (h.record as User).email === 'top-secret-elevated@example.com')).toBe(false)
+  })
+})
+
+describe('#712 read-gate: elevated records leak no prior-version plaintext, warm or cold', () => {
+  function historyHarness() {
+    const store = memoryStore()
+    const open = async () => {
+      const db = await createNoydb({ store, user: 'owner', secret: 'pw-712', tiersStrategy: withTiers(), historyStrategy: withHistory() })
+      const vault = await db.openVault('v1')
+      const docs = vault.collection<User>('docs', { tiers: [0, 1], perRecordKeys: true })
+      return { docs }
+    }
+    return { store, open }
+  }
+
+  it('history() and getVersion() are empty for an elevated record — warm AND cold', async () => {
+    const h = historyHarness()
+    const { docs } = await h.open()
+    await docs.put('d1', { name: 'v1-secret' })
+    await docs.put('d1', { name: 'v2-secret' })
+    await docs.elevate('d1', 1)
+    // Pre-#712: BOTH returned the prior-version plaintext (history envelopes keep tier-0 CEKs).
+    expect(await docs.history('d1')).toEqual([])
+    expect(await docs.getVersion('d1', 1)).toBeNull()
+    await expect(docs.revert('d1', 1)).rejects.toThrow()      // inherits getVersion → not found
+    const cold = await h.open()
+    expect(await cold.docs.history('d1')).toEqual([])
+    expect(await cold.docs.getVersion('d1', 1)).toBeNull()
+  })
+
+  it('history stays readable after demote back to tier 0', async () => {
+    const h = historyHarness()
+    const { docs } = await h.open()
+    await docs.put('d2', { name: 'a' })
+    await docs.put('d2', { name: 'b' })
+    await docs.elevate('d2', 1)
+    await docs.demote('d2', 0)
+    expect((await docs.history('d2')).length).toBeGreaterThan(0) // demoted record IS tier-0
+  })
+
+  it('CRDT getRaw returns null for an elevated record instead of throwing', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({ store, user: 'owner', secret: 'pw-712c', tiersStrategy: withTiers(), crdtStrategy: withCrdt() })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<User>('cdocs', { tiers: [0, 1], crdt: 'lww-map' })
+    await docs.put('c1', { name: 'x' })
+    await docs.elevate('c1', 1)
+    expect(await docs.getRaw('c1')).toBeNull()
+  })
+
+  it('history() rejects uniformly for absent/tier0/elevated on a tiers-only collection with no history strategy — no notEnabled short-circuit oracle', async () => {
+    const store = memoryStore()
+    // No historyStrategy: getHistoryEntries() must throw notEnabled for ALL
+    // three cases, uniformly. Pre-fix, the elevated-record gate sat BEFORE the
+    // getHistoryEntries() call and short-circuited it to `[]`, distinguishing
+    // an elevated id from an absent/tier-0 id (both of which threw).
+    const db = await createNoydb({ store, user: 'owner', secret: 'pw-712rg', tiersStrategy: withTiers() })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<User>('docs', { tiers: [0, 1], perRecordKeys: true })
+    await docs.put('t0', { name: 'tier0' })
+    await docs.put('e1', { name: 'elevated' })
+    await docs.elevate('e1', 1)
+
+    await expect(docs.history('absent-id')).rejects.toThrow(/requires the history strategy/)
+    await expect(docs.history('t0')).rejects.toThrow(/requires the history strategy/)
+    await expect(docs.history('e1')).rejects.toThrow(/requires the history strategy/)
   })
 })

@@ -30,6 +30,7 @@ import type { BlobFieldsConfig } from '../../with-shape/blobs/blob-compaction.js
 import type { Query } from '../../kernel/query/index.js'
 import { embeddingSourceText, type VectorSet, type EmbeddingDescriptor, type StoredVector } from '../embeddings/index.js'
 import { EmbeddingDimMismatchError } from '../../kernel/errors.js'
+import { liveRecordIsElevated } from '../../kernel/tier-visibility.js'
 import { searchScan, fuseRetrieval, type SearchOptions, type SearchResult } from './index.js'
 import type { IndexStore } from './index-store.js'
 import type { PersistedIndexCallbacks } from './persisted-index-store.js'
@@ -192,6 +193,10 @@ function buildVectorLoad<T>(ctx: SearchContext<T>): () => Promise<StoredVector[]
     const ids = await ctx.adapter.list(ctx.vault, '_vec')
     const out: StoredVector[] = []
     for (const id of ids) {
+      // #721 defense-in-depth: a _vec row carries no _tier of its own; the purge
+      // on elevate is best-effort and cannot reach a legacy sidecar, so gate on
+      // the owning record's live tier. Envelope peek, no decryption.
+      if (await liveRecordIsElevated(ctx.adapter, ctx.vault, ctx.name, id)) continue
       const env = await ctx.adapter.get(ctx.vault, '_vec', id)
       if (!env) continue
       const body = await ctx.codec.decryptJsonString(env)
@@ -383,4 +388,37 @@ export async function embedOnWrite<T>(ctx: SearchContext<T>, id: string, record:
   const vecEnv = await ctx.codec.encryptJsonString(body, version)
   await ctx.adapter.put(ctx.vault, '_vec', id, vecEnv)
   ctx.vectorSet?.markDirty()
+}
+
+/**
+ * Sync the collection's SEARCH artifacts after a tier move (#721). Both the
+ * lexical `_ftindex` blob and the `_vec/<id>` embedding are encrypted under
+ * the tier-0 DEK and hold the record's derived plaintext (full field text /
+ * a text-invertible vector), so leaving them means elevation never hid what
+ * the record was searchable by — the `forget()` precedent, unapplied to
+ * elevate. `null` → the record left tier 0: purge its `_vec` sidecar (mirrors
+ * `Collection._purgeVector`), and invalidate the `_ftindex` blob (mirrors
+ * `Collection._purgeSearchIndex`: deletes the persisted blob when persisted,
+ * else drops the in-memory index) so the next `retrieve()` rebuilds from the
+ * elevated-free `ctx.cache`. A record → it is tier-0 again: re-embed it via
+ * {@link embedOnWrite}, then invalidate `_ftindex` so the rebuild includes it
+ * again. No-op fast when the collection has neither a lexical index nor a
+ * vector set.
+ */
+export async function syncTierSearch<T>(
+  ctx: SearchContext<T>,
+  id: string,
+  record: T | null,
+  version?: number,
+): Promise<void> {
+  if (!ctx.searchIndexStore && !ctx.vectorSet) return
+  if (record === null) {
+    await ctx.adapter.delete(ctx.vault, '_vec', id)
+    ctx.vectorSet?.markDirty()
+  } else {
+    await embedOnWrite(ctx, id, record, version ?? 1)
+  }
+  const store = ctx.searchIndexStore
+  if (store && 'removePersisted' in store) await (store as { removePersisted(): Promise<void> }).removePersisted()
+  else store?.markDirty()
 }
