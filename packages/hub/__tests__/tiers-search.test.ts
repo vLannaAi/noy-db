@@ -171,10 +171,17 @@ describe('#721 vector (_vec)', () => {
     expect(await h.store.get('v1', '_vec', 'e1')).not.toBeNull()
 
     const qVec = await ENCODER.encode('alpha')
+    // Load the VectorSet into memory BEFORE elevate — otherwise the "warm"
+    // assertion below does its first load from the already-purged store and
+    // passes even if elevate never dirtied the set (whole-branch review catch:
+    // the earlier version of this pin was vacuous). With the set warm, only
+    // vectorSet.markDirty() on elevate can evict e1 from the in-memory vectors.
+    expect((await docs.similarTo(qVec)).map(x => x.id)).toContain('e1') // warm, pre-elevate
+
     await docs.elevate('e1', 1)
     expect(await h.store.get('v1', '_vec', 'e1')).toBeNull() // sidecar purged
 
-    // Warm (same-session) eviction: the elevate must dirty the VectorSet so the
+    // Warm (same-session) eviction: elevate dirtied the VectorSet, so the
     // in-session similarTo rebuilds without e1 — not only the cold reopen below.
     expect((await docs.similarTo(qVec)).map(x => x.id)).not.toContain('e1')
 
