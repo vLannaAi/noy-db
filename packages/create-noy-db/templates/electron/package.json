@@ -12,16 +12,16 @@
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
-    "@noy-db/hub": "^0.12.0",
-    "@noy-db/in-pinia": "^0.12.0",
-    "@noy-db/to-file": "^0.12.0",
+    "@noy-db/hub": "^{{NOYDB_VERSION}}",
+    "@noy-db/in-pinia": "^{{NOYDB_VERSION}}",
+    "@noy-db/to-file": "^{{NOYDB_VERSION}}",
     "pinia": "^2.2.0",
     "vue": "^3.5.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@vitejs/plugin-vue": "^5.1.0",
-    "create-noy-db": "^0.12.0",
+    "create-noy-db": "^{{NOYDB_VERSION}}",
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
     "typescript": "^5.6.0",
