@@ -83,6 +83,32 @@ function withListPage(base: NoydbStore): NoydbStore {
   }
 }
 
+/**
+ * #713 fixture: wraps a store and counts adapter-level round-trips to
+ * `get`/`listPage`, so tests can pin the batched count() path avoiding the
+ * per-id `get()` fan-out that the pre-#713 `list()+get()` loop made. Counts
+ * only calls made directly on this wrapper — `withListPage`'s own internal
+ * `base.get` calls (used to build a page) are NOT counted, matching what a
+ * real remote store's `listPage` looks like from the caller's side: one
+ * round-trip per page, no per-id fetch.
+ */
+function withCallCounts(base: NoydbStore, counts: { get: number; listPage: number }): NoydbStore {
+  const wrapped: NoydbStore = {
+    ...base,
+    async get(v, c, id) {
+      counts.get++
+      return base.get(v, c, id)
+    },
+  }
+  if (base.listPage) {
+    wrapped.listPage = async (v, c, cursor, limit) => {
+      counts.listPage++
+      return base.listPage!(v, c, cursor, limit)
+    }
+  }
+  return wrapped
+}
+
 interface User extends Record<string, unknown> { name?: string; password?: string; email?: string; a1?: string; a2?: string }
 
 /** One store, reopenable: open() twice = cold second session over the same ciphertext. */
@@ -372,6 +398,42 @@ describe('#706 lazy count(): eager parity — elevated and deleted envelopes are
     const live = (await store.get('v1', 'mc', 'gone'))!
     await store.put('v1', 'mc', 'gone', buildDeleteMarker(live._v, 'owner'))
     // Pre-#706: raw adapter.list().length counted the marker id too (== 2).
+    expect(await docs.count()).toBe(1)
+  })
+})
+
+describe('#713 lazy count() batches via adapter.listPage — behavior parity, fewer round-trips', () => {
+  it('native listPage store: same count as the fallback, zero per-id get() calls (RED pre-#713: 3 gets)', async () => {
+    const base = memoryStore()
+    const nativeCounts = { get: 0, listPage: 0 }
+    const store = withCallCounts(withListPage(base), nativeCounts)
+    const db = await createNoydb({ store, user: 'owner', secret: 'pw-713', tiersStrategy: withTiers() })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<User>('docs', { tiers: [0, 1], perRecordKeys: true, prefetch: false, cache: { maxRecords: 100 } })
+    await docs.put('a', { name: 'a' })   // live tier-0 — counted
+    await docs.put('b', { name: 'b' })   // elevated below — not counted
+    await docs.put('c', { name: 'c' })   // delete-marked below — not counted
+    await docs.elevate('b', 1)
+    const live = (await store.get('v1', 'docs', 'c'))!
+    await store.put('v1', 'docs', 'c', buildDeleteMarker(live._v, 'owner'))
+    nativeCounts.get = 0
+    nativeCounts.listPage = 0 // reset after setup writes — only count() below matters
+    expect(await docs.count()).toBe(1) // only 'a' is live tier-0 — parity with fallback
+    expect(nativeCounts.get).toBe(0) // no per-id get() at all on the native path
+    expect(nativeCounts.listPage).toBeGreaterThanOrEqual(1)
+  })
+
+  it('fallback (no listPage) store: same count, list()+get() path still works', async () => {
+    const store = memoryStore() // no listPage — exercises the fallback branch
+    const db = await createNoydb({ store, user: 'owner', secret: 'pw-713-fb', tiersStrategy: withTiers() })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<User>('docs', { tiers: [0, 1], perRecordKeys: true, prefetch: false, cache: { maxRecords: 100 } })
+    await docs.put('a', { name: 'a' })
+    await docs.put('b', { name: 'b' })
+    await docs.put('c', { name: 'c' })
+    await docs.elevate('b', 1)
+    const live = (await store.get('v1', 'docs', 'c'))!
+    await store.put('v1', 'docs', 'c', buildDeleteMarker(live._v, 'owner'))
     expect(await docs.count()).toBe(1)
   })
 })
