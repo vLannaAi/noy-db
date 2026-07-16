@@ -104,6 +104,16 @@ describe('#721 lexical (_ftindex)', () => {
     expect(await store.get('v1', '_ftindex', 'docs')).not.toBeNull()
 
     await docs.elevate('e1', 1)
+
+    // AT-REST GUARANTEE (the crux of this CRITICAL leak): elevate must DELETE
+    // the persisted blob synchronously, not merely markDirty the in-memory
+    // index. retrieve() self-heals via a rebuild either way, so only a direct
+    // store peek — BEFORE any rebuild — can distinguish "blob deleted" from
+    // "blob left stale at rest". A future removePersisted→markDirty regression
+    // would keep every retrieve() test green while re-opening the leak; this
+    // pins it. The blob (decodable under the tier-0 DEK) held e1's verbatim text.
+    expect(await store.get('v1', '_ftindex', 'docs')).toBeNull()
+
     await docs.flushIndex()
 
     // Public read path: retrieve() must not surface e1 anymore.
@@ -160,12 +170,16 @@ describe('#721 vector (_vec)', () => {
     await docs.put('t0', { id: 't0', body: 'zzzzzzzzzzzzzzzzzzzzz' })
     expect(await h.store.get('v1', '_vec', 'e1')).not.toBeNull()
 
+    const qVec = await ENCODER.encode('alpha')
     await docs.elevate('e1', 1)
     expect(await h.store.get('v1', '_vec', 'e1')).toBeNull() // sidecar purged
 
+    // Warm (same-session) eviction: the elevate must dirty the VectorSet so the
+    // in-session similarTo rebuilds without e1 — not only the cold reopen below.
+    expect((await docs.similarTo(qVec)).map(x => x.id)).not.toContain('e1')
+
     const cold = await h.open()
     // Pre-#721: cold semantic retrieve/similarTo surfaced e1's id + score with no warm cache.
-    const qVec = await ENCODER.encode('alpha')
     expect((await cold.docs.similarTo(qVec)).map(x => x.id)).not.toContain('e1')
     expect((await cold.docs.retrieve('alpha', { mode: 'semantic' })).map(x => x.id)).not.toContain('e1')
   })
