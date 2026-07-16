@@ -14,8 +14,12 @@ import { createNoydb, ConflictError } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withClassified } from '../src/via/classified/active.js'
 import { classified } from '../src/via/classified/presets.js'
+import { withHistory } from '../src/with-commit/history/index.js'
+import { withI18n } from '../src/via/i18n/index.js'
+import { i18nText } from '../src/via/i18n/core.js'
 import { buildDeleteMarker } from '../src/kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
+import type { GatePutEvent } from '../src/port/with/service-bus.js'
 
 function memoryStore(): NoydbStore {
   const data = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -368,5 +372,77 @@ describe('#706 lazy count(): eager parity — elevated and deleted envelopes are
     await store.put('v1', 'mc', 'gone', buildDeleteMarker(live._v, 'owner'))
     // Pre-#706: raw adapter.list().length counted the marker id too (== 2).
     expect(await docs.count()).toBe(1)
+  })
+})
+
+describe('#707 write-path prior reads: elevated ≡ missing to hooks/gates/audit', () => {
+  it('onBeforeWrite sees a null prior for a put over an elevated id, never the elevated plaintext (#priorForHook, lazy)', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({ store, user: 'owner', secret: 'pw-707', tiersStrategy: withTiers() })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<User>('docs', { tiers: [0, 1], perRecordKeys: true, prefetch: false, cache: { maxRecords: 100 } })
+    const priors: unknown[] = []
+    db.onBeforeWrite((e) => { priors.push(e.before) })
+    await docs.put('d1', { name: 'secret' })
+    await docs.elevate('d1', 1) // evicts the LRU (#700) and caches the CEK — warm cekCache
+    await docs.put('d1', { name: 'overwrite' }) // tier-0 write over an elevated id
+    // Pre-#707: the lazy branch's adapter.get() miss fell through to an ungated
+    // decrypt, and the warm cekCache let it succeed — `before` was { name: 'secret' }.
+    const lastBefore = priors[priors.length - 1]
+    expect(lastBefore === null || (lastBefore as User)?.name !== 'secret').toBe(true)
+  })
+
+  it('a beforePut gate handler needing the prior sees existing:null for an elevated id (resolveGatePrior)', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({ store, user: 'owner', secret: 'pw-707b', tiersStrategy: withTiers() })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<User>('docs', { tiers: [0, 1], perRecordKeys: true })
+    const seen: GatePutEvent[] = []
+    db._subsystemBus.registerGate('beforePut', (e) => { seen.push(e) }) // default needsPrior: true
+    await docs.put('d1', { name: 'secret' })
+    await docs.elevate('d1', 1) // warm cekCache
+    await docs.put('d1', { name: 'overwrite' })
+    // Pre-#707: the try/catch masked the tier boundary — the warm cekCache let
+    // decryptRecord succeed and `existing` carried the elevated plaintext.
+    // (The envelope itself, and its version/timestamp, may still surface —
+    // only the DECRYPTED content is gated to null, same as a genuine decrypt failure.)
+    const lastEvent = seen[seen.length - 1]!
+    expect(lastEvent.existing).toBeNull()
+  })
+
+  it('i18nProvenance over an elevated id returns undefined, not the prior densify marker (resolveDensifyPrior, lazy)', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({ store, user: 'owner', secret: 'pw-707c', tiersStrategy: withTiers(), i18nStrategy: withI18n() })
+    const vault = await db.openVault('v1', { locale: 'en' })
+    const docs = vault.collection<{ name: Record<string, string> } & Record<string, unknown>>('docs', {
+      tiers: [0, 1], perRecordKeys: true, prefetch: false, cache: { maxRecords: 100 },
+      i18nFields: { name: i18nText({ languages: ['th', 'en'], required: 'any', substitute: ['en', 'th'], densifyOnWrite: true }) },
+    })
+    await docs.put('d1', { name: { th: 'สมชาย' } }) // en filled from th → real _i18nFilled marker
+    await docs.elevate('d1', 1) // evicts the LRU, warm cekCache
+    // Pre-#707: the lazy branch's adapter.get() miss fell through to an ungated
+    // decrypt (warm cekCache) and returned the elevated record's real _i18nFilled marker.
+    expect(await docs.i18nProvenance('d1')).toBeUndefined()
+  })
+
+  it('an eager classified put over an elevated id writes no history snapshot of the elevated plaintext (resolvePriorValues)', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, user: 'owner', secret: 'pw-707d',
+      tiersStrategy: withTiers(), classifiedStrategy: withClassified(), historyStrategy: withHistory(),
+    })
+    const vault = await db.openVault('v1')
+    const users = vault.collection<User>('users', {
+      perRecordKeys: true, tiers: [0, 1], acknowledgeEquatableRisk: true,
+      classifiedFields: { email: classified.email() }, // recoverable (sealed) — plaintext round-trips, unlike a digest-only field
+    })
+    await users.put('u1', { name: 'n', email: 'top-secret-elevated@example.com' })
+    await users.elevate('u1', 1) // warm cekCache
+    await users.put('u1', { name: 'n2', email: 'new@example.com' }) // tier-0 write over the elevated id
+    // Pre-#707: resolvePriorValues re-decrypted the elevated envelope (warm
+    // cekCache) and put() re-encrypted that plaintext into a NEW, tier-0-wrapped
+    // history snapshot — a PERSISTENT leak into the store, not just a transient read.
+    const history = await users.history('u1')
+    expect(history.some(h => (h.record as User).email === 'top-secret-elevated@example.com')).toBe(false)
   })
 })

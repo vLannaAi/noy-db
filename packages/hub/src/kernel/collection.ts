@@ -1613,7 +1613,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       const cached = this.lru.get(id)
       if (cached) return cached.record as Record<string, unknown>
       const env = await this.adapter.get(this.vault, this.name, id)
-      if (!env) return undefined
+      if (!env || (env._tier ?? 0) > 0) return undefined // #707: elevated ≡ missing
       const rec = await this.codec.decryptRecord(env, { id })
       return rec === null ? undefined : (rec as Record<string, unknown>)
     }
@@ -1665,7 +1665,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       const cached = this.lru.get(id)
       if (cached) return { record: cached.record, version: cached.version }
       const env = await this.adapter.get(this.vault, this.name, id)
-      if (!env) return { record: null, version: 0 }
+      if (!env || (env._tier ?? 0) > 0) return { record: null, version: 0 } // #707: elevated ≡ missing
       return { record: (await this.codec.decryptRecord(env, { skipValidation: true, id })) as unknown ?? null, version: env._v }
     }
     await this.ensureHydrated()
@@ -1689,7 +1689,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private async resolvePriorValues(id: string): Promise<{ record: T; version: number } | undefined> {
     if (this.sensitiveFields.size > 0 || this.via?.hasAtRestHooks === true) {
       const env = await this.adapter.get(this.vault, this.name, id)
-      if (!env || isTombstone(env, this.storeCiphertext)) return undefined
+      if (!env || isTombstone(env, this.storeCiphertext) || (env._tier ?? 0) > 0) return undefined // #707: elevated ≡ missing
       const rec = await this.codec.decryptRecord(env, { skipValidation: true, id })
       return rec === null ? undefined : { record: rec, version: env._v }
     }
@@ -1702,11 +1702,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (!this.subsystemBus!.gateNeedsPrior(point)) return { env: null, record: null, elided: true }
     const env = await this.adapter.get(this.vault, this.name, id)
     if (!env) return { env: null, record: null, elided: false }
-    try {
-      return { env, record: await this.codec.decryptRecord(env, { skipValidation: true, id }), elided: false }
-    } catch {
-      return { env, record: null, elided: false }
-    }
+    if ((env._tier ?? 0) > 0) return { env, record: null, elided: false } // #707: elevated invisible to gate handlers — deterministic, not a swallowed InvalidKeyError
+    return { env, record: await this.codec.decryptRecord(env, { skipValidation: true, id }), elided: false }
   }
 
   /**
