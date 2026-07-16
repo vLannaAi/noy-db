@@ -275,4 +275,21 @@ describe('#729 tier ops purge the record’s ledger deltas at rest', () => {
     expect(d1Entries.length).toBe(2)
     expect(d1Entries.some((e) => e.deltaHash !== undefined)).toBe(true)
   })
+
+  it('elevate → demote keeps the tamper-chain valid (demote does not touch the ledger; the purge is irreversible)', async () => {
+    const { docs, ledger, adapter } = await openTieredLedger()
+
+    await docs.put('d1', { id: 'd1', body: 'v1' })
+    await docs.put('d1', { id: 'd1', body: 'v2' })
+    const delta = (await ledger.entries()).find((e) => e.collection === 'docs' && e.id === 'd1' && e.deltaHash !== undefined)!
+
+    await docs.elevate('d1', 1)                                                  // purges the delta
+    expect(await adapter.get('demo-co', '_ledger_deltas', paddedIndex(delta.index))).toBeNull()
+    expect((await ledger.verify()).ok).toBe(true)
+
+    await docs.demote('d1', 0)                                                   // demote touches no ledger code
+    expect((await ledger.verify()).ok).toBe(true)                               // chain still valid after the round trip
+    // Irreversible: the purged delta is NOT restored by demote.
+    expect(await adapter.get('demo-co', '_ledger_deltas', paddedIndex(delta.index))).toBeNull()
+  })
 })

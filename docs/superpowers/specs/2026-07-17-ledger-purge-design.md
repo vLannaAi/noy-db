@@ -37,7 +37,7 @@ Implementation: `loadAllEntries()` (`store.ts:398`), filter `e.collection === co
 ## Constraints
 
 - Ceiling: `collection.ts` **4548** exact — the one `syncLedger` wiring line needs a mechanical shrink-join. `store.ts`/`tiers/index.ts` have no ceiling. `vault.ts`/`noydb.ts` untouched (the forget-side #734 is a separate PR).
-- Zero-knowledge: purge deletes ciphertext rows; it resolves no key material and decrypts nothing.
+- Zero-knowledge: purge deletes ciphertext rows and resolves **no tier key material**. It decrypts only the `_ledger` entry metadata (under the ledger's own DEK the caller already holds) to filter by `(collection, id)` — never a tier DEK, a record CEK, or a delta payload; the deleted delta rows are never opened.
 - **Chain integrity is the invariant to protect:** every test must assert `ledger.verify()` returns `{ok: true}` after a purge. A purge that breaks `verify()` is a Critical failure.
 - **Coverage gap:** no test combines tiers with the ledger's delta-reconstruction. Tests must: after `elevate`, the record's `_ledger_deltas` rows are gone from the store; `verify()` still passes; `reconstruct` can no longer recover the pre-elevation plaintext (returns the pruned/current state, not the old fields); a sibling record's deltas are untouched; `putAtTier(>0)` also purges; a non-elevated record keeps its deltas; and (the audit-preserved half) `entries()` still lists the record's mutation metadata after the purge.
 
