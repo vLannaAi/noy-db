@@ -21,7 +21,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import * as p from '@clack/prompts'
 import pc from 'picocolors'
-import { renderTemplate, templateDir, type RenderTokens } from './render.js'
+import { ownVersion, renderTemplate, templateDir, type RenderTokens } from './render.js'
 import type {
   WizardAdapter,
   WizardOptions,
@@ -193,6 +193,7 @@ async function runFreshMode(
     SEED_INVOICES: sampleData
       ? JSON.stringify(DEFAULT_SEED, null, 2).replace(/\n/g, '\n  ')
       : '[]',
+    NOYDB_VERSION: await ownVersion(),
   }
 
   await fs.mkdir(projectPath, { recursive: true })

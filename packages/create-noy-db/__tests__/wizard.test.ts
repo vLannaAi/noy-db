@@ -10,7 +10,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { runWizard } from '../src/wizard/run.js'
 import { validateProjectName } from '../src/wizard/run.js'
-import { applyTokens, renderTemplate, templateDir } from '../src/wizard/render.js'
+import { applyTokens, ownVersion, renderTemplate, templateDir } from '../src/wizard/render.js'
 
 // ─── Helpers ───────────────────────────────────────────────────────────
 
@@ -69,6 +69,7 @@ describe('applyTokens', () => {
     ADAPTER: 'browser',
     DEVTOOLS: 'true',
     SEED_INVOICES: '[]',
+    NOYDB_VERSION: '0.0.0-test.0',
   }
 
   it('substitutes known tokens', () => {
@@ -112,6 +113,7 @@ describe('renderTemplate', () => {
       ADAPTER: 'browser',
       DEVTOOLS: 'true',
       SEED_INVOICES: '[]',
+      NOYDB_VERSION: '0.0.0-test.0',
     })
 
     // Expected file set — sorted, relative to project root.
@@ -134,6 +136,7 @@ describe('renderTemplate', () => {
       ADAPTER: 'file',
       DEVTOOLS: 'true',
       SEED_INVOICES: '[]',
+      NOYDB_VERSION: '0.0.0-test.0',
     })
     const pkg = JSON.parse(await readFile(path.join(tmp, 'package.json')))
     expect(pkg.name).toBe('my-special-app')
@@ -150,6 +153,7 @@ describe('renderTemplate', () => {
       ADAPTER: 'memory',
       DEVTOOLS: 'true',
       SEED_INVOICES: '[]',
+      NOYDB_VERSION: '0.0.0-test.0',
     })
     const config = await readFile(path.join(tmp, 'nuxt.config.ts'))
     expect(config).toContain(`adapter: 'memory'`)
@@ -162,6 +166,7 @@ describe('renderTemplate', () => {
       ADAPTER: 'browser',
       DEVTOOLS: 'true',
       SEED_INVOICES: '[]',
+      NOYDB_VERSION: '0.0.0-test.0',
     })
     // .gitignore exists, _gitignore does not.
     await expect(fs.access(path.join(tmp, '.gitignore'))).resolves.toBeUndefined()
@@ -174,6 +179,7 @@ describe('renderTemplate', () => {
       ADAPTER: 'browser',
       DEVTOOLS: 'true',
       SEED_INVOICES: '[]',
+      NOYDB_VERSION: '0.0.0-test.0',
     })
     const store = await readFile(path.join(tmp, 'app/stores/invoices.ts'))
     expect(store).toContain('DEFAULT_INVOICES: Invoice[] = []')
@@ -185,6 +191,7 @@ describe('renderTemplate', () => {
       ADAPTER: 'browser',
       DEVTOOLS: 'true',
       SEED_INVOICES: '[\n    { "id": "inv-1", "client": "X" }\n  ]',
+      NOYDB_VERSION: '0.0.0-test.0',
     })
     const store = await readFile(path.join(tmp, 'app/stores/invoices.ts'))
     expect(store).toContain('"id": "inv-1"')
@@ -400,5 +407,73 @@ describe('runWizard — template selection (v0.17.1 )', () => {
     expect(mainProcess).toContain('my-electron-app')
     expect(renderer).toContain('my-electron-app')
     expect(readme).toContain('my-electron-app')
+  })
+})
+
+// ─── template dependency pins (#703) ──────────────────────────────────
+//
+// Every template ships `@noy-db/*` (and its own `create-noy-db` devDep)
+// pinned via the `{{NOYDB_VERSION}}` token, substituted at scaffold time
+// from this package's own version. Literal version pins in templates are
+// how #703 happened (pins referencing versions that never existed on npm,
+// so every scaffolded app failed `pnpm install`).
+
+describe('template dependency pins (#703)', () => {
+  const TEMPLATES = ['nuxt-default', 'vite-vue', 'vanilla', 'electron']
+  const PINNED = /^(@noy-db\/|create-noy-db$)/
+
+  it.each(TEMPLATES)('%s pins every noy-db dep via {{NOYDB_VERSION}}, never a literal version', async (name) => {
+    const raw = await readFile(path.join(templateDir(name), 'package.json'))
+    const pkg = JSON.parse(raw)
+    const deps: Record<string, string> = { ...pkg.dependencies, ...pkg.devDependencies }
+    const noydbDeps = Object.entries(deps).filter(([k]) => PINNED.test(k))
+    expect(noydbDeps.length).toBeGreaterThan(0)
+    for (const [dep, range] of noydbDeps) {
+      expect(range, `${name}: ${dep}`).toBe('^{{NOYDB_VERSION}}')
+    }
+  })
+
+  it('ownVersion() reports this package\'s version', async () => {
+    const pkg = JSON.parse(
+      await readFile(new URL('../package.json', import.meta.url).pathname),
+    )
+    await expect(ownVersion()).resolves.toBe(pkg.version)
+  })
+
+  it('renderTemplate substitutes the version into package.json with no leftover token', async () => {
+    const tmp2 = await makeTempDir()
+    try {
+      await renderTemplate(templateDir('nuxt-default'), tmp2, {
+        PROJECT_NAME: 'pinned-app',
+        ADAPTER: 'browser',
+        DEVTOOLS: 'true',
+        SEED_INVOICES: '[]',
+        NOYDB_VERSION: '9.9.9-pre.9',
+      })
+      const raw = await readFile(path.join(tmp2, 'package.json'))
+      expect(raw).not.toContain('{{NOYDB_VERSION}}')
+      const pkg = JSON.parse(raw)
+      expect(pkg.dependencies['@noy-db/hub']).toBe('^9.9.9-pre.9')
+      expect(pkg.devDependencies['create-noy-db']).toBe('^9.9.9-pre.9')
+    } finally {
+      await rmrf(tmp2)
+    }
+  })
+
+  it('runWizard pins the generated app to this package\'s own version', async () => {
+    const tmp2 = await makeTempDir()
+    try {
+      const result = await runWizard({ yes: true, projectName: 'pin-check', cwd: tmp2 })
+      const pkg = JSON.parse(await readFile(path.join(result.projectPath, 'package.json')))
+      const expected = `^${await ownVersion()}`
+      for (const [dep, range] of Object.entries({ ...pkg.dependencies, ...pkg.devDependencies })) {
+        if (/^(@noy-db\/|create-noy-db$)/.test(dep)) {
+          expect(range, dep).toBe(expected)
+        }
+      }
+      expect(pkg.dependencies['@noy-db/hub']).toBe(expected)
+    } finally {
+      await rmrf(tmp2)
+    }
   })
 })
