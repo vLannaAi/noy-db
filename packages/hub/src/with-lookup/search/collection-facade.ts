@@ -384,3 +384,36 @@ export async function embedOnWrite<T>(ctx: SearchContext<T>, id: string, record:
   await ctx.adapter.put(ctx.vault, '_vec', id, vecEnv)
   ctx.vectorSet?.markDirty()
 }
+
+/**
+ * Sync the collection's SEARCH artifacts after a tier move (#721). Both the
+ * lexical `_ftindex` blob and the `_vec/<id>` embedding are encrypted under
+ * the tier-0 DEK and hold the record's derived plaintext (full field text /
+ * a text-invertible vector), so leaving them means elevation never hid what
+ * the record was searchable by — the `forget()` precedent, unapplied to
+ * elevate. `null` → the record left tier 0: purge its `_vec` sidecar (mirrors
+ * `Collection._purgeVector`), and invalidate the `_ftindex` blob (mirrors
+ * `Collection._purgeSearchIndex`: deletes the persisted blob when persisted,
+ * else drops the in-memory index) so the next `retrieve()` rebuilds from the
+ * elevated-free `ctx.cache`. A record → it is tier-0 again: re-embed it via
+ * {@link embedOnWrite}, then invalidate `_ftindex` so the rebuild includes it
+ * again. No-op fast when the collection has neither a lexical index nor a
+ * vector set.
+ */
+export async function syncTierSearch<T>(
+  ctx: SearchContext<T>,
+  id: string,
+  record: T | null,
+  version?: number,
+): Promise<void> {
+  if (!ctx.searchIndexStore && !ctx.vectorSet) return
+  if (record === null) {
+    await ctx.adapter.delete(ctx.vault, '_vec', id)
+    ctx.vectorSet?.markDirty()
+  } else {
+    await embedOnWrite(ctx, id, record, version ?? 1)
+  }
+  const store = ctx.searchIndexStore
+  if (store && 'removePersisted' in store) await (store as { removePersisted(): Promise<void> }).removePersisted()
+  else store?.markDirty()
+}

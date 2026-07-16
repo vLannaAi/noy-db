@@ -34,6 +34,7 @@ import {
 import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
 import {
   buildPersistedIndexCallbacks as buildPersistedIndexCallbacksImpl,
+  syncTierSearch as syncTierSearchImpl,
   type SearchContext,
 } from '../with-lookup/search/collection-facade.js'
 import type { SearchStrategy } from '../with-lookup/search/strategy.js'
@@ -788,8 +789,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         // authoritative merge result — a shred must win and stay shredded.
         if (localJson === null) return local
         if (remoteJson === null) return remote
-        const localState = JSON.parse(localJson) as CrdtState
-        const merged = this.crdtStrategy.mergeCrdtStates(localState, JSON.parse(remoteJson) as CrdtState)
+        const merged = this.crdtStrategy.mergeCrdtStates(JSON.parse(localJson) as CrdtState, JSON.parse(remoteJson) as CrdtState)
         const mergedVersion = Math.max(local._v, remote._v) + 1
         const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
         return this.codec.encryptJsonString(JSON.stringify(merged), mergedVersion, cek)
@@ -2585,8 +2585,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       // stays directly under the collection DEK. `forget()`/shred reports
       // un-migrated records explicitly rather than claiming erasure.
       const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
-      const newEnv = await this.codec.encryptRecord(next as unknown as T, nextVersion, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: env } : undefined, id)
-      await this.adapter.put(this.vault, this.name, id, newEnv)
+      await this.adapter.put(this.vault, this.name, id, await this.codec.encryptRecord(next as unknown as T, nextVersion, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: env } : undefined, id))
       await this._onRecordMutated(id, 'put', 'cutover') // refresh in-memory cache after the raw write (parity: cache only)
       if (this.ledger) {
         await this.ledger.append({
@@ -4513,6 +4512,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       cekCache: this.cekCache,
       syncCache: (id: string, e: { record: T; version: number } | null) => { if (e) this.cache.set(id, e); else this.cache.delete(id); this.lru?.remove(id) },
       syncIndexes: (id: string, rec: T | null, version?: number) => syncTierIndexesImpl(this.indexingContext(), id, rec, version),
+      syncSearch: (id: string, rec: T | null, version?: number) => syncTierSearchImpl(this.searchContext(), id, rec, version),
       provenance: this.provenance,
       tiers: this.tiers,
       tierMode: this.tierMode,
