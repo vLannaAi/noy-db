@@ -10,7 +10,7 @@
  * through findByDet with no CrossTierAccessEvent.
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb, ConflictError } from '../src/index.js'
+import { createNoydb, ConflictError, TierWriteRefusedError } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withClassified } from '../src/via/classified/active.js'
 import { classified } from '../src/via/classified/presets.js'
@@ -448,11 +448,12 @@ describe('#707 write-path prior reads: elevated ≡ missing to hooks/gates/audit
     db.onBeforeWrite((e) => { priors.push(e.before) })
     await docs.put('d1', { name: 'secret' })
     await docs.elevate('d1', 1) // evicts the LRU (#700) and caches the CEK — warm cekCache
-    await docs.put('d1', { name: 'overwrite' }) // tier-0 write over an elevated id
     // Pre-#707: the lazy branch's adapter.get() miss fell through to an ungated
     // decrypt, and the warm cekCache let it succeed — `before` was { name: 'secret' }.
-    const lastBefore = priors[priors.length - 1]
-    expect(lastBefore === null || (lastBefore as User)?.name !== 'secret').toBe(true)
+    // Post-#715/#716: the write ring refuses this put() outright, before #priorForHook
+    // even runs — a strictly stronger guarantee than #707's nulled-prior fix.
+    await expect(docs.put('d1', { name: 'overwrite' })).rejects.toBeInstanceOf(TierWriteRefusedError)
+    expect(priors.some((p) => (p as User | null)?.name === 'secret')).toBe(false)
   })
 
   it('a beforePut gate handler needing the prior sees existing:null for an elevated id (resolveGatePrior)', async () => {
@@ -464,13 +465,15 @@ describe('#707 write-path prior reads: elevated ≡ missing to hooks/gates/audit
     db._subsystemBus.registerGate('beforePut', (e) => { seen.push(e) }) // default needsPrior: true
     await docs.put('d1', { name: 'secret' })
     await docs.elevate('d1', 1) // warm cekCache
-    await docs.put('d1', { name: 'overwrite' })
     // Pre-#707: the try/catch masked the tier boundary — the warm cekCache let
     // decryptRecord succeed and `existing` carried the elevated plaintext.
     // (The envelope itself, and its version/timestamp, may still surface —
     // only the DECRYPTED content is gated to null, same as a genuine decrypt failure.)
-    const lastEvent = seen[seen.length - 1]!
-    expect(lastEvent.existing).toBeNull()
+    // Post-#715/#716: the write ring refuses this put() outright, before the gate
+    // bus dispatch — resolveGatePrior never runs, so the gate never fires at all.
+    const seenBefore = seen.length
+    await expect(docs.put('d1', { name: 'overwrite' })).rejects.toBeInstanceOf(TierWriteRefusedError)
+    expect(seen.length).toBe(seenBefore)
   })
 
   it('i18nProvenance over an elevated id returns undefined, not the prior densify marker (resolveDensifyPrior, lazy)', async () => {
@@ -501,10 +504,11 @@ describe('#707 write-path prior reads: elevated ≡ missing to hooks/gates/audit
     })
     await users.put('u1', { name: 'n', email: 'top-secret-elevated@example.com' })
     await users.elevate('u1', 1) // warm cekCache
-    await users.put('u1', { name: 'n2', email: 'new@example.com' }) // tier-0 write over the elevated id
     // Pre-#707: resolvePriorValues re-decrypted the elevated envelope (warm
     // cekCache) and put() re-encrypted that plaintext into a NEW, tier-0-wrapped
     // history snapshot — a PERSISTENT leak into the store, not just a transient read.
+    // Post-#715/#716: the write ring refuses this put() outright — no history write at all.
+    await expect(users.put('u1', { name: 'n2', email: 'new@example.com' })).rejects.toBeInstanceOf(TierWriteRefusedError)
     const history = await users.history('u1')
     expect(history.some(h => (h.record as User).email === 'top-secret-elevated@example.com')).toBe(false)
   })
