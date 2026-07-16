@@ -26,6 +26,7 @@ import {
   type SealedShredSlot,
 } from './enclave/index.js'
 import { countLiveEnvelopes } from './lazy-count.js'
+import { liveRecordIsElevated } from './tier-visibility.js'
 import {
   classifySealedShred as classifySealedShredImpl,
   type TiersContext,
@@ -1480,7 +1481,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       )
     }
     const envelope = await this.adapter.get(this.vault, this.name, id)
-    if (!envelope) return null
+    if (!envelope || (envelope._tier ?? 0) > 0) return null
     const json = await this.codec.decryptJsonString(envelope)
     if (json === null) return null // shredded (tombstone)
     return JSON.parse(json) as CrdtState
@@ -1613,7 +1614,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       const cached = this.lru.get(id)
       if (cached) return cached.record as Record<string, unknown>
       const env = await this.adapter.get(this.vault, this.name, id)
-      if (!env) return undefined
+      if (!env || (env._tier ?? 0) > 0) return undefined // #707: elevated ≡ missing
       const rec = await this.codec.decryptRecord(env, { id })
       return rec === null ? undefined : (rec as Record<string, unknown>)
     }
@@ -1665,7 +1666,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       const cached = this.lru.get(id)
       if (cached) return { record: cached.record, version: cached.version }
       const env = await this.adapter.get(this.vault, this.name, id)
-      if (!env) return { record: null, version: 0 }
+      if (!env || (env._tier ?? 0) > 0) return { record: null, version: 0 } // #707: elevated ≡ missing
       return { record: (await this.codec.decryptRecord(env, { skipValidation: true, id })) as unknown ?? null, version: env._v }
     }
     await this.ensureHydrated()
@@ -1689,7 +1690,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private async resolvePriorValues(id: string): Promise<{ record: T; version: number } | undefined> {
     if (this.sensitiveFields.size > 0 || this.via?.hasAtRestHooks === true) {
       const env = await this.adapter.get(this.vault, this.name, id)
-      if (!env || isTombstone(env, this.storeCiphertext)) return undefined
+      if (!env || isTombstone(env, this.storeCiphertext) || (env._tier ?? 0) > 0) return undefined // #707: elevated ≡ missing
       const rec = await this.codec.decryptRecord(env, { skipValidation: true, id })
       return rec === null ? undefined : { record: rec, version: env._v }
     }
@@ -1702,11 +1703,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (!this.subsystemBus!.gateNeedsPrior(point)) return { env: null, record: null, elided: true }
     const env = await this.adapter.get(this.vault, this.name, id)
     if (!env) return { env: null, record: null, elided: false }
-    try {
-      return { env, record: await this.codec.decryptRecord(env, { skipValidation: true, id }), elided: false }
-    } catch {
-      return { env, record: null, elided: false }
-    }
+    if ((env._tier ?? 0) > 0) return { env, record: null, elided: false } // #707: elevated invisible to gate handlers — deterministic, not a swallowed InvalidKeyError
+    return { env, record: await this.codec.decryptRecord(env, { skipValidation: true, id }), elided: false }
   }
 
   /**
@@ -3463,9 +3461,11 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const envelopes = await this.historyStrategy.getHistoryEntries(
       this.adapter, this.vault, this.name, id, options,
     )
+    if (await liveRecordIsElevated(this.adapter, this.vault, this.name, id)) return [] // #712: elevated ≡ invisible
 
     const entries: HistoryEntry<T>[] = []
     for (const env of envelopes) {
+      if ((env._tier ?? 0) > 0) continue // #712: defensive — a per-version tiered snapshot
       // History reads skip schema validation — see getVersion() docs.
       const record = await this.codec.decryptRecord(env, { skipValidation: true, id })
       // Shredded (tombstoned) history version: the body is permanently gone,
@@ -3495,7 +3495,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const envelope = await this.historyStrategy.getVersionEnvelope(
       this.adapter, this.vault, this.name, id, version,
     )
-    if (!envelope) return null
+    if (!envelope || (envelope._tier ?? 0) > 0 || await liveRecordIsElevated(this.adapter, this.vault, this.name, id)) return null
     return this.codec.decryptRecord(envelope, { skipValidation: true, id })
   }
 
