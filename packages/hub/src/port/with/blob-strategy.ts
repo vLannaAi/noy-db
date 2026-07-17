@@ -23,6 +23,7 @@ import type { NoydbStore } from '../../kernel/types.js'
 import type { ObjectProjection } from '../../with-shape/blobs/object-projection.js'
 import type { BlobFieldsConfig } from '../../with-shape/blobs/blob-compaction.js'
 import type { EnclaveKey } from '../../kernel/enclave/index.js'
+import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import { linkBlobVia } from '../../via/blob/binding.js'
 
 // Install the blob Via binder EAGERLY (#629 Task 7) — `blobFields` policies
@@ -81,6 +82,15 @@ export interface BlobStrategyOpenArgs {
   readonly objectStore?: ObjectProjection
   /** Per-collection blob field policies — used to resolve `external` / `public`. */
   readonly blobFields?: BlobFieldsConfig
+  /**
+   * The caller's unlocked keyring (#749). Threaded through so `BlobSet.atTier()`
+   * can run `assertTierAccess` — the SAME clearance gate `putAtTier`/`elevate`/
+   * `demote` run before any tier `getDEK` call — rather than relying on a bare
+   * `getDEK`, which auto-mints a DEK for ANY role and never throws (verified: it
+   * is not itself a gate). Omitted only by a construction path that never calls
+   * `atTier()`.
+   */
+  readonly keyring?: UnlockedKeyring
 }
 
 /**

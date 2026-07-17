@@ -25,9 +25,10 @@ import {
   sha256Hex,
   type EnclaveKey,
 } from '../../kernel/enclave/index.js'
-import { ConflictError, NotFoundError, UnsupportedTierCompositionError, ValidationError } from '../../kernel/errors.js'
+import { ConflictError, NotFoundError, TierNotGrantedError, UnsupportedTierCompositionError, ValidationError } from '../../kernel/errors.js'
 import { liveRecordIsElevated, liveRecordTier } from '../../kernel/tier-visibility.js'
-import { dekKey } from '../../with-party/team/tiers.js'
+import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
+import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import { detectMagic, isPreCompressed } from './mime-magic.js'
 
 // ─── Internal collection names ─────────────────────────────────────────
@@ -155,6 +156,13 @@ export class BlobSet {
   private readonly debugPlaintext: boolean
   private readonly objectStore: ObjectProjection | undefined
   private readonly blobFields: BlobFieldsConfig | undefined
+  private readonly keyring: UnlockedKeyring | undefined
+  /**
+   * Set only on the cleared clone `atTier()` returns (#749) — never by
+   * `openSlot`/`Collection.blob()`. Its presence is what makes a `BlobSet`
+   * a cleared view: see `ownerRecordElevated()`/`ownerTier()`.
+   */
+  private readonly clearedTier: number | undefined
 
   constructor(opts: {
     store: NoydbStore
@@ -170,6 +178,8 @@ export class BlobSet {
     debugPlaintext?: boolean
     objectStore?: ObjectProjection
     blobFields?: BlobFieldsConfig
+    keyring?: UnlockedKeyring
+    clearedTier?: number
   }) {
     this.store = opts.store
     this.vault = opts.vault
@@ -184,6 +194,8 @@ export class BlobSet {
     this.debugPlaintext = opts.debugPlaintext === true
     this.objectStore = opts.objectStore
     this.blobFields = opts.blobFields
+    this.keyring = opts.keyring
+    this.clearedTier = opts.clearedTier
   }
 
   /**
@@ -238,8 +250,14 @@ export class BlobSet {
    * read on an elevated record is refused exactly like a `get()` on it
    * would be. Reads only the owning record's `_tier` envelope metadata;
    * runs before any blob decrypt.
+   *
+   * #749: a cleared clone (`this.clearedTier !== undefined`, produced only by
+   * `atTier()`) short-circuits to `false` — its whole purpose is to see past
+   * this gate, having already paid the `assertTierAccess` cost `atTier()`
+   * charged to get here. No live envelope peek needed on that path.
    */
   private async ownerRecordElevated(): Promise<boolean> {
+    if (this.clearedTier !== undefined) return false
     return liveRecordIsElevated(this.store, this.vault, this.collection, this.recordId)
   }
 
@@ -255,9 +273,73 @@ export class BlobSet {
    * before invoking `syncBlobs`), while the slot map is still physically at
    * `fromTier` until `rehomeForTier`'s own move step lands — so this peek
    * would resolve the wrong DEK mid-move.
+   *
+   * #749: a cleared clone reports its fixed `clearedTier` instead of
+   * re-peeking — a stable view for the caller's whole session with it. A
+   * concurrent demote/elevate on the underlying record is invisible to an
+   * already-cleared handle; call `atTier()` again to see it.
    */
   private async ownerTier(): Promise<number> {
+    if (this.clearedTier !== undefined) return this.clearedTier
     return liveRecordTier(this.store, this.vault, this.collection, this.recordId)
+  }
+
+  /**
+   * The sanctioned cleared-read path to an elevated record's blobs (#749).
+   *
+   * The law: `blob(id)` is the tier-0 surface — `get()`/`list()`/`blobInfo()`/
+   * etc. all hide an elevated record's blobs from EVERYONE, unconditionally
+   * (`ownerRecordElevated()`, #724 Task 1), with no cleared path of their own.
+   * `atTier()` is that cleared path, the `getAtTier()` analogue for blobs:
+   * live-peeks the owning record's tier, and for `tier > 0` runs
+   * `assertTierAccess` — the SAME gate `putAtTier`/`elevate`/`demote` run
+   * before ever touching a tier DEK — then returns a NEW `BlobSet` bound to
+   * that tier. Every subsequent call on the returned handle (`get()`,
+   * `list()`, `publish()`, …) sees through the gate as if the record were at
+   * tier 0.
+   *
+   * `assertTierAccess` — not a bare `getDEK` call — IS the authorization
+   * check: owner/admin/custodian bypass it (their on-demand tier-DEK mint is
+   * sanctioned), everyone else must already hold the tier DEK (via a prior
+   * grant or delegation) or it throws `TierNotGrantedError`. A bare `getDEK`
+   * would not gate anything here — it silently mints a fresh DEK for ANY
+   * caller when one is missing, which is exactly the "non-cleared caller
+   * creating tier key material inside the trust boundary" hazard
+   * `assertTierAccess`'s own doc comment (`with-party/team/tiers.ts`) warns
+   * against; running it BEFORE any `getDEK` call is what keeps an ungranted
+   * member's failed `atTier()` call from minting junk key material into
+   * their keyring as a side effect. No tier DEK is resolved here at all —
+   * every actual read still resolves its DEK lazily, same as today.
+   *
+   * `this.keyring` is undefined only on a construction path that never
+   * threads one through `openSlot` (`Collection.blob()` always does) — that
+   * can't prove clearance for anyone, so it throws the same
+   * `TierNotGrantedError` an ungranted caller would get.
+   */
+  async atTier(): Promise<BlobSet> {
+    const tier = await liveRecordTier(this.store, this.vault, this.collection, this.recordId)
+    if (tier === 0) return this
+
+    if (!this.keyring) throw new TierNotGrantedError(this.collection, tier)
+    assertTierAccess(this.keyring, this.collection, tier)
+
+    return new BlobSet({
+      store: this.store,
+      vault: this.vault,
+      collection: this.collection,
+      recordId: this.recordId,
+      getDEK: this.getDEK,
+      encrypted: this.encrypted,
+      erasableBlobs: this.erasableBlobs,
+      tiersActive: this.tiersActive,
+      debugPlaintext: this.debugPlaintext,
+      keyring: this.keyring,
+      clearedTier: tier,
+      ...(this.userId !== undefined ? { userId: this.userId } : {}),
+      ...(this.maxBlobBytes !== undefined ? { maxBlobBytes: this.maxBlobBytes } : {}),
+      ...(this.objectStore !== undefined ? { objectStore: this.objectStore } : {}),
+      ...(this.blobFields !== undefined ? { blobFields: this.blobFields } : {}),
+    })
   }
 
   /** The internal collection that holds slot metadata for this collection's blobs. */
@@ -1434,7 +1516,16 @@ export class BlobSet {
     const result = await this.loadBlobObject(slot.eTag)
     if (!result) return null
 
-    return this.fetchAllChunks(result.blob)
+    // #749: `fetchAllChunks`'s own `blobDEK` default (`resolveChunkKey`'s
+    // flat `_blob` fallback) predates #724 Task 3's tier-scoped content CEKs
+    // and was never wrong before `atTier()` existed — every pre-#749 caller
+    // reaching this line was, by construction, a tier-0 record (the
+    // `ownerRecordElevated()` gate above refused anything else). A cleared
+    // view's elevated content has its `_cek` wrapped under the tier that
+    // OPENED the index envelope (`result.atTier` — #747), not the flat one,
+    // so it must be resolved explicitly here.
+    const blobDEK = this.encrypted ? await this.getDEK(dekKey(BLOB_COLLECTION, result.atTier)) : undefined
+    return this.fetchAllChunks(result.blob, blobDEK)
   }
 
   /**
@@ -1621,7 +1712,9 @@ export class BlobSet {
     const result = await this.loadBlobObject(slot.eTag)
     if (!result) return null
 
-    return this.buildResponse(slot, result.blob, opts)
+    // #749: see the matching comment in `get()`.
+    const blobDEK = this.encrypted ? await this.getDEK(dekKey(BLOB_COLLECTION, result.atTier)) : undefined
+    return this.buildResponse(slot, result.blob, opts, blobDEK)
   }
 
   /**
@@ -1738,7 +1831,11 @@ export class BlobSet {
     const result = await this.loadBlobObject(record.eTag)
     if (!result) return null
 
-    return this.fetchAllChunks(result.blob)
+    // #749: see the matching comment in `get()` — `result.atTier` is the
+    // tier that actually opened the index envelope, which is what the
+    // wrapped content `_cek` is scoped under.
+    const blobDEK = this.encrypted ? await this.getDEK(dekKey(BLOB_COLLECTION, result.atTier)) : undefined
+    return this.fetchAllChunks(result.blob, blobDEK)
   }
 
   /**
@@ -1912,6 +2009,7 @@ export class BlobSet {
     slot: SlotRecord,
     blob: BlobObject,
     opts?: BlobResponseOptions,
+    blobDEK?: EnclaveKey,
   ): Promise<Response> {
     const fetchAllChunks = this.fetchAllChunks.bind(this)
 
@@ -1919,7 +2017,7 @@ export class BlobSet {
     const body = new ReadableStream<Uint8Array>({
       async start(controller) {
         try {
-          const output = await fetchAllChunks(blob)
+          const output = await fetchAllChunks(blob, blobDEK)
           controller.enqueue(output)
           controller.close()
         } catch (err) {

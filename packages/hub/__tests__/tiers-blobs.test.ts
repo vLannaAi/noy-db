@@ -4,7 +4,7 @@
  * owning record's _tier before returning bytes, exactly as get() does.
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb, ConflictError, dekKey, UnsupportedTierCompositionError } from '../src/index.js'
+import { createNoydb, ConflictError, dekKey, UnsupportedTierCompositionError, TierNotGrantedError } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withBlobs } from '../src/via/blob/index.js'
 import { withForgetCascade } from '../src/with-audit/forget/index.js'
@@ -1321,5 +1321,118 @@ describe('#747 BlobObject index envelope follows the eTag tier DEK', () => {
     const aBytes = await docs.blob('a').get('attachment')
     expect(aBytes).not.toBeNull()
     expect(new TextDecoder().decode(aBytes!)).toBe('dedup-policy shared bytes (#747)')
+  })
+})
+
+describe('#749 blob(id).atTier() — sanctioned cleared-read path', () => {
+  it('a cleared owner reads an elevated record\'s blobs via atTier() while blob(id) stays hidden — list()/blobInfo() too', async () => {
+    const db = await createNoydb({
+      store: memoryStore(), secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
+    await docs.blob('d1').put('attachment', new TextEncoder().encode('cleared-view bytes'))
+    await docs.elevate('d1', 1)
+
+    // The tier-0 surface still hides it — unchanged by #749.
+    expect(await docs.blob('d1').get('attachment')).toBeNull()
+    expect(await docs.blob('d1').list()).toEqual([])
+    expect(await docs.blob('d1').blobInfo('attachment')).toBeNull()
+
+    // The owner (already holding the tier-1 DEK, minted at elevate()) clears
+    // through atTier() and sees the blob exactly as if it were tier-0.
+    const cleared = await docs.blob('d1').atTier()
+    const bytes = await cleared.get('attachment')
+    expect(bytes).not.toBeNull()
+    expect(new TextDecoder().decode(bytes!)).toBe('cleared-view bytes')
+
+    const listed = await cleared.list()
+    expect(listed).toHaveLength(1)
+    expect(listed[0]!.name).toBe('attachment')
+
+    const info = await cleared.blobInfo('attachment')
+    expect(info).not.toBeNull()
+    expect(info!.size).toBe(new TextEncoder().encode('cleared-view bytes').byteLength)
+
+    // The uncleared handle is untouched by the cleared clone's existence.
+    expect(await docs.blob('d1').get('attachment')).toBeNull()
+  })
+
+  it('an ungranted operator session\'s atTier() rejects with TierNotGrantedError and mints no junk DEK', async () => {
+    const db = await createNoydb({
+      store: memoryStore(), secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
+    await docs.blob('d1').put('attachment', new TextEncoder().encode('secret bytes'))
+    await docs.elevate('d1', 1)
+
+    // Simulate an operator whose keyring never received the tier-1 grant —
+    // same technique `hierarchical-tiers.test.ts` uses for a non-admin,
+    // non-cleared caller.
+    const kr = (vault as unknown as { keyring: { deks: Map<string, unknown>; role: string } }).keyring
+    kr.deks.delete(dekKey('docs', 1))
+    kr.role = 'operator'
+    expect(kr.deks.has(dekKey('docs', 1))).toBe(false)
+
+    await expect(docs.blob('d1').atTier()).rejects.toThrow(TierNotGrantedError)
+
+    // The no-junk-mint property: a failed atTier() must not have minted a
+    // fresh (bogus, non-matching) tier-1 DEK into the ungranted caller's own
+    // keyring as a side effect — `assertTierAccess` runs BEFORE any getDEK.
+    expect(kr.deks.has(dekKey('docs', 1))).toBe(false)
+  })
+
+  it('a tier-0 record: atTier() returns an equivalent working view (round-trip put/get)', async () => {
+    const db = await createNoydb({
+      store: memoryStore(), secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
+
+    const cleared = await docs.blob('d1').atTier()
+    await cleared.put('attachment', new TextEncoder().encode('tier-0 round-trip'))
+    const bytes = await cleared.get('attachment')
+    expect(bytes).not.toBeNull()
+    expect(new TextDecoder().decode(bytes!)).toBe('tier-0 round-trip')
+
+    // Round-trips through the ordinary tier-0 handle too — same record.
+    const viaOrdinary = await docs.blob('d1').get('attachment')
+    expect(viaOrdinary).not.toBeNull()
+    expect(new TextDecoder().decode(viaOrdinary!)).toBe('tier-0 round-trip')
+  })
+
+  it('regression lock: blob(id) WITHOUT atTier() still hides an elevated record\'s blobs', async () => {
+    const db = await createNoydb({
+      store: memoryStore(), secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
+    await docs.blob('d1').put('attachment', new TextEncoder().encode('still hidden'))
+    await docs.elevate('d1', 1)
+
+    expect(await docs.blob('d1').get('attachment')).toBeNull()
+    expect(await docs.blob('d1').list()).toEqual([])
+    expect(await docs.blob('d1').blobInfo('attachment')).toBeNull()
   })
 })
