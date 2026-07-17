@@ -58,6 +58,126 @@ function memoryStore(): NoydbStore {
 }
 
 interface Item extends Record<string, unknown> { id: string; tag: string; subjectId?: string }
+interface Disbursement extends Record<string, unknown> { id: string; type: string; period: string; amount: number }
+
+describe('#736 whole-branch review — invalidateMVAtRest scopes deletion to MV-stamped rows', () => {
+  it('CRITICAL: same-collection partition MV (DERIV-PP30-001) — ordinary delete of one source record must NOT erase other source records at rest', async () => {
+    const store = memoryStore()
+    const mv = withMaterializedView<Disbursement>({
+      name: 'pp30-aggregate',
+      query: (db) => db.collection<Disbursement>('disbursements')
+        .query()
+        .where('type', 'in', ['vatSales', 'vatPurchase', 'vatCredit']),
+      rowKey: (r) => `pp30|${r.period}|${r.id}`,
+      refresh: 'lazy',
+      output: { collection: 'disbursements', partition: { field: 'type', value: 'pp30' } },
+      // `onEmpty: 'keep'` isolates this test to the `invalidateMVAtRest` fix under test —
+      // the executor's own `onEmpty: 'delete'` tombstone-diff pass has a SEPARATE,
+      // pre-existing bug for same-collection partition MVs (it diffs the new emitted-id
+      // set against EVERY id in the output collection, so an ordinary first materialize
+      // already tombstones untouched source rows before any delete/elevate/forget ever
+      // runs) — out of scope for this fix wave (stale.ts only); flagged separately.
+      onEmpty: 'keep',
+    })
+    const db = await createNoydb({
+      store, user: 'owner', secret: 'mv-tier-stale-same-coll-critical-2026',
+      materializedViewStrategies: [mv],
+    })
+    const vault = await db.openVault('demo')
+    const disb = vault.collection<Disbursement>('disbursements')
+    await disb.put('d1', { id: 'd1', type: 'vatSales', period: '2026-05', amount: 1000 })
+    await disb.put('d2', { id: 'd2', type: 'vatPurchase', period: '2026-05', amount: 500 })
+    // Materialize (first read fires the lazy resolve — writes the pp30|* rows into the SAME collection).
+    expect(await disb.get('pp30|2026-05|d1')).not.toBeNull()
+    expect(await disb.get('pp30|2026-05|d2')).not.toBeNull()
+    // Sanity: the pre-existing executor bug (see comment above) is neutralized by
+    // `onEmpty: 'keep'` — both original source rows are still present after materialize.
+    expect(await store.get('demo', 'disbursements', 'd1')).not.toBeNull()
+    expect(await store.get('demo', 'disbursements', 'd2')).not.toBeNull()
+
+    // Ordinary delete of an UNTOUCHED source record — must invalidate this MV's own output
+    // rows but must NEVER erase the other user source record ('d2') sharing the collection.
+    await disb.delete('d1')
+
+    // The other user source record survives at rest — the bug this test guards against.
+    expect(await store.get('demo', 'disbursements', 'd2')).not.toBeNull()
+    // MV-stamped output rows are still purged (invalidation still works).
+    expect(await store.get('demo', 'disbursements', 'pp30|2026-05|d1')).toBeNull()
+    expect(await store.get('demo', 'disbursements', 'pp30|2026-05|d2')).toBeNull()
+  })
+
+  it('IMPORTANT: hydrate-once race — two concurrent first reads over a cold registry both see the recomputed view', async () => {
+    const store = memoryStore()
+    const lazyMV = withMaterializedView<Item>({
+      name: 'people-mirror',
+      query: (db) => db.collection<Item>('people').query(),
+      rowKey: (r) => r.id,
+      refresh: 'lazy',
+    })
+    const open = async () => {
+      const db = await createNoydb({
+        store, user: 'owner', secret: 'mv-tier-stale-hydrate-race-2026',
+        materializedViewStrategies: [lazyMV],
+        historyStrategy: withHistory(),
+        forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+      })
+      const vault = await db.openVault('demo')
+      return { vault, people: vault.collection<Item>('people') }
+    }
+
+    const { vault, people } = await open()
+    await people.put('p1', { id: 'p1', tag: 'x', subjectId: 'subj-1' })
+    await people.put('p2', { id: 'p2', tag: 'y', subjectId: 'subj-2' })
+    expect(await vault.collection<Item>('people-mirror').get('p1')).not.toBeNull()
+    expect(await vault.collection<Item>('people-mirror').get('p2')).not.toBeNull()
+
+    await vault.forget('subj-1')
+    // Rows purged at rest + the lazy marker persisted (mirrors the existing #736 forget test).
+    expect(await store.get('demo', MV_STALE_COLLECTION, 'people-mirror')).not.toBeNull()
+
+    // Cold session: fresh registry. Fire two concurrent first-reads for the SAME id —
+    // without the promise-memo fix, whichever call loses the race sees "hydrate already
+    // in flight" and an empty in-memory pending set, and returns the not-yet-recomputed
+    // (purged) row instead of waiting for the recompute to finish.
+    const { vault: coldVault } = await open()
+    const coll = coldVault.collection<Item>('people-mirror')
+    const [r1, r2] = await Promise.all([coll.get('p2'), coll.get('p2')])
+    expect(r1).not.toBeNull()
+    expect(r2).not.toBeNull()
+    expect(r1?.tag).toBe('y')
+    expect(r2?.tag).toBe('y')
+  })
+
+  it('orphaned _mv_stale marker for an unregistered MV name is deleted on the next read (renamed/removed MV)', async () => {
+    const store = memoryStore()
+    const mv = withMaterializedView<Item>({
+      name: 'red-items',
+      query: (db) => db.collection<Item>('items').query().where('tag', '==', 'red'),
+      rowKey: (r) => r.id,
+      refresh: 'lazy',
+    })
+    const db = await createNoydb({
+      store, user: 'owner', secret: 'mv-tier-stale-orphan-marker-2026',
+      materializedViewStrategies: [mv],
+    })
+    const vault = await db.openVault('demo')
+
+    // Plant a marker for a name that is NOT (and never will be) a registered MV —
+    // simulates a marker surviving a rename/removal of the MV that wrote it.
+    const env = (await store.get('demo', MV_STALE_COLLECTION, 'ghost-mv')) ?? null
+    expect(env).toBeNull()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const plainEnv = (await import('../src/kernel/enclave/index.js')).RecordCodec.buildPlaintextEnvelope({ version: 1, data: '{}' })
+    await store.put('demo', MV_STALE_COLLECTION, 'ghost-mv', plainEnv)
+    expect(await store.get('demo', MV_STALE_COLLECTION, 'ghost-mv')).not.toBeNull()
+
+    // One read (triggers hydrate + the stale-check path).
+    await vault.collection<Item>('items').get('nonexistent')
+
+    // The orphaned marker is gone — it can never re-hydrate into a real recompute.
+    expect(await store.get('demo', MV_STALE_COLLECTION, 'ghost-mv')).toBeNull()
+  })
+})
 
 describe('#736 MV lazy/manual invalidation purges persisted rows + persists the lazy stale mark', () => {
   it('lazy MV + elevate: output rows purged at rest, marker persisted, cold session recomputes without the elevated contribution', async () => {

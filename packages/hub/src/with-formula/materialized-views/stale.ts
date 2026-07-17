@@ -75,8 +75,14 @@ export function isMVStale(registry: MaterializedViewRegistry, mvName: string): b
  */
 export const MV_STALE_COLLECTION = '_mv_stale'
 
-/** Once-per-registry hydrate guard for `resolveStaleMVOnRead`'s persisted-marker fold-in. */
-const _hydratedByRegistry = new WeakMap<MaterializedViewRegistry, true>()
+/**
+ * Once-per-registry hydrate guard for `resolveStaleMVOnRead`'s persisted-marker fold-in.
+ * Stores the in-flight/settled PROMISE (not a boolean) — a concurrent cold first read that
+ * arrives while the hydrate is still awaiting `adapter.list` must await the SAME promise
+ * rather than observing "already hydrating" and reading an empty pending set (#736
+ * whole-branch review).
+ */
+const _hydratedByRegistry = new WeakMap<MaterializedViewRegistry, Promise<void>>()
 
 /** The adapter + vault name backing any collection in this vault (all collections share both). */
 function storeOf(accessor: MVStaleAccessor, collectionName: string): { adapter: NoydbStore; vault: string } {
@@ -135,6 +141,22 @@ export async function invalidateMVAtRest(
   const txCtx = accessor.getActiveTxContext()
   const { adapter, vault } = storeOf(accessor, reg.outputCollection)
   for (const id of await adapter.list(vault, reg.outputCollection)) {
+    // A same-collection partition MV (`output: { collection: <source>, partition }`,
+    // the DERIV-PP30-001 shape) writes INTO its own source collection — `adapter.list`
+    // over `reg.outputCollection` then also returns untouched user source records.
+    // Decode each candidate row (the invalidation path is rare; this cost is fine
+    // here) and only erase rows THIS MV stamped via `_materializedFrom.mvName` —
+    // an unstamped row, or one stamped by a different MV, is never this MV's to
+    // delete (#736 whole-branch review, Critical).
+    const envelope = await adapter.get(vault, reg.outputCollection, id)
+    if (envelope === null) continue
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const decoded = await (outputColl as any)._decodeEnvelope(envelope, id)
+    const stampedBy =
+      decoded !== null && typeof decoded === 'object'
+        ? (decoded as Record<string, unknown>)._materializedFrom as { mvName?: string } | undefined
+        : undefined
+    if (stampedBy?.mvName !== reg.spec.name) continue
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (outputColl as any)._internalDelete(id, txCtx)
   }
@@ -180,13 +202,35 @@ export async function resolveStaleMVOnRead(
   const registry = accessor.registry()
   // Cold session: the in-memory WeakMap has no entry for this (freshly
   // constructed) registry yet — fold any persisted `_mv_stale` markers in
-  // before reading the pending set, once per registry (#736).
-  if (!_hydratedByRegistry.has(registry)) {
-    _hydratedByRegistry.set(registry, true)
-    await hydratePersistedStaleMarkers(accessor, registry)
+  // before reading the pending set, once per registry (#736). Memoize the
+  // PROMISE, not a boolean: a concurrent first read arriving while the
+  // hydrate is still awaiting `adapter.list` must await the SAME promise —
+  // otherwise it observes "already hydrating", skips straight to an empty
+  // pending set, and serves the purged/stale view as fresh (#736
+  // whole-branch review, hydrate-once race).
+  let hydrate = _hydratedByRegistry.get(registry)
+  if (!hydrate) {
+    hydrate = hydratePersistedStaleMarkers(accessor, registry)
+    _hydratedByRegistry.set(registry, hydrate)
   }
+  await hydrate
   const pending = _staleByRegistry.get(registry)
   if (!pending || pending.size === 0) return
+
+  const { adapter, vault } = storeOf(accessor, outputCollection)
+
+  // Clean up persisted markers for MV names no longer registered (renamed or
+  // removed since the marker was written). Without this sweep an orphaned name
+  // can never become a `candidate` below — `candidates` is built from
+  // `registry.all()`, which no longer lists it — so both the in-memory pending
+  // entry and the persisted `_mv_stale` row would linger forever, re-hydrating
+  // on every cold session (#736 whole-branch review).
+  for (const name of pending) {
+    if (registry.byName(name)) continue
+    pending.delete(name)
+    await deleteMVStaleMarker(adapter, vault, name)
+  }
+  if (pending.size === 0) return
 
   // Find every MV that writes to this output collection AND is
   // currently flagged stale. Multiple MVs CAN share an output
@@ -201,11 +245,15 @@ export async function resolveStaleMVOnRead(
   if (candidates.length === 0) return
 
   let executor: typeof MVExecutorType | null = null
-  const { adapter, vault } = storeOf(accessor, outputCollection)
   for (const name of candidates) {
     const reg = registry.byName(name)
     if (!reg) {
+      // Unreachable in practice — `candidates` is drawn from `registry.all()`,
+      // and the orphan sweep above already cleared any name absent from it.
+      // Kept as a defensive fallback; also clears the persisted marker so it
+      // can't linger if this ever does fire.
       pending.delete(name)
+      await deleteMVStaleMarker(adapter, vault, name)
       continue
     }
     if (executor === null) {
@@ -231,6 +279,10 @@ export async function resolveStaleMVOnRead(
       ...(dispatchCtx !== undefined ? { dispatchCtx } : {}),
     })
     pending.delete(name)
+    // Runs even when no marker was ever persisted for this name (an in-session-only
+    // stale bit — e.g. the cheap ordinary-write path never writes one, see the
+    // "cheap-path guarantee" test). `adapter.delete` on an absent key is a harmless
+    // void — keeping this unconditional avoids branching on marker origin here.
     await deleteMVStaleMarker(adapter, vault, name)
   }
 }
