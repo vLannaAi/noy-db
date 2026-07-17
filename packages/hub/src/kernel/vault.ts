@@ -2283,6 +2283,10 @@ export class Vault {
       throw new ForgetStrategyNotConfiguredError()
     }
 
+    // #734: resolve the ledger BEFORE any shred — the loop purges each record's
+    // plaintext deltas and the summary entry appends after, so a missing history
+    // strategy must abort with NOTHING erased (was: shred-then-throw).
+    const ledger = this.getLedgerOrNull(); if (!ledger) throw new Error('vault.forget() requires the history strategy for the erasure-proof ledger entry. Pass `historyStrategy: withHistory()` from "@noy-db/hub/history" to createNoydb().')
     const refs = await lookupSubject(this.adapter, this.name, this.getDEK, this.encrypted, subjectId)
     // Satellite fan-out (#591, with-shape/satellites/forget.ts) — a satellite
     // is never itself in the subject index, so synthesize its ref or it survives.
@@ -2292,8 +2296,8 @@ export class Vault {
     const collections = new Set<string>(); const unmigratedRecords: string[] = []
     const blobResidueCollections = new Set<string>()
     let blobsShredded = 0; let blobsRetainedShared = 0; let indexPostingsPurged = 0
-    let sealedFieldsShredded = 0; let sealedCekEnvelopesPurged = 0
-    const sealedCekResidue: string[] = []; const sealedResidue: string[] = []; const indexResidue: string[] = []
+    let sealedFieldsShredded = 0; let sealedCekEnvelopesPurged = 0; let ledgerDeltasPurged = 0
+    const sealedCekResidue: string[] = []; const sealedResidue: string[] = []; const indexResidue: string[] = []; const ledgerDeltaResidue: string[] = []
     const blobsEnabled = this.blobStrategy !== undefined
     const actor = this.keyring.userId
     const fanoutStats: ForgetFanoutStats = { recordsErased: 0, aggregatesRecomputed: 0, residueFrozen: [], lookupReferencesCascaded: 0, lookupReferencesNullified: 0, lookupReferencesResidue: [] }
@@ -2386,6 +2390,10 @@ export class Vault {
         this.adapter, this.name, ref.collection, ref.id, actor, this.encrypted,
       )
 
+      // #734: purge the record's plaintext `_ledger_deltas` rows — the erasure twin
+      // of #729's elevate purge. Chain-safe: verify() never re-reads delta rows; the
+      // summary `forget` entry appended below is the retained proof of erasure.
+      try { ledgerDeltasPurged += await ledger.purgeRecordDeltas(ref.collection, ref.id) } catch { ledgerDeltaResidue.push(`${ref.collection}:${ref.id}`) }
       // Purge the record's persisted `_idx` side-cars: they live under
       // the retained collection DEK, so crypto-shred alone leaves the indexed
       // field VALUES readable. Content-free delete; failures → indexResidue.
@@ -2417,8 +2425,8 @@ export class Vault {
         if (r.residue.length > 0) blobResidueCollections.add(ref.collection)
       } else {
         try {
-          const slotIds = await this.adapter.list(this.name, `_blob_slots_${ref.collection}`)
-          if (slotIds.includes(ref.id)) blobResidueCollections.add(ref.collection)
+          const [slotIds, verKeys] = await Promise.all([this.adapter.list(this.name, `_blob_slots_${ref.collection}`), this.adapter.list(this.name, `_blob_versions_${ref.collection}`)]) // #750: version rows are residue too when the blob service is off
+          if (slotIds.includes(ref.id) || verKeys.some((k) => k.startsWith(`${ref.id}::`))) blobResidueCollections.add(ref.collection)
         } catch {
           // No blob-slots collection for this collection — nothing to report.
         }
@@ -2443,14 +2451,6 @@ export class Vault {
     // ONE summary ledger entry for the whole subject. payloadHash =
     // sha256Hex(subjectId) so the ledger proves erasure without the subject.
     const subjectHash = await sha256Hex(subjectId)
-    const ledger = this.getLedgerOrNull()
-    if (!ledger) {
-      throw new Error(
-        'vault.forget() requires the history strategy for the erasure-proof ' +
-        'ledger entry. Pass `historyStrategy: withHistory()` from ' +
-        '"@noy-db/hub/history" to createNoydb().',
-      )
-    }
     const ledgerEntry = await ledger.append({
       op: 'forget',
       collection: '',
@@ -2471,7 +2471,7 @@ export class Vault {
         sealedFieldsShredded,
         sealedCekEnvelopesPurged,
         sealedCekResidueCount: sealedCekResidue.length,
-        sealedResidueCount: sealedResidue.length,
+        sealedResidueCount: sealedResidue.length, ledgerDeltasPurged, ledgerDeltaResidueCount: ledgerDeltaResidue.length,
       }),
     })
 
@@ -2495,7 +2495,7 @@ export class Vault {
       derivedRecordsErased: fanoutStats.recordsErased,
       derivedAggregatesRecomputed: fanoutStats.aggregatesRecomputed,
       derivedResidueFrozen: fanoutStats.residueFrozen,
-      lookupReferencesCascaded: fanoutStats.lookupReferencesCascaded, lookupReferencesNullified: fanoutStats.lookupReferencesNullified, lookupReferencesResidue: fanoutStats.lookupReferencesResidue, scopedPurgeResidue, // #650 Task 5 (+ review Important fix: residue) + #633
+      lookupReferencesCascaded: fanoutStats.lookupReferencesCascaded, lookupReferencesNullified: fanoutStats.lookupReferencesNullified, lookupReferencesResidue: fanoutStats.lookupReferencesResidue, scopedPurgeResidue, ledgerDeltasPurged, ledgerDeltaResidue, // #650 Task 5 (+ review Important fix: residue) + #633 + #734
     }
   }
 

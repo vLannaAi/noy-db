@@ -16,6 +16,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
 import { withForgetCascade } from '../../src/with-audit/forget/index.js'
+import { withHistory } from '../../src/with-commit/history/index.js'
 import { lookup } from '../../src/via/lookup/descriptor.js'
 import { DictKeyInUseError, RestrictRefUnresolvableError, ConflictError } from '../../src/kernel/errors.js'
 import type { Noydb } from '../../src/kernel/noydb.js'
@@ -88,6 +89,7 @@ describe('restrict direction: unresolvable compare-key fails closed (#654)', () 
     const db = await createNoydb({
       store: memory(), user: 'a', secret: 'lookup-restrict-unresolvable-forget-2026',
       forgetStrategy: withForgetCascade({ subjects: { countries: 'subjectId' } }),
+      historyStrategy: withHistory(),
     })
     const vault = await db.openVault('v')
     const countries = vault.collection<CountryRow>('countries', {})

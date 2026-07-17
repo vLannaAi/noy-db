@@ -509,6 +509,95 @@ describe('BlobSet', () => {
 
     db.close()
   })
+
+  // ─── #750: forget shreds published versions ────────────────────────
+
+  it('#750: shredAllForRecord shreds version-held content and deletes the version rows', async () => {
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const col = vault.collection<{ x: number }>('docs', { perRecordKeys: true })
+    await col.put('d-001', { x: 1 })
+
+    const blobs = col.blob('d-001')
+    await blobs.put('file.txt', textBytes('original content'))
+    await blobs.publish('file.txt', 'v1')
+    // Overwrite the slot: the v1 content is now held ONLY by the published version.
+    await blobs.put('file.txt', textBytes('amended content'))
+
+    const result = await blobs.shredAllForRecord()
+    expect(result.residue).toEqual([])
+
+    // Version rows for the record are gone…
+    const versionKeys = await store.list(VAULT, `${BLOB_VERSIONS_PREFIX}docs`)
+    expect(versionKeys.filter((k) => k.startsWith('d-001::'))).toEqual([])
+    // …and BOTH contents (slot-held and version-held) are crypto-shredded.
+    expect(await store.list(VAULT, BLOB_INDEX_COLLECTION)).toEqual([])
+    expect(await store.list(VAULT, BLOB_CHUNKS_COLLECTION)).toEqual([])
+    db.close()
+  })
+
+  it('#750: version content shared with another record is retained for the co-owner', async () => {
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const col = vault.collection<{ x: number }>('docs', { perRecordKeys: true })
+    await col.put('d-001', { x: 1 })
+    await col.put('d-002', { x: 2 })
+
+    const a = col.blob('d-001')
+    await a.put('file.txt', textBytes('shared bytes'))
+    await a.publish('file.txt', 'v1')
+    const b = col.blob('d-002')
+    await b.put('copy.txt', textBytes('shared bytes')) // dedup: same eTag, refCount 3
+
+    const result = await a.shredAllForRecord()
+    // d-001's two holds (slot + version) released in ONE outcome: retainedShared.
+    expect(result.retainedShared).toHaveLength(1)
+    expect(result.shredded).toEqual([])
+    // Co-owner still reads.
+    expect(new TextDecoder().decode((await b.get('copy.txt'))!)).toBe('shared bytes')
+    db.close()
+  })
+
+  it('#750: versions are shredded even when the slot map is empty (version outlived its slot)', async () => {
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const col = vault.collection<{ x: number }>('docs', { perRecordKeys: true })
+    await col.put('d-001', { x: 1 })
+
+    const blobs = col.blob('d-001')
+    await blobs.put('file.txt', textBytes('published then unlinked'))
+    await blobs.publish('file.txt', 'v1')
+    await blobs.delete('file.txt') // slot gone; the version keeps its hold
+
+    const result = await blobs.shredAllForRecord()
+    expect(result.shredded).toHaveLength(1)
+    expect(await store.list(VAULT, `${BLOB_VERSIONS_PREFIX}docs`)).toEqual([])
+    expect(await store.list(VAULT, BLOB_CHUNKS_COLLECTION)).toEqual([])
+    db.close()
+  })
+
+  it('#750: an unreadable version row is reported as residue and left in place', async () => {
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const col = vault.collection<{ x: number }>('docs', { perRecordKeys: true })
+    await col.put('d-001', { x: 1 })
+
+    const blobs = col.blob('d-001')
+    await blobs.put('file.txt', textBytes('content'))
+    await blobs.publish('file.txt', 'v1')
+
+    // Corrupt the version row at rest.
+    const versionsColl = `${BLOB_VERSIONS_PREFIX}docs`
+    const [key] = (await store.list(VAULT, versionsColl)).filter((k) => k.startsWith('d-001::'))
+    const envelope = (await store.get(VAULT, versionsColl, key!))!
+    await store.put(VAULT, versionsColl, key!, { ...envelope, _data: 'corrupted' }, envelope._v)
+
+    const result = await blobs.shredAllForRecord()
+    expect(result.residue).toEqual([`docs:d-001:${key}`])
+    // The row is NOT deleted (deleting blind would orphan its refCount hold).
+    expect(await store.get(VAULT, versionsColl, key!)).not.toBeNull()
+    db.close()
+  })
 })
 
 // ─── wrapBundleStore Tests ───────────────────────────────────────────

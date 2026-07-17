@@ -30,6 +30,7 @@ import { ConflictError, ForgetStrategyNotConfiguredError } from '../src/kernel/e
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withBlobs } from '../src/via/blob/index.js'
 import { withIndexing } from '../src/with-lookup/indexing/index.js'
 import { withCrdt } from '../src/with-commit/crdt/index.js'
 import { withSync } from '../src/with-party/sync/index.js'
@@ -248,6 +249,38 @@ describe('forget — group 5: blob residue reported', () => {
     } as EncryptedEnvelope)
 
     const result = await vault.forget('buyer-1')
+    expect(result.blobResidueCollections).toContain('invoices')
+  })
+
+  it('#750: reports residue for a published blob version that outlives its deleted slot, blob service off', async () => {
+    const store = memory()
+    // Session 1: blob service ON — publish a version, then delete the slot.
+    // The version keeps an independent refCount hold (see blob-set.test.ts
+    // #750) and its row survives under `_blob_versions_invoices`.
+    const db1 = await createNoydb({
+      store, user: 'alice', secret: SECRET,
+      historyStrategy: withHistory(),
+      forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+      blobStrategy: withBlobs(),
+    })
+    const vault1 = await db1.openVault('v')
+    const invoices1 = vault1.collection<Invoice>('invoices', { perRecordKeys: true })
+    await invoices1.put('i-1', { id: 'i-1', buyerId: 'buyer-1', amount: 100 })
+    const blobs = invoices1.blob('i-1')
+    await blobs.put('file.txt', new TextEncoder().encode('content'))
+    await blobs.publish('file.txt', 'v1')
+    await blobs.delete('file.txt')
+    db1.close()
+
+    // Session 2: blob service OFF — forget() falls back to the raw
+    // _blob_slots_/_blob_versions_ peek (the blobsEnabled === false path).
+    const db2 = await createNoydb({
+      store, user: 'alice', secret: SECRET,
+      historyStrategy: withHistory(),
+      forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+    })
+    const vault2 = await db2.openVault('v')
+    const result = await vault2.forget('buyer-1')
     expect(result.blobResidueCollections).toContain('invoices')
   })
 })

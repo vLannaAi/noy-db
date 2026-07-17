@@ -512,6 +512,16 @@ export class BlobSet {
    * that must never be swallowed as "no blobs to shred": it is pushed onto
    * `residue` so `forget()` surfaces it via `blobResidueCollections` rather
    * than silently reporting a clean erasure while un-shredded blobs remain.
+   *
+   * #750: published versions (`_blob_versions_{collection}/{recordId}::*`)
+   * take an INDEPENDENT refCount hold on a `BlobObject`, separate from the
+   * slot map (see `publish()`) — the slot loop above never sees them. Left
+   * untouched, that hold (and the version-held content, if the slot was
+   * later overwritten) survives `forget()` — a GDPR-erasure hole. So this
+   * method now also enumerates the record's version rows via
+   * `collectVersionHolds`, folds each version's hold into the SAME `holds`
+   * map (a shared eTag reports ONE outcome, not two), and deletes the
+   * readable version rows once their holds are released.
    */
   async shredAllForRecord(ownerTier?: number): Promise<{
     shredded: string[]
@@ -521,7 +531,7 @@ export class BlobSet {
     const shredded: string[] = []
     const retainedShared: string[] = []
     const residue: string[] = []
-    let slots: Record<string, SlotRecord>
+    let slots: Record<string, SlotRecord> = {}
     try {
       slots = (await this.loadSlots(ownerTier)).slots
     } catch {
@@ -532,18 +542,21 @@ export class BlobSet {
       // exist and we can't read them" — must surface as residue (mirrors
       // the sibling `_vec`/classified-sealed-dek residue push in
       // `vault.ts`'s forget loop), never silently report a clean erasure.
+      //
+      // #750: an unreadable slot map no longer aborts the cascade — published
+      // versions are independently-keyed rows and must still be shredded below.
       residue.push(`${this.collection}:${this.recordId}:_blob_slots`)
-      return { shredded, retainedShared, residue }
     }
-    const slotNames = Object.keys(slots)
-    if (slotNames.length === 0) return { shredded, retainedShared, residue }
 
-    // Reference count from THIS record per eTag.
+    // Reference count from THIS record per eTag — slot holds and published-
+    // version holds (#750) merged, so a shared eTag releases ALL of this
+    // record's holds in ONE releaseRef call and reports ONE outcome.
     const holds = new Map<string, number>()
-    for (const name of slotNames) {
+    for (const name of Object.keys(slots)) {
       const eTag = slots[name]!.eTag
       holds.set(eTag, (holds.get(eTag) ?? 0) + 1)
     }
+    const versionKeys = await this.collectVersionHolds(ownerTier, holds, residue)
 
     for (const [eTag, n] of holds) {
       // Forget erasure reclaims legacy orphans too (the record is being erased),
@@ -554,9 +567,46 @@ export class BlobSet {
       else residue.push(eTag)
     }
 
-    // Sever the subject's link: drop the record's slot map.
-    await this.store.delete(this.vault, this.slotsCollection, this.recordId)
+    // Sever the subject's links: the slot map + the readable version rows (#750).
+    if (Object.keys(slots).length > 0) await this.store.delete(this.vault, this.slotsCollection, this.recordId)
+    for (const key of versionKeys) await this.store.delete(this.vault, this.versionsCollection, key)
     return { shredded, retainedShared, residue }
+  }
+
+  /**
+   * #750: enumerate this record's published-version rows (`{recordId}::*` in
+   * `_blob_versions_{collection}` — the same raw prefix scan as
+   * `rehomeVersionRecords`) and fold each version's independent refCount hold
+   * into `holds`. Returns the READABLE version keys — safe to delete once
+   * their holds are released. An unreadable row is pushed onto `residue` and
+   * NOT returned: deleting it blind would orphan its refCount hold and strand
+   * the content undecryptable-but-undeleted forever, so it stays in place for
+   * out-of-band repair (mirrors the unreadable-slot-map posture above).
+   */
+  private async collectVersionHolds(
+    ownerTier: number | undefined,
+    holds: Map<string, number>,
+    residue: string[],
+  ): Promise<string[]> {
+    const prefix = `${this.recordId}::`
+    const keys = (await this.store.list(this.vault, this.versionsCollection)).filter((k) => k.startsWith(prefix))
+    if (keys.length === 0) return []
+    const readable: string[] = []
+    const dek = this.encrypted ? await this.getDEK(dekKey(this.collection, ownerTier ?? await this.ownerTier())) : null
+    for (const key of keys) {
+      const envelope = await this.store.get(this.vault, this.versionsCollection, key)
+      if (!envelope) continue
+      try {
+        const record = this.encrypted
+          ? JSON.parse(await openEnvelopeJson(envelope, dek!)) as VersionRecord
+          : JSON.parse(envelope._data) as VersionRecord
+        holds.set(record.eTag, (holds.get(record.eTag) ?? 0) + 1)
+        readable.push(key)
+      } catch {
+        residue.push(`${this.collection}:${this.recordId}:${key}`)
+      }
+    }
+    return readable
   }
 
   /**

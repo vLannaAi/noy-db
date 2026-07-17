@@ -1782,7 +1782,12 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   // (`openEnvelopeJson`/`writeBlobContent`) for every actual decrypt/write —
   // these are the two bare discriminant reads the loop needs to route
   // correctly. Up 2. 34→36.
-  ['packages/hub/src/with-shape/blobs/blob-set.ts', 36],
+  // #750: `collectVersionHolds` reads a raw version-record envelope's
+  // `_data` in the unencrypted branch — mirrors `rehomeVersionRecords`'s
+  // identical dual-branch read directly above it (the encrypted branch
+  // goes through the `openEnvelopeJson` barrel; only the plaintext-mode
+  // fallback is a bare `_data` read). Up 1. 36→37.
+  ['packages/hub/src/with-shape/blobs/blob-set.ts', 37],
   // #629 Task 4: DictionaryHandle's encrypt/decrypt now goes through the
   // reservedEnvelopes('_dict_') capability instead of building `_iv`/`_data`
   // literals inline — down from 5 (the plaintext branch's `_iv: ''`/`_data:`

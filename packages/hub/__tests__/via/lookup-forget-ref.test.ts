@@ -223,7 +223,8 @@ describe('forget() × lookup ref semantics (#650 Task 5, fixes #648)', () => {
     expect(Object.keys(result).sort()).toEqual([
       'blobResidueCollections', 'blobsRetainedShared', 'blobsShredded', 'collections',
       'derivedAggregatesRecomputed', 'derivedRecordsErased', 'derivedResidueFrozen',
-      'historyVersionsShredded', 'indexPostingsPurged', 'indexResidue', 'ledgerEntry',
+      'historyVersionsShredded', 'indexPostingsPurged', 'indexResidue', 'ledgerDeltaResidue',
+      'ledgerDeltasPurged', 'ledgerEntry',
       'lookupReferencesCascaded', 'lookupReferencesNullified', 'lookupReferencesResidue',
       'recordsShredded', 'scopedPurgeResidue', 'sealedCekEnvelopesPurged', 'sealedCekResidue', 'sealedFieldsShredded',
       'sealedResidue', 'subject', 'unmigratedRecords',
