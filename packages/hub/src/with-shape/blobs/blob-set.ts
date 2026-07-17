@@ -344,6 +344,18 @@ export class BlobSet {
    * CAS retry loop for slot metadata updates. Re-reads slots on conflict
    * and re-applies the mutation function.
    *
+   * #724 re-review (High): when the mutation empties the slot map (the
+   * last slot was deleted), the `_blob_slots_{collection}/{recordId}` row
+   * is DELETED rather than saved as an empty-but-present envelope. An
+   * empty envelope left in place would still be tier-keyed at whatever
+   * tier it was last written at; `rehomeForTier`'s `slots exist` guard
+   * (`Object.keys(slots).length > 0`) would then skip re-keying it on a
+   * later elevate/demote, stranding it at the wrong tier's DEK —
+   * `TamperedError` on every later access. Deleting the row instead makes
+   * "no slots" and "no envelope" the SAME state, so a record that once
+   * had a blob and a record that never had one behave identically once
+   * empty.
+   *
    * @param tier See {@link loadSlots}'s `tier` param — threaded through so
    * `rehomeForTier`'s isolate-fork writes (via `putUnderDEK`) target the
    * slot map's CURRENT (fromTier) location during the move.
@@ -356,6 +368,10 @@ export class BlobSet {
       const { slots, version } = await this.loadSlots(tier)
       const updated = mutate(slots)
       if (updated === null) return // no-op
+      if (Object.keys(updated).length === 0) {
+        if (version > 0) await this.store.delete(this.vault, this.slotsCollection, this.recordId)
+        return
+      }
       try {
         await this.saveSlots(updated, version, tier)
         return
@@ -485,17 +501,31 @@ export class BlobSet {
    * would resolve tier 0 and decrypt the tier-scoped slot map under the
    * wrong DEK (`TamperedError`, erasure aborted mid-shred). `forget()` reads
    * the LIVE record first and passes its pre-tombstone tier here instead.
+   *
+   * #724 re-review (High) defense-in-depth: an unreadable slot map (wrong
+   * DEK from a stray mis-keyed envelope, or genuine tamper) must not abort
+   * the whole erasure cascade — the primary fix (`casUpdateSlots` deleting
+   * the row instead of leaving it empty-but-present) prevents the mis-keying
+   * in the first place, but `forget()` is the one path where "can't read the
+   * slot map" and "no blobs to shred" should be indistinguishable: either
+   * way there is nothing here to crypto-shred, and a `TamperedError` must
+   * never leave a record tombstoned with its blob cascade half-run.
    */
   async shredAllForRecord(ownerTier?: number): Promise<{
     shredded: string[]
     retainedShared: string[]
     residue: string[]
   }> {
-    const { slots } = await this.loadSlots(ownerTier)
-    const slotNames = Object.keys(slots)
     const shredded: string[] = []
     const retainedShared: string[] = []
     const residue: string[] = []
+    let slots: Record<string, SlotRecord>
+    try {
+      slots = (await this.loadSlots(ownerTier)).slots
+    } catch {
+      return { shredded, retainedShared, residue } // unreadable slot map ≡ no blobs to shred
+    }
+    const slotNames = Object.keys(slots)
     if (slotNames.length === 0) return { shredded, retainedShared, residue }
 
     // Reference count from THIS record per eTag.

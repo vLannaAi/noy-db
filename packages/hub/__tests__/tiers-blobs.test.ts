@@ -1043,3 +1043,88 @@ describe('#724 composition enforcement (I1)', () => {
     ).resolves.toBeUndefined()
   })
 })
+
+describe('#724 empty-but-present slot map (re-review High)', () => {
+  it('a cleared caller can write a new blob after put→delete(last slot)→elevate', async () => {
+    const db = await createNoydb({
+      store: memoryStore(), secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { slot: {} },
+    })
+    await docs.putAtTier('d1', { id: 'd1', title: 'A', body: 'x' }, 0)
+    await docs.blob('d1').put('slot', new TextEncoder().encode('temp'))
+    await docs.blob('d1').delete('slot') // removes the LAST slot — empty-but-present envelope (today's bug)
+    await docs.elevate('d1', 1)
+
+    await expect(
+      docs.blob('d1').put('slot2', new TextEncoder().encode('post-elevation')),
+    ).resolves.toBeUndefined()
+  })
+
+  it('demote does not throw after put→delete(last slot)→elevate', async () => {
+    const db = await createNoydb({
+      store: memoryStore(), secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { slot: {} },
+    })
+    await docs.putAtTier('d2', { id: 'd2', title: 'B', body: 'y' }, 0)
+    await docs.blob('d2').put('slot', new TextEncoder().encode('temp'))
+    await docs.blob('d2').delete('slot')
+    await docs.elevate('d2', 1)
+
+    await expect(docs.demote('d2', 0)).resolves.toBeUndefined()
+  })
+
+  it('vault.forget() does not throw and completes after put→delete(last slot)→elevate', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      historyStrategy: withHistory(),
+      forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+    })
+    const vault = await db.openVault('v1')
+    interface Inv { id: string; buyerId: string; title: string }
+    const invoices = vault.collection<Inv>('invoices', {
+      tiers: [0, 1], blobFields: { contract: {} },
+    })
+    await invoices.put('i-1', { id: 'i-1', buyerId: 'buyer-1', title: 't' })
+    await invoices.blob('i-1').put('contract', new TextEncoder().encode('temp'))
+    await invoices.blob('i-1').delete('contract')
+    await invoices.elevate('i-1', 1)
+
+    await expect(vault.forget('buyer-1')).resolves.toBeDefined()
+    // Record tombstoned, not left half-erased.
+    const env = await store.get('v1', 'invoices', 'i-1')
+    expect(env).not.toBeNull()
+    expect(env!._data).toBe('')
+  })
+
+  it('control: a record that NEVER had a blob — elevate/demote/forget all work', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      historyStrategy: withHistory(),
+      forgetStrategy: withForgetCascade({ subjects: { docs: 'id' } }),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { slot: {} },
+    })
+    await docs.put('d3', { id: 'd3', title: 'C', body: 'z' })
+
+    await expect(docs.elevate('d3', 1)).resolves.toBeUndefined()
+    await expect(docs.demote('d3', 0)).resolves.toBeUndefined()
+    await expect(vault.forget('d3')).resolves.toBeDefined()
+    const env = await store.get('v1', 'docs', 'd3')
+    expect(env).not.toBeNull()
+    expect(env!._data).toBe('')
+  })
+})
