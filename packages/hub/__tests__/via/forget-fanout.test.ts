@@ -216,7 +216,8 @@ describe('forget() fanout to derived residue (#622)', () => {
     expect(Object.keys(result).sort()).toEqual([
       'blobResidueCollections', 'blobsRetainedShared', 'blobsShredded', 'collections',
       'derivedAggregatesRecomputed', 'derivedRecordsErased', 'derivedResidueFrozen',
-      'historyVersionsShredded', 'indexPostingsPurged', 'indexResidue', 'ledgerEntry',
+      'historyVersionsShredded', 'indexPostingsPurged', 'indexResidue', 'ledgerDeltaResidue',
+      'ledgerDeltasPurged', 'ledgerEntry',
       'lookupReferencesCascaded', 'lookupReferencesNullified', 'lookupReferencesResidue',
       'recordsShredded', 'scopedPurgeResidue', 'sealedCekEnvelopesPurged', 'sealedCekResidue', 'sealedFieldsShredded',
       'sealedResidue', 'subject', 'unmigratedRecords',
