@@ -2425,8 +2425,8 @@ export class Vault {
         if (r.residue.length > 0) blobResidueCollections.add(ref.collection)
       } else {
         try {
-          const slotIds = await this.adapter.list(this.name, `_blob_slots_${ref.collection}`)
-          if (slotIds.includes(ref.id)) blobResidueCollections.add(ref.collection)
+          const [slotIds, verKeys] = await Promise.all([this.adapter.list(this.name, `_blob_slots_${ref.collection}`), this.adapter.list(this.name, `_blob_versions_${ref.collection}`)]) // #750: version rows are residue too when the blob service is off
+          if (slotIds.includes(ref.id) || verKeys.some((k) => k.startsWith(`${ref.id}::`))) blobResidueCollections.add(ref.collection)
         } catch {
           // No blob-slots collection for this collection — nothing to report.
         }
