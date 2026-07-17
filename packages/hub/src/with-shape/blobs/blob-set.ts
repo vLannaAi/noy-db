@@ -187,15 +187,21 @@ export class BlobSet {
    * Resolve the key the blob's CHUNKS are encrypted under.
    *
    * - `_cek` present (erasable blob) → unwrap the per-blob content CEK under
-   *   the `_blob` DEK. Deleting the BlobObject (at `refCount → 0`) makes this
+   *   `blobDEK`. Deleting the BlobObject (at `refCount → 0`) makes this
    *   key unrecoverable → the chunks are crypto-shredded.
-   * - `_cek` absent (legacy) → the `_blob` DEK encrypts chunks directly.
+   * - `_cek` absent (legacy) → `blobDEK` encrypts chunks directly.
    * - unencrypted vault → `null` (chunks stored as plaintext base64).
+   *
+   * `blobDEK` defaults to this record's own (tier-0) `_blob` DEK — every
+   * pre-#724-T3 call site. `rehomeForTier`'s isolate-fork path (#724 Arc 10
+   * Task 3) passes the `fromTier`-scoped DEK explicitly to read a shared
+   * blob's plaintext under the key it's CURRENTLY wrapped under, reusing
+   * this one `_cek` unwrap site rather than adding a new raw access.
    */
-  private async resolveChunkKey(blob: Pick<BlobObject, '_cek'>): Promise<EnclaveKey | null> {
+  private async resolveChunkKey(blob: Pick<BlobObject, '_cek'>, blobDEK?: EnclaveKey): Promise<EnclaveKey | null> {
     if (!this.encrypted) return null
-    const blobDEK = await this.getDEK(BLOB_COLLECTION)
-    return blob._cek !== undefined ? await unwrapCek(blob._cek, blobDEK) : blobDEK
+    const dek = blobDEK ?? await this.getDEK(BLOB_COLLECTION)
+    return blob._cek !== undefined ? await unwrapCek(blob._cek, dek) : dek
   }
 
   /**
@@ -465,15 +471,28 @@ export class BlobSet {
    *    rewrite the `BlobObject`. The CONTENT CEK itself — and therefore
    *    every chunk encrypted under it — is untouched; only its wrapper
    *    moves. The eTag (a content address) stays stable.
-   *  - **shared** (`refCount > 1`): NO-OP here — rewrapping would move the
-   *    key out from under every OTHER referencing record too. Left for
-   *    Task 3's policy branch (`'isolate'` vs `'dedup'`).
+   *  - **shared** (`refCount > 1`): rewrapping in place would move the key
+   *    out from under every OTHER referencing record — `policy` decides
+   *    (#724 Arc 10 Task 3):
+   *      - `'isolate'` (default): read the plaintext under `fromBlobDEK`
+   *        (still resolvable via THIS record's clearance — it hasn't
+   *        moved yet), then re-`put()` it under `toBlobDEK` for every one
+   *        of this record's slots pointing at the shared eTag. That mints
+   *        a fresh, private, tier-scoped eTag/`_cek` (HMAC + wrap keyed by
+   *        `toBlobDEK`, distinct from the shared tier-0 address) and, via
+   *        `put()`'s own existing old-eTag decrement, releases this
+   *        record's hold on the shared object — co-owners keep it at
+   *        their unchanged refCount.
+   *      - `'dedup'` (#741, opt-in): NO-OP — the slot keeps pointing at
+   *        the shared eTag. The Task-1 runtime read gate still hides it
+   *        from a tier-0 caller; the chunks remain decryptable at rest
+   *        under the flat `_blob` DEK (documented residue).
    *  - **legacy** (`_cek` absent — chunks direct under the flat `_blob`
    *    DEK): NO-OP. Tiered collections mandate `perRecordKeys`, so new
    *    blob data is always erasable; a legacy blob reaching this method
    *    would need a chunk re-encrypt (not attempted here).
    */
-  async rehomeForTier(fromTier: number, toTier: number, _policy: 'isolate' | 'dedup'): Promise<void> {
+  async rehomeForTier(fromTier: number, toTier: number, policy: 'isolate' | 'dedup'): Promise<void> {
     if (!this.encrypted || fromTier === toTier) return
     const { slots } = await this.loadSlots()
     const eTags = new Set(Object.values(slots).map((s) => s.eTag).filter((eTag) => eTag !== ''))
@@ -487,7 +506,23 @@ export class BlobSet {
       if (!loaded) continue
       const { blob, version } = loaded
       if (blob._cek === undefined) continue // legacy: no rewrap (see doc comment)
-      if (blob.refCount > 1) continue // shared (refCount>1): Task 3 policy branch
+      if (blob.refCount > 1) {
+        if (policy === 'dedup') continue // #741: leave the shared object; read gate covers runtime
+        // isolate (default): fork a private tier-scoped copy for every slot
+        // on THIS record pointing at the shared eTag, then release this
+        // record's hold on it (via put()'s own old-eTag decrement).
+        const plaintext = await this.fetchAllChunks(blob, fromBlobDEK)
+        for (const [slotName, slot] of Object.entries(slots)) {
+          if (slot.eTag !== eTag) continue
+          await this.putUnderDEK(slotName, plaintext, toBlobDEK, {
+            filename: slot.filename,
+            ...(blob.mimeType !== undefined ? { mimeType: blob.mimeType } : {}),
+            compress: blob.compression === 'gzip',
+            ...(slot.uploadedBy !== undefined ? { uploadedBy: slot.uploadedBy } : {}),
+          })
+        }
+        continue
+      }
       const contentCek = await unwrapCek(blob._cek, fromBlobDEK)
       const rewrapped = await wrapCek(contentCek, toBlobDEK)
       await this.writeBlobObject({ ...blob, _cek: rewrapped }, version)
@@ -684,10 +719,10 @@ export class BlobSet {
 
   // ─── Fetch all chunks for a blob ──────────────────────────────────
 
-  private async fetchAllChunks(blob: BlobObject): Promise<Uint8Array> {
+  private async fetchAllChunks(blob: BlobObject, blobDEK?: EnclaveKey): Promise<Uint8Array> {
     // Chunks are keyed under the per-blob content CEK (erasable) or directly
     // under the `_blob` DEK (legacy) — resolveChunkKey discriminates on `_cek`.
-    const chunkKey = await this.resolveChunkKey(blob)
+    const chunkKey = await this.resolveChunkKey(blob, blobDEK)
     const chunks: Uint8Array[] = []
 
     for (let i = 0; i < blob.chunkCount; i++) {
@@ -771,8 +806,29 @@ export class BlobSet {
       return
     }
 
-    // Step 1 — keyed content-hash (plaintext, before compression)
     const blobDEK = this.encrypted ? await this.getDEK(BLOB_COLLECTION) : null
+    return this.putUnderDEK(slotName, data, blobDEK, opts)
+  }
+
+  /**
+   * The chunk/CEK/dedup/slot core of `put()` (steps 1-7), parameterized by
+   * which `_blob` DEK to hash the eTag and wrap the content CEK under.
+   * `put()` always passes this record's own (tier-0) blob DEK.
+   *
+   * `rehomeForTier`'s isolate-fork path (#724 Arc 10 Task 3) is the other
+   * caller: it passes the `toTier`-scoped DEK so a forked copy of a shared
+   * blob gets a private, tier-scoped eTag and `_cek` wrap from the moment
+   * it's written — the fork never routes through public `put()` under the
+   * wrong key, and this method adds no new raw `_cek`/`_iv`/`_data` access
+   * (identical bodies to the pre-#724-T3 `put()`, just parameterized).
+   */
+  private async putUnderDEK(
+    slotName: string,
+    data: Uint8Array,
+    blobDEK: EnclaveKey | null,
+    opts?: BlobPutOptions,
+  ): Promise<void> {
+    // Step 1 — keyed content-hash (plaintext, before compression)
     const eTag = blobDEK
       ? await hmacSha256Hex(blobDEK, data)
       : await plainSha256Hex(data)

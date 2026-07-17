@@ -141,6 +141,16 @@ export interface CollectionOpts<T> {
   blobStrategy?: BlobStrategy | undefined
   objectStore?: ObjectProjection | undefined
   blobFields?: BlobFieldsConfig | undefined
+  /**
+   * #724 Arc 10 Task 3: how `elevate()`/`demote()`/`putAtTier()` rehome a
+   * SHARED blob (`refCount > 1`) it can't rewrap in place. `'isolate'`
+   * (default) forks a private tier-scoped copy for the moving record and
+   * releases its hold on the shared object — co-owners stay byte-for-byte
+   * untouched. `'dedup'` (#741, opt-in) leaves the shared object in place;
+   * the Task-1 runtime read gate still hides it, but the chunks stay
+   * decryptable at rest under the flat `_blob` DEK (documented residue).
+   */
+  blobTierPolicy?: 'isolate' | 'dedup' | undefined
   aggregateStrategy?: AggregateStrategy | undefined
   crdtStrategy?: CrdtStrategy | undefined
   /**
@@ -1119,6 +1129,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     tiersStrategy: opts.tiersStrategy ?? NO_TIERS,
     searchStrategy: opts.searchStrategy ?? NO_SEARCH,
     tierMode: opts.tierMode ?? 'invisibility',
+    blobTierPolicy: opts.blobTierPolicy ?? 'isolate',
     onCrossTierAccess: opts.onCrossTierAccess,
     deterministicFields,
     sensitiveFields,
