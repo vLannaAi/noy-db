@@ -4,7 +4,7 @@
  * owning record's _tier before returning bytes, exactly as get() does.
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb, ConflictError, dekKey, UnsupportedTierCompositionError, TierNotGrantedError } from '../src/index.js'
+import { createNoydb, ConflictError, dekKey, UnsupportedTierCompositionError, TierNotGrantedError, TamperedError } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withBlobs } from '../src/via/blob/index.js'
 import { withForgetCascade } from '../src/with-audit/forget/index.js'
@@ -1305,6 +1305,15 @@ describe('#747 BlobObject index envelope follows the eTag tier DEK', () => {
     let indexEnv = await store.get('v1', BLOB_INDEX_COLLECTION, sharedETag)
     await expect(openEnvelopeJson(indexEnv!, tier0BlobDEK)).resolves.toBeDefined()
 
+    // I1 positive lock (whole-branch review): a cleared clone's read of
+    // this LEGITIMATE flat-fallback case (dedup-shared, never rehomed)
+    // must still round-trip — the #757 content-address re-verification on
+    // a flat fallback is a no-op for honest data, only a forged row trips it.
+    const clearedB = await docs.blob('b').atTier()
+    const bBytes = await clearedB.get('attachment')
+    expect(bBytes).not.toBeNull()
+    expect(new TextDecoder().decode(bBytes!)).toBe('dedup-policy shared bytes (#747)')
+
     // b's forget() releases ITS hold on the shared object (via `releaseRef`
     // resolving b's pre-tombstone tier, 1) — a refCount change driven by the
     // ELEVATED co-owner must not re-key the shared object onto b's tier-1
@@ -1377,13 +1386,17 @@ describe('#749 blob(id).atTier() — sanctioned cleared-read path', () => {
     await docs.blob('d1').put('attachment', new TextEncoder().encode('secret bytes'))
     await docs.elevate('d1', 1)
 
-    // Simulate an operator whose keyring never received the tier-1 grant —
-    // same technique `hierarchical-tiers.test.ts` uses for a non-admin,
-    // non-cleared caller.
+    // Simulate an operator whose keyring never received EITHER tier-1 grant
+    // — same technique `hierarchical-tiers.test.ts` uses for a non-admin,
+    // non-cleared caller. (The owner session that ran `elevate` above holds
+    // both `docs#1` and `_blob#1` honestly, minted by the rehome itself —
+    // dropping both here simulates a caller who was never granted either.)
     const kr = (vault as unknown as { keyring: { deks: Map<string, unknown>; role: string } }).keyring
     kr.deks.delete(dekKey('docs', 1))
+    kr.deks.delete(dekKey('_blob', 1))
     kr.role = 'operator'
     expect(kr.deks.has(dekKey('docs', 1))).toBe(false)
+    expect(kr.deks.has(dekKey('_blob', 1))).toBe(false)
 
     await expect(docs.blob('d1').atTier()).rejects.toThrow(TierNotGrantedError)
 
@@ -1391,6 +1404,44 @@ describe('#749 blob(id).atTier() — sanctioned cleared-read path', () => {
     // fresh (bogus, non-matching) tier-1 DEK into the ungranted caller's own
     // keyring as a side effect — `assertTierAccess` runs BEFORE any getDEK.
     expect(kr.deks.has(dekKey('docs', 1))).toBe(false)
+    // M3 (whole-branch review): same no-junk-mint property for the SECOND
+    // gate (the `_blob` collection DEK).
+    expect(kr.deks.has(dekKey('_blob', 1))).toBe(false)
+  })
+
+  it('M3 (whole-branch review): a member granted docs#N but not _blob#N is refused at the SECOND gate — before any junk _blob#N mint', async () => {
+    const db = await createNoydb({
+      store: memoryStore(), secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
+    await docs.blob('d1').put('attachment', new TextEncoder().encode('secret bytes'))
+    await docs.elevate('d1', 1)
+
+    // Simulate a member session partially granted `docs#1` (the DATA
+    // collection) but never `_blob#1` (the blob DEK) — the gap M3 closes.
+    // The owner session already holds both (elevate's rehome minted
+    // `_blob#1`); drop only the blob grant and switch off the
+    // owner/admin/custodian bypass.
+    const kr = (vault as unknown as { keyring: { deks: Map<string, unknown>; role: string } }).keyring
+    expect(kr.deks.has(dekKey('docs', 1))).toBe(true)
+    expect(kr.deks.has(dekKey('_blob', 1))).toBe(true)
+    kr.deks.delete(dekKey('_blob', 1))
+    kr.role = 'operator'
+    expect(kr.deks.has(dekKey('docs', 1))).toBe(true)
+    expect(kr.deks.has(dekKey('_blob', 1))).toBe(false)
+
+    // The first gate (docs#1) passes — this is exactly the partial-grant
+    // hazard. Pre-fix, atTier() would return a working handle and the
+    // first content read would auto-mint a junk `_blob#1` DEK. Post-fix,
+    // the second gate refuses before that mint ever happens.
+    await expect(docs.blob('d1').atTier()).rejects.toThrow(TierNotGrantedError)
+    expect(kr.deks.has(dekKey('_blob', 1))).toBe(false)
   })
 
   it('a tier-0 record: atTier() returns an equivalent working view (round-trip put/get)', async () => {
@@ -1459,5 +1510,56 @@ describe('#749 blob(id).atTier() — sanctioned cleared-read path', () => {
     expect(res).not.toBeNull()
     const body = new Uint8Array(await res!.arrayBuffer())
     expect(new TextDecoder().decode(body)).toBe('versioned cleared bytes')
+  })
+})
+
+describe('#757 whole-branch review (I1): fallback content substitution is caught by content-address re-verification', () => {
+  it('a forged flat _blob_index/{eTag} row planted at an elevated blob\'s own address does NOT silently substitute content on a cleared higher-tier read — TamperedError, not attacker bytes', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+
+    // Victim: an elevated record's blob, tier-1 scoped from the read gate's
+    // perspective — a `docs#1`/`_blob#1` grant holder clears through
+    // atTier() to read it, exactly like the #749 tests above.
+    await docs.putAtTier('victim', { id: 'victim', title: 'V', body: 'x' }, 0)
+    await docs.blob('victim').put('attachment', new TextEncoder().encode('true secret bytes'))
+    await docs.elevate('victim', 1)
+    const victimETag = (await (await docs.blob('victim').atTier()).blobInfo('attachment'))!.eTag
+
+    // Attacker: an ordinary tier-0 write on a THROWAWAY record — nothing
+    // privileged about this, any flat `_blob` DEK holder with store write
+    // access can produce an honestly-flat-encrypted `_blob_index` row +
+    // chunk this way (mirrors the #747 at-rest raw-store technique: no
+    // decrypt of anything the attacker doesn't already hold).
+    await docs.put('throwaway', { id: 'throwaway', title: 'T', body: 'y' })
+    await docs.blob('throwaway').put('attachment', new TextEncoder().encode('forged attacker bytes'))
+    const attackerETag = (await docs.blob('throwaway').blobInfo('attachment'))!.eTag
+
+    // The forgery: overwrite the VICTIM eTag's `_blob_index` row (raw store
+    // write — the actual attack surface, no tier-1 key material needed) with
+    // the attacker's own honest, flat-encrypted index envelope. Its internal
+    // `.eTag` field still reads `attackerETag`, so `fetchAllChunks` resolves
+    // straight to the attacker's own (untouched) chunk row — no separate
+    // chunk forgery required.
+    const attackerIndexEnv = await store.get('v1', BLOB_INDEX_COLLECTION, attackerETag)
+    await store.put('v1', BLOB_INDEX_COLLECTION, victimETag, attackerIndexEnv!)
+
+    // Cleared read: the tier-1 open fails (the forged row is flat, not
+    // tier-1-keyed — TamperedError, correctly scoped through by M1) and
+    // falls through to the flat retry, which decrypts CLEANLY (it IS a
+    // legitimately flat-encrypted row, just planted at the wrong address).
+    // Pre-#757-fix this returns the attacker's bytes silently as the
+    // elevated record's content. Post-fix, the recomputed content address
+    // doesn't match `victimETag` (it hashes to `attackerETag` instead) —
+    // TamperedError.
+    const cleared = await docs.blob('victim').atTier()
+    await expect(cleared.get('attachment')).rejects.toThrow(TamperedError)
   })
 })

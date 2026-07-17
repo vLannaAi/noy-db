@@ -25,7 +25,7 @@ import {
   sha256Hex,
   type EnclaveKey,
 } from '../../kernel/enclave/index.js'
-import { ConflictError, NotFoundError, TierNotGrantedError, UnsupportedTierCompositionError, ValidationError } from '../../kernel/errors.js'
+import { ConflictError, NotFoundError, TamperedError, TierNotGrantedError, UnsupportedTierCompositionError, ValidationError } from '../../kernel/errors.js'
 import { liveRecordIsElevated, liveRecordTier } from '../../kernel/tier-visibility.js'
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
@@ -328,6 +328,13 @@ export class BlobSet {
 
     if (!this.keyring) throw new TierNotGrantedError(this.collection, tier)
     assertTierAccess(this.keyring, this.collection, tier)
+    // M3 (whole-branch review): the first gate only proves clearance on the
+    // DATA collection (`docs#N`) — a member holding that grant but not the
+    // `_blob#N` DEK grant would otherwise pass straight through and have
+    // the first content read auto-mint a junk `_blob#N` DEK as a side
+    // effect. Gate the blob DEK's own tier too, in the same
+    // before-any-mint spot as the line above.
+    assertTierAccess(this.keyring, BLOB_COLLECTION, tier)
 
     return new BlobSet({
       store: this.store,
@@ -513,9 +520,16 @@ export class BlobSet {
       try {
         const json = await openEnvelopeJson(envelope, tierDek)
         return { blob: JSON.parse(json) as BlobObject, version: envelope._v, atTier: t }
-      } catch {
-        // Wrong key at this tier — fall through to the flat retry below
-        // (dedup-shared or legacy: see doc comment).
+      } catch (err) {
+        // M1 (whole-branch review): only a decrypt/auth failure under the
+        // tier key (`decrypt()` throws `TamperedError` on AES-GCM auth
+        // failure — wrong key or tampered ciphertext) means "not ours at
+        // this tier" — fall through to the flat retry below (dedup-shared
+        // or legacy: see doc comment). A JSON.parse failure AFTER a
+        // successful decrypt under the CORRECT tier key is genuine
+        // corruption, not a wrong-key signal, and must propagate instead
+        // of being masked by a misleading flat-DEK error.
+        if (!(err instanceof TamperedError)) throw err
       }
     }
 
@@ -1210,7 +1224,40 @@ export class BlobSet {
 
   // ─── Fetch all chunks for a blob ──────────────────────────────────
 
-  private async fetchAllChunks(blob: BlobObject, blobDEK?: EnclaveKey): Promise<Uint8Array> {
+  /**
+   * #757 I1 (whole-branch review): when `loadBlobObject`'s tier-scoped open
+   * fell through to the flat retry while a CLEARED higher-tier view (#749)
+   * was reading (`this.clearedTier > 0`, `result.atTier === 0`), the
+   * `_blob_index` row that "won" the read is not necessarily the one this
+   * handle's `assertTierAccess` grant vouches for. Chunk AAD
+   * (`{eTag}:{index}:{count}`) is attacker-computable, and a legacy
+   * (`_cek`-less) object has no wrapped content CEK to unwrap under a key
+   * the attacker doesn't hold — so ANY flat `_blob` DEK holder with store
+   * write access can plant a `_cek`-less forgery at `_blob_index/{eTag}`
+   * (this elevated blob's own address) whose chunks are their own flat
+   * bytes, and it will decrypt cleanly under the flat DEK the fallback
+   * already tries.
+   *
+   * `verifyFlatETag`, when set, is the eTag the CALLER originally asked
+   * for (the slot/version's `.eTag` — never `blob.eTag`, which is
+   * attacker-controlled content pulled from the same forged row and would
+   * make the check tautological). After assembling the plaintext, we
+   * recompute the SAME content address every write path mints
+   * (`hmacSha256Hex(flatBlobDEK, plaintext)` — `writeBlobContent`'s Step 1,
+   * unconditional on `_cek`) and compare it to that requested eTag. A
+   * forged row can produce valid ciphertext under the flat DEK, but can't
+   * produce plaintext that re-hashes to an address it doesn't control.
+   *
+   * Both legitimate flat-fallback classes — a `dedup`-policy shared object
+   * (#741) and a legacy `_cek`-less object (#724 I1) — were minted this
+   * same way, so an honest read's recomputed hash always matches and this
+   * is a no-op for them.
+   */
+  private async fetchAllChunks(
+    blob: BlobObject,
+    blobDEK?: EnclaveKey,
+    verifyFlatETag?: string,
+  ): Promise<Uint8Array> {
     // Chunks are keyed under the per-blob content CEK (erasable) or directly
     // under the `_blob` DEK (legacy) — resolveChunkKey discriminates on `_cek`.
     const chunkKey = await this.resolveChunkKey(blob, blobDEK)
@@ -1227,7 +1274,35 @@ export class BlobSet {
     }
 
     const assembled = concatChunks(chunks)
-    return blob.compression === 'gzip' ? await decompressBytes(assembled) : assembled
+    const plaintext = blob.compression === 'gzip' ? await decompressBytes(assembled) : assembled
+
+    if (verifyFlatETag !== undefined && blobDEK) {
+      const recomputed = await hmacSha256Hex(blobDEK, plaintext)
+      if (recomputed !== verifyFlatETag) {
+        throw new TamperedError(
+          `Blob content for eTag "${verifyFlatETag}" failed content-address verification after a ` +
+            'flat-tier fallback open — the _blob_index/_blob_chunks rows do not match the requested ' +
+            'content address (#757 I1)',
+        )
+      }
+    }
+
+    return plaintext
+  }
+
+  /**
+   * #757 I1: the eTag to pass as `fetchAllChunks`'s `verifyFlatETag` — set
+   * only when `loadBlobObject` fell through to the flat retry
+   * (`resolvedAtTier === 0`) on a CLEARED higher-tier view
+   * (`this.clearedTier > 0`). Every ordinary (non-cleared) call reaching
+   * a content-fetch site already has `ownerTier() === 0` (elevated records
+   * are hidden by `ownerRecordElevated()` before this point), so
+   * `loadBlobObject` never even attempts the tier branch for them — no
+   * fallback occurred, nothing to verify.
+   */
+  private flatFallbackVerifyETag(requestedETag: string, resolvedAtTier: number): string | undefined {
+    if (this.clearedTier === undefined || this.clearedTier <= 0) return undefined
+    return resolvedAtTier === 0 ? requestedETag : undefined
   }
 
   // ─── Public API: Slot management ──────────────────────────────────
@@ -1531,7 +1606,7 @@ export class BlobSet {
     // OPENED the index envelope (`result.atTier` — #747), not the flat one,
     // so it must be resolved explicitly here.
     const blobDEK = this.encrypted ? await this.getDEK(dekKey(BLOB_COLLECTION, result.atTier)) : undefined
-    return this.fetchAllChunks(result.blob, blobDEK)
+    return this.fetchAllChunks(result.blob, blobDEK, this.flatFallbackVerifyETag(slot.eTag, result.atTier))
   }
 
   /**
@@ -1720,7 +1795,7 @@ export class BlobSet {
 
     // #749: see the matching comment in `get()`.
     const blobDEK = this.encrypted ? await this.getDEK(dekKey(BLOB_COLLECTION, result.atTier)) : undefined
-    return this.buildResponse(slot, result.blob, opts, blobDEK)
+    return this.buildResponse(slot, result.blob, opts, blobDEK, this.flatFallbackVerifyETag(slot.eTag, result.atTier))
   }
 
   /**
@@ -1841,7 +1916,7 @@ export class BlobSet {
     // tier that actually opened the index envelope, which is what the
     // wrapped content `_cek` is scoped under.
     const blobDEK = this.encrypted ? await this.getDEK(dekKey(BLOB_COLLECTION, result.atTier)) : undefined
-    return this.fetchAllChunks(result.blob, blobDEK)
+    return this.fetchAllChunks(result.blob, blobDEK, this.flatFallbackVerifyETag(record.eTag, result.atTier))
   }
 
   /**
@@ -1909,7 +1984,7 @@ export class BlobSet {
 
     // #749: see the matching comment in `get()`.
     const blobDEK = this.encrypted ? await this.getDEK(dekKey(BLOB_COLLECTION, result.atTier)) : undefined
-    return this.buildResponse(slotLike, result.blob, opts, blobDEK)
+    return this.buildResponse(slotLike, result.blob, opts, blobDEK, this.flatFallbackVerifyETag(record.eTag, result.atTier))
   }
 
   // ─── Diagnostics ──────────────────────────────────────────────────
@@ -2018,6 +2093,7 @@ export class BlobSet {
     blob: BlobObject,
     opts?: BlobResponseOptions,
     blobDEK?: EnclaveKey,
+    verifyFlatETag?: string,
   ): Promise<Response> {
     const fetchAllChunks = this.fetchAllChunks.bind(this)
 
@@ -2025,7 +2101,7 @@ export class BlobSet {
     const body = new ReadableStream<Uint8Array>({
       async start(controller) {
         try {
-          const output = await fetchAllChunks(blob, blobDEK)
+          const output = await fetchAllChunks(blob, blobDEK, verifyFlatETag)
           controller.enqueue(output)
           controller.close()
         } catch (err) {
