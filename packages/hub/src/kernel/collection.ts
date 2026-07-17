@@ -2928,7 +2928,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * Mirror of {@link dispatchMaterializedViews} for the delete/forget path — no `_materializedFrom`
    * skip (record's gone); the `internal` gate at `_doDelete` is the recursion guard. Returns the
    * row count TOMBSTONED across every eager MV sourced here (#638 T6 — `forgetDerivedFanout`'s
-   * `derivedRecordsErased`); a lazy MV only flips its stale bit (0 contribution — resolved on read).
+   * `derivedRecordsErased`); lazy/manual MVs also purge their persisted output rows at rest
+   * (#736) — lazy persists a stale mark for cold-session recompute; manual serves empty until `refreshView()`.
    * @internal
    */
   async dispatchMaterializedViewsOnDelete(id: string): Promise<number> {
@@ -2951,13 +2952,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
           getQueryContext: () => this.materializedViewSource!.getQueryContext(),
           dispatchCtx: this.#dispatchCtx({ collection: this.name, id }),
         })).deleted
-      } else if (mode === 'lazy') {
+      } else {
         if (staleHelpers === null) {
           staleHelpers = await import('../with-formula/materialized-views/stale.js')
         }
-        staleHelpers.markMVStale(registry, reg.spec.name)
+        await staleHelpers.invalidateMVAtRest(this.materializedViewSource, reg, mode)
       }
-      // manual: no-op — `vault.refreshView(name)` is the only path.
     }
     return deleted
   }
