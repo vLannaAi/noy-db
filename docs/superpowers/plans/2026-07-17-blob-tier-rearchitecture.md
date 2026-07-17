@@ -18,7 +18,7 @@
 
 ---
 
-### Fix Task 1: tier-scope the eTag on WRITES and MOVES (closes C1 + C2)
+### Task 1: tier-scope the eTag on WRITES and MOVES (closes C1 + C2)
 
 **The core fix.** A blob's eTag + content-CEK wrap + slot map are keyed under the OWNING RECORD's current tier: `getDEK(dekKey('_blob', ownerTier))` / `getDEK(dekKey(collection, ownerTier))`.
 
@@ -38,7 +38,7 @@
 
 ---
 
-### Fix Task 2: published versions follow tier (closes C4)
+### Task 2: published versions follow tier (closes C4)
 
 **Files:**
 - Modify: `packages/hub/src/with-shape/blobs/blob-set.ts` (`publish` writes under owner tier; `rehomeForTier` enumerates + rehomes version-held eTags and re-keys version records)
@@ -55,7 +55,7 @@
 
 ---
 
-### Fix Task 3: forget() threads the pre-tombstone tier (closes C3)
+### Task 3: forget() threads the pre-tombstone tier (closes C3)
 
 **Files:**
 - Modify: `packages/hub/src/kernel/vault.ts` (`forget` passes the live record's `_tier` into `shredAllForRecord`) — or `blob-set.ts` if the tier can be threaded through the BlobSet accessor
@@ -74,7 +74,7 @@
 
 ---
 
-### Fix Task 4: composition enforcement + drop the hasBlobFields gate (closes I1)
+### Task 4: composition enforcement + drop the hasBlobFields gate (closes I1)
 
 **Files:**
 - Modify: `packages/hub/src/kernel/collection-config.ts` or `collection.ts` (enforce `perRecordKeys` when tiers + blobs; the `syncBlobs` gate)
