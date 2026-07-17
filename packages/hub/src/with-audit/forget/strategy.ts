@@ -146,6 +146,13 @@ export interface ForgetResult {
   /** `collection:id:field` sealed slots that were DEK-derived (legacy, written before per-record CEKs) and thus NOT crypto-shredded
    * by dropping `_cek` — the collection DEK is retained, so synced/backup copies stay decryptable (#M-1). */
   readonly sealedResidue: readonly string[]
+  /** Count of `_ledger_deltas` rows hard-deleted across the shredded records (#734) — the
+   * erasure twin of #729's elevate-side purge. Entry metadata (that the record was mutated,
+   * at which version/timestamp/actor) is retained; only the plaintext delta content is removed. */
+  readonly ledgerDeltasPurged: number
+  /** `collection:id` refs whose `_ledger_deltas` purge failed — plaintext delta residue still
+   * readable under the retained ledger DEK. Non-empty means erasure is INCOMPLETE. */
+  readonly ledgerDeltaResidue: readonly string[]
   /** The single `op:'forget'` ledger entry appended for this erasure. */
   readonly ledgerEntry: LedgerEntry
   /** #622 — record-grain derived artifacts (MV rows, per-record derived copies) erased
