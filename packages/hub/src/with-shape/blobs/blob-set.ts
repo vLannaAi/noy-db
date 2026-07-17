@@ -956,12 +956,16 @@ export class BlobSet {
   /** #752: '::' is the version-key separator (`versionKey`) — a recordId/slotName/label
    * containing it makes the `{recordId}::` prefix scans (listVersions / rehomeVersionRecords /
    * collectVersionHolds) match ACROSS records, which escalated from mis-read to destructive
-   * with #750's shred path. Refused at the write surface only: legacy '::' data stays
+   * with #750's shred path. Also refused: a part that starts or ends with ':' — otherwise a
+   * boundary colon re-segments the key (recordId `"a:"` + slotName `"slot"` yields
+   * `"a:::slot::label"`, which starts with `"a::"` and prefix-matches record `"a"`'s rows).
+   * With both rules, every '::' in a stored key is exactly a component separator — the grammar
+   * is unambiguous by construction. Refused at the write surface only: legacy '::' data stays
    * readable/sheddable. */
   private assertKeyPartSafe(part: string, what: 'record id' | 'slot name' | 'version label'): void {
-    if (part.includes('::')) {
+    if (part.includes('::') || part.startsWith(':') || part.endsWith(':')) {
       throw new ValidationError(
-        `Blob ${what} "${part}" must not contain '::' (reserved as the blob version-key separator; #752)`,
+        `Blob ${what} "${part}" must not contain '::' nor start/end with ':' (reserved as the blob version-key separator; #752)`,
       )
     }
   }

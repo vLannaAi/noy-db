@@ -649,6 +649,42 @@ describe('BlobSet', () => {
       expect(new TextDecoder().decode(v1!)).toBe('hello')
       db.close()
     })
+
+    it('sanity: an interior colon in id/slot is still accepted (put + get round-trip)', async () => {
+      const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+      const vault = await db.openVault(VAULT)
+      const col = vault.collection<{ x: number }>('docs')
+      await col.put('invoice:2025', { x: 1 })
+
+      const blobs = col.blob('invoice:2025')
+      const bytes = textBytes('hello')
+      await blobs.put('file:v1.txt', bytes)
+
+      const got = await blobs.get('file:v1.txt')
+      expect(got).not.toBeNull()
+      expect(new TextDecoder().decode(got!)).toBe('hello')
+      db.close()
+    })
+
+    it('put rejects a record id with a trailing colon (boundary re-segmentation)', async () => {
+      const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+      const vault = await db.openVault(VAULT)
+      const col = vault.collection<{ x: number }>('docs')
+      await col.put('a:', { x: 1 })
+
+      await expect(col.blob('a:').put('file.txt', textBytes('hi'))).rejects.toThrow(ValidationError)
+      db.close()
+    })
+
+    it('put rejects a slot name with a leading colon (boundary re-segmentation)', async () => {
+      const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+      const vault = await db.openVault(VAULT)
+      const col = vault.collection<{ x: number }>('docs')
+      await col.put('d-001', { x: 1 })
+
+      await expect(col.blob('d-001').put(':x', textBytes('hi'))).rejects.toThrow(ValidationError)
+      db.close()
+    })
   })
 })
 
