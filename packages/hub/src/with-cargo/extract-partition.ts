@@ -95,7 +95,7 @@ export async function reKeyClosure(
       // unreachable by construction. Not a user-facing guard; a cheap tripwire
       // in case that invariant ever regresses.
       if ((env._tier ?? 0) > 0) {
-        throw new Error(
+        throw new PartitionExtractionError(
           `#748: reKeyClosure fetched an elevated envelope (collection="${collectionName}" id="${id}" `
           + `_tier=${env._tier}) — this is unreachable by construction (walkClosure only ever adds ids `
           + `reachable through tier-gated Collection reads). Refusing to carry it into a partition.`,
@@ -344,7 +344,7 @@ export async function reKeyBlobs(
       // record's slot map should never be reachable here. Unreachable by
       // construction; a cheap tripwire, not a user-facing guard.
       if ((env._tier ?? 0) > 0) {
-        throw new Error(
+        throw new PartitionExtractionError(
           `#748: reKeyBlobs fetched an elevated slot-map envelope (collection="${slotsCollection}" `
           + `id="${id}" _tier=${env._tier}) — this is unreachable by construction. Refusing to carry it into a partition.`,
         )
@@ -376,7 +376,7 @@ export async function reKeyBlobs(
       // #748 defense-in-depth canary — see `reKeyClosure`'s. Unreachable by
       // construction; a cheap tripwire, not a user-facing guard.
       if ((env._tier ?? 0) > 0) {
-        throw new Error(
+        throw new PartitionExtractionError(
           `#748: reKeyBlobs fetched an elevated version-record envelope (collection="${versionsCollection}" `
           + `key="${key}" _tier=${env._tier}) — this is unreachable by construction. Refusing to carry it into a partition.`,
         )
