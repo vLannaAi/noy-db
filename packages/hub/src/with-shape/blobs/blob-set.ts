@@ -502,14 +502,16 @@ export class BlobSet {
    * wrong DEK (`TamperedError`, erasure aborted mid-shred). `forget()` reads
    * the LIVE record first and passes its pre-tombstone tier here instead.
    *
-   * #724 re-review (High) defense-in-depth: an unreadable slot map (wrong
-   * DEK from a stray mis-keyed envelope, or genuine tamper) must not abort
-   * the whole erasure cascade — the primary fix (`casUpdateSlots` deleting
-   * the row instead of leaving it empty-but-present) prevents the mis-keying
-   * in the first place, but `forget()` is the one path where "can't read the
-   * slot map" and "no blobs to shred" should be indistinguishable: either
-   * way there is nothing here to crypto-shred, and a `TamperedError` must
-   * never leave a record tombstoned with its blob cascade half-run.
+   * #724 re-review (Critical) defense-in-depth: an unreadable slot map must
+   * not abort the whole erasure cascade — `casUpdateSlots` deleting the row
+   * instead of leaving it empty-but-present (rather than a stray mis-keyed
+   * envelope) is what makes an ABSENT row the normal "no blobs" case, and
+   * `loadSlots` already returns `{ slots: {}, version: 0 }` cleanly for
+   * that, never throwing. So the only way this catch fires is a row that IS
+   * present failing to decrypt — genuine corruption/mis-key/tamper — and
+   * that must never be swallowed as "no blobs to shred": it is pushed onto
+   * `residue` so `forget()` surfaces it via `blobResidueCollections` rather
+   * than silently reporting a clean erasure while un-shredded blobs remain.
    */
   async shredAllForRecord(ownerTier?: number): Promise<{
     shredded: string[]
@@ -523,7 +525,15 @@ export class BlobSet {
     try {
       slots = (await this.loadSlots(ownerTier)).slots
     } catch {
-      return { shredded, retainedShared, residue } // unreadable slot map ≡ no blobs to shred
+      // #724 re-review (Critical): `loadSlots` throws ONLY when the row is
+      // PRESENT but fails to decrypt (genuine corruption/mis-key/tamper) —
+      // an absent row already returns `{ slots: {}, version: 0 }` cleanly,
+      // never throws. So this is NOT "no blobs to shred"; it's "blobs may
+      // exist and we can't read them" — must surface as residue (mirrors
+      // the sibling `_vec`/classified-sealed-dek residue push in
+      // `vault.ts`'s forget loop), never silently report a clean erasure.
+      residue.push(`${this.collection}:${this.recordId}:_blob_slots`)
+      return { shredded, retainedShared, residue }
     }
     const slotNames = Object.keys(slots)
     if (slotNames.length === 0) return { shredded, retainedShared, residue }

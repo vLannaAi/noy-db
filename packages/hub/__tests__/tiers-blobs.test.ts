@@ -1128,3 +1128,41 @@ describe('#724 empty-but-present slot map (re-review High)', () => {
     expect(env!._data).toBe('')
   })
 })
+
+describe('#724 re-review: genuine slot-map read failure surfaces as forget residue', () => {
+  it('a PRESENT but undecryptable slot map (real corruption) is NOT silently treated as "no blobs" — forget() surfaces it as blob residue, not a clean erasure', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      historyStrategy: withHistory(),
+      forgetStrategy: withForgetCascade({ subjects: { docs: 'id' } }),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+    await docs.put('d1', { id: 'd1', title: 'Invoice', body: 'x' })
+    await docs.blob('d1').put('attachment', new TextEncoder().encode('genuinely corrupted owner data'))
+
+    // Corrupt the PRESENT slot-map row at rest: flip a character in its
+    // ciphertext so it fails AES-GCM auth (TamperedError on decrypt) —
+    // this is NOT the "absent row" case (loadSlots would cleanly return
+    // `{ slots: {}, version: 0 }` for that); the row IS there, it just
+    // won't decrypt. Mirrors how other tests manipulate raw store rows
+    // (e.g. record-scoped-cek-sealing.test.ts).
+    const slotsEnv = await store.get('v1', '_blob_slots_docs', 'd1')
+    expect(slotsEnv).not.toBeNull()
+    const goodChar = slotsEnv!._data[0]
+    const badChar = goodChar === 'A' ? 'B' : 'A'
+    const corrupted = { ...slotsEnv!, _data: badChar + slotsEnv!._data.slice(1) }
+    await store.put('v1', '_blob_slots_docs', 'd1', corrupted)
+
+    const result = await vault.forget('d1')
+
+    // MUST NOT silently report clean: the record genuinely has a blob and
+    // its slot map could not be read, so the erasure is incomplete and
+    // must be surfaced as residue, not swallowed.
+    expect(result.blobResidueCollections).toContain('docs')
+  })
+})
