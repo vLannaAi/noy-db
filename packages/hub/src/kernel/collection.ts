@@ -4070,7 +4070,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       getDEK: this.getDEK,
       encrypted: this.storeCiphertext,
       userId: this.keyring.userId,
-      erasableBlobs: this.perRecordCek, tiersActive: this.tiers !== null,
+      erasableBlobs: this.perRecordCek, tiersActive: this.tiers !== null, keyring: this.keyring,
       debugPlaintext: this.keyring.debugPlaintext === true,
       ...(this.objectStore !== undefined ? { objectStore: this.objectStore } : {}),
       ...(this.blobFields !== undefined ? { blobFields: this.blobFields } : {}),
