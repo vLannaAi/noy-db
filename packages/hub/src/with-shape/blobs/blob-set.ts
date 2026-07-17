@@ -384,27 +384,72 @@ export class BlobSet {
 
   // ─── Blob Index I/O (versioned for CAS refCount) ──────────────────
 
-  private async loadBlobObject(eTag: string): Promise<{ blob: BlobObject; version: number } | null> {
+  /**
+   * #747: the `_blob_index` envelope follows the eTag's HOME tier — the
+   * same tier the `_cek` payload wrapped inside it has been scoped to since
+   * #724. That fix only tier-scoped the WRAPPED content CEK; the outer
+   * index envelope itself stayed flat, so a tier-0 DEK holder could still
+   * read an elevated record's blob metadata (size/mimeType/compression/
+   * chunkCount/refCount/createdAt) straight off `_blob_index` at rest.
+   *
+   * `tier` defaults to `ownerTier()`, mirroring `loadSlots`. At `tier > 0`,
+   * try the tier DEK first; on a decrypt failure (wrong key — AES-GCM auth
+   * fails, not "missing") retry under the flat `_blob` DEK. The fallback
+   * covers the two legitimate classes that stay flat even for an elevated
+   * owner: a `dedup`-policy shared object (#741, left in place on purpose)
+   * and a legacy `_cek`-less object (chunks direct under the flat DEK,
+   * never tier-isolated — #724 I1). `atTier` reports which key actually
+   * opened it, so a caller mutating the object (`casUpdateRefCount`) can
+   * write it back under that SAME key — never lifting a flat dedup/legacy
+   * object onto the owner's tier as a side effect of a refCount change.
+   *
+   * No migration/compat path: the whole tiers×blobs arc is unpublished, so
+   * there is no previously-published elevated blob whose index envelope is
+   * stuck flat at rest — every elevated write from here on is born
+   * tier-keyed.
+   */
+  private async loadBlobObject(
+    eTag: string,
+    tier?: number,
+  ): Promise<{ blob: BlobObject; version: number; atTier: number } | null> {
     const envelope = await this.store.get(this.vault, BLOB_INDEX_COLLECTION, eTag)
     if (!envelope) return null
 
     if (!this.encrypted) {
-      return { blob: JSON.parse(envelope._data) as BlobObject, version: envelope._v }
+      return { blob: JSON.parse(envelope._data) as BlobObject, version: envelope._v, atTier: 0 }
+    }
+
+    const t = tier ?? await this.ownerTier()
+    if (t > 0) {
+      const tierDek = await this.getDEK(dekKey(BLOB_COLLECTION, t))
+      try {
+        const json = await openEnvelopeJson(envelope, tierDek)
+        return { blob: JSON.parse(json) as BlobObject, version: envelope._v, atTier: t }
+      } catch {
+        // Wrong key at this tier — fall through to the flat retry below
+        // (dedup-shared or legacy: see doc comment).
+      }
     }
 
     const dek = await this.getDEK(BLOB_COLLECTION)
     const json = await openEnvelopeJson(envelope, dek)
-    return { blob: JSON.parse(json) as BlobObject, version: envelope._v }
+    return { blob: JSON.parse(json) as BlobObject, version: envelope._v, atTier: 0 }
   }
 
-  private async writeBlobObject(blob: BlobObject, expectedVersion?: number): Promise<void> {
+  /**
+   * @param tier See {@link loadBlobObject}'s `tier` param — same resolution.
+   * A caller mutating an EXISTING object must pass the tier that OPENED it
+   * (`loadBlobObject`'s `atTier`), never its own ask — see
+   * `casUpdateRefCount`.
+   */
+  private async writeBlobObject(blob: BlobObject, expectedVersion?: number, tier?: number): Promise<void> {
     const json = JSON.stringify(blob)
     const now = new Date().toISOString()
     const newVersion = (expectedVersion ?? 0) + 1
     let envelope: EncryptedEnvelope
 
     if (this.encrypted) {
-      const dek = await this.getDEK(BLOB_COLLECTION)
+      const dek = await this.getDEK(dekKey(BLOB_COLLECTION, tier ?? await this.ownerTier()))
       const { iv, data } = await encrypt(json, dek)
       envelope = { _noydb: NOYDB_FORMAT_VERSION, _v: newVersion, _ts: now, _iv: iv, _data: data }
     } else {
@@ -422,15 +467,21 @@ export class BlobSet {
 
   /**
    * CAS retry loop for refCount changes on a BlobObject.
+   *
+   * @param tier Resolves the READ side (see {@link loadBlobObject}). The
+   * WRITE-back always uses `atTier` — the tier that actually opened the
+   * object — never `tier` itself: a dedup-shared or legacy object left flat
+   * on purpose must stay flat even when asked for under an elevated
+   * owner's tier, or a refCount change would silently lift it there (#747).
    */
-  private async casUpdateRefCount(eTag: string, delta: number): Promise<number> {
+  private async casUpdateRefCount(eTag: string, delta: number, tier?: number): Promise<number> {
     for (let attempt = 0; attempt < MAX_CAS_RETRIES; attempt++) {
-      const result = await this.loadBlobObject(eTag)
+      const result = await this.loadBlobObject(eTag, tier)
       if (!result) throw new NotFoundError(`BlobObject ${eTag} not found`)
-      const { blob, version } = result
+      const { blob, version, atTier } = result
       const updated: BlobObject = { ...blob, refCount: blob.refCount + delta }
       try {
-        await this.writeBlobObject(updated, version)
+        await this.writeBlobObject(updated, version, atTier)
         return updated.refCount
       } catch (err) {
         if (err instanceof ConflictError && attempt < MAX_CAS_RETRIES - 1) continue
@@ -456,16 +507,21 @@ export class BlobSet {
    *
    * @returns `'shredded'` (erasable, refCount 0, chunks dead) · `'retainedShared'`
    *   (erasable, still referenced) · `'residue'` (legacy — not a crypto-shred).
+   *
+   * @param tier See {@link loadBlobObject}'s `tier` param — forwarded to both
+   * the read and the refCount write-back (which resolves its own `atTier`
+   * from the read, per `casUpdateRefCount`'s doc comment).
    */
   private async releaseRef(
     eTag: string,
     n: number,
     reclaimLegacy: boolean,
+    tier?: number,
   ): Promise<'shredded' | 'retainedShared' | 'residue'> {
-    const loaded = await this.loadBlobObject(eTag)
+    const loaded = await this.loadBlobObject(eTag, tier)
     if (!loaded) return 'shredded' // already gone
     const erasable = loaded.blob._cek !== undefined
-    const remaining = await this.casUpdateRefCount(eTag, -n)
+    const remaining = await this.casUpdateRefCount(eTag, -n, tier)
     if (remaining > 0) return erasable ? 'retainedShared' : 'residue'
 
     if (erasable || reclaimLegacy) {
@@ -561,7 +617,10 @@ export class BlobSet {
     for (const [eTag, n] of holds) {
       // Forget erasure reclaims legacy orphans too (the record is being erased),
       // so reclaimLegacy = true — but only erasable blobs count as a crypto-shred.
-      const outcome = await this.releaseRef(eTag, n, true)
+      // #747: pass the pre-tombstone `ownerTier` — by now the record itself is
+      // tombstoned, so the `ownerTier()` default would resolve tier 0 and try
+      // the wrong DEK first for an elevated owner's holds.
+      const outcome = await this.releaseRef(eTag, n, true, ownerTier)
       if (outcome === 'shredded') shredded.push(eTag)
       else if (outcome === 'retainedShared') retainedShared.push(eTag)
       else residue.push(eTag)
@@ -686,7 +745,7 @@ export class BlobSet {
         const toBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, toTier))
 
         for (const eTag of eTags) {
-          const loaded = await this.loadBlobObject(eTag)
+          const loaded = await this.loadBlobObject(eTag, fromTier)
           if (!loaded) continue
           const { blob } = loaded
           if (blob._cek === undefined) continue // legacy: no rewrap (see doc comment)
@@ -701,12 +760,16 @@ export class BlobSet {
           rehomedETags.set(eTag, await hmacSha256Hex(toBlobDEK, plaintext))
           for (const [slotName, slot] of Object.entries(slots)) {
             if (slot.eTag !== eTag) continue
+            // #747: `fromTier` still pins the slot-map CAS (it's physically
+            // there until this method's own move step, last); `toTier` is the
+            // NEW object's home — thread it alongside `toBlobDEK` so the fresh
+            // `_blob_index` envelope is born tier-keyed, not flat.
             await this.putUnderDEK(slotName, plaintext, toBlobDEK, {
               filename: slot.filename,
               ...(blob.mimeType !== undefined ? { mimeType: blob.mimeType } : {}),
               compress: blob.compression === 'gzip',
               ...(slot.uploadedBy !== undefined ? { uploadedBy: slot.uploadedBy } : {}),
-            }, fromTier)
+            }, fromTier, toTier)
           }
         }
       }
@@ -761,7 +824,7 @@ export class BlobSet {
         ? JSON.parse(await openEnvelopeJson(envelope, fromCollDEK)) as VersionRecord
         : JSON.parse(envelope._data) as VersionRecord
 
-      const newETag = await this.rehomeVersionETag(record, fromBlobDEK, toBlobDEK, policy, rehomedETags)
+      const newETag = await this.rehomeVersionETag(record, fromTier, toTier, fromBlobDEK, toBlobDEK, policy, rehomedETags)
       const moved: VersionRecord = newETag === record.eTag ? record : { ...record, eTag: newETag }
       await this.writeVersionRecordAtKey(key, moved, toTier)
     }
@@ -781,9 +844,16 @@ export class BlobSet {
    * plaintext itself via `writeBlobContent` — the same content-write core
    * `put()`/the slot loop use, no new crypto — mirroring the slot case's
    * legacy/`dedup`-shared skip conditions.
+   *
+   * @param fromTier / @param toTier #747: same from/to split as the slot
+   * loop above — reads of the version's CURRENTLY-held eTag (and releases of
+   * it) pin `fromTier`; the re-put and the refCount bump onto an
+   * already-rehomed (slot-loop-produced) eTag pin `toTier`.
    */
   private async rehomeVersionETag(
     record: VersionRecord,
+    fromTier: number,
+    toTier: number,
     fromBlobDEK: EnclaveKey,
     toBlobDEK: EnclaveKey,
     policy: 'isolate' | 'dedup',
@@ -791,12 +861,12 @@ export class BlobSet {
   ): Promise<string> {
     const already = rehomedETags.get(record.eTag)
     if (already !== undefined) {
-      await this.casUpdateRefCount(already, +1)
-      await this.releaseRef(record.eTag, 1, false).catch(() => {})
+      await this.casUpdateRefCount(already, +1, toTier)
+      await this.releaseRef(record.eTag, 1, false, fromTier).catch(() => {})
       return already
     }
 
-    const loaded = await this.loadBlobObject(record.eTag)
+    const loaded = await this.loadBlobObject(record.eTag, fromTier)
     if (!loaded || loaded.blob._cek === undefined) return record.eTag // legacy/missing: no-op
     if (policy === 'dedup' && loaded.blob.refCount > 1) return record.eTag // #741: same residue as the slot case
 
@@ -805,10 +875,10 @@ export class BlobSet {
       filename: record.label,
       ...(loaded.blob.mimeType !== undefined ? { mimeType: loaded.blob.mimeType } : {}),
       compress: loaded.blob.compression === 'gzip',
-    })
+    }, toTier)
     rehomedETags.set(record.eTag, newETag) // memoize: two versions may share an eTag outside the slot map too
     if (newETag !== record.eTag) {
-      await this.releaseRef(record.eTag, 1, false).catch(() => {})
+      await this.releaseRef(record.eTag, 1, false, fromTier).catch(() => {})
     }
     return newETag
   }
@@ -858,11 +928,13 @@ export class BlobSet {
     if (!this.encrypted) return { migrated, alreadyErasable }
 
     const blobDEK = await this.getDEK(BLOB_COLLECTION)
-    const { slots } = await this.loadSlots()
+    // #747: legacy-only by definition (a per-blob `_cek` is what migrate()
+    // is minting) — pin flat rather than depend on `ownerTier()`.
+    const { slots } = await this.loadSlots(0)
     const eTags = new Set(Object.values(slots).map((s) => s.eTag))
 
     for (const eTag of eTags) {
-      const loaded = await this.loadBlobObject(eTag)
+      const loaded = await this.loadBlobObject(eTag, 0)
       if (!loaded) continue
       const blob = loaded.blob
       if (blob._cek !== undefined) { alreadyErasable.push(eTag); continue }
@@ -1170,7 +1242,15 @@ export class BlobSet {
    * @param slotsTier #724 Arc 10 Task 4: pins the slot-map CAS update
    * (Step 7) to a specific tier instead of the caller's `ownerTier()`
    * default — `rehomeForTier` passes `fromTier`, since mid-move the slot
-   * map is still physically there (see `ownerTier()`'s doc comment).
+   * map is still physically there (see `ownerTier()`'s doc comment). The
+   * old eTag being replaced lives wherever the slot map itself is
+   * physically keyed, so its release (#747, below) reuses this SAME value
+   * rather than a separate param.
+   * @param contentTier #747: pins the `_blob_index` read/write inside
+   * `writeBlobContent` to a specific tier — `rehomeForTier` passes `toTier`
+   * (matching `blobDEK`, already resolved at `toTier`), since mid-move
+   * `ownerTier()` already reads `toTier` too but this is more direct.
+   * Omitted → `ownerTier()`, correct for `put()`'s ordinary (non-rehome) call.
    */
   private async putUnderDEK(
     slotName: string,
@@ -1178,8 +1258,9 @@ export class BlobSet {
     blobDEK: EnclaveKey | null,
     opts?: BlobPutOptions,
     slotsTier?: number,
+    contentTier?: number,
   ): Promise<void> {
-    const { eTag, mimeType } = await this.writeBlobContent(data, blobDEK, opts)
+    const { eTag, mimeType } = await this.writeBlobContent(data, blobDEK, opts, contentTier)
 
     // Step 7 — CAS-update slot metadata
     const uploaderUserId = opts?.uploadedBy ?? this.userId
@@ -1205,7 +1286,10 @@ export class BlobSet {
     if (this._deferredRefDecrement) {
       const oldETag = this._deferredRefDecrement
       this._deferredRefDecrement = undefined
-      await this.releaseRef(oldETag, 1, false).catch(() => {
+      // #747: the old eTag lives at `slotsTier` (the slot map's CURRENT
+      // physical location — see the param doc above), not this record's
+      // live tier — those diverge mid-rehome.
+      await this.releaseRef(oldETag, 1, false, slotsTier).catch(() => {
         // Best-effort — a missed decrement is reconciled by a later pass.
       })
     }
@@ -1218,11 +1302,17 @@ export class BlobSet {
    * the slot map — `putUnderDEK`'s remaining Step 7 is slot-specific).
    * Content-addressed and dedup-aware exactly like `put()`: hashing the same
    * plaintext under the same `blobDEK` twice always lands on the same eTag.
+   *
+   * @param tier #747: the index-envelope tier to read/write at (see
+   * {@link loadBlobObject}'s `tier` param) — `putUnderDEK`'s `contentTier`,
+   * matching whichever tier `blobDEK` itself was resolved at. Omitted →
+   * `ownerTier()`, correct for `put()`'s ordinary (non-rehome) call.
    */
   private async writeBlobContent(
     data: Uint8Array,
     blobDEK: EnclaveKey | null,
     opts?: BlobPutOptions,
+    tier?: number,
   ): Promise<{ eTag: string; mimeType: string | undefined }> {
     // Step 1 — keyed content-hash (plaintext, before compression)
     const eTag = blobDEK
@@ -1252,13 +1342,13 @@ export class BlobSet {
     if (this.debugPlaintext) shouldCompress = false
 
     // Step 3 — deduplication check
-    const existingBlob = await this.loadBlobObject(eTag)
+    const existingBlob = await this.loadBlobObject(eTag, tier)
 
     if (existingBlob) {
       // eTag already exists — just increment refCount (CAS retry). Dedup is
       // preserved across the content-CEK split: the chunks (and the BlobObject's
       // `_cek`, if any) are reused as-is; a new referencer never re-encrypts.
-      await this.casUpdateRefCount(eTag, +1)
+      await this.casUpdateRefCount(eTag, +1, tier)
       return { eTag, mimeType }
     }
 
@@ -1309,7 +1399,7 @@ export class BlobSet {
       createdAt: new Date().toISOString(),
       refCount: 1,
       ...(wrappedCek !== undefined ? { _cek: wrappedCek } : {}),
-    })
+    }, undefined, tier)
 
     return { eTag, mimeType }
   }
