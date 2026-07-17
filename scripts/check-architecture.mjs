@@ -1743,7 +1743,7 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-cargo/extract-partition.ts', 26],
   ['packages/hub/src/with-commit/history/history.ts', 2],
   ['packages/hub/src/with-commit/history/ledger/store.ts', 11],
-  ['packages/hub/src/with-commit/history/time-machine.ts', 3],
+  ['packages/hub/src/with-commit/history/time-machine.ts', 1],
   ['packages/hub/src/with-commit/numbering/index.ts', 5],
   ['packages/hub/src/with-commit/sequence/index.ts', 5],
   ['packages/hub/src/with-formula/derivations/fanout-sidecar.ts', 6],

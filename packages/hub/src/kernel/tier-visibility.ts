@@ -57,3 +57,34 @@ export async function assertTierWritable(
   const tier = await peekLiveTier(adapter, vault, name, id)
   if (tier > 0) throw new TierWriteRefusedError(name, tier)
 }
+
+/**
+ * #708: ALL-OR-NOTHING pre-check for a coordinated-cutover bulk-rewrite —
+ * scans every id's live tier BEFORE any record is transformed and refuses
+ * on the first elevated one found. `_applyCutoverTransform` re-encrypts at
+ * tier 0 with no gate of its own; without this, it would silently demote
+ * an elevated record. Same cost gate as `assertTierWritable` (no-op, no
+ * adapter call, when `tiersEnabled` is false).
+ *
+ * This pre-check guards against an ordinary `put()`/`delete()` racing the
+ * cutover, because those go through the schema fence (`SchemaFenceController`
+ * blocks concurrent writes during a coordinated cutover). It does NOT guard
+ * against `elevate()`/`demote()`/`putAtTier()` — those tier-move paths bypass
+ * the fence, so a tier move landing between this scan and the rewrite it
+ * gates is not excluded. Cutover callers are expected to hold the vault
+ * quiescent for tier moves on this collection for the duration of the call,
+ * the same tier-quiescence assumption the documented CAS-less caller
+ * (`with-shape/satellites/migrate-cek.ts`'s "No-quiesce precondition") makes
+ * explicit for concurrent writes generally.
+ */
+export async function assertCutoverTierSafe(
+  adapter: NoydbStore, vault: string, name: string, tiersEnabled: boolean,
+): Promise<void> {
+  if (!tiersEnabled) return
+  for (const id of await adapter.list(vault, name)) {
+    const tier = await peekLiveTier(adapter, vault, name, id)
+    if (tier > 0) {
+      throw new TierWriteRefusedError(name, tier, `Coordinated cutover on collection "${name}" refused — record "${id}" is elevated to tier ${tier}. Demote it before a coordinated cutover.`)
+    }
+  }
+}

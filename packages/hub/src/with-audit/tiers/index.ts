@@ -24,10 +24,11 @@ export { withTiers } from './active.js'
 export { NO_TIERS, type TiersStrategy } from './strategy.js'
 export { TiersNotEnabledError } from '../../kernel/errors.js'
 import { encrypt, decrypt, unwrapCek, rewrapBodyToDek, isDeleteMarker, isTombstoneShape, type RecordCodec, type EnclaveKey, type SealedShredSlot } from '../../kernel/enclave/index.js'
-import { TierDemoteDeniedError } from '../../kernel/errors.js'
+import { TierDemoteDeniedError, UnsupportedTierCompositionError } from '../../kernel/errors.js'
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import type { Lru } from '../../kernel/cache/index.js'
+import type { BlobFieldsConfig } from '../../with-shape/blobs/blob-compaction.js'
 import {
   NOYDB_FORMAT_VERSION,
   type NoydbStore,
@@ -81,10 +82,19 @@ export interface TiersContext<T> {
    * entries from that record. Call this BEFORE {@link syncCache} — the
    * implementation reads the pre-write cached value as "previous" to clean
    * up stale index buckets, so it must run while that entry is still live.
-   * `version` stamps a rebuilt side-car's own envelope version (ignored on
-   * purge).
+   * `version` stamps a rebuilt side-car's own envelope version — every
+   * caller has one in scope (the envelope it just wrote), including the
+   * purge (`null`) branches, which pass it along even though it's ignored
+   * there (#720: keeps the parameter honestly required, no dead default).
+   * `priorEnvelope` (#720) — the RAW envelope read BEFORE this call's own
+   * overwrite (already in scope as `existing`/`envelope` at every record-
+   * branch call site), so a lazy same-tier value change (a `putAtTier(0)`
+   * dropping an indexed field, a `demote(0)` off an elevated record) can
+   * still be tier-gate-decoded as "previous" once the live envelope itself
+   * has already moved past it. The `null`-record branches never pass one —
+   * see the implementation's doc comment for why they don't need to.
    */
-  syncIndexes(id: string, record: T | null, version?: number): Promise<void>
+  syncIndexes(id: string, record: T | null, version: number, priorEnvelope?: EncryptedEnvelope): Promise<void>
   /** Sync the collection's SEARCH artifacts after a tier move (#721). Both the
    *  lexical `_ftindex` blob and the `_vec/<id>` embedding are encrypted under
    *  the tier-0 DEK and hold the record's derived plaintext (full field text /
@@ -213,6 +223,77 @@ export function assertDeclaredTier<T>(ctx: TiersContext<T>, tier: number): void 
   }
 }
 
+/**
+ * Tier-composition guard (#724 / Arc 7 of the tier-invisibility campaign).
+ *
+ * Refuses `tiers` declared together with a derived-artifact feature whose
+ * crypto has not yet been made tier-aware — i.e. a feature `elevate()` /
+ * `demote()` does not re-key when a record moves tiers, so an elevated
+ * record's data for that feature would stay readable at tier 0.
+ *
+ * **Status:** the original call site (`Collection` constructor, beside
+ * `buildUniqueConstraintSet`) was removed by Arc 10 Task 1 (#724) — the
+ * `tiers + blobFields` refusal below was superseded by a runtime read gate
+ * on `collection.blob(id)` (`with-shape/blobs/blob-set.ts`), so this
+ * function currently has no caller. Relocated here from
+ * `with-lookup/indexing/unique-constraints.ts` (#733) so the tier-domain
+ * guard lives in the tier domain, rather than an indexing file it only
+ * borrowed for a grandfathered import specifier.
+ *
+ * ## #724 verified: `tiers + blobFields` leaks
+ *
+ * `collection.blob(id)` (`Collection.blob()`) never checks the live
+ * record's tier before returning a `BlobSet` handle, and `BlobSet`'s crypto
+ * is entirely orthogonal to the tier ladder:
+ *  - the slot map (`_blob_slots_{collection}/{id}`) is encrypted under the
+ *    collection's TIER-0 DEK (`getDEK(name)` ≡ `dekKey(name, 0)` — see
+ *    `dekKey` in `with-party/team/tiers.ts`), never a tier-N DEK;
+ *  - chunk content (`_blob_index` / `_blob_chunks`) is encrypted under the
+ *    vault-shared `_blob` DEK (`BLOB_COLLECTION`), which has no tier
+ *    dimension at all.
+ * `elevate()`/`demote()` (this file) rewrap only the live record body,
+ * `_history` snapshots (#712), and index side-cars — blob slots and chunks
+ * are untouched. A caller whose keyring never held the record's elevated
+ * tier DEK can still open `collection.blob(id).get(slot)` and read full
+ * plaintext, even though `collection.get(id)` correctly reports the same
+ * record as invisible. See `__tests__/tier-composition-guard.test.ts` for
+ * the reproduction.
+ *
+ * ## Safe today — no check needed here
+ *
+ * Field indexes, search (`textIndexes`/`embeddings`), `withHistory`
+ * (snapshot keys are rewrapped by `elevate()`/`demote()`, #712), and the
+ * decoded-record cache (evicted on tier moves) are already tier-safe. They
+ * are not enumerated below; only known-unsafe features are refused, so any
+ * combination not named here passes silently by default.
+ *
+ * ## Deliberately NOT handled here
+ *
+ * - `ledger` — `withHistory` threads a ledger writer onto every tiered
+ *   collection by default in shipped usage; refusing `tiers + ledger` would
+ *   break that default. A ledger-specific tier-rekey handler (rewrap ledger
+ *   entries, or scope ledger visibility to tier) is a separate arc.
+ * - materialized-view (MV) output — an MV's fanout spec lives on the
+ *   SOURCE collection, not on the MV collection's own config, so it is not
+ *   visible at `vault.collection()` registration time and this guard cannot
+ *   detect it structurally.
+ */
+export function assertTierComposition(
+  collectionName: string,
+  cfg: { readonly tiers: boolean; readonly blobFields: BlobFieldsConfig | undefined },
+): void {
+  if (!cfg.tiers) return
+  if (cfg.blobFields !== undefined && Object.keys(cfg.blobFields).length > 0) {
+    throw new UnsupportedTierCompositionError(
+      'blobs',
+      `Collection "${collectionName}": blobFields are not supported together with tiers (#724) — ` +
+        `blob chunk content is encrypted under a vault-shared DEK that elevate()/demote() do not ` +
+        `re-key, so an elevated record's blob attachments would remain readable at tier 0. Use a ` +
+        `non-tiered collection for blob-bearing records until a blob tier-rekey handler ships.`,
+    )
+  }
+}
+
 function isElevatorOrOwner<T>(ctx: TiersContext<T>): boolean {
   return ctx.keyring.role === 'owner' || ctx.keyring.role === 'admin'
 }
@@ -325,7 +406,7 @@ export async function putAtTier<T>(
   // reindex). syncIndexes runs first — it needs the pre-write cache entry
   // as "previous", which syncCache is about to overwrite/evict.
   if (tier > 0) {
-    await ctx.syncIndexes(id, null)
+    await ctx.syncIndexes(id, null, version)
     ctx.syncCache(id, null)
     // #729: the record lands above tier 0 — purge its tier-0-era plaintext
     // ledger deltas (irreversible; a tier-0 putAtTier(0) has nothing to purge).
@@ -349,7 +430,7 @@ export async function putAtTier<T>(
     )
   } else {
     const rec = await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
-    await ctx.syncIndexes(id, rec, envelope._v)
+    await ctx.syncIndexes(id, rec, envelope._v, existing ?? undefined)
     ctx.syncCache(id, rec !== null ? { record: rec, version: envelope._v } : null)
     // #722 Task 2: the record is written at tier 0 — restore its
     // contribution to every derived output (reuse the decode above, no
@@ -544,7 +625,7 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   // tier-0 record (same ordering as demote). #709: syncIndexes runs first —
   // it needs the pre-elevation cache entry as "previous" to clean the
   // eager index bucket; the persisted side-car purge is content-free.
-  await ctx.syncIndexes(id, null)
+  await ctx.syncIndexes(id, null, next._v)
   ctx.syncCache(id, null)
   // #721: same purge law as syncIndexes above — the record left tier 0, so
   // its _vec sidecar is purged and _ftindex is invalidated.
@@ -651,7 +732,7 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
   // it needs the pre-demote cache entry as "previous".
   if (toTier === 0) {
     const rec = await ctx.codec.decryptRecord(next, { id, sealedAsHandles: true })
-    await ctx.syncIndexes(id, rec, next._v)
+    await ctx.syncIndexes(id, rec, next._v, envelope)
     ctx.syncCache(id, rec !== null ? { record: rec, version: next._v } : null)
     // #721: reuse the decode above — no double-decrypt. The record is tier-0
     // again, so re-embed its _vec and invalidate _ftindex to include it.
@@ -660,7 +741,7 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
     // every derived output (reuse the decode above, no double-decrypt).
     await ctx.syncDerived(id, rec, false, next._v)
   } else {
-    await ctx.syncIndexes(id, null)
+    await ctx.syncIndexes(id, null, next._v)
     ctx.syncCache(id, null)
     // #721: still above tier 0 — purge _vec, invalidate _ftindex.
     await ctx.syncSearch(id, null)

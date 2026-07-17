@@ -8,7 +8,7 @@
  * into collection.ts's choke points and appends the integration tests.
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb, TierWriteRefusedError } from '../src/index.js'
+import { createNoydb, TierWriteRefusedError, withDerivation } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { withCrdt } from '../src/with-commit/crdt/index.js'
@@ -169,5 +169,132 @@ describe('#715/#716 write ring: tier-0 put/delete over an elevated record are re
     // signal — the elevated record's prior versions would then re-decrypt
     // through #712's live-peek gate.
     expect(await docs.history('d1')).toEqual([])
+  })
+})
+
+describe('#718: internal deletes skip elevated records (the write ring covers machinery paths)', () => {
+  interface Worker extends Record<string, unknown> {
+    id: string
+    employmentPeriods: ReadonlyArray<{ from: string; to: string }>
+  }
+  interface ActivePeriod extends Record<string, unknown> {
+    id: string
+    workerId: string
+    period: string
+  }
+
+  it('REPRO (#718): an array-shape derivation output row, elevated, survives a source-driven fanout shrink — a sibling non-elevated row is still cleaned up', async () => {
+    // #718's exact scenario: a tiered derivation/MV OUTPUT collection with an
+    // elevated row, cleanup pass (here: fanout shrink on source update) targets
+    // it. Pre-fix: `_doDelete(id, true)` was ungated for `internal` — since this
+    // store has no `onDirty`, it fell through to `adapter.delete`, silently
+    // ERASING the elevated derived row outright (worse than #716's bare marker).
+    const rawStore = memoryStore()
+    const strategy = withDerivation<Worker, { activeInPeriod: ActivePeriod[] }>({
+      source: 'workers',
+      deterministic: true,
+      outputs: { activeInPeriod: { shape: 'array', collection: 'workerActiveInPeriod', key: (o) => `${o['workerId'] as string}|${o['period'] as string}`, maxFanout: 12 } },
+      derive: (worker) => ({
+        activeInPeriod: worker.employmentPeriods.map(p => ({ id: `${worker.id}|${p.from}`, workerId: worker.id, period: p.from })),
+      }),
+      lifecycle: 'eager',
+    })
+    const db = await createNoydb({ store: rawStore, user: 'alice', secret: 'pw-718-repro', derivationStrategies: [strategy], tiersStrategy: withTiers() })
+    const vault = await db.openVault('acme')
+    const workers = vault.collection<Worker>('workers')
+    const activePeriods = vault.collection<ActivePeriod>('workerActiveInPeriod', { tiers: [0, 1], perRecordKeys: true })
+
+    await workers.put('w1', { id: 'w1', employmentPeriods: [{ from: '2026-03', to: '2026-03' }, { from: '2026-04', to: '2026-04' }] })
+    expect(await rawStore.get('acme', 'workerActiveInPeriod', 'w1|2026-03')).not.toBeNull()
+    expect(await rawStore.get('acme', 'workerActiveInPeriod', 'w1|2026-04')).not.toBeNull()
+
+    await activePeriods.elevate('w1|2026-03', 1)
+
+    // Shrink: drop both periods — the fanout diff calls _internalDelete on
+    // BOTH derived ids. The elevated one must survive untouched; the plain
+    // one must still be erased (internal cleanup keeps working normally).
+    await workers.put('w1', { id: 'w1', employmentPeriods: [] })
+
+    const elevated = await rawStore.get('acme', 'workerActiveInPeriod', 'w1|2026-03')
+    expect(elevated).not.toBeNull()
+    expect(elevated!._tier).toBe(1) // untouched: no marker, no erasure, tier signal intact
+    expect(await rawStore.get('acme', 'workerActiveInPeriod', 'w1|2026-04')).toBeNull() // sibling cleanup unaffected
+  })
+
+  it('at the _doDelete level: an internal delete over an elevated id is a no-op (no marker, tier intact); a non-elevated id still deletes', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({ store, secret: 'pw-718-unit', user: 'owner', tiersStrategy: withTiers() })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    await docs.put('d1', { id: 'd1', title: 'secret', body: 'x' })
+    await docs.put('d2', { id: 'd2', title: 'plain', body: 'y' })
+    await docs.elevate('d1', 1)
+
+    // `_internalDelete`'s own prior-read sees a live envelope before `_doDelete`'s
+    // skip fires, so it still reports `true` — a residual accounting gap (the
+    // record is genuinely untouched, verified below; not a confidentiality
+    // issue, but the caller can't tell "skipped" from "erased" from this alone).
+    expect(await docs._internalDelete('d1')).toBe(true)
+    expect((await store.get('v1', 'docs', 'd1'))!._tier).toBe(1)
+
+    expect(await docs._internalDelete('d2')).toBe(true) // ordinary internal cleanup unaffected
+    expect(await store.get('v1', 'docs', 'd2')).toBeNull()
+  })
+})
+
+describe('#708 sharp edge: coordinated cutover refuses an elevated record', () => {
+  it('cutover on a collection with an elevated record throws BEFORE any rewrite — all-or-nothing', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({ store, secret: 'pw-708-cutover', user: 'owner', tiersStrategy: withTiers() })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    await docs.put('d1', { id: 'd1', title: 'a', body: 'x' })
+    await docs.put('d2', { id: 'd2', title: 'b', body: 'y' })
+    await docs.elevate('d1', 1)
+    const v1Before = (await store.get('v1', 'docs', 'd1'))!._v
+    const v2Before = (await store.get('v1', 'docs', 'd2'))!._v
+
+    const err = await docs._applyCutoverTransform(d => ({ ...d, title: 'clobbered' })).catch(e => e)
+    expect(err).toBeInstanceOf(TierWriteRefusedError)
+    expect((err as InstanceType<typeof TierWriteRefusedError>).collection).toBe('docs')
+    expect((err as InstanceType<typeof TierWriteRefusedError>).tier).toBe(1)
+
+    // NO record was rewritten — not even the non-elevated one that sorts first.
+    expect((await store.get('v1', 'docs', 'd1'))!._v).toBe(v1Before)
+    expect((await store.get('v1', 'docs', 'd2'))!._v).toBe(v2Before)
+  })
+
+  it('the refusal names the collection, the offending id, and "demote before a coordinated cutover"', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({ store, secret: 'pw-708-msg', user: 'owner', tiersStrategy: withTiers() })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    await docs.put('d1', { id: 'd1', title: 'a', body: 'x' })
+    await docs.elevate('d1', 1)
+    await expect(docs._applyCutoverTransform(d => d)).rejects.toThrow(/docs.*d1.*demote.*coordinated cutover/is)
+  })
+
+  it('after demote, the cutover proceeds normally', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({ store, secret: 'pw-708-demote', user: 'owner', tiersStrategy: withTiers() })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    await docs.put('d1', { id: 'd1', title: 'a', body: 'x' })
+    await docs.elevate('d1', 1)
+    await docs.demote('d1', 0)
+
+    const count = await docs._applyCutoverTransform(d => ({ ...d, title: 'migrated' }))
+    expect(count).toBe(1)
+    expect((await docs.get('d1'))?.title).toBe('migrated')
+  })
+
+  it('a collection that never declares tiers pays no extra cost on cutover', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({ store, secret: 'pw-708-nt', user: 'owner' })
+    const vault = await db.openVault('v1')
+    const plain = vault.collection<Doc>('plain', {})
+    await plain.put('p1', { id: 'p1', title: 'a', body: 'x' })
+    const count = await plain._applyCutoverTransform(d => ({ ...d, title: 'b' }))
+    expect(count).toBe(1)
   })
 })

@@ -242,10 +242,16 @@ export function buildPersistedIndexCallbacks<T>(provideCtx: () => SearchContext<
         return null
       }
     },
-    save: async (json, fp) => {
+    save: async (json, fp, isStale) => {
       const ctx = provideCtx()
       const body = JSON.stringify({ fp, idx: json })
       const env = await ctx.codec.encryptJsonString(body, fp.count)
+      // #725 review: a purge (removePersisted) can land while the encrypt above was
+      // in flight — check right before the write and skip it rather than resurrect a
+      // purged/forgotten record's blob. PersistedIndexStore's own post-save epoch
+      // check is the backstop for every other ordering (incl. a purge landing during
+      // this very put).
+      if (isStale()) return
       await ctx.adapter.put(ctx.vault, FT, ctx.name, env)
     },
     remove: async () => { const ctx = provideCtx(); await ctx.adapter.delete(ctx.vault, FT, ctx.name) },

@@ -732,15 +732,19 @@ export class TierNotGrantedError extends NoydbError {
  * in `tier-visibility.ts`), which throws nothing — elevated records
  * simply read as absent there. This is a write-path refusal, not a
  * read-path ghost.
+ *
+ * #708: also raised by the coordinated-cutover pre-check
+ * (`assertCutoverTierSafe`) — a bulk-rewrite is a third tier-0 write path,
+ * so it gets the same refusal with a `detail` override naming the record.
  */
 export class TierWriteRefusedError extends NoydbError {
   readonly tier: number
   readonly collection: string
 
-  constructor(collection: string, tier: number) {
+  constructor(collection: string, tier: number, detail?: string) {
     super(
       'TIER_WRITE_REFUSED',
-      `put()/delete() cannot write to record in collection "${collection}" — ` +
+      detail ?? `put()/delete() cannot write to record in collection "${collection}" — ` +
         `it is elevated to tier ${tier}. Use putAtTier()/elevate()/demote() instead.`,
     )
     this.name = 'TierWriteRefusedError'
