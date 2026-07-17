@@ -26,7 +26,7 @@ import {
   type SealedShredSlot,
 } from './enclave/index.js'
 import { countLiveEnvelopes } from './lazy-count.js'
-import { liveRecordIsElevated, assertTierWritable } from './tier-visibility.js'
+import { liveRecordIsElevated, assertTierWritable, assertCutoverTierSafe } from './tier-visibility.js'
 import {
   classifySealedShred as classifySealedShredImpl, syncDerivedOutputs,
   type TiersContext,
@@ -2557,15 +2557,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
-   * @internal — bulk-rewrite every record through a cutover transform.
-   * Raw adapter path (bypasses the write gate + guards — the transform is
-   * trusted and runs only during the `migrating` phase). Bumps each
-   * record's `_v` and appends a ledger `op:'migration'` entry.
+   * @internal — bulk-rewrite every record through a cutover transform. Raw adapter path (bypasses the write gate + guards — the transform is trusted and runs only during the `migrating` phase). Bumps each record's `_v` and appends a ledger `op:'migration'` entry. #708: refuses BEFORE any rewrite if a live record is elevated (assertCutoverTierSafe) — demote it first.
    */
   async _applyCutoverTransform(
     transform: (doc: Record<string, unknown>) => Record<string, unknown>,
   ): Promise<number> {
     const ids = await this.adapter.list(this.vault, this.name)
+    await assertCutoverTierSafe(this.adapter, this.vault, this.name, this.tiers !== null)
     let count = 0
     for (const id of ids) {
       const env = await this.adapter.get(this.vault, this.name, id)
@@ -2666,6 +2664,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     }
     // #716: public deletes only — see assertTierWritable's doc + Step 5 investigation for `internal`.
     await assertTierWritable(this.adapter, this.vault, this.name, id, !internal && this.tiers !== null)
+    if (internal && this.tiers !== null && await liveRecordIsElevated(this.adapter, this.vault, this.name, id)) return // #718: internal cleanup treats an elevated record as nonexistent, same as tier-0 reads — skip, no marker; its derived state is the tier ops' job
 
     // Gate bus (Track A) — fires for ALL deletes (carrying `internal`), so a
     // gate handler can collect amendment changes on system-internal deletes
