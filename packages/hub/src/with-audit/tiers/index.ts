@@ -24,10 +24,11 @@ export { withTiers } from './active.js'
 export { NO_TIERS, type TiersStrategy } from './strategy.js'
 export { TiersNotEnabledError } from '../../kernel/errors.js'
 import { encrypt, decrypt, unwrapCek, rewrapBodyToDek, isDeleteMarker, isTombstoneShape, type RecordCodec, type EnclaveKey, type SealedShredSlot } from '../../kernel/enclave/index.js'
-import { TierDemoteDeniedError } from '../../kernel/errors.js'
+import { TierDemoteDeniedError, UnsupportedTierCompositionError } from '../../kernel/errors.js'
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import type { Lru } from '../../kernel/cache/index.js'
+import type { BlobFieldsConfig } from '../../with-shape/blobs/blob-compaction.js'
 import {
   NOYDB_FORMAT_VERSION,
   type NoydbStore,
@@ -218,6 +219,77 @@ export function assertDeclaredTier<T>(ctx: TiersContext<T>, tier: number): void 
   if (!ctx.tiers || !ctx.tiers.has(tier)) {
     throw new Error(
       `Collection "${ctx.name}": tier ${tier} is not declared in { tiers: [...] }`,
+    )
+  }
+}
+
+/**
+ * Tier-composition guard (#724 / Arc 7 of the tier-invisibility campaign).
+ *
+ * Refuses `tiers` declared together with a derived-artifact feature whose
+ * crypto has not yet been made tier-aware — i.e. a feature `elevate()` /
+ * `demote()` does not re-key when a record moves tiers, so an elevated
+ * record's data for that feature would stay readable at tier 0.
+ *
+ * **Status:** the original call site (`Collection` constructor, beside
+ * `buildUniqueConstraintSet`) was removed by Arc 10 Task 1 (#724) — the
+ * `tiers + blobFields` refusal below was superseded by a runtime read gate
+ * on `collection.blob(id)` (`with-shape/blobs/blob-set.ts`), so this
+ * function currently has no caller. Relocated here from
+ * `with-lookup/indexing/unique-constraints.ts` (#733) so the tier-domain
+ * guard lives in the tier domain, rather than an indexing file it only
+ * borrowed for a grandfathered import specifier.
+ *
+ * ## #724 verified: `tiers + blobFields` leaks
+ *
+ * `collection.blob(id)` (`Collection.blob()`) never checks the live
+ * record's tier before returning a `BlobSet` handle, and `BlobSet`'s crypto
+ * is entirely orthogonal to the tier ladder:
+ *  - the slot map (`_blob_slots_{collection}/{id}`) is encrypted under the
+ *    collection's TIER-0 DEK (`getDEK(name)` ≡ `dekKey(name, 0)` — see
+ *    `dekKey` in `with-party/team/tiers.ts`), never a tier-N DEK;
+ *  - chunk content (`_blob_index` / `_blob_chunks`) is encrypted under the
+ *    vault-shared `_blob` DEK (`BLOB_COLLECTION`), which has no tier
+ *    dimension at all.
+ * `elevate()`/`demote()` (this file) rewrap only the live record body,
+ * `_history` snapshots (#712), and index side-cars — blob slots and chunks
+ * are untouched. A caller whose keyring never held the record's elevated
+ * tier DEK can still open `collection.blob(id).get(slot)` and read full
+ * plaintext, even though `collection.get(id)` correctly reports the same
+ * record as invisible. See `__tests__/tier-composition-guard.test.ts` for
+ * the reproduction.
+ *
+ * ## Safe today — no check needed here
+ *
+ * Field indexes, search (`textIndexes`/`embeddings`), `withHistory`
+ * (snapshot keys are rewrapped by `elevate()`/`demote()`, #712), and the
+ * decoded-record cache (evicted on tier moves) are already tier-safe. They
+ * are not enumerated below; only known-unsafe features are refused, so any
+ * combination not named here passes silently by default.
+ *
+ * ## Deliberately NOT handled here
+ *
+ * - `ledger` — `withHistory` threads a ledger writer onto every tiered
+ *   collection by default in shipped usage; refusing `tiers + ledger` would
+ *   break that default. A ledger-specific tier-rekey handler (rewrap ledger
+ *   entries, or scope ledger visibility to tier) is a separate arc.
+ * - materialized-view (MV) output — an MV's fanout spec lives on the
+ *   SOURCE collection, not on the MV collection's own config, so it is not
+ *   visible at `vault.collection()` registration time and this guard cannot
+ *   detect it structurally.
+ */
+export function assertTierComposition(
+  collectionName: string,
+  cfg: { readonly tiers: boolean; readonly blobFields: BlobFieldsConfig | undefined },
+): void {
+  if (!cfg.tiers) return
+  if (cfg.blobFields !== undefined && Object.keys(cfg.blobFields).length > 0) {
+    throw new UnsupportedTierCompositionError(
+      'blobs',
+      `Collection "${collectionName}": blobFields are not supported together with tiers (#724) — ` +
+        `blob chunk content is encrypted under a vault-shared DEK that elevate()/demote() do not ` +
+        `re-key, so an elevated record's blob attachments would remain readable at tier 0. Use a ` +
+        `non-tiered collection for blob-bearing records until a blob tier-rekey handler ships.`,
     )
   }
 }
