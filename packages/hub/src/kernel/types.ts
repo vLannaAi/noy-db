@@ -2064,17 +2064,28 @@ export interface BlobObject {
    * **#746 whole-branch review correction — this ring is NOT the sole
    * idempotency source for REHOME.** Rehome's destination `+1`s are
    * ROW-SCOPED (`${opId}:${slotName}` / `${opId}:${versionKey}`, one stamp
-   * PER CONTRIBUTING ROW, not one per eTag) — a record with ≥9 rows of
-   * identical content, or ≥8 concurrent rehomes converging on one shared
-   * destination, can evict a row's stamp before that row's OWN referencing
-   * update lands, and a naive ring-only resume would then double-apply that
-   * row's `+1` — a real over-count, not merely eviction-tolerant like
-   * shred's. `BlobIntent.appliedStamps` (`blob-intent.ts`) is rehome's
-   * ring-INDEPENDENT backstop: an unbounded, per-op, per-record log of
-   * confirmed row-stamps, consulted BEFORE this ring on every resume (see
-   * `BlobSet.applyStampedIncrement`). This ring remains the fast first-line
-   * check for rehome too (correct for the overwhelming majority of
-   * resumes); `appliedStamps` is what makes correctness NOT depend on it.
+   * PER CONTRIBUTING ROW, not one per eTag). Within a SINGLE op this ring is
+   * sufficient — rows are processed sequentially and each row's referencing
+   * update lands before the next row's `+1`, so a row whose stamp is later
+   * evicted is already seen as "moved" (skipped) on resume, never
+   * re-incremented. The genuine over-count is **concurrent independent ops**
+   * (distinct `opId`s) converging on one shared destination: ≥8 of them can
+   * evict a crashed op's row-stamp before it resumes, and a naive ring-only
+   * resume would then double-apply that row's `+1` — a real, silent,
+   * permanent-leak over-count, not merely eviction-tolerant like shred's.
+   * `BlobIntent.appliedStamps` (`blob-intent.ts`) is rehome's ring-INDEPENDENT
+   * backstop: an unbounded, per-op, per-record log of confirmed row-stamps,
+   * consulted BEFORE this ring on every resume (see
+   * `BlobSet.applyStampedIncrement`). This ring stays the fast first-line
+   * check; `appliedStamps` makes correctness independent of ring eviction
+   * **except** in one intrinsic non-atomic window: the destination `+1`/ring
+   * write (A) and the `appliedStamps` append (B) are separate object writes,
+   * A before B (deliberately — B-first could under-count and crypto-shred a
+   * still-referenced object, i.e. data loss, strictly worse than a
+   * retained-too-long leak). A crash BETWEEN A and B followed by ≥8 concurrent
+   * evictions before resume can still over-count. This window is intrinsic
+   * (rehome, unlike shred, cannot pre-capture destinations at mint time) and
+   * fail-safe-directed; it is a documented residual (see the arc changeset).
    */
   readonly lastOps?: readonly string[]
 }
