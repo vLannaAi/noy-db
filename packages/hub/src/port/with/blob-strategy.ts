@@ -59,6 +59,13 @@ export interface BlobStrategyOpenArgs {
    */
   readonly erasableBlobs?: boolean
   /**
+   * Collection has `tiers` active (#724 I1 completion). Combined with
+   * `erasableBlobs` false, a content write is refused —
+   * `UnsupportedTierCompositionError` — since a legacy blob has no
+   * per-blob `_cek` and can never be tier-isolated on elevate/demote.
+   */
+  readonly tiersActive?: boolean
+  /**
    * Vault is in debug-plaintext mode (`encrypt: false` + `debugPlaintext: true`).
    * Blobs are then written as a single un-gzipped object (one base64 chunk) so
    * the stored object is directly recoverable with native tools (`base64 -d`),

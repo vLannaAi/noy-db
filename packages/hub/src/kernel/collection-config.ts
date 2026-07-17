@@ -64,7 +64,7 @@ import {
   resolveClassifiedFields, guardClassifiedCompat, NO_CLASSIFIED,
   type ClassifiedEntry, type ResolvedClassified, type ClassifiedGuardCtx, type ClassifiedStrategy, type ClassifiedViaConfig,
 } from '../port/with/classified-strategy.js'
-import { ClassifiedConfigError, ValidationError } from './errors.js'
+import { ClassifiedConfigError, ValidationError, UnsupportedTierCompositionError } from './errors.js'
 import type { FieldRef, Grain } from './via/graph.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
@@ -141,6 +141,16 @@ export interface CollectionOpts<T> {
   blobStrategy?: BlobStrategy | undefined
   objectStore?: ObjectProjection | undefined
   blobFields?: BlobFieldsConfig | undefined
+  /**
+   * #724 Arc 10 Task 3: how `elevate()`/`demote()`/`putAtTier()` rehome a
+   * SHARED blob (`refCount > 1`) it can't rewrap in place. `'isolate'`
+   * (default) forks a private tier-scoped copy for the moving record and
+   * releases its hold on the shared object — co-owners stay byte-for-byte
+   * untouched. `'dedup'` (#741, opt-in) leaves the shared object in place;
+   * the Task-1 runtime read gate still hides it, but the chunks stay
+   * decryptable at rest under the flat `_blob` DEK (documented residue).
+   */
+  blobTierPolicy?: 'isolate' | 'dedup' | undefined
   aggregateStrategy?: AggregateStrategy | undefined
   crdtStrategy?: CrdtStrategy | undefined
   /**
@@ -910,6 +920,19 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     )
   }
 
+  // #724 I1 — a tiered collection that declares blobFields must opt into
+  // perRecordKeys: legacy (non-perRecordKeys) blobs have no per-blob `_cek`,
+  // so `rehomeForTier` cannot rewrap/re-put them under a tier DEK on
+  // elevate/demote — they would stay tier-0-decryptable at rest. Refuse
+  // loudly at construction instead of leaking silently.
+  if (opts.tiers && opts.tiers.length > 0 && opts.blobFields !== undefined && Object.keys(opts.blobFields).length > 0 && opts.perRecordKeys !== true) {
+    throw new UnsupportedTierCompositionError(
+      'blobs',
+      `Collection "${opts.name}": tiered collections that declare blobFields require \`perRecordKeys: true\` — ` +
+        `legacy (non-perRecordKeys) blobs have no per-blob content CEK and cannot be tier-isolated on elevate/demote.`,
+    )
+  }
+
   // via() / sugar-key merge (#623 Task 9) — throws on a field declared in both.
   const effectiveViaFields = mergeViaFields(opts)
 
@@ -1119,6 +1142,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     tiersStrategy: opts.tiersStrategy ?? NO_TIERS,
     searchStrategy: opts.searchStrategy ?? NO_SEARCH,
     tierMode: opts.tierMode ?? 'invisibility',
+    blobTierPolicy: opts.blobTierPolicy ?? 'isolate',
     onCrossTierAccess: opts.onCrossTierAccess,
     deterministicFields,
     sensitiveFields,

@@ -109,6 +109,18 @@ export interface TiersContext<T> {
    */
   syncHistory(id: string, fromDek: EnclaveKey, toDek: EnclaveKey): Promise<void>
   /**
+   * Rehome a record's blob attachments after a tier move (#724 Arc 10 Task
+   * 2, at-rest hardening). A blob's home tier is its owning record's tier —
+   * the `_blob` DEK is tier-scoped (`dekKey('_blob', tier)`), so a solo-
+   * owned blob's content CEK must move with the record or it stays
+   * tier-0-unwrappable at rest even once the live body has moved (the same
+   * leak class `syncHistory` closes for `_history` snapshots). Delegates to
+   * `BlobSet.rehomeForTier`; no-op fast when the collection has no blob
+   * fields. Order-independent with the other sync hooks — touches only
+   * blob side structures, not this collection's own cache/indexes.
+   */
+  syncBlobs(id: string, fromTier: number, toTier: number): Promise<void>
+  /**
    * Purge a record's tier-0-era plaintext ledger deltas after a tier move
    * lands it above tier 0 (#729). The audit ledger is a flat, vault-wide,
    * hash-chained log — a record's reverse-JSON-Patch deltas in
@@ -378,6 +390,8 @@ export async function putAtTier<T>(
   const fromKey = dekKey(ctx.name, existing?._tier ?? 0)
   if (fromKey !== key) {
     await ctx.syncHistory(id, await ctx.getDEK(fromKey), dek)
+    // #724: this putAtTier moved the record's tier — rehome its blobs too.
+    await ctx.syncBlobs(id, existing?._tier ?? 0, tier)
   }
 }
 
@@ -568,6 +582,9 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   // path). Rewraps prior-version history snapshots to the SAME toTier DEK —
   // otherwise they stay decryptable at rest under fromDek forever.
   await ctx.syncHistory(id, fromDek, toDek)
+  // #724: rehome any solo-owned blob attachments to the target tier's
+  // `_blob` DEK — same at-rest law as syncHistory above.
+  await ctx.syncBlobs(id, fromTier, toTier)
 }
 
 /**
@@ -680,6 +697,9 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
   // path). Rewraps history snapshots the same direction as the live body —
   // demote restores tier-0 (or intermediate-tier) readability at rest.
   await ctx.syncHistory(id, fromDek, toDek)
+  // #724: rehome any solo-owned blob attachments the same direction as the
+  // live body — restores tier-0 (or intermediate-tier) readability at rest.
+  await ctx.syncBlobs(id, fromTier, toTier)
 }
 
 /**

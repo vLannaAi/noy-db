@@ -79,7 +79,7 @@ import { PersistedIndexStore } from '../with-lookup/search/persisted-index-store
 import type { RetrieveOptions, RetrieveHit } from '../with-lookup/search/retrieve-types.js'
 import { DerivationCapExceededError } from './errors.js'
 import type { VectorSet, EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
-import { buildUniqueConstraintSet, assertTierComposition, type UniqueConstraintSet } from '../with-lookup/indexing/unique-constraints.js'
+import { buildUniqueConstraintSet, type UniqueConstraintSet } from '../with-lookup/indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
 import { buildDescription, deriveZodFields, type CollectionDescription, type DescribeOptions } from '../with-shape/introspection/describe.js'
 import type { CollectionConfig } from '../with-shape/introspection/types.js'
@@ -89,7 +89,7 @@ import { generateULID } from '../with-pod/ulid.js'
 import type { PresenceHandle, PresenceHandleOpts } from '../with-party/team/presence.js'
 import type { SyncStrategy } from '../with-party/team/sync-strategy.js'
 import type { BlobSet } from '../with-shape/blobs/blob-set.js'
-import type { BlobStrategy } from '../port/with/blob-strategy.js'
+import { NO_BLOBS, type BlobStrategy } from '../port/with/blob-strategy.js'
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { BlobFieldsConfig } from '../with-shape/blobs/blob-compaction.js'
 import type { AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
@@ -230,9 +230,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   private readonly blobStrategy: BlobStrategy
   private readonly objectStore: ObjectProjection | undefined
-  private readonly blobFields: BlobFieldsConfig | undefined
-  private readonly aggregateStrategy: AggregateStrategy
-  private readonly crdtStrategy: CrdtStrategy
+  private readonly blobFields: BlobFieldsConfig | undefined; private readonly blobTierPolicy: 'isolate' | 'dedup' // #724 T2/T3
+  private readonly aggregateStrategy: AggregateStrategy; private readonly crdtStrategy: CrdtStrategy
   private readonly tiersStrategy: TiersStrategy
   private readonly searchStrategy: SearchStrategy
   private readonly historyStrategy: HistoryStrategy
@@ -651,7 +650,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.activeTxId = cfg.activeTxId
     this.blobStrategy = cfg.blobStrategy
     this.objectStore = cfg.objectStore
-    this.blobFields = cfg.blobFields
+    this.blobFields = cfg.blobFields; this.blobTierPolicy = cfg.blobTierPolicy ?? 'isolate'
     this.aggregateStrategy = cfg.aggregateStrategy
     this.crdtStrategy = cfg.crdtStrategy
     this.tiersStrategy = cfg.tiersStrategy
@@ -886,13 +885,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.persistedIndexes?.setCanonicalizer((f, v) => this.via?.canonicalizeIndexKey(f, v)) // #677: lazy twin of the line above
 
     // Unique-constraint enforcement (eager mode only; UnsupportedIndexOptionError)
-    // + tier-composition guard (`tiers + blobFields` throws UnsupportedTierCompositionError,
-    // #724) — see buildUniqueConstraintSet / assertTierComposition, kept out of this kernel file.
+    // — see buildUniqueConstraintSet. The Arc-7 tiers+blobFields refusal (#724)
+    // moved to collection.blob(id)'s runtime read gate (Arc 10 Task 1, blob-set.ts).
     this.uniqueConstraints = buildUniqueConstraintSet(this.name, opts.indexes, {
       lazy: this.lazy,
       crdt: this.crdtMode != null,
       tiered: this.tiers != null,
-    }); assertTierComposition(this.name, { tiers: this.tiers != null, blobFields: this.blobFields })
+    })
   }
   /**
    * Return the Standard Schema validator attached to this collection,
@@ -4071,7 +4070,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       getDEK: this.getDEK,
       encrypted: this.storeCiphertext,
       userId: this.keyring.userId,
-      erasableBlobs: this.perRecordCek,
+      erasableBlobs: this.perRecordCek, tiersActive: this.tiers !== null,
       debugPlaintext: this.keyring.debugPlaintext === true,
       ...(this.objectStore !== undefined ? { objectStore: this.objectStore } : {}),
       ...(this.blobFields !== undefined ? { blobFields: this.blobFields } : {}),
@@ -4511,6 +4510,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       syncIndexes: (id: string, rec: T | null, version?: number) => syncTierIndexesImpl(this.indexingContext(), id, rec, version),
       syncSearch: (id: string, rec: T | null, version?: number) => syncTierSearchImpl(this.searchContext(), id, rec, version),
       syncHistory: async (id: string, fromDek: EnclaveKey, toDek: EnclaveKey) => this.historyStrategy.rewrapHistory(this.adapter, this.vault, this.name, id, fromDek, toDek, await this.getDEK(this.name)),
+      syncBlobs: (id: string, fromTier: number, toTier: number) => this.blobStrategy !== NO_BLOBS ? this.blob(id).rehomeForTier(fromTier, toTier, this.blobTierPolicy) : Promise.resolve(), // #724 I1: gate on blob storage enabled (not on declared blobFields) so undeclared-field blobs still rehome; rehomeForTier self-no-ops on an empty slot map
       syncLedger: async (id: string) => { await this.ledger?.purgeRecordDeltas(this.name, id) },
       syncDerived: (id: string, record: T | null, elevated: boolean, version?: number) => syncDerivedOutputs(this, id, record, elevated, version),
       hasDerivedOutputs: this.materializedViewSource !== undefined || this.derivationSource !== undefined,

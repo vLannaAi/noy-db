@@ -752,7 +752,7 @@ export class Vault {
      * name. Values are `{ retainDays?, evictWhen? }`. Evaluated only
      * when `vault.compact()` runs.
      */
-    blobFields?: BlobFieldsConfig<T>
+    blobFields?: BlobFieldsConfig<T>; blobTierPolicy?: 'isolate' | 'dedup' // — shared-blob rehome policy on tier move (#724/#741); default 'isolate'
     /** — declarative record archival policy: `{ archiveWhen, legalHold? }`. Evaluated when `vault.archive()` runs. */
     archive?: ArchivePolicy<T>
     /** — declared tiers for this collection. */
@@ -1094,7 +1094,7 @@ export class Vault {
       if (options?.provenance !== undefined) collOpts.provenance = options.provenance
       if (options?.ramCiphertext !== undefined) collOpts.ramCiphertext = options.ramCiphertext
       if (options?.tiers !== undefined) collOpts.tiers = options.tiers
-      if (options?.tierMode !== undefined) collOpts.tierMode = options.tierMode
+      if (options?.tierMode !== undefined) collOpts.tierMode = options.tierMode; if (options?.blobTierPolicy !== undefined) collOpts.blobTierPolicy = options.blobTierPolicy
       collOpts.onCrossTierAccess = (event) => this.emitCrossTier(event)
       if (this.syncAdapter !== undefined) collOpts.syncAdapter = this.syncAdapter
       if (options?.i18nFields !== undefined) collOpts.i18nFields = options.i18nFields
@@ -2411,7 +2411,7 @@ export class Vault {
       } else if (blobsEnabled) {
         const r = await this.collection<Record<string, unknown>>(ref.collection)
           .blob(ref.id)
-          .shredAllForRecord()
+          .shredAllForRecord(live?._tier ?? 0) // #724 C3: pre-tombstone tier — the tombstone this loop already wrote drops `_tier`
         blobsShredded += r.shredded.length
         blobsRetainedShared += r.retainedShared.length
         if (r.residue.length > 0) blobResidueCollections.add(ref.collection)

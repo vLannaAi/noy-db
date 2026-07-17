@@ -1768,7 +1768,21 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-pod/backup.ts', 3],
   ['packages/hub/src/with-pod/bundle.ts', 2],
   ['packages/hub/src/with-shape/blobs/blob-compaction.ts', 4],
-  ['packages/hub/src/with-shape/blobs/blob-set.ts', 33],
+  // #724 Arc 10 correction (Task 1, closes C1): `rehomeForTier`'s solo
+  // in-place rewrap (`unwrapCek(blob._cek, fromDEK)` + the `_cek:` literal
+  // on the rewritten BlobObject) is DELETED — solo now re-`put()`s through
+  // the same fork path as shared-isolate, adding no new raw `_cek`/`_iv`/
+  // `_data` access. Down 2 from the Task-2 grandfather. 36→34.
+  // #724 Arc 10 correction (Task 2, closes C4): `rehomeVersionRecords` reads
+  // a raw version-record envelope's `_data` (mirrors `listVersions`'s own
+  // existing raw scan, just walking ALL of this record's version keys
+  // instead of one slot's) and `rehomeVersionETag` checks `loaded.blob._cek`
+  // to skip legacy/missing blobs (mirrors the slot loop's identical check
+  // two lines above it in the file). Both new sites reuse the barrel
+  // (`openEnvelopeJson`/`writeBlobContent`) for every actual decrypt/write —
+  // these are the two bare discriminant reads the loop needs to route
+  // correctly. Up 2. 34→36.
+  ['packages/hub/src/with-shape/blobs/blob-set.ts', 36],
   // #629 Task 4: DictionaryHandle's encrypt/decrypt now goes through the
   // reservedEnvelopes('_dict_') capability instead of building `_iv`/`_data`
   // literals inline — down from 5 (the plaintext branch's `_iv: ''`/`_data:`
