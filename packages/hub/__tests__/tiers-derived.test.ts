@@ -1,0 +1,251 @@
+/**
+ * #722 — derived outputs must follow the source's tier. Elevating a source
+ * record must remove its contribution from every derived output (MV rows,
+ * rollup/aggregate values, derivation outputs) — those output rows live in
+ * tier-0 output collections and held the source's tier-0-era plaintext.
+ * Reuses the forget-fanout recompute; recompute reads the elevated-excluding
+ * cache so it drops the now-invisible source.
+ */
+import { describe, it, expect } from 'vitest'
+import { createNoydb, withMaterializedView, withRollup, withDerivation, ConflictError, type GroupedAggregation } from '../src/index.js'
+import { withTiers } from '../src/with-audit/tiers/index.js'
+import { withAggregate } from '../src/with-lookup/aggregate/index.js'
+import { sum } from '../src/with-lookup/aggregate/reducers.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
+
+function memoryStore(): NoydbStore {
+  const data = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
+  const getColl = (v: string, c: string): Map<string, EncryptedEnvelope> => {
+    let vm = data.get(v); if (!vm) { vm = new Map(); data.set(v, vm) }
+    let cm = vm.get(c); if (!cm) { cm = new Map(); vm.set(c, cm) }
+    return cm
+  }
+  return {
+    name: 'memory',
+    async get(v, c, id) { return data.get(v)?.get(c)?.get(id) ?? null },
+    async put(v, c, id, env, ev) {
+      const coll = getColl(v, c); const ex = coll.get(id)
+      if (ev !== undefined && ex && ex._v !== ev) throw new ConflictError(ex._v)
+      coll.set(id, env)
+    },
+    async delete(v, c, id) { data.get(v)?.get(c)?.delete(id) },
+    async list(v, c) { return [...(data.get(v)?.get(c)?.keys() ?? [])] },
+    async loadAll(v) {
+      const vm = data.get(v); const snap: VaultSnapshot = {}
+      if (vm) for (const [cn, cm] of vm) {
+        const r: Record<string, EncryptedEnvelope> = {}
+        for (const [id, e] of cm) r[id] = e
+        snap[cn] = r
+      }
+      return snap
+    },
+    async saveAll(v, snap) {
+      const vm = new Map<string, Map<string, EncryptedEnvelope>>()
+      for (const [cn, recs] of Object.entries(snap)) {
+        const cm = new Map<string, EncryptedEnvelope>()
+        for (const [id, e] of Object.entries(recs)) cm.set(id, e)
+        vm.set(cn, cm)
+      }
+      data.set(v, vm)
+    },
+  }
+}
+
+describe('#722 elevate removes the source from derived outputs', () => {
+  it('record-grain MV: the elevated source’s output row vanishes; the output collection holds no source plaintext', async () => {
+    interface Invoice extends Record<string, unknown> { id: string; clientId: string; amount: number; status: 'open' | 'paid' }
+    const openInvoicesMV = withMaterializedView<Invoice>({
+      name: 'open-invoices',
+      // The MV's query callback runs at REGISTRATION time (inside
+      // `openVault`) and its `db.collection(name)` call is what FIRST
+      // constructs + caches the source collection — a later
+      // `vault.collection('invoices', { tiers: ... })` call is a no-op
+      // (first-construction wins). So the tiered options must be supplied
+      // HERE, on this first construction; the untyped call below is
+      // side-effect-only (cache warm), the typed call just re-reads it.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      query: (db) => { (db as any).collection('invoices', { tiers: [0, 1], perRecordKeys: true }); return db.collection<Invoice>('invoices').query().where('status', '==', 'open') },
+      rowKey: (r) => r.id,
+      refresh: 'eager',
+    })
+    const db = await createNoydb({
+      store: memoryStore(),
+      user: 'owner',
+      secret: 'tiers-derived-mv-passphrase-2026',
+      tiersStrategy: withTiers(),
+      materializedViewStrategies: [openInvoicesMV],
+    })
+    const vault = await db.openVault('demo')
+    const invoices = vault.collection<Invoice>('invoices', { tiers: [0, 1], perRecordKeys: true })
+    const openMV = vault.collection<Invoice>('open-invoices')
+
+    await invoices.put('inv-a', { id: 'inv-a', clientId: 'acme', amount: 100, status: 'open' })
+    await invoices.put('inv-b', { id: 'inv-b', clientId: 'acme', amount: 50, status: 'open' })
+
+    expect((await openMV.get('inv-a'))?.amount).toBe(100)
+    expect((await openMV.get('inv-b'))?.amount).toBe(50)
+
+    await invoices.elevate('inv-a', 1)
+
+    expect(await openMV.get('inv-a')).toBeNull()
+    expect((await openMV.get('inv-b'))?.amount).toBe(50)
+
+    // No source plaintext remains — the output row itself is gone.
+    const store = (db as unknown as { options: { store: NoydbStore } }).options.store
+    expect(await store.get('demo', 'open-invoices', 'inv-a')).toBeNull()
+  })
+
+  it('aggregate MV: elevating a contributor drops it from the group aggregate', async () => {
+    interface Compensation extends Record<string, unknown> { id: string; clientId: string; taxAmount: number }
+    interface ClientTotalRow extends Record<string, unknown> { clientId: string; taxTotal: number }
+    const mv = withMaterializedView<ClientTotalRow>({
+      name: 'client-totals',
+      sources: ['compensations'],
+      // See the record-grain MV test above: tiered options must be supplied
+      // on the FIRST `collection()` call the query callback makes (which
+      // happens at registration time, before the test can reach it).
+      query: (db) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(db as any).collection('compensations', { tiers: [0, 1], perRecordKeys: true })
+        return db.collection<Compensation>('compensations')
+          .query()
+          .groupBy('clientId')
+          .aggregate({ taxTotal: sum('taxAmount') }) as GroupedAggregation<ClientTotalRow>
+      },
+      rowKey: (r) => r.clientId,
+      refresh: 'eager',
+    })
+    const db = await createNoydb({
+      store: memoryStore(),
+      user: 'owner',
+      secret: 'tiers-derived-aggregate-passphrase-2026',
+      tiersStrategy: withTiers(),
+      aggregateStrategy: withAggregate(),
+      materializedViewStrategies: [mv],
+    })
+    const vault = await db.openVault('demo')
+    const compensations = vault.collection<Compensation>('compensations', { tiers: [0, 1], perRecordKeys: true })
+    const totals = vault.collection<ClientTotalRow>('client-totals')
+
+    await compensations.put('c1', { id: 'c1', clientId: 'acme', taxAmount: 100 })
+    await compensations.put('c2', { id: 'c2', clientId: 'acme', taxAmount: 50 })
+    expect((await totals.get('acme'))?.taxTotal).toBe(150)
+
+    await compensations.elevate('c1', 1)
+
+    // The aggregate drops the elevated contributor's amount (owner-accepted
+    // inference channel — see the arc's design doc).
+    expect((await totals.get('acme'))?.taxTotal).toBe(50)
+  })
+
+  it('rollup: elevating a child drops its contribution from the parent rollup field', async () => {
+    interface Buyer extends Record<string, unknown> { id: string; companyName: string; totalSpent?: number }
+    interface Sale extends Record<string, unknown> { id: string; buyerId: string; total: number }
+    const totalSpentRollup = withRollup<Sale, Buyer>({
+      from: 'sales', key: 'buyerId', into: 'buyers', field: 'totalSpent',
+      compute: (sales) => sales.reduce((t, s) => t + s.total, 0),
+    })
+    const db = await createNoydb({
+      store: memoryStore(),
+      user: 'owner',
+      secret: 'tiers-derived-rollup-passphrase-2026',
+      tiersStrategy: withTiers(),
+      derivationStrategies: [totalSpentRollup],
+    })
+    const vault = await db.openVault('firm')
+    const buyers = vault.collection<Buyer>('buyers')
+    const sales = vault.collection<Sale>('sales', { tiers: [0, 1], perRecordKeys: true })
+
+    await buyers.put('b1', { id: 'b1', companyName: 'Acme' })
+    await sales.put('s1', { id: 's1', buyerId: 'b1', total: 100 })
+    await sales.put('s2', { id: 's2', buyerId: 'b1', total: 200 })
+    expect((await buyers.get('b1'))?.totalSpent).toBe(300)
+
+    await sales.elevate('s1', 1)
+
+    expect((await buyers.get('b1'))?.totalSpent).toBe(200)
+  })
+
+  it('record/array withDerivation: the elevated source’s derived output is removed', async () => {
+    interface Worker extends Record<string, unknown> { id: string; clientId: string; period: string; baseSalary: number }
+    interface ActivePeriod extends Record<string, unknown> { id: string; workerId: string; period: string }
+    const strategy = withDerivation<Worker, { activeInPeriod: ActivePeriod[] }>({
+      source: 'workers',
+      deterministic: true,
+      outputs: {
+        activeInPeriod: {
+          shape: 'array',
+          collection: 'workerActiveInPeriod',
+          key: (o) => `${o.workerId as string}|${o.period as string}`,
+        },
+      },
+      derive: (worker) => ({
+        activeInPeriod: [{ id: `${worker.id}|${worker.period}`, workerId: worker.id, period: worker.period }],
+      }),
+      lifecycle: 'eager',
+    })
+    const db = await createNoydb({
+      store: memoryStore(),
+      user: 'owner',
+      secret: 'tiers-derived-array-passphrase-2026',
+      tiersStrategy: withTiers(),
+      derivationStrategies: [strategy],
+    })
+    const vault = await db.openVault('acme')
+    const workers = vault.collection<Worker>('workers', { tiers: [0, 1], perRecordKeys: true })
+    const activePeriods = vault.collection<ActivePeriod>('workerActiveInPeriod')
+
+    await workers.put('w1', { id: 'w1', clientId: 'cl-A', period: '2026-03', baseSalary: 30000 })
+    expect(await activePeriods.get('w1|2026-03')).not.toBeNull()
+
+    await workers.elevate('w1', 1)
+
+    expect(await activePeriods.get('w1|2026-03')).toBeNull()
+  })
+
+  it('a sibling non-elevated source’s derived outputs are untouched', async () => {
+    interface Buyer extends Record<string, unknown> { id: string; companyName: string; totalSpent?: number }
+    interface Sale extends Record<string, unknown> { id: string; buyerId: string; total: number }
+    const totalSpentRollup = withRollup<Sale, Buyer>({
+      from: 'sales', key: 'buyerId', into: 'buyers', field: 'totalSpent',
+      compute: (sales) => sales.reduce((t, s) => t + s.total, 0),
+    })
+    const db = await createNoydb({
+      store: memoryStore(),
+      user: 'owner',
+      secret: 'tiers-derived-sibling-passphrase-2026',
+      tiersStrategy: withTiers(),
+      derivationStrategies: [totalSpentRollup],
+    })
+    const vault = await db.openVault('firm')
+    const buyers = vault.collection<Buyer>('buyers')
+    const sales = vault.collection<Sale>('sales', { tiers: [0, 1], perRecordKeys: true })
+
+    await buyers.put('b1', { id: 'b1', companyName: 'Acme' })
+    await buyers.put('b2', { id: 'b2', companyName: 'Beta' })
+    await sales.put('s1', { id: 's1', buyerId: 'b1', total: 100 })
+    await sales.put('s2', { id: 's2', buyerId: 'b2', total: 75 })
+
+    await sales.elevate('s1', 1)
+
+    expect((await buyers.get('b1'))?.totalSpent).toBe(0)
+    expect((await buyers.get('b2'))?.totalSpent).toBe(75) // sibling untouched
+  })
+
+  it('a collection with NO derivations is unaffected (syncDerived is a fast no-op)', async () => {
+    interface Doc extends Record<string, unknown> { id: string; title: string }
+    const db = await createNoydb({
+      store: memoryStore(),
+      user: 'owner',
+      secret: 'tiers-derived-noop-passphrase-2026',
+      tiersStrategy: withTiers(),
+    })
+    const vault = await db.openVault('demo')
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+
+    await docs.put('d1', { id: 'd1', title: 'Public' })
+
+    await expect(docs.elevate('d1', 1)).resolves.toBeUndefined()
+    expect(await docs.getAtTier('d1')).toEqual({ id: 'd1', title: 'Public' })
+  })
+})

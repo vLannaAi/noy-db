@@ -126,6 +126,29 @@ export interface TiersContext<T> {
    * ledger (`withHistory()` not enabled).
    */
   syncLedger(id: string): Promise<void>
+  /**
+   * Sync a record's derived outputs (materialized-view rows, rollup
+   * contributions, `withDerivation` outputs) after a tier move (#722).
+   * Those outputs are computed from this record and written to OTHER
+   * (output) collections via a plain `put` at tier 0 — `elevate()`'s live-
+   * body rewrap moves only the source envelope, so the output rows keep
+   * holding the source's tier-0-era plaintext, the same leak class
+   * `syncSearch`/`syncIndexes` closed for THIS collection's own artifacts.
+   * `elevated` (landing tier > 0) reuses the SAME onDelete fanout
+   * `forgetDerivedFanout` drives for `forget()` (`kernel/via/dispatch.ts`)
+   * — minus its `'ref'` cascade edge (elevate/demote never erase a
+   * *different* record) — to recompute this record's derived outputs as
+   * REMOVED. Recompute is tier-safe: the fanout's own source scan reads
+   * the elevated-excluding cache (#701/#709/#712), so it naturally omits
+   * the now-elevated record instead of re-embedding its plaintext. Landing
+   * back at tier 0 (`elevated === false`) is the reverse, restoring the
+   * contribution — Task 2 (#722). `record` is the PRE-move decoded source
+   * record — only the rollup edge needs it (to resolve which parent it
+   * rolls up into); `null` skips that edge. No-op fast when the collection
+   * has no MV/derivation source — each dispatcher below checks its own
+   * source before doing any work.
+   */
+  syncDerived(id: string, record: T | null, elevated: boolean): Promise<void>
   /** Emit `_source`/`_sourceTs` provenance fields when a source is supplied. */
   readonly provenance: boolean
   /** Declared tiers, or null when the feature is off. */
@@ -161,6 +184,40 @@ export function assertDeclaredTier<T>(ctx: TiersContext<T>, tier: number): void 
 
 function isElevatorOrOwner<T>(ctx: TiersContext<T>): boolean {
   return ctx.keyring.role === 'owner' || ctx.keyring.role === 'admin'
+}
+
+/**
+ * Structural surface {@link syncDerivedOutputs} needs from the owning
+ * collection — the SAME onDelete dispatchers `forgetDerivedFanout` already
+ * drives (`kernel/via/dispatch.ts`), reused as-is (#722). Narrower than
+ * `Collection<T>` (avoids an import cycle: collection.ts constructs
+ * `TiersContext` FROM `this`, which already satisfies this shape
+ * structurally — no cast needed at the `tiersContext()` call site).
+ */
+export interface DerivedOutputsHost<T> {
+  dispatchMaterializedViewsOnDelete(id: string): Promise<number>
+  dispatchArrayDerivationsOnDelete(id: string, eraseRecordShapeToo?: boolean): Promise<number>
+  dispatchRollupsOnDelete(id: string, deleted: T): Promise<unknown>
+}
+
+/**
+ * The {@link TiersContext.syncDerived} implementation collection.ts's
+ * `tiersContext()` binds `this` into (#722). See that field's doc comment
+ * for the design; `host` is `this` — every dispatcher below is a public
+ * Collection method, already self-guarding (no-op) when the collection has
+ * no materialized-view/derivation source, so no separate fast-path check is
+ * needed here.
+ */
+export async function syncDerivedOutputs<T>(
+  host: DerivedOutputsHost<T>,
+  id: string,
+  record: T | null,
+  elevated: boolean,
+): Promise<void> {
+  if (!elevated) return // Task 2 (#722): recompute-as-add on demote/putAtTier(0)
+  await host.dispatchMaterializedViewsOnDelete(id)
+  await host.dispatchArrayDerivationsOnDelete(id, true)
+  if (record !== null) await host.dispatchRollupsOnDelete(id, record)
 }
 
 /**
@@ -228,6 +285,10 @@ export async function putAtTier<T>(
     // #729: the record lands above tier 0 — purge its tier-0-era plaintext
     // ledger deltas (irreversible; a tier-0 putAtTier(0) has nothing to purge).
     await ctx.syncLedger(id)
+    // #722: recompute this record's derived outputs now that it left tier 0
+    // — same law as elevate() below. `existing` is the PRE-write envelope;
+    // decode it only here (the rollup edge is the only consumer).
+    await ctx.syncDerived(id, existing ? await ctx.codec.decryptRecord(existing, { id, sealedAsHandles: true }) : null, true)
   } else {
     const rec = await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
     await ctx.syncIndexes(id, rec, envelope._v)
@@ -427,6 +488,11 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   // #729: elevate always lands the record at tier > 0 — purge its
   // tier-0-era plaintext ledger deltas (irreversible; entry metadata stays).
   await ctx.syncLedger(id)
+  // #722: recompute this record's derived outputs now that it left tier 0 —
+  // same law as putAtTier(tier>0) above. `envelope` is the PRE-move envelope
+  // (captured before the rewrap), decoded only here (the rollup edge is the
+  // only consumer of the record content).
+  await ctx.syncDerived(id, await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true }), true)
 
   ctx.emitCrossTierEvent({
     actor: ctx.keyring.userId,
