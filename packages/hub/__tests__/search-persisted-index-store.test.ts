@@ -66,3 +66,53 @@ describe('PersistedIndexStore (#308 L1.5)', () => {
     expect(state.removes).toBe(1); expect(store.built).toBe(false)
   })
 })
+
+describe('PersistedIndexStore epoch-guarded flush/purge race (#725)', () => {
+  it('removePersisted mid-flight self-undoes an in-flight save once it settles', async () => {
+    const state: { blob: { json: string; fingerprint: Fingerprint } | null; removes: number } = { blob: null, removes: 0 }
+    let gate: Promise<void> | null = null
+    let reached: (() => void) | null = null
+    const store = new PersistedIndexStore({
+      load: async () => state.blob,
+      save: async (json, f) => {
+        if (gate) { reached?.(); await gate }
+        state.blob = { json, fingerprint: f }
+      },
+      remove: async () => { state.removes++; state.blob = null },
+      currentFingerprint: () => ({ count: 1, maxVersion: 1 }),
+      debounceMs: 10,
+    })
+
+    // Warm build + save, uninterrupted (gate not yet armed).
+    await store.ensureBuilt(() => docs)
+    expect(state.blob).not.toBeNull()
+
+    // Arm the gate for the NEXT save and start a flush — it blocks INSIDE
+    // save(), after the epoch has been captured, before the blob is written.
+    let release!: () => void
+    gate = new Promise<void>((r) => { release = r })
+    const reachedPromise = new Promise<void>((r) => { reached = r })
+    const flushPromise = store.flush()
+    await reachedPromise // the flush is now genuinely in flight
+
+    // A purge lands while that save is still in flight.
+    const removePromise = store.removePersisted()
+
+    release()
+    await Promise.all([flushPromise, removePromise])
+
+    // The in-flight save's resurrection must not survive the purge.
+    expect(state.blob).toBeNull()
+    expect(store.built).toBe(false)
+  })
+
+  it('a flush with no interleaved purge still persists normally', async () => {
+    const { store, state } = harness()
+    await store.ensureBuilt(() => docs)
+    const savesBefore = state.saves
+    store.markDirty()
+    await store.flush()
+    expect(state.saves).toBe(savesBefore + 1)
+    expect(state.blob).not.toBeNull()
+  })
+})

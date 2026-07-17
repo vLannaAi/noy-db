@@ -28,6 +28,11 @@ export class PersistedIndexStore implements IndexStore {
   private timer: ReturnType<typeof setTimeout> | null = null
   private lastBuild: (() => ReadonlyArray<IndexDoc>) | undefined
   private readonly debounceMs: number
+  /** Bumped by every purge (removePersisted). A save() captured under a since-stale
+   *  epoch undoes its own effect once it settles, however it interleaves with the
+   *  purge's own delete — a delete can never be overtaken by a save that was
+   *  scheduled before it (#725). */
+  private epoch = 0
 
   constructor(private readonly cb: PersistedIndexCallbacks) {
     this.debounceMs = cb.debounceMs ?? 1000
@@ -66,6 +71,7 @@ export class PersistedIndexStore implements IndexStore {
   /** Delete the persisted blob and drop the in-memory index (forget/erasure). */
   async removePersisted(): Promise<void> {
     if (this.timer) { clearTimeout(this.timer); this.timer = null }
+    this.epoch++ // any save() already in flight is now stale — it will self-undo
     this.index = undefined
     await this.cb.remove()
   }
@@ -79,8 +85,13 @@ export class PersistedIndexStore implements IndexStore {
     await this.persist()
   }
 
+  /** Persist the current index, then undo it if a purge (removePersisted) landed
+   *  while the save was in flight — a delete can never be overtaken by a save
+   *  that was scheduled before it (#725). */
   private async persist(): Promise<void> {
     if (this.index === undefined) return
+    const epoch = this.epoch
     await this.cb.save(serializeIndex(this.index), this.cb.currentFingerprint())
+    if (this.epoch !== epoch) await this.cb.remove()
   }
 }
