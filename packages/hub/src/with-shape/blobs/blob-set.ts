@@ -1929,10 +1929,20 @@ export class BlobSet {
    * stamp instead of the plain {@link casUpdateRefCount} — the row-scoped
    * identity `putUnderDEK`/`rehomeVersionETag` compute so a resumed re-put's
    * destination increment is idempotent per row. Omitted (every call site
-   * before this arc) → byte-identical unstamped behavior. Never consulted on
-   * the fresh-object create path (Step 6): that write has no delta to
-   * double-apply — a resumed re-put of a since-created eTag always lands
-   * back on THIS dedup-hit branch, which the stamp does cover.
+   * before this arc) → byte-identical unstamped behavior.
+   *
+   * ALSO seeds `lastOps: [incrementStamp]` on the fresh-object create path
+   * (Step 6, review finding on #746 C3): a solo blob has no pre-existing
+   * destination object for a resumed re-put to dedup-hit against a stamp on
+   * — the FIRST attempt's create is itself the only write, and a crash
+   * after it lands but before the slot/version CAS leaves the object
+   * present at refCount 1 with NO stamp. An unseeded resume then
+   * re-executes Step 3, finds that same object, and — finding no matching
+   * stamp — applies a SECOND, spurious `+1` (1 → 2), the exact over-count
+   * hazard this stamping arc exists to close. Seeding the ring at create
+   * time closes that: the resumed re-put's Step 3 dedup-hit against THIS
+   * object finds its own stamp already present and skips, matching the
+   * dedup-hit branch's behavior exactly.
    */
   private async writeBlobContent(
     data: Uint8Array,
@@ -2018,7 +2028,11 @@ export class BlobSet {
       )
     }
 
-    // Step 6 — write blob index entry after all chunks succeed
+    // Step 6 — write blob index entry after all chunks succeed. #746 C3
+    // review: seed `lastOps` with `incrementStamp` (when present) so a
+    // resumed re-put's Step 3 dedup-hit against THIS freshly-created object
+    // finds its own stamp already there and skips — see this method's
+    // `incrementStamp` doc comment.
     await this.writeBlobObject({
       eTag,
       size: data.byteLength,
@@ -2030,6 +2044,7 @@ export class BlobSet {
       createdAt: new Date().toISOString(),
       refCount: 1,
       ...(wrappedCek !== undefined ? { _cek: wrappedCek } : {}),
+      ...(incrementStamp !== undefined ? { lastOps: appendStamp(undefined, incrementStamp) } : {}),
     }, undefined, tier)
 
     return { eTag, mimeType }

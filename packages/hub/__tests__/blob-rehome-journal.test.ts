@@ -225,6 +225,79 @@ describe('rehomeForTier — slot re-put destination +1 is row-scoped stamped (#7
   })
 })
 
+// ─── Solo-blob (fresh-create) destination: crash right after the CREATE ──
+
+describe('rehomeForTier — fresh-object CREATE also seeds the stamp (#746 C3 review)', () => {
+  it('crash after the fresh-create lands, before the slot CAS → resume does not spuriously double the destination refCount', async () => {
+    const store = memory()
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vault0 = await db0.openVault(VAULT)
+    const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+
+    // NO pre-seeded tier-1 destination this time: 'r4' is the FIRST (and
+    // only) holder of this content at either tier — its rehome's Step 6 is
+    // a fresh CREATE, not a dedup-hit CAS. This is the branch the review
+    // caught unstamped: a resumed re-put's Step 3 dedup-hits the object
+    // ITS OWN prior (crashed) attempt created, and without a seeded stamp
+    // there is nothing to skip against.
+    await docs0.putAtTier('r4', { id: 'r4', title: 'R4' }, 0)
+    await docs0.blob('r4').put('attachment', bytes('solo content, no pre-existing destination'))
+    const oldETag = (await docs0.blob('r4').blobInfo('attachment'))!.eTag
+    db0.close()
+
+    // Crash exactly after the fresh-create (a `_blob_index/{destETag}` PUT)
+    // lands for real, but before the slot CAS (the FIRST `_blob_slots_docs`
+    // put in this session) — which hangs forever.
+    let reached!: () => void
+    const reachedPromise = new Promise<void>((r) => { reached = r })
+    const crashing = hangOnNthPut(store, (col) => col === SLOTS_COLLECTION, 1, () => reached())
+    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vaultCrash = await dbCrash.openVault(VAULT)
+    const docsCrash = vaultCrash.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    const opId = 'rehome-op-fresh-create-1'
+    void docsCrash.blob('r4').rehomeForTier(0, 1, 'isolate', opId) // fire-and-forget: never settles (simulated crash)
+    await reachedPromise
+
+    // Mid-crash: exactly two `_blob_index` rows exist — the untouched old
+    // (tier-0) object and the freshly-created destination. Identify the
+    // destination by elimination (no pre-seed to read its eTag off of).
+    const indexKeysMidCrash = await store.list(VAULT, INDEX_COLLECTION)
+    expect(indexKeysMidCrash).toHaveLength(2)
+    const destETag = indexKeysMidCrash.find((k) => k !== oldETag)!
+    const destInternals = docsCrash.blob('r4') as unknown as BlobSetInternals
+    const midCrashDest = await destInternals.loadBlobObject(destETag, 1)
+    expect(midCrashDest!.blob.refCount).toBe(1) // correct: exactly one create, no dedup-hit yet
+    expect(store.raw(VAULT, INDEX_COLLECTION, oldETag)).toBeDefined() // old object untouched (release not reached)
+
+    // Resume: fresh session, same store, same opId — re-running
+    // `rehomeForTier` from scratch. The slot map never moved, so
+    // `loadSlots(fromTier)` still resolves cleanly.
+    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vaultResume = await dbResume.openVault(VAULT)
+    const docsResume = vaultResume.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    await docsResume.blob('r4').rehomeForTier(0, 1, 'isolate', opId)
+
+    // THE regression check (the review's HIGH finding): the destination
+    // refCount is 1, NOT 2 — the resumed re-put's Step 3 dedup-hit against
+    // the object its OWN crashed attempt created found the SEEDED stamp
+    // already present and skipped, instead of spuriously incrementing.
+    const resumeInternals = docsResume.blob('r4') as unknown as BlobSetInternals
+    const finalDest = await resumeInternals.loadBlobObject(destETag, 1)
+    expect(finalDest!.blob.refCount).toBe(1)
+
+    // The old tier-0 object was released exactly once (fully gone).
+    expect(store.raw(VAULT, INDEX_COLLECTION, oldETag)).toBeUndefined()
+
+    // 'r4's slot map physically moved to tier 1 and now resolves to the
+    // destination object.
+    const rInternals = docsResume.blob('r4') as unknown as BlobSetInternals
+    const { slots: rSlots } = await rInternals.loadSlots(1)
+    expect(rSlots.attachment!.eTag).toBe(destETag)
+
+    dbResume.close()
+  })
+})
+
 // ─── Version re-put: destination +1 lands, crash before the release completes ─
 
 describe('rehomeForTier — version re-put destination +1 is row-scoped stamped (#746 spec C3)', () => {
