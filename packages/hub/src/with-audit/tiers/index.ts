@@ -126,6 +126,48 @@ export interface TiersContext<T> {
    * ledger (`withHistory()` not enabled).
    */
   syncLedger(id: string): Promise<void>
+  /**
+   * Sync a record's derived outputs (materialized-view rows, rollup
+   * contributions, `withDerivation` outputs) after a tier move (#722).
+   * Those outputs are computed from this record and written to OTHER
+   * (output) collections via a plain `put` at tier 0 — `elevate()`'s live-
+   * body rewrap moves only the source envelope, so the output rows keep
+   * holding the source's tier-0-era plaintext, the same leak class
+   * `syncSearch`/`syncIndexes` closed for THIS collection's own artifacts.
+   * `elevated` (landing tier > 0) reuses the SAME onDelete fanout
+   * `forgetDerivedFanout` drives for `forget()` (`kernel/via/dispatch.ts`)
+   * — minus its `'ref'` cascade edge (elevate/demote never erase a
+   * *different* record) — to recompute this record's derived outputs as
+   * REMOVED. Recompute is tier-safe: the fanout's own source scan reads
+   * the elevated-excluding cache (#701/#709/#712), so it naturally omits
+   * the now-elevated record instead of re-embedding its plaintext. Landing
+   * back at tier 0 (`elevated === false`) is the reverse (Task 2, #722):
+   * `syncDerivedOutputs` instead runs the ordinary local-write add-
+   * dispatchers (`dispatchDerivations`/`dispatchMaterializedViews`, the
+   * same ones a plain `put()` fires) to restore the contribution —
+   * reversible, since the source's plaintext survives the elevate/demote
+   * rewrap round-trip. `record` is the decoded source record (PRE-move on
+   * the remove side, POST-move on the add side); only the rollup edge
+   * consumes it on remove, both add-dispatchers require it on add; `null`
+   * (tombstone/delete-marker) skips both. `version` stamps the add-
+   * dispatchers' `_derivedFrom.sourceVersion` metadata — reuses the version
+   * the tier op already has, no re-read; unused on the remove side. No-op
+   * fast when the collection has no MV/derivation source — each dispatcher
+   * below checks its own source before doing any work.
+   */
+  syncDerived(id: string, record: T | null, elevated: boolean, version?: number): Promise<void>
+  /**
+   * `true` iff the collection has a materialized-view or derivation source
+   * attached. Gates the {@link syncDerived} pre-move decode on the remove
+   * direction (`elevate()`, `putAtTier(tier>0)`, `demote()`'s intermediate-
+   * tier branch): those sites decode the record SOLELY to feed
+   * `syncDerived(..., true)`, whose dispatchers no-op immediately when the
+   * collection has no MV/derivation source — so a no-derivation collection
+   * would otherwise pay a full record-body decrypt on every tier move for
+   * nothing (#722 perf regression). `false` short-circuits the decode to
+   * `null`, which `syncDerivedOutputs` already treats safely.
+   */
+  readonly hasDerivedOutputs: boolean
   /** Emit `_source`/`_sourceTs` provenance fields when a source is supplied. */
   readonly provenance: boolean
   /** Declared tiers, or null when the feature is off. */
@@ -161,6 +203,54 @@ export function assertDeclaredTier<T>(ctx: TiersContext<T>, tier: number): void 
 
 function isElevatorOrOwner<T>(ctx: TiersContext<T>): boolean {
   return ctx.keyring.role === 'owner' || ctx.keyring.role === 'admin'
+}
+
+/**
+ * Structural surface {@link syncDerivedOutputs} needs from the owning
+ * collection — the SAME onDelete dispatchers `forgetDerivedFanout` already
+ * drives (`kernel/via/dispatch.ts`), reused as-is (#722). Narrower than
+ * `Collection<T>` (avoids an import cycle: collection.ts constructs
+ * `TiersContext` FROM `this`, which already satisfies this shape
+ * structurally — no cast needed at the `tiersContext()` call site).
+ */
+export interface DerivedOutputsHost<T> {
+  dispatchMaterializedViewsOnDelete(id: string): Promise<number>
+  dispatchArrayDerivationsOnDelete(id: string, eraseRecordShapeToo?: boolean): Promise<number>
+  dispatchRollupsOnDelete(id: string, deleted: T): Promise<unknown>
+  /** Task 2 (#722) add-direction: the same local-write dispatchers an ordinary `put()` fires. */
+  dispatchMaterializedViews(id: string, record: T): Promise<void>
+  dispatchDerivations(id: string, record: T, version: number): Promise<void>
+}
+
+/**
+ * The {@link TiersContext.syncDerived} implementation collection.ts's
+ * `tiersContext()` binds `this` into (#722). See that field's doc comment
+ * for the design; `host` is `this` — every dispatcher below is a public
+ * Collection method, already self-guarding (no-op) when the collection has
+ * no materialized-view/derivation source, so no separate fast-path check is
+ * needed here.
+ */
+export async function syncDerivedOutputs<T>(
+  host: DerivedOutputsHost<T>,
+  id: string,
+  record: T | null,
+  elevated: boolean,
+  version?: number,
+): Promise<void> {
+  if (elevated) {
+    await host.dispatchMaterializedViewsOnDelete(id)
+    await host.dispatchArrayDerivationsOnDelete(id, true)
+    if (record !== null) await host.dispatchRollupsOnDelete(id, record)
+    return
+  }
+  // Task 2 (#722) recompute-as-add: the record rejoined tier 0 (demote(→0) /
+  // putAtTier(0)) — restore its contribution via the SAME local-write
+  // dispatchers an ordinary `put()` fires (`collection.ts`'s
+  // `_onRecordMutated('local-write')`), same order. `record === null` only
+  // when a caller demotes a tombstone/delete-marker to 0 — nothing to add.
+  if (record === null) return
+  await host.dispatchDerivations(id, record, version ?? 0)
+  await host.dispatchMaterializedViews(id, record)
 }
 
 /**
@@ -228,10 +318,31 @@ export async function putAtTier<T>(
     // #729: the record lands above tier 0 — purge its tier-0-era plaintext
     // ledger deltas (irreversible; a tier-0 putAtTier(0) has nothing to purge).
     await ctx.syncLedger(id)
+    // #722: recompute this record's derived outputs now that it left tier 0
+    // — same law as elevate() below. `existing` is the PRE-write envelope;
+    // decode it only here (the rollup edge is the only consumer). Gated by
+    // `hasDerivedOutputs` — no-derivation collections skip this decrypt
+    // entirely (perf regression review finding, Arc 9 #722). Whole-branch
+    // review: `existing` may sit at ANY prior tier (including a
+    // `putAtTier`-origin tier>0 record with no `_cek` ever minted) — decode
+    // it under ITS OWN tier's DEK via `codec.decryptRecordAtDek`, not
+    // `ctx.codec.decryptRecord`'s tier-unaware default, which threw
+    // `TamperedError` here.
+    await ctx.syncDerived(
+      id,
+      ctx.hasDerivedOutputs && existing
+        ? await ctx.codec.decryptRecordAtDek(existing, await ctx.getDEK(dekKey(ctx.name, existing._tier ?? 0)), id)
+        : null,
+      true,
+    )
   } else {
     const rec = await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
     await ctx.syncIndexes(id, rec, envelope._v)
     ctx.syncCache(id, rec !== null ? { record: rec, version: envelope._v } : null)
+    // #722 Task 2: the record is written at tier 0 — restore its
+    // contribution to every derived output (reuse the decode above, no
+    // double-decrypt).
+    await ctx.syncDerived(id, rec, false, envelope._v)
   }
   // #721: search artifacts follow the same tier > 0 → purge / tier 0 →
   // re-embed law as syncIndexes above. No ordering dependency on syncCache —
@@ -427,6 +538,17 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   // #729: elevate always lands the record at tier > 0 — purge its
   // tier-0-era plaintext ledger deltas (irreversible; entry metadata stays).
   await ctx.syncLedger(id)
+  // #722: recompute this record's derived outputs now that it left tier 0 —
+  // same law as putAtTier(tier>0) above. `envelope` is the PRE-move envelope
+  // (captured before the rewrap), decoded only here (the rollup edge is the
+  // only consumer of the record content). Gated by `hasDerivedOutputs` — no-
+  // derivation collections skip this decrypt entirely (perf regression
+  // review finding, Arc 9 #722). Whole-branch review: decode under `fromDek`
+  // via `codec.decryptRecordAtDek` — `fromTier` may be > 0 here (a prior
+  // elevate), and `ctx.codec.decryptRecord`'s tier-unaware CEK resolution
+  // threw `TamperedError` whenever this op's own rewrap hadn't just primed
+  // the cekCache (non-`perRecordKeys` collections; `_cek`-absent bodies).
+  await ctx.syncDerived(id, ctx.hasDerivedOutputs ? await ctx.codec.decryptRecordAtDek(envelope, fromDek, id) : null, true)
 
   ctx.emitCrossTierEvent({
     actor: ctx.keyring.userId,
@@ -517,11 +639,27 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
     // #721: reuse the decode above — no double-decrypt. The record is tier-0
     // again, so re-embed its _vec and invalidate _ftindex to include it.
     await ctx.syncSearch(id, rec, next._v)
+    // #722 Task 2: the record rejoined tier 0 — restore its contribution to
+    // every derived output (reuse the decode above, no double-decrypt).
+    await ctx.syncDerived(id, rec, false, next._v)
   } else {
     await ctx.syncIndexes(id, null)
     ctx.syncCache(id, null)
     // #721: still above tier 0 — purge _vec, invalidate _ftindex.
     await ctx.syncSearch(id, null)
+    // #722 Task 2: still elevated (an intermediate tier) — the source's
+    // derived outputs stay recompute-as-removed, same law as elevate()
+    // above. `envelope` is the PRE-move envelope captured at function
+    // entry; decoded only here (the rollup edge is the only consumer).
+    // Gated by `hasDerivedOutputs` — no-derivation collections skip this
+    // decrypt entirely (perf regression review finding, Arc 9 #722).
+    // Whole-branch review: decode under `fromDek` via
+    // `codec.decryptRecordAtDek` — this branch's `fromTier` is always > 0 (a
+    // demote FROM tier `fromTier` TO an intermediate `toTier` > 0), so
+    // `ctx.codec.decryptRecord`'s tier-unaware CEK resolution threw
+    // `TamperedError` here exactly as it did in elevate() above
+    // (code-identical bug, same fix).
+    await ctx.syncDerived(id, ctx.hasDerivedOutputs ? await ctx.codec.decryptRecordAtDek(envelope, fromDek, id) : null, true)
   }
 
   ctx.emitCrossTierEvent({

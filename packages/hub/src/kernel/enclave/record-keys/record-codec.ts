@@ -724,6 +724,49 @@ export class RecordCodec<T> {
   }
 
   /**
+   * Decrypt an envelope under an EXPLICIT `dek` instead of this codec's own
+   * `ctx.getDEK()` / cekCache resolution — for a from-tier>0 pre-move decode
+   * (`with-audit/tiers/index.ts`'s `putAtTier`/`elevate`/`demote` sites,
+   * #722 whole-branch review). Mirrors the manual unwrap-then-decrypt
+   * `getAtTier`'s own tier>0 leg performs there (same primitives, same
+   * `applySealedSlots` extraction point #635 built for exactly this caller).
+   *
+   * `decryptRecord` is tier-UNAWARE: `resolveEnvelopeCek` reads the cekCache
+   * or falls back to `ctx.getDEK()` — this codec's DEFAULT (tier-0/
+   * collection) DEK — never the envelope's OWN tier. That only happens to
+   * decrypt a from-tier>0 envelope correctly when some other call in the
+   * SAME op already primed the cekCache with this record's CEK (true for an
+   * ordinary put()-then-elevate(0→1); NOT true for a `putAtTier`-origin
+   * envelope, whose body is encrypted directly under its tier DEK with no
+   * `_cek` ever minted, or a non-`perRecordKeys` collection, which has no
+   * `_cek` at all) — those throw `TamperedError`. Decrypting under the
+   * caller-resolved `dek` is correct regardless of cache state or
+   * `perRecordKeys`.
+   *
+   * No CRDT resolution, no schema validation — same scope as `getAtTier`'s
+   * tier>0 branch (the established precedent for a tier-aware read), which
+   * skips both for the same reason: a tier>0 read is an internal/derived-
+   * output-recompute path, not the public per-record read surface schema
+   * validation guards.
+   */
+  async decryptRecordAtDek(envelope: EncryptedEnvelope, dek: EnclaveKey, id?: string): Promise<T | null> {
+    if (isTombstone(envelope, this.ctx.storeCiphertext) || isDeleteMarker(envelope)) return null
+    let plaintext: string
+    let cek: EnclaveKey | undefined
+    if (envelope._cek !== undefined) {
+      cek = await unwrapCek(envelope._cek, dek)
+      plaintext = await decrypt(envelope._iv, envelope._data, cek)
+    } else {
+      plaintext = await decrypt(envelope._iv, envelope._data, dek)
+    }
+    let record = JSON.parse(plaintext) as T
+    if (envelope._sealed !== undefined && this.ctx.storeCiphertext) {
+      record = await this.applySealedSlots(record, envelope._sealed, cek, { ...(id !== undefined ? { id } : {}), sealedAsHandles: true })
+    }
+    return record
+  }
+
+  /**
    * Decrypt an envelope into a record of type `T`.
    *
    * When a schema is attached, the decrypted value is validated before
