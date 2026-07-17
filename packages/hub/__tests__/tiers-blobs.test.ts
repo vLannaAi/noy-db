@@ -978,4 +978,68 @@ describe('#724 composition enforcement (I1)', () => {
     await expect(unwrapCek(blob._cek!, tier0BlobDEK)).rejects.toThrow()
     await expect(unwrapCek(blob._cek!, tier1BlobDEK)).resolves.toBeDefined()
   })
+
+  it('a tiered collection with NO blobFields and NO perRecordKeys constructs fine, but writing a legacy blob to it is refused at write time (undeclared-blobFields I1 leak)', async () => {
+    const db = await createNoydb({
+      store: memoryStore(), secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    // Construction mandate only fires on DECLARED blobFields — this
+    // undeclared-field, non-perRecordKeys, tiered shape constructs fine.
+    expect(() => vault.collection<Doc>('docs', { tiers: [0, 1] })).not.toThrow()
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1] })
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
+    // A legacy blob write on a tiered collection can never be tier-isolated
+    // on elevate (rehomeForTier no-ops on it — no `_cek` to rewrap) — the
+    // write itself must be refused.
+    await expect(
+      docs.blob('d1').put('attachment', new TextEncoder().encode('leaks at rest')),
+    ).rejects.toThrow(UnsupportedTierCompositionError)
+  })
+
+  it('control: the SAME tiered collection WITH perRecordKeys accepts the blob write, and it is at-rest tier-isolated after elevate', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    const getDEK = (vault as unknown as { getDEK(name: string): Promise<EnclaveKey> }).getDEK
+    const tier0BlobDEK = await getDEK(dekKey('_blob', 0))
+    const tier1BlobDEK = await getDEK(dekKey('_blob', 1))
+    const collDEK1 = await getDEK(dekKey('docs', 1))
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
+    await expect(
+      docs.blob('d1').put('attachment', new TextEncoder().encode('tier-isolated bytes')),
+    ).resolves.toBeUndefined()
+
+    await docs.elevate('d1', 1)
+
+    const slotsEnv = await store.get('v1', '_blob_slots_docs', 'd1')
+    const slots = JSON.parse(await openEnvelopeJson(slotsEnv!, collDEK1)) as Record<string, { eTag: string }>
+    const eTag = slots.attachment!.eTag
+    const env = await store.get('v1', BLOB_INDEX_COLLECTION, eTag)
+    const blob = JSON.parse(await openEnvelopeJson(env!, tier0BlobDEK)) as { _cek?: string }
+    expect(blob._cek).toBeDefined()
+    await expect(unwrapCek(blob._cek!, tier0BlobDEK)).rejects.toThrow()
+    await expect(unwrapCek(blob._cek!, tier1BlobDEK)).resolves.toBeDefined()
+  })
+
+  it('control: a NON-tiered collection without perRecordKeys still accepts a legacy blob write (back-compat, not refused)', async () => {
+    const db = await createNoydb({
+      store: memoryStore(), secret: 'pw', user: 'owner',
+      blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {})
+
+    await docs.put('d1', { id: 'd1', title: 'Invoice', body: 'x' })
+    await expect(
+      docs.blob('d1').put('attachment', new TextEncoder().encode('legacy, untiered, fine')),
+    ).resolves.toBeUndefined()
+  })
 })

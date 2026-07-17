@@ -76,7 +76,11 @@ describe('#724 — blob content on an elevated record is gated (Arc 10 Task 1)',
     const vault = await db.openVault('v1')
     // No `blobFields` declared — basic blob put/get never required it, and
     // the runtime gate applies regardless of whether `blobFields` is declared.
-    const docs = vault.collection<Doc>('docs', { tiers: [0, 1] })
+    // `perRecordKeys: true` is required here (#724 I1 completion): a legacy
+    // blob write on a tiered collection is refused at write time — this
+    // test's actual purpose (the runtime read gate) needs the write to
+    // succeed in the first place.
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
 
     await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
     const secret = new TextEncoder().encode('sensitive attachment bytes')

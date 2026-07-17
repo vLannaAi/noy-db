@@ -25,7 +25,7 @@ import {
   sha256Hex,
   type EnclaveKey,
 } from '../../kernel/enclave/index.js'
-import { ConflictError, NotFoundError } from '../../kernel/errors.js'
+import { ConflictError, NotFoundError, UnsupportedTierCompositionError } from '../../kernel/errors.js'
 import { liveRecordIsElevated, liveRecordTier } from '../../kernel/tier-visibility.js'
 import { dekKey } from '../../with-party/team/tiers.js'
 import { detectMagic, isPreCompressed } from './mime-magic.js'
@@ -151,6 +151,7 @@ export class BlobSet {
   private readonly userId: string | undefined
   private readonly maxBlobBytes: number | undefined
   private readonly erasableBlobs: boolean
+  private readonly tiersActive: boolean
   private readonly debugPlaintext: boolean
   private readonly objectStore: ObjectProjection | undefined
   private readonly blobFields: BlobFieldsConfig | undefined
@@ -165,6 +166,7 @@ export class BlobSet {
     userId?: string
     maxBlobBytes?: number
     erasableBlobs?: boolean
+    tiersActive?: boolean
     debugPlaintext?: boolean
     objectStore?: ObjectProjection
     blobFields?: BlobFieldsConfig
@@ -178,9 +180,34 @@ export class BlobSet {
     this.userId = opts.userId
     this.maxBlobBytes = opts.maxBlobBytes
     this.erasableBlobs = opts.erasableBlobs === true
+    this.tiersActive = opts.tiersActive === true
     this.debugPlaintext = opts.debugPlaintext === true
     this.objectStore = opts.objectStore
     this.blobFields = opts.blobFields
+  }
+
+  /**
+   * #724 I1 completion: a legacy (non-`perRecordKeys`) blob has no per-blob
+   * `_cek`, so `rehomeForTier` can never tier-isolate it on elevate/demote —
+   * it stays decryptable under the flat tier-0 `_blob` DEK at rest even
+   * after the owning record is elevated. The construction-time mandate
+   * (`resolveCollectionConfig`) only catches this when `blobFields` is
+   * DECLARED; a collection with an undeclared field (or no `blobFields` at
+   * all) constructs fine and reaches this write path unguarded. Refuse the
+   * write itself instead of broadening the construction mandate, which
+   * would over-refuse blobless tiered collections (`blobStrategy` is
+   * vault-wide, not per-collection). Called from every content-write entry
+   * (`put()`, `publish()`) — never from a read path, so a pre-existing
+   * legacy blob stays readable (back-compat).
+   */
+  private assertBlobWritable(): void {
+    if (this.tiersActive && !this.erasableBlobs) {
+      throw new UnsupportedTierCompositionError(
+        'blobs',
+        `Collection "${this.collection}": writing a blob to a tiered collection requires perRecordKeys ` +
+          `(legacy blobs have no per-record key and cannot be tier-isolated) (#724).`,
+      )
+    }
   }
 
   /**
@@ -995,6 +1022,11 @@ export class BlobSet {
       return
     }
 
+    // #724 I1 completion: the chunk-based path below is what has (or lacks)
+    // a per-blob `_cek` — refuse here, not in the external-projection branch
+    // above (that path never had a `_cek` to begin with; out of scope).
+    this.assertBlobWritable()
+
     // #724 Arc 10 correction (C2): key the eTag HMAC + content-CEK wrap
     // under the OWNING RECORD's current tier, not a flat tier-0 DEK — a
     // blob attached to an already-elevated record must be born tier-scoped,
@@ -1450,6 +1482,7 @@ export class BlobSet {
    * `rehomeForTier`) — no separate tier-scoping needed for the content side.
    */
   async publish(slotName: string, label: string): Promise<void> {
+    this.assertBlobWritable() // #724 I1 completion: same write-time refusal as put()
     const { slots } = await this.loadSlots()
     const slot = slots[slotName]
     if (!slot) throw new NotFoundError(`Slot "${slotName}" not found on record "${this.recordId}"`)
