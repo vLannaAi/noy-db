@@ -546,41 +546,147 @@ export class BlobSet {
   async rehomeForTier(fromTier: number, toTier: number, policy: 'isolate' | 'dedup'): Promise<void> {
     if (!this.encrypted || fromTier === toTier) return
     const { slots } = await this.loadSlots(fromTier)
-    if (Object.keys(slots).length === 0) return // no slot map — nothing to rehome
 
-    const eTags = new Set(Object.values(slots).map((s) => s.eTag).filter((eTag) => eTag !== ''))
+    // Old eTag → new eTag for every object the slot loop below physically
+    // re-`put()`s. Passed on to `rehomeVersionRecords` (#724 Arc 10 Task 2,
+    // C4) so a version pinned to the SAME eTag a slot held can skip a
+    // redundant fetch+re-encrypt — same plaintext + same `toBlobDEK` always
+    // hashes to the same destination eTag (content-addressing).
+    const rehomedETags = new Map<string, string>()
 
-    if (eTags.size > 0) {
-      const fromBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, fromTier))
-      const toBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, toTier))
+    if (Object.keys(slots).length > 0) {
+      const eTags = new Set(Object.values(slots).map((s) => s.eTag).filter((eTag) => eTag !== ''))
 
-      for (const eTag of eTags) {
-        const loaded = await this.loadBlobObject(eTag)
-        if (!loaded) continue
-        const { blob } = loaded
-        if (blob._cek === undefined) continue // legacy: no rewrap (see doc comment)
-        if (policy === 'dedup' && blob.refCount > 1) continue // #741: leave the shared object; read gate covers runtime
+      if (eTags.size > 0) {
+        const fromBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, fromTier))
+        const toBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, toTier))
 
-        // solo + shared-isolate, unified (#724 Arc 10 correction): fork for
-        // every slot on THIS record pointing at the eTag, then release this
-        // record's hold on the old object (via put()'s own old-eTag
-        // decrement) — a solo blob's old object is crypto-shredded at
-        // refCount 0, a shared co-owner keeps its unchanged refCount.
-        const plaintext = await this.fetchAllChunks(blob, fromBlobDEK)
-        for (const [slotName, slot] of Object.entries(slots)) {
-          if (slot.eTag !== eTag) continue
-          await this.putUnderDEK(slotName, plaintext, toBlobDEK, {
-            filename: slot.filename,
-            ...(blob.mimeType !== undefined ? { mimeType: blob.mimeType } : {}),
-            compress: blob.compression === 'gzip',
-            ...(slot.uploadedBy !== undefined ? { uploadedBy: slot.uploadedBy } : {}),
-          }, fromTier)
+        for (const eTag of eTags) {
+          const loaded = await this.loadBlobObject(eTag)
+          if (!loaded) continue
+          const { blob } = loaded
+          if (blob._cek === undefined) continue // legacy: no rewrap (see doc comment)
+          if (policy === 'dedup' && blob.refCount > 1) continue // #741: leave the shared object; read gate covers runtime
+
+          // solo + shared-isolate, unified (#724 Arc 10 correction): fork for
+          // every slot on THIS record pointing at the eTag, then release this
+          // record's hold on the old object (via put()'s own old-eTag
+          // decrement) — a solo blob's old object is crypto-shredded at
+          // refCount 0, a shared co-owner keeps its unchanged refCount.
+          const plaintext = await this.fetchAllChunks(blob, fromBlobDEK)
+          rehomedETags.set(eTag, await hmacSha256Hex(toBlobDEK, plaintext))
+          for (const [slotName, slot] of Object.entries(slots)) {
+            if (slot.eTag !== eTag) continue
+            await this.putUnderDEK(slotName, plaintext, toBlobDEK, {
+              filename: slot.filename,
+              ...(blob.mimeType !== undefined ? { mimeType: blob.mimeType } : {}),
+              compress: blob.compression === 'gzip',
+              ...(slot.uploadedBy !== undefined ? { uploadedBy: slot.uploadedBy } : {}),
+            }, fromTier)
+          }
         }
       }
+
+      const { slots: finalSlots, version: finalVersion } = await this.loadSlots(fromTier)
+      await this.saveSlots(finalSlots, finalVersion, toTier)
     }
 
-    const { slots: finalSlots, version: finalVersion } = await this.loadSlots(fromTier)
-    await this.saveSlots(finalSlots, finalVersion, toTier)
+    // #724 Arc 10 Task 2 (C4): published versions follow too. `publish()`
+    // takes an INDEPENDENT refCount hold on a `BlobObject`, separate from
+    // the slot map — the loop above only walks
+    // `_blob_slots_{collection}/{recordId}` and never sees it. A version
+    // whose eTag was superseded in the slot map (overwritten after publish)
+    // would otherwise never be rehomed at all, and the version RECORD
+    // itself (label/eTag/timestamps) stays on the fromTier collection DEK.
+    await this.rehomeVersionRecords(fromTier, toTier, policy, rehomedETags)
+  }
+
+  /**
+   * Rehome this record's PUBLISHED VERSIONS after a tier move — the second
+   * half of `rehomeForTier` (#724 Arc 10 Task 2, closes C4). Enumerates
+   * every `_blob_versions_{collection}/{recordId}::*` row (mirrors
+   * `listVersions`'s raw prefix scan, but across ALL slots on this record,
+   * not one) and, for each:
+   *  - rehomes its held eTag via {@link rehomeVersionETag} (reusing the slot
+   *    loop's result when the version happens to hold the SAME eTag a slot
+   *    held — see that method's doc comment), and
+   *  - re-keys the version RECORD itself onto the `toTier` collection DEK,
+   *    regardless of whether the content moved — metadata protection is
+   *    orthogonal to the shared-content dedup policy (matches the slot-map
+   *    move, which always relocates even for a `dedup`-left-in-place blob).
+   */
+  private async rehomeVersionRecords(
+    fromTier: number,
+    toTier: number,
+    policy: 'isolate' | 'dedup',
+    rehomedETags: Map<string, string>,
+  ): Promise<void> {
+    const prefix = `${this.recordId}::`
+    const allKeys = await this.store.list(this.vault, this.versionsCollection)
+    const matchingKeys = allKeys.filter((k) => k.startsWith(prefix))
+    if (matchingKeys.length === 0) return
+
+    const fromCollDEK = await this.getDEK(dekKey(this.collection, fromTier))
+    const fromBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, fromTier))
+    const toBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, toTier))
+
+    for (const key of matchingKeys) {
+      const envelope = await this.store.get(this.vault, this.versionsCollection, key)
+      if (!envelope) continue
+      const record = this.encrypted
+        ? JSON.parse(await openEnvelopeJson(envelope, fromCollDEK)) as VersionRecord
+        : JSON.parse(envelope._data) as VersionRecord
+
+      const newETag = await this.rehomeVersionETag(record, fromBlobDEK, toBlobDEK, policy, rehomedETags)
+      const moved: VersionRecord = newETag === record.eTag ? record : { ...record, eTag: newETag }
+      await this.writeVersionRecordAtKey(key, moved, toTier)
+    }
+  }
+
+  /**
+   * Rehome ONE version's independently-held eTag. Returns the eTag the
+   * version should now point at.
+   *
+   * If the version happened to hold the SAME eTag a slot held (the common
+   * case: publish right after put, no later overwrite), the slot loop in
+   * `rehomeForTier` already re-`put()` the content under `toBlobDEK` —
+   * `rehomedETags` (content-addressed, so deterministic) tells us the
+   * resulting destination eTag without a redundant fetch+re-encrypt; we
+   * only need to move THIS hold's refCount onto it. Otherwise (the version
+   * outlived its slot, or was never in the slot map) this re-`put()`s the
+   * plaintext itself via `writeBlobContent` — the same content-write core
+   * `put()`/the slot loop use, no new crypto — mirroring the slot case's
+   * legacy/`dedup`-shared skip conditions.
+   */
+  private async rehomeVersionETag(
+    record: VersionRecord,
+    fromBlobDEK: EnclaveKey,
+    toBlobDEK: EnclaveKey,
+    policy: 'isolate' | 'dedup',
+    rehomedETags: Map<string, string>,
+  ): Promise<string> {
+    const already = rehomedETags.get(record.eTag)
+    if (already !== undefined) {
+      await this.casUpdateRefCount(already, +1)
+      await this.releaseRef(record.eTag, 1, false).catch(() => {})
+      return already
+    }
+
+    const loaded = await this.loadBlobObject(record.eTag)
+    if (!loaded || loaded.blob._cek === undefined) return record.eTag // legacy/missing: no-op
+    if (policy === 'dedup' && loaded.blob.refCount > 1) return record.eTag // #741: same residue as the slot case
+
+    const plaintext = await this.fetchAllChunks(loaded.blob, fromBlobDEK)
+    const { eTag: newETag } = await this.writeBlobContent(plaintext, toBlobDEK, {
+      filename: record.label,
+      ...(loaded.blob.mimeType !== undefined ? { mimeType: loaded.blob.mimeType } : {}),
+      compress: loaded.blob.compression === 'gzip',
+    })
+    rehomedETags.set(record.eTag, newETag) // memoize: two versions may share an eTag outside the slot map too
+    if (newETag !== record.eTag) {
+      await this.releaseRef(record.eTag, 1, false).catch(() => {})
+    }
+    return newETag
   }
 
   /** CAS retry loop for an arbitrary BlobObject mutation. */
@@ -727,7 +833,15 @@ export class BlobSet {
     return `${this.recordId}::${slotName}::${label}`
   }
 
-  private async loadVersionRecord(slotName: string, label: string): Promise<VersionRecord | null> {
+  /**
+   * @param tier #724 Arc 10 Task 2: explicit tier to resolve the version
+   * record's collection DEK at — `getDEK(dekKey(this.collection, tier))`,
+   * mirroring `loadSlots`'s `tier` param. Omitted → resolves via
+   * `ownerTier()` (the record's CURRENT live tier); `rehomeForTier`'s own
+   * reads pin `fromTier`/`toTier` explicitly instead (see `ownerTier()`'s
+   * doc comment for why the default would be wrong mid-move).
+   */
+  private async loadVersionRecord(slotName: string, label: string, tier?: number): Promise<VersionRecord | null> {
     const key = this.versionKey(slotName, label)
     const envelope = await this.store.get(this.vault, this.versionsCollection, key)
     if (!envelope) return null
@@ -736,19 +850,33 @@ export class BlobSet {
       return JSON.parse(envelope._data) as VersionRecord
     }
 
-    const dek = await this.getDEK(this.collection)
+    const dek = await this.getDEK(dekKey(this.collection, tier ?? await this.ownerTier()))
     const json = await openEnvelopeJson(envelope, dek)
     return JSON.parse(json) as VersionRecord
   }
 
-  private async writeVersionRecord(slotName: string, record: VersionRecord): Promise<void> {
-    const key = this.versionKey(slotName, record.label)
+  /** @param tier See {@link loadVersionRecord}'s `tier` param — same resolution. */
+  private async writeVersionRecord(slotName: string, record: VersionRecord, tier?: number): Promise<void> {
+    await this.writeVersionRecordAtKey(
+      this.versionKey(slotName, record.label),
+      record,
+      tier ?? await this.ownerTier(),
+    )
+  }
+
+  /**
+   * `writeVersionRecord`'s body, addressed by an explicit raw store key
+   * instead of `slotName`+`label` — used by `rehomeVersionRecords` (#724
+   * Arc 10 Task 2), which already has the key from its raw `store.list()`
+   * scan across ALL of this record's version slots.
+   */
+  private async writeVersionRecordAtKey(key: string, record: VersionRecord, tier: number): Promise<void> {
     const json = JSON.stringify(record)
     const now = new Date().toISOString()
     let envelope: EncryptedEnvelope
 
     if (this.encrypted) {
-      const dek = await this.getDEK(this.collection)
+      const dek = await this.getDEK(dekKey(this.collection, tier))
       const { iv, data } = await encrypt(json, dek)
       envelope = { _noydb: NOYDB_FORMAT_VERSION, _v: 1, _ts: now, _iv: iv, _data: data }
     } else {
@@ -873,8 +1001,11 @@ export class BlobSet {
   }
 
   /**
-   * The chunk/CEK/dedup/slot core of `put()` (steps 1-7), parameterized by
-   * which `_blob` DEK to hash the eTag and wrap the content CEK under.
+   * The slot-attachment core of `put()` (Step 7 — CAS the slot metadata),
+   * parameterized by which `_blob` DEK to hash the eTag and wrap the
+   * content CEK under. Steps 1-6 (hash/dedup/compress/chunk/index-write)
+   * are `writeBlobContent` (#724 Arc 10 Task 2 extraction, so `rehomeForTier`
+   * can reuse them for a version-held eTag without touching the slot map).
    * `put()` always passes this record's own OWNER-TIER blob DEK (#724 Arc
    * 10 correction) — `dekKey(BLOB_COLLECTION, 0)` for a tier-0 record.
    *
@@ -898,6 +1029,51 @@ export class BlobSet {
     opts?: BlobPutOptions,
     slotsTier?: number,
   ): Promise<void> {
+    const { eTag, mimeType } = await this.writeBlobContent(data, blobDEK, opts)
+
+    // Step 7 — CAS-update slot metadata
+    const uploaderUserId = opts?.uploadedBy ?? this.userId
+    await this.casUpdateSlots((slots) => {
+      const oldETag = slots[slotName]?.eTag
+      slots[slotName] = {
+        eTag,
+        filename: opts?.filename ?? slotName,
+        size: data.byteLength,
+        ...(mimeType !== undefined ? { mimeType } : {}),
+        uploadedAt: new Date().toISOString(),
+        ...(uploaderUserId !== undefined ? { uploadedBy: uploaderUserId } : {}),
+      }
+      // Schedule old eTag refCount decrement (non-blocking best-effort)
+      if (oldETag && oldETag !== eTag) {
+        this._deferredRefDecrement = oldETag
+      }
+      return slots
+    }, slotsTier)
+
+    // Release the old eTag outside the CAS loop. An erasable blob dropping to
+    // refCount 0 here is crypto-shredded eagerly; a legacy one defers to GC.
+    if (this._deferredRefDecrement) {
+      const oldETag = this._deferredRefDecrement
+      this._deferredRefDecrement = undefined
+      await this.releaseRef(oldETag, 1, false).catch(() => {
+        // Best-effort — a missed decrement is reconciled by a later pass.
+      })
+    }
+  }
+
+  /**
+   * The chunk/CEK/dedup core of `put()` (former Steps 1-6 of `putUnderDEK`,
+   * extracted #724 Arc 10 Task 2 so `rehomeVersionETag` can write a
+   * version-held blob's content under a target tier's DEK WITHOUT touching
+   * the slot map — `putUnderDEK`'s remaining Step 7 is slot-specific).
+   * Content-addressed and dedup-aware exactly like `put()`: hashing the same
+   * plaintext under the same `blobDEK` twice always lands on the same eTag.
+   */
+  private async writeBlobContent(
+    data: Uint8Array,
+    blobDEK: EnclaveKey | null,
+    opts?: BlobPutOptions,
+  ): Promise<{ eTag: string; mimeType: string | undefined }> {
     // Step 1 — keyed content-hash (plaintext, before compression)
     const eTag = blobDEK
       ? await hmacSha256Hex(blobDEK, data)
@@ -933,85 +1109,59 @@ export class BlobSet {
       // preserved across the content-CEK split: the chunks (and the BlobObject's
       // `_cek`, if any) are reused as-is; a new referencer never re-encrypts.
       await this.casUpdateRefCount(eTag, +1)
-    } else {
-      // Step 4 — compress
-      const { bytes: compressed, algorithm } = shouldCompress
-        ? await compressBytes(data)
-        : { bytes: data, algorithm: 'none' as const }
-
-      // Debug-plaintext stores the whole blob as one object (single chunk) so
-      // it is one directly-openable file in the store rather than N shards.
-      const chunkSize = this.debugPlaintext
-        ? Math.max(compressed.byteLength, 1)
-        : this.effectiveChunkSize(opts)
-      const chunkCount = Math.max(1, Math.ceil(compressed.byteLength / chunkSize))
-
-      // Erasable collection (`perRecordKeys`): mint a fresh per-blob content
-      // CEK and encrypt the chunks under it instead of the shared `_blob` DEK,
-      // so the BlobObject's wrapped `_cek` is the sole recoverable copy → a
-      // refCount-0 delete crypto-shreds the chunks. `eTag` (the dedup address)
-      // is still keyed off the `_blob` DEK, unchanged.
-      let chunkKey = blobDEK
-      let wrappedCek: string | undefined
-      if (blobDEK && this.erasableBlobs) {
-        const contentCek = await generateDEK()
-        wrappedCek = await wrapCek(contentCek, blobDEK)
-        chunkKey = contentCek
-      }
-
-      // Step 5 — write chunks FIRST with AAD binding (safe failure order)
-      for (let i = 0; i < chunkCount; i++) {
-        const start = i * chunkSize
-        await this.writeChunk(
-          eTag, i, chunkCount,
-          compressed.subarray(start, start + chunkSize),
-          chunkKey,
-        )
-      }
-
-      // Step 6 — write blob index entry after all chunks succeed
-      await this.writeBlobObject({
-        eTag,
-        size: data.byteLength,
-        compressedSize: compressed.byteLength,
-        compression: algorithm,
-        chunkSize,
-        chunkCount,
-        ...(mimeType !== undefined ? { mimeType } : {}),
-        createdAt: new Date().toISOString(),
-        refCount: 1,
-        ...(wrappedCek !== undefined ? { _cek: wrappedCek } : {}),
-      })
+      return { eTag, mimeType }
     }
 
-    // Step 7 — CAS-update slot metadata
-    const uploaderUserId = opts?.uploadedBy ?? this.userId
-    await this.casUpdateSlots((slots) => {
-      const oldETag = slots[slotName]?.eTag
-      slots[slotName] = {
-        eTag,
-        filename: opts?.filename ?? slotName,
-        size: data.byteLength,
-        ...(mimeType !== undefined ? { mimeType } : {}),
-        uploadedAt: new Date().toISOString(),
-        ...(uploaderUserId !== undefined ? { uploadedBy: uploaderUserId } : {}),
-      }
-      // Schedule old eTag refCount decrement (non-blocking best-effort)
-      if (oldETag && oldETag !== eTag) {
-        this._deferredRefDecrement = oldETag
-      }
-      return slots
-    }, slotsTier)
+    // Step 4 — compress
+    const { bytes: compressed, algorithm } = shouldCompress
+      ? await compressBytes(data)
+      : { bytes: data, algorithm: 'none' as const }
 
-    // Release the old eTag outside the CAS loop. An erasable blob dropping to
-    // refCount 0 here is crypto-shredded eagerly; a legacy one defers to GC.
-    if (this._deferredRefDecrement) {
-      const oldETag = this._deferredRefDecrement
-      this._deferredRefDecrement = undefined
-      await this.releaseRef(oldETag, 1, false).catch(() => {
-        // Best-effort — a missed decrement is reconciled by a later pass.
-      })
+    // Debug-plaintext stores the whole blob as one object (single chunk) so
+    // it is one directly-openable file in the store rather than N shards.
+    const chunkSize = this.debugPlaintext
+      ? Math.max(compressed.byteLength, 1)
+      : this.effectiveChunkSize(opts)
+    const chunkCount = Math.max(1, Math.ceil(compressed.byteLength / chunkSize))
+
+    // Erasable collection (`perRecordKeys`): mint a fresh per-blob content
+    // CEK and encrypt the chunks under it instead of the shared `_blob` DEK,
+    // so the BlobObject's wrapped `_cek` is the sole recoverable copy → a
+    // refCount-0 delete crypto-shreds the chunks. `eTag` (the dedup address)
+    // is still keyed off the `_blob` DEK, unchanged.
+    let chunkKey = blobDEK
+    let wrappedCek: string | undefined
+    if (blobDEK && this.erasableBlobs) {
+      const contentCek = await generateDEK()
+      wrappedCek = await wrapCek(contentCek, blobDEK)
+      chunkKey = contentCek
     }
+
+    // Step 5 — write chunks FIRST with AAD binding (safe failure order)
+    for (let i = 0; i < chunkCount; i++) {
+      const start = i * chunkSize
+      await this.writeChunk(
+        eTag, i, chunkCount,
+        compressed.subarray(start, start + chunkSize),
+        chunkKey,
+      )
+    }
+
+    // Step 6 — write blob index entry after all chunks succeed
+    await this.writeBlobObject({
+      eTag,
+      size: data.byteLength,
+      compressedSize: compressed.byteLength,
+      compression: algorithm,
+      chunkSize,
+      chunkCount,
+      ...(mimeType !== undefined ? { mimeType } : {}),
+      createdAt: new Date().toISOString(),
+      refCount: 1,
+      ...(wrappedCek !== undefined ? { _cek: wrappedCek } : {}),
+    })
+
+    return { eTag, mimeType }
   }
 
   private _deferredRefDecrement: string | undefined
@@ -1284,14 +1434,23 @@ export class BlobSet {
    *
    * Publishing with an existing label overwrites it — if the eTags differ,
    * refCounts are adjusted accordingly.
+   *
+   * #724 Arc 10 Task 2 (C4): the version record is written under the owning
+   * record's CURRENT tier — a version published on a tier-N record is keyed
+   * at tier N, mirroring `put()`'s owner-tier resolution (Task 1). The
+   * refCount hold it takes lands on `slot.eTag`, which is already
+   * tier-scoped (born there by `put()`, or moved there by a prior
+   * `rehomeForTier`) — no separate tier-scoping needed for the content side.
    */
   async publish(slotName: string, label: string): Promise<void> {
     const { slots } = await this.loadSlots()
     const slot = slots[slotName]
     if (!slot) throw new NotFoundError(`Slot "${slotName}" not found on record "${this.recordId}"`)
 
+    const tier = await this.ownerTier()
+
     // Check for existing version with this label
-    const existing = await this.loadVersionRecord(slotName, label)
+    const existing = await this.loadVersionRecord(slotName, label, tier)
     if (existing && existing.eTag === slot.eTag) return // no-op: same blob
 
     // Write the version record
@@ -1301,7 +1460,7 @@ export class BlobSet {
       publishedAt: new Date().toISOString(),
       ...(this.userId !== undefined ? { publishedBy: this.userId } : {}),
     }
-    await this.writeVersionRecord(slotName, record)
+    await this.writeVersionRecord(slotName, record, tier)
 
     // Increment refCount for the new version's eTag
     await this.casUpdateRefCount(slot.eTag, +1)

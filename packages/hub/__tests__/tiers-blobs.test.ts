@@ -726,3 +726,132 @@ describe('#724 tier-scoped eTag (C1/C2)', () => {
     await expect(unwrapCek(blob._cek!, tier1BlobDEK)).resolves.toBeDefined()
   })
 })
+
+describe('#724 versions follow tier (C4)', () => {
+  it('elevate moves a published version off tier 0 — content _cek AND the version record itself', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { slot: {} },
+    })
+    const getDEK = (vault as unknown as { getDEK(name: string): Promise<EnclaveKey> }).getDEK
+    const tier0BlobDEK = await getDEK(dekKey('_blob', 0))
+    const tier1BlobDEK = await getDEK(dekKey('_blob', 1))
+    const collDEK0 = await getDEK('docs')
+    const collDEK1 = await getDEK(dekKey('docs', 1))
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'A', body: 'x' }, 0)
+    await docs.blob('d1').put('slot', new TextEncoder().encode('versioned secret v1'))
+    await docs.blob('d1').publish('slot', 'v1')
+
+    // Before elevation: the version record decrypts under the tier-0 collection DEK.
+    const versionEnvBefore = await store.get('v1', '_blob_versions_docs', 'd1::slot::v1')
+    expect(versionEnvBefore).not.toBeNull()
+    await expect(openEnvelopeJson(versionEnvBefore!, collDEK0)).resolves.toBeDefined()
+
+    await docs.elevate('d1', 1)
+
+    // AT-REST GUARANTEE 1: the version RECORD (label/eTag/timestamps) is no
+    // longer openable under the parent-collection tier-0 DEK...
+    const versionEnvAfter = await store.get('v1', '_blob_versions_docs', 'd1::slot::v1')
+    expect(versionEnvAfter).not.toBeNull()
+    await expect(openEnvelopeJson(versionEnvAfter!, collDEK0)).rejects.toThrow()
+    // ...but is under the tier-1 collection DEK, and the metadata is intact.
+    const record = JSON.parse(await openEnvelopeJson(versionEnvAfter!, collDEK1)) as { label: string; eTag: string }
+    expect(record.label).toBe('v1')
+
+    // AT-REST GUARANTEE 2: the version-HELD blob content's _cek must NOT
+    // unwrap under the tier-0 `_blob` DEK, only under the tier-1 one.
+    const blobEnv = await store.get('v1', BLOB_INDEX_COLLECTION, record.eTag)
+    expect(blobEnv).not.toBeNull()
+    const blob = JSON.parse(await openEnvelopeJson(blobEnv!, tier0BlobDEK)) as { _cek?: string }
+    expect(blob._cek).toBeDefined()
+    await expect(unwrapCek(blob._cek!, tier0BlobDEK)).rejects.toThrow()
+    await expect(unwrapCek(blob._cek!, tier1BlobDEK)).resolves.toBeDefined()
+  })
+
+  it('a version whose eTag left the slot map (slot overwritten after publish) is STILL rehomed on elevate', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { slot: {} },
+    })
+    const getDEK = (vault as unknown as { getDEK(name: string): Promise<EnclaveKey> }).getDEK
+    const tier0BlobDEK = await getDEK(dekKey('_blob', 0))
+    const tier1BlobDEK = await getDEK(dekKey('_blob', 1))
+    const collDEK1 = await getDEK(dekKey('docs', 1))
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'A', body: 'x' }, 0)
+    await docs.blob('d1').put('slot', new TextEncoder().encode('v1 content'))
+    await docs.blob('d1').publish('slot', 'v1')
+    // Overwrite the slot — v1's eTag is no longer reachable via the slot map,
+    // only via the version record's independent refCount hold.
+    await docs.blob('d1').put('slot', new TextEncoder().encode('v2 content, supersedes v1 in the slot'))
+
+    await docs.elevate('d1', 1)
+
+    const versionEnv = await store.get('v1', '_blob_versions_docs', 'd1::slot::v1')
+    expect(versionEnv).not.toBeNull()
+    const record = JSON.parse(await openEnvelopeJson(versionEnv!, collDEK1)) as { eTag: string }
+
+    const blobEnv = await store.get('v1', BLOB_INDEX_COLLECTION, record.eTag)
+    expect(blobEnv).not.toBeNull()
+    const blob = JSON.parse(await openEnvelopeJson(blobEnv!, tier0BlobDEK)) as { _cek?: string }
+    await expect(unwrapCek(blob._cek!, tier0BlobDEK)).rejects.toThrow()
+    await expect(unwrapCek(blob._cek!, tier1BlobDEK)).resolves.toBeDefined()
+
+    // The version content is still the ORIGINAL v1 bytes, not v2's.
+    await docs.demote('d1', 0)
+    const versionBytes = await docs.blob('d1').getVersion('slot', 'v1')
+    expect(versionBytes).not.toBeNull()
+    expect(new TextDecoder().decode(versionBytes!)).toBe('v1 content')
+  })
+
+  it('demote restores tier-0 readability for both the version content and the version record', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { slot: {} },
+    })
+    const getDEK = (vault as unknown as { getDEK(name: string): Promise<EnclaveKey> }).getDEK
+    const tier0BlobDEK = await getDEK(dekKey('_blob', 0))
+    const collDEK0 = await getDEK('docs')
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'A', body: 'x' }, 0)
+    await docs.blob('d1').put('slot', new TextEncoder().encode('reversible version bytes'))
+    await docs.blob('d1').publish('slot', 'v1')
+
+    await docs.elevate('d1', 1)
+    expect(await docs.blob('d1').getVersion('slot', 'v1')).toBeNull() // gated while elevated
+
+    await docs.demote('d1', 0)
+
+    // The version record is readable under the tier-0 collection DEK again.
+    const versionEnv = await store.get('v1', '_blob_versions_docs', 'd1::slot::v1')
+    expect(versionEnv).not.toBeNull()
+    const record = JSON.parse(await openEnvelopeJson(versionEnv!, collDEK0)) as { eTag: string }
+
+    // Its content unwraps under the tier-0 `_blob` DEK again.
+    const blobEnv = await store.get('v1', BLOB_INDEX_COLLECTION, record.eTag)
+    expect(blobEnv).not.toBeNull()
+    const blob = JSON.parse(await openEnvelopeJson(blobEnv!, tier0BlobDEK)) as { _cek?: string }
+    await expect(unwrapCek(blob._cek!, tier0BlobDEK)).resolves.toBeDefined()
+
+    // And the public API round-trips the original bytes.
+    const versionBytes = await docs.blob('d1').getVersion('slot', 'v1')
+    expect(versionBytes).not.toBeNull()
+    expect(new TextDecoder().decode(versionBytes!)).toBe('reversible version bytes')
+  })
+})
