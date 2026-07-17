@@ -13,7 +13,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.
 
 interface Emp {
   id: string
-  salary: number
+  salary?: number
 }
 
 // Copied verbatim from hierarchical-tiers.test.ts.
@@ -186,5 +186,34 @@ describe('#709 tier ops maintain indexes', () => {
     // re-verified (builder.ts:1160-1166 drops the clause) → a silent false positive.
     expect(docs.query().where('salary', '==', 100).toArray().length).toBe(0)
     expect(docs.query().where('salary', '==', 555).toArray().map(r => r.id)).toEqual(['p1'])
+  })
+})
+
+describe('#720 lazy putAtTier resolves the prior via a tier-gated decode', () => {
+  it('LAZY: putAtTier(0) DROPPING an indexed field clears the OLD value\'s sidecar', async () => {
+    const { store, docs } = await openLazyIndexed()
+    await docs.put('p1', { id: 'p1', salary: 100 })
+    expect(await store.get('v1', 'docs', '_idx/salary/p1')).not.toBeNull()
+    // Pre-#720: syncTierIndexes resolved `prior` from `ctx.cache` — always
+    // null in lazy mode (lazy writes populate the LRU, not the eager cache)
+    // — so the clear branch in maintainPersistedIndexesOnPut never fired and
+    // the stale salary=100 sidecar survived, tier-0-readable.
+    await docs.putAtTier('p1', { id: 'p1' }, 0)
+    expect(await store.get('v1', 'docs', '_idx/salary/p1')).toBeNull()
+  })
+
+  it('LAZY: demote(0) off an elevated record resolves prior via the tier-gated fallback cleanly — no throw', async () => {
+    const { store, docs } = await openLazyIndexed()
+    await docs.put('e1', { id: 'e1', salary: 200000 })
+    await docs.elevate('e1', 1)
+    // elevate() already purged the sidecar; nothing left to clean up. The
+    // demote-to-0 fallback decode's `priorEnvelope` is the PRE-demote
+    // (still-elevated, tier > 0) envelope — the tier gate must skip it
+    // without attempting an ungated decode, regardless of cekCache warmth.
+    expect(await store.get('v1', 'docs', '_idx/salary/e1')).toBeNull()
+    await expect(docs.demote('e1', 0)).resolves.not.toThrow()
+    // Restored to tier 0 with its current value — freshly (re)indexed, not
+    // resurrecting a stale pre-elevation sidecar.
+    expect(await store.get('v1', 'docs', '_idx/salary/e1')).not.toBeNull()
   })
 })

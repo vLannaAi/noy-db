@@ -81,10 +81,19 @@ export interface TiersContext<T> {
    * entries from that record. Call this BEFORE {@link syncCache} — the
    * implementation reads the pre-write cached value as "previous" to clean
    * up stale index buckets, so it must run while that entry is still live.
-   * `version` stamps a rebuilt side-car's own envelope version (ignored on
-   * purge).
+   * `version` stamps a rebuilt side-car's own envelope version — every
+   * caller has one in scope (the envelope it just wrote), including the
+   * purge (`null`) branches, which pass it along even though it's ignored
+   * there (#720: keeps the parameter honestly required, no dead default).
+   * `priorEnvelope` (#720) — the RAW envelope read BEFORE this call's own
+   * overwrite (already in scope as `existing`/`envelope` at every record-
+   * branch call site), so a lazy same-tier value change (a `putAtTier(0)`
+   * dropping an indexed field, a `demote(0)` off an elevated record) can
+   * still be tier-gate-decoded as "previous" once the live envelope itself
+   * has already moved past it. The `null`-record branches never pass one —
+   * see the implementation's doc comment for why they don't need to.
    */
-  syncIndexes(id: string, record: T | null, version?: number): Promise<void>
+  syncIndexes(id: string, record: T | null, version: number, priorEnvelope?: EncryptedEnvelope): Promise<void>
   /** Sync the collection's SEARCH artifacts after a tier move (#721). Both the
    *  lexical `_ftindex` blob and the `_vec/<id>` embedding are encrypted under
    *  the tier-0 DEK and hold the record's derived plaintext (full field text /
@@ -325,7 +334,7 @@ export async function putAtTier<T>(
   // reindex). syncIndexes runs first — it needs the pre-write cache entry
   // as "previous", which syncCache is about to overwrite/evict.
   if (tier > 0) {
-    await ctx.syncIndexes(id, null)
+    await ctx.syncIndexes(id, null, version)
     ctx.syncCache(id, null)
     // #729: the record lands above tier 0 — purge its tier-0-era plaintext
     // ledger deltas (irreversible; a tier-0 putAtTier(0) has nothing to purge).
@@ -349,7 +358,7 @@ export async function putAtTier<T>(
     )
   } else {
     const rec = await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
-    await ctx.syncIndexes(id, rec, envelope._v)
+    await ctx.syncIndexes(id, rec, envelope._v, existing ?? undefined)
     ctx.syncCache(id, rec !== null ? { record: rec, version: envelope._v } : null)
     // #722 Task 2: the record is written at tier 0 — restore its
     // contribution to every derived output (reuse the decode above, no
@@ -544,7 +553,7 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   // tier-0 record (same ordering as demote). #709: syncIndexes runs first —
   // it needs the pre-elevation cache entry as "previous" to clean the
   // eager index bucket; the persisted side-car purge is content-free.
-  await ctx.syncIndexes(id, null)
+  await ctx.syncIndexes(id, null, next._v)
   ctx.syncCache(id, null)
   // #721: same purge law as syncIndexes above — the record left tier 0, so
   // its _vec sidecar is purged and _ftindex is invalidated.
@@ -651,7 +660,7 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
   // it needs the pre-demote cache entry as "previous".
   if (toTier === 0) {
     const rec = await ctx.codec.decryptRecord(next, { id, sealedAsHandles: true })
-    await ctx.syncIndexes(id, rec, next._v)
+    await ctx.syncIndexes(id, rec, next._v, envelope)
     ctx.syncCache(id, rec !== null ? { record: rec, version: next._v } : null)
     // #721: reuse the decode above — no double-decrypt. The record is tier-0
     // again, so re-embed its _vec and invalidate _ftindex to include it.
@@ -660,7 +669,7 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
     // every derived output (reuse the decode above, no double-decrypt).
     await ctx.syncDerived(id, rec, false, next._v)
   } else {
-    await ctx.syncIndexes(id, null)
+    await ctx.syncIndexes(id, null, next._v)
     ctx.syncCache(id, null)
     // #721: still above tier 0 — purge _vec, invalidate _ftindex.
     await ctx.syncSearch(id, null)

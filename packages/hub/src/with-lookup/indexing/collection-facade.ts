@@ -20,7 +20,7 @@
  *
  * Internal service — not exported as a `@noy-db/hub/*` subpath.
  */
-import type { NoydbStore } from '../../kernel/types.js'
+import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { RecordCodec } from '../../kernel/enclave/index.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
 import { IndexWriteFailureError } from '../../kernel/errors.js'
@@ -479,21 +479,55 @@ export async function purgePersistedIndexes<T>(ctx: IndexingContext<T>, id: stri
  * cleaned up rather than left as a false-positive hit. `version` stamps
  * the rebuilt side-car's own envelope version.
  *
+ * `priorEnvelope` (#720) — the RAW envelope the caller read BEFORE its own
+ * overwrite landed (`putAtTier`'s `existing` / `demote`'s pre-move
+ * `envelope`), for the `ctx.cache`-miss lazy case: by this call's time the
+ * adapter already holds the NEW envelope, so a `ctx.adapter.get()` here
+ * would only ever re-observe the write just made — useless for recovering
+ * what a same-tier `putAtTier` may have dropped. Optional: the null-record
+ * branches (elevate / demote-to-intermediate / putAtTier(tier>0)) never
+ * need it — their only prior-dependent step, the eager `indexes.remove`
+ * below, already has what it needs from `ctx.cache` (eager mode is
+ * unaffected by the raw-envelope overwrite; lazy mode has no eager mirror).
+ *
  * No-ops fast when the collection has neither index kind declared.
  */
 export async function syncTierIndexes<T>(
   ctx: IndexingContext<T>,
   id: string,
   record: T | null,
-  version?: number,
+  version: number,
+  priorEnvelope?: EncryptedEnvelope,
 ): Promise<void> {
   if (!ctx.indexes && !ctx.persistedIndexes) return
-  const prior = ctx.cache.get(id)?.record ?? null
+  const prior: T | null = await resolveTierSyncPrior(ctx, id, priorEnvelope)
   if (record === null) {
     await purgePersistedIndexes(ctx, id)
     if (prior) ctx.indexes?.remove(id, prior)
   } else {
-    await maintainPersistedIndexesOnPut(ctx, id, record, prior, version ?? 1)
+    await maintainPersistedIndexesOnPut(ctx, id, record, prior, version)
     ctx.indexes?.upsert(id, record, prior)
   }
+}
+
+/**
+ * Resolve the pre-write record `syncTierIndexes` needs as "previous" for
+ * index maintenance. `ctx.cache` (eager mode, or a lazy record a prior tier
+ * op already synced into it via `syncCache`) is checked first — cheap, no
+ * I/O. Lazy mode falls back to a TIER-GATED decode of the caller-supplied
+ * `priorEnvelope` (read before the caller's own overwrite, see the doc
+ * comment above): gating on `(env._tier ?? 0) > 0` before decoding — the
+ * campaign's standard "elevated ≡ missing" skip, never an ungated decode —
+ * means a prior that was itself elevated (a `demote(0)` off an
+ * `elevate()`-purged record) resolves to null cleanly instead of risking the
+ * warm-cekCache-succeeds/cold-session-throws asymmetry #709 eliminated
+ * elsewhere. No `priorEnvelope` (the null-record branches never pass one) or
+ * eager mode both resolve to null here — by design, per the doc comment
+ * above.
+ */
+async function resolveTierSyncPrior<T>(ctx: IndexingContext<T>, id: string, priorEnvelope: EncryptedEnvelope | undefined): Promise<T | null> {
+  const cached = ctx.cache.get(id)?.record
+  if (cached !== undefined) return cached
+  if (!ctx.lazy || !priorEnvelope || (priorEnvelope._tier ?? 0) > 0) return null
+  return await ctx.codec.decryptRecord(priorEnvelope, { skipValidation: true, id })
 }
