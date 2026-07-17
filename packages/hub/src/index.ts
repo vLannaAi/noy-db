@@ -193,7 +193,7 @@ export {
   sweepBlobIntents,
 } from './with-shape/blobs/blob-intent.js'
 export type { BlobIntent, BlobIntentHold, BlobIntentResume } from './with-shape/blobs/blob-intent.js'
-export { BlobIntentPendingError, BlobRehomeResumeNotImplementedError } from './kernel/errors.js'
+export { BlobIntentPendingError } from './kernel/errors.js'
 export { wrapPodStore, createPodStore, wrapBundleStore, createBundleStore } from './with-pod/pod-store.js'
 export type {
   WrappedPodNoydbStore,

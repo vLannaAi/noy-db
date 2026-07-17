@@ -1787,7 +1787,15 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   // identical dual-branch read directly above it (the encrypted branch
   // goes through the `openEnvelopeJson` barrel; only the plaintext-mode
   // fallback is a bare `_data` read). Up 1. 36→37.
-  ['packages/hub/src/with-shape/blobs/blob-set.ts', 37],
+  // #746 spec §7 §2d (PR-2 Task 2): `loadSlotsTolerant` and
+  // `loadVersionRecordAtKeyTolerant` — the rehome journal's two-tier
+  // resume-tolerant reads (`loadSlots`/`loadVersionRecordAtKeyTolerant`'s
+  // fromTier-then-toTier counterparts) — each add ONE unencrypted-branch
+  // `envelope._data` read, mirroring `loadSlots`/`collectVersionHolds`'s
+  // identical existing plaintext-mode fallback directly above; every
+  // encrypted-branch decrypt goes through the `openEnvelopeJson` barrel.
+  // Up 2. 37→39.
+  ['packages/hub/src/with-shape/blobs/blob-set.ts', 39],
   // #629 Task 4: DictionaryHandle's encrypt/decrypt now goes through the
   // reservedEnvelopes('_dict_') capability instead of building `_iv`/`_data`
   // literals inline — down from 5 (the plaintext branch's `_iv: ''`/`_data:`

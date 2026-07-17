@@ -15,7 +15,6 @@
     "BackupCorruptedError",
     "BackupLedgerError",
     "BlobIntentPendingError",
-    "BlobRehomeResumeNotImplementedError",
     "BlobSet",
     "BundleIntegrityError",
     "BundleSealMismatchError",

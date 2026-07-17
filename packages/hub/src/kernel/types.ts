@@ -2044,19 +2044,48 @@ export interface BlobObject {
    * what makes a crash-resumed refCount decrement/increment exactly-once
    * rather than at-least-once.
    *
-   * Two acceptances, by design:
-   *  - **Eviction beyond K.** More than 8 distinct in-flight stamped
-   *    operations racing the SAME object between reads is far outside any
-   *    expected co-ownership fan-out; a 9th racer whose stamp gets evicted
-   *    before it re-reads can only double-apply an idempotent CAS delta —
-   *    never silently lose one (the delta itself is still bounded by the
-   *    marker's authoritative hold count). Not a data-loss risk, just a
-   *    documented concurrency bound.
+   * Two acceptances, by design — SHRED only (see the #746 whole-branch
+   * review correction below for rehome):
+   *  - **Eviction beyond K, for SHRED.** More than 8 distinct in-flight
+   *    stamped operations racing the SAME object between reads is far
+   *    outside any expected co-ownership fan-out; a 9th racer whose stamp
+   *    gets evicted before it re-reads can only double-apply an idempotent
+   *    CAS delta — never silently lose one (the DECREMENT delta is bounded
+   *    by the marker's authoritative captured `hold.n`, applied as ONE CAS
+   *    per eTag — never per-row — so eviction has nothing row-scoped to
+   *    re-apply against). Not a data-loss risk for shred, just a documented
+   *    concurrency bound.
    *  - **Stale stamps on a retained object.** A `retainedShared` object (one
    *    reference released, others still live) keeps whatever stamp its last
    *    CAS write appended even after that operation's marker is gone —
    *    harmless bookkeeping, not crypto material (unlike `_cek`), that sits
    *    inert until the object's next CAS write evicts or overwrites it.
+   *
+   * **#746 whole-branch review correction — this ring is NOT the sole
+   * idempotency source for REHOME.** Rehome's destination `+1`s are
+   * ROW-SCOPED (`${opId}:${slotName}` / `${opId}:${versionKey}`, one stamp
+   * PER CONTRIBUTING ROW, not one per eTag). Within a SINGLE op this ring is
+   * sufficient — rows are processed sequentially and each row's referencing
+   * update lands before the next row's `+1`, so a row whose stamp is later
+   * evicted is already seen as "moved" (skipped) on resume, never
+   * re-incremented. The genuine over-count is **concurrent independent ops**
+   * (distinct `opId`s) converging on one shared destination: ≥8 of them can
+   * evict a crashed op's row-stamp before it resumes, and a naive ring-only
+   * resume would then double-apply that row's `+1` — a real, silent,
+   * permanent-leak over-count, not merely eviction-tolerant like shred's.
+   * `BlobIntent.appliedStamps` (`blob-intent.ts`) is rehome's ring-INDEPENDENT
+   * backstop: an unbounded, per-op, per-record log of confirmed row-stamps,
+   * consulted BEFORE this ring on every resume (see
+   * `BlobSet.applyStampedIncrement`). This ring stays the fast first-line
+   * check; `appliedStamps` makes correctness independent of ring eviction
+   * **except** in one intrinsic non-atomic window: the destination `+1`/ring
+   * write (A) and the `appliedStamps` append (B) are separate object writes,
+   * A before B (deliberately — B-first could under-count and crypto-shred a
+   * still-referenced object, i.e. data loss, strictly worse than a
+   * retained-too-long leak). A crash BETWEEN A and B followed by ≥8 concurrent
+   * evictions before resume can still over-count. This window is intrinsic
+   * (rehome, unlike shred, cannot pre-capture destinations at mint time) and
+   * fail-safe-directed; it is a documented residual (see the arc changeset).
    */
   readonly lastOps?: readonly string[]
 }
@@ -2105,6 +2134,20 @@ export interface SlotRecord {
   readonly uploadedAt: string
   /** User ID of the uploader, if available. */
   readonly uploadedBy?: string
+  /**
+   * Internal rehome-journal bookkeeping (#746 spec §7 review, carried
+   * finding (b)) — NEVER part of the public `list()`/`SlotInfo` contract
+   * (`BlobSet.list()` filters it out explicitly). Set, in the SAME CAS
+   * write that points this slot at its new (rehomed) eTag, to the OLD eTag
+   * still awaiting its refCount release: `putUnderDEK`'s slot-CAS and its
+   * old-eTag release are two separate writes, and a crash between them
+   * would otherwise lose the only record of which object still needs
+   * releasing (the slot map itself has already moved past it) — a
+   * permanent stranded-refcount leak. Cleared once the release lands.
+   * Only ever set under a marker-governed (stamped) rehome; absent on
+   * every ordinary `put()`.
+   */
+  readonly pendingRelease?: string
 }
 
 /** Result of `BlobSet.list()` — slot record plus its named slot key. */
