@@ -27,6 +27,8 @@ Three mechanisms, composed:
 
 ### 2. Solo-owned blob (refCount == 1) — in-place CEK rewrap (both modes)
 
+> **⚠️ SUPERSEDED — see "## Correction" below.** The in-place-rewrap-keep-eTag optimization described here is UNSAFE: keeping the eTag in the tier-0 HMAC namespace while rewrapping the `_cek` to a tier DEK causes a later same-bytes tier-0 `put()` to dedup-*hit* a tier-N-wrapped object (silent corruption of an uninvolved writer — Critical C1). The corrected mechanism re-`put()`s the blob under the tier DEK so its eTag is tier-scoped. The paragraph below is retained as the record of what was tried and why it was wrong.
+
 When the elevating record exclusively owns a blob (`refCount == 1`), rewrap its `BlobObject._cek` from the tier-0 `_blob` DEK to the tier-`T` `_blob` DEK: `wrapCek(await unwrapCek(blob._cek, blobDEK0), blobDEKT)`, rewrite the `BlobObject`. Chunks are **not** re-encrypted (they stay under the unchanged content CEK) — O(1), not O(size). The `eTag` stays stable (addressing DEK unchanged; a minor dedup-miss for a later same-plaintext tier-`T` put is acceptable). At-rest: a tier-0 caller can no longer unwrap `_cek` → cannot derive the content CEK → cannot read chunks. No dedup cost (the blob is solo by definition).
 
 ### 3. Shared blob (refCount > 1) — policy-dependent (`blobTierPolicy`)
@@ -78,3 +80,32 @@ No test combines tiers with blobs (Arc 7 refuses the combo). Tests must build th
 ## Tests reference
 
 Working fixtures: `search-retrieve-blob.test.ts` (canonical `blobFields` + `withBlobs()` setup, `docs.blob(id).put/get/list`), `per-blob-cek.test.ts` (content-CEK write/read/shred, raw `_blob_index`/`_blob_chunks` inspection), `tier-composition-guard.test.ts` (the refusal to invert + the leak repro to flip), `hierarchical-tiers.test.ts` (tiers). Raw store inspection via `store.get(vault, BLOB_INDEX_COLLECTION/BLOB_CHUNKS_COLLECTION, key)`.
+
+---
+
+## Correction (post-whole-branch-review, 2026-07-17)
+
+The first implementation (Tasks 1–4, branch `fix/724-blob-tier-handler`) was BLOCKED by the whole-branch review, which reproduced **four Criticals from one root cause**:
+
+> **The blob eTag address space stayed tier-0-global while the CEK *wraps* became tier-scoped — and only the read surface and the tier-move hook were taught about tiers. The write path, the `forget()` erasure path, and published versions were not.**
+
+- **C1** — solo rewrap kept the eTag in the tier-0 HMAC namespace; a later same-bytes tier-0 `put()` dedup-*hits* the tier-N-wrapped object → the innocent tier-0 writer's blob is unreadable, and demote re-derives the same eTag → the elevated record's blob breaks too. Silent cross-writer corruption.
+- **C2** — `put()` wraps under the flat `_blob` DEK unconditionally; a blob written to an already-elevated record is tier-0-decryptable at rest (the exact #724 leak) and bricks the next demote.
+- **C3** — `forget()` of an elevated blob-owner crashes mid-erasure: the tombstone carries no `_tier`, so `shredAllForRecord` reads the tier-N slot map under the tier-0 DEK → `TamperedError`, record tombstoned but blob not shredded (GDPR erasure broken).
+- **C4** — published versions (`_blob_versions_*`) are blob *content* under the tier-0 collection DEK; `publish()` takes an independent refCount hold the fork doesn't release, and versions whose eTag left the slot map are never rehomed → content decryptable at rest.
+
+### Corrected model: a blob's storage tier = its owning record's tier — on write AND on move
+
+The eTag address space is tier-scoped: everything a record's blob touches (chunk eTag HMAC, content-CEK wrap, slot map, version records) is keyed under `getDEK(dekKey('_blob'|collection, ownerTier))`.
+
+1. **Writes are tier-aware (C2).** `put()`/`publish()` resolve the owning record's current `_tier` and key the eTag + CEK wrap + slot map + version record under that tier's DEK. A blob written to a tier-`T` record is born at tier `T`. (The caller can only reach an elevated record if cleared, so it holds the tier DEK.)
+2. **Rehome = re-`put()` (C1).** `rehomeForTier(fromTier, toTier)` re-`put()`s each owned blob's plaintext under the `toTier` DEK (a tier-scoped eTag), repoints the slot, `releaseRef`s the old — for **solo and shared-`isolate` alike** (the in-place-rewrap optimization is dropped; solo and shared-isolate converge). Cross-tier dedup can no longer occur (different tiers → different eTags), so C1 is structurally impossible. `dedup` mode still skips the re-`put()` for a shared blob (leaves the slot on the tier-0 object; documented at-rest residue — #741).
+3. **Versions follow (C4).** `rehomeForTier` also enumerates and rehomes version-held eTags and re-keys the version records under the tier DEK; `publish()` writes under the owner tier.
+4. **`forget()` threads the pre-tombstone tier (C3).** `forget()` reads the live record (which still has `_tier`) before writing the tombstone and passes that tier into `shredAllForRecord`, so the slot map is decrypted under the correct tier DEK.
+5. **Composition is enforced (I1).** A tiered collection that uses blobs must set `perRecordKeys` (legacy no-`_cek` blobs cannot be tier-isolated) — refuse at construction otherwise. The `hasBlobFields` fast-path gate on `syncBlobs` is dropped in favor of running the rehome whenever tiers are active (it self-no-ops on an empty slot map), since blobs can be written without a declared `blobFields` (the original #724 repro shape).
+
+### Retained from v1
+Task 1's runtime read gate (all 11 read/metadata methods, gate-before-decrypt) is correct and unchanged. Task 3's `blobTierPolicy` isolate/dedup branch for **shared** blobs is retained (isolate now re-`put()`s, which it already did; dedup leaves). Task 4's slot-map move + reversibility framing is retained and extended to versions.
+
+### Deferred as tracked follow-ups (owner-approved)
+I2 (mid-loop crash self-healing), I3 (`BlobObject` index-envelope metadata + `_isolated` marker under the flat DEK), I4 (`extract-partition` `reKeyBlobs` tier-blindness), I5 (no `blobAtTier` cleared-read path). Filed as issues, not blockers.
