@@ -7,6 +7,8 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb, ConflictError, dekKey } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withBlobs } from '../src/via/blob/index.js'
+import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withHistory } from '../src/with-commit/history/index.js'
 import { openEnvelopeJson, unwrapCek, type EnclaveKey } from '../src/kernel/enclave/index.js'
 import { BLOB_INDEX_COLLECTION, BLOB_CHUNKS_COLLECTION } from '../src/with-shape/blobs/blob-set.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
@@ -853,5 +855,60 @@ describe('#724 versions follow tier (C4)', () => {
     const versionBytes = await docs.blob('d1').getVersion('slot', 'v1')
     expect(versionBytes).not.toBeNull()
     expect(new TextDecoder().decode(versionBytes!)).toBe('reversible version bytes')
+  })
+})
+
+describe('#724 forget of elevated blob-owner (C3)', () => {
+  it('vault.forget() of an elevated blob-owning record does not throw and crypto-shreds the blob', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      historyStrategy: withHistory(),
+      forgetStrategy: withForgetCascade({ subjects: { docs: 'id' } }),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+    await docs.put('d1', { id: 'd1', title: 'Invoice', body: 'x' })
+    await docs.blob('d1').put('attachment', new TextEncoder().encode('elevated owner data'))
+    const eTag = (await docs.blob('d1').blobInfo('attachment'))!.eTag
+    await docs.elevate('d1', 1)
+
+    const result = await vault.forget('d1')
+
+    expect(result.blobsShredded).toBe(1)
+    expect(result.blobResidueCollections).toEqual([])
+    // Crypto-shredded: BlobObject + chunks gone.
+    expect(await store.get('v1', BLOB_INDEX_COLLECTION, eTag)).toBeNull()
+    expect(await store.list('v1', BLOB_CHUNKS_COLLECTION)).toEqual([])
+    // Record tombstoned (not left half-erased).
+    const env = await store.get('v1', 'docs', 'd1')
+    expect(env).not.toBeNull()
+    expect(env!._data).toBe('')
+  })
+
+  it('a tier-0 control record forget still works (unchanged)', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      historyStrategy: withHistory(),
+      forgetStrategy: withForgetCascade({ subjects: { docs: 'id' } }),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+    await docs.put('d2', { id: 'd2', title: 'Memo', body: 'y' })
+    await docs.blob('d2').put('attachment', new TextEncoder().encode('tier-0 owner data'))
+    const eTag = (await docs.blob('d2').blobInfo('attachment'))!.eTag
+
+    const result = await vault.forget('d2')
+
+    expect(result.blobsShredded).toBe(1)
+    expect(await store.get('v1', BLOB_INDEX_COLLECTION, eTag)).toBeNull()
+    expect(await store.list('v1', BLOB_CHUNKS_COLLECTION)).toEqual([])
   })
 })

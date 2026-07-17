@@ -2411,7 +2411,7 @@ export class Vault {
       } else if (blobsEnabled) {
         const r = await this.collection<Record<string, unknown>>(ref.collection)
           .blob(ref.id)
-          .shredAllForRecord()
+          .shredAllForRecord(live?._tier ?? 0) // #724 C3: pre-tombstone tier — the tombstone this loop already wrote drops `_tier`
         blobsShredded += r.shredded.length
         blobsRetainedShared += r.retainedShared.length
         if (r.residue.length > 0) blobResidueCollections.add(ref.collection)

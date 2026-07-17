@@ -451,13 +451,20 @@ export class BlobSet {
    * owner — reported as `retainedShared` (or `residue` if legacy).
    *
    * Finally drops the record's slot map, severing the subject's link.
+   *
+   * @param ownerTier #724 Arc 10 C3: `vault.forget()` writes the record's
+   * tombstone (which drops `_tier`) BEFORE calling this method, so the
+   * `ownerTier()` default — a fresh peek at the now-tombstoned envelope —
+   * would resolve tier 0 and decrypt the tier-scoped slot map under the
+   * wrong DEK (`TamperedError`, erasure aborted mid-shred). `forget()` reads
+   * the LIVE record first and passes its pre-tombstone tier here instead.
    */
-  async shredAllForRecord(): Promise<{
+  async shredAllForRecord(ownerTier?: number): Promise<{
     shredded: string[]
     retainedShared: string[]
     residue: string[]
   }> {
-    const { slots } = await this.loadSlots()
+    const { slots } = await this.loadSlots(ownerTier)
     const slotNames = Object.keys(slots)
     const shredded: string[] = []
     const retainedShared: string[] = []
