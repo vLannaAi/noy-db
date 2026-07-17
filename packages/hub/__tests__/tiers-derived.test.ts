@@ -6,7 +6,7 @@
  * Reuses the forget-fanout recompute; recompute reads the elevated-excluding
  * cache so it drops the now-invisible source.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { createNoydb, withMaterializedView, withRollup, withDerivation, ConflictError, type GroupedAggregation } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withAggregate } from '../src/with-lookup/aggregate/index.js'
@@ -452,5 +452,87 @@ describe('#722 demote restores the source to derived outputs (reversible)', () =
 
     await invoices.elevate('inv-a', 1)
     expect(await openMV.get('inv-a')).toBeNull()
+  })
+})
+
+/**
+ * Review finding (Arc 9, #722): the tier ops decoded the record body to feed
+ * `syncDerived` UNCONDITIONALLY, even for collections with no MV/derivation
+ * source attached — the dispatchers self-guard, but only AFTER the expensive
+ * `decryptRecord` already ran. `elevate()` never decrypted the body before
+ * this arc (it only re-keyed the ciphertext). Fixed by gating the pre-move
+ * decode behind `TiersContext.hasDerivedOutputs`. This locks the guard by
+ * counting the underlying `crypto.subtle.decrypt` calls a rewrap makes:
+ * `rewrapBodyToDek` always makes exactly one (the body re-key, required
+ * regardless of derivations); a collection WITH a derivation/MV source makes
+ * exactly one MORE (the gated `syncDerived` decode) — a collection with NONE
+ * must not.
+ */
+describe('#722 review fix: syncDerived pre-move decode is gated by hasDerivedOutputs', () => {
+  it('elevate() on a vault with NO derivation/MV registries performs zero extra record-body decrypts vs an otherwise-identical elevate on a vault WITH one', async () => {
+    interface Doc extends Record<string, unknown> { id: string; title: string }
+    interface Buyer extends Record<string, unknown> { id: string; companyName: string; totalSpent?: number }
+    interface Sale extends Record<string, unknown> { id: string; buyerId: string; total: number }
+
+    // `hasDerivedOutputs` is computed per-collection from the VAULT's
+    // derivation/MV registry presence (`this.derivationSource !==
+    // undefined || this.materializedViewSource !== undefined` —
+    // `tiersContext()`), not from whether this specific collection is a
+    // registered source — so the two elevates must run against two
+    // SEPARATE vaults (one with no derivation strategy configured at all,
+    // one with) to observe the gate.
+    const plainDb = await createNoydb({
+      store: memoryStore(),
+      user: 'owner',
+      secret: 'tiers-derived-decode-guard-plain-passphrase-2026',
+      tiersStrategy: withTiers(),
+    })
+    const plainVault = await plainDb.openVault('demo')
+    const docs = plainVault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+
+    const totalSpentRollup = withRollup<Sale, Buyer>({
+      from: 'sales', key: 'buyerId', into: 'buyers', field: 'totalSpent',
+      compute: (sales) => sales.reduce((t, s) => t + s.total, 0),
+    })
+    const derivedDb = await createNoydb({
+      store: memoryStore(),
+      user: 'owner',
+      secret: 'tiers-derived-decode-guard-derived-passphrase-2026',
+      tiersStrategy: withTiers(),
+      derivationStrategies: [totalSpentRollup],
+    })
+    const derivedVault = await derivedDb.openVault('demo')
+    const buyers = derivedVault.collection<Buyer>('buyers')
+    // Same shape as `docs` (tiered, per-record-key) so its elevate() rewrap
+    // makes the SAME one decrypt call as `docs`'s, plus the gated decode.
+    const sales = derivedVault.collection<Sale>('sales', { tiers: [0, 1], perRecordKeys: true })
+
+    await docs.put('d1', { id: 'd1', title: 'Public' })
+    await buyers.put('b1', { id: 'b1', companyName: 'Acme' })
+    await sales.put('s1', { id: 's1', buyerId: 'b1', total: 100 })
+
+    const decryptSpy = vi.spyOn(crypto.subtle, 'decrypt')
+
+    const before1 = decryptSpy.mock.calls.length
+    await docs.elevate('d1', 1)
+    const noDerivationDecryptCalls = decryptSpy.mock.calls.length - before1
+
+    const before2 = decryptSpy.mock.calls.length
+    await sales.elevate('s1', 1)
+    const withDerivationDecryptCalls = decryptSpy.mock.calls.length - before2
+
+    decryptSpy.mockRestore()
+
+    // Both elevates perform the identical body rewrap (one decrypt). `sales`
+    // (its vault has a derivation registry) additionally pays the
+    // syncDerived pre-move decode; `docs` (its vault has none) must not —
+    // this is the whole point of the `hasDerivedOutputs` gate.
+    expect(noDerivationDecryptCalls).toBeGreaterThan(0) // sanity: the rewrap itself still decrypts
+    expect(withDerivationDecryptCalls - noDerivationDecryptCalls).toBe(1)
+
+    // Behavior is unchanged either way: both moves still land at tier 1 and
+    // the rollup on the derivation-vault side still reflects the removal.
+    expect(await docs.getAtTier('d1')).toEqual({ id: 'd1', title: 'Public' })
+    expect((await buyers.get('b1'))?.totalSpent).toBe(0)
   })
 })

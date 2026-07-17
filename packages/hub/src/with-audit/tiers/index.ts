@@ -156,6 +156,18 @@ export interface TiersContext<T> {
    * below checks its own source before doing any work.
    */
   syncDerived(id: string, record: T | null, elevated: boolean, version?: number): Promise<void>
+  /**
+   * `true` iff the collection has a materialized-view or derivation source
+   * attached. Gates the {@link syncDerived} pre-move decode on the remove
+   * direction (`elevate()`, `putAtTier(tier>0)`, `demote()`'s intermediate-
+   * tier branch): those sites decode the record SOLELY to feed
+   * `syncDerived(..., true)`, whose dispatchers no-op immediately when the
+   * collection has no MV/derivation source — so a no-derivation collection
+   * would otherwise pay a full record-body decrypt on every tier move for
+   * nothing (#722 perf regression). `false` short-circuits the decode to
+   * `null`, which `syncDerivedOutputs` already treats safely.
+   */
+  readonly hasDerivedOutputs: boolean
   /** Emit `_source`/`_sourceTs` provenance fields when a source is supplied. */
   readonly provenance: boolean
   /** Declared tiers, or null when the feature is off. */
@@ -308,8 +320,10 @@ export async function putAtTier<T>(
     await ctx.syncLedger(id)
     // #722: recompute this record's derived outputs now that it left tier 0
     // — same law as elevate() below. `existing` is the PRE-write envelope;
-    // decode it only here (the rollup edge is the only consumer).
-    await ctx.syncDerived(id, existing ? await ctx.codec.decryptRecord(existing, { id, sealedAsHandles: true }) : null, true)
+    // decode it only here (the rollup edge is the only consumer). Gated by
+    // `hasDerivedOutputs` — no-derivation collections skip this decrypt
+    // entirely (perf regression review finding, Arc 9 #722).
+    await ctx.syncDerived(id, ctx.hasDerivedOutputs && existing ? await ctx.codec.decryptRecord(existing, { id, sealedAsHandles: true }) : null, true)
   } else {
     const rec = await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
     await ctx.syncIndexes(id, rec, envelope._v)
@@ -516,8 +530,10 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   // #722: recompute this record's derived outputs now that it left tier 0 —
   // same law as putAtTier(tier>0) above. `envelope` is the PRE-move envelope
   // (captured before the rewrap), decoded only here (the rollup edge is the
-  // only consumer of the record content).
-  await ctx.syncDerived(id, await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true }), true)
+  // only consumer of the record content). Gated by `hasDerivedOutputs` — no-
+  // derivation collections skip this decrypt entirely (perf regression
+  // review finding, Arc 9 #722).
+  await ctx.syncDerived(id, ctx.hasDerivedOutputs ? await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true }) : null, true)
 
   ctx.emitCrossTierEvent({
     actor: ctx.keyring.userId,
@@ -620,7 +636,9 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
     // derived outputs stay recompute-as-removed, same law as elevate()
     // above. `envelope` is the PRE-move envelope captured at function
     // entry; decoded only here (the rollup edge is the only consumer).
-    await ctx.syncDerived(id, await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true }), true)
+    // Gated by `hasDerivedOutputs` — no-derivation collections skip this
+    // decrypt entirely (perf regression review finding, Arc 9 #722).
+    await ctx.syncDerived(id, ctx.hasDerivedOutputs ? await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true }) : null, true)
   }
 
   ctx.emitCrossTierEvent({
