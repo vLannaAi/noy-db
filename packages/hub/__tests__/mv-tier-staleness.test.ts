@@ -148,6 +148,44 @@ describe('#736 whole-branch review — invalidateMVAtRest scopes deletion to MV-
     expect(r2?.tag).toBe('y')
   })
 
+  it('IMPORTANT: hydrate-promise poison — a transient store failure on the first cold read must not brick the MV read surface for the rest of the session', async () => {
+    const store = memoryStore()
+    const lazyMV = withMaterializedView<Item>({
+      name: 'red-items',
+      query: (db) => db.collection<Item>('items').query().where('tag', '==', 'red'),
+      rowKey: (r) => r.id,
+      refresh: 'lazy',
+    })
+    const db = await createNoydb({
+      store, user: 'owner', secret: 'mv-tier-stale-hydrate-poison-2026',
+      materializedViewStrategies: [lazyMV],
+    })
+    const vault = await db.openVault('demo')
+    const items = vault.collection<Item>('items')
+    await items.put('a', { id: 'a', tag: 'red' })
+
+    // Make the store's list() reject ONCE for the reserved `_mv_stale` collection
+    // (the hydrate fold-in's only store call), then succeed on every later call.
+    let failed = false
+    const originalList = store.list.bind(store)
+    store.list = async (v, c) => {
+      if (c === MV_STALE_COLLECTION && !failed) {
+        failed = true
+        throw new Error('transient store failure')
+      }
+      return originalList(v, c)
+    }
+
+    // First read: the hydrate rejects — must surface, not be swallowed.
+    await expect(vault.collection<Item>('red-items').get('a')).rejects.toThrow('transient store failure')
+
+    // Second read: must RETRY the hydrate (not re-await the same cached rejection)
+    // and recover, serving the recomputed view.
+    const row = await vault.collection<Item>('red-items').get('a')
+    expect(row).not.toBeNull()
+    expect(row?.tag).toBe('red')
+  })
+
   it('orphaned _mv_stale marker for an unregistered MV name is deleted on the next read (renamed/removed MV)', async () => {
     const store = memoryStore()
     const mv = withMaterializedView<Item>({

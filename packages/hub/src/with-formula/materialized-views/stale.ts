@@ -125,10 +125,10 @@ async function hydratePersistedStaleMarkers(accessor: MVStaleAccessor, registry:
  * output row) using the adapter directly so the read-path's `resolveStaleMVOnRead`
  * isn't triggered mid-invalidation. `mode: 'lazy'` also persists the stale mark so a
  * cold session recomputes on next read; `'manual'` gets the purge only — the MV
- * serves empty until an explicit `vault.refreshView()` (erasure wins). If another
- * registered MV shares this output collection, it just lost its rows too without a
- * write of its own — every OTHER `lazy` sibling on the same output is re-marked
- * stale (persisted) as well.
+ * serves empty until an explicit `vault.refreshView()` (erasure wins). Deletion is
+ * stamp-scoped (`_materializedFrom.mvName === reg.spec.name` — see the loop below),
+ * so another registered MV sharing this output collection keeps its own rows intact:
+ * no cross-MV re-marking is needed here, only `reg` itself is marked stale.
  *
  * @internal
  */
@@ -161,17 +161,14 @@ export async function invalidateMVAtRest(
     await (outputColl as any)._internalDelete(id, txCtx)
   }
 
-  const registry = accessor.registry()
-  const toMark = new Set<string>(mode === 'lazy' ? [reg.spec.name] : [])
-  for (const other of registry.all()) {
-    if (other.spec.name === reg.spec.name) continue
-    if (other.outputCollection !== reg.outputCollection) continue
-    if (other.spec.refresh !== 'lazy') continue
-    toMark.add(other.spec.name)
-  }
-  for (const name of toMark) {
-    markMVStale(registry, name)
-    await writeMVStaleMarker(adapter, vault, name)
+  // `mode: 'manual'` gets the purge only (erasure wins, no auto-recompute promise);
+  // `'lazy'` also marks + persists ITS OWN stale bit for cold-session recompute. No
+  // sibling MV on the same output collection is touched here — the stamp-scoped
+  // deletion above never erased sibling rows in the first place (#736 re-review).
+  if (mode === 'lazy') {
+    const registry = accessor.registry()
+    markMVStale(registry, reg.spec.name)
+    await writeMVStaleMarker(adapter, vault, reg.spec.name)
   }
 }
 
@@ -207,10 +204,16 @@ export async function resolveStaleMVOnRead(
   // hydrate is still awaiting `adapter.list` must await the SAME promise —
   // otherwise it observes "already hydrating", skips straight to an empty
   // pending set, and serves the purged/stale view as fresh (#736
-  // whole-branch review, hydrate-once race).
+  // whole-branch review, hydrate-once race). On rejection, evict the entry
+  // BEFORE rethrowing — a cached rejected promise would otherwise poison the
+  // MV read surface for the rest of the session (every later read re-awaits
+  // the same rejection instead of retrying the store call) (#736 re-review).
   let hydrate = _hydratedByRegistry.get(registry)
   if (!hydrate) {
-    hydrate = hydratePersistedStaleMarkers(accessor, registry)
+    hydrate = hydratePersistedStaleMarkers(accessor, registry).catch((err: unknown) => {
+      _hydratedByRegistry.delete(registry)
+      throw err
+    })
     _hydratedByRegistry.set(registry, hydrate)
   }
   await hydrate
