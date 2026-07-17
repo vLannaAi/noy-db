@@ -1,24 +1,23 @@
 /**
  * Arc 7 (#724 + tier-composition guard) of the tier-invisibility campaign.
  *
- * Part 1 (#724 verification) proves that `collection.blob(id)` leaks blob
- * content for an elevated (`_tier > 0`) record: a caller whose keyring never
- * held the record's elevated tier DEK — someone `collection.get(id)`
- * correctly reports the record as invisible to — can still fully read the
- * record's blob attachments. This reproduction intentionally does NOT
- * declare `blobFields` on the collection (basic `blob().put()/get()` never
- * required it), so it keeps passing after the guard below ships — the guard
- * only refuses the DECLARED-`blobFields` case (the config-visible signal),
- * not every possible `.blob()` call.
+ * Part 1 (#724 verification) originally proved that `collection.blob(id)`
+ * leaked blob content for an elevated (`_tier > 0`) record: a caller whose
+ * keyring never held the record's elevated tier DEK — someone
+ * `collection.get(id)` correctly reports the record as invisible to — could
+ * still fully read the record's blob attachments. Arc 10 Task 1 closed that
+ * leak with an unconditional runtime read gate on `collection.blob(id)`
+ * (see `tiers-blobs.test.ts`), so this reproduction now asserts the fixed
+ * behavior instead.
  *
- * Part 2 is the guard itself: `tiers` declared together with `blobFields`
- * throws `UnsupportedTierCompositionError` at `vault.collection()`
- * registration, and every currently-safe composition (`tiers` alone,
- * `blobFields` alone, `tiers` + field indexes / textIndexes / embeddings /
- * withHistory) still constructs fine.
+ * Part 2 was the Arc-7 refusal (`UnsupportedTierCompositionError` at
+ * `vault.collection()` registration for `tiers` + `blobFields`). Arc 10
+ * Task 1 removed that refusal — the composition is now allowed, and the
+ * runtime read gate (not construction-time refusal) is what protects an
+ * elevated record's blob content.
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb, ConflictError, UnsupportedTierCompositionError, withSearch } from '../src/index.js'
+import { createNoydb, ConflictError, withSearch } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withBlobs } from '../src/via/blob/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
@@ -68,15 +67,15 @@ function memoryStore(): NoydbStore {
   }
 }
 
-describe('#724 — blob content leak on an elevated record (pre-existing, guard-independent)', () => {
-  it('a caller without the elevated tier DEK still reads full blob content via collection.blob()', async () => {
+describe('#724 — blob content on an elevated record is gated (Arc 10 Task 1)', () => {
+  it('a caller without the elevated tier DEK no longer reads blob content via collection.blob()', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
       tiersStrategy: withTiers(), blobStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     // No `blobFields` declared — basic blob put/get never required it, and
-    // this is the shape the guard below cannot see at registration time.
+    // the runtime gate applies regardless of whether `blobFields` is declared.
     const docs = vault.collection<Doc>('docs', { tiers: [0, 1] })
 
     await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
@@ -94,28 +93,28 @@ describe('#724 — blob content leak on an elevated record (pre-existing, guard-
     kr.deks.delete('docs#1')
     expect(kr.deks.has('docs#1')).toBe(false)
 
-    // The blob surface has no equivalent gate: full plaintext still comes back.
+    // The blob surface now mirrors `get()`'s gate: not visible.
     const got = await docs.blob('d1').get('receipt.pdf')
-    expect(got).not.toBeNull()
-    expect(new TextDecoder().decode(got!)).toBe('sensitive attachment bytes')
+    expect(got).toBeNull()
   })
 })
 
-describe('tier-composition guard (#724)', () => {
-  it('tiers + blobFields throws UnsupportedTierCompositionError at vault.collection()', async () => {
+describe('tier + blobFields composition (Arc-7 refusal removed — #724)', () => {
+  it('tiers + blobFields constructs fine and the blob is reachable at tier 0', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
       tiersStrategy: withTiers(), blobStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
-    let caught: unknown
-    try {
-      vault.collection<Doc>('docs', { tiers: [0, 1], blobFields: { receipt: {} } })
-    } catch (err) {
-      caught = err
-    }
-    expect(caught).toBeInstanceOf(UnsupportedTierCompositionError)
-    expect((caught as InstanceType<typeof UnsupportedTierCompositionError>).feature).toBe('blobs')
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1], blobFields: { receipt: {} } })
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
+    const bytes = new TextEncoder().encode('unelevated attachment bytes')
+    await docs.blob('d1').put('receipt', bytes)
+
+    const got = await docs.blob('d1').get('receipt')
+    expect(got).not.toBeNull()
+    expect(new TextDecoder().decode(got!)).toBe('unelevated attachment bytes')
   })
 
   it('tiers alone still constructs fine', async () => {

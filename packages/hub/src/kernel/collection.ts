@@ -79,7 +79,7 @@ import { PersistedIndexStore } from '../with-lookup/search/persisted-index-store
 import type { RetrieveOptions, RetrieveHit } from '../with-lookup/search/retrieve-types.js'
 import { DerivationCapExceededError } from './errors.js'
 import type { VectorSet, EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
-import { buildUniqueConstraintSet, assertTierComposition, type UniqueConstraintSet } from '../with-lookup/indexing/unique-constraints.js'
+import { buildUniqueConstraintSet, type UniqueConstraintSet } from '../with-lookup/indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
 import { buildDescription, deriveZodFields, type CollectionDescription, type DescribeOptions } from '../with-shape/introspection/describe.js'
 import type { CollectionConfig } from '../with-shape/introspection/types.js'
@@ -230,7 +230,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   private readonly blobStrategy: BlobStrategy
   private readonly objectStore: ObjectProjection | undefined
-  private readonly blobFields: BlobFieldsConfig | undefined
+  private readonly blobFields: BlobFieldsConfig | undefined; private readonly hasBlobFields: boolean // #724 T2 no-op guard
   private readonly aggregateStrategy: AggregateStrategy
   private readonly crdtStrategy: CrdtStrategy
   private readonly tiersStrategy: TiersStrategy
@@ -651,7 +651,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.activeTxId = cfg.activeTxId
     this.blobStrategy = cfg.blobStrategy
     this.objectStore = cfg.objectStore
-    this.blobFields = cfg.blobFields
+    this.blobFields = cfg.blobFields; this.hasBlobFields = cfg.blobFields !== undefined && Object.keys(cfg.blobFields).length > 0
     this.aggregateStrategy = cfg.aggregateStrategy
     this.crdtStrategy = cfg.crdtStrategy
     this.tiersStrategy = cfg.tiersStrategy
@@ -886,13 +886,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.persistedIndexes?.setCanonicalizer((f, v) => this.via?.canonicalizeIndexKey(f, v)) // #677: lazy twin of the line above
 
     // Unique-constraint enforcement (eager mode only; UnsupportedIndexOptionError)
-    // + tier-composition guard (`tiers + blobFields` throws UnsupportedTierCompositionError,
-    // #724) — see buildUniqueConstraintSet / assertTierComposition, kept out of this kernel file.
+    // — see buildUniqueConstraintSet. The Arc-7 tiers+blobFields refusal (#724)
+    // moved to collection.blob(id)'s runtime read gate (Arc 10 Task 1, blob-set.ts).
     this.uniqueConstraints = buildUniqueConstraintSet(this.name, opts.indexes, {
       lazy: this.lazy,
       crdt: this.crdtMode != null,
       tiered: this.tiers != null,
-    }); assertTierComposition(this.name, { tiers: this.tiers != null, blobFields: this.blobFields })
+    })
   }
   /**
    * Return the Standard Schema validator attached to this collection,

@@ -26,6 +26,7 @@ import {
   type EnclaveKey,
 } from '../../kernel/enclave/index.js'
 import { ConflictError, NotFoundError } from '../../kernel/errors.js'
+import { liveRecordIsElevated } from '../../kernel/tier-visibility.js'
 import { detectMagic, isPreCompressed } from './mime-magic.js'
 
 // ─── Internal collection names ─────────────────────────────────────────
@@ -194,6 +195,18 @@ export class BlobSet {
     if (!this.encrypted) return null
     const blobDEK = await this.getDEK(BLOB_COLLECTION)
     return blob._cek !== undefined ? await unwrapCek(blob._cek, blobDEK) : blobDEK
+  }
+
+  /**
+   * #724 Arc 10 Task 1: the same "elevated ≡ invisible" clearance check
+   * `collection.get()` applies to the owning record (`liveRecordIsElevated`,
+   * #701/#707/#709/#712) — reused here, not reinvented, so a blob content
+   * read on an elevated record is refused exactly like a `get()` on it
+   * would be. Reads only the owning record's `_tier` envelope metadata;
+   * runs before any blob decrypt.
+   */
+  private async ownerRecordElevated(): Promise<boolean> {
+    return liveRecordIsElevated(this.store, this.vault, this.collection, this.recordId)
   }
 
   /** The internal collection that holds slot metadata for this collection's blobs. */
@@ -836,6 +849,7 @@ export class BlobSet {
    * Throws `NotFoundError` if the index entry exists but a chunk is missing.
    */
   async get(slotName: string): Promise<Uint8Array | null> {
+    if (await this.ownerRecordElevated()) return null // #724: elevated ≡ invisible, mirrors get()
     const { slots } = await this.loadSlots()
     const slot = slots[slotName]
     if (!slot) return null
@@ -859,6 +873,7 @@ export class BlobSet {
    * does not exist. Throws for a non-external slot (use `get()`/`response()`).
    */
   async url(slotName: string, opts?: { expiresInSeconds?: number }): Promise<string | null> {
+    if (await this.ownerRecordElevated()) return null // #724: elevated ≡ invisible, mirrors get()
     const { slots } = await this.loadSlots()
     const slot = slots[slotName]
     if (!slot) return null
@@ -1023,6 +1038,7 @@ export class BlobSet {
    * Returns `null` if the slot does not exist.
    */
   async response(slotName: string, opts?: BlobResponseOptions): Promise<Response | null> {
+    if (await this.ownerRecordElevated()) return null // #724: elevated ≡ invisible, mirrors get()
     const { slots } = await this.loadSlots()
     const slot = slots[slotName]
     if (!slot) return null
@@ -1127,6 +1143,7 @@ export class BlobSet {
    * Returns `null` if the version does not exist.
    */
   async getVersion(slotName: string, label: string): Promise<Uint8Array | null> {
+    if (await this.ownerRecordElevated()) return null // #724: elevated ≡ invisible, mirrors get()
     const record = await this.loadVersionRecord(slotName, label)
     if (!record) return null
 
@@ -1181,6 +1198,7 @@ export class BlobSet {
     label: string,
     opts?: BlobResponseOptions,
   ): Promise<Response | null> {
+    if (await this.ownerRecordElevated()) return null // #724: elevated ≡ invisible, mirrors get()
     const record = await this.loadVersionRecord(slotName, label)
     if (!record) return null
 
@@ -1226,6 +1244,7 @@ export class BlobSet {
    * Returns `null` if the slot doesn't exist or the store doesn't support presigning.
    */
   async presignedUrl(slotName: string, expiresInSeconds = 3600): Promise<string | null> {
+    if (await this.ownerRecordElevated()) return null // #724: elevated ≡ invisible, mirrors get()
     const { slots } = await this.loadSlots()
     const slot = slots[slotName]
     if (!slot) return null
@@ -1253,6 +1272,7 @@ export class BlobSet {
    * ```
    */
   async decryptResponse(slotName: string, cipherResponse: Response): Promise<Response | null> {
+    if (await this.ownerRecordElevated()) return null // #724: elevated ≡ invisible, mirrors get()
     const { slots } = await this.loadSlots()
     const slot = slots[slotName]
     if (!slot) return null
