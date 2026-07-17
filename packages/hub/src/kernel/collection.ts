@@ -231,8 +231,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private readonly blobStrategy: BlobStrategy
   private readonly objectStore: ObjectProjection | undefined
   private readonly blobFields: BlobFieldsConfig | undefined; private readonly hasBlobFields: boolean // #724 T2 no-op guard
-  private readonly aggregateStrategy: AggregateStrategy
-  private readonly crdtStrategy: CrdtStrategy
+  private readonly aggregateStrategy: AggregateStrategy; private readonly crdtStrategy: CrdtStrategy
   private readonly tiersStrategy: TiersStrategy
   private readonly searchStrategy: SearchStrategy
   private readonly historyStrategy: HistoryStrategy
@@ -4511,6 +4510,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       syncIndexes: (id: string, rec: T | null, version?: number) => syncTierIndexesImpl(this.indexingContext(), id, rec, version),
       syncSearch: (id: string, rec: T | null, version?: number) => syncTierSearchImpl(this.searchContext(), id, rec, version),
       syncHistory: async (id: string, fromDek: EnclaveKey, toDek: EnclaveKey) => this.historyStrategy.rewrapHistory(this.adapter, this.vault, this.name, id, fromDek, toDek, await this.getDEK(this.name)),
+      syncBlobs: (id: string, fromTier: number, toTier: number) => this.hasBlobFields ? this.blob(id).rehomeForTier(fromTier, toTier, 'isolate') : Promise.resolve(),
       syncLedger: async (id: string) => { await this.ledger?.purgeRecordDeltas(this.name, id) },
       syncDerived: (id: string, record: T | null, elevated: boolean, version?: number) => syncDerivedOutputs(this, id, record, elevated, version),
       hasDerivedOutputs: this.materializedViewSource !== undefined || this.derivationSource !== undefined,

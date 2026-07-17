@@ -27,6 +27,7 @@ import {
 } from '../../kernel/enclave/index.js'
 import { ConflictError, NotFoundError } from '../../kernel/errors.js'
 import { liveRecordIsElevated } from '../../kernel/tier-visibility.js'
+import { dekKey } from '../../with-party/team/tiers.js'
 import { detectMagic, isPreCompressed } from './mime-magic.js'
 
 // ─── Internal collection names ─────────────────────────────────────────
@@ -445,6 +446,52 @@ export class BlobSet {
     // Sever the subject's link: drop the record's slot map.
     await this.store.delete(this.vault, this.slotsCollection, this.recordId)
     return { shredded, retainedShared, residue }
+  }
+
+  /**
+   * Rehome this record's blobs after a tier move (#724 Arc 10 Task 2,
+   * at-rest isolation) — called by `TiersContext.syncBlobs`. A blob's home
+   * tier is its owning record's tier: the `_blob` DEK is tier-scoped via
+   * `dekKey('_blob', tier)`, so moving a record's tier must move the
+   * wrapping key of any blob it exclusively owns, or a tier-0-cleared
+   * caller could still unwrap the content CEK off the store at rest even
+   * though the runtime read gate (Task 1) hides it through the API.
+   *
+   * Enumerates the record's eTags via the slot map — mirrors
+   * `shredAllForRecord`'s `loadSlots()` → `holds` enumeration above. For
+   * each distinct eTag:
+   *  - **solo** (`refCount === 1`, this record is the sole owner): rewrap
+   *    `_cek` from the `fromTier` `_blob` DEK to the `toTier` one and
+   *    rewrite the `BlobObject`. The CONTENT CEK itself — and therefore
+   *    every chunk encrypted under it — is untouched; only its wrapper
+   *    moves. The eTag (a content address) stays stable.
+   *  - **shared** (`refCount > 1`): NO-OP here — rewrapping would move the
+   *    key out from under every OTHER referencing record too. Left for
+   *    Task 3's policy branch (`'isolate'` vs `'dedup'`).
+   *  - **legacy** (`_cek` absent — chunks direct under the flat `_blob`
+   *    DEK): NO-OP. Tiered collections mandate `perRecordKeys`, so new
+   *    blob data is always erasable; a legacy blob reaching this method
+   *    would need a chunk re-encrypt (not attempted here).
+   */
+  async rehomeForTier(fromTier: number, toTier: number, _policy: 'isolate' | 'dedup'): Promise<void> {
+    if (!this.encrypted || fromTier === toTier) return
+    const { slots } = await this.loadSlots()
+    const eTags = new Set(Object.values(slots).map((s) => s.eTag).filter((eTag) => eTag !== ''))
+    if (eTags.size === 0) return
+
+    const fromBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, fromTier))
+    const toBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, toTier))
+
+    for (const eTag of eTags) {
+      const loaded = await this.loadBlobObject(eTag)
+      if (!loaded) continue
+      const { blob, version } = loaded
+      if (blob._cek === undefined) continue // legacy: no rewrap (see doc comment)
+      if (blob.refCount > 1) continue // shared (refCount>1): Task 3 policy branch
+      const contentCek = await unwrapCek(blob._cek, fromBlobDEK)
+      const rewrapped = await wrapCek(contentCek, toBlobDEK)
+      await this.writeBlobObject({ ...blob, _cek: rewrapped }, version)
+    }
   }
 
   /** CAS retry loop for an arbitrary BlobObject mutation. */

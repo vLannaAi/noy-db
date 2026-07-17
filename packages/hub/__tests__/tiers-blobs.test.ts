@@ -4,9 +4,11 @@
  * owning record's _tier before returning bytes, exactly as get() does.
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb, ConflictError } from '../src/index.js'
+import { createNoydb, ConflictError, dekKey } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withBlobs } from '../src/via/blob/index.js'
+import { openEnvelopeJson, unwrapCek, type EnclaveKey } from '../src/kernel/enclave/index.js'
+import { BLOB_INDEX_COLLECTION, BLOB_CHUNKS_COLLECTION } from '../src/with-shape/blobs/blob-set.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 
 interface Doc {
@@ -132,5 +134,103 @@ describe('#724 blob metadata gate', () => {
     // targeted, not global.
     expect(await docs.blob('d2').list()).not.toHaveLength(0)
     expect(await docs.blob('d2').blobInfo('attachment')).not.toBeNull()
+  })
+})
+
+describe('#724 solo blob at-rest isolation', () => {
+  it('elevate rewraps a solo blob’s CEK under the tier _blob DEK — undecryptable at tier 0', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+    const getDEK = (vault as unknown as { getDEK(name: string): Promise<EnclaveKey> }).getDEK
+    const tier0BlobDEK = await getDEK(dekKey('_blob', 0))
+    const tier1BlobDEK = await getDEK(dekKey('_blob', 1))
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
+    await docs.blob('d1').put('attachment', new TextEncoder().encode('sensitive attachment bytes'))
+    const info = await docs.blob('d1').blobInfo('attachment')
+    expect(info!.refCount).toBe(1) // solo — exclusively owned by d1
+    const eTag = info!.eTag
+
+    // Sibling tier-0 solo blob — must be untouched by d1's elevation.
+    await docs.putAtTier('d2', { id: 'd2', title: 'Memo', body: 'y' }, 0)
+    await docs.blob('d2').put('attachment', new TextEncoder().encode('sibling attachment bytes'))
+    const siblingETag = (await docs.blob('d2').blobInfo('attachment'))!.eTag
+
+    const chunkBefore = await store.get('v1', BLOB_CHUNKS_COLLECTION, `${eTag}_0`)
+
+    await docs.elevate('d1', 1)
+
+    // Raw at-rest inspection: the BlobObject index envelope's own wrapper
+    // key is untouched (still the flat tier-0 `_blob` DEK) — only the
+    // wrapped content CEK carried inside it moved.
+    const env = await store.get('v1', BLOB_INDEX_COLLECTION, eTag)
+    expect(env).not.toBeNull()
+    const blob = JSON.parse(await openEnvelopeJson(env!, tier0BlobDEK)) as { _cek?: string; refCount: number }
+    expect(blob._cek).toBeDefined()
+
+    // AT-REST GUARANTEE: no longer unwrappable under tier-0…
+    await expect(unwrapCek(blob._cek!, tier0BlobDEK)).rejects.toThrow()
+    // …but is under tier-1.
+    await expect(unwrapCek(blob._cek!, tier1BlobDEK)).resolves.toBeDefined()
+
+    // Chunks are byte-identical — the content CEK itself is unchanged, only
+    // its wrapper moved. No chunk re-encryption.
+    const chunkAfter = await store.get('v1', BLOB_CHUNKS_COLLECTION, `${eTag}_0`)
+    expect(chunkAfter).toEqual(chunkBefore)
+
+    // Sibling tier-0 blob is unaffected.
+    const siblingEnv = await store.get('v1', BLOB_INDEX_COLLECTION, siblingETag)
+    const siblingBlob = JSON.parse(await openEnvelopeJson(siblingEnv!, tier0BlobDEK)) as { _cek?: string }
+    await expect(unwrapCek(siblingBlob._cek!, tier0BlobDEK)).resolves.toBeDefined()
+  })
+
+  it('putAtTier(>0) over a blob-owning record rewraps its solo blob CEK', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+    const getDEK = (vault as unknown as { getDEK(name: string): Promise<EnclaveKey> }).getDEK
+    const tier0BlobDEK = await getDEK(dekKey('_blob', 0))
+    const tier1BlobDEK = await getDEK(dekKey('_blob', 1))
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
+    await docs.blob('d1').put('attachment', new TextEncoder().encode('sensitive bytes'))
+    const eTag = (await docs.blob('d1').blobInfo('attachment'))!.eTag
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x2' }, 1)
+
+    const env = await store.get('v1', BLOB_INDEX_COLLECTION, eTag)
+    const blob = JSON.parse(await openEnvelopeJson(env!, tier0BlobDEK)) as { _cek?: string }
+    await expect(unwrapCek(blob._cek!, tier0BlobDEK)).rejects.toThrow()
+    await expect(unwrapCek(blob._cek!, tier1BlobDEK)).resolves.toBeDefined()
+  })
+
+  it('a tiered collection with NO blobFields — syncBlobs is a fast no-op', async () => {
+    // No blobStrategy passed — the default NO_BLOBS stub throws if
+    // `.blob(id)` is ever reached. hasBlobFields being false must keep
+    // syncBlobs from calling it at all.
+    const db = await createNoydb({
+      store: memoryStore(), secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1] })
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
+    await expect(docs.elevate('d1', 1)).resolves.toBeUndefined()
+    // Ordinary elevated-record behavior, unaffected by the no-op.
+    await expect(docs.get('d1')).resolves.toBeNull()
   })
 })
