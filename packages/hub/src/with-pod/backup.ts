@@ -109,6 +109,12 @@ export async function dumpVault(ctx: BackupContext): Promise<string> {
     LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION, SCHEMAS_COLLECTION, SEQUENCE_COLLECTION,
     '_history', // full-snapshot version history — so history()/getVersion()/diff() survive the bundle
     '_blob_index', '_blob_chunks', '_blob_eviction_audit',
+    // #753 spec §7 Q3: `_blob_intent` markers travel too — restoring mid-op
+    // state (a blob row without its marker) would reproduce the ambiguity
+    // the journal exists to prevent. Note: `_mv_stale` does NOT travel
+    // today (a pre-existing, separate gap) — observed here, tracked on
+    // #761, not fixed in this pass.
+    '_blob_intent',
     ...Object.keys(snapshot).flatMap((c) => [`_blob_slots_${c}`, `_blob_versions_${c}`]),
   ]
   for (const internalName of internalNames) {

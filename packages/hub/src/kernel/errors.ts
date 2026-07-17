@@ -774,6 +774,57 @@ export class UnsupportedTierCompositionError extends NoydbError {
 }
 
 /**
+ * Thrown by `createIntent` (blob durability journal, #753 spec §7 C8) when a
+ * `_blob_intent` marker already exists for `{collection}::{recordId}` — the
+ * CAS create-if-absent (`expectedVersion: 0`) lost to a present row. A
+ * present marker means a shred or rehome is already in flight for this
+ * record and MUST be resumed before any new intent is minted (overwriting it
+ * would orphan the prior op's op-stamps — spec C8). Callers catch this and
+ * resume the pending marker first, then retry.
+ */
+export class BlobIntentPendingError extends NoydbError {
+  readonly collection: string
+  readonly recordId: string
+  constructor(collection: string, recordId: string) {
+    super(
+      'BLOB_INTENT_PENDING',
+      `A blob durability marker is already pending for "${collection}::${recordId}" — ` +
+        `resume it before starting a new shred/rehome.`,
+    )
+    this.name = 'BlobIntentPendingError'
+    this.collection = collection
+    this.recordId = recordId
+  }
+}
+
+/**
+ * Thrown when a refCount/slot mutator — or `shredAllForRecord`'s own
+ * entry check — encounters a pending `op:'rehome'` `_blob_intent` marker
+ * (#753 blob durability journal, spec §7 C6/Q1). PR-1 (#753) wires resume
+ * ONLY for `op:'shred'` markers; rehome resume (stamped increments,
+ * per-step tier-tolerant re-run) is PR-2 scope (#746, spec "Implementation
+ * ordering"). A stranded rehome marker must not be silently ignored
+ * (ambiguous half-moved refCounts) nor guessed at — this is the deliberate
+ * PR-1/PR-2 seam: every write path refuses cleanly until PR-2 ships rehome
+ * resume.
+ */
+export class BlobRehomeResumeNotImplementedError extends NoydbError {
+  readonly collection: string
+  readonly recordId: string
+  constructor(collection: string, recordId: string) {
+    super(
+      'BLOB_REHOME_RESUME_NOT_IMPLEMENTED',
+      `A pending blob rehome marker exists for "${collection}::${recordId}" — resuming an ` +
+        `interrupted rehome is not yet implemented (lands in PR-2 of the #753 blob durability ` +
+        `journal). This write refuses rather than proceeding over an ambiguous half-moved state.`,
+    )
+    this.name = 'BlobRehomeResumeNotImplementedError'
+    this.collection = collection
+    this.recordId = recordId
+  }
+}
+
+/**
  * Thrown when an elevated-handle operation runs after the elevation's
  * TTL expired. Reads continue at the original tier; only writes
  * through the scoped handle flip to throwing once expired.
