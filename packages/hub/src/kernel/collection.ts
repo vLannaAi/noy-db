@@ -89,7 +89,7 @@ import { generateULID } from '../with-pod/ulid.js'
 import type { PresenceHandle, PresenceHandleOpts } from '../with-party/team/presence.js'
 import type { SyncStrategy } from '../with-party/team/sync-strategy.js'
 import type { BlobSet } from '../with-shape/blobs/blob-set.js'
-import type { BlobStrategy } from '../port/with/blob-strategy.js'
+import { NO_BLOBS, type BlobStrategy } from '../port/with/blob-strategy.js'
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { BlobFieldsConfig } from '../with-shape/blobs/blob-compaction.js'
 import type { AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
@@ -230,7 +230,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   private readonly blobStrategy: BlobStrategy
   private readonly objectStore: ObjectProjection | undefined
-  private readonly blobFields: BlobFieldsConfig | undefined; private readonly hasBlobFields: boolean; private readonly blobTierPolicy: 'isolate' | 'dedup' // #724 T2/T3
+  private readonly blobFields: BlobFieldsConfig | undefined; private readonly blobTierPolicy: 'isolate' | 'dedup' // #724 T2/T3
   private readonly aggregateStrategy: AggregateStrategy; private readonly crdtStrategy: CrdtStrategy
   private readonly tiersStrategy: TiersStrategy
   private readonly searchStrategy: SearchStrategy
@@ -650,7 +650,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.activeTxId = cfg.activeTxId
     this.blobStrategy = cfg.blobStrategy
     this.objectStore = cfg.objectStore
-    this.blobFields = cfg.blobFields; this.hasBlobFields = cfg.blobFields !== undefined && Object.keys(cfg.blobFields).length > 0; this.blobTierPolicy = cfg.blobTierPolicy ?? 'isolate'
+    this.blobFields = cfg.blobFields; this.blobTierPolicy = cfg.blobTierPolicy ?? 'isolate'
     this.aggregateStrategy = cfg.aggregateStrategy
     this.crdtStrategy = cfg.crdtStrategy
     this.tiersStrategy = cfg.tiersStrategy
@@ -4510,7 +4510,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       syncIndexes: (id: string, rec: T | null, version?: number) => syncTierIndexesImpl(this.indexingContext(), id, rec, version),
       syncSearch: (id: string, rec: T | null, version?: number) => syncTierSearchImpl(this.searchContext(), id, rec, version),
       syncHistory: async (id: string, fromDek: EnclaveKey, toDek: EnclaveKey) => this.historyStrategy.rewrapHistory(this.adapter, this.vault, this.name, id, fromDek, toDek, await this.getDEK(this.name)),
-      syncBlobs: (id: string, fromTier: number, toTier: number) => this.hasBlobFields ? this.blob(id).rehomeForTier(fromTier, toTier, this.blobTierPolicy) : Promise.resolve(),
+      syncBlobs: (id: string, fromTier: number, toTier: number) => this.blobStrategy !== NO_BLOBS ? this.blob(id).rehomeForTier(fromTier, toTier, this.blobTierPolicy) : Promise.resolve(), // #724 I1: gate on blob storage enabled (not on declared blobFields) so undeclared-field blobs still rehome; rehomeForTier self-no-ops on an empty slot map
       syncLedger: async (id: string) => { await this.ledger?.purgeRecordDeltas(this.name, id) },
       syncDerived: (id: string, record: T | null, elevated: boolean, version?: number) => syncDerivedOutputs(this, id, record, elevated, version),
       hasDerivedOutputs: this.materializedViewSource !== undefined || this.derivationSource !== undefined,

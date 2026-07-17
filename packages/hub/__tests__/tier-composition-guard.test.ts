@@ -106,7 +106,7 @@ describe('tier + blobFields composition (Arc-7 refusal removed — #724)', () =>
       tiersStrategy: withTiers(), blobStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
-    const docs = vault.collection<Doc>('docs', { tiers: [0, 1], blobFields: { receipt: {} } })
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true, blobFields: { receipt: {} } })
 
     await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
     const bytes = new TextEncoder().encode('unelevated attachment bytes')

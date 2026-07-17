@@ -4,7 +4,7 @@
  * owning record's _tier before returning bytes, exactly as get() does.
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb, ConflictError, dekKey } from '../src/index.js'
+import { createNoydb, ConflictError, dekKey, UnsupportedTierCompositionError } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withBlobs } from '../src/via/blob/index.js'
 import { withForgetCascade } from '../src/with-audit/forget/index.js'
@@ -910,5 +910,72 @@ describe('#724 forget of elevated blob-owner (C3)', () => {
     expect(result.blobsShredded).toBe(1)
     expect(await store.get('v1', BLOB_INDEX_COLLECTION, eTag)).toBeNull()
     expect(await store.list('v1', BLOB_CHUNKS_COLLECTION)).toEqual([])
+  })
+})
+
+describe('#724 composition enforcement (I1)', () => {
+  it('a tiered collection declaring blobFields WITHOUT perRecordKeys throws at construction — legacy blobs cannot be tier-isolated', async () => {
+    const db = await createNoydb({
+      store: memoryStore(), secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    expect(() => vault.collection<Doc>('docs', {
+      tiers: [0, 1], blobFields: { attachment: {} },
+    })).toThrow(UnsupportedTierCompositionError)
+    expect(() => vault.collection<Doc>('docs2', {
+      tiers: [0, 1], blobFields: { attachment: {} },
+    })).toThrow(/perRecordKeys/)
+  })
+
+  it('a tiered collection with NO declared blobFields still constructs fine (do not over-refuse)', async () => {
+    const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner', tiersStrategy: withTiers() })
+    const vault = await db.openVault('v1')
+    expect(() => vault.collection<Doc>('docs', { tiers: [0, 1] })).not.toThrow()
+  })
+
+  it('a tiered collection with blobFields AND perRecordKeys constructs fine', async () => {
+    const db = await createNoydb({
+      store: memoryStore(), secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    expect(() => vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })).not.toThrow()
+  })
+
+  it('a blob written without a declared blobFields still rehomes to the tier DEK on elevate (hasBlobFields gate dropped)', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    // No `blobFields` declared — the original #724 repro shape (blobs written
+    // via blob(id).put() without declaring the field).
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    const getDEK = (vault as unknown as { getDEK(name: string): Promise<EnclaveKey> }).getDEK
+    const tier0BlobDEK = await getDEK(dekKey('_blob', 0))
+    const tier1BlobDEK = await getDEK(dekKey('_blob', 1))
+    const collDEK1 = await getDEK(dekKey('docs', 1))
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
+    await docs.blob('d1').put('slot', new TextEncoder().encode('undeclared-field attachment bytes'))
+
+    await docs.elevate('d1', 1)
+
+    const slotsEnv = await store.get('v1', '_blob_slots_docs', 'd1')
+    const slots = JSON.parse(await openEnvelopeJson(slotsEnv!, collDEK1)) as Record<string, { eTag: string }>
+    const newETag = slots.slot!.eTag
+
+    const env = await store.get('v1', BLOB_INDEX_COLLECTION, newETag)
+    expect(env).not.toBeNull()
+    const blob = JSON.parse(await openEnvelopeJson(env!, tier0BlobDEK)) as { _cek?: string }
+    expect(blob._cek).toBeDefined()
+
+    // AT-REST GUARANTEE: not unwrappable under tier-0 anymore, only tier-1.
+    await expect(unwrapCek(blob._cek!, tier0BlobDEK)).rejects.toThrow()
+    await expect(unwrapCek(blob._cek!, tier1BlobDEK)).resolves.toBeDefined()
   })
 })

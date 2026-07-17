@@ -64,7 +64,7 @@ import {
   resolveClassifiedFields, guardClassifiedCompat, NO_CLASSIFIED,
   type ClassifiedEntry, type ResolvedClassified, type ClassifiedGuardCtx, type ClassifiedStrategy, type ClassifiedViaConfig,
 } from '../port/with/classified-strategy.js'
-import { ClassifiedConfigError, ValidationError } from './errors.js'
+import { ClassifiedConfigError, ValidationError, UnsupportedTierCompositionError } from './errors.js'
 import type { FieldRef, Grain } from './via/graph.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
@@ -917,6 +917,19 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
   if (opts.embeddings && opts.crdt) {
     throw new Error(
       `Collection "${opts.name}": embeddings are not supported on CRDT collections (L2). Use a non-CRDT collection for semantic search.`,
+    )
+  }
+
+  // #724 I1 — a tiered collection that declares blobFields must opt into
+  // perRecordKeys: legacy (non-perRecordKeys) blobs have no per-blob `_cek`,
+  // so `rehomeForTier` cannot rewrap/re-put them under a tier DEK on
+  // elevate/demote — they would stay tier-0-decryptable at rest. Refuse
+  // loudly at construction instead of leaking silently.
+  if (opts.tiers && opts.tiers.length > 0 && opts.blobFields !== undefined && Object.keys(opts.blobFields).length > 0 && opts.perRecordKeys !== true) {
+    throw new UnsupportedTierCompositionError(
+      'blobs',
+      `Collection "${opts.name}": tiered collections that declare blobFields require \`perRecordKeys: true\` — ` +
+        `legacy (non-perRecordKeys) blobs have no per-blob content CEK and cannot be tier-isolated on elevate/demote.`,
     )
   }
 
