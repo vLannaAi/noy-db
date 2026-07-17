@@ -1307,7 +1307,7 @@ describe('#747 BlobObject index envelope follows the eTag tier DEK', () => {
 
     // I1 positive lock (whole-branch review): a cleared clone's read of
     // this LEGITIMATE flat-fallback case (dedup-shared, never rehomed)
-    // must still round-trip — the #757 content-address re-verification on
+    // must still round-trip — the #747/#749-review-I1 content-address re-verification on
     // a flat fallback is a no-op for honest data, only a forged row trips it.
     const clearedB = await docs.blob('b').atTier()
     const bBytes = await clearedB.get('attachment')
@@ -1513,7 +1513,7 @@ describe('#749 blob(id).atTier() — sanctioned cleared-read path', () => {
   })
 })
 
-describe('#757 whole-branch review (I1): fallback content substitution is caught by content-address re-verification', () => {
+describe('#747/#749 whole-branch review (I1): fallback content substitution is caught by content-address re-verification', () => {
   it('a forged flat _blob_index/{eTag} row planted at an elevated blob\'s own address does NOT silently substitute content on a cleared higher-tier read — TamperedError, not attacker bytes', async () => {
     const store = memoryStore()
     const db = await createNoydb({
@@ -1555,7 +1555,7 @@ describe('#757 whole-branch review (I1): fallback content substitution is caught
     // tier-1-keyed — TamperedError, correctly scoped through by M1) and
     // falls through to the flat retry, which decrypts CLEANLY (it IS a
     // legitimately flat-encrypted row, just planted at the wrong address).
-    // Pre-#757-fix this returns the attacker's bytes silently as the
+    // Pre-I1-fix (#747/#749 review) this returns the attacker's bytes silently as the
     // elevated record's content. Post-fix, the recomputed content address
     // doesn't match `victimETag` (it hashes to `attackerETag` instead) —
     // TamperedError.

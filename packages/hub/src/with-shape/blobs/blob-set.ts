@@ -1225,7 +1225,7 @@ export class BlobSet {
   // ─── Fetch all chunks for a blob ──────────────────────────────────
 
   /**
-   * #757 I1 (whole-branch review): when `loadBlobObject`'s tier-scoped open
+   * #747/#749 whole-branch review I1: when `loadBlobObject`'s tier-scoped open
    * fell through to the flat retry while a CLEARED higher-tier view (#749)
    * was reading (`this.clearedTier > 0`, `result.atTier === 0`), the
    * `_blob_index` row that "won" the read is not necessarily the one this
@@ -1282,7 +1282,7 @@ export class BlobSet {
         throw new TamperedError(
           `Blob content for eTag "${verifyFlatETag}" failed content-address verification after a ` +
             'flat-tier fallback open — the _blob_index/_blob_chunks rows do not match the requested ' +
-            'content address (#757 I1)',
+            'content address (#747/#749 review I1)',
         )
       }
     }
@@ -1291,7 +1291,7 @@ export class BlobSet {
   }
 
   /**
-   * #757 I1: the eTag to pass as `fetchAllChunks`'s `verifyFlatETag` — set
+   * #747/#749 review I1: the eTag to pass as `fetchAllChunks`'s `verifyFlatETag` — set
    * only when `loadBlobObject` fell through to the flat retry
    * (`resolvedAtTier === 0`) on a CLEARED higher-tier view
    * (`this.clearedTier > 0`). Every ordinary (non-cleared) call reaching
