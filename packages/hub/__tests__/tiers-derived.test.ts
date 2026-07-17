@@ -536,3 +536,147 @@ describe('#722 review fix: syncDerived pre-move decode is gated by hasDerivedOut
     expect((await buyers.get('b1'))?.totalSpent).toBe(0)
   })
 })
+
+/**
+ * Whole-branch review (Arc 9, #722): the pre-move decode the three tier ops
+ * added to feed `syncDerived`'s remove path (`ctx.codec.decryptRecord(...,
+ * { sealedAsHandles: true })`) is TIER-UNAWARE — it resolves the CEK via the
+ * cekCache or falls back to `ctx.codec`'s DEFAULT (tier-0/collection) DEK,
+ * never `envelope._tier`. That only "works" when the SAME op's own
+ * `rewrapBodyToDek` call already primed the cekCache with THIS record's CEK
+ * (the ordinary put()-then-elevate(0→1) shape every existing test uses). A
+ * `putAtTier`-origin record (body encrypted directly under its tier DEK, no
+ * `_cek` ever minted) or a non-`perRecordKeys` collection has nothing to
+ * prime the cache with, and a from-tier>0 read throws `TamperedError`
+ * instead of a `TierNotGrantedError`/similar expected failure — a CRITICAL
+ * regression: the throw lands AFTER `adapter.put`, so the tier move itself
+ * already landed (half-applied op).
+ */
+describe('#722 whole-branch review: pre-move decode must be tier-aware (not just cekCache-primed)', () => {
+  it('putAtTier-origin record: elevate() from a from-tier>0 read does not throw (no _cek was ever minted to prime the cache)', async () => {
+    interface Buyer extends Record<string, unknown> { id: string; companyName: string; totalSpent?: number }
+    interface Sale extends Record<string, unknown> { id: string; buyerId: string; total: number }
+    const totalSpentRollup = withRollup<Sale, Buyer>({
+      from: 'sales', key: 'buyerId', into: 'buyers', field: 'totalSpent',
+      compute: (sales) => sales.reduce((t, s) => t + s.total, 0),
+    })
+    const db = await createNoydb({
+      store: memoryStore(),
+      user: 'owner',
+      secret: 'tiers-review-putattier-elevate-passphrase-2026',
+      tiersStrategy: withTiers(),
+      derivationStrategies: [totalSpentRollup],
+    })
+    const vault = await db.openVault('firm')
+    const buyers = vault.collection<Buyer>('buyers')
+    const sales = vault.collection<Sale>('sales', { tiers: [0, 1, 2], perRecordKeys: true })
+
+    await buyers.put('b1', { id: 'b1', companyName: 'Acme' })
+    await sales.put('s2', { id: 's2', buyerId: 'b1', total: 200 })
+    // s1 is born directly at tier 1 — putAtTier mints no `_cek`, so nothing
+    // primes the cekCache for the elevate() below.
+    await sales.putAtTier('s1', { id: 's1', buyerId: 'b1', total: 100 }, 1)
+    expect((await buyers.get('b1'))?.totalSpent).toBe(200) // s1 never contributed (born above tier 0)
+
+    await expect(sales.elevate('s1', 2)).resolves.toBeUndefined()
+
+    // s1 stays excluded — no crash, no double-count, no corruption of the
+    // sibling's contribution.
+    expect((await buyers.get('b1'))?.totalSpent).toBe(200)
+  })
+
+  it('non-perRecordKeys collection: elevate() from a from-tier>0 read does not throw (no `_cek` exists at all)', async () => {
+    interface Buyer extends Record<string, unknown> { id: string; companyName: string; totalSpent?: number }
+    interface Sale extends Record<string, unknown> { id: string; buyerId: string; total: number }
+    const totalSpentRollup = withRollup<Sale, Buyer>({
+      from: 'sales', key: 'buyerId', into: 'buyers', field: 'totalSpent',
+      compute: (sales) => sales.reduce((t, s) => t + s.total, 0),
+    })
+    const db = await createNoydb({
+      store: memoryStore(),
+      user: 'owner',
+      secret: 'tiers-review-nonperrecord-elevate-passphrase-2026',
+      tiersStrategy: withTiers(),
+      derivationStrategies: [totalSpentRollup],
+    })
+    const vault = await db.openVault('firm')
+    const buyers = vault.collection<Buyer>('buyers')
+    // NON-perRecordKeys: body always decrypts directly under the tier DEK,
+    // never a per-record CEK.
+    const sales = vault.collection<Sale>('sales', { tiers: [0, 1, 2] })
+
+    await buyers.put('b1', { id: 'b1', companyName: 'Acme' })
+    await sales.put('s2', { id: 's2', buyerId: 'b1', total: 200 })
+    await sales.putAtTier('s1', { id: 's1', buyerId: 'b1', total: 100 }, 1)
+    expect((await buyers.get('b1'))?.totalSpent).toBe(200)
+
+    await expect(sales.elevate('s1', 2)).resolves.toBeUndefined()
+
+    expect((await buyers.get('b1'))?.totalSpent).toBe(200)
+  })
+
+  it('putAtTier over an existing tier-1 record does not throw', async () => {
+    interface Buyer extends Record<string, unknown> { id: string; companyName: string; totalSpent?: number }
+    interface Sale extends Record<string, unknown> { id: string; buyerId: string; total: number }
+    const totalSpentRollup = withRollup<Sale, Buyer>({
+      from: 'sales', key: 'buyerId', into: 'buyers', field: 'totalSpent',
+      compute: (sales) => sales.reduce((t, s) => t + s.total, 0),
+    })
+    const db = await createNoydb({
+      store: memoryStore(),
+      user: 'owner',
+      secret: 'tiers-review-putattier-over-existing-passphrase-2026',
+      tiersStrategy: withTiers(),
+      derivationStrategies: [totalSpentRollup],
+    })
+    const vault = await db.openVault('firm')
+    const buyers = vault.collection<Buyer>('buyers')
+    const sales = vault.collection<Sale>('sales', { tiers: [0, 1, 2], perRecordKeys: true })
+
+    await buyers.put('b1', { id: 'b1', companyName: 'Acme' })
+    await sales.put('s2', { id: 's2', buyerId: 'b1', total: 200 })
+    // Establish s1 at tier 1 directly (no `_cek`).
+    await sales.putAtTier('s1', { id: 's1', buyerId: 'b1', total: 100 }, 1)
+    expect((await buyers.get('b1'))?.totalSpent).toBe(200)
+
+    // putAtTier's OWN pre-write decode of the pre-existing tier-1 envelope
+    // is the buggy site under test here.
+    await expect(sales.putAtTier('s1', { id: 's1', buyerId: 'b1', total: 150 }, 2)).resolves.toBeUndefined()
+
+    expect((await buyers.get('b1'))?.totalSpent).toBe(200)
+  })
+
+  it('demote() to an intermediate tier > 0 does not throw', async () => {
+    interface Buyer extends Record<string, unknown> { id: string; companyName: string; totalSpent?: number }
+    interface Sale extends Record<string, unknown> { id: string; buyerId: string; total: number }
+    const totalSpentRollup = withRollup<Sale, Buyer>({
+      from: 'sales', key: 'buyerId', into: 'buyers', field: 'totalSpent',
+      compute: (sales) => sales.reduce((t, s) => t + s.total, 0),
+    })
+    const db = await createNoydb({
+      store: memoryStore(),
+      user: 'owner',
+      secret: 'tiers-review-demote-intermediate-passphrase-2026',
+      tiersStrategy: withTiers(),
+      derivationStrategies: [totalSpentRollup],
+    })
+    const vault = await db.openVault('firm')
+    const buyers = vault.collection<Buyer>('buyers')
+    // NON-perRecordKeys, so the record's body carries no `_cek` at any tier.
+    const sales = vault.collection<Sale>('sales', { tiers: [0, 1, 2] })
+
+    await buyers.put('b1', { id: 'b1', companyName: 'Acme' })
+    await sales.put('s2', { id: 's2', buyerId: 'b1', total: 200 })
+    // Born directly at tier 2 (first write — no pre-write decode needed here).
+    await sales.putAtTier('s1', { id: 's1', buyerId: 'b1', total: 100 }, 2)
+    expect((await buyers.get('b1'))?.totalSpent).toBe(200)
+
+    // demote() to an INTERMEDIATE tier (still > 0) is the buggy site: it
+    // must decrypt the fromTier(=2) envelope, not the collection's
+    // default (tier-0) DEK.
+    await expect(sales.demote('s1', 1)).resolves.toBeUndefined()
+
+    // s1 stays elevated (tier 1 > 0) — still excluded from the rollup.
+    expect((await buyers.get('b1'))?.totalSpent).toBe(200)
+  })
+})

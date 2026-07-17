@@ -322,8 +322,19 @@ export async function putAtTier<T>(
     // — same law as elevate() below. `existing` is the PRE-write envelope;
     // decode it only here (the rollup edge is the only consumer). Gated by
     // `hasDerivedOutputs` — no-derivation collections skip this decrypt
-    // entirely (perf regression review finding, Arc 9 #722).
-    await ctx.syncDerived(id, ctx.hasDerivedOutputs && existing ? await ctx.codec.decryptRecord(existing, { id, sealedAsHandles: true }) : null, true)
+    // entirely (perf regression review finding, Arc 9 #722). Whole-branch
+    // review: `existing` may sit at ANY prior tier (including a
+    // `putAtTier`-origin tier>0 record with no `_cek` ever minted) — decode
+    // it under ITS OWN tier's DEK via `codec.decryptRecordAtDek`, not
+    // `ctx.codec.decryptRecord`'s tier-unaware default, which threw
+    // `TamperedError` here.
+    await ctx.syncDerived(
+      id,
+      ctx.hasDerivedOutputs && existing
+        ? await ctx.codec.decryptRecordAtDek(existing, await ctx.getDEK(dekKey(ctx.name, existing._tier ?? 0)), id)
+        : null,
+      true,
+    )
   } else {
     const rec = await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
     await ctx.syncIndexes(id, rec, envelope._v)
@@ -532,8 +543,12 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   // (captured before the rewrap), decoded only here (the rollup edge is the
   // only consumer of the record content). Gated by `hasDerivedOutputs` — no-
   // derivation collections skip this decrypt entirely (perf regression
-  // review finding, Arc 9 #722).
-  await ctx.syncDerived(id, ctx.hasDerivedOutputs ? await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true }) : null, true)
+  // review finding, Arc 9 #722). Whole-branch review: decode under `fromDek`
+  // via `codec.decryptRecordAtDek` — `fromTier` may be > 0 here (a prior
+  // elevate), and `ctx.codec.decryptRecord`'s tier-unaware CEK resolution
+  // threw `TamperedError` whenever this op's own rewrap hadn't just primed
+  // the cekCache (non-`perRecordKeys` collections; `_cek`-absent bodies).
+  await ctx.syncDerived(id, ctx.hasDerivedOutputs ? await ctx.codec.decryptRecordAtDek(envelope, fromDek, id) : null, true)
 
   ctx.emitCrossTierEvent({
     actor: ctx.keyring.userId,
@@ -638,7 +653,13 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
     // entry; decoded only here (the rollup edge is the only consumer).
     // Gated by `hasDerivedOutputs` — no-derivation collections skip this
     // decrypt entirely (perf regression review finding, Arc 9 #722).
-    await ctx.syncDerived(id, ctx.hasDerivedOutputs ? await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true }) : null, true)
+    // Whole-branch review: decode under `fromDek` via
+    // `codec.decryptRecordAtDek` — this branch's `fromTier` is always > 0 (a
+    // demote FROM tier `fromTier` TO an intermediate `toTier` > 0), so
+    // `ctx.codec.decryptRecord`'s tier-unaware CEK resolution threw
+    // `TamperedError` here exactly as it did in elevate() above
+    // (code-identical bug, same fix).
+    await ctx.syncDerived(id, ctx.hasDerivedOutputs ? await ctx.codec.decryptRecordAtDek(envelope, fromDek, id) : null, true)
   }
 
   ctx.emitCrossTierEvent({
