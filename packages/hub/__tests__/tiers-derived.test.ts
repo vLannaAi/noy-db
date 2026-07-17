@@ -474,11 +474,11 @@ describe('#722 review fix: syncDerived pre-move decode is gated by hasDerivedOut
     interface Buyer extends Record<string, unknown> { id: string; companyName: string; totalSpent?: number }
     interface Sale extends Record<string, unknown> { id: string; buyerId: string; total: number }
 
-    // `hasDerivedOutputs` is computed per-collection from the VAULT's
-    // derivation/MV registry presence (`this.derivationSource !==
-    // undefined || this.materializedViewSource !== undefined` —
-    // `tiersContext()`), not from whether this specific collection is a
-    // registered source — so the two elevates must run against two
+    // `hasDerivedOutputs` is computed per-collection from whether THIS
+    // collection is itself a registered source (`registry.strategiesForSource(this.name)`
+    // / `registry.mvsForSource(this.name)`, #737 — source-grained, was
+    // vault-grained), not from whether the vault has any derivation/MV
+    // registry configured at all — so the two elevates must run against two
     // SEPARATE vaults (one with no derivation strategy configured at all,
     // one with) to observe the gate.
     const plainDb = await createNoydb({
@@ -678,5 +678,75 @@ describe('#722 whole-branch review: pre-move decode must be tier-aware (not just
 
     // s1 stays elevated (tier 1 > 0) — still excluded from the rollup.
     expect((await buyers.get('b1'))?.totalSpent).toBe(200)
+  })
+})
+
+/**
+ * #737 — `hasDerivedOutputs` (`with-audit/tiers/index.ts`'s `TiersContext`
+ * field, bound in `collection.ts`'s `tiersContext()`) was VAULT-grained
+ * (`materializedViewSource !== undefined || derivationSource !== undefined`):
+ * a tiered collection with NO derivations of its OWN still paid the pre-move
+ * decode on every tier op whenever ANY derivation existed anywhere in the
+ * vault. Fixed to be SOURCE-grained: gate on whether THIS collection is a
+ * registered MV source (`registry.mvsForSource(this.name)`) or derivation
+ * source (`registry.strategiesForSource(this.name)`).
+ *
+ * Observable: `putAtTier(id, record, tier>0)`'s pre-write `existing`-decode
+ * is the one site where the gated decode is decoupled from an unconditional
+ * decrypt of the SAME ciphertext elsewhere in the op — the write re-encrypts
+ * the CALLER-supplied plaintext `record`, never `existing`'s stored body, so
+ * `existing` is decoded ONLY to feed `syncDerived`, exactly when
+ * `hasDerivedOutputs` says to. (`elevate()`/`demote()` can't be used for
+ * this: their OWN body rewrap — `rewrapBodyToDek` — unconditionally decrypts
+ * the very same pre-move ciphertext the gated decode would, so a corrupted
+ * body throws `TamperedError` from the rewrap regardless of the gate — see
+ * the "Both elevates perform the identical body rewrap" comment above.)
+ * Corrupting `existing`'s stored `_data` therefore isolates the gate: with
+ * today's vault-grained gate, a derivation-free collection A still decodes
+ * (because SOME OTHER collection in the vault has a derivation) and throws;
+ * source-grained, A has no registered derivation of its own and skips the
+ * decode entirely, so the corrupted body never gets read.
+ */
+describe('#737 hasDerivedOutputs is source-grained', () => {
+  it('putAtTier(tier>0) on a derivation-free collection succeeds even when its stored body is corrupted, despite another collection in the same vault having a derivation', async () => {
+    interface Buyer extends Record<string, unknown> { id: string; companyName: string; totalSpent?: number }
+    interface Sale extends Record<string, unknown> { id: string; buyerId: string; total: number }
+    interface Doc extends Record<string, unknown> { id: string; title: string }
+    const totalSpentRollup = withRollup<Sale, Buyer>({
+      from: 'sales', key: 'buyerId', into: 'buyers', field: 'totalSpent',
+      compute: (sales) => sales.reduce((t, s) => t + s.total, 0),
+    })
+    const store = memoryStore()
+    const db = await createNoydb({
+      store,
+      user: 'owner',
+      secret: 'source-grained-derived-outputs-passphrase-2026',
+      tiersStrategy: withTiers(),
+      // The rollup's `spec.source` (parent) is 'buyers' and its
+      // `spec.rollup.from` (child/trigger) is 'sales' — 'docs' below is
+      // neither, nor an extra source, nor a trigger, so it is NOT a
+      // registered derivation source. Under the old vault-grained gate,
+      // `docs` still paid the pre-move decode solely because THIS vault has
+      // a derivation registered (on a different collection).
+      derivationStrategies: [totalSpentRollup],
+    })
+    const vault = await db.openVault('demo')
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+
+    await docs.put('d1', { id: 'd1', title: 'Public' })
+
+    // Corrupt the STORED envelope's ciphertext body — any decode of it
+    // throws `TamperedError`. `putAtTier`'s write re-encrypts the fresh
+    // plaintext argument below, never this stored body — the corruption is
+    // only reachable through the gated `existing`-decode.
+    const stored = await store.get('demo', 'docs', 'd1')
+    expect(stored).not.toBeNull()
+    const goodChar = stored!._data[0]
+    const badChar = goodChar === 'A' ? 'B' : 'A'
+    await store.put('demo', 'docs', 'd1', { ...stored!, _data: badChar + stored!._data.slice(1) })
+
+    // GREEN: source-grained — `docs` has no derivation of its own, so the
+    // gated decode is skipped and the corrupted body is never read.
+    await expect(docs.putAtTier('d1', { id: 'd1', title: 'Renamed' }, 1)).resolves.toBeUndefined()
   })
 })

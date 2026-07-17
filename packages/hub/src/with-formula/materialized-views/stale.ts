@@ -1,12 +1,14 @@
 import type { Collection } from '../../kernel/collection.js'
 import type { TxContext } from '../../with-commit/tx/transaction.js'
 import type { PutDerivedOutputCtx } from '../../kernel/via/dispatch.js'
-import type { MaterializedViewRegistry } from './registry.js'
+import type { MaterializedViewRegistry, RegisteredMV } from './registry.js'
 // Type-only — runtime class loaded via dynamic import in
 // `resolveStaleMVOnRead` only when a stale flag actually fires.
 // Keeps the executor chunk out of the floor bundle (mirrors v1 floor-bundle isolation).
 import type { MaterializedViewExecutor as MVExecutorType } from './executor.js'
 import type { MVQueryContext } from './types.js'
+import type { NoydbStore } from '../../kernel/types.js'
+import { RecordCodec } from '../../kernel/enclave/index.js'
 
 /**
  * Accessor shape passed in from the owning Vault. Provides the
@@ -63,6 +65,114 @@ export function isMVStale(registry: MaterializedViewRegistry, mvName: string): b
 }
 
 /**
+ * Reserved collection holding CONTENT-FREE lazy-stale markers (record id =
+ * MV name, plaintext `_iv: ''` envelope, no payload) — mirrors the
+ * `_meta`/schema-fence marker envelope shape. Written only from the
+ * delete/forget/elevate dispatcher (#736); ordinary source writes stay
+ * in-memory-only (the cheap path). Read via the adapter directly, never
+ * through `vault.collection()` — same reserved-collection convention as
+ * `_subject_index`/`_meta`.
+ */
+export const MV_STALE_COLLECTION = '_mv_stale'
+
+/**
+ * Once-per-registry hydrate guard for `resolveStaleMVOnRead`'s persisted-marker fold-in.
+ * Stores the in-flight/settled PROMISE (not a boolean) — a concurrent cold first read that
+ * arrives while the hydrate is still awaiting `adapter.list` must await the SAME promise
+ * rather than observing "already hydrating" and reading an empty pending set (#736
+ * whole-branch review).
+ */
+const _hydratedByRegistry = new WeakMap<MaterializedViewRegistry, Promise<void>>()
+
+/** The adapter + vault name backing any collection in this vault (all collections share both). */
+function storeOf(accessor: MVStaleAccessor, collectionName: string): { adapter: NoydbStore; vault: string } {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const c = accessor.getCollection(collectionName) as any
+  return { adapter: c.adapter as NoydbStore, vault: c.vault as string }
+}
+
+async function writeMVStaleMarker(adapter: NoydbStore, vault: string, mvName: string): Promise<void> {
+  // Content-free — the marker's only payload is its key (the MV name).
+  const env = RecordCodec.buildPlaintextEnvelope({ version: 1, data: '{}' })
+  await adapter.put(vault, MV_STALE_COLLECTION, mvName, env)
+}
+
+async function deleteMVStaleMarker(adapter: NoydbStore, vault: string, mvName: string): Promise<void> {
+  await adapter.delete(vault, MV_STALE_COLLECTION, mvName)
+}
+
+/**
+ * On first `resolveStaleMVOnRead` call for a (cold-reopened) registry, fold every
+ * persisted `_mv_stale` marker into the in-memory pending set — otherwise a cold
+ * session's empty `WeakMap` entry reads as "fresh" and serves the emptied output
+ * collection forever.
+ */
+async function hydratePersistedStaleMarkers(accessor: MVStaleAccessor, registry: MaterializedViewRegistry): Promise<void> {
+  const mvs = registry.all()
+  if (mvs.length === 0) return
+  const { adapter, vault } = storeOf(accessor, mvs[0]!.outputCollection)
+  // No try/catch: a genuine store failure here must surface, not be read as
+  // "nothing pending" — silently treating it as fresh is the exact leak class
+  // this module closes (mirrors `subject-index.ts`'s bare `adapter.list` reads).
+  for (const name of await adapter.list(vault, MV_STALE_COLLECTION)) markMVStale(registry, name)
+}
+
+/**
+ * Invalidate an MV from the delete/forget/elevate dispatcher (#736) — the ordinary
+ * source-write path (`dispatchMaterializedViews`) never calls this. Deletes EVERY
+ * persisted row in `reg.outputCollection` via `_internalDelete` (the at-rest law: a
+ * stale mark alone leaves the elevated/forgotten source's plaintext sitting in the
+ * output row) using the adapter directly so the read-path's `resolveStaleMVOnRead`
+ * isn't triggered mid-invalidation. `mode: 'lazy'` also persists the stale mark so a
+ * cold session recomputes on next read; `'manual'` gets the purge only — the MV
+ * serves empty until an explicit `vault.refreshView()` (erasure wins). Deletion is
+ * stamp-scoped (`_materializedFrom.mvName === reg.spec.name` — see the loop below),
+ * so another registered MV sharing this output collection keeps its own rows intact:
+ * no cross-MV re-marking is needed here, only `reg` itself is marked stale.
+ *
+ * @internal
+ */
+export async function invalidateMVAtRest(
+  accessor: MVStaleAccessor,
+  reg: RegisteredMV,
+  mode: 'lazy' | 'manual',
+): Promise<void> {
+  const outputColl = accessor.getCollection(reg.outputCollection)
+  const txCtx = accessor.getActiveTxContext()
+  const { adapter, vault } = storeOf(accessor, reg.outputCollection)
+  for (const id of await adapter.list(vault, reg.outputCollection)) {
+    // A same-collection partition MV (`output: { collection: <source>, partition }`,
+    // the DERIV-PP30-001 shape) writes INTO its own source collection — `adapter.list`
+    // over `reg.outputCollection` then also returns untouched user source records.
+    // Decode each candidate row (the invalidation path is rare; this cost is fine
+    // here) and only erase rows THIS MV stamped via `_materializedFrom.mvName` —
+    // an unstamped row, or one stamped by a different MV, is never this MV's to
+    // delete (#736 whole-branch review, Critical).
+    const envelope = await adapter.get(vault, reg.outputCollection, id)
+    if (envelope === null) continue
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const decoded = await (outputColl as any)._decodeEnvelope(envelope, id)
+    const stampedBy =
+      decoded !== null && typeof decoded === 'object'
+        ? (decoded as Record<string, unknown>)._materializedFrom as { mvName?: string } | undefined
+        : undefined
+    if (stampedBy?.mvName !== reg.spec.name) continue
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (outputColl as any)._internalDelete(id, txCtx)
+  }
+
+  // `mode: 'manual'` gets the purge only (erasure wins, no auto-recompute promise);
+  // `'lazy'` also marks + persists ITS OWN stale bit for cold-session recompute. No
+  // sibling MV on the same output collection is touched here — the stamp-scoped
+  // deletion above never erased sibling rows in the first place (#736 re-review).
+  if (mode === 'lazy') {
+    const registry = accessor.registry()
+    markMVStale(registry, reg.spec.name)
+    await writeMVStaleMarker(adapter, vault, reg.spec.name)
+  }
+}
+
+/**
  * Called from `Collection.get` (and any reader that materializes the
  * MV's output collection). If any MV producing `outputCollection` is
  * flagged stale, runs the executor against the live source state
@@ -87,8 +197,43 @@ export async function resolveStaleMVOnRead(
   dispatchCtx?: PutDerivedOutputCtx,
 ): Promise<void> {
   const registry = accessor.registry()
+  // Cold session: the in-memory WeakMap has no entry for this (freshly
+  // constructed) registry yet — fold any persisted `_mv_stale` markers in
+  // before reading the pending set, once per registry (#736). Memoize the
+  // PROMISE, not a boolean: a concurrent first read arriving while the
+  // hydrate is still awaiting `adapter.list` must await the SAME promise —
+  // otherwise it observes "already hydrating", skips straight to an empty
+  // pending set, and serves the purged/stale view as fresh (#736
+  // whole-branch review, hydrate-once race). On rejection, evict the entry
+  // BEFORE rethrowing — a cached rejected promise would otherwise poison the
+  // MV read surface for the rest of the session (every later read re-awaits
+  // the same rejection instead of retrying the store call) (#736 re-review).
+  let hydrate = _hydratedByRegistry.get(registry)
+  if (!hydrate) {
+    hydrate = hydratePersistedStaleMarkers(accessor, registry).catch((err: unknown) => {
+      _hydratedByRegistry.delete(registry)
+      throw err
+    })
+    _hydratedByRegistry.set(registry, hydrate)
+  }
+  await hydrate
   const pending = _staleByRegistry.get(registry)
   if (!pending || pending.size === 0) return
+
+  const { adapter, vault } = storeOf(accessor, outputCollection)
+
+  // Clean up persisted markers for MV names no longer registered (renamed or
+  // removed since the marker was written). Without this sweep an orphaned name
+  // can never become a `candidate` below — `candidates` is built from
+  // `registry.all()`, which no longer lists it — so both the in-memory pending
+  // entry and the persisted `_mv_stale` row would linger forever, re-hydrating
+  // on every cold session (#736 whole-branch review).
+  for (const name of pending) {
+    if (registry.byName(name)) continue
+    pending.delete(name)
+    await deleteMVStaleMarker(adapter, vault, name)
+  }
+  if (pending.size === 0) return
 
   // Find every MV that writes to this output collection AND is
   // currently flagged stale. Multiple MVs CAN share an output
@@ -106,13 +251,29 @@ export async function resolveStaleMVOnRead(
   for (const name of candidates) {
     const reg = registry.byName(name)
     if (!reg) {
+      // Unreachable in practice — `candidates` is drawn from `registry.all()`,
+      // and the orphan sweep above already cleared any name absent from it.
+      // Kept as a defensive fallback; also clears the persisted marker so it
+      // can't linger if this ever does fire.
       pending.delete(name)
+      await deleteMVStaleMarker(adapter, vault, name)
       continue
     }
     if (executor === null) {
       ({ MaterializedViewExecutor: executor } = (await import('./executor.js')) as {
         MaterializedViewExecutor: typeof MVExecutorType
       })
+    }
+    // A cold-hydrated stale flag (unlike an in-session one) can fire with
+    // NONE of the MV's dependency collections touched yet this session —
+    // the sync `Query.toArray()` `spec.query()` runs reads straight off
+    // `Collection`'s in-memory cache, populated only by a prior async
+    // touch (`ensureHydrated()`, called from `get`/`list`/`put`, never
+    // from `query()` itself). Warm every dependency first so the recompute
+    // sees the live persisted state instead of an empty cache (#736).
+    for (const dep of reg.dependencies) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (accessor.getCollection(dep) as any).ensureHydrated()
     }
     await executor.refresh(reg, {
       getCollection: (n) => accessor.getCollection(n),
@@ -121,6 +282,11 @@ export async function resolveStaleMVOnRead(
       ...(dispatchCtx !== undefined ? { dispatchCtx } : {}),
     })
     pending.delete(name)
+    // Runs even when no marker was ever persisted for this name (an in-session-only
+    // stale bit — e.g. the cheap ordinary-write path never writes one, see the
+    // "cheap-path guarantee" test). `adapter.delete` on an absent key is a harmless
+    // void — keeping this unconditional avoids branching on marker origin here.
+    await deleteMVStaleMarker(adapter, vault, name)
   }
 }
 
@@ -135,4 +301,21 @@ export async function resolveStaleMVOnRead(
  */
 export function clearMVStale(registry: MaterializedViewRegistry, mvName: string): void {
   _staleByRegistry.get(registry)?.delete(mvName)
+}
+
+/**
+ * `clearMVStale` plus the persisted marker (#736) — `Vault.refreshView()`'s
+ * completion path. A lingering persisted marker after a manual refresh would
+ * make the NEXT cold session recompute redundantly.
+ *
+ * @internal
+ */
+export async function clearMVStaleFully(
+  adapter: NoydbStore,
+  vault: string,
+  registry: MaterializedViewRegistry,
+  mvName: string,
+): Promise<void> {
+  clearMVStale(registry, mvName)
+  await deleteMVStaleMarker(adapter, vault, mvName)
 }

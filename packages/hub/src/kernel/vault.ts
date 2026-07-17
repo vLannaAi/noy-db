@@ -2777,10 +2777,10 @@ export class Vault {
       getQueryContext: () => this as unknown as MVQueryContext,
       dispatchCtx: this._dispatchCtx({ collection: name, id: 'refreshView' }),
     })
-    // Manual refresh clears any pending stale bit — the post-refresh
-    // state matches the registered strategy.
-    const { clearMVStale } = await import('../with-formula/materialized-views/stale.js')
-    clearMVStale(registry, name)
+    // Manual refresh clears any pending stale bit (+ persisted marker, #736) —
+    // the post-refresh state matches the registered strategy.
+    const { clearMVStaleFully } = await import('../with-formula/materialized-views/stale.js')
+    await clearMVStaleFully(this.adapter, this.name, registry, name)
     return result
   }
 

@@ -958,6 +958,20 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     }
   }
 
+  // #740 — tiers declare per-tier ENCRYPTION keys (elevate/demote re-key and
+  // re-put the record under the target tier's DEK). A plaintext
+  // (`encrypted: false`) collection has nothing to re-key: `putAtTier`/
+  // `elevate` would encrypt/decrypt incoherently against a collection that
+  // never encrypts. Refuse at construction instead of leaking silently.
+  if (opts.tiers && opts.tiers.length > 0 && opts.encrypted === false) {
+    throw new UnsupportedTierCompositionError(
+      'plaintext',
+      `Collection "${opts.name}": tiers are per-tier ENCRYPTION keys — a plaintext collection ` +
+        `(\`encrypted: false\`) has nothing to re-key, so \`putAtTier\`/\`elevate\` would ` +
+        `encrypt/decrypt incoherently. Use an encrypted collection.`,
+    )
+  }
+
   // via() / sugar-key merge (#623 Task 9) — throws on a field declared in both.
   const effectiveViaFields = mergeViaFields(opts)
 

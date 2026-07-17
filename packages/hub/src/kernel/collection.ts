@@ -2928,7 +2928,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * Mirror of {@link dispatchMaterializedViews} for the delete/forget path — no `_materializedFrom`
    * skip (record's gone); the `internal` gate at `_doDelete` is the recursion guard. Returns the
    * row count TOMBSTONED across every eager MV sourced here (#638 T6 — `forgetDerivedFanout`'s
-   * `derivedRecordsErased`); a lazy MV only flips its stale bit (0 contribution — resolved on read).
+   * `derivedRecordsErased`); lazy/manual MVs also purge their persisted output rows at rest
+   * (#736) — lazy persists a stale mark for cold-session recompute; manual serves empty until `refreshView()`.
    * @internal
    */
   async dispatchMaterializedViewsOnDelete(id: string): Promise<number> {
@@ -2951,13 +2952,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
           getQueryContext: () => this.materializedViewSource!.getQueryContext(),
           dispatchCtx: this.#dispatchCtx({ collection: this.name, id }),
         })).deleted
-      } else if (mode === 'lazy') {
+      } else {
         if (staleHelpers === null) {
           staleHelpers = await import('../with-formula/materialized-views/stale.js')
         }
-        staleHelpers.markMVStale(registry, reg.spec.name)
+        await staleHelpers.invalidateMVAtRest(this.materializedViewSource, reg, mode)
       }
-      // manual: no-op — `vault.refreshView(name)` is the only path.
     }
     return deleted
   }
@@ -4513,7 +4513,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       syncBlobs: (id: string, fromTier: number, toTier: number) => this.blobStrategy !== NO_BLOBS ? this.blob(id).rehomeForTier(fromTier, toTier, this.blobTierPolicy) : Promise.resolve(), // #724 I1: gate on blob storage enabled (not on declared blobFields) so undeclared-field blobs still rehome; rehomeForTier self-no-ops on an empty slot map
       syncLedger: async (id: string) => { await this.ledger?.purgeRecordDeltas(this.name, id) },
       syncDerived: (id: string, record: T | null, elevated: boolean, version?: number) => syncDerivedOutputs(this, id, record, elevated, version),
-      hasDerivedOutputs: this.materializedViewSource !== undefined || this.derivationSource !== undefined,
+      hasDerivedOutputs: (this.materializedViewSource !== undefined && this.materializedViewSource.registry().mvsForSource(this.name).length > 0) || (this.derivationSource !== undefined && this.derivationSource.registry().strategiesForSource(this.name).length > 0), // #737: source-grained (was vault-grained) — a derivation-free tiered collection skips the pre-move decode even when other collections in the vault have derivations
       provenance: this.provenance,
       tiers: this.tiers,
       tierMode: this.tierMode,
