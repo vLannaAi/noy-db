@@ -450,3 +450,52 @@ describe('sweepBlobIntents isolation (#753 Task 3 item 5, carried Task 2 finding
     expect(errors).toEqual([{ collection: 'invoices', recordId: 'bad-rec' }]) // surfaced, not swallowed
   })
 })
+
+// ─── Whole-branch review: intent-mint failure must never block erasure ───
+
+describe('#753 whole-branch review — intent-mint failure degrades to best-effort shred + residue', () => {
+  it('every `_blob_intent` put throwing does not abort forget(): the record BODY is still crypto-shredded, and the blob-shred degradation surfaces as residue', async () => {
+    const store = memory()
+    const db0 = await createNoydb(dbOpts(store))
+    const vault0 = await db0.openVault('v')
+    const invoices0 = vault0.collection<Invoice>('invoices', { perRecordKeys: true })
+    await invoices0.put('r', { id: 'r', buyerId: 'buyer-1', amount: 10 })
+    await invoices0.blob('r').put('doc.pdf', bytes('erase me too'))
+    db0.close()
+
+    // Models a transient store failure in `createIntent` (or an upstream
+    // `getDEK` failure) — every `_blob_intent` write throws. This hits BOTH
+    // mint call sites: `vault.forget()`'s own pre-tombstone
+    // `mintShredIntent` (vault.ts) AND `shredAllForRecord`'s no-marker
+    // entry-mint fallback (blob-set.ts) when it retries with no marker
+    // present.
+    const throwing: NoydbStore = {
+      ...store,
+      async put(v, col, id, env, ev) {
+        if (col === BLOB_INTENT_COLLECTION) throw new Error('simulated _blob_intent put failure')
+        return store.put(v, col, id, env, ev)
+      },
+    }
+    const db = await createNoydb(dbOpts(throwing))
+    const vault = await db.openVault('v')
+
+    // Priority-inversion check: pre-fix, this throw propagated OUT of
+    // `mintShredIntent` (vault.ts, ungated unlike every sibling purge in the
+    // loop) and aborted forget() before `_writeTombstone` ran — the body
+    // survived. Post-fix, forget() completes.
+    const result = await vault.forget('buyer-1')
+
+    // The record BODY is crypto-shredded — the primary erasure the mint
+    // failure must never hold hostage.
+    expect(result.recordsShredded).toBe(1)
+    const invoices = vault.collection<Invoice>('invoices', { perRecordKeys: true })
+    expect(await invoices.get('r')).toBeNull()
+    expect(store.raw('v', 'invoices', 'r')!._data).toBe('')
+
+    // The blob-journal degradation is surfaced as residue, never silently
+    // dropped — `blobResidueCollections` is the natural existing channel.
+    expect(result.blobResidueCollections).toContain('invoices')
+
+    db.close()
+  })
+})

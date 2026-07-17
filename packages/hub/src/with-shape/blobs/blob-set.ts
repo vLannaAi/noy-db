@@ -870,6 +870,14 @@ export class BlobSet {
    *  - A pending `op:'rehome'` marker is PR-2 scope — refuses rather than
    *    guessing at a half-moved record (C6/Q1).
    *
+   * **Whole-branch review (#753):** the marker is a crash-safety
+   * ENHANCEMENT, not a precondition for erasure. If the no-marker branch's
+   * own mint fails (transient store error, `getDEK` failure — possibly the
+   * same failure that already sent `forget()`'s pre-tombstone mint to
+   * residue), this degrades to {@link unmarkedShred} — a best-effort
+   * UNMARKED shred, exactly the pre-#753 behavior — rather than aborting
+   * and leaving the blobs un-shredded.
+   *
    * `collectShredHolds` is re-run here (idempotent — a corrupt/unreadable
    * row stays corrupt/unreadable on re-read; an already-deleted row reads
    * back cleanly empty) purely to derive the slot-map/version-row DELETE
@@ -887,12 +895,51 @@ export class BlobSet {
       throw new BlobRehomeResumeNotImplementedError(this.collection, this.recordId)
     }
     if (!intent) {
-      intent = await this.mintFreshShredIntent(tierArg)
+      try {
+        intent = await this.mintFreshShredIntent(tierArg)
+      } catch {
+        // Whole-branch review (#753): the mint is a crash-safety enhancement,
+        // never a precondition for erasure — degrade to a best-effort
+        // unmarked shred rather than abort with the blobs un-shredded.
+        return this.unmarkedShred(tierArg)
+      }
       if (intent.op === 'rehome') throw new BlobRehomeResumeNotImplementedError(this.collection, this.recordId)
     }
     const tier = intent.ownerTier ?? tierArg
     const collected = await this.collectShredHolds(tier)
     return this.consumeShredIntent(intent, tier, collected)
+  }
+
+  /**
+   * Best-effort UNMARKED shred (#753 whole-branch review) — reached only
+   * when `shredAllForRecord`'s own entry-mint threw, so there is no marker
+   * to journal against. Reproduces the pre-#753 `shredAllForRecord` body:
+   * collect this record's holds from the live rows, release each unstamped
+   * (no journal — a crash here reverts to the pre-#753 stranding-eTag
+   * exposure, exactly like main before this arc), then unconditionally drop
+   * the slot map / readable version rows. The mint failure itself is
+   * reported as `_blob_intent` residue so `forget()` surfaces the
+   * degraded crash-safety posture via `blobResidueCollections`, never
+   * silently.
+   */
+  private async unmarkedShred(tier: number): Promise<{
+    shredded: string[]
+    retainedShared: string[]
+    residue: string[]
+  }> {
+    const shredded: string[] = []
+    const retainedShared: string[] = []
+    const collected = await this.collectShredHolds(tier)
+    const residue: string[] = [...collected.residue, `${this.collection}:${this.recordId}:_blob_intent`]
+    for (const hold of collected.holds) {
+      const outcome = await this.releaseRef(hold.eTag, hold.n, true, tier)
+      if (outcome === 'shredded') shredded.push(hold.eTag)
+      else if (outcome === 'retainedShared') retainedShared.push(hold.eTag)
+      else residue.push(hold.eTag)
+    }
+    if (collected.slotsPresent) await this.store.delete(this.vault, this.slotsCollection, this.recordId)
+    for (const key of collected.versionKeysToDelete) await this.store.delete(this.vault, this.versionsCollection, key)
+    return { shredded, retainedShared, residue }
   }
 
   /**

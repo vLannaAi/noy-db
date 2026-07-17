@@ -2368,7 +2368,7 @@ export class Vault {
       } catch {
         sealedCekResidue.push(`${ref.collection}:${ref.id}`)
       }
-      if (blobsEnabled && !shouldSkipBlobScan(scopedPurge, this.blobFieldsRegistry.has(ref.collection))) await coll.blob(ref.id).mintShredIntent(live?._tier ?? 0) // #753 C5: marker PRE-tombstone
+      if (blobsEnabled && !shouldSkipBlobScan(scopedPurge, this.blobFieldsRegistry.has(ref.collection))) { try { await coll.blob(ref.id).mintShredIntent(live?._tier ?? 0) } catch { blobResidueCollections.add(ref.collection) } } // #753 C5 marker PRE-tombstone: crash-safety ENHANCEMENT, not an erasure precondition — mint failure degrades to residue, never blocks the shred below (whole-branch review)
       let shred: { previousVersion: number } | null
       try {
         shred = await coll._writeTombstone(ref.id, actor)
