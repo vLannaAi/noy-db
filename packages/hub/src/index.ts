@@ -185,6 +185,15 @@ export {
   DEFAULT_CHUNK_SIZE,
 } from './with-shape/blobs/blob-set.js'
 export { detectMimeType, detectMagic, isPreCompressed } from './with-shape/blobs/mime-magic.js'
+export {
+  BLOB_INTENT_COLLECTION,
+  getIntent,
+  createIntent,
+  deleteIntent,
+  sweepBlobIntents,
+} from './with-shape/blobs/blob-intent.js'
+export type { BlobIntent, BlobIntentHold, BlobIntentResume } from './with-shape/blobs/blob-intent.js'
+export { BlobIntentPendingError } from './kernel/errors.js'
 export { wrapPodStore, createPodStore, wrapBundleStore, createBundleStore } from './with-pod/pod-store.js'
 export type {
   WrappedPodNoydbStore,

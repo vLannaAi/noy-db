@@ -774,6 +774,30 @@ export class UnsupportedTierCompositionError extends NoydbError {
 }
 
 /**
+ * Thrown by `createIntent` (blob durability journal, #753 spec §7 C8) when a
+ * `_blob_intent` marker already exists for `{collection}::{recordId}` — the
+ * CAS create-if-absent (`expectedVersion: 0`) lost to a present row. A
+ * present marker means a shred or rehome is already in flight for this
+ * record and MUST be resumed before any new intent is minted (overwriting it
+ * would orphan the prior op's op-stamps — spec C8). Callers catch this and
+ * resume the pending marker first, then retry.
+ */
+export class BlobIntentPendingError extends NoydbError {
+  readonly collection: string
+  readonly recordId: string
+  constructor(collection: string, recordId: string) {
+    super(
+      'BLOB_INTENT_PENDING',
+      `A blob durability marker is already pending for "${collection}::${recordId}" — ` +
+        `resume it before starting a new shred/rehome.`,
+    )
+    this.name = 'BlobIntentPendingError'
+    this.collection = collection
+    this.recordId = recordId
+  }
+}
+
+/**
  * Thrown when an elevated-handle operation runs after the elevation's
  * TTL expired. Reads continue at the original tier; only writes
  * through the scoped handle flip to throwing once expired.
