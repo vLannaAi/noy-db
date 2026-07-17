@@ -115,4 +115,139 @@ describe('PersistedIndexStore epoch-guarded flush/purge race (#725)', () => {
     expect(state.saves).toBe(savesBefore + 1)
     expect(state.blob).not.toBeNull()
   })
+
+  it('gate-before-put: isStale() goes true while a save is mid-"encrypt" (before its own write), and the save skips the write entirely', async () => {
+    // Mirrors collection-facade.ts's real save(): an async encrypt-like gap, THEN a
+    // pre-put staleness check — proving the check actually prevents the write (not
+    // just papering over it after the fact, which is persist()'s separate backstop).
+    const state: { blob: { json: string; fingerprint: Fingerprint } | null; puts: number } = { blob: null, puts: 0 }
+    let encryptGate: Promise<void> | null = null
+    let reachedEncrypt: (() => void) | null = null
+    const store = new PersistedIndexStore({
+      load: async () => state.blob,
+      save: async (json, f, isStale) => {
+        if (encryptGate) { reachedEncrypt?.(); await encryptGate }
+        if (isStale()) return
+        state.puts++
+        state.blob = { json, fingerprint: f }
+      },
+      remove: async () => { state.blob = null },
+      currentFingerprint: () => ({ count: 1, maxVersion: 1 }),
+      debounceMs: 10,
+    })
+
+    await store.ensureBuilt(() => docs) // warm build + save, uninterrupted
+    const putsBefore = state.puts
+
+    let releaseEncrypt!: () => void
+    encryptGate = new Promise<void>((r) => { releaseEncrypt = r })
+    const reachedPromise = new Promise<void>((r) => { reachedEncrypt = r })
+    const flushPromise = store.flush()
+    await reachedPromise // blocked mid-"encrypt" — isStale() has NOT been checked yet
+
+    await store.removePersisted() // the purge lands while the save is still encrypting
+
+    releaseEncrypt()
+    await flushPromise
+
+    expect(state.puts).toBe(putsBefore) // the write itself was skipped — isStale() caught it pre-put
+    expect(state.blob).toBeNull()
+  })
+
+  it('a failed compensation is retried by the NEXT store operation, not silently dropped (#725 review)', async () => {
+    const state: { blob: { json: string; fingerprint: Fingerprint } | null; removeCalls: number } = { blob: null, removeCalls: 0 }
+    let failOnCall = -1
+    let gate: Promise<void> | null = null
+    let reached: (() => void) | null = null
+    const store = new PersistedIndexStore({
+      load: async () => state.blob,
+      save: async (json, f) => {
+        if (gate) { reached?.(); await gate }
+        state.blob = { json, fingerprint: f }
+      },
+      remove: async () => {
+        state.removeCalls++
+        if (state.removeCalls === failOnCall) throw new Error('simulated remove failure')
+        state.blob = null
+      },
+      currentFingerprint: () => ({ count: 1, maxVersion: 1 }),
+      debounceMs: 10,
+    })
+
+    await store.ensureBuilt(() => docs) // warm build + save, uninterrupted
+
+    // Arm the gate for a racy save; let removePersisted's OWN remove (call #1)
+    // succeed, but make the save's COMPENSATING remove (call #2) fail once.
+    let release!: () => void
+    gate = new Promise<void>((r) => { release = r })
+    const reachedPromise = new Promise<void>((r) => { reached = r })
+    const flushPromise = store.flush()
+    await reachedPromise
+
+    failOnCall = 2
+    await store.removePersisted() // call #1 — succeeds
+    expect(state.blob).toBeNull()
+
+    release() // the stale save lands, then its own compensation (call #2) fails
+    await expect(flushPromise).rejects.toThrow('simulated remove failure')
+    // The debounced-flush path would swallow this exact failure via its
+    // `.catch(() => {})` — here it propagates because flush() is awaited
+    // directly, but the RESIDUE (a resurrected blob) is identical either way.
+    expect(state.blob).not.toBeNull() // the resurrection survives the failed compensation…
+
+    // …but is NOT silently dropped: the next store operation retries it first.
+    await store.removePersisted() // call #3 — retries the pending compensation, then does its own remove
+    expect(state.blob).toBeNull()
+    expect(state.removeCalls).toBeGreaterThanOrEqual(3)
+  })
+
+  it('variant (b) is subsumed: removePersisted always clears the in-memory index, so a flush after a purge can never skip the rebuild and pair a stale (pre-purge) index with the live fingerprint', async () => {
+    const withE1: IndexDoc[] = [{ id: 'e1', fields: [{ field: 'd', text: 'topsecret-e1' }] }, { id: 't0', fields: [{ field: 'd', text: 'public-t0' }] }]
+    const withoutE1: IndexDoc[] = [{ id: 't0', fields: [{ field: 'd', text: 'public-t0' }] }]
+    let liveCacheDocs: IndexDoc[] = withE1
+    const buildFromLiveCache = () => liveCacheDocs
+
+    const state: { blob: { json: string; fingerprint: Fingerprint } | null; fp: Fingerprint } =
+      { blob: null, fp: { count: 2, maxVersion: 1 } }
+    const store = new PersistedIndexStore({
+      load: async () => state.blob,
+      save: async (json, f) => { state.blob = { json, fingerprint: f } },
+      remove: async () => { state.blob = null },
+      currentFingerprint: () => state.fp,
+      debounceMs: 10,
+    })
+
+    // Warm build INCLUDING e1 (state before any purge).
+    await store.ensureBuilt(buildFromLiveCache)
+    expect(state.blob?.json).toContain('e1')
+
+    // A write happens (markDirty) — a debounced flush is now conceptually pending.
+    store.markDirty()
+
+    // Before that flush fires, a retrieve() rebuilds using the SAME (still
+    // pre-purge) live cache — the issue's "retrieve() rebuilt the index between
+    // markDirty and the timer firing." Force a rebuild (not a fingerprint-matched
+    // warm-load) by bumping the fingerprint, simulating an unrelated write.
+    state.fp = { count: 2, maxVersion: 2 }
+    await store.ensureBuilt(buildFromLiveCache)
+    expect(state.blob?.json).toContain('e1') // still pre-purge — expected, no purge yet
+
+    // NOW the purge lands (elevate/forget): cache eviction always precedes
+    // removePersisted() in both call paths, so the live cache flips first.
+    liveCacheDocs = withoutE1
+    state.fp = { count: 1, maxVersion: 2 }
+    await store.removePersisted()
+    expect(state.blob).toBeNull()
+
+    // The debounced flush "fires": `lastBuild` is still `buildFromLiveCache`, but
+    // removePersisted() just cleared `this.index`, so this MUST rebuild (not skip
+    // it) — and rebuilding calls `buildFromLiveCache()`, which now reads the
+    // POST-eviction cache.
+    await store.flush()
+
+    // The persisted blob must reflect the post-eviction state — never a stale
+    // pre-purge snapshot paired with a coincidentally-live-matching fingerprint.
+    expect(state.blob?.json).not.toContain('e1')
+    expect(state.blob?.fingerprint).toEqual({ count: 1, maxVersion: 2 })
+  })
 })
