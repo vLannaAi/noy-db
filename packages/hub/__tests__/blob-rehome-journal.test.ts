@@ -746,3 +746,100 @@ describe('#746 review Critical 2 — the "already moved" reconstruction is tier-
     dbResume.close()
   })
 })
+
+// ─── Q1 direction 2: the rehome entry resumes a pending SHRED marker first ─
+
+describe('elevate() resumes a pending SHRED marker first — nothing left to rehome (#746/#753 spec Q1)', () => {
+  it('a stranded shred marker (a previous forget() crashed right after minting it) is resumed by the next elevate(): the blob is erased, not moved, and elevate() still completes the record\'s own tier move', async () => {
+    const store = memory()
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vault0 = await db0.openVault(VAULT)
+    const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    await docs0.putAtTier('r', { id: 'r', title: 'R' }, 0)
+    await docs0.blob('r').put('a', bytes('content the shred must erase'))
+    const eTag = (await docs0.blob('r').blobInfo('a'))!.eTag
+
+    // Simulate a forget() that crashed right after minting the marker (C5's
+    // pre-tombstone step) but before shredding — mirrors
+    // blob-shred-journal.test.ts's C4 setup. The record's OWN row is
+    // untouched (no tombstone) — only the blob-side marker is pending.
+    await docs0.blob('r').mintShredIntent(0)
+    expect(await store.list(VAULT, '_blob_intent')).toHaveLength(1)
+    db0.close()
+
+    // A rehome entry (`elevate`) on this SAME record must resume the
+    // pending shred FIRST — "nothing left to rehome" once shred takes
+    // over — rather than trying to move blobs the shred is about to erase.
+    const db = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    await expect(docs.elevate('r', 1)).resolves.toBeUndefined()
+
+    // The blob is ERASED (shredded), not moved: no destination object at
+    // tier 1, the original object gone, no slot map row.
+    expect(store.raw(VAULT, INDEX_COLLECTION, eTag)).toBeUndefined()
+    expect(store.raw(VAULT, CHUNKS_COLLECTION, `${eTag}_0`)).toBeUndefined()
+    expect(store.raw(VAULT, SLOTS_COLLECTION, 'r')).toBeUndefined()
+    expect(await store.list(VAULT, '_blob_intent')).toEqual([])
+
+    // `elevate()` still completed the record's OWN tier move — the shred
+    // resume only cleared the blob side, it didn't abort the caller's ask.
+    expect(store.raw(VAULT, 'docs', 'r')!._tier).toBe(1)
+
+    db.close()
+  })
+})
+
+// ─── Q1 direction 3: no path mints a second marker over a pending one ────
+
+describe('a pending REHOME marker is never overwritten by a fresh SHRED marker (#746/#753 spec Q1/C8, single-marker-per-record)', () => {
+  it('mintShredIntent() discovering a stranded rehome marker returns without minting — a later write resumes the REHOME (content preserved), never a spurious shred (content destroyed)', async () => {
+    const store = memory()
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vault0 = await db0.openVault(VAULT)
+    const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    await docs0.putAtTier('r', { id: 'r', title: 'R' }, 0)
+    const original = bytes('content that must survive — proves no double marker')
+    await docs0.blob('r').put('a', original)
+    db0.close()
+
+    // Strand a REHOME marker: crash `elevate()` exactly before the slot CAS
+    // lands (same crash point as this file's other tests).
+    let reached!: () => void
+    const reachedPromise = new Promise<void>((r) => { reached = r })
+    const crashing = hangOnNthPut(store, (col) => col === SLOTS_COLLECTION, 1, () => reached())
+    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vaultCrash = await dbCrash.openVault(VAULT)
+    const docsCrash = vaultCrash.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    void docsCrash.elevate('r', 1) // fire-and-forget: never settles (simulated crash)
+    await reachedPromise
+    expect(await store.list(VAULT, '_blob_intent')).toHaveLength(1)
+
+    // Fresh session: a call that would mint a SHRED marker for this SAME
+    // record (mirrors `forget()`'s own pre-tombstone `mintShredIntent`
+    // racing a pending rehome) — C8: the CAS create-if-absent refuses to
+    // overwrite the pending marker; `mintShredIntent` discovers the raced
+    // rehome marker and returns WITHOUT minting a fresh shred marker.
+    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vaultResume = await dbResume.openVault(VAULT)
+    const docsResume = vaultResume.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    await expect(docsResume.blob('r').mintShredIntent(0)).resolves.toBeUndefined()
+
+    // Exactly one marker still present — never two, never replaced.
+    expect(await store.list(VAULT, '_blob_intent')).toHaveLength(1)
+
+    // THE regression check: an ordinary write's resume gate
+    // (`resolvePendingIntent`) resumes whichever marker actually governs.
+    // If `mintShredIntent` HAD clobbered it with a fresh SHRED marker, this
+    // write would resume a SHRED — erasing `original` — instead of a
+    // REHOME — moving it. The content surviving, readable at tier 1, is
+    // the proof no second marker was ever minted over the pending one.
+    await docsResume.blob('r').put('b', bytes('new content'))
+    expect(await store.list(VAULT, '_blob_intent')).toEqual([])
+    const atTier = await docsResume.blob('r').atTier()
+    expect(await atTier.get('a')).toEqual(original)
+    expect(await atTier.get('b')).toEqual(bytes('new content'))
+
+    dbResume.close()
+  })
+})

@@ -630,3 +630,85 @@ describe('#753 whole-branch review — intent-mint failure degrades to best-effo
     db.close()
   })
 })
+
+// ─── THE Q1 KEYSTONE: a row-unreferenced destination object survives ONLY
+// because resume-then-shred (not replace) reaches it ──────────────────────
+
+describe('Q1 keystone — resume-then-shred reaches a row-unreferenced rehome orphan (#746/#753 spec Q1)', () => {
+  it('rehome crashes leaving an orphan destination object (refCount>=1, no slot/version row points at it); vault.forget() resumes the rehome THEN shreds — the orphan is fully erased, proving a row-derived (non-superseding) shred would have stranded it', async () => {
+    const store = memory()
+    const db0 = await createNoydb({ store, user: 'a', secret: SECRET, historyStrategy: withHistory(), forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }), blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const vault0 = await db0.openVault('v')
+    const invoices0 = vault0.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
+    await invoices0.put('r', { id: 'r', buyerId: 'buyer-1', amount: 10 })
+    await invoices0.blob('r').put('a.pdf', bytes('orphan-bound content'))
+    const oldETag = (await invoices0.blob('r').blobInfo('a.pdf'))!.eTag
+    db0.close()
+
+    // Crash `elevate()` exactly at the FIRST `_blob_slots_invoices` put —
+    // `putUnderDEK`'s sequencing is: (1) `writeBlobContent` lands the
+    // destination create/`+1` at tier 1 (a `_blob_index` write) FIRST, THEN
+    // (2) the slot CAS (`_blob_slots_invoices`) points the slot at it. This
+    // hangs exactly between (1) and (2): the fresh tier-1 `BlobObject`
+    // physically exists — refCount >= 1, fully decryptable under the tier-1
+    // DEK — but NO slot or version row has been re-pointed at it yet. Spec
+    // Q1's exact orphan window.
+    let reached!: () => void
+    const reachedPromise = new Promise<void>((r) => { reached = r })
+    const crashing = hangOnNthPut(store, (col) => col === '_blob_slots_invoices', 1, () => reached())
+    const dbCrash = await createNoydb({ store: crashing, user: 'a', secret: SECRET, historyStrategy: withHistory(), forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }), blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const vaultCrash = await dbCrash.openVault('v')
+    const invoicesCrash = vaultCrash.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
+    void invoicesCrash.elevate('r', 1) // fire-and-forget: never settles (simulated crash)
+    await reachedPromise
+
+    // ── Orphan precondition ──────────────────────────────────────────────
+    expect(store.rawList('v', BLOB_INTENT_COLLECTION).some((k) => k.startsWith('invoices::r'))).toBe(true)
+    const indexKeysMidCrash = store.rawList('v', '_blob_index')
+    expect(indexKeysMidCrash).toHaveLength(2) // untouched old (tier-0) object + the new orphan (tier-1)
+    const orphanETag = indexKeysMidCrash.find((k) => k !== oldETag)!
+
+    // The orphan is a REAL, decryptable BlobObject at tier 1 — not a stray
+    // write.
+    const orphanReader = invoicesCrash.blob('r') as unknown as {
+      loadBlobObject(eTag: string, tier?: number): Promise<{ blob: { refCount: number } } | null>
+      loadSlots(tier?: number): Promise<{ slots: Record<string, { eTag: string }> }>
+    }
+    const orphanLoaded = await orphanReader.loadBlobObject(orphanETag, 1)
+    expect(orphanLoaded).not.toBeNull()
+    expect(orphanLoaded!.blob.refCount).toBeGreaterThanOrEqual(1)
+
+    // THE CONTRAST: the slot map is still physically at tier 0 (the slot
+    // CAS never landed) and points ONLY at `oldETag`. A row-derived hold
+    // collection — the ONLY thing a plain, non-superseding shred has to go
+    // on (`collectShredHolds`: slot map + published versions, nothing
+    // else) — can never discover `orphanETag`. A shred that REPLACED the
+    // pending rehome marker instead of resuming it first would release
+    // `oldETag`, delete the slot map, and leave `orphanETag`'s fully
+    // decryptable `_blob_index` row + chunks behind forever: live,
+    // erasable content silently surviving `forget()`.
+    const { slots: midCrashSlots } = await orphanReader.loadSlots(0)
+    expect(midCrashSlots['a.pdf']!.eTag).toBe(oldETag) // NOT orphanETag — proves the row-derived view is blind to it
+
+    // ── Resume-then-shred: vault.forget() on a fresh session ────────────
+    const dbResume = await createNoydb({ store, user: 'a', secret: SECRET, historyStrategy: withHistory(), forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }), blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const vaultResume = await dbResume.openVault('v')
+    await expect(vaultResume.forget('buyer-1')).resolves.toBeDefined()
+
+    // THE regression check: the orphan is FULLY erased — index row AND
+    // chunks gone — proving resume-then-shred reached it (Q1's raison
+    // d'être), not just the object the live slot map could see.
+    expect(store.raw('v', '_blob_index', orphanETag)).toBeUndefined()
+    expect(store.raw('v', '_blob_chunks', `${orphanETag}_0`)).toBeUndefined()
+
+    // The old (tier-0) object is also gone — released as part of the
+    // resumed rehome's own move, well before shred ever mints its marker.
+    expect(store.raw('v', '_blob_index', oldETag)).toBeUndefined()
+
+    // No marker, no rows survive.
+    expect(store.rawList('v', BLOB_INTENT_COLLECTION).some((k) => k.startsWith('invoices::r'))).toBe(false)
+    expect(store.rawList('v', '_blob_slots_invoices')).toHaveLength(0)
+
+    dbResume.close()
+  })
+})
