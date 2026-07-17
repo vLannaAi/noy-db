@@ -933,6 +933,31 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     )
   }
 
+  // #748 — tiers × a `public: true` external blob field is a structural dead
+  // end, not a crypto gap the perRecordKeys mandate above can close. An
+  // external-public object's key (`{collection}/{recordId}/{slotName}`) is
+  // deterministic and its bytes are world-readable by design (CDN origin) —
+  // elevating the owning record re-keys/re-scopes the ENCRYPTED slot catalog
+  // entry, but can never retroactively hide an already-public bucket object,
+  // nor stop a future `public: true` write from re-publishing it at the same
+  // predictable key. Refuse at construction; private/presigned external
+  // fields (`public` omitted or `false`) are unaffected — only the catalog
+  // entry needs tier-isolation there, which perRecordKeys already provides.
+  if (opts.tiers && opts.tiers.length > 0 && opts.blobFields !== undefined) {
+    for (const [field, policy] of Object.entries(opts.blobFields)) {
+      if (policy?.external && policy.public === true) {
+        throw new UnsupportedTierCompositionError(
+          'blobs',
+          `Collection "${opts.name}": blob field "${field}" cannot be both \`external: true, public: true\` ` +
+            `and declared on a tiered collection — the object key is deterministic and its bytes are ` +
+            `world-readable by design, so tier-invisibility can never be enforced for it once elevated. ` +
+            `Use a private/presigned external field (\`public\` omitted or \`false\`) or move this field to ` +
+            `a non-tiered collection.`,
+        )
+      }
+    }
+  }
+
   // via() / sugar-key merge (#623 Task 9) — throws on a field declared in both.
   const effectiveViaFields = mergeViaFields(opts)
 

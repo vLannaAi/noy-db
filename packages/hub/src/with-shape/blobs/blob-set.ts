@@ -223,6 +223,25 @@ export class BlobSet {
   }
 
   /**
+   * #748: `adoptExternal()`/`setExternalMeta()` write an `external` slot
+   * reference directly — unlike `put()`, which only takes the external path
+   * when `blobFields[slotName].external` is declared (the construction-time
+   * tiers×blobFields mandate, `collection-config.ts`, then applies). Without
+   * this gate, either method can attach an external reference to a slot the
+   * collection never declared `external` — bypassing that mandate on a tiered
+   * collection. Mirrors `put()`'s own gate.
+   */
+  private assertExternalDeclared(slotName: string): void {
+    if (!this.blobFields?.[slotName]?.external) {
+      throw new ValidationError(
+        `Collection "${this.collection}": blob field "${slotName}" is not declared external `
+          + `(blobFields["${slotName}"].external must be true) — cannot attach an external `
+          + `reference to an undeclared slot (#748).`,
+      )
+    }
+  }
+
+  /**
    * Resolve the key the blob's CHUNKS are encrypted under.
    *
    * - `_cek` present (erasable blob) → unwrap the per-blob content CEK under
@@ -1680,6 +1699,7 @@ export class BlobSet {
   ): Promise<void> {
     this.assertKeyPartSafe(this.recordId, 'record id')
     this.assertKeyPartSafe(slotName, 'slot name')
+    this.assertExternalDeclared(slotName)
 
     const uploaderUserId = this.userId
     await this.casUpdateSlots((slots) => {
@@ -1709,6 +1729,7 @@ export class BlobSet {
    * once it has probed the object. No-op for a missing or non-external slot.
    */
   async setExternalMeta(slotName: string, meta: Record<string, unknown>): Promise<void> {
+    this.assertExternalDeclared(slotName)
     await this.casUpdateSlots((slots) => {
       const slot = slots[slotName]
       if (!slot?.external) return null

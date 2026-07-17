@@ -1563,3 +1563,55 @@ describe('#747/#749 whole-branch review (I1): fallback content substitution is c
     await expect(cleared.get('attachment')).rejects.toThrow(TamperedError)
   })
 })
+
+describe('#748 composition enforcement — tiers × external public:true', () => {
+  it('a tiered collection declaring a `public: true` external blob field throws at construction', async () => {
+    const db = await createNoydb({
+      store: memoryStore(), secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    expect(() => vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { video: { external: true, public: true } },
+    })).toThrow(UnsupportedTierCompositionError)
+    expect(() => vault.collection<Doc>('docs2', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { video: { external: true, public: true } },
+    })).toThrow(/video/)
+  })
+
+  it('a tiered collection declaring a private (non-public) external blob field constructs fine', async () => {
+    const db = await createNoydb({
+      store: memoryStore(), secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    // `public` omitted — presigned/private external, unaffected.
+    expect(() => vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { video: { external: true } },
+    })).not.toThrow()
+    // `public: false` explicit — also unaffected.
+    expect(() => vault.collection<Doc>('docs2', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { video: { external: true, public: false } },
+    })).not.toThrow()
+  })
+
+  it('a non-tiered collection declaring a `public: true` external blob field still constructs fine', async () => {
+    const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner', blobStrategy: withBlobs() })
+    const vault = await db.openVault('v1')
+    expect(() => vault.collection<Doc>('docs', {
+      blobFields: { video: { external: true, public: true } },
+    })).not.toThrow()
+  })
+
+  it('a tiered collection with a `public: true` external field alongside an ordinary (non-external) blob field still throws, naming the offending field', async () => {
+    const db = await createNoydb({
+      store: memoryStore(), secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    expect(() => vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true,
+      blobFields: { attachment: {}, video: { external: true, public: true } },
+    })).toThrow(/video/)
+  })
+})
