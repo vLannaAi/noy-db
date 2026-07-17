@@ -191,28 +191,42 @@ export async function deleteIntent(
  * List every persisted `_blob_intent` marker and resume each via the
  * caller-supplied `resume` callback (the forget-entry / vault-open sweep,
  * mirroring `_mv_stale`'s `hydratePersistedStaleMarkers`/orphan-sweep
- * pattern). No try/catch around `resume`: a genuine resume failure must
- * surface, not be silently skipped past — same posture as the `_mv_stale`
- * sweep's bare `adapter.list` read.
+ * pattern).
  *
- * `resume` is a typed seam only in Task 2 — the actual resume behavior
- * (converting a shred marker's holds into stamped releases, a rehome
- * marker's re-run) lands in Task 3 / PR-2.
+ * **Per-marker isolation (#753 Task 3, carried finding from the Task 2
+ * review):** each marker's decode + `resume` runs in its own try/catch — a
+ * corrupt/DEK-mismatched marker, or a marker whose resume genuinely fails
+ * (e.g. a store error mid-release), is reported via `onResumeError` and
+ * skipped, never aborting the loop and never silently swallowed. Earlier
+ * (Task 2) this loop had no try/catch at all; that was safe only because
+ * nothing called `resume` with real logic yet — `BlobSet.mintShredIntent`'s
+ * collection-scoped sweep (this function's first real caller, Task 3) can
+ * hit a genuinely corrupt sibling marker and must not let it block a
+ * healthy one (mirrors `stale.ts`'s orphan-sweep defensive posture, #736).
+ *
+ * `resume` is the per-marker resume action (Task 3: `BlobSet`'s
+ * `resolvePendingIntent`-equivalent for a shred marker; a rehome marker is
+ * PR-2 scope and should be skipped by the callback, not thrown into here).
  */
 export async function sweepBlobIntents(
   adapter: NoydbStore,
   vault: string,
   getDEK: (collection: string) => Promise<EnclaveKey>,
   resume: BlobIntentResume,
+  onResumeError?: (collection: string, recordId: string, err: unknown) => void,
 ): Promise<void> {
   const keys = await adapter.list(vault, BLOB_INTENT_COLLECTION)
   for (const key of keys) {
     const parsed = parseIntentKey(key)
     if (!parsed) continue // defensive: not our grammar, not ours to sweep
-    const envelope = await adapter.get(vault, BLOB_INTENT_COLLECTION, key)
-    if (!envelope) continue // raced with a concurrent resume's delete
-    const dek = await getDEK(parsed.collection)
-    const intent = await decodeIntentEnvelope(envelope, dek)
-    await resume(parsed.collection, parsed.recordId, intent)
+    try {
+      const envelope = await adapter.get(vault, BLOB_INTENT_COLLECTION, key)
+      if (!envelope) continue // raced with a concurrent resume's delete
+      const dek = await getDEK(parsed.collection)
+      const intent = await decodeIntentEnvelope(envelope, dek)
+      await resume(parsed.collection, parsed.recordId, intent)
+    } catch (err) {
+      onResumeError?.(parsed.collection, parsed.recordId, err)
+    }
   }
 }

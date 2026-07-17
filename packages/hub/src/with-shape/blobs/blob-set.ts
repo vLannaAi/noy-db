@@ -25,11 +25,12 @@ import {
   sha256Hex,
   type EnclaveKey,
 } from '../../kernel/enclave/index.js'
-import { ConflictError, NotFoundError, TamperedError, TierNotGrantedError, UnsupportedTierCompositionError, ValidationError } from '../../kernel/errors.js'
+import { BlobIntentPendingError, ConflictError, NotFoundError, TamperedError, TierNotGrantedError, UnsupportedTierCompositionError, ValidationError, BlobRehomeResumeNotImplementedError } from '../../kernel/errors.js'
 import { liveRecordIsElevated, liveRecordTier } from '../../kernel/tier-visibility.js'
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import { detectMagic, isPreCompressed } from './mime-magic.js'
+import { createIntent, getIntent, deleteIntent, sweepBlobIntents, type BlobIntent, type BlobIntentHold } from './blob-intent.js'
 
 // ─── Internal collection names ─────────────────────────────────────────
 
@@ -76,6 +77,16 @@ const LAST_OPS_RING_SIZE = 8
 function appendStamp(lastOps: readonly string[] | undefined, stamp: string): readonly string[] {
   const next = [...(lastOps ?? []), stamp]
   return next.length > LAST_OPS_RING_SIZE ? next.slice(next.length - LAST_OPS_RING_SIZE) : next
+}
+
+/**
+ * Mint a fresh op-stamp identity for a `_blob_intent` marker (#753 spec §7
+ * §2a: "random nonce minted at marker creation"). Mirrors `buildBacklink`'s
+ * opaque-token minting below — `crypto.getRandomValues`, hex-encoded.
+ */
+function mintOpId(): string {
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16))
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 // ─── Compression helpers ───────────────────────────────────────────────
@@ -838,62 +849,243 @@ export class BlobSet {
    * slot map (see `publish()`) — the slot loop above never sees them. Left
    * untouched, that hold (and the version-held content, if the slot was
    * later overwritten) survives `forget()` — a GDPR-erasure hole. So this
-   * method now also enumerates the record's version rows via
+   * method also enumerates the record's version rows via
    * `collectVersionHolds`, folds each version's hold into the SAME `holds`
    * map (a shared eTag reports ONE outcome, not two), and deletes the
    * readable version rows once their holds are released.
+   *
+   * **#753 spec §7 (crash-idempotent shred):** the holds used for the
+   * actual release loop below come from a `_blob_intent` MARKER, never
+   * re-collected from rows on resume:
+   *  - `forget()` mints the marker PRE-tombstone (`mintShredIntent`,
+   *    C5) — the normal case, so a marker is ALREADY present by the time
+   *    this method runs and `intent.ownerTier` (captured live, before the
+   *    tombstone dropped `_tier`) is authoritative even when the caller's
+   *    own `ownerTier` argument is stale (a crash-retried `forget()`
+   *    re-reads the now-tombstoned record and can only pass `0`).
+   *  - Called WITHOUT a pre-existing marker (defensive/non-forget callers,
+   *    or the direct-call path this suite exercises) — one is minted here
+   *    from the live rows, exactly like `mintShredIntent` does, so the
+   *    crash matrix holds regardless of caller (spec §2c).
+   *  - A pending `op:'rehome'` marker is PR-2 scope — refuses rather than
+   *    guessing at a half-moved record (C6/Q1).
+   *
+   * `collectShredHolds` is re-run here (idempotent — a corrupt/unreadable
+   * row stays corrupt/unreadable on re-read; an already-deleted row reads
+   * back cleanly empty) purely to derive the slot-map/version-row DELETE
+   * targets and residue notices — never to recompute the release counts,
+   * which are fixed for the operation's lifetime in the marker (C1/C2).
    */
   async shredAllForRecord(ownerTier?: number): Promise<{
     shredded: string[]
     retainedShared: string[]
     residue: string[]
   }> {
-    const shredded: string[] = []
-    const retainedShared: string[] = []
+    const tierArg = ownerTier ?? 0
+    let intent = await getIntent(this.store, this.vault, this.collection, this.recordId, this.getDEK)
+    if (intent && intent.op === 'rehome') {
+      throw new BlobRehomeResumeNotImplementedError(this.collection, this.recordId)
+    }
+    if (!intent) {
+      intent = await this.mintFreshShredIntent(tierArg)
+      if (intent.op === 'rehome') throw new BlobRehomeResumeNotImplementedError(this.collection, this.recordId)
+    }
+    const tier = intent.ownerTier ?? tierArg
+    const collected = await this.collectShredHolds(tier)
+    return this.consumeShredIntent(intent, tier, collected)
+  }
+
+  /**
+   * Collect this record's CURRENT blob holds (slot map + published
+   * versions) at `tier` — the shred journal's single hold-collection
+   * routine (#753 spec §7), shared by `mintFreshShredIntent` (to seed a
+   * fresh marker's authoritative `holds`) and `shredAllForRecord`/
+   * `resolvePendingIntent` (to derive delete targets + residue on
+   * consumption — see {@link shredAllForRecord}'s doc comment for why that
+   * second use never feeds the release loop). Mirrors the pre-#753
+   * inline collection logic byte-for-byte; `chunkCount` per hold (C5) is
+   * best-effort — an unreadable index row just means the marker's hint is
+   * absent, `releaseRef`'s own chunkCountHint fallback still applies.
+   */
+  private async collectShredHolds(tier: number): Promise<{
+    holds: BlobIntentHold[]
+    slotsPresent: boolean
+    versionKeysToDelete: string[]
+    residue: string[]
+  }> {
     const residue: string[] = []
     let slots: Record<string, SlotRecord> = {}
     try {
-      slots = (await this.loadSlots(ownerTier)).slots
+      slots = (await this.loadSlots(tier)).slots
     } catch {
-      // #724 re-review (Critical): `loadSlots` throws ONLY when the row is
-      // PRESENT but fails to decrypt (genuine corruption/mis-key/tamper) —
-      // an absent row already returns `{ slots: {}, version: 0 }` cleanly,
-      // never throws. So this is NOT "no blobs to shred"; it's "blobs may
-      // exist and we can't read them" — must surface as residue (mirrors
-      // the sibling `_vec`/classified-sealed-dek residue push in
-      // `vault.ts`'s forget loop), never silently report a clean erasure.
-      //
-      // #750: an unreadable slot map no longer aborts the cascade — published
-      // versions are independently-keyed rows and must still be shredded below.
+      // See shredAllForRecord's pre-#753 doc comment (now on collectShredHolds):
+      // `loadSlots` throws only when the row is PRESENT but undecodable.
       residue.push(`${this.collection}:${this.recordId}:_blob_slots`)
     }
 
-    // Reference count from THIS record per eTag — slot holds and published-
-    // version holds (#750) merged, so a shared eTag releases ALL of this
-    // record's holds in ONE releaseRef call and reports ONE outcome.
-    const holds = new Map<string, number>()
+    const holdsMap = new Map<string, number>()
     for (const name of Object.keys(slots)) {
       const eTag = slots[name]!.eTag
-      holds.set(eTag, (holds.get(eTag) ?? 0) + 1)
+      holdsMap.set(eTag, (holdsMap.get(eTag) ?? 0) + 1)
     }
-    const versionKeys = await this.collectVersionHolds(ownerTier, holds, residue)
+    const versionKeysToDelete = await this.collectVersionHolds(tier, holdsMap, residue)
 
-    for (const [eTag, n] of holds) {
-      // Forget erasure reclaims legacy orphans too (the record is being erased),
-      // so reclaimLegacy = true — but only erasable blobs count as a crypto-shred.
-      // #747: pass the pre-tombstone `ownerTier` — by now the record itself is
-      // tombstoned, so the `ownerTier()` default would resolve tier 0 and try
-      // the wrong DEK first for an elevated owner's holds.
-      const outcome = await this.releaseRef(eTag, n, true, ownerTier)
-      if (outcome === 'shredded') shredded.push(eTag)
-      else if (outcome === 'retainedShared') retainedShared.push(eTag)
-      else residue.push(eTag)
+    const holds: BlobIntentHold[] = []
+    for (const [eTag, n] of holdsMap) {
+      let chunkCount = 0
+      try {
+        chunkCount = (await this.loadBlobObject(eTag, tier))?.blob.chunkCount ?? 0
+      } catch {
+        // Best-effort (C5 doc comment): releaseRef's own chunkCountHint
+        // fallback covers the index-row-already-gone case; a hint that
+        // couldn't be captured here just means that fallback won't fire.
+      }
+      holds.push({ eTag, n, chunkCount })
+    }
+    return { holds, slotsPresent: Object.keys(slots).length > 0, versionKeysToDelete, residue }
+  }
+
+  /**
+   * Collect this record's current holds and CAS-create a fresh `_blob_intent`
+   * SHRED marker from them (#753 spec §7 C8). Used by `mintShredIntent`
+   * (forget()'s pre-tombstone step) and `shredAllForRecord`'s no-marker
+   * (defensive/direct-call) branch.
+   *
+   * C4: a concurrent minter for this SAME record can win the create race —
+   * `createIntent` throws `BlobIntentPendingError`, and the winner's marker
+   * (whatever op it turns out to be) is returned instead; the caller decides
+   * how to handle a raced rehome marker.
+   */
+  private async mintFreshShredIntent(tier: number): Promise<BlobIntent> {
+    const collected = await this.collectShredHolds(tier)
+    const candidate: BlobIntent = { op: 'shred', opId: mintOpId(), holds: collected.holds, ownerTier: tier }
+    try {
+      await createIntent(this.store, this.vault, this.collection, this.recordId, this.getDEK, candidate)
+      return candidate
+    } catch (err) {
+      if (!(err instanceof BlobIntentPendingError)) throw err
+      const raced = await getIntent(this.store, this.vault, this.collection, this.recordId, this.getDEK)
+      if (raced) return raced
+      throw err // vanishingly unlikely: deleted between the failed create and this read
+    }
+  }
+
+  /**
+   * Release every hold in `intent.holds` (stamped with `intent.opId`), then
+   * delete the slot map / readable version rows / the marker itself — the
+   * shred journal's consume step (#753 spec §7 §2c), shared by
+   * `shredAllForRecord` and `resolvePendingIntent`.
+   *
+   * **C10 (no swallowed releases under a marker):** a release that THROWS
+   * (as opposed to returning `'residue'`, a normal non-error outcome for a
+   * legacy blob) is caught, reported as residue, and marks the whole
+   * consumption incomplete — the slot map, version rows, and the marker
+   * itself are then left IN PLACE (not deleted) so a later resume retries
+   * every hold. Stamped holds that already landed skip re-decrementing
+   * (C1/C4's test-and-set), so redoing the full loop on retry is safe.
+   */
+  private async consumeShredIntent(
+    intent: BlobIntent,
+    tier: number,
+    collected: { slotsPresent: boolean; versionKeysToDelete: string[]; residue: string[] },
+  ): Promise<{ shredded: string[]; retainedShared: string[]; residue: string[] }> {
+    const shredded: string[] = []
+    const retainedShared: string[] = []
+    const residue: string[] = [...collected.residue]
+    let allApplied = true
+
+    for (const hold of intent.holds ?? []) {
+      try {
+        const outcome = await this.releaseRef(hold.eTag, hold.n, true, tier, intent.opId, hold.chunkCount)
+        if (outcome === 'shredded') shredded.push(hold.eTag)
+        else if (outcome === 'retainedShared') retainedShared.push(hold.eTag)
+        else residue.push(hold.eTag)
+      } catch {
+        residue.push(hold.eTag)
+        allApplied = false
+      }
     }
 
-    // Sever the subject's links: the slot map + the readable version rows (#750).
-    if (Object.keys(slots).length > 0) await this.store.delete(this.vault, this.slotsCollection, this.recordId)
-    for (const key of versionKeys) await this.store.delete(this.vault, this.versionsCollection, key)
+    if (allApplied) {
+      if (collected.slotsPresent) await this.store.delete(this.vault, this.slotsCollection, this.recordId)
+      for (const key of collected.versionKeysToDelete) await this.store.delete(this.vault, this.versionsCollection, key)
+      await deleteIntent(this.store, this.vault, this.collection, this.recordId)
+    }
     return { shredded, retainedShared, residue }
+  }
+
+  /**
+   * Resume gate (#753 spec §7 C6): every refCount/slot mutator calls this
+   * FIRST. A pending SHRED marker means a previous `forget()`/
+   * `shredAllForRecord()` crashed mid-flight — refCounts are ambiguous
+   * until it's resumed, so no new blob write may proceed over them; this
+   * resumes it to completion before the caller's own mutation runs. A
+   * pending REHOME marker is PR-2 scope — refuses (see
+   * `BlobRehomeResumeNotImplementedError`) rather than proceeding over an
+   * unresolved half-move.
+   *
+   * Never called from `shredAllForRecord`/`mintShredIntent`/
+   * `mintFreshShredIntent`/`collectShredHolds`/`consumeShredIntent`/
+   * `sweepPendingShredIntents` themselves — those ARE the resume machinery;
+   * routing them back through this gate would recurse.
+   */
+  private async resolvePendingIntent(): Promise<void> {
+    const intent = await getIntent(this.store, this.vault, this.collection, this.recordId, this.getDEK)
+    if (!intent) return
+    if (intent.op === 'rehome') {
+      throw new BlobRehomeResumeNotImplementedError(this.collection, this.recordId)
+    }
+    const tier = intent.ownerTier ?? 0
+    const collected = await this.collectShredHolds(tier)
+    await this.consumeShredIntent(intent, tier, collected)
+  }
+
+  /**
+   * Resume every stranded SHRED marker in THIS collection (#753 spec §7 —
+   * `sweepBlobIntents`'s first real production caller, Task 3 item 5).
+   * Scoped to `this.collection` rather than the whole vault: `forget()`
+   * already iterates per-ref-collection, so calling this from
+   * `mintShredIntent` once per ref opportunistically heals any OTHER
+   * record's marker left behind by a previous crashed operation in the
+   * same collection — "heals untouched ones" (spec C5's retry contract),
+   * without a separate vault-open hook. A pending REHOME marker on a
+   * sibling record is left alone (PR-2 scope, not this sweep's job) rather
+   * than surfaced as a resume failure. `sweepBlobIntents`'s own per-marker
+   * isolation (blob-intent.ts) means one corrupt sibling never blocks
+   * another record's healthy resume.
+   */
+  private async sweepPendingShredIntents(): Promise<void> {
+    await sweepBlobIntents(this.store, this.vault, this.getDEK, async (collection, recordId, marker) => {
+      if (collection !== this.collection || marker.op !== 'shred') return
+      const target = new BlobSet({
+        store: this.store, vault: this.vault, collection, recordId,
+        getDEK: this.getDEK, encrypted: this.encrypted,
+      })
+      await target.resolvePendingIntent()
+    })
+  }
+
+  /**
+   * Mint the `_blob_intent` SHRED marker for this record — `vault.forget()`'s
+   * PRE-tombstone step (#753 spec §7 C5). Captures this record's CURRENT
+   * blob holds (slot map + published versions, at `ownerTier` — the LIVE
+   * pre-tombstone tier) into a fresh marker before any destructive write
+   * happens, so a crash between here and `shredAllForRecord`'s completion —
+   * including one straddling the tombstone itself, which drops `_tier` and
+   * would otherwise strand an elevated record's holds unrecoverably on
+   * retry — leaves a resumable, tier-correct record of what must still be
+   * released.
+   *
+   * First sweeps this collection for any stranded marker
+   * (`sweepPendingShredIntents`) — this resumes a PRE-EXISTING marker for
+   * THIS record (a previous forget() attempt crashed mid-shred) to
+   * completion before minting fresh (C8: never overwrite a pending
+   * marker — that would orphan its op-stamps), as a side effect of the
+   * same collection-wide sweep.
+   */
+  async mintShredIntent(ownerTier: number): Promise<void> {
+    await this.sweepPendingShredIntents()
+    await this.mintFreshShredIntent(ownerTier)
   }
 
   /**
@@ -992,6 +1184,7 @@ export class BlobSet {
    */
   async rehomeForTier(fromTier: number, toTier: number, policy: 'isolate' | 'dedup'): Promise<void> {
     if (!this.encrypted || fromTier === toTier) return
+    await this.resolvePendingIntent() // #753 spec §7 C6: resume a pending shred first; refuse on a pending rehome
     const { slots } = await this.loadSlots(fromTier)
 
     // Old eTag → new eTag for every object the slot loop below physically
@@ -1197,6 +1390,7 @@ export class BlobSet {
     const migrated: string[] = []
     const alreadyErasable: string[] = []
     if (!this.encrypted) return { migrated, alreadyErasable }
+    await this.resolvePendingIntent() // #753 spec §7 C6/C7: resume a pending shred (or refuse on rehome) before migrating
 
     const blobDEK = await this.getDEK(BLOB_COLLECTION)
     // #747: legacy-only by definition (a per-blob `_cek` is what migrate()
@@ -1484,6 +1678,7 @@ export class BlobSet {
   async put(slotName: string, data: Uint8Array, opts?: BlobPutOptions): Promise<void> {
     this.assertKeyPartSafe(this.recordId, 'record id')
     this.assertKeyPartSafe(slotName, 'slot name')
+    await this.resolvePendingIntent() // #753 spec §7 C6: resume a pending shred before accepting a new write
 
     // External-projection path: the field is declared `external` and an
     // ObjectProjection is configured → write the raw bytes as ONE native object
@@ -1843,6 +2038,7 @@ export class BlobSet {
     this.assertKeyPartSafe(this.recordId, 'record id')
     this.assertKeyPartSafe(slotName, 'slot name')
     this.assertExternalDeclared(slotName)
+    await this.resolvePendingIntent() // #753 spec §7 C6: resume a pending shred before accepting a new write
 
     const uploaderUserId = this.userId
     await this.casUpdateSlots((slots) => {
@@ -1873,6 +2069,7 @@ export class BlobSet {
    */
   async setExternalMeta(slotName: string, meta: Record<string, unknown>): Promise<void> {
     this.assertExternalDeclared(slotName)
+    await this.resolvePendingIntent() // #753 spec §7 C6: resume a pending shred before accepting a new write
     await this.casUpdateSlots((slots) => {
       const slot = slots[slotName]
       if (!slot?.external) return null
@@ -1911,6 +2108,7 @@ export class BlobSet {
    * Decrements refCount on the blob. Chunks are GC'd by `vault.blobGC()`.
    */
   async delete(slotName: string): Promise<void> {
+    await this.resolvePendingIntent() // #753 spec §7 C6: resume a pending shred before accepting a new write
     let eTagToRelease: string | undefined
     let externalKeyToDelete: string | undefined
 
@@ -2035,6 +2233,7 @@ export class BlobSet {
     this.assertKeyPartSafe(slotName, 'slot name')
     this.assertKeyPartSafe(label, 'version label')
     this.assertBlobWritable() // #724 I1 completion: same write-time refusal as put()
+    await this.resolvePendingIntent() // #753 spec §7 C6: resume a pending shred before accepting a new write
     const { slots } = await this.loadSlots()
     const slot = slots[slotName]
     if (!slot) throw new NotFoundError(`Slot "${slotName}" not found on record "${this.recordId}"`)
@@ -2113,6 +2312,7 @@ export class BlobSet {
    * Delete a published version. Decrements refCount on its blob.
    */
   async deleteVersion(slotName: string, label: string): Promise<void> {
+    await this.resolvePendingIntent() // #753 spec §7 C6: resume a pending shred before accepting a new write
     const record = await this.loadVersionRecord(slotName, label)
     if (!record) return
 

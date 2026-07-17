@@ -2368,7 +2368,7 @@ export class Vault {
       } catch {
         sealedCekResidue.push(`${ref.collection}:${ref.id}`)
       }
-
+      if (blobsEnabled && !shouldSkipBlobScan(scopedPurge, this.blobFieldsRegistry.has(ref.collection))) await coll.blob(ref.id).mintShredIntent(live?._tier ?? 0) // #753 C5: marker PRE-tombstone
       let shred: { previousVersion: number } | null
       try {
         shred = await coll._writeTombstone(ref.id, actor)
