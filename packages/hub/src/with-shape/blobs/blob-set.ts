@@ -983,8 +983,8 @@ export class BlobSet {
    *    can leave a row-unreferenced destination object that shred's
    *    row-derived holds can never see; replacing the marker instead of
    *    resuming it would leak that object past `forget()` permanently), via
-   *    {@link resolveToShredIntent} — then a fresh SHRED marker is minted
-   *    (or discovered, if the resume's own completion raced with another
+   *    {@link resolveShredIntent} — then a fresh SHRED marker is minted (or
+   *    discovered, if the resume's own completion raced with another
    *    minter) exactly as the no-marker branch below does.
    *
    * **Whole-branch review (#753):** the marker is a crash-safety
@@ -994,6 +994,19 @@ export class BlobSet {
    * residue), this degrades to {@link unmarkedShred} — a best-effort
    * UNMARKED shred, exactly the pre-#753 behavior — rather than aborting
    * and leaving the blobs un-shredded.
+   *
+   * **#746 review Critical 1:** that degradation covers ONLY a genuine
+   * no-marker mint failure — nothing was in flight, so a live-row
+   * best-effort re-collection is safe. A REHOME-resume failure is a
+   * DIFFERENT failure mode: a marker WAS present and its holds are
+   * ambiguous mid-move (C10's whole point). `resolveShredIntent` below
+   * therefore never wraps `consumeRehomeIntent` in the mint's degradation
+   * try/catch — a resume failure propagates all the way out of this
+   * method uncaught, leaving the rehome marker alive (never `deleteIntent`d)
+   * for a later resume, instead of silently falling through to
+   * `unmarkedShred`, which would both clobber rows the ambiguous rehome
+   * still needs and abandon the marker forever (the exact permanent-leak
+   * shape the journal exists to prevent).
    *
    * `collectShredHolds` is re-run here (idempotent — a corrupt/unreadable
    * row stays corrupt/unreadable on re-read; an already-deleted row reads
@@ -1007,46 +1020,56 @@ export class BlobSet {
     residue: string[]
   }> {
     const tierArg = ownerTier ?? 0
-    let intent: BlobIntent
-    try {
-      intent = await this.resolveToShredIntent(
-        await getIntent(this.store, this.vault, this.collection, this.recordId, this.getDEK),
-        tierArg,
-      )
-    } catch {
-      // Whole-branch review (#753): the mint is a crash-safety enhancement,
-      // never a precondition for erasure — degrade to a best-effort
-      // unmarked shred rather than abort with the blobs un-shredded.
-      return this.unmarkedShred(tierArg)
-    }
+    const intent = await this.resolveShredIntent(tierArg)
+    if (!intent) return this.unmarkedShred(tierArg)
     const tier = intent.ownerTier ?? tierArg
     const collected = await this.collectShredHolds(tier)
     return this.consumeShredIntent(intent, tier, collected)
   }
 
   /**
-   * Resolve a possibly-`null` / possibly-`op:'rehome'` intent down to a
-   * SHRED `BlobIntent` (#746 spec §7 Q1) — `shredAllForRecord`'s entry
-   * logic, factored out so the try/catch around it (degrading to
-   * {@link unmarkedShred} on a mint failure) covers both the direct mint
-   * AND the resume-then-mint path uniformly. A pending REHOME marker
-   * (whether found up front or discovered via a raced `createIntent`) is
-   * resumed to completion via {@link consumeRehomeIntent} first — "nothing
-   * left to rehome" once shred takes over — then a fresh SHRED marker is
-   * minted for the now-clean record.
+   * Resolve a SHRED `BlobIntent` for this record, or `null` when the entry
+   * mint itself failed and nothing was in flight (the caller degrades to
+   * {@link unmarkedShred}) — `shredAllForRecord`'s entry logic (#746 spec §7
+   * Q1), factored out so the two failure modes stay structurally separate
+   * (#746 review Critical 1):
+   *
+   *  - A pending REHOME marker — found up front OR discovered via a raced
+   *    `createIntent` inside `mintFreshShredIntent` — is resumed via
+   *    {@link consumeRehomeIntent} OUTSIDE the `try` below. Its failure
+   *    PROPAGATES to the caller uncaught: holds are ambiguous mid-move, so
+   *    this must surface, never silently degrade.
+   *  - Only `mintFreshShredIntent` itself (the create-a-fresh-SHRED-marker
+   *    step, reached with no rehome in flight) is wrapped — its failure is
+   *    the ONLY thing `null` reports, matching the whole-branch-review
+   *    degrade contract exactly.
+   *
+   * The loop re-attempts the mint after resuming a raced rehome discovery,
+   * mirroring `resolveToShredIntent`'s prior recursive shape without ever
+   * routing a `consumeRehomeIntent` call through the mint's own catch.
    */
-  private async resolveToShredIntent(intent: BlobIntent | null, tierArg: number): Promise<BlobIntent> {
-    if (intent && intent.op === 'rehome') {
-      await this.consumeRehomeIntent(intent)
-      intent = null
+  private async resolveShredIntent(tierArg: number): Promise<BlobIntent | null> {
+    let intent = await getIntent(this.store, this.vault, this.collection, this.recordId, this.getDEK)
+    for (;;) {
+      if (intent && intent.op === 'rehome') {
+        await this.consumeRehomeIntent(intent) // #746 review Critical 1: never caught here — propagates
+        intent = null
+      }
+      if (intent) return intent
+      try {
+        intent = await this.mintFreshShredIntent(tierArg)
+      } catch {
+        // Whole-branch review (#753): the mint is a crash-safety enhancement,
+        // never a precondition for erasure — report "nothing resolved" so
+        // the caller degrades to a best-effort unmarked shred. Scoped to
+        // ONLY the mint call above — a `consumeRehomeIntent` failure never
+        // reaches this catch (#746 review Critical 1).
+        return null
+      }
+      if (intent.op === 'shred') return intent
+      // intent.op === 'rehome': raced with a concurrent minter (C4) — loop
+      // back to resume IT (outside this try/catch) before retrying the mint.
     }
-    if (intent) return intent
-    const minted = await this.mintFreshShredIntent(tierArg)
-    if (minted.op === 'rehome') {
-      await this.consumeRehomeIntent(minted)
-      return this.resolveToShredIntent(null, tierArg)
-    }
-    return minted
   }
 
   /**
@@ -1491,12 +1514,27 @@ export class BlobSet {
         for (const eTag of doneETags) {
           let loaded: { blob: BlobObject; version: number; atTier: number } | null
           try {
+            // #746 review Critical 2: NO `alsoTryTier` — `loadBlobObject`'s
+            // own DEFAULT fallback (implicit tier 0 when `toTier > 0`) would
+            // otherwise silently open a still-flat `dedup`-left-in-place
+            // object (#741, refCount > 1) at tier 0 and report success; the
+            // `loaded.atTier !== toTier` guard below is what actually
+            // catches that case (a `TamperedError` here only covers the
+            // rarer "no fallback exists at all", e.g. `toTier === 0`).
             loaded = await this.loadBlobObject(eTag, toTier)
           } catch (err) {
             if (err instanceof TamperedError) continue // legacy/dedup, left flat — never moved, nothing to reconstruct
             throw err
           }
-          if (!loaded || loaded.blob._cek === undefined) continue
+          // `loaded.atTier !== toTier`: the object opened via a FALLBACK
+          // tier (not `toTier` itself) — it never actually moved to
+          // `toTier` (a `dedup`-policy shared object left flat on purpose,
+          // #741). Fetching it under `toBlobDEK` below would unwrap a
+          // `_cek` that was never wrapped under that key — an uncaught
+          // `TamperedError`/unwrap failure, permanently stuck on resume.
+          // Nothing to reconstruct for it: its slot never held a DIFFERENT
+          // eTag to begin with.
+          if (!loaded || loaded.atTier !== toTier || loaded.blob._cek === undefined) continue
           const plaintext = await this.fetchAllChunks(loaded.blob, toBlobDEK)
           const oldETag = await hmacSha256Hex(fromBlobDEK, plaintext)
           if (oldETag !== eTag) rehomedETags.set(oldETag, eTag)

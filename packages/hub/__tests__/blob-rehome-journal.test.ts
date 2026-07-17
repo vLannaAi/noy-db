@@ -673,3 +673,76 @@ describe('the slot-CAS→deferred-release gap is closed by the pendingRelease br
     dbResume.close()
   })
 })
+
+// ─── #746 review Critical 2: dedup reconstruction is tier-aware ─────────
+
+describe('#746 review Critical 2 — the "already moved" reconstruction is tier-aware (DEK-mismatch fix)', () => {
+  it('a shared (refCount>1) dedup-policy slot resumes cleanly: reconstruction leaves the still-flat object alone instead of unwrapping it under the wrong DEK', async () => {
+    const store = memory()
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vault0 = await db0.openVault(VAULT)
+    const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1, 2], perRecordKeys: true, blobTierPolicy: 'dedup' })
+
+    // Two records dedup-hit the SAME content at tier 0 → refCount 2. Under
+    // `blobTierPolicy: 'dedup'`, rehoming 'r1' alone must leave the shared
+    // object flat (#741) — only 'r1's slot MAP entry (metadata) moves, the
+    // eTag it points at stays unchanged.
+    const shared = bytes('dedup-shared content')
+    await docs0.putAtTier('r1', { id: 'r1', title: 'R1' }, 0)
+    await docs0.blob('r1').put('a', shared)
+    await docs0.putAtTier('r2', { id: 'r2', title: 'R2' }, 0)
+    await docs0.blob('r2').put('a', shared) // dedup hit at tier 0 → refCount 2
+    const sharedETag = (await docs0.blob('r1').blobInfo('a'))!.eTag
+    expect((await docs0.blob('r1').blobInfo('a'))!.refCount).toBe(2)
+    db0.close()
+
+    // Crash `elevate('r1', 1)` exactly on the marker's OWN delete (the
+    // LAST step) — the slot section (dedup no-op content skip + the final
+    // whole-map `saveSlots` move) fully completes for real; only the
+    // `_blob_intent` marker's own delete hangs. This is what makes a LATER
+    // resume re-enter `runRehomeSteps` with the slot map ALREADY open at
+    // `toTier` — the "already fully moved" reconstruction branch Critical
+    // 2 targets.
+    let reached!: () => void
+    const reachedPromise = new Promise<void>((r) => { reached = r })
+    const crashing = hangOnNthDelete(store, (col) => col === '_blob_intent', 1, () => reached())
+    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vaultCrash = await dbCrash.openVault(VAULT)
+    const docsCrash = vaultCrash.collection<Doc>('docs', { tiers: [0, 1, 2], perRecordKeys: true, blobTierPolicy: 'dedup' })
+    void docsCrash.elevate('r1', 1) // fire-and-forget: never settles (simulated crash)
+    await reachedPromise
+
+    expect(await store.list(VAULT, '_blob_intent')).toHaveLength(1) // marker still pending (its own delete hung)
+    expect(store.raw(VAULT, INDEX_COLLECTION, sharedETag)).toBeDefined() // the shared object is genuinely untouched
+
+    // Resume: a fresh session, elevate to a FURTHER tier — `syncTierMove`
+    // resumes the STALE 0→1 marker first (per this file's other resume
+    // tests' shared note on why a same-tier re-`elevate()` can't be the
+    // resuming call), re-entering `runRehomeSteps` with the slot map
+    // already at tier 1.
+    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vaultResume = await dbResume.openVault(VAULT)
+    const docsResume = vaultResume.collection<Doc>('docs', { tiers: [0, 1, 2], perRecordKeys: true, blobTierPolicy: 'dedup' })
+
+    // THE regression check: resume must COMPLETE — pre-fix, the
+    // reconstruction branch's `loadBlobObject(eTag, toTier)` call (no
+    // `alsoTryTier`) silently opened the still-flat shared object at tier 0
+    // via its own default fallback, passed the `_cek !== undefined` check
+    // (a dedup-retained object IS erasable, just left in place), and then
+    // unwrapped its `_cek` under `toBlobDEK` (tier 1) — a DEK mismatch,
+    // throwing uncaught and leaving resume permanently stuck.
+    await expect(docsResume.elevate('r1', 2)).resolves.toBeUndefined()
+
+    expect(await store.list(VAULT, '_blob_intent')).toEqual([]) // no dangling marker
+
+    // The shared object is STILL correctly flat (never moved — #741) and
+    // reads correctly for BOTH records.
+    expect(store.raw(VAULT, INDEX_COLLECTION, sharedETag)).toBeDefined()
+    expect((await docsResume.blob('r2').blobInfo('a'))!.refCount).toBe(2)
+    const r1AtTier = await docsResume.blob('r1').atTier()
+    expect(await r1AtTier.get('a')).toEqual(shared)
+    expect(await docsResume.blob('r2').get('a')).toEqual(shared)
+
+    dbResume.close()
+  })
+})

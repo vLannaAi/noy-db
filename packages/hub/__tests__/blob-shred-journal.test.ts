@@ -481,6 +481,78 @@ describe('a pending rehome marker is resumed by the next write, not refused (#74
   })
 })
 
+// ─── #746 review Critical 1: a rehome-resume failure must PROPAGATE ──────
+
+describe('#746 review Critical 1 — a rehome-resume failure propagates, never degrades to unmarkedShred', () => {
+  it('shredAllForRecord() discovers a pending rehome marker whose resume release THROWS → the error propagates, the marker survives, rows are not clobbered by an unmarked shred', async () => {
+    const store = memory()
+    const db0 = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const vault0 = await db0.openVault('v')
+    const invoices0 = vault0.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
+    await invoices0.put('r', { id: 'r', buyerId: 'x', amount: 1 })
+    await invoices0.blob('r').put('a.pdf', bytes('elevated content'))
+    const oldETag = (await invoices0.blob('r').blobInfo('a.pdf'))!.eTag
+    db0.close()
+
+    // Crash `elevate()` exactly after the slot CAS lands (the slot now
+    // points at the NEW eTag; the `pendingRelease` breadcrumb durably
+    // records the old one — #746 review carried finding (b)) but BEFORE
+    // the old object's release even starts: hang on the FIRST `_blob_index`
+    // put targeting `oldETag` itself (mirrors
+    // blob-rehome-journal.test.ts's dedicated finding-(b) crash point).
+    let reached!: () => void
+    const reachedPromise = new Promise<void>((r) => { reached = r })
+    const crashing: NoydbStore = {
+      ...store,
+      async put(v, col, id, env, ev) {
+        if (col === '_blob_index' && id === oldETag) { reached(); return new Promise<void>(() => {}) }
+        return store.put(v, col, id, env, ev)
+      },
+    }
+    const dbCrash = await createNoydb({ store: crashing, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const vaultCrash = await dbCrash.openVault('v')
+    const invoicesCrash = vaultCrash.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
+    void invoicesCrash.elevate('r', 1) // fire-and-forget: never settles (simulated crash)
+    await reachedPromise
+
+    expect(store.rawList('v', BLOB_INTENT_COLLECTION).some((k) => k.startsWith('invoices::r'))).toBe(true)
+    expect(store.raw('v', '_blob_index', oldETag)).toBeDefined() // untouched — release never even started
+
+    // Resume: a fresh session where the SAME write (the old object's
+    // release CAS) THROWS instead of hanging — a genuine, non-crash write
+    // failure (e.g. a transient store error), not a process crash.
+    // `shredAllForRecord()` discovers the pending rehome marker and must
+    // resume it FIRST (Q1); that resume's own release now fails for real.
+    const throwing: NoydbStore = {
+      ...store,
+      async put(v, col, id, env, ev) {
+        if (col === '_blob_index' && id === oldETag) throw new Error('simulated release failure')
+        return store.put(v, col, id, env, ev)
+      },
+    }
+    const dbResume = await createNoydb({ store: throwing, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const vaultResume = await dbResume.openVault('v')
+    const invoicesResume = vaultResume.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
+
+    // THE regression check: the failure PROPAGATES out of
+    // `shredAllForRecord()` — it must reject, never silently return a
+    // degraded (unmarked-shred) result over an ambiguous half-moved record.
+    await expect(invoicesResume.blob('r').shredAllForRecord(1)).rejects.toThrow('simulated release failure')
+
+    // The rehome marker SURVIVES (never `deleteIntent`d) — resumable
+    // later, not silently abandoned.
+    expect(store.rawList('v', BLOB_INTENT_COLLECTION).some((k) => k.startsWith('invoices::r'))).toBe(true)
+
+    // Rows are NOT clobbered by an unmarked shred: the slot map row still
+    // exists (`unmarkedShred` would have unconditionally deleted it), and
+    // the old object is untouched (its release genuinely never landed).
+    expect(store.rawList('v', '_blob_slots_invoices')).toHaveLength(1)
+    expect(store.raw('v', '_blob_index', oldETag)).toBeDefined()
+
+    dbResume.close()
+  })
+})
+
 // ─── Sweep isolation: one corrupt marker doesn't block a healthy sibling ──
 
 describe('sweepBlobIntents isolation (#753 Task 3 item 5, carried Task 2 finding)', () => {
