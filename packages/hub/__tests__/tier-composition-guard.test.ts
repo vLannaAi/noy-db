@@ -17,7 +17,7 @@
  * elevated record's blob content.
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb, ConflictError, withSearch } from '../src/index.js'
+import { createNoydb, ConflictError, withSearch, UnsupportedTierCompositionError } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withBlobs } from '../src/via/blob/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
@@ -163,6 +163,26 @@ describe('tier + blobFields composition (Arc-7 refusal removed — #724)', () =>
       store: memoryStore(), secret: 'pw', user: 'owner',
       tiersStrategy: withTiers(), historyStrategy: withHistory(),
     })
+    const vault = await db.openVault('v1')
+    expect(() => vault.collection<Doc>('docs', { tiers: [0, 1] })).not.toThrow()
+  })
+})
+
+describe('tiers + encrypted: false composition (#740)', () => {
+  it('tiers on a plaintext (encrypted: false) collection is refused at construction', async () => {
+    const db = await createNoydb({ store: memoryStore(), user: 'owner', encrypt: false, tiersStrategy: withTiers() })
+    const vault = await db.openVault('v1')
+    expect(() => vault.collection<Doc>('docs', { tiers: [0, 1] })).toThrow(UnsupportedTierCompositionError)
+  })
+
+  it('encrypted: false without tiers still constructs fine', async () => {
+    const db = await createNoydb({ store: memoryStore(), user: 'owner', encrypt: false })
+    const vault = await db.openVault('v1')
+    expect(() => vault.collection<Doc>('docs')).not.toThrow()
+  })
+
+  it('tiers + default encryption still constructs fine', async () => {
+    const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner', tiersStrategy: withTiers() })
     const vault = await db.openVault('v1')
     expect(() => vault.collection<Doc>('docs', { tiers: [0, 1] })).not.toThrow()
   })

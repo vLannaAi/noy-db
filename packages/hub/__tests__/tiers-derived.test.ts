@@ -474,11 +474,11 @@ describe('#722 review fix: syncDerived pre-move decode is gated by hasDerivedOut
     interface Buyer extends Record<string, unknown> { id: string; companyName: string; totalSpent?: number }
     interface Sale extends Record<string, unknown> { id: string; buyerId: string; total: number }
 
-    // `hasDerivedOutputs` is computed per-collection from the VAULT's
-    // derivation/MV registry presence (`this.derivationSource !==
-    // undefined || this.materializedViewSource !== undefined` —
-    // `tiersContext()`), not from whether this specific collection is a
-    // registered source — so the two elevates must run against two
+    // `hasDerivedOutputs` is computed per-collection from whether THIS
+    // collection is itself a registered source (`registry.strategiesForSource(this.name)`
+    // / `registry.mvsForSource(this.name)`, #737 — source-grained, was
+    // vault-grained), not from whether the vault has any derivation/MV
+    // registry configured at all — so the two elevates must run against two
     // SEPARATE vaults (one with no derivation strategy configured at all,
     // one with) to observe the gate.
     const plainDb = await createNoydb({
@@ -722,11 +722,12 @@ describe('#737 hasDerivedOutputs is source-grained', () => {
       user: 'owner',
       secret: 'source-grained-derived-outputs-passphrase-2026',
       tiersStrategy: withTiers(),
-      // The rollup's source is 'sales' — 'docs' below is neither its
-      // source, an extra source, a trigger, nor its rollup.from, so it is
-      // NOT a registered derivation source. Under the old vault-grained
-      // gate, `docs` still paid the pre-move decode solely because THIS
-      // vault has a derivation registered (on a different collection).
+      // The rollup's `spec.source` (parent) is 'buyers' and its
+      // `spec.rollup.from` (child/trigger) is 'sales' — 'docs' below is
+      // neither, nor an extra source, nor a trigger, so it is NOT a
+      // registered derivation source. Under the old vault-grained gate,
+      // `docs` still paid the pre-move decode solely because THIS vault has
+      // a derivation registered (on a different collection).
       derivationStrategies: [totalSpentRollup],
     })
     const vault = await db.openVault('demo')
