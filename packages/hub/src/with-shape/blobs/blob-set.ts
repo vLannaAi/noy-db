@@ -1228,8 +1228,18 @@ export class BlobSet {
    * are no longer tier-0-readable at rest for an elevated record. No
    * separate delete: it's the same physical row, just re-keyed in place
    * (mirrors `history.ts`'s `rewrapHistory`).
+   *
+   * @param opId #753/#746 spec §7 C3: the governing `_blob_intent` rehome
+   * marker's op-stamp identity, threaded through by PR-2's marker mint
+   * (`syncBlobs`). Omitted (today's every call site) → byte-identical
+   * unstamped behavior. When present, every DESTINATION refCount `+1` this
+   * call performs (the slot loop's dedup-hit re-put below, and
+   * `rehomeVersionETag`'s own increment) carries a ROW-SCOPED stamp —
+   * `${opId}:${slotName}` / `${opId}:${versionKey}`, never the bare opId —
+   * so a resumed re-put's `+1` is idempotent per row without collapsing N
+   * legitimate `+1`s onto one destination eTag into one.
    */
-  async rehomeForTier(fromTier: number, toTier: number, policy: 'isolate' | 'dedup'): Promise<void> {
+  async rehomeForTier(fromTier: number, toTier: number, policy: 'isolate' | 'dedup', opId?: string): Promise<void> {
     if (!this.encrypted || fromTier === toTier) return
     await this.resolvePendingIntent() // #753 spec §7 C6: resume a pending shred first; refuse on a pending rehome
     const { slots } = await this.loadSlots(fromTier)
@@ -1273,7 +1283,7 @@ export class BlobSet {
               ...(blob.mimeType !== undefined ? { mimeType: blob.mimeType } : {}),
               compress: blob.compression === 'gzip',
               ...(slot.uploadedBy !== undefined ? { uploadedBy: slot.uploadedBy } : {}),
-            }, fromTier, toTier)
+            }, fromTier, toTier, opId)
           }
         }
       }
@@ -1289,7 +1299,7 @@ export class BlobSet {
     // whose eTag was superseded in the slot map (overwritten after publish)
     // would otherwise never be rehomed at all, and the version RECORD
     // itself (label/eTag/timestamps) stays on the fromTier collection DEK.
-    await this.rehomeVersionRecords(fromTier, toTier, policy, rehomedETags)
+    await this.rehomeVersionRecords(fromTier, toTier, policy, rehomedETags, opId)
   }
 
   /**
@@ -1311,6 +1321,7 @@ export class BlobSet {
     toTier: number,
     policy: 'isolate' | 'dedup',
     rehomedETags: Map<string, string>,
+    opId?: string,
   ): Promise<void> {
     const prefix = `${this.recordId}::`
     const allKeys = await this.store.list(this.vault, this.versionsCollection)
@@ -1328,7 +1339,7 @@ export class BlobSet {
         ? JSON.parse(await openEnvelopeJson(envelope, fromCollDEK)) as VersionRecord
         : JSON.parse(envelope._data) as VersionRecord
 
-      const newETag = await this.rehomeVersionETag(record, fromTier, toTier, fromBlobDEK, toBlobDEK, policy, rehomedETags)
+      const newETag = await this.rehomeVersionETag(record, fromTier, toTier, fromBlobDEK, toBlobDEK, policy, rehomedETags, key, opId)
       const moved: VersionRecord = newETag === record.eTag ? record : { ...record, eTag: newETag }
       await this.writeVersionRecordAtKey(key, moved, toTier)
     }
@@ -1353,6 +1364,16 @@ export class BlobSet {
    * loop above — reads of the version's CURRENTLY-held eTag (and releases of
    * it) pin `fromTier`; the re-put and the refCount bump onto an
    * already-rehomed (slot-loop-produced) eTag pin `toTier`.
+   *
+   * @param versionKey / @param opId #753/#746 spec §7 C3: when `opId` is
+   * present (a marker-governed rehome), every destination `+1` this call
+   * performs — both the `already`-rehomed fast path's explicit CAS and the
+   * `writeBlobContent` re-put's own dedup-hit CAS — carries the row-scoped
+   * stamp `${opId}:${versionKey}`, never the bare opId (see
+   * `rehomeForTier`'s `opId` doc comment). The OLD-eTag release below reuses
+   * the SAME row-scoped stamp: it targets a DIFFERENT `BlobObject` (the
+   * source eTag, not the destination), so no collision, and a resumed
+   * re-put can't double-release it either.
    */
   private async rehomeVersionETag(
     record: VersionRecord,
@@ -1362,11 +1383,18 @@ export class BlobSet {
     toBlobDEK: EnclaveKey,
     policy: 'isolate' | 'dedup',
     rehomedETags: Map<string, string>,
+    versionKey: string,
+    opId?: string,
   ): Promise<string> {
+    const stamp = opId !== undefined ? `${opId}:${versionKey}` : undefined
     const already = rehomedETags.get(record.eTag)
     if (already !== undefined) {
-      await this.casUpdateRefCount(already, +1, toTier)
-      await this.releaseRef(record.eTag, 1, false, fromTier).catch(() => {})
+      if (stamp !== undefined) {
+        await this.casUpdateRefCountStamped(already, +1, toTier, stamp)
+      } else {
+        await this.casUpdateRefCount(already, +1, toTier)
+      }
+      await this.releaseRef(record.eTag, 1, false, fromTier, stamp).catch(() => {})
       return already
     }
 
@@ -1379,10 +1407,10 @@ export class BlobSet {
       filename: record.label,
       ...(loaded.blob.mimeType !== undefined ? { mimeType: loaded.blob.mimeType } : {}),
       compress: loaded.blob.compression === 'gzip',
-    }, toTier)
+    }, toTier, stamp)
     rehomedETags.set(record.eTag, newETag) // memoize: two versions may share an eTag outside the slot map too
     if (newETag !== record.eTag) {
-      await this.releaseRef(record.eTag, 1, false, fromTier).catch(() => {})
+      await this.releaseRef(record.eTag, 1, false, fromTier, stamp).catch(() => {})
     }
     return newETag
   }
@@ -1825,6 +1853,19 @@ export class BlobSet {
    * (matching `blobDEK`, already resolved at `toTier`), since mid-move
    * `ownerTier()` already reads `toTier` too but this is more direct.
    * Omitted → `ownerTier()`, correct for `put()`'s ordinary (non-rehome) call.
+   * @param opId #753/#746 spec §7 C3: `rehomeForTier`'s governing marker
+   * op-stamp identity (omitted → `undefined`, `put()`'s ordinary call and
+   * every pre-existing caller, byte-identical unstamped behavior). When
+   * present, the ROW-SCOPED stamp `${opId}:${slotName}` — never the bare
+   * opId — governs BOTH this call's destination `+1` (via
+   * `writeBlobContent`'s dedup-hit CAS) and its old-eTag release below: two
+   * different `BlobObject`s (destination vs. source), so the shared stamp
+   * string collides with neither, and a resumed re-put of THIS slot can
+   * neither double-apply the `+1` nor double-release the old object. Two
+   * DIFFERENT slots on this record legitimately re-putting the SAME
+   * destination eTag each get their OWN stamp (their own `slotName`) — the
+   * row scope is what lets N slots' `+1`s all land on one destination
+   * object instead of the first silently absorbing the rest.
    */
   private async putUnderDEK(
     slotName: string,
@@ -1833,8 +1874,10 @@ export class BlobSet {
     opts?: BlobPutOptions,
     slotsTier?: number,
     contentTier?: number,
+    opId?: string,
   ): Promise<void> {
-    const { eTag, mimeType } = await this.writeBlobContent(data, blobDEK, opts, contentTier)
+    const rowStamp = opId !== undefined ? `${opId}:${slotName}` : undefined
+    const { eTag, mimeType } = await this.writeBlobContent(data, blobDEK, opts, contentTier, rowStamp)
 
     // Step 7 — CAS-update slot metadata
     const uploaderUserId = opts?.uploadedBy ?? this.userId
@@ -1863,7 +1906,7 @@ export class BlobSet {
       // #747: the old eTag lives at `slotsTier` (the slot map's CURRENT
       // physical location — see the param doc above), not this record's
       // live tier — those diverge mid-rehome.
-      await this.releaseRef(oldETag, 1, false, slotsTier).catch(() => {
+      await this.releaseRef(oldETag, 1, false, slotsTier, rowStamp).catch(() => {
         // Best-effort — a missed decrement is reconciled by a later pass.
       })
     }
@@ -1881,12 +1924,22 @@ export class BlobSet {
    * {@link loadBlobObject}'s `tier` param) — `putUnderDEK`'s `contentTier`,
    * matching whichever tier `blobDEK` itself was resolved at. Omitted →
    * `ownerTier()`, correct for `put()`'s ordinary (non-rehome) call.
+   * @param incrementStamp #753/#746 spec §7 C3: when present, a dedup hit at
+   * Step 3 applies its `+1` via {@link casUpdateRefCountStamped} under this
+   * stamp instead of the plain {@link casUpdateRefCount} — the row-scoped
+   * identity `putUnderDEK`/`rehomeVersionETag` compute so a resumed re-put's
+   * destination increment is idempotent per row. Omitted (every call site
+   * before this arc) → byte-identical unstamped behavior. Never consulted on
+   * the fresh-object create path (Step 6): that write has no delta to
+   * double-apply — a resumed re-put of a since-created eTag always lands
+   * back on THIS dedup-hit branch, which the stamp does cover.
    */
   private async writeBlobContent(
     data: Uint8Array,
     blobDEK: EnclaveKey | null,
     opts?: BlobPutOptions,
     tier?: number,
+    incrementStamp?: string,
   ): Promise<{ eTag: string; mimeType: string | undefined }> {
     // Step 1 — keyed content-hash (plaintext, before compression)
     const eTag = blobDEK
@@ -1922,7 +1975,11 @@ export class BlobSet {
       // eTag already exists — just increment refCount (CAS retry). Dedup is
       // preserved across the content-CEK split: the chunks (and the BlobObject's
       // `_cek`, if any) are reused as-is; a new referencer never re-encrypts.
-      await this.casUpdateRefCount(eTag, +1, tier)
+      if (incrementStamp !== undefined) {
+        await this.casUpdateRefCountStamped(eTag, +1, tier, incrementStamp)
+      } else {
+        await this.casUpdateRefCount(eTag, +1, tier)
+      }
       return { eTag, mimeType }
     }
 
