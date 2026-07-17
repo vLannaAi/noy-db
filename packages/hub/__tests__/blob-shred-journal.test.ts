@@ -21,7 +21,7 @@ import { withHistory } from '../src/with-commit/history/index.js'
 import { withForgetCascade } from '../src/with-audit/forget/index.js'
 import { withBlobs } from '../src/via/blob/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
-import { ConflictError, BlobRehomeResumeNotImplementedError } from '../src/kernel/errors.js'
+import { ConflictError } from '../src/kernel/errors.js'
 import { generateDEK } from '../src/kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import {
@@ -401,24 +401,83 @@ describe('C4 — two concurrent resumers racing the same stranded marker', () =>
   })
 })
 
-// ─── A pending 'rehome' marker → clear PR-2 seam error ───────────────────
+// ─── A pending 'rehome' marker is resumed, not refused (#746 PR-2) ───────
 
-describe('a pending rehome marker refuses cleanly (PR-1/PR-2 seam)', () => {
-  it('put() and shredAllForRecord() both throw BlobRehomeResumeNotImplementedError', async () => {
+describe('a pending rehome marker is resumed by the next write, not refused (#746 spec §7 C6)', () => {
+  it('put() resumes a stranded elevate() rehome to completion before its own write proceeds', async () => {
     const store = memory()
-    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
-    const vault = await db.openVault('v')
-    const invoices = vault.collection<Invoice>('invoices', { perRecordKeys: true })
-    await invoices.put('r', { id: 'r', buyerId: 'x', amount: 1 })
+    const db0 = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const vault0 = await db0.openVault('v')
+    const invoices0 = vault0.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
+    await invoices0.put('r', { id: 'r', buyerId: 'x', amount: 1 })
+    await invoices0.blob('r').put('a.pdf', bytes('elevated content'))
+    db0.close()
 
-    const rehome: BlobIntent = { op: 'rehome', opId: 'rehome-op', fromTier: 0, toTier: 1, policy: 'isolate' }
-    const getDEK = (vault as unknown as { getDEK: (c: string) => Promise<import('../src/kernel/enclave/index.js').EnclaveKey> }).getDEK
-    await createIntent(store, 'v', 'invoices', 'r', getDEK, rehome)
+    // Crash `elevate()` exactly at the rehome marker's OWN first write
+    // (`_blob_slots_invoices`'s slot-CAS, inside `runRehomeSteps`) — the
+    // record's `_tier` already landed at 1 (elevate() writes the record
+    // BEFORE calling syncBlobs/syncTierMove), but the blob side never moved.
+    let reached!: () => void
+    const reachedPromise = new Promise<void>((r) => { reached = r })
+    const crashing = hangOnNthPut(store, (col) => col === '_blob_slots_invoices', 1, () => reached())
+    const dbCrash = await createNoydb({ store: crashing, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const vaultCrash = await dbCrash.openVault('v')
+    const invoicesCrash = vaultCrash.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
+    void invoicesCrash.elevate('r', 1) // fire-and-forget: never settles (simulated crash)
+    await reachedPromise
+    expect(store.rawList('v', BLOB_INTENT_COLLECTION).some((k) => k.startsWith('invoices::r'))).toBe(true)
 
-    await expect(invoices.blob('r').put('x.pdf', bytes('x'))).rejects.toBeInstanceOf(BlobRehomeResumeNotImplementedError)
-    await expect(invoices.blob('r').shredAllForRecord()).rejects.toBeInstanceOf(BlobRehomeResumeNotImplementedError)
+    // Fresh session: an ORDINARY put() must resume the stranded rehome
+    // FIRST (not throw), then proceed with its own write on the now-clean
+    // record.
+    const dbResume = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const vaultResume = await dbResume.openVault('v')
+    const invoicesResume = vaultResume.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
+    await invoicesResume.blob('r').put('b.pdf', bytes('new content'))
 
-    db.close()
+    // The marker is gone and the elevated blob is readable at tier 1.
+    expect(store.rawList('v', BLOB_INTENT_COLLECTION).some((k) => k.startsWith('invoices::r'))).toBe(false)
+    const atTier = await invoicesResume.blob('r').atTier()
+    expect(await atTier.get('a.pdf')).toEqual(bytes('elevated content'))
+    expect(await atTier.get('b.pdf')).toEqual(bytes('new content'))
+
+    dbResume.close()
+  })
+
+  it('shredAllForRecord() resumes a pending rehome FIRST, then shreds (#746 spec §7 Q1)', async () => {
+    const store = memory()
+    const db0 = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const vault0 = await db0.openVault('v')
+    const invoices0 = vault0.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
+    await invoices0.put('r', { id: 'r', buyerId: 'x', amount: 1 })
+    await invoices0.blob('r').put('a.pdf', bytes('elevated content'))
+    db0.close()
+
+    let reached!: () => void
+    const reachedPromise = new Promise<void>((r) => { reached = r })
+    const crashing = hangOnNthPut(store, (col) => col === '_blob_slots_invoices', 1, () => reached())
+    const dbCrash = await createNoydb({ store: crashing, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const vaultCrash = await dbCrash.openVault('v')
+    const invoicesCrash = vaultCrash.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
+    void invoicesCrash.elevate('r', 1) // fire-and-forget: never settles (simulated crash)
+    await reachedPromise
+
+    // Q1: a half-done rehome can leave a row-unreferenced destination object
+    // shred's row-derived holds could never see — resume-then-shred (not
+    // supersede) is what keeps it reachable. `shredAllForRecord()` must
+    // resume the rehome to completion (blob physically at tier 1, marker
+    // gone) BEFORE minting/consuming its own shred marker.
+    const dbResume = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const vaultResume = await dbResume.openVault('v')
+    const invoicesResume = vaultResume.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
+    const result = await invoicesResume.blob('r').shredAllForRecord(1) // caller passes the record's live (post-elevate) tier
+    expect(result.shredded).toHaveLength(1)
+    expect(result.residue).toEqual([])
+
+    expect(store.rawList('v', BLOB_INTENT_COLLECTION).some((k) => k.startsWith('invoices::r'))).toBe(false)
+    expect(store.rawList('v', '_blob_slots_invoices')).toHaveLength(0)
+
+    dbResume.close()
   })
 })
 

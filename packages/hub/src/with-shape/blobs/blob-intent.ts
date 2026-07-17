@@ -33,9 +33,9 @@
  * `assertKeyPartSafe`, #752) — re-validated here defensively so the
  * sweep's prefix-free key list stays unambiguous regardless of caller.
  *
- * This module is plumbing only (Task 2 of the PR-1 journal): no entry
- * point (`shredAllForRecord`, `forget()`, `rehomeForTier`) calls into it
- * yet. That wiring is Task 3 (shred) and PR-2 (rehome).
+ * Wired by `shredAllForRecord`/`forget()` (PR-1 Task 3, shred) and by
+ * `BlobSet.syncTierMove`/`rehomeForTier`/`resolvePendingIntent` (PR-2 Task
+ * 2, rehome — mint/resume/consume for `op:'rehome'` markers).
  */
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'

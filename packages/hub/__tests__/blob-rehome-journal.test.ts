@@ -386,7 +386,7 @@ describe('rehomeForTier — version re-put destination +1 is row-scoped stamped 
 // ─── Unstamped rehome stays byte-identical (no opId → no footprint) ──────
 
 describe('rehomeForTier — unstamped (no opId) call is byte-identical to today', () => {
-  it('a dedup-hit rehome with no opId increments refCount normally and leaves no lastOps stamp', async () => {
+  it('a direct call with no opId increments refCount normally and leaves no lastOps stamp', async () => {
     const store = memory()
     const db = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
@@ -394,15 +394,21 @@ describe('rehomeForTier — unstamped (no opId) call is byte-identical to today'
 
     const shared = bytes('unstamped-path content')
 
+    // Direct `rehomeForTier` calls never touch the record's own `_tier`
+    // field (only `elevate()`/`syncTierMove` does — see its own doc
+    // comment), so read the moved slot map/blob object directly at tier 1
+    // via the internal surface (mirrors this file's other direct-call
+    // tests) instead of `atTier()`, which resolves off the LIVE record tier.
     await docs.putAtTier('seed3', { id: 'seed3', title: 'Seed3' }, 0)
     await docs.blob('seed3').put('attachment', shared)
-    await docs.elevate('seed3', 1) // unstamped — today's default path
-    const seed3AtTier = await docs.blob('seed3').atTier()
-    const destETag = (await seed3AtTier.blobInfo('attachment'))!.eTag
+    await docs.blob('seed3').rehomeForTier(0, 1, 'isolate') // direct call, no opId
+    const seed3Internals = docs.blob('seed3') as unknown as BlobSetInternals
+    const { slots: seed3Slots } = await seed3Internals.loadSlots(1)
+    const destETag = seed3Slots.attachment!.eTag
 
     await docs.putAtTier('u', { id: 'u', title: 'U' }, 0)
     await docs.blob('u').put('attachment', shared)
-    await docs.elevate('u', 1) // no opId — this call is what `syncBlobs` still performs today
+    await docs.blob('u').rehomeForTier(0, 1, 'isolate') // no opId — byte-identical to pre-#746 behavior
 
     const destInternals = docs.blob('seed3') as unknown as BlobSetInternals
     const dest = await destInternals.loadBlobObject(destETag, 1)
@@ -410,5 +416,260 @@ describe('rehomeForTier — unstamped (no opId) call is byte-identical to today'
     expect(dest!.blob.lastOps ?? []).toEqual([]) // no stamp recorded — zero footprint when opId is omitted
 
     db.close()
+  })
+})
+
+// ─── syncBlobs (elevate/demote) now mints a real, stamped marker (#746 T2) ─
+
+describe('syncBlobs mints a rehome marker with a FRESH opId per move (#746 spec §7 §2d)', () => {
+  it('elevate() leaves a stamp on the destination and no dangling marker; two records elevated in sequence get DIFFERENT opIds', async () => {
+    const store = memory()
+    const db = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+
+    const shared = bytes('syncBlobs-path content')
+
+    await docs.putAtTier('seed4', { id: 'seed4', title: 'Seed4' }, 0)
+    await docs.blob('seed4').put('attachment', shared)
+    await docs.elevate('seed4', 1) // now goes through syncTierMove: mints+stamps+deletes its own marker
+    const seed4AtTier = await docs.blob('seed4').atTier()
+    const destETag = (await seed4AtTier.blobInfo('attachment'))!.eTag
+    const destInternals = docs.blob('seed4') as unknown as BlobSetInternals
+    const afterFirst = await destInternals.loadBlobObject(destETag, 1)
+    expect(afterFirst!.blob.refCount).toBe(1)
+    expect(afterFirst!.blob.lastOps).toHaveLength(1) // seed4's own create is now stamped
+
+    await docs.putAtTier('u2', { id: 'u2', title: 'U2' }, 0)
+    await docs.blob('u2').put('attachment', shared)
+    await docs.elevate('u2', 1) // a SECOND, independent syncTierMove — its own fresh opId
+
+    const afterSecond = await destInternals.loadBlobObject(destETag, 1)
+    expect(afterSecond!.blob.refCount).toBe(2) // seed4's create + u2's dedup-hit
+    expect(afterSecond!.blob.lastOps).toHaveLength(2) // two DIFFERENT stamps — never the same opId reused across records
+
+    // No dangling `_blob_intent` markers after either move.
+    expect(await store.list(VAULT, '_blob_intent')).toEqual([])
+
+    db.close()
+  })
+})
+
+// ─── PR-2 Task 2: full crash-atomic resumability (marker mint/resume/consume) ─
+
+/**
+ * Below: the PR-2 Task 2 STOP-model matrix — real marker mint (`syncTierMove`,
+ * via `elevate()`), real crash injection, real resume through a PRODUCTION
+ * entry point (a subsequent tier op or an ordinary blob write), never a
+ * hand-planted marker or a bare `rehomeForTier(..., opId)` call. Task 1's
+ * tests above proved the STAMPING primitive; these prove the SEAM: mint
+ * before the first write, per-step from-then-to tolerance, and consume
+ * (delete) only once every phase completes.
+ *
+ * Note on "resume via elevate()": `elevate()` no-ops at the collection level
+ * when the record's `_tier` already equals the target (`if (toTier ===
+ * fromTier) return` — BEFORE `syncBlobs`/`syncTierMove` is ever called), and
+ * a crashed run's RECORD write always lands before its BLOB rehome does
+ * (`elevate()` writes the record, then calls `syncBlobs` last) — so a
+ * same-tier re-`elevate()` is never the resuming call in practice. The tests
+ * below resume either via elevating a STRANDED record to a FURTHER tier
+ * (`syncTierMove`'s own `resolvePendingIntent()` pre-check resumes the stale
+ * marker first, using ITS OWN captured fromTier/toTier/opId, before the new
+ * move proceeds) or via an ordinary blob write (`put()`), both real §2d
+ * "who resumes" paths.
+ */
+
+describe('mid per-eTag loop crash → resume via a subsequent elevate() attempt (#746 spec §7 §2d)', () => {
+  it('two-slot record: one eTag fully moved, one crashed mid-move → resume completes both (mixed alsoTryTier from-then-to open), releases every intermediate object once, marker gone; demote reversal round-trips', async () => {
+    const store = memory()
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vault0 = await db0.openVault(VAULT)
+    const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1, 2], perRecordKeys: true })
+
+    await docs0.putAtTier('mixed', { id: 'mixed', title: 'Mixed' }, 0)
+    await docs0.blob('mixed').put('a', bytes('content A'))
+    await docs0.blob('mixed').put('b', bytes('content B'))
+    const oldA = (await docs0.blob('mixed').blobInfo('a'))!.eTag
+    const oldB = (await docs0.blob('mixed').blobInfo('b'))!.eTag
+    db0.close()
+
+    // Crash `elevate(0→1)` exactly after slot 'a's full move (content
+    // create + slot CAS + old-object release, in that order) but mid slot
+    // 'b's (its destination content already created — Step 6 of
+    // `writeBlobContent`, which precedes the slot CAS — but its OWN slot
+    // CAS never lands): hang on the 2nd `_blob_slots_docs` put.
+    let reached!: () => void
+    const reachedPromise = new Promise<void>((r) => { reached = r })
+    const crashing = hangOnNthPut(store, (col) => col === SLOTS_COLLECTION, 2, () => reached())
+    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vaultCrash = await dbCrash.openVault(VAULT)
+    const docsCrash = vaultCrash.collection<Doc>('docs', { tiers: [0, 1, 2], perRecordKeys: true })
+    void docsCrash.elevate('mixed', 1) // fire-and-forget: never settles (simulated crash)
+    await reachedPromise
+
+    // Mid-crash: the record's own `_tier` already shows 1 (elevate() writes
+    // the record BEFORE calling syncBlobs); the rehome marker is pending.
+    expect(await store.list(VAULT, '_blob_intent')).toHaveLength(1)
+    expect(store.raw(VAULT, INDEX_COLLECTION, oldA)).toBeUndefined() // slot a's old object: released
+    expect(store.raw(VAULT, INDEX_COLLECTION, oldB)).toBeDefined() // slot b's old object: untouched (release never reached)
+
+    // Resume: a fresh session, elevate to a FURTHER tier (2). `syncTierMove`
+    // resumes the STALE 0→1 marker first (per-eTag: 'a' already opens at
+    // tier 1 → skip; 'b' still opens at tier 0 → resume it — the mixed
+    // record this describe block is named for), deletes it, THEN runs its
+    // own fresh 1→2 move.
+    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vaultResume = await dbResume.openVault(VAULT)
+    const docsResume = vaultResume.collection<Doc>('docs', { tiers: [0, 1, 2], perRecordKeys: true })
+    await docsResume.elevate('mixed', 2)
+
+    const atTier2 = await docsResume.blob('mixed').atTier()
+    expect(await atTier2.get('a')).toEqual(bytes('content A'))
+    expect(await atTier2.get('b')).toEqual(bytes('content B'))
+
+    // Every intermediate object (tier 0 AND the transient tier-1 landing)
+    // was released exactly once — nothing stranded.
+    expect(store.raw(VAULT, INDEX_COLLECTION, oldA)).toBeUndefined()
+    expect(store.raw(VAULT, INDEX_COLLECTION, oldB)).toBeUndefined()
+
+    // No marker left behind by either the resumed 0→1 move or the fresh 1→2 one.
+    expect(await store.list(VAULT, '_blob_intent')).toEqual([])
+
+    // Demote reversal still round-trips.
+    await docsResume.demote('mixed', 0)
+    expect(await docsResume.blob('mixed').get('a')).toEqual(bytes('content A'))
+    expect(await docsResume.blob('mixed').get('b')).toEqual(bytes('content B'))
+
+    dbResume.close()
+  })
+})
+
+describe('crash after the slot map fully moves → resume skips the move and completes the version pass (#746 spec §7 §2d)', () => {
+  it('a shared-eTag version (finding (a): the already-rehomed fast path, now reachable) and a unique-content version both resolve correctly on resume', async () => {
+    const store = memory()
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vault0 = await db0.openVault(VAULT)
+    const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+
+    // 'r5': slot 'a' published as 'v1' (v1 holds the SAME eTag as the slot —
+    // the "already"-rehomed fast-path case). A second, unrelated slot
+    // 'temp' is published as 'v2' then deleted — v2's content survives ONLY
+    // as a published version, sharing nothing with any live slot (the
+    // "fresh" re-put case, same shape as this file's earlier version test).
+    await docs0.putAtTier('r5', { id: 'r5', title: 'R5' }, 0)
+    await docs0.blob('r5').put('a', bytes('slot-and-version content'))
+    await docs0.blob('r5').publish('a', 'v1')
+    await docs0.blob('r5').put('temp', bytes('version-only content'))
+    await docs0.blob('r5').publish('temp', 'v2')
+    await docs0.blob('r5').delete('temp')
+    db0.close()
+
+    // Crash exactly after the SLOT section fully completes (content move +
+    // slot CAS + old-object release + the final whole-map `saveSlots` move)
+    // but before EITHER version's own metadata write lands: hang on the
+    // FIRST `_blob_versions_docs` put. A fresh resume session therefore
+    // starts with the slot map ALREADY open at `toTier` and an EMPTY
+    // in-memory `rehomedETags` — the reconstruction branch (not the
+    // trivial same-call fast path) is what makes v1's "already" lookup hit.
+    let reached!: () => void
+    const reachedPromise = new Promise<void>((r) => { reached = r })
+    const crashing = hangOnNthPut(store, (col) => col === VERSIONS_COLLECTION, 1, () => reached())
+    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vaultCrash = await dbCrash.openVault(VAULT)
+    const docsCrash = vaultCrash.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    void docsCrash.elevate('r5', 1) // fire-and-forget: never settles (simulated crash)
+    await reachedPromise
+
+    // Mid-crash: the slot map is already tier-1-keyed (the move landed).
+    const slotInternals = docsCrash.blob('r5') as unknown as BlobSetInternals
+    const { slots: midSlots } = await slotInternals.loadSlots(1)
+    expect(midSlots.a).toBeDefined() // opens cleanly at tier 1 — the move completed
+    expect(await store.list(VAULT, '_blob_intent')).toHaveLength(1) // marker still pending — neither version's metadata moved yet
+
+    // Resume via an ORDINARY write (put()) — the record's `_tier` already
+    // shows 1, so (per this file's other tests) a same-tier `elevate()`
+    // would no-op at the collection level; `put()`'s `resolvePendingIntent()`
+    // gate is the resuming entry point here instead.
+    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vaultResume = await dbResume.openVault(VAULT)
+    const docsResume = vaultResume.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    await docsResume.blob('r5').put('unrelated', bytes('triggers resume'))
+
+    expect(await store.list(VAULT, '_blob_intent')).toEqual([]) // marker consumed
+
+    const atTier = await docsResume.blob('r5').atTier()
+    expect(await atTier.getVersion('a', 'v1')).toEqual(bytes('slot-and-version content'))
+    expect(await atTier.getVersion('temp', 'v2')).toEqual(bytes('version-only content'))
+
+    dbResume.close()
+  })
+})
+
+// ─── The slot-CAS→deferred-release gap (carried finding (b)) ────────────
+
+describe('the slot-CAS→deferred-release gap is closed by the pendingRelease breadcrumb (#746 review, carried finding (b))', () => {
+  it('crash exactly after the slot CAS lands (slot already points at the new eTag) but before the old-object release even starts → resume finds the old eTag via the breadcrumb, not the (now-overwritten) slot map — no stranded hold', async () => {
+    const store = memory()
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vault0 = await db0.openVault(VAULT)
+    const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1, 2], perRecordKeys: true })
+
+    await docs0.putAtTier('strand', { id: 'strand', title: 'Strand' }, 0)
+    await docs0.blob('strand').put('a', bytes('solo content'))
+    const oldETag = (await docs0.blob('strand').blobInfo('a'))!.eTag
+    db0.close()
+
+    // The hazard this test isolates: `putUnderDEK`'s slot-CAS (pointing the
+    // slot at its NEW eTag) and its old-eTag release are two SEPARATE
+    // writes. Once the CAS lands, `oldETag` is no longer discoverable via
+    // ANY re-derivation from the (now-overwritten) live slot map — a plain
+    // re-run of the per-eTag loop would never revisit it, permanently
+    // stranding its refcount (a leak, never crypto-shredded). Crash exactly
+    // on the FIRST `_blob_index` write to `oldETag` itself (the release's
+    // OWN CAS decrement) — this can only fire AFTER the slot CAS already
+    // landed for real (the release is sequenced strictly after it in
+    // `putUnderDEK`).
+    let reached!: () => void
+    const reachedPromise = new Promise<void>((r) => { reached = r })
+    const crashing = hangOnNthPut(store, (col, id) => col === INDEX_COLLECTION && id === oldETag, 1, () => reached())
+    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vaultCrash = await dbCrash.openVault(VAULT)
+    const docsCrash = vaultCrash.collection<Doc>('docs', { tiers: [0, 1, 2], perRecordKeys: true })
+    void docsCrash.elevate('strand', 1) // fire-and-forget: never settles (simulated crash)
+    await reachedPromise
+
+    // Mid-crash: the slot already points at the NEW eTag (the CAS landed);
+    // the breadcrumb durably records the OLD one; the old object is
+    // completely untouched (its release never even started). The slot map
+    // ITSELF is still physically keyed at `fromTier` (0) — its own re-key
+    // to `toTier` is the LAST step of the slot section, still pending.
+    const slotInternals = docsCrash.blob('strand') as unknown as BlobSetInternals
+    const { slots: midSlots } = await slotInternals.loadSlots(0)
+    expect(midSlots.a!.eTag).not.toBe(oldETag)
+    expect(midSlots.a!.pendingRelease).toBe(oldETag)
+    expect(store.raw(VAULT, INDEX_COLLECTION, oldETag)).toBeDefined() // untouched — not even decremented yet
+
+    // Resume: a fresh session, elevate to a FURTHER tier (a same-tier
+    // re-`elevate()` would no-op at the collection level — see this file's
+    // other resume tests' shared note).
+    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vaultResume = await dbResume.openVault(VAULT)
+    const docsResume = vaultResume.collection<Doc>('docs', { tiers: [0, 1, 2], perRecordKeys: true })
+    await docsResume.elevate('strand', 2)
+
+    // The old (tier-0) object is fully released — gone, not stranded.
+    expect(store.raw(VAULT, INDEX_COLLECTION, oldETag)).toBeUndefined()
+    // The breadcrumb is cleared (not left behind as stale bookkeeping) and
+    // never leaks through the public `list()` surface.
+    const atTier = await docsResume.blob('strand').atTier()
+    const finalList = await atTier.list()
+    const slotA = finalList.find((s) => s.name === 'a')!
+    expect(slotA).not.toHaveProperty('pendingRelease')
+    expect(await atTier.get('a')).toEqual(bytes('solo content'))
+
+    // No dangling marker.
+    expect(await store.list(VAULT, '_blob_intent')).toEqual([])
+
+    dbResume.close()
   })
 })

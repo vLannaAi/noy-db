@@ -2105,6 +2105,20 @@ export interface SlotRecord {
   readonly uploadedAt: string
   /** User ID of the uploader, if available. */
   readonly uploadedBy?: string
+  /**
+   * Internal rehome-journal bookkeeping (#746 spec §7 review, carried
+   * finding (b)) — NEVER part of the public `list()`/`SlotInfo` contract
+   * (`BlobSet.list()` filters it out explicitly). Set, in the SAME CAS
+   * write that points this slot at its new (rehomed) eTag, to the OLD eTag
+   * still awaiting its refCount release: `putUnderDEK`'s slot-CAS and its
+   * old-eTag release are two separate writes, and a crash between them
+   * would otherwise lose the only record of which object still needs
+   * releasing (the slot map itself has already moved past it) — a
+   * permanent stranded-refcount leak. Cleared once the release lands.
+   * Only ever set under a marker-governed (stamped) rehome; absent on
+   * every ordinary `put()`.
+   */
+  readonly pendingRelease?: string
 }
 
 /** Result of `BlobSet.list()` — slot record plus its named slot key. */

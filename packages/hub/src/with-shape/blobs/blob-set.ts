@@ -25,7 +25,7 @@ import {
   sha256Hex,
   type EnclaveKey,
 } from '../../kernel/enclave/index.js'
-import { BlobIntentPendingError, ConflictError, NotFoundError, TamperedError, TierNotGrantedError, UnsupportedTierCompositionError, ValidationError, BlobRehomeResumeNotImplementedError } from '../../kernel/errors.js'
+import { BlobIntentPendingError, ConflictError, NotFoundError, TamperedError, TierNotGrantedError, UnsupportedTierCompositionError, ValidationError } from '../../kernel/errors.js'
 import { liveRecordIsElevated, liveRecordTier } from '../../kernel/tier-visibility.js'
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
@@ -438,6 +438,41 @@ export class BlobSet {
     }
   }
 
+  /**
+   * Resumable slot-map read for `runRehomeSteps` (#746 spec §7 §2d bullet
+   * 1): try `fromTier` (the map's pre-move physical location) first; on a
+   * decrypt failure (wrong key, not "missing" — mirrors `loadBlobObject`'s
+   * own TamperedError-only fallback trigger) retry `toTier` — the signal
+   * that a prior (crashed) run's own move step already landed. `atTier`
+   * reports which one opened it. A missing envelope reports `atTier:
+   * fromTier` (arbitrary — the `Object.keys(slots).length > 0` gate the
+   * caller applies makes the value moot for an empty map).
+   */
+  private async loadSlotsTolerant(fromTier: number, toTier: number): Promise<{
+    slots: Record<string, SlotRecord>
+    version: number
+    atTier: number
+  }> {
+    const envelope = await this.store.get(this.vault, this.slotsCollection, this.recordId)
+    if (!envelope) return { slots: {}, version: 0, atTier: fromTier }
+
+    if (!this.encrypted) {
+      return { slots: JSON.parse(envelope._data) as Record<string, SlotRecord>, version: envelope._v, atTier: fromTier }
+    }
+
+    const fromDek = await this.getDEK(dekKey(this.collection, fromTier))
+    try {
+      const json = await openEnvelopeJson(envelope, fromDek)
+      return { slots: JSON.parse(json) as Record<string, SlotRecord>, version: envelope._v, atTier: fromTier }
+    } catch (err) {
+      if (!(err instanceof TamperedError) || fromTier === toTier) throw err
+    }
+
+    const toDek = await this.getDEK(dekKey(this.collection, toTier))
+    const json = await openEnvelopeJson(envelope, toDek)
+    return { slots: JSON.parse(json) as Record<string, SlotRecord>, version: envelope._v, atTier: toTier }
+  }
+
   /** @param tier See {@link loadSlots}'s `tier` param — same resolution. */
   private async saveSlots(
     slots: Record<string, SlotRecord>,
@@ -519,6 +554,53 @@ export class BlobSet {
     }
   }
 
+  /**
+   * Clear a slot's `pendingRelease` breadcrumb once its release has landed
+   * (#746 spec §7 review, carried finding (b)) — a no-op CAS if the field is
+   * already gone (idempotent, safe to call again on resume) or no longer
+   * matches `expected` (a NEWER put() on this slot already moved past it).
+   */
+  private async clearPendingRelease(slotName: string, expected: string, tier?: number): Promise<void> {
+    await this.casUpdateSlots((slots) => {
+      const slot = slots[slotName]
+      if (!slot || slot.pendingRelease !== expected) return null
+      const rest: SlotRecord = { ...slot }
+      delete (rest as { pendingRelease?: string }).pendingRelease
+      slots[slotName] = rest
+      return slots
+    }, tier)
+  }
+
+  /**
+   * `runRehomeSteps`'s FIRST step (#746 spec §7 review, carried finding
+   * (b)) — reconcile any `pendingRelease` breadcrumb left on `slots` by a
+   * PRIOR (crashed) run of THIS SAME marker-governed rehome (`opId`
+   * identifies it). `putUnderDEK`'s slot-CAS (pointing the slot at its new
+   * eTag) and its old-eTag release are two separate writes; a crash between
+   * them strands the release — the slot map has already moved past the old
+   * eTag, so a plain re-derivation of "which eTags need releasing" from the
+   * CURRENT slot map can never find it again (a permanent leak, not merely
+   * a delayed one). Durably recording the old eTag ON the slot record
+   * itself (in the SAME CAS write that moves it) survives exactly the crash
+   * window that loses an in-memory breadcrumb, and this pass is what
+   * consumes it on the next attempt — completing the release (idempotent
+   * via the SAME row-scoped stamp `putUnderDEK` used) and clearing the
+   * field. C10: the release is NOT swallowed — a failure here must keep the
+   * marker alive (propagates), not silently strand it a second way.
+   */
+  private async reconcilePendingReleases(
+    slots: Record<string, SlotRecord>,
+    fromTier: number,
+    opId: string,
+  ): Promise<void> {
+    for (const [slotName, slot] of Object.entries(slots)) {
+      if (!slot.pendingRelease) continue
+      const stamp = `${opId}:${slotName}`
+      await this.releaseRef(slot.pendingRelease, 1, false, fromTier, stamp)
+      await this.clearPendingRelease(slotName, slot.pendingRelease, fromTier)
+    }
+  }
+
   // ─── Blob Index I/O (versioned for CAS refCount) ──────────────────
 
   /**
@@ -591,6 +673,35 @@ export class BlobSet {
     const fallbackDek = await this.getDEK(dekKey(BLOB_COLLECTION, fallbackTier))
     const json = await openEnvelopeJson(envelope, fallbackDek)
     return { blob: JSON.parse(json) as BlobObject, version: envelope._v, atTier: fallbackTier }
+  }
+
+  /**
+   * `runRehomeSteps`'s per-eTag resume tolerance (#746 spec §7 §2d bullet 2)
+   * — `loadBlobObject(eTag, fromTier, toTier)`, `alsoTryTier`'s first real
+   * caller: `atTier === toTier` on return means this eTag's object already
+   * opens under the DESTINATION tier — either a prior (crashed) run's own
+   * re-`put()` already landed for it (skip: already moved), or it's a
+   * `dedup`-policy/legacy object that happens to sit flat at tier 0 and
+   * `toTier === 0` (skip either way — see the call site's doc comment).
+   *
+   * When `toTier !== 0`, that flat-at-0 legacy/dedup case is NOT covered by
+   * the two tiers already tried — `loadBlobObject`'s own default fallback
+   * (implicit `alsoTryTier: 0` when the primary tier is `> 0`) is exactly
+   * what closes it for a non-resumable caller, but passing `toTier`
+   * explicitly here overrides that default. So on a `TamperedError` from
+   * both `fromTier` and `toTier`, retry once more at flat `0` — the SAME
+   * fallback `loadBlobObject`'s own default already provides, just chained
+   * behind the resume signal instead of replacing it.
+   */
+  private async loadBlobObjectResumable(
+    eTag: string, fromTier: number, toTier: number,
+  ): Promise<{ blob: BlobObject; version: number; atTier: number } | null> {
+    try {
+      return await this.loadBlobObject(eTag, fromTier, toTier)
+    } catch (err) {
+      if (!(err instanceof TamperedError) || toTier === 0) throw err
+      return this.loadBlobObject(eTag, fromTier, 0)
+    }
   }
 
   /**
@@ -867,8 +978,14 @@ export class BlobSet {
    *    or the direct-call path this suite exercises) — one is minted here
    *    from the live rows, exactly like `mintShredIntent` does, so the
    *    crash matrix holds regardless of caller (spec §2c).
-   *  - A pending `op:'rehome'` marker is PR-2 scope — refuses rather than
-   *    guessing at a half-moved record (C6/Q1).
+   *  - A pending `op:'rehome'` marker is resumed to completion FIRST (#746
+   *    spec §7 Q1 — "supersession is resume-then-shred": a half-done rehome
+   *    can leave a row-unreferenced destination object that shred's
+   *    row-derived holds can never see; replacing the marker instead of
+   *    resuming it would leak that object past `forget()` permanently), via
+   *    {@link resolveToShredIntent} — then a fresh SHRED marker is minted
+   *    (or discovered, if the resume's own completion raced with another
+   *    minter) exactly as the no-marker branch below does.
    *
    * **Whole-branch review (#753):** the marker is a crash-safety
    * ENHANCEMENT, not a precondition for erasure. If the no-marker branch's
@@ -890,24 +1007,46 @@ export class BlobSet {
     residue: string[]
   }> {
     const tierArg = ownerTier ?? 0
-    let intent = await getIntent(this.store, this.vault, this.collection, this.recordId, this.getDEK)
-    if (intent && intent.op === 'rehome') {
-      throw new BlobRehomeResumeNotImplementedError(this.collection, this.recordId)
-    }
-    if (!intent) {
-      try {
-        intent = await this.mintFreshShredIntent(tierArg)
-      } catch {
-        // Whole-branch review (#753): the mint is a crash-safety enhancement,
-        // never a precondition for erasure — degrade to a best-effort
-        // unmarked shred rather than abort with the blobs un-shredded.
-        return this.unmarkedShred(tierArg)
-      }
-      if (intent.op === 'rehome') throw new BlobRehomeResumeNotImplementedError(this.collection, this.recordId)
+    let intent: BlobIntent
+    try {
+      intent = await this.resolveToShredIntent(
+        await getIntent(this.store, this.vault, this.collection, this.recordId, this.getDEK),
+        tierArg,
+      )
+    } catch {
+      // Whole-branch review (#753): the mint is a crash-safety enhancement,
+      // never a precondition for erasure — degrade to a best-effort
+      // unmarked shred rather than abort with the blobs un-shredded.
+      return this.unmarkedShred(tierArg)
     }
     const tier = intent.ownerTier ?? tierArg
     const collected = await this.collectShredHolds(tier)
     return this.consumeShredIntent(intent, tier, collected)
+  }
+
+  /**
+   * Resolve a possibly-`null` / possibly-`op:'rehome'` intent down to a
+   * SHRED `BlobIntent` (#746 spec §7 Q1) — `shredAllForRecord`'s entry
+   * logic, factored out so the try/catch around it (degrading to
+   * {@link unmarkedShred} on a mint failure) covers both the direct mint
+   * AND the resume-then-mint path uniformly. A pending REHOME marker
+   * (whether found up front or discovered via a raced `createIntent`) is
+   * resumed to completion via {@link consumeRehomeIntent} first — "nothing
+   * left to rehome" once shred takes over — then a fresh SHRED marker is
+   * minted for the now-clean record.
+   */
+  private async resolveToShredIntent(intent: BlobIntent | null, tierArg: number): Promise<BlobIntent> {
+    if (intent && intent.op === 'rehome') {
+      await this.consumeRehomeIntent(intent)
+      intent = null
+    }
+    if (intent) return intent
+    const minted = await this.mintFreshShredIntent(tierArg)
+    if (minted.op === 'rehome') {
+      await this.consumeRehomeIntent(minted)
+      return this.resolveToShredIntent(null, tierArg)
+    }
+    return minted
   }
 
   /**
@@ -1062,29 +1201,46 @@ export class BlobSet {
   }
 
   /**
-   * Resume gate (#753 spec §7 C6): every refCount/slot mutator calls this
-   * FIRST. A pending SHRED marker means a previous `forget()`/
+   * Resume gate (#753/#746 spec §7 C6): every refCount/slot mutator calls
+   * this FIRST. A pending SHRED marker means a previous `forget()`/
    * `shredAllForRecord()` crashed mid-flight — refCounts are ambiguous
    * until it's resumed, so no new blob write may proceed over them; this
    * resumes it to completion before the caller's own mutation runs. A
-   * pending REHOME marker is PR-2 scope — refuses (see
-   * `BlobRehomeResumeNotImplementedError`) rather than proceeding over an
-   * unresolved half-move.
+   * pending REHOME marker means a previous tier move crashed mid-flight —
+   * resumed to completion the SAME way (§2d), via {@link consumeRehomeIntent}
+   * using the marker's OWN captured `fromTier`/`toTier`/`policy`/`opId`,
+   * never the caller's own ask (which may be a totally unrelated write).
    *
    * Never called from `shredAllForRecord`/`mintShredIntent`/
    * `mintFreshShredIntent`/`collectShredHolds`/`consumeShredIntent`/
-   * `sweepPendingShredIntents` themselves — those ARE the resume machinery;
-   * routing them back through this gate would recurse.
+   * `sweepPendingShredIntents`/`runRehomeSteps`/`consumeRehomeIntent`
+   * themselves — those ARE the resume machinery; routing them back through
+   * this gate would recurse.
    */
   private async resolvePendingIntent(): Promise<void> {
     const intent = await getIntent(this.store, this.vault, this.collection, this.recordId, this.getDEK)
     if (!intent) return
     if (intent.op === 'rehome') {
-      throw new BlobRehomeResumeNotImplementedError(this.collection, this.recordId)
+      await this.consumeRehomeIntent(intent)
+      return
     }
     const tier = intent.ownerTier ?? 0
     const collected = await this.collectShredHolds(tier)
     await this.consumeShredIntent(intent, tier, collected)
+  }
+
+  /**
+   * Resume a pending REHOME marker to completion: run {@link
+   * runRehomeSteps} (never the public `rehomeForTier`/`syncTierMove` —
+   * both would re-enter `resolvePendingIntent` on the SAME marker and
+   * recurse) using the marker's own captured `fromTier`/`toTier`/`policy`/
+   * `opId`, then delete it. Shared by `resolvePendingIntent`'s rehome
+   * branch and `resolveToShredIntent` (#746 spec §7 Q1: forget() resumes a
+   * pending rehome before shredding).
+   */
+  private async consumeRehomeIntent(intent: BlobIntent): Promise<void> {
+    await this.runRehomeSteps(intent.fromTier!, intent.toTier!, intent.policy!, intent.opId)
+    await deleteIntent(this.store, this.vault, this.collection, this.recordId)
   }
 
   /**
@@ -1096,8 +1252,10 @@ export class BlobSet {
    * record's marker left behind by a previous crashed operation in the
    * same collection — "heals untouched ones" (spec C5's retry contract),
    * without a separate vault-open hook. A pending REHOME marker on a
-   * sibling record is left alone (PR-2 scope, not this sweep's job) rather
-   * than surfaced as a resume failure. `sweepBlobIntents`'s own per-marker
+   * sibling record is left alone here (out of THIS sweep's scope — it heals
+   * on its OWN record's next write/tier-op via `resolvePendingIntent`,
+   * §2d's "who resumes") rather than surfaced as a resume failure.
+   * `sweepBlobIntents`'s own per-marker
    * isolation (blob-intent.ts) means one corrupt sibling never blocks
    * another record's healthy resume.
    */
@@ -1230,19 +1388,86 @@ export class BlobSet {
    * (mirrors `history.ts`'s `rewrapHistory`).
    *
    * @param opId #753/#746 spec §7 C3: the governing `_blob_intent` rehome
-   * marker's op-stamp identity, threaded through by PR-2's marker mint
-   * (`syncBlobs`). Omitted (today's every call site) → byte-identical
-   * unstamped behavior. When present, every DESTINATION refCount `+1` this
-   * call performs (the slot loop's dedup-hit re-put below, and
-   * `rehomeVersionETag`'s own increment) carries a ROW-SCOPED stamp —
-   * `${opId}:${slotName}` / `${opId}:${versionKey}`, never the bare opId —
-   * so a resumed re-put's `+1` is idempotent per row without collapsing N
-   * legitimate `+1`s onto one destination eTag into one.
+   * marker's op-stamp identity, threaded through by `syncTierMove`. Omitted
+   * (a direct call, e.g. tests) → byte-identical unstamped behavior. When
+   * present, every DESTINATION refCount `+1` this call performs (the slot
+   * loop's dedup-hit re-put below, and `rehomeVersionETag`'s own increment)
+   * carries a ROW-SCOPED stamp — `${opId}:${slotName}` / `${opId}:${versionKey}`,
+   * never the bare opId — so a resumed re-put's `+1` is idempotent per row
+   * without collapsing N legitimate `+1`s onto one destination eTag into one.
+   *
+   * The direct-call entry point: resumes a pending SHRED marker first
+   * (unchanged, #753 C6), or a pending REHOME marker for a DIFFERENT prior
+   * op (#746 Q1 — resumed via its OWN stored fromTier/toTier/opId before
+   * this call's requested move proceeds), then runs {@link runRehomeSteps}.
+   * `syncTierMove` — the real tier-op seam (`syncBlobs`) — calls
+   * `runRehomeSteps` directly instead, after minting/consuming its own
+   * marker (calling back through here would re-enter `resolvePendingIntent`
+   * on the marker `syncTierMove` itself just created).
    */
   async rehomeForTier(fromTier: number, toTier: number, policy: 'isolate' | 'dedup', opId?: string): Promise<void> {
     if (!this.encrypted || fromTier === toTier) return
-    await this.resolvePendingIntent() // #753 spec §7 C6: resume a pending shred first; refuse on a pending rehome
-    const { slots } = await this.loadSlots(fromTier)
+    await this.resolvePendingIntent() // #753/#746 spec §7 C6/Q1: resume a pending shred OR a stale rehome first
+    await this.runRehomeSteps(fromTier, toTier, policy, opId)
+  }
+
+  /**
+   * The tier-op → rehome seam (#746 spec §7 §2d) — called by
+   * `TiersContext.syncBlobs` (`collection.ts`), replacing the pre-#746
+   * unstamped `rehomeForTier` call. Mints the governing `_blob_intent`
+   * REHOME marker BEFORE the first write (CAS create-if-absent), resuming
+   * any marker already pending for this record first — a stale rehome from
+   * an earlier, different move, or a shred, per the same C6/Q1 resume-first
+   * law `rehomeForTier`'s own entry follows. Deletes the marker as the LAST
+   * step, once every phase of {@link runRehomeSteps} completes without
+   * throwing (a failure — including a C10 unswallowed release — leaves the
+   * marker in place for the next resume).
+   */
+  async syncTierMove(fromTier: number, toTier: number, policy: 'isolate' | 'dedup'): Promise<void> {
+    if (!this.encrypted || fromTier === toTier) return
+    await this.resolvePendingIntent() // resume whatever is already pending for this record first
+    const opId = mintOpId()
+    const intent: BlobIntent = { op: 'rehome', opId, fromTier, toTier, policy }
+    try {
+      await createIntent(this.store, this.vault, this.collection, this.recordId, this.getDEK, intent)
+    } catch (err) {
+      if (!(err instanceof BlobIntentPendingError)) throw err
+      // Raced with a concurrent minter for this record (C8) — resume
+      // whichever marker won, then retry this request once resolved.
+      await this.resolvePendingIntent()
+      return this.syncTierMove(fromTier, toTier, policy)
+    }
+    await this.runRehomeSteps(fromTier, toTier, policy, opId)
+    await deleteIntent(this.store, this.vault, this.collection, this.recordId)
+  }
+
+  /**
+   * The resumable rehome executor (#746 spec §7 §2d) — `rehomeForTier`'s
+   * pre-#746 body, factored out so it can be invoked WITHOUT re-entering
+   * `resolvePendingIntent` (which would recurse: this method IS part of the
+   * resume machinery, called from `resolvePendingIntent`'s own rehome
+   * branch and from `syncTierMove` after its marker is already settled).
+   *
+   * Per-step resume tolerance:
+   *  - Slot map: {@link loadSlotsTolerant} tries `fromTier` then `toTier` —
+   *    if it opens at `toTier`, a prior run's move step already landed, so
+   *    the ENTIRE per-eTag loop (strictly sequenced before the move) is
+   *    also already done — skip both, but first reconstruct `rehomedETags`
+   *    (see below) so the version pass's same-eTag fast path still works
+   *    (carried finding (a)).
+   *  - Per-eTag: {@link loadBlobObjectResumable} — an eTag that only opens
+   *    under `toTier` means THIS slot's re-put already landed on a prior
+   *    run — skip re-processing it.
+   *  - Slot-CAS→release gap (carried finding (b)): {@link
+   *    reconcilePendingReleases} runs FIRST, completing any old-eTag
+   *    release a prior run's `putUnderDEK` left stranded (slot already
+   *    moved to the new eTag, release not yet applied) before either the
+   *    "already moved" or "still moving" branch below runs.
+   *  - Version pass: same per-key tolerance, in `rehomeVersionRecords`.
+   */
+  private async runRehomeSteps(fromTier: number, toTier: number, policy: 'isolate' | 'dedup', opId?: string): Promise<void> {
+    const { slots, atTier: slotsAtTier } = await this.loadSlotsTolerant(fromTier, toTier)
+    if (opId !== undefined) await this.reconcilePendingReleases(slots, fromTier, opId)
 
     // Old eTag → new eTag for every object the slot loop below physically
     // re-`put()`s. Passed on to `rehomeVersionRecords` (#724 Arc 10 Task 2,
@@ -1252,44 +1477,71 @@ export class BlobSet {
     const rehomedETags = new Map<string, string>()
 
     if (Object.keys(slots).length > 0) {
-      const eTags = new Set(Object.values(slots).map((s) => s.eTag).filter((eTag) => eTag !== ''))
-
-      if (eTags.size > 0) {
-        const fromBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, fromTier))
+      if (slotsAtTier === toTier) {
+        // Already fully moved by a prior (crashed) run — the move step is
+        // strictly sequenced AFTER the per-eTag loop, so its completion
+        // proves the loop already ran to completion too. Reconstruct
+        // `rehomedETags` (old → new) so a version pass below sharing one of
+        // these eTags still hits the fast path (carried finding (a)) rather
+        // than falling through to a fromTier lookup for an eTag that may no
+        // longer exist there.
         const toBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, toTier))
+        const fromBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, fromTier))
+        const doneETags = new Set(Object.values(slots).map((s) => s.eTag).filter((eTag) => eTag !== ''))
+        for (const eTag of doneETags) {
+          let loaded: { blob: BlobObject; version: number; atTier: number } | null
+          try {
+            loaded = await this.loadBlobObject(eTag, toTier)
+          } catch (err) {
+            if (err instanceof TamperedError) continue // legacy/dedup, left flat — never moved, nothing to reconstruct
+            throw err
+          }
+          if (!loaded || loaded.blob._cek === undefined) continue
+          const plaintext = await this.fetchAllChunks(loaded.blob, toBlobDEK)
+          const oldETag = await hmacSha256Hex(fromBlobDEK, plaintext)
+          if (oldETag !== eTag) rehomedETags.set(oldETag, eTag)
+        }
+      } else {
+        const eTags = new Set(Object.values(slots).map((s) => s.eTag).filter((eTag) => eTag !== ''))
 
-        for (const eTag of eTags) {
-          const loaded = await this.loadBlobObject(eTag, fromTier)
-          if (!loaded) continue
-          const { blob } = loaded
-          if (blob._cek === undefined) continue // legacy: no rewrap (see doc comment)
-          if (policy === 'dedup' && blob.refCount > 1) continue // #741: leave the shared object; read gate covers runtime
+        if (eTags.size > 0) {
+          const fromBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, fromTier))
+          const toBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, toTier))
 
-          // solo + shared-isolate, unified (#724 Arc 10 correction): fork for
-          // every slot on THIS record pointing at the eTag, then release this
-          // record's hold on the old object (via put()'s own old-eTag
-          // decrement) — a solo blob's old object is crypto-shredded at
-          // refCount 0, a shared co-owner keeps its unchanged refCount.
-          const plaintext = await this.fetchAllChunks(blob, fromBlobDEK)
-          rehomedETags.set(eTag, await hmacSha256Hex(toBlobDEK, plaintext))
-          for (const [slotName, slot] of Object.entries(slots)) {
-            if (slot.eTag !== eTag) continue
-            // #747: `fromTier` still pins the slot-map CAS (it's physically
-            // there until this method's own move step, last); `toTier` is the
-            // NEW object's home — thread it alongside `toBlobDEK` so the fresh
-            // `_blob_index` envelope is born tier-keyed, not flat.
-            await this.putUnderDEK(slotName, plaintext, toBlobDEK, {
-              filename: slot.filename,
-              ...(blob.mimeType !== undefined ? { mimeType: blob.mimeType } : {}),
-              compress: blob.compression === 'gzip',
-              ...(slot.uploadedBy !== undefined ? { uploadedBy: slot.uploadedBy } : {}),
-            }, fromTier, toTier, opId)
+          for (const eTag of eTags) {
+            const loaded = await this.loadBlobObjectResumable(eTag, fromTier, toTier)
+            if (!loaded) continue
+            if (loaded.atTier === toTier) continue // already moved by a prior run — see doc comment
+            const { blob } = loaded
+            if (blob._cek === undefined) continue // legacy: no rewrap (see doc comment)
+            if (policy === 'dedup' && blob.refCount > 1) continue // #741: leave the shared object; read gate covers runtime
+
+            // solo + shared-isolate, unified (#724 Arc 10 correction): fork for
+            // every slot on THIS record pointing at the eTag, then release this
+            // record's hold on the old object (via put()'s own old-eTag
+            // decrement) — a solo blob's old object is crypto-shredded at
+            // refCount 0, a shared co-owner keeps its unchanged refCount.
+            const plaintext = await this.fetchAllChunks(blob, fromBlobDEK)
+            rehomedETags.set(eTag, await hmacSha256Hex(toBlobDEK, plaintext))
+            for (const [slotName, slot] of Object.entries(slots)) {
+              if (slot.eTag !== eTag) continue
+              // #747: `fromTier` still pins the slot-map CAS (it's physically
+              // there until this method's own move step, last); `toTier` is the
+              // NEW object's home — thread it alongside `toBlobDEK` so the fresh
+              // `_blob_index` envelope is born tier-keyed, not flat.
+              await this.putUnderDEK(slotName, plaintext, toBlobDEK, {
+                filename: slot.filename,
+                ...(blob.mimeType !== undefined ? { mimeType: blob.mimeType } : {}),
+                compress: blob.compression === 'gzip',
+                ...(slot.uploadedBy !== undefined ? { uploadedBy: slot.uploadedBy } : {}),
+              }, fromTier, toTier, opId)
+            }
           }
         }
-      }
 
-      const { slots: finalSlots, version: finalVersion } = await this.loadSlots(fromTier)
-      await this.saveSlots(finalSlots, finalVersion, toTier)
+        const { slots: finalSlots, version: finalVersion } = await this.loadSlots(fromTier)
+        await this.saveSlots(finalSlots, finalVersion, toTier)
+      }
     }
 
     // #724 Arc 10 Task 2 (C4): published versions follow too. `publish()`
@@ -1315,6 +1567,27 @@ export class BlobSet {
    *    regardless of whether the content moved — metadata protection is
    *    orthogonal to the shared-content dedup policy (matches the slot-map
    *    move, which always relocates even for a `dedup`-left-in-place blob).
+   *
+   * Per-key resume tolerance (#746 spec §7 §2d bullet 3): each key's
+   * metadata is read via {@link loadVersionRecordAtKeyTolerant} (try
+   * `fromTier` then `toTier`) — a key whose metadata already opens at
+   * `toTier` had its `resolveRehomedVersionETag` call AND its
+   * `writeVersionRecordAtKey` BOTH already land on a prior run (the
+   * metadata write is sequenced strictly after the eTag rehome, which
+   * itself completes the old-eTag release under C1's two-armed resume rule
+   * — same order as the slot loop's own CAS-then-release), so it's skipped
+   * entirely.
+   *
+   * Known residual gap (documented, not closed by this task — see the T2
+   * report): if a version's OLD eTag is held ONLY by that version (never
+   * shared with any slot), a crash strictly between
+   * `resolveRehomedVersionETag`'s release (drops it to refCount 0,
+   * crypto-shredding a solo-held erasable object) and THIS method's
+   * metadata write would leave the version pointing at an eTag whose sole
+   * copy is already gone. This mirrors the slot-side "carried finding (b)"
+   * shape but on the version side; closing it durably (a `pendingRelease`-
+   * style breadcrumb on `VersionRecord`, filtered from the public
+   * `listVersions()` surface) is out of scope for this task.
    */
   private async rehomeVersionRecords(
     fromTier: number,
@@ -1328,30 +1601,61 @@ export class BlobSet {
     const matchingKeys = allKeys.filter((k) => k.startsWith(prefix))
     if (matchingKeys.length === 0) return
 
-    const fromCollDEK = await this.getDEK(dekKey(this.collection, fromTier))
     const fromBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, fromTier))
     const toBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, toTier))
 
     for (const key of matchingKeys) {
-      const envelope = await this.store.get(this.vault, this.versionsCollection, key)
-      if (!envelope) continue
-      const record = this.encrypted
-        ? JSON.parse(await openEnvelopeJson(envelope, fromCollDEK)) as VersionRecord
-        : JSON.parse(envelope._data) as VersionRecord
+      const loaded = await this.loadVersionRecordAtKeyTolerant(key, fromTier, toTier)
+      if (!loaded) continue
+      if (loaded.atTier === toTier) continue // already fully rehomed on a prior run — see doc comment
 
-      const newETag = await this.rehomeVersionETag(record, fromTier, toTier, fromBlobDEK, toBlobDEK, policy, rehomedETags, key, opId)
-      const moved: VersionRecord = newETag === record.eTag ? record : { ...record, eTag: newETag }
+      const stamp = opId !== undefined ? `${opId}:${key}` : undefined
+      const newETag = await this.resolveRehomedVersionETag(loaded.record, fromTier, toTier, fromBlobDEK, toBlobDEK, policy, rehomedETags, stamp)
+      const moved: VersionRecord = newETag === loaded.record.eTag ? loaded.record : { ...loaded.record, eTag: newETag }
       await this.writeVersionRecordAtKey(key, moved, toTier)
     }
   }
 
   /**
-   * Rehome ONE version's independently-held eTag. Returns the eTag the
-   * version should now point at.
+   * Resumable per-key version-record metadata read (#746 spec §7 §2d bullet
+   * 3) — mirrors {@link loadSlotsTolerant}: try `fromTier` first, fall back
+   * to `toTier` on a decrypt failure. `atTier === toTier` on return is the
+   * "already fully rehomed" signal `rehomeVersionRecords` skips on.
+   */
+  private async loadVersionRecordAtKeyTolerant(
+    key: string, fromTier: number, toTier: number,
+  ): Promise<{ record: VersionRecord; atTier: number } | null> {
+    const envelope = await this.store.get(this.vault, this.versionsCollection, key)
+    if (!envelope) return null
+    if (!this.encrypted) return { record: JSON.parse(envelope._data) as VersionRecord, atTier: fromTier }
+
+    const fromDek = await this.getDEK(dekKey(this.collection, fromTier))
+    try {
+      const json = await openEnvelopeJson(envelope, fromDek)
+      return { record: JSON.parse(json) as VersionRecord, atTier: fromTier }
+    } catch (err) {
+      if (!(err instanceof TamperedError) || fromTier === toTier) throw err
+    }
+    const toDek = await this.getDEK(dekKey(this.collection, toTier))
+    const json = await openEnvelopeJson(envelope, toDek)
+    return { record: JSON.parse(json) as VersionRecord, atTier: toTier }
+  }
+
+  /**
+   * Rehome ONE version's independently-held eTag — both the DESTINATION
+   * `+1`/create AND the OLD eTag's release, in that order (mirrors the slot
+   * loop's own CAS-then-release sequencing, and matches C1's two-armed
+   * resume rule: a crash after the release CAS lands but before the index
+   * row's delete completes is resumable — `already`/`loadBlobObject` still
+   * find the row at `fromTier` on a re-run, since the CALLER's metadata
+   * write hasn't happened yet). Returns the eTag the version should now
+   * point at (unchanged if legacy/missing/left `dedup`-shared) — the caller
+   * (`rehomeVersionRecords`) writes the version's metadata after this
+   * returns.
    *
    * If the version happened to hold the SAME eTag a slot held (the common
    * case: publish right after put, no later overwrite), the slot loop in
-   * `rehomeForTier` already re-`put()` the content under `toBlobDEK` —
+   * `runRehomeSteps` already re-`put()` the content under `toBlobDEK` —
    * `rehomedETags` (content-addressed, so deterministic) tells us the
    * resulting destination eTag without a redundant fetch+re-encrypt; we
    * only need to move THIS hold's refCount onto it. Otherwise (the version
@@ -1361,21 +1665,18 @@ export class BlobSet {
    * legacy/`dedup`-shared skip conditions.
    *
    * @param fromTier / @param toTier #747: same from/to split as the slot
-   * loop above — reads of the version's CURRENTLY-held eTag (and releases of
-   * it) pin `fromTier`; the re-put and the refCount bump onto an
-   * already-rehomed (slot-loop-produced) eTag pin `toTier`.
+   * loop above — the read of the version's CURRENTLY-held eTag pins
+   * `fromTier`; the re-put and the refCount bump onto an already-rehomed
+   * (slot-loop-produced) eTag pin `toTier`.
    *
-   * @param versionKey / @param opId #753/#746 spec §7 C3: when `opId` is
-   * present (a marker-governed rehome), every destination `+1` this call
-   * performs — both the `already`-rehomed fast path's explicit CAS and the
-   * `writeBlobContent` re-put's own dedup-hit CAS — carries the row-scoped
-   * stamp `${opId}:${versionKey}`, never the bare opId (see
-   * `rehomeForTier`'s `opId` doc comment). The OLD-eTag release below reuses
-   * the SAME row-scoped stamp: it targets a DIFFERENT `BlobObject` (the
-   * source eTag, not the destination), so no collision, and a resumed
-   * re-put can't double-release it either.
+   * @param stamp #753/#746 spec §7 C3: when present (a marker-governed
+   * rehome), every destination `+1` this call performs — both the
+   * `already`-rehomed fast path's explicit CAS and the `writeBlobContent`
+   * re-put's own dedup-hit CAS — carries the row-scoped stamp
+   * `${opId}:${versionKey}` the caller computed, never the bare opId (see
+   * `rehomeForTier`'s `opId` doc comment).
    */
-  private async rehomeVersionETag(
+  private async resolveRehomedVersionETag(
     record: VersionRecord,
     fromTier: number,
     toTier: number,
@@ -1383,10 +1684,8 @@ export class BlobSet {
     toBlobDEK: EnclaveKey,
     policy: 'isolate' | 'dedup',
     rehomedETags: Map<string, string>,
-    versionKey: string,
-    opId?: string,
+    stamp?: string,
   ): Promise<string> {
-    const stamp = opId !== undefined ? `${opId}:${versionKey}` : undefined
     const already = rehomedETags.get(record.eTag)
     if (already !== undefined) {
       if (stamp !== undefined) {
@@ -1394,7 +1693,7 @@ export class BlobSet {
       } else {
         await this.casUpdateRefCount(already, +1, toTier)
       }
-      await this.releaseRef(record.eTag, 1, false, fromTier, stamp).catch(() => {})
+      await this.releaseOldETagAfterMove(record.eTag, fromTier, stamp) // C10: not swallowed under a marker
       return already
     }
 
@@ -1410,7 +1709,7 @@ export class BlobSet {
     }, toTier, stamp)
     rehomedETags.set(record.eTag, newETag) // memoize: two versions may share an eTag outside the slot map too
     if (newETag !== record.eTag) {
-      await this.releaseRef(record.eTag, 1, false, fromTier, stamp).catch(() => {})
+      await this.releaseOldETagAfterMove(record.eTag, fromTier, stamp) // C10: not swallowed under a marker
     }
     return newETag
   }
@@ -1881,8 +2180,10 @@ export class BlobSet {
 
     // Step 7 — CAS-update slot metadata
     const uploaderUserId = opts?.uploadedBy ?? this.userId
+    let deferredOldETag: string | undefined
     await this.casUpdateSlots((slots) => {
       const oldETag = slots[slotName]?.eTag
+      const pending = oldETag && oldETag !== eTag ? oldETag : undefined
       slots[slotName] = {
         eTag,
         filename: opts?.filename ?? slotName,
@@ -1890,26 +2191,51 @@ export class BlobSet {
         ...(mimeType !== undefined ? { mimeType } : {}),
         uploadedAt: new Date().toISOString(),
         ...(uploaderUserId !== undefined ? { uploadedBy: uploaderUserId } : {}),
+        // #746 spec §7 review, carried finding (b): durably record the OLD
+        // eTag ON the slot row itself, in the SAME CAS write that moves the
+        // slot to `eTag` — see `SlotRecord.pendingRelease`'s doc comment.
+        // Gated to marker-governed (stamped) calls only: ordinary put()
+        // (`rowStamp` undefined) keeps today's in-memory best-effort
+        // posture, zero footprint.
+        ...(pending !== undefined && rowStamp !== undefined ? { pendingRelease: pending } : {}),
       }
-      // Schedule old eTag refCount decrement (non-blocking best-effort)
-      if (oldETag && oldETag !== eTag) {
-        this._deferredRefDecrement = oldETag
-      }
+      deferredOldETag = pending
       return slots
     }, slotsTier)
 
     // Release the old eTag outside the CAS loop. An erasable blob dropping to
     // refCount 0 here is crypto-shredded eagerly; a legacy one defers to GC.
-    if (this._deferredRefDecrement) {
-      const oldETag = this._deferredRefDecrement
-      this._deferredRefDecrement = undefined
+    if (deferredOldETag) {
       // #747: the old eTag lives at `slotsTier` (the slot map's CURRENT
       // physical location — see the param doc above), not this record's
       // live tier — those diverge mid-rehome.
-      await this.releaseRef(oldETag, 1, false, slotsTier, rowStamp).catch(() => {
-        // Best-effort — a missed decrement is reconciled by a later pass.
-      })
+      await this.releaseOldETagAfterMove(deferredOldETag, slotsTier, rowStamp)
+      // The pendingRelease breadcrumb above is only meaningful once the
+      // release genuinely landed — clear it now (idempotent; a crash before
+      // this point leaves it for `reconcilePendingReleases` to finish).
+      if (rowStamp !== undefined) await this.clearPendingRelease(slotName, deferredOldETag, slotsTier)
     }
+  }
+
+  /**
+   * C10 (#753/#746 spec §7): under a marker-governed (`stamp` present)
+   * rehome, a failed old-eTag release must not be silently swallowed — it
+   * is the crypto-shred of the FROM-tier object, and swallowing it during a
+   * documented-exactly-once op is the bug C10 closes. Propagating keeps the
+   * governing `_blob_intent` marker alive (never deleted) so a later resume
+   * retries it, rather than completing the op over a residue that never
+   * surfaces. Unstamped (ordinary `put()`/`delete()`) calls keep the
+   * pre-#753 best-effort posture unchanged — a missed decrement there is
+   * reconciled by a later pass, same as always.
+   */
+  private async releaseOldETagAfterMove(eTag: string, tier: number | undefined, stamp: string | undefined): Promise<void> {
+    if (stamp !== undefined) {
+      await this.releaseRef(eTag, 1, false, tier, stamp)
+      return
+    }
+    await this.releaseRef(eTag, 1, false, tier).catch(() => {
+      // Best-effort — a missed decrement is reconciled by a later pass.
+    })
   }
 
   /**
@@ -2049,8 +2375,6 @@ export class BlobSet {
 
     return { eTag, mimeType }
   }
-
-  private _deferredRefDecrement: string | undefined
 
   /**
    * Fetch all bytes for the named slot.
@@ -2219,7 +2543,13 @@ export class BlobSet {
   async list(): Promise<SlotInfo[]> {
     if (await this.ownerRecordElevated()) return [] // #724: elevated ≡ invisible, mirrors get()
     const { slots } = await this.loadSlots()
-    return Object.entries(slots).map(([name, slot]) => ({ name, ...slot }))
+    // #746: `pendingRelease` is internal rehome-journal bookkeeping (see
+    // `SlotRecord`'s doc comment) — never surfaced through the public API.
+    return Object.entries(slots).map(([name, slot]) => {
+      const pub: SlotRecord = { ...slot }
+      delete (pub as { pendingRelease?: string }).pendingRelease
+      return { name, ...pub }
+    })
   }
 
   /**
