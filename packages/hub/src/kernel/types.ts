@@ -2029,6 +2029,36 @@ export interface BlobObject {
    * store (e.g. S3). Absent when no routing is configured.
    */
   readonly storeHint?: 'default' | 'blobs'
+  /**
+   * Bounded ring (K=8 — an AUDIT-VISIBLE concurrency bound, not an
+   * implementation detail) of the most recent op-stamp identities applied to
+   * this object's `refCount`. Appended in the SAME CAS write as the
+   * `refCount` change it stamps (`BlobSet`'s `casUpdateRefCountStamped`),
+   * never a separate write — no crash window between the two. Oldest entry
+   * is evicted once the ring exceeds K entries.
+   *
+   * The blob durability journal (#753, spec §7 C2/C4) uses membership here
+   * as its test-and-set: a stamped mutator re-reads this ring on every CAS
+   * attempt (including retries) BEFORE computing its delta — stamp already
+   * present → that mutation already landed → skip re-applying it. This is
+   * what makes a crash-resumed refCount decrement/increment exactly-once
+   * rather than at-least-once.
+   *
+   * Two acceptances, by design:
+   *  - **Eviction beyond K.** More than 8 distinct in-flight stamped
+   *    operations racing the SAME object between reads is far outside any
+   *    expected co-ownership fan-out; a 9th racer whose stamp gets evicted
+   *    before it re-reads can only double-apply an idempotent CAS delta —
+   *    never silently lose one (the delta itself is still bounded by the
+   *    marker's authoritative hold count). Not a data-loss risk, just a
+   *    documented concurrency bound.
+   *  - **Stale stamps on a retained object.** A `retainedShared` object (one
+   *    reference released, others still live) keeps whatever stamp its last
+   *    CAS write appended even after that operation's marker is gone —
+   *    harmless bookkeeping, not crypto material (unlike `_cek`), that sits
+   *    inert until the object's next CAS write evicts or overwrites it.
+   */
+  readonly lastOps?: readonly string[]
 }
 
 /**

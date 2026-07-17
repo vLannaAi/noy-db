@@ -66,6 +66,18 @@ export const DEFAULT_CHUNK_SIZE = 256 * 1024
 /** Maximum CAS retry attempts for refCount and slot metadata updates. */
 const MAX_CAS_RETRIES = 5
 
+/**
+ * `BlobObject.lastOps` ring capacity — see that field's doc comment
+ * (kernel/types.ts) for the audit-visible-bound rationale (#753 spec §7 C2).
+ */
+const LAST_OPS_RING_SIZE = 8
+
+/** Append `stamp` to the bounded `lastOps` ring, evicting the oldest entry past K. */
+function appendStamp(lastOps: readonly string[] | undefined, stamp: string): readonly string[] {
+  const next = [...(lastOps ?? []), stamp]
+  return next.length > LAST_OPS_RING_SIZE ? next.slice(next.length - LAST_OPS_RING_SIZE) : next
+}
+
 // ─── Compression helpers ───────────────────────────────────────────────
 
 async function compressBytes(
@@ -506,16 +518,27 @@ export class BlobSet {
    * read an elevated record's blob metadata (size/mimeType/compression/
    * chunkCount/refCount/createdAt) straight off `_blob_index` at rest.
    *
-   * `tier` defaults to `ownerTier()`, mirroring `loadSlots`. At `tier > 0`,
-   * try the tier DEK first; on a decrypt failure (wrong key — AES-GCM auth
-   * fails, not "missing") retry under the flat `_blob` DEK. The fallback
-   * covers the two legitimate classes that stay flat even for an elevated
-   * owner: a `dedup`-policy shared object (#741, left in place on purpose)
-   * and a legacy `_cek`-less object (chunks direct under the flat DEK,
-   * never tier-isolated — #724 I1). `atTier` reports which key actually
-   * opened it, so a caller mutating the object (`casUpdateRefCount`) can
-   * write it back under that SAME key — never lifting a flat dedup/legacy
-   * object onto the owner's tier as a side effect of a refCount change.
+   * `tier` defaults to `ownerTier()`, mirroring `loadSlots`. Two-tier mode
+   * (#753 spec §7 C7 / §2d): try `tier`'s DEK first; on a decrypt failure
+   * (wrong key — AES-GCM auth fails, not "missing") retry under
+   * `alsoTryTier`'s DEK. `atTier` reports which key actually opened it, so a
+   * caller mutating the object (`casUpdateRefCount`) can write it back
+   * under that SAME key — never lifting a flat dedup/legacy object onto the
+   * owner's tier (or vice versa) as a side effect of a refCount change.
+   *
+   * `alsoTryTier` defaults to `0` when `tier` resolves `> 0` and no explicit
+   * value is given — this is #747's original tier-then-flat fallback,
+   * preserved byte-identical for every pre-#753 call site (none of which
+   * pass `alsoTryTier`). It covers the two legitimate classes that stay
+   * flat even for an elevated owner: a `dedup`-policy shared object (#741,
+   * left in place on purpose) and a legacy `_cek`-less object (chunks
+   * direct under the flat DEK, never tier-isolated — #724 I1). When `tier`
+   * resolves to `0` and no `alsoTryTier` is given, there is no fallback
+   * attempt at all (matches pre-#753 behavior exactly) — but a `tier === 0`
+   * caller MAY now pass an elevated `alsoTryTier` explicitly (the rehome
+   * resume path, §2d: "try `fromTier`, fall back to `toTier`", either of
+   * which may be 0). Passing `alsoTryTier === tier` is a no-op fallback (no
+   * second attempt — nothing new to try).
    *
    * No migration/compat path: the whole tiers×blobs arc is unpublished, so
    * there is no previously-published elevated blob whose index envelope is
@@ -525,6 +548,7 @@ export class BlobSet {
   private async loadBlobObject(
     eTag: string,
     tier?: number,
+    alsoTryTier?: number,
   ): Promise<{ blob: BlobObject; version: number; atTier: number } | null> {
     const envelope = await this.store.get(this.vault, BLOB_INDEX_COLLECTION, eTag)
     if (!envelope) return null
@@ -534,27 +558,28 @@ export class BlobSet {
     }
 
     const t = tier ?? await this.ownerTier()
-    if (t > 0) {
-      const tierDek = await this.getDEK(dekKey(BLOB_COLLECTION, t))
-      try {
-        const json = await openEnvelopeJson(envelope, tierDek)
-        return { blob: JSON.parse(json) as BlobObject, version: envelope._v, atTier: t }
-      } catch (err) {
-        // M1 (whole-branch review): only a decrypt/auth failure under the
-        // tier key (`decrypt()` throws `TamperedError` on AES-GCM auth
-        // failure — wrong key or tampered ciphertext) means "not ours at
-        // this tier" — fall through to the flat retry below (dedup-shared
-        // or legacy: see doc comment). A JSON.parse failure AFTER a
-        // successful decrypt under the CORRECT tier key is genuine
-        // corruption, not a wrong-key signal, and must propagate instead
-        // of being masked by a misleading flat-DEK error.
-        if (!(err instanceof TamperedError)) throw err
-      }
+    const fallbackTier = alsoTryTier ?? (t > 0 ? 0 : undefined)
+
+    const primaryDek = await this.getDEK(dekKey(BLOB_COLLECTION, t))
+    try {
+      const json = await openEnvelopeJson(envelope, primaryDek)
+      return { blob: JSON.parse(json) as BlobObject, version: envelope._v, atTier: t }
+    } catch (err) {
+      // M1 (whole-branch review): only a decrypt/auth failure under the
+      // primary key (`decrypt()` throws `TamperedError` on AES-GCM auth
+      // failure — wrong key or tampered ciphertext) means "not ours at
+      // this tier" — fall through to the alsoTryTier retry below (see doc
+      // comment). A JSON.parse failure AFTER a successful decrypt under the
+      // CORRECT primary key is genuine corruption, not a wrong-key signal,
+      // and must propagate instead of being masked by a misleading
+      // fallback-DEK error.
+      if (!(err instanceof TamperedError)) throw err
+      if (fallbackTier === undefined || fallbackTier === t) throw err
     }
 
-    const dek = await this.getDEK(BLOB_COLLECTION)
-    const json = await openEnvelopeJson(envelope, dek)
-    return { blob: JSON.parse(json) as BlobObject, version: envelope._v, atTier: 0 }
+    const fallbackDek = await this.getDEK(dekKey(BLOB_COLLECTION, fallbackTier))
+    const json = await openEnvelopeJson(envelope, fallbackDek)
+    return { blob: JSON.parse(json) as BlobObject, version: envelope._v, atTier: fallbackTier }
   }
 
   /**
@@ -613,6 +638,65 @@ export class BlobSet {
   }
 
   /**
+   * Stamp-aware CAS retry loop for refCount changes (#753 spec §7 C2/C4) —
+   * the journal primitive `casUpdateRefCount` itself is deliberately left
+   * untouched (every existing call site passes no stamp and must stay
+   * byte-identical). A distinct method rather than an optional param on
+   * `casUpdateRefCount` keeps the return shape type-clean: this one reports
+   * whether ITS delta was newly applied, not just the resulting count.
+   *
+   * C4: the membership check lives INSIDE the retry loop — every (re)read,
+   * including retries after a losing CAS attempt, checks `blob.lastOps` for
+   * `stamp` FIRST, before computing a delta. This is what makes it a true
+   * test-and-set rather than a check-then-act with a TOCTOU window: two
+   * concurrent callers racing the SAME stamp can each land on any attempt,
+   * but only the one that reads `lastOps` without the stamp present ever
+   * applies the delta — the other, whichever attempt it lands on, always
+   * observes the stamp (either already there, or freshly appended by the
+   * winner) and skips.
+   *
+   * On apply: the stamp is appended to the bounded ring (`appendStamp`,
+   * K=8) in the SAME `writeBlobObject` CAS write as the delta — no window
+   * between them (spec C2's atomicity requirement).
+   *
+   * @returns `{ applied: true, refCount }` when this call's delta was freshly
+   * applied (or `{ applied: false, refCount }` when `stamp` was already
+   * present — the delta from a PRIOR call with this exact stamp already
+   * landed; `refCount` reflects the object's current count, unchanged by
+   * this call).
+   * @param tier See {@link loadBlobObject}'s `tier` param — same resolution
+   * and the same atTier write-back rule as `casUpdateRefCount`.
+   */
+  private async casUpdateRefCountStamped(
+    eTag: string,
+    delta: number,
+    tier: number | undefined,
+    stamp: string,
+  ): Promise<{ applied: boolean; refCount: number }> {
+    for (let attempt = 0; attempt < MAX_CAS_RETRIES; attempt++) {
+      const result = await this.loadBlobObject(eTag, tier)
+      if (!result) throw new NotFoundError(`BlobObject ${eTag} not found`)
+      const { blob, version, atTier } = result
+      if (blob.lastOps?.includes(stamp)) {
+        return { applied: false, refCount: blob.refCount }
+      }
+      const updated: BlobObject = {
+        ...blob,
+        refCount: blob.refCount + delta,
+        lastOps: appendStamp(blob.lastOps, stamp),
+      }
+      try {
+        await this.writeBlobObject(updated, version, atTier)
+        return { applied: true, refCount: updated.refCount }
+      } catch (err) {
+        if (err instanceof ConflictError && attempt < MAX_CAS_RETRIES - 1) continue
+        throw err
+      }
+    }
+    throw new ConflictError(-1) // exhausted retries
+  }
+
+  /**
    * Release `n` references to a blob and reclaim it at refCount 0.
    *
    * The single reclaim choke point for every reference-drop path — slot
@@ -632,17 +716,76 @@ export class BlobSet {
    * @param tier See {@link loadBlobObject}'s `tier` param — forwarded to both
    * the read and the refCount write-back (which resolves its own `atTier`
    * from the read, per `casUpdateRefCount`'s doc comment).
+   *
+   * @param stamp #753 spec §7 C1 journal primitive: when present, this call
+   * is a (possibly-resumed) journaled release and the CAS goes through
+   * {@link casUpdateRefCountStamped} instead, under the two-armed resume
+   * rule:
+   *  - `lastOps` already has `stamp` && `refCount > 0` → this stamp's
+   *    decrement already landed and the object is still referenced elsewhere
+   *    — skip re-decrementing, report the same outcome a fresh call would
+   *    (`retainedShared`/`residue`).
+   *  - `lastOps` already has `stamp` && `refCount <= 0` → this stamp's
+   *    decrement already landed, but the crash window sat BETWEEN the
+   *    decrement CAS and the index+chunk deletion below — COMPLETE that
+   *    deletion now (idempotent: both `store.delete` calls are void on an
+   *    already-absent key).
+   *  - not yet stamped → apply via `casUpdateRefCountStamped`, then proceed
+   *    exactly like the unstamped path below.
+   *
+   * A crash can also land AFTER the index row is deleted but BEFORE every
+   * chunk is — `loadBlobObject` then returns null (indistinguishable from
+   * "never existed") and the object's `chunkCount` is gone with it. A
+   * stamped caller who knows the true count (the journal marker's captured
+   * `holds`, once that plumbing lands) supplies it via `chunkCountHint` so
+   * this call can still finish the chunk deletion; without it, an
+   * already-index-gone eTag is reported `'shredded'` same as today (best
+   * effort — nothing left to key the cleanup off of).
    */
   private async releaseRef(
     eTag: string,
     n: number,
     reclaimLegacy: boolean,
     tier?: number,
+    stamp?: string,
+    chunkCountHint?: number,
   ): Promise<'shredded' | 'retainedShared' | 'residue'> {
     const loaded = await this.loadBlobObject(eTag, tier)
-    if (!loaded) return 'shredded' // already gone
+    if (!loaded) {
+      // Index row already gone. A stamped caller who knows the true chunk
+      // count (marker-supplied) can still complete cleanup; an unstamped
+      // caller (or one without the hint) has nothing left to key it off —
+      // best-effort, same posture as pre-#753.
+      if (stamp !== undefined && chunkCountHint !== undefined) {
+        for (let i = 0; i < chunkCountHint; i++) {
+          await this.store.delete(this.vault, BLOB_CHUNKS_COLLECTION, `${eTag}_${i}`)
+        }
+      }
+      return 'shredded'
+    }
     const erasable = loaded.blob._cek !== undefined
-    const remaining = await this.casUpdateRefCount(eTag, -n, tier)
+
+    if (stamp !== undefined && loaded.blob.lastOps?.includes(stamp)) {
+      // Already stamped: the decrement landed on a prior run. Two-armed
+      // resume rule (spec C1).
+      if (loaded.blob.refCount > 0) return erasable ? 'retainedShared' : 'residue'
+      // refCount <= 0 but the object row is still here — the deletion step
+      // never completed. Finish it now, idempotently.
+      if (erasable || reclaimLegacy) {
+        await this.store.delete(this.vault, BLOB_INDEX_COLLECTION, eTag)
+        const chunkCount = chunkCountHint ?? loaded.blob.chunkCount
+        for (let i = 0; i < chunkCount; i++) {
+          await this.store.delete(this.vault, BLOB_CHUNKS_COLLECTION, `${eTag}_${i}`)
+        }
+      }
+      return erasable ? 'shredded' : 'residue'
+    }
+
+    // Not yet stamped (or no stamp at all — the pre-#753 path): apply the
+    // decrement now.
+    const remaining = stamp !== undefined
+      ? (await this.casUpdateRefCountStamped(eTag, -n, tier, stamp)).refCount
+      : await this.casUpdateRefCount(eTag, -n, tier)
     if (remaining > 0) return erasable ? 'retainedShared' : 'residue'
 
     if (erasable || reclaimLegacy) {
