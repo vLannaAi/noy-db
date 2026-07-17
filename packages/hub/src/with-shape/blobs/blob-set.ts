@@ -883,16 +883,23 @@ export class BlobSet {
     return newETag
   }
 
-  /** CAS retry loop for an arbitrary BlobObject mutation. */
+  /**
+   * CAS retry loop for an arbitrary BlobObject mutation. Used only by
+   * `migrate()`, which is legacy-only by definition — a legacy object is
+   * always flat-keyed — so the tier is pinned to `0` explicitly rather than
+   * left to `loadBlobObject`/`writeBlobObject`'s independent `ownerTier()`
+   * defaults, which could diverge on an elevated owner and re-key the
+   * envelope under the elevated tier DEK while chunks stay flat (#747 review).
+   */
   private async casUpdateBlobObject(
     eTag: string,
     mutate: (blob: BlobObject) => BlobObject,
   ): Promise<void> {
     for (let attempt = 0; attempt < MAX_CAS_RETRIES; attempt++) {
-      const result = await this.loadBlobObject(eTag)
+      const result = await this.loadBlobObject(eTag, 0)
       if (!result) throw new NotFoundError(`BlobObject ${eTag} not found`)
       try {
-        await this.writeBlobObject(mutate(result.blob), result.version)
+        await this.writeBlobObject(mutate(result.blob), result.version, 0)
         return
       } catch (err) {
         if (err instanceof ConflictError && attempt < MAX_CAS_RETRIES - 1) continue
