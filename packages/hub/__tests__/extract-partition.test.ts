@@ -17,7 +17,11 @@ import { ConflictError } from '../src/kernel/errors.js'
 import { decrypt, base64ToBuffer, generateDEK } from '../src/kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { reKeyClosure, sealDeks, extractPartition } from '../src/with-cargo/extract-partition.js'
+import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/with-cargo/adopt-partition.js'
 import { readNoydbBundle, readNoydbBundleHeader, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
+import { withTiers } from '../src/with-audit/tiers/index.js'
+import { withBlobs } from '../src/via/blob/index.js'
+import { BLOB_SLOTS_PREFIX, BLOB_INDEX_COLLECTION } from '../src/with-shape/blobs/blob-set.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -184,5 +188,98 @@ describe('extractPartition end-to-end', () => {
     const env = backup.collections['clients']!['c-1']!
     const recordJson = await decrypt(env._iv, env._data, clientsDek)
     expect(JSON.parse(recordJson)).toMatchObject({ id: 'c-1', name: 'Hotel' })
+  })
+})
+
+/**
+ * #748 — pinning regression: an elevated record is structurally excluded from
+ * an extract-partition closure/bundle. `walkClosure` selects roots via
+ * `Collection.list()` and expands inbound via the same tier-gated read
+ * surface (collection.ts `ensureHydrated`/`#getRaw` skip `_tier > 0`
+ * envelopes) — an elevated record can never become a seed nor an
+ * inbound-expansion target, so it (and any blob it owns) never enters the
+ * closure `reKeyClosure`/`reKeyBlobs` re-key. Absence, not a thrown error:
+ * the extraction succeeds and simply never mentions the elevated record.
+ */
+describe('extractPartition — #748: elevated records are structurally excluded', () => {
+  interface Client { id: string; name: string }
+  interface Invoice { id: string; clientId: string }
+
+  it('an elevated blob-bearing parent (and its blob) is silently absent from the closure and bundle', async () => {
+    const store = memory()
+    const db = await createNoydb({
+      cargoStrategy: withCargo(),
+      store,
+      user: 'alice',
+      secret: 'test-passphrase-1234',
+      tiersStrategy: withTiers(),
+      blobStrategy: withBlobs(),
+    })
+    const company = await db.openVault('demo-co')
+    const clients = company.collection<Client>('clients', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+    const invoices = company.collection<Invoice>('invoices', { refs: { clientId: ref('clients') } })
+
+    // c-1 would otherwise match the seed predicate below and travel with its
+    // blob + FK-connected invoice — elevate it BEFORE extraction so it never
+    // qualifies as a root.
+    await clients.putAtTier('c-1', { id: 'c-1', name: 'Redacted Co' }, 0)
+    await clients.blob('c-1').put('attachment', new TextEncoder().encode('ELEVATED SECRET BYTES'))
+    await invoices.put('inv-1', { id: 'inv-1', clientId: 'c-1' })
+    await clients.elevate('c-1', 1)
+
+    // Sibling stays tier-0 — proves the exclusion is targeted, not global.
+    await clients.putAtTier('c-2', { id: 'c-2', name: 'Visible Co' }, 0)
+    await clients.blob('c-2').put('attachment', new TextEncoder().encode('VISIBLE SIBLING BYTES'))
+    await invoices.put('inv-2', { id: 'inv-2', clientId: 'c-2' })
+
+    // Matches every (visible) client — c-1 never reaches the predicate
+    // because `Collection.list()` already filters it out.
+    const { bundleBytes, transferKey } = await extractPartition(company, {
+      seeds: { clients: () => true },
+    })
+
+    const { dumpJson } = await readNoydbBundle(bundleBytes)
+    const { dump } = parseExtractedPartitionBody(dumpJson)
+    const backup = JSON.parse(dump) as {
+      collections: Record<string, Record<string, EncryptedEnvelope>>
+      _internal?: Record<string, Record<string, EncryptedEnvelope>>
+    }
+
+    // The elevated record + its FK-connected invoice never entered the
+    // closure at all — silently absent, not a tombstone/error placeholder.
+    expect(Object.keys(backup.collections['clients'] ?? {})).toEqual(['c-2'])
+    expect(Object.keys(backup.collections['invoices'] ?? {})).toEqual(['inv-2'])
+
+    // Its blob artifacts never entered `_internal` either — only c-2's slot
+    // map + a single carried blob (c-1's is absent, not just unreadable).
+    const slots = backup._internal?.[`${BLOB_SLOTS_PREFIX}clients`] ?? {}
+    expect(Object.keys(slots)).toEqual(['c-2'])
+    expect(Object.keys(backup._internal?.[BLOB_INDEX_COLLECTION] ?? {})).toHaveLength(1)
+
+    // End-to-end: the recipient never even learns c-1 existed, and c-2's
+    // blob round-trips untouched.
+    const dest = memory()
+    await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
+    await createOwnerOnAdoptedPartition(dest, 'fresh', {
+      userId: 'belle', passphrase: 'belle-pass-phrase-2026', transferKey,
+    })
+    const recipientDb = await createNoydb({
+      cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-pass-phrase-2026',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const recipientVault = await recipientDb.openVault('fresh')
+    const recipientClients = recipientVault.collection<Client>('clients', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+    expect(await recipientClients.get('c-1')).toBeNull()
+    expect(await recipientClients.get('c-2')).toMatchObject({ name: 'Visible Co' })
+    const c2Blob = await recipientClients.blob('c-2').get('attachment')
+    expect(c2Blob).not.toBeNull()
+    expect(new TextDecoder().decode(c2Blob!)).toBe('VISIBLE SIBLING BYTES')
+
+    recipientDb.close()
+    db.close()
   })
 })

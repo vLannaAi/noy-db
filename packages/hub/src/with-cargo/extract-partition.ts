@@ -88,6 +88,19 @@ export async function reKeyClosure(
     for (const id of ids) {
       const env = await adapter.get(vaultName, collectionName, id)
       if (!env) continue
+      // #748 defense-in-depth canary: `closure` is built exclusively through
+      // tier-gated `Collection.list()`/`get()` (collection.ts `ensureHydrated`
+      // / `#getRaw` both skip `_tier > 0` envelopes), so an elevated record
+      // can never reach this raw `adapter.get` fetch — this should be
+      // unreachable by construction. Not a user-facing guard; a cheap tripwire
+      // in case that invariant ever regresses.
+      if ((env._tier ?? 0) > 0) {
+        throw new Error(
+          `#748: reKeyClosure fetched an elevated envelope (collection="${collectionName}" id="${id}" `
+          + `_tier=${env._tier}) — this is unreachable by construction (walkClosure only ever adds ids `
+          + `reachable through tier-gated Collection reads). Refusing to carry it into a partition.`,
+        )
+      }
       if (env._cek !== undefined) {
         // Per-record CEK: a naive `{ ...env }` spread would carry a
         // SOURCE-DEK-wrapped CEK into a bundle re-keyed under a different
@@ -326,6 +339,16 @@ export async function reKeyBlobs(
     for (const id of ids) {
       const env = await adapter.get(vaultName, slotsCollection, id)
       if (!env) continue
+      // #748 defense-in-depth canary — see the matching one in `reKeyClosure`:
+      // `ids` comes from the same tier-gated `closure`, so an elevated
+      // record's slot map should never be reachable here. Unreachable by
+      // construction; a cheap tripwire, not a user-facing guard.
+      if ((env._tier ?? 0) > 0) {
+        throw new Error(
+          `#748: reKeyBlobs fetched an elevated slot-map envelope (collection="${slotsCollection}" `
+          + `id="${id}" _tier=${env._tier}) — this is unreachable by construction. Refusing to carry it into a partition.`,
+        )
+      }
       const slots = JSON.parse(await openEnvelopeJson(env, srcDek)) as Record<string, SlotRecord>
       // FR-7: drop projected-out blob fields' slots (slot names are blob field
       // names) — their eTags then never enter the travel set.
@@ -350,6 +373,14 @@ export async function reKeyBlobs(
       if (proj && slotName !== undefined && !proj.has(slotName)) continue
       const env = await adapter.get(vaultName, versionsCollection, key)
       if (!env) continue
+      // #748 defense-in-depth canary — see `reKeyClosure`'s. Unreachable by
+      // construction; a cheap tripwire, not a user-facing guard.
+      if ((env._tier ?? 0) > 0) {
+        throw new Error(
+          `#748: reKeyBlobs fetched an elevated version-record envelope (collection="${versionsCollection}" `
+          + `key="${key}" _tier=${env._tier}) — this is unreachable by construction. Refusing to carry it into a partition.`,
+        )
+      }
       const record = JSON.parse(await openEnvelopeJson(env, srcDek)) as VersionRecord
       addRef(record.eTag)
       const { iv, data } = await encrypt(JSON.stringify(record), destDek)
