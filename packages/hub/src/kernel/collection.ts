@@ -4512,7 +4512,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       syncSearch: (id: string, rec: T | null, version?: number) => syncTierSearchImpl(this.searchContext(), id, rec, version),
       syncHistory: async (id: string, fromDek: EnclaveKey, toDek: EnclaveKey) => this.historyStrategy.rewrapHistory(this.adapter, this.vault, this.name, id, fromDek, toDek, await this.getDEK(this.name)),
       syncLedger: async (id: string) => { await this.ledger?.purgeRecordDeltas(this.name, id) },
-      syncDerived: (id: string, record: T | null, elevated: boolean) => syncDerivedOutputs(this, id, record, elevated),
+      syncDerived: (id: string, record: T | null, elevated: boolean, version?: number) => syncDerivedOutputs(this, id, record, elevated, version),
       provenance: this.provenance,
       tiers: this.tiers,
       tierMode: this.tierMode,

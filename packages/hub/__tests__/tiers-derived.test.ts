@@ -249,3 +249,208 @@ describe('#722 elevate removes the source from derived outputs', () => {
     expect(await docs.getAtTier('d1')).toEqual({ id: 'd1', title: 'Public' })
   })
 })
+
+/**
+ * #722 Task 2 — demote (and putAtTier(0)) must RESTORE what elevate removed:
+ * the source's plaintext survives the elevate/demote rewrap round-trip, so
+ * its contribution can be re-added to every derived output. Reuses the
+ * ordinary local-write add-dispatchers (`dispatchDerivations`/
+ * `dispatchMaterializedViews`) — the same ones a plain `put()` fires.
+ */
+describe('#722 demote restores the source to derived outputs (reversible)', () => {
+  it('record-grain MV: demote re-creates the output row', async () => {
+    interface Invoice extends Record<string, unknown> { id: string; clientId: string; amount: number; status: 'open' | 'paid' }
+    const openInvoicesMV = withMaterializedView<Invoice>({
+      name: 'open-invoices',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      query: (db) => { (db as any).collection('invoices', { tiers: [0, 1], perRecordKeys: true }); return db.collection<Invoice>('invoices').query().where('status', '==', 'open') },
+      rowKey: (r) => r.id,
+      refresh: 'eager',
+    })
+    const db = await createNoydb({
+      store: memoryStore(),
+      user: 'owner',
+      secret: 'tiers-derived-mv-demote-passphrase-2026',
+      tiersStrategy: withTiers(),
+      materializedViewStrategies: [openInvoicesMV],
+    })
+    const vault = await db.openVault('demo')
+    const invoices = vault.collection<Invoice>('invoices', { tiers: [0, 1], perRecordKeys: true })
+    const openMV = vault.collection<Invoice>('open-invoices')
+
+    await invoices.put('inv-a', { id: 'inv-a', clientId: 'acme', amount: 100, status: 'open' })
+    await invoices.elevate('inv-a', 1)
+    expect(await openMV.get('inv-a')).toBeNull()
+
+    await invoices.demote('inv-a', 0)
+
+    expect((await openMV.get('inv-a'))?.amount).toBe(100)
+    expect((await openMV.get('inv-a'))?.status).toBe('open')
+  })
+
+  it('aggregate MV: demote restores the contribution to the group aggregate', async () => {
+    interface Compensation extends Record<string, unknown> { id: string; clientId: string; taxAmount: number }
+    interface ClientTotalRow extends Record<string, unknown> { clientId: string; taxTotal: number }
+    const mv = withMaterializedView<ClientTotalRow>({
+      name: 'client-totals',
+      sources: ['compensations'],
+      query: (db) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(db as any).collection('compensations', { tiers: [0, 1], perRecordKeys: true })
+        return db.collection<Compensation>('compensations')
+          .query()
+          .groupBy('clientId')
+          .aggregate({ taxTotal: sum('taxAmount') }) as GroupedAggregation<ClientTotalRow>
+      },
+      rowKey: (r) => r.clientId,
+      refresh: 'eager',
+    })
+    const db = await createNoydb({
+      store: memoryStore(),
+      user: 'owner',
+      secret: 'tiers-derived-aggregate-demote-passphrase-2026',
+      tiersStrategy: withTiers(),
+      aggregateStrategy: withAggregate(),
+      materializedViewStrategies: [mv],
+    })
+    const vault = await db.openVault('demo')
+    const compensations = vault.collection<Compensation>('compensations', { tiers: [0, 1], perRecordKeys: true })
+    const totals = vault.collection<ClientTotalRow>('client-totals')
+
+    await compensations.put('c1', { id: 'c1', clientId: 'acme', taxAmount: 100 })
+    await compensations.put('c2', { id: 'c2', clientId: 'acme', taxAmount: 50 })
+    await compensations.elevate('c1', 1)
+    expect((await totals.get('acme'))?.taxTotal).toBe(50)
+
+    await compensations.demote('c1', 0)
+
+    expect((await totals.get('acme'))?.taxTotal).toBe(150)
+  })
+
+  it('rollup + derivation: demote restores the contribution/output', async () => {
+    interface Buyer extends Record<string, unknown> { id: string; companyName: string; totalSpent?: number }
+    interface Sale extends Record<string, unknown> { id: string; buyerId: string; total: number }
+    const totalSpentRollup = withRollup<Sale, Buyer>({
+      from: 'sales', key: 'buyerId', into: 'buyers', field: 'totalSpent',
+      compute: (sales) => sales.reduce((t, s) => t + s.total, 0),
+    })
+    const rollupDb = await createNoydb({
+      store: memoryStore(),
+      user: 'owner',
+      secret: 'tiers-derived-rollup-demote-passphrase-2026',
+      tiersStrategy: withTiers(),
+      derivationStrategies: [totalSpentRollup],
+    })
+    const rollupVault = await rollupDb.openVault('firm')
+    const buyers = rollupVault.collection<Buyer>('buyers')
+    const sales = rollupVault.collection<Sale>('sales', { tiers: [0, 1], perRecordKeys: true })
+
+    await buyers.put('b1', { id: 'b1', companyName: 'Acme' })
+    await sales.put('s1', { id: 's1', buyerId: 'b1', total: 100 })
+    await sales.put('s2', { id: 's2', buyerId: 'b1', total: 200 })
+    await sales.elevate('s1', 1)
+    expect((await buyers.get('b1'))?.totalSpent).toBe(200)
+
+    await sales.demote('s1', 0)
+
+    expect((await buyers.get('b1'))?.totalSpent).toBe(300)
+
+    interface Worker extends Record<string, unknown> { id: string; clientId: string; period: string; baseSalary: number }
+    interface ActivePeriod extends Record<string, unknown> { id: string; workerId: string; period: string }
+    const derivationStrategy = withDerivation<Worker, { activeInPeriod: ActivePeriod[] }>({
+      source: 'workers',
+      deterministic: true,
+      outputs: {
+        activeInPeriod: {
+          shape: 'array',
+          collection: 'workerActiveInPeriod',
+          key: (o) => `${o.workerId as string}|${o.period as string}`,
+        },
+      },
+      derive: (worker) => ({
+        activeInPeriod: [{ id: `${worker.id}|${worker.period}`, workerId: worker.id, period: worker.period }],
+      }),
+      lifecycle: 'eager',
+    })
+    const derivationDb = await createNoydb({
+      store: memoryStore(),
+      user: 'owner',
+      secret: 'tiers-derived-array-demote-passphrase-2026',
+      tiersStrategy: withTiers(),
+      derivationStrategies: [derivationStrategy],
+    })
+    const derivationVault = await derivationDb.openVault('acme')
+    const workers = derivationVault.collection<Worker>('workers', { tiers: [0, 1], perRecordKeys: true })
+    const activePeriods = derivationVault.collection<ActivePeriod>('workerActiveInPeriod')
+
+    await workers.put('w1', { id: 'w1', clientId: 'cl-A', period: '2026-03', baseSalary: 30000 })
+    await workers.elevate('w1', 1)
+    expect(await activePeriods.get('w1|2026-03')).toBeNull()
+
+    await workers.demote('w1', 0)
+
+    expect(await activePeriods.get('w1|2026-03')).not.toBeNull()
+  })
+
+  it('putAtTier(0) over an elevated record restores its derived outputs', async () => {
+    interface Buyer extends Record<string, unknown> { id: string; companyName: string; totalSpent?: number }
+    interface Sale extends Record<string, unknown> { id: string; buyerId: string; total: number }
+    const totalSpentRollup = withRollup<Sale, Buyer>({
+      from: 'sales', key: 'buyerId', into: 'buyers', field: 'totalSpent',
+      compute: (sales) => sales.reduce((t, s) => t + s.total, 0),
+    })
+    const db = await createNoydb({
+      store: memoryStore(),
+      user: 'owner',
+      secret: 'tiers-derived-putattier0-passphrase-2026',
+      tiersStrategy: withTiers(),
+      derivationStrategies: [totalSpentRollup],
+    })
+    const vault = await db.openVault('firm')
+    const buyers = vault.collection<Buyer>('buyers')
+    const sales = vault.collection<Sale>('sales', { tiers: [0, 1], perRecordKeys: true })
+
+    await buyers.put('b1', { id: 'b1', companyName: 'Acme' })
+    await sales.put('s1', { id: 's1', buyerId: 'b1', total: 100 })
+    await sales.put('s2', { id: 's2', buyerId: 'b1', total: 200 })
+    await sales.elevate('s1', 1)
+    expect((await buyers.get('b1'))?.totalSpent).toBe(200)
+
+    await sales.putAtTier('s1', { id: 's1', buyerId: 'b1', total: 100 }, 0)
+
+    expect((await buyers.get('b1'))?.totalSpent).toBe(300)
+  })
+
+  it('elevate → demote → elevate round-trips cleanly (outputs match the current tier each time)', async () => {
+    interface Invoice extends Record<string, unknown> { id: string; clientId: string; amount: number; status: 'open' | 'paid' }
+    const openInvoicesMV = withMaterializedView<Invoice>({
+      name: 'open-invoices',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      query: (db) => { (db as any).collection('invoices', { tiers: [0, 1], perRecordKeys: true }); return db.collection<Invoice>('invoices').query().where('status', '==', 'open') },
+      rowKey: (r) => r.id,
+      refresh: 'eager',
+    })
+    const db = await createNoydb({
+      store: memoryStore(),
+      user: 'owner',
+      secret: 'tiers-derived-roundtrip-passphrase-2026',
+      tiersStrategy: withTiers(),
+      materializedViewStrategies: [openInvoicesMV],
+    })
+    const vault = await db.openVault('demo')
+    const invoices = vault.collection<Invoice>('invoices', { tiers: [0, 1], perRecordKeys: true })
+    const openMV = vault.collection<Invoice>('open-invoices')
+
+    await invoices.put('inv-a', { id: 'inv-a', clientId: 'acme', amount: 100, status: 'open' })
+    expect((await openMV.get('inv-a'))?.amount).toBe(100)
+
+    await invoices.elevate('inv-a', 1)
+    expect(await openMV.get('inv-a')).toBeNull()
+
+    await invoices.demote('inv-a', 0)
+    expect((await openMV.get('inv-a'))?.amount).toBe(100)
+
+    await invoices.elevate('inv-a', 1)
+    expect(await openMV.get('inv-a')).toBeNull()
+  })
+})

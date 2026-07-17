@@ -141,14 +141,21 @@ export interface TiersContext<T> {
    * REMOVED. Recompute is tier-safe: the fanout's own source scan reads
    * the elevated-excluding cache (#701/#709/#712), so it naturally omits
    * the now-elevated record instead of re-embedding its plaintext. Landing
-   * back at tier 0 (`elevated === false`) is the reverse, restoring the
-   * contribution — Task 2 (#722). `record` is the PRE-move decoded source
-   * record — only the rollup edge needs it (to resolve which parent it
-   * rolls up into); `null` skips that edge. No-op fast when the collection
-   * has no MV/derivation source — each dispatcher below checks its own
-   * source before doing any work.
+   * back at tier 0 (`elevated === false`) is the reverse (Task 2, #722):
+   * `syncDerivedOutputs` instead runs the ordinary local-write add-
+   * dispatchers (`dispatchDerivations`/`dispatchMaterializedViews`, the
+   * same ones a plain `put()` fires) to restore the contribution —
+   * reversible, since the source's plaintext survives the elevate/demote
+   * rewrap round-trip. `record` is the decoded source record (PRE-move on
+   * the remove side, POST-move on the add side); only the rollup edge
+   * consumes it on remove, both add-dispatchers require it on add; `null`
+   * (tombstone/delete-marker) skips both. `version` stamps the add-
+   * dispatchers' `_derivedFrom.sourceVersion` metadata — reuses the version
+   * the tier op already has, no re-read; unused on the remove side. No-op
+   * fast when the collection has no MV/derivation source — each dispatcher
+   * below checks its own source before doing any work.
    */
-  syncDerived(id: string, record: T | null, elevated: boolean): Promise<void>
+  syncDerived(id: string, record: T | null, elevated: boolean, version?: number): Promise<void>
   /** Emit `_source`/`_sourceTs` provenance fields when a source is supplied. */
   readonly provenance: boolean
   /** Declared tiers, or null when the feature is off. */
@@ -198,6 +205,9 @@ export interface DerivedOutputsHost<T> {
   dispatchMaterializedViewsOnDelete(id: string): Promise<number>
   dispatchArrayDerivationsOnDelete(id: string, eraseRecordShapeToo?: boolean): Promise<number>
   dispatchRollupsOnDelete(id: string, deleted: T): Promise<unknown>
+  /** Task 2 (#722) add-direction: the same local-write dispatchers an ordinary `put()` fires. */
+  dispatchMaterializedViews(id: string, record: T): Promise<void>
+  dispatchDerivations(id: string, record: T, version: number): Promise<void>
 }
 
 /**
@@ -213,11 +223,22 @@ export async function syncDerivedOutputs<T>(
   id: string,
   record: T | null,
   elevated: boolean,
+  version?: number,
 ): Promise<void> {
-  if (!elevated) return // Task 2 (#722): recompute-as-add on demote/putAtTier(0)
-  await host.dispatchMaterializedViewsOnDelete(id)
-  await host.dispatchArrayDerivationsOnDelete(id, true)
-  if (record !== null) await host.dispatchRollupsOnDelete(id, record)
+  if (elevated) {
+    await host.dispatchMaterializedViewsOnDelete(id)
+    await host.dispatchArrayDerivationsOnDelete(id, true)
+    if (record !== null) await host.dispatchRollupsOnDelete(id, record)
+    return
+  }
+  // Task 2 (#722) recompute-as-add: the record rejoined tier 0 (demote(→0) /
+  // putAtTier(0)) — restore its contribution via the SAME local-write
+  // dispatchers an ordinary `put()` fires (`collection.ts`'s
+  // `_onRecordMutated('local-write')`), same order. `record === null` only
+  // when a caller demotes a tombstone/delete-marker to 0 — nothing to add.
+  if (record === null) return
+  await host.dispatchDerivations(id, record, version ?? 0)
+  await host.dispatchMaterializedViews(id, record)
 }
 
 /**
@@ -293,6 +314,10 @@ export async function putAtTier<T>(
     const rec = await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
     await ctx.syncIndexes(id, rec, envelope._v)
     ctx.syncCache(id, rec !== null ? { record: rec, version: envelope._v } : null)
+    // #722 Task 2: the record is written at tier 0 — restore its
+    // contribution to every derived output (reuse the decode above, no
+    // double-decrypt).
+    await ctx.syncDerived(id, rec, false, envelope._v)
   }
   // #721: search artifacts follow the same tier > 0 → purge / tier 0 →
   // re-embed law as syncIndexes above. No ordering dependency on syncCache —
@@ -583,11 +608,19 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
     // #721: reuse the decode above — no double-decrypt. The record is tier-0
     // again, so re-embed its _vec and invalidate _ftindex to include it.
     await ctx.syncSearch(id, rec, next._v)
+    // #722 Task 2: the record rejoined tier 0 — restore its contribution to
+    // every derived output (reuse the decode above, no double-decrypt).
+    await ctx.syncDerived(id, rec, false, next._v)
   } else {
     await ctx.syncIndexes(id, null)
     ctx.syncCache(id, null)
     // #721: still above tier 0 — purge _vec, invalidate _ftindex.
     await ctx.syncSearch(id, null)
+    // #722 Task 2: still elevated (an intermediate tier) — the source's
+    // derived outputs stay recompute-as-removed, same law as elevate()
+    // above. `envelope` is the PRE-move envelope captured at function
+    // entry; decoded only here (the rollup edge is the only consumer).
+    await ctx.syncDerived(id, await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true }), true)
   }
 
   ctx.emitCrossTierEvent({
