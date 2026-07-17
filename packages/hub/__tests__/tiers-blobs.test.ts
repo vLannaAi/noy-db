@@ -1435,4 +1435,29 @@ describe('#749 blob(id).atTier() — sanctioned cleared-read path', () => {
     expect(await docs.blob('d1').list()).toEqual([])
     expect(await docs.blob('d1').blobInfo('attachment')).toBeNull()
   })
+
+  it('a cleared owner reads a published VERSION\'s response on an elevated record via atTier() — the fourth fetchAllChunks site (review)', async () => {
+    const db = await createNoydb({
+      store: memoryStore(), secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
+    await docs.blob('d1').put('attachment', new TextEncoder().encode('versioned cleared bytes'))
+    await docs.blob('d1').publish('attachment', 'v1')
+    await docs.elevate('d1', 1)
+
+    // The tier-0 surface hides it, same as every other blob accessor.
+    expect(await docs.blob('d1').responseVersion('attachment', 'v1')).toBeNull()
+
+    const cleared = await docs.blob('d1').atTier()
+    const res = await cleared.responseVersion('attachment', 'v1', { inline: true })
+    expect(res).not.toBeNull()
+    const body = new Uint8Array(await res!.arrayBuffer())
+    expect(new TextDecoder().decode(body)).toBe('versioned cleared bytes')
+  })
 })

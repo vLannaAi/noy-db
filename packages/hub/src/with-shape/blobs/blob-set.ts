@@ -277,7 +277,13 @@ export class BlobSet {
    * #749: a cleared clone reports its fixed `clearedTier` instead of
    * re-peeking — a stable view for the caller's whole session with it. A
    * concurrent demote/elevate on the underlying record is invisible to an
-   * already-cleared handle; call `atTier()` again to see it.
+   * already-cleared handle; call `atTier()` again to see it. This is not a
+   * silent-corruption risk: a WRITE through a stale clone after a concurrent
+   * move fails loud, not quiet — the slot map/index envelope has already
+   * been physically re-keyed to the record's new tier by `rehomeForTier`, so
+   * the stale clone's `clearedTier`-pinned DEK can no longer open it and the
+   * write throws an AEAD decrypt error rather than silently writing under
+   * the wrong key.
    */
   private async ownerTier(): Promise<number> {
     if (this.clearedTier !== undefined) return this.clearedTier
@@ -1901,7 +1907,9 @@ export class BlobSet {
       ...(record.publishedBy !== undefined ? { uploadedBy: record.publishedBy } : {}),
     }
 
-    return this.buildResponse(slotLike, result.blob, opts)
+    // #749: see the matching comment in `get()`.
+    const blobDEK = this.encrypted ? await this.getDEK(dekKey(BLOB_COLLECTION, result.atTier)) : undefined
+    return this.buildResponse(slotLike, result.blob, opts, blobDEK)
   }
 
   // ─── Diagnostics ──────────────────────────────────────────────────
