@@ -138,7 +138,7 @@ describe('#724 blob metadata gate', () => {
 })
 
 describe('#724 solo blob at-rest isolation', () => {
-  it('elevate rewraps a solo blob’s CEK under the tier _blob DEK — undecryptable at tier 0', async () => {
+  it('elevate RE-PUTS a solo blob under a tier-scoped eTag — the old tier-0 address is crypto-shredded, undecryptable at tier 0', async () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
@@ -151,27 +151,40 @@ describe('#724 solo blob at-rest isolation', () => {
     const getDEK = (vault as unknown as { getDEK(name: string): Promise<EnclaveKey> }).getDEK
     const tier0BlobDEK = await getDEK(dekKey('_blob', 0))
     const tier1BlobDEK = await getDEK(dekKey('_blob', 1))
+    const collDEK1 = await getDEK(dekKey('docs', 1))
 
     await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
     await docs.blob('d1').put('attachment', new TextEncoder().encode('sensitive attachment bytes'))
     const info = await docs.blob('d1').blobInfo('attachment')
     expect(info!.refCount).toBe(1) // solo — exclusively owned by d1
-    const eTag = info!.eTag
+    const oldETag = info!.eTag
 
     // Sibling tier-0 solo blob — must be untouched by d1's elevation.
     await docs.putAtTier('d2', { id: 'd2', title: 'Memo', body: 'y' }, 0)
     await docs.blob('d2').put('attachment', new TextEncoder().encode('sibling attachment bytes'))
     const siblingETag = (await docs.blob('d2').blobInfo('attachment'))!.eTag
 
-    const chunkBefore = await store.get('v1', BLOB_CHUNKS_COLLECTION, `${eTag}_0`)
-
     await docs.elevate('d1', 1)
 
+    // #724 correction: solo re-PUTS instead of rewrapping in place — the
+    // OLD tier-0 address drops to refCount 0 and is crypto-shredded (both
+    // the index entry and its chunk are gone), closing C1 (a same-bytes
+    // tier-0 put could otherwise dedup-hit this address).
+    expect(await store.get('v1', BLOB_INDEX_COLLECTION, oldETag)).toBeNull()
+    expect(await store.get('v1', BLOB_CHUNKS_COLLECTION, `${oldETag}_0`)).toBeNull()
+
+    // The NEW tier-scoped eTag lives in the slot map (Task 4: moved to the
+    // tier-1 collection DEK).
+    const slotsEnv = await store.get('v1', '_blob_slots_docs', 'd1')
+    const slots = JSON.parse(await openEnvelopeJson(slotsEnv!, collDEK1)) as Record<string, { eTag: string }>
+    const newETag = slots.attachment!.eTag
+    expect(newETag).not.toBe(oldETag)
+
+    const env = await store.get('v1', BLOB_INDEX_COLLECTION, newETag)
+    expect(env).not.toBeNull()
     // Raw at-rest inspection: the BlobObject index envelope's own wrapper
     // key is untouched (still the flat tier-0 `_blob` DEK) — only the
-    // wrapped content CEK carried inside it moved.
-    const env = await store.get('v1', BLOB_INDEX_COLLECTION, eTag)
-    expect(env).not.toBeNull()
+    // wrapped content CEK carried inside it is tier-scoped.
     const blob = JSON.parse(await openEnvelopeJson(env!, tier0BlobDEK)) as { _cek?: string; refCount: number }
     expect(blob._cek).toBeDefined()
 
@@ -180,18 +193,13 @@ describe('#724 solo blob at-rest isolation', () => {
     // …but is under tier-1.
     await expect(unwrapCek(blob._cek!, tier1BlobDEK)).resolves.toBeDefined()
 
-    // Chunks are byte-identical — the content CEK itself is unchanged, only
-    // its wrapper moved. No chunk re-encryption.
-    const chunkAfter = await store.get('v1', BLOB_CHUNKS_COLLECTION, `${eTag}_0`)
-    expect(chunkAfter).toEqual(chunkBefore)
-
     // Sibling tier-0 blob is unaffected.
     const siblingEnv = await store.get('v1', BLOB_INDEX_COLLECTION, siblingETag)
     const siblingBlob = JSON.parse(await openEnvelopeJson(siblingEnv!, tier0BlobDEK)) as { _cek?: string }
     await expect(unwrapCek(siblingBlob._cek!, tier0BlobDEK)).resolves.toBeDefined()
   })
 
-  it('putAtTier(>0) over a blob-owning record rewraps its solo blob CEK', async () => {
+  it('putAtTier(>0) over a blob-owning record RE-PUTS its solo blob under a tier-scoped eTag', async () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
@@ -204,14 +212,23 @@ describe('#724 solo blob at-rest isolation', () => {
     const getDEK = (vault as unknown as { getDEK(name: string): Promise<EnclaveKey> }).getDEK
     const tier0BlobDEK = await getDEK(dekKey('_blob', 0))
     const tier1BlobDEK = await getDEK(dekKey('_blob', 1))
+    const collDEK1 = await getDEK(dekKey('docs', 1))
 
     await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
     await docs.blob('d1').put('attachment', new TextEncoder().encode('sensitive bytes'))
-    const eTag = (await docs.blob('d1').blobInfo('attachment'))!.eTag
+    const oldETag = (await docs.blob('d1').blobInfo('attachment'))!.eTag
 
     await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x2' }, 1)
 
-    const env = await store.get('v1', BLOB_INDEX_COLLECTION, eTag)
+    // The old tier-0 address is crypto-shredded (solo, refCount → 0).
+    expect(await store.get('v1', BLOB_INDEX_COLLECTION, oldETag)).toBeNull()
+
+    const slotsEnv = await store.get('v1', '_blob_slots_docs', 'd1')
+    const slots = JSON.parse(await openEnvelopeJson(slotsEnv!, collDEK1)) as Record<string, { eTag: string }>
+    const newETag = slots.attachment!.eTag
+    expect(newETag).not.toBe(oldETag)
+
+    const env = await store.get('v1', BLOB_INDEX_COLLECTION, newETag)
     const blob = JSON.parse(await openEnvelopeJson(env!, tier0BlobDEK)) as { _cek?: string }
     await expect(unwrapCek(blob._cek!, tier0BlobDEK)).rejects.toThrow()
     await expect(unwrapCek(blob._cek!, tier1BlobDEK)).resolves.toBeDefined()
@@ -418,7 +435,11 @@ describe('#724 slot-map metadata + reversibility (Arc 10 Task 4)', () => {
     expect(bytes).not.toBeNull()
     expect(new TextDecoder().decode(bytes!)).toBe('solo reversible bytes')
 
-    // Same eTag throughout — solo blobs never mint a new address.
+    // #724 correction: elevate/demote each RE-PUT (mint a fresh tier-scoped
+    // eTag, crypto-shredding the old address) rather than rewrap in place —
+    // but the eTag is a deterministic HMAC(blobDEK, plaintext), so demoting
+    // back to tier 0 with the same plaintext naturally reproduces the
+    // ORIGINAL tier-0 eTag (a fresh BlobObject minted at that same address).
     expect((await docs.blob('d1').blobInfo('attachment'))!.eTag).toBe(eTag)
 
     const env = await store.get('v1', BLOB_INDEX_COLLECTION, eTag)
@@ -488,7 +509,7 @@ describe('#724 slot-map metadata + reversibility (Arc 10 Task 4)', () => {
     expect(new TextDecoder().decode(aBytes!)).toBe('identical shared bytes for reversibility')
   })
 
-  it('elevate → demote → elevate round-trips cleanly (blob readable at the current tier each time)', async () => {
+  it('elevate → demote → elevate round-trips cleanly (blob readable at the current tier each time, exactly one live object at all times)', async () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
@@ -501,13 +522,24 @@ describe('#724 slot-map metadata + reversibility (Arc 10 Task 4)', () => {
     const getDEK = (vault as unknown as { getDEK(name: string): Promise<EnclaveKey> }).getDEK
     const tier0BlobDEK = await getDEK(dekKey('_blob', 0))
     const tier1BlobDEK = await getDEK(dekKey('_blob', 1))
+    const collDEK1 = await getDEK(dekKey('docs', 1))
 
     await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
     await docs.blob('d1').put('attachment', new TextEncoder().encode('round trip bytes'))
     const originalETag = (await docs.blob('d1').blobInfo('attachment'))!.eTag
 
+    // #724 correction: elevate RE-PUTS (solo→re-put unification), so the
+    // live address is now the tier-scoped one, not `originalETag` — read it
+    // via the (tier-1-keyed) slot map, mirroring the other rest-of-suite
+    // post-elevation inspections.
     await docs.elevate('d1', 1)
-    let env = await store.get('v1', BLOB_INDEX_COLLECTION, originalETag)
+    const slotsAfterFirstElevate = JSON.parse(
+      await openEnvelopeJson((await store.get('v1', '_blob_slots_docs', 'd1'))!, collDEK1),
+    ) as Record<string, { eTag: string }>
+    const elevatedETag = slotsAfterFirstElevate.attachment!.eTag
+    expect(elevatedETag).not.toBe(originalETag)
+    expect(await store.get('v1', BLOB_INDEX_COLLECTION, originalETag)).toBeNull() // old address crypto-shredded
+    let env = await store.get('v1', BLOB_INDEX_COLLECTION, elevatedETag)
     let blob = JSON.parse(await openEnvelopeJson(env!, tier0BlobDEK)) as { _cek?: string }
     await expect(unwrapCek(blob._cek!, tier1BlobDEK)).resolves.toBeDefined()
     await expect(unwrapCek(blob._cek!, tier0BlobDEK)).rejects.toThrow()
@@ -516,15 +548,28 @@ describe('#724 slot-map metadata + reversibility (Arc 10 Task 4)', () => {
     await docs.demote('d1', 0)
     const bytesAfterFirstRoundtrip = await docs.blob('d1').get('attachment')
     expect(new TextDecoder().decode(bytesAfterFirstRoundtrip!)).toBe('round trip bytes')
+    // Demote re-derives the eTag under the SAME tier-0 DEK + plaintext —
+    // content-addressing is deterministic, so it naturally lands back on
+    // `originalETag` (a fresh BlobObject minted at that address; the
+    // elevated copy was released and crypto-shredded).
+    expect((await docs.blob('d1').blobInfo('attachment'))!.eTag).toBe(originalETag)
+    expect(await store.get('v1', BLOB_INDEX_COLLECTION, elevatedETag)).toBeNull()
 
     await docs.elevate('d1', 1)
-    env = await store.get('v1', BLOB_INDEX_COLLECTION, originalETag)
+    const slotsAfterSecondElevate = JSON.parse(
+      await openEnvelopeJson((await store.get('v1', '_blob_slots_docs', 'd1'))!, collDEK1),
+    ) as Record<string, { eTag: string }>
+    // Deterministic HMAC under the same tier-1 DEK + plaintext reproduces
+    // the SAME tier-scoped eTag as the first elevation.
+    expect(slotsAfterSecondElevate.attachment!.eTag).toBe(elevatedETag)
+    env = await store.get('v1', BLOB_INDEX_COLLECTION, elevatedETag)
     blob = JSON.parse(await openEnvelopeJson(env!, tier0BlobDEK)) as { _cek?: string }
     await expect(unwrapCek(blob._cek!, tier1BlobDEK)).resolves.toBeDefined()
     await expect(unwrapCek(blob._cek!, tier0BlobDEK)).rejects.toThrow()
     expect(await docs.blob('d1').get('attachment')).toBeNull() // gated again while elevated
 
-    // eTag stable across the whole round-trip — no orphan minted.
+    // Exactly one live object at all times — the old address is always
+    // crypto-shredded before/at the point the new one is minted, no orphan.
     expect((await store.list('v1', BLOB_INDEX_COLLECTION)).length).toBe(1)
   })
 
@@ -582,5 +627,102 @@ describe('#724 slot-map metadata + reversibility (Arc 10 Task 4)', () => {
     const aBytes = await docs.blob('a').get('slotA')
     expect(aBytes).not.toBeNull()
     expect(new TextDecoder().decode(aBytes!)).toBe('multi-slot shared bytes')
+  })
+})
+
+describe('#724 tier-scoped eTag (C1/C2)', () => {
+  it('C1a: a tier-0 record writing the SAME bytes as an elevated record reads its own blob intact — no cross-tier dedup collision', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+    const getDEK = (vault as unknown as { getDEK(name: string): Promise<EnclaveKey> }).getDEK
+    const collDEK1 = await getDEK(dekKey('docs', 1))
+    const X = new TextEncoder().encode('identical bytes across tiers')
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'A', body: 'x' }, 0)
+    await docs.blob('d1').put('attachment', X)
+    await docs.elevate('d1', 1)
+
+    await docs.putAtTier('d2', { id: 'd2', title: 'B', body: 'y' }, 0)
+    await docs.blob('d2').put('attachment', X) // same bytes → must NOT collide with d1's tier-1 address
+
+    // d2 is a plain tier-0 record; its own blob must be readable intact.
+    const got = await docs.blob('d2').get('attachment')
+    expect(got).not.toBeNull()
+    expect(new TextDecoder().decode(got!)).toBe('identical bytes across tiers')
+
+    // d1's (tier-scoped) eTag and d2's (tier-0-native) eTag are DIFFERENT.
+    const d2ETag = (await docs.blob('d2').blobInfo('attachment'))!.eTag
+    const slotsEnv = await store.get('v1', '_blob_slots_docs', 'd1')
+    const slots = JSON.parse(await openEnvelopeJson(slotsEnv!, collDEK1)) as Record<string, { eTag: string }>
+    const d1ETag = slots.attachment!.eTag
+    expect(d1ETag).not.toBe(d2ETag)
+  })
+
+  it('C1b: demoting the elevated record back to tier 0 restores its own blob readability', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+    const X = new TextEncoder().encode('identical bytes across tiers 2')
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'A', body: 'x' }, 0)
+    await docs.blob('d1').put('attachment', X)
+    await docs.elevate('d1', 1)
+
+    await docs.putAtTier('d2', { id: 'd2', title: 'B', body: 'y' }, 0)
+    await docs.blob('d2').put('attachment', X)
+
+    await docs.demote('d1', 0)
+    const got = await docs.blob('d1').get('attachment')
+    expect(got).not.toBeNull()
+    expect(new TextDecoder().decode(got!)).toBe('identical bytes across tiers 2')
+  })
+
+  it('C2: a blob written to an ALREADY-elevated record is tier-scoped from birth — the raw _cek does not unwrap under the tier-0 _blob DEK', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+    const getDEK = (vault as unknown as { getDEK(name: string): Promise<EnclaveKey> }).getDEK
+    const tier0BlobDEK = await getDEK(dekKey('_blob', 0))
+    const tier1BlobDEK = await getDEK(dekKey('_blob', 1))
+    const collDEK1 = await getDEK(dekKey('docs', 1))
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'A', body: 'x' }, 0)
+    await docs.elevate('d1', 1)
+
+    // Owner (fully cleared) attaches a blob to the already-elevated record.
+    await docs.blob('d1').put('attachment', new TextEncoder().encode('post-elevation secret'))
+
+    // Find the eTag via the (tier-1-keyed) slot map.
+    const slotsEnv = await store.get('v1', '_blob_slots_docs', 'd1')
+    expect(slotsEnv).not.toBeNull()
+    const slots = JSON.parse(await openEnvelopeJson(slotsEnv!, collDEK1)) as Record<string, { eTag: string }>
+    const eTag = slots.attachment!.eTag
+
+    const env = await store.get('v1', BLOB_INDEX_COLLECTION, eTag)
+    expect(env).not.toBeNull()
+    const blob = JSON.parse(await openEnvelopeJson(env!, tier0BlobDEK)) as { _cek?: string }
+    expect(blob._cek).toBeDefined()
+
+    await expect(unwrapCek(blob._cek!, tier0BlobDEK)).rejects.toThrow()
+    await expect(unwrapCek(blob._cek!, tier1BlobDEK)).resolves.toBeDefined()
   })
 })

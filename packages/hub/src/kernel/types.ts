@@ -2029,18 +2029,6 @@ export interface BlobObject {
    * store (e.g. S3). Absent when no routing is configured.
    */
   readonly storeHint?: 'default' | 'blobs'
-  /**
-   * #724 Arc 10 Task 4: set when this `BlobObject` was minted by
-   * `rehomeForTier`'s isolate-fork path — its eTag is computed under a
-   * TIER-SCOPED `_blob` DEK, not the tier-0-native address a plain `put()`
-   * would produce. Lets a later `demote(→0)` distinguish "genuinely solo
-   * since creation" (eTag already tier-0-native — cheap `_cek` rewrap
-   * suffices) from "a private fork that must reconcile" (re-`put()` under
-   * the tier-0 `_blob` DEK to recompute the canonical eTag and rejoin the
-   * tier-0 dedup pool if a co-owner already holds it there). Absent on
-   * every ordinary blob (the overwhelming majority).
-   */
-  readonly _isolated?: true
 }
 
 /**

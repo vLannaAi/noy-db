@@ -506,39 +506,28 @@ export class BlobSet {
    * Enumerates the record's eTags via the slot map — mirrors
    * `shredAllForRecord`'s `loadSlots()` → `holds` enumeration above. For
    * each distinct eTag:
-   *  - **solo** (`refCount === 1`, this record is the sole owner) and NOT a
-   *    prior isolate-fork product landing back at tier 0 (see
-   *    `mustReconcile` below): rewrap `_cek` from the `fromTier` `_blob`
-   *    DEK to the `toTier` one and rewrite the `BlobObject`. The CONTENT
-   *    CEK itself — and therefore every chunk encrypted under it — is
-   *    untouched; only its wrapper moves. The eTag (a content address)
-   *    stays stable.
-   *  - **shared** (`refCount > 1`), OR solo-but-`mustReconcile`: rewrapping
-   *    in place would either move the key out from under every OTHER
-   *    referencing record, or (the reconcile case) leave the eTag at a
-   *    non-canonical, tier-scoped address once it's back at tier 0 — both
-   *    need a fork/re-mint instead of a bare rewrap. `policy` decides for
-   *    the genuinely-shared case (#724 Arc 10 Task 3):
-   *      - `'isolate'` (default) — also always taken for `mustReconcile`,
-   *        which is never shared: read the plaintext under `fromBlobDEK`
-   *        (still resolvable via THIS record's clearance — it hasn't
-   *        moved yet), then re-`put()` it under `toBlobDEK` for every one
-   *        of this record's slots pointing at the eTag. That mints a
-   *        fresh eTag/`_cek` (HMAC + wrap keyed by `toBlobDEK`) and, via
-   *        `put()`'s own existing old-eTag decrement, releases this
-   *        record's hold on the old object — co-owners (if any) keep it at
-   *        their unchanged refCount. Landing at `toTier === 0` naturally
-   *        REJOINS the tier-0 dedup pool if a co-owner already holds the
-   *        content there (`put()`'s own dedup check matches on the
-   *        recomputed tier-0-native eTag) — this is how `demote(→0)`
-   *        reverses an `elevate()` isolate-fork (#724 Arc 10 Task 4).
-   *      - `'dedup'` (#741, opt-in) — only for the genuinely-shared
-   *        (`refCount > 1`) case: NO-OP. The slot keeps pointing at the
-   *        shared eTag. The Task-1 runtime read gate still hides it from a
-   *        tier-0 caller; the chunks remain decryptable at rest under the
-   *        flat `_blob` DEK (documented residue). Dedup-policy blobs never
-   *        carry `_isolated`, so `mustReconcile` never fires for them —
-   *        nothing to reconcile since dedup never moved anything.
+   *  - **solo** (`refCount === 1`) and **shared `isolate`** (`refCount > 1`,
+   *    default policy) are UNIFIED (#724 Arc 10 correction, closes C1): both
+   *    re-`put()` the plaintext under `toBlobDEK` for every one of this
+   *    record's slots pointing at the eTag. That mints a fresh, tier-scoped
+   *    eTag/`_cek` (HMAC + wrap keyed by `toBlobDEK`) and, via `put()`'s own
+   *    existing old-eTag decrement, releases this record's hold on the old
+   *    object — a solo blob's old object drops to refCount 0 and is
+   *    crypto-shredded; a shared co-owner keeps its unchanged refCount. The
+   *    OLD in-place rewrap (`wrapCek(unwrapCek(_cek, fromDEK), toDEK)`, eTag
+   *    held stable) is UNSAFE — it leaves the eTag in the FROM tier's HMAC
+   *    namespace, so a later same-bytes put computed under that tier's DEK
+   *    dedup-*hits* the wrapped object (cross-tier corruption of an
+   *    uninvolved writer). Re-`put()`ing makes that structurally
+   *    impossible: different tiers hash to different eTags. Landing at
+   *    `toTier === 0` naturally REJOINS the tier-0 dedup pool if a co-owner
+   *    already holds the content there (`put()`'s own dedup check matches
+   *    on the recomputed tier-0-native eTag) — this is how `demote(→0)`
+   *    reverses an `elevate()` fork.
+   *  - **shared `dedup`** (#741, opt-in, only for `refCount > 1`): NO-OP.
+   *    The slot keeps pointing at the shared eTag. The Task-1 runtime read
+   *    gate still hides it from a tier-0 caller; the chunks remain
+   *    decryptable at rest under the flat `_blob` DEK (documented residue).
    *  - **legacy** (`_cek` absent — chunks direct under the flat `_blob`
    *    DEK): NO-OP. Tiered collections mandate `perRecordKeys`, so new
    *    blob data is always erasable; a legacy blob reaching this method
@@ -568,38 +557,25 @@ export class BlobSet {
       for (const eTag of eTags) {
         const loaded = await this.loadBlobObject(eTag)
         if (!loaded) continue
-        const { blob, version } = loaded
+        const { blob } = loaded
         if (blob._cek === undefined) continue // legacy: no rewrap (see doc comment)
+        if (policy === 'dedup' && blob.refCount > 1) continue // #741: leave the shared object; read gate covers runtime
 
-        // #724 Arc 10 Task 4: this eTag was minted by an earlier
-        // isolate-fork (tier-scoped, not tier-0-native) and this record is
-        // now its sole owner — landing back at tier 0 must RECONCILE (fork
-        // branch below), not just rewrap, or it would stay at a
-        // non-canonical address forever instead of rejoining the tier-0
-        // dedup pool. Demoting to an intermediate tier (`toTier > 0`) stays
-        // on the cheap rewrap path — still isolated, no pool to rejoin.
-        const mustReconcile = blob._isolated === true && toTier === 0 && blob.refCount === 1
-
-        if (blob.refCount > 1 || mustReconcile) {
-          if (policy === 'dedup' && blob.refCount > 1) continue // #741: leave the shared object; read gate covers runtime
-          // isolate (default) / reconcile: fork or rejoin for every slot on
-          // THIS record pointing at the eTag, then release this record's
-          // hold on it (via put()'s own old-eTag decrement).
-          const plaintext = await this.fetchAllChunks(blob, fromBlobDEK)
-          for (const [slotName, slot] of Object.entries(slots)) {
-            if (slot.eTag !== eTag) continue
-            await this.putUnderDEK(slotName, plaintext, toBlobDEK, {
-              filename: slot.filename,
-              ...(blob.mimeType !== undefined ? { mimeType: blob.mimeType } : {}),
-              compress: blob.compression === 'gzip',
-              ...(slot.uploadedBy !== undefined ? { uploadedBy: slot.uploadedBy } : {}),
-            }, fromTier, toTier > 0)
-          }
-          continue
+        // solo + shared-isolate, unified (#724 Arc 10 correction): fork for
+        // every slot on THIS record pointing at the eTag, then release this
+        // record's hold on the old object (via put()'s own old-eTag
+        // decrement) — a solo blob's old object is crypto-shredded at
+        // refCount 0, a shared co-owner keeps its unchanged refCount.
+        const plaintext = await this.fetchAllChunks(blob, fromBlobDEK)
+        for (const [slotName, slot] of Object.entries(slots)) {
+          if (slot.eTag !== eTag) continue
+          await this.putUnderDEK(slotName, plaintext, toBlobDEK, {
+            filename: slot.filename,
+            ...(blob.mimeType !== undefined ? { mimeType: blob.mimeType } : {}),
+            compress: blob.compression === 'gzip',
+            ...(slot.uploadedBy !== undefined ? { uploadedBy: slot.uploadedBy } : {}),
+          }, fromTier)
         }
-        const contentCek = await unwrapCek(blob._cek, fromBlobDEK)
-        const rewrapped = await wrapCek(contentCek, toBlobDEK)
-        await this.writeBlobObject({ ...blob, _cek: rewrapped }, version)
       }
     }
 
@@ -884,32 +860,36 @@ export class BlobSet {
       return
     }
 
-    const blobDEK = this.encrypted ? await this.getDEK(BLOB_COLLECTION) : null
+    // #724 Arc 10 correction (C2): key the eTag HMAC + content-CEK wrap
+    // under the OWNING RECORD's current tier, not a flat tier-0 DEK — a
+    // blob attached to an already-elevated record must be born tier-scoped,
+    // or it stays tier-0-decryptable at rest despite the read gate hiding
+    // it through the API. `dekKey(BLOB_COLLECTION, 0) === BLOB_COLLECTION`,
+    // so a tier-0 (or untiered) record's write is byte-identical to before.
+    const blobDEK = this.encrypted
+      ? await this.getDEK(dekKey(BLOB_COLLECTION, await this.ownerTier()))
+      : null
     return this.putUnderDEK(slotName, data, blobDEK, opts)
   }
 
   /**
    * The chunk/CEK/dedup/slot core of `put()` (steps 1-7), parameterized by
    * which `_blob` DEK to hash the eTag and wrap the content CEK under.
-   * `put()` always passes this record's own (tier-0) blob DEK.
+   * `put()` always passes this record's own OWNER-TIER blob DEK (#724 Arc
+   * 10 correction) — `dekKey(BLOB_COLLECTION, 0)` for a tier-0 record.
    *
-   * `rehomeForTier`'s isolate-fork path (#724 Arc 10 Task 3) is the other
-   * caller: it passes the `toTier`-scoped DEK so a forked copy of a shared
-   * blob gets a private, tier-scoped eTag and `_cek` wrap from the moment
-   * it's written — the fork never routes through public `put()` under the
-   * wrong key, and this method adds no new raw `_cek`/`_iv`/`_data` access
-   * (identical bodies to the pre-#724-T3 `put()`, just parameterized).
+   * `rehomeForTier` is the other caller: on every tier move it re-`put()`s
+   * each owned blob's plaintext under the `toTier`-scoped DEK — solo and
+   * shared-isolate alike — so the moved copy gets a private, tier-scoped
+   * eTag and `_cek` wrap from the moment it's written. The move never
+   * routes through public `put()` under the wrong key, and this method
+   * adds no new raw `_cek`/`_iv`/`_data` access (identical bodies, just
+   * parameterized).
    *
    * @param slotsTier #724 Arc 10 Task 4: pins the slot-map CAS update
    * (Step 7) to a specific tier instead of the caller's `ownerTier()`
    * default — `rehomeForTier` passes `fromTier`, since mid-move the slot
    * map is still physically there (see `ownerTier()`'s doc comment).
-   * @param markIsolated #724 Arc 10 Task 4: when a NEW `BlobObject` is
-   * minted (no dedup match), stamp `_isolated: true` on it — set by
-   * `rehomeForTier` whenever the fork/reconcile write's target DEK is
-   * tier-scoped (`toTier > 0`), so a later `demote(→0)` can tell this eTag
-   * apart from a genuinely tier-0-native one (see `rehomeForTier`'s doc
-   * comment on `mustReconcile`).
    */
   private async putUnderDEK(
     slotName: string,
@@ -917,7 +897,6 @@ export class BlobSet {
     blobDEK: EnclaveKey | null,
     opts?: BlobPutOptions,
     slotsTier?: number,
-    markIsolated?: boolean,
   ): Promise<void> {
     // Step 1 — keyed content-hash (plaintext, before compression)
     const eTag = blobDEK
@@ -1002,7 +981,6 @@ export class BlobSet {
         createdAt: new Date().toISOString(),
         refCount: 1,
         ...(wrappedCek !== undefined ? { _cek: wrappedCek } : {}),
-        ...(markIsolated ? { _isolated: true } : {}),
       })
     }
 

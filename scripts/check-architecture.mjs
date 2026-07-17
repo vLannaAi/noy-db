@@ -1768,12 +1768,12 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-pod/backup.ts', 3],
   ['packages/hub/src/with-pod/bundle.ts', 2],
   ['packages/hub/src/with-shape/blobs/blob-compaction.ts', 4],
-  // #724 Arc 10 Task 2: `rehomeForTier` reads a solo blob's `_cek` to unwrap
-  // it under the fromTier `_blob` DEK and rewrap under toTier (2 `._cek`
-  // reads + 1 `_cek:` literal on the rewritten BlobObject) — the same kind
-  // of access `migrate()`/`resolveChunkKey()` already make in this file, no
-  // new pattern. 33→36.
-  ['packages/hub/src/with-shape/blobs/blob-set.ts', 36],
+  // #724 Arc 10 correction (Task 1, closes C1): `rehomeForTier`'s solo
+  // in-place rewrap (`unwrapCek(blob._cek, fromDEK)` + the `_cek:` literal
+  // on the rewritten BlobObject) is DELETED — solo now re-`put()`s through
+  // the same fork path as shared-isolate, adding no new raw `_cek`/`_iv`/
+  // `_data` access. Down 2 from the Task-2 grandfather. 36→34.
+  ['packages/hub/src/with-shape/blobs/blob-set.ts', 34],
   // #629 Task 4: DictionaryHandle's encrypt/decrypt now goes through the
   // reservedEnvelopes('_dict_') capability instead of building `_iv`/`_data`
   // literals inline — down from 5 (the plaintext branch's `_iv: ''`/`_data:`
