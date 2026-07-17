@@ -49,8 +49,9 @@
 import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'
 import type { LedgerStore } from './ledger/store.js'
 import { getHistory } from './history.js'
-import { decrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { ReadOnlyAtInstantError } from '../../kernel/errors.js'
+import { liveRecordIsElevated } from '../../kernel/tier-visibility.js'
 
 /**
  * Narrow view of a {@link Vault}'s internals that
@@ -128,12 +129,22 @@ export class CollectionInstant<T = unknown> {
    * Return the record as it existed at the target timestamp, or
    * `null` if the record had not been created yet or had already been
    * deleted by then.
+   *
+   * Gated on the LIVE record's current tier — #730, mirroring the #712
+   * read-gate `history()`/`getVersion()` already apply: an elevated record
+   * is invisible through the whole time-machine surface, not just a
+   * decrypt failure. See {@link resolveVisibleEnvelope}.
+   *
+   * Decrypts through {@link openEnvelopeJson}, the `_cek`-aware envelope
+   * body opener — a snapshot from a `perRecordKeys` collection is encrypted
+   * under its own per-record CEK (wrapped in `_cek`), not the collection
+   * DEK directly.
    */
   async get(id: string): Promise<T | null> {
-    const envelope = await this.resolveEnvelope(id)
+    const envelope = await this.resolveVisibleEnvelope(id)
     if (!envelope) return null
     const plaintext = this.engine.encrypted
-      ? await decrypt(envelope._iv, envelope._data, await this.engine.getDEK(this.name))
+      ? await openEnvelopeJson(envelope, await this.engine.getDEK(this.name))
       : envelope._data
     return JSON.parse(plaintext) as T
   }
@@ -153,7 +164,7 @@ export class CollectionInstant<T = unknown> {
     const candidateIds = new Set<string>([...historyIds, ...liveIds])
     const alive: string[] = []
     for (const id of candidateIds) {
-      const env = await this.resolveEnvelope(id)
+      const env = await this.resolveVisibleEnvelope(id)
       if (env) alive.push(id)
     }
     return alive.sort()
@@ -172,6 +183,25 @@ export class CollectionInstant<T = unknown> {
   }
 
   // ── internals ─────────────────────────────────────────────────────
+
+  /**
+   * {@link resolveEnvelope}, additionally gated on the record's LIVE
+   * (current, not historical) tier — #730. Mirrors the #712 read-gate
+   * `history()`/`getVersion()` apply: history snapshots keep their
+   * tier-0-wrapped CEKs and carry no `_tier` of their own, so an elevated
+   * record's prior versions would otherwise stay tier-0-decryptable here.
+   * `null` for a resolved envelope carrying its own `_tier > 0` (a
+   * tier-aware snapshot reached some other way) or whose LIVE record is
+   * currently elevated — both `get()` and `list()` route through this so
+   * the invisibility law holds on the whole time-machine read surface, not
+   * just a decrypt failure.
+   */
+  private async resolveVisibleEnvelope(id: string): Promise<EncryptedEnvelope | null> {
+    const envelope = await this.resolveEnvelope(id)
+    if (!envelope || (envelope._tier ?? 0) > 0) return null
+    if (await liveRecordIsElevated(this.engine.adapter, this.engine.name, this.name, id)) return null
+    return envelope
+  }
 
   /**
    * Return the envelope that represents the record's state at
