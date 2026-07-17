@@ -99,3 +99,38 @@ describe('#724 blob read gate', () => {
     expect(new TextDecoder().decode(stillThere!)).toBe('sibling attachment bytes')
   })
 })
+
+describe('#724 blob metadata gate', () => {
+  it('list/blobInfo/listVersions on an elevated record are invisible to a tier-0 caller', async () => {
+    const db = await createNoydb({
+      store: memoryStore(), secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
+    await docs.blob('d1').put('attachment', new TextEncoder().encode('sensitive attachment bytes'))
+
+    await docs.putAtTier('d2', { id: 'd2', title: 'Memo', body: 'y' }, 0)
+    await docs.blob('d2').put('attachment', new TextEncoder().encode('sibling attachment bytes'))
+
+    // Metadata visible before elevation.
+    expect(await docs.blob('d1').list()).not.toHaveLength(0)
+    expect(await docs.blob('d1').blobInfo('attachment')).not.toBeNull()
+
+    await docs.elevate('d1', 1)
+
+    // The metadata accessors now mirror the content gate: invisible.
+    expect(await docs.blob('d1').list()).toEqual([])
+    expect(await docs.blob('d1').blobInfo('attachment')).toBeNull()
+    expect(await docs.blob('d1').listVersions('attachment')).toEqual([])
+
+    // A sibling tier-0 record's metadata is unaffected — the gate is
+    // targeted, not global.
+    expect(await docs.blob('d2').list()).not.toHaveLength(0)
+    expect(await docs.blob('d2').blobInfo('attachment')).not.toBeNull()
+  })
+})

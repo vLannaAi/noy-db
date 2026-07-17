@@ -980,6 +980,7 @@ export class BlobSet {
    * Returns `null` for a missing or non-external slot, `{}` if none synced yet.
    */
   async externalMeta(slotName: string): Promise<Record<string, unknown> | null> {
+    if (await this.ownerRecordElevated()) return null // #724: elevated ≡ invisible, mirrors get()
     const { slots } = await this.loadSlots()
     const slot = slots[slotName]
     if (!slot?.external) return null
@@ -991,6 +992,7 @@ export class BlobSet {
    * Returns metadata only — no chunk data is loaded.
    */
   async list(): Promise<SlotInfo[]> {
+    if (await this.ownerRecordElevated()) return [] // #724: elevated ≡ invisible, mirrors get()
     const { slots } = await this.loadSlots()
     return Object.entries(slots).map(([name, slot]) => ({ name, ...slot }))
   }
@@ -1157,6 +1159,7 @@ export class BlobSet {
    * List all published versions for a slot.
    */
   async listVersions(slotName: string): Promise<VersionRecord[]> {
+    if (await this.ownerRecordElevated()) return [] // #724: elevated ≡ invisible, mirrors get()
     const prefix = `${this.recordId}::${slotName}::`
     const allKeys = await this.store.list(this.vault, this.versionsCollection)
     const matchingKeys = allKeys.filter((k) => k.startsWith(prefix))
@@ -1225,6 +1228,7 @@ export class BlobSet {
    * Returns `null` if the slot or blob does not exist.
    */
   async blobInfo(slotName: string): Promise<BlobObject | null> {
+    if (await this.ownerRecordElevated()) return null // #724: elevated ≡ invisible, mirrors get()
     const { slots } = await this.loadSlots()
     const slot = slots[slotName]
     if (!slot) return null
