@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, NoydbBundleStore } from '../src/kernel/types.js'
-import { ConflictError, BundleVersionConflictError } from '../src/kernel/errors.js'
+import { ConflictError, BundleVersionConflictError, ValidationError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withBlobs } from '../src/via/blob/index.js'
 import { withTeam } from '../src/with-party/team/index.js'
@@ -597,6 +597,58 @@ describe('BlobSet', () => {
     // The row is NOT deleted (deleting blind would orphan its refCount hold).
     expect(await store.get(VAULT, versionsColl, key!)).not.toBeNull()
     db.close()
+  })
+
+  describe('#752 blob key-part guard', () => {
+    it('put rejects a record id containing \'::\'', async () => {
+      const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+      const vault = await db.openVault(VAULT)
+      const col = vault.collection<{ x: number }>('docs')
+      await col.put('a::x', { x: 1 })
+
+      await expect(col.blob('a::x').put('file.txt', textBytes('hi'))).rejects.toThrow(ValidationError)
+      db.close()
+    })
+
+    it('put rejects a slot name containing \'::\'', async () => {
+      const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+      const vault = await db.openVault(VAULT)
+      const col = vault.collection<{ x: number }>('docs')
+      await col.put('d-001', { x: 1 })
+
+      await expect(col.blob('d-001').put('bad::slot', textBytes('hi'))).rejects.toThrow(ValidationError)
+      db.close()
+    })
+
+    it('publish rejects a label containing \'::\'', async () => {
+      const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+      const vault = await db.openVault(VAULT)
+      const col = vault.collection<{ x: number }>('docs')
+      await col.put('d-001', { x: 1 })
+
+      const blobs = col.blob('d-001')
+      await blobs.put('file.txt', textBytes('hi'))
+
+      await expect(blobs.publish('file.txt', 'bad::label')).rejects.toThrow(ValidationError)
+      db.close()
+    })
+
+    it('sanity: normal id/slot/label still work (put + publish + getVersion round-trip)', async () => {
+      const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+      const vault = await db.openVault(VAULT)
+      const col = vault.collection<{ x: number }>('docs')
+      await col.put('d-001', { x: 1 })
+
+      const blobs = col.blob('d-001')
+      const bytes = textBytes('hello')
+      await blobs.put('file.txt', bytes)
+      await blobs.publish('file.txt', 'v1')
+
+      const v1 = await blobs.getVersion('file.txt', 'v1')
+      expect(v1).not.toBeNull()
+      expect(new TextDecoder().decode(v1!)).toBe('hello')
+      db.close()
+    })
   })
 })
 

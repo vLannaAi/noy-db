@@ -25,7 +25,7 @@ import {
   sha256Hex,
   type EnclaveKey,
 } from '../../kernel/enclave/index.js'
-import { ConflictError, NotFoundError, UnsupportedTierCompositionError } from '../../kernel/errors.js'
+import { ConflictError, NotFoundError, UnsupportedTierCompositionError, ValidationError } from '../../kernel/errors.js'
 import { liveRecordIsElevated, liveRecordTier } from '../../kernel/tier-visibility.js'
 import { dekKey } from '../../with-party/team/tiers.js'
 import { detectMagic, isPreCompressed } from './mime-magic.js'
@@ -953,6 +953,20 @@ export class BlobSet {
 
   // ─── Version record I/O ───────────────────────────────────────────
 
+  /** #752: '::' is the version-key separator (`versionKey`) — a recordId/slotName/label
+   * containing it makes the `{recordId}::` prefix scans (listVersions / rehomeVersionRecords /
+   * collectVersionHolds) match ACROSS records, which escalated from mis-read to destructive
+   * with #750's shred path. Refused at the write surface only: legacy '::' data stays
+   * readable/sheddable. */
+  private assertKeyPartSafe(part: string, what: 'record id' | 'slot name' | 'version label'): void {
+    if (part.includes('::')) {
+      throw new ValidationError(
+        `Blob ${what} "${part}" must not contain '::' (reserved as the blob version-key separator; #752)`,
+      )
+    }
+  }
+
+  /** #752: `recordId`/`slotName`/`label` must not contain '::' — see `assertKeyPartSafe`. */
   private versionKey(slotName: string, label: string): string {
     return `${this.recordId}::${slotName}::${label}`
   }
@@ -1060,6 +1074,9 @@ export class BlobSet {
    *    If overwriting an existing slot, decrements the old eTag's refCount.
    */
   async put(slotName: string, data: Uint8Array, opts?: BlobPutOptions): Promise<void> {
+    this.assertKeyPartSafe(this.recordId, 'record id')
+    this.assertKeyPartSafe(slotName, 'slot name')
+
     // External-projection path: the field is declared `external` and an
     // ObjectProjection is configured → write the raw bytes as ONE native object
     // (unencrypted, servable) and record an `external` slot (the catalog entry).
@@ -1388,6 +1405,9 @@ export class BlobSet {
       meta?: Record<string, unknown>
     },
   ): Promise<void> {
+    this.assertKeyPartSafe(this.recordId, 'record id')
+    this.assertKeyPartSafe(slotName, 'slot name')
+
     const uploaderUserId = this.userId
     await this.casUpdateSlots((slots) => {
       slots[slotName] = {
@@ -1572,6 +1592,9 @@ export class BlobSet {
    * `rehomeForTier`) — no separate tier-scoping needed for the content side.
    */
   async publish(slotName: string, label: string): Promise<void> {
+    this.assertKeyPartSafe(this.recordId, 'record id')
+    this.assertKeyPartSafe(slotName, 'slot name')
+    this.assertKeyPartSafe(label, 'version label')
     this.assertBlobWritable() // #724 I1 completion: same write-time refusal as put()
     const { slots } = await this.loadSlots()
     const slot = slots[slotName]
