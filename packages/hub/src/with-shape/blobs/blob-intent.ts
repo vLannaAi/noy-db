@@ -74,6 +74,28 @@ export interface BlobIntent {
   readonly fromTier?: number
   readonly toTier?: number
   readonly policy?: 'isolate' | 'dedup'
+  /**
+   * Rehome destination `+1` row-stamps (`${opId}:${slotName}` /
+   * `${opId}:${versionKey}`) CONFIRMED applied — #746 whole-branch review
+   * (K=8 stamp-ring blocker). `BlobObject.lastOps` is a BOUNDED ring (K=8,
+   * spec C2) — correct as the sole idempotency source for SHRED (one
+   * decrement per eTag, count captured in `holds`) but not for REHOME,
+   * whose row-scoped increments can exceed K on a single destination via
+   * either ≥9 rows of identical content on ONE record, or ≥8 CONCURRENT
+   * rehomes converging on one shared destination between a crashed op's
+   * stamp-write and its resume — either way, an evicted-but-unapplied-
+   * looking stamp gets re-applied, over-counting the destination's
+   * refCount and permanently stranding it above 0. This field is THIS
+   * op's own UNBOUNDED, per-record backstop: appended (via
+   * {@link recordAppliedStamp}) immediately after a stamped `+1` lands
+   * (whether freshly applied or found already in the ring), consulted
+   * BEFORE attempting the CAS so a resume that finds its own row-stamp
+   * here skips the increment entirely — independent of the shared
+   * destination object's bounded ring and of how many OTHER ops have
+   * touched it since. Absent/empty is the normal case (no rehome — or no
+   * increments yet — in flight).
+   */
+  readonly appliedStamps?: readonly string[]
 }
 
 /** Resume callback signature for {@link sweepBlobIntents} — supplied by the caller (Task 3 / PR-2). */
@@ -106,15 +128,18 @@ function parseIntentKey(key: string): { collection: string; recordId: string } |
 /**
  * Encrypt a `BlobIntent` into an envelope, mirroring the version-record
  * write shape (`blob-set.ts`'s `writeVersionRecordAtKey`): fresh IV per
- * write, `_v: 1` (the marker is created once and deleted, never updated
- * in place).
+ * write. `newVersion` defaults to `1` (the marker's original create-once
+ * shape — `createIntent`'s only call site); {@link recordAppliedStamp}
+ * (#746 whole-branch review) is the one caller that updates an
+ * already-created marker in place and passes the incremented version
+ * explicitly.
  */
-async function encodeIntentEnvelope(intent: BlobIntent, dek: EnclaveKey): Promise<EncryptedEnvelope> {
+async function encodeIntentEnvelope(intent: BlobIntent, dek: EnclaveKey, newVersion = 1): Promise<EncryptedEnvelope> {
   const json = JSON.stringify(intent)
   const body = await writeEnvelopeBody(json, dek)
   return {
     _noydb: NOYDB_FORMAT_VERSION,
-    _v: 1,
+    _v: newVersion,
     _ts: new Date().toISOString(),
     ...body,
   }
@@ -185,6 +210,51 @@ export async function deleteIntent(
   recordId: string,
 ): Promise<void> {
   await adapter.delete(vault, BLOB_INTENT_COLLECTION, intentKey(collection, recordId))
+}
+
+/** CAS retry budget for {@link recordAppliedStamp} — mirrors `blob-set.ts`'s `MAX_CAS_RETRIES`. */
+const MAX_APPLIED_STAMP_RETRIES = 5
+
+/**
+ * Durably record that a rehome destination row-stamp has been CONFIRMED
+ * applied — #746 whole-branch review (K=8 stamp-ring blocker). Appends
+ * `stamp` to the marker's `appliedStamps` (idempotent no-op if already
+ * present), CAS-retried against concurrent resumers touching the SAME
+ * marker (mirrors `BlobSet.casUpdateSlots`'s retry shape).
+ *
+ * A no-op — never throws — when the marker is already gone: that only
+ * happens if the whole op already completed and deleted it (this call is
+ * racing its own operation's tail) or a sibling resumer already finished
+ * it; either way there is nothing left to record against. A marker whose
+ * `op` is NOT `'rehome'` (should be structurally impossible — only
+ * `BlobSet`'s own rehome machinery calls this, against its own marker) is
+ * treated the same way: nothing to record.
+ */
+export async function recordAppliedStamp(
+  adapter: NoydbStore,
+  vault: string,
+  collection: string,
+  recordId: string,
+  getDEK: (collection: string) => Promise<EnclaveKey>,
+  stamp: string,
+): Promise<void> {
+  const key = intentKey(collection, recordId)
+  const dek = await getDEK(collection)
+  for (let attempt = 0; attempt < MAX_APPLIED_STAMP_RETRIES; attempt++) {
+    const envelope = await adapter.get(vault, BLOB_INTENT_COLLECTION, key)
+    if (!envelope) return // marker already gone — nothing to record against
+    const intent = await decodeIntentEnvelope(envelope, dek)
+    if (intent.op !== 'rehome' || intent.appliedStamps?.includes(stamp)) return // already recorded (or not ours)
+    const updated: BlobIntent = { ...intent, appliedStamps: [...(intent.appliedStamps ?? []), stamp] }
+    const newEnvelope = await encodeIntentEnvelope(updated, dek, envelope._v + 1)
+    try {
+      await adapter.put(vault, BLOB_INTENT_COLLECTION, key, newEnvelope, envelope._v)
+      return
+    } catch (err) {
+      if (err instanceof ConflictError && attempt < MAX_APPLIED_STAMP_RETRIES - 1) continue
+      throw err
+    }
+  }
 }
 
 /**

@@ -843,3 +843,193 @@ describe('a pending REHOME marker is never overwritten by a fresh SHRED marker (
     dbResume.close()
   })
 })
+
+// ─── #746 whole-branch review: K=8 stamp-ring blocker ────────────────────
+//
+// `BlobObject.lastOps` is a BOUNDED ring (K=8). Rehome's destination `+1`s
+// are ROW-SCOPED (`${opId}:${slotName}` / `${opId}:${versionKey}`, one
+// stamp PER CONTRIBUTING ROW) — a stuck row's OWN stamp can be evicted by
+// ≥8 OTHER rows' stamps landing on the SAME destination before that row's
+// resume runs, causing a naive ring-only resume to double-apply its `+1`.
+// `BlobIntent.appliedStamps` (this op's own unbounded, marker-backed log,
+// consulted BEFORE the ring) is the fix — see `applyStampedIncrement`.
+
+describe('#746 whole-branch review — CONCURRENT rehomes converging on one destination (the confirmed over-count)', () => {
+  it('8 unrelated records dedup-converge on one destination while a 9th is stuck mid-move → resume does not double-count the stuck row', async () => {
+    const store = memory()
+    const shared = bytes('concurrent-fanout content')
+
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vault0 = await db0.openVault(VAULT)
+    const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    await docs0.putAtTier('seed', { id: 'seed', title: 'Seed' }, 0)
+    await docs0.blob('seed').put('a', shared)
+    await docs0.elevate('seed', 1) // creates the tier-1 destination, refCount 1
+    await docs0.putAtTier('r1', { id: 'r1', title: 'R1' }, 0)
+    await docs0.blob('r1').put('a', shared)
+    db0.close()
+
+    // Crash r1's elevate exactly at its OWN slot CAS — its content
+    // dedup-hit `+1` lands (stamped `${opId_r1}:a`), but r1's OWN slot
+    // pointer update never lands (still not-done from the outer check's
+    // perspective, so it WILL be reprocessed on resume).
+    let reached!: () => void
+    const reachedPromise = new Promise<void>((r) => { reached = r })
+    const crashing = hangOnNthPut(store, (col, id) => col === SLOTS_COLLECTION && id === 'r1', 1, () => reached())
+    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vaultCrash = await dbCrash.openVault(VAULT)
+    const docsCrash = vaultCrash.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    void docsCrash.elevate('r1', 1) // fire-and-forget: never settles (simulated crash)
+    await reachedPromise
+
+    // 8 MORE, entirely unrelated records each fully rehome the SAME shared
+    // content in their OWN fresh, successful sessions — each lands its OWN
+    // `+1` stamp (a DIFFERENT opId) on the SAME destination, pushing total
+    // appends past K=8 (seed + r1 + these 8 = 10) and evicting r1's own
+    // stamp from the destination's bounded ring.
+    for (let i = 2; i <= 9; i++) {
+      const dbI = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+      const vaultI = await dbI.openVault(VAULT)
+      const docsI = vaultI.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+      await docsI.putAtTier(`r${i}`, { id: `r${i}`, title: `R${i}` }, 0)
+      await docsI.blob(`r${i}`).put('a', shared)
+      await docsI.elevate(`r${i}`, 1)
+      dbI.close()
+    }
+
+    // Resume r1 via an ordinary put() (its own `_tier` already shows 1 —
+    // elevate() writes the record before syncBlobs).
+    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vaultResume = await dbResume.openVault(VAULT)
+    const docsResume = vaultResume.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    await docsResume.blob('r1').put('unrelated', bytes('trigger resume'))
+
+    // THE regression check: exactly 10 legitimate holders (seed + r1..r9),
+    // NOT 11 — pre-fix, r1's evicted stamp went undetected and its `+1`
+    // re-applied on resume.
+    const atTier = await docsResume.blob('seed').atTier()
+    expect((await atTier.blobInfo('a'))!.refCount).toBe(10)
+    expect(await store.list(VAULT, '_blob_intent')).toEqual([]) // no dangling markers anywhere
+
+    dbResume.close()
+  })
+})
+
+describe('#746 whole-branch review — SINGLE-RECORD fan-out (≥9 rows of identical content)', () => {
+  it('1 slot + 8 published versions of the same bytes, crash mid-move, resume → refCount is exactly correct, and full demote(→0) crypto-shreds once every holder drops', async () => {
+    const store = memory()
+    const shared = bytes('single-record fan-out content')
+
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vault0 = await db0.openVault(VAULT)
+    const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    await docs0.putAtTier('r', { id: 'r', title: 'R' }, 0)
+    await docs0.blob('r').put('a', shared)
+    for (let i = 1; i <= 8; i++) await docs0.blob('r').publish('a', `v${i}`)
+    const srcETag = (await docs0.blob('r').blobInfo('a'))!.eTag
+    expect((await docs0.blob('r').blobInfo('a'))!.refCount).toBe(9) // 1 slot + 8 versions
+    db0.close()
+
+    // Crash exactly before the LAST version's (v8) own metadata write — its
+    // destination `+1` (the 9th distinct row-stamp on this destination)
+    // has already landed, evicting the SLOT's own (1st, now-stale) stamp
+    // from the bounded ring — the exact eviction shape the review flagged,
+    // here entirely WITHIN one record's own rehome.
+    let reached!: () => void
+    const reachedPromise = new Promise<void>((r) => { reached = r })
+    const crashing = hangOnNthPut(store, (col, id) => col === VERSIONS_COLLECTION && id === 'r::a::v8', 1, () => reached())
+    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vaultCrash = await dbCrash.openVault(VAULT)
+    const docsCrash = vaultCrash.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    void docsCrash.elevate('r', 1) // fire-and-forget: never settles (simulated crash)
+    await reachedPromise
+    expect(await store.list(VAULT, '_blob_intent')).toHaveLength(1)
+
+    // Resume via an ordinary put() (record's `_tier` already shows 1).
+    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vaultResume = await dbResume.openVault(VAULT)
+    const docsResume = vaultResume.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    await docsResume.blob('r').put('unrelated', bytes('trigger resume'))
+    expect(await store.list(VAULT, '_blob_intent')).toEqual([])
+
+    // THE regression check: exactly 9, NOT doubled.
+    const atTier = await docsResume.blob('r').atTier()
+    const destInfo = (await atTier.blobInfo('a'))!
+    expect(destInfo.refCount).toBe(9)
+    expect(destInfo.eTag).not.toBe(srcETag) // genuinely rehomed (isolate policy, tier-1-native eTag)
+
+    // Full demote back to tier 0 releases every hold this record ever
+    // established at tier 1; the object must be released down to nothing
+    // stranded (proves no over-count survived to permanently inflate the
+    // refCount past a real holder count — a doubled +1 here would leave a
+    // ghost reference that keeps the tier-1 object alive forever).
+    await docsResume.demote('r', 0)
+    for (let i = 1; i <= 8; i++) await docsResume.blob('r').deleteVersion('a', `v${i}`)
+    await docsResume.blob('r').delete('a')
+    const destInternals = docsResume.blob('r') as unknown as BlobSetInternals
+    expect(await destInternals.loadBlobObject(destInfo.eTag, 1)).toBeNull() // crypto-shredded, no strand
+
+    dbResume.close()
+  })
+})
+
+// ─── #746 whole-branch review Hardening 1: no marker for a blob-less move ─
+
+describe('#746 whole-branch review Hardening 1 — syncTierMove skips the marker for a blob-less record', () => {
+  it('elevate() on a record with no slots and no published versions mints no `_blob_intent` row', async () => {
+    const store = memory()
+    const db = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    await docs.putAtTier('bare', { id: 'bare', title: 'Bare' }, 0) // no blob ever attached
+
+    await docs.elevate('bare', 1)
+
+    expect(await store.list(VAULT, '_blob_intent')).toEqual([])
+    expect(await store.list(VAULT, SLOTS_COLLECTION)).toEqual([]) // nothing minted a slot row either
+
+    db.close()
+  })
+})
+
+// ─── #746 whole-branch review Hardening 2: shred after rehome uses the RIGHT tier ─
+
+describe('#746 whole-branch review Hardening 2 — post-resume shred mint uses the resumed rehome\'s own toTier', () => {
+  it('shredAllForRecord(staleTier) after resuming a pending rehome collects holds at the rehome\'s toTier, not the caller\'s stale argument', async () => {
+    const store = memory()
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vault0 = await db0.openVault(VAULT)
+    const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    await docs0.putAtTier('r', { id: 'r', title: 'R' }, 0)
+    await docs0.blob('r').put('a', bytes('elevated content'))
+    db0.close()
+
+    // Strand a REHOME marker (fromTier 0 → toTier 1).
+    let reached!: () => void
+    const reachedPromise = new Promise<void>((r) => { reached = r })
+    const crashing = hangOnNthPut(store, (col) => col === SLOTS_COLLECTION, 1, () => reached())
+    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vaultCrash = await dbCrash.openVault(VAULT)
+    const docsCrash = vaultCrash.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    void docsCrash.elevate('r', 1) // fire-and-forget: never settles (simulated crash)
+    await reachedPromise
+
+    // A DIRECT `shredAllForRecord` caller passing a STALE tier (0 — the
+    // record's PRE-rehome tier, as if the caller read the tier before the
+    // crash and never learned about the completed rehome). If the fresh
+    // shred mint used this stale `0` instead of the resumed rehome's own
+    // `toTier` (1), `collectShredHolds(0)` would try the slot map's OLD
+    // (now-gone, re-keyed-to-1) tier-0 DEK and either throw or silently
+    // see an empty/wrong slot map — the exact hazard Hardening 2 closes.
+    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const vaultResume = await dbResume.openVault(VAULT)
+    const docsResume = vaultResume.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+    const result = await docsResume.blob('r').shredAllForRecord(0) // stale — the record actually resumed to tier 1
+
+    expect(result.shredded).toHaveLength(1) // found and shredded the tier-1 content — not silently empty
+    expect(result.residue).toEqual([])
+    expect(await store.list(VAULT, '_blob_intent')).toEqual([])
+
+    dbResume.close()
+  })
+})

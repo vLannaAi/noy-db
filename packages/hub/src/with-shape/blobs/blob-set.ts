@@ -30,7 +30,7 @@ import { liveRecordIsElevated, liveRecordTier } from '../../kernel/tier-visibili
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import { detectMagic, isPreCompressed } from './mime-magic.js'
-import { createIntent, getIntent, deleteIntent, sweepBlobIntents, type BlobIntent, type BlobIntentHold } from './blob-intent.js'
+import { createIntent, getIntent, deleteIntent, sweepBlobIntents, recordAppliedStamp, type BlobIntent, type BlobIntentHold } from './blob-intent.js'
 
 // ─── Internal collection names ─────────────────────────────────────────
 
@@ -78,6 +78,13 @@ function appendStamp(lastOps: readonly string[] | undefined, stamp: string): rea
   const next = [...(lastOps ?? []), stamp]
   return next.length > LAST_OPS_RING_SIZE ? next.slice(next.length - LAST_OPS_RING_SIZE) : next
 }
+
+/**
+ * Shared empty-set constant for {@link BlobSet.applyStampedIncrement}'s
+ * `knownApplied` default — avoids allocating a fresh empty `Set` on every
+ * unmarked (`knownApplied` omitted) call site.
+ */
+const EMPTY_STAMP_SET: ReadonlySet<string> = new Set()
 
 /**
  * Mint a fresh op-stamp identity for a `_blob_intent` marker (#753 spec §7
@@ -1050,14 +1057,22 @@ export class BlobSet {
    */
   private async resolveShredIntent(tierArg: number): Promise<BlobIntent | null> {
     let intent = await getIntent(this.store, this.vault, this.collection, this.recordId, this.getDEK)
+    let effectiveTier = tierArg
     for (;;) {
       if (intent && intent.op === 'rehome') {
         await this.consumeRehomeIntent(intent) // #746 review Critical 1: never caught here — propagates
+        // #746 whole-branch review Hardening 2: the resumed rehome's OWN
+        // `toTier` is now this record's TRUE live tier — use it for the
+        // fresh shred mint below, not the caller's `tierArg` (sound today
+        // only because `forget()` happens to pass `live._tier`, which
+        // equals it; a direct `shredAllForRecord(staleTier)` caller after a
+        // resumed rehome must not `collectShredHolds` at the wrong tier).
+        effectiveTier = intent.toTier!
         intent = null
       }
       if (intent) return intent
       try {
-        intent = await this.mintFreshShredIntent(tierArg)
+        intent = await this.mintFreshShredIntent(effectiveTier)
       } catch {
         // Whole-branch review (#753): the mint is a crash-safety enhancement,
         // never a precondition for erasure — report "nothing resolved" so
@@ -1449,6 +1464,7 @@ export class BlobSet {
   async syncTierMove(fromTier: number, toTier: number, policy: 'isolate' | 'dedup'): Promise<void> {
     if (!this.encrypted || fromTier === toTier) return
     await this.resolvePendingIntent() // resume whatever is already pending for this record first
+    if (await this.isBlobFree(fromTier)) return // #746 whole-branch review Hardening 1: nothing to journal
     const opId = mintOpId()
     const intent: BlobIntent = { op: 'rehome', opId, fromTier, toTier, policy }
     try {
@@ -1462,6 +1478,26 @@ export class BlobSet {
     }
     await this.runRehomeSteps(fromTier, toTier, policy, opId)
     await deleteIntent(this.store, this.vault, this.collection, this.recordId)
+  }
+
+  /**
+   * #746 whole-branch review Hardening 1: `syncTierMove` runs on EVERY tier
+   * move (`elevate`/`demote`/`putAtTier`) — including the common case of a
+   * record that has never attached a blob. Minting-then-deleting a marker
+   * for such a record is pure overhead (~4 extra adapter ops on every
+   * bulk elevate/demote of blob-less records) protecting nothing: an empty
+   * slot map AND no published versions means there is genuinely no content
+   * this op could strand. Checked AFTER `resolvePendingIntent` (a pending
+   * marker, however stale, is always resumed first regardless of current
+   * blob state — it may reference content this check alone wouldn't see)
+   * and BEFORE minting a new one.
+   */
+  private async isBlobFree(fromTier: number): Promise<boolean> {
+    const { slots } = await this.loadSlots(fromTier)
+    if (Object.keys(slots).length > 0) return false
+    const prefix = `${this.recordId}::`
+    const versionKeys = await this.store.list(this.vault, this.versionsCollection)
+    return !versionKeys.some((k) => k.startsWith(prefix))
   }
 
   /**
@@ -1487,10 +1523,18 @@ export class BlobSet {
    *    moved to the new eTag, release not yet applied) before either the
    *    "already moved" or "still moving" branch below runs.
    *  - Version pass: same per-key tolerance, in `rehomeVersionRecords`.
+   *  - Destination `+1`s (#746 whole-branch review, K=8 stamp-ring
+   *    blocker): `knownApplied` — this op's marker-backed
+   *    `appliedStamps`, read ONCE here — makes every row-scoped
+   *    increment idempotent INDEPENDENTLY of `BlobObject.lastOps`'s
+   *    bounded ring; see {@link applyStampedIncrement}'s doc comment.
    */
   private async runRehomeSteps(fromTier: number, toTier: number, policy: 'isolate' | 'dedup', opId?: string): Promise<void> {
     const { slots, atTier: slotsAtTier } = await this.loadSlotsTolerant(fromTier, toTier)
     if (opId !== undefined) await this.reconcilePendingReleases(slots, fromTier, opId)
+    const knownApplied: ReadonlySet<string> = opId !== undefined
+      ? new Set((await getIntent(this.store, this.vault, this.collection, this.recordId, this.getDEK))?.appliedStamps ?? [])
+      : EMPTY_STAMP_SET
 
     // Old eTag → new eTag for every object the slot loop below physically
     // re-`put()`s. Passed on to `rehomeVersionRecords` (#724 Arc 10 Task 2,
@@ -1572,7 +1616,7 @@ export class BlobSet {
                 ...(blob.mimeType !== undefined ? { mimeType: blob.mimeType } : {}),
                 compress: blob.compression === 'gzip',
                 ...(slot.uploadedBy !== undefined ? { uploadedBy: slot.uploadedBy } : {}),
-              }, fromTier, toTier, opId)
+              }, fromTier, toTier, opId, knownApplied)
             }
           }
         }
@@ -1589,7 +1633,7 @@ export class BlobSet {
     // whose eTag was superseded in the slot map (overwritten after publish)
     // would otherwise never be rehomed at all, and the version RECORD
     // itself (label/eTag/timestamps) stays on the fromTier collection DEK.
-    await this.rehomeVersionRecords(fromTier, toTier, policy, rehomedETags, opId)
+    await this.rehomeVersionRecords(fromTier, toTier, policy, rehomedETags, opId, knownApplied)
   }
 
   /**
@@ -1633,6 +1677,7 @@ export class BlobSet {
     policy: 'isolate' | 'dedup',
     rehomedETags: Map<string, string>,
     opId?: string,
+    knownApplied?: ReadonlySet<string>,
   ): Promise<void> {
     const prefix = `${this.recordId}::`
     const allKeys = await this.store.list(this.vault, this.versionsCollection)
@@ -1648,7 +1693,7 @@ export class BlobSet {
       if (loaded.atTier === toTier) continue // already fully rehomed on a prior run — see doc comment
 
       const stamp = opId !== undefined ? `${opId}:${key}` : undefined
-      const newETag = await this.resolveRehomedVersionETag(loaded.record, fromTier, toTier, fromBlobDEK, toBlobDEK, policy, rehomedETags, stamp)
+      const newETag = await this.resolveRehomedVersionETag(loaded.record, fromTier, toTier, fromBlobDEK, toBlobDEK, policy, rehomedETags, stamp, knownApplied)
       const moved: VersionRecord = newETag === loaded.record.eTag ? loaded.record : { ...loaded.record, eTag: newETag }
       await this.writeVersionRecordAtKey(key, moved, toTier)
     }
@@ -1713,6 +1758,10 @@ export class BlobSet {
    * re-put's own dedup-hit CAS — carries the row-scoped stamp
    * `${opId}:${versionKey}` the caller computed, never the bare opId (see
    * `rehomeForTier`'s `opId` doc comment).
+   * @param knownApplied #746 whole-branch review (K=8 stamp-ring blocker):
+   * this op's marker-backed confirmed-stamps set — see
+   * {@link applyStampedIncrement}. Threaded through to the
+   * `writeBlobContent` re-put's own dedup-hit CAS too.
    */
   private async resolveRehomedVersionETag(
     record: VersionRecord,
@@ -1723,11 +1772,12 @@ export class BlobSet {
     policy: 'isolate' | 'dedup',
     rehomedETags: Map<string, string>,
     stamp?: string,
+    knownApplied?: ReadonlySet<string>,
   ): Promise<string> {
     const already = rehomedETags.get(record.eTag)
     if (already !== undefined) {
       if (stamp !== undefined) {
-        await this.casUpdateRefCountStamped(already, +1, toTier, stamp)
+        await this.applyStampedIncrement(already, toTier, stamp, knownApplied ?? EMPTY_STAMP_SET)
       } else {
         await this.casUpdateRefCount(already, +1, toTier)
       }
@@ -1744,7 +1794,7 @@ export class BlobSet {
       filename: record.label,
       ...(loaded.blob.mimeType !== undefined ? { mimeType: loaded.blob.mimeType } : {}),
       compress: loaded.blob.compression === 'gzip',
-    }, toTier, stamp)
+    }, toTier, stamp, knownApplied)
     rehomedETags.set(record.eTag, newETag) // memoize: two versions may share an eTag outside the slot map too
     if (newETag !== record.eTag) {
       await this.releaseOldETagAfterMove(record.eTag, fromTier, stamp) // C10: not swallowed under a marker
@@ -2225,9 +2275,10 @@ export class BlobSet {
     slotsTier?: number,
     contentTier?: number,
     opId?: string,
+    knownApplied?: ReadonlySet<string>,
   ): Promise<void> {
     const rowStamp = opId !== undefined ? `${opId}:${slotName}` : undefined
-    const { eTag, mimeType } = await this.writeBlobContent(data, blobDEK, opts, contentTier, rowStamp)
+    const { eTag, mimeType } = await this.writeBlobContent(data, blobDEK, opts, contentTier, rowStamp, knownApplied)
 
     // Step 7 — CAS-update slot metadata
     const uploaderUserId = opts?.uploadedBy ?? this.userId
@@ -2290,6 +2341,47 @@ export class BlobSet {
   }
 
   /**
+   * Durably confirm a rehome row-stamp's `+1` in the governing marker —
+   * #746 whole-branch review (K=8 stamp-ring blocker). No-op when there is
+   * no marker to record against (a direct `rehomeForTier(..., opId)` call
+   * with no real `_blob_intent` row, e.g. this suite's Task-1 tests —
+   * byte-identical ring-only behavior for that path, unchanged). NOT
+   * swallowed on failure (mirrors C10): a failed confirmation write must
+   * keep the governing marker's op from completing silently over an
+   * unconfirmed increment, not be dropped.
+   */
+  private async recordAppliedRehomeStamp(stamp: string): Promise<void> {
+    await recordAppliedStamp(this.store, this.vault, this.collection, this.recordId, this.getDEK, stamp)
+  }
+
+  /**
+   * Apply ONE destination `+1` under a row-scoped rehome stamp, made
+   * idempotent INDEPENDENTLY of `BlobObject.lastOps`'s bounded ring (#746
+   * whole-branch review — see `BlobIntent.appliedStamps`'s doc comment for
+   * the full hazard). `knownApplied` — this op's OWN marker-backed,
+   * unbounded record of confirmed stamps, read ONCE at the top of
+   * `runRehomeSteps` — is consulted FIRST: a hit means this exact row's
+   * `+1` was already confirmed on a PRIOR run, so the CAS is skipped
+   * entirely regardless of whether the shared destination's ring has since
+   * evicted it (another 8+ rows — from THIS record's own fan-out, or from
+   * unrelated CONCURRENT rehomes converging on the same destination —
+   * could have pushed it out). A miss falls through to the existing
+   * ring-based stamped CAS (correct and sufficient for the overwhelming
+   * majority of resumes — same-session or shortly-after), and on success
+   * (freshly applied OR the ring itself already had it) records the stamp
+   * into the marker so THIS row is never re-examined again by a later
+   * resume, no matter how much unrelated activity lands on the destination
+   * in between.
+   */
+  private async applyStampedIncrement(
+    eTag: string, tier: number | undefined, stamp: string, knownApplied: ReadonlySet<string>,
+  ): Promise<void> {
+    if (knownApplied.has(stamp)) return
+    await this.casUpdateRefCountStamped(eTag, +1, tier, stamp)
+    await this.recordAppliedRehomeStamp(stamp)
+  }
+
+  /**
    * The chunk/CEK/dedup core of `put()` (former Steps 1-6 of `putUnderDEK`,
    * extracted #724 Arc 10 Task 2 so `rehomeVersionETag` can write a
    * version-held blob's content under a target tier's DEK WITHOUT touching
@@ -2327,6 +2419,7 @@ export class BlobSet {
     opts?: BlobPutOptions,
     tier?: number,
     incrementStamp?: string,
+    knownApplied?: ReadonlySet<string>,
   ): Promise<{ eTag: string; mimeType: string | undefined }> {
     // Step 1 — keyed content-hash (plaintext, before compression)
     const eTag = blobDEK
@@ -2363,7 +2456,9 @@ export class BlobSet {
       // preserved across the content-CEK split: the chunks (and the BlobObject's
       // `_cek`, if any) are reused as-is; a new referencer never re-encrypts.
       if (incrementStamp !== undefined) {
-        await this.casUpdateRefCountStamped(eTag, +1, tier, incrementStamp)
+        // #746 whole-branch review (K=8 stamp-ring blocker): ring-independent
+        // via `knownApplied` — see `applyStampedIncrement`'s doc comment.
+        await this.applyStampedIncrement(eTag, tier, incrementStamp, knownApplied ?? EMPTY_STAMP_SET)
       } else {
         await this.casUpdateRefCount(eTag, +1, tier)
       }
@@ -2423,6 +2518,12 @@ export class BlobSet {
       ...(wrappedCek !== undefined ? { _cek: wrappedCek } : {}),
       ...(incrementStamp !== undefined ? { lastOps: appendStamp(undefined, incrementStamp) } : {}),
     }, undefined, tier)
+    // #746 whole-branch review (K=8 stamp-ring blocker): also confirm the
+    // fresh-create in the marker, same as the dedup-hit path — a resumed
+    // dedup-hit against THIS object (Step 3, a later run) then skips via
+    // `knownApplied` even if the ring's own seeded entry has since been
+    // evicted by unrelated activity on this destination.
+    if (incrementStamp !== undefined) await this.recordAppliedRehomeStamp(incrementStamp)
 
     return { eTag, mimeType }
   }

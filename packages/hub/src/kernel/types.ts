@@ -2044,19 +2044,37 @@ export interface BlobObject {
    * what makes a crash-resumed refCount decrement/increment exactly-once
    * rather than at-least-once.
    *
-   * Two acceptances, by design:
-   *  - **Eviction beyond K.** More than 8 distinct in-flight stamped
-   *    operations racing the SAME object between reads is far outside any
-   *    expected co-ownership fan-out; a 9th racer whose stamp gets evicted
-   *    before it re-reads can only double-apply an idempotent CAS delta —
-   *    never silently lose one (the delta itself is still bounded by the
-   *    marker's authoritative hold count). Not a data-loss risk, just a
-   *    documented concurrency bound.
+   * Two acceptances, by design — SHRED only (see the #746 whole-branch
+   * review correction below for rehome):
+   *  - **Eviction beyond K, for SHRED.** More than 8 distinct in-flight
+   *    stamped operations racing the SAME object between reads is far
+   *    outside any expected co-ownership fan-out; a 9th racer whose stamp
+   *    gets evicted before it re-reads can only double-apply an idempotent
+   *    CAS delta — never silently lose one (the DECREMENT delta is bounded
+   *    by the marker's authoritative captured `hold.n`, applied as ONE CAS
+   *    per eTag — never per-row — so eviction has nothing row-scoped to
+   *    re-apply against). Not a data-loss risk for shred, just a documented
+   *    concurrency bound.
    *  - **Stale stamps on a retained object.** A `retainedShared` object (one
    *    reference released, others still live) keeps whatever stamp its last
    *    CAS write appended even after that operation's marker is gone —
    *    harmless bookkeeping, not crypto material (unlike `_cek`), that sits
    *    inert until the object's next CAS write evicts or overwrites it.
+   *
+   * **#746 whole-branch review correction — this ring is NOT the sole
+   * idempotency source for REHOME.** Rehome's destination `+1`s are
+   * ROW-SCOPED (`${opId}:${slotName}` / `${opId}:${versionKey}`, one stamp
+   * PER CONTRIBUTING ROW, not one per eTag) — a record with ≥9 rows of
+   * identical content, or ≥8 concurrent rehomes converging on one shared
+   * destination, can evict a row's stamp before that row's OWN referencing
+   * update lands, and a naive ring-only resume would then double-apply that
+   * row's `+1` — a real over-count, not merely eviction-tolerant like
+   * shred's. `BlobIntent.appliedStamps` (`blob-intent.ts`) is rehome's
+   * ring-INDEPENDENT backstop: an unbounded, per-op, per-record log of
+   * confirmed row-stamps, consulted BEFORE this ring on every resume (see
+   * `BlobSet.applyStampedIncrement`). This ring remains the fast first-line
+   * check for rehome too (correct for the overwhelming majority of
+   * resumes); `appliedStamps` is what makes correctness NOT depend on it.
    */
   readonly lastOps?: readonly string[]
 }
