@@ -30,6 +30,19 @@ export async function liveRecordIsElevated(
 }
 
 /**
+ * The tier a record's LIVE envelope currently carries (0 if untiered or
+ * never moved). #724 Task 4: `BlobSet.loadSlots`/`saveSlots` use this to
+ * resolve the per-record slot map's collection DEK at the record's current
+ * tier by default, so the slot map's physical location follows the record
+ * after `rehomeForTier` re-keys it.
+ */
+export async function liveRecordTier(
+  adapter: NoydbStore, vault: string, name: string, id: string,
+): Promise<number> {
+  return peekLiveTier(adapter, vault, name, id)
+}
+
+/**
  * Refuses a tier-0 `put()`/`delete()` targeting an elevated record.
  * No-op when `tiersEnabled` is false (the cost gate — collections that
  * never declare tiers pay nothing). Throws `TierWriteRefusedError` with

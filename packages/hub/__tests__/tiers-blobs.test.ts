@@ -249,7 +249,7 @@ describe('#724 shared blob — blobTierPolicy', () => {
     const getDEK = (vault as unknown as { getDEK(name: string): Promise<EnclaveKey> }).getDEK
     const tier0BlobDEK = await getDEK(dekKey('_blob', 0))
     const tier1BlobDEK = await getDEK(dekKey('_blob', 1))
-    const collDEK = await getDEK('docs')
+    const collDEK1 = await getDEK(dekKey('docs', 1))
 
     const bytes = new TextEncoder().encode('identical shared bytes')
     await docs.putAtTier('a', { id: 'a', title: 'A', body: 'x' }, 0)
@@ -264,10 +264,11 @@ describe('#724 shared blob — blobTierPolicy', () => {
     await docs.elevate('b', 1)
 
     // b's blob API is gated post-elevation (mirrors get()) — inspect the
-    // slot map at rest instead, same as the solo-blob tests above.
+    // slot map at rest instead, same as the solo-blob tests above. #724
+    // Task 4: the slot map itself moved to the tier-1 collection DEK.
     const slotsEnv = await store.get('v1', '_blob_slots_docs', 'b')
     expect(slotsEnv).not.toBeNull()
-    const slots = JSON.parse(await openEnvelopeJson(slotsEnv!, collDEK)) as Record<string, { eTag: string }>
+    const slots = JSON.parse(await openEnvelopeJson(slotsEnv!, collDEK1)) as Record<string, { eTag: string }>
     const newETag = slots.attachment!.eTag
     expect(newETag).not.toBe(sharedETag)
 
@@ -304,7 +305,7 @@ describe('#724 shared blob — blobTierPolicy', () => {
     })
     const getDEK = (vault as unknown as { getDEK(name: string): Promise<EnclaveKey> }).getDEK
     const tier0BlobDEK = await getDEK(dekKey('_blob', 0))
-    const collDEK = await getDEK('docs')
+    const collDEK1 = await getDEK(dekKey('docs', 1))
 
     const bytes = new TextEncoder().encode('identical shared bytes (dedup mode)')
     await docs.putAtTier('a', { id: 'a', title: 'A', body: 'x' }, 0)
@@ -318,8 +319,12 @@ describe('#724 shared blob — blobTierPolicy', () => {
     await docs.elevate('b', 1)
 
     // b's slot STILL points at the shared eTag — no fork in dedup mode.
+    // #724 Task 4: the slot map (metadata) still moves to the tier-1
+    // collection DEK even under 'dedup' policy — only the SHARED BLOB
+    // OBJECT'S residue is the documented exception, not the per-record slot
+    // map.
     const slotsEnv = await store.get('v1', '_blob_slots_docs', 'b')
-    const slots = JSON.parse(await openEnvelopeJson(slotsEnv!, collDEK)) as Record<string, { eTag: string }>
+    const slots = JSON.parse(await openEnvelopeJson(slotsEnv!, collDEK1)) as Record<string, { eTag: string }>
     expect(slots.attachment!.eTag).toBe(sharedETag)
 
     // The shared object is untouched — refCount still 2, no release.
@@ -338,5 +343,244 @@ describe('#724 shared blob — blobTierPolicy', () => {
     const aBytes = await docs.blob('a').get('attachment')
     expect(aBytes).not.toBeNull()
     expect(new TextDecoder().decode(aBytes!)).toBe('identical shared bytes (dedup mode)')
+  })
+})
+
+describe('#724 slot-map metadata + reversibility (Arc 10 Task 4)', () => {
+  it('after elevate the slot map (filenames/eTags) is not readable under the parent-collection tier-0 DEK — and is again after demote', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+    const getDEK = (vault as unknown as { getDEK(name: string): Promise<EnclaveKey> }).getDEK
+    const collDEK0 = await getDEK('docs')
+    const collDEK1 = await getDEK(dekKey('docs', 1))
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
+    await docs.blob('d1').put(
+      'attachment',
+      new TextEncoder().encode('slot map secret filename bytes'),
+      { filename: 'invoice.pdf' },
+    )
+
+    // Before elevation: the slot map decrypts under the tier-0 collection DEK.
+    const slotsEnvBefore = await store.get('v1', '_blob_slots_docs', 'd1')
+    expect(slotsEnvBefore).not.toBeNull()
+    await expect(openEnvelopeJson(slotsEnvBefore!, collDEK0)).resolves.toBeDefined()
+
+    await docs.elevate('d1', 1)
+
+    const slotsEnvElevated = await store.get('v1', '_blob_slots_docs', 'd1')
+    expect(slotsEnvElevated).not.toBeNull()
+    // AT-REST GUARANTEE: no longer openable under the parent-collection
+    // tier-0 DEK…
+    await expect(openEnvelopeJson(slotsEnvElevated!, collDEK0)).rejects.toThrow()
+    // …but is under the tier-1 collection DEK, and the metadata is intact.
+    const slots = JSON.parse(await openEnvelopeJson(slotsEnvElevated!, collDEK1)) as Record<string, { filename: string }>
+    expect(slots.attachment!.filename).toBe('invoice.pdf')
+
+    await docs.demote('d1', 0)
+
+    const slotsEnvDemoted = await store.get('v1', '_blob_slots_docs', 'd1')
+    expect(slotsEnvDemoted).not.toBeNull()
+    const restoredSlots = JSON.parse(await openEnvelopeJson(slotsEnvDemoted!, collDEK0)) as Record<string, { filename: string }>
+    expect(restoredSlots.attachment!.filename).toBe('invoice.pdf')
+  })
+
+  it('demote restores tier-0 readability for a solo blob — CEK unwraps under the tier-0 _blob DEK again', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+    const getDEK = (vault as unknown as { getDEK(name: string): Promise<EnclaveKey> }).getDEK
+    const tier0BlobDEK = await getDEK(dekKey('_blob', 0))
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
+    await docs.blob('d1').put('attachment', new TextEncoder().encode('solo reversible bytes'))
+    const eTag = (await docs.blob('d1').blobInfo('attachment'))!.eTag
+
+    await docs.elevate('d1', 1)
+    expect(await docs.blob('d1').get('attachment')).toBeNull() // gated while elevated
+
+    await docs.demote('d1', 0)
+
+    const bytes = await docs.blob('d1').get('attachment')
+    expect(bytes).not.toBeNull()
+    expect(new TextDecoder().decode(bytes!)).toBe('solo reversible bytes')
+
+    // Same eTag throughout — solo blobs never mint a new address.
+    expect((await docs.blob('d1').blobInfo('attachment'))!.eTag).toBe(eTag)
+
+    const env = await store.get('v1', BLOB_INDEX_COLLECTION, eTag)
+    const blob = JSON.parse(await openEnvelopeJson(env!, tier0BlobDEK)) as { _cek?: string }
+    await expect(unwrapCek(blob._cek!, tier0BlobDEK)).resolves.toBeDefined()
+  })
+
+  it('demote of an isolate-forked shared blob re-joins the tier-0 dedup pool if the eTag already exists there', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+    const getDEK = (vault as unknown as { getDEK(name: string): Promise<EnclaveKey> }).getDEK
+    const tier0BlobDEK = await getDEK(dekKey('_blob', 0))
+    const collDEK1 = await getDEK(dekKey('docs', 1))
+
+    const bytes = new TextEncoder().encode('identical shared bytes for reversibility')
+    await docs.putAtTier('a', { id: 'a', title: 'A', body: 'x' }, 0)
+    await docs.blob('a').put('attachment', bytes)
+    await docs.putAtTier('b', { id: 'b', title: 'B', body: 'y' }, 0)
+    await docs.blob('b').put('attachment', bytes)
+
+    const sharedETag = (await docs.blob('a').blobInfo('attachment'))!.eTag
+    expect((await docs.blob('a').blobInfo('attachment'))!.refCount).toBe(2)
+
+    await docs.elevate('b', 1) // forks a private tier-1-scoped copy for b
+
+    // Capture the forked eTag via a raw slot-map read (b's blob API is
+    // gated post-elevation).
+    const slotsEnv = await store.get('v1', '_blob_slots_docs', 'b')
+    const slots = JSON.parse(await openEnvelopeJson(slotsEnv!, collDEK1)) as Record<string, { eTag: string }>
+    const forkedETag = slots.attachment!.eTag
+    expect(forkedETag).not.toBe(sharedETag)
+
+    await docs.demote('b', 0)
+
+    // b reads intact again, as a tier-0 caller.
+    const bBytes = await docs.blob('b').get('attachment')
+    expect(bBytes).not.toBeNull()
+    expect(new TextDecoder().decode(bBytes!)).toBe('identical shared bytes for reversibility')
+
+    // b's eTag is back to the ORIGINAL shared tier-0 address — rejoined the pool.
+    const bInfo = await docs.blob('b').blobInfo('attachment')
+    expect(bInfo!.eTag).toBe(sharedETag)
+
+    // The shared object's refCount is back to 2 (a + b), same object.
+    const rejoinedInfo = await docs.blob('a').blobInfo('attachment')
+    expect(rejoinedInfo!.refCount).toBe(2)
+
+    const env = await store.get('v1', BLOB_INDEX_COLLECTION, sharedETag)
+    const blob = JSON.parse(await openEnvelopeJson(env!, tier0BlobDEK)) as { _cek?: string; refCount: number }
+    await expect(unwrapCek(blob._cek!, tier0BlobDEK)).resolves.toBeDefined()
+    expect(blob.refCount).toBe(2)
+
+    // The orphaned fork object (b's private tier-1 copy, refCount 1 →
+    // released on reconcile) is gone — no leftover private duplicate.
+    const forkedEnv = await store.get('v1', BLOB_INDEX_COLLECTION, forkedETag)
+    expect(forkedEnv).toBeNull()
+
+    // 'a' still reads its blob bytes intact.
+    const aBytes = await docs.blob('a').get('attachment')
+    expect(new TextDecoder().decode(aBytes!)).toBe('identical shared bytes for reversibility')
+  })
+
+  it('elevate → demote → elevate round-trips cleanly (blob readable at the current tier each time)', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+    const getDEK = (vault as unknown as { getDEK(name: string): Promise<EnclaveKey> }).getDEK
+    const tier0BlobDEK = await getDEK(dekKey('_blob', 0))
+    const tier1BlobDEK = await getDEK(dekKey('_blob', 1))
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
+    await docs.blob('d1').put('attachment', new TextEncoder().encode('round trip bytes'))
+    const originalETag = (await docs.blob('d1').blobInfo('attachment'))!.eTag
+
+    await docs.elevate('d1', 1)
+    let env = await store.get('v1', BLOB_INDEX_COLLECTION, originalETag)
+    let blob = JSON.parse(await openEnvelopeJson(env!, tier0BlobDEK)) as { _cek?: string }
+    await expect(unwrapCek(blob._cek!, tier1BlobDEK)).resolves.toBeDefined()
+    await expect(unwrapCek(blob._cek!, tier0BlobDEK)).rejects.toThrow()
+    expect(await docs.blob('d1').get('attachment')).toBeNull() // gated while elevated
+
+    await docs.demote('d1', 0)
+    const bytesAfterFirstRoundtrip = await docs.blob('d1').get('attachment')
+    expect(new TextDecoder().decode(bytesAfterFirstRoundtrip!)).toBe('round trip bytes')
+
+    await docs.elevate('d1', 1)
+    env = await store.get('v1', BLOB_INDEX_COLLECTION, originalETag)
+    blob = JSON.parse(await openEnvelopeJson(env!, tier0BlobDEK)) as { _cek?: string }
+    await expect(unwrapCek(blob._cek!, tier1BlobDEK)).resolves.toBeDefined()
+    await expect(unwrapCek(blob._cek!, tier0BlobDEK)).rejects.toThrow()
+    expect(await docs.blob('d1').get('attachment')).toBeNull() // gated again while elevated
+
+    // eTag stable across the whole round-trip — no orphan minted.
+    expect((await store.list('v1', BLOB_INDEX_COLLECTION)).length).toBe(1)
+  })
+
+  it('multi-slot fork: a record holding the same eTag under two slots forks both to one new tier-scoped object; refCounts reconcile', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { slotA: {}, slotB: {} },
+    })
+    const getDEK = (vault as unknown as { getDEK(name: string): Promise<EnclaveKey> }).getDEK
+    const tier0BlobDEK = await getDEK(dekKey('_blob', 0))
+    const tier1BlobDEK = await getDEK(dekKey('_blob', 1))
+    const collDEK1 = await getDEK(dekKey('docs', 1))
+
+    const bytes = new TextEncoder().encode('multi-slot shared bytes')
+    await docs.putAtTier('a', { id: 'a', title: 'A', body: 'x' }, 0)
+    await docs.blob('a').put('slotA', bytes)
+
+    await docs.putAtTier('b', { id: 'b', title: 'B', body: 'y' }, 0)
+    await docs.blob('b').put('slotA', bytes)
+    await docs.blob('b').put('slotB', bytes)
+
+    const sharedETag = (await docs.blob('a').blobInfo('slotA'))!.eTag
+    expect((await docs.blob('b').blobInfo('slotA'))!.eTag).toBe(sharedETag)
+    expect((await docs.blob('b').blobInfo('slotB'))!.eTag).toBe(sharedETag)
+    // 3 holds total: a's slotA + b's slotA + b's slotB.
+    expect((await docs.blob('a').blobInfo('slotA'))!.refCount).toBe(3)
+
+    await docs.elevate('b', 1)
+
+    // Inspect b's slot map at rest (its blob API is gated post-elevation).
+    const slotsEnv = await store.get('v1', '_blob_slots_docs', 'b')
+    const slots = JSON.parse(await openEnvelopeJson(slotsEnv!, collDEK1)) as Record<string, { eTag: string }>
+    const newETag = slots.slotA!.eTag
+    expect(slots.slotB!.eTag).toBe(newETag) // BOTH slots repoint to the SAME new eTag
+    expect(newETag).not.toBe(sharedETag)
+
+    // The new object holds BOTH of b's references — refCount 2.
+    const newEnv = await store.get('v1', BLOB_INDEX_COLLECTION, newETag)
+    const newBlob = JSON.parse(await openEnvelopeJson(newEnv!, tier0BlobDEK)) as { refCount: number; _cek?: string }
+    expect(newBlob.refCount).toBe(2)
+    await expect(unwrapCek(newBlob._cek!, tier1BlobDEK)).resolves.toBeDefined()
+    await expect(unwrapCek(newBlob._cek!, tier0BlobDEK)).rejects.toThrow()
+
+    // The OLD shared object's refCount dropped from 3 to 1 (a's remaining hold).
+    const oldEnv = await store.get('v1', BLOB_INDEX_COLLECTION, sharedETag)
+    const oldBlob = JSON.parse(await openEnvelopeJson(oldEnv!, tier0BlobDEK)) as { refCount: number }
+    expect(oldBlob.refCount).toBe(1)
+
+    // 'a' still reads its blob bytes intact.
+    const aBytes = await docs.blob('a').get('slotA')
+    expect(aBytes).not.toBeNull()
+    expect(new TextDecoder().decode(aBytes!)).toBe('multi-slot shared bytes')
   })
 })

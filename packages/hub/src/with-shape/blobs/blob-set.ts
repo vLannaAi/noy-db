@@ -26,7 +26,7 @@ import {
   type EnclaveKey,
 } from '../../kernel/enclave/index.js'
 import { ConflictError, NotFoundError } from '../../kernel/errors.js'
-import { liveRecordIsElevated } from '../../kernel/tier-visibility.js'
+import { liveRecordIsElevated, liveRecordTier } from '../../kernel/tier-visibility.js'
 import { dekKey } from '../../with-party/team/tiers.js'
 import { detectMagic, isPreCompressed } from './mime-magic.js'
 
@@ -216,6 +216,23 @@ export class BlobSet {
     return liveRecordIsElevated(this.store, this.vault, this.collection, this.recordId)
   }
 
+  /**
+   * #724 Arc 10 Task 4: the tier this record's LIVE envelope currently
+   * carries — `loadSlots`/`saveSlots` default to resolving the slot map's
+   * collection DEK here, so the slot map (filenames/eTags/mimeTypes) is
+   * read/written wherever a prior `rehomeForTier` call physically re-keyed
+   * it to. `rehomeForTier` itself passes an EXPLICIT tier instead of
+   * relying on this default (see its own doc comment): by the time it
+   * runs, the owning record's live `_tier` has ALREADY moved to `toTier`
+   * (the collection-level `elevate`/`demote`/`putAtTier` writes the record
+   * before invoking `syncBlobs`), while the slot map is still physically at
+   * `fromTier` until `rehomeForTier`'s own move step lands — so this peek
+   * would resolve the wrong DEK mid-move.
+   */
+  private async ownerTier(): Promise<number> {
+    return liveRecordTier(this.store, this.vault, this.collection, this.recordId)
+  }
+
   /** The internal collection that holds slot metadata for this collection's blobs. */
   private get slotsCollection(): string {
     return `${BLOB_SLOTS_PREFIX}${this.collection}`
@@ -228,7 +245,14 @@ export class BlobSet {
 
   // ─── Slot Metadata I/O (CAS-protected) ─────────────────────────────
 
-  private async loadSlots(): Promise<{
+  /**
+   * @param tier #724 Arc 10 Task 4: explicit tier to resolve the slot map's
+   * collection DEK at — `getDEK(dekKey(this.collection, tier))`. Omitted →
+   * resolves via `ownerTier()` (the record's CURRENT live tier), correct
+   * for every call site except `rehomeForTier`'s own internal reads, which
+   * must pin `fromTier` explicitly (see `ownerTier()`'s doc comment).
+   */
+  private async loadSlots(tier?: number): Promise<{
     slots: Record<string, SlotRecord>
     version: number
   }> {
@@ -242,7 +266,7 @@ export class BlobSet {
       }
     }
 
-    const dek = await this.getDEK(this.collection)
+    const dek = await this.getDEK(dekKey(this.collection, tier ?? await this.ownerTier()))
     const json = await openEnvelopeJson(envelope, dek)
     return {
       slots: JSON.parse(json) as Record<string, SlotRecord>,
@@ -250,16 +274,18 @@ export class BlobSet {
     }
   }
 
+  /** @param tier See {@link loadSlots}'s `tier` param — same resolution. */
   private async saveSlots(
     slots: Record<string, SlotRecord>,
     currentVersion: number,
+    tier?: number,
   ): Promise<void> {
     const json = JSON.stringify(slots)
     const now = new Date().toISOString()
     let envelope: EncryptedEnvelope
 
     if (this.encrypted) {
-      const dek = await this.getDEK(this.collection)
+      const dek = await this.getDEK(dekKey(this.collection, tier ?? await this.ownerTier()))
       const { iv, data } = await encrypt(json, dek)
       envelope = {
         _noydb: NOYDB_FORMAT_VERSION,
@@ -290,16 +316,21 @@ export class BlobSet {
   /**
    * CAS retry loop for slot metadata updates. Re-reads slots on conflict
    * and re-applies the mutation function.
+   *
+   * @param tier See {@link loadSlots}'s `tier` param — threaded through so
+   * `rehomeForTier`'s isolate-fork writes (via `putUnderDEK`) target the
+   * slot map's CURRENT (fromTier) location during the move.
    */
   private async casUpdateSlots(
     mutate: (slots: Record<string, SlotRecord>) => Record<string, SlotRecord> | null,
+    tier?: number,
   ): Promise<void> {
     for (let attempt = 0; attempt < MAX_CAS_RETRIES; attempt++) {
-      const { slots, version } = await this.loadSlots()
+      const { slots, version } = await this.loadSlots(tier)
       const updated = mutate(slots)
       if (updated === null) return // no-op
       try {
-        await this.saveSlots(updated, version)
+        await this.saveSlots(updated, version, tier)
         return
       } catch (err) {
         if (err instanceof ConflictError && attempt < MAX_CAS_RETRIES - 1) continue
@@ -463,70 +494,117 @@ export class BlobSet {
    * caller could still unwrap the content CEK off the store at rest even
    * though the runtime read gate (Task 1) hides it through the API.
    *
+   * Every read/write of the slot map INSIDE this method pins `fromTier`
+   * explicitly (never the `loadSlots()`/`saveSlots()` default) — by the
+   * time this runs, the owning record's live `_tier` envelope has ALREADY
+   * moved to `toTier` (the collection-level `elevate`/`demote`/`putAtTier`
+   * writes the record before invoking `syncBlobs`), but the slot map itself
+   * is still physically encrypted at `fromTier` until this method's own
+   * move step (last) lands. `ownerTier()`'s default would resolve the
+   * wrong DEK for every read until then.
+   *
    * Enumerates the record's eTags via the slot map — mirrors
    * `shredAllForRecord`'s `loadSlots()` → `holds` enumeration above. For
    * each distinct eTag:
-   *  - **solo** (`refCount === 1`, this record is the sole owner): rewrap
-   *    `_cek` from the `fromTier` `_blob` DEK to the `toTier` one and
-   *    rewrite the `BlobObject`. The CONTENT CEK itself — and therefore
-   *    every chunk encrypted under it — is untouched; only its wrapper
-   *    moves. The eTag (a content address) stays stable.
-   *  - **shared** (`refCount > 1`): rewrapping in place would move the key
-   *    out from under every OTHER referencing record — `policy` decides
-   *    (#724 Arc 10 Task 3):
-   *      - `'isolate'` (default): read the plaintext under `fromBlobDEK`
+   *  - **solo** (`refCount === 1`, this record is the sole owner) and NOT a
+   *    prior isolate-fork product landing back at tier 0 (see
+   *    `mustReconcile` below): rewrap `_cek` from the `fromTier` `_blob`
+   *    DEK to the `toTier` one and rewrite the `BlobObject`. The CONTENT
+   *    CEK itself — and therefore every chunk encrypted under it — is
+   *    untouched; only its wrapper moves. The eTag (a content address)
+   *    stays stable.
+   *  - **shared** (`refCount > 1`), OR solo-but-`mustReconcile`: rewrapping
+   *    in place would either move the key out from under every OTHER
+   *    referencing record, or (the reconcile case) leave the eTag at a
+   *    non-canonical, tier-scoped address once it's back at tier 0 — both
+   *    need a fork/re-mint instead of a bare rewrap. `policy` decides for
+   *    the genuinely-shared case (#724 Arc 10 Task 3):
+   *      - `'isolate'` (default) — also always taken for `mustReconcile`,
+   *        which is never shared: read the plaintext under `fromBlobDEK`
    *        (still resolvable via THIS record's clearance — it hasn't
    *        moved yet), then re-`put()` it under `toBlobDEK` for every one
-   *        of this record's slots pointing at the shared eTag. That mints
-   *        a fresh, private, tier-scoped eTag/`_cek` (HMAC + wrap keyed by
-   *        `toBlobDEK`, distinct from the shared tier-0 address) and, via
+   *        of this record's slots pointing at the eTag. That mints a
+   *        fresh eTag/`_cek` (HMAC + wrap keyed by `toBlobDEK`) and, via
    *        `put()`'s own existing old-eTag decrement, releases this
-   *        record's hold on the shared object — co-owners keep it at
-   *        their unchanged refCount.
-   *      - `'dedup'` (#741, opt-in): NO-OP — the slot keeps pointing at
-   *        the shared eTag. The Task-1 runtime read gate still hides it
-   *        from a tier-0 caller; the chunks remain decryptable at rest
-   *        under the flat `_blob` DEK (documented residue).
+   *        record's hold on the old object — co-owners (if any) keep it at
+   *        their unchanged refCount. Landing at `toTier === 0` naturally
+   *        REJOINS the tier-0 dedup pool if a co-owner already holds the
+   *        content there (`put()`'s own dedup check matches on the
+   *        recomputed tier-0-native eTag) — this is how `demote(→0)`
+   *        reverses an `elevate()` isolate-fork (#724 Arc 10 Task 4).
+   *      - `'dedup'` (#741, opt-in) — only for the genuinely-shared
+   *        (`refCount > 1`) case: NO-OP. The slot keeps pointing at the
+   *        shared eTag. The Task-1 runtime read gate still hides it from a
+   *        tier-0 caller; the chunks remain decryptable at rest under the
+   *        flat `_blob` DEK (documented residue). Dedup-policy blobs never
+   *        carry `_isolated`, so `mustReconcile` never fires for them —
+   *        nothing to reconcile since dedup never moved anything.
    *  - **legacy** (`_cek` absent — chunks direct under the flat `_blob`
    *    DEK): NO-OP. Tiered collections mandate `perRecordKeys`, so new
    *    blob data is always erasable; a legacy blob reaching this method
    *    would need a chunk re-encrypt (not attempted here).
+   *
+   * #724 Arc 10 Task 4 — slot-map metadata move: LAST step, after every
+   * fork/rewrap/reconcile write above (which all operated on the slot map
+   * via the explicit `fromTier`, its still-current physical location).
+   * Re-reads (to pick up any fork/reconcile-produced eTag changes from the
+   * loop) and re-encrypts the SAME `_blob_slots_{collection}/{recordId}`
+   * row under the `toTier` collection DEK — filenames/sizes/mimeTypes/eTags
+   * are no longer tier-0-readable at rest for an elevated record. No
+   * separate delete: it's the same physical row, just re-keyed in place
+   * (mirrors `history.ts`'s `rewrapHistory`).
    */
   async rehomeForTier(fromTier: number, toTier: number, policy: 'isolate' | 'dedup'): Promise<void> {
     if (!this.encrypted || fromTier === toTier) return
-    const { slots } = await this.loadSlots()
+    const { slots } = await this.loadSlots(fromTier)
+    if (Object.keys(slots).length === 0) return // no slot map — nothing to rehome
+
     const eTags = new Set(Object.values(slots).map((s) => s.eTag).filter((eTag) => eTag !== ''))
-    if (eTags.size === 0) return
 
-    const fromBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, fromTier))
-    const toBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, toTier))
+    if (eTags.size > 0) {
+      const fromBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, fromTier))
+      const toBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, toTier))
 
-    for (const eTag of eTags) {
-      const loaded = await this.loadBlobObject(eTag)
-      if (!loaded) continue
-      const { blob, version } = loaded
-      if (blob._cek === undefined) continue // legacy: no rewrap (see doc comment)
-      if (blob.refCount > 1) {
-        if (policy === 'dedup') continue // #741: leave the shared object; read gate covers runtime
-        // isolate (default): fork a private tier-scoped copy for every slot
-        // on THIS record pointing at the shared eTag, then release this
-        // record's hold on it (via put()'s own old-eTag decrement).
-        const plaintext = await this.fetchAllChunks(blob, fromBlobDEK)
-        for (const [slotName, slot] of Object.entries(slots)) {
-          if (slot.eTag !== eTag) continue
-          await this.putUnderDEK(slotName, plaintext, toBlobDEK, {
-            filename: slot.filename,
-            ...(blob.mimeType !== undefined ? { mimeType: blob.mimeType } : {}),
-            compress: blob.compression === 'gzip',
-            ...(slot.uploadedBy !== undefined ? { uploadedBy: slot.uploadedBy } : {}),
-          })
+      for (const eTag of eTags) {
+        const loaded = await this.loadBlobObject(eTag)
+        if (!loaded) continue
+        const { blob, version } = loaded
+        if (blob._cek === undefined) continue // legacy: no rewrap (see doc comment)
+
+        // #724 Arc 10 Task 4: this eTag was minted by an earlier
+        // isolate-fork (tier-scoped, not tier-0-native) and this record is
+        // now its sole owner — landing back at tier 0 must RECONCILE (fork
+        // branch below), not just rewrap, or it would stay at a
+        // non-canonical address forever instead of rejoining the tier-0
+        // dedup pool. Demoting to an intermediate tier (`toTier > 0`) stays
+        // on the cheap rewrap path — still isolated, no pool to rejoin.
+        const mustReconcile = blob._isolated === true && toTier === 0 && blob.refCount === 1
+
+        if (blob.refCount > 1 || mustReconcile) {
+          if (policy === 'dedup' && blob.refCount > 1) continue // #741: leave the shared object; read gate covers runtime
+          // isolate (default) / reconcile: fork or rejoin for every slot on
+          // THIS record pointing at the eTag, then release this record's
+          // hold on it (via put()'s own old-eTag decrement).
+          const plaintext = await this.fetchAllChunks(blob, fromBlobDEK)
+          for (const [slotName, slot] of Object.entries(slots)) {
+            if (slot.eTag !== eTag) continue
+            await this.putUnderDEK(slotName, plaintext, toBlobDEK, {
+              filename: slot.filename,
+              ...(blob.mimeType !== undefined ? { mimeType: blob.mimeType } : {}),
+              compress: blob.compression === 'gzip',
+              ...(slot.uploadedBy !== undefined ? { uploadedBy: slot.uploadedBy } : {}),
+            }, fromTier, toTier > 0)
+          }
+          continue
         }
-        continue
+        const contentCek = await unwrapCek(blob._cek, fromBlobDEK)
+        const rewrapped = await wrapCek(contentCek, toBlobDEK)
+        await this.writeBlobObject({ ...blob, _cek: rewrapped }, version)
       }
-      const contentCek = await unwrapCek(blob._cek, fromBlobDEK)
-      const rewrapped = await wrapCek(contentCek, toBlobDEK)
-      await this.writeBlobObject({ ...blob, _cek: rewrapped }, version)
     }
+
+    const { slots: finalSlots, version: finalVersion } = await this.loadSlots(fromTier)
+    await this.saveSlots(finalSlots, finalVersion, toTier)
   }
 
   /** CAS retry loop for an arbitrary BlobObject mutation. */
@@ -821,12 +899,25 @@ export class BlobSet {
    * it's written — the fork never routes through public `put()` under the
    * wrong key, and this method adds no new raw `_cek`/`_iv`/`_data` access
    * (identical bodies to the pre-#724-T3 `put()`, just parameterized).
+   *
+   * @param slotsTier #724 Arc 10 Task 4: pins the slot-map CAS update
+   * (Step 7) to a specific tier instead of the caller's `ownerTier()`
+   * default — `rehomeForTier` passes `fromTier`, since mid-move the slot
+   * map is still physically there (see `ownerTier()`'s doc comment).
+   * @param markIsolated #724 Arc 10 Task 4: when a NEW `BlobObject` is
+   * minted (no dedup match), stamp `_isolated: true` on it — set by
+   * `rehomeForTier` whenever the fork/reconcile write's target DEK is
+   * tier-scoped (`toTier > 0`), so a later `demote(→0)` can tell this eTag
+   * apart from a genuinely tier-0-native one (see `rehomeForTier`'s doc
+   * comment on `mustReconcile`).
    */
   private async putUnderDEK(
     slotName: string,
     data: Uint8Array,
     blobDEK: EnclaveKey | null,
     opts?: BlobPutOptions,
+    slotsTier?: number,
+    markIsolated?: boolean,
   ): Promise<void> {
     // Step 1 — keyed content-hash (plaintext, before compression)
     const eTag = blobDEK
@@ -911,6 +1002,7 @@ export class BlobSet {
         createdAt: new Date().toISOString(),
         refCount: 1,
         ...(wrappedCek !== undefined ? { _cek: wrappedCek } : {}),
+        ...(markIsolated ? { _isolated: true } : {}),
       })
     }
 
@@ -931,7 +1023,7 @@ export class BlobSet {
         this._deferredRefDecrement = oldETag
       }
       return slots
-    })
+    }, slotsTier)
 
     // Release the old eTag outside the CAS loop. An erasable blob dropping to
     // refCount 0 here is crypto-shredded eagerly; a legacy one defers to GC.
