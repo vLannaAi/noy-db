@@ -1802,19 +1802,32 @@ export class BlobSet {
     const migrated: string[] = []
     const alreadyErasable: string[] = []
     if (!this.encrypted) return { migrated, alreadyErasable }
-    await this.resolvePendingIntent() // #753 spec §7 C6/C7: resume a pending shred (or refuse on rehome) before migrating
+    await this.resolvePendingIntent() // #753/#756 spec §7 C6/C7: resume a pending shred or rehome marker before migrating
 
     const blobDEK = await this.getDEK(BLOB_COLLECTION)
-    // #747: legacy-only by definition (a per-blob `_cek` is what migrate()
-    // is minting) — pin flat rather than depend on `ownerTier()`.
-    const { slots } = await this.loadSlots(0)
+    // #756 spec §3/C7: read the slot map at the record's OWNER tier, not a
+    // hardcoded 0 — `elevate()`/`rehomeForTier` re-keys a non-empty slot map
+    // onto the destination tier's DEK regardless of whether its blobs are
+    // legacy, so a previously-elevated record's slot map is no longer
+    // openable under the flat tier-0 DEK and pinning `0` here threw
+    // `TamperedError` before migrate() did anything.
+    const ownerTier = await this.ownerTier()
+    const { slots } = await this.loadSlots(ownerTier)
     const eTags = new Set(Object.values(slots).map((s) => s.eTag))
 
     for (const eTag of eTags) {
-      const loaded = await this.loadBlobObject(eTag, 0)
+      // #747 two-tier fallback (`loadBlobObject(eTag, ownerTier, 0)`): a
+      // mixed slot map can hold both rehomed tier-keyed eTags and genuinely
+      // legacy-flat ones — `t === 0` has no fallback by default, so this
+      // must be passed explicitly. An object that opens at `atTier > 0` is
+      // erasable by construction (rehome only ever moves per-record-CEK
+      // objects onto a tier) — record it as already-erasable and never
+      // touch it; migrate() only upgrades genuinely flat legacy objects
+      // (`_cek === undefined`, opened at tier 0).
+      const loaded = await this.loadBlobObject(eTag, ownerTier, 0)
       if (!loaded) continue
       const blob = loaded.blob
-      if (blob._cek !== undefined) { alreadyErasable.push(eTag); continue }
+      if (loaded.atTier > 0 || blob._cek !== undefined) { alreadyErasable.push(eTag); continue }
 
       // Phase 1 — persist the content CEK (resume reuses an existing pending one).
       let contentCek: EnclaveKey
