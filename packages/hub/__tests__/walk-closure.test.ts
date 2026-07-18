@@ -17,6 +17,7 @@ import { ref } from '../src/kernel/refs.js'
 import { ConflictError, PartitionExtractionError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { walkClosure } from '../src/with-cargo/walk-closure.js'
+import { withTiers } from '../src/with-audit/tiers/index.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -188,6 +189,32 @@ describe('walkClosure', () => {
     await expect(
       walkClosure(company, { seeds: { clients: () => true } }),
     ).rejects.toThrow(PartitionExtractionError)
+  })
+
+  it('#759: excludes a tier-elevated outbound parent instead of admitting it, and records a dangling-ref notice', async () => {
+    const tieredDb = await createNoydb({
+      store: memory(), user: 'alice', secret: 'test-passphrase-1234', tiersStrategy: withTiers(),
+    })
+    const company = await tieredDb.openVault('demo-co')
+    const clients = company.collection<Client>('clients', { tiers: [0, 1] })
+    const bills = company.collection<Bill>('bills', { refs: { clientId: ref('clients') } })
+
+    await clients.putAtTier('c-1', { id: 'c-1', name: 'Redacted Co', operatorUserId: 'belle' }, 0)
+    await bills.put('b-1', { id: 'b-1', clientId: 'c-1', amount: 10 })
+    // Elevate the parent AFTER the FK is established — c-1 is now invisible
+    // to the tier-gated read surface the way root selection / inbound
+    // expansion already treat an elevated record.
+    await clients.elevate('c-1', 1)
+
+    const { closure, danglingRefs } = await walkClosure(company, {
+      seeds: { bills: () => true },
+    })
+
+    expect([...(closure.get('bills') ?? [])]).toEqual(['b-1']) // child keeps its FK value
+    expect(closure.get('clients')).toBeUndefined() // elevated parent NOT admitted
+    expect(danglingRefs).toEqual([
+      { collection: 'bills', id: 'b-1', field: 'clientId', target: 'clients', targetId: 'c-1' },
+    ])
   })
 
   it('is exported from the @noy-db/hub/bundle subpath', async () => {
