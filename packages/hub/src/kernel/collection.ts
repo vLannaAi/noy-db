@@ -29,7 +29,7 @@ import { countLiveEnvelopes } from './lazy-count.js'
 import { liveRecordIsElevated, assertTierWritable, assertCutoverTierSafe } from './tier-visibility.js'
 import {
   classifySealedShred as classifySealedShredImpl, syncDerivedOutputs,
-  type TiersContext,
+  type TiersContext, type TierMoveResult,
 } from '../with-audit/tiers/index.js'
 import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
 import {
@@ -4449,13 +4449,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     return this.tiersStrategy.listAtTier(this.tiersContext())
   }
 
-  /** elevate a record to a higher tier — gated behind `withTiers()`. */
-  elevate(id: string, toTier: number): Promise<void> {
+  /** elevate a record to a higher tier — gated behind `withTiers()`. `searchResidue: true` = stuck search compensation (#764); the move itself always completes. */
+  elevate(id: string, toTier: number): Promise<TierMoveResult> {
     return this.tiersStrategy.elevate(this.tiersContext(), id, toTier)
   }
 
-  /** demote a record to a lower tier — gated behind `withTiers()`. */
-  demote(id: string, toTier: number): Promise<void> {
+  /** demote a record to a lower tier — gated behind `withTiers()`. Same `searchResidue` posture as {@link elevate} (#764). */
+  demote(id: string, toTier: number): Promise<TierMoveResult> {
     return this.tiersStrategy.demote(this.tiersContext(), id, toTier)
   }
 

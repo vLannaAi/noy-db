@@ -145,6 +145,7 @@
     "PathEscapeError",
     "PeriodClosedError",
     "PermissionDeniedError",
+    "PersistedIndexCompensationError",
     "PodVersionConflictError",
     "PolicyDeniedError",
     "PolicyEnforcer",

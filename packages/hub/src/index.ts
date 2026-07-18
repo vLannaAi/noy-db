@@ -1165,3 +1165,6 @@ export type { RetrieveOptions, RetrieveHit } from './with-lookup/search/index.js
 export { withSearch, NO_SEARCH } from './with-lookup/search/index.js'
 export type { SearchStrategy } from './with-lookup/search/index.js'
 export { SearchNotEnabledError } from './kernel/errors.js'
+// #764: a stuck persisted search-index compensation (a failed compensating
+// remove() of a stale _ftindex blob) — callers can catch this deliberately.
+export { PersistedIndexCompensationError } from './kernel/errors.js'

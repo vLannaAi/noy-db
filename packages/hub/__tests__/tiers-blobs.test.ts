@@ -249,7 +249,7 @@ describe('#724 solo blob at-rest isolation', () => {
     const docs = vault.collection<Doc>('docs', { tiers: [0, 1] })
 
     await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
-    await expect(docs.elevate('d1', 1)).resolves.toBeUndefined()
+    await expect(docs.elevate('d1', 1)).resolves.toEqual({ searchResidue: false })
     // Ordinary elevated-record behavior, unaffected by the no-op.
     await expect(docs.get('d1')).resolves.toBeNull()
   })
@@ -1088,7 +1088,7 @@ describe('#724 empty-but-present slot map (re-review High)', () => {
     await docs.blob('d2').delete('slot')
     await docs.elevate('d2', 1)
 
-    await expect(docs.demote('d2', 0)).resolves.toBeUndefined()
+    await expect(docs.demote('d2', 0)).resolves.toEqual({ searchResidue: false })
   })
 
   it('vault.forget() does not throw and completes after put→delete(last slot)→elevate', async () => {
@@ -1130,8 +1130,8 @@ describe('#724 empty-but-present slot map (re-review High)', () => {
     })
     await docs.put('d3', { id: 'd3', title: 'C', body: 'z' })
 
-    await expect(docs.elevate('d3', 1)).resolves.toBeUndefined()
-    await expect(docs.demote('d3', 0)).resolves.toBeUndefined()
+    await expect(docs.elevate('d3', 1)).resolves.toEqual({ searchResidue: false })
+    await expect(docs.demote('d3', 0)).resolves.toEqual({ searchResidue: false })
     await expect(vault.forget('d3')).resolves.toBeDefined()
     const env = await store.get('v1', 'docs', 'd3')
     expect(env).not.toBeNull()

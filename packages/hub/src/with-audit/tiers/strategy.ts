@@ -8,7 +8,7 @@
  * @internal
  */
 import type { GhostRecord } from '../../kernel/types.js'
-import type { TiersContext } from './index.js'
+import type { TiersContext, TierMoveResult } from './index.js'
 import { TiersNotEnabledError } from '../../kernel/errors.js'
 
 export interface TiersStrategy {
@@ -21,8 +21,8 @@ export interface TiersStrategy {
   ): Promise<void>
   getAtTier<T>(ctx: TiersContext<T>, id: string): Promise<T | GhostRecord | null>
   listAtTier<T>(ctx: TiersContext<T>): Promise<Array<{ id: string; tier: number; readable: boolean }>>
-  elevate<T>(ctx: TiersContext<T>, id: string, toTier: number): Promise<void>
-  demote<T>(ctx: TiersContext<T>, id: string, toTier: number): Promise<void>
+  elevate<T>(ctx: TiersContext<T>, id: string, toTier: number): Promise<TierMoveResult>
+  demote<T>(ctx: TiersContext<T>, id: string, toTier: number): Promise<TierMoveResult>
 }
 
 /**

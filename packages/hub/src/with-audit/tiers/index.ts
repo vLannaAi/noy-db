@@ -24,7 +24,7 @@ export { withTiers } from './active.js'
 export { NO_TIERS, type TiersStrategy } from './strategy.js'
 export { TiersNotEnabledError } from '../../kernel/errors.js'
 import { encrypt, decrypt, unwrapCek, rewrapBodyToDek, isDeleteMarker, isTombstoneShape, type RecordCodec, type EnclaveKey, type SealedShredSlot } from '../../kernel/enclave/index.js'
-import { TierDemoteDeniedError, UnsupportedTierCompositionError } from '../../kernel/errors.js'
+import { TierDemoteDeniedError, UnsupportedTierCompositionError, PersistedIndexCompensationError } from '../../kernel/errors.js'
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import type { Lru } from '../../kernel/cache/index.js'
@@ -585,12 +585,44 @@ export async function listAtTier<T>(ctx: TiersContext<T>): Promise<Array<{ id: s
 }
 
 /**
+ * Result of a completed `elevate()`/`demote()` (#764). The record move
+ * (put + indexes/cache/ledger/derived/history/blobs sync) always completes —
+ * `searchResidue: true` means only the search-index side (`_vec`/`_ftindex`)
+ * was left in a needs-retry state (a stuck `PersistedIndexCompensationError`),
+ * mirroring `forget()`'s `indexResidue` posture rather than aborting the move.
+ */
+export interface TierMoveResult {
+  readonly searchResidue: boolean
+}
+
+/**
+ * Run {@link TiersContext.syncSearch} with #764 resilience: a permanently
+ * stuck compensation (`PersistedIndexCompensationError`, thrown by
+ * `PersistedIndexStore` when its compensating `remove()` of a stale
+ * `_ftindex` blob keeps failing) must not abort `elevate()`/`demote()` — the
+ * record's tier-move `put` has already landed, and aborting here would leave
+ * `syncLedger`/`syncDerived`/`syncHistory`/`syncBlobs` unsynced behind it (the
+ * partial-completion hazard #764 names). Same posture `forget()` takes for
+ * `_purgeSearchIndex` (`vault.ts`'s `indexResidue`) — everything else (a
+ * genuinely unexpected search-hook error) still aborts, undisturbed.
+ */
+async function syncSearchResilient<T>(ctx: TiersContext<T>, id: string, record: T | null, version?: number): Promise<boolean> {
+  try {
+    await ctx.syncSearch(id, record, version)
+    return false
+  } catch (e) {
+    if (e instanceof PersistedIndexCompensationError) return true
+    throw e
+  }
+}
+
+/**
  * elevate a record to a higher tier. Re-encrypts with the target tier's DEK.
  * The caller must hold DEKs for both the current tier (to decrypt) and the
  * target tier (to re-encrypt). Stamps `_elevatedBy` with the caller id so
  * `demote()` can check the reverse operation.
  */
-export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: number): Promise<void> {
+export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: number): Promise<TierMoveResult> {
   assertTiersEnabled(ctx)
   assertDeclaredTier(ctx, toTier)
   assertTierAccess(ctx.keyring, ctx.name, toTier)
@@ -600,7 +632,7 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
     throw new Error(`Record "${id}" not found in collection "${ctx.name}"`)
   }
   const fromTier = envelope._tier ?? 0
-  if (toTier === fromTier) return
+  if (toTier === fromTier) return { searchResidue: false }
   if (toTier < fromTier) {
     throw new Error(`Use demote() to lower the tier of "${id}" from ${fromTier} to ${toTier}`)
   }
@@ -644,8 +676,10 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   await ctx.syncIndexes(id, null, next._v)
   ctx.syncCache(id, null)
   // #721: same purge law as syncIndexes above — the record left tier 0, so
-  // its _vec sidecar is purged and _ftindex is invalidated.
-  await ctx.syncSearch(id, null)
+  // its _vec sidecar is purged and _ftindex is invalidated. #764: a
+  // permanently stuck compensation must not abort the move — the record put
+  // above already landed — so it is caught and surfaced as residue instead.
+  const searchResidue = await syncSearchResilient(ctx, id, null)
   // #729: elevate always lands the record at tier > 0 — purge its
   // tier-0-era plaintext ledger deltas (irreversible; entry metadata stays).
   await ctx.syncLedger(id)
@@ -682,13 +716,14 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   // #724: rehome any solo-owned blob attachments to the target tier's
   // `_blob` DEK — same at-rest law as syncHistory above.
   await ctx.syncBlobs(id, fromTier, toTier)
+  return { searchResidue }
 }
 
 /**
  * demote a record to a lower tier. Allowed only for the user who performed the
  * last elevation or an owner.
  */
-export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number): Promise<void> {
+export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number): Promise<TierMoveResult> {
   assertTiersEnabled(ctx)
   if (toTier < 0) throw new Error(`Cannot demote to negative tier ${toTier}`)
 
@@ -697,7 +732,7 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
     throw new Error(`Record "${id}" not found in collection "${ctx.name}"`)
   }
   const fromTier = envelope._tier ?? 0
-  if (toTier === fromTier) return
+  if (toTier === fromTier) return { searchResidue: false }
   if (toTier > fromTier) {
     throw new Error(`Use elevate() to raise the tier of "${id}" from ${fromTier} to ${toTier}`)
   }
@@ -746,13 +781,17 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
   // + purges: the record stays above tier 0 and must remain invisible on
   // tier-0 surfaces, unindexed. syncIndexes runs first in both branches —
   // it needs the pre-demote cache entry as "previous".
+  // #764: a permanently stuck search-index compensation must not abort the
+  // move — the record put above already landed — so it is caught in both
+  // branches and surfaced as residue on the return value instead.
+  let searchResidue: boolean
   if (toTier === 0) {
     const rec = await ctx.codec.decryptRecord(next, { id, sealedAsHandles: true })
     await ctx.syncIndexes(id, rec, next._v, envelope)
     ctx.syncCache(id, rec !== null ? { record: rec, version: next._v } : null)
     // #721: reuse the decode above — no double-decrypt. The record is tier-0
     // again, so re-embed its _vec and invalidate _ftindex to include it.
-    await ctx.syncSearch(id, rec, next._v)
+    searchResidue = await syncSearchResilient(ctx, id, rec, next._v)
     // #722 Task 2: the record rejoined tier 0 — restore its contribution to
     // every derived output (reuse the decode above, no double-decrypt).
     await ctx.syncDerived(id, rec, false, next._v)
@@ -760,7 +799,7 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
     await ctx.syncIndexes(id, null, next._v)
     ctx.syncCache(id, null)
     // #721: still above tier 0 — purge _vec, invalidate _ftindex.
-    await ctx.syncSearch(id, null)
+    searchResidue = await syncSearchResilient(ctx, id, null)
     // #722 Task 2: still elevated (an intermediate tier) — the source's
     // derived outputs stay recompute-as-removed, same law as elevate()
     // above. `envelope` is the PRE-move envelope captured at function
@@ -797,6 +836,7 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
   // #724: rehome any solo-owned blob attachments the same direction as the
   // live body — restores tier-0 (or intermediate-tier) readability at rest.
   await ctx.syncBlobs(id, fromTier, toTier)
+  return { searchResidue }
 }
 
 /**
