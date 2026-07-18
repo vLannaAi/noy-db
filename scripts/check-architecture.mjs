@@ -758,14 +758,13 @@ const KERNEL_SURFACE_BUDGET = {
   // money) needs — plus doc comments on both and the widened
   // `LazyQuerySource` literal (`getRawRecord`/`decodeRecord`/`via` replacing
   // `getRecord`).
-  // Bumped 4549→4551 (2026-07-18, #766: putAtTier subject-index registration):
-  // `addSubjectRef` private field + ctor assignment + `tiersContext()` wiring
-  // (a thin pass-through callback the Vault wires when a forget-subject field
-  // is declared). Closes the gap where a record's FIRST write via `putAtTier`
-  // bypassed `Collection.put()`'s onAfterWrite subject-index registration
-  // hook, leaving it unreachable by `vault.forget()`. Registration logic
-  // itself lives in vault.ts / with-audit/tiers/index.ts.
-  'packages/hub/src/kernel/collection.ts': 4551,
+  // #766 (2026-07-18, putAtTier subject-index registration): funded IN PLACE, no bump.
+  // The +3 lines (`addSubjectRef` private field, ctor assignment, `tiersContext()` wiring —
+  // a thin pass-through callback the Vault wires when a forget-subject field is declared)
+  // were paid for by reflowing the adjacent 4-line `ledger` field JSDoc's first paragraph
+  // (byte-preserving — same wording, joined onto one line) to a single line, a −3 net.
+  // Net zero versus pre-#766: the file lands back at the exact same line count.
+  'packages/hub/src/kernel/collection.ts': 4549,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -1016,11 +1015,14 @@ const KERNEL_SURFACE_BUDGET = {
   // `via/lookup/registry.ts`, reached through the existing lookup-strategy port import.
   // Bumped 3958→3959 (2026-07-15, #693: tab-coordination fallback for the marker-set gate):
   // one `tabCoordinated: () => this.noydb._tabWritesRelayed` line threaded into collOpts.
-  // Bumped 3959→3960 (2026-07-18, #766: putAtTier subject-index registration): one line
-  // wiring `collOpts.addSubjectRef` inside the existing forget-subject-declared branch
-  // (dense one-liner, trailing comment) — the closure itself just calls the existing
-  // `this._addSubjectRef`; no new orchestration logic added to this file.
-  'packages/hub/src/kernel/vault.ts': 3960,
+  // #766 (2026-07-18, putAtTier subject-index registration): funded IN PLACE, no bump.
+  // The +1 line wiring `collOpts.addSubjectRef` inside the existing forget-subject-declared
+  // branch (dense one-liner, trailing comment — the closure itself just calls the existing
+  // `this._addSubjectRef`) was paid for by folding the adjacent 3-line
+  // `if (options?.perRecordKeys !== undefined) { ... }` block to this file's own one-line
+  // `if (...) collOpts.x = ...` style (matches the block immediately above it) — a −2 net,
+  // leaving the file 1 line UNDER ceiling.
+  'packages/hub/src/kernel/vault.ts': 3959,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),

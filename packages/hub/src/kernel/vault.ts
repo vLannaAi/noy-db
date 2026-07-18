@@ -1070,9 +1070,7 @@ export class Vault {
       if (options?.sensitive !== undefined) {
         collOpts.sensitive = options.sensitive
       }
-      if (options?.perRecordKeys !== undefined) {
-        collOpts.perRecordKeys = options.perRecordKeys
-      }
+      if (options?.perRecordKeys !== undefined) collOpts.perRecordKeys = options.perRecordKeys
       // A collection declared in `withForgetCascade({ subjects })` MUST
       // use per-record CEKs: crypto-shred can only guarantee erasure of a body
       // keyed off a per-record CEK. Force it on (and warn if the caller
