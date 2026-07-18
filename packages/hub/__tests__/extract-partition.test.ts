@@ -283,3 +283,72 @@ describe('extractPartition — #748: elevated records are structurally excluded'
     db.close()
   })
 })
+
+/**
+ * #759 — outbound completion must re-check a referenced parent's tier
+ * visibility before admitting it into the closure, the same way root
+ * selection / inbound expansion already do. Pre-fix, an elevated parent
+ * referenced by a selected tier-0 child's FK entered the closure and
+ * `reKeyClosure`'s #748 canary threw `PartitionExtractionError` on it.
+ * Post-fix: the parent is silently excluded (matches root/inbound
+ * semantics) and the resulting dangling FK is surfaced as a residue notice
+ * on `ExtractPartitionResult.danglingRefs`.
+ */
+describe('extractPartition — #759: elevated FK parent is excluded with a dangling-ref residue notice', () => {
+  interface Invoice { id: string; clientId: string }
+
+  it('does NOT crash on an elevated FK parent; excludes it and reports the dangling ref', async () => {
+    const store = memory()
+    const db = await createNoydb({
+      cargoStrategy: withCargo(),
+      store,
+      user: 'alice',
+      secret: 'test-passphrase-1234',
+      tiersStrategy: withTiers(),
+    })
+    const company = await db.openVault('demo-co')
+    const clients = company.collection<Client>('clients', { tiers: [0, 1] })
+    const invoices = company.collection<Invoice>('invoices', { refs: { clientId: ref('clients') } })
+
+    await clients.putAtTier('c-1', { id: 'c-1', name: 'Redacted Co', operatorUserId: 'belle' }, 0)
+    await invoices.put('inv-1', { id: 'inv-1', clientId: 'c-1' })
+    // Elevate the parent AFTER the invoice's FK is established, so the
+    // outbound-completion phase is the one that has to notice.
+    await clients.elevate('c-1', 1)
+
+    const { bundleBytes, transferKey, danglingRefs } = await extractPartition(company, {
+      seeds: { invoices: () => true },
+    })
+
+    expect(danglingRefs).toEqual([
+      { collection: 'invoices', id: 'inv-1', field: 'clientId', target: 'clients', targetId: 'c-1' },
+    ])
+
+    const { dumpJson } = await readNoydbBundle(bundleBytes)
+    const { dump } = parseExtractedPartitionBody(dumpJson)
+    const backup = JSON.parse(dump) as { collections: Record<string, Record<string, EncryptedEnvelope>> }
+
+    // The elevated parent never entered the partition...
+    expect(backup.collections['clients']).toBeUndefined()
+    // ...but the tier-0 child DID, keeping its (now dangling) FK value.
+    expect(Object.keys(backup.collections['invoices'] ?? {})).toEqual(['inv-1'])
+
+    // Round-trips cleanly: adoption doesn't choke on the dangling FK either.
+    const dest = memory()
+    await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
+    await createOwnerOnAdoptedPartition(dest, 'fresh', {
+      userId: 'belle', passphrase: 'belle-pass-phrase-2026', transferKey,
+    })
+    const recipientDb = await createNoydb({
+      cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-pass-phrase-2026',
+      tiersStrategy: withTiers(),
+    })
+    const recipientVault = await recipientDb.openVault('fresh')
+    expect(await recipientVault.collection<Client>('clients', { tiers: [0, 1] }).get('c-1')).toBeNull()
+    expect(await recipientVault.collection<Invoice>('invoices', { refs: { clientId: ref('clients') } }).get('inv-1'))
+      .toMatchObject({ id: 'inv-1', clientId: 'c-1' })
+
+    recipientDb.close()
+    db.close()
+  })
+})

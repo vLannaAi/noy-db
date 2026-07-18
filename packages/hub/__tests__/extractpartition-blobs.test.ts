@@ -16,9 +16,10 @@ import { withCargo } from '../src/index.js'
 import { ref } from '../src/kernel/refs.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, KeyringFile } from '../src/kernel/types.js'
-import { decrypt, unwrapCek } from '../src/kernel/enclave/index.js'
+import { decrypt, encrypt, unwrapCek, openEnvelopeJson } from '../src/kernel/enclave/index.js'
 import { withBlobs } from '../src/via/blob/index.js'
-import { BLOB_INDEX_COLLECTION, BLOB_CHUNKS_COLLECTION } from '../src/with-shape/blobs/blob-set.js'
+import { BLOB_INDEX_COLLECTION, BLOB_CHUNKS_COLLECTION, BLOB_SLOTS_PREFIX } from '../src/with-shape/blobs/blob-set.js'
+import { BLOB_INTENT_COLLECTION, createIntent, getIntent, type BlobIntent } from '../src/with-shape/blobs/blob-intent.js'
 import { extractPartition } from '../src/with-cargo/extract-partition.js'
 import {
   adoptPartition,
@@ -313,6 +314,138 @@ describe('extractPartition blob carriage — refCount + no-blob', () => {
     expect(await vault.collection<Doc>('docs').get('d1')).toMatchObject({ id: 'd1', title: 'No blobs here' })
     expect(await vault.collection<Doc>('docs').blob('d1').get('cover.png')).toBeNull()
     recipientDb.close()
+    db.close()
+  })
+})
+
+/**
+ * #767 — extract-partition must carry an in-flight `_blob_intent` marker for
+ * a carried record. A partition extracted mid-shred/mid-rehome without the
+ * marker would restore the blob rows without it, reproducing the ambiguous-
+ * refCount state the journal exists to prevent. Mirrors `dumpVault`'s
+ * backup allowlist, which already carries `_blob_intent` for the same
+ * reason (`with-pod/backup.ts`).
+ */
+describe('extractPartition blob carriage — #767: carries in-flight `_blob_intent` markers', () => {
+  it('an in-flight `_blob_intent` marker for a carried record travels, re-keyed under the destination DEK', async () => {
+    const src = memory()
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: src, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const company = await db.openVault('demo-co')
+    const docs = company.collection<Doc>('docs', { perRecordKeys: true })
+    await docs.put('d1', { id: 'd1', title: 'Report' })
+    await docs.blob('d1').put('cover.png', bytes('cover bytes'))
+
+    // Simulate a crashed mid-flight shred: plant a `_blob_intent` marker for
+    // d1 directly (mirrors blob-shred-journal.test.ts's use of `createIntent`
+    // for the same crash-recovery journal).
+    const { getDEK } = company._introspectState()
+    const intent: BlobIntent = { op: 'shred', opId: 'op-1', holds: [{ eTag: 'e1', n: 1, chunkCount: 1 }] }
+    await createIntent(src, 'demo-co', 'docs', 'd1', getDEK, intent)
+
+    const { bundleBytes, transferKey } = await extractPartition(company, {
+      seeds: { docs: (r) => r['id'] === 'd1' },
+    })
+
+    const dest = memory()
+    await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
+    // The marker travelled at its stable `{collection}::{recordId}` key.
+    expect(await dest.get('fresh', BLOB_INTENT_COLLECTION, 'docs::d1')).not.toBeNull()
+
+    await createOwnerOnAdoptedPartition(dest, 'fresh', {
+      userId: 'belle', passphrase: 'belle-pass-phrase-2026', transferKey,
+    })
+    const recipientDb = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-pass-phrase-2026', blobStrategy: withBlobs() })
+    const recipientVault = await recipientDb.openVault('fresh')
+    const rState = recipientVault._introspectState()
+    // Round-trip: readable through the public marker reader under the
+    // recipient's own (re-keyed) DEK — resume-on-touch would heal it.
+    const recovered = await getIntent(rState.adapter, rState.name, 'docs', 'd1', rState.getDEK)
+    expect(recovered).toEqual(intent)
+
+    recipientDb.close()
+    db.close()
+  })
+
+  it('no in-flight marker → nothing carried (the normal case)', async () => {
+    const src = memory()
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: src, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const company = await db.openVault('demo-co')
+    const docs = company.collection<Doc>('docs', { perRecordKeys: true })
+    await docs.put('d1', { id: 'd1', title: 'Report' })
+    await docs.blob('d1').put('cover.png', bytes('cover bytes'))
+
+    const { bundleBytes, transferKey } = await extractPartition(company, {
+      seeds: { docs: (r) => r['id'] === 'd1' },
+    })
+
+    const dest = memory()
+    await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
+    expect(await dest.get('fresh', BLOB_INTENT_COLLECTION, 'docs::d1')).toBeNull()
+    db.close()
+  })
+})
+
+/**
+ * #769 — `reKeyBlobs` must strip the internal `SlotRecord.pendingRelease`
+ * breadcrumb (#746's slot-CAS→release strand marker) when re-serializing a
+ * slot map into a partition: it names a source-vault-LOCAL eTag awaiting
+ * release that may be absent from the destination vault. Contrast with a
+ * full-vault `backup()`, which restores into the SAME vault and therefore
+ * CARRIES the breadcrumb unchanged (resumable there) — the asymmetry is
+ * documented in `with-pod/backup.ts`.
+ */
+describe('extractPartition blob carriage — #769: strips `pendingRelease` (backup retains it)', () => {
+  it('extract-partition strips SlotRecord.pendingRelease; a full-vault backup of the same vault retains it', async () => {
+    const src = memory()
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: src, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const company = await db.openVault('demo-co')
+    const docs = company.collection<Doc>('docs', { perRecordKeys: true })
+    await docs.put('d1', { id: 'd1', title: 'Report' })
+    await docs.blob('d1').put('cover.png', bytes('cover bytes'))
+
+    // Plant a `pendingRelease` breadcrumb directly on the raw slot record —
+    // mirrors a crash between a rehome's slot-CAS and its old-eTag release
+    // landing (#746).
+    const { adapter, name: vaultName, getDEK } = company._introspectState()
+    const slotsCollection = `${BLOB_SLOTS_PREFIX}docs`
+    const slotEnv = (await adapter.get(vaultName, slotsCollection, 'd1'))!
+    const dek = await getDEK('docs')
+    const slots = JSON.parse(await openEnvelopeJson(slotEnv, dek)) as Record<string, { eTag: string; pendingRelease?: string }>
+    slots['cover.png']!.pendingRelease = 'stale-etag-awaiting-release'
+    const reEncrypted = await encrypt(JSON.stringify(slots), dek)
+    await adapter.put(vaultName, slotsCollection, 'd1', { ...slotEnv, _iv: reEncrypted.iv, _data: reEncrypted.data }, slotEnv._v)
+
+    // ── extract-partition: STRIPS it (cross-vault; breadcrumb is meaningless there) ──
+    const { bundleBytes, transferKey } = await extractPartition(company, {
+      seeds: { docs: (r) => r['id'] === 'd1' },
+    })
+    const dest = memory()
+    await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
+    await createOwnerOnAdoptedPartition(dest, 'fresh', {
+      userId: 'belle', passphrase: 'belle-pass-phrase-2026', transferKey,
+    })
+    const recipientDb = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-pass-phrase-2026', blobStrategy: withBlobs() })
+    const recipientVault = await recipientDb.openVault('fresh')
+    const rState = recipientVault._introspectState()
+    const carriedSlotEnv = (await rState.adapter.get('fresh', slotsCollection, 'd1'))!
+    const carriedSlots = JSON.parse(
+      await openEnvelopeJson(carriedSlotEnv, await rState.getDEK('docs')),
+    ) as Record<string, { eTag: string; pendingRelease?: string }>
+    expect(carriedSlots['cover.png']!.pendingRelease).toBeUndefined()
+    // The eTag itself still travels — only the breadcrumb is stripped.
+    expect(carriedSlots['cover.png']!.eTag).toBe(slots['cover.png']!.eTag)
+    recipientDb.close()
+
+    // ── backup: CARRIES it unchanged (same-vault-resumable) ──────────────
+    const backupJson = await company.dump()
+    const backup = JSON.parse(backupJson) as { _internal?: Record<string, Record<string, EncryptedEnvelope>> }
+    const backedUpSlotEnv = backup._internal?.[slotsCollection]?.['d1']
+    expect(backedUpSlotEnv).toBeDefined()
+    const backedUpSlots = JSON.parse(
+      await openEnvelopeJson(backedUpSlotEnv!, dek),
+    ) as Record<string, { eTag: string; pendingRelease?: string }>
+    expect(backedUpSlots['cover.png']!.pendingRelease).toBe('stale-etag-awaiting-release')
+
     db.close()
   })
 })
