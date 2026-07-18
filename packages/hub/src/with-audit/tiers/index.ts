@@ -200,6 +200,17 @@ export interface TiersContext<T> {
   getDEK(key: string): Promise<EnclaveKey>
   /** Fire a cross-tier access event (sink stays collection-resident). */
   emitCrossTierEvent(event: CrossTierAccessEvent): void
+  /**
+   * Register this record's ref in the encrypted `_subject_index` (#766).
+   * `putAtTier`'s raw `ctx.adapter.put` bypasses `Collection.put()`'s write-
+   * hook pipeline — the `onAfterWrite` hook that normally does this — so a
+   * record whose FIRST persistence is `putAtTier` (sensitive from birth, a
+   * documented legitimate use) would otherwise never enter the index and
+   * stay unreachable by `vault.forget()`. Idempotent (safe on every call,
+   * including a repeat write of an already-registered record) and a no-op
+   * when the collection declares no forget-subject field.
+   */
+  addSubjectRef(id: string, record: T): Promise<void>
 }
 
 export function assertTiersEnabled<T>(ctx: TiersContext<T>): void {
@@ -399,6 +410,11 @@ export async function putAtTier<T>(
   }
 
   await ctx.adapter.put(ctx.vault, ctx.name, id, envelope)
+
+  // #766: putAtTier bypasses Collection.put()'s onAfterWrite hook — register
+  // the subject ref directly so a sensitive-from-birth first write stays
+  // reachable by vault.forget(). No-op when no forget-subject field is declared.
+  await ctx.addSubjectRef(id, record)
 
   // #702/#709: keep the record cache AND indexes coherent with the raw
   // write — same law as elevate/demote (#691): tier > 0 → invisible on

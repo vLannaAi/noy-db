@@ -289,6 +289,14 @@ export interface CollectionOpts<T> {
    * classified refusal matrix (R4: a digest-only field cannot be the subject key).
    */
   subjectKeyField?: string | undefined
+  /**
+   * Register a record's forget-subject ref directly (bypassing the write-hook
+   * pipeline), wired by the Vault when this collection declares a forget-
+   * subject field. Consumed by `putAtTier` (#766, via `TiersContext.addSubjectRef`)
+   * so a record whose first write is a tier write still enters `_subject_index`.
+   * `undefined` when no forget strategy declares this collection (no-op).
+   */
+  addSubjectRef?: ((id: string, record: unknown) => Promise<void>) | undefined
   /** — tree-shake seam for `collection.reveal()`. Defaults to `NO_CLASSIFIED`. */
   classifiedStrategy?: ClassifiedStrategy | undefined
   /**
@@ -1183,6 +1191,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     tierMode: opts.tierMode ?? 'invisibility',
     blobTierPolicy: opts.blobTierPolicy ?? 'isolate',
     onCrossTierAccess: opts.onCrossTierAccess,
+    addSubjectRef: opts.addSubjectRef,
     deterministicFields,
     sensitiveFields,
     vdigFields,
