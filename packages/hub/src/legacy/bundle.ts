@@ -49,7 +49,7 @@ export type {
 
 // ─── Partition extraction → @noy-db/hub/cargo ─────────────
 export { walkClosure } from '../with-cargo/walk-closure.js'
-export type { WalkClosureOptions, ClosureResult } from '../with-cargo/walk-closure.js'
+export type { WalkClosureOptions, ClosureResult, DanglingRefNotice } from '../with-cargo/walk-closure.js'
 export { describeExtraction } from '../with-cargo/describe-extraction.js'
 export type { ExtractionPreview } from '../with-cargo/describe-extraction.js'
 export { extractPartition } from '../with-cargo/extract-partition.js'

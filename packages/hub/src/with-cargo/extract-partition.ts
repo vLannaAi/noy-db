@@ -13,6 +13,7 @@ import {
   decrypt,
   encrypt,
   openEnvelopeJson,
+  writeEnvelopeBody,
   generateDEK,
   bufferToBase64,
   encryptBytesWithAAD,
@@ -28,8 +29,9 @@ import {
   BLOB_SLOTS_PREFIX,
   BLOB_VERSIONS_PREFIX,
 } from '../with-shape/blobs/blob-set.js'
+import { BLOB_INTENT_COLLECTION } from '../with-shape/blobs/blob-intent.js'
 import { PartitionExtractionError } from '../kernel/errors.js'
-import { walkClosure, type WalkClosureOptions } from './walk-closure.js'
+import { walkClosure, type WalkClosureOptions, type DanglingRefNotice } from './walk-closure.js'
 import { generateULID } from '../with-pod/ulid.js'
 import { SCHEMAS_COLLECTION } from '../with-shape/persisted-schemas/storage.js'
 import { NOYDB_FORMAT_VERSION } from '../kernel/types.js'
@@ -337,6 +339,22 @@ export async function reKeyBlobs(
     // Slots: one envelope per record, a `{ slotName: SlotRecord }` map.
     const slotsCollection = `${BLOB_SLOTS_PREFIX}${collectionName}`
     for (const id of ids) {
+      // #767: carry any in-flight `_blob_intent` marker for this record,
+      // re-keyed under the SAME destination DEK as its owning collection
+      // (mirrors `dumpVault`'s backup allowlist, which carries `_blob_intent`
+      // for the identical crash-recovery reason — a partition extracted
+      // mid-shred/mid-rehome must carry the marker so resume-on-touch heals
+      // it post-restore). Checked independently of the slot-map fetch below:
+      // a marker can be present even when the slot map has already been
+      // touched or removed by the in-flight operation.
+      const intentId = `${collectionName}::${id}`
+      const intentEnv = await adapter.get(vaultName, BLOB_INTENT_COLLECTION, intentId)
+      if (intentEnv) {
+        const intentPlain = await openEnvelopeJson(intentEnv, srcDek)
+        const intentBody = await writeEnvelopeBody(intentPlain, destDek)
+        place(BLOB_INTENT_COLLECTION, intentId, { ...intentEnv, ...intentBody })
+      }
+
       const env = await adapter.get(vaultName, slotsCollection, id)
       if (!env) continue
       // #748 defense-in-depth canary — see the matching one in `reKeyClosure`:
@@ -355,7 +373,17 @@ export async function reKeyBlobs(
       const kept: Record<string, SlotRecord> = {}
       for (const [slotName, slot] of Object.entries(slots)) {
         if (proj && !proj.has(slotName)) continue
-        kept[slotName] = slot
+        // #769: strip the internal `pendingRelease` resume breadcrumb before
+        // it travels. It is a SOURCE-VAULT-LOCAL rehome marker (see
+        // `SlotRecord.pendingRelease`'s doc comment) pointing at an old eTag
+        // awaiting release — meaningless, and potentially misleading, once
+        // detached from the source vault (the eTag it names may be absent
+        // from the destination). Unlike `_blob_intent` above (carried, so
+        // resume-on-touch heals it post-restore), this breadcrumb must NOT
+        // travel into a cross-vault partition.
+        const { pendingRelease, ...strippedSlot } = slot
+        void pendingRelease
+        kept[slotName] = strippedSlot
         addRef(slot.eTag)
       }
       if (Object.keys(kept).length === 0) continue
@@ -489,6 +517,14 @@ export interface ExtractPartitionResult {
   /** Raw 32-byte transfer key — deliver out-of-band; required to adopt. */
   readonly transferKey: Uint8Array
   readonly sealId: string
+  /**
+   * #759: outbound FK edges whose referenced parent was excluded from the
+   * partition (missing, or tier-elevated and therefore invisible). The
+   * child record still carries its FK value; the parent did not travel —
+   * callers should surface this to the operator rather than assume
+   * referential completeness.
+   */
+  readonly danglingRefs: ReadonlyArray<DanglingRefNotice>
 }
 
 /**
@@ -556,7 +592,7 @@ export async function extractPartitionCore(
   // reKeySchemas silently drops the row. Drain BEFORE reKeySchemas reads.
   if (opts.carrySchemas) await vault._drainPendingSchemaWrites()
 
-  const { closure } = await walkClosure(vault, opts)
+  const { closure, danglingRefs } = await walkClosure(vault, opts)
   const { collections, deks } = await reKeyClosure(vault, closure, opts.fieldProjection)
 
   // carryLedger: mint a fresh _ledger DEK, build the carried chain, and
@@ -641,5 +677,5 @@ export async function extractPartitionCore(
     },
   })
 
-  return { bundleBytes, transferKey, sealId: seal.sealId }
+  return { bundleBytes, transferKey, sealId: seal.sealId, danglingRefs }
 }
