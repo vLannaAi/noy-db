@@ -71,7 +71,7 @@ import type { VaultInstant } from '../with-commit/history/time-machine.js'
 import { NO_HISTORY, type HistoryStrategy } from '../with-commit/history/strategy.js'
 import { NO_FORGET, type ForgetStrategy, type ForgetResult } from '../with-audit/forget/strategy.js'
 import {
-  addSubjectRef,
+  addSubjectRef, readDottedPath, coerceSubjectId,
   removeSubjectRef,
   lookupSubject,
   rebuildSubjectIndex as rebuildSubjectIndexImpl,
@@ -1070,9 +1070,7 @@ export class Vault {
       if (options?.sensitive !== undefined) {
         collOpts.sensitive = options.sensitive
       }
-      if (options?.perRecordKeys !== undefined) {
-        collOpts.perRecordKeys = options.perRecordKeys
-      }
+      if (options?.perRecordKeys !== undefined) collOpts.perRecordKeys = options.perRecordKeys
       // A collection declared in `withForgetCascade({ subjects })` MUST
       // use per-record CEKs: crypto-shred can only guarantee erasure of a body
       // keyed off a per-record CEK. Force it on (and warn if the caller
@@ -1090,6 +1088,7 @@ export class Vault {
         // Classified refusal matrix R4: a digest-only field cannot be the
         // forget-subject key (the subject index would hold the plaintext).
         collOpts.subjectKeyField = subjectKey
+        collOpts.addSubjectRef = async (id, record) => { const value = readDottedPath(record as Record<string, unknown>, subjectKey); if (value !== undefined && value !== null) await this._addSubjectRef(coerceSubjectId(value), { collection: collectionName, id }) } // #766: putAtTier's raw write bypasses onAfterWrite — register the first-write subject ref directly
       }
       if (options?.provenance !== undefined) collOpts.provenance = options.provenance
       if (options?.ramCiphertext !== undefined) collOpts.ramCiphertext = options.ramCiphertext
