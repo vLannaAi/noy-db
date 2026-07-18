@@ -503,6 +503,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private readonly tiers: ReadonlySet<number> | null
   private readonly tierMode: TierMode
   private readonly onCrossTierAccess: ((event: CrossTierAccessEvent) => void) | undefined
+  private readonly addSubjectRef: ((id: string, record: unknown) => Promise<void>) | undefined // #766: putAtTier's first-write subject-index registration (wired by the Vault; undefined ⇒ no forget-subject field declared)
 
   /**
    * Optional reference to the vault-level hash-chained audit
@@ -706,6 +707,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.tiers = cfg.tiers
     this.tierMode = cfg.tierMode
     this.onCrossTierAccess = cfg.onCrossTierAccess
+    this.addSubjectRef = cfg.addSubjectRef
     this.deterministicFields = cfg.deterministicFields
     this.sensitiveFields = cfg.sensitiveFields
     this.perRecordCek = cfg.perRecordCek
@@ -4518,6 +4520,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       tierMode: this.tierMode,
       getDEK: (key: string) => this.getDEK(key),
       emitCrossTierEvent: (event) => this.emitCrossTierEvent(event),
+      addSubjectRef: (id: string, record: T) => this.addSubjectRef?.(id, record) ?? Promise.resolve(),
     }
   }
 
