@@ -2944,12 +2944,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         if (executor === null) {
           ;({ MaterializedViewExecutor: executor } = await import('../with-formula/materialized-views/executor.js'))
         }
-        deleted += (await executor.refresh(reg, {
+        const rr = await executor.refresh(reg, {
           getCollection: (name) => this.materializedViewSource!.getCollection(name),
           getActiveTxContext: () => this.materializedViewSource!.getActiveTxContext(),
           getQueryContext: () => this.materializedViewSource!.getQueryContext(),
           dispatchCtx: this.#dispatchCtx({ collection: this.name, id }),
-        })).deleted
+        }); deleted += rr.deleted; residue.push(...rr.residue) // #782 — eager leg now reports too
       } else {
         if (staleHelpers === null) {
           staleHelpers = await import('../with-formula/materialized-views/stale.js')

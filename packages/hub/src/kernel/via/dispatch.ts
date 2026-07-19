@@ -284,10 +284,13 @@ export interface ForgetFanoutStats {
    *  skipped for these, reported here so the skip is never silent. `backing:key:collection.field`
    *  entries, one per un-propagated edge. */
   readonly lookupReferencesResidue: string[]
-  /** #776 — `outputCollection:id` MV-output rows whose `_materializedFrom` ownership stamp
-   *  `invalidateMVAtRest` could not decode (undecodable under the default DEK — e.g. elevated
-   *  above tier 0 on a tiered output collection). Never erased (ownership unconfirmed), but
-   *  surfaced here rather than silently skipped. */
+  /** #776/#782 — `outputCollection:id` MV-output rows that survived erasure invalidation
+   *  (eager tombstone leg AND lazy/manual `invalidateMVAtRest`) despite belonging to the
+   *  forgotten subject: either the ownership stamp could not be decoded (undecodable under
+   *  the default DEK — e.g. elevated above tier 0 on a tiered output collection, ownership
+   *  unconfirmed), or it decoded and stamp-matched but `_internalDelete` declined (the #718
+   *  tier-elevation gate — ownership confirmed, erasure declined). Never erased either way,
+   *  but surfaced here rather than silently skipped. */
   readonly derivedResidueUndecodable: string[]
 }
 

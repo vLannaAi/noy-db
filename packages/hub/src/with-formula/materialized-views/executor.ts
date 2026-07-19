@@ -45,6 +45,13 @@ export interface RefreshResult {
   deleted: number
   /** Failed row writes (non-strict mode). */
   failed: number
+  /** #782 — `outputCollection:id` entries from the tombstone pass that were NOT tombstoned
+   *  despite belonging here: either the ownership stamp couldn't be decoded (undecodable
+   *  under the collection's default DEK, mirroring `invalidateMVAtRest`'s #776 posture), or
+   *  it decoded, stamp-matched this MV, but `_internalDelete` declined (the #718
+   *  tier-elevation gate) — a real silent survival either way, surfaced rather than dropped.
+   *  Only populated when `onEmpty: 'delete'`. */
+  residue: string[]
 }
 
 /** Default cost ceiling — overridable per-MV via `spec.maxRows`. */
@@ -332,6 +339,7 @@ export const MaterializedViewExecutor = {
     //    `_internalDelete` so a user-registered `onDelete` on the
     //    output collection does NOT fire on housekeeping (composition fix).
     let deleted = 0
+    const residue: string[] = []
     if (onEmpty === 'delete') {
       const priorIds = await listOutputIds(outputColl)
       for (const priorId of priorIds) {
@@ -346,8 +354,16 @@ export const MaterializedViewExecutor = {
         if (priorEnvelope === null) continue
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const priorDecoded = await (outputColl as any)._decodeEnvelope(priorEnvelope, priorId)
+        if (priorDecoded === null) {
+          // #782 part a — ownership unknown (undecodable, e.g. elevated above tier 0 on a
+          // tiered output collection): can't rule out this being THIS MV's own stamped row.
+          // Surface it rather than silently skip (mirrors invalidateMVAtRest's #776 posture —
+          // previously this leg had NO residue channel at all).
+          residue.push(`${reg.outputCollection}:${priorId}`)
+          continue
+        }
         const priorStampedBy =
-          priorDecoded !== null && typeof priorDecoded === 'object'
+          typeof priorDecoded === 'object'
             ? (priorDecoded as Record<string, unknown>)._materializedFrom as { mvName?: string } | undefined
             : undefined
         if (priorStampedBy?.mvName !== spec.name) continue
@@ -358,7 +374,14 @@ export const MaterializedViewExecutor = {
             // #776 part b — gate on the boolean, matching invalidateMVAtRest's discipline
             // (stale.ts): `_internalDelete` returns `false` for a #718 elevated-skip (no
             // erasure happened), and that must not inflate the tombstone count.
-            if (await outAny._internalDelete(priorId, txCtx)) deleted++
+            if (await outAny._internalDelete(priorId, txCtx)) {
+              deleted++
+            } else {
+              // #782 part b — decoded AND stamp-owned, but erasure was declined (#718
+              // tier-elevation gate). Ownership IS confirmed here — a real silent survival,
+              // not a legit stamp-mismatch skip. Surface it too.
+              residue.push(`${reg.outputCollection}:${priorId}`)
+            }
           } else {
             // Defensive fallback — should never hit in real flow since
             // every Collection has `_internalDelete`.
@@ -368,13 +391,13 @@ export const MaterializedViewExecutor = {
         } catch (err) {
           failed++
           if (strict) throw err
-           
+
           console.warn(`[mv] "${spec.name}" tombstone failed for id="${priorId}":`, err)
         }
       }
     }
 
-    return { written, deleted, failed }
+    return { written, deleted, failed, residue }
   },
 }
 

@@ -177,10 +177,13 @@ export interface ForgetResult {
    *  Always empty under the unconditional default. Non-empty means a `_sealed_cek` entry or a
    *  blob scan was skipped for an undeclared collection — reported, never a silent skip. */
   readonly scopedPurgeResidue: readonly ScopedPurgeResidueNotice[]
-  /** #776 — `collection:id` MV-output rows whose `_materializedFrom` ownership stamp could NOT
-   *  be decoded during erasure invalidation (undecodable under the collection's default DEK —
-   *  e.g. elevated above tier 0 on a tiered output collection). Never erased (ownership
-   *  unconfirmed — could be a plain user record on a same-collection partition MV), but
+  /** #776/#782 — `collection:id` MV-output rows that survived erasure invalidation (eager
+   *  tombstone leg AND lazy/manual `invalidateMVAtRest`) despite belonging to the forgotten
+   *  subject: either the `_materializedFrom` ownership stamp could NOT be decoded (undecodable
+   *  under the collection's default DEK — e.g. elevated above tier 0 on a tiered output
+   *  collection; ownership unconfirmed — could be a plain user record on a same-collection
+   *  partition MV), or it decoded and stamp-matched but `_internalDelete` declined (the #718
+   *  tier-elevation gate; ownership confirmed, erasure declined). Never erased either way, but
    *  surfaced here rather than silently skipped (the #724 posture). Non-empty means the row may
    *  still hold the forgotten/pre-elevation contribution, decryptable by tier-holders. */
   readonly derivedResidueUndecodable: readonly string[]

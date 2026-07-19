@@ -176,7 +176,7 @@ describe('MV lazy lifecycle + vault.refreshView (#151)', () => {
     })
     const vault = await db.openVault('demo')
     // No MVs registered — returns zero counts.
-    expect(await vault.refreshView('nonexistent')).toEqual({ written: 0, deleted: 0, failed: 0 })
+    expect(await vault.refreshView('nonexistent')).toEqual({ written: 0, deleted: 0, failed: 0, residue: [] })
 
     // With at least one MV registered, an unknown name throws.
     const mv = withMaterializedView<Item>({

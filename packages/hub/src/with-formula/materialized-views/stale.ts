@@ -168,7 +168,14 @@ export async function invalidateMVAtRest(
     const stampedBy = (decoded as Record<string, unknown>)._materializedFrom as { mvName?: string } | undefined
     if (stampedBy?.mvName !== reg.spec.name) continue
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (await (outputColl as any)._internalDelete(id, txCtx)) deleted++
+    if (await (outputColl as any)._internalDelete(id, txCtx)) {
+      deleted++
+    } else {
+      // #782 part b — decoded AND stamp-owned, but erasure declined (#718 tier-elevation
+      // gate). Ownership IS confirmed — a real silent survival, not a legit stamp-mismatch
+      // skip. Surface it too, same channel as the decode-null case above.
+      residue.push(id)
+    }
   }
 
   // `mode: 'manual'` gets the purge only (erasure wins, no auto-recompute promise);

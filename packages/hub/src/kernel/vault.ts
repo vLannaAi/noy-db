@@ -2758,13 +2758,13 @@ export class Vault {
   /**
    * Manual re-materialize for a single registered MV (`refresh: 'manual'` consumers,
    * stale-bit recovery on vault reopen, bulk-recompute escape hatch after a strategy
-   * change). Returns `{ written, deleted, failed }` (`deleted` always 0 without
-   * tombstoning). Throws if `name` is not a registered MV.
+   * change). Returns `{ written, deleted, failed, residue }` (`deleted` always 0 without
+   * tombstoning; `residue` = #782 undecodable/declined leftovers). Throws if not registered.
    */
-  async refreshView(name: string): Promise<{ written: number; deleted: number; failed: number }> {
+  async refreshView(name: string): Promise<{ written: number; deleted: number; failed: number; residue: string[] }> {
     const registry = this.materializedViewRegistry
     if (registry === null) {
-      return { written: 0, deleted: 0, failed: 0 }
+      return { written: 0, deleted: 0, failed: 0, residue: [] }
     }
     const reg = registry.byName(name)
     if (!reg) {
