@@ -106,6 +106,38 @@ describe('forget() fanout to derived residue (#622)', () => {
     expect(result.recordsShredded).toBe(1)
   })
 
+  it('forget × lazy MV: derivedRecordsErased counts the at-rest purge, not just the eager leg (#761 item 1)', async () => {
+    interface Person extends Record<string, unknown> { id: string; subjectId: string; name: string }
+    const mv = withMaterializedView<Person>({
+      name: 'people-mirror-lazy',
+      query: (db) => db.collection<Person>('people').query(),
+      rowKey: (r) => r.id,
+      refresh: 'lazy',
+    })
+    const db = await createNoydb({
+      store: memory(), user: 'alice', secret: 'forget-fanout-lazy-mv-count-passphrase-2026',
+      materializedViewStrategies: [mv],
+      historyStrategy: withHistory(),
+      forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+    })
+    const vault = await db.openVault('firm')
+    const people = vault.collection<Person>('people')
+    const mirror = vault.collection<Person>('people-mirror-lazy')
+    await people.put('p1', { id: 'p1', subjectId: 'subj-1', name: 'Ada' })
+    // Materialize the lazy MV via a read — its output row now exists at rest.
+    expect(await mirror.get('p1')).not.toBeNull()
+
+    const result = await vault.forget('subj-1')
+
+    // The lazy MV's row lives in a collection NOT configured as a forget subject
+    // (only 'people' is), so its removal can ONLY come from
+    // dispatchMaterializedViewsOnDelete's invalidateMVAtRest purge — not subject-index.
+    expect(await mirror.get('p1')).toBeNull()
+    // #761 item 1 — before the fix, invalidateMVAtRest's purge count was dropped on
+    // the floor; derivedRecordsErased only ever summed the eager executor's leg.
+    expect(result.derivedRecordsErased).toBeGreaterThanOrEqual(1)
+  })
+
   it('forget × same-collection MV: forget() reaches a same-collection partition MV (#761 item 4)', async () => {
     // refresh: 'manual' (not 'eager') deliberately — it routes dispatchMaterializedViewsOnDelete
     // into invalidateMVAtRest's stamp-scoped AT-REST purge instead of re-running the eager

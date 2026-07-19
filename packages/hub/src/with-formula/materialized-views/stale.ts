@@ -130,16 +130,21 @@ async function hydratePersistedStaleMarkers(accessor: MVStaleAccessor, registry:
  * so another registered MV sharing this output collection keeps its own rows intact:
  * no cross-MV re-marking is needed here, only `reg` itself is marked stale.
  *
+ * Returns the count of rows actually `_internalDelete`d (#761 item 1) — folded by the
+ * caller into `dispatchMaterializedViewsOnDelete`'s `deleted` so `ForgetResult.derivedRecordsErased`
+ * counts lazy/manual purges too, not just the eager executor's tombstone leg.
+ *
  * @internal
  */
 export async function invalidateMVAtRest(
   accessor: MVStaleAccessor,
   reg: RegisteredMV,
   mode: 'lazy' | 'manual',
-): Promise<void> {
+): Promise<number> {
   const outputColl = accessor.getCollection(reg.outputCollection)
   const txCtx = accessor.getActiveTxContext()
   const { adapter, vault } = storeOf(accessor, reg.outputCollection)
+  let deleted = 0
   for (const id of await adapter.list(vault, reg.outputCollection)) {
     // A same-collection partition MV (`output: { collection: <source>, partition }`,
     // the DERIV-PP30-001 shape) writes INTO its own source collection — `adapter.list`
@@ -158,7 +163,7 @@ export async function invalidateMVAtRest(
         : undefined
     if (stampedBy?.mvName !== reg.spec.name) continue
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (outputColl as any)._internalDelete(id, txCtx)
+    if (await (outputColl as any)._internalDelete(id, txCtx)) deleted++
   }
 
   // `mode: 'manual'` gets the purge only (erasure wins, no auto-recompute promise);
@@ -170,6 +175,7 @@ export async function invalidateMVAtRest(
     markMVStale(registry, reg.spec.name)
     await writeMVStaleMarker(adapter, vault, reg.spec.name)
   }
+  return deleted
 }
 
 /**
