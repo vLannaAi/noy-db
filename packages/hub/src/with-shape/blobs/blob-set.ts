@@ -3015,22 +3015,63 @@ export class BlobSet {
     const result = await this.loadBlobObject(slot.eTag)
     if (!result) return null
 
-    // Parse the envelope from the ciphertext response
+    // #757: `presignedUrl()` only ever mints a URL (and this method only ever
+    // receives one caller-fetched ciphertext Response) for a single-chunk
+    // blob — a multi-chunk object can't be assembled from that one Response.
+    // Refuse loudly instead of silently decrypting/returning only chunk 0.
+    if (result.blob.chunkCount !== 1) {
+      throw new ValidationError(
+        `decryptResponse() does not support multi-chunk blobs (slot "${slotName}" has ` +
+          `${result.blob.chunkCount} chunks) — presignedUrl() only mints URLs for single-chunk blobs (#757)`,
+      )
+    }
+
+    // #757: tier-aware DEK, mirroring get()/response() post-#749 — the
+    // index envelope's `_cek` (if any) is wrapped under the tier that
+    // actually opened it (`result.atTier`), not necessarily this record's
+    // live/flat tier.
+    const blobDEK = this.encrypted ? await this.getDEK(dekKey(BLOB_COLLECTION, result.atTier)) : null
+    if (!blobDEK) {
+      return this.buildResponse(slot, result.blob, { inline: true })
+    }
+
+    // Parse the envelope from the caller-provided ciphertext response
     const text = await cipherResponse.text()
     const envelope = JSON.parse(text) as { _iv: string; _data: string }
 
-    const blobDEK = this.encrypted ? await this.getDEK('_blob') : null
-    if (!blobDEK) {
+    // #757: unwrap the per-blob content CEK when present (mirrors
+    // fetchAllChunks/resolveChunkKey) instead of decrypting chunk bytes
+    // directly under the flat DEK — an erasable (perRecordKeys) blob's
+    // chunks are never keyed that way.
+    const chunkKey = await this.resolveChunkKey(result.blob, blobDEK)
+    if (!chunkKey) {
+      // Unreachable: resolveChunkKey only returns null for an unencrypted
+      // vault, already handled by the blobDEK guard above.
       return this.buildResponse(slot, result.blob, { inline: true })
     }
 
     // Decrypt the single chunk
     const aad = chunkAAD(slot.eTag, 0, result.blob.chunkCount)
-    const { decryptBytesWithAAD: decryptAAD } = await import('../../kernel/enclave/index.js')
-    const decrypted = await decryptAAD(envelope._iv, envelope._data, blobDEK, aad)
+    const decrypted = await decryptBytesWithAAD(envelope._iv, envelope._data, chunkKey, aad)
     const plaintext = result.blob.compression === 'gzip'
       ? await decompressBytes(decrypted)
       : decrypted
+
+    // #757: content-address verification. Unlike the store-driven read
+    // paths, `decryptResponse` decrypts a CALLER-PROVIDED ciphertext (the
+    // `cipherResponse` a caller fetched from a presigned URL) — GCM auth
+    // alone doesn't catch a self-consistent forgery planted under a DEK the
+    // attacker also holds. Recompute the same content address every write
+    // path mints (`hmacSha256Hex(blobDEK, plaintext)` — `writeBlobContent`'s
+    // Step 1, unconditional on `_cek`; mirrors `fetchAllChunks`'s
+    // `verifyFlatETag` block) and refuse silently-wrong bytes.
+    const recomputed = await hmacSha256Hex(blobDEK, plaintext)
+    if (recomputed !== slot.eTag) {
+      throw new TamperedError(
+        `Blob content for eTag "${slot.eTag}" failed content-address verification in decryptResponse() ` +
+          '— the caller-provided ciphertext does not match the requested content address (#757)',
+      )
+    }
 
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
