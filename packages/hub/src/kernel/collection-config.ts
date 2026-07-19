@@ -980,6 +980,45 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     )
   }
 
+  // #739 — a CRDT-mode collection's decrypted body is the raw `CrdtState`
+  // (edit log + bidx pointer), not the resolved record: `RecordCodec
+  // .decryptRecordAtDek()` — the tier-aware pre-move decode `syncDerived`
+  // uses on `elevate()`/`demote()`/`putAtTier()` (#722) — has no CRDT
+  // resolution step (same gap as `getAtTier`'s tier>0 leg), so a registered
+  // rollup/derivation reading this collection sees `undefined` for every
+  // field (e.g. `_rollupDeleteIntents`'s `deleted[spec.rollup.key]`) and its
+  // recompute silently no-ops — the #722 derived-output-follows-tier fix
+  // never fires for this combination. Refuse at construction instead of
+  // leaking silently.
+  //
+  // Caught here: rollup/derivation sources, reliably — `DerivationRegistry`
+  // is fully populated (every `withDerivation()`/`withRollup()` handle
+  // registered) by `Noydb.openVault()` before any `vault.collection()` call
+  // reaches user code, so source/derived registration order never matters.
+  //
+  // NOT caught: a materialized-view SOURCE first constructed inside the
+  // MV's own single-query `query(db)` callback (the common `query: (db) =>
+  // db.collection(name)...` shape) — `MaterializedViewRegistry.register()`
+  // invokes that callback (which constructs THIS collection) before it
+  // records the dependency, so `materializedViewSource.registry()
+  // .mvsForSource(name)` is still empty at this exact call. A
+  // `unionSources`/aggregate-with-explicit-`sources` MV, or a source
+  // constructed by an earlier `vault.collection()` call, is still caught.
+  if (
+    opts.tiers && opts.tiers.length > 0 && opts.crdt !== undefined &&
+    ((opts.derivationSource?.registry().strategiesForSource(opts.name).length ?? 0) > 0 ||
+      (opts.materializedViewSource?.registry().mvsForSource(opts.name).length ?? 0) > 0)
+  ) {
+    throw new UnsupportedTierCompositionError(
+      'crdt-derivation',
+      `Collection "${opts.name}": tiers + crdt cannot be combined with this collection acting as a ` +
+        `derivation/rollup source (#739) — the tier-aware pre-move decode \`syncDerived\` uses on ` +
+        `elevate()/demote() does not resolve CRDT state, so a registered derivation/rollup reads raw ` +
+        `CrdtState instead of the record and silently no-ops. Use a non-CRDT collection for a tiered ` +
+        `derivation/rollup source, or move the derivation off this collection.`,
+    )
+  }
+
   // via() / sugar-key merge (#623 Task 9) — throws on a field declared in both.
   const effectiveViaFields = mergeViaFields(opts)
 
