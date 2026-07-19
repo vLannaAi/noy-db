@@ -318,7 +318,7 @@ function isElevatorOrOwner<T>(ctx: TiersContext<T>): boolean {
  * structurally — no cast needed at the `tiersContext()` call site).
  */
 export interface DerivedOutputsHost<T> {
-  dispatchMaterializedViewsOnDelete(id: string): Promise<number>
+  dispatchMaterializedViewsOnDelete(id: string): Promise<{ deleted: number; residue: string[] }>
   dispatchArrayDerivationsOnDelete(id: string, eraseRecordShapeToo?: boolean): Promise<number>
   dispatchRollupsOnDelete(id: string, deleted: T): Promise<unknown>
   /** Task 2 (#722) add-direction: the same local-write dispatchers an ordinary `put()` fires. */
