@@ -345,4 +345,113 @@ describe('forget() fanout to derived residue (#622)', () => {
     // ...but surfaced, not silently skipped (the #724 posture).
     expect(result.derivedResidueUndecodable).toEqual(['people-mirror-tiered:p1'])
   })
+
+  it('forget × EAGER MV with a TIERED output: an elevated, undecodable output row survives forget() — surfaced now, not silently (#782 part a)', async () => {
+    interface Person extends Record<string, unknown> { id: string; subjectId: string; name: string }
+    const mv = withMaterializedView<Person>({
+      name: 'people-mirror-eager',
+      query: (db) => db.collection<Person>('people').query(),
+      rowKey: (r) => r.id,
+      refresh: 'eager',
+    })
+    const store = memory()
+    const open = async () => {
+      const db = await createNoydb({
+        store, user: 'alice', secret: 'forget-fanout-782a-passphrase-2026',
+        materializedViewStrategies: [mv],
+        historyStrategy: withHistory(),
+        forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+        tiersStrategy: withTiers(),
+      })
+      const vault = await db.openVault('firm')
+      // Declare tiers on the OUTPUT collection BEFORE the first eager materialize
+      // constructs it untiered (first-construction-wins, same discipline as #776a).
+      const mirror = vault.collection<Person>('people-mirror-eager', { tiers: [0, 1], perRecordKeys: true })
+      return { vault, people: vault.collection<Person>('people'), mirror }
+    }
+
+    const { people, mirror } = await open()
+    await people.put('p1', { id: 'p1', subjectId: 'subj-1', name: 'Ada' }) // eager materialize fires inline
+
+    // Elevate the OUTPUT row directly.
+    await mirror.elevate('p1', 1)
+
+    // Cold session (fresh cekCache) — the ownership decode genuinely fails now, and
+    // forget() drives this collection's EAGER tombstone leg (executor.refresh), not the
+    // lazy invalidateMVAtRest leg #776 already covered.
+    const { vault: coldVault } = await open()
+    const result = await coldVault.forget('subj-1')
+
+    // Ownership unconfirmed (undecodable) → NOT counted as erased...
+    expect(result.derivedRecordsErased).toBe(0)
+    // ...but surfaced, not silently skipped on the eager path either (#782 part a).
+    expect(result.derivedResidueUndecodable).toEqual(['people-mirror-eager:p1'])
+  })
+
+  it('forget × lazy MV: a decoded, stamp-owned, but #718-declined output row is surfaced as residue too (#782 part b, lazy leg)', async () => {
+    interface Person extends Record<string, unknown> { id: string; subjectId: string; name: string }
+    const mv = withMaterializedView<Person>({
+      name: 'people-mirror-lazy-782b',
+      query: (db) => db.collection<Person>('people').query(),
+      rowKey: (r) => r.id,
+      refresh: 'lazy',
+    })
+    const db = await createNoydb({
+      store: memory(), user: 'alice', secret: 'forget-fanout-782b-lazy-passphrase-2026',
+      materializedViewStrategies: [mv],
+      historyStrategy: withHistory(),
+      forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+      tiersStrategy: withTiers(),
+    })
+    const vault = await db.openVault('firm')
+    const mirror = vault.collection<Person>('people-mirror-lazy-782b', { tiers: [0, 1], perRecordKeys: true })
+    const people = vault.collection<Person>('people')
+
+    await people.put('p1', { id: 'p1', subjectId: 'subj-1', name: 'Ada' })
+    expect(await mirror.get('p1')).not.toBeNull() // materialize (lazy resolve-on-read)
+
+    // Elevate the OUTPUT row directly — SAME session, so the ownership decode below still
+    // succeeds (the cekCache is warm from the elevate call itself), but `_internalDelete`
+    // is #718-gated and declines. NOT a cold reopen — that's the #776/part-a scenario.
+    await mirror.elevate('p1', 1)
+
+    const result = await vault.forget('subj-1')
+
+    // Deletion declined (elevated) → NOT counted as erased...
+    expect(result.derivedRecordsErased).toBe(0)
+    // ...but this is a REAL silent survival (ownership confirmed, erasure declined) — must
+    // be surfaced, not dropped (#782 part b).
+    expect(result.derivedResidueUndecodable).toEqual(['people-mirror-lazy-782b:p1'])
+  })
+
+  it('forget × eager MV: a decoded, stamp-owned, but #718-declined output row is surfaced as residue too (#782 part b, eager leg)', async () => {
+    interface Person extends Record<string, unknown> { id: string; subjectId: string; name: string }
+    const mv = withMaterializedView<Person>({
+      name: 'people-mirror-eager-782b',
+      query: (db) => db.collection<Person>('people').query(),
+      rowKey: (r) => r.id,
+      refresh: 'eager',
+    })
+    const db = await createNoydb({
+      store: memory(), user: 'alice', secret: 'forget-fanout-782b-eager-passphrase-2026',
+      materializedViewStrategies: [mv],
+      historyStrategy: withHistory(),
+      forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+      tiersStrategy: withTiers(),
+    })
+    const vault = await db.openVault('firm')
+    const mirror = vault.collection<Person>('people-mirror-eager-782b', { tiers: [0, 1], perRecordKeys: true })
+    const people = vault.collection<Person>('people')
+
+    await people.put('p1', { id: 'p1', subjectId: 'subj-1', name: 'Ada' }) // eager materialize fires inline
+
+    // Elevate the OUTPUT row directly — SAME session, warm cekCache (see the lazy-leg
+    // test above for why decode succeeds here while `_internalDelete` still declines).
+    await mirror.elevate('p1', 1)
+
+    const result = await vault.forget('subj-1')
+
+    expect(result.derivedRecordsErased).toBe(0)
+    expect(result.derivedResidueUndecodable).toEqual(['people-mirror-eager-782b:p1'])
+  })
 })

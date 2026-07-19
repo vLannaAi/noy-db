@@ -11,6 +11,11 @@ import type { GhostRecord } from '../../kernel/types.js'
 import type { TiersContext, TierMoveResult } from './index.js'
 import { TiersNotEnabledError } from '../../kernel/errors.js'
 
+// #779 — re-exported so kernel-spine callers (e.g. `Vault._elevatedPut`) can reference the
+// result shape via this grandfathered strategy.js seam instead of statically importing
+// tiers/index.js directly (the port-layering check only grandfathers this file).
+export type { TierMoveResult }
+
 export interface TiersStrategy {
   putAtTier<T>(
     ctx: TiersContext<T>,

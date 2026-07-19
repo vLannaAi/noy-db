@@ -57,7 +57,7 @@ import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
 import type { LazyStrategy } from '../port/with/lazy-strategy.js'
 import type { AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
 import type { CrdtStrategy } from './types.js' // direct, not via crdt/strategy.js — avoids a dts cycle (#667)
-import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
+import type { TiersStrategy, TierMoveResult } from '../with-audit/tiers/strategy.js'
 import type { SearchStrategy } from '../with-lookup/search/strategy.js'
 import { NO_CARGO, type CargoStrategy } from '../with-cargo/strategy.js'
 import { NO_BROKER, buildCredentialBrokerHandle, type BrokerStrategy, type CredentialBrokerHandle } from '../port/with/broker-strategy.js'
@@ -2758,13 +2758,13 @@ export class Vault {
   /**
    * Manual re-materialize for a single registered MV (`refresh: 'manual'` consumers,
    * stale-bit recovery on vault reopen, bulk-recompute escape hatch after a strategy
-   * change). Returns `{ written, deleted, failed }` (`deleted` always 0 without
-   * tombstoning). Throws if `name` is not a registered MV.
+   * change). Returns `{ written, deleted, failed, residue }` (`deleted` always 0 without
+   * tombstoning; `residue` = #782 undecodable/declined leftovers). Throws if not registered.
    */
-  async refreshView(name: string): Promise<{ written: number; deleted: number; failed: number }> {
+  async refreshView(name: string): Promise<{ written: number; deleted: number; failed: number; residue: string[] }> {
     const registry = this.materializedViewRegistry
     if (registry === null) {
-      return { written: 0, deleted: 0, failed: 0 }
+      return { written: 0, deleted: 0, failed: 0, residue: [] }
     }
     const reg = registry.byName(name)
     if (!reg) {
@@ -3211,7 +3211,7 @@ export class Vault {
    * Internal — invoked by an `ElevatedHandle.collection().put()` call.
    * Routes through the existing `Collection.putAtTier` code path with
    * the elevation context attached so the cross-tier event reflects
-   * the right authorization class.
+   * the right authorization class. Returns `putAtTier`'s `TierMoveResult` (#779).
    */
   async _elevatedPut<T>(
     collectionName: string,
@@ -3219,9 +3219,9 @@ export class Vault {
     record: T,
     tier: number,
     reason: string,
-  ): Promise<void> {
+  ): Promise<TierMoveResult> {
     const coll = this.collection<T>(collectionName)
-    await coll.putAtTier(id, record, tier, {
+    return coll.putAtTier(id, record, tier, {
       elevation: { reason, fromTier: 0 },
     })
   }
