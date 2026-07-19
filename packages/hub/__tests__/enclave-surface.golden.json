@@ -4,6 +4,7 @@
   "values": [
     "RecordCodec",
     "SEALED_CEK_NS",
+    "applyRewrappedBody",
     "base64ToBuffer",
     "bufferToBase64",
     "buildDeleteMarker",
@@ -69,6 +70,7 @@
     "EnclaveKey",
     "IssuedChallenge",
     "PassphraseKeyUsage",
+    "RewrappedBody",
     "SealedShredSlot",
     "SealingContext",
     "VerifyBrokerProofArgs"

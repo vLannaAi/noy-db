@@ -89,23 +89,18 @@ export async function rewrapBodyToDek(
 }
 
 /**
- * Move a FULL stored envelope from `fromDek` to `toDek`, preserving every
- * field other than the re-keyed body (`_iv`/`_data`/`_cek`) unchanged.
+ * Merge an ALREADY-rewrapped {@link RewrappedBody} into `envelope`, keeping
+ * every field but the re-keyed body (`_iv`/`_data`/`_cek`) unchanged.
  *
  * Body-field access (`_iv`/`_data`/`_cek`) is sanctioned inside the enclave;
- * this lets callers outside it (e.g. `with-commit/history`'s history
- * re-keying) get back a ready-to-store envelope without reading those fields
- * themselves. Mirrors the spread-merge idiom `with-audit/tiers/index.ts`'s
- * `elevate()`/`demote()` use to apply `rewrapBodyToDek`'s result to the live
- * envelope, generalized to any envelope shape (history callers don't bump
- * `_v`/`_ts`/`_tier` the way a tier move does).
+ * this lets callers outside it get back a ready-to-store envelope without
+ * reading those fields themselves. Takes a body the caller has ALREADY
+ * computed (vs. {@link rewrapEnvelope}, which also runs `rewrapBodyToDek`)
+ * so a caller building a SECOND envelope from the same rewrap — a tier
+ * move's live write AND its pre-move `_history` snapshot, #728 — pays the
+ * unwrap/decrypt/encrypt/wrap crypto once, not twice.
  */
-export async function rewrapEnvelope(
-  envelope: EncryptedEnvelope,
-  fromDek: EnclaveKey,
-  toDek: EnclaveKey,
-): Promise<EncryptedEnvelope> {
-  const body = await rewrapBodyToDek(envelope, fromDek, toDek)
+export function applyRewrappedBody(envelope: EncryptedEnvelope, body: RewrappedBody): EncryptedEnvelope {
   const next: EncryptedEnvelope = {
     ...envelope,
     _iv: body._iv,
@@ -116,6 +111,22 @@ export async function rewrapEnvelope(
     delete (next as { _cek?: string })._cek
   }
   return next
+}
+
+/**
+ * Move a FULL stored envelope from `fromDek` to `toDek`, preserving every
+ * field other than the re-keyed body (`_iv`/`_data`/`_cek`) unchanged.
+ * Mirrors the spread-merge idiom `with-audit/tiers/index.ts`'s
+ * `elevate()`/`demote()` use to apply `rewrapBodyToDek`'s result to the live
+ * envelope, generalized to any envelope shape (history callers don't bump
+ * `_v`/`_ts`/`_tier` the way a tier move does).
+ */
+export async function rewrapEnvelope(
+  envelope: EncryptedEnvelope,
+  fromDek: EnclaveKey,
+  toDek: EnclaveKey,
+): Promise<EncryptedEnvelope> {
+  return applyRewrappedBody(envelope, await rewrapBodyToDek(envelope, fromDek, toDek))
 }
 
 /**

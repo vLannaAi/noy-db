@@ -64,7 +64,7 @@ import { validateSchemaInput } from './schema.js'
 import { derivePersistedSchema } from '../with-shape/persisted-schemas/derive.js'
 import type { LedgerStore } from '../with-commit/history/ledger/index.js'
 import type { DiffEntry } from '../with-commit/history/diff.js'
-import type { HistoryStrategy } from '../with-commit/history/strategy.js'
+import { NO_HISTORY, type HistoryStrategy } from '../with-commit/history/strategy.js'
 import { Query, ScanBuilder } from './query/index.js'
 import type { QuerySource, JoinContext, JoinableSource } from './query/index.js'
 import type { CollectionIndexes } from '../with-lookup/indexing/eager-indexes.js'
@@ -4461,9 +4461,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
-   * Emit a cross-tier access event. The subscriber sink stays collection-
-   * resident (it captures `onCrossTierAccess`); the tiers module reaches it
-   * via the {@link TiersContext.emitCrossTierEvent} callback.
+   * Emit a cross-tier access event. The subscriber sink stays collection-resident (it captures `onCrossTierAccess`); the tiers module reaches it via the {@link TiersContext.emitCrossTierEvent} callback.
    */
   private emitCrossTierEvent(event: CrossTierAccessEvent): void {
     try {
@@ -4494,8 +4492,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (patch.presentForJoin) this.presentForJoin = patch.presentForJoin
   }
   /**
-   * Bind the {@link TiersContext} the tier ops need — `cekCache` by reference
-   * (same `Lru` the read/write path owns) for a synchronous re-wrap; `syncDerived` closes over `this` for {@link syncDerivedOutputs} (#722).
+   * Bind the {@link TiersContext} the tier ops need — `cekCache` by reference (same `Lru` the read/write path owns) for a synchronous re-wrap; `syncDerived` closes over `this` for {@link syncDerivedOutputs} (#722).
    */
   private tiersContext(): TiersContext<T> {
     return {
@@ -4509,6 +4506,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       syncIndexes: (id: string, rec: T | null, version: number, priorEnvelope?: EncryptedEnvelope) => syncTierIndexesImpl(this.indexingContext(), id, rec, version, priorEnvelope),
       syncSearch: (id: string, rec: T | null, version?: number) => syncTierSearchImpl(this.searchContext(), id, rec, version),
       syncHistory: async (id: string, fromDek: EnclaveKey, toDek: EnclaveKey) => this.historyStrategy.rewrapHistory(this.adapter, this.vault, this.name, id, fromDek, toDek, await this.getDEK(this.name)),
+      saveHistorySnapshot: (id: string, envelope: EncryptedEnvelope) => this.historyConfig.enabled !== false ? this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, envelope) : Promise.resolve(), // #728: gate folded in here so tiers/index.ts stays simple
+      historyEnabled: this.historyConfig.enabled !== false && this.historyStrategy !== NO_HISTORY, // #728/#737: lets putAtTier skip decrypting `existing` when no real history strategy is wired
       syncBlobs: (id: string, fromTier: number, toTier: number) => this.blobStrategy !== NO_BLOBS ? this.blob(id).syncTierMove(fromTier, toTier, this.blobTierPolicy) : Promise.resolve(), // #724 I1: gate on blob storage enabled (not on declared blobFields) so undeclared-field blobs still rehome; #746: syncTierMove mints/resumes the rehome journal marker; self-no-ops on an empty slot map
       syncLedger: async (id: string) => { await this.ledger?.purgeRecordDeltas(this.name, id) },
       syncDerived: (id: string, record: T | null, elevated: boolean, version?: number) => syncDerivedOutputs(this, id, record, elevated, version),
