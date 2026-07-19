@@ -30,6 +30,12 @@ describe('encodeVecId / decodeVecId', () => {
   })
 })
 
+describe('encodeVecId rejects ambiguous collection names', () => {
+  it('throws when the collection name contains "/" (would make isVecIdFor\'s prefix match ambiguous)', () => {
+    expect(() => encodeVecId('a/b', 'x')).toThrow()
+  })
+})
+
 describe('isVecIdFor', () => {
   it('is true for ids belonging to the collection', () => {
     expect(isVecIdFor('docs', 'docs/x')).toBe(true)

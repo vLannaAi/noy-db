@@ -1,16 +1,22 @@
 /**
  * #726 — `_vec` embedding sidecars are collection-namespaced. Before this
  * fix, `_vec` rows were keyed by the bare record id, vault-wide: two
- * collections sharing a record id shared ONE `_vec` row, so (a) collection
- * A's `similarTo()` could surface collection B's — possibly ELEVATED —
- * embedding, and (b) writing/forgetting a record in A could clobber or
- * delete B's same-id sidecar. Fixture pattern mirrors `tiers-search.test.ts`
- * (memoryStore + stub encoder) and `embeddings-forget.test.ts` (forget
- * harness).
+ * collections sharing a record id shared ONE `_vec` row.
+ *
+ * This is NOT a confidentiality-disclosure bug: every collection has its own
+ * DEK, and AES-GCM auth-tag verification means decrypting a foreign
+ * collection's row under the wrong DEK throws `TamperedError` rather than
+ * returning wrong plaintext — verified empirically, no two ordinary
+ * collections share a DEK, so a cross-collection read cannot occur. The real
+ * bug was id collision: (a) writing/forgetting a record in A could clobber
+ * or delete B's same-id sidecar, and (b) a collection whose `similarTo()` /
+ * cold semantic `retrieve()` encountered a foreign same-id row crashed with
+ * an uncaught `TamperedError` (a denial-of-service). Fixture pattern mirrors
+ * `tiers-search.test.ts` (memoryStore + stub encoder) and
+ * `embeddings-forget.test.ts` (forget harness).
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withSearch, ConflictError } from '../src/index.js'
-import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { withForgetCascade } from '../src/with-audit/forget/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
@@ -68,39 +74,32 @@ const ENCODER = enc(8)
 
 const SECRET = 'vec-namespace-passphrase-726'
 
-describe('#726 leak closed: A\'s similarTo() never surfaces B\'s elevated embedding', () => {
-  it('a legacy bare-id survivor row (vault-wide, un-namespaced) is invisible to a sibling collection', async () => {
+describe('#726 crash/clobber closed: same record id in two collections neither collides nor crashes similarTo() (NOT a disclosure bug)', () => {
+  it('A.similarTo() returns only A\'s own "x" row — no TamperedError crash, no blending of B\'s content', async () => {
     const store = memoryStore()
-    const db = await createNoydb({
-      store, user: 'owner', secret: SECRET,
-      searchStrategy: withSearch(), tiersStrategy: withTiers(),
-    })
+    const db = await createNoydb({ store, user: 'owner', secret: SECRET, searchStrategy: withSearch() })
     const vault = await db.openVault('v1')
-    const a = vault.collection<Doc>('a', { tiers: [0, 1], perRecordKeys: true, embeddings: ENCODER })
-    const b = vault.collection<Doc>('b', { tiers: [0, 1], perRecordKeys: true, embeddings: ENCODER })
+    const a = vault.collection<Doc>('a', { embeddings: ENCODER })
+    const b = vault.collection<Doc>('b', { embeddings: ENCODER })
 
-    // Collection A never writes a record 'x' of its own.
-    await b.put('x', { id: 'x', body: 'topsecret-restricted-alpha' })
-    const bVecRow = await store.get('v1', '_vec', 'b/x')
-    expect(bVecRow).not.toBeNull()
+    // Both collections hold record id 'x' with different content. Under
+    // pre-#726 bare-id keying this pair collided on a single '_vec/x' row:
+    // B's put() below would silently CLOBBER A's row with B's ciphertext
+    // (encrypted under B's DEK, since A and B never share a DEK).
+    await a.put('x', { id: 'x', body: 'alpha content from collection A' })
+    await b.put('x', { id: 'x', body: 'zzzzzzzzzzzz totally different from B' })
 
-    // B elevates its own 'x' — the tier-0 DEK sidecar must not survive.
-    await b.elevate('x', 1)
-    expect(await store.get('v1', '_vec', 'b/x')).toBeNull()
-
-    // Simulate a legacy pre-#726 survivor: the physical row shape a
-    // vault-wide, un-namespaced `_vec` bucket would have left behind for
-    // record id 'x' (same bare id B just wrote, now elevated). This is
-    // exactly the row collection A's OLD (bare-id) buildVectorLoad would
-    // have picked up: A has no live record 'x' of its own, so the elevation
-    // gate (checked against A's OWN collection) would have passed, and A's
-    // similarTo() would have decrypted and returned B's elevated content.
-    await store.put('v1', '_vec', 'x', bVecRow!)
-
-    const qVec = await ENCODER.encode('topsecret-restricted-alpha')
-    const hits = await a.similarTo(qVec)
-    expect(hits.map((h) => h.id)).not.toContain('x')
-    expect(hits).toEqual([]) // A has no vector rows of its own at all
+    const aQVec = await ENCODER.encode('alpha content from collection A')
+    // Pre-fix: buildVectorLoad for A would find the (now B-owned) '_vec/x'
+    // row, pass A's OWN elevation gate (checked against A's live record, not
+    // B's), then try to decrypt B's ciphertext under A's DEK. AES-GCM
+    // auth-tag verification fails on a wrong-key decrypt, so this THROWS an
+    // uncaught TamperedError (a crash / DoS) — it never returns B's
+    // plaintext to A. The fix (collection-namespaced ids) means A only ever
+    // sees its own 'a/x' row: no throw, no clobber, no blending.
+    const hits = await a.similarTo(aQVec)
+    expect(hits.map((h) => h.id)).toContain('x')
+    expect(hits).toHaveLength(1)
   })
 })
 
