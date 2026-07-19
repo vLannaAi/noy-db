@@ -731,7 +731,7 @@ describe('#746 review Critical 2 — the "already moved" reconstruction is tier-
     // (a dedup-retained object IS erasable, just left in place), and then
     // unwrapped its `_cek` under `toBlobDEK` (tier 1) — a DEK mismatch,
     // throwing uncaught and leaving resume permanently stuck.
-    await expect(docsResume.elevate('r1', 2)).resolves.toBeUndefined()
+    await expect(docsResume.elevate('r1', 2)).resolves.toEqual({ searchResidue: false })
 
     expect(await store.list(VAULT, '_blob_intent')).toEqual([]) // no dangling marker
 
@@ -773,7 +773,7 @@ describe('elevate() resumes a pending SHRED marker first — nothing left to reh
     const db = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
-    await expect(docs.elevate('r', 1)).resolves.toBeUndefined()
+    await expect(docs.elevate('r', 1)).resolves.toEqual({ searchResidue: false })
 
     // The blob is ERASED (shredded), not moved: no destination object at
     // tier 1, the original object gone, no slot map row.

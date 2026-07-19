@@ -245,7 +245,7 @@ describe('#722 elevate removes the source from derived outputs', () => {
 
     await docs.put('d1', { id: 'd1', title: 'Public' })
 
-    await expect(docs.elevate('d1', 1)).resolves.toBeUndefined()
+    await expect(docs.elevate('d1', 1)).resolves.toEqual({ searchResidue: false })
     expect(await docs.getAtTier('d1')).toEqual({ id: 'd1', title: 'Public' })
   })
 })
@@ -578,7 +578,7 @@ describe('#722 whole-branch review: pre-move decode must be tier-aware (not just
     await sales.putAtTier('s1', { id: 's1', buyerId: 'b1', total: 100 }, 1)
     expect((await buyers.get('b1'))?.totalSpent).toBe(200) // s1 never contributed (born above tier 0)
 
-    await expect(sales.elevate('s1', 2)).resolves.toBeUndefined()
+    await expect(sales.elevate('s1', 2)).resolves.toEqual({ searchResidue: false })
 
     // s1 stays excluded — no crash, no double-count, no corruption of the
     // sibling's contribution.
@@ -610,7 +610,7 @@ describe('#722 whole-branch review: pre-move decode must be tier-aware (not just
     await sales.putAtTier('s1', { id: 's1', buyerId: 'b1', total: 100 }, 1)
     expect((await buyers.get('b1'))?.totalSpent).toBe(200)
 
-    await expect(sales.elevate('s1', 2)).resolves.toBeUndefined()
+    await expect(sales.elevate('s1', 2)).resolves.toEqual({ searchResidue: false })
 
     expect((await buyers.get('b1'))?.totalSpent).toBe(200)
   })
@@ -674,7 +674,7 @@ describe('#722 whole-branch review: pre-move decode must be tier-aware (not just
     // demote() to an INTERMEDIATE tier (still > 0) is the buggy site: it
     // must decrypt the fromTier(=2) envelope, not the collection's
     // default (tier-0) DEK.
-    await expect(sales.demote('s1', 1)).resolves.toBeUndefined()
+    await expect(sales.demote('s1', 1)).resolves.toEqual({ searchResidue: false })
 
     // s1 stays elevated (tier 1 > 0) — still excluded from the rollup.
     expect((await buyers.get('b1'))?.totalSpent).toBe(200)

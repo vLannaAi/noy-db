@@ -1316,6 +1316,34 @@ export class IndexWriteFailureError extends NoydbError {
 }
 
 /**
+ * Thrown when `PersistedIndexStore`'s compensating `remove()` — the undo of a
+ * stale debounced `_ftindex` save that raced a purge (#725) — itself fails.
+ * That failure is sticky (`pendingCompensation`) and retried-first by every
+ * subsequent store entrypoint (`ensureBuilt`/`rebuildAndPersist`/
+ * `removePersisted`) rather than silently dropped, but was previously
+ * rethrown as the RAW adapter error indefinitely — indistinguishable from
+ * any other adapter failure, so a caller could not catch it deliberately the
+ * way `forget()` catches `_purgeSearchIndex` into `indexResidue` (#764).
+ *
+ * `cause` is the underlying adapter error. Callers that want stuck-
+ * compensation resilience instead of an abort (e.g. `elevate()`/`demote()`,
+ * #764) catch this type specifically and surface it as residue.
+ */
+export class PersistedIndexCompensationError extends NoydbError {
+  override readonly cause: unknown
+
+  constructor(cause: unknown) {
+    super(
+      'PERSISTED_INDEX_COMPENSATION_STUCK',
+      'Persisted search-index compensation is stuck — a compensating remove() of a stale ' +
+        '_ftindex blob failed and is being retried by every subsequent store call.',
+    )
+    this.name = 'PersistedIndexCompensationError'
+    this.cause = cause
+  }
+}
+
+/**
  * Thrown by `.where()` / `.orderBy()` / `.aggregate()` (via the Via
  * pipeline's `postureFor`/`wrapReducers`) when the field is covered by a Via
  * feature whose declared posture is `queryable: 'none'` — e.g. a `blobFields`

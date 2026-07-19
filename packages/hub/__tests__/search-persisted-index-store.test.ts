@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import { PersistedIndexStore, type Fingerprint } from '../src/with-lookup/search/persisted-index-store.js'
 import type { IndexDoc } from '../src/with-lookup/search/inverted-index.js'
+import { PersistedIndexCompensationError } from '../src/kernel/errors.js'
 
 const docs: IndexDoc[] = [{ id: 'a', fields: [{ field: 'd', text: 'invoice' }] }]
 
@@ -189,7 +190,13 @@ describe('PersistedIndexStore epoch-guarded flush/purge race (#725)', () => {
     expect(state.blob).toBeNull()
 
     release() // the stale save lands, then its own compensation (call #2) fails
-    await expect(flushPromise).rejects.toThrow('simulated remove failure')
+    // #764: the raw adapter error is wrapped in PersistedIndexCompensationError
+    // (a caller can catch it deliberately), the original error surviving as `cause`.
+    let caught: unknown
+    try { await flushPromise } catch (e) { caught = e }
+    expect(caught).toBeInstanceOf(PersistedIndexCompensationError)
+    expect((caught as PersistedIndexCompensationError).cause).toBeInstanceOf(Error)
+    expect(((caught as PersistedIndexCompensationError).cause as Error).message).toBe('simulated remove failure')
     // The debounced-flush path would swallow this exact failure via its
     // `.catch(() => {})` — here it propagates because flush() is awaited
     // directly, but the RESIDUE (a resurrected blob) is identical either way.
