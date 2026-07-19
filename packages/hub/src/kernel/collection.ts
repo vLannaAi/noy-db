@@ -1989,11 +1989,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       })
 
       // Auto-prune if maxVersions configured
-      if (this.historyConfig.maxVersions) {
-        await this.historyStrategy.pruneHistory(this.adapter, this.vault, this.name, id, {
-          keepVersions: this.historyConfig.maxVersions,
-        })
-      }
+      if (this.historyConfig.maxVersions) await this.historyStrategy.pruneHistory(this.adapter, this.vault, this.name, id, { keepVersions: this.historyConfig.maxVersions })
     }
 
     const envelope = await this.codec.encryptRecord(record, version, cek, options?.source, options?.sourceTs, vdigCtx, id)
@@ -4506,7 +4502,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       syncIndexes: (id: string, rec: T | null, version: number, priorEnvelope?: EncryptedEnvelope) => syncTierIndexesImpl(this.indexingContext(), id, rec, version, priorEnvelope),
       syncSearch: (id: string, rec: T | null, version?: number) => syncTierSearchImpl(this.searchContext(), id, rec, version),
       syncHistory: async (id: string, fromDek: EnclaveKey, toDek: EnclaveKey) => this.historyStrategy.rewrapHistory(this.adapter, this.vault, this.name, id, fromDek, toDek, await this.getDEK(this.name)),
-      saveHistorySnapshot: (id: string, envelope: EncryptedEnvelope) => this.historyConfig.enabled !== false ? this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, envelope) : Promise.resolve(), // #728: gate folded in here so tiers/index.ts stays simple
+      saveHistorySnapshot: async (id: string, envelope: EncryptedEnvelope) => { // #728: gate folded in here so tiers/index.ts stays simple; review fix — mirror put()'s save→emit→prune parity (maxVersions was unbounded on tier moves)
+        if (this.historyConfig.enabled === false) return
+        await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, envelope)
+        this.emitter.emit('history:save', { vault: this.vault, collection: this.name, id, version: envelope._v })
+        if (this.historyConfig.maxVersions) await this.historyStrategy.pruneHistory(this.adapter, this.vault, this.name, id, { keepVersions: this.historyConfig.maxVersions })
+      },
       historyEnabled: this.historyConfig.enabled !== false && this.historyStrategy !== NO_HISTORY, // #728/#737: lets putAtTier skip decrypting `existing` when no real history strategy is wired
       syncBlobs: (id: string, fromTier: number, toTier: number) => this.blobStrategy !== NO_BLOBS ? this.blob(id).syncTierMove(fromTier, toTier, this.blobTierPolicy) : Promise.resolve(), // #724 I1: gate on blob storage enabled (not on declared blobFields) so undeclared-field blobs still rehome; #746: syncTierMove mints/resumes the rehome journal marker; self-no-ops on an empty slot map
       syncLedger: async (id: string) => { await this.ledger?.purgeRecordDeltas(this.name, id) },

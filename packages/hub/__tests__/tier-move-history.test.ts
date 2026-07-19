@@ -23,6 +23,7 @@ import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope, type NoydbStore, type VaultSnapshot } from '../src/kernel/types.js'
 import { unwrapCek, decrypt, type EnclaveKey } from '../src/kernel/enclave/index.js'
+import { LEDGER_COLLECTION } from '../src/with-commit/history/ledger/constants.js'
 
 interface HistDoc { id: string; body: string }
 
@@ -188,5 +189,67 @@ describe('#728 tier moves snapshot the pre-move version into _history', () => {
     await expect(docs.putAtTier('d1', { id: 'd1', body: 'v2' }, 1)).resolves.toBeDefined()
 
     expect(await store.list('v1', '_history')).toEqual([])
+  })
+
+  // Review fix 1: `saveHistorySnapshot` only called `saveHistory`, dropping
+  // put()'s `maxVersions` auto-prune — a tiered collection with `maxVersions`
+  // configured grew `_history` unbounded across repeated tier moves.
+  it('review-fix-1: maxVersions caps _history growth across repeated tier moves, same as put()', async () => {
+    const store = memoryStoreForTiers()
+    const db = await createNoydb({
+      store, user: 'owner', secret: 'pw-728-max-versions',
+      tiersStrategy: withTiers(), historyStrategy: withHistory(),
+      history: { enabled: true, maxVersions: 2 },
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<HistDoc>('docs', { tiers: [0, 1], perRecordKeys: true })
+
+    await docs.put('d1', { id: 'd1', body: 'v1' })
+    // 5 elevate/demote round-trips = 10 tier-move snapshots, well over maxVersions.
+    for (let i = 0; i < 5; i++) {
+      await docs.elevate('d1', 1)
+      await docs.demote('d1', 0)
+    }
+
+    // Landed back at tier 0 so the public history() read-gate doesn't hide everything.
+    const history = await docs.history('d1')
+    expect(history.length).toBeLessThanOrEqual(2)
+  })
+
+  // Review fix 2: putAtTier built+saved its snapshot AFTER the live write and
+  // AFTER the fallible syncIndexes/syncLedger/syncDerived/syncSearchResilient
+  // calls — a downstream throw stranded the live (already-moved) record with
+  // no pre-move snapshot ever saved. Fault-inject a syncLedger read failure
+  // (a real downstream step putAtTier always runs when tier > 0 and a real
+  // history strategy is wired) and prove the snapshot survives it.
+  it('review-fix-2: putAtTier snapshots the pre-move version BEFORE the live write — a downstream syncLedger throw does not strand it', async () => {
+    const store = memoryStoreForTiers()
+    let failLedgerList = false
+    const wrapped: NoydbStore = {
+      ...store,
+      async list(v, c) {
+        if (c === LEDGER_COLLECTION && failLedgerList) throw new Error('injected: ledger read failure')
+        return store.list(v, c)
+      },
+    }
+    const db = await createNoydb({
+      store: wrapped, user: 'owner', secret: 'pw-728-fix2-order',
+      tiersStrategy: withTiers(), historyStrategy: withHistory(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<HistDoc>('docs', { tiers: [0, 1], perRecordKeys: true })
+
+    await docs.putAtTier('d1', { id: 'd1', body: 'v1' }, 0)
+
+    failLedgerList = true
+    await expect(docs.putAtTier('d1', { id: 'd1', body: 'v2' }, 1)).rejects.toThrow('injected')
+
+    // The live write landed (tier moved) despite the downstream throw...
+    const live = await store.get('v1', 'docs', 'd1')
+    expect(live!._tier).toBe(1)
+
+    // ...and the pre-move version (v1) was snapshotted before that throw could strand it.
+    const snapshot = await store.get('v1', '_history', historyId('docs', 'd1', 1))
+    expect(snapshot).not.toBeNull()
   })
 })
