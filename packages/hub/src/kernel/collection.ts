@@ -2653,17 +2653,16 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         priorEnvelope: prior,
       })
     }
-    await this._doDelete(id, true)
-    return true
+    return await this._doDelete(id, true)
   }
 
-  private async _doDelete(id: string, internal: boolean): Promise<void> {
+  private async _doDelete(id: string, internal: boolean): Promise<boolean> {
     if (!hasWritePermission(this.keyring, this.name)) {
       throw new ReadOnlyError()
     }
     // #716: public deletes only — see assertTierWritable's doc + Step 5 investigation for `internal`.
     await assertTierWritable(this.adapter, this.vault, this.name, id, !internal && this.tiers !== null)
-    if (internal && this.tiers !== null && await liveRecordIsElevated(this.adapter, this.vault, this.name, id)) return // #718: internal cleanup treats an elevated record as nonexistent, same as tier-0 reads — skip, no marker; its derived state is the tier ops' job
+    if (internal && this.tiers !== null && await liveRecordIsElevated(this.adapter, this.vault, this.name, id)) return false // #718: internal cleanup treats an elevated record as nonexistent, same as tier-0 reads — skip, no marker, not counted as erased (#761 item 8)
 
     // Gate bus (Track A) — fires for ALL deletes (carrying `internal`), so a
     // gate handler can collect amendment changes on system-internal deletes
@@ -2744,7 +2743,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       // converges on pull (a bare adapter.delete is invisible to other pullers).
       // No-op if there is no live record to delete (already marked / shredded).
       const live = previousEnvelope
-      if (!live || isTombstone(live, this.storeCiphertext) || isDeleteMarker(live)) return
+      if (!live || isTombstone(live, this.storeCiphertext) || isDeleteMarker(live)) return false
       markerVersion = live._v + 1
       await this.adapter.put(this.vault, this.name, id, buildDeleteMarker(markerVersion, this.keyring.userId))
       this.markerIds.add(id) // #606: this id now carries a marker — the #589 continuity gate should consult it on re-create
@@ -2817,6 +2816,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       // removed from the store/cache above).
       if (existing) await this.dispatchRollupsOnDelete(id, existing.record)
     }
+    return true
   }
 
   /**
@@ -2925,9 +2925,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /**
    * Mirror of {@link dispatchMaterializedViews} for the delete/forget path — no `_materializedFrom`
    * skip (record's gone); the `internal` gate at `_doDelete` is the recursion guard. Returns the
-   * row count TOMBSTONED across every eager MV sourced here (#638 T6 — `forgetDerivedFanout`'s
-   * `derivedRecordsErased`); lazy/manual MVs also purge their persisted output rows at rest
-   * (#736) — lazy persists a stale mark for cold-session recompute; manual serves empty until `refreshView()`.
+   * row count TOMBSTONED across EVERY MV sourced here (#638 T6 — `forgetDerivedFanout`'s
+   * `derivedRecordsErased`) — eager AND lazy/manual `invalidateMVAtRest` purges both contribute now
+   * (#761 item 1, previously eager-only); lazy persists a stale mark for cold-session recompute;
+   * manual serves empty until `refreshView()`.
    * @internal
    */
   async dispatchMaterializedViewsOnDelete(id: string): Promise<number> {
@@ -2954,7 +2955,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         if (staleHelpers === null) {
           staleHelpers = await import('../with-formula/materialized-views/stale.js')
         }
-        await staleHelpers.invalidateMVAtRest(this.materializedViewSource, reg, mode)
+        deleted += await staleHelpers.invalidateMVAtRest(this.materializedViewSource, reg, mode)
       }
     }
     return deleted

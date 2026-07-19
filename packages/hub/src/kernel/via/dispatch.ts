@@ -309,11 +309,24 @@ export async function forgetDerivedFanout(
   stats: ForgetFanoutStats,
   lookupCompareKeys: ReadonlyMap<string, string | undefined>,
 ): Promise<void> {
-  const edges = vault.graph.derivedArtifactsOf(ref.collection)
-  if (edges.length === 0) return
-
   const coll = vault._getCollection(ref.collection)
-  if (!coll) return
+
+  // #761 item 4 — drive the MV arm off `dispatchMaterializedViewsOnDelete` UNCONDITIONALLY,
+  // ABOVE the `edges` check below: `registry.edges()` drops the same-collection
+  // partition-disjoint MV edge (registry.ts's `sources.length === 0 → continue`), so a
+  // same-collection MV's source collection never appears in `vault.graph`'s derived-artifact
+  // edges even though the MV IS registered — forget() would otherwise never reach it.
+  // `dispatchMaterializedViewsOnDelete` self-guards O(1) via `mvsForSource` (a no-op when
+  // this collection isn't an MV source), so this is safe to call unconditionally. Safe to
+  // route through the eager executor's tombstone leg ONLY because that leg is now
+  // stamp-scoped (#762) — before that fix this would have opened a NEW forget-time
+  // data-loss path into the unscoped tombstone diff.
+  if (coll) {
+    stats.recordsErased += await coll.dispatchMaterializedViewsOnDelete(ref.id)
+  }
+
+  const edges = vault.graph.derivedArtifactsOf(ref.collection)
+  if (edges.length === 0 || !coll) return
 
   // #650 Task 5 (#648) — 'ref' cascade/nullify propagate ADDITIVELY, here, AFTER the shred
   // (restrict already refused BEFORE any shred — the caller's pre-tombstone check, spec §4).
@@ -337,9 +350,6 @@ export async function forgetDerivedFanout(
     stats.lookupReferencesResidue.push(...residue)
   }
 
-  if (edges.some((e) => e.kind === 'mv')) {
-    stats.recordsErased += await coll.dispatchMaterializedViewsOnDelete(ref.id)
-  }
   if (edges.some((e) => e.kind === 'derivation')) {
     // #622 review Finding 1: count REAL erasures (dispatchArrayDerivationsOnDelete's own
     // `_internalDelete`-backed tally), not the derivation EDGE count — an edge exists whenever

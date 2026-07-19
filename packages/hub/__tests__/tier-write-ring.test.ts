@@ -231,10 +231,10 @@ describe('#718: internal deletes skip elevated records (the write ring covers ma
     await docs.elevate('d1', 1)
 
     // `_internalDelete`'s own prior-read sees a live envelope before `_doDelete`'s
-    // skip fires, so it still reports `true` — a residual accounting gap (the
-    // record is genuinely untouched, verified below; not a confidentiality
-    // issue, but the caller can't tell "skipped" from "erased" from this alone).
-    expect(await docs._internalDelete('d1')).toBe(true)
+    // skip fires, but `_doDelete` itself now reports the skip (#761 item 8) — the
+    // record is genuinely untouched (verified below), and the caller CAN tell
+    // "skipped" from "erased" via this return value.
+    expect(await docs._internalDelete('d1')).toBe(false)
     expect((await store.get('v1', 'docs', 'd1'))!._tier).toBe(1)
 
     expect(await docs._internalDelete('d2')).toBe(true) // ordinary internal cleanup unaffected

@@ -106,6 +106,84 @@ describe('forget() fanout to derived residue (#622)', () => {
     expect(result.recordsShredded).toBe(1)
   })
 
+  it('forget × lazy MV: derivedRecordsErased counts the at-rest purge, not just the eager leg (#761 item 1)', async () => {
+    interface Person extends Record<string, unknown> { id: string; subjectId: string; name: string }
+    const mv = withMaterializedView<Person>({
+      name: 'people-mirror-lazy',
+      query: (db) => db.collection<Person>('people').query(),
+      rowKey: (r) => r.id,
+      refresh: 'lazy',
+    })
+    const db = await createNoydb({
+      store: memory(), user: 'alice', secret: 'forget-fanout-lazy-mv-count-passphrase-2026',
+      materializedViewStrategies: [mv],
+      historyStrategy: withHistory(),
+      forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+    })
+    const vault = await db.openVault('firm')
+    const people = vault.collection<Person>('people')
+    const mirror = vault.collection<Person>('people-mirror-lazy')
+    await people.put('p1', { id: 'p1', subjectId: 'subj-1', name: 'Ada' })
+    // Materialize the lazy MV via a read — its output row now exists at rest.
+    expect(await mirror.get('p1')).not.toBeNull()
+
+    const result = await vault.forget('subj-1')
+
+    // The lazy MV's row lives in a collection NOT configured as a forget subject
+    // (only 'people' is), so its removal can ONLY come from
+    // dispatchMaterializedViewsOnDelete's invalidateMVAtRest purge — not subject-index.
+    expect(await mirror.get('p1')).toBeNull()
+    // #761 item 1 — before the fix, invalidateMVAtRest's purge count was dropped on
+    // the floor; derivedRecordsErased only ever summed the eager executor's leg.
+    expect(result.derivedRecordsErased).toBeGreaterThanOrEqual(1)
+  })
+
+  it('forget × same-collection MV: forget() reaches a same-collection partition MV (#761 item 4)', async () => {
+    // refresh: 'manual' (not 'eager') deliberately — it routes dispatchMaterializedViewsOnDelete
+    // into invalidateMVAtRest's stamp-scoped AT-REST purge instead of re-running the eager
+    // executor's query. Re-running the query is orthogonal here (same-collection Query-form MVs
+    // copy the whole source row verbatim, so a stale stamped row can satisfy the MV's own filter
+    // on a later refresh — a separate, out-of-scope concern from #761 item 4). The manual-mode
+    // purge gives an unconfounded signal: d2's OWN MV row (subjectId 'subj-2', untouched by the
+    // forgotten 'subj-1' subject-index match) is only removed if dispatch actually reached the
+    // MV via the same-collection edge this commit fixes.
+    interface Disbursement extends Record<string, unknown> {
+      id: string; type: 'vatSales' | 'pp30'; subjectId: string; period: string; amount: number
+    }
+    const mv = withMaterializedView<Disbursement>({
+      name: 'pp30-aggregate',
+      query: (db) => db.collection<Disbursement>('disbursements').query().where('type', '==', 'vatSales'),
+      rowKey: (r) => `pp30|${r.period}|${r.id}`,
+      refresh: 'manual',
+      output: { collection: 'disbursements', partition: { field: 'type', value: 'pp30' } },
+    })
+    const db = await createNoydb({
+      store: memory(), user: 'alice', secret: 'forget-fanout-same-collection-mv-passphrase-2026',
+      materializedViewStrategies: [mv],
+      historyStrategy: withHistory(),
+      forgetStrategy: withForgetCascade({ subjects: { disbursements: 'subjectId' } }),
+    })
+    const vault = await db.openVault('firm')
+    const coll = vault.collection<Disbursement>('disbursements')
+    await coll.put('d1', { id: 'd1', type: 'vatSales', subjectId: 'subj-1', period: '2026-05', amount: 1000 })
+    await coll.put('d2', { id: 'd2', type: 'vatSales', subjectId: 'subj-2', period: '2026-05', amount: 500 })
+    await vault.refreshView('pp30-aggregate')
+    expect(await coll.get('pp30|2026-05|d1')).not.toBeNull()
+    expect(await coll.get('pp30|2026-05|d2')).not.toBeNull()
+
+    await vault.forget('subj-1')
+
+    // #761 item 4: forgetting d1 must reach the same-collection MV's manual-mode invalidation
+    // (a blanket, stamp-scoped purge of every row this MV emitted). Before the fix,
+    // `forgetDerivedFanout`'s MV arm never fired for this collection — `registry.edges()` drops
+    // the partition-disjoint same-collection edge — so BOTH stamped rows would survive forget()
+    // untouched, including d2's, which has nothing to do with the forgotten subject.
+    expect(await coll.get('pp30|2026-05|d1')).toBeNull()
+    expect(await coll.get('pp30|2026-05|d2')).toBeNull()
+    expect(await coll.get('d1')).toBeNull()
+    expect(await coll.get('d2')).not.toBeNull()
+  })
+
   it('forget × optional derivation with no emitted row: derivedRecordsErased counts only REAL erasures (#622 review Finding 1)', async () => {
     // RCT-TRIGGER-001-style optional output: the derivation edge exists (allocations →
     // receipts), but `derive` returns null for THIS record, so no receipt row was ever
