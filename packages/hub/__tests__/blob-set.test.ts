@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, NoydbBundleStore } from '../src/kernel/types.js'
-import { ConflictError, BundleVersionConflictError, ValidationError } from '../src/kernel/errors.js'
+import { ConflictError, BundleVersionConflictError, ValidationError, TamperedError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withBlobs } from '../src/via/blob/index.js'
 import { withTeam } from '../src/with-party/team/index.js'
+import { encryptBytesWithAAD, type EnclaveKey } from '../src/kernel/enclave/index.js'
 import {
   BLOB_INDEX_COLLECTION,
   BLOB_CHUNKS_COLLECTION,
@@ -927,5 +928,92 @@ describe('detectMimeType', () => {
     expect(isPreCompressed('application/gzip')).toBe(true)
     expect(isPreCompressed('application/pdf')).toBe(false)
     expect(isPreCompressed('text/plain')).toBe(false)
+  })
+})
+
+// ─── #757: decryptResponse — CEK-aware, tier-aware, content-address verified ──
+
+describe('#757 decryptResponse()', () => {
+  let store: NoydbStore
+
+  beforeEach(() => {
+    store = makeStore()
+  })
+
+  it('round-trips an ERASABLE (perRecordKeys) blob — was broken (decrypt failure) before the _cek unwrap fix', async () => {
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const docs = vault.collection<{ id: string }>('docs', { perRecordKeys: true })
+    await docs.put('d1', { id: 'd1' })
+    const blobs = docs.blob('d1')
+    await blobs.put('file.bin', textBytes('erasable blob content'), { compress: false })
+
+    const info = (await blobs.blobInfo('file.bin'))!
+    expect(info._cek).toBeDefined() // confirms this is genuinely erasable (per-blob CEK), not the legacy flat path
+    expect(info.chunkCount).toBe(1)
+
+    // The caller-fetched ciphertext response, as `presignedUrl()` + a raw
+    // fetch would hand back — a JSON envelope of the raw chunk row.
+    const chunkEnv = await store.get(VAULT, BLOB_CHUNKS_COLLECTION, `${info.eTag}_0`)
+    const cipherResponse = new Response(JSON.stringify({ _iv: chunkEnv!._iv, _data: chunkEnv!._data }))
+
+    const plainResponse = await blobs.decryptResponse('file.bin', cipherResponse)
+    expect(plainResponse).not.toBeNull()
+    const recovered = new Uint8Array(await plainResponse!.arrayBuffer())
+    expect(new TextDecoder().decode(recovered)).toBe('erasable blob content')
+
+    db.close()
+  })
+
+  it('rejects a substituted ciphertext (correct key + correct AAD, wrong plaintext) with TamperedError instead of returning attacker bytes', async () => {
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const docs = vault.collection<{ id: string }>('docs') // legacy: no perRecordKeys — flat DEK IS the chunk key
+    await docs.put('d1', { id: 'd1' })
+    const blobs = docs.blob('d1')
+    await blobs.put('file.bin', textBytes('true secret bytes'), { compress: false })
+
+    const info = (await blobs.blobInfo('file.bin'))!
+    const victimETag = info.eTag
+
+    // Attacker: holds the flat `_blob` DEK (same threat model as the
+    // #747/#749 review I1 forged-row attack — any co-tenant/holder of the
+    // flat DEK with store write access) and crafts fresh ciphertext whose
+    // AAD matches the VICTIM's own eTag/chunkIndex/chunkCount, so AES-GCM
+    // auth alone can't distinguish it from an honest chunk — only
+    // content-address re-verification catches the plaintext substitution.
+    const getDEK = (vault as unknown as { getDEK(name: string): Promise<EnclaveKey> }).getDEK
+    const blobDEK = await getDEK('_blob')
+    const forgedAAD = new TextEncoder().encode(`${victimETag}:0:1`)
+    const { iv, data } = await encryptBytesWithAAD(textBytes('forged attacker bytes'), blobDEK, forgedAAD)
+    const forgedResponse = new Response(JSON.stringify({ _iv: iv, _data: data }))
+
+    await expect(blobs.decryptResponse('file.bin', forgedResponse)).rejects.toThrow(TamperedError)
+
+    db.close()
+  })
+
+  it('refuses a multi-chunk blob loudly (ValidationError) instead of silently decrypting/returning only chunk 0', async () => {
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const docs = vault.collection<{ id: string }>('docs')
+    await docs.put('d1', { id: 'd1' })
+    const blobs = docs.blob('d1')
+    await blobs.put('file.bin', randomBytes(500), { compress: false, chunkSize: 128 })
+
+    const info = (await blobs.blobInfo('file.bin'))!
+    expect(info.chunkCount).toBe(4)
+
+    // presignedUrl() already refuses to mint a URL for this blob (chunkCount
+    // !== 1 → null); decryptResponse must refuse just as loudly if handed a
+    // ciphertext Response for it some other way.
+    expect(await blobs.presignedUrl('file.bin')).toBeNull()
+
+    const chunkEnv = await store.get(VAULT, BLOB_CHUNKS_COLLECTION, `${info.eTag}_0`)
+    const cipherResponse = new Response(JSON.stringify({ _iv: chunkEnv!._iv, _data: chunkEnv!._data }))
+
+    await expect(blobs.decryptResponse('file.bin', cipherResponse)).rejects.toThrow(ValidationError)
+
+    db.close()
   })
 })
