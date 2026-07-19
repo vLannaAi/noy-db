@@ -11,6 +11,7 @@ import { createNoydb, withRollup, withMaterializedView, withDerivation } from '.
 import { withForgetCascade } from '../../src/with-audit/forget/index.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
 import { withPeriods } from '../../src/with-audit/periods/index.js'
+import { withTiers } from '../../src/with-audit/tiers/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 function memory(): NoydbStore {
@@ -285,20 +286,63 @@ describe('forget() fanout to derived residue (#622)', () => {
     expect(result.lookupReferencesCascaded).toBe(0)
     expect(result.lookupReferencesNullified).toBe(0)
     expect(result.lookupReferencesResidue).toEqual([])
+    // Additive #776 field defaults to empty when nothing was undecodable.
+    expect(result.derivedResidueUndecodable).toEqual([])
     // Snapshot the full key set — a byte-shape regression on an EXISTING field
     // would silently pass value assertions above but fail this key list.
     // #650 Task 5 — lookupReferencesCascaded/lookupReferencesNullified are new,
     // additive fields (see lookup-forget-ref.test.ts); lookupReferencesResidue is
-    // additive too (#650 Task 5 review, Important fix); every pre-existing key
-    // below is unchanged.
+    // additive too (#650 Task 5 review, Important fix); derivedResidueUndecodable
+    // is additive too (#776); every pre-existing key below is unchanged.
     expect(Object.keys(result).sort()).toEqual([
       'blobResidueCollections', 'blobsRetainedShared', 'blobsShredded', 'collections',
-      'derivedAggregatesRecomputed', 'derivedRecordsErased', 'derivedResidueFrozen',
+      'derivedAggregatesRecomputed', 'derivedRecordsErased', 'derivedResidueFrozen', 'derivedResidueUndecodable',
       'historyVersionsShredded', 'indexPostingsPurged', 'indexResidue', 'ledgerDeltaResidue',
       'ledgerDeltasPurged', 'ledgerEntry',
       'lookupReferencesCascaded', 'lookupReferencesNullified', 'lookupReferencesResidue',
       'recordsShredded', 'scopedPurgeResidue', 'sealedCekEnvelopesPurged', 'sealedCekResidue', 'sealedFieldsShredded',
       'sealedResidue', 'subject', 'unmigratedRecords',
     ])
+  })
+
+  it('forget × lazy MV with a TIERED output: an elevated, undecodable output row is surfaced as residue, not silently skipped (#776 part a)', async () => {
+    interface Person extends Record<string, unknown> { id: string; subjectId: string; name: string }
+    const mv = withMaterializedView<Person>({
+      name: 'people-mirror-tiered',
+      query: (db) => db.collection<Person>('people').query(),
+      rowKey: (r) => r.id,
+      refresh: 'lazy',
+    })
+    const store = memory()
+    const open = async () => {
+      const db = await createNoydb({
+        store, user: 'alice', secret: 'forget-fanout-776a-passphrase-2026',
+        materializedViewStrategies: [mv],
+        historyStrategy: withHistory(),
+        forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+        tiersStrategy: withTiers(),
+      })
+      const vault = await db.openVault('firm')
+      // Declare tiers on the OUTPUT collection BEFORE the first lazy
+      // materialize constructs it untiered (first-construction-wins).
+      const mirror = vault.collection<Person>('people-mirror-tiered', { tiers: [0, 1], perRecordKeys: true })
+      return { vault, people: vault.collection<Person>('people'), mirror }
+    }
+
+    const { people, mirror } = await open()
+    await people.put('p1', { id: 'p1', subjectId: 'subj-1', name: 'Ada' })
+    expect(await mirror.get('p1')).not.toBeNull() // materialize (lazy resolve-on-read)
+
+    // Elevate the OUTPUT row directly.
+    await mirror.elevate('p1', 1)
+
+    // Cold session (fresh cekCache) — the ownership decode genuinely fails now.
+    const { vault: coldVault } = await open()
+    const result = await coldVault.forget('subj-1')
+
+    // Ownership unconfirmed (undecodable) → NOT deleted, NOT counted as erased...
+    expect(result.derivedRecordsErased).toBe(0)
+    // ...but surfaced, not silently skipped (the #724 posture).
+    expect(result.derivedResidueUndecodable).toEqual(['people-mirror-tiered:p1'])
   })
 })
