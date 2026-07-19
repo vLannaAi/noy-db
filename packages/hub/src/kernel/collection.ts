@@ -78,7 +78,7 @@ import { MemoryIndexStore, type IndexStore } from '../with-lookup/search/index-s
 import { PersistedIndexStore } from '../with-lookup/search/persisted-index-store.js'
 import type { RetrieveOptions, RetrieveHit } from '../with-lookup/search/retrieve-types.js'
 import { DerivationCapExceededError } from './errors.js'
-import type { VectorSet, EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
+import { encodeVecId, type VectorSet, type EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from '../with-lookup/indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
 import { buildDescription, deriveZodFields, type CollectionDescription, type DescribeOptions } from '../with-shape/introspection/describe.js'
@@ -4185,7 +4185,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /** Drop a record's encrypted _vec sidecar on erasure (a vector is text-invertible).
    *  Called by vault.ts forget() inside a resilient try/catch; residue is reported in ForgetResult. */
   async _purgeVector(id: string): Promise<void> {
-    await this.adapter.delete(this.vault, '_vec', id)
+    await this.adapter.delete(this.vault, '_vec', encodeVecId(this.name, id))
     this.vectorSet?.markDirty()
   }
 

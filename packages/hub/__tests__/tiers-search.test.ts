@@ -168,7 +168,7 @@ describe('#721 vector (_vec)', () => {
     const { docs } = await h.open()
     await docs.put('e1', { id: 'e1', body: 'alpha' })
     await docs.put('t0', { id: 't0', body: 'zzzzzzzzzzzzzzzzzzzzz' })
-    expect(await h.store.get('v1', '_vec', 'e1')).not.toBeNull()
+    expect(await h.store.get('v1', '_vec', 'docs/e1')).not.toBeNull()
 
     const qVec = await ENCODER.encode('alpha')
     // Load the VectorSet into memory BEFORE elevate — otherwise the "warm"
@@ -179,7 +179,7 @@ describe('#721 vector (_vec)', () => {
     expect((await docs.similarTo(qVec)).map(x => x.id)).toContain('e1') // warm, pre-elevate
 
     await docs.elevate('e1', 1)
-    expect(await h.store.get('v1', '_vec', 'e1')).toBeNull() // sidecar purged
+    expect(await h.store.get('v1', '_vec', 'docs/e1')).toBeNull() // sidecar purged
 
     // Warm (same-session) eviction: elevate dirtied the VectorSet, so the
     // in-session similarTo rebuilds without e1 — not only the cold reopen below.
@@ -199,9 +199,9 @@ describe('#721 vector (_vec)', () => {
     // Force the precondition demote must handle regardless of elevate's own
     // purge (isolates demote's re-embed responsibility from the elevate test
     // above): the _vec sidecar is gone before demote runs.
-    await h.store.delete('v1', '_vec', 'e1')
+    await h.store.delete('v1', '_vec', 'docs/e1')
     await docs.demote('e1', 0)
-    expect(await h.store.get('v1', '_vec', 'e1')).not.toBeNull()
+    expect(await h.store.get('v1', '_vec', 'docs/e1')).not.toBeNull()
 
     const cold = await h.open()
     const qVec = await ENCODER.encode('alpha')
@@ -219,11 +219,11 @@ describe('#721 defense-in-depth: buildVectorLoad gate', () => {
     const h = searchHarness({ embeddings: true })
     const { docs } = await h.open()
     await docs.put('leaky', { id: 'leaky', body: 'alpha' })
-    const vecRow = await h.store.get('v1', '_vec', 'leaky') // capture a real _vec envelope
+    const vecRow = await h.store.get('v1', '_vec', 'docs/leaky') // capture a real _vec envelope
     expect(vecRow).not.toBeNull()
 
     await docs.elevate('leaky', 1) // Task 1 purges it…
-    await h.store.put('v1', '_vec', 'leaky', vecRow!) // …simulate a legacy/failed-purge survivor
+    await h.store.put('v1', '_vec', 'docs/leaky', vecRow!) // …simulate a legacy/failed-purge survivor
 
     const cold = await h.open()
     const qVec = await ENCODER.encode('alpha')

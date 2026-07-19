@@ -102,18 +102,18 @@ describe('embeddings forget — case 1: _vec purged + excluded from retrieve', (
     await docs.put('doc-b', { id: 'doc-b', text: 'client account setup', ownerId: 'bob' })
 
     // Both _vec sidecars exist before forget.
-    expect(await store.get('vec-v', '_vec', 'doc-a')).not.toBeNull()
-    expect(await store.get('vec-v', '_vec', 'doc-b')).not.toBeNull()
+    expect(await store.get('vec-v', '_vec', 'docs/doc-a')).not.toBeNull()
+    expect(await store.get('vec-v', '_vec', 'docs/doc-b')).not.toBeNull()
 
     // Forget alice's record.
     const result = await vault.forget('alice')
     expect(result.recordsShredded).toBe(1)
 
     // doc-a's _vec sidecar must be gone.
-    expect(await store.get('vec-v', '_vec', 'doc-a')).toBeNull()
+    expect(await store.get('vec-v', '_vec', 'docs/doc-a')).toBeNull()
 
     // doc-b's _vec sidecar must be intact.
-    expect(await store.get('vec-v', '_vec', 'doc-b')).not.toBeNull()
+    expect(await store.get('vec-v', '_vec', 'docs/doc-b')).not.toBeNull()
 
     // Semantic retrieve must exclude the forgotten record.
     // Open a fresh vault so the in-memory vectorSet is cold and rebuilt from store.
@@ -182,11 +182,11 @@ describe('embeddings forget — case 3: idempotent second forget', () => {
 
     // First forget.
     await vault.forget('dave')
-    expect(await store.get('vec-i', '_vec', 'doc-y')).toBeNull()
+    expect(await store.get('vec-i', '_vec', 'docs/doc-y')).toBeNull()
 
     // Second forget — idempotent, no throw.
     const result2 = await vault.forget('dave')
     expect(result2.recordsShredded).toBe(0)
-    expect(await store.get('vec-i', '_vec', 'doc-y')).toBeNull()
+    expect(await store.get('vec-i', '_vec', 'docs/doc-y')).toBeNull()
   })
 })
