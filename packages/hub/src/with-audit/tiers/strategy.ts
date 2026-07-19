@@ -18,7 +18,7 @@ export interface TiersStrategy {
     record: T,
     tier: number,
     opts?: { elevation?: { reason: string; fromTier: number }; source?: string; sourceTs?: string },
-  ): Promise<void>
+  ): Promise<TierMoveResult>
   getAtTier<T>(ctx: TiersContext<T>, id: string): Promise<T | GhostRecord | null>
   listAtTier<T>(ctx: TiersContext<T>): Promise<Array<{ id: string; tier: number; readable: boolean }>>
   elevate<T>(ctx: TiersContext<T>, id: string, toTier: number): Promise<TierMoveResult>

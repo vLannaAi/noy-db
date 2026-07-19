@@ -213,7 +213,26 @@ describe('walkClosure', () => {
     expect([...(closure.get('bills') ?? [])]).toEqual(['b-1']) // child keeps its FK value
     expect(closure.get('clients')).toBeUndefined() // elevated parent NOT admitted
     expect(danglingRefs).toEqual([
-      { collection: 'bills', id: 'b-1', field: 'clientId', target: 'clients', targetId: 'c-1' },
+      { collection: 'bills', id: 'b-1', field: 'clientId', target: 'clients', targetId: 'c-1', reason: 'elevated' },
+    ])
+  })
+
+  it('#772: reports reason "missing" for a genuinely-absent outbound parent (no tiers involved)', async () => {
+    const company = await db.openVault('demo-co')
+    // 'warn' mode (not the default 'strict') so put() doesn't itself reject
+    // the dangling FK — we want to reach walkClosure's own detection.
+    const bills = company.collection<Bill>('bills', { refs: { clientId: ref('clients', 'warn') } })
+
+    // clientId references an id that was never created — no tier boundary,
+    // just a genuine data-integrity gap.
+    await bills.put('b-1', { id: 'b-1', clientId: 'c-ghost', amount: 10 })
+
+    const { danglingRefs } = await walkClosure(company, {
+      seeds: { bills: () => true },
+    })
+
+    expect(danglingRefs).toEqual([
+      { collection: 'bills', id: 'b-1', field: 'clientId', target: 'clients', targetId: 'c-ghost', reason: 'missing' },
     ])
   })
 

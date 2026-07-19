@@ -321,7 +321,7 @@ describe('extractPartition — #759: elevated FK parent is excluded with a dangl
     })
 
     expect(danglingRefs).toEqual([
-      { collection: 'invoices', id: 'inv-1', field: 'clientId', target: 'clients', targetId: 'c-1' },
+      { collection: 'invoices', id: 'inv-1', field: 'clientId', target: 'clients', targetId: 'c-1', reason: 'elevated' },
     ])
 
     const { dumpJson } = await readNoydbBundle(bundleBytes)

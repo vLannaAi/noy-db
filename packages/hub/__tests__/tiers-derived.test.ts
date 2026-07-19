@@ -641,7 +641,7 @@ describe('#722 whole-branch review: pre-move decode must be tier-aware (not just
 
     // putAtTier's OWN pre-write decode of the pre-existing tier-1 envelope
     // is the buggy site under test here.
-    await expect(sales.putAtTier('s1', { id: 's1', buyerId: 'b1', total: 150 }, 2)).resolves.toBeUndefined()
+    await expect(sales.putAtTier('s1', { id: 's1', buyerId: 'b1', total: 150 }, 2)).resolves.toEqual({ searchResidue: false })
 
     expect((await buyers.get('b1'))?.totalSpent).toBe(200)
   })
@@ -747,6 +747,6 @@ describe('#737 hasDerivedOutputs is source-grained', () => {
 
     // GREEN: source-grained — `docs` has no derivation of its own, so the
     // gated decode is skipped and the corrupted body is never read.
-    await expect(docs.putAtTier('d1', { id: 'd1', title: 'Renamed' }, 1)).resolves.toBeUndefined()
+    await expect(docs.putAtTier('d1', { id: 'd1', title: 'Renamed' }, 1)).resolves.toEqual({ searchResidue: false })
   })
 })

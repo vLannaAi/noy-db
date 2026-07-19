@@ -185,3 +185,43 @@ describe('#764 (b) elevate()/demote() surface a stuck compensation as residue, n
     expect(await docs.get('e1')).toEqual({ id: 'e1', body: 'topsecret-beta' })
   })
 })
+
+describe('#774 putAtTier() has the same resilience as elevate()/demote()', () => {
+  it('putAtTier(tier>0) completes the write (put lands, cross-tier event fires) and returns searchResidue: true instead of throwing', async () => {
+    const store = readOnlyFtindexDelete(memoryStore())
+    const db = await createNoydb({
+      store, user: 'owner', secret: SECRET,
+      searchStrategy: withSearch(), tiersStrategy: withTiers(),
+    })
+    const vault = await db.openVault('v1')
+    const events: CrossTierAccessEvent[] = []
+    vault.onCrossTierAccess((e) => events.push(e))
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, textIndexes: ['body'], textIndexPersist: true,
+    })
+
+    await docs.put('e1', { id: 'e1', body: 'topsecret-alpha' })
+    await docs.flushIndex()
+
+    // Pre-#774 putAtTier's own unwrapped `ctx.syncSearch` call threw the raw
+    // adapter error mid-flight — after the record put but before the
+    // cross-tier emit / syncHistory / syncBlobs. It must now resolve, with
+    // the write fully completed, mirroring elevate()/demote()'s #764 fix.
+    await expect(docs.putAtTier('e1', { id: 'e1', body: 'topsecret-alpha-v2' }, 1))
+      .resolves.toEqual({ searchResidue: true })
+
+    // The record actually moved: the raw envelope carries the new tier.
+    const env = await store.get('v1', 'docs', 'e1')
+    expect(env?._tier).toBe(1)
+
+    // The cross-tier `put` event (emitted AFTER syncSearch, BEFORE
+    // syncHistory/syncBlobs) fired — proves execution ran past the search
+    // catch instead of aborting at syncSearch.
+    const putEv = events.find((e) => e.op === 'put')
+    expect(putEv).toMatchObject({ id: 'e1', tier: 1, authorization: 'inherent' })
+
+    // getAtTier still resolves the record's content at the new tier — proves
+    // syncHistory/syncBlobs (which run LAST) didn't themselves throw either.
+    expect(await docs.getAtTier('e1')).toEqual({ id: 'e1', body: 'topsecret-alpha-v2' })
+  })
+})
