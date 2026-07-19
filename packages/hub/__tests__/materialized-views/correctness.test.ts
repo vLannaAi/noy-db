@@ -314,6 +314,80 @@ describe('MV correctness (#152)', () => {
       })
       await db.openVault('demo')
     })
+
+    it('ordinary delete() of one source row does not wipe OTHER source rows at rest (#762)', async () => {
+      const mv = withMaterializedView<Disbursement>({
+        name: 'pp30-aggregate',
+        query: (db) => db.collection<Disbursement>('disbursements')
+          .query()
+          .where('type', 'in', ['vatSales', 'vatPurchase', 'vatCredit']),
+        rowKey: (r) => `pp30|${r.period}|${r.id}`,
+        refresh: 'eager',
+        output: { collection: 'disbursements', partition: { field: 'type', value: 'pp30' } },
+      })
+      const db = await createNoydb({
+        store: memory(),
+        user: 'alice',
+        secret: 'mv-correctness-762-tombstone-passphrase-2026',
+        materializedViewStrategies: [mv],
+      })
+      const vault = await db.openVault('demo')
+      const coll = vault.collection<Disbursement>('disbursements')
+      await coll.put('d1', { id: 'd1', type: 'vatSales', period: '2026-05', amount: 1000 })
+      await coll.put('d2', { id: 'd2', type: 'vatPurchase', period: '2026-05', amount: 500 })
+      expect(await coll.get('pp30|2026-05|d1')).not.toBeNull()
+      expect(await coll.get('pp30|2026-05|d2')).not.toBeNull()
+
+      // Ordinary delete() of d1 fires the eager MV refresh (onEmpty: 'delete', the default).
+      // Before the fix, the tombstone diff (`listOutputIds` with no ownership filter) wipes
+      // EVERY id in the output collection absent from the new result set — including d2, an
+      // untouched USER source row that still matches the MV's own query.
+      await coll.delete('d1')
+
+      expect(await coll.get('d2')).not.toBeNull() // #762 — the data-loss RED this test pins
+      expect((await coll.get('d2'))?.amount).toBe(500)
+    })
+
+    it('manual MV sharing an output collection with an invalidated sibling keeps its rows (#761 item 2)', async () => {
+      interface Order extends Record<string, unknown> { id: string; amount: number }
+      interface Invoice extends Record<string, unknown> { id: string; amount: number }
+      const mvA = withMaterializedView<Order>({
+        name: 'orders-report',
+        query: (db) => db.collection<Order>('orders').query(),
+        rowKey: (r) => `orders|${r.id}`,
+        refresh: 'lazy',
+        output: { collection: 'reports' },
+      })
+      const mvB = withMaterializedView<Invoice>({
+        name: 'invoices-report',
+        query: (db) => db.collection<Invoice>('invoices').query(),
+        rowKey: (r) => `invoices|${r.id}`,
+        refresh: 'manual',
+        output: { collection: 'reports' },
+      })
+      const db = await createNoydb({
+        store: memory(),
+        user: 'alice',
+        secret: 'mv-correctness-sibling-passphrase-2026',
+        materializedViewStrategies: [mvA, mvB],
+      })
+      const vault = await db.openVault('demo')
+      await vault.collection<Order>('orders').put('o1', { id: 'o1', amount: 10 })
+      await vault.collection<Invoice>('invoices').put('i1', { id: 'i1', amount: 20 })
+
+      // Materialize mvA lazily (a read triggers resolve-on-read) and mvB explicitly (manual).
+      expect(await vault.collection('reports').get('orders|o1')).not.toBeNull()
+      await vault.refreshView('invoices-report')
+      expect(await vault.collection('reports').get('invoices|i1')).not.toBeNull()
+
+      // Deleting mvA's source row invalidates mvA's OWN stamped output row at rest
+      // (`invalidateMVAtRest`). mvB's row — a manual sibling sharing the SAME output
+      // collection — must survive: the stamp-scoped discipline in `invalidateMVAtRest`
+      // must never collaterally wipe a sibling MV's rows (#761 item 2).
+      await vault.collection<Order>('orders').delete('o1')
+      expect(await vault.collection('reports').get('orders|o1')).toBeNull()
+      expect(await vault.collection('reports').get('invoices|i1')).not.toBeNull()
+    })
   })
 
   describe('strict-mode rollback', () => {

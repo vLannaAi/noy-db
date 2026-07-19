@@ -324,6 +324,21 @@ export const MaterializedViewExecutor = {
       const priorIds = await listOutputIds(outputColl)
       for (const priorId of priorIds) {
         if (newIds.has(priorId)) continue
+        // #762 — a same-collection partition MV (`output: { collection: <source>, partition }`,
+        // the DERIV-PP30-001 shape) writes INTO its own source collection, so `listOutputIds`
+        // also returns untouched USER source rows here. Decode each candidate and only
+        // tombstone rows THIS MV stamped via `_materializedFrom.mvName` — the exact discipline
+        // `invalidateMVAtRest` uses (stale.ts:151-162). An unstamped row, or one stamped by a
+        // different MV, is never this MV's to delete.
+        const priorEnvelope = await adapter.get(vaultName, reg.outputCollection, priorId)
+        if (priorEnvelope === null) continue
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const priorDecoded = await (outputColl as any)._decodeEnvelope(priorEnvelope, priorId)
+        const priorStampedBy =
+          priorDecoded !== null && typeof priorDecoded === 'object'
+            ? (priorDecoded as Record<string, unknown>)._materializedFrom as { mvName?: string } | undefined
+            : undefined
+        if (priorStampedBy?.mvName !== spec.name) continue
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const outAny = outputColl as any
