@@ -51,6 +51,12 @@ export interface DanglingRefNotice {
   readonly target: string
   /** Id of the missing/elevated parent. */
   readonly targetId: string
+  /**
+   * #772: distinguishes an intentional tier boundary (`'elevated'` — the
+   * parent exists but is above the caller's readable tier) from a genuine
+   * data-integrity gap (`'missing'` — no envelope for `targetId` at all).
+   */
+  readonly reason: 'missing' | 'elevated'
 }
 
 export interface ClosureResult {
@@ -109,7 +115,7 @@ export async function walkClosure(
     }
   }
 
-  const { refRegistry } = vault._introspectState()
+  const { refRegistry, adapter, name: vaultName } = vault._introspectState()
   const maxDepth = opts.maxDepth ?? 16
   let cyclesDetected = false
 
@@ -193,8 +199,15 @@ export async function walkClosure(
         const parentColl = vault.collection<Record<string, unknown>>(descriptor.target)
         const parentRecord = await parentColl.get(parentId)
         if (!parentRecord) {
+          // #772: a raw (tier-unaware) read distinguishes the two cases the
+          // tier-gated `Collection.get()` above collapses to the same null —
+          // an envelope present with `_tier > 0` is an intentional tier
+          // boundary; no envelope at all is a genuine data-integrity gap.
+          const rawParentEnv = await adapter.get(vaultName, descriptor.target, parentId)
+          const reason: 'missing' | 'elevated' =
+            rawParentEnv && (rawParentEnv._tier ?? 0) > 0 ? 'elevated' : 'missing'
           danglingRefs.push({
-            collection: collectionName, id, field, target: descriptor.target, targetId: parentId,
+            collection: collectionName, id, field, target: descriptor.target, targetId: parentId, reason,
           })
           continue
         }
