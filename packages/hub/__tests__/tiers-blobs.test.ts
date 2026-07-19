@@ -1372,6 +1372,35 @@ describe('#749 blob(id).atTier() — sanctioned cleared-read path', () => {
     expect(await docs.blob('d1').get('attachment')).toBeNull()
   })
 
+  it('#757: decryptResponse() on a cleared (atTier()) clone of an elevated record works with the tier DEK', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, secret: 'pw', user: 'owner',
+      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, blobFields: { attachment: {} },
+    })
+
+    await docs.putAtTier('d1', { id: 'd1', title: 'Invoice', body: 'x' }, 0)
+    await docs.blob('d1').put('attachment', new TextEncoder().encode('cleared-view decryptResponse bytes'))
+    await docs.elevate('d1', 1)
+
+    // The uncleared (tier-0) surface refuses, same as get().
+    expect(await docs.blob('d1').decryptResponse('attachment', new Response('{}'))).toBeNull()
+
+    const cleared = await docs.blob('d1').atTier()
+    const info = (await cleared.blobInfo('attachment'))!
+    const chunkEnv = await store.get('v1', BLOB_CHUNKS_COLLECTION, `${info.eTag}_0`)
+    const cipherResponse = new Response(JSON.stringify({ _iv: chunkEnv!._iv, _data: chunkEnv!._data }))
+
+    const plainResponse = await cleared.decryptResponse('attachment', cipherResponse)
+    expect(plainResponse).not.toBeNull()
+    const recovered = new Uint8Array(await plainResponse!.arrayBuffer())
+    expect(new TextDecoder().decode(recovered)).toBe('cleared-view decryptResponse bytes')
+  })
+
   it('an ungranted operator session\'s atTier() rejects with TierNotGrantedError and mints no junk DEK', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
