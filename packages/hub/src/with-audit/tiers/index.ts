@@ -375,7 +375,7 @@ export async function putAtTier<T>(
   record: T,
   tier: number,
   opts?: { elevation?: { reason: string; fromTier: number }; source?: string; sourceTs?: string },
-): Promise<void> {
+): Promise<TierMoveResult> {
   assertTiersEnabled(ctx)
   assertDeclaredTier(ctx, tier)
   assertTierAccess(ctx.keyring, ctx.name, tier)
@@ -456,8 +456,11 @@ export async function putAtTier<T>(
   // #721: search artifacts follow the same tier > 0 → purge / tier 0 →
   // re-embed law as syncIndexes above. No ordering dependency on syncCache —
   // the _ftindex rebuild is deferred to the next retrieve() and _vec re-embed
-  // reads `record` directly, not the cache.
-  await ctx.syncSearch(id, tier > 0 ? null : record, envelope._v)
+  // reads `record` directly, not the cache. #774: a permanently stuck
+  // compensation must not abort the write — the record put above already
+  // landed — so it is caught and surfaced as residue instead, same as
+  // elevate()/demote() (#764).
+  const searchResidue = await syncSearchResilient(ctx, id, tier > 0 ? null : record, envelope._v)
 
   if (tier > 0) {
     ctx.emitCrossTierEvent({
@@ -490,6 +493,7 @@ export async function putAtTier<T>(
     // #724: this putAtTier moved the record's tier — rehome its blobs too.
     await ctx.syncBlobs(id, existing?._tier ?? 0, tier)
   }
+  return { searchResidue }
 }
 
 /**

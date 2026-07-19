@@ -4435,8 +4435,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   // ─── Hierarchical Access ──────────────────────────
 
-  /** tier-aware put — gated behind `tiersStrategy: withTiers()`. */
-  putAtTier(id: string, record: T, tier: number, opts?: { elevation?: { reason: string; fromTier: number }; source?: string; sourceTs?: string }): Promise<void> {
+  /** tier-aware put — gated behind `tiersStrategy: withTiers()`. `searchResidue: true` = stuck search compensation (#774, mirroring #764's elevate/demote posture); the write itself always completes. */
+  putAtTier(id: string, record: T, tier: number, opts?: { elevation?: { reason: string; fromTier: number }; source?: string; sourceTs?: string }): Promise<TierMoveResult> {
     return this.tiersStrategy.putAtTier(this.tiersContext(), id, record, tier, opts)
   }
 
