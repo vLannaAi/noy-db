@@ -186,6 +186,34 @@ describe('#764 (b) elevate()/demote() surface a stuck compensation as residue, n
   })
 })
 
+describe('#779 vault.elevate(...).collection().put() surfaces searchResidue', () => {
+  it('a stuck search compensation on the vault.elevate() convenience path is observable, not discarded', async () => {
+    const store = readOnlyFtindexDelete(memoryStore())
+    const db = await createNoydb({
+      store, user: 'owner', secret: SECRET,
+      searchStrategy: withSearch(), tiersStrategy: withTiers(),
+    })
+    const vault = await db.openVault('v1')
+    vault.collection<Doc>('docs', {
+      tiers: [0, 1], perRecordKeys: true, textIndexes: ['body'], textIndexPersist: true,
+    })
+
+    // `_elevatedPut` routes through the SAME resilient `putAtTier` code path
+    // (#774) — it's `ElevatedHandle.collection().put()` that was discarding
+    // the returned `TierMoveResult` before this fix.
+    const elev = await vault.elevate(1, { ttlMs: 60_000, reason: 'export' })
+    await expect(
+      elev.collection<Doc>('docs').put('e1', { id: 'e1', body: 'topsecret-alpha' }),
+    ).resolves.toEqual({ searchResidue: true })
+    await elev.release()
+
+    // The record actually landed at the elevated tier despite the stuck
+    // search compensation — proves the write itself wasn't aborted either.
+    const env = await store.get('v1', 'docs', 'e1')
+    expect(env?._tier).toBe(1)
+  })
+})
+
 describe('#774 putAtTier() has the same resilience as elevate()/demote()', () => {
   it('putAtTier(tier>0) completes the write (put lands, cross-tier event fires) and returns searchResidue: true instead of throwing', async () => {
     const store = readOnlyFtindexDelete(memoryStore())

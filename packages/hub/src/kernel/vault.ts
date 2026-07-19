@@ -57,7 +57,7 @@ import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
 import type { LazyStrategy } from '../port/with/lazy-strategy.js'
 import type { AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
 import type { CrdtStrategy } from './types.js' // direct, not via crdt/strategy.js — avoids a dts cycle (#667)
-import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
+import type { TiersStrategy, TierMoveResult } from '../with-audit/tiers/strategy.js'
 import type { SearchStrategy } from '../with-lookup/search/strategy.js'
 import { NO_CARGO, type CargoStrategy } from '../with-cargo/strategy.js'
 import { NO_BROKER, buildCredentialBrokerHandle, type BrokerStrategy, type CredentialBrokerHandle } from '../port/with/broker-strategy.js'
@@ -3211,7 +3211,7 @@ export class Vault {
    * Internal — invoked by an `ElevatedHandle.collection().put()` call.
    * Routes through the existing `Collection.putAtTier` code path with
    * the elevation context attached so the cross-tier event reflects
-   * the right authorization class.
+   * the right authorization class. Returns `putAtTier`'s `TierMoveResult` (#779).
    */
   async _elevatedPut<T>(
     collectionName: string,
@@ -3219,9 +3219,9 @@ export class Vault {
     record: T,
     tier: number,
     reason: string,
-  ): Promise<void> {
+  ): Promise<TierMoveResult> {
     const coll = this.collection<T>(collectionName)
-    await coll.putAtTier(id, record, tier, {
+    return coll.putAtTier(id, record, tier, {
       elevation: { reason, fromTier: 0 },
     })
   }
