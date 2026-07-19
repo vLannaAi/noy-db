@@ -23,7 +23,7 @@
 export { withTiers } from './active.js'
 export { NO_TIERS, type TiersStrategy } from './strategy.js'
 export { TiersNotEnabledError } from '../../kernel/errors.js'
-import { encrypt, decrypt, unwrapCek, rewrapBodyToDek, isDeleteMarker, isTombstoneShape, type RecordCodec, type EnclaveKey, type SealedShredSlot } from '../../kernel/enclave/index.js'
+import { encrypt, decrypt, unwrapCek, rewrapBodyToDek, applyRewrappedBody, isDeleteMarker, isTombstoneShape, type RecordCodec, type EnclaveKey, type SealedShredSlot } from '../../kernel/enclave/index.js'
 import { TierDemoteDeniedError, UnsupportedTierCompositionError, PersistedIndexCompensationError } from '../../kernel/errors.js'
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
@@ -118,6 +118,32 @@ export interface TiersContext<T> {
    * recompute. No-op when the strategy is `NO_HISTORY`.
    */
   syncHistory(id: string, fromDek: EnclaveKey, toDek: EnclaveKey): Promise<void>
+  /**
+   * Save a raw pre-move envelope as a `_history` snapshot (#728). Tier moves
+   * (`putAtTier`/`elevate`/`demote`) bump `_v` and overwrite the live
+   * envelope without ever snapshotting the version that existed just before
+   * the move — so `history()` silently lost it. The caller (`tiers/index.ts`)
+   * builds `envelope` by reusing the SAME `rewrapBodyToDek(envelope, fromDek,
+   * toDek)` result it already computed for the live write, so the snapshot
+   * lands wrapped under the DESTINATION tier's DEK — never `ctx.codec.
+   * encryptRecord`, which always resolves the tier-0 DEK and would leak the
+   * pre-move body whenever `fromTier > 0`. No-op when history is disabled
+   * (folds the `historyConfig.enabled` gate so `tiers/index.ts` stays simple).
+   */
+  saveHistorySnapshot(id: string, envelope: EncryptedEnvelope): Promise<void>
+  /**
+   * `true` iff a real history strategy is wired (not `NO_HISTORY`) AND not
+   * explicitly disabled via `historyConfig.enabled`. `putAtTier` checks this
+   * BEFORE decrypting `existing` to build a snapshot (#728, #737 regression
+   * fix) — unlike elevate/demote, which reuse a `body` rewrap their live
+   * write needs unconditionally, putAtTier's live write never decrypts the
+   * prior envelope, so building a snapshot is the ONLY reason it would
+   * touch (and potentially throw decrypting) `existing`'s ciphertext. A
+   * derivation-free, history-disabled collection must not pay that decode —
+   * or risk it, on a corrupted/inaccessible prior body — same law
+   * `hasDerivedOutputs` already enforces for the derived-outputs decode.
+   */
+  readonly historyEnabled: boolean
   /**
    * Rehome a record's blob attachments after a tier move (#724 Arc 10 Task
    * 2, at-rest hardening). A blob's home tier is its owning record's tier —
@@ -396,6 +422,31 @@ export async function putAtTier<T>(
   // admin/custodian still bypass (they may mint, same as elevate/demote).
   assertTierAccess(ctx.keyring, ctx.name, existing?._tier ?? 0)
   const version = existing ? existing._v + 1 : 1
+
+  // #728 review-fix-2: resolve the from-tier DEK and snapshot the PRE-move
+  // version BEFORE the live write below, mirroring elevate()/demote() —
+  // originally this ran much later (after syncIndexes/syncLedger/syncDerived/
+  // syncSearchResilient), so a throw in any of those left the live record
+  // already moved with `existing` — its sole pre-move copy — gone, silently
+  // losing the version #728 exists to preserve. `fromKey`/`fromDek` are
+  // resolved ONCE here and reused below for the trailing syncHistory rewrap.
+  const fromKey = dekKey(ctx.name, existing?._tier ?? 0)
+  const fromDek = await ctx.getDEK(fromKey)
+  if (existing && ctx.historyEnabled) {
+    // Snapshot the version this write is about to overwrite — same law as
+    // Collection.put()'s history save, extended to putAtTier (#728). Rewrap
+    // under the DESTINATION `dek` via `applyRewrappedBody` (never
+    // `ctx.codec.encryptRecord`, which always resolves the tier-0 DEK and
+    // would leak this body at rest whenever the prior tier was > 0).
+    // Untagged (`_tier`/`_elevatedBy` stripped), same as elevate()/
+    // demote()'s snapshots. `_v` stays the PRE-move version (unbumped), as
+    // `preCarried` already carries it.
+    const body = await rewrapBodyToDek(existing, fromDek, dek)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- excluded from ...preCarried
+    const { _tier: _preTier, _elevatedBy: _preElevatedBy, ...preCarried } = existing
+    await ctx.saveHistorySnapshot(id, applyRewrappedBody(preCarried, body))
+  }
+
   const json = JSON.stringify(record)
   const { iv, data } = await encrypt(json, dek)
   const envelope: EncryptedEnvelope = {
@@ -486,10 +537,11 @@ export async function putAtTier<T>(
   // reopen #709/#721/#723 on the error path). A direct putAtTier also moves
   // the record's tier — its history snapshots (if any exist from an earlier
   // tier-0 put()) must follow, same as elevate/demote. Skip when the record
-  // was already at this tier (no move, nothing to rewrap).
-  const fromKey = dekKey(ctx.name, existing?._tier ?? 0)
+  // was already at this tier (no move, nothing to rewrap). `fromKey`/
+  // `fromDek` were already resolved above (review-fix-2), before the live
+  // write, for the pre-move snapshot — reused here rather than recomputed.
   if (fromKey !== key) {
-    await ctx.syncHistory(id, await ctx.getDEK(fromKey), dek)
+    await ctx.syncHistory(id, fromDek, dek)
     // #724: this putAtTier moved the record's tier — rehome its blobs too.
     await ctx.syncBlobs(id, existing?._tier ?? 0, tier)
   }
@@ -654,6 +706,18 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   const now = new Date().toISOString()
   const body = await rewrapBodyToDek(envelope, fromDek, toDek)
   if (body.cek) ctx.cekCache?.set(id, body.cek, 1)
+  // #728: snapshot the PRE-move version into `_history` before it's
+  // overwritten below — reuses `body` (already fromDek→toDek) via
+  // `applyRewrappedBody` (never `ctx.codec.encryptRecord`, which always
+  // resolves the tier-0 DEK and would leak this body at rest whenever
+  // `fromTier > 0`). Untagged (`_tier`/`_elevatedBy` stripped) so the
+  // history read-gate doesn't hide it PERMANENTLY once the record demotes
+  // back — at-rest protection comes from the ciphertext being under
+  // `toDek`, not from the tag. `_v` stays the PRE-move version (unbumped),
+  // exactly as `envelope` already carries it.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- excluded from ...snapshot
+  const { _tier: _preTier, _elevatedBy: _preElevatedBy, ...snapshot } = applyRewrappedBody(envelope, body)
+  await ctx.saveHistorySnapshot(id, snapshot)
   // #662: spread every slot the source carries (_sealed/_det/_vdig/_bidx/
   // _source/_sourceTs/_debug) through UNCHANGED, then override only
   // the fields a tier move manages. rewrapBodyToDek preserves the CEK, so no
@@ -762,6 +826,14 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
   // both are destructured out of the spread rather than carried.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- excluded from ...carried
   const { _elevatedBy, _tier: _priorTier, ...carried } = envelope
+  // #728: snapshot the PRE-move version into `_history` — reuses `body`
+  // (already fromDek→toDek) and `carried` (envelope minus `_tier`/
+  // `_elevatedBy`, computed above for the live write) via
+  // `applyRewrappedBody`, so a tier-0-landing demote's snapshot is untagged
+  // just like an ordinary put() entry, same law as elevate()'s snapshot
+  // above. `_v` stays the PRE-move version (unbumped), as `carried` already
+  // carries it.
+  await ctx.saveHistorySnapshot(id, applyRewrappedBody(carried, body))
   const next: EncryptedEnvelope = {
     ...carried,
     _noydb: NOYDB_FORMAT_VERSION,
