@@ -204,7 +204,19 @@ function buildVectorLoad<T>(ctx: SearchContext<T>): () => Promise<StoredVector[]
       if (await liveRecordIsElevated(ctx.adapter, ctx.vault, ctx.name, id)) continue
       const env = await ctx.adapter.get(ctx.vault, '_vec', vecId)
       if (!env) continue
-      const body = await ctx.codec.decryptJsonString(env)
+      // #726 fails-safe: a row can pass isVecIdFor's prefix filter yet still
+      // be undecryptable under THIS collection's DEK — a surviving legacy
+      // bare-id row whose record id happens to start with `<thisCollection>/`,
+      // or plain corruption. _vec sidecars are derived, re-derivable
+      // artifacts (embedOnWrite regenerates them on the record's next put()),
+      // so best-effort skip is correct: never let one poison row crash
+      // similarTo()/retrieve() for the whole collection.
+      let body: string | null
+      try {
+        body = await ctx.codec.decryptJsonString(env)
+      } catch {
+        continue
+      }
       if (body === null) continue
       const parsed = JSON.parse(body) as { vec: number[]; model: string }
       out.push({ id, vec: new Float32Array(parsed.vec), model: parsed.model })

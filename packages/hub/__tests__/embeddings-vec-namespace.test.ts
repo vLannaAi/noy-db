@@ -154,3 +154,30 @@ describe('#726 isolation: same record id in two collections keeps separate _vec 
     expect((await b.similarTo(bQVec)).map((h) => h.id)).toContain('x')
   })
 })
+
+describe('#726 residual gap: a surviving "<collection>/" row that cannot be decrypted is skipped, not fatal', () => {
+  it('similarTo() returns own legitimate results and does not throw on a poison row', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({ store, user: 'owner', secret: SECRET, searchStrategy: withSearch() })
+    const vault = await db.openVault('v4')
+    const a = vault.collection<Doc>('a', { embeddings: ENCODER })
+    const b = vault.collection<Doc>('b', { embeddings: ENCODER })
+
+    await a.put('x', { id: 'x', body: 'alpha content from collection A' })
+    await b.put('y', { id: 'y', body: 'zzzzzzzzzzzz totally different from B' })
+
+    // Simulate a surviving legacy/foreign row: an id that still begins with
+    // 'a/' (so it passes A's isVecIdFor prefix filter and decodes to a
+    // record id, 'poison', that never exists in A — the elevation gate
+    // peeks A's own live envelope for that id and finds none, so it does not
+    // skip this row either) but whose ciphertext was written under B's DEK.
+    // Decrypting it under A's DEK fails AES-GCM auth-tag verification.
+    const bRow = await store.get('v4', '_vec', 'b/y')
+    expect(bRow).not.toBeNull()
+    await store.put('v4', '_vec', 'a/poison', bRow!)
+
+    const aQVec = await ENCODER.encode('alpha content from collection A')
+    const hits = await a.similarTo(aQVec)
+    expect(hits.map((h) => h.id)).toEqual(['x'])
+  })
+})
