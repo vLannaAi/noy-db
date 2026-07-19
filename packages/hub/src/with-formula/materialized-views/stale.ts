@@ -132,7 +132,13 @@ async function hydratePersistedStaleMarkers(accessor: MVStaleAccessor, registry:
  *
  * Returns the count of rows actually `_internalDelete`d (#761 item 1) — folded by the
  * caller into `dispatchMaterializedViewsOnDelete`'s `deleted` so `ForgetResult.derivedRecordsErased`
- * counts lazy/manual purges too, not just the eager executor's tombstone leg.
+ * counts lazy/manual purges too, not just the eager executor's tombstone leg — plus `residue`,
+ * the bare ids whose ownership stamp could NOT be decoded (#776): a candidate row that fails to
+ * decode under the collection's default DEK (e.g. elevated above tier 0 on a tiered output
+ * collection) has UNKNOWN ownership — it might be this MV's own output, or (same-collection
+ * shape) a plain user record — so it is never erased, but it must be SURFACED rather than
+ * silently skipped (the #724 posture), since it may still hold the forgotten/pre-elevation
+ * contribution, decryptable by tier-holders.
  *
  * @internal
  */
@@ -140,11 +146,12 @@ export async function invalidateMVAtRest(
   accessor: MVStaleAccessor,
   reg: RegisteredMV,
   mode: 'lazy' | 'manual',
-): Promise<number> {
+): Promise<{ deleted: number; residue: string[] }> {
   const outputColl = accessor.getCollection(reg.outputCollection)
   const txCtx = accessor.getActiveTxContext()
   const { adapter, vault } = storeOf(accessor, reg.outputCollection)
   let deleted = 0
+  const residue: string[] = []
   for (const id of await adapter.list(vault, reg.outputCollection)) {
     // A same-collection partition MV (`output: { collection: <source>, partition }`,
     // the DERIV-PP30-001 shape) writes INTO its own source collection — `adapter.list`
@@ -157,10 +164,8 @@ export async function invalidateMVAtRest(
     if (envelope === null) continue
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const decoded = await (outputColl as any)._decodeEnvelope(envelope, id)
-    const stampedBy =
-      decoded !== null && typeof decoded === 'object'
-        ? (decoded as Record<string, unknown>)._materializedFrom as { mvName?: string } | undefined
-        : undefined
+    if (decoded === null) { residue.push(id); continue } // #776 — ownership unknown, surfaced not skipped
+    const stampedBy = (decoded as Record<string, unknown>)._materializedFrom as { mvName?: string } | undefined
     if (stampedBy?.mvName !== reg.spec.name) continue
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if (await (outputColl as any)._internalDelete(id, txCtx)) deleted++
@@ -175,7 +180,7 @@ export async function invalidateMVAtRest(
     markMVStale(registry, reg.spec.name)
     await writeMVStaleMarker(adapter, vault, reg.spec.name)
   }
-  return deleted
+  return { deleted, residue }
 }
 
 /**

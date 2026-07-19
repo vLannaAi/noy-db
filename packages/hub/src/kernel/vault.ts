@@ -2299,7 +2299,7 @@ export class Vault {
     const sealedCekResidue: string[] = []; const sealedResidue: string[] = []; const indexResidue: string[] = []; const ledgerDeltaResidue: string[] = []
     const blobsEnabled = this.blobStrategy !== undefined
     const actor = this.keyring.userId
-    const fanoutStats: ForgetFanoutStats = { recordsErased: 0, aggregatesRecomputed: 0, residueFrozen: [], lookupReferencesCascaded: 0, lookupReferencesNullified: 0, lookupReferencesResidue: [] }
+    const fanoutStats: ForgetFanoutStats = { recordsErased: 0, aggregatesRecomputed: 0, residueFrozen: [], lookupReferencesCascaded: 0, lookupReferencesNullified: 0, lookupReferencesResidue: [], derivedResidueUndecodable: [] }
     // #633 — scoped-purge per-collection skip accumulators (empty under the unconditional default); lazy (S4 gate: kernel spine → with-* service via dynamic import()).
     const { partitionSealedCekKeys, shouldSkipBlobScan, bumpResidueCount, residueNoticesFromMap } = await import('../with-audit/forget/purge-scope.js')
     const scopedPurge = this.forgetStrategy.scopedPurge === true
@@ -2495,6 +2495,7 @@ export class Vault {
       derivedAggregatesRecomputed: fanoutStats.aggregatesRecomputed,
       derivedResidueFrozen: fanoutStats.residueFrozen,
       lookupReferencesCascaded: fanoutStats.lookupReferencesCascaded, lookupReferencesNullified: fanoutStats.lookupReferencesNullified, lookupReferencesResidue: fanoutStats.lookupReferencesResidue, scopedPurgeResidue, ledgerDeltasPurged, ledgerDeltaResidue, // #650 Task 5 (+ review Important fix: residue) + #633 + #734
+      derivedResidueUndecodable: fanoutStats.derivedResidueUndecodable, // #776
     }
   }
 

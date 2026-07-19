@@ -2928,17 +2928,16 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * row count TOMBSTONED across EVERY MV sourced here (#638 T6 — `forgetDerivedFanout`'s
    * `derivedRecordsErased`) — eager AND lazy/manual `invalidateMVAtRest` purges both contribute now
    * (#761 item 1, previously eager-only); lazy persists a stale mark for cold-session recompute;
-   * manual serves empty until `refreshView()`.
+   * manual serves empty until `refreshView()`. `residue` (#776) carries `outputCollection:id` entries whose ownership stamp `invalidateMVAtRest` could not decode — surfaced, not erased.
    * @internal
    */
-  async dispatchMaterializedViewsOnDelete(id: string): Promise<number> {
-    if (this.materializedViewSource === undefined) return 0
+  async dispatchMaterializedViewsOnDelete(id: string): Promise<{ deleted: number; residue: string[] }> {
+    if (this.materializedViewSource === undefined) return { deleted: 0, residue: [] }
     const registry = this.materializedViewSource.registry()
     const mvs = registry.mvsForSource(this.name)
-    if (mvs.length === 0) return 0
-    let executor: typeof MVExecutorType | null = null
-    let staleHelpers: typeof MVStaleModule | null = null
-    let deleted = 0
+    if (mvs.length === 0) return { deleted: 0, residue: [] }
+    let executor: typeof MVExecutorType | null = null; let staleHelpers: typeof MVStaleModule | null = null
+    let deleted = 0; const residue: string[] = []
     for (const reg of mvs) {
       const mode = reg.spec.refresh
       if (mode === 'eager') {
@@ -2955,10 +2954,11 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         if (staleHelpers === null) {
           staleHelpers = await import('../with-formula/materialized-views/stale.js')
         }
-        deleted += await staleHelpers.invalidateMVAtRest(this.materializedViewSource, reg, mode)
+        const inv = await staleHelpers.invalidateMVAtRest(this.materializedViewSource, reg, mode)
+        deleted += inv.deleted; residue.push(...inv.residue.map((rid) => `${reg.outputCollection}:${rid}`))
       }
     }
-    return deleted
+    return { deleted, residue }
   }
 
   /**

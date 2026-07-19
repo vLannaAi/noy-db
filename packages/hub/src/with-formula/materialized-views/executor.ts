@@ -355,8 +355,10 @@ export const MaterializedViewExecutor = {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const outAny = outputColl as any
           if (typeof outAny._internalDelete === 'function') {
-            await outAny._internalDelete(priorId, txCtx)
-            deleted++
+            // #776 part b — gate on the boolean, matching invalidateMVAtRest's discipline
+            // (stale.ts): `_internalDelete` returns `false` for a #718 elevated-skip (no
+            // erasure happened), and that must not inflate the tombstone count.
+            if (await outAny._internalDelete(priorId, txCtx)) deleted++
           } else {
             // Defensive fallback — should never hit in real flow since
             // every Collection has `_internalDelete`.

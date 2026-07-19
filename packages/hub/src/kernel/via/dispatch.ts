@@ -284,6 +284,11 @@ export interface ForgetFanoutStats {
    *  skipped for these, reported here so the skip is never silent. `backing:key:collection.field`
    *  entries, one per un-propagated edge. */
   readonly lookupReferencesResidue: string[]
+  /** #776 — `outputCollection:id` MV-output rows whose `_materializedFrom` ownership stamp
+   *  `invalidateMVAtRest` could not decode (undecodable under the default DEK — e.g. elevated
+   *  above tier 0 on a tiered output collection). Never erased (ownership unconfirmed), but
+   *  surfaced here rather than silently skipped. */
+  readonly derivedResidueUndecodable: string[]
 }
 
 /**
@@ -322,7 +327,9 @@ export async function forgetDerivedFanout(
   // stamp-scoped (#762) — before that fix this would have opened a NEW forget-time
   // data-loss path into the unscoped tombstone diff.
   if (coll) {
-    stats.recordsErased += await coll.dispatchMaterializedViewsOnDelete(ref.id)
+    const mv = await coll.dispatchMaterializedViewsOnDelete(ref.id)
+    stats.recordsErased += mv.deleted
+    stats.derivedResidueUndecodable.push(...mv.residue)
   }
 
   const edges = vault.graph.derivedArtifactsOf(ref.collection)

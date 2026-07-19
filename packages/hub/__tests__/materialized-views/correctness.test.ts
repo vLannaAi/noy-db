@@ -11,6 +11,7 @@ import {
 import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
 import { sum, count } from '../../src/with-lookup/aggregate/reducers.js'
 import { withTransactions } from '../../src/with-commit/tx/index.js'
+import { withTiers } from '../../src/with-audit/tiers/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 function memory(): NoydbStore {
@@ -228,6 +229,47 @@ describe('MV correctness (#152)', () => {
       const second = await vault.refreshView('red-items')
       expect(second.written).toBe(1) // 'b' re-emitted
       expect(second.deleted).toBe(1) // 'a' tombstoned
+    })
+
+    it('tombstone leg counts honestly: a #718 elevated-skip on the output row is NOT counted as deleted (#776 part b)', async () => {
+      // The tombstone loop uses `_internalDelete`, which returns `false` (no
+      // erasure) when the target record is elevated above tier 0 on a tiered
+      // collection (#718). Before the fix, the loop still incremented
+      // `deleted` unconditionally after calling it.
+      const mv = withMaterializedView<Item>({
+        name: 'red-items',
+        query: (db) => db.collection<Item>('items').query().where('tag', '==', 'red'),
+        rowKey: (r) => r.id,
+        refresh: 'manual',
+        output: { collection: 'red-items-out' },
+      })
+      const db = await createNoydb({
+        store: memory(),
+        user: 'alice',
+        secret: 'mv-correctness-776b-eager-count-passphrase-2026',
+        tiersStrategy: withTiers(),
+        materializedViewStrategies: [mv],
+      })
+      const vault = await db.openVault('demo')
+      // Declare tiers on the OUTPUT collection BEFORE the first refresh
+      // constructs it untiered (first-construction-wins, same discipline as
+      // tiers-derived.test.ts / mv-tier-staleness.test.ts).
+      const out = vault.collection<Item>('red-items-out', { tiers: [0, 1], perRecordKeys: true })
+      await vault.collection<Item>('items').put('a', { id: 'a', tag: 'red' })
+      const first = await vault.refreshView('red-items')
+      expect(first.written).toBe(1)
+
+      // Elevate the OUTPUT row directly — same session, so the executor's
+      // ownership decode below still succeeds (the CEK cache is warm from the
+      // elevate call itself), but `_internalDelete` is #718-gated.
+      await out.elevate('a', 1)
+
+      // Flip the source's tag so it no longer matches the MV's filter — the
+      // next refresh must attempt to tombstone the (now-elevated) output row.
+      await vault.collection<Item>('items').put('a', { id: 'a', tag: 'blue' })
+      const second = await vault.refreshView('red-items')
+
+      expect(second.deleted).toBe(0) // #776 part b — the over-count RED this test pins
     })
   })
 
