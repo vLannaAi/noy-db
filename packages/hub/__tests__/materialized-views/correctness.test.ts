@@ -348,6 +348,41 @@ describe('MV correctness (#152)', () => {
       expect((await coll.get('d2'))?.amount).toBe(500)
     })
 
+    it('does not self-perpetuate: a stale stamped output row is excluded from the MV\'s own input scan (#777)', async () => {
+      // Same-collection Query-form MV whose input filter is on a field DISJOINT
+      // from the partition field ('type'). The output row is a VERBATIM copy of
+      // the source row, so it still carries `type: 'vatSales'` — meaning it
+      // itself satisfies the MV's own input filter. A fixed rowKey means the
+      // recomputed id always lands on the SAME output row. Before the fix, once
+      // the true source (d1) is deleted, the next eager refresh's input scan
+      // still picks up the stale stamped output row (it matches the filter),
+      // re-derives it under the same id, and it lands back in `newIds` — the
+      // row survives the tombstone diff and self-perpetuates forever.
+      const mv = withMaterializedView<Disbursement>({
+        name: 'vatSales-summary',
+        query: (db) => db.collection<Disbursement>('disbursements').query().where('type', '==', 'vatSales'),
+        rowKey: () => 'summary',
+        refresh: 'eager',
+        output: { collection: 'disbursements', partition: { field: 'type', value: 'pp30' } },
+      })
+      const db = await createNoydb({
+        store: memory(),
+        user: 'alice',
+        secret: 'mv-correctness-777-self-perpetuation-passphrase-2026',
+        materializedViewStrategies: [mv],
+      })
+      const vault = await db.openVault('demo')
+      const coll = vault.collection<Disbursement>('disbursements')
+      await coll.put('d1', { id: 'd1', type: 'vatSales', period: '2026-05', amount: 1000 })
+      expect(await coll.get('summary')).not.toBeNull()
+
+      // Delete the true source. The next eager refresh must NOT re-select the
+      // stale stamped 'summary' output row as if it were live source input.
+      await coll.delete('d1')
+
+      expect(await coll.get('summary')).toBeNull() // #777 — the self-perpetuation RED this test pins
+    })
+
     it('manual MV sharing an output collection with an invalidated sibling keeps its rows (#761 item 2)', async () => {
       interface Order extends Record<string, unknown> { id: string; amount: number }
       interface Invoice extends Record<string, unknown> { id: string; amount: number }

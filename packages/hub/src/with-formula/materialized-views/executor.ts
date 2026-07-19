@@ -259,6 +259,18 @@ export const MaterializedViewExecutor = {
       rows = await materializeQueryResult(q, spec.name, spec.i18nLocale, spec.i18nFields)
     }
 
+    // #777 — exclude this MV's OWN previously-stamped output rows from the
+    // input scan. A same-collection Query-form MV copies the whole source row
+    // verbatim into its output, so a stale output row can itself satisfy the
+    // MV's own input filter (when the filter is on a field disjoint from the
+    // partition field) and get re-selected as if it were live source — the
+    // row self-perpetuates after its true source is gone. Prior output is
+    // never this MV's own source.
+    rows = rows.filter((row) => {
+      const stamp = row._materializedFrom as { mvName?: string } | undefined
+      return stamp?.mvName !== spec.name
+    })
+
     // 2. Cost ceiling check BEFORE any writes — keeps the rollback
     //    clean if the source-write is wrapped in a transaction.
     if (rows.length > maxRows) {
