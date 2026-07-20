@@ -23,7 +23,9 @@ import { runConfigValidate, runConfigScaffold } from '../commands/config.js'
 import { runMonitor } from '../commands/monitor.js'
 import { runDescribe } from '../commands/describe.js'
 
-const VERSION = '0.1.0'
+// Replaced at build time by tsup's `define` with the package.json version.
+declare const __CLI_VERSION__: string
+const VERSION = __CLI_VERSION__
 
 function usage(): string {
   return [

@@ -6,9 +6,9 @@
  * refreshing snapshot to stdout at a configurable interval. Ctrl-C
  * to stop.
  *
- * This is the scope of issue  — CLI-first. A web dashboard
- * is deferred: the meter handle already exposes everything a dashboard
- * needs via `snapshot()` + `subscribe()`.
+ * This is intentionally CLI-first. A web dashboard is deferred: the
+ * meter handle already exposes everything a dashboard needs via
+ * `snapshot()` + `subscribe()`.
  *
  * @module
  */

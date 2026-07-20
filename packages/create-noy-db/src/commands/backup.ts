@@ -13,7 +13,7 @@
  *
  * ships **`file://` only** (or a plain filesystem path).
  * The issue spec originally called for `s3://` as well, but
- * wiring @aws-sdk into @noy-db/create would defeat the
+ * wiring @aws-sdk into create-noy-db would defeat the
  * zero-runtime-deps story for the CLI package. S3 backup is
  * deferred to a follow-up that can live in @noy-db/s3-cli or a
  * similar optional companion package.

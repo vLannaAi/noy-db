@@ -79,7 +79,7 @@ Examples:
 
 Run from the root of a project that already has a noy-db file
 adapter directory in place. For new projects, use
-\`npm create @noy-db\` instead.
+\`npm create noy-db\` instead.
 `
 
 async function main(): Promise<void> {

@@ -19,7 +19,7 @@ Command-line tool for noy-db — inspect .noydb bundles without decrypting, veri
 
 ## Status
 
-**Pre-release** (`0.1.0-pre.1`). API may change before `1.0`.
+**Pre-release.** API may change before `1.0`. Run `noydb --version` for the installed version.
 
 ## Documentation
 

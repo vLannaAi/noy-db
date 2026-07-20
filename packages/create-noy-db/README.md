@@ -1,15 +1,15 @@
-# @noy-db/create
+# create-noy-db
 
 Wizard + CLI tool for [noy-db](https://github.com/vLannaAi/noy-db) — scaffold a fresh Nuxt 4 + Pinia encrypted store, augment an existing Nuxt project, or run operational commands (add user, rotate keys, backup) from the command line.
 
 Two bins ship in this package:
 
-- **`create`** — invoked by `npm create @noy-db`. Fresh-project wizard OR in-place augmenter for an existing Nuxt 4 project, depending on where you run it.
+- **`create-noy-db`** — invoked by `npm create noy-db`. Fresh-project wizard OR in-place augmenter for an existing Nuxt 4 project, depending on where you run it.
 - **`noy-db`** — ongoing CLI tool. Invoked via `pnpm exec noy-db <cmd>` or `npx noy-db <cmd>` from inside a project. Five subcommands: `add`, `add user`, `verify`, `rotate`, `backup`.
 
 ---
 
-## `create @noy-db` — the wizard
+## `create noy-db` — the wizard
 
 The wizard auto-detects whether your current directory is an existing Nuxt 4 project:
 
@@ -20,10 +20,10 @@ The wizard auto-detects whether your current directory is an existing Nuxt 4 pro
 
 ```bash
 # In an empty directory
-npm  create @noy-db my-app
-pnpm create @noy-db my-app
-yarn create @noy-db my-app
-bun  create @noy-db my-app
+npm  create noy-db my-app
+pnpm create noy-db my-app
+yarn create noy-db my-app
+bun  create noy-db my-app
 ```
 
 The wizard asks at most 3 questions (project name, adapter, include sample data) and writes a complete Nuxt 4 + Pinia + `@noy-db/in-nuxt` starter into `./my-app/`. Nothing is installed automatically — pick your package manager and run it yourself.
@@ -31,8 +31,8 @@ The wizard asks at most 3 questions (project name, adapter, include sample data)
 Skip the prompts with `--yes`:
 
 ```bash
-npm create @noy-db my-app --yes
-npm create @noy-db my-app --yes --adapter file --no-sample-data
+npm create noy-db my-app --yes
+npm create noy-db my-app --yes --adapter file --no-sample-data
 ```
 
 ### Augment mode — existing Nuxt 4 project
@@ -40,7 +40,7 @@ npm create @noy-db my-app --yes --adapter file --no-sample-data
 ```bash
 # From inside an existing Nuxt 4 project root
 cd ~/my-existing-app
-npm create @noy-db
+npm create noy-db
 ```
 
 The wizard will:
@@ -66,7 +66,7 @@ The wizard will:
 Preview the diff without writing anything:
 
 ```bash
-npm create @noy-db --dry-run
+npm create noy-db --dry-run
 ```
 
 Prints the unified diff and exits. Useful in CI, code review, and "what would this do to my config?" exploration.
@@ -77,7 +77,7 @@ If you're inside a Nuxt workspace but want to create a **new** sub-project rathe
 
 ```bash
 cd ~/my-monorepo-with-nuxt
-npm create @noy-db my-sub-app --force-fresh
+npm create noy-db my-sub-app --force-fresh
 ```
 
 ### All flags
@@ -98,13 +98,13 @@ npm create @noy-db my-sub-app --force-fresh
 The wizard's prompts and notes are available in **English** (default) and **Thai** (`th`). Pick a language explicitly with `--lang`:
 
 ```bash
-npm create @noy-db my-app --lang th
+npm create noy-db my-app --lang th
 ```
 
 When `--lang` is omitted, the wizard reads the standard POSIX locale env vars (`LC_ALL`, `LC_MESSAGES`, `LANG`, `LANGUAGE`) and auto-selects Thai when they point to a Thai locale, e.g.:
 
 ```bash
-LANG=th_TH.UTF-8 npm create @noy-db my-app
+LANG=th_TH.UTF-8 npm create noy-db my-app
 ```
 
 Validation errors and stack traces stay in English regardless of language so bug reports look the same in any locale.
@@ -113,10 +113,10 @@ Validation errors and stack traces stay in English regardless of language so bug
 
 ## `noy-db` — the CLI tool
 
-The `noy-db` bin ships inside the same `@noy-db/create` package. Install it as a dev dependency and it's available via `pnpm exec` / `npx`:
+The `noy-db` bin ships inside the same `create-noy-db` package. Install it as a dev dependency and it's available via `pnpm exec` / `npx`:
 
 ```bash
-pnpm add -D @noy-db/create
+pnpm add -D create-noy-db
 pnpm exec noy-db <command>
 ```
 
