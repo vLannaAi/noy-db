@@ -1,5 +1,76 @@
 # Changelog — create-noy-db
 
+## 0.3.0-pre.12
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0-pre.12
+  - @noy-db/to-file@1.0.0-pre.12
+  - @noy-db/to-memory@1.0.0-pre.12
+
+## 0.3.0-pre.11
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0-pre.11
+  - @noy-db/to-file@1.0.0-pre.11
+  - @noy-db/to-memory@1.0.0-pre.11
+
+## 0.3.0-pre.10
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0-pre.10
+  - @noy-db/to-file@1.0.0-pre.10
+  - @noy-db/to-memory@1.0.0-pre.10
+
+## 0.3.0-pre.9
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0-pre.9
+  - @noy-db/to-file@1.0.0-pre.9
+  - @noy-db/to-memory@1.0.0-pre.9
+
+## 0.3.0-pre.8
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0-pre.8
+  - @noy-db/to-file@1.0.0-pre.8
+  - @noy-db/to-memory@1.0.0-pre.8
+
+## 0.3.0-pre.7
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0-pre.7
+  - @noy-db/to-file@1.0.0-pre.7
+  - @noy-db/to-memory@1.0.0-pre.7
+
 ## 0.3.0-pre.6
 
 ### Patch Changes

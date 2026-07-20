@@ -160,7 +160,7 @@ describe('semantic retrieval (#308 L2)', () => {
     expect(puts.filter((p) => p.startsWith('_vec/'))).toHaveLength(0)
 
     // The raw envelope body stored in _vec should not contain the plaintext source text
-    const env = await store.get('v', '_vec', 'doc1')
+    const env = await store.get('v', '_vec', 'docs/doc1')
     expect(JSON.stringify(env)).not.toContain('overdue')
     expect(JSON.stringify(env)).not.toContain('invoice')
   })

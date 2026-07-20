@@ -18,12 +18,14 @@ concurrency:
 permissions:
   contents: read
 
-# Hub ships dts for 28 subpath entries off a very large type surface
-# (field-metadata epic); tsup's rollup-dts worker needs more than the
-# default heap or it dies with ERR_WORKER_OUT_OF_MEMORY. Applies to every
-# job that builds (build, lint+typecheck, test, interop).
+# Was 12288: hub's dts build used to bundle each subpath entry's
+# declaration graph independently (tsup's rollup-dts worker), which grew
+# past 8GB across ~39 entries. #660 replaced it with a single plain
+# `tsc --emitDeclarationOnly` pass (packages/hub/scripts/build.mjs), which
+# peaks under 500MB — see .superpowers/sdd/m26-task-2-report.md. This cap
+# is now just a generic safety margin for any job that builds/tests.
 env:
-  NODE_OPTIONS: --max-old-space-size=8192
+  NODE_OPTIONS: --max-old-space-size=4096
 
 jobs:
   # ── Architecture invariants ──────────────────────────────────────────
@@ -109,6 +111,13 @@ jobs:
           restore-keys: ${{ runner.os }}-turbo-
       - name: Build
         run: pnpm turbo build
+      # The bundle-size + cross-leak gate (packages/hub/scripts/check-bundle.mjs)
+      # resolves `@noy-db/hub` through the built dist, so it belongs here
+      # rather than on the build-free architecture job — this was never
+      # CI-wired before (turbo's bundle-check task exists but nothing
+      # invoked it).
+      - name: Bundle check (hub)
+        run: pnpm --filter @noy-db/hub bundle-check
 
   # ── Test (dev CI) ────────────────────────────────────────────────────
   # Single flake-free runtime (node 24) for fast PR feedback. The full

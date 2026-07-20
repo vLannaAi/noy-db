@@ -7,7 +7,7 @@
  * @module
  */
 import type { Vault } from '../kernel/vault.js'
-import { walkClosure, type WalkClosureOptions } from './walk-closure.js'
+import { walkClosure, type WalkClosureOptions, type DanglingRefNotice } from './walk-closure.js'
 
 export interface ExtractionPreview {
   readonly totalRecords: number
@@ -24,13 +24,21 @@ export interface ExtractionPreview {
   readonly graph: { readonly depth: number; readonly cyclesDetected: boolean }
   /** Records the walk reached but whose envelope couldn't be read. */
   readonly inaccessible: ReadonlyArray<{ readonly collection: string; readonly id: string }>
+  /**
+   * #772: outbound FK edges whose referenced parent was excluded from the
+   * closure (missing, or tier-elevated and therefore invisible) — mirrors
+   * `ExtractPartitionResult.danglingRefs` (#759) so a preview/extract pair
+   * gives the SAME signal. A parent excluded this way never appears in
+   * `byCollection` at all; this is the only preview-time indicator.
+   */
+  readonly danglingRefs: ReadonlyArray<DanglingRefNotice>
 }
 
 export async function describeExtraction(
   vault: Vault,
   opts: WalkClosureOptions,
 ): Promise<ExtractionPreview> {
-  const { closure, graph } = await walkClosure(vault, opts)
+  const { closure, graph, danglingRefs } = await walkClosure(vault, opts)
 
   const { name: vaultName, adapter } = vault._introspectState()
   const encoder = new TextEncoder()
@@ -84,5 +92,6 @@ export async function describeExtraction(
     byCollection,
     graph,
     inaccessible,
+    danglingRefs,
   })
 }

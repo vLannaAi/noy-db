@@ -25,7 +25,7 @@
  */
 
 import { readPath } from '../../kernel/query/predicate.js'
-import type { MoneyString } from '../../with-shape/money/branded.js'
+import type { MoneyString } from '../../via/money/branded.js'
 import type { QueryField } from '../../kernel/types.js'
 
 /**

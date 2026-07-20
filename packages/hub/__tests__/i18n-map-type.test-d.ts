@@ -8,7 +8,7 @@
  * Run: `pnpm exec vitest --run --typecheck.enabled --typecheck.only`
  */
 import { describe, it, expectTypeOf } from 'vitest'
-import type { I18nMap } from '../src/with-shape/i18n/core.js'
+import type { I18nMap } from '../src/via/i18n/core.js'
 
 type Lang = 'th' | 'en' | 'ja'
 

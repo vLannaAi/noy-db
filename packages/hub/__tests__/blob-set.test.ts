@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, NoydbBundleStore } from '../src/kernel/types.js'
-import { ConflictError, BundleVersionConflictError } from '../src/kernel/errors.js'
+import { ConflictError, BundleVersionConflictError, ValidationError, TamperedError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
-import { withBlobs } from '../src/with-shape/blobs/index.js'
+import { withBlobs } from '../src/via/blob/index.js'
 import { withTeam } from '../src/with-party/team/index.js'
+import { encryptBytesWithAAD, type EnclaveKey } from '../src/kernel/enclave/index.js'
 import {
   BLOB_INDEX_COLLECTION,
   BLOB_CHUNKS_COLLECTION,
@@ -509,6 +510,183 @@ describe('BlobSet', () => {
 
     db.close()
   })
+
+  // ─── #750: forget shreds published versions ────────────────────────
+
+  it('#750: shredAllForRecord shreds version-held content and deletes the version rows', async () => {
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const col = vault.collection<{ x: number }>('docs', { perRecordKeys: true })
+    await col.put('d-001', { x: 1 })
+
+    const blobs = col.blob('d-001')
+    await blobs.put('file.txt', textBytes('original content'))
+    await blobs.publish('file.txt', 'v1')
+    // Overwrite the slot: the v1 content is now held ONLY by the published version.
+    await blobs.put('file.txt', textBytes('amended content'))
+
+    const result = await blobs.shredAllForRecord()
+    expect(result.residue).toEqual([])
+
+    // Version rows for the record are gone…
+    const versionKeys = await store.list(VAULT, `${BLOB_VERSIONS_PREFIX}docs`)
+    expect(versionKeys.filter((k) => k.startsWith('d-001::'))).toEqual([])
+    // …and BOTH contents (slot-held and version-held) are crypto-shredded.
+    expect(await store.list(VAULT, BLOB_INDEX_COLLECTION)).toEqual([])
+    expect(await store.list(VAULT, BLOB_CHUNKS_COLLECTION)).toEqual([])
+    db.close()
+  })
+
+  it('#750: version content shared with another record is retained for the co-owner', async () => {
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const col = vault.collection<{ x: number }>('docs', { perRecordKeys: true })
+    await col.put('d-001', { x: 1 })
+    await col.put('d-002', { x: 2 })
+
+    const a = col.blob('d-001')
+    await a.put('file.txt', textBytes('shared bytes'))
+    await a.publish('file.txt', 'v1')
+    const b = col.blob('d-002')
+    await b.put('copy.txt', textBytes('shared bytes')) // dedup: same eTag, refCount 3
+
+    const result = await a.shredAllForRecord()
+    // d-001's two holds (slot + version) released in ONE outcome: retainedShared.
+    expect(result.retainedShared).toHaveLength(1)
+    expect(result.shredded).toEqual([])
+    // Co-owner still reads.
+    expect(new TextDecoder().decode((await b.get('copy.txt'))!)).toBe('shared bytes')
+    db.close()
+  })
+
+  it('#750: versions are shredded even when the slot map is empty (version outlived its slot)', async () => {
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const col = vault.collection<{ x: number }>('docs', { perRecordKeys: true })
+    await col.put('d-001', { x: 1 })
+
+    const blobs = col.blob('d-001')
+    await blobs.put('file.txt', textBytes('published then unlinked'))
+    await blobs.publish('file.txt', 'v1')
+    await blobs.delete('file.txt') // slot gone; the version keeps its hold
+
+    const result = await blobs.shredAllForRecord()
+    expect(result.shredded).toHaveLength(1)
+    expect(await store.list(VAULT, `${BLOB_VERSIONS_PREFIX}docs`)).toEqual([])
+    expect(await store.list(VAULT, BLOB_CHUNKS_COLLECTION)).toEqual([])
+    db.close()
+  })
+
+  it('#750: an unreadable version row is reported as residue and left in place', async () => {
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const col = vault.collection<{ x: number }>('docs', { perRecordKeys: true })
+    await col.put('d-001', { x: 1 })
+
+    const blobs = col.blob('d-001')
+    await blobs.put('file.txt', textBytes('content'))
+    await blobs.publish('file.txt', 'v1')
+
+    // Corrupt the version row at rest.
+    const versionsColl = `${BLOB_VERSIONS_PREFIX}docs`
+    const [key] = (await store.list(VAULT, versionsColl)).filter((k) => k.startsWith('d-001::'))
+    const envelope = (await store.get(VAULT, versionsColl, key!))!
+    await store.put(VAULT, versionsColl, key!, { ...envelope, _data: 'corrupted' }, envelope._v)
+
+    const result = await blobs.shredAllForRecord()
+    expect(result.residue).toEqual([`docs:d-001:${key}`])
+    // The row is NOT deleted (deleting blind would orphan its refCount hold).
+    expect(await store.get(VAULT, versionsColl, key!)).not.toBeNull()
+    db.close()
+  })
+
+  describe('#752 blob key-part guard', () => {
+    it('put rejects a record id containing \'::\'', async () => {
+      const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+      const vault = await db.openVault(VAULT)
+      const col = vault.collection<{ x: number }>('docs')
+      await col.put('a::x', { x: 1 })
+
+      await expect(col.blob('a::x').put('file.txt', textBytes('hi'))).rejects.toThrow(ValidationError)
+      db.close()
+    })
+
+    it('put rejects a slot name containing \'::\'', async () => {
+      const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+      const vault = await db.openVault(VAULT)
+      const col = vault.collection<{ x: number }>('docs')
+      await col.put('d-001', { x: 1 })
+
+      await expect(col.blob('d-001').put('bad::slot', textBytes('hi'))).rejects.toThrow(ValidationError)
+      db.close()
+    })
+
+    it('publish rejects a label containing \'::\'', async () => {
+      const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+      const vault = await db.openVault(VAULT)
+      const col = vault.collection<{ x: number }>('docs')
+      await col.put('d-001', { x: 1 })
+
+      const blobs = col.blob('d-001')
+      await blobs.put('file.txt', textBytes('hi'))
+
+      await expect(blobs.publish('file.txt', 'bad::label')).rejects.toThrow(ValidationError)
+      db.close()
+    })
+
+    it('sanity: normal id/slot/label still work (put + publish + getVersion round-trip)', async () => {
+      const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+      const vault = await db.openVault(VAULT)
+      const col = vault.collection<{ x: number }>('docs')
+      await col.put('d-001', { x: 1 })
+
+      const blobs = col.blob('d-001')
+      const bytes = textBytes('hello')
+      await blobs.put('file.txt', bytes)
+      await blobs.publish('file.txt', 'v1')
+
+      const v1 = await blobs.getVersion('file.txt', 'v1')
+      expect(v1).not.toBeNull()
+      expect(new TextDecoder().decode(v1!)).toBe('hello')
+      db.close()
+    })
+
+    it('sanity: an interior colon in id/slot is still accepted (put + get round-trip)', async () => {
+      const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+      const vault = await db.openVault(VAULT)
+      const col = vault.collection<{ x: number }>('docs')
+      await col.put('invoice:2025', { x: 1 })
+
+      const blobs = col.blob('invoice:2025')
+      const bytes = textBytes('hello')
+      await blobs.put('file:v1.txt', bytes)
+
+      const got = await blobs.get('file:v1.txt')
+      expect(got).not.toBeNull()
+      expect(new TextDecoder().decode(got!)).toBe('hello')
+      db.close()
+    })
+
+    it('put rejects a record id with a trailing colon (boundary re-segmentation)', async () => {
+      const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+      const vault = await db.openVault(VAULT)
+      const col = vault.collection<{ x: number }>('docs')
+      await col.put('a:', { x: 1 })
+
+      await expect(col.blob('a:').put('file.txt', textBytes('hi'))).rejects.toThrow(ValidationError)
+      db.close()
+    })
+
+    it('put rejects a slot name with a leading colon (boundary re-segmentation)', async () => {
+      const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+      const vault = await db.openVault(VAULT)
+      const col = vault.collection<{ x: number }>('docs')
+      await col.put('d-001', { x: 1 })
+
+      await expect(col.blob('d-001').put(':x', textBytes('hi'))).rejects.toThrow(ValidationError)
+      db.close()
+    })
+  })
 })
 
 // ─── wrapBundleStore Tests ───────────────────────────────────────────
@@ -750,5 +928,92 @@ describe('detectMimeType', () => {
     expect(isPreCompressed('application/gzip')).toBe(true)
     expect(isPreCompressed('application/pdf')).toBe(false)
     expect(isPreCompressed('text/plain')).toBe(false)
+  })
+})
+
+// ─── #757: decryptResponse — CEK-aware, tier-aware, content-address verified ──
+
+describe('#757 decryptResponse()', () => {
+  let store: NoydbStore
+
+  beforeEach(() => {
+    store = makeStore()
+  })
+
+  it('round-trips an ERASABLE (perRecordKeys) blob — was broken (decrypt failure) before the _cek unwrap fix', async () => {
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const docs = vault.collection<{ id: string }>('docs', { perRecordKeys: true })
+    await docs.put('d1', { id: 'd1' })
+    const blobs = docs.blob('d1')
+    await blobs.put('file.bin', textBytes('erasable blob content'), { compress: false })
+
+    const info = (await blobs.blobInfo('file.bin'))!
+    expect(info._cek).toBeDefined() // confirms this is genuinely erasable (per-blob CEK), not the legacy flat path
+    expect(info.chunkCount).toBe(1)
+
+    // The caller-fetched ciphertext response, as `presignedUrl()` + a raw
+    // fetch would hand back — a JSON envelope of the raw chunk row.
+    const chunkEnv = await store.get(VAULT, BLOB_CHUNKS_COLLECTION, `${info.eTag}_0`)
+    const cipherResponse = new Response(JSON.stringify({ _iv: chunkEnv!._iv, _data: chunkEnv!._data }))
+
+    const plainResponse = await blobs.decryptResponse('file.bin', cipherResponse)
+    expect(plainResponse).not.toBeNull()
+    const recovered = new Uint8Array(await plainResponse!.arrayBuffer())
+    expect(new TextDecoder().decode(recovered)).toBe('erasable blob content')
+
+    db.close()
+  })
+
+  it('rejects a substituted ciphertext (correct key + correct AAD, wrong plaintext) with TamperedError instead of returning attacker bytes', async () => {
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const docs = vault.collection<{ id: string }>('docs') // legacy: no perRecordKeys — flat DEK IS the chunk key
+    await docs.put('d1', { id: 'd1' })
+    const blobs = docs.blob('d1')
+    await blobs.put('file.bin', textBytes('true secret bytes'), { compress: false })
+
+    const info = (await blobs.blobInfo('file.bin'))!
+    const victimETag = info.eTag
+
+    // Attacker: holds the flat `_blob` DEK (same threat model as the
+    // #747/#749 review I1 forged-row attack — any co-tenant/holder of the
+    // flat DEK with store write access) and crafts fresh ciphertext whose
+    // AAD matches the VICTIM's own eTag/chunkIndex/chunkCount, so AES-GCM
+    // auth alone can't distinguish it from an honest chunk — only
+    // content-address re-verification catches the plaintext substitution.
+    const getDEK = (vault as unknown as { getDEK(name: string): Promise<EnclaveKey> }).getDEK
+    const blobDEK = await getDEK('_blob')
+    const forgedAAD = new TextEncoder().encode(`${victimETag}:0:1`)
+    const { iv, data } = await encryptBytesWithAAD(textBytes('forged attacker bytes'), blobDEK, forgedAAD)
+    const forgedResponse = new Response(JSON.stringify({ _iv: iv, _data: data }))
+
+    await expect(blobs.decryptResponse('file.bin', forgedResponse)).rejects.toThrow(TamperedError)
+
+    db.close()
+  })
+
+  it('refuses a multi-chunk blob loudly (ValidationError) instead of silently decrypting/returning only chunk 0', async () => {
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET, blobStrategy: withBlobs() })
+    const vault = await db.openVault(VAULT)
+    const docs = vault.collection<{ id: string }>('docs')
+    await docs.put('d1', { id: 'd1' })
+    const blobs = docs.blob('d1')
+    await blobs.put('file.bin', randomBytes(500), { compress: false, chunkSize: 128 })
+
+    const info = (await blobs.blobInfo('file.bin'))!
+    expect(info.chunkCount).toBe(4)
+
+    // presignedUrl() already refuses to mint a URL for this blob (chunkCount
+    // !== 1 → null); decryptResponse must refuse just as loudly if handed a
+    // ciphertext Response for it some other way.
+    expect(await blobs.presignedUrl('file.bin')).toBeNull()
+
+    const chunkEnv = await store.get(VAULT, BLOB_CHUNKS_COLLECTION, `${info.eTag}_0`)
+    const cipherResponse = new Response(JSON.stringify({ _iv: chunkEnv!._iv, _data: chunkEnv!._data }))
+
+    await expect(blobs.decryptResponse('file.bin', cipherResponse)).rejects.toThrow(ValidationError)
+
+    db.close()
   })
 })

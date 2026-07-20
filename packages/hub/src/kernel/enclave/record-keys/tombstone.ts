@@ -25,7 +25,7 @@ import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope } from '../../types.js'
  * and legacy migration envelopes carry non-empty `_iv`/`_data`).
  */
 export function isTombstoneShape(envelope: EncryptedEnvelope): boolean {
-  return envelope._data === '' && envelope._cek === undefined
+  return envelope._data === '' && envelope._cek === undefined && envelope._del !== true
 }
 
 /**
@@ -60,6 +60,29 @@ export function buildTombstone(version: number, actor: string): EncryptedEnvelop
     _ts: new Date().toISOString(),
     _iv: '',
     _data: '',
+    ...(actor ? { _by: actor } : {}),
+  }
+}
+
+/** #589: is this envelope an ordinary-delete marker (version-ordered, reads as absent)? */
+export function isDeleteMarker(envelope: EncryptedEnvelope): boolean {
+  return envelope._del === true
+}
+
+/**
+ * Mint a delete marker from the deleted record's next version + actor (#589).
+ * Minted at the NEXT version (`existing._v + 1`) — unlike `buildTombstone`, which
+ * keeps the displaced `_v` — so it wins convergence over the pre-delete copy and a
+ * re-create can still win over it at a higher version.
+ */
+export function buildDeleteMarker(version: number, actor: string): EncryptedEnvelope {
+  return {
+    _noydb: NOYDB_FORMAT_VERSION,
+    _v: version,
+    _ts: new Date().toISOString(),
+    _iv: '',
+    _data: '',
+    _del: true,
     ...(actor ? { _by: actor } : {}),
   }
 }

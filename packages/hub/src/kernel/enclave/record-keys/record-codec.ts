@@ -16,16 +16,19 @@
  *
  * Internal service — not exported as a `@noy-db/hub/*` subpath.
  */
-import { encrypt, decrypt, encryptDeterministic, deriveDeterministicKey, wrapCek, unwrapCek, deriveSealedFieldKey, deriveSealedFieldKeyFromCek, type EnclaveKey } from '../crypto.js'
-import { NOYDB_FORMAT_VERSION, SealedHandle, type EncryptedEnvelope, type CrdtMode, type CrdtState, type CrdtStrategy, type VdigFieldPolicy } from '../../types.js'
-import { isTombstone } from './tombstone.js'
-import { parseSealedSlot, dualReadSealedSlot } from './sealed-slot.js'
+import { encrypt, decrypt, encryptDeterministic, deriveDeterministicKey, wrapCek, unwrapCek, deriveSealedFieldKeyFromCek, type EnclaveKey } from '../crypto.js'
+import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope, type CrdtMode, type CrdtState, type CrdtStrategy, type VdigFieldPolicy, type SealedHandle } from '../../types.js'
+import { isTombstone, isDeleteMarker } from './tombstone.js'
+import { parseSealedSlot } from './sealed-slot.js'
+import { sealFields, unsealOneField, unsealFields, makeHandleProducer, makeSealedSlotCapability, makeReservedEnvelopes, type SealKeyMaterial } from './sealed-slots.js'
 import { DebugReservedFieldError, ClassifiedConfigError, ValidationError } from '../../errors.js'
 import { mintVdigSlot } from '../classify/write.js'
 import { mintBidxTag } from '../classify/bidx.js'
 import { normalizeForVerify } from '../classify/normalize.js'
 import { validateSchemaOutput, type StandardSchemaV1 } from '../../schema.js'
 import type { Lru } from '../../cache/index.js'
+import type { ViaCryptoCtx, SealedSlotRef } from '../../via/index.js'
+import type { ViaPipeline } from '../../via/pipeline.js'
 
 /**
  * One classified per-slot verdict from {@link RecordCodec.classifySealedShred}.
@@ -73,18 +76,78 @@ export interface RecordCodecContext<T> {
   readonly crdtStrategy: CrdtStrategy
   /** Output-schema validator, or undefined. */
   readonly schema: StandardSchemaV1<unknown, T> | undefined
-  /** The collection DEK (codec only ever needs this.name's DEK). */
-  getDEK(): Promise<EnclaveKey>
+  /**
+   * Resolve a collection's DEK. Called with no argument for `this.name`'s
+   * own DEK (every ordinary codec use); `viaCryptoCtx`'s `reservedEnvelopes`
+   * door passes an explicit OTHER collection name (e.g. a reserved
+   * `_dict_status` collection) so a binding's at-rest hook can address a
+   * different collection's DEK without ever holding the resolver itself.
+   */
+  getDEK(collection?: string): Promise<EnclaveKey>
   /**
    * The collection's per-record CEK cache (SHARED reference, not a copy).
    * Ownership/lifetime stays on Collection; codec reads+writes it in
    * resolveEnvelopeCek exactly as the inline code did. `null` → no caching.
    */
   readonly cekCache: Lru<string, EnclaveKey> | null
+  /**
+   * Compiled Via pipeline (money, i18n, …), or undefined for a collection
+   * with none declared. `encryptRecord`/`decryptRecord` consult
+   * `via?.hasAtRestHooks` at the sealed-slot sub-step to choose between a
+   * binding's `encodeAtRest`/`decodeAtRest` hooks and today's inline path.
+   * The zero-via fast path (`via` undefined, or no binding declares an
+   * at-rest hook) stays byte/behavior-identical (#629 Task 3).
+   *
+   * Mutable (not `readonly`, #638 Task 3): `Collection.via` can be
+   * reassigned post-construction (the taint overlay, `via/graph-wiring.ts#
+   * applyTaintOverlay`) — `RecordCodec.setVia` below keeps this in sync so
+   * at-rest hooks read the LIVE pipeline, not a stale construction-time
+   * snapshot.
+   */
+  via: ViaPipeline | undefined
 }
 
 export class RecordCodec<T> {
   constructor(private readonly ctx: RecordCodecContext<T>) {}
+
+  /**
+   * @internal Update the live Via pipeline this codec's at-rest hooks read
+   * (#638 Task 3) — called by `via/graph-wiring.ts#applyTaintOverlay` right
+   * after it reassigns `Collection.via`, so `hasAtRestHooks`/`encodeAtRest`/
+   * `decodeAtRest` see the newly-added `taint` binding instead of the
+   * pipeline snapshot captured when this codec was constructed.
+   */
+  setVia(via: ViaPipeline | undefined): void {
+    this.ctx.via = via
+  }
+
+  /** Sealed-slot key material for this codec's collection, for a given per-record CEK (or none). */
+  private sealKeyMaterial(cek: EnclaveKey | undefined): SealKeyMaterial {
+    return {
+      collection: this.ctx.name,
+      ...(cek !== undefined ? { cek } : {}),
+      getDEK: () => this.ctx.getDEK(),
+    }
+  }
+
+  /**
+   * Build the `ViaCryptoCtx` handed to a binding's `encodeAtRest`/
+   * `decodeAtRest` hook: `sealedSlots` pre-bound to `(this.ctx.name,
+   * recordId)` — always threading `cek` when the caller has one, so the
+   * capability's record-binding stays cryptographic rather than degrading
+   * to collection-scope. `reservedEnvelopes`'s DEK resolver forwards its
+   * `collection` argument straight to `this.ctx.getDEK` (#629 Task 4) — it
+   * resolves the RESERVED collection's own DEK (e.g. `_dict_status`), never
+   * `this.ctx.name`'s, matching `Vault.getDEK`'s per-collection-name
+   * resolution (the same resolver `DictionaryHandle` used pre-cutover).
+   */
+  private viaCryptoCtx(recordId: string, cek: EnclaveKey | undefined): ViaCryptoCtx {
+    const declaredPrefixes = this.ctx.via?.bindings.flatMap((b) => b.reservedPrefixes ?? []) ?? []
+    return {
+      sealedSlots: makeSealedSlotCapability(this.ctx, recordId, cek),
+      reservedEnvelopes: makeReservedEnvelopes((collection) => this.ctx.getDEK(collection), declaredPrefixes),
+    }
+  }
 
   // ──────────────────────────────────────────────────────────────────────
   // Low-level literal builders
@@ -209,6 +272,7 @@ export class RecordCodec<T> {
     source?: string,
     sourceTs?: string,
     vdig?: { readonly id: string; readonly prev: EncryptedEnvelope | null },
+    id?: string,
   ): Promise<EncryptedEnvelope> {
     // Debug-plaintext: write user-collection records with their fields inlined
     // beside the envelope metadata so native store tools read them directly.
@@ -263,27 +327,38 @@ export class RecordCodec<T> {
     // `_sealed[field]` slot under a per-field key. Default-off — with no
     // sensitive fields the open record is unchanged and no `_sealed` is
     // emitted, so the envelope stays byte-identical to legacy output.
+    // A collection whose via pipeline declares at-rest hooks (#629 Task 3)
+    // seals through THOSE instead — the inline `sensitiveFields` path and
+    // the hook path are mutually exclusive per collection, gated on
+    // `hasAtRestHooks` (the inline path now serves only the plain
+    // `sensitive: [...]` collection option; since #629, `classifiedFields`-
+    // declared fields seal through their own via-binding hook, and since
+    // #638 so does any field the taint graph seals — `via/classified/
+    // binding.ts` and `kernel/via/taint-binding.ts`, respectively). The
+    // zero-via fast path (no `via`, or a pipeline with no at-rest hooks,
+    // e.g. money-only) always takes the `else if` branch, unchanged.
     let openRecord = record
     let sealed: Record<string, string> | undefined
-    if (this.ctx.storeCiphertext && this.ctx.sensitiveFields.size > 0) {
-      const src = record as unknown as Record<string, unknown>
-      const dek = await this.ctx.getDEK()
-      const open: Record<string, unknown> = { ...src }
-      const slots: Record<string, string> = {}
-      for (const field of this.ctx.sensitiveFields) {
-        if (!(field in src)) continue
-        const value = src[field]
-        if (value === undefined) continue
-        const fieldKey = cek !== undefined
-          ? await deriveSealedFieldKeyFromCek(cek, this.ctx.name, field)
-          : await deriveSealedFieldKey(dek, this.ctx.name, field)
-        const { iv, data } = await encrypt(JSON.stringify(value), fieldKey)
-        slots[field] = `${iv}:${data}`
-        delete open[field]
+    if (this.ctx.storeCiphertext && this.ctx.via?.hasAtRestHooks) {
+      if (id === undefined) {
+        throw new Error(
+          `RecordCodec.encryptRecord: collection "${this.ctx.name}" has via at-rest hooks but this write ` +
+          'path supplied no record id (needed to scope the sealed-slot capability) — caller bug.',
+        )
       }
-      if (Object.keys(slots).length > 0) {
-        sealed = slots
-        openRecord = open as unknown as T
+      const src = record as unknown as Record<string, unknown>
+      const result = await this.ctx.via.encodeAtRest(src, this.viaCryptoCtx(id, cek))
+      openRecord = result.record as unknown as T
+      if (result.sealed !== undefined) {
+        sealed = {}
+        for (const [field, ref] of Object.entries(result.sealed)) sealed[field] = `${ref.iv}:${ref.data}`
+      }
+    } else if (this.ctx.storeCiphertext && this.ctx.sensitiveFields.size > 0) {
+      const src = record as unknown as Record<string, unknown>
+      const result = await sealFields(src, this.ctx.sensitiveFields, this.sealKeyMaterial(cek))
+      if (result.sealed !== undefined) {
+        sealed = result.sealed
+        openRecord = result.openRecord as unknown as T
       }
     }
 
@@ -448,7 +523,7 @@ export class RecordCodec<T> {
     // treats it as "absent / skip", matching how get()/list already drop
     // tombstones. Legacy plaintext collections (`!this.storeCiphertext`) legitimately
     // have empty `_iv`/`_data`, so `isTombstone` is false for them — preserved.
-    if (isTombstone(envelope, this.ctx.storeCiphertext)) return null
+    if (isTombstone(envelope, this.ctx.storeCiphertext) || isDeleteMarker(envelope)) return null
     if (!this.ctx.storeCiphertext) {
       // Debug-plaintext layout: record fields were inlined as top-level keys
       // (see buildDebugEnvelope). Reconstruct the record from the non-`_`
@@ -488,8 +563,17 @@ export class RecordCodec<T> {
     // CEK-encrypted) are sealed under the collection-DEK key. Try the CEK key
     // first; on its AES-GCM auth failure, fall back to the DEK key. Without this
     // fallback every legacy `_sealed` record would throw TamperedError (data loss).
-    const dek = await this.ctx.getDEK()
-    return JSON.parse(await dualReadSealedSlot(blob, field, this.ctx.name, cek, dek))
+    return unsealOneField(field, blob, this.sealKeyMaterial(cek))
+  }
+
+  /**
+   * Build the `ViaCryptoCtx` for forget()'s per-ref via-erase fold (#629
+   * Task 10) — resolves the live envelope's CEK exactly like
+   * `decryptRecord` does, then delegates to the same capability factory
+   * `encodeAtRest`/`decodeAtRest` use.
+   */
+  async eraseCryptoCtx(id: string, live: EncryptedEnvelope): Promise<ViaCryptoCtx> {
+    return this.viaCryptoCtx(id, await this.resolveEnvelopeCek(live, id))
   }
 
   /**
@@ -550,19 +634,27 @@ export class RecordCodec<T> {
    * exposing the value, which decrypts only on `reveal()`.
    */
   makeSealedHandle(field: string, blob: string, cek?: EnclaveKey): SealedHandle<unknown> {
-    return new SealedHandle(() => this.unsealField(field, blob, cek))
+    return makeHandleProducer(this.sealKeyMaterial(cek))(field, blob)
   }
 
   /**
-   * Replace a record's declared sensitive fields with {@link Sealed} handles
-   * built from the just-written envelope's `_sealed` slots, leaving every
-   * other field as its plaintext value. Used to populate the cache on the
-   * write path without ever materialising sealed plaintext into it. Returns
-   * `record` untouched when the collection seals nothing.
+   * Replace every field the just-written envelope actually sealed with a
+   * {@link Sealed} handle, leaving every other field as its plaintext value.
+   * Used to populate the cache on the write path without ever materialising
+   * sealed plaintext into it. Returns `record` untouched when nothing was
+   * sealed. Keys off `envelope._sealed` itself (#642 fix) — NOT
+   * `this.ctx.sensitiveFields`, which only names the inline `sensitive:[...]`/
+   * classified-recoverable field set: a collection whose sealing comes
+   * entirely from the `taint` via-binding (a derivation/MV output or rollup
+   * target folded sealed from a classified SOURCE collection, #642) declares
+   * no local `sensitiveFields` at all, so that stale gate skipped this
+   * conversion and left a just-written taint-sealed field as cached
+   * plaintext — read back correctly ONLY after a cold cache miss (`get()`'s
+   * own `decodeAtRest` call, unaffected by this gate) forced a fresh decrypt.
    */
   async toCacheRecord(record: T, envelope: EncryptedEnvelope, id?: string): Promise<T> {
     const sealed = envelope._sealed
-    if (sealed === undefined || !this.ctx.storeCiphertext || this.ctx.sensitiveFields.size === 0) {
+    if (sealed === undefined || !this.ctx.storeCiphertext) {
       return record
     }
     const cek = await this.resolveEnvelopeCek(envelope, id)
@@ -571,6 +663,107 @@ export class RecordCodec<T> {
       clone[field] = this.makeSealedHandle(field, blob, cek)
     }
     return clone as unknown as T
+  }
+
+  /**
+   * Apply `_sealed`-slot post-processing to an ALREADY-DECRYPTED `record`:
+   * restore each `_sealed[field]` blob inline (`sealedAsHandles` falsy) or
+   * as an opaque {@link Sealed} handle (`sealedAsHandles: true`), routing
+   * through a via pipeline's `decodeAtRest` hook when one is declared.
+   * Extracted byte-parity from `decryptRecord`'s inline block (#635) so a
+   * caller that resolves its OWN per-record CEK under a DIFFERENT DEK than
+   * this codec's `this.ctx.getDEK()` — namely the tier>0 `getAtTier` leg in
+   * `with-audit/tiers/index.ts`, whose `_cek` is wrapped under the TIER DEK,
+   * not the collection DEK `decryptRecord`/`resolveEnvelopeCek` always
+   * unwrap under — can still get correct sealed-slot handling without
+   * routing its whole read through `decryptRecord` (which would resolve the
+   * wrong DEK for it).
+   *
+   * Zero-knowledge: takes only the already-resolved per-record `cek` (or
+   * `undefined` for a legacy/no-CEK record) — the same shape `makeSealedHandle`
+   * already takes above. Never the keyring, never a raw DEK: the legacy
+   * fallback key stays fully internal to `sealKeyMaterial`/`viaCryptoCtx`,
+   * which close over THIS codec's own `getDEK` (permanently bound to
+   * `this.ctx.name`'s tier-0 DEK at construction) — so even when called from
+   * a tier>0 context, the legacy-fallback key resolution is correct: sealed
+   * fields are always sealed under the CEK or the collection's tier-0 DEK,
+   * never a tier DEK (tier writes don't seal fields; `_sealed` reaches a
+   * tiered envelope only via a tier-0 write later elevated).
+   */
+  async applySealedSlots(
+    record: T,
+    sealed: Record<string, string>,
+    cek: EnclaveKey | undefined,
+    opts: { id?: string; sealedAsHandles?: boolean } = {},
+  ): Promise<T> {
+    if (this.ctx.via?.hasAtRestHooks) {
+      if (opts.id === undefined) {
+        throw new Error(
+          `RecordCodec.decryptRecord: collection "${this.ctx.name}" has via at-rest hooks but this read ` +
+          'path supplied no record id (needed to scope the sealed-slot capability) — caller bug.',
+        )
+      }
+      const sealedRefs: Record<string, SealedSlotRef> = {}
+      for (const [field, blob] of Object.entries(sealed)) {
+        const { iv, data } = parseSealedSlot(blob)
+        sealedRefs[field] = { iv, data }
+      }
+      return await this.ctx.via.decodeAtRest(
+        record as unknown as Record<string, unknown>,
+        sealedRefs,
+        this.viaCryptoCtx(opts.id, cek),
+        { asHandles: opts.sealedAsHandles === true },
+      ) as unknown as T
+    }
+    return await unsealFields(
+      record as unknown as Record<string, unknown>,
+      sealed,
+      this.sealKeyMaterial(cek),
+      { asHandles: opts.sealedAsHandles === true },
+    ) as unknown as T
+  }
+
+  /**
+   * Decrypt an envelope under an EXPLICIT `dek` instead of this codec's own
+   * `ctx.getDEK()` / cekCache resolution — for a from-tier>0 pre-move decode
+   * (`with-audit/tiers/index.ts`'s `putAtTier`/`elevate`/`demote` sites,
+   * #722 whole-branch review). Mirrors the manual unwrap-then-decrypt
+   * `getAtTier`'s own tier>0 leg performs there (same primitives, same
+   * `applySealedSlots` extraction point #635 built for exactly this caller).
+   *
+   * `decryptRecord` is tier-UNAWARE: `resolveEnvelopeCek` reads the cekCache
+   * or falls back to `ctx.getDEK()` — this codec's DEFAULT (tier-0/
+   * collection) DEK — never the envelope's OWN tier. That only happens to
+   * decrypt a from-tier>0 envelope correctly when some other call in the
+   * SAME op already primed the cekCache with this record's CEK (true for an
+   * ordinary put()-then-elevate(0→1); NOT true for a `putAtTier`-origin
+   * envelope, whose body is encrypted directly under its tier DEK with no
+   * `_cek` ever minted, or a non-`perRecordKeys` collection, which has no
+   * `_cek` at all) — those throw `TamperedError`. Decrypting under the
+   * caller-resolved `dek` is correct regardless of cache state or
+   * `perRecordKeys`.
+   *
+   * No CRDT resolution, no schema validation — same scope as `getAtTier`'s
+   * tier>0 branch (the established precedent for a tier-aware read), which
+   * skips both for the same reason: a tier>0 read is an internal/derived-
+   * output-recompute path, not the public per-record read surface schema
+   * validation guards.
+   */
+  async decryptRecordAtDek(envelope: EncryptedEnvelope, dek: EnclaveKey, id?: string): Promise<T | null> {
+    if (isTombstone(envelope, this.ctx.storeCiphertext) || isDeleteMarker(envelope)) return null
+    let plaintext: string
+    let cek: EnclaveKey | undefined
+    if (envelope._cek !== undefined) {
+      cek = await unwrapCek(envelope._cek, dek)
+      plaintext = await decrypt(envelope._iv, envelope._data, cek)
+    } else {
+      plaintext = await decrypt(envelope._iv, envelope._data, dek)
+    }
+    let record = JSON.parse(plaintext) as T
+    if (envelope._sealed !== undefined && this.ctx.storeCiphertext) {
+      record = await this.applySealedSlots(record, envelope._sealed, cek, { ...(id !== undefined ? { id } : {}), sealedAsHandles: true })
+    }
+    return record
   }
 
   /**
@@ -611,15 +804,17 @@ export class RecordCodec<T> {
     // `sealedAsHandles: false` (default — internal callers that compute on
     // real values) inline-decrypts to the plaintext value; `true` (the
     // public / cache path) yields an opaque {@link Sealed} handle so the
-    // plaintext is never materialised into the working-set cache.
+    // plaintext is never materialised into the working-set cache. A
+    // collection whose via pipeline declares at-rest hooks (#629 Task 3)
+    // decodes through THOSE instead of the inline dual-read below — the
+    // zero-via fast path (no `via`, or a pipeline with no at-rest hooks)
+    // always takes the `else` branch, unchanged.
     if (envelope._sealed !== undefined && this.ctx.storeCiphertext) {
       const sealedCek = await this.resolveEnvelopeCek(envelope, opts.id)
-      const target = record as unknown as Record<string, unknown>
-      for (const [field, blob] of Object.entries(envelope._sealed)) {
-        target[field] = opts.sealedAsHandles
-          ? this.makeSealedHandle(field, blob, sealedCek)
-          : await this.unsealField(field, blob, sealedCek)
-      }
+      record = await this.applySealedSlots(record, envelope._sealed, sealedCek, {
+        ...(opts.id !== undefined ? { id: opts.id } : {}),
+        ...(opts.sealedAsHandles !== undefined ? { sealedAsHandles: opts.sealedAsHandles } : {}),
+      })
     }
 
     // Skip output validation when sealed fields are returned as handles:

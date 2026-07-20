@@ -8,9 +8,10 @@
  *   1. INBOUND expansion: from selected records, pull every record
  *      that references them (children travel with parents), to a
  *      fixed point.
- *   2. OUTBOUND completion: pull every parent the selected set
- *      references (no dangling FKs), transitively, WITHOUT
- *      re-expanding inbound from those parents (bounds the closure).
+ *   2. OUTBOUND completion: pull every VISIBLE parent the selected set
+ *      references, transitively, WITHOUT re-expanding inbound from those
+ *      parents (bounds the closure). A tier-elevated (or missing) parent is
+ *      excluded rather than admitted — see `danglingRefs` on the result.
  *
  * The FK graph is auto-derived from the vault's existing RefRegistry
  * (the `ref('target')` declarations on collections) — no hand-written
@@ -31,6 +32,33 @@ export interface WalkClosureOptions {
   readonly maxDepth?: number
 }
 
+/**
+ * #759: an outbound FK edge whose referenced parent was excluded from the
+ * closure — either because it doesn't exist, or because it is tier-elevated
+ * and therefore invisible (same "elevated ≡ missing" semantics as root
+ * selection / inbound expansion). The child keeps its FK value; the parent
+ * does not travel. Callers (extract-partition) surface this as a residue
+ * notice rather than silently dropping it.
+ */
+export interface DanglingRefNotice {
+  /** Collection of the child record that holds the dangling FK. */
+  readonly collection: string
+  /** Id of the child record. */
+  readonly id: string
+  /** FK field on the child that references the missing/elevated parent. */
+  readonly field: string
+  /** Target collection the FK points at. */
+  readonly target: string
+  /** Id of the missing/elevated parent. */
+  readonly targetId: string
+  /**
+   * #772: distinguishes an intentional tier boundary (`'elevated'` — the
+   * parent exists but is above the caller's readable tier) from a genuine
+   * data-integrity gap (`'missing'` — no envelope for `targetId` at all).
+   */
+  readonly reason: 'missing' | 'elevated'
+}
+
 export interface ClosureResult {
   /** collection → set of record ids that travel together. */
   readonly closure: Map<string, Set<string>>
@@ -40,6 +68,8 @@ export interface ClosureResult {
     /** True if an edge pointed back to an already-selected node. */
     readonly cyclesDetected: boolean
   }
+  /** #759: outbound FK edges whose parent was excluded (missing or elevated). */
+  readonly danglingRefs: ReadonlyArray<DanglingRefNotice>
 }
 
 export async function walkClosure(
@@ -85,7 +115,7 @@ export async function walkClosure(
     }
   }
 
-  const { refRegistry } = vault._introspectState()
+  const { refRegistry, adapter, name: vaultName } = vault._introspectState()
   const maxDepth = opts.maxDepth ?? 16
   let cyclesDetected = false
 
@@ -142,6 +172,8 @@ export async function walkClosure(
   let outboundFrontier: Array<[string, string]> = []
   for (const [c, ids] of closure) for (const id of ids) outboundFrontier.push([c, id])
 
+  const danglingRefs: DanglingRefNotice[] = []
+
   while (outboundFrontier.length > 0) {
     const next: Array<[string, string]> = []
     for (const [collectionName, id] of outboundFrontier) {
@@ -155,6 +187,30 @@ export async function walkClosure(
         // Only scalar FK values reference a parent id; skip null/objects.
         if (typeof rawId !== 'string' && typeof rawId !== 'number') continue
         const parentId = String(rawId)
+        // #759: verify the referenced parent is visible through the SAME
+        // tier-gated primitive root selection / inbound expansion use
+        // (`Collection.get()` → `#getRaw`, which returns null for both a
+        // missing record and a tier-elevated one). An elevated parent must
+        // be excluded exactly like an elevated root or inbound target —
+        // "elevated ≡ invisible" — rather than admitted into the closure,
+        // where `reKeyClosure`'s raw adapter read would later hit it and
+        // fail loud (the #748 canary). Record the resulting dangling FK
+        // instead of silently dropping it.
+        const parentColl = vault.collection<Record<string, unknown>>(descriptor.target)
+        const parentRecord = await parentColl.get(parentId)
+        if (!parentRecord) {
+          // #772: a raw (tier-unaware) read distinguishes the two cases the
+          // tier-gated `Collection.get()` above collapses to the same null —
+          // an envelope present with `_tier > 0` is an intentional tier
+          // boundary; no envelope at all is a genuine data-integrity gap.
+          const rawParentEnv = await adapter.get(vaultName, descriptor.target, parentId)
+          const reason: 'missing' | 'elevated' =
+            rawParentEnv && (rawParentEnv._tier ?? 0) > 0 ? 'elevated' : 'missing'
+          danglingRefs.push({
+            collection: collectionName, id, field, target: descriptor.target, targetId: parentId, reason,
+          })
+          continue
+        }
         // Reaching an already-selected parent here is normal DAG
         // convergence (a child referencing its in-scope parent), not a
         // cycle — so do NOT flag cyclesDetected in the outbound phase.
@@ -173,5 +229,5 @@ export async function walkClosure(
 
   const depth = Math.max(inboundDepth, outboundDepth)
 
-  return { closure, graph: { depth, cyclesDetected } }
+  return { closure, graph: { depth, cyclesDetected }, danglingRefs }
 }

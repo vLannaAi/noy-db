@@ -148,12 +148,32 @@ describe('joined fan-out', () => {
     expect(changes.last('msgs')).toMatchObject({ id: 'x', action: 'delete' })
   })
 
+  it('#596: a satellite leg whose write THROWS must not drop a PRE-EXISTING dirty entry for the same id', async () => {
+    const { vault, spy, dirtyLog, deps } = await openPair()
+    // A legitimate, unsynced direct write to msgs_text/x — NOT part of the
+    // fan-out about to fail. This is the dirty entry the bug drops.
+    await vault.collection<Msg>('msgs').put('x', { from: 'a' })
+    await vault.collection<Msg>('msgs_text').put('x', { subject: 's0', body: 'B0' })
+    expect(dirtyLog.entriesFor('msgs_text', 'x')).toHaveLength(1)
+
+    spy.failNextPutFor('msgs_text')
+    await expect(joinedPut(deps(), 'x', { from: 'a2', subject: 's2', body: 'B2' })).rejects.toThrow()
+
+    // The satellite leg's put never landed (it threw), so it must not be
+    // treated as a write that needs dirty-compensation on revert — the
+    // pre-existing legitimate dirty entry must survive.
+    expect(dirtyLog.entriesFor('msgs_text', 'x')).toHaveLength(1)
+    expect((await vault.collection<Msg>('msgs_text').get('x'))?.body).toBe('B0') // unchanged
+  })
+
   it('pair delete removes the satellite leg first; failure reverts', async () => {
-    const { vault, spy, changes, deps } = await openPair()
+    const { vault, spy, changes, deps, dirtyLog } = await openPair()
     await joinedPut(deps(), 'x', { from: 'a', body: 'B' })
     spy.reset()
     await vault.collection<Msg>('msgs').delete('x') // through the public base-proxy delete override
-    expect(spy.deleteOrder).toEqual([['msgs_text', 'x'], ['msgs', 'x']])
+    // #589: under sync, delete() writes a version-ordered marker via adapter.put
+    // (not adapter.delete), so the ordering now shows up on putOrder.
+    expect(spy.putOrder).toEqual([['msgs_text', 'x'], ['msgs', 'x']])
 
     await joinedPut(deps(), 'y', { from: 'b', body: 'C' })
     const priorEnvelope = await spy.raw.get('v1', 'msgs_text', 'y') // envelope to be restored
@@ -161,10 +181,15 @@ describe('joined fan-out', () => {
     // restored record — not a misrouted 'delete' (record: null).
     const subEvents: Array<{ type: string; id: string; record: Msg | null }> = []
     vault.collection<Msg>('msgs_text').subscribe(e => subEvents.push(e))
-    spy.failNextDeleteFor('msgs')
+    // #589: the base leg's delete-under-sync is itself a `put` (the marker), so
+    // the fault injection must target put, not delete, to exercise the revert.
+    spy.failNextPutFor('msgs')
     await expect(vault.collection<Msg>('msgs').delete('y')).rejects.toThrow()
     expect(await spy.raw.get('v1', 'msgs_text', 'y')).toEqual(priorEnvelope) // satellite ENVELOPE restored byte-for-byte
     expect(changes.last('msgs_text')).toMatchObject({ id: 'y', action: 'put' }) // restored → 'put'
+    // #687: assert the dirty-log side of compensation directly (not just the
+    // change-event proxy) — the reverted satellite leg's dirty entry is cleaned.
+    expect(dirtyLog.entriesFor('msgs_text', 'y')).toEqual([])
     await new Promise(r => setTimeout(r, 0)) // let subscribe()'s async hydration settle
     expect(subEvents.at(-1)).toMatchObject({ type: 'put', id: 'y', record: { body: 'C' } })
   })

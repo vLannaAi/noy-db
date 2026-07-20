@@ -7,7 +7,8 @@ import type { RegisteredMV } from './registry.js'
 import { wrapDbWithPredicates } from './registry.js'
 import { groupAndReduce } from '../../with-lookup/aggregate/groupby.js'
 import { canonicalGroupKey } from '../../with-lookup/aggregate/canonical-key.js'
-import { applyI18nLocale, type I18nTextDescriptor } from '../../with-shape/i18n/core.js'
+import { applyI18nLocale, type I18nTextDescriptor } from '../../via/i18n/core.js'
+import { putDerivedOutput, type PutDerivedOutputCtx } from '../../kernel/via/dispatch.js'
 
 /**
  * Accessor shape passed in from the owning Vault. Mirrors v1's
@@ -26,6 +27,15 @@ export interface MVExecutorAccessor {
    * re-evaluate the closure against the live vault state.
    */
   getQueryContext(): MVQueryContext
+  /**
+   * #638 Task 5 — ctx for `putDerivedOutput`'s frozen-period skip+audit. #641: the lazy
+   * resolve-on-read caller (`stale.ts#resolveStaleMVOnRead`) now supplies one too — built at
+   * the `Collection.get()`/`list()` entry point with a `'resolve-on-read'` sentinel id (no
+   * real "reacting write" for a read-triggered materialize, mirroring `refreshView()`'s
+   * `'refreshView'` sentinel). Still declared optional here since `MVExecutorAccessor` is a
+   * general shape and a future caller could reasonably omit it.
+   */
+  dispatchCtx?: PutDerivedOutputCtx
 }
 
 export interface RefreshResult {
@@ -35,6 +45,15 @@ export interface RefreshResult {
   deleted: number
   /** Failed row writes (non-strict mode). */
   failed: number
+  /** #782/#785 — `outputCollection:id` entries from the tombstone pass whose ownership stamp
+   *  couldn't be decoded under the collection's default DEK (undecodable, mirroring
+   *  `invalidateMVAtRest`'s #776 posture) — ownership UNCONFIRMED. Only populated when
+   *  `onEmpty: 'delete'`. */
+  residueUndecodable: string[]
+  /** #782/#785 — `outputCollection:id` entries that decoded, stamp-matched this MV, but
+   *  `_internalDelete` declined (the #718 tier-elevation gate) — ownership CONFIRMED, a real
+   *  silent survival, surfaced rather than dropped. Only populated when `onEmpty: 'delete'`. */
+  residueDeclined: string[]
 }
 
 /** Default cost ceiling — overridable per-MV via `spec.maxRows`. */
@@ -249,6 +268,18 @@ export const MaterializedViewExecutor = {
       rows = await materializeQueryResult(q, spec.name, spec.i18nLocale, spec.i18nFields)
     }
 
+    // #777 — exclude this MV's OWN previously-stamped output rows from the
+    // input scan. A same-collection Query-form MV copies the whole source row
+    // verbatim into its output, so a stale output row can itself satisfy the
+    // MV's own input filter (when the filter is on a field disjoint from the
+    // partition field) and get re-selected as if it were live source — the
+    // row self-perpetuates after its true source is gone. Prior output is
+    // never this MV's own source.
+    rows = rows.filter((row) => {
+      const stamp = row._materializedFrom as { mvName?: string } | undefined
+      return stamp?.mvName !== spec.name
+    })
+
     // 2. Cost ceiling check BEFORE any writes — keeps the rollback
     //    clean if the source-write is wrapped in a transaction.
     if (rows.length > maxRows) {
@@ -291,8 +322,12 @@ export const MaterializedViewExecutor = {
             priorEnvelope: prior,
           })
         }
-        await outputColl.put(id, record)
-        written++
+        if (accessor.dispatchCtx) {
+          if (await putDerivedOutput(outputColl, id, record, accessor.dispatchCtx) === 'written') written++
+        } else {
+          await outputColl.put(id, record)
+          written++
+        }
       } catch (err) {
         failed++
         if (strict) throw err
@@ -306,16 +341,50 @@ export const MaterializedViewExecutor = {
     //    `_internalDelete` so a user-registered `onDelete` on the
     //    output collection does NOT fire on housekeeping (composition fix).
     let deleted = 0
+    const residueUndecodable: string[] = []
+    const residueDeclined: string[] = []
     if (onEmpty === 'delete') {
       const priorIds = await listOutputIds(outputColl)
       for (const priorId of priorIds) {
         if (newIds.has(priorId)) continue
+        // #762 — a same-collection partition MV (`output: { collection: <source>, partition }`,
+        // the DERIV-PP30-001 shape) writes INTO its own source collection, so `listOutputIds`
+        // also returns untouched USER source rows here. Decode each candidate and only
+        // tombstone rows THIS MV stamped via `_materializedFrom.mvName` — the exact discipline
+        // `invalidateMVAtRest` uses (stale.ts:151-162). An unstamped row, or one stamped by a
+        // different MV, is never this MV's to delete.
+        const priorEnvelope = await adapter.get(vaultName, reg.outputCollection, priorId)
+        if (priorEnvelope === null) continue
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const priorDecoded = await (outputColl as any)._decodeEnvelope(priorEnvelope, priorId)
+        if (priorDecoded === null) {
+          // #782 part a — ownership unknown (undecodable, e.g. elevated above tier 0 on a
+          // tiered output collection): can't rule out this being THIS MV's own stamped row.
+          // Surface it rather than silently skip (mirrors invalidateMVAtRest's #776 posture —
+          // previously this leg had NO residue channel at all).
+          residueUndecodable.push(`${reg.outputCollection}:${priorId}`)
+          continue
+        }
+        const priorStampedBy =
+          typeof priorDecoded === 'object'
+            ? (priorDecoded as Record<string, unknown>)._materializedFrom as { mvName?: string } | undefined
+            : undefined
+        if (priorStampedBy?.mvName !== spec.name) continue
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const outAny = outputColl as any
           if (typeof outAny._internalDelete === 'function') {
-            await outAny._internalDelete(priorId, txCtx)
-            deleted++
+            // #776 part b — gate on the boolean, matching invalidateMVAtRest's discipline
+            // (stale.ts): `_internalDelete` returns `false` for a #718 elevated-skip (no
+            // erasure happened), and that must not inflate the tombstone count.
+            if (await outAny._internalDelete(priorId, txCtx)) {
+              deleted++
+            } else {
+              // #782 part b — decoded AND stamp-owned, but erasure was declined (#718
+              // tier-elevation gate). Ownership IS confirmed here — a real silent survival,
+              // not a legit stamp-mismatch skip. Surface it too.
+              residueDeclined.push(`${reg.outputCollection}:${priorId}`)
+            }
           } else {
             // Defensive fallback — should never hit in real flow since
             // every Collection has `_internalDelete`.
@@ -325,13 +394,13 @@ export const MaterializedViewExecutor = {
         } catch (err) {
           failed++
           if (strict) throw err
-           
+
           console.warn(`[mv] "${spec.name}" tombstone failed for id="${priorId}":`, err)
         }
       }
     }
 
-    return { written, deleted, failed }
+    return { written, deleted, failed, residueUndecodable, residueDeclined }
   },
 }
 

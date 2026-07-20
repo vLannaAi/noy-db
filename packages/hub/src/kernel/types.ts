@@ -26,11 +26,10 @@
 import type { StandardSchemaV1 } from './schema.js'
 import type { DeferredNumberingConfig } from '../with-commit/numbering/descriptor.js'
 import type { SyncPolicy } from './sync-policy.js'
-import type { BlobStrategy } from '../with-shape/blobs/strategy.js'
+import type { BlobStrategy } from '../port/with/blob-strategy.js'
 import type { ArchiveStrategy } from '../with-fork/archive/index.js'
 import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
 import type { AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
-import type { LwwMapState, RgaState, YjsState } from '../with-commit/crdt/crdt.js'
 import type { ConsentStrategy } from '../with-audit/consent/strategy.js'
 import type { PeriodsStrategy } from '../with-audit/periods/strategy.js'
 import type { ShadowStrategy } from '../with-fork/shadow/strategy.js'
@@ -38,19 +37,20 @@ import type { TxStrategy } from '../with-commit/tx/strategy.js'
 import type { HistoryStrategy } from '../with-commit/history/strategy.js'
 import type { ForgetStrategy } from '../with-audit/forget/strategy.js'
 import type { SnapshotStrategy } from '../with-fork/snapshots/strategy.js'
+import type { DerivationSkippedFrozen } from './via/dispatch.js'
 import type { AttestationStrategy } from '../with-audit/attestation/strategy.js'
-import type { ClassifiedStrategy } from '../with-shape/classified/strategy.js'
+import type { ClassifiedStrategy } from '../port/with/classified-strategy.js'
 import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
 import type { SealedRecordStrategy } from '../with-audit/sealed-record/strategy.js'
 import type { PortabilityStrategy } from '../with-audit/portability/strategy.js'
 import type { SequenceStrategy } from '../with-commit/sequence/strategy.js'
 import type { CustodyStrategy } from '../with-party/custody/strategy.js'
 import type { TeamStrategy } from '../port/with/team-strategy.js'
+import type { BrokerStrategy } from '../port/with/broker-strategy.js'
 import type { LazyStrategy } from '../port/with/lazy-strategy.js'
 import type { SearchStrategy } from '../with-lookup/search/strategy.js'
 import type { CargoStrategy } from '../with-cargo/strategy.js'
-import type { Layer } from '../with-shape/i18n/policy.js'
-import type { I18nStrategy } from '../with-shape/i18n/strategy.js'
+import type { Layer, I18nStrategy } from '../port/with/i18n-strategy.js'
 import type { SessionStrategy } from '../with-party/session/strategy.js'
 import type { SyncStrategy } from '../with-party/team/sync-strategy.js'
 import type { GuardStrategyHandleAny } from '../with-audit/guards/types.js'
@@ -64,8 +64,8 @@ import type { SealingKeyProvider, RecipientHint } from '../with-party/team/manag
 import type { ShamirRecoveryProvider } from '../with-party/team/shamir-recovery-provider.js'
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { CoordinationProvider } from '../port/by/types.js'
-import type { ScriptWarning } from '../with-shape/i18n/script.js'
-import type { MoneyDescriptor } from '../with-shape/money/descriptor.js'
+import type { ScriptWarning } from '../port/with/i18n-strategy.js'
+import type { ViaDescriptor } from './via/index.js'
 import type { EnclaveKey } from './enclave/index.js'
 
 /** Format version for encrypted record envelopes. */
@@ -230,6 +230,13 @@ export interface EncryptedEnvelope {
    * debug envelope self-describing, so a classic plaintext reader handles it too.
    */
   readonly _debug?: typeof NOYDB_FORMAT_VERSION
+  /**
+   * #589: this envelope is a delete marker (ordinary `collection.delete()` under
+   * sync). Empty `_data`, no `_cek`, but version-ordered — a higher-`_v` re-create
+   * resurrects the id. Distinct from a forget crypto-shred tombstone, which is
+   * terminal. Reads treat it as absent.
+   */
+  readonly _del?: true
 }
 
 /** Spine policy for one digest-only classified field — the enclave-consumable
@@ -253,6 +260,25 @@ export interface ClassifiedMarker {
   readonly digestOnly: readonly string[]
   /** field names additionally declared equatable (have _bidx when covered) */
   readonly equatable: readonly string[]
+  /**
+   * Lifetime epoch (#597) — same shape/intent as `PairingMarker.epoch`
+   * (`with-shape/satellites/types.ts`): an opaque, stable-per-collection-
+   * lifetime stamp minted the first time this marker is persisted and
+   * carried forward unchanged by an IDENTICAL re-persist for the SAME
+   * collection (the equality fast path). NOTE: unlike `PairingMarker` (whose
+   * R-S9 refuses divergent redeclares), a classified marker IS rewritten
+   * wholesale on a genuine reconfiguration (changed digestOnly/equatable
+   * set) — so the epoch re-stamps to the fresh value then (see
+   * `config-drift.ts`'s `markerForFields`). Optional: markers persisted
+   * before this field existed have none. Deliberately excluded from the
+   * classified-marker equality check in
+   * `with-shape/persisted-schemas/register.ts`. ADDITIVE ONLY today: no
+   * delete-collection API exists yet, so a stale marker on a reused name is
+   * unreachable; the epoch-MISMATCH rejection this would enable is a
+   * deferred follow-up once name reuse is possible — whoever wires it must
+   * first make reconfiguration carry the prior epoch forward.
+   */
+  readonly epoch?: string
 }
 
 /** Verdict-only egress of the enclave oracle (spec §3). */
@@ -368,13 +394,19 @@ export type SensitiveOpt<T, S extends keyof T> = [S] extends [never]
 /**
  * The type of the `moneyFields` collection option, conditional on whether the
  * caller opted into compile-time money-field typing via the 4th generic `M`.
- * With no `M` (`M = never`) it accepts any `Record<string, MoneyDescriptor>` —
- * runtime money only, no compile-level narrowing, non-breaking. With `M` given,
- * it is `Record<M, MoneyDescriptor>`, tying the runtime map to the declared
- * money-field union so the two cannot drift.
+ * Typed against the opaque {@link ViaDescriptor} marker rather than the
+ * concrete `MoneyDescriptor` — the kernel never inspects a Via feature's
+ * descriptor shape, only its declaring service does.
+ * A `money()` descriptor structurally satisfies `ViaDescriptor` (it carries
+ * `_viaBrand: 'money'`), so this stays publicly assignable from `money()`
+ * call sites. With no `M` (`M = never`) it accepts any
+ * `Record<string, ViaDescriptor>` — runtime money only, no compile-level
+ * narrowing, non-breaking. With `M` given, it is `Record<M, ViaDescriptor>`,
+ * tying the runtime map to the declared money-field union so the two cannot
+ * drift.
  */
 export type MoneyFieldsOpt<T, M extends keyof T & string = never> =
-  [M] extends [never] ? Record<string, MoneyDescriptor> : Record<M, MoneyDescriptor>
+  [M] extends [never] ? Record<string, ViaDescriptor> : Record<M, ViaDescriptor>
 
 /**
  * Concrete {@link Sealed} handle. Holds the reveal closure (which captures the
@@ -1252,6 +1284,17 @@ export type ConflictStrategy =
  * - `'manual'` — emits `sync:conflict` with a `resolve` callback. Call
  *   `resolve(winner)` synchronously to commit or `resolve(null)` to defer.
  * - Custom fn — synchronous `(local: T, remote: T) => T`. Must be pure.
+ *
+ * **Delete-vs-edit caveat:** `'last-writer-wins'`, `'first-writer-wins'`,
+ * and `'manual'` compare/hand over raw envelopes, so an edit CAN win over
+ * a delete marker (a later `_ts`, an earlier `_v`, or the app's own
+ * `resolve()` choice). A custom fn, and the CRDT merge modes `'lww-map'`/
+ * `'rga'` (`crdtStrategy`), CANNOT: their shared resolver wrapper decrypts
+ * both sides first and short-circuits to whichever side is the
+ * shredded/tombstoned one *before* the merge function (or CRDT merge)
+ * ever runs — delete unconditionally wins. CRDT mode `'yjs'` is the
+ * exception among CRDT modes: it never decrypts and falls back to a
+ * plain higher-`_v`-wins compare, so an edit can beat a delete there too.
  */
 export type ConflictPolicy<T> =
   | 'last-writer-wins'
@@ -1417,6 +1460,32 @@ export interface NoydbEventMap {
     applied: number
     skipped: boolean
   }
+  /**
+   * #638 Task 5 — a dispatch-driven derivation/rollup/MV output write targeted a row whose
+   * period is closed. The write is SKIPPED (the historical value stands); the SOURCE write
+   * that triggered the recompute still succeeded. See `kernel/via/dispatch.ts#putDerivedOutput`.
+   * `source.id` may be a non-record sentinel (e.g. `'refreshView'`) for manual bulk-refresh-
+   * triggered skips, not a real source record id.
+   */
+  'derivation:skipped-frozen': DerivationSkippedFrozen
+  /**
+   * #654 — an ordinary-delete lookup-ref `cascade`/`nullify` propagation edge whose compare-key
+   * could not be resolved from the backing row (matrix custom-key row unreadable — corruption
+   * class). The delete itself proceeds (only `restrict` edges fail closed, via
+   * `RestrictRefUnresolvableError`); this edge's propagation is skipped and reported here instead
+   * of silently dropped — the ordinary-delete counterpart of the forget path's
+   * `ForgetResult.lookupReferencesResidue` channel. `residue` entries are `backing:key:
+   * collection.field`, one per un-propagated edge (see `VaultLinks.applyLookupRefsPropagation`).
+   */
+  'lookup:propagation-residue': { vault: string; dimension: string; key: string; residue: readonly string[] }
+  /**
+   * #640 rider (#644 item 3) — the sync/cutover/restore dispatch wave's per-id recompute failed
+   * (a genuine decrypt failure, a derive()/executor bug, a schema violation on the output, ...).
+   * ADDITIVE to the existing `console.warn` in `runGraphDispatchWave` — never replaces it, so no
+   * listener-dependent silence. One event per failed (collection, id); the wave still isolates
+   * the failure to just that one record. See `kernel/via/dispatch.ts#runGraphDispatchWave`.
+   */
+  'derivation:wave-error': { collection: string; id: string; error: unknown }
 }
 
 // ─── Grant / Revoke ────────────────────────────────────────────────────
@@ -1800,10 +1869,47 @@ export interface PresencePeer<P> {
 /** Per-collection CRDT mode. */
 export type CrdtMode = 'lww-map' | 'rga' | 'yjs'
 
-export type CrdtState = LwwMapState | RgaState | YjsState
+// Hoisted from with-commit/crdt/crdt.ts (C3 — #667: breaks the
+// types.ts ↔ crdt.ts cycle by making crdt.ts's re-export of these
+// three types leaf-ward only). crdt.ts re-exports them from here so
+// existing importers of that module are unaffected.
 
-// Re-exported from crdt.ts so consumers only need one import path.
-export type { LwwMapState, RgaState, YjsState } from '../with-commit/crdt/crdt.js'
+/**
+ * Per-field last-write-wins registers.
+ * Each field carries its latest value and the ISO timestamp of the last write.
+ * Merge: for each field, keep the entry with the lexicographically higher `ts`.
+ */
+export interface LwwMapState {
+  readonly _crdt: 'lww-map'
+  readonly fields: Record<string, { readonly v: unknown; readonly ts: string }>
+}
+
+/**
+ * Simplified Replicated Growable Array.
+ * Items are assigned stable NID (noy-db id) strings on first insertion.
+ * Deleted items are tracked as tombstones so concurrent removals commute.
+ *
+ * The resolved snapshot is the ordered list of non-tombstoned `v` values.
+ */
+export interface RgaState {
+  readonly _crdt: 'rga'
+  readonly items: ReadonlyArray<{ readonly nid: string; readonly v: unknown }>
+  readonly tombstones: readonly string[]
+}
+
+/**
+ * Yjs binary state marker. `update` is base64(Y.encodeStateAsUpdate()).
+ * Core stores and retrieves the blob opaquely. `@noy-db/yjs` is responsible
+ * for encoding, decoding, and merging via `Y.mergeUpdates`.
+ * Core falls back to last-write-wins (higher `_v`) for conflict resolution.
+ */
+export interface YjsState {
+  readonly _crdt: 'yjs'
+  /** base64-encoded Y.encodeStateAsUpdate() bytes. */
+  readonly update: string
+}
+
+export type CrdtState = LwwMapState | RgaState | YjsState
 
 /**
  * Seam interface. `@internal`.
@@ -1923,6 +2029,65 @@ export interface BlobObject {
    * store (e.g. S3). Absent when no routing is configured.
    */
   readonly storeHint?: 'default' | 'blobs'
+  /**
+   * Bounded ring (K=8 — an AUDIT-VISIBLE concurrency bound, not an
+   * implementation detail) of the most recent op-stamp identities applied to
+   * this object's `refCount`. Appended in the SAME CAS write as the
+   * `refCount` change it stamps (`BlobSet`'s `casUpdateRefCountStamped`),
+   * never a separate write — no crash window between the two. Oldest entry
+   * is evicted once the ring exceeds K entries.
+   *
+   * The blob durability journal (#753, spec §7 C2/C4) uses membership here
+   * as its test-and-set: a stamped mutator re-reads this ring on every CAS
+   * attempt (including retries) BEFORE computing its delta — stamp already
+   * present → that mutation already landed → skip re-applying it. This is
+   * what makes a crash-resumed refCount decrement/increment exactly-once
+   * rather than at-least-once.
+   *
+   * Two acceptances, by design — SHRED only (see the #746 whole-branch
+   * review correction below for rehome):
+   *  - **Eviction beyond K, for SHRED.** More than 8 distinct in-flight
+   *    stamped operations racing the SAME object between reads is far
+   *    outside any expected co-ownership fan-out; a 9th racer whose stamp
+   *    gets evicted before it re-reads can only double-apply an idempotent
+   *    CAS delta — never silently lose one (the DECREMENT delta is bounded
+   *    by the marker's authoritative captured `hold.n`, applied as ONE CAS
+   *    per eTag — never per-row — so eviction has nothing row-scoped to
+   *    re-apply against). Not a data-loss risk for shred, just a documented
+   *    concurrency bound.
+   *  - **Stale stamps on a retained object.** A `retainedShared` object (one
+   *    reference released, others still live) keeps whatever stamp its last
+   *    CAS write appended even after that operation's marker is gone —
+   *    harmless bookkeeping, not crypto material (unlike `_cek`), that sits
+   *    inert until the object's next CAS write evicts or overwrites it.
+   *
+   * **#746 whole-branch review correction — this ring is NOT the sole
+   * idempotency source for REHOME.** Rehome's destination `+1`s are
+   * ROW-SCOPED (`${opId}:${slotName}` / `${opId}:${versionKey}`, one stamp
+   * PER CONTRIBUTING ROW, not one per eTag). Within a SINGLE op this ring is
+   * sufficient — rows are processed sequentially and each row's referencing
+   * update lands before the next row's `+1`, so a row whose stamp is later
+   * evicted is already seen as "moved" (skipped) on resume, never
+   * re-incremented. The genuine over-count is **concurrent independent ops**
+   * (distinct `opId`s) converging on one shared destination: ≥8 of them can
+   * evict a crashed op's row-stamp before it resumes, and a naive ring-only
+   * resume would then double-apply that row's `+1` — a real, silent,
+   * permanent-leak over-count, not merely eviction-tolerant like shred's.
+   * `BlobIntent.appliedStamps` (`blob-intent.ts`) is rehome's ring-INDEPENDENT
+   * backstop: an unbounded, per-op, per-record log of confirmed row-stamps,
+   * consulted BEFORE this ring on every resume (see
+   * `BlobSet.applyStampedIncrement`). This ring stays the fast first-line
+   * check; `appliedStamps` makes correctness independent of ring eviction
+   * **except** in one intrinsic non-atomic window: the destination `+1`/ring
+   * write (A) and the `appliedStamps` append (B) are separate object writes,
+   * A before B (deliberately — B-first could under-count and crypto-shred a
+   * still-referenced object, i.e. data loss, strictly worse than a
+   * retained-too-long leak). A crash BETWEEN A and B followed by ≥8 concurrent
+   * evictions before resume can still over-count. This window is intrinsic
+   * (rehome, unlike shred, cannot pre-capture destinations at mint time) and
+   * fail-safe-directed; it is a documented residual (see the arc changeset).
+   */
+  readonly lastOps?: readonly string[]
 }
 
 /**
@@ -1969,6 +2134,20 @@ export interface SlotRecord {
   readonly uploadedAt: string
   /** User ID of the uploader, if available. */
   readonly uploadedBy?: string
+  /**
+   * Internal rehome-journal bookkeeping (#746 spec §7 review, carried
+   * finding (b)) — NEVER part of the public `list()`/`SlotInfo` contract
+   * (`BlobSet.list()` filters it out explicitly). Set, in the SAME CAS
+   * write that points this slot at its new (rehomed) eTag, to the OLD eTag
+   * still awaiting its refCount release: `putUnderDEK`'s slot-CAS and its
+   * old-eTag release are two separate writes, and a crash between them
+   * would otherwise lose the only record of which object still needs
+   * releasing (the slot map itself has already moved past it) — a
+   * permanent stranded-refcount leak. Cleared once the release lands.
+   * Only ever set under a marker-governed (stamped) rehome; absent on
+   * every ordinary `put()`.
+   */
+  readonly pendingRelease?: string
 }
 
 /** Result of `BlobSet.list()` — slot record plus its named slot key. */
@@ -2045,6 +2224,21 @@ export interface StoreAuth {
   flow: 'static' | 'oauth' | 'kerberos' | 'implicit'
 }
 
+/** Vendor-neutral short-lived store credentials. `kind` is the credential-PAYLOAD
+ *  discriminator — orthogonal to StoreAuthKind ('iam'|'api-key'|…), which is unchanged. */
+export type StoreCredentials =
+  | { readonly kind: 'aws'
+      readonly accessKeyId: string
+      readonly secretAccessKey: string
+      readonly sessionToken?: string
+      readonly expiresAt?: string }              // ISO 8601
+  | { readonly kind: 'token'                     // postgres/turso/supabase/webdav/bearer — a LATER slice
+      readonly token: string
+      readonly expiresAt?: string }
+
+/** Refresh hook a store calls when it has no credentials or they are near expiry. */
+export type StoreCredentialSource = () => Promise<StoreCredentials>
+
 /**
  * The store's authoritative clock as a bounded-uncertainty interval
  * (Spanner TrueTime model). True time is provably within [earliest, latest];
@@ -2096,6 +2290,12 @@ export interface StoreCapabilities {
    * `5 * 1024 * 1024` — localStorage quota safety.
    */
   maxBlobBytes?: number
+  /**
+   * true — the store is a tiered router (`routeStore`) with a cold route,
+   * so `compact(vault, { before })` can relocate records hot → cold and
+   * reads fall through to cold. `vault.archivePeriod()` requires this.
+   */
+  coldArchival?: boolean
 }
 
 // ─── Factory Options ───────────────────────────────────────────────────
@@ -2340,6 +2540,15 @@ export interface NoydbOptions {
    * against).
    */
   readonly teamStrategy?: TeamStrategy
+  /**
+   * Tree-shake seam — optional credential-broker capability (#479). Pass
+   * `brokerStrategy: withBroker(config)` from `@noy-db/hub/broker` to
+   * enable `vault.broker()` (`.enroll()` / `.rotate()` /
+   * `.credentialSource(profile?)`). When omitted, `vault.broker()` throws
+   * `BrokerNotEnabledError` and the seed lifecycle + network/cache engine
+   * are reached only via opt-in.
+   */
+  readonly brokerStrategy?: BrokerStrategy
   /**
    * Opt-in seam — the `lazy` service (#267). Pass `withLazy()` from
    * `@noy-db/hub/lazy` to explicitly enable lazy mode's bounded-LRU

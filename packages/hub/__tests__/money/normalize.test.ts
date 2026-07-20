@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { quantizeMoneyFields, decodeMoneyFields } from '../../src/with-shape/money/normalize.js'
-import { money, MoneyPrecisionError } from '../../src/with-shape/money/descriptor.js'
+import { quantizeMoneyFields, decodeMoneyFields } from '../../src/via/money/normalize.js'
+import { money, MoneyPrecisionError } from '../../src/via/money/descriptor.js'
 
 const fields = {
   fixed: { total: money({ currency: 'EUR', scale: 2 }) },

@@ -7,10 +7,11 @@
  *
  * Both legs are driven through `Collection.put`/`.delete` (encryption,
  * ledger, history, cache, sync-dirty, change-emit all fire normally); only
- * the REVERT writes go straight to the raw adapter, mirroring
- * `revertExecuted` (`with-commit/tx/transaction.ts:610`) — re-implemented
- * locally rather than imported, since with-commit is a gated service this
- * always-on satellite path must not depend on.
+ * the REVERT writes go straight to the raw adapter, via the shared
+ * `bestEffortRevert` helper (`kernel/best-effort-revert.ts`) also used by
+ * `revertExecuted` (`with-commit/tx/transaction.ts`) — a neutral kernel-level
+ * home so this always-on satellite path can share the revert shape without
+ * depending on with-commit, a gated service.
  *
  * `deps.base()`/`deps.satellite()` may return either a raw `Collection` or
  * one of this package's proxies (`makeSatelliteProxy` / `makeBaseProxy`) —
@@ -20,10 +21,12 @@
  * `registry.withPairLock` this module already holds) or recurse forever
  * (the base proxy's `delete` calls straight back into `pairDelete`).
  */
-import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'
+import type { NoydbStore } from '../../kernel/types.js'
 import type { SatelliteSpec } from './types.js'
 import type { SatelliteRegistry } from './registry.js'
 import { RAW_TARGET } from './raw-target.js'
+import { bestEffortRevert } from '../../kernel/best-effort-revert.js'
+import type { BestEffortRevertLeg } from '../../kernel/best-effort-revert.js'
 
 export interface FanoutDeps {
   readonly spec: SatelliteSpec
@@ -47,25 +50,41 @@ function unwrap(handle: unknown): CollectionHandle {
   return (handle as Record<symbol, unknown>)[RAW_TARGET] ?? handle
 }
 
-interface Leg {
-  readonly coll: string
-  readonly id: string
-  readonly prior: EncryptedEnvelope | null
+interface Leg extends BestEffortRevertLeg {
   readonly handle: CollectionHandle
+  /**
+   * True once this leg's `put`/`delete` actually completed (#596). A leg is
+   * snapshotted (for the raw-envelope revert) BEFORE its write is attempted,
+   * so a leg whose write THROWS is still in `executed` with `wrote: false` —
+   * its envelope-revert is a harmless no-op (nothing changed), but it must
+   * NOT be dirty-compensated: `_compensateRevertedWrite` → `removeDirty`
+   * keys only on (collection, id) and would otherwise drop a pre-existing,
+   * unrelated dirty entry for the same id.
+   *
+   * KNOWN LIMITATION (#687), accepted: the reverse hazard is inherent. A leg
+   * whose `put`/`delete` COMMITS its dirty entry (via `onDirty`) but then
+   * THROWS in the post-`onDirty` dispatch phase — a strict-mode `withFormula`
+   * derivation / materialized-view recompute run inside `_putInternal`/
+   * `_doDelete` with no try/catch — leaves `wrote: false`, so
+   * `revertAndCompensate` skips compensation and this leg's OWN just-created
+   * dirty entry is orphaned (the raw envelope still reverts correctly).
+   * Reachable only with satellites + a strict formula/MV on the same
+   * collection whose recompute throws mid-fan-out; the sole harm is one
+   * self-healing sync-push cycle (a redundant no-op push or ordinary conflict
+   * resolution — no data loss; the entry is spliced out every cycle). A
+   * precise fix would diff the dirty log before/after each leg regardless of
+   * whether the write threw (needs `FanoutDeps` plumbing) — deferred as
+   * disproportionate to the harm.
+   */
+  wrote: boolean
 }
 
 /** Best-effort revert of every executed leg, in reverse order, then per-leg compensation. */
 async function revertAndCompensate(deps: FanoutDeps, executed: readonly Leg[]): Promise<void> {
-  for (const leg of [...executed].reverse()) {
-    try {
-      if (leg.prior !== null) await deps.adapter.put(deps.vaultName, leg.coll, leg.id, leg.prior)
-      else await deps.adapter.delete(deps.vaultName, leg.coll, leg.id)
-      await leg.handle._compensateRevertedWrite(leg.id)
-    } catch {
-      // best-effort, matches `revertExecuted` semantics (with-commit/tx/transaction.ts:632) —
-      // surfacing a revert-path failure would mask the original error that triggered the rollback.
-    }
-  }
+  await bestEffortRevert(executed, deps.adapter, async (leg) => {
+    // #596: only a leg whose write actually landed needs dirty-compensation.
+    if (leg.wrote) await leg.handle._compensateRevertedWrite(leg.id)
+  })
 }
 
 /** Split `record` across the pair by `spec.fields`, base leg first, satellite leg second. */
@@ -84,8 +103,17 @@ export async function joinedPut(deps: FanoutDeps, id: string, record: Record<str
   return deps.registry.withPairLock(deps.spec.base, async () => {
     const executed: Leg[] = []
     const run = async (handle: CollectionHandle, coll: string, rec: Record<string, unknown>): Promise<void> => {
-      executed.push({ coll, id, prior: await deps.adapter.get(deps.vaultName, coll, id), handle })
+      const leg: Leg = {
+        vaultName: deps.vaultName,
+        collectionName: coll,
+        id,
+        prior: await deps.adapter.get(deps.vaultName, coll, id),
+        handle,
+        wrote: false,
+      }
+      executed.push(leg)
       await handle.put(id, rec)
+      leg.wrote = true // #596: only mark dirty-compensation-eligible once the write lands
     }
     try {
       await run(base, deps.spec.base, baseRec)          // base leg FIRST (convergence rule 3)
@@ -104,8 +132,17 @@ export async function pairDelete(deps: FanoutDeps, id: string): Promise<void> {
   return deps.registry.withPairLock(deps.spec.base, async () => {
     const executed: Leg[] = []
     const run = async (handle: CollectionHandle, coll: string): Promise<void> => {
-      executed.push({ coll, id, prior: await deps.adapter.get(deps.vaultName, coll, id), handle })
+      const leg: Leg = {
+        vaultName: deps.vaultName,
+        collectionName: coll,
+        id,
+        prior: await deps.adapter.get(deps.vaultName, coll, id),
+        handle,
+        wrote: false,
+      }
+      executed.push(leg)
       await handle.delete(id)
+      leg.wrote = true // #596: only mark dirty-compensation-eligible once the delete lands
     }
     try {
       await run(satellite, deps.spec.satellite)         // satellite leg FIRST (convergence rule 3)

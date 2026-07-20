@@ -15,6 +15,7 @@ import { ref } from '../src/kernel/refs.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { describeExtraction } from '../src/with-cargo/describe-extraction.js'
+import { withTiers } from '../src/with-audit/tiers/index.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -143,5 +144,38 @@ describe('describeExtraction', () => {
   it('is exported from the @noy-db/hub/bundle subpath', async () => {
     const mod = await import('../src/legacy/bundle.js')
     expect(typeof mod.describeExtraction).toBe('function')
+  })
+
+  /**
+   * #772: pre-fix, describeExtraction destructured only `{ closure, graph }`
+   * from walkClosure and never surfaced `danglingRefs` — a parent excluded by
+   * #759's elevated-parent skip (e.g. `clients`) gave the preview ZERO signal
+   * that `extractPartition` would later report a dangling FK. Mirrors the
+   * walk-closure.test.ts / extract-partition.test.ts #759 scenario.
+   */
+  it('#772: surfaces danglingRefs for a tier-elevated outbound FK parent excluded from the preview', async () => {
+    const tieredDb = await createNoydb({
+      store: memory(), user: 'alice', secret: 'test-passphrase-1234', tiersStrategy: withTiers(),
+    })
+    const company = await tieredDb.openVault('demo-co')
+    const clients = company.collection<Client>('clients', { tiers: [0, 1] })
+    const bills = company.collection<Bill>('bills', { refs: { clientId: ref('clients') } })
+
+    await clients.putAtTier('c-1', { id: 'c-1', name: 'Redacted Co', operatorUserId: 'belle' }, 0)
+    await bills.put('b-1', { id: 'b-1', clientId: 'c-1', amount: 10 })
+    // Elevate the parent AFTER the FK is established — c-1 is now invisible
+    // to the tier-gated read surface, same as the #759 extraction scenario.
+    await clients.elevate('c-1', 1)
+
+    const preview = await describeExtraction(company, {
+      seeds: { bills: () => true },
+    })
+
+    // The elevated parent never appears in byCollection at all — the ONLY
+    // signal an FK will dangle is danglingRefs.
+    expect(preview.byCollection.map((c) => c.name)).toEqual(['bills'])
+    expect(preview.danglingRefs).toEqual([
+      { collection: 'bills', id: 'b-1', field: 'clientId', target: 'clients', targetId: 'c-1', reason: 'elevated' },
+    ])
   })
 })

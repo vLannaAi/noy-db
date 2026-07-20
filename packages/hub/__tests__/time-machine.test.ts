@@ -20,6 +20,7 @@ import { describe, expect, it, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError, ReadOnlyAtInstantError, createNoydb } from '../src/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
+import { withTiers } from '../src/with-audit/tiers/index.js'
 import type { Noydb } from '../src/index.js'
 
 function memoryStore(): NoydbStore {
@@ -235,5 +236,105 @@ describe('vault.at(ts) — encrypted mode round-trip', () => {
 
     const past = await vault.at(t1).collection<Invoice>('invoices').get('inv-1')
     expect(past).toEqual({ amount: 100, status: 'draft' })
+  })
+})
+
+/**
+ * #730 — time-machine reads must honor the same tier-0 invisibility law as
+ * `history()`/`getVersion()` (the #712 read-gate): an elevated live record's
+ * point-in-time view is invisible through `vault.at(ts)`, not an opaque
+ * AES-GCM throw. Also locks the pre-existing perRecordKeys bug: `get()` must
+ * route through the `_cek`-aware envelope-open helper so a perRecordKeys
+ * snapshot decrypts correctly even with no tiers involved.
+ */
+describe('vault.at(ts) — #730 tier gate', () => {
+  interface Doc { name: string }
+
+  it('elevated record: get() returns null (not an opaque decrypt throw), list() omits the id', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, user: 'owner', secret: 'pw-730-elevated',
+      tiersStrategy: withTiers(), historyStrategy: withHistory(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+
+    // v1 is archived to `_history` once v2 overwrites it, so a query at `ts`
+    // (between v1 and v2) resolves to a REAL `_history` envelope — one whose
+    // `_cek` gets rewrapped to the tier-1 DEK by elevate()'s syncHistory.
+    // Pre-#730 this is exactly the case that decrypted-under-the-wrong-key
+    // and threw an opaque AES-GCM error instead of returning null.
+    await docs.put('d1', { name: 'v1' })
+    await tick()
+    const ts = new Date().toISOString()
+    await tick()
+    await docs.put('d1', { name: 'v2' })
+    await docs.elevate('d1', 1)
+
+    expect(await vault.at(ts).collection<Doc>('docs').get('d1')).toBeNull()
+    expect(await vault.at(ts).collection<Doc>('docs').list()).not.toContain('d1')
+  })
+
+  it('demoted back to tier 0: time-machine reads of an archived version work again', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, user: 'owner', secret: 'pw-730-demote',
+      tiersStrategy: withTiers(), historyStrategy: withHistory(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+
+    // v1 is archived to `_history` once v2 overwrites it. elevate() rewraps
+    // that `_history` snapshot's `_cek` to the tier-1 DEK (invisible while
+    // elevated); demote() rewraps it back to tier-0 — the archived version
+    // must decrypt again afterward.
+    await docs.put('d2', { name: 'a' })
+    await tick()
+    const ts = new Date().toISOString()
+    await tick()
+    await docs.put('d2', { name: 'b' })
+    await docs.elevate('d2', 1)
+    await docs.demote('d2', 0)
+
+    expect(await vault.at(ts).collection<Doc>('docs').get('d2')).toEqual({ name: 'a' })
+    expect(await vault.at(ts).collection<Doc>('docs').list()).toContain('d2')
+  })
+
+  it('perRecordKeys collection, no tiers: at(ts).get() decrypts the historical body via the record CEK', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, user: 'owner', secret: 'pw-730-cek', historyStrategy: withHistory(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', { perRecordKeys: true })
+
+    await docs.put('d3', { name: 'v1' })
+    await tick()
+    const ts = new Date().toISOString()
+    await tick()
+    await docs.put('d3', { name: 'v2' })
+
+    // Pre-#730: get() ignored `_cek` and decrypted directly under the
+    // collection DEK, which throws on a per-record-CEK-encrypted body.
+    expect(await vault.at(ts).collection<Doc>('docs').get('d3')).toEqual({ name: 'v1' })
+  })
+
+  it('a tier-0 (never-elevated) record is unaffected', async () => {
+    const store = memoryStore()
+    const db = await createNoydb({
+      store, user: 'owner', secret: 'pw-730-t0',
+      tiersStrategy: withTiers(), historyStrategy: withHistory(),
+    })
+    const vault = await db.openVault('v1')
+    const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
+
+    await docs.put('d4', { name: 'v1' })
+    await tick()
+    const ts = new Date().toISOString()
+    await tick()
+    await docs.put('d4', { name: 'v2' })
+
+    expect(await vault.at(ts).collection<Doc>('docs').get('d4')).toEqual({ name: 'v1' })
+    expect(await vault.at(ts).collection<Doc>('docs').list()).toContain('d4')
   })
 })

@@ -7,13 +7,13 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
 import { inlineMemory } from './harness.js'
-import { classified } from '../../src/with-shape/classified/presets.js'
+import { classified } from '../../src/via/classified/presets.js'
 import { ClassifiedConfigError } from '../../src/kernel/errors.js'
 import { withForgetCascade } from '../../src/with-audit/forget/index.js'
 import { RecordCodec, generateDEK } from '../../src/kernel/enclave/index.js'
 import { NO_CRDT } from '../../src/with-commit/crdt/strategy.js'
 import type { VdigFieldPolicy, EncryptedEnvelope } from '../../src/kernel/types.js'
-import type { ClassifiedFieldSpec } from '../../src/with-shape/classified/descriptor.js'
+import type { ClassifiedFieldSpec } from '../../src/via/classified/descriptor.js'
 
 type Rec = Record<string, unknown>
 

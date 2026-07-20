@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { classified } from '../../src/with-shape/classified/presets.js'
-import { resolveClassifiedFields } from '../../src/with-shape/classified/resolve.js'
-import { enforceClassifiedWrite } from '../../src/with-shape/classified/write.js'
+import { classified } from '../../src/via/classified/presets.js'
+import { resolveClassifiedFields } from '../../src/via/classified/resolve.js'
+import { enforceClassifiedWrite } from '../../src/via/classified/write.js'
 import { ClassifiedConfigError, ClassifiedVerifyError, ClassifiedRotationError } from '../../src/kernel/errors.js'
-import * as classifiedBarrel from '../../src/with-shape/classified/index.js'
+import * as classifiedBarrel from '../../src/via/classified/index.js'
 import * as rootBarrel from '../../src/index.js'
 
 describe('classified.password()', () => {

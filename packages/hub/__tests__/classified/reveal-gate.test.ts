@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
-import { classified, withClassified } from '../../src/with-shape/classified/index.js'
+import { classified, withClassified } from '../../src/via/classified/index.js'
 import { ClassifiedNotEnabledError } from '../../src/kernel/errors.js'
 import { inlineMemory } from './harness.js'
 

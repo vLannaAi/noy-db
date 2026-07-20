@@ -27,7 +27,7 @@ const db = await createNoydb({
 
 When a service is not opted into, its real implementation is replaced by a NO-OP stub (or a throwing stub on opt-in surfaces) and the heavy code is fully tree-shaken from the bundle.
 
-This document lists the always-on core and the service catalog (26 services). It is the table of contents for the rest of the documentation.
+This document lists the always-on core and the service catalog (27 services). It is the table of contents for the rest of the documentation.
 
 ---
 
@@ -48,6 +48,10 @@ The core is what NOYDB **is**, not what it **does**. Six areas are always loaded
 Anything outside this floor is a service.
 
 ---
+
+## Field features (the Via port)
+
+Separate from services, the **Via port** is a unified field-feature declaration surface where capabilities are declared per-field, not per-vault. Every field can be indexed, a reference, computed, carry money with exact arithmetic, be translated across locales, sealed at rest, externalized as a blob, etc. Each feature is optional and tree-shaken; features compose in one ordered stack and run through a phased kernel pipeline. See [`docs/subsystems/via.md`](docs/subsystems/via.md) for the full story and [`docs/subsystems/via-money.md`](docs/subsystems/via-money.md) / [`docs/subsystems/via-i18n.md`](docs/subsystems/via-i18n.md) / [`docs/subsystems/via-classified.md`](docs/subsystems/via-classified.md) / [`docs/subsystems/via-blob.md`](docs/subsystems/via-blob.md) / [`docs/subsystems/via-computed.md`](docs/subsystems/via-computed.md) / [`docs/subsystems/via-lookup.md`](docs/subsystems/via-lookup.md) for individual features. Phase A ships `via-money` and `via-i18n` (with backward compatibility); phase B ships `via-classified` and `via-blob` plus posture enforcement (query/export/forget) and `ViaCryptoCtx`; phase C ships the `ViaGraph` dependency graph + taint algebra, `via-computed` (virtual + materialized), taint enforcement, sync/cutover/restore dispatch, the frozen-output skip+audit rule, and forget fanout; phase D ships `via-lookup` (`lookup`/`enum`/`dict`, three backing tiers, altKeys, vocabulary, `restrict`/`cascade`/`nullify` reference semantics — `dictKey()`/`staticDict()` become aliases onto it); phase E adds external-SPI extensibility.
 
 ## The service catalog
 
@@ -113,6 +117,7 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 | 15 | `@noy-db/hub/team` | Multi-user grant/revoke/rotate (`db.grant`/`db.revoke`/`db.rotate` require `teamStrategy: withTeam()` since 0.3 — #267) + magic-link + delegation + tiers | ~1,000 | `sync`, `session` |
 | 16 | `@noy-db/hub/session` | Token sessions + dev-unlock + policy enforcement | 839 | `team` |
 | 16a | `vault.user.*` (always-on) — see `user-envelope` | Per-principal profile + preferences envelope (`_users/<keyringId>`) with own-only write rule | ~600 always-on | `team`, `session-tiers`, `sync` |
+| 27 | `@noy-db/hub/broker` | Passphrase-bound rolling non-extractable store-auth broker (enrol/challenge/credentials + refresh hook) | ~500 | `team`, `session` |
 
 <a id="user-envelope"></a>**`user-envelope`** is included in the always-on core because it has zero peer-dep cost and the policy gates (`edit-own-profile`, `view-team-profiles`) are valuable even for single-user vaults. See [`noy-db-docs/content/docs/services/user-envelope.md`](https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/user-envelope.md).
 
@@ -124,7 +129,7 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 | 26 | `@noy-db/hub/lazy` | Lazy mode — `prefetch: false` on-demand per-id reads over a bounded LRU working set (`withLazy()`; promoted out of `routing`, #267) | ~185 | `indexing` (persisted mirrors), `routing` |
 | 24 | *(preview)* | Multi-vault partition federation — `db.openVaultGroup()` transparent shard routing + `vault-registry` source-of-truth + `minVersion` fan-out guard (MVP, milestone 16) | — | `queryAcross`, `permissions` |
 
-**Totals:** ~16,940 LOC across all 26 services are tree-shake-able. A consumer using only the core ships ~6,500 LOC. A consumer opting into all 26 ships ~31,990 LOC.
+**Totals:** ~17,440 LOC across all 27 services are tree-shake-able. A consumer using only the core ships ~6,500 LOC. A consumer opting into all 27 ships ~32,490 LOC.
 
 ---
 

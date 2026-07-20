@@ -29,6 +29,26 @@ import type { LedgerEntry } from '../../with-commit/history/ledger/entry.js'
  */
 export interface SubjectDeclaration {
   readonly subjects: Record<string, string>
+  /**
+   * #633 — opt-in: gate the vault-level `_sealed_cek` and blob purges on
+   * per-collection via declarations instead of running them unconditionally
+   * for every forgotten ref. Default `false`/absent = today's unconditional
+   * behavior (byte-identical). See `purge-scope.ts` for the partition logic
+   * and the `scopedPurgeResidue` skip-reporting this enables.
+   *
+   * **Footgun:** a bare `sensitive: [...]` collection — no `classifiedFields`
+   * (no classified via binder compiled in) — counts as UNDECLARED for the
+   * sealed-CEK arm. Under `scopedPurge: true`, its `_sealed_cek` host-delivery
+   * envelopes are SKIPPED, not purged (reported via `scopedPurgeResidue`,
+   * reason `'skipped-undeclared-sealed-cek'`) even if that collection called
+   * `sealRecordToHost()` — the sealed CEK stays recoverable by that granted
+   * host until purged. Add a `classifiedFields` binding to close the gap, or
+   * leave `scopedPurge` off/false for the unconditional (always-purged) default.
+   * The declaration signal is session-local: a declared collection never opened
+   * (with its config) before `forget()` in this session counts as UNDECLARED —
+   * open it first, or its entries are skipped-and-reported.
+   */
+  readonly scopedPurge?: boolean
 }
 
 /**
@@ -40,6 +60,8 @@ export interface SubjectDeclaration {
 export interface ForgetStrategy {
   /** Collection → subject-field (dotted path). Empty under `NO_FORGET`. */
   readonly subjects: Readonly<Record<string, string>>
+  /** #633 — see {@link SubjectDeclaration.scopedPurge}. */
+  readonly scopedPurge?: boolean
 }
 
 /**
@@ -124,6 +146,64 @@ export interface ForgetResult {
   /** `collection:id:field` sealed slots that were DEK-derived (legacy, written before per-record CEKs) and thus NOT crypto-shredded
    * by dropping `_cek` — the collection DEK is retained, so synced/backup copies stay decryptable (#M-1). */
   readonly sealedResidue: readonly string[]
+  /** Count of `_ledger_deltas` rows hard-deleted across the shredded records (#734) — the
+   * erasure twin of #729's elevate-side purge. Entry metadata (that the record was mutated,
+   * at which version/timestamp/actor) is retained; only the plaintext delta content is removed. */
+  readonly ledgerDeltasPurged: number
+  /** `collection:id` refs whose `_ledger_deltas` purge failed — plaintext delta residue still
+   * readable under the retained ledger DEK. Non-empty means erasure is INCOMPLETE. */
+  readonly ledgerDeltaResidue: readonly string[]
   /** The single `op:'forget'` ledger entry appended for this erasure. */
   readonly ledgerEntry: LedgerEntry
+  /** #622 — record-grain derived artifacts (MV rows, per-record derived copies) erased
+   *  because their source subject was forgotten. Overlay outputs are intentionally out of
+   *  scope here — an overlay is always sourced from an MV, never directly from a subject
+   *  collection, so the personal-data-bearing MV rows it reads are already erased above. */
+  readonly derivedRecordsErased: number
+  /** #622 — aggregate-grain targets (rollups) recomputed without the forgotten contribution. */
+  readonly derivedAggregatesRecomputed: number
+  /** #622 — `collection:id` derived writes SKIPPED because the target period is frozen
+   *  (recompute deferred; the aggregate retains the forgotten contribution — audited). */
+  readonly derivedResidueFrozen: readonly string[]
+  /** #650 Task 5 (#648) — referencing records tombstoned via a `'ref'` edge's `cascade` policy. */
+  readonly lookupReferencesCascaded: number
+  /** #650 Task 5 (#648) — referencing fields cleared via a `'ref'` edge's `nullify` policy. */
+  readonly lookupReferencesNullified: number
+  /** #650 Task 5 review (Important fix) — `'ref'` edges whose compare-key could NOT be resolved,
+   *  even from the LIVE pre-shred backing row — cascade/nullify propagation was SKIPPED for these.
+   *  Always empty in the ordinary case; non-empty means the skip is reported, never silent. */
+  readonly lookupReferencesResidue: readonly string[]
+  /** #633 — scoped-purge skip notices (opt-in `scopedPurge`, see {@link SubjectDeclaration}).
+   *  Always empty under the unconditional default. Non-empty means a `_sealed_cek` entry or a
+   *  blob scan was skipped for an undeclared collection — reported, never a silent skip. */
+  readonly scopedPurgeResidue: readonly ScopedPurgeResidueNotice[]
+  /** #776/#782/#785 — `collection:id` MV-output rows that survived erasure invalidation (eager
+   *  tombstone leg AND lazy/manual `invalidateMVAtRest`) despite belonging to the forgotten
+   *  subject, because the `_materializedFrom` ownership stamp could NOT be decoded (undecodable
+   *  under the collection's default DEK — e.g. elevated above tier 0 on a tiered output
+   *  collection; ownership unconfirmed — could be a plain user record on a same-collection
+   *  partition MV). Never erased, but surfaced here rather than silently skipped (the #724
+   *  posture). Non-empty means the row may still hold the forgotten/pre-elevation contribution,
+   *  decryptable by tier-holders. */
+  readonly derivedResidueUndecodable: readonly string[]
+  /** #782/#785 — `collection:id` MV-output rows that DID decode and stamp-match via
+   *  `_materializedFrom`, but whose erasure was declined by the #718 tier-elevation gate
+   *  (`_internalDelete` returned false). Ownership CONFIRMED here — a real silent survival,
+   *  not a stamp-mismatch skip — surfaced rather than dropped. Non-empty means a live,
+   *  tier-holder-decryptable copy of the forgotten contribution was deliberately retained. */
+  readonly derivedResidueDeclined: readonly string[]
+}
+
+/** #633 — the two `scopedPurgeResidue` skip reasons. Single source of truth: `purge-scope.ts`
+ *  (the port-internal partition helpers) imports this rather than redeclaring it. */
+export type ScopedPurgeResidueReason = 'skipped-undeclared-sealed-cek' | 'skipped-undeclared-blob-scan'
+
+/** #633 — one `ForgetResult.scopedPurgeResidue` entry: an undeclared collection's sealed-CEK
+ *  entries left unpurged, or its blob scan skipped entirely, under `scopedPurge`. `count` is the
+ *  number of `_sealed_cek` entries left in place (sealed-cek reason) or the number of refs whose
+ *  blob scan was skipped (blob-scan reason) — aggregated per collection across the whole call. */
+export interface ScopedPurgeResidueNotice {
+  readonly reason: ScopedPurgeResidueReason
+  readonly collection: string
+  readonly count: number
 }

@@ -20,6 +20,7 @@ import type {
   NoydbStore,
   EncryptedEnvelope,
   VaultSnapshot,
+  StoreCapabilities,
 } from '../kernel/types.js'
 
 // ─── Internal collection prefixes (duplicated to avoid circular import) ──
@@ -76,8 +77,12 @@ export interface BlobLifecyclePolicy {
 export interface AgeRoute {
   /** Store for records older than the cutoff. */
   readonly cold: NoydbStore
-  /** Days after last modification before a record is cold-eligible. */
-  readonly coldAfterDays: number
+  /**
+   * Days after last modification before a record is cold-eligible for the
+   * ROLLING `compact(vault)` migrator. Omit for period-driven archival only
+   * (`compact(vault, { before })`), where the cutoff is supplied per call.
+   */
+  readonly coldAfterDays?: number
   /**
    * Collections that participate in age tiering.
    * Empty array or omitted = all user collections (excluding `_` prefixed).
@@ -227,11 +232,12 @@ export interface RouteStatus {
  */
 export interface RoutedNoydbStore extends NoydbStore {
   /**
-   * Migrate records older than the age cutoff from the hot store to the
-   * cold store. Only applies when `age` is configured. Returns the number
-   * of records migrated.
+   * Migrate records to the cold store. Only applies when `age.cold` is
+   * configured. With `{ before }`, migrates records whose `_ts < before`
+   * (period-driven archival); without, uses the rolling `coldAfterDays`.
+   * Returns the number of records migrated.
    */
-  compact(vault: string): Promise<number>
+  compact(vault: string, opts?: { before?: string }): Promise<number>
 
   /**
    * Override a named route at runtime.
@@ -482,21 +488,36 @@ export function routeStore(opts: RouteStoreOptions): RoutedNoydbStore {
   /**
    * Age routing: check if a record is cold based on `_ts`.
    */
-  function isCold(collection: string, envelope: EncryptedEnvelope): boolean {
+  function isCold(collection: string, envelope: EncryptedEnvelope, before?: string): boolean {
     if (!opts.age) return false
     if (isInternal(collection)) return false
     if (opts.age.collections && opts.age.collections.length > 0) {
       if (!opts.age.collections.includes(collection)) return false
     }
-    const cutoff = Date.now() - opts.age.coldAfterDays * 24 * 60 * 60 * 1000
-    const ts = new Date(envelope._ts).getTime()
-    return ts < cutoff
+    // explicit period cutoff wins; else the rolling age cutoff; else nothing is cold
+    const cutoffIso =
+      before ??
+      (opts.age.coldAfterDays != null
+        ? new Date(Date.now() - opts.age.coldAfterDays * 24 * 60 * 60 * 1000).toISOString()
+        : undefined)
+    if (cutoffIso === undefined) return false
+    return envelope._ts < cutoffIso
   }
 
   // ── Store methods ──────────────────────────────────────────────────
 
+  // #613: advertise cold-archival when a cold route exists. Spread the
+  // primary's capabilities so CAS/auth/etc. still surface; layer the flag.
+  // A router with no cold route of its own must NOT inherit `coldArchival:
+  // true` from a nested cold-capable primary (whole-branch review I1) — force
+  // it off explicitly so the consumer's `!== true` gate throws.
   const store: RoutedNoydbStore = {
     name: buildName(),
+    ...(opts.age?.cold
+      ? { capabilities: { ...primary.capabilities, coldArchival: true } as StoreCapabilities }
+      : primary.capabilities
+        ? { capabilities: { ...primary.capabilities, coldArchival: false } as StoreCapabilities }
+        : {}),
 
     async get(vault, collection, id) {
       const s = storeFor(vault, collection)
@@ -591,28 +612,25 @@ export function routeStore(opts: RouteStoreOptions): RoutedNoydbStore {
       )
     },
 
-    async compact(vault) {
+    async compact(vault, compactOpts) {
       if (!opts.age) return 0
       let migrated = 0
       const collections = opts.age.collections?.length
         ? opts.age.collections
-        : await primary.list(vault, '').catch(() => [] as string[])
+        : Object.keys(await primary.loadAll(vault).catch(() => ({}) as VaultSnapshot))
 
-      // For each age-eligible collection, scan hot store for cold records
       for (const collection of collections) {
         const ids = await primary.list(vault, collection).catch(() => [] as string[])
         for (const id of ids) {
           const envelope = await primary.get(vault, collection, id)
           if (!envelope) continue
-          if (isCold(collection, envelope)) {
-            // Write to cold, then delete from hot
+          if (isCold(collection, envelope, compactOpts?.before)) {
             await opts.age.cold.put(vault, collection, id, envelope)
             await primary.delete(vault, collection, id)
             migrated++
           }
         }
       }
-
       return migrated
     },
 

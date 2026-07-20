@@ -13,6 +13,7 @@ import {
   decrypt,
   encrypt,
   openEnvelopeJson,
+  writeEnvelopeBody,
   generateDEK,
   bufferToBase64,
   encryptBytesWithAAD,
@@ -28,8 +29,9 @@ import {
   BLOB_SLOTS_PREFIX,
   BLOB_VERSIONS_PREFIX,
 } from '../with-shape/blobs/blob-set.js'
+import { BLOB_INTENT_COLLECTION } from '../with-shape/blobs/blob-intent.js'
 import { PartitionExtractionError } from '../kernel/errors.js'
-import { walkClosure, type WalkClosureOptions } from './walk-closure.js'
+import { walkClosure, type WalkClosureOptions, type DanglingRefNotice } from './walk-closure.js'
 import { generateULID } from '../with-pod/ulid.js'
 import { SCHEMAS_COLLECTION } from '../with-shape/persisted-schemas/storage.js'
 import { NOYDB_FORMAT_VERSION } from '../kernel/types.js'
@@ -88,6 +90,19 @@ export async function reKeyClosure(
     for (const id of ids) {
       const env = await adapter.get(vaultName, collectionName, id)
       if (!env) continue
+      // #748 defense-in-depth canary: `closure` is built exclusively through
+      // tier-gated `Collection.list()`/`get()` (collection.ts `ensureHydrated`
+      // / `#getRaw` both skip `_tier > 0` envelopes), so an elevated record
+      // can never reach this raw `adapter.get` fetch — this should be
+      // unreachable by construction. Not a user-facing guard; a cheap tripwire
+      // in case that invariant ever regresses.
+      if ((env._tier ?? 0) > 0) {
+        throw new PartitionExtractionError(
+          `#748: reKeyClosure fetched an elevated envelope (collection="${collectionName}" id="${id}" `
+          + `_tier=${env._tier}) — this is unreachable by construction (walkClosure only ever adds ids `
+          + `reachable through tier-gated Collection reads). Refusing to carry it into a partition.`,
+        )
+      }
       if (env._cek !== undefined) {
         // Per-record CEK: a naive `{ ...env }` spread would carry a
         // SOURCE-DEK-wrapped CEK into a bundle re-keyed under a different
@@ -324,15 +339,51 @@ export async function reKeyBlobs(
     // Slots: one envelope per record, a `{ slotName: SlotRecord }` map.
     const slotsCollection = `${BLOB_SLOTS_PREFIX}${collectionName}`
     for (const id of ids) {
+      // #767: carry any in-flight `_blob_intent` marker for this record,
+      // re-keyed under the SAME destination DEK as its owning collection
+      // (mirrors `dumpVault`'s backup allowlist, which carries `_blob_intent`
+      // for the identical crash-recovery reason — a partition extracted
+      // mid-shred/mid-rehome must carry the marker so resume-on-touch heals
+      // it post-restore). Checked independently of the slot-map fetch below:
+      // a marker can be present even when the slot map has already been
+      // touched or removed by the in-flight operation.
+      const intentId = `${collectionName}::${id}`
+      const intentEnv = await adapter.get(vaultName, BLOB_INTENT_COLLECTION, intentId)
+      if (intentEnv) {
+        const intentPlain = await openEnvelopeJson(intentEnv, srcDek)
+        const intentBody = await writeEnvelopeBody(intentPlain, destDek)
+        place(BLOB_INTENT_COLLECTION, intentId, { ...intentEnv, ...intentBody })
+      }
+
       const env = await adapter.get(vaultName, slotsCollection, id)
       if (!env) continue
+      // #748 defense-in-depth canary — see the matching one in `reKeyClosure`:
+      // `ids` comes from the same tier-gated `closure`, so an elevated
+      // record's slot map should never be reachable here. Unreachable by
+      // construction; a cheap tripwire, not a user-facing guard.
+      if ((env._tier ?? 0) > 0) {
+        throw new PartitionExtractionError(
+          `#748: reKeyBlobs fetched an elevated slot-map envelope (collection="${slotsCollection}" `
+          + `id="${id}" _tier=${env._tier}) — this is unreachable by construction. Refusing to carry it into a partition.`,
+        )
+      }
       const slots = JSON.parse(await openEnvelopeJson(env, srcDek)) as Record<string, SlotRecord>
       // FR-7: drop projected-out blob fields' slots (slot names are blob field
       // names) — their eTags then never enter the travel set.
       const kept: Record<string, SlotRecord> = {}
       for (const [slotName, slot] of Object.entries(slots)) {
         if (proj && !proj.has(slotName)) continue
-        kept[slotName] = slot
+        // #769: strip the internal `pendingRelease` resume breadcrumb before
+        // it travels. It is a SOURCE-VAULT-LOCAL rehome marker (see
+        // `SlotRecord.pendingRelease`'s doc comment) pointing at an old eTag
+        // awaiting release — meaningless, and potentially misleading, once
+        // detached from the source vault (the eTag it names may be absent
+        // from the destination). Unlike `_blob_intent` above (carried, so
+        // resume-on-touch heals it post-restore), this breadcrumb must NOT
+        // travel into a cross-vault partition.
+        const { pendingRelease, ...strippedSlot } = slot
+        void pendingRelease
+        kept[slotName] = strippedSlot
         addRef(slot.eTag)
       }
       if (Object.keys(kept).length === 0) continue
@@ -350,6 +401,14 @@ export async function reKeyBlobs(
       if (proj && slotName !== undefined && !proj.has(slotName)) continue
       const env = await adapter.get(vaultName, versionsCollection, key)
       if (!env) continue
+      // #748 defense-in-depth canary — see `reKeyClosure`'s. Unreachable by
+      // construction; a cheap tripwire, not a user-facing guard.
+      if ((env._tier ?? 0) > 0) {
+        throw new PartitionExtractionError(
+          `#748: reKeyBlobs fetched an elevated version-record envelope (collection="${versionsCollection}" `
+          + `key="${key}" _tier=${env._tier}) — this is unreachable by construction. Refusing to carry it into a partition.`,
+        )
+      }
       const record = JSON.parse(await openEnvelopeJson(env, srcDek)) as VersionRecord
       addRef(record.eTag)
       const { iv, data } = await encrypt(JSON.stringify(record), destDek)
@@ -458,6 +517,14 @@ export interface ExtractPartitionResult {
   /** Raw 32-byte transfer key — deliver out-of-band; required to adopt. */
   readonly transferKey: Uint8Array
   readonly sealId: string
+  /**
+   * #759: outbound FK edges whose referenced parent was excluded from the
+   * partition (missing, or tier-elevated and therefore invisible). The
+   * child record still carries its FK value; the parent did not travel —
+   * callers should surface this to the operator rather than assume
+   * referential completeness.
+   */
+  readonly danglingRefs: ReadonlyArray<DanglingRefNotice>
 }
 
 /**
@@ -525,7 +592,7 @@ export async function extractPartitionCore(
   // reKeySchemas silently drops the row. Drain BEFORE reKeySchemas reads.
   if (opts.carrySchemas) await vault._drainPendingSchemaWrites()
 
-  const { closure } = await walkClosure(vault, opts)
+  const { closure, danglingRefs } = await walkClosure(vault, opts)
   const { collections, deks } = await reKeyClosure(vault, closure, opts.fieldProjection)
 
   // carryLedger: mint a fresh _ledger DEK, build the carried chain, and
@@ -610,5 +677,5 @@ export async function extractPartitionCore(
     },
   })
 
-  return { bundleBytes, transferKey, sealId: seal.sealId }
+  return { bundleBytes, transferKey, sealId: seal.sealId, danglingRefs }
 }

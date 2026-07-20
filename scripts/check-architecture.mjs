@@ -354,6 +354,7 @@ const STRATEGY_GATED_APIS = [
   { api: /\.dictionary\s*\(/,  option: 'i18nStrategy',    factory: 'withI18n' },
   { api: /\.lazyQuery\s*\(/,   option: 'indexStrategy',   factory: 'withIndexing' },
   { api: /\.exportBlobs\s*\(/, option: 'blobStrategy',    factory: 'withBlobs' },
+  { api: /\.broker\s*\(\s*\)/, option: 'brokerStrategy',  factory: 'withBroker' },
 ]
 
 // Per-file exceptions: files that legitimately invoke a gated API
@@ -411,16 +412,18 @@ function scanFileForStrategyOptIn(file, content) {
 // Rule: every `with-<dim>/<service>/` sub-folder — and every `with-<dim>`
 // dim that has NO sub-folders (the dim IS the service, e.g. with-cargo) —
 // must export a `with*()` factory, UNLESS it is on the exempt list below.
+// `via/` (the Via port's non-`with-*` service root, e.g. via/money)
+// is scanned the same way as a `with-<dim>` namespace dim (#623).
 //
 // Exemptions (verified 2026-07-02) fall in three buckets:
 //   ③ schema features — declared on `collection({ … })`, not a global
 //     strategy; the collection IS the opt-in unit, impl lazy-imported
 //     from the schema declaration (see noy-db-docs/content/docs/services/<x>.md):
 //       with-formula/computed          computed({…}) field evaluator
-//       with-shape/classified          classifiedFields declaration (sealed + riders)
+//       via/classified                 classifiedFields declaration (sealed + riders)
 //       with-shape/introspection       describe()/dumpVaultSchema — read-only schema surface
 //       with-shape/links               link()/backlink schema refs
-//       with-shape/money               money() field descriptor
+//       via/money                      money() field descriptor
 //       with-shape/persisted-schemas   schema-persistence infra behind collection()
 //       with-shape/schema-update       per-collection migration strategies
 //   always-on infra — no discrete capability to gate:
@@ -440,10 +443,10 @@ function scanFileForStrategyOptIn(file, content) {
 // reader who wonders why they're absent from the list.
 const SCHEMA_DECLARED_OR_INFRA_EXEMPT = new Set([
   'with-formula/computed',
-  'with-shape/classified',
+  'via/classified',
   'with-shape/introspection',
   'with-shape/links',
-  'with-shape/money',
+  'via/money',
   'with-shape/persisted-schemas',
   'with-shape/schema-update',
   // #591 satellites — satelliteOf/fields/joined declaration on collection(); joined handle via vault.joined()
@@ -454,6 +457,14 @@ const SCHEMA_DECLARED_OR_INFRA_EXEMPT = new Set([
   'with-lookup/embeddings',
   'with-party/sync',
   'with-party/auth-introspection',
+  // #629 Task 7 — withBlobs() gate moved to via/blob; this folder is the
+  // gated service's content-crypto machinery (BlobSet/compaction/export), same
+  // bucket as with-party/sync behind team's withSync().
+  'with-shape/blobs',
+  // #638 Task 7 — computed() is a declaration factory (money()/i18nText() precedent,
+  // same ③ schema-feature bucket as via/money/with-formula/computed above), not
+  // an opt-in strategy gate; the computed via-binder links eagerly (port/with/computed-strategy.ts).
+  'via/computed',
 ])
 
 // Does any .ts file in `dir` (recursively) export a `with*()` factory —
@@ -490,7 +501,7 @@ function requireServiceGate(id, dir) {
 function checkEveryServiceGated() {
   const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
   const dims = readdirSync(hubSrc, { withFileTypes: true })
-    .filter(e => e.isDirectory() && e.name.startsWith('with-'))
+    .filter(e => e.isDirectory() && (e.name.startsWith('with-') || e.name === 'via'))
   for (const dim of dims) {
     const dimPath = join(hubSrc, dim.name)
     const subFolders = readdirSync(dimPath, { withFileTypes: true })
@@ -694,7 +705,72 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4662→4664 (2026-07-09, +2: #590 forget→sync-dirty-log hook): _writeTombstone
   // enters the sync dirty log via the existing onDirty seam so the shred propagates on
   // push; one comment + one call, the sync engine itself stays in with-party/team/sync.ts.
-  'packages/hub/src/kernel/collection.ts': 4664,
+  // Bumped 4664→4678 (2026-07-09, +14: #589 _doDelete writes a delete marker under
+  // sync via buildDeleteMarker; converges deletes on pull. Marker helpers live in enclave.
+  // Bumped 4678→4693 (2026-07-09, +15: #589 re-create version continuity): a put
+  // re-creating a deleted id continues from the marker's `_v + 1` instead of resetting
+  // to 1, gated on `!existing && onDirty` and reusing the lazy branch's raw read so
+  // there is exactly one `adapter.get` on the re-create path.
+  // Bumped 4693→4705 (2026-07-09, +12: #589 final-review Fix 2): `_doDelete` now
+  // captures the marker's minted version (`markerVersion = live._v + 1`) and reports
+  // that same version to `onDirty`, instead of the separately-derived `existing?.version`
+  // which could disagree with it (lazy mode, uncached record, history disabled) and
+  // desync the dirty entry's version from the marker actually written. Also dedupes
+  // the `previousEnvelope`/`live` reads into one `adapter.get`.
+  // Lowered 4705→4473 (2026-07-11, Task 11 re-ratchet, #623 via-port arc):
+  // net −232 from the 4705 peak. The arc moved money/i18n's write/read
+  // cutover onto the ViaPipeline (7c885b87, 5e44df6b, 598e8ac6), relocated
+  // with-shape/money → via/money and with-shape/i18n → via/i18n
+  // (9361663c, 43765b56), and extracted generic path utils to kernel/paths
+  // (57851399) — so the inline quantize/decode/locale logic this file used
+  // to carry left the kernel spine for the shape/via-* feature layer. Locked
+  // in to the ACTUAL measured line count (readFileSync(...).split('\n').length)
+  // — no slack.
+  // Lowered 4473→4472 (2026-07-13, via-consolidation Task 6 final re-ratchet,
+  // #642/#651/#640/#654): the arc's Task 5 fix wave landed the file 1 line
+  // UNDER ceiling (the #640 rollup-on-delete work funded its own growth via
+  // shrink-first folds) and no later task in the arc touched this file —
+  // ratcheting the ceiling down to the actual per the checker's own
+  // ratchet-to-actual convention, so the margin isn't silently carried
+  // forward as slack for an unrelated future change.
+  // Bumped 4472→4503 (2026-07-15, #606: per-collection marker-id set to skip
+  // the redundant adapter.get on synced-eager insert): a `Set<string>` field
+  // + population at hydration (both paths)/local-delete/the sync-tab-cutover
+  // choke point, plus the gated read at the #589 continuity check and the
+  // clear on re-create success.
+  // Bumped 4503→4521 (2026-07-15, #606 adversarial-review fix): moved the
+  // marker-id maintenance in `_invalidateCacheEntry` above the `!hydrated`
+  // gate (a marker landing mid-hydration was never recorded, permanently
+  // for the session) and added a synchronous pre-switch maintenance step in
+  // `_onRecordMutated` to close the await-window race against a concurrent
+  // put. Comments explaining both fixes account for the growth.
+  // Bumped 4521→4529 (2026-07-15, #693: tab-coordination fallback for the marker-set gate):
+  // `tabCoordinated` private field + constructor assignment + the gate's fallback
+  // condition/comment at the #589/#606 re-create check.
+  // Bumped 4529→4530 (2026-07-15, #686: money() late-attach re-canonicalization):
+  // one line in `_applyMoneyFields` — `if (this.hydrated) this.rebuildEagerIndexesFromCache()`
+  // — reusing the existing hydrate-time rebuild helper, zero new state.
+  // Bumped 4530→4549 (2026-07-15, #684: lazy raw-fetch seam for via-aware
+  // post-filter): `get()` split into a terse public delegate + a new private
+  // `#getRaw()` (byte-identical body, minus the final `applyLocaleToRecord`
+  // call) so `lazyQuery()`'s `LazyQuerySource` can hand `LazyQuery`'s
+  // post-filter the RAW (stored-form) record a `clause.via` evaluator (e.g.
+  // money) needs — plus doc comments on both and the widened
+  // `LazyQuerySource` literal (`getRawRecord`/`decodeRecord`/`via` replacing
+  // `getRecord`).
+  // #766 (2026-07-18, putAtTier subject-index registration): funded IN PLACE, no bump.
+  // The +3 lines (`addSubjectRef` private field, ctor assignment, `tiersContext()` wiring —
+  // a thin pass-through callback the Vault wires when a forget-subject field is declared)
+  // were paid for by reflowing the adjacent 4-line `ledger` field JSDoc's first paragraph
+  // (byte-preserving — same wording, joined onto one line) to a single line, a −3 net.
+  // Net zero versus pre-#766: the file lands back at the exact same line count.
+  // #788 (2026-07-20, Collection.rebuildEmbeddings() thin delegator): funded IN PLACE,
+  // no bump. The +6 lines (doc comment + method signature + embeddings guard + delegate
+  // call + closing brace, beside similarTo/flushIndex) were paid for by reflowing the
+  // `indexing/collection-facade.js` named-import block from one name per line to three
+  // per line (byte-preserving — same 9 imported names, only the line breaks moved), a
+  // −6 net. Net zero versus pre-#788: the file lands back at the exact same line count.
+  'packages/hub/src/kernel/collection.ts': 4549,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -869,7 +945,90 @@ const KERNEL_SURFACE_BUDGET = {
   // `_invalidateCekCacheEntry`/`_invalidateCacheEntry` pair so sync-applied
   // envelopes (pull applies, conflict winners, tombstone enforcement) evict
   // stale decrypted views. Thin call-site; the sync engine lives in with-party/team/.
-  'packages/hub/src/kernel/vault.ts': 3964,
+  // Bumped 3964→3990 (2026-07-09): #589 _purgeDeleteMarkers seam — the @internal
+  // `_purgeDeleteMarkers(before, collections?)` operator hook #604's period-close
+  // will build on: one `adapter.loadAll` read, iterate envelopes, physically
+  // `adapter.delete` any `_del` marker with `_ts` older than the cutoff. Genuinely
+  // core (touches the adapter contract directly); the load-bearing safety-invariant
+  // doc comment accounts for most of the delta.
+  // Bumped 3990→3997 (2026-07-09, +7: #589 final-review Fix 4): two doc-comment
+  // sentences on `_purgeDeleteMarkers` — ledger/event emission deferred to #604, and
+  // local-adapter-only purge scope (operator must purge every sync target too). No
+  // behavior change.
+  // Bumped 3997→4007 (2026-07-09, +10: #604 Task 3): `vault.freezePeriod(name)`
+  // delegator — thin call-site onto `VaultPeriods.freezePeriod`; the freeze logic
+  // itself lives in with-audit/periods/vault-facade.ts. Genuinely core (new public
+  // Vault method, same tier as closePeriod/openPeriod/getPeriod above it).
+  // Bumped 4007→4010 (2026-07-09, +3: #604 final-review Fix I3): restored the
+  // local-adapter-only-purge / #589 resurrection-window caveat onto the
+  // `freezePeriod` delegator's docstring (trimmed from the shipped version).
+  // No behavior change.
+  // Bumped 4010→4042 (2026-07-10, #613 period archive): `_archiveClosedPeriod`
+  // seam + `archivePeriod` delegator (pure additive, mirrors freezePeriod).
+  // Bumped 4042→4082 (2026-07-10, #615 target-purge): `_purgeMarkersOn` extraction
+  // (from `_purgeDeleteMarkers`), the `_purgePeriodTargets` seam, `getPurgeableTargets`
+  // option/field/default, and the `purgePeriodTargets` delegator (mirrors archivePeriod).
+  // Bumped 4082→4084 (2026-07-10, #615 review M1): refreshed the _purgeDeleteMarkers doc comment (pure doc growth, no behavior change).
+  // Bumped 4084→4095 (2026-07-11, #623 Task 8: i18n cutover onto the Via pipeline):
+  // `enforceI18nOnPut`/`enforceStaticDictOnPut` each gained an `isViaInstalled('i18n')`
+  // delegation guard + 9 docstring lines across the two validator delegators explaining it (+11). The two methods' bodies
+  // are otherwise unchanged — the inline i18n write/present duplication this task
+  // removes lived in collection.ts, not here.
+  // Lowered 4095→4094 (2026-07-11, Task 11 re-ratchet, #623 via-port arc):
+  // cc9d5830's origin-tagged mutation choke point (kernel/mutation.ts's
+  // MutationOrigin + Collection._onRecordMutated dispatch socket for phase
+  // C) trimmed vault.ts by one net line as part of the same commit. Locked
+  // in to the ACTUAL measured line count — no slack.
+  // Lowered 4094→4088 (2026-07-11, Task 11 re-ratchet, #629 via-phase-b arc):
+  // net −6 across the phase — Task 6 (classified kernel cutover) −1, Task 9
+  // (the exportStream() posture-redaction call site) +1, Task 10 (the six
+  // `(coll as any)` casts removed now that `_onViaErase`/`_classifySealedShred`
+  // are called directly, typed, plus the forget()-loop posture fallback) −6.
+  // Locked in to the ACTUAL measured line count (readFileSync(...).split('\n').length)
+  // — no slack.
+  // Lowered 4088→3941 (2026-07-12, #650 Task 1 (via-lookup extraction)): the
+  // ~350-line dict registry/handle block left vault.ts for
+  // via/lookup/{handle,registry,active,index}.ts + the new
+  // port/with/lookup-strategy.ts seam — enforceStaticDictOnPut/
+  // resolveDictSource/dictionary()'s findAndUpdateReferences closure are now
+  // thin delegators, and the dead `applyLocale` (zero production callers,
+  // superseded by via.present) was retired outright. Funds the phase's
+  // ceiling budget for later tasks.
+  // Lowered 3941→3940 (2026-07-12, #650 Task 7, final phase-D re-ratchet):
+  // Task 7's one vault.ts change modified the existing Task 6 `snapshotFor`
+  // line in place (added a `getCollection` arg for matrix-tier routing) —
+  // net zero new lines, so the 1-line slack Task 6 left behind was never
+  // spent and is removed here per the checker's ratchet-to-actual
+  // convention (phase D's final task). Locked in to the ACTUAL measured
+  // line count (readFileSync(...).split('\n').length) — no slack.
+  // Lowered 3940→3939 (2026-07-13, via-consolidation Task 6 final re-ratchet,
+  // #642/#651/#640/#654): the arc's Task 2 fix wave (#642) funded its
+  // `reapplyDependentOverlays` call by collapsing an adjacent `if` block,
+  // landing the file 1 line UNDER ceiling; Task 3 (#651) and Task 4 (#654)
+  // each landed net-zero edits back at that same actual, never spending the
+  // margin. Ratcheting down to the actual per the checker's ratchet-to-actual
+  // convention, same reasoning as collection.ts above.
+  // Bumped 3939→3950 (2026-07-14, #599 m22 Task 4): `migrateSatellitePerRecordKeys(name)`
+  // — a thin call-site (mirrors the `joined()` pattern immediately above it)
+  // that opens the satellite collection with `perRecordKeys: true` (bypassing
+  // R-S7 by never entering `declareSatellite` — no `satelliteOf` is passed)
+  // and delegates the per-record re-encrypt walk to
+  // `with-shape/satellites/migrate-cek.ts`. Genuinely core: a new public
+  // Vault method, same tier as `runSchemaCutover`/`abortSchemaCutover`.
+  // Bumped 3950→3958 (2026-07-15, #653: reserved-dict-deps delegator for partial-sync
+  // expansion): `_reservedDictDepsOf(names)` — a thin delegator (same tier as
+  // `_reservedLookupCollectionNames()` beside it) to `reservedDictDepsOf` in
+  // `via/lookup/registry.ts`, reached through the existing lookup-strategy port import.
+  // Bumped 3958→3959 (2026-07-15, #693: tab-coordination fallback for the marker-set gate):
+  // one `tabCoordinated: () => this.noydb._tabWritesRelayed` line threaded into collOpts.
+  // #766 (2026-07-18, putAtTier subject-index registration): funded IN PLACE, no bump.
+  // The +1 line wiring `collOpts.addSubjectRef` inside the existing forget-subject-declared
+  // branch (dense one-liner, trailing comment — the closure itself just calls the existing
+  // `this._addSubjectRef`) was paid for by folding the adjacent 3-line
+  // `if (options?.perRecordKeys !== undefined) { ... }` block to this file's own one-line
+  // `if (...) collOpts.x = ...` style (matches the block immediately above it) — a −2 net,
+  // leaving the file 1 line UNDER ceiling.
+  'packages/hub/src/kernel/vault.ts': 3959,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -972,7 +1131,19 @@ const KERNEL_SURFACE_BUDGET = {
   // `_forEachSyncEngine(name, …setCacheInvalidator…)` hookup directly after
   // the openVault Vault construction. Thin call-site; the invalidation itself
   // lives on Vault/Collection and the engine in with-party/team/.
-  'packages/hub/src/kernel/noydb.ts': 2371,
+  // Bumped 2371→2375 (2026-07-10, #615 target-purge): `getPurgeableTargets`
+  // pass-through at the sync-configured Vault construction site — thin
+  // call-site, filters/maps the already-computed `targets` array.
+  // Bumped 2375→2385 (2026-07-10, #616): role-gate the sync primary (emptyPullResult
+  // factory + pull() no-op + sync() primary ternary branch for push-only sinks).
+  // Bumped 2385→2396 (2026-07-15, #693: tab-coordination fallback for the marker-set gate):
+  // `_tabCoordinationActive` internal live getter (`tabCoordinator !== undefined`) — the
+  // dynamic signal Vault threads into every Collection so the #606 re-create gate can fall
+  // back to an unconditional store read whenever multi-tab coordination is active at all
+  // (presence/election alone or full write-propagation), not only while writes are relayed
+  // (review fix: `propagateWrites: false` left `writeRelay` unset, so the narrower signal
+  // missed a peer tab's delete-marker on a shared store — permanent #589-class data loss).
+  'packages/hub/src/kernel/noydb.ts': 2396,
 }
 
 function checkKernelSurface() {
@@ -1023,7 +1194,7 @@ function checkNoOutboundKlumImport() {
       if (klumStatic.test(code) || klumDynamic.test(code)) {
         fail(
           'no-outbound-klum-import',
-          `${relative(ROOT, file)} imports from @klum-db. No @noy-db package (hub core OR edge adapter) may depend on the orchestration package — the dependency runs the other way (@klum-db/lobby depends on @noy-db/hub/kernel + edge adapters).`,
+          `${relative(ROOT, file)} imports from @klum-db. No @noy-db package (hub core OR edge adapter) may depend on the orchestration package — the dependency runs the other way (@klum-db/lobby depends on @noy-db/hub/cargo + edge adapters).`,
           file,
         )
       }
@@ -1115,20 +1286,13 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-party/team/sync-strategy.js',
     '../with-shape/blobs/blob-compaction.js',
     '../with-shape/blobs/object-projection.js',
-    '../with-shape/blobs/strategy.js',
     // classified stage 2 Task 13 (2026-07-04) — refusal matrix R1-R5 guard at
     // door 1 (config resolution); pure validation, same ③ class as resolve.js
-    '../with-shape/classified/guards.js',
+    '../via/classified/guards.js',
     // classified-fields stage 1 — ③ schema feature, joins the #553 lazy-import debt like money/dictKey/computed
-    '../with-shape/classified/resolve.js',
-    // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
-    '../with-shape/classified/strategy.js',
-    '../with-shape/i18n/core.js',
-    '../with-shape/i18n/dictionary.js',
-    '../with-shape/i18n/strategy.js',
+    '../via/classified/resolve.js',
     '../with-shape/introspection/field-meta.js',
     '../with-shape/introspection/meta.js',
-    '../with-shape/money/descriptor.js',
     '../with-shape/schema-update/fence-controller.js',
     '../with-shape/schema-update/gate.js',
   ]],
@@ -1174,26 +1338,18 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/blobs/blob-compaction.js',
     '../with-shape/blobs/blob-set.js',
     '../with-shape/blobs/object-projection.js',
-    '../with-shape/blobs/strategy.js',
     // classified-fields stage 1 — ③ schema feature, joins the #553 lazy-import debt like money/dictKey/computed
-    '../with-shape/classified/resolve.js',
-    '../with-shape/classified/write.js',
-    // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
-    '../with-shape/classified/strategy.js',
+    '../via/classified/resolve.js',
+    '../via/classified/write.js',
     // classified-fields stage 1 Task 6 — typed reveal() error, sibling of the ③ write-path errors
-    '../with-shape/classified/errors.js',
+    '../via/classified/errors.js',
     // classified stage 2 Task 13 (2026-07-04) — refusal matrix R1-R5 guard at
     // door 2 (the _applyClassifiedFields reconcile seam); pure validation, same ③ class as resolve.js
-    '../with-shape/classified/guards.js',
-    '../with-shape/i18n/core.js',
-    '../with-shape/i18n/dictionary.js',
-    '../with-shape/i18n/policy.js',
-    '../with-shape/i18n/strategy.js',
+    '../via/classified/guards.js',
     '../with-shape/introspection/describe.js',
     '../with-shape/introspection/field-meta.js',
     '../with-shape/introspection/meta.js',
     '../with-shape/introspection/types.js',
-    '../with-shape/money/descriptor.js',
     '../with-shape/persisted-schemas/derive.js',
     '../with-shape/schema-update/fence-controller.js',
     '../with-shape/schema-update/gate.js',
@@ -1262,13 +1418,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-party/team/shamir-recovery-provider.js',
     '../with-party/team/sync-strategy.js',
     '../with-shape/blobs/object-projection.js',
-    '../with-shape/blobs/strategy.js',
-    // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
-    '../with-shape/classified/strategy.js',
-    '../with-shape/i18n/policy.js',
-    '../with-shape/i18n/script.js',
-    '../with-shape/i18n/strategy.js',
-    '../with-shape/money/descriptor.js',
     '../port/by/types.js',
   ]],
   ['packages/hub/src/kernel/vault.ts', [
@@ -1328,14 +1477,8 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/blobs/blob-compaction.js',
     '../with-shape/blobs/export-blobs.js',
     '../with-shape/blobs/object-projection.js',
-    '../with-shape/blobs/strategy.js',
     // classified-fields stage 1 — ③ schema feature, joins the #553 lazy-import debt like money/dictKey/computed
-    '../with-shape/classified/resolve.js',
-    // classified-fields stage 1 — ② capability gate, mirrors attestationStrategy/tiersStrategy threading
-    '../with-shape/classified/strategy.js',
-    '../with-shape/i18n/core.js',
-    '../with-shape/i18n/dictionary.js',
-    '../with-shape/i18n/strategy.js',
+    '../via/classified/resolve.js',
     '../with-shape/introspection/field-meta.js',
     '../with-shape/introspection/meta.js',
     '../with-shape/introspection/types.js',
@@ -1365,7 +1508,6 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../../with-lookup/aggregate/reducers.js',
     '../../with-lookup/aggregate/strategy.js',
     '../../with-lookup/indexing/eager-indexes.js',
-    '../../with-shape/money/descriptor.js',
   ]],
   ['packages/hub/src/kernel/query/index.ts', [
     '../../with-lookup/aggregate/aggregation.js',
@@ -1373,21 +1515,9 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../../with-lookup/aggregate/reducers.js',
     '../../with-lookup/indexing/eager-indexes.js',
   ]],
-  ['packages/hub/src/kernel/query/join.ts', [
-    '../../with-shape/i18n/core.js',
-  ]],
-  ['packages/hub/src/kernel/money-runtime.ts', [
-    // #553 -- TYPE-only (erased) import of the MoneyEngine interface; the
-    // engine values are linked at runtime by money() via installMoneyEngine()
-    '../with-shape/money/engine.js',
-  ]],
-  ['packages/hub/src/kernel/query/predicate.ts', [
-    '../../with-shape/money/where.js',
-  ]],
   ['packages/hub/src/kernel/query/scan-builder.ts', [
     '../../with-lookup/aggregate/aggregation.js',
     '../../with-lookup/aggregate/reducers.js',
-    '../../with-shape/money/descriptor.js',
   ]],
   ['packages/hub/src/kernel/enclave/record-keys/record-codec.ts', [
     '../../../with-commit/crdt/crdt.js',
@@ -1400,10 +1530,30 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
 ])
 
 // Matches a static `import`/`export … from '…'` clause (named `{…}`,
-// `* as x`, or bare `*`); multi-line clauses are fine since `[^}]` already
-// spans newlines. Dynamic `import(…)` calls never match (no `from`).
+// `* as x`, bare `*`, or a default binding optionally combined with a named
+// or namespace clause, e.g. `import x from '…'` / `import x, { y } from
+// '…'`); multi-line clauses are fine since `[^}]` already spans newlines.
+// Dynamic `import(…)` calls never match (no `from`).
 const STATIC_IMPORT_FROM_RE =
-  /(?:import|export)\s+(?:type\s+)?(?:\*\s+as\s+\S+|\{[^}]*\}|\*)\s*from\s*['"]([^'"]+)['"]/g
+  /(?:import|export)\s+(?:type\s+)?(?:\*\s+as\s+\S+|\{[^}]*\}|\*|[A-Za-z_$][\w$]*(?:\s*,\s*(?:\*\s+as\s+\S+|\{[^}]*\}))?)\s*from\s*['"]([^'"]+)['"]/g
+
+// Matches a side-effect-only static import — `import '…'` (no binding
+// clause, no `from` keyword) — which STATIC_IMPORT_FROM_RE can never match
+// since it requires `from`. #632.
+const SIDE_EFFECT_IMPORT_RE = /\bimport\s*['"]([^'"]+)['"]/g
+
+/**
+ * All static import/export specifiers in `code` — both `… from '…'` clauses
+ * (STATIC_IMPORT_FROM_RE) and side-effect-only `import '…'` statements
+ * (SIDE_EFFECT_IMPORT_RE). #632: the two forms used to be scanned
+ * separately (and side-effect imports not at all); every layering guard
+ * below now goes through this single helper so both are always covered
+ * together.
+ */
+function* staticImportSpecs(code) {
+  for (const m of code.matchAll(STATIC_IMPORT_FROM_RE)) yield m[1]
+  for (const m of code.matchAll(SIDE_EFFECT_IMPORT_RE)) yield m[1]
+}
 
 /** Path of a resolved import, relative to `hub/src`, POSIX-separated. */
 function importTargetRelToHubSrc(fromFile, spec, hubSrc) {
@@ -1426,8 +1576,7 @@ function checkPortLayering() {
     const rel = relative(ROOT, file)
     const allowedImports = PRE_EXISTING_SPINE_SERVICE_IMPORTS.get(rel)
     const code = stripComments(readFileSync(file, 'utf8'))
-    for (const m of code.matchAll(STATIC_IMPORT_FROM_RE)) {
-      const spec = m[1]
+    for (const spec of staticImportSpecs(code)) {
       if (!spec.startsWith('.')) continue // only relative imports resolve inside hub/src
       if (allowedImports?.includes(spec)) continue // frozen baseline import — grandfathered
       const target = importTargetRelToHubSrc(file, spec, hubSrc)
@@ -1460,8 +1609,7 @@ function checkPortLayering() {
     walkTsFiles(join(portDir, portName), (file, content) => {
       const rel = relative(ROOT, file)
       const code = stripComments(content)
-      for (const m of code.matchAll(STATIC_IMPORT_FROM_RE)) {
-        const spec = m[1]
+      for (const spec of staticImportSpecs(code)) {
         if (!spec.startsWith('.')) continue
         const target = importTargetRelToHubSrc(file, spec, hubSrc)
         if (target.startsWith('port/with/')) continue // the hook seam — always an allowed target
@@ -1507,8 +1655,7 @@ function checkEnclaveBarrelOnly() {
     const insideEnclave = !relative(enclaveDir, file).startsWith('..')
     const code = stripComments(content)
 
-    for (const m of code.matchAll(STATIC_IMPORT_FROM_RE)) {
-      const spec = m[1]
+    for (const spec of staticImportSpecs(code)) {
       if (!spec.startsWith('.')) continue
       const target = importTargetRelToHubSrc(file, spec, hubSrc)
 
@@ -1594,16 +1741,28 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-audit/attestation/signer.ts', 2],
   ['packages/hub/src/with-audit/consent/consent.ts', 5],
   ['packages/hub/src/with-audit/forget/subject-index.ts', 7],
-  ['packages/hub/src/with-audit/periods/vault-facade.ts', 5],
+  // #604 Task 3: `readReserved()` — generic reserved-collection reader added
+  // alongside `writeReserved()` (DRY'd from the old `writePeriodRecord`) to
+  // also serve the `_period_freezes` companion. Its plaintext fallback
+  // (`env._data`) mirrors the identical established ternary idiom already
+  // used in with-shape/links/link-set.ts and with-commit/{numbering,sequence}/index.ts
+  // (`this.encrypted ? await openEnvelopeJson(...) : env._data`) — reviewed,
+  // not a new pattern.
+  ['packages/hub/src/with-audit/periods/vault-facade.ts', 6],
   ['packages/hub/src/with-audit/portability/request-withdrawal.ts', 4],
   ['packages/hub/src/with-audit/portability/withdraw-accessible.ts', 2],
   ['packages/hub/src/with-audit/sealed-record/index.ts', 4],
-  ['packages/hub/src/with-audit/tiers/index.ts', 22],
+  // #635: `getAtTier`'s tier>0 leg now processes `_sealed` slots (reads
+  // `envelope._sealed` to detect + forward the blob map to
+  // `RecordCodec.applySealedSlots`) — 2 new accesses, reviewed & justified
+  // (parity with the tier-0 leg, which already goes through `decryptRecord`'s
+  // own `_sealed` handling).
+  ['packages/hub/src/with-audit/tiers/index.ts', 24],
   ['packages/hub/src/with-cargo/adopt-partition.ts', 8],
   ['packages/hub/src/with-cargo/extract-partition.ts', 26],
   ['packages/hub/src/with-commit/history/history.ts', 2],
   ['packages/hub/src/with-commit/history/ledger/store.ts', 11],
-  ['packages/hub/src/with-commit/history/time-machine.ts', 3],
+  ['packages/hub/src/with-commit/history/time-machine.ts', 1],
   ['packages/hub/src/with-commit/numbering/index.ts', 5],
   ['packages/hub/src/with-commit/sequence/index.ts', 5],
   ['packages/hub/src/with-formula/derivations/fanout-sidecar.ts', 6],
@@ -1628,8 +1787,44 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-pod/backup.ts', 3],
   ['packages/hub/src/with-pod/bundle.ts', 2],
   ['packages/hub/src/with-shape/blobs/blob-compaction.ts', 4],
-  ['packages/hub/src/with-shape/blobs/blob-set.ts', 33],
-  ['packages/hub/src/with-shape/i18n/dictionary.ts', 5],
+  // #724 Arc 10 correction (Task 1, closes C1): `rehomeForTier`'s solo
+  // in-place rewrap (`unwrapCek(blob._cek, fromDEK)` + the `_cek:` literal
+  // on the rewritten BlobObject) is DELETED — solo now re-`put()`s through
+  // the same fork path as shared-isolate, adding no new raw `_cek`/`_iv`/
+  // `_data` access. Down 2 from the Task-2 grandfather. 36→34.
+  // #724 Arc 10 correction (Task 2, closes C4): `rehomeVersionRecords` reads
+  // a raw version-record envelope's `_data` (mirrors `listVersions`'s own
+  // existing raw scan, just walking ALL of this record's version keys
+  // instead of one slot's) and `rehomeVersionETag` checks `loaded.blob._cek`
+  // to skip legacy/missing blobs (mirrors the slot loop's identical check
+  // two lines above it in the file). Both new sites reuse the barrel
+  // (`openEnvelopeJson`/`writeBlobContent`) for every actual decrypt/write —
+  // these are the two bare discriminant reads the loop needs to route
+  // correctly. Up 2. 34→36.
+  // #750: `collectVersionHolds` reads a raw version-record envelope's
+  // `_data` in the unencrypted branch — mirrors `rehomeVersionRecords`'s
+  // identical dual-branch read directly above it (the encrypted branch
+  // goes through the `openEnvelopeJson` barrel; only the plaintext-mode
+  // fallback is a bare `_data` read). Up 1. 36→37.
+  // #746 spec §7 §2d (PR-2 Task 2): `loadSlotsTolerant` and
+  // `loadVersionRecordAtKeyTolerant` — the rehome journal's two-tier
+  // resume-tolerant reads (`loadSlots`/`loadVersionRecordAtKeyTolerant`'s
+  // fromTier-then-toTier counterparts) — each add ONE unencrypted-branch
+  // `envelope._data` read, mirroring `loadSlots`/`collectVersionHolds`'s
+  // identical existing plaintext-mode fallback directly above; every
+  // encrypted-branch decrypt goes through the `openEnvelopeJson` barrel.
+  // Up 2. 37→39.
+  ['packages/hub/src/with-shape/blobs/blob-set.ts', 39],
+  // #629 Task 4: DictionaryHandle's encrypt/decrypt now goes through the
+  // reservedEnvelopes('_dict_') capability instead of building `_iv`/`_data`
+  // literals inline — down from 5 (the plaintext branch's `_iv: ''`/`_data:`
+  // + decryptEntry's `envelope._data` read remain; the two-occurrence
+  // encrypted-branch envelope literal moved into kernel/enclave/).
+  // #650 Task 1: DictionaryHandle (renamed LookupHandle) moved wholesale to
+  // via/lookup/handle.ts — this entry retargets with it (same 3:
+  // plaintext-branch `_iv: ''`/`_data:` + decryptEntry's `envelope._data`
+  // read). via/i18n/dictionary.ts now re-exports the class and has 0.
+  ['packages/hub/src/via/lookup/handle.ts', 3],
   ['packages/hub/src/with-shape/introspection/walk.ts', 1],
   ['packages/hub/src/with-shape/links/link-set.ts', 5],
   ['packages/hub/src/with-shape/persisted-schemas/storage.ts', 2],
@@ -1721,7 +1916,7 @@ function checkEnclaveClassifyOnly() {
         'enclave-classify-only',
         `${relative(ROOT, file)} references "${m[0]}" — verify-digest crypto identifiers and the ` +
         `'noydb-classify-vdig' salt domain are enclave-interior (M1). Call through the classified ` +
-        `strategy seam (with-shape/classified/active.ts dynamic import) or the enclave barrel; ` +
+        `strategy seam (via/classified/active.ts dynamic import) or the enclave barrel; ` +
         `opaque _vdig ciphertext transit needs no crypto identifier.`,
         file,
       )
@@ -1735,7 +1930,7 @@ function checkEnclaveClassifyOnly() {
 // identifiers — plus the index salt-domain literals — live ONLY in
 // kernel/enclave/** (the classify/ folder). Outside it, referencing these
 // is a leak of enclave interior into service/kernel code. The ONE sanctioned
-// exception is with-shape/classified/active.ts, which reaches
+// exception is via/classified/active.ts, which reaches
 // computeBidxTarget exclusively through the dynamic-import strategy seam
 // (kernel/enclave/classify/find.js) — that file is allowlisted the same way
 // enclave/test files are exempt elsewhere in this script. Opaque `_bidx`
@@ -1749,7 +1944,7 @@ function checkEnclaveClassifyOnly() {
 const CLASSIFY_INDEX_ENCLAVE_ONLY_RE =
   /\bderiveClassifyIndexKey\b|\bderiveClassifyIndexSalt\b|\bmintBidxTag\b|\bcomputeBidxTarget\b|noydb-classify-index-v1|noydb-classify-index-salt-v1/
 
-const CLASSIFY_INDEX_ALLOWLIST = new Set(['packages/hub/src/with-shape/classified/active.ts'])
+const CLASSIFY_INDEX_ALLOWLIST = new Set(['packages/hub/src/via/classified/active.ts'])
 
 function checkEnclaveClassifyIndexOnly() {
   const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
@@ -1767,12 +1962,137 @@ function checkEnclaveClassifyIndexOnly() {
         'enclave-classify-index-only',
         `${relative(ROOT, file)} references "${m[0]}" — blind-index key/salt-derivation and target ` +
         `identifiers, and the 'noydb-classify-index-v1'/'noydb-classify-index-salt-v1' literals, are ` +
-        `enclave-interior (M1). Call through the classified strategy seam (with-shape/classified/active.ts ` +
+        `enclave-interior (M1). Call through the classified strategy seam (via/classified/active.ts ` +
         `dynamic import) or the enclave barrel; opaque _bidx tag-map transit needs no crypto identifier.`,
         file,
       )
     }
   })
+}
+
+// ─── Check 14: via-layering (#623 — kernel-spine ↔ src/via/* boundary) ──
+//
+// The Via port converged money/i18n features out of collection.ts/vault.ts
+// into src/via/money/ and src/via/i18n/ — a sibling family to
+// with-*, not a with-* service itself, so Check 9 (port-layering) never
+// restricted it: its fail predicate only matches `with-*` and `port/`
+// targets (see that check's own doc comment). This check closes that gap
+// for the kernel-spine → via/ direction, mirroring Check 9's mechanics
+// exactly (same spine walk, same per-specifier grandfather semantics):
+//
+//   no file under packages/hub/src/kernel/** may statically import from
+//   src/via/**, EXCEPT the frozen baseline in VIA_SHAPE_ALLOWLIST below.
+//   Grandfathered PER IMPORT SPECIFIER, not per file — a listed file
+//   adding a NEW via/ import outside its frozen list still fails.
+//
+// via-compose.ts (#623 Task 9) originally needed a second grandfathered
+// entry here — its descriptor-shape classification (`mergeViaFields`)
+// imported I18nTextDescriptor/DictKeyDescriptor/StaticDictDescriptor + the
+// isX predicates straight from via/i18n/*. Task 11's fix wave routed
+// those through the port instead (isI18nTextDescriptor/isDictKeyDescriptor
+// moved onto port/with/i18n-strategy.ts beside isStaticDictDescriptor; the
+// descriptor types were already port-owned re-exports from Task 8), so
+// via-compose.ts now imports zero `via/` specifiers and the allowlist
+// below holds exactly the one #626 baseline the original brief specified.
+//
+// The reverse direction — no file under src/via/* may import
+// kernel/enclave/ (crypto should reach features only via ctx, not a direct
+// enclave-barrel import) — is enforced separately by Check 15
+// (via-enclave-isolation) below.
+//
+// #629 Task 5 (via-classified move) added a SECOND temporary batch —
+// `via/classified/{resolve,guards,write,errors}.js` — while the
+// classified binding was DORMANT (no compile entry yet). #629 Task 6 (kernel
+// cutover) routed those calls through the Via pipeline/`port/with/` seam
+// instead and retired every entry in that batch: the allowlist was back to
+// exactly the one #626 baseline.
+//
+// #650 Task 6 retired that last baseline too: `join.ts` no longer imports
+// `via/i18n/core.js` — it calls the sync `presentForJoin` hook the
+// `Collection` builds from its own i18n + lookup bindings instead (routed
+// through `port/with/lookup-strategy.ts`, never a direct via/ import).
+// The allowlist is now EMPTY and MUST STAY EMPTY — do not add a new entry;
+// `via-layering-empty.test.ts` proves both that this map is empty AND that
+// the guard still fires on a synthetic kernel→via/ import.
+
+const VIA_SHAPE_ALLOWLIST = new Map([])
+
+function checkViaLayering() {
+  const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
+  const kernelDir = join(hubSrc, 'kernel')
+
+  const spineFiles = []
+  walkTsFiles(kernelDir, (file) => spineFiles.push(file))
+  for (const file of spineFiles) {
+    const rel = relative(ROOT, file)
+    const allowedImports = VIA_SHAPE_ALLOWLIST.get(rel)
+    const code = stripComments(readFileSync(file, 'utf8'))
+    for (const spec of staticImportSpecs(code)) {
+      if (!spec.startsWith('.')) continue // only relative imports resolve inside hub/src
+      if (allowedImports?.includes(spec)) continue // frozen baseline import — grandfathered
+      const target = importTargetRelToHubSrc(file, spec, hubSrc)
+      if (/^via\//.test(target)) {
+        fail(
+          'via-layering',
+          `${rel} statically imports feature-layer path "${spec}" — the kernel spine may not reach into src/via/** (the Via port's feature layer). VIA_SHAPE_ALLOWLIST is EMPTY (the #626 baseline it once held was retired by #650 Task 6) — there is no grandfathered import left to match. Route through the Via port (kernel/via/index.ts) instead.`,
+          file,
+        )
+      }
+    }
+  }
+}
+
+// ─── Check 15: via-enclave-isolation (#623 — src/via/* → kernel/enclave/ ban) ──
+//
+// The reverse direction from Check 14: no file under src/via/**
+// (the Via port's feature layer — money, i18n) may statically
+// import kernel/enclave/ — crypto should reach a feature only via ctx
+// (phase B's ViaCryptoCtx, milestone #28), never a direct enclave-barrel
+// import. This is STRICTER than Check 10 (enclave-barrel-only), which only
+// bans reaching *past* the barrel; importing the barrel itself
+// (kernel/enclave/index.js) from anywhere outside kernel/enclave/** is
+// explicitly Check-10-legal. Check 15 additionally bans via/** from
+// importing the barrel at all.
+//
+// VIA_ENCLAVE_ALLOWLIST held one explicit, reviewed grandfather:
+// via/i18n/dictionary.ts's DictionaryHandle (encrypt/openEnvelopeJson
+// for _dict_* entry envelopes) predated #623 — verified via
+// `git show 43765b56^:packages/hub/src/with-shape/i18n/dictionary.ts`, the
+// identical import was already there before the #623 arc even started, at
+// the file's pre-move path. #629 Task 4 rerouted DictionaryHandle onto the
+// `reservedEnvelopes('_dict_')` capability (ViaCryptoCtx, milestone #28),
+// retiring the grandfather — the allowlist is now EMPTY. Grandfathered PER
+// IMPORT SPECIFIER, same semantics as VIA_SHAPE_ALLOWLIST — do not add new
+// entries; every via/** file must stay clean.
+
+const VIA_ENCLAVE_ALLOWLIST = new Map([])
+
+function checkViaEnclaveIsolation() {
+  const hubSrc = join(PACKAGES_DIR, 'hub', 'src')
+  const viaDir = join(hubSrc, 'via')
+
+  const viaDirs = readdirSync(viaDir, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name !== 'node_modules' && e.name !== 'dist')
+
+  for (const dim of viaDirs) {
+    walkTsFiles(join(viaDir, dim.name), (file, content) => {
+      const rel = relative(ROOT, file)
+      const allowedImports = VIA_ENCLAVE_ALLOWLIST.get(rel)
+      const code = stripComments(content)
+      for (const spec of staticImportSpecs(code)) {
+        if (!spec.startsWith('.')) continue // only relative imports resolve inside hub/src
+        if (allowedImports?.includes(spec)) continue // frozen baseline import — grandfathered
+        const target = importTargetRelToHubSrc(file, spec, hubSrc)
+        if (target.startsWith('kernel/enclave/')) {
+          fail(
+            'via-enclave-isolation',
+            `${rel} statically imports enclave path "${spec}" — src/via/** (the Via port's feature layer) may not reach kernel/enclave/ directly, not even the barrel; crypto should reach a feature only via ctx (phase B's ViaCryptoCtx, milestone #28). VIA_ENCLAVE_ALLOWLIST is EMPTY (the DictionaryHandle baseline it once held was retired by #629 Task 4) — there is no grandfathered import left to match.`,
+            file,
+          )
+        }
+      }
+    })
+  }
 }
 
 // ─── Run ───────────────────────────────────────────────────────────────
@@ -1793,6 +2113,8 @@ checkEnclaveBarrelOnly()
 checkEnclaveBodyOnly()
 checkEnclaveClassifyOnly()
 checkEnclaveClassifyIndexOnly()
+checkViaLayering()
+checkViaEnclaveIsolation()
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
 

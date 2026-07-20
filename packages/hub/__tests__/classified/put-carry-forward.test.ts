@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
 import { inlineMemory } from './harness.js'
-import type { ClassifiedFieldSpec } from '../../src/with-shape/classified/descriptor.js'
+import type { ClassifiedFieldSpec } from '../../src/via/classified/descriptor.js'
 
 // Raw spec (presets land in Task 12). minLength validation is stage-1 write-seam work.
 const passwordSpec: ClassifiedFieldSpec = {

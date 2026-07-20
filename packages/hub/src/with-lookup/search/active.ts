@@ -34,5 +34,9 @@ export function withSearch(): SearchStrategy {
       const { embedOnWrite } = await import('./collection-facade.js')
       return embedOnWrite(ctx, id, record, version)
     },
+    async rebuildEmbeddings(ctx) {
+      const { rebuildEmbeddings } = await import('./collection-facade.js')
+      return rebuildEmbeddings(ctx)
+    },
   }
 }

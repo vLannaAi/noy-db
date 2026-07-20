@@ -18,7 +18,8 @@
         "src/with-fork/snapshots/index.ts",
         "src/with-party/session/index.ts",
         "src/with-party/team/index.ts",
-        "src/with-shape/classified/index.ts",
+        "src/with-party/broker/index.ts",
+        "src/via/classified/index.ts",
         "src/with-shape/satellites/index.ts"
       ]
     }

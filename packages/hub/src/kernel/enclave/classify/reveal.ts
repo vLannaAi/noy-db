@@ -21,7 +21,7 @@ export interface RevealEngineCtx {
 
 export async function revealSealedField(ctx: RevealEngineCtx, id: string, field: string): Promise<unknown> {
   const env = await ctx.getEnvelope(id)
-  if (env === null || isTombstone(env, ctx.encrypted)) {
+  if (env === null || isTombstone(env, ctx.encrypted) || (env._tier ?? 0) > 0) {
     throw new ClassifiedRevealError(ctx.collection, field, `record "${id}" not found in "${ctx.collection}"`)
   }
   if (!ctx.encrypted) {

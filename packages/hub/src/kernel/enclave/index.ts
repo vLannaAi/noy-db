@@ -37,6 +37,11 @@
  *                       `envelopeBodyForHash`) — the sanctioned door onto
  *                       `_iv`/`_data`/`_cek`/`_sealed` for everyone outside
  *                       this folder.
+ *   - reserved envelopes — `record-keys/sealed-slots.ts`: `makeReservedEnvelopes`,
+ *                       the whole-envelope encrypt/decrypt door scoped to a
+ *                       declared collection-name prefix (e.g. `_dict_`) —
+ *                       `kernel/vault.ts` binds it for `DictionaryHandle`
+ *                       (#629 Task 4).
  *
  * Additive changes only — removing or renaming an export here is breaking
  * for any fork. Frozen by `__tests__/enclave-surface-golden.test.ts`.
@@ -87,7 +92,8 @@ export {
   importCek,
 } from './crypto.js'
 export type { PassphraseKeyUsage } from './crypto.js'
-export { resolveStableCek, rewrapBodyToDek } from './record-keys/lifecycle.js'
+export { resolveStableCek, rewrapBodyToDek, rewrapEnvelope, applyRewrappedBody, isRewrappedUnder } from './record-keys/lifecycle.js'
+export type { RewrappedBody } from './record-keys/lifecycle.js'
 
 // ─── record codec ──────────────────────────────────────────────────
 export { RecordCodec } from './record-keys/record-codec.js'
@@ -102,10 +108,13 @@ export { findByDet, queryByDet } from './record-keys/deterministic.js'
 export type { DeterministicContext } from './record-keys/deterministic.js'
 
 // ─── tombstone ─────────────────────────────────────────────────────
-export { isTombstone, isTombstoneShape, buildTombstone } from './record-keys/tombstone.js'
+export { isTombstone, isTombstoneShape, buildTombstone, isDeleteMarker, buildDeleteMarker } from './record-keys/tombstone.js'
 
 // ─── envelope body (C1 protected-body access contract) ──────────────
 export { openEnvelopeJson, writeEnvelopeBody, hasPerRecordKey, envelopeBodyForHash } from './record-keys/envelope-body.js'
+
+// ─── reserved envelopes (ViaCryptoCtx.reservedEnvelopes capability) ──
+export { makeReservedEnvelopes } from './record-keys/sealed-slots.js'
 
 // ─── classify (stage-2 verify oracle primitives) ────────────────────
 // ADDITIVE per Enclave Contract v1. A fork must provide these four; the
@@ -122,3 +131,16 @@ export { evaluateKofN } from './classify/kofn.js'
 // dynamic-import seam and is not part of the fork contract.
 export { deriveClassifyIndexKey, deriveClassifyIndexSalt, mintBidxTag } from './classify/bidx.js'
 export { computeBidxTarget } from './classify/find.js'
+
+// ─── broker (proof derivation + challenge/verify, #479 slice 2) ─────
+// ADDITIVE per Enclave Contract v1. A fork must provide these five; the
+// seed lifecycle + network/cache orchestration (with-party/broker/**) sits
+// behind its own dynamic-import seam and is not part of the fork contract.
+export {
+  deriveBrokerProofBits,
+  deriveBrokerProofKey,
+  computeBrokerProof,
+  issueChallenge,
+  verifyBrokerProof,
+} from './broker/proof.js'
+export type { BrokerProofCanonicalParts, VerifyBrokerProofArgs, IssuedChallenge } from './broker/proof.js'

@@ -1,25 +1,22 @@
 import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult, SealedView, VdigFieldPolicy, ClassifiedVerdict } from './types.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
-import { resolveClassifiedFields, ClassifiedConfigError, type ClassifiedEntry, type ClassifiedFieldSpec, type ResolvedClassified } from '../with-shape/classified/resolve.js'
-import { ClassifiedRevealError, ClassifiedVerifyError } from '../with-shape/classified/errors.js'
-import { guardClassifiedCompat, type ClassifiedGuardCtx } from '../with-shape/classified/guards.js'
-import type { ClassifiedStrategy, ClassifiedVerifyCtx } from '../with-shape/classified/strategy.js'
+import { resolveClassifiedFields, guardClassifiedCompat, type ClassifiedEntry, type ClassifiedFieldSpec, type ResolvedClassified, type ClassifiedGuardCtx, type ClassifiedStrategy, type ClassifiedVerifyCtx } from '../port/with/classified-strategy.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from '../with-commit/crdt/crdt.js'
-import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
-import type { I18nTextDescriptor } from '../with-shape/i18n/core.js'
-import { getAtPath, setAtPathInPlace, stripI18nFilled } from '../with-shape/i18n/core.js'
-import type { DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../with-shape/i18n/dictionary.js'
-import { isStaticDictDescriptor } from '../with-shape/i18n/dictionary.js'
-import type { MoneyDescriptor } from '../with-shape/money/descriptor.js'
-import { moneyRuntime } from './money-runtime.js'
+import type { CrdtStrategy } from './types.js' // direct, not via crdt/strategy.js — avoids a dts cycle (#667)
+import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../port/with/i18n-strategy.js'
+import { isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
+import type { LookupDescriptor } from '../port/with/lookup-strategy.js'
+import { ViaPipeline } from './via/pipeline.js'
+import { viaBinder, type ViaDescriptor, type ViaWriteCtx, type ViaEraseReport } from './via/index.js'
+import type { MutationOrigin } from './mutation.js'
+import { putDerivedOutput, ledgerAuditHook, resolveRollupDeleteIntents, findRollupSpecForIntent, type WaveContext, type RollupOutcome, type RollupDeleteIntent } from './via/dispatch.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
-import { enforceClassifiedWrite } from '../with-shape/classified/write.js'
-import type { I18nStrategy } from '../with-shape/i18n/strategy.js'
-import { resolvePolicy } from '../with-shape/i18n/policy.js'
 import {
   isTombstone,
+  isDeleteMarker,
   buildTombstone,
+  buildDeleteMarker,
   resolveStableCek,
   findByDet,
   queryByDet,
@@ -28,27 +25,25 @@ import {
   type EnclaveKey,
   type SealedShredSlot,
 } from './enclave/index.js'
+import { countLiveEnvelopes } from './lazy-count.js'
+import { liveRecordIsElevated, assertTierWritable, assertCutoverTierSafe } from './tier-visibility.js'
 import {
-  classifySealedShred as classifySealedShredImpl,
-  type TiersContext,
+  classifySealedShred as classifySealedShredImpl, syncDerivedOutputs,
+  type TiersContext, type TierMoveResult,
 } from '../with-audit/tiers/index.js'
 import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
 import {
   buildPersistedIndexCallbacks as buildPersistedIndexCallbacksImpl,
+  syncTierSearch as syncTierSearchImpl,
   type SearchContext,
 } from '../with-lookup/search/collection-facade.js'
 import type { SearchStrategy } from '../with-lookup/search/strategy.js'
 import {
-  rebuildEagerIndexesFromCache as rebuildEagerIndexesFromCacheImpl,
-  rebuildUniqueConstraintsFromCache as rebuildUniqueConstraintsFromCacheImpl,
-  rebuildIndexes as rebuildIndexesImpl,
-  reconcileIndex as reconcileIndexImpl,
-  maintainPersistedIndexesOnPut as maintainPersistedIndexesOnPutImpl,
-  maintainPersistedIndexesOnDelete as maintainPersistedIndexesOnDeleteImpl,
-  purgePersistedIndexes as purgePersistedIndexesImpl,
-  type IndexingContext,
+  rebuildEagerIndexesFromCache as rebuildEagerIndexesFromCacheImpl, rebuildUniqueConstraintsFromCache as rebuildUniqueConstraintsFromCacheImpl, rebuildIndexes as rebuildIndexesImpl,
+  reconcileIndex as reconcileIndexImpl, maintainPersistedIndexesOnPut as maintainPersistedIndexesOnPutImpl, maintainPersistedIndexesOnDelete as maintainPersistedIndexesOnDeleteImpl,
+  purgePersistedIndexes as purgePersistedIndexesImpl, syncTierIndexes as syncTierIndexesImpl, type IndexingContext,
 } from '../with-lookup/indexing/collection-facade.js'
-import { ConflictError, ReadOnlyError, TranslatorNotConfiguredError, LocaleNotSpecifiedError } from './errors.js'
+import { ConflictError, ReadOnlyError, ClassifiedConfigError, ClassifiedRevealError, ClassifiedVerifyError } from './errors.js'
 import type { GhostRecord, TierMode, CrossTierAccessEvent } from './types.js'
 import type { UnlockedKeyring } from '../with-party/team/keyring.js'
 import { hasWritePermission } from '../with-party/team/keyring.js'
@@ -63,7 +58,7 @@ import { validateSchemaInput } from './schema.js'
 import { derivePersistedSchema } from '../with-shape/persisted-schemas/derive.js'
 import type { LedgerStore } from '../with-commit/history/ledger/index.js'
 import type { DiffEntry } from '../with-commit/history/diff.js'
-import type { HistoryStrategy } from '../with-commit/history/strategy.js'
+import { NO_HISTORY, type HistoryStrategy } from '../with-commit/history/strategy.js'
 import { Query, ScanBuilder } from './query/index.js'
 import type { QuerySource, JoinContext, JoinableSource } from './query/index.js'
 import type { CollectionIndexes } from '../with-lookup/indexing/eager-indexes.js'
@@ -77,7 +72,7 @@ import { MemoryIndexStore, type IndexStore } from '../with-lookup/search/index-s
 import { PersistedIndexStore } from '../with-lookup/search/persisted-index-store.js'
 import type { RetrieveOptions, RetrieveHit } from '../with-lookup/search/retrieve-types.js'
 import { DerivationCapExceededError } from './errors.js'
-import type { VectorSet, EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
+import { encodeVecId, type VectorSet, type EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from '../with-lookup/indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
 import { buildDescription, deriveZodFields, type CollectionDescription, type DescribeOptions } from '../with-shape/introspection/describe.js'
@@ -88,7 +83,7 @@ import { generateULID } from '../with-pod/ulid.js'
 import type { PresenceHandle, PresenceHandleOpts } from '../with-party/team/presence.js'
 import type { SyncStrategy } from '../with-party/team/sync-strategy.js'
 import type { BlobSet } from '../with-shape/blobs/blob-set.js'
-import type { BlobStrategy } from '../with-shape/blobs/strategy.js'
+import { NO_BLOBS, type BlobStrategy } from '../port/with/blob-strategy.js'
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { BlobFieldsConfig } from '../with-shape/blobs/blob-compaction.js'
 import type { AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
@@ -110,7 +105,7 @@ import type { MaterializedViewRegistry } from '../with-formula/materialized-view
 import type { MVQueryContext } from '../with-formula/materialized-views/types.js'
 import type { MaterializedViewExecutor as MVExecutorType } from '../with-formula/materialized-views/executor.js'
 import type * as MVStaleModule from '../with-formula/materialized-views/stale.js'
-import { resolveCollectionConfig, type CollectionOpts } from './collection-config.js'
+import { resolveCollectionConfig, resolveVirtualMoneyFields, type CollectionOpts } from './collection-config.js'
 import { loadEvalComputedFields } from '../with-formula/computed/lazy.js'
 
 /**
@@ -212,6 +207,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private readonly activeTxId: (() => string | null) | undefined
   private readonly getDEK: (collectionName: string) => Promise<EnclaveKey>
   private readonly onDirty: OnDirtyCallback | undefined
+  /** #693: live check — true when multi-tab write-propagation is active; gates the #606 marker-id-set fallback read. */
+  private readonly tabCoordinated: (() => boolean) | undefined
   private readonly historyConfig: HistoryConfig
   /** True when the caller explicitly provided a `historyConfig` option (vs. inheriting the vault default). */
   private readonly historyConfigExplicit: boolean
@@ -227,13 +224,11 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   private readonly blobStrategy: BlobStrategy
   private readonly objectStore: ObjectProjection | undefined
-  private readonly blobFields: BlobFieldsConfig | undefined
-  private readonly aggregateStrategy: AggregateStrategy
-  private readonly crdtStrategy: CrdtStrategy
+  private readonly blobFields: BlobFieldsConfig | undefined; private readonly blobTierPolicy: 'isolate' | 'dedup' // #724 T2/T3
+  private readonly aggregateStrategy: AggregateStrategy; private readonly crdtStrategy: CrdtStrategy
   private readonly tiersStrategy: TiersStrategy
   private readonly searchStrategy: SearchStrategy
   private readonly historyStrategy: HistoryStrategy
-  private readonly i18nStrategy: I18nStrategy
   private readonly syncStrategy: SyncStrategy
 
   // In-memory cache of decrypted records (eager mode only). Lazy mode
@@ -241,6 +236,21 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   // doesn't need a runtime branch on every cache access.
   private readonly cache = new Map<string, { record: T; version: number }>()
   private hydrated = false
+
+  /**
+   * #606: ids known to carry a delete marker in the store — lets the #589
+   * re-create version-continuity gate in `_putInternal` read the store ONLY
+   * for a known marker prior, instead of unconditionally on every insert.
+   * Populated on hydration (`ensureHydrated`/`hydrateFromSnapshot`), local
+   * delete (`_doDelete`), and the sync/tab/cutover choke point
+   * (`_invalidateCacheEntry`). Accepted drift: `vault._purgeDeleteMarkers`/
+   * `_purgeMarkersOn` remove markers directly on the raw store, bypassing
+   * Collection, so this set can hold stale ids after a purge on an
+   * already-loaded collection — perf-only and self-healing (a stale id just
+   * costs one `adapter.get` that returns non-marker/null, and version
+   * resolution falls back to 1 correctly). Do not try to wire purge into it.
+   */
+  private readonly markerIds = new Set<string>()
 
   /**
    * Lazy mode flag. `true` when constructed with `prefetch: false`.
@@ -273,8 +283,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /**
    * In-memory unique-constraint enforcement for eager mode.
-   * `null` when no `unique:true` indexes are declared on this collection,
-   * or when the collection is in lazy mode (which throws at registration).
+   * `null` when no `unique:true` indexes are declared on this collection, or when the collection is in lazy mode (which throws at registration).
    */
   private readonly uniqueConstraints: UniqueConstraintSet | null
 
@@ -298,8 +307,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
-   * Accessor for the persisted-mirror (lazy-mode) index. Returns `null`
-   * when indexing is disabled or the collection is in eager mode.
+   * Accessor for the persisted-mirror (lazy-mode) index. Returns `null` when indexing is disabled or the collection is in eager mode.
    */
   private get persistedIndexes(): PersistedCollectionIndex | null {
     return this.indexState.getPersistedIndexes()
@@ -348,80 +356,43 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   private readonly defaultLocale: string | undefined
 
-  /**
-   * Map of field name → `I18nTextDescriptor` for fields declared with
-   * `i18nText()`. Used by:
-   *   - `put()` via `i18nPutValidator` to enforce required translations
-   *   - `get()`/`list()` to apply locale resolution after decryption
-   *
-   * Declared via the `i18nFields` collection option.
-   */
-  private readonly i18nFields: Record<string, I18nTextDescriptor> | undefined
+  /** Field name → `I18nTextDescriptor` for `i18nText()` fields (`i18nFields` option); write/read runs through the compiled `via` i18n binding — this remains for `describe()` and the search-index build path. Mutable — see {@link _reconcileReadState} (#671 item 2). */
+  private i18nFields: Record<string, I18nTextDescriptor> | undefined
 
-  /**
-   * The configured string fields exposed to `retrieve()`. `undefined`
-   * for ordinary collections, so the search path costs nothing when unused.
-   */
+  /** The configured string fields exposed to `retrieve()`; `undefined` for ordinary collections (zero-cost). */
   private readonly textIndexes: readonly string[] | undefined
 
-  /**
-   * The session-scoped lexical index store. `undefined` (so the dirty
-   * poke + retrieve are zero-cost) unless `textIndexes` is non-empty.
-   */
+  /** Session-scoped lexical index store; `undefined` (zero-cost) unless `textIndexes` is non-empty. */
   private readonly searchIndexStore: IndexStore | undefined
 
-  /**
-   * The densify-enabled subset of {@link i18nFields} (fields whose
-   * descriptor opts in via `densifyOnWrite: true`). `undefined` when none opt
-   * in, so the write path skips all densify work for ordinary collections.
-   */
-  private readonly i18nDensifyFields: Record<string, I18nTextDescriptor> | undefined
-
-  /**
-   * Embedding config for write-time vector derivation. `undefined`
-   * for ordinary collections (zero cost). When set, `put()` encodes the
-   * source field(s) and stores an encrypted `_vec` sidecar.
-   */
+  /** Embedding config for write-time vector derivation; `undefined` (zero-cost) for ordinary
+   *  collections. When set, `put()` encodes the source field(s) and stores an encrypted `_vec` sidecar. */
   private readonly embeddings: EmbeddingDescriptor | undefined
 
-  /**
-   * In-memory vector set, populated lazily from `_vec` sidecars.
-   * `undefined` when no embedding config is declared.
-   */
+  /** In-memory vector set, populated lazily from `_vec` sidecars; `undefined` when no embedding config is declared. */
   private vectorSet: VectorSet | undefined
 
-  /**
-   * Map of field name → `DictKeyDescriptor` for fields declared with
-   * `dictKey()`. Used by `get()`/`list()` to add `<field>Label` virtual
-   * fields when a locale is requested.
-   */
-  private readonly dictKeyFields: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
+  /** Field name → `DictKeyDescriptor` for `dictKey()` fields; used by `get()`/`list()` to add `<field>Label` virtual fields when a locale is requested. Mutable — see {@link _reconcileReadState} (#671 item 2). */
+  private dictKeyFields: Record<string, DictKeyDescriptor | StaticDictDescriptor> | undefined
 
-  /**
-   * Consumer-neutral per-field descriptors declared via the `fieldMeta`
-   * collection option. Read by `getFieldMeta()`; merged by `collection.describe()`.
-   */
+  /** Field name → `LookupDescriptor` for native `lookup()`/`enumOf()`/`dict()` fields (#650 Task 2) — describe()-only in this task. Mutable — see {@link _reconcileReadState} (#671 item 2). */
+  private lookupFields: Record<string, LookupDescriptor> | undefined
+  /** Sync join-dressing hook (#650 Task 6, #626 retirement) — `querySourceForJoin()`'s `presentForJoin`. Mutable — see {@link _reconcileReadState} (#671 item 3). */
+  private presentForJoin: ((record: unknown, locale: string) => unknown) | undefined
+
+  /** Consumer-neutral per-field descriptors declared via `fieldMeta`; read by `getFieldMeta()`, merged by `describe()`. */
   private fieldMeta: Record<string, FieldMeta> | undefined
 
-  /**
-   * Collection-level descriptive metadata declared via the `meta` collection
-   * option. Read by `getMeta()`; surfaced in `collection.describe()`.
-   */
+  /** Collection-level descriptive metadata declared via `meta`; read by `getMeta()`, surfaced in `describe()`. */
   private meta: CollectionMeta | undefined
 
-  /**
-   * Outbound ref declarations for this collection (snapshot from vault
-   * refRegistry at construction time). Used by `describe()` (sync, config-only).
-   */
+  /** Outbound ref declarations (snapshot from vault refRegistry at construction time); used by `describe()`. */
   private readonly _refs: Record<string, RefDescriptor>
 
-  /**
-   * Money field descriptors keyed by field path. Declared via the
-   * `moneyFields` collection option: `put()` quantizes to a scaled-int
-   * string, `get()`/`list()` decode back. Mutable so {@link _applyMoneyFields}
-   * can attach descriptors to a collection MV-analysis pre-created.
-   */
-  private moneyFields: Record<string, MoneyDescriptor> | undefined
+  /** Money field descriptors keyed by field path, typed as the opaque {@link ViaDescriptor} marker
+   *  (the kernel never inspects the concrete shape); `put()` quantizes to a scaled-int string,
+   *  `get()`/`list()` decode back. Mutable so {@link _applyMoneyFields} can attach. */
+  private moneyFields: Record<string, ViaDescriptor> | undefined; private via: ViaPipeline | undefined // compiled Via pipeline (money, i18n); rebuilt by {@link _applyMoneyFields}
 
   /**
    * Computed scalar fields, evaluated first on every `put()`. Mutable for
@@ -463,36 +434,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   private readonly classifiedStrategy: ClassifiedStrategy
 
-  /**
-   * Async callback provided by the Vault that resolves a dict key
-   * to its label for a given locale. Used by the locale-read path for
-   * dictKey fields.
-   *
-   * Signature: `(dictName, key, locale, fallback?) => Promise<string | undefined>`
-   */
-  private readonly dictLabelResolver:
-    | ((
-        dictName: string,
-        key: string,
-        locale: string,
-        fallback?: string | readonly string[],
-      ) => Promise<string | undefined>)
-    | undefined
-
-  /**
-   * Async callback provided by the Vault to open a dynamic
-   * dictionary handle (for label-map pre-computation in the search index).
-   * Only used in `resolveDictLabelMaps()`; static dicts bypass this entirely.
-   */
-  private readonly getDictionary: ((name: string) => Promise<DictionaryHandle>) | undefined
-
-  /**
-   * Synchronous callback provided by the Vault that validates
-   * i18nText fields on `put()`. Throws `MissingTranslationError` when
-   * a required translation is absent. Called after schema validation,
-   * before encryption.
-   */
-  private readonly i18nPutValidator: ((record: unknown) => void) | undefined
+  /** Async callback provided by the Vault to open a dynamic dictionary handle (for label-map pre-computation in the search index). Only used in `resolveDictLabelMaps()`; static dicts bypass this entirely. Mutable, assign-once — see {@link _reconcileReadState} (#671 item 1). */
+  private getDictionary: ((name: string) => Promise<DictionaryHandle>) | undefined
 
   /**
    * declared deterministic fields. `null` when the feature
@@ -554,23 +497,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private readonly tiers: ReadonlySet<number> | null
   private readonly tierMode: TierMode
   private readonly onCrossTierAccess: ((event: CrossTierAccessEvent) => void) | undefined
+  private readonly addSubjectRef: ((id: string, record: unknown) => Promise<void>) | undefined // #766: putAtTier's first-write subject-index registration (wired by the Vault; undefined ⇒ no forget-subject field declared)
 
   /**
-   * Async translator callback provided by Noydb via Vault for
-   * `i18nText` fields with `autoTranslate: true`. Called
-   * before i18n validation so translated values are present when the
-   * validator runs. `undefined` when no `plaintextTranslator` was
-   * configured on `createNoydb()`.
-   */
-  private readonly autoTranslateHook:
-    | ((text: string, from: string, to: string, field: string, collection: string) => Promise<string>)
-    | undefined
-
-  /**
-   * Optional reference to the vault-level hash-chained audit
-   * log. When present, every successful `put()` and `delete()` appends
-   * an entry to the ledger AFTER the adapter write succeeds (so a
-   * failed adapter write never produces an orphan ledger entry).
+   * Optional reference to the vault-level hash-chained audit log. When present, every successful `put()` and `delete()` appends an entry to the ledger AFTER the adapter write succeeds (so a failed adapter write never produces an orphan ledger entry).
    *
    * The ledger is always a vault-wide singleton — all
    * collections in the same vault share the same LedgerStore.
@@ -639,6 +569,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         getQueryContext(): MVQueryContext
       }
     | undefined
+
+  /** #638 Task 4 — `Vault._collectGraphTouch`; a no-op absent an open batch. `collectDelete` (#640) is the sync-apply delete socket. */
+  private readonly graphDispatch: { collect(collection: string, id: string): void; collectDelete(collection: string, id: string, intents: readonly RollupDeleteIntent[]): void } | undefined
 
   /**
    * Optional back-reference to the owning compartment's ref
@@ -709,17 +642,17 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.activeTxId = cfg.activeTxId
     this.blobStrategy = cfg.blobStrategy
     this.objectStore = cfg.objectStore
-    this.blobFields = cfg.blobFields
+    this.blobFields = cfg.blobFields; this.blobTierPolicy = cfg.blobTierPolicy ?? 'isolate'
     this.aggregateStrategy = cfg.aggregateStrategy
     this.crdtStrategy = cfg.crdtStrategy
     this.tiersStrategy = cfg.tiersStrategy
     this.searchStrategy = cfg.searchStrategy
     this.historyStrategy = cfg.historyStrategy
-    this.i18nStrategy = cfg.i18nStrategy
     this.syncStrategy = cfg.syncStrategy
     this.reconcileOnOpen = cfg.reconcileOnOpen
     this.getDEK = cfg.getDEK
     this.onDirty = cfg.onDirty
+    this.tabCoordinated = cfg.tabCoordinated
     this.historyConfig = cfg.historyConfig
     this.historyConfigExplicit = cfg.historyConfigExplicit
     this.schema = cfg.schema
@@ -739,32 +672,33 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
           ? new PersistedIndexStore(buildPersistedIndexCallbacksImpl(() => this.searchContext()))
           : new MemoryIndexStore()
         : undefined
-    this.i18nDensifyFields = cfg.i18nDensifyFields
     this.embeddings = cfg.embeddings
     this.vectorSet = cfg.vectorSet
     this.dictKeyFields = cfg.dictKeyFields
+    this.lookupFields = cfg.lookupFields
+    this.presentForJoin = cfg.presentForJoin
     this.fieldMeta = cfg.fieldMeta
     this.meta = cfg.meta
     this._refs = cfg._refs
     this.moneyFields = cfg.moneyFields
+    this.via = cfg.via
     this.classified = cfg.classified
     this.classifiedGuardCtx = cfg.classifiedGuardCtx
     this.vdigFields = cfg.vdigFields
     this.classifiedStrategy = cfg.classifiedStrategy
     this.computed = cfg.computed
-    this.dictLabelResolver = cfg.dictLabelResolver
     this.getDictionary = cfg.getDictionary
-    this.i18nPutValidator = cfg.i18nPutValidator
-    this.autoTranslateHook = cfg.autoTranslateHook
     this.defaultLocale = cfg.defaultLocale
     this.crdtMode = cfg.crdtMode
     this.syncAdapter = cfg.syncAdapter
     this.onAccess = cfg.onAccess
     this.derivationSource = cfg.derivationSource
     this.materializedViewSource = cfg.materializedViewSource
+    this.graphDispatch = cfg.graphDispatch
     this.tiers = cfg.tiers
     this.tierMode = cfg.tierMode
     this.onCrossTierAccess = cfg.onCrossTierAccess
+    this.addSubjectRef = cfg.addSubjectRef
     this.deterministicFields = cfg.deterministicFields
     this.sensitiveFields = cfg.sensitiveFields
     this.perRecordCek = cfg.perRecordCek
@@ -802,11 +736,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       }
     }
 
-    // Build the record codec once. Constructed AFTER every dependency it reads
-    // is assigned (name, keyring, storeCiphertext, provenance, sensitiveFields,
-    // deterministicFields, crdtMode, crdtStrategy, schema, getDEK, cekCache).
-    // `cekCache` is passed as the SAME reference (not a copy) so the codec's
-    // resolveEnvelopeCek and the tier/forget cache evictions all see one object.
+    // Build the record codec once, AFTER every dependency it reads is assigned
+    // (name, keyring, storeCiphertext, provenance, sensitiveFields, deterministicFields,
+    // crdtMode, crdtStrategy, schema, getDEK, cekCache, via). `cekCache` is the SAME
+    // reference (not a copy) — the codec's resolveEnvelopeCek and the tier/forget cache evictions share it.
     this.codec = new RecordCodec<T>({
       name: this.name,
       actor: this.keyring.userId,
@@ -819,11 +752,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       crdtMode: this.crdtMode,
       crdtStrategy: this.crdtStrategy,
       schema: this.schema,
-      getDEK: () => this.getDEK(this.name),
+      getDEK: (collection) => this.getDEK(collection ?? this.name),
       cekCache: this.cekCache,
       classifiedMarkerDigestOnly: () => this._classifiedMarkerDigestOnly(),
-    })
-
+      via: this.via,
+    }) // #629 T10: classifySealedShred wired onto cfg.classifiedEraseCfg just below, once this.codec exists
+    if (cfg.classifiedEraseCfg) cfg.classifiedEraseCfg.classifySealedShred = (live) => this.codec.classifySealedShred(live as EncryptedEnvelope)
     // Build + register this collection's SyncEngine conflict resolvers (the CRDT
     // merge resolver + the per-collection `conflictPolicy` resolver). Kept inline
     // here: the closures capture private `this` state (this.codec,
@@ -847,9 +781,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         // authoritative merge result — a shred must win and stay shredded.
         if (localJson === null) return local
         if (remoteJson === null) return remote
-        const localState = JSON.parse(localJson) as CrdtState
-        const remoteState = JSON.parse(remoteJson) as CrdtState
-        const merged = this.crdtStrategy.mergeCrdtStates(localState, remoteState)
+        const merged = this.crdtStrategy.mergeCrdtStates(JSON.parse(localJson) as CrdtState, JSON.parse(remoteJson) as CrdtState)
         const mergedVersion = Math.max(local._v, remote._v) + 1
         const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
         return this.codec.encryptJsonString(JSON.stringify(merged), mergedVersion, cek)
@@ -910,7 +842,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
           const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
           // R2 refuses digest-only × conflictPolicy; on a vdig collection this path is
           // unreachable and the codec fail-loud guard backstops it.
-          return this.codec.encryptRecord(merged, mergedVersion, cek)
+          return this.codec.encryptRecord(merged, mergedVersion, cek, undefined, undefined, undefined, id)
         }
       }
 
@@ -942,10 +874,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       defs: opts.indexes ?? [],
       lazy: this.lazy,
     })
+    this.indexes?.setCanonicalizer((f, v) => this.via?.canonicalizeIndexKey(f, v)) // #672 review C1: one-time canonicalizer registration; lazy `this.via` read survives late `_setVia` (#666)
+    this.persistedIndexes?.setCanonicalizer((f, v) => this.via?.canonicalizeIndexKey(f, v)) // #677: lazy twin of the line above
 
-    // Unique-constraint enforcement (eager mode only). Declaring `unique` on
-    // a lazy/CRDT/tiered collection throws UnsupportedIndexOptionError here —
-    // see buildUniqueConstraintSet (kept out of this kernel file).
+    // Unique-constraint enforcement (eager mode only; UnsupportedIndexOptionError)
+    // — see buildUniqueConstraintSet. The Arc-7 tiers+blobFields refusal (#724)
+    // moved to collection.blob(id)'s runtime read gate (Arc 10 Task 1, blob-set.ts).
     this.uniqueConstraints = buildUniqueConstraintSet(this.name, opts.indexes, {
       lazy: this.lazy,
       crdt: this.crdtMode != null,
@@ -1037,40 +971,35 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /**
    * Describe the collection's field schema from in-memory config — zero store I/O.
-   *
-   * Sync overload (no args): merges moneyFields / dictKeyFields / refs /
-   * computed / fieldMeta into a {@link CollectionDescription}. Field types are
-   * inferred from config (money→'number', ref→'string'/'array', dict→'enum',
-   * others→'unknown'). Validator-derived types require the async overload.
-   *
-   * The async overload resolves validator-derived types + dynamic dict
-   * labels before building the description.
+   * Sync overload (no args): merges moneyFields/dictKeyFields/refs/computed/fieldMeta/
+   * taint into a {@link CollectionDescription} (types inferred from config; the async
+   * overload also derives validator-exact types and resolves dynamic dict labels).
    */
   describe(): CollectionDescription
   describe(opts: DescribeOptions): Promise<CollectionDescription>
   describe(opts?: DescribeOptions): CollectionDescription | Promise<CollectionDescription> {
-    if (opts) {
-      return this.describeAsync(opts)
-    }
+    if (opts) return this.describeAsync(opts)
     return buildDescription({
       collection: this.name,
       fieldMeta: this.fieldMeta,
       moneyFields: this.moneyFields,
       dictKeyFields: this.dictKeyFields,
+      ...(this.lookupFields !== undefined ? { lookupFields: this.lookupFields } : {}),
       computed: this.computed,
       refs: this._refs,
       zodFields: undefined,
       ...(this.meta !== undefined ? { meta: this.meta } : {}),
       ...(this.i18nFields !== undefined ? { i18nFields: this.i18nFields } : {}),
       ...(this.classified !== undefined ? { classified: this.classified.byField } : {}),
+      ...(this.via?.taint !== undefined ? { taint: this.via.taint } : {}),
+      ...(this.via ? { viaFragments: this.via.describeFragments() } : {}), // #650 Task 7
     })
   }
 
   /**
-   * Async describe implementation.
-   * Derives validator-exact types via deriveZodFields (lazy, no static zod import),
-   * optionally resolves dynamic-dict labels from vault.dictionary(name).list(),
-   * then delegates to buildDescription which also runs fieldMeta key-validation.
+   * Async describe implementation. Derives validator-exact types via deriveZodFields
+   * (lazy, no static zod import), optionally resolves dynamic-dict labels from vault.dictionary(name).list(),
+   * then delegates to buildDescription (which also runs fieldMeta key-validation).
    */
   private async describeAsync(opts: DescribeOptions): Promise<CollectionDescription> {
     // 1. Derive per-field type/optional/constraints/meta from the validator (if any).
@@ -1078,13 +1007,17 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       ? await deriveZodFields(this.schema)
       : undefined
 
-    // 2. Optionally resolve dynamic-dict labels from the vault's dictionary store.
+    // 2. Optionally resolve dynamic-dict labels — dictKeyFields AND reserved-tier
+    // lookupFields (native dict()) share the SAME `_dict_<name>` backing (review fix).
     let dictLabels: Record<string, Record<string, string>> | undefined
-    if (opts.resolveDictLabels === true && this.dictKeyFields !== undefined) {
-      dictLabels = {}
-      for (const [, desc] of Object.entries(this.dictKeyFields)) {
-        if (!isStaticDictDescriptor(desc) && this.getDictionary !== undefined) {
-          const handle = await this.getDictionary(desc.name)
+    if (opts.resolveDictLabels === true && this.getDictionary !== undefined) {
+      const names = new Set<string>()
+      for (const desc of Object.values(this.dictKeyFields ?? {})) if (!isStaticDictDescriptor(desc)) names.add(desc.name)
+      for (const desc of Object.values(this.lookupFields ?? {})) if (desc.backing === 'reserved') names.add(desc.dimension)
+      if (names.size > 0) {
+        dictLabels = {}
+        for (const name of names) {
+          const handle = await this.getDictionary(name)
           const entries = await handle.list()
           const valueToLabel: Record<string, string> = {}
           for (const entry of entries) {
@@ -1092,7 +1025,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
             const label = Object.values(entry.labels)[0]
             if (label !== undefined) valueToLabel[entry.key] = label
           }
-          dictLabels[desc.name] = valueToLabel
+          dictLabels[name] = valueToLabel
         }
       }
     }
@@ -1102,6 +1035,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       fieldMeta: this.fieldMeta,
       moneyFields: this.moneyFields,
       dictKeyFields: this.dictKeyFields,
+      ...(this.lookupFields !== undefined ? { lookupFields: this.lookupFields } : {}),
       computed: this.computed,
       refs: this._refs,
       zodFields,
@@ -1109,6 +1043,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       ...(this.meta !== undefined ? { meta: this.meta } : {}),
       ...(this.i18nFields !== undefined ? { i18nFields: this.i18nFields } : {}),
       ...(this.classified !== undefined ? { classified: this.classified.byField } : {}),
+      ...(this.via?.taint !== undefined ? { taint: this.via.taint } : {}),
+      ...(this.via ? { viaFragments: this.via.describeFragments() } : {}), // #650 Task 7
     })
   }
 
@@ -1338,11 +1274,20 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * analysis auto-creates a source collection (without options) during
    * `openVault`, before the user's `collection(name, { moneyFields })`
    * declaration; this reconciles that ordering. First-wins. Not public.
+   *
+   * PREPENDS money rather than appending: {@link compileViaBindings} always
+   * compiles money before i18n (money-first pipeline order — see its
+   * docstring), and by the time this reconcile runs an i18n binding may
+   * already be sitting in `this.via.bindings` (declared at construction).
+   * Appending here would yield `[i18n, money]` on this path vs `[money,
+   * i18n]` from compile — prepending keeps both paths money-first.
    */
-  _applyMoneyFields(moneyFields: Record<string, MoneyDescriptor>): void {
+  _applyMoneyFields(moneyFields: Record<string, ViaDescriptor>): void {
     if (this.moneyFields !== undefined) return
-    moneyRuntime().validateMoneyFieldPaths(moneyFields)
+    const virtualMoney = resolveVirtualMoneyFields(Object.keys(moneyFields), (f) => this.via?.bindings.find((b) => b.brand === 'computed')?.covers?.(f) ?? false) // #669
+    this.via = ViaPipeline.build([viaBinder('money')({ moneyFields, ...(virtualMoney.size > 0 ? { virtualMoneyFields: virtualMoney } : {}) }), ...(this.via?.bindings ?? [])], this.via?.taint) // #671 item 4 — thread taint through the rebuild
     this.moneyFields = moneyFields
+    if (this.hydrated) this.rebuildEagerIndexesFromCache() // #686: re-canonicalize buckets built before this money late-attach
   }
 
   /** @internal — attach computed fields post-construction. See {@link _applyMoneyFields}. */
@@ -1421,10 +1366,14 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     }
     this.classified = resolved
     this.computed = { ...resolved.riderComputed, ...(this.computed ?? {}) }
+    // APPEND (not prepend, unlike {@link _applyMoneyFields}) — compile order
+    // is money→i18n→classified; this keeps classified last regardless of order.
+    this.via = ViaPipeline.build([...(this.via?.bindings ?? []), viaBinder('classified')({
+      entries: classifiedFields, collectionName: this.name, guardCtx: this.classifiedGuardCtx, classifySealedShred: (live: unknown) => this.codec.classifySealedShred(live as EncryptedEnvelope), // #629 T10
+    })], this.via?.taint) // #671 item 4 — thread taint through the rebuild (code-level consistency; masked today by the reconcilePlan applyTaintOverlay re-run)
   }
 
-  /** @internal — used only in tests; do not read in production code. */
-  get _ramCiphertext(): boolean { return this.ramCiphertext }
+  get _ramCiphertext(): boolean { return this.ramCiphertext } // @internal — used only in tests; do not read in production code.
 
   /**
    * Get a single record by ID.
@@ -1440,6 +1389,25 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    *          `null` if not found.
    */
   async get(id: string, locale?: LocaleReadOptions): Promise<SealedView<T, S> | null> {
+    const record = await this.#getRaw(id)
+    if (record === null) return null
+    // The cache/decrypt path already substituted Sealed handles for declared
+    // sensitive fields (S); the cast reflects that runtime shape. For
+    // collections with no sensitive fields S = never and SealedView<T, never>
+    // collapses to T, so this is a no-op widening.
+    return this.applyLocaleToRecord(record, locale) as unknown as SealedView<T, S>
+  }
+
+  /**
+   * Raw fetch: cache/adapter → decrypt → tombstone-null, WITHOUT `present()`.
+   * Split out of `get()` (#684) so `lazyQuery()`'s `LazyQuerySource` can hand
+   * `LazyQuery`'s post-filter the RAW (stored-form) record a `clause.via`
+   * evaluator (e.g. money) needs — `present()`/locale decode is applied only
+   * to survivors, via `applyLocaleToRecord` (see `lazyQuery()` below). `get()`
+   * itself is unchanged: raw fetch, then `applyLocaleToRecord`, same order
+   * as before this split.
+   */
+  async #getRaw(id: string): Promise<T | null> {
     // --- Lazy derivation resolution ---
     // If this collection is the output of a lazy-mode derivation
     // strategy, consult the stale map and re-derive on demand before
@@ -1458,7 +1426,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // when nothing is pending.
     if (this.materializedViewSource !== undefined) {
       const { resolveStaleMVOnRead } = await import('../with-formula/materialized-views/stale.js')
-      await resolveStaleMVOnRead(this.materializedViewSource, this.name)
+      await resolveStaleMVOnRead(this.materializedViewSource, this.name, this.#dispatchCtx({ collection: this.name, id: 'resolve-on-read' }))
     }
 
     let record: T | null
@@ -1473,8 +1441,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         const envelope = await this.adapter.get(this.vault, this.name, id)
         if (!envelope) return null
         // Tombstone tolerance (decision 5): a shredded record carries no
-        // body / CEK. Reads return null rather than throwing TamperedError.
-        if (isTombstone(envelope, this.storeCiphertext)) return null
+        // body / CEK. Reads return null rather than throwing TamperedError. #701: elevated records are invisible — gate BEFORE decrypt, or the warm cekCache serves tier plaintext.
+        if (isTombstone(envelope, this.storeCiphertext) || isDeleteMarker(envelope) || (envelope._tier ?? 0) > 0) return null
         record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
         if (record === null) return null
         this.lru.set(id, { record, version: envelope._v }, estimateRecordBytes(record))
@@ -1488,11 +1456,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
     if (record === null) return null
     await this.onAccess?.('get', id)
-    // The cache/decrypt path already substituted Sealed handles for declared
-    // sensitive fields (S); the cast reflects that runtime shape. For
-    // collections with no sensitive fields S = never and SealedView<T, never>
-    // collapses to T, so this is a no-op widening.
-    return this.applyLocaleToRecord(record, locale) as unknown as SealedView<T, S>
+    return record
   }
 
   /**
@@ -1509,7 +1473,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       )
     }
     const envelope = await this.adapter.get(this.vault, this.name, id)
-    if (!envelope) return null
+    if (!envelope || (envelope._tier ?? 0) > 0) return null
     const json = await this.codec.decryptJsonString(envelope)
     if (json === null) return null // shredded (tombstone)
     return JSON.parse(json) as CrdtState
@@ -1642,8 +1606,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       const cached = this.lru.get(id)
       if (cached) return cached.record as Record<string, unknown>
       const env = await this.adapter.get(this.vault, this.name, id)
-      if (!env) return undefined
-      const rec = await this.codec.decryptRecord(env)
+      if (!env || (env._tier ?? 0) > 0) return undefined // #707: elevated ≡ missing
+      const rec = await this.codec.decryptRecord(env, { id })
       return rec === null ? undefined : (rec as Record<string, unknown>)
     }
     await this.ensureHydrated()
@@ -1694,8 +1658,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       const cached = this.lru.get(id)
       if (cached) return { record: cached.record, version: cached.version }
       const env = await this.adapter.get(this.vault, this.name, id)
-      if (!env) return { record: null, version: 0 }
-      return { record: (await this.codec.decryptRecord(env, { skipValidation: true })) as unknown ?? null, version: env._v }
+      if (!env || (env._tier ?? 0) > 0) return { record: null, version: 0 } // #707: elevated ≡ missing
+      return { record: (await this.codec.decryptRecord(env, { skipValidation: true, id })) as unknown ?? null, version: env._v }
     }
     await this.ensureHydrated()
     const cached = this.cache.get(id)
@@ -1712,13 +1676,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * {@link Sealed} handles for sensitive fields (non-residency), so when the
    * collection seals anything we re-decrypt the stored envelope to materialise
    * real values — re-encrypting a handle would otherwise persist the marker
-   * `'[sealed]'` in place of the value. Collections that seal nothing read the
-   * cache directly (no extra I/O), matching the previous behaviour exactly.
+   * `'[sealed]'` in place of the value. `via?.hasAtRestHooks` (#642) catches
+   * hook-only sealing (taint/classified, no local `sensitiveFields`).
    */
   private async resolvePriorValues(id: string): Promise<{ record: T; version: number } | undefined> {
-    if (this.sensitiveFields.size > 0) {
+    if (this.sensitiveFields.size > 0 || this.via?.hasAtRestHooks === true) {
       const env = await this.adapter.get(this.vault, this.name, id)
-      if (!env || isTombstone(env, this.storeCiphertext)) return undefined
+      if (!env || isTombstone(env, this.storeCiphertext) || (env._tier ?? 0) > 0) return undefined // #707: elevated ≡ missing
       const rec = await this.codec.decryptRecord(env, { skipValidation: true, id })
       return rec === null ? undefined : { record: rec, version: env._v }
     }
@@ -1731,11 +1695,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (!this.subsystemBus!.gateNeedsPrior(point)) return { env: null, record: null, elided: true }
     const env = await this.adapter.get(this.vault, this.name, id)
     if (!env) return { env: null, record: null, elided: false }
-    try {
-      return { env, record: await this.codec.decryptRecord(env, { skipValidation: true }), elided: false }
-    } catch {
-      return { env, record: null, elided: false }
-    }
+    if ((env._tier ?? 0) > 0) return { env, record: null, elided: false } // #707: elevated invisible to gate handlers — deterministic, not a swallowed InvalidKeyError
+    return { env, record: await this.codec.decryptRecord(env, { skipValidation: true, id }), elided: false }
   }
 
   /**
@@ -1759,12 +1720,14 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (!hasWritePermission(this.keyring, this.name)) {
       throw new ReadOnlyError()
     }
+    // #715: elevated record ⇒ tier-0 API refuses (putAtTier/elevate/demote remedy) — see assertTierWritable's doc.
+    await assertTierWritable(this.adapter, this.vault, this.name, id, this.tiers !== null)
 
     // One canonical money encoding from the FIRST pipeline stage:
     // gates, computed fields, and schema validation all see the decoded
     // `get()` shape. Best-effort — bad input passes through and the
     // quantize stage below throws the real error.
-    if (this.moneyFields) record = moneyRuntime().canonicalizeIncomingMoney(record, this.moneyFields) as T
+    if (this.via) record = this.via.ingest(record as Record<string, unknown>) as T
 
     // Gate bus (Track A) — write-gating services (guards: record-lock /
     // field-freeze / amendment-collect; periods: closed-period guard) run here,
@@ -1778,7 +1741,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         op: existingEnv ? 'update' : 'create',
         vault: this.vault, collection: this.name, docId: id,
         incoming: record,
-        existing: this.moneyFields ? moneyRuntime().canonicalizeStoredMoney(existingRecord, this.moneyFields) : existingRecord,
+        existing: this.via ? this.via.canonicalizeStored(existingRecord as Record<string, unknown>) : existingRecord,
         existingVersion: existingEnv?._v ?? 0,
         existingTs: existingEnv?._ts,
         userId: this.keyring.userId,
@@ -1790,11 +1753,19 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       await this.subsystemBus.dispatchGate('beforePut', gateEvent)
     }
 
-    // Classified enforcement — storage:'never' rejection + validators run
-    // before riders derive and before the schema sees the record.
-    if (this.classified !== undefined) {
-      enforceClassifiedWrite(record as Record<string, unknown>, this.classified.byField, this.name)
+    // Shared Via write ctx for enforceWrite + encodeWrite below (`prior` is
+    // lazy — paid only if a binding calls it, e.g. i18n densify).
+    const viaWriteCtx: ViaWriteCtx = {
+      id,
+      vault: this.vault,
+      prior: async () => (await this.resolveDensifyPrior(id)) ?? null,
+      emit: (e: string, p: unknown) => (this.emitter.emit as (ev: string, pl: unknown) => void)(e, p),
     }
+
+    // Via enforceWrite phase — classified storage:'never' rejection +
+    // validators, before riders derive/schema sees the record (#629 Task 6:
+    // was a direct enforceClassifiedWrite call, now the pipeline's hook).
+    if (this.via) await this.via.enforceWrite(record as Record<string, unknown>, viaWriteCtx)
 
     // Computed scalar fields — evaluated FIRST so the user need not supply
     // them and the schema validates the computed result. Throws
@@ -1814,131 +1785,11 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       record = await validateSchemaInput(this.schema, record, `put(${id})`)
     }
 
-    // Quantize money fields to their stored form (scaled-int string).
-    // After schema validation — descriptor owns precision/scale/currency.
-    if (this.moneyFields) {
-      record = moneyRuntime().quantizeMoneyFields(record as Record<string, unknown>, this.moneyFields) as T
-    }
-
-    // Auto-translate missing i18nText translations.
-    // Runs BEFORE i18n validation so translated values satisfy the
-    // required-locale constraint. Throws TranslatorNotConfiguredError
-    // when a field has autoTranslate: true but no hook was configured.
-    if (this.i18nFields) {
-      const obj = record as Record<string, unknown>
-      for (const [field, descriptor] of Object.entries(this.i18nFields)) {
-        if (!descriptor.options.autoTranslate) continue
-        // getAtPath returns [] for array-wildcard paths — auto-translate on
-        // 'contacts[].field' style paths is not supported; skip silently.
-        const leafValues = getAtPath(obj, field)
-        if (leafValues.length !== 1) continue
-        const value = leafValues[0]
-        if (!value || typeof value !== 'object' || Array.isArray(value)) continue
-        const map = value as Record<string, string>
-        // Determine which locales need translation. For 'all', translate all
-        // declared languages that are missing. For 'any', only translate if
-        // none are present. For string[], translate the listed required ones.
-        const { languages, required } = descriptor.options
-        const missing: string[] = languages.filter(
-          (lang) => !(lang in map) || map[lang] === '',
-        )
-        if (missing.length === 0) continue
-        // Find a source locale (first present non-empty value)
-        const sourceLocale = languages.find((l) => l in map && map[l] !== '')
-        if (!sourceLocale) continue
-        if (!this.autoTranslateHook) {
-          throw new TranslatorNotConfiguredError(field, this.name)
-        }
-        // Only translate locales that are actually needed
-        const toTranslate =
-          required === 'any'
-            ? [] // 'any' is already satisfied since sourceLocale exists
-            : required === 'all'
-              ? missing
-              : missing.filter((l) => required.includes(l))
-        const translated = { ...map }
-        for (const targetLocale of toTranslate) {
-          translated[targetLocale] = await this.autoTranslateHook(
-            map[sourceLocale]!,
-            sourceLocale,
-            targetLocale,
-            field,
-            this.name,
-          )
-        }
-        setAtPathInPlace(obj, field, translated)
-      }
-    }
-
-    // densifyOnWrite: read prior fills so a round-tripped
-    // derived copy is exempt from script enforcement and can be refreshed.
-    // `densifyPrior` is read once here and reused by densify() below.
-    let densifyPrior: Record<string, unknown> | undefined
-    let exemptFills: Map<string, Set<string>> | undefined
-    if (this.i18nDensifyFields) {
-      densifyPrior = await this.resolveDensifyPrior(id)
-      exemptFills = this.i18nStrategy.computeExemptFills(
-        densifyPrior,
-        record as Record<string, unknown>,
-        this.i18nDensifyFields,
-      )
-    }
-
-    // i18nText script enforcement — runs AFTER auto-translate (so
-    // generated values are checked too). Throws ScriptViolationError
-    // under the default 'reject'; 'filter' strips disallowed chars in
-    // place (getAtPath returns live leaf references, so the write-back
-    // covers nested and array-wildcard paths uniformly); 'warn' leaves
-    // the value unchanged.
-    if (this.i18nFields) {
-      const obj = record as Record<string, unknown>
-      for (const [field, descriptor] of Object.entries(this.i18nFields)) {
-        if (!descriptor.options.script) continue
-        for (const leaf of getAtPath(obj, field)) {
-          if (!leaf || typeof leaf !== 'object' || Array.isArray(leaf)) continue
-          const leafMap = leaf as Record<string, unknown>
-          const { value: cleaned, warnings } = this.i18nStrategy.enforceScript(
-            leafMap,
-            field,
-            descriptor,
-            exemptFills?.get(field),
-          )
-          if (cleaned !== leafMap) Object.assign(leafMap, cleaned)
-          // enforceScript only returns warnings under 'warn'/'filter' ('reject'
-          // throws first), so this guard never fires — it makes that invariant
-          // explicit and keeps `mode` off the optional-undefined type.
-          const mode = descriptor.options.onScriptViolation
-          if (mode === 'warn' || mode === 'filter') {
-            for (const w of warnings) {
-              this.emitter.emit('i18n:script-violation', {
-                vault: this.vault,
-                collection: this.name,
-                id,
-                mode,
-                warning: w,
-              })
-            }
-          }
-        }
-      }
-    }
-
-    // i18nText validation — runs AFTER schema validation so
-    // the record shape is trustworthy. Throws MissingTranslationError
-    // when required translations are absent.
-    if (this.i18nPutValidator !== undefined) {
-      this.i18nPutValidator(record)
-    }
-
-    // Eager-fill empty slots + record provenance. Runs AFTER the
-    // authored gates (required + script) so only authored slots are validated;
-    // filled slots are recorded in the internal `_i18nFilled` marker.
-    if (this.i18nDensifyFields) {
-      this.i18nStrategy.densify(
-        record as Record<string, unknown>,
-        densifyPrior,
-        this.i18nDensifyFields,
-      )
+    // Single Via encode-write phase: money quantize, then i18nText
+    // translate→densify→script→validate→densify (via the i18n binding) —
+    // binding order is money-first (see {@link compileViaBindings}).
+    if (this.via) {
+      record = await this.via.encodeWrite(record as Record<string, unknown>, viaWriteCtx) as T
     }
 
     // Foreign-key ref enforcement. Runs AFTER schema
@@ -1984,8 +1835,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
             }
           }
         }
-        const arr = Array.isArray(record) ? record : [record]
-        crdtState = this.crdtStrategy.buildRgaState(arr, existingState, generateULID)
+        crdtState = this.crdtStrategy.buildRgaState(Array.isArray(record) ? record : [record], existingState, generateULID)
       } else {
         // yjs: record is the base64 update string (produced by @noy-db/yjs)
         crdtState = { _crdt: 'yjs', update: record as unknown as string }
@@ -2011,9 +1861,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
       if (existingResolved && this.historyConfig.enabled !== false) {
         // History snapshot of the PRIOR version — does NOT carry source from the new write
-        const vdigCtx = this.vdigFields !== null ? { id, prev: existingEnvelope } : undefined
-        const histEnvelope = await this.codec.encryptRecord(existingResolved.record, existingResolved.version, cek, undefined, undefined, vdigCtx)
-        await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, histEnvelope)
+        await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord(existingResolved.record, existingResolved.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: existingEnvelope } : undefined, id))
         this.emitter.emit('history:save', { vault: this.vault, collection: this.name, id, version: existingResolved.version })
         if (this.historyConfig.maxVersions) {
           await this.historyStrategy.pruneHistory(this.adapter, this.vault, this.name, id, { keepVersions: this.historyConfig.maxVersions })
@@ -2043,12 +1891,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         this.indexes?.upsert(id, resolvedRecord, existingResolved ? existingResolved.record : null)
       }
 
-      await this.onDirty?.(this.name, id, 'put', version)
-      this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: 'put' } satisfies ChangeEvent)
-      this.searchIndexStore?.markDirty() // zero-cost for non-search collections
-      await this.onAccess?.('put', id)
-      await this.dispatchDerivations(id, record, version)
-      await this.dispatchMaterializedViews(id, record)
+      await this._onRecordMutated(id, 'put', 'local-write', { record, version })
       return
     }
     // ─── End CRDT mode ──────────────────────────────────────────────────
@@ -2057,15 +1900,19 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // in-memory map (no I/O); in lazy mode we have to ask the adapter
     // because the record may have been evicted (or never loaded).
     let existing: { record: T; version: number } | undefined
+    // Raw envelope read already performed while resolving `existing` (lazy
+    // path below) — reused by the #589 continuity check so the re-create
+    // path never pays a second `adapter.get`.
+    let priorRaw: EncryptedEnvelope | null = null
     if (this.lazy && this.lru) {
       existing = this.lru.get(id)
       if (!existing) {
-        const previousEnvelope = await this.adapter.get(this.vault, this.name, id)
-        if (previousEnvelope) {
-          const previousRecord = await this.codec.decryptRecord(previousEnvelope)
+        priorRaw = await this.adapter.get(this.vault, this.name, id)
+        if (priorRaw) {
+          const previousRecord = await this.codec.decryptRecord(priorRaw, { id })
           // Tombstone (shredded) prior → treat as no previous version.
           if (previousRecord !== null) {
-            existing = { record: previousRecord, version: previousEnvelope._v }
+            existing = { record: previousRecord, version: priorRaw._v }
           }
         }
       }
@@ -2076,7 +1923,29 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       existing = await this.resolvePriorValues(id)
     }
 
-    const version = existing ? existing.version + 1 : 1
+    let version = existing ? existing.version + 1 : 1
+    // #589: a put re-creating a deleted id must continue past the delete
+    // marker's version so it wins convergence — resetting to 1 would lose to
+    // the marker's higher `_v` on sync. Markers exist only under sync, so this
+    // is gated on `onDirty`; the lazy branch above may have already read the
+    // raw envelope, so this reuses it instead of reading twice. Forget
+    // tombstones (`isTombstone`, no `_del`) are terminal and are NOT
+    // continued — they still reset to 1.
+    if (!existing && this.onDirty) {
+      // #606: only fall back to a store read when this id is a KNOWN marker
+      // — markers are filtered out of the eager cache, so `!existing` alone
+      // can't distinguish a re-create from a genuinely-new insert, and most
+      // inserts are the latter. The lazy branch above may have already read
+      // the raw envelope on an LRU miss regardless of `markerIds` (preserved
+      // as-is); this only gates the previously-unconditional second read.
+      // #693: when the store may be written out-of-band by another tab (write-relay active),
+      // markerIds isn't authoritative during the broadcast-latency window — fall back to the
+      // pre-#606 unconditional read so a cross-tab marker is never missed.
+      if (priorRaw === null && (this.markerIds.has(id) || this.tabCoordinated?.())) {
+        priorRaw = await this.adapter.get(this.vault, this.name, id)
+      }
+      if (priorRaw && isDeleteMarker(priorRaw)) version = priorRaw._v + 1
+    }
 
     // Unique-constraint pre-flight — BEFORE history-save so a violation
     // never writes a history snapshot or fires 'history:save'. Runs after
@@ -2104,8 +1973,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // CRITICAL: the history snapshot is a record of the PRIOR version — it must
     // NOT carry the source from the current write (source belongs to the new write only).
     if (existing && this.historyConfig.enabled !== false) {
-      const historyEnvelope = await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, vdigCtx)
-      await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, historyEnvelope)
+      await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, vdigCtx, id))
 
       this.emitter.emit('history:save', {
         vault: this.vault,
@@ -2115,15 +1983,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       })
 
       // Auto-prune if maxVersions configured
-      if (this.historyConfig.maxVersions) {
-        await this.historyStrategy.pruneHistory(this.adapter, this.vault, this.name, id, {
-          keepVersions: this.historyConfig.maxVersions,
-        })
-      }
+      if (this.historyConfig.maxVersions) await this.historyStrategy.pruneHistory(this.adapter, this.vault, this.name, id, { keepVersions: this.historyConfig.maxVersions })
     }
 
-    const envelope = await this.codec.encryptRecord(record, version, cek, options?.source, options?.sourceTs, vdigCtx)
+    const envelope = await this.codec.encryptRecord(record, version, cek, options?.source, options?.sourceTs, vdigCtx, id)
     await this.adapter.put(this.vault, this.name, id, envelope)
+    this.markerIds.delete(id) // #606: the live body just overwrote any marker prior — no-op if `id` wasn't one
 
     // C-A/R10: persist the x-classified marker on the first classified write
     // (cross-session drift signal). Memoized; no-op for non-classified handles.
@@ -2187,32 +2052,19 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     } else {
       this.cache.set(id, { record: await this._toCacheableRecord(record, envelope, id), version })
       // Update secondary indexes incrementally — no-op if no indexes are
-      // declared. Pass the previous record (if any) so old buckets are
-      // cleaned up before the new value is added.
+      // declared. Pass the previous record (if any) so old buckets are cleaned up before the new value is added.
       this.indexes?.upsert(id, record, existing ? existing.record : null)
       // Update unique-constraint maps to reflect the successful write.
       this.uniqueConstraints?.upsert(id, record, existing?.record)
     }
 
-    await this.onDirty?.(this.name, id, 'put', version)
-
-    this.emitter.emit('change', {
-      vault: this.vault,
-      collection: this.name,
-      id,
-      action: 'put',
-    } satisfies ChangeEvent)
-    this.searchIndexStore?.markDirty() // zero-cost for non-search collections
-
-    await this.onAccess?.('put', id)
-
-    // Derivation dispatch — AFTER store + ledger + emitter commit so a
-    // failed source-write never produces orphan derived outputs. The
-    // recursive `put` into output collections re-enters this pipeline
-    // (encrypt + ledger + emit) intentionally; cycle detection at vault
-    // open is the primary defense against infinite recursion.
-    await this.dispatchDerivations(id, record, version)
-    await this.dispatchMaterializedViews(id, record)
+    // Derivation dispatch (inside `_onRecordMutated`) runs AFTER store +
+    // ledger + emitter commit so a failed source-write never produces
+    // orphan derived outputs. The recursive `put` into output collections
+    // re-enters this pipeline (encrypt + ledger + emit) intentionally;
+    // cycle detection at vault open is the primary defense against
+    // infinite recursion.
+    await this._onRecordMutated(id, 'put', 'local-write', { record, version })
   }
 
   /**
@@ -2225,10 +2077,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * MV-emitted row (carries `_materializedFrom`) — defensive guard
    * against missed cycle detection.
    *
-   * @internal
+   * @internal `wave` (#638 Task 4): when present (the sync/cutover/restore dispatch wave),
+   * an eager MV already refreshed this wave is skipped (per-target dedup, keyed on spec name).
    */
-  private async dispatchMaterializedViews(id: string, record: T): Promise<void> {
-    void id
+  async dispatchMaterializedViews(id: string, record: T, wave?: WaveContext): Promise<void> {
     if (this.materializedViewSource === undefined) return
     const incoming = record as unknown as Record<string, unknown>
     if (incoming && typeof incoming === 'object' && '_materializedFrom' in incoming) return
@@ -2246,6 +2098,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     for (const reg of mvs) {
       const mode = reg.spec.refresh
       if (mode === 'eager') {
+        if (wave?.seen(`mv\0${reg.spec.name}`)) continue
         if (executor === null) {
           ;({ MaterializedViewExecutor: executor } = await import('../with-formula/materialized-views/executor.js'))
         }
@@ -2253,6 +2106,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
           getCollection: (name) => this.materializedViewSource!.getCollection(name),
           getActiveTxContext: () => this.materializedViewSource!.getActiveTxContext(),
           getQueryContext: () => this.materializedViewSource!.getQueryContext(),
+          dispatchCtx: this.#dispatchCtx({ collection: this.name, id }),
         })
       } else if (mode === 'lazy') {
         if (staleHelpers === null) {
@@ -2286,7 +2140,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   async _getStoredRecord(id: string): Promise<T | null> {
     let raw: T | null
     if (this.lazy && this.lru) {
-      if (this.sensitiveFields.size > 0) {
+      if (this.sensitiveFields.size > 0 || this.via?.hasAtRestHooks === true) {
         // Sealed collection (lazy mirror of the eager `resolvePriorValues`):
         // the LRU holds {@link Sealed} handles for sensitive fields (non-
         // residency), but `_getStoredRecord` is the reverse-denorm / rollup
@@ -2298,7 +2152,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         // (a later public `get()` would then return it, defeating the gate).
         const cached = this.lru.get(id)
         const env = await this.adapter.get(this.vault, this.name, id)
-        if (!env || isTombstone(env, this.storeCiphertext)) return null
+        if (!env || isTombstone(env, this.storeCiphertext) || isDeleteMarker(env)) return null
         raw = await this.codec.decryptRecord(env, { id })
         if (raw === null) return null
         if (!cached) {
@@ -2309,7 +2163,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         if (cached) raw = cached.record
         else {
           const env = await this.adapter.get(this.vault, this.name, id)
-          if (!env || isTombstone(env, this.storeCiphertext)) return null
+          if (!env || isTombstone(env, this.storeCiphertext) || isDeleteMarker(env)) return null
           raw = await this.codec.decryptRecord(env, { id })
           if (raw === null) return null
           this.lru.set(id, { record: raw, version: env._v }, estimateRecordBytes(raw))
@@ -2322,7 +2176,16 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       raw = (await this.resolvePriorValues(id))?.record ?? null
     }
     if (raw === null) return null
-    return (this.moneyFields ? moneyRuntime().canonicalizeStoredMoney(raw, this.moneyFields) : raw) as T
+    return (this.via ? this.via.canonicalizeStored(raw as Record<string, unknown>) : raw) as T
+  }
+
+  /** @internal #638 Task 4 — decrypted STORED-form record + envelope version for the sync/cutover/
+   *  restore dispatch wave (id threaded into decrypt, matching `_invalidateCacheEntry`'s contract). */
+  async _getStoredRecordForDispatch(id: string): Promise<{ record: T; version: number } | null> {
+    const env = await this.adapter.get(this.vault, this.name, id)
+    if (!env || isTombstone(env, this.storeCiphertext) || isDeleteMarker(env)) return null
+    const record = await this.codec.decryptRecord(env, { id })
+    return record === null ? null : { record, version: env._v }
   }
 
   /**
@@ -2356,23 +2219,24 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     return out
   }
 
-  /**
-   * @internal Recompute a rollup aggregate onto the parent.
-   * Gathers every child of `parentId`, runs `compute`, and patches only the
-   * rollup `field` onto the parent's raw stored record (value-equality
-   * guarded). No-op when the parent record does not exist.
-   */
+  /** @internal — ctx for `putDerivedOutput`'s frozen-period skip+audit (#638 Task 5). */
+  #dispatchCtx(source: { readonly collection: string; readonly id: string }) {
+    return { emit: (e: string, p: unknown) => (this.emitter.emit as (ev: string, pl: unknown) => void)(e, p), source, audit: ledgerAuditHook(this.ledger, this.keyring.userId) }
+  }
+
+  /** @internal Recompute a rollup aggregate onto the parent from `parentId`'s current children (value-equality guarded; no-op absent parent).
+   *  `wave` (#638 T4, #640): per-target dedup. Returns the `putDerivedOutput` outcome, or `'noop'` (no parent/no-op/deduped) — `dispatchRollupsOnDelete`'s forget-fanout caller + #640's `_recomputeDeletedRollups` need this to fill their reports. */
   private async recomputeRollup(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    spec: { source: string; rollup?: { from: string; key: string; field: string; compute: (children: any[]) => unknown } },
-    parentId: string,
-  ): Promise<void> {
-    if (this.derivationSource === undefined || spec.rollup === undefined) return
+    spec: { source: string; rollup?: { from: string; key: string; field: string; compute: (children: any[]) => unknown } }, parentId: string, source: { readonly collection: string; readonly id: string }, wave?: WaveContext,
+  ): Promise<RollupOutcome> {
+    if (this.derivationSource === undefined || spec.rollup === undefined) return 'noop'
     const { from, key, field, compute } = spec.rollup
     const into = spec.source
+    if (wave?.seen(`rollup\0${into}\0${parentId}\0${field}`)) return 'noop'
     const intoColl = this.derivationSource.getCollection(into)
     const base = await intoColl._getStoredRecord(parentId)
-    if (base === null) return // no parent record to patch
+    if (base === null) return 'noop' // no parent record to patch
 
     const fromColl = this.derivationSource.getCollection(from)
     const childIds = await fromColl._findMatchingIds(key, parentId)
@@ -2383,7 +2247,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     }
 
     const newValue = compute(children)
-    if (selfWriteFieldEqual(base[field], newValue)) return // no change → no write
+    if (selfWriteFieldEqual(base[field], newValue)) return 'noop' // no change → no write
 
     const patched = { ...base, [field]: newValue }
     const txCtx = this.derivationSource.getActiveTxContext()
@@ -2394,32 +2258,44 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         priorEnvelope: prior,
       })
     }
-    await intoColl.put(parentId, patched)
+    return putDerivedOutput(intoColl, parentId, patched, this.#dispatchCtx(source))
+  }
+
+  /** @internal #640 — this deleted child's rollup PARENT intents (see via/dispatch.ts#resolveRollupDeleteIntents). */
+  _rollupDeleteIntents(deleted: T): RollupDeleteIntent[] {
+    return resolveRollupDeleteIntents(this.derivationSource?.registry(), this.name, deleted as Record<string, unknown>)
   }
 
   /**
-   * @internal Fire any rollups for which THIS collection is the
-   * child `from`, recomputing the affected parent after a child delete. Called
-   * from the delete path with the just-removed record's key value. Other
-   * derivation kinds do not react to deletes (unchanged).
+   * @internal Fire any rollups for which THIS collection is the child `from`, recomputing the
+   * affected parent after a child delete/forget. Called from the delete path (return discarded)
+   * and from `forgetDerivedFanout` (#638 Task 6), which needs the per-target outcome to fill
+   * `ForgetResult.derivedAggregatesRecomputed`/`derivedResidueFrozen`). `wave` (#640): per-target dedup for the sync-apply path; `undefined` on local-delete (byte-identical).
    */
-  private async dispatchRollupsOnDelete(deleted: T): Promise<void> {
-    if (this.derivationSource === undefined) return
-    const registry = this.derivationSource.registry()
-    const rec = deleted as Record<string, unknown>
-    for (const { spec } of registry.strategiesForSource(this.name)) {
-      if (!spec.rollup || spec.rollup.from !== this.name) continue
-      const kv = rec[spec.rollup.key]
-      if (typeof kv !== 'string' && typeof kv !== 'number') continue
-      await this.recomputeRollup(spec, String(kv))
+  async dispatchRollupsOnDelete(id: string, deleted: T, wave?: WaveContext): Promise<ReadonlyArray<{ readonly into: string; readonly parentId: string; readonly outcome: RollupOutcome }>> {
+    const results: Array<{ into: string; parentId: string; outcome: RollupOutcome }> = []
+    for (const intent of this._rollupDeleteIntents(deleted)) {
+      const spec = findRollupSpecForIntent(this.derivationSource?.registry(), this.name, intent)
+      if (spec) results.push({ into: intent.into, parentId: intent.parentId, outcome: await this.recomputeRollup(spec, intent.parentId, { collection: this.name, id }, wave) })
+    }
+    return results
+  }
+
+  /** @internal #640 — the wave's per-id driver: recompute each sync-apply delete's rollup parent. */
+  async _recomputeDeletedRollups(intents: readonly RollupDeleteIntent[], wave: WaveContext): Promise<void> {
+    for (const intent of intents) {
+      const spec = findRollupSpecForIntent(this.derivationSource?.registry(), this.name, intent)
+      if (spec) await this.recomputeRollup(spec, intent.parentId, { collection: this.name, id: '<sync-delete>' }, wave)
     }
   }
 
-  private async dispatchDerivations(id: string, record: T, version: number): Promise<void> {
+  /** @internal `wave` (#638 Task 4) — threaded to `recomputeRollup` for the sync/cutover/restore
+   *  dispatch wave's per-target dedup; `undefined` on the local-write path (byte-identical). */
+  async dispatchDerivations(id: string, record: T, version: number, wave?: WaveContext): Promise<void> {
     if (this.derivationSource === undefined) return
     // `record` is the stored form here (post-quantize) — decode so
     // derive(source, ctx) sees the canonical money shape.
-    const incoming = (this.moneyFields ? moneyRuntime().canonicalizeStoredMoney(record, this.moneyFields) : record) as Record<string, unknown>
+    const incoming = (this.via ? this.via.canonicalizeStored(record as Record<string, unknown>) : record) as Record<string, unknown>
     if (incoming && typeof incoming === 'object' && '_derivedFrom' in incoming) return
     const registry = this.derivationSource.registry()
     const strategies = registry.strategiesForSource(this.name)
@@ -2445,7 +2321,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         } else {
           parentId = id // a write to the parent recomputes its own aggregate
         }
-        if (parentId !== null) await this.recomputeRollup(spec, parentId)
+        if (parentId !== null) await this.recomputeRollup(spec, parentId, { collection: this.name, id }, wave)
         continue
       }
 
@@ -2506,6 +2382,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
       for (const run of runs) {
         const ctx = { vault: this.derivationSource.getReadOnlyFacade() }
+        const outCtx = this.#dispatchCtx({ collection: spec.source, id: run.runId })
         const result = await DerivationExecutor.run(spec, run.input, run.version, strategyHash, ctx)
         for (const key of Object.keys(spec.outputs)) {
           const out = result.outputs[key]
@@ -2559,7 +2436,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
                   priorEnvelope,
                 })
               }
-              await outputCollection.put(entry.key, entry.value, { source: 'derived' })
+              await putDerivedOutput(outputCollection, entry.key, entry.value, outCtx, { source: 'derived' })
             }
 
             // Persist the new key set last, for failure-mode symmetry.
@@ -2613,7 +2490,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
                 priorEnvelope: prior,
               })
             }
-            await outputCollection.put(run.runId, patched, { source: 'derived' })
+            await putDerivedOutput(outputCollection, run.runId, patched, outCtx, { source: 'derived' })
             continue
           }
 
@@ -2630,7 +2507,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
               priorEnvelope: prior,
             })
           }
-          await outputCollection.put(run.runId, out.value, { source: 'derived' })
+          await putDerivedOutput(outputCollection, run.runId, out.value, outCtx, { source: 'derived' })
         }
       }
     }
@@ -2669,19 +2546,17 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
-   * @internal — bulk-rewrite every record through a cutover transform.
-   * Raw adapter path (bypasses the write gate + guards — the transform is
-   * trusted and runs only during the `migrating` phase). Bumps each
-   * record's `_v` and appends a ledger `op:'migration'` entry.
+   * @internal — bulk-rewrite every record through a cutover transform. Raw adapter path (bypasses the write gate + guards — the transform is trusted and runs only during the `migrating` phase). Bumps each record's `_v` and appends a ledger `op:'migration'` entry. #708: refuses BEFORE any rewrite if a live record is elevated (assertCutoverTierSafe) — demote it first.
    */
   async _applyCutoverTransform(
     transform: (doc: Record<string, unknown>) => Record<string, unknown>,
   ): Promise<number> {
     const ids = await this.adapter.list(this.vault, this.name)
+    await assertCutoverTierSafe(this.adapter, this.vault, this.name, this.tiers !== null)
     let count = 0
     for (const id of ids) {
       const env = await this.adapter.get(this.vault, this.name, id)
-      if (!env || isTombstone(env, this.storeCiphertext)) continue
+      if (!env || isTombstone(env, this.storeCiphertext) || isDeleteMarker(env)) continue
       const decoded = await this.codec.decryptRecord(env, { skipValidation: true, id })
       if (decoded === null) continue // defensive: shredded between list and get
       const record = decoded as unknown as Record<string, unknown>
@@ -2695,9 +2570,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       // stays directly under the collection DEK. `forget()`/shred reports
       // un-migrated records explicitly rather than claiming erasure.
       const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
-      const newEnv = await this.codec.encryptRecord(next as unknown as T, nextVersion, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: env } : undefined)
-      await this.adapter.put(this.vault, this.name, id, newEnv)
-      await this._invalidateCacheEntry(id) // refresh in-memory cache after the raw write
+      await this.adapter.put(this.vault, this.name, id, await this.codec.encryptRecord(next as unknown as T, nextVersion, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: env } : undefined, id))
+      await this._onRecordMutated(id, 'put', 'cutover') // refresh in-memory cache after the raw write (parity: cache only)
       if (this.ledger) {
         await this.ledger.append({
           op: 'migration', collection: this.name, id, version: nextVersion,
@@ -2722,9 +2596,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * history snapshot still fire so backup integrity and time-travel
    * reconstruction stay consistent.
    *
-   * Returns silently for delete-of-absent (idempotent contract — both
-   * paths honour this: the `txCtx === null` path also reads the prior
-   * envelope and short-circuits before the ledger/event side-effects).
+   * Returns `true` when it erased a live record, `false` for delete-of-absent (idempotent
+   * contract — both txCtx-aware and txCtx===null callers honour this, short-circuiting before any side-effect).
    *
    * When a `txCtx` is supplied, the prior envelope is captured and
    * pushed onto `txCtx._executed` BEFORE the delete fires — mirrors
@@ -2751,14 +2624,14 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * write permission on the collection (derivations run under the
    * user's keyring).
    */
-  async _internalDelete(id: string, txCtx: TxContext | null = null): Promise<void> {
+  async _internalDelete(id: string, txCtx: TxContext | null = null): Promise<boolean> {
     // Idempotency contract: short-circuit before any ledger/event
     // side-effect when the target is absent. Both txCtx-aware and
     // txCtx-null callers honour this — `deriveAll` recomputes
     // expense-only allocations that never emitted a receipt without
     // writing spurious v0 ledger entries.
     const prior = await this.adapter.get(this.vault, this.name, id)
-    if (prior === null) return
+    if (prior === null) return false
     if (txCtx !== null) {
       txCtx._executed.push({
         op: {
@@ -2770,13 +2643,16 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         priorEnvelope: prior,
       })
     }
-    await this._doDelete(id, true)
+    return await this._doDelete(id, true)
   }
 
-  private async _doDelete(id: string, internal: boolean): Promise<void> {
+  private async _doDelete(id: string, internal: boolean): Promise<boolean> {
     if (!hasWritePermission(this.keyring, this.name)) {
       throw new ReadOnlyError()
     }
+    // #716: public deletes only — see assertTierWritable's doc + Step 5 investigation for `internal`.
+    await assertTierWritable(this.adapter, this.vault, this.name, id, !internal && this.tiers !== null)
+    if (internal && this.tiers !== null && await liveRecordIsElevated(this.adapter, this.vault, this.name, id)) return false // #718: internal cleanup treats an elevated record as nonexistent, same as tier-0 reads — skip, no marker, not counted as erased (#761 item 8)
 
     // Gate bus (Track A) — fires for ALL deletes (carrying `internal`), so a
     // gate handler can collect amendment changes on system-internal deletes
@@ -2787,7 +2663,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       if (existingEnv || elided) {
         await this.subsystemBus.dispatchGate('beforeDelete', {
           vault: this.vault, collection: this.name, docId: id,
-          existing: this.moneyFields ? moneyRuntime().canonicalizeStoredMoney(existingRecord, this.moneyFields) : existingRecord,
+          existing: this.via ? this.via.canonicalizeStored(existingRecord as Record<string, unknown>) : existingRecord,
           existingVersion: existingEnv?._v ?? 0,
           existingTs: existingEnv?._ts,
           internal,
@@ -2816,7 +2692,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       if (!existing && this.historyConfig.enabled !== false) {
         const previousEnvelope = await this.adapter.get(this.vault, this.name, id)
         if (previousEnvelope) {
-          const previousRecord = await this.codec.decryptRecord(previousEnvelope)
+          const previousRecord = await this.codec.decryptRecord(previousEnvelope, { id })
           // Tombstone (shredded) prior → no record to snapshot on delete.
           if (previousRecord !== null) {
             existing = { record: previousRecord, version: previousEnvelope._v }
@@ -2834,8 +2710,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (existing && this.historyConfig.enabled !== false) {
       const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
       const prevForVdig = this.vdigFields !== null ? await this.adapter.get(this.vault, this.name, id) : null
-      const historyEnvelope = await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: prevForVdig } : undefined)
-      await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, historyEnvelope)
+      await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: prevForVdig } : undefined, id))
     }
 
     // Capture the previous envelope's payloadHash BEFORE delete so we
@@ -2846,7 +2721,25 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const previousEnvelope = await this.adapter.get(this.vault, this.name, id)
     const previousPayloadHash = await this.historyStrategy.envelopePayloadHash(previousEnvelope)
 
-    await this.adapter.delete(this.vault, this.name, id)
+    // #589 (review): the version the marker is minted at (live._v + 1) — captured
+    // here so `onDirty` below reports the SAME version, not `existing?.version`
+    // (which can be stale/absent in lazy mode with the record uncached and history
+    // disabled, desyncing the dirty entry's version from the marker and breaking
+    // push's CAS). `live` reuses `previousEnvelope` above — same read, nothing
+    // between them writes to the adapter, so no need for a second `adapter.get`.
+    let markerVersion: number | undefined
+    if (this.onDirty) {
+      // #589: under sync, delete leaves a version-ordered marker so the deletion
+      // converges on pull (a bare adapter.delete is invisible to other pullers).
+      // No-op if there is no live record to delete (already marked / shredded).
+      const live = previousEnvelope
+      if (!live || isTombstone(live, this.storeCiphertext) || isDeleteMarker(live)) return false
+      markerVersion = live._v + 1
+      await this.adapter.put(this.vault, this.name, id, buildDeleteMarker(markerVersion, this.keyring.userId))
+      this.markerIds.add(id) // #606: this id now carries a marker — the #589 continuity gate should consult it on re-create
+    } else {
+      await this.adapter.delete(this.vault, this.name, id)
+    }
 
     // Ledger append — same after-write timing as put(). The recorded
     // version is the version that WAS deleted (existing?.version), not
@@ -2882,17 +2775,14 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       }
     }
 
-    await this.onDirty?.(this.name, id, 'delete', existing?.version ?? 0)
-
-    this.emitter.emit('change', {
-      vault: this.vault,
-      collection: this.name,
-      id,
-      action: 'delete',
-    } satisfies ChangeEvent)
-    this.searchIndexStore?.markDirty() // zero-cost for non-search collections
-
-    await this.onAccess?.('delete', id)
+    // #589: under sync the marker rides the push channel as an ordinary CAS put at
+    // its own version (live._v + 1); the dirty version must match the marker so
+    // push's expectedVersion = marker._v - 1 = live._v matches the remote's live copy.
+    // #589 (review): use `markerVersion` (the version the marker was actually minted
+    // at above), not `existing?.version` — the fallback below is unreachable in
+    // practice (onDirty undefined ⇒ markerVersion undefined ⇒ the `?.` short-circuits
+    // before this argument matters) but keeps the expression well-typed.
+    await this._onRecordMutated(id, 'delete', 'local-delete', { version: markerVersion ?? (existing?.version ?? 0) + 1 })
 
     // Symmetric to put: user-initiated deletes must fire MV
     // refresh so `onEmpty: 'delete'` MVs tombstone their now-orphan
@@ -2914,8 +2804,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       // that this child is gone. `existing.record` carries the deleted child's
       // FK; the recompute gathers the REMAINING children (this one already
       // removed from the store/cache above).
-      if (existing) await this.dispatchRollupsOnDelete(existing.record)
+      if (existing) await this.dispatchRollupsOnDelete(id, existing.record)
     }
+    return true
   }
 
   /**
@@ -2956,7 +2847,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   async _writeTombstone(id: string, actor: string): Promise<{ previousVersion: number } | null> {
     const live = await this.adapter.get(this.vault, this.name, id)
-    if (!live || isTombstone(live, this.storeCiphertext)) return null
+    if (!live || isTombstone(live, this.storeCiphertext) || isDeleteMarker(live)) return null
 
     await this.adapter.put(this.vault, this.name, id, buildTombstone(live._v, actor))
 
@@ -2972,35 +2863,40 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
-   * Cascade deletes of array-shape derived rows when a source row is
-   * deleted. Reads each registered strategy's fanout sidecar
-   * for this source id, deletes every listed derived row, then
-   * deletes the sidecar itself.
+   * Cascade deletes of array-shape derived rows when a source row is deleted. Reads each
+   * registered strategy's fanout sidecar for this source id, deletes every listed derived
+   * row, then deletes the sidecar itself. Returns the REAL erased count (#622 review Finding 1).
    *
-   * Record-shape derivations are skipped — see _doDelete's comment
-   * for why the asymmetry is correct.
-   *
+   * Record-shape derivations are skipped on the ordinary delete path (see _doDelete's comment).
+   * `eraseRecordShapeToo` (#638 T6, default `false`) opts a same-id record-shape copy into
+   * erasure too — forget()'s fanout, GDPR residue. A delete-of-absent contributes 0 either way.
    * @internal
    */
-  private async dispatchArrayDerivationsOnDelete(id: string): Promise<void> {
-    if (this.derivationSource === undefined) return
+  async dispatchArrayDerivationsOnDelete(id: string, eraseRecordShapeToo = false): Promise<number> {
+    if (this.derivationSource === undefined) return 0
     const registry = this.derivationSource.registry()
     const strategies = registry.strategiesForSource(this.name)
-    if (strategies.length === 0) return
-
-    // Dynamic-import the sidecar helpers — keeps the derivation
-    // chunk out of the floor bundle for consumers that don't use
-    // array-shape derivations.
+    if (strategies.length === 0) return 0
+    // Dynamic-import the sidecar helpers — keeps the derivation chunk out of the
+    // floor bundle for consumers that don't use array-shape derivations.
     let helpers: {
       loadFanoutSidecar: typeof LoadFanoutSidecarType
       deleteFanoutSidecar: typeof DeleteFanoutSidecarType
       saveFanoutSidecar: typeof SaveFanoutSidecarType
     } | null = null
     const txCtx = this.derivationSource.getActiveTxContext()
-
+    let erased = 0 // #622 review: rows ACTUALLY deleted, not edges visited
     for (const { spec } of strategies) {
       for (const [outputKey, outSpec] of Object.entries(spec.outputs)) {
-        if (outSpec.shape !== 'array') continue
+        if (outSpec.shape === 'record') {
+          // Same-id erasure only for a standard source-triggered strategy into a DIFFERENT
+          // collection — never the self-denorm case (would re-delete the record just
+          // tombstoned) nor triggerBy/sibling (derived id isn't `id`).
+          if (eraseRecordShapeToo && spec.source === this.name && outSpec.collection !== this.name) {
+            if (await this.derivationSource.getCollection(outSpec.collection)._internalDelete(id, txCtx)) erased += 1
+          }
+          continue
+        }
         if (helpers === null) {
           helpers = await import('../with-formula/derivations/fanout-sidecar.js')
         }
@@ -3008,49 +2904,51 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         if (!sidecar) continue
         const outputCollection = this.derivationSource.getCollection(outSpec.collection)
         for (const derivedId of sidecar.keys) {
-          await outputCollection._internalDelete(derivedId, txCtx)
+          if (await outputCollection._internalDelete(derivedId, txCtx)) erased += 1
         }
         await helpers.deleteFanoutSidecar(this.adapter, this.vault, spec.source, id, outputKey)
       }
     }
+    return erased
   }
 
   /**
-   * Mirror of {@link dispatchMaterializedViews} for the delete path.
-   * No record content is available (it's gone), so the
-   * `_materializedFrom` skip used by the put-side dispatch doesn't
-   * apply here — instead, the recursion guard is the `internal` gate
-   * at the `_doDelete` call site above.
-   *
+   * Mirror of {@link dispatchMaterializedViews} for the delete/forget path — no `_materializedFrom`
+   * skip (record's gone); the `internal` gate at `_doDelete` is the recursion guard. Returns the
+   * row count TOMBSTONED across EVERY MV sourced here (#638 T6 — `forgetDerivedFanout`'s
+   * `derivedRecordsErased`) — eager AND lazy/manual `invalidateMVAtRest` purges both contribute now
+   * (#761 item 1, previously eager-only); lazy persists a stale mark for cold-session recompute;
+   * manual serves empty until `refreshView()`. `residueUndecodable`/`residueDeclined` (#776/#785) carry `outputCollection:id` entries whose ownership stamp `invalidateMVAtRest` could not decode, resp. decoded+stamp-matched but declined erasure — surfaced, not erased.
    * @internal
    */
-  private async dispatchMaterializedViewsOnDelete(id: string): Promise<void> {
-    void id
-    if (this.materializedViewSource === undefined) return
+  async dispatchMaterializedViewsOnDelete(id: string): Promise<{ deleted: number; residueUndecodable: string[]; residueDeclined: string[] }> {
+    if (this.materializedViewSource === undefined) return { deleted: 0, residueUndecodable: [], residueDeclined: [] }
     const registry = this.materializedViewSource.registry()
     const mvs = registry.mvsForSource(this.name)
-    if (mvs.length === 0) return
-    let executor: typeof MVExecutorType | null = null
-    let staleHelpers: typeof MVStaleModule | null = null
+    if (mvs.length === 0) return { deleted: 0, residueUndecodable: [], residueDeclined: [] }
+    let executor: typeof MVExecutorType | null = null; let staleHelpers: typeof MVStaleModule | null = null
+    let deleted = 0; const residueUndecodable: string[] = []; const residueDeclined: string[] = []
     for (const reg of mvs) {
       const mode = reg.spec.refresh
       if (mode === 'eager') {
         if (executor === null) {
           ;({ MaterializedViewExecutor: executor } = await import('../with-formula/materialized-views/executor.js'))
         }
-        await executor.refresh(reg, {
+        const rr = await executor.refresh(reg, {
           getCollection: (name) => this.materializedViewSource!.getCollection(name),
           getActiveTxContext: () => this.materializedViewSource!.getActiveTxContext(),
           getQueryContext: () => this.materializedViewSource!.getQueryContext(),
-        })
-      } else if (mode === 'lazy') {
+          dispatchCtx: this.#dispatchCtx({ collection: this.name, id }),
+        }); deleted += rr.deleted; residueUndecodable.push(...rr.residueUndecodable); residueDeclined.push(...rr.residueDeclined) // #782/#785 — eager leg now reports both channels
+      } else {
         if (staleHelpers === null) {
           staleHelpers = await import('../with-formula/materialized-views/stale.js')
         }
-        staleHelpers.markMVStale(registry, reg.spec.name)
+        const inv = await staleHelpers.invalidateMVAtRest(this.materializedViewSource, reg, mode)
+        deleted += inv.deleted; residueUndecodable.push(...inv.residueUndecodable.map((rid) => `${reg.outputCollection}:${rid}`)); residueDeclined.push(...inv.residueDeclined.map((rid) => `${reg.outputCollection}:${rid}`))
       }
-      // manual: no-op — `vault.refreshView(name)` is the only path.
     }
+    return { deleted, residueUndecodable, residueDeclined }
   }
 
   /**
@@ -3076,29 +2974,17 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // when nothing is pending — keeps the read path negligible.
     if (this.materializedViewSource !== undefined) {
       const { resolveStaleMVOnRead } = await import('../with-formula/materialized-views/stale.js')
-      await resolveStaleMVOnRead(this.materializedViewSource, this.name)
+      await resolveStaleMVOnRead(this.materializedViewSource, this.name, this.#dispatchCtx({ collection: this.name, id: 'resolve-on-read' }))
     }
     await this.ensureHydrated()
     const records = [...this.cache.values()].map(e => e.record)
-    // Money decode (stored scaled-int → canonical decimal) must run
-    // even with no locale, so list() matches get(). applyLocaleToRecord
-    // decodes money regardless of locale and only resolves i18n/dict virtuals
-    // when a locale is active. Keep the no-transform fast path.
-    if (!this.hasReadTransforms()) return records
+    // Money/computed(virtual) decode must run even with no locale, so list()
+    // matches get(). applyLocaleToRecord runs the full Via pipeline present()
+    // regardless of locale (#638 Task 7: was money/i18n/dictKey-flag-gated —
+    // missed any OTHER binding's `present` hook; `this.via` truthiness is the
+    // general no-transform fast-path condition every binding's presence implies).
+    if (!this.via) return records
     return Promise.all(records.map(r => this.applyLocaleToRecord(r, locale)))
-  }
-
-  /**
-   * @internal — whether any read-side record transform is registered
-   * (money decode, i18nText resolution, dictKey labels). Gates the
-   * no-transform fast path in {@link list}.
-   */
-  private hasReadTransforms(): boolean {
-    return (
-      (this.moneyFields !== undefined && Object.keys(this.moneyFields).length > 0) ||
-      (this.i18nFields !== undefined && Object.keys(this.i18nFields).length > 0) ||
-      (this.dictKeyFields !== undefined && Object.keys(this.dictKeyFields).length > 0)
-    )
   }
 
   /**
@@ -3135,6 +3021,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /** Raw-vector kNN — gated behind `searchStrategy: withSearch()`. */
   similarTo(vector: Float32Array, opts: { k?: number; minScore?: number; includeRecord?: boolean } = {}): Promise<RetrieveHit<T>[]> {
     return this.searchStrategy.similarTo(this.searchContext(), vector, opts)
+  }
+
+  /** Opt-in bulk `_vec` re-derive (#788) — a plain collection has nothing to rebuild; gated behind `searchStrategy: withSearch()` otherwise. */
+  rebuildEmbeddings(): Promise<{ rebuilt: number; skipped: number }> {
+    if (!this.embeddings) return Promise.resolve({ rebuilt: 0, skipped: 0 })
+    return this.searchStrategy.rebuildEmbeddings(this.searchContext())
   }
 
   /**
@@ -3292,8 +3184,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
           if (op.collectionName === this.name) {
             await this._invalidateCacheEntry(op.id)
           } else if (this.derivationSource) {
-            const sibling = this.derivationSource.getCollection(op.collectionName)
-            await sibling._invalidateCacheEntry(op.id)
+            await this.derivationSource.getCollection(op.collectionName)._invalidateCacheEntry(op.id)
           }
         } catch { /* best-effort */ }
       }
@@ -3406,7 +3297,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       getIndexes: () => this.getIndexes(),
       lookupById: (id: string) => this.cache.get(id)?.record,
       snapshotEntries: () => [...this.cache.entries()].map(([id, e]) => ({ id, record: e.record })),
-      ...(this.moneyFields ? { moneyFields: this.moneyFields } : {}),
+      ...(this.via ? { via: this.via } : {}),
     }
     // Build a JoinContext if the vault passed a join resolver.
     // Without one, .join() on the resulting Query will throw with an
@@ -3500,8 +3391,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * silently miss records — consistent with the `query()` /
    * `list()` lazy-mode policy. If this becomes a blocker for a
    * real consumer, the fix is to add an async `scan()`-backed
-   * variant of this method, which is exactly what  streaming
-   * joins will need anyway.
+   * variant of this method, which is exactly what streaming joins will need anyway.
    */
   querySourceForJoin(): JoinableSource {
     if (this.lazy) {
@@ -3529,9 +3419,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         this.emitter.on('change', handler)
         return () => this.emitter.off('change', handler)
       },
-      // Expose this (right-side) collection's i18nText descriptors so
-      // the join executor can resolve joined i18n fields at the `join` layer.
-      ...(this.i18nFields !== undefined ? { i18nFields: this.i18nFields } : {}),
+      // Sync join dressing (#650 Task 6, #626 retirement) — i18n-text + lookup-label, from this collection's own bindings.
+      ...(this.presentForJoin !== undefined ? { presentForJoin: this.presentForJoin } : {}),
     }
   }
 
@@ -3564,11 +3453,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const envelopes = await this.historyStrategy.getHistoryEntries(
       this.adapter, this.vault, this.name, id, options,
     )
+    if (await liveRecordIsElevated(this.adapter, this.vault, this.name, id)) return [] // #712: elevated ≡ invisible
 
     const entries: HistoryEntry<T>[] = []
     for (const env of envelopes) {
+      if ((env._tier ?? 0) > 0) continue // #712: defensive — a per-version tiered snapshot
       // History reads skip schema validation — see getVersion() docs.
-      const record = await this.codec.decryptRecord(env, { skipValidation: true })
+      const record = await this.codec.decryptRecord(env, { skipValidation: true, id })
       // Shredded (tombstoned) history version: the body is permanently gone,
       // so there is nothing to return — skip it. The version still counted in
       // the audit ledger; history() just can't surface its erased content.
@@ -3596,8 +3487,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const envelope = await this.historyStrategy.getVersionEnvelope(
       this.adapter, this.vault, this.name, id, version,
     )
-    if (!envelope) return null
-    return this.codec.decryptRecord(envelope, { skipValidation: true })
+    if (!envelope || (envelope._tier ?? 0) > 0 || await liveRecordIsElevated(this.adapter, this.vault, this.name, id)) return null
+    return this.codec.decryptRecord(envelope, { skipValidation: true, id })
   }
 
   /** Revert a record to a past version. Creates a new version with the old content. */
@@ -3616,10 +3507,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   async diff(id: string, versionA: number, versionB?: number): Promise<DiffEntry[]> {
     const recordA = versionA === 0 ? null : await this.resolveVersion(id, versionA)
-    const recordB = versionB === undefined || versionB === 0
+    return this.historyStrategy.diff(recordA, versionB === undefined || versionB === 0
       ? (versionB === 0 ? null : await this.resolveCurrentOrVersion(id))
-      : await this.resolveVersion(id, versionB)
-    return this.historyStrategy.diff(recordA, recordB)
+      : await this.resolveVersion(id, versionB))
   }
 
   /** Resolve a version: try history first, then check if it's the current version. */
@@ -3665,14 +3555,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /**
    * Count records in the collection.
    *
-   * In eager mode this returns the in-memory cache size (instant). In
-   * lazy mode it asks the adapter via `list()` to enumerate ids — slower
-   * but still correct, and avoids loading any record bodies into memory.
+   * In eager mode this returns the in-memory cache size (instant). In lazy
+   * mode it counts only LIVE tier-0 envelopes via envelope inspection — no
+   * record bodies loaded — matching eager's tombstone/tier exclusion (#706).
    */
   async count(): Promise<number> {
     if (this.lazy) {
-      const ids = await this.adapter.list(this.vault, this.name)
-      return ids.length
+      return countLiveEnvelopes(this.adapter, this.vault, this.name, this.storeCiphertext)
     }
     await this.ensureHydrated()
     return this.cache.size
@@ -3728,8 +3617,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     for (let i = start; i < end; i++) {
       const id = ids[i]!
       const envelope = await this.adapter.get(this.vault, this.name, id)
-      if (envelope) {
-        const record = await this.codec.decryptRecord(envelope, { sealedAsHandles: true })
+      if (envelope && (envelope._tier ?? 0) === 0) {
+        const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
         if (record === null) continue // shredded (tombstone) — skip
         items.push(record)
         // Same lazy-mode skip as the native path: don't pollute the LRU
@@ -3820,7 +3709,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       [],
       [],
       joinContext,
-      this.moneyFields,
+      this.via,
     )
   }
 
@@ -3830,9 +3719,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   ): Promise<Array<{ id: string; record: T; version: number }>> {
     const out: Array<{ id: string; record: T; version: number }> = []
     for (const { id, envelope } of items) {
-      // Public scan/listPage output (and the opportunistic cache fill in
-      // listPage) — sealed fields surface as handles, never plaintext.
-      const record = await this.codec.decryptRecord(envelope, { sealedAsHandles: true })
+      // Public scan/listPage output + opportunistic cache fill — sealed fields stay handles; elevated records are invisible (#706: gate BEFORE decrypt or the warm cekCache leaks tier plaintext, audit-free).
+      if ((envelope._tier ?? 0) > 0) continue
+      const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
       if (record === null) continue // shredded (tombstone) — skip the page row
       out.push({ id, record, version: envelope._v })
     }
@@ -3876,8 +3765,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   async _compensateRevertedWrite(id: string): Promise<void> {
     await this._invalidateCacheEntry(id)
     await this.onDirty?.(this.name, id, 'revert', 0)
-    const restored = await this.get(id) // rare revert path — one read buys a semantically-correct event
-    this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: restored !== null ? 'put' : 'delete' })
+    this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: (await this.get(id)) !== null ? 'put' : 'delete' }) // rare revert path — one read buys a semantically-correct event
   }
 
   async _invalidateCacheEntry(id: string): Promise<void> {
@@ -3885,9 +3773,19 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       this.lru.remove(id)
       return
     }
+    const envelope = await this.adapter.get(this.vault, this.name, id)
+    // #606: this is the single choke point every sync-apply / tab-mirror /
+    // cutover write (plus tx/derivation-revert restores) funnels through, so
+    // it's also where the marker-id set tracks a remote marker landing or
+    // clearing. MUST run before the `!hydrated` gate below — a marker can
+    // land while this collection is still mid-hydration, and hydration
+    // snapshots its id list at loop start, so it can never recover an id it
+    // never listed. Missing this here permanently drops the id from
+    // `markerIds` for the session and reintroduces the #589 divergence.
+    if (envelope && isDeleteMarker(envelope)) this.markerIds.add(id)
+    else this.markerIds.delete(id)
     if (!this.hydrated) return
     const previous = this.cache.get(id)
-    const envelope = await this.adapter.get(this.vault, this.name, id)
     if (!envelope) {
       this.cache.delete(id)
       if (previous) {
@@ -3897,7 +3795,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       return
     }
     // Handle-form for the cache (non-residency for sensitive fields).
-    const record = await this.codec.decryptRecord(envelope, { sealedAsHandles: true })
+    const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
     if (record === null) {
       // The on-disk envelope is now a tombstone (shredded). Treat exactly
       // like a deleted record: drop the cache entry and its index rows.
@@ -3920,12 +3818,91 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * Never writes to the store and never fires write hooks, so it cannot loop.
    */
   async _applyRemoteChange(id: string, action: 'put' | 'delete'): Promise<void> {
-    await this._invalidateCacheEntry(id)
-    this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action })
-    this.searchIndexStore?.markDirty() // peer write changed the cache; rebuild on next retrieve
+    await this._onRecordMutated(id, action, 'tab-mirror')
   }
 
-  /** @internal — the current in-memory record without a store read (for conflict capture). */
+  /**
+   * Origin-tagged mutation choke point (#623 task 10) — the single dispatch
+   * point every put/delete path funnels through, AFTER its own store write,
+   * to fire the side-effects that path performs today. Each case below
+   * performs EXACTLY the side-effect set the seam-map Part-3 table
+   * (`.superpowers/sdd/seam-map-i18n-pipeline.md`) records for `origin` —
+   * this is a pure parity extraction of existing tails, not a behavior
+   * change. Phase C (#621, #622) plugs the dependency-graph dispatch into
+   * this socket, keyed off `origin`, without every call site having to
+   * learn the graph.
+   *
+   * `restore` is never reached: `Vault.load` / `backup.ts#loadVault` drops
+   * the whole `collectionCache` instead of dispatching per record — the
+   * origin is reserved for phase C.
+   *
+   * @internal
+   */
+  async _onRecordMutated(
+    id: string,
+    action: 'put' | 'delete',
+    origin: MutationOrigin,
+    ctx?: { readonly record?: T; readonly version?: number },
+  ): Promise<void> {
+    // #606: maintain `markerIds` synchronously, in the SAME continuation as
+    // the caller's own `local.put` of this envelope (no `await` between
+    // them) — closes the window where a concurrent `put(id)` could read the
+    // set before `_invalidateCacheEntry`'s (awaited, below) maintenance
+    // catches up. A superset for a moment on a sync-applied tombstone is
+    // harmless — `_invalidateCacheEntry`'s read refines it, and a re-create
+    // racing ahead of that just does one extra (correct) store read. Gated to
+    // eager+synced: lazy mode never consults `markerIds`, and unsynced
+    // collections never see markers.
+    if (this.onDirty && !this.lazy) {
+      if (action === 'delete') this.markerIds.add(id)
+      else this.markerIds.delete(id)
+    }
+    switch (origin) {
+      case 'local-write': {
+        const record = ctx!.record!
+        const version = ctx!.version!
+        await this.onDirty?.(this.name, id, 'put', version)
+        this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: 'put' } satisfies ChangeEvent)
+        this.searchIndexStore?.markDirty() // zero-cost for non-search collections
+        await this.onAccess?.('put', id)
+        await this.dispatchDerivations(id, record, version)
+        await this.dispatchMaterializedViews(id, record)
+        return
+      }
+      case 'local-delete': {
+        await this.onDirty?.(this.name, id, 'put', ctx!.version!)
+        this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: 'delete' } satisfies ChangeEvent)
+        this.searchIndexStore?.markDirty() // zero-cost for non-search collections
+        await this.onAccess?.('delete', id)
+        return
+      }
+      case 'tab-mirror':
+        await this._invalidateCacheEntry(id)
+        this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action })
+        this.searchIndexStore?.markDirty() // peer write changed the cache; rebuild on next retrieve
+        return
+      case 'sync-apply': {
+        this._invalidateCekCacheEntry(id)
+        const prior = action === 'delete' ? this._peekCached(id) : undefined
+        await this._invalidateCacheEntry(id)
+        if (prior) this.graphDispatch?.collectDelete(this.name, id, this._rollupDeleteIntents(prior))
+        else if (action === 'put') this.graphDispatch?.collect(this.name, id)
+        return
+      }
+      case 'cutover':
+        // Parity: cache invalidation only — the migration ledger entry
+        // stays at the `_applyCutoverTransform` call site.
+        await this._invalidateCacheEntry(id)
+        this.graphDispatch?.collect(this.name, id)
+        return
+      case 'restore':
+        // Unreachable today — see doc comment above. Phase C (#638) wires the dispatch call anyway.
+        this.graphDispatch?.collect(this.name, id)
+        return
+    }
+  }
+
+  /** @internal — the current in-memory record without a store read (for conflict capture); also the #640 FK-recovery read on a sync-applied delete — misses on a cold or evicted child (lazy LRU eviction OR an un-hydrated eager collection whose first sync op is a delete), not "lazy-mode" only. */
   _peekCached(id: string): T | null {
     const entry = this.lazy && this.lru ? this.lru.get(id) : this.cache.get(id)
     return entry ? entry.record : null
@@ -3937,10 +3914,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const ids = await this.adapter.list(this.vault, this.name)
     for (const id of ids) {
       const envelope = await this.adapter.get(this.vault, this.name, id)
-      if (envelope && !isTombstone(envelope, this.storeCiphertext)) {
+      if (envelope && !isTombstone(envelope, this.storeCiphertext) && !isDeleteMarker(envelope) && (envelope._tier ?? 0) === 0) {
         const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
         if (record === null) continue
         this.cache.set(id, { record, version: envelope._v })
+      } else if (envelope && isDeleteMarker(envelope)) {
+        this.markerIds.add(id) // #606: seed the marker-id set from disk on cold hydration
       }
     }
     this.hydrated = true
@@ -3951,7 +3930,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /** Hydrate from a pre-loaded snapshot (used by Vault). */
   async hydrateFromSnapshot(records: Record<string, EncryptedEnvelope>): Promise<void> {
     for (const [id, envelope] of Object.entries(records)) {
-      if (isTombstone(envelope, this.storeCiphertext)) continue
+      if (isDeleteMarker(envelope)) { this.markerIds.add(id); continue } // #606: seed from a pre-loaded snapshot too
+      if (isTombstone(envelope, this.storeCiphertext) || (envelope._tier ?? 0) > 0) continue
       const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
       if (record === null) continue
       this.cache.set(id, { record, version: envelope._v })
@@ -4085,7 +4065,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       getDEK: this.getDEK,
       encrypted: this.storeCiphertext,
       userId: this.keyring.userId,
-      erasableBlobs: this.perRecordCek,
+      erasableBlobs: this.perRecordCek, tiersActive: this.tiers !== null, keyring: this.keyring,
       debugPlaintext: this.keyring.debugPlaintext === true,
       ...(this.objectStore !== undefined ? { objectStore: this.objectStore } : {}),
       ...(this.blobFields !== undefined ? { blobFields: this.blobFields } : {}),
@@ -4102,7 +4082,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       // chain. `undefined` → legacy path.
       const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
       const prevForVdig = this.vdigFields !== null ? await this.adapter.get(this.vault, this.name, id) : null
-      result[id] = await this.codec.encryptRecord(entry.record, entry.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: prevForVdig } : undefined)
+      result[id] = await this.codec.encryptRecord(entry.record, entry.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: prevForVdig } : undefined, id)
     }
     return result
   }
@@ -4118,147 +4098,32 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    *   map when `locale === 'raw'`).
    * - dictKey fields: `<field>Label` virtual fields added.
    *
-   * Returns the record unchanged when no locale is active and no i18n/dict
-   * fields are registered.
+   * Returns the record unchanged when no Via pipeline is compiled (#638 Task 7:
+   * was money/i18n/dictKey-flag-gated — missed any OTHER binding's `present`
+   * hook, e.g. the `computed` via-binding's virtual-mode read-time compute;
+   * `this.via` truthiness is the general condition every binding's presence
+   * already implies).
    */
   private async applyLocaleToRecord(
     record: T,
     localeOpts?: LocaleReadOptions,
   ): Promise<T> {
-    const hasI18n = this.i18nFields && Object.keys(this.i18nFields).length > 0
-    const hasDict = this.dictKeyFields && Object.keys(this.dictKeyFields).length > 0
-    const hasMoney = this.moneyFields && Object.keys(this.moneyFields).length > 0
-    if (!hasI18n && !hasDict && !hasMoney) return record
+    if (!this.via) return record
 
     const locale = localeOpts?.locale ?? this.defaultLocale
+    const layer = localeOpts?._layer ?? 'read'
 
     let result = record as unknown as Record<string, unknown>
 
-    // Money decode runs regardless of locale (stored int → decimal string);
-    // virtuals are gated on `locale !== 'raw'` inside decodeMoneyFields.
-    if (hasMoney && this.moneyFields) {
-      result = moneyRuntime().decodeMoneyFields(result, this.moneyFields, typeof locale === 'string' ? locale : undefined)
-    }
+    // Money decode + i18nText/dictKey/computed(virtual) resolution all run through
+    // the compiled Via pipeline: money decode is unconditional (virtuals gated on
+    // `locale !== 'raw'` inside the money binding); the i18n binding's `present`
+    // hook (the i18n via-shape's `runI18nPresent`) applies the SAME locale-active /
+    // static-display-hinge / dict-label / densify-marker-strip logic this method
+    // used to run inline; `this.via` is already known truthy (the guard above).
+    result = await this.via.present(result, { locale, ...(localeOpts?.fallback !== undefined ? { fallback: localeOpts.fallback } : {}), layer })
 
-    // i18nText / dictKey resolution require an active locale — EXCEPT a
-    // static dict declaring a `displayLocale`, which resolves its
-    // `<field>Label` even under a locale-less read (the hybrid hinge).
-    // The first early-return (above, `!hasI18n && !hasDict && !hasMoney`) is
-    // UNCHANGED; only this second return relaxes, and ONLY for static-display
-    // fields — folding `hasI18n` in here would let an i18nText-only
-    // collection fall through to applyI18nLocale(…, undefined) on a
-    // locale-less read, breaking the raw-{th,en}-map invariant.
-    const hasStaticDisplay =
-      hasDict &&
-      this.dictKeyFields !== undefined &&
-      Object.values(this.dictKeyFields).some(
-        (d) => isStaticDictDescriptor(d) && d.displayLocale !== undefined,
-      )
-    // Strip the internal densify marker even when no locale is active
-    // (applyI18nLocale, which normally strips it, is skipped on this path).
-    // Non-mutating: never touches the cached/stored record object.
-    if (!locale && !hasStaticDisplay) return stripI18nFilled(result) as T
-
-    // 1. i18nText resolution — guarded on `locale`, because the relaxed gate
-    // above can now be entered with `locale === undefined` (static-display).
-    // The layer (`'read'` by default; `'guard'`/`'derivation'` when read
-    // through a layer-tagged facade) selects the field's per-layer
-    // `onMissing` policy inside applyI18nLocale.
-    const layer = localeOpts?._layer ?? 'read'
-    if (locale && hasI18n && this.i18nFields) {
-      result = this.i18nStrategy.applyI18nLocale(result, this.i18nFields, locale, localeOpts?.fallback, layer)
-    }
-
-    // 2. dictKey / staticDict label resolution
-    if (hasDict && this.dictKeyFields && this.dictLabelResolver && locale !== 'raw') {
-      const withLabels = { ...result }
-      const resolver = this.dictLabelResolver
-      for (const [field, desc] of Object.entries(this.dictKeyFields)) {
-        // dictKey default policy is 'null' (omit/null on miss) — today's
-        // behavior — unless the field declares onMissing. 'substitute'
-        // walks the declared substitute chain (passed as the resolver's
-        // fallback); 'throw' raises LocaleNotSpecifiedError.
-        const policy = desc.onMissing ? resolvePolicy(desc.onMissing, layer) : 'null'
-        const fallback =
-          policy === 'substitute'
-            ? (localeOpts?.fallback ?? desc.substitute)
-            : localeOpts?.fallback
-        // Per-field effective locale: a static dict falls back to its
-        // `displayLocale` when no locale is active (the hybrid hinge);
-        // a plain dictKey with no displayLocale gets `undefined` → its
-        // <field>Label is omitted on a locale-less read (today's behavior).
-        const effLocale =
-          locale ??
-          (isStaticDictDescriptor(desc) ? desc.displayLocale : undefined)
-        // Resolve one key → label | null, honoring the policy. With no
-        // effective locale there is nothing to resolve against.
-        const resolveKey = async (key: string): Promise<string | null> => {
-          if (!effLocale) {
-            if (policy === 'throw') {
-              throw new LocaleNotSpecifiedError(
-                field,
-                `dictKey "${field}": no locale active to resolve key "${key}".`,
-              )
-            }
-            return null
-          }
-          const label = await resolver(desc.name, key, effLocale, fallback)
-          if (label === undefined) {
-            if (policy === 'throw') {
-              throw new LocaleNotSpecifiedError(
-                field,
-                `dictKey "${field}": no label for key "${key}" in locale "${effLocale}".`,
-              )
-            }
-            return null
-          }
-          return label
-        }
-
-        if (field.includes('[].')) {
-          // Wildcard path `arrayKey[].leaf`: add a per-element
-          // sibling `<leaf>Label`. Single level + simple leaf.
-          const parts = field.split('[].')
-          const arrayKey = parts[0]!
-          const leaf = parts[1]
-          if (!leaf || leaf.includes('.')) continue
-          const arr = (withLabels as Record<string, unknown>)[arrayKey]
-          if (!Array.isArray(arr)) continue
-          const labelKey = `${leaf}Label`
-          ;(withLabels as Record<string, unknown>)[arrayKey] = await Promise.all(
-            arr.map(async (el) => {
-              if (!el || typeof el !== 'object' || Array.isArray(el)) return el
-              const k = (el as Record<string, unknown>)[leaf]
-              if (typeof k !== 'string') return el
-              return { ...(el as Record<string, unknown>), [labelKey]: await resolveKey(k) }
-            }),
-          )
-          continue
-        }
-
-        const val = result[field]
-        if (Array.isArray(val)) {
-          // Array-of-keys → [{ key, label }] pair objects (key preserved).
-          withLabels[`${field}Label`] = await Promise.all(
-            val.map(async (k) => ({
-              key: k,
-              label: typeof k === 'string' ? await resolveKey(k) : null,
-            })),
-          )
-        } else if (typeof val === 'string') {
-          const label = await resolveKey(val)
-          // Scalar under 'null'/default omits the label key (today's
-          // behavior); 'substitute' returns a value; 'throw' threw above.
-          if (label !== null) withLabels[`${field}Label`] = label
-        }
-      }
-      result = withLabels
-    }
-
-    // Final guard: the locale-less static-display path skips
-    // applyI18nLocale's strip, so ensure the densify marker never leaks here
-    // either. Non-mutating (no-op when absent or already stripped above).
-    return stripI18nFilled(result) as T
+    return result as T
   }
 
   /**
@@ -4320,7 +4185,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /** Drop a record's encrypted _vec sidecar on erasure (a vector is text-invertible).
    *  Called by vault.ts forget() inside a resilient try/catch; residue is reported in ForgetResult. */
   async _purgeVector(id: string): Promise<void> {
-    await this.adapter.delete(this.vault, '_vec', id)
+    await this.adapter.delete(this.vault, '_vec', encodeVecId(this.name, id))
     this.vectorSet?.markDirty()
   }
 
@@ -4483,8 +4348,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const source: LazyQuerySource<T> = {
       collectionName: this.name,
       persistedIndexes: persisted,
+      canonicalizeIndexKey: (f: string, v: unknown) => this.via?.canonicalizeIndexKey(f, v),
       ensurePersistedIndexesLoaded: () => this.ensurePersistedIndexesLoaded(),
-      getRecord: (id: string) => this.get(id) as unknown as Promise<T | null>,
+      // #684: raw-fetch seam — post-filter runs against the RAW record;
+      // only survivors are decoded via `decodeRecord` below.
+      getRawRecord: (id: string) => this.#getRaw(id),
+      decodeRecord: (record: unknown) => this.applyLocaleToRecord(record as T, undefined),
+      via: () => this.via,
     }
     return new LazyQuery<T, S, Q>(source)
   }
@@ -4508,7 +4378,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /** C-A/R10: persist the classified marker once per classified handle (store I/O in config-drift.ts). */
   private async _ensureClassifiedMarker(): Promise<void> {
     if (this._markerPersisted || this.vdigFields === null) return
-    const { persistClassifiedMarkerForFields } = await import('../with-shape/classified/config-drift.js')
+    const { persistClassifiedMarkerForFields } = await import('../port/with/classified-marker.js')
     await persistClassifiedMarkerForFields(this.adapter, this.vault, this.name, this.vdigFields, await this.getDEK(this.name))
     this._markerPersisted = true
   }
@@ -4516,7 +4386,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /** C-A/R10 drift signal — the marker's declared digest-only set, memoized to one store read per handle (see config-drift.ts). */
   private async _classifiedMarkerDigestOnly(): Promise<readonly string[]> {
     if (this._markerDigestOnlyCache !== undefined) return this._markerDigestOnlyCache
-    const { readClassifiedMarkerDigestOnly } = await import('../with-shape/classified/config-drift.js')
+    const { readClassifiedMarkerDigestOnly } = await import('../port/with/classified-marker.js')
     this._markerDigestOnlyCache = await readClassifiedMarkerDigestOnly(this.adapter, this.vault, this.name, await this.getDEK(this.name))
     return this._markerDigestOnlyCache
   }
@@ -4561,13 +4431,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   // ─── Hierarchical Access ──────────────────────────
 
-  /** tier-aware put — gated behind `tiersStrategy: withTiers()`. */
-  putAtTier(
-    id: string,
-    record: T,
-    tier: number,
-    opts?: { elevation?: { reason: string; fromTier: number }; source?: string; sourceTs?: string },
-  ): Promise<void> {
+  /** tier-aware put — gated behind `tiersStrategy: withTiers()`. `searchResidue: true` = stuck search compensation (#774, mirroring #764's elevate/demote posture); the write itself always completes. */
+  putAtTier(id: string, record: T, tier: number, opts?: { elevation?: { reason: string; fromTier: number }; source?: string; sourceTs?: string }): Promise<TierMoveResult> {
     return this.tiersStrategy.putAtTier(this.tiersContext(), id, record, tier, opts)
   }
 
@@ -4581,20 +4446,18 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     return this.tiersStrategy.listAtTier(this.tiersContext())
   }
 
-  /** elevate a record to a higher tier — gated behind `withTiers()`. */
-  elevate(id: string, toTier: number): Promise<void> {
+  /** elevate a record to a higher tier — gated behind `withTiers()`. `searchResidue: true` = stuck search compensation (#764); the move itself always completes. */
+  elevate(id: string, toTier: number): Promise<TierMoveResult> {
     return this.tiersStrategy.elevate(this.tiersContext(), id, toTier)
   }
 
-  /** demote a record to a lower tier — gated behind `withTiers()`. */
-  demote(id: string, toTier: number): Promise<void> {
+  /** demote a record to a lower tier — gated behind `withTiers()`. Same `searchResidue` posture as {@link elevate} (#764). */
+  demote(id: string, toTier: number): Promise<TierMoveResult> {
     return this.tiersStrategy.demote(this.tiersContext(), id, toTier)
   }
 
   /**
-   * Emit a cross-tier access event. The subscriber sink stays collection-
-   * resident (it captures `onCrossTierAccess`); the tiers module reaches it
-   * via the {@link TiersContext.emitCrossTierEvent} callback.
+   * Emit a cross-tier access event. The subscriber sink stays collection-resident (it captures `onCrossTierAccess`); the tiers module reaches it via the {@link TiersContext.emitCrossTierEvent} callback.
    */
   private emitCrossTierEvent(event: CrossTierAccessEvent): void {
     try {
@@ -4609,16 +4472,23 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * (#M-1, 2026-06-30 security review). Kept as a `_`-prefixed method on
    * Collection because `vault.ts` forget() reaches in via this name.
    */
-  _classifySealedShred(
-    live: EncryptedEnvelope,
-  ): Promise<{ readonly slots: readonly SealedShredSlot[] }> {
+  _classifySealedShred(live: EncryptedEnvelope): Promise<{ readonly slots: readonly SealedShredSlot[] }> {
     return classifySealedShredImpl(this.tiersContext(), live)
   }
 
+  async _onViaErase(id: string, live: EncryptedEnvelope): Promise<ViaEraseReport | undefined> { return this.via ? this.via.eraseSealed({ id, vault: this.vault, live, crypto: await this.codec.eraseCryptoCtx(id, live) }) : undefined } // @internal forget()'s per-ref via-erase fold (#629 T10)
+  get _via(): ViaPipeline | undefined { return this.via } // @internal exportRedact()'s typed reach-in accessor (fixes #634)
+  _setVia(pipeline: ViaPipeline | undefined): void { this.via = pipeline; this.codec.setVia(this.via) } // @internal applyTaintOverlay()'s typed writer seam — assigns `via` + resyncs the codec (fixes #666)
+  get _viaFieldsSnapshot(): { i18nFields: Record<string, I18nTextDescriptor> | undefined; lookupFields: Record<string, LookupDescriptor> | undefined } { return { i18nFields: this.i18nFields, lookupFields: this.lookupFields } } // @internal reconcile.ts's presentForJoin-rebuild union reader (#671 item 3)
+  _reconcileReadState(patch: { dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor>; i18nFields?: Record<string, I18nTextDescriptor>; lookupFields?: Record<string, LookupDescriptor>; getDictionary?: (name: string) => Promise<DictionaryHandle>; presentForJoin?: (record: unknown, locale: string) => unknown }): void { // @internal reconcile.ts's ONE late-attach writer for #671 items 1-3 — descriptor maps merge (construction wins on collision), getDictionary/presentForJoin assign (getDictionary never clobbers a live closure)
+    if (patch.dictKeyFields) this.dictKeyFields = { ...patch.dictKeyFields, ...this.dictKeyFields }
+    if (patch.i18nFields) this.i18nFields = { ...patch.i18nFields, ...this.i18nFields }
+    if (patch.lookupFields) this.lookupFields = { ...patch.lookupFields, ...this.lookupFields }
+    if (patch.getDictionary && this.getDictionary === undefined) this.getDictionary = patch.getDictionary
+    if (patch.presentForJoin) this.presentForJoin = patch.presentForJoin
+  }
   /**
-   * Bind the {@link TiersContext} the tier ops need. The `cekCache` is passed
-   * by reference (the SAME `Lru` the kernel's read/write path owns) so an
-   * elevate/demote CEK re-wrap stays synchronous with cache eviction.
+   * Bind the {@link TiersContext} the tier ops need — `cekCache` by reference (same `Lru` the read/write path owns) for a synchronous re-wrap; `syncDerived` closes over `this` for {@link syncDerivedOutputs} (#722).
    */
   private tiersContext(): TiersContext<T> {
     return {
@@ -4628,11 +4498,27 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       keyring: this.keyring,
       codec: this.codec,
       cekCache: this.cekCache,
+      syncCache: (id: string, e: { record: T; version: number } | null) => { if (e) this.cache.set(id, e); else this.cache.delete(id); this.lru?.remove(id) },
+      syncIndexes: (id: string, rec: T | null, version: number, priorEnvelope?: EncryptedEnvelope) => syncTierIndexesImpl(this.indexingContext(), id, rec, version, priorEnvelope),
+      syncSearch: (id: string, rec: T | null, version?: number) => syncTierSearchImpl(this.searchContext(), id, rec, version),
+      syncHistory: async (id: string, fromDek: EnclaveKey, toDek: EnclaveKey) => this.historyStrategy.rewrapHistory(this.adapter, this.vault, this.name, id, fromDek, toDek, await this.getDEK(this.name)),
+      saveHistorySnapshot: async (id: string, envelope: EncryptedEnvelope) => { // #728: gate folded in here so tiers/index.ts stays simple; review fix — mirror put()'s save→emit→prune parity (maxVersions was unbounded on tier moves)
+        if (this.historyConfig.enabled === false) return
+        await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, envelope)
+        this.emitter.emit('history:save', { vault: this.vault, collection: this.name, id, version: envelope._v })
+        if (this.historyConfig.maxVersions) await this.historyStrategy.pruneHistory(this.adapter, this.vault, this.name, id, { keepVersions: this.historyConfig.maxVersions })
+      },
+      historyEnabled: this.historyConfig.enabled !== false && this.historyStrategy !== NO_HISTORY, // #728/#737: lets putAtTier skip decrypting `existing` when no real history strategy is wired
+      syncBlobs: (id: string, fromTier: number, toTier: number) => this.blobStrategy !== NO_BLOBS ? this.blob(id).syncTierMove(fromTier, toTier, this.blobTierPolicy) : Promise.resolve(), // #724 I1: gate on blob storage enabled (not on declared blobFields) so undeclared-field blobs still rehome; #746: syncTierMove mints/resumes the rehome journal marker; self-no-ops on an empty slot map
+      syncLedger: async (id: string) => { await this.ledger?.purgeRecordDeltas(this.name, id) },
+      syncDerived: (id: string, record: T | null, elevated: boolean, version?: number) => syncDerivedOutputs(this, id, record, elevated, version),
+      hasDerivedOutputs: (this.materializedViewSource !== undefined && this.materializedViewSource.registry().mvsForSource(this.name).length > 0) || (this.derivationSource !== undefined && this.derivationSource.registry().strategiesForSource(this.name).length > 0), // #737: source-grained (was vault-grained) — a derivation-free tiered collection skips the pre-move decode even when other collections in the vault have derivations
       provenance: this.provenance,
       tiers: this.tiers,
       tierMode: this.tierMode,
       getDEK: (key: string) => this.getDEK(key),
       emitCrossTierEvent: (event) => this.emitCrossTierEvent(event),
+      addSubjectRef: (id: string, record: T) => this.addSubjectRef?.(id, record) ?? Promise.resolve(),
     }
   }
 
@@ -4640,8 +4526,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * Bind the {@link IndexingContext} the index-maintenance surface needs. The
    * eager `cache` Map and the index / unique-constraint / persisted mirrors are
    * passed by reference (the SAME instances the query path reads, never
-   * copied); the `persistedIndexesLoaded` flag and `ensure*` hydration stay
-   * collection-resident, reached via callbacks.
+   * copied); the `persistedIndexesLoaded` flag and `ensure*` hydration stay collection-resident, reached via callbacks.
    */
   private indexingContext(): IndexingContext<T> {
     return {

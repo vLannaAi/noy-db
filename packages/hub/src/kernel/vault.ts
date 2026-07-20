@@ -44,7 +44,7 @@ import {
 import { ElevatedHandle, ELEVATION_AUDIT_COLLECTION } from '../with-commit/tx/elevated-handle.js'
 import type { NoydbEventEmitter } from './events.js'
 import type { StandardSchemaV1 } from './schema.js'
-import type { BlobStrategy } from '../with-shape/blobs/strategy.js'
+import type { BlobStrategy } from '../port/with/blob-strategy.js'
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { ArchiveStrategy } from '../with-fork/archive/index.js'
 import type { ArchivePolicy, ArchiveContext, ArchiveResult, ArchiveRunOptions } from '../with-fork/archive/index.js'
@@ -56,10 +56,11 @@ import type { DeferredNumberingConfig } from '../with-commit/numbering/descripto
 import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
 import type { LazyStrategy } from '../port/with/lazy-strategy.js'
 import type { AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
-import type { CrdtStrategy } from '../with-commit/crdt/strategy.js'
-import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
+import type { CrdtStrategy } from './types.js' // direct, not via crdt/strategy.js — avoids a dts cycle (#667)
+import type { TiersStrategy, TierMoveResult } from '../with-audit/tiers/strategy.js'
 import type { SearchStrategy } from '../with-lookup/search/strategy.js'
 import { NO_CARGO, type CargoStrategy } from '../with-cargo/strategy.js'
+import { NO_BROKER, buildCredentialBrokerHandle, type BrokerStrategy, type CredentialBrokerHandle } from '../port/with/broker-strategy.js'
 //  — import from leaf modules (NOT from ./history/ledger/index.js
 // or store.js) so the LedgerStore class never reaches the floor
 // bundle. The leaf files hold pure constants + a tiny hash helper;
@@ -70,7 +71,7 @@ import type { VaultInstant } from '../with-commit/history/time-machine.js'
 import { NO_HISTORY, type HistoryStrategy } from '../with-commit/history/strategy.js'
 import { NO_FORGET, type ForgetStrategy, type ForgetResult } from '../with-audit/forget/strategy.js'
 import {
-  addSubjectRef,
+  addSubjectRef, readDottedPath, coerceSubjectId,
   removeSubjectRef,
   lookupSubject,
   rebuildSubjectIndex as rebuildSubjectIndexImpl,
@@ -89,15 +90,38 @@ import {
   type RefDescriptor,
   type RefViolation,
 } from './refs.js'
-import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor, StaticDictDescriptor } from '../with-shape/i18n/dictionary.js'
-import { isDictCollectionName, isStaticDictDescriptor } from '../with-shape/i18n/dictionary.js'
+import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor, StaticDictDescriptor } from '../port/with/i18n-strategy.js'
+import { isDictCollectionName, isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
+// #650 Task 1 (via-lookup extraction) — the pure dict-registry helpers now live in
+// via/lookup/registry.ts, reached only through this port seam (never via/lookup/*
+// directly — Check 14 via-layering). Aliased to avoid colliding with Vault's own same-named
+// public delegator methods below. Task 2's resolveLabelFromMap/collectLookupDictCompat is the
+// alias-equivalence bridge shared by the i18n + lookup bindings.
+import {
+  enforceStaticDictOnPut as enforceStaticDictOnPutHelper,
+  resolveDictSource as resolveDictSourceHelper,
+  updateReferencingRecords,
+  resolveLabelFromMap,
+  collectLookupDictCompat,
+  checkLookupMembership, buildLookupAltIndex,
+  dictCollectionName, registerLookupRefEdges, // #650 Task 4/5
+  buildLookupSnapshotRows, // #650 Task 6
+  reservedDictDepsOf, // #653
+  type LookupDescriptor,
+} from '../port/with/lookup-strategy.js'
 import { isLinkCollectionName, type LinkSpec, type LinkSetHandle } from '../with-shape/links/names.js'
 import { makeLazyLinkSetHandle, type LazyLinkSetHandle } from '../with-shape/links/lazy-handle.js'
 import type { EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
-import type { I18nTextDescriptor } from '../with-shape/i18n/core.js'
-import { getAtPath } from '../with-shape/i18n/core.js'
+import { getAtPath } from './paths.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
-import { NO_I18N, type I18nStrategy } from '../with-shape/i18n/strategy.js'
+import { NO_I18N, type I18nStrategy, type I18nTextDescriptor } from '../port/with/i18n-strategy.js'
+import { isViaInstalled } from './via/index.js'
+import { mergeViaFields, type ViaFieldSpec } from './via/compose.js'
+import { exportRedact } from './via/pipeline.js'
+import { ViaGraph } from './via/graph.js'
+import { registerCollectionGraphSources, applyTaintOverlay, reapplyDependentOverlays } from './via/graph-wiring.js'
+import { reconcileViaAttach, type ViaReconcileVaultCtx } from './via/reconcile.js'
+import { runGraphDispatchWave, putDerivedOutput, ledgerAuditHook, forgetDerivedFanout, touchFor, type GraphBatch, type ForgetFanoutStats, type RollupDeleteIntent } from './via/dispatch.js'
 import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 // Type-only imports for the guard + derivation services. The
 // runtime classes are loaded on demand via `await import(...)` inside
@@ -110,21 +134,22 @@ import type { GuardStrategyHandleAny } from '../with-audit/guards/types.js'
 import type { ReadOnlyVaultFacade } from '../with-audit/guards/read-only-facade.js'
 import type { DerivationRegistry } from '../with-formula/derivations/registry.js'
 import type { DerivationStrategyHandle } from '../with-formula/derivations/types.js'
-import type { LocaleReadOptions, ConflictPolicy } from './types.js'
+import type { ConflictPolicy } from './types.js'
 import type { CrdtMode } from '../with-commit/crdt/crdt.js'
-import { ReservedCollectionNameError, StaticDictReadonlyError, UnknownDictCodeError, SatelliteConfigError } from './errors.js'
+import { ReservedCollectionNameError, StaticDictReadonlyError, SatelliteConfigError } from './errors.js'
 import { declareSatellite } from '../with-shape/satellites/declare.js'
 import { makeSatelliteProxy, makeBaseProxy } from '../with-shape/satellites/proxy.js'
 import type { SatelliteRegistry } from '../with-shape/satellites/registry.js'
 import { makeJoinedHandle } from '../with-shape/satellites/joined.js'
 import type { JoinedHandle } from '../with-shape/satellites/types.js'
 import { expandRefsWithSatellites } from '../with-shape/satellites/forget.js'
+import { migrateSatelliteCek } from '../with-shape/satellites/migrate-cek.js'
 import {
   type PeriodRecord,
   type ClosePeriodOptions,
   type OpenPeriodOptions,
 } from '../with-audit/periods/index.js'
-import { encrypt, openEnvelopeJson, hasPerRecordKey, SEALED_CEK_NS, type SealingContext, type EnclaveKey, type SealedShredSlot } from './enclave/index.js'
+import { encrypt, openEnvelopeJson, hasPerRecordKey, SEALED_CEK_NS, type SealingContext, type EnclaveKey, isDeleteMarker, buildDeleteMarker, makeReservedEnvelopes } from './enclave/index.js'
 import type { RecipientSealer } from '../with-party/team/managed-passphrase.js'
 import {
   createExportBlobsHandle,
@@ -153,69 +178,29 @@ import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from
 import type { VaultIntrospectState } from '../with-shape/introspection/walk.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta, VaultMeta } from '../with-shape/introspection/meta.js'
-import type { ClassifiedEntry } from '../with-shape/classified/resolve.js'
-import { NO_CLASSIFIED, type ClassifiedStrategy } from '../with-shape/classified/strategy.js'
+import { NO_CLASSIFIED, type ClassifiedEntry, type ClassifiedStrategy } from '../port/with/classified-strategy.js'
 import { USER_ENVELOPE_COLLECTION } from './constants.js'
-
-/**
- * Resolve a label from an in-memory `{ locale → label }` map, walking the
- * same fallback chain semantics as `DictionaryHandle.resolveLabel`.
- * Used by the staticDict read-path resolver, which has no `_dict_*` handle.
- */
-function resolveLabelFromMap(
-  labels: Readonly<Record<string, string>>,
-  locale: string,
-  fallback?: string | readonly string[],
-): string | undefined {
-  if (labels[locale] !== undefined) return labels[locale]
-  const chain = Array.isArray(fallback)
-    ? (fallback as readonly string[])
-    : fallback
-      ? [fallback as string]
-      : []
-  for (const fb of chain) {
-    if (fb === 'any') {
-      const any = Object.values(labels)[0]
-      if (any !== undefined) return any
-    } else if (labels[fb] !== undefined) {
-      return labels[fb]
-    }
-  }
-  return undefined
-}
 
 /** A vault (tenant namespace) containing collections. */
 export class Vault {
   private readonly adapter: NoydbStore
   /** The vault's name as passed to `openVault()`. Stable for the instance lifetime. */
   public readonly name: string
-  /**
-   * Backreference to the parent `Noydb`. Lets vault-scoped services
-   * (e.g. `as-*` reader `apply()` paths gating on `withTransactions()`)
-   * reach the strategy seam without threading `db` through every API.
-   *
-   * Type-only Noydb import keeps the module graph acyclic at runtime.
-   */
+  /** Backreference to the parent `Noydb` — lets vault-scoped services reach the strategy seam
+   *  without threading `db` through every API (type-only import keeps the module graph acyclic). */
   public readonly noydb: Noydb
-  /**
-   * The active in-memory keyring. NOT readonly because `load()`
-   * needs to refresh it after restoring a different keyring file —
-   * otherwise the in-memory DEKs (from the pre-load session) and
-   * the on-disk wrapped DEKs (from the loaded backup) drift apart
-   * and every subsequent decrypt fails with TamperedError.
-   */
+  /** The active in-memory keyring. NOT readonly — `load()` refreshes it after restoring a
+   *  different keyring file, or in-memory/on-disk DEKs drift apart and decrypt fails with TamperedError. */
   private keyring: UnlockedKeyring
   private readonly encrypted: boolean
   private readonly emitter: NoydbEventEmitter
   private readonly onDirty: OnDirtyCallback | undefined
   private readonly onRegisterConflictResolver: ((name: string, resolver: CollectionConflictResolver) => void) | undefined
   private readonly syncAdapter: NoydbStore | undefined
+  private readonly getPurgeableTargets: () => readonly { store: NoydbStore; role: 'backup' | 'archive'; label?: string }[]
   private readonly historyConfig: HistoryConfig
-  /**
-   * tree-shake seam for the optional blob service. Undefined
-   * means "blobs are off for this vault"; every `collection.blob(id)`
-   * call throws with a pointer at `@noy-db/hub/blobs`.
-   */
+  /** tree-shake seam for the optional blob service; `undefined` means "blobs are off for this
+   *  vault" — every `collection.blob(id)` call throws with a pointer at `@noy-db/hub/blobs`. */
   private readonly blobStrategy: BlobStrategy | undefined
   private readonly objectStore: ObjectProjection | undefined
 
@@ -230,12 +215,10 @@ export class Vault {
   private readonly crdtStrategy: CrdtStrategy | undefined
   private readonly tiersStrategy: TiersStrategy | undefined
   private readonly searchStrategy: SearchStrategy | undefined
-  /**
-   * Cargo (partition extraction) strategy — `NO_CARGO` (throwing) unless
-   * `withCargo()` was passed. Public so the `extractPartition` free function
-   * (which takes a `Vault`) routes through it.
-   */
+  /** Cargo (partition extraction) strategy — `NO_CARGO` (throwing) unless `withCargo()` was passed.
+   *  Public so the `extractPartition` free function (which takes a `Vault`) routes through it. */
   readonly cargoStrategy: CargoStrategy
+  private readonly brokerStrategy: BrokerStrategy
   private readonly sealedRecordStrategy: SealedRecordStrategy
   private readonly portabilityStrategy: PortabilityStrategy
   private readonly sequenceStrategy: SequenceStrategy
@@ -248,42 +231,26 @@ export class Vault {
   private readonly i18nStrategy: I18nStrategy
   private readonly syncStrategy: SyncStrategy
   private readonly classifiedStrategy: ClassifiedStrategy
-  /**
-   * Per-vault guard registry. `null` until `_initGuards()` runs; stays
-   * `null` for vaults that never register any guard strategy. The
-   * runtime class is dynamic-imported on demand so consumers that
-   * never use guards don't pull `GuardRegistry`/`GuardExecutor` into
-   * their bundle.
-   */
+  /** Per-vault guard registry; `null` until `_initGuards()` runs (or for vaults that never register
+   *  one) — the runtime class is dynamic-imported on demand to keep it out of the floor bundle. */
   private guardRegistry: GuardRegistry | null = null
-  /**
-   * Per-vault derivation registry. Same lazy-load contract as
-   * `guardRegistry` — `null` until `_initDerivations()` runs with at
-   * least one strategy handle.
-   */
+  /** Per-vault derivation/MV/overlay registries — same lazy-load contract as
+   *  `guardRegistry`: each stays `null` until its `_init*()` runs with at
+   *  least one strategy/MV/overlay handle. */
   private derivationRegistry: DerivationRegistry | null = null
-  /**
-   * Per-vault materialized-view registry. Same lazy-load
-   * contract as `derivationRegistry` — `null` until
-   * `_initMaterializedViews()` runs with at least one MV handle.
-   */
   private materializedViewRegistry: MaterializedViewRegistry | null = null
-  /**
-   * Per-vault overlay registry. Same lazy-load contract as
-   * `materializedViewRegistry` — `null` until `_initOverlayedViews()`
-   * runs with at least one handle.
-   */
   private overlayedViewRegistry: OverlayedViewRegistry | null = null
-  /**
-   * Cached read-only facades handed to guard callbacks via `ctx.vault`
-   * and to derivation callbacks via `derive(source, ctx)`. Split by
-   * resolution layer: the guard facade reads at `layer:'guard'`,
-   * the derivation facade at `layer:'derivation'`, so i18nText / dictKey
-   * fields resolve under that layer's `onMissing` policy. Allocated
-   * eagerly inside `_initGuards()` / `_initDerivations()` so read
-   * accessors stay synchronous (callers in `tx/transaction.ts` rely on
-   * that). Each stays `null` for vaults without that service.
-   */
+  /** Per-vault dependency graph (#638) — field postures + derivation/MV/overlay/
+   *  computed/via-deps edges. Metadata-only (field names, postures, grains —
+   *  never values or key material); always present, unlike the registries above. */
+  readonly graph: ViaGraph
+  /** #638 Task 4 — open sync/cutover/restore touch collector, or `undefined` between batches. */
+  private _graphBatch: GraphBatch | undefined
+  /** Cached read-only facades for guard/derivation callbacks — split by
+   *  resolution layer (`layer:'guard'` vs `'derivation'`, each field's
+   *  `onMissing` policy differs). Allocated eagerly inside `_initGuards()`/
+   *  `_initDerivations()` so read accessors stay synchronous; `null` for
+   *  vaults without that service. */
   private guardFacade: ReadOnlyVaultFacade | null = null
   private derivationFacade: ReadOnlyVaultFacade | null = null
   private getDEK: (collectionName: string) => Promise<EnclaveKey>
@@ -315,18 +282,9 @@ export class Vault {
    */
   public readonly custody: CustodyApi
 
-  /**
-   * Optional callback that re-derives an UnlockedKeyring from the
-   * adapter using the active user's passphrase. Called by `load()`
-   * after the on-disk keyring file has been replaced — refreshes
-   * `this.keyring` so the next DEK access uses the loaded wrapped
-   * DEKs instead of the stale pre-load ones.
-   *
-   * Provided by Noydb at openVault() time. Tests that
-   * construct Vault directly can pass `undefined`; load()
-   * skips the refresh in that case (which is fine for plaintext
-   * compartments — there's nothing to re-unwrap).
-   */
+  /** Re-derives an UnlockedKeyring from the adapter using the active user's passphrase; called by
+   *  `load()` after the on-disk keyring file has been replaced. Provided by Noydb at openVault()
+   *  time; `undefined` in tests that construct Vault directly (load() then skips the refresh). */
   private readonly reloadKeyring: (() => Promise<UnlockedKeyring>) | undefined
   private readonly collectionCache = new Map<string, Collection<unknown>>()
   private satelliteRegistry: SatelliteRegistry | null = null // spec #591, archetype-③
@@ -417,61 +375,28 @@ export class Vault {
    */
   private consentContext: ConsentContext | null = null
 
+  /** dictKeyField registry: collection name → field name → dictionary name — `DictionaryHandle.rename()`'s reference-update source; populated by `collection()` from `dictKeyFields`. */
+  private readonly dictKeyFieldRegistry = new Map<string, Record<string, string>>()
 
-  /**
-   * Registry of dictKey fields declared across all collections in this
-   * vault. Keyed by collection name → field name → dictionary name.
-   * Used by `DictionaryHandle.rename()` to find and update all records
-   * referencing a renamed key.
-   *
-   * Populated by `collection()` when the `dictKeyFields` option is passed.
-   */
-  private readonly dictKeyFieldRegistry = new Map<
-    string, // collection name
-    Record<string, string> // field name → dictionary name
-  >()
-
-  /**
-   * Names of dictionaries backed by a `staticDict()` descriptor.
-   * A static dict skips the `dictKeyFieldRegistry` rename machinery, but the
-   * vault must still *know* a name is static so `vault.dictionary(name)` can
-   * refuse mutation (`StaticDictReadonlyError`). Populated at `collection()`
-   * config time whenever a `StaticDictDescriptor` is seen.
-   */
+  /** Names of `staticDict()`-backed dictionaries (skip rename tracking; `vault.dictionary(name)` refuses mutation on these via `StaticDictReadonlyError`). Populated at `collection()` config time. */
   private readonly staticDictNames = new Set<string>()
 
-  /**
-   * Static-dict descriptors keyed by dictionary name. Backs the
-   * read-path label resolver (resolve from the in-memory table) and the
-   * query-seam `resolveDictSource` snapshot. Last writer wins when the same
-   * name is registered by multiple collections (identical-across-vaults by
-   * construction, so the tables match).
-   */
+  /** Static-dict descriptors by dictionary name — backs the read-path label resolver and the `resolveDictSource` snapshot. Last writer wins across collections (tables match by construction). */
   private readonly staticByName = new Map<string, StaticDictDescriptor>()
 
-  /**
-   * Per-collection map of field name → StaticDictDescriptor. Used by
-   * `enforceStaticDictOnPut` to validate stored codes against `desc.keys`.
-   */
-  private readonly staticDescriptorByField = new Map<
-    string, // collection name
-    Record<string, StaticDictDescriptor>
-  >()
+  /** Per-collection field name → StaticDictDescriptor, validated by `enforceStaticDictOnPut`. */
+  private readonly staticDescriptorByField = new Map<string, Record<string, StaticDictDescriptor>>()
 
-  /**
-   * Registry of i18nText fields declared across all collections. Keyed
-   * by collection name → field name → I18nTextDescriptor. Used by
-   * `applyI18nLocale` on reads and by `validateI18nTextValue` on puts.
-   *
-   * Populated by `collection()` when the `i18nFields` option is passed.
-   */
-  private readonly i18nFieldRegistry = new Map<
-    string, // collection name
-    Record<string, I18nTextDescriptor>
-  >()
+  /** i18nText fields: collection name → field name → descriptor. Used by `applyI18nLocale`/`validateI18nTextValue`; populated by `collection()` from `i18nFields`. Private — the #664 `via/reconcile.ts` dispatch reads these through {@link _viaReconcileCtx}'s structural bag, not `this` directly (a plain structural bag, never a `Vault` import — S5 port-layering forbids the kernel spine from reaching a with-* service, and this file's own reconcile-ladder logic moved OUT into that unguarded module). */
+  private readonly i18nFieldRegistry = new Map<string, Record<string, I18nTextDescriptor>>()
 
   /** Cache of DictionaryHandle instances, one per dictionary name. */
   private readonly dictionaryCache = new Map<string, DictionaryHandle>()
+
+  /** #650 Task 4 (#647) — declared reserved-lookup collection name → dimension name, for dimensions
+   *  with `backing:'reserved'` (dict()/dictKey()). The explicit sync-pull registry: NOT a blanket
+   *  underscore-glob — populated at `collection()`-declare time and at `dictionary()`-call time. */
+  private readonly reservedLookupCollections = new Map<string, string>()
 
   /** Registered link specs, keyed by link name; set by `vault.link()`. */
   private readonly linkRegistry = new Map<string, LinkSpec>()
@@ -520,6 +445,8 @@ export class Vault {
     onRegisterConflictResolver?: ((name: string, resolver: CollectionConflictResolver) => void) | undefined
     /** — optional remote/sync adapter for presence broadcasting. */
     syncAdapter?: NoydbStore | undefined
+    /** #615 — push-only sync targets (backup/archive) this vault may target-purge. Default: none. */
+    getPurgeableTargets?: () => readonly { store: NoydbStore; role: 'backup' | 'archive'; label?: string }[]
     /**
      * tree-shake seam — strategy for optional blob storage.
      * Passed through to every `Collection` built by `vault.collection()`.
@@ -536,6 +463,7 @@ export class Vault {
     tiersStrategy?: TiersStrategy | undefined
     searchStrategy?: SearchStrategy | undefined
     cargoStrategy?: CargoStrategy | undefined
+    brokerStrategy?: BrokerStrategy | undefined
     consentStrategy?: ConsentStrategy | undefined
     periodsStrategy?: PeriodsStrategy | undefined
     shadowStrategy?: ShadowStrategy | undefined
@@ -571,6 +499,7 @@ export class Vault {
     this.onDirty = opts.onDirty
     this.onRegisterConflictResolver = opts.onRegisterConflictResolver
     this.syncAdapter = opts.syncAdapter
+    this.getPurgeableTargets = opts.getPurgeableTargets ?? (() => [])
     this.blobStrategy = opts.blobStrategy
     this.objectStore = opts.objectStore
     this.archiveStrategy = opts.archiveStrategy
@@ -581,6 +510,7 @@ export class Vault {
     this.tiersStrategy = opts.tiersStrategy
     this.searchStrategy = opts.searchStrategy
     this.cargoStrategy = opts.cargoStrategy ?? NO_CARGO
+    this.brokerStrategy = opts.brokerStrategy ?? NO_BROKER
     this.sealedRecordStrategy = opts.sealedRecordStrategy ?? NO_SEALED_RECORD
     this.portabilityStrategy = opts.portabilityStrategy ?? NO_PORTABILITY
     this.sequenceStrategy = opts.sequenceStrategy ?? NO_SEQUENCE
@@ -594,6 +524,9 @@ export class Vault {
       getDEK: (collection) => this.getDEK(collection),
       getLedgerOrNull: () => this.getLedgerOrNull(),
       collection: (name) => this.collection(name),
+      purgeDeleteMarkers: (before) => this._purgeDeleteMarkers(before),
+      archiveRecords: (before) => this._archiveClosedPeriod(before),
+      purgeTargets: (before) => this._purgePeriodTargets(before),
     })
     this.linksEnforcer = new VaultLinks({
       refRegistry: this.refRegistry,
@@ -604,6 +537,7 @@ export class Vault {
       links: (name) => this.links(name),
       getCachedCollection: (name) => this.collectionCache.get(name),
       getActiveTxContext: () => this.noydb._activeTxContextOrNull,
+      emitter: this.emitter,
     })
     this.shadowStrategy = opts.shadowStrategy ?? NO_SHADOW
     this.historyStrategy = opts.historyStrategy ?? NO_HISTORY
@@ -611,6 +545,7 @@ export class Vault {
     this.i18nStrategy = opts.i18nStrategy ?? NO_I18N
     this.syncStrategy = opts.syncStrategy ?? NO_SYNC
     this.classifiedStrategy = opts.classifiedStrategy ?? NO_CLASSIFIED
+    this.graph = new ViaGraph()
     // Guard + derivation registries are initialised lazily via
     // `_initGuards()` / `_initDerivations()` from `Noydb.openVault()`.
     // The classes are dynamic-imported there so vaults that never
@@ -725,6 +660,20 @@ export class Vault {
    * Lazy mode + indexes is rejected at construction time — see the
    * Collection constructor for the rationale.
    */
+  /** Assembles {@link ViaReconcileVaultCtx} — the plain structural bag the #664 `via/reconcile.ts`
+   *  dispatch reads/writes — from this vault's OWN privates, rather than passing `this` itself. */
+  private _viaReconcileCtx(): ViaReconcileVaultCtx {
+    return {
+      i18nStrategy: this.i18nStrategy, locale: this.locale, translateText: this.translateText,
+      i18nFieldRegistry: this.i18nFieldRegistry, dictKeyFieldRegistry: this.dictKeyFieldRegistry,
+      staticDescriptorByField: this.staticDescriptorByField, reservedLookupCollections: this.reservedLookupCollections,
+      staticByName: this.staticByName, staticDictNames: this.staticDictNames, getOpenCollection: (n) => this._getCollection(n), getCollection: (n) => this.collection<Record<string, unknown>>(n),
+      dictionary: (name) => this.dictionary(name),
+      enforceI18nOnPut: (collectionName, record) => this.enforceI18nOnPut(collectionName, record),
+      enforceStaticDictOnPut: (collectionName, record) => this.enforceStaticDictOnPut(collectionName, record),
+    }
+  }
+
   collection<T, S extends keyof T & string = never, Q extends keyof T & string = never, M extends keyof T & string = never>(collectionName: string, options?: {
     indexes?: readonly IndexDefFor<IndexFieldName<T, S, Q>>[]
     /** — auto-reconcile policy for persisted-index drift. */
@@ -745,13 +694,18 @@ export class Vault {
     textIndexPersist?: boolean
     /** — declare dictKey / staticDict fields for label resolution on reads. */
     dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor>
+    /** — declare lookup() / enumOf() / dict() fields (#650 Task 2 — the 'lookup' via binding's three tiers). */
+    lookupFields?: Record<string, LookupDescriptor>
     /** Consumer-neutral per-field descriptors (label/unit/semanticType/sensitivity…). See collection.describe(). */
     fieldMeta?: Record<string, FieldMeta>
     /** The collection's own descriptive metadata (label/description/icon). See collection.describe(). */
     meta?: CollectionMeta
     /** — declare money() fields for currency-safe decimal storage/formatting. */
     moneyFields?: MoneyFieldsOpt<T, M>
-    /** — declare computed scalar fields, evaluated on write (schema-owned). */
+    viaFields?: Record<string, ViaFieldSpec> // via() composed fields; merged with the money/i18n sugar keys (field in both throws)
+    /** — declare computed scalar fields, evaluated on write (schema-owned). Each entry may be
+     *  a plain `(record) => value` function, OR `{ fn, deps }` to declare source fields for
+     *  taint propagation (#638 Task 7 — supersedes the retired `computedDeps` option). */
     computed?: ComputedFields<T>
     /** — declare classified() sensitive-field descriptors. See the classified-fields spec. */
     classifiedFields?: Record<string, ClassifiedEntry>
@@ -798,7 +752,7 @@ export class Vault {
      * name. Values are `{ retainDays?, evictWhen? }`. Evaluated only
      * when `vault.compact()` runs.
      */
-    blobFields?: BlobFieldsConfig<T>
+    blobFields?: BlobFieldsConfig<T>; blobTierPolicy?: 'isolate' | 'dedup' // — shared-blob rehome policy on tier move (#724/#741); default 'isolate'
     /** — declarative record archival policy: `{ archiveWhen, legalHold? }`. Evaluated when `vault.archive()` runs. */
     archive?: ArchivePolicy<T>
     /** — declared tiers for this collection. */
@@ -865,26 +819,18 @@ export class Vault {
       }
     }
     // Guard: reject reserved _dict_* names
-    if (isDictCollectionName(collectionName)) {
-      throw new ReservedCollectionNameError(collectionName)
-    }
+    if (isDictCollectionName(collectionName)) throw new ReservedCollectionNameError(collectionName)
     // Guard: reject the internal _sequences collection — use vault.sequence() instead.
-    if (collectionName === SEQUENCE_COLLECTION) {
-      throw new ReservedCollectionNameError(collectionName)
-    }
+    if (collectionName === SEQUENCE_COLLECTION) throw new ReservedCollectionNameError(collectionName)
     // Guard: reject reserved _links_* names — use vault.link()/vault.links() instead.
-    if (isLinkCollectionName(collectionName)) {
-      throw new ReservedCollectionNameError(collectionName)
-    }
+    if (isLinkCollectionName(collectionName)) throw new ReservedCollectionNameError(collectionName)
     // Guard: reject secret-bearing reserved names (`_sync_credentials`,
     // `_broker`). Their record CONTENTS are directly-usable secrets, so they
     // must never be reachable through the generic public collection handle —
     // they are served only by their dedicated, owner/admin-gated API. Serving
     // them here would decrypt with whatever DEK the caller's keyring holds,
     // bypassing that gate. See reserved-secret-collections.ts.
-    if (isSecretBearingReservedCollection(collectionName)) {
-      throw new ReservedCollectionNameError(collectionName)
-    }
+    if (isSecretBearingReservedCollection(collectionName)) throw new ReservedCollectionNameError(collectionName)
 
     if (this.satelliteRegistry?.byJoined(collectionName)) { // #591: joined handle — not a directly reachable collection
       throw new SatelliteConfigError(`"${collectionName}" is a joined handle — use vault.joined('${collectionName}'), not vault.collection().`)
@@ -906,36 +852,21 @@ export class Vault {
     }
 
     let coll = this.collectionCache.get(collectionName)
-    if (coll && options?.moneyFields) {
-      // The collection may have been auto-created (without options) by
-      // materialized-view dependency analysis during openVault, before
-      // this declaration. Reconcile money descriptors onto it so writes
-      // quantize and money-aware aggregation applies. First-wins.
-      coll._applyMoneyFields(options.moneyFields)
-    }
-    if (coll && options?.computed) {
-      // Same MV-pre-creation reconcile as money: a collection used as an
-      // MV source is auto-created (without options) before this
-      // declaration; attach computed fields so writes materialize them.
-      coll._applyComputed(options.computed as ComputedFields)
-    }
-    if (coll && options?.fieldMeta) {
-      // Same MV-pre-creation reconcile as money/computed: a collection
-      // auto-created without options gets its fieldMeta attached here.
-      // First-wins: if the collection already has fieldMeta set this is a no-op.
-      coll._applyFieldMeta(options.fieldMeta)
-    }
-    if (coll && options?.meta) {
-      // Same MV-pre-creation reconcile as fieldMeta: attach collection-level
-      // descriptive metadata to a collection that was auto-created without options.
-      // First-wins.
-      coll._applyMeta(options.meta)
-    }
-    if (coll && options?.classifiedFields) {
-      // Same MV-pre-creation reconcile as money/computed/fieldMeta/meta: attach
-      // classified fields to a collection that was auto-created without options.
-      // First-wins — cannot retro-seal, only merges rider computed fields.
-      coll._applyClassifiedFields(options.classifiedFields)
+    const effectiveViaFields = mergeViaFields({ moneyFields: options?.moneyFields, i18nFields: options?.i18nFields, dictKeyFields: options?.dictKeyFields, lookupFields: options?.lookupFields, viaFields: options?.viaFields }) // #627: merged view feeds both late-attach reconcile (below) and fresh construct
+    // #664 — the whole late-attach reconcile ladder (collision guard, the five pre-existing
+    // _apply* reconciles, the two-phase graph-edge/taint commit, and the new i18n/dictKey
+    // machinery) now lives behind ONE dispatch call in the unguarded via/reconcile.ts, not
+    // inlined here. `Collection._applyX`'s own first-wins semantics are unchanged; this file
+    // only threads the field-declaring options + this vault's registries through.
+    if (coll) {
+      reconcileViaAttach(coll, this.graph, collectionName, this._viaReconcileCtx(), {
+        effectiveViaFields,
+        ...(options?.computed !== undefined ? { computed: options.computed as ComputedFields } : {}),
+        ...(options?.fieldMeta !== undefined ? { fieldMeta: options.fieldMeta } : {}),
+        ...(options?.meta !== undefined ? { meta: options.meta } : {}),
+        ...(options?.classifiedFields !== undefined ? { classifiedFields: options.classifiedFields } : {}),
+        ...(options?.blobFields !== undefined ? { blobFields: options.blobFields } : {}),
+      })
     }
     if (!coll) {
       // Register ref declarations (if any) with the vault-level
@@ -947,8 +878,8 @@ export class Vault {
       }
 
       // Register i18nText fields
-      if (options?.i18nFields) {
-        this.i18nFieldRegistry.set(collectionName, options.i18nFields)
+      if (effectiveViaFields.i18nFields) {
+        this.i18nFieldRegistry.set(collectionName, effectiveViaFields.i18nFields)
       }
 
       // register blobFields retention/TTL policy
@@ -970,11 +901,12 @@ export class Vault {
       // the rename-tracking registry; staticDict fields skip it (no
       // per-vault pointer rewrite) and instead populate the static
       // registries that back the read-path resolver, the readonly guard, and
-      // put-time code validation.
-      if (options?.dictKeyFields) {
+      // put-time code validation. Native lookup()/dict() reserved/static
+      // fields fold into the SAME registries (#650 Task 2 — collectLookupDictCompat).
+      if (effectiveViaFields.dictKeyFields || effectiveViaFields.lookupFields) {
         const dictFieldMap: Record<string, string> = {}
         const staticFieldMap: Record<string, StaticDictDescriptor> = {}
-        for (const [field, desc] of Object.entries(options.dictKeyFields)) {
+        for (const [field, desc] of Object.entries(effectiveViaFields.dictKeyFields ?? {})) {
           if (isStaticDictDescriptor(desc)) {
             staticFieldMap[field] = desc
             this.staticDictNames.add(desc.name)
@@ -983,8 +915,21 @@ export class Vault {
             dictFieldMap[field] = desc.name
           }
         }
+        const lookupCompat = collectLookupDictCompat(effectiveViaFields.lookupFields)
+        Object.assign(dictFieldMap, lookupCompat.dictFieldMap)
+        for (const [field, desc] of lookupCompat.staticEntries) {
+          staticFieldMap[field] = desc
+          this.staticDictNames.add(desc.name)
+          this.staticByName.set(desc.name, desc)
+        }
         if (Object.keys(dictFieldMap).length > 0) {
           this.dictKeyFieldRegistry.set(collectionName, dictFieldMap)
+          // #650 Task 4 (#647) — declare these dimensions' _dict_* collections into the
+          // reserved-lookup sync registry NOW, at schema-declare time — before any local
+          // dictionary() call/write/read touches them this session.
+          for (const dictName of new Set(Object.values(dictFieldMap))) {
+            this.reservedLookupCollections.set(dictCollectionName(dictName), dictName)
+          }
         }
         if (Object.keys(staticFieldMap).length > 0) {
           this.staticDescriptorByField.set(collectionName, staticFieldMap)
@@ -1044,6 +989,7 @@ export class Vault {
         schemaFence: this.schemaFence,
         getDEK: this.getDEK,
         onDirty: this.onDirty,
+        tabCoordinated: () => this.noydb._tabCoordinationActive, // #693: re-create gate fallback
         historyConfig: effectiveHistoryConfig,
         historyConfigExplicit: options?.historyConfig !== undefined,
         // thread the vault-wide blob strategy into every
@@ -1072,6 +1018,7 @@ export class Vault {
         defaultLocale: this.locale,
         onRegisterConflictResolver: this.onRegisterConflictResolver,
         onAccess: (op, id) => this._logConsent(op, collectionName, id),
+        graphDispatch: { collect: (collection, id) => this._collectGraphTouch(collection, id), collectDelete: (collection, id, intents) => this._collectGraphDelete(collection, id, intents) },
         // Derivation source is only wired when the corresponding registry
         // has been initialised. Guard source was removed in Track A slice 3b
         // — guards now run via the gate bus in Noydb.#registerGuardGate.
@@ -1123,9 +1070,7 @@ export class Vault {
       if (options?.sensitive !== undefined) {
         collOpts.sensitive = options.sensitive
       }
-      if (options?.perRecordKeys !== undefined) {
-        collOpts.perRecordKeys = options.perRecordKeys
-      }
+      if (options?.perRecordKeys !== undefined) collOpts.perRecordKeys = options.perRecordKeys
       // A collection declared in `withForgetCascade({ subjects })` MUST
       // use per-record CEKs: crypto-shred can only guarantee erasure of a body
       // keyed off a per-record CEK. Force it on (and warn if the caller
@@ -1143,11 +1088,12 @@ export class Vault {
         // Classified refusal matrix R4: a digest-only field cannot be the
         // forget-subject key (the subject index would hold the plaintext).
         collOpts.subjectKeyField = subjectKey
+        collOpts.addSubjectRef = async (id, record) => { const value = readDottedPath(record as Record<string, unknown>, subjectKey); if (value !== undefined && value !== null) await this._addSubjectRef(coerceSubjectId(value), { collection: collectionName, id }) } // #766: putAtTier's raw write bypasses onAfterWrite — register the first-write subject ref directly
       }
       if (options?.provenance !== undefined) collOpts.provenance = options.provenance
       if (options?.ramCiphertext !== undefined) collOpts.ramCiphertext = options.ramCiphertext
       if (options?.tiers !== undefined) collOpts.tiers = options.tiers
-      if (options?.tierMode !== undefined) collOpts.tierMode = options.tierMode
+      if (options?.tierMode !== undefined) collOpts.tierMode = options.tierMode; if (options?.blobTierPolicy !== undefined) collOpts.blobTierPolicy = options.blobTierPolicy
       collOpts.onCrossTierAccess = (event) => this.emitCrossTier(event)
       if (this.syncAdapter !== undefined) collOpts.syncAdapter = this.syncAdapter
       if (options?.i18nFields !== undefined) collOpts.i18nFields = options.i18nFields
@@ -1156,13 +1102,15 @@ export class Vault {
       if (options?.warmIndexOnOpen !== undefined) collOpts.warmIndexOnOpen = options.warmIndexOnOpen
       if (options?.textIndexPersist !== undefined) collOpts.textIndexPersist = options.textIndexPersist
       if (options?.moneyFields !== undefined) collOpts.moneyFields = options.moneyFields
+      if (options?.viaFields !== undefined) collOpts.viaFields = options.viaFields
       if (options?.computed !== undefined) collOpts.computed = options.computed as ComputedFields
       if (options?.classifiedFields !== undefined) collOpts.classifiedFields = options.classifiedFields
-      if (options?.dictKeyFields !== undefined) {
-        // Build the label resolver callback for this collection. A static
-        // dict resolves from its in-memory table — no dictionary()
-        // lookup, no _dict_* read — while a plain dictKey resolves through
-        // the encrypted _dict_* handle as before.
+      if (effectiveViaFields.dictKeyFields !== undefined || effectiveViaFields.lookupFields !== undefined) {
+        // Build the label resolver callback for this collection. A static dict resolves from
+        // its in-memory table — no dictionary() lookup, no _dict_* read — while a plain dictKey
+        // resolves through the encrypted _dict_* handle as before. Shared verbatim by the lookup
+        // binding (#650 Task 2) — native lookup()/dict() reserved/static(+table) dimensions
+        // register into the SAME staticByName registry above, so this one resolver serves both.
         collOpts.dictLabelResolver = async (dictName, key, locale, fallback) => {
           const stat = this.staticByName.get(dictName)
           if (stat) {
@@ -1175,13 +1123,24 @@ export class Vault {
         // Provide a handle factory for dynamic dicts so the search
         // index can call list() to build the full key→labels map.
         collOpts.getDictionary = async (name: string) => this.dictionary(name)
-        collOpts.dictKeyFields = options.dictKeyFields
+        collOpts.dictKeyFields = options?.dictKeyFields
+      }
+      if (effectiveViaFields.lookupFields !== undefined) {
+        // membership/getAltIndex (#650 Task 3) are vault-built closures — never a collection handle.
+        // must move together with via/reconcile.ts's five lookup closures (#664).
+        collOpts.lookupLabelResolver = collOpts.dictLabelResolver
+        collOpts.getLookupBacking = (desc: LookupDescriptor) => async (key: string) => // #651: snapshot-first (sole truth for key!=='id'); id-tier alone falls back to a live cold-session .get()
+          buildLookupSnapshotRows(desc, (n) => this.reservedLookupCollections.has(dictCollectionName(n)), (n) => this.dictionary(n), (n) => this.collection<Record<string, unknown>>(n))?.get(key) ?? (desc.key === 'id' ? (await this.collection<Record<string, unknown>>(desc.dimension).get(key)) ?? undefined : undefined)
+        collOpts.lookupFields = options?.lookupFields
+        collOpts.membership = (field, key) => checkLookupMembership(effectiveViaFields.lookupFields![field]!, key, (n) => this.dictionary(n), (n) => this.collection(n))
+        collOpts.getAltIndex = (d) => buildLookupAltIndex(d, (n) => this.dictionary(n), (n) => this.collection<Record<string, unknown>>(n))
+        collOpts.snapshotFor = (d) => buildLookupSnapshotRows(d, (n) => this.reservedLookupCollections.has(dictCollectionName(n)), (n) => this.dictionary(n), (n) => this.collection<Record<string, unknown>>(n)) // #650 Task 6/7
       }
       // i18n / staticDict validation on put — enforced via the compartment's
       // put hook. staticDict adds put-time code validation.
       if (
-        options?.i18nFields !== undefined ||
-        options?.dictKeyFields !== undefined
+        effectiveViaFields.i18nFields !== undefined ||
+        effectiveViaFields.dictKeyFields !== undefined
       ) {
         collOpts.i18nPutValidator = (record: unknown) => {
           this.enforceI18nOnPut(collectionName, record)
@@ -1189,7 +1148,7 @@ export class Vault {
         }
       }
       // Wire the translator for autoTranslate: true fields
-      if (options?.i18nFields !== undefined && this.translateText) {
+      if (effectiveViaFields.i18nFields !== undefined && this.translateText) {
         collOpts.autoTranslateHook = this.translateText
       }
       // fieldMeta: thread through to the collection. Real key-validation (against
@@ -1200,15 +1159,17 @@ export class Vault {
         collOpts.fieldMeta = options.fieldMeta
       }
       // meta: thread through to the collection; surfaced via getMeta() / describe().
-      if (options?.meta !== undefined) {
-        collOpts.meta = options.meta
-      }
+      if (options?.meta !== undefined) collOpts.meta = options.meta
       // Pass a snapshot of the outbound refs for describe() (sync, config-only).
       if (options?.refs !== undefined) {
         collOpts.declaredRefs = this.refRegistry.getOutbound(collectionName)
       }
       coll = new Collection<T>(collOpts)
       this.collectionCache.set(collectionName, coll)
+      registerCollectionGraphSources(this.graph, collectionName, collOpts)
+      registerLookupRefEdges(this.graph, collectionName, effectiveViaFields.lookupFields) // #650 Task 5
+      applyTaintOverlay(coll, this.graph, collectionName) // #638 Task 3: seal + gate any freshly-tainted field
+      reapplyDependentOverlays(this.graph, collectionName, (n) => this._getCollection(n)) // #642: refresh dependents opened before this source
 
       // Pre-build the lexical index on open when opted in. Fire-and-forget,
       // eager-only; warmIndex() no-ops when no textIndexes are declared and throws
@@ -1272,6 +1233,17 @@ export class Vault {
   }
 
   /**
+   * Migrate an existing satellite's records onto per-record CEKs (#599) —
+   * unblocks R-S7 when a base gains forget coverage after its satellite was
+   * already declared without `perRecordKeys`. Call BEFORE re-declaring with
+   * `{ satelliteOf, perRecordKeys: true }` AND before this collection serves
+   * writes (unfenced walk — see {@link migrateSatelliteCek}); resumable.
+   */
+  async migrateSatellitePerRecordKeys(satelliteName: string): Promise<{ migrated: number }> {
+    return migrateSatelliteCek(satelliteName, this.collection(satelliteName, { perRecordKeys: true }))
+  }
+
+  /**
    * Await all background persisted-schema writes triggered by
    * `collection({ persistJsonSchema: true })` calls on this vault.
    * Used in tests; production code does not need to call this.
@@ -1299,7 +1271,9 @@ export class Vault {
   async #runCutoverTransform(collectionName: string, transform: TransformFn): Promise<void> {
     const coll = this.collectionCache.get(collectionName)
     if (!coll) return
+    this._beginGraphBatch() // #638 Task 4 — cutover is a dispatch-wave origin, same as sync-apply
     await coll._applyCutoverTransform(transform)
+    await this._flushGraphBatch()
   }
 
   /**
@@ -1313,12 +1287,144 @@ export class Vault {
     await coll._applyRemoteChange(docId, action)
   }
 
-  /** @internal #598: refresh cache entries a sync-applied write rewrote underneath us. No-op if not loaded this session. */
-  async _invalidateSyncApplied(collection: string, id: string): Promise<void> {
+  /** @internal #598: refresh cache entries a sync-applied write rewrote underneath us. No-op if not loaded this session.
+   *  #650 Task 4 (#647): a reserved-lookup collection has no `Collection` instance — instead, refresh
+   *  its already-warmed `LookupHandle._syncCache` (membership/altIndex/snapshot reads never see a
+   *  stale verdict for a pulled vocabulary edit) and collect the touch into any open graph batch
+   *  (the sync-apply wave-reachability seam Task 5's ref edges will use). No-op if never warmed. */
+  async _invalidateSyncApplied(collection: string, id: string, action: 'put' | 'delete'): Promise<void> {
     const coll = this.collectionCache.get(collection)
-    if (!coll) return
-    coll._invalidateCekCacheEntry(id)
-    await coll._invalidateCacheEntry(id)
+    if (coll) {
+      await coll._onRecordMutated(id, action, 'sync-apply')
+      return
+    }
+    const dimName = this.reservedLookupCollections.get(collection)
+    if (dimName === undefined) return
+    await this.dictionaryCache.get(dimName)?._refreshSyncCache(id)
+    this._collectGraphTouch(collection, id)
+  }
+
+  /** @internal #650 Task 4 (#647) — declared reserved-lookup collection names, for `SyncEngine.pull()`'s explicit prefix registry. */
+  _reservedLookupCollectionNames(): readonly string[] {
+    return [...this.reservedLookupCollections.keys()]
+  }
+
+  /** @internal #653 — one-hop reserved-dict deps of `names`, for `SyncEngine`'s partial-sync
+   *  filter expansion. Provably complete at one hop: `vault.collection()` refuses `_dict_*`
+   *  names, so a dict can never itself declare lookup fields (no dict-of-dict chain). */
+  _reservedDictDepsOf(names: readonly string[]): readonly string[] {
+    return reservedDictDepsOf(names, this.dictKeyFieldRegistry)
+  }
+
+  /** @internal #638 Task 4 — open a graph-dispatch touch batch (sync pull()/push()/cutover). */
+  _beginGraphBatch(): void {
+    this._graphBatch = new Map()
+  }
+
+  /** @internal #638 Task 4 — `Collection._onRecordMutated`'s sync-apply/cutover/restore hook; a
+   *  no-op when no batch is open (`_beginGraphBatch()` was never called for this call chain). */
+  _collectGraphTouch(collection: string, id: string): void {
+    if (!this._graphBatch) return
+    touchFor(this._graphBatch, collection).puts.add(id)
+  }
+
+  /** @internal #640 — the sync-apply delete socket: `id`'s resolved rollup-parent intents. */
+  _collectGraphDelete(collection: string, id: string, intents: readonly RollupDeleteIntent[]): void {
+    if (!this._graphBatch) return
+    touchFor(this._graphBatch, collection).deletes.set(id, intents)
+  }
+
+  /** @internal #638 Task 4 — close the open batch and run ONE dispatch wave over it. */
+  async _flushGraphBatch(): Promise<void> {
+    const batch = this._graphBatch
+    this._graphBatch = undefined
+    if (batch && batch.size > 0) await runGraphDispatchWave(this, batch)
+  }
+
+  /** @internal #638 Task 4 — cached-collection lookup for `runGraphDispatchWave` (`VaultLike`); never constructs. */
+  _getCollection(name: string): Collection<Record<string, unknown>> | undefined {
+    return this.collectionCache.get(name) as Collection<Record<string, unknown>> | undefined
+  }
+
+  /** @internal #640 (#644 item 3) — `VaultLike._emit`: the wave's structured error surfacing. */
+  _emit(event: string, payload: unknown): void { (this.emitter.emit as (ev: string, pl: unknown) => void)(event, payload) }
+
+  /**
+   * @internal #589 → #604. Physically remove delete markers with `_ts` strictly
+   * older than `before` (ISO timestamp), across `collections` (or all data
+   * collections). Returns the count removed.
+   *
+   * SAFETY: purging a marker RE-OPENS the #589 resurrection window for any peer
+   * offline since before the cutoff — never-GC is safe precisely because the marker
+   * is always present to win convergence. This is an operator-asserted safe-point
+   * ONLY; #604's period-close lifecycle is what earns that assertion. Do not call
+   * it on live/unsettled data.
+   *
+   * Emits no ledger/event itself — its callers (#604's `freezePeriod`, #615's
+   * `purgePeriodTargets`) own the audit record. The sweep body is shared via
+   * {@link _purgeMarkersOn}, which #615 also aims at push-only sync targets.
+   *
+   * Purges the local adapter only. Markers already pushed to the vault's
+   * push-only (`backup`/`archive`) sync targets are reclaimed by #615's
+   * `vault.purgePeriodTargets`; `sync-peer` targets are left untouched (purging
+   * them would re-open the resurrection window — the deferred half of #611).
+   */
+  async _purgeDeleteMarkers(before: string, collections?: string[]): Promise<number> {
+    return this._purgeMarkersOn(this.adapter, before, collections)
+  }
+
+  /**
+   * @internal #615. Sweep delete markers with `_ts < before` off ANY store
+   * (local adapter or a push-only sync target). Returns the count removed.
+   */
+  private async _purgeMarkersOn(store: NoydbStore, before: string, collections?: string[]): Promise<number> {
+    const snapshot = await store.loadAll(this.name)
+    let removed = 0
+    for (const [coll, records] of Object.entries(snapshot)) {
+      if (collections && !collections.includes(coll)) continue
+      for (const [id, env] of Object.entries(records)) {
+        if (isDeleteMarker(env) && env._ts < before) {
+          await store.delete(this.name, coll, id)
+          removed++
+        }
+      }
+    }
+    return removed
+  }
+
+  /**
+   * @internal #613. Relocate this closed period's in-window records (those
+   * with `_ts < before`) from the hot store to the configured cold tier,
+   * via the routeStore's `compact({ before })`. Returns the count moved.
+   * Requires a `routeStore` with a cold route (the `coldArchival`
+   * capability); throws a clear error otherwise. Non-destructive — reads
+   * fall through to cold, so this does NOT re-open the #589 window.
+   */
+  async _archiveClosedPeriod(before: string): Promise<number> {
+    // Inline type-only import() (no `from` clause) is the sanctioned S4 gate
+    // escape hatch for the kernel spine to reference a with-* service type
+    // without a static import that the port-layering architecture check would flag.
+    // eslint-disable-next-line @typescript-eslint/consistent-type-imports
+    const store = this.adapter as Partial<import('../with-store/route-store.js').RoutedNoydbStore>
+    if (store.capabilities?.coldArchival !== true || typeof store.compact !== 'function') {
+      throw new ValidationError('archivePeriod: cold archival requires a routeStore with a cold route.')
+    }
+    return store.compact(this.name, { before })
+  }
+
+  /**
+   * @internal #615. Sweep delete markers with `_ts < before` off each of the
+   * vault's push-only sync targets, returning a per-target count. Skips
+   * `sync-peer` targets by construction (getPurgeableTargets yields only
+   * backup/archive). Never touches the local adapter.
+   */
+  async _purgePeriodTargets(before: string): Promise<readonly { label?: string; role: 'backup' | 'archive'; purgedCount: number }[]> {
+    const out: { label?: string; role: 'backup' | 'archive'; purgedCount: number }[] = []
+    for (const t of this.getPurgeableTargets()) {
+      const purgedCount = await this._purgeMarkersOn(t.store, before)
+      out.push({ ...(t.label !== undefined ? { label: t.label } : {}), role: t.role, purgedCount })
+    }
+    return out
   }
 
   /**
@@ -1402,8 +1508,12 @@ export class Vault {
    * Validate i18nText fields on a `put()`. Called by Collection just
    * before the adapter write, after schema validation. Throws
    * `MissingTranslationError` when a required translation is absent.
+   *
+   * Delegates through the Via registry (#623) — a no-op only when i18n was
+   * never declared (mirrors the registry check below).
    */
   enforceI18nOnPut(collectionName: string, record: unknown): void {
+    if (!isViaInstalled('i18n')) return
     const i18nFields = this.i18nFieldRegistry.get(collectionName)
     if (!i18nFields || Object.keys(i18nFields).length === 0) return
     if (!record || typeof record !== 'object') return
@@ -1422,104 +1532,15 @@ export class Vault {
    * Validate staticDict codes on a `put()`. For each `staticDict()`
    * field, every stored code must be a declared key of the descriptor's
    * table, else `UnknownDictCodeError`. Opt out per descriptor with
-   * `{ validateCodes: false }`. Supports scalar, dotted, and `[].`-wildcard
-   * field paths via `getAtPath` (same path support as i18n validation).
+   * `{ validateCodes: false }`.
+   *
+   * Delegates through the Via registry — see {@link enforceI18nOnPut}. The
+   * per-field validation itself lives in `via/lookup/registry.ts`
+   * (#650 Task 1 extraction), reached via `port/with/lookup-strategy.ts`.
    */
   enforceStaticDictOnPut(collectionName: string, record: unknown): void {
-    const staticFields = this.staticDescriptorByField.get(collectionName)
-    if (!staticFields || Object.keys(staticFields).length === 0) return
-    if (!record || typeof record !== 'object') return
-
-    const obj = record as Record<string, unknown>
-    for (const [field, desc] of Object.entries(staticFields)) {
-      if (desc.validateCodes === false) continue
-      const known = new Set<string>(desc.keys)
-      const values = getAtPath(obj, field)
-      for (const value of values) {
-        if (value === undefined || value === null) continue
-        const codes = Array.isArray(value) ? value : [value]
-        for (const code of codes) {
-          if (typeof code !== 'string') continue
-          if (!known.has(code)) {
-            throw new UnknownDictCodeError(desc.name, field, code)
-          }
-        }
-      }
-    }
-  }
-
-  /**
-   * Apply locale resolution to a record for the given collection.
-   *
-   * Called by Collection after decryption when locale options are present.
-   * Returns a new object (never mutates the cached record).
-   */
-  async applyLocale(
-    collectionName: string,
-    record: Record<string, unknown>,
-    localeOpts: LocaleReadOptions,
-  ): Promise<Record<string, unknown>> {
-    const locale = localeOpts.locale ?? this.locale
-    const staticFields = this.staticDescriptorByField.get(collectionName)
-    // A static dict with `displayLocale` resolves even under a locale-less
-    // read. The early-return relaxes only for that case; an i18nText-
-    // only / plain-dictKey collection still returns the raw record when no
-    // locale is active (today's invariant).
-    const hasStaticDisplay =
-      staticFields !== undefined &&
-      Object.values(staticFields).some((d) => d.displayLocale !== undefined)
-    if (!locale && !hasStaticDisplay) return record
-
-    let result = record
-
-    // 1. i18nText resolution — requires an active locale.
-    if (locale) {
-      const i18nFields = this.i18nFieldRegistry.get(collectionName)
-      if (i18nFields && Object.keys(i18nFields).length > 0) {
-        result = this.i18nStrategy.applyI18nLocale(result, i18nFields, locale, localeOpts.fallback)
-      }
-    }
-
-    // 2. dictKey label resolution — add <field>Label virtual fields (encrypted
-    // _dict_* handle). Skipped on `raw`. Static fields are NOT in this
-    // registry (they skip rename tracking), so this never calls
-    // this.dictionary(staticName).
-    const dictFields = this.dictKeyFieldRegistry.get(collectionName)
-    if (locale && dictFields && Object.keys(dictFields).length > 0 && locale !== 'raw') {
-      const withLabels = { ...result }
-      for (const [field, dictName] of Object.entries(dictFields)) {
-        const key = result[field]
-        if (typeof key !== 'string') continue
-        const handle = this.dictionary(dictName)
-        const label = await handle.resolveLabel(key, locale, localeOpts.fallback)
-        if (label !== undefined) {
-          withLabels[`${field}Label`] = label
-        }
-      }
-      result = withLabels
-    }
-
-    // 3. staticDict label resolution — resolve from the in-memory table; uses
-    // the field's displayLocale when no locale is active. No
-    // dictionary() lookup, so no StaticDictReadonlyError from this path.
-    if (staticFields && Object.keys(staticFields).length > 0 && locale !== 'raw') {
-      const withLabels = { ...result }
-      for (const [field, desc] of Object.entries(staticFields)) {
-        const effLocale = locale ?? desc.displayLocale
-        if (!effLocale) continue
-        const key = result[field]
-        if (typeof key !== 'string') continue
-        const labels = desc.table[key]
-        if (!labels) continue
-        const label = resolveLabelFromMap(labels, effLocale, localeOpts.fallback ?? desc.substitute)
-        if (label !== undefined) {
-          withLabels[`${field}Label`] = label
-        }
-      }
-      result = withLabels
-    }
-
-    return result
+    if (!isViaInstalled('i18n')) return
+    enforceStaticDictOnPutHelper(this.staticDescriptorByField.get(collectionName), record)
   }
 
   /**
@@ -1547,9 +1568,8 @@ export class Vault {
     // A staticDict has no _dict_* collection and no mutation surface —
     // its labels are code constants. Refuse the handle so put/putAll/rename/
     // delete can never be attempted against a static name.
-    if (this.staticDictNames.has(name)) {
-      throw new StaticDictReadonlyError(name)
-    }
+    if (this.staticDictNames.has(name)) throw new StaticDictReadonlyError(name)
+    this.reservedLookupCollections.set(dictCollectionName(name), name) // #650 Task 4 (#647)
     let handle = this.dictionaryCache.get(name)
     if (!handle) {
       handle = this.i18nStrategy.buildDictionaryHandle<Keys>({
@@ -1557,41 +1577,30 @@ export class Vault {
         compartmentName: this.name,
         dictionaryName: name,
         keyring: this.keyring,
-        getDEK: this.getDEK,
+        reservedEnvelopes: makeReservedEnvelopes((collection) => this.getDEK(collection), ['_dict_'])('_dict_'),
         encrypted: this.encrypted,
         ledger: this.getLedgerOrNull() ?? undefined,
         options,
         // findAndUpdateReferences: rewrite dictKey fields in all
-        // registered collections when rename() is called
+        // registered collections when rename() is called. Body extracted to
+        // via/lookup/registry.ts (#650 Task 1) — reached via the
+        // port/with/lookup-strategy.ts seam.
         findAndUpdateReferences: async (dictionaryName, oldKey, newKey) => {
-          for (const [collectionName, dictFields] of this.dictKeyFieldRegistry) {
-            // Find fields that point at this dictionary
-            const fields = Object.entries(dictFields)
-              .filter(([, dn]) => dn === dictionaryName)
-              .map(([field]) => field)
-            if (fields.length === 0) continue
-
-            const coll = this.collection<Record<string, unknown>>(collectionName)
-            const records = await coll.list()
-            for (const record of records) {
-              let changed = false
-              const updated = { ...record }
-              for (const field of fields) {
-                if (updated[field] === oldKey) {
-                  updated[field] = newKey
-                  changed = true
-                }
-              }
-              if (changed) {
-                const id = (record['id'] as string | undefined)
-                if (id !== undefined) {
-                  await coll.put(id, updated)
-                }
-              }
-            }
-          }
+          await updateReferencingRecords(
+            this.dictKeyFieldRegistry,
+            (collectionName) => this.collection<Record<string, unknown>>(collectionName),
+            dictionaryName,
+            oldKey,
+            newKey,
+          )
         },
         emitter: this.emitter,
+        buildDeleteMarker, // #647 fix wave 1 — real kernel/enclave builder; LookupHandle can't import it directly
+        // #650 Task 4 (#647) — choke-point participation for LOCAL writes: dirty-log tracking + a
+        // one-shot graph-dispatch wave (local-write's `graphDispatch.collect`-equivalent; Task 5's ref edges give it dependents).
+        onDirty: this.onDirty,
+        onRecordMutated: async (collection, id) => { this._beginGraphBatch(); this._collectGraphTouch(collection, id); await this._flushGraphBatch() },
+        checkReferencesOnDelete: (key) => this.linksEnforcer.enforceLookupRefsOnDelete(this.graph, name, dictCollectionName(name), key), // #650 Task 5
       })
       this.dictionaryCache.set(name, handle)
     }
@@ -1613,10 +1622,7 @@ export class Vault {
    * governs what happens to link rows when an endpoint record is deleted
    * (`'cascade'` default, `'strict'`, `'warn'`).
    */
-  link(
-    name: string,
-    spec: { a: string | RefDescriptor; b: string | RefDescriptor; onDelete?: LinkSpec['onDelete'] },
-  ): void {
+  link(name: string, spec: { a: string | RefDescriptor; b: string | RefDescriptor; onDelete?: LinkSpec['onDelete'] }): void {
     const a = typeof spec.a === 'string' ? spec.a : spec.a.target
     const b = typeof spec.b === 'string' ? spec.b : spec.b.target
     for (const [slot, target] of [['a', a], ['b', b]] as const) {
@@ -1661,69 +1667,24 @@ export class Vault {
   }
 
   /**
-   * Build a `JoinableSource` for a dictKey field, for use in dict joins
-   *. Returns a source whose snapshot contains `{ key, ...labels }`
-   * records — one per dictionary entry — keyed by the stable key.
+   * Build a `JoinableSource` for a dictKey field, for use in dict joins.
+   * Returns a source whose snapshot contains `{ key, labels, ...labels }`
+   * records — one per dictionary entry — keyed by the stable key. Returns
+   * `null` when `field` is not a dictKey in `leftCollection`.
    *
-   * Returns `null` when `field` is not a dictKey in `leftCollection`.
-   *
-   * The snapshot is built synchronously from whatever the dictionary
-   * handle has in its cached state. For empty dictionaries this returns
-   * an empty snapshot rather than `null`.
-   */
-  /**
-   * Build a `JoinableSource` for a dictKey field, for use in dict joins
-   *. Returns a source whose snapshot contains
-   * `{ key, labels, ...labels }` records — one per dictionary entry —
-   * keyed by the stable key.
-   *
-   * The snapshot is built synchronously from the DictionaryHandle's
-   * write-through cache, which is populated on every `put()`, `rename()`,
-   * `delete()`, and `list()` call. For pre-existing data not yet touched
-   * this session, call `await vault.dictionary(name).list()` first
-   * to warm the cache.
-   *
-   * Returns `null` when `field` is not a dictKey in `leftCollection`.
+   * Body extracted to `via/lookup/registry.ts` (#650 Task 1) —
+   * reached via the `port/with/lookup-strategy.ts` seam. See that
+   * function's doc comment for the static-vs-dynamic-dict split and the
+   * cache-warming caveat.
    */
   resolveDictSource(leftCollection: string, field: string): JoinableSource | null {
-    // staticDict: a code-table-backed source — snapshot() materialises
-    // the in-memory table into [{ key, labels, ...labels }] rows, mirroring
-    // DictionaryHandle.snapshotEntries(). Carries `displayLocale` so a
-    // locale-less { by: 'label' } query has a default locale to resolve at.
-    const staticFields = this.staticDescriptorByField.get(leftCollection)
-    if (staticFields && field in staticFields) {
-      const desc = staticFields[field]!
-      const rows: readonly Record<string, unknown>[] = Object.entries(desc.table).map(
-        ([key, labels]) => ({ key, labels, ...(labels as Record<string, string>) }),
-      )
-      const source: JoinableSource = {
-        snapshot(): readonly unknown[] {
-          return rows
-        },
-        lookupById(id: string): unknown {
-          return rows.find((e) => e['key'] === id)
-        },
-      }
-      if (desc.displayLocale !== undefined) {
-        ;(source as { displayLocale?: string }).displayLocale = desc.displayLocale
-      }
-      return source
-    }
-
-    const dictFields = this.dictKeyFieldRegistry.get(leftCollection)
-    if (!dictFields || !(field in dictFields)) return null
-    const dictName = dictFields[field]
-    if (!dictName) return null
-    const handle = this.dictionary(dictName)
-    return {
-      snapshot(): readonly unknown[] {
-        return handle.snapshotEntries()
-      },
-      lookupById(id: string): unknown {
-        const entries = handle.snapshotEntries()
-        return entries.find((e) => e['key'] === id)
-      },
-    }
+    return resolveDictSourceHelper(
+      leftCollection,
+      field,
+      this.staticDescriptorByField,
+      this.dictKeyFieldRegistry,
+      (name) => this.dictionary(name),
+    )
   }
 
   /**
@@ -2064,7 +2025,7 @@ export class Vault {
       getRecord: async (c, id) =>
         (await this.collection(c).get(id, { locale: 'raw' })) as Record<string, unknown> | null,
       getEnvelope: (c, id) => this.adapter.get(this.name, c, id),
-      removeFromPrimary: (c, id) => this.collection(c)._internalDelete(id),
+      removeFromPrimary: async (c, id) => { await this.collection(c)._internalDelete(id) },
       restoreToPrimary: async (c, id, env) => {
         await this.adapter.put(this.name, c, id, env)
         await this.collection(c)._invalidateCacheEntry(id)
@@ -2183,7 +2144,7 @@ export class Vault {
    * cascade guard. See `with-shape/links/vault-facade.ts`.
    */
   async enforceRefsOnDelete(collectionName: string, id: string): Promise<void> {
-    return this.linksEnforcer.enforceRefsOnDelete(collectionName, id)
+    return this.linksEnforcer.enforceRefsOnDelete(this.graph, collectionName, id)
   }
 
   // ─── Join resolver) ────────────────────
@@ -2294,30 +2255,25 @@ export class Vault {
       this.forgetStrategy.subjects,
       async (collectionName, id, env) => {
         const coll = this.collection<Record<string, unknown>>(collectionName)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return (coll as any)._decodeEnvelope(env, id) as Promise<Record<string, unknown> | null>
+        return coll._decodeEnvelope(env, id)
       },
     )
   }
 
   /**
-   * GDPR crypto-shred of a data subject. Consults the encrypted subject
-   * index and, per matching record:
-   *   - rewrites the LIVE envelope to a tombstone (drops `_iv`/`_data`/`_cek`/`_det`),
-   *   - tombstones every `_history` version of the record,
-   * so the body and all prior versions become permanently undecryptable while
-   * the collection DEK and every OTHER record stay intact. Then appends ONE
-   * `op:'forget'` ledger entry whose `payloadHash` is `sha256Hex(subjectId)` —
-   * the chain still `verify()`s, PROVING the subject existed and was erased
-   * without retaining any plaintext.
+   * GDPR crypto-shred of a data subject. Consults the encrypted subject index and, per matching
+   * record: rewrites the LIVE envelope to a tombstone (drops `_iv`/`_data`/`_cek`/`_det`), tombstones
+   * every `_history` version, and fans out to derived residue via the graph (#622) — record-grain
+   * artifacts (MV rows, derivation copies) ERASED, aggregate-grain rollups RECOMPUTED without the
+   * forgotten contribution (skip+audit in a frozen period). The body/history become permanently
+   * undecryptable while the collection DEK and every OTHER record stay intact. Then appends ONE
+   * `op:'forget'` ledger entry whose `payloadHash` is `sha256Hex(subjectId)` — the chain still
+   * `verify()`s, PROVING the subject existed and was erased without retaining any plaintext.
    *
-   * Reports — but does not silently swallow — two completeness gaps:
-   *   - `unmigratedRecords`: a record whose body was NOT yet migrated to a
-   *     per-record CEK (legacy body still under the shared collection DEK). It
-   *     is still tombstoned, but its pre-shred ciphertext (if leaked to a
-   *     backup before migration) stays decryptable. Migrate, then re-forget.
-   *   - `blobResidueCollections`: a shredded record still has blob attachments,
-   *     which are keyed off a separate `_blob` DEK and are out of scope here.
+   * Reports — but does not silently swallow — two completeness gaps: `unmigratedRecords` (a record
+   * whose body was NOT yet migrated to a per-record CEK — still tombstoned, but pre-shred backups
+   * stay decryptable; migrate, then re-forget) and `blobResidueCollections` (blob attachments, keyed
+   * off a separate `_blob` DEK, out of scope here).
    *
    * @throws ForgetStrategyNotConfiguredError when no `withForgetCascade` was set.
    */
@@ -2326,31 +2282,34 @@ export class Vault {
       throw new ForgetStrategyNotConfiguredError()
     }
 
+    // #734: resolve the ledger BEFORE any shred — the loop purges each record's
+    // plaintext deltas and the summary entry appends after, so a missing history
+    // strategy must abort with NOTHING erased (was: shred-then-throw).
+    const ledger = this.getLedgerOrNull(); if (!ledger) throw new Error('vault.forget() requires the history strategy for the erasure-proof ledger entry. Pass `historyStrategy: withHistory()` from "@noy-db/hub/history" to createNoydb().')
     const refs = await lookupSubject(this.adapter, this.name, this.getDEK, this.encrypted, subjectId)
     // Satellite fan-out (#591, with-shape/satellites/forget.ts) — a satellite
     // is never itself in the subject index, so synthesize its ref or it survives.
     const allRefs = expandRefsWithSatellites(refs, this.satelliteRegistry)
 
-    let recordsShredded = 0
-    let historyVersionsShredded = 0
-    const collections = new Set<string>()
-    const unmigratedRecords: string[] = []
+    let recordsShredded = 0; let historyVersionsShredded = 0
+    const collections = new Set<string>(); const unmigratedRecords: string[] = []
     const blobResidueCollections = new Set<string>()
-    let blobsShredded = 0
-    let blobsRetainedShared = 0
-    let indexPostingsPurged = 0
-    let sealedFieldsShredded = 0
-    let sealedCekEnvelopesPurged = 0
-    const sealedCekResidue: string[] = []
-    const sealedResidue: string[] = []
-    const indexResidue: string[] = []
+    let blobsShredded = 0; let blobsRetainedShared = 0; let indexPostingsPurged = 0
+    let sealedFieldsShredded = 0; let sealedCekEnvelopesPurged = 0; let ledgerDeltasPurged = 0
+    const sealedCekResidue: string[] = []; const sealedResidue: string[] = []; const indexResidue: string[] = []; const ledgerDeltaResidue: string[] = []
     const blobsEnabled = this.blobStrategy !== undefined
     const actor = this.keyring.userId
+    const fanoutStats: ForgetFanoutStats = { recordsErased: 0, aggregatesRecomputed: 0, residueFrozen: [], lookupReferencesCascaded: 0, lookupReferencesNullified: 0, lookupReferencesResidue: [], derivedResidueUndecodable: [], derivedResidueDeclined: [] }
+    // #633 — scoped-purge per-collection skip accumulators (empty under the unconditional default); lazy (S4 gate: kernel spine → with-* service via dynamic import()).
+    const { partitionSealedCekKeys, shouldSkipBlobScan, bumpResidueCount, residueNoticesFromMap } = await import('../with-audit/forget/purge-scope.js')
+    const scopedPurge = this.forgetStrategy.scopedPurge === true
+    const sealedCekScopedSkipped = new Map<string, number>(); const blobScopedSkipped = new Map<string, number>()
 
     for (const ref of allRefs) {
       const coll = this.collection<Record<string, unknown>>(ref.collection)
       const satelliteOf = (ref as { satelliteOf?: string }).satelliteOf
       const perRecordKeys = this.forgetStrategy.subjects[satelliteOf ?? ref.collection] !== undefined // #591 classification inheritance
+      const lookupCompareKeys = await this.linksEnforcer.checkLookupRefsRestrict(this.graph, ref.collection, ref.collection, ref.id) // #650 (#648) — restrict BEFORE any shred; ALSO live-resolves every ref edge's compare-key (#650 review, Important fix — no post-shred decode needed by forgetDerivedFanout)
 
       // Detect an un-migrated record BEFORE shredding: a perRecordKeys
       // collection whose live envelope still carries a body but no `_cek`
@@ -2361,26 +2320,25 @@ export class Vault {
       if (perRecordKeys && live && live._data && !hasPerRecordKey(live)) {
         unmigratedRecords.push(`${ref.collection}:${ref.id}`)
       }
-      // Classify each `_sealed` slot BEFORE tombstoning (#M-1, security
-      // review). A slot keyed off the per-record CEK is genuinely shredded when
-      // `_cek` drops; a collection-DEK-derived slot is NOT (the DEK is
-      // retained → synced/backup copies stay decryptable). Count only the
-      // former as shredded; report the latter as residue.
+      // Classify each `_sealed`/`_vdig` slot BEFORE tombstoning (#M-1, security
+      // review): CEK-keyed → shreddable (tombstone erases it); collection-DEK-
+      // keyed → NOT (retained → synced/backup copies stay decryptable); the
+      // `_bidx` case is both (dual accounting). #629 Task 10: a compiled-in
+      // classified via binding owns this via `_onViaErase`'s sealed-posture
+      // fold (metadata-driven); bare-`sensitive` collections fall back below.
       if (live?._sealed !== undefined) {
         try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const cls = await (coll as any)._classifySealedShred(live) as { readonly slots: readonly SealedShredSlot[] }
-          for (const slot of cls.slots) {
-            // 'shreddable' → CEK-only, the tombstone genuinely erases it.
-            // 'live-shreddable+dekResidue-in-backups' (the `_bidx` case) is BOTH:
-            // live-dropped by the tombstone (counts as shredded) yet retained
-            // under the surviving DEK in any pre-forget backup (also residue) —
-            // honest dual accounting.
-            if (slot.class === 'shreddable' || slot.class === 'live-shreddable+dekResidue-in-backups') {
-              sealedFieldsShredded += 1
+          const viaReport = await coll._onViaErase(ref.id, live)
+          if (viaReport) {
+            sealedFieldsShredded += viaReport.shredded
+            for (const entry of viaReport.residue as readonly { readonly kind?: string; readonly field?: string }[]) {
+              if (entry.kind === 'classified-sealed-dek-residue' && entry.field !== undefined) sealedResidue.push(`${ref.collection}:${ref.id}:${entry.field}`)
             }
-            if (slot.class === 'dekResidue' || slot.class === 'live-shreddable+dekResidue-in-backups') {
-              sealedResidue.push(`${ref.collection}:${ref.id}:${slot.field}`)
+          } else {
+            const cls = await coll._classifySealedShred(live)
+            for (const slot of cls.slots) {
+              if (slot.class === 'shreddable' || slot.class === 'live-shreddable+dekResidue-in-backups') sealedFieldsShredded += 1
+              if (slot.class === 'dekResidue' || slot.class === 'live-shreddable+dekResidue-in-backups') sealedResidue.push(`${ref.collection}:${ref.id}:${slot.field}`)
             }
           }
         } catch {
@@ -2400,20 +2358,19 @@ export class Vault {
       const cekPrefix = `${ref.collection}/${ref.id}/`
       try {
         const cekKeys = await this.adapter.list(this.name, SEALED_CEK_NS)
-        for (const key of cekKeys) {
-          if (key.startsWith(cekPrefix)) {
-            await this.adapter.delete(this.name, SEALED_CEK_NS, key)
-            sealedCekEnvelopesPurged++
-          }
+        const { toPurge, skippedCount } = partitionSealedCekKeys(cekKeys, cekPrefix, scopedPurge, coll._via?.hasAtRestHooks === true) // #633
+        for (const key of toPurge) {
+          await this.adapter.delete(this.name, SEALED_CEK_NS, key)
+          sealedCekEnvelopesPurged++
         }
+        bumpResidueCount(sealedCekScopedSkipped, ref.collection, skippedCount)
       } catch {
         sealedCekResidue.push(`${ref.collection}:${ref.id}`)
       }
-
+      if (blobsEnabled && !shouldSkipBlobScan(scopedPurge, this.blobFieldsRegistry.has(ref.collection))) { try { await coll.blob(ref.id).mintShredIntent(live?._tier ?? 0) } catch { blobResidueCollections.add(ref.collection) } } // #753 C5 marker PRE-tombstone: crash-safety ENHANCEMENT, not an erasure precondition — mint failure degrades to residue, never blocks the shred below (whole-branch review)
       let shred: { previousVersion: number } | null
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        shred = await (coll as any)._writeTombstone(ref.id, actor) as { previousVersion: number } | null
+        shred = await coll._writeTombstone(ref.id, actor)
       } catch (cause) {
         if (satelliteOf === undefined) throw cause // base ref: pre-existing (unwrapped) fail-loud behavior
         throw new SatelliteConfigError( // R-S4: abort the whole forget rather than leave the heavy side un-erased
@@ -2424,6 +2381,7 @@ export class Vault {
       if (shred !== null) {
         recordsShredded++
         collections.add(ref.collection)
+        await forgetDerivedFanout(this, { collection: ref.collection, id: ref.id }, live, fanoutStats, lookupCompareKeys)
       }
 
       // Tombstone every history version (idempotent — already-shredded skip).
@@ -2431,19 +2389,21 @@ export class Vault {
         this.adapter, this.name, ref.collection, ref.id, actor, this.encrypted,
       )
 
+      // #734: purge the record's plaintext `_ledger_deltas` rows — the erasure twin
+      // of #729's elevate purge. Chain-safe: verify() never re-reads delta rows; the
+      // summary `forget` entry appended below is the retained proof of erasure.
+      try { ledgerDeltasPurged += await ledger.purgeRecordDeltas(ref.collection, ref.id) } catch { ledgerDeltaResidue.push(`${ref.collection}:${ref.id}`) }
       // Purge the record's persisted `_idx` side-cars: they live under
       // the retained collection DEK, so crypto-shred alone leaves the indexed
       // field VALUES readable. Content-free delete; failures → indexResidue.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const idxPurge = await (coll as any)._purgePersistedIndexes(ref.id) as { purged: number; residue: string[] }
+      const idxPurge = await coll._purgePersistedIndexes(ref.id)
       indexPostingsPurged += idxPurge.purged
       for (const field of idxPurge.residue) indexResidue.push(`${ref.collection}:${ref.id}:${field}`)
 
       // Purge the record's encrypted _vec sidecar: a vector embedding
       // is text-invertible, so it must not survive crypto-shred of the source record.
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (coll as any)._purgeVector(ref.id)
+        await coll._purgeVector(ref.id)
       } catch {
         indexResidue.push(`${ref.collection}:${ref.id}:_vec`)
       }
@@ -2453,17 +2413,19 @@ export class Vault {
       // copy is the BlobObject's wrapped `_cek`; deleting it at refCount 0
       // shreds the content. Legacy blobs (no `_cek`) or a session without the
       // blob service cannot be shredded → reported as residue.
-      if (blobsEnabled) {
+      if (blobsEnabled && shouldSkipBlobScan(scopedPurge, this.blobFieldsRegistry.has(ref.collection))) {
+        bumpResidueCount(blobScopedSkipped, ref.collection, 1) // #633 — perf win: no per-collection list() scan
+      } else if (blobsEnabled) {
         const r = await this.collection<Record<string, unknown>>(ref.collection)
           .blob(ref.id)
-          .shredAllForRecord()
+          .shredAllForRecord(live?._tier ?? 0) // #724 C3: pre-tombstone tier — the tombstone this loop already wrote drops `_tier`
         blobsShredded += r.shredded.length
         blobsRetainedShared += r.retainedShared.length
         if (r.residue.length > 0) blobResidueCollections.add(ref.collection)
       } else {
         try {
-          const slotIds = await this.adapter.list(this.name, `_blob_slots_${ref.collection}`)
-          if (slotIds.includes(ref.id)) blobResidueCollections.add(ref.collection)
+          const [slotIds, verKeys] = await Promise.all([this.adapter.list(this.name, `_blob_slots_${ref.collection}`), this.adapter.list(this.name, `_blob_versions_${ref.collection}`)]) // #750: version rows are residue too when the blob service is off
+          if (slotIds.includes(ref.id) || verKeys.some((k) => k.startsWith(`${ref.id}::`))) blobResidueCollections.add(ref.collection)
         } catch {
           // No blob-slots collection for this collection — nothing to report.
         }
@@ -2479,8 +2441,7 @@ export class Vault {
     // blob is erasure residue surfaced in the returned ForgetResult.
     for (const collName of collections) {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (this.collection(collName) as any)._purgeSearchIndex()
+        await this.collection(collName)._purgeSearchIndex()
       } catch {
         indexResidue.push(`${collName}:_ftindex`)
       }
@@ -2489,14 +2450,6 @@ export class Vault {
     // ONE summary ledger entry for the whole subject. payloadHash =
     // sha256Hex(subjectId) so the ledger proves erasure without the subject.
     const subjectHash = await sha256Hex(subjectId)
-    const ledger = this.getLedgerOrNull()
-    if (!ledger) {
-      throw new Error(
-        'vault.forget() requires the history strategy for the erasure-proof ' +
-        'ledger entry. Pass `historyStrategy: withHistory()` from ' +
-        '"@noy-db/hub/history" to createNoydb().',
-      )
-    }
     const ledgerEntry = await ledger.append({
       op: 'forget',
       collection: '',
@@ -2517,10 +2470,11 @@ export class Vault {
         sealedFieldsShredded,
         sealedCekEnvelopesPurged,
         sealedCekResidueCount: sealedCekResidue.length,
-        sealedResidueCount: sealedResidue.length,
+        sealedResidueCount: sealedResidue.length, ledgerDeltasPurged, ledgerDeltaResidueCount: ledgerDeltaResidue.length,
       }),
     })
 
+    const scopedPurgeResidue = [...residueNoticesFromMap(sealedCekScopedSkipped, 'skipped-undeclared-sealed-cek'), ...residueNoticesFromMap(blobScopedSkipped, 'skipped-undeclared-blob-scan')] // #633
     return {
       subject: subjectId,
       recordsShredded,
@@ -2537,6 +2491,11 @@ export class Vault {
       sealedCekResidue,
       sealedResidue,
       ledgerEntry,
+      derivedRecordsErased: fanoutStats.recordsErased,
+      derivedAggregatesRecomputed: fanoutStats.aggregatesRecomputed,
+      derivedResidueFrozen: fanoutStats.residueFrozen,
+      lookupReferencesCascaded: fanoutStats.lookupReferencesCascaded, lookupReferencesNullified: fanoutStats.lookupReferencesNullified, lookupReferencesResidue: fanoutStats.lookupReferencesResidue, scopedPurgeResidue, ledgerDeltasPurged, ledgerDeltaResidue, // #650 Task 5 (+ review Important fix: residue) + #633 + #734
+      derivedResidueUndecodable: fanoutStats.derivedResidueUndecodable, derivedResidueDeclined: fanoutStats.derivedResidueDeclined, // #776/#785
     }
   }
 
@@ -2679,7 +2638,8 @@ export class Vault {
     for (const h of handles) {
       await registry.register(h.spec)
     }
-    registry.validate()
+    for (const edge of registry.edges()) this.graph.registerDerived(edge.target, edge.sources, edge.kind, edge.grain)
+    registry.validate(this.graph)
     this.derivationRegistry = registry
     // Derivation reads resolve at `layer:'derivation'` — a distinct
     // facade from the guard one, so `derive(source, ctx)` gets the
@@ -2731,10 +2691,11 @@ export class Vault {
     for (const h of handles) {
       await registry.register(h.spec, db)
     }
-    // Phase 2: unified cycle detection across MV + derivation graphs.
-    // Runs after all `register()` calls so the analyzer has every
-    // dep-set; throws `MaterializedViewCycleError` on the first cycle.
-    registry.validate(this.derivationRegistry)
+    // Phase 2: unified cycle detection — `this.graph` already carries
+    // `_initDerivations`'s edges (#638); add this registry's own, then
+    // re-validate. Throws `MaterializedViewCycleError` on the first cycle.
+    for (const edge of registry.edges()) this.graph.registerDerived(edge.target, edge.sources, edge.kind, edge.grain)
+    registry.validate(this.graph)
   }
 
   /**
@@ -2775,6 +2736,8 @@ export class Vault {
         isOverlayName: (n) => overlayNames.has(n) && n !== h.spec.name,
         isMVOutput,
       })
+      // #638 Task 2 — '*' matches the derivation/MV whole-record marker.
+      this.graph.registerDerived({ collection: h.spec.name, field: '*' }, [{ collection: h.spec.base, field: '*' }], 'overlay', 'record')
     }
     this.overlayedViewRegistry = registry
   }
@@ -2787,21 +2750,21 @@ export class Vault {
     return this.overlayedViewRegistry
   }
 
+  /** @internal — ctx for `putDerivedOutput`'s frozen-period skip+audit (#638 Task 5). */
+  private _dispatchCtx(source: { readonly collection: string; readonly id: string }) {
+    return { emit: (e: string, p: unknown) => (this.emitter.emit as (ev: string, pl: unknown) => void)(e, p), source, audit: ledgerAuditHook(this.getLedgerOrNull() ?? undefined, this.keyring.userId) }
+  }
+
   /**
-   * Manual re-materialize for a single registered MV. Useful
-   * for `refresh: 'manual'` MVs (whose consumer drives refreshes
-   * externally), for stale-bit recovery on vault re-open, and as the
-   * explicit bulk-recompute escape hatch after a strategy change.
-   *
-   * Returns `{ written, deleted, failed }`. `deleted` is always 0
-   * when tombstoning is not enabled.
-   *
-   * Throws if `name` is not a registered MV.
+   * Manual re-materialize for a single registered MV (`refresh: 'manual'` consumers,
+   * stale-bit recovery on vault reopen, bulk-recompute escape hatch after a strategy
+   * change). Returns `{ written, deleted, failed, residueUndecodable, residueDeclined }` (`deleted`
+   * always 0 without tombstoning; #785 splits the #782 leftovers — undecodable vs #718-declined). Throws if not registered.
    */
-  async refreshView(name: string): Promise<{ written: number; deleted: number; failed: number }> {
+  async refreshView(name: string): Promise<{ written: number; deleted: number; failed: number; residueUndecodable: string[]; residueDeclined: string[] }> {
     const registry = this.materializedViewRegistry
     if (registry === null) {
-      return { written: 0, deleted: 0, failed: 0 }
+      return { written: 0, deleted: 0, failed: 0, residueUndecodable: [], residueDeclined: [] }
     }
     const reg = registry.byName(name)
     if (!reg) {
@@ -2812,26 +2775,24 @@ export class Vault {
       getCollection: (n) => this.collection(n),
       getActiveTxContext: () => this.noydb._activeTxContextOrNull,
       getQueryContext: () => this as unknown as MVQueryContext,
+      dispatchCtx: this._dispatchCtx({ collection: name, id: 'refreshView' }),
     })
-    // Manual refresh clears any pending stale bit — the post-refresh
-    // state matches the registered strategy.
-    const { clearMVStale } = await import('../with-formula/materialized-views/stale.js')
-    clearMVStale(registry, name)
+    // Manual refresh clears any pending stale bit (+ persisted marker, #736) —
+    // the post-refresh state matches the registered strategy.
+    const { clearMVStaleFully } = await import('../with-formula/materialized-views/stale.js')
+    await clearMVStaleFully(this.adapter, this.name, registry, name)
     return result
   }
 
   /**
-   * Re-derive every record in the named source collection. Useful
-   * after a strategy change to bring previously-derived records
-   * up-to-date.
-   *
-   * Sequential in v1; parallelisation deferred to v2.
+   * Re-derive every record in the named source collection (useful after a strategy
+   * change to bring previously-derived records up-to-date). Sequential in v1.
    */
-  async deriveAll(sourceCollection: string): Promise<{ derived: number; failed: number }> {
+  async deriveAll(sourceCollection: string): Promise<{ derived: number; failed: number; skippedFrozen: number }> {
     const registry = this._getDerivationRegistry()
-    if (registry === null) return { derived: 0, failed: 0 }
+    if (registry === null) return { derived: 0, failed: 0, skippedFrozen: 0 }
     const strategies = registry.strategiesForSource(sourceCollection)
-    if (strategies.length === 0) return { derived: 0, failed: 0 }
+    if (strategies.length === 0) return { derived: 0, failed: 0, skippedFrozen: 0 }
 
     const { DerivationExecutor } = await import('../with-formula/derivations/executor.js')
 
@@ -2844,14 +2805,16 @@ export class Vault {
     const ctx = { vault: this.derivationFacade ?? new (await import('../with-audit/guards/read-only-facade.js')).ReadOnlyVaultFacade(this, 'derivation') }
     let derived = 0
     let failed = 0
+    let skippedFrozen = 0
     for (const record of records) {
       if (typeof record !== 'object' || record === null) continue
       const id = (record as { id?: unknown }).id
       if (typeof id !== 'string') continue
+      const dispatchCtx = this._dispatchCtx({ collection: sourceCollection, id })
       for (const { spec, strategyHash } of strategies) {
         const sourceWithId = { ...record, id }
         const result = await DerivationExecutor.run(spec, sourceWithId, 0, strategyHash, ctx)
-        let anyFailed = false
+        let anyFailed = false, anyFrozenSkip = false
         for (const key of Object.keys(spec.outputs)) {
           const out = result.outputs[key]
           if (!out) continue
@@ -2873,7 +2836,7 @@ export class Vault {
               await outputColl._internalDelete(k)
             }
             for (const entry of out.entries) {
-              await outputColl.put(entry.key, entry.value)
+              if (await putDerivedOutput(outputColl, entry.key, entry.value, dispatchCtx) === 'skipped-frozen') anyFrozenSkip = true
             }
             await saveFanoutSidecar(this.adapter, this.name, {
               source: spec.source,
@@ -2894,13 +2857,12 @@ export class Vault {
             await outputColl._internalDelete(id)
             continue
           }
-          await outputColl.put(id, out.value)
+          if (await putDerivedOutput(outputColl, id, out.value, dispatchCtx) === 'skipped-frozen') anyFrozenSkip = true
         }
-        if (anyFailed) failed++
-        else derived++
+        if (anyFailed) failed++; else if (anyFrozenSkip) skippedFrozen++; else derived++
       }
     }
-    return { derived, failed }
+    return { derived, failed, skippedFrozen }
   }
 
   /**
@@ -3011,6 +2973,11 @@ export class Vault {
     return this.shadowStrategy.buildFrame(this)
   }
 
+  /** Credential-broker handle (#479); `NO_BROKER` throws unless `brokerStrategy: withBroker(config)` was passed to createNoydb(). */
+  broker(): CredentialBrokerHandle {
+    return buildCredentialBrokerHandle(this.brokerStrategy, this.adapter, this.name, () => this.keyring)
+  }
+
   /**
    * Run `fn` under a consent scope. Every `get` / `put` / `delete`
    * that happens inside `fn` writes one entry to `_consent_audit`
@@ -3088,9 +3055,7 @@ export class Vault {
    * read, written, elevated, or demoted successfully via this vault.
    * Returns an unsubscribe function.
    */
-  onCrossTierAccess(
-    listener: (event: CrossTierAccessEvent) => void,
-  ): () => void {
+  onCrossTierAccess(listener: (event: CrossTierAccessEvent) => void): () => void {
     this.crossTierSubs.add(listener)
     return () => this.crossTierSubs.delete(listener)
   }
@@ -3179,10 +3144,7 @@ export class Vault {
    *     {@link CrossTierAccessEvent} with `authorization: 'elevation'`,
    *     stamped with `reason` and `elevatedFrom`.
    */
-  async elevate(
-    tier: number,
-    options: { ttlMs: number; reason: string },
-  ): Promise<ElevatedHandle> {
+  async elevate(tier: number, options: { ttlMs: number; reason: string }): Promise<ElevatedHandle> {
     if (!Number.isInteger(tier) || tier <= 0) {
       throw new ValidationError(`elevate: tier must be a positive integer, got ${tier}`)
     }
@@ -3249,7 +3211,7 @@ export class Vault {
    * Internal — invoked by an `ElevatedHandle.collection().put()` call.
    * Routes through the existing `Collection.putAtTier` code path with
    * the elevation context attached so the cross-tier event reflects
-   * the right authorization class.
+   * the right authorization class. Returns `putAtTier`'s `TierMoveResult` (#779).
    */
   async _elevatedPut<T>(
     collectionName: string,
@@ -3257,9 +3219,9 @@ export class Vault {
     record: T,
     tier: number,
     reason: string,
-  ): Promise<void> {
+  ): Promise<TierMoveResult> {
     const coll = this.collection<T>(collectionName)
-    await coll.putAtTier(id, record, tier, {
+    return coll.putAtTier(id, record, tier, {
       elevation: { reason, fromTier: 0 },
     })
   }
@@ -3379,6 +3341,41 @@ export class Vault {
   /** Look up a single period by name. Returns `null` if not found. */
   async getPeriod(name: string): Promise<PeriodRecord | null> {
     return this.periods.getPeriod(name)
+  }
+
+  /**
+   * Freeze a closed period (#604): purges in-window delete markers and
+   * records a `_period_freezes` companion, never mutating the chained
+   * `_periods` record. Idempotent. Purges the LOCAL adapter only — a
+   * synced target's markers survive there and re-import on pull (benign),
+   * and purging re-opens the #589 resurrection window for a peer offline
+   * since before the cutoff (see periods.ts's "Freeze" section).
+   */
+  async freezePeriod(name: string): Promise<PeriodRecord> {
+    return this.periods.freezePeriod(name)
+  }
+
+  /**
+   * Archive a closed period (#613): relocates its in-window records from the
+   * hot store to the configured cold tier (via the routeStore's cold route),
+   * recording a `_period_archives` companion + ledger entry, never mutating
+   * the chained `_periods` record. Non-destructive (reads fall through to
+   * cold) and idempotent. Requires a routeStore with a cold route.
+   */
+  async archivePeriod(name: string): Promise<PeriodRecord> {
+    return this.periods.archivePeriod(name)
+  }
+
+  /**
+   * Target-purge a closed+frozen period (#615): sweeps delete markers off the
+   * vault's push-only sync targets (`backup`/`archive`), recording a
+   * `_period_target_purges` companion + ledger entry, never mutating the chained
+   * `_periods` record. `sync-peer` targets are skipped. Requires the period be
+   * frozen first. Idempotent; a vault with no push-only targets writes no
+   * companion and is re-runnable.
+   */
+  async purgePeriodTargets(name: string): Promise<PeriodRecord> {
+    return this.periods.purgePeriodTargets(name)
   }
 
   /** @internal — called by the gate bus before put/delete. */
@@ -3584,9 +3581,7 @@ export class Vault {
    *
    * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md
    */
-  async getPublicEnvelope(
-    opts: { readonly locale?: string } = {},
-  ): Promise<PublicEnvelope | undefined> {
+  async getPublicEnvelope(opts: { readonly locale?: string } = {}): Promise<PublicEnvelope | undefined> {
     const { readPublicEnvelope } = await import('../with-party/directory/public-envelope/index.js')
     return readPublicEnvelope(this.adapter, this.name, opts)
   }
@@ -3841,7 +3836,7 @@ export class Vault {
         const records: unknown[] = []
         for (const id of ids) {
           const record = await coll.get(id, localeOpts)
-          if (record !== null) records.push(record)
+          if (record !== null) records.push(exportRedact(coll, record))
         }
         const chunk: ExportChunk = {
           collection: collectionName,
@@ -3863,7 +3858,7 @@ export class Vault {
             collection: collectionName,
             schema,
             refs,
-            records: [record],
+            records: [exportRedact(coll, record)],
             ...(dictionaries !== undefined ? { dictionaries } : {}),
             ...(ledgerHead ? { ledgerHead } : {}),
           }

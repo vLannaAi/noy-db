@@ -39,6 +39,7 @@ export interface PeriodsStrategy {
     actor: string,
     envelope: EncryptedEnvelope,
     periodName: string,
+    collection?: string,
   ): Promise<void>
 }
 

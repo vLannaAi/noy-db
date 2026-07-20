@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
 import { inlineMemory } from './harness.js'
-import { classified } from '../../src/with-shape/classified/presets.js'
-import { withClassified } from '../../src/with-shape/classified/active.js'
+import { classified } from '../../src/via/classified/presets.js'
+import { withClassified } from '../../src/via/classified/active.js'
 import { withConsent } from '../../src/with-audit/consent/index.js'
 import { ClassifiedRevealError } from '../../src/kernel/errors.js'
 

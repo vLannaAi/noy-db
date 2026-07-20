@@ -26,6 +26,7 @@ export interface SearchStrategy {
   warmIndex<T>(ctx: SearchContext<T>): Promise<void>
   flushIndex<T>(ctx: SearchContext<T>): Promise<void>
   embedOnWrite<T>(ctx: SearchContext<T>, id: string, record: T, version: number): Promise<void>
+  rebuildEmbeddings<T>(ctx: SearchContext<T>): Promise<{ rebuilt: number; skipped: number }>
 }
 
 /**
@@ -40,4 +41,5 @@ export const NO_SEARCH: SearchStrategy = {
   async warmIndex() { throw new SearchNotEnabledError() },
   async flushIndex() { throw new SearchNotEnabledError() },
   async embedOnWrite() { throw new SearchNotEnabledError() },
+  async rebuildEmbeddings() { throw new SearchNotEnabledError() },
 }

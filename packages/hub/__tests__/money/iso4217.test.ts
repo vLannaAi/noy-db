@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { scaleForCurrency } from '../../src/with-shape/money/iso4217.js'
+import { scaleForCurrency } from '../../src/via/money/iso4217.js'
 
 describe('scaleForCurrency', () => {
   it('returns ISO-4217 minor units for known codes', () => {

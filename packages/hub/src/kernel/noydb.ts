@@ -138,6 +138,9 @@ function createPlaintextKeyring(userId: string, debugPlaintext = false): Unlocke
 /** NoydbOptions with the store resolved to a non-optional value (internal use only). */
 type ResolvedNoydbOptions = NoydbOptions & { readonly store: NoydbStore }
 
+/** #616: a fresh empty pull result for push-only (backup/archive) targets that are never pulled from. */
+const emptyPullResult = (): PullResult => ({ pulled: 0, conflicts: [], errors: [] })
+
 /** The top-level NOYDB instance. */
 export class Noydb {
   private readonly options: ResolvedNoydbOptions
@@ -238,9 +241,7 @@ export class Noydb {
     this.options = options
     // Debug-plaintext is an unencrypted-only inspection mode; combining it with
     // encryption is meaningless and unsafe, so reject the coupling loudly.
-    if (options.debugPlaintext === true && options.encrypt !== false) {
-      throw new DebugPlaintextError()
-    }
+    if (options.debugPlaintext === true && options.encrypt !== false) throw new DebugPlaintextError()
     if (options.debugPlaintext === true) {
       console.warn(
         '[noydb] debugPlaintext is ON — records are stored UNENCRYPTED and laid ' +
@@ -546,9 +547,7 @@ export class Noydb {
     // Tier-1 unlock — passphrase / getKeyring callbacks both yield the
     // most-privileged tier. Tier-2 / tier-3 unlocks install
     // a lower tier here when they land.
-    if (!this.activeTier.has(name)) {
-      this.activeTier.set(name, 1)
-    }
+    if (!this.activeTier.has(name)) this.activeTier.set(name, 1)
     // Load + persist the policy document. First call: persist the
     // developer-supplied policy (or default preset). Later calls: read
     // whatever's on disk and merge any developer override on top.
@@ -618,6 +617,10 @@ export class Noydb {
         ? (resolverName, resolver) => syncEngine.registerConflictResolver(resolverName, resolver)
         : undefined,
       syncAdapter: targets.length > 0 ? targets[0]!.store : undefined,
+      getPurgeableTargets: () =>
+        targets
+          .filter((t) => t.role === 'backup' || t.role === 'archive')
+          .map((t) => ({ store: t.store, role: t.role as 'backup' | 'archive', ...(t.label !== undefined ? { label: t.label } : {}) })),
       historyConfig: this.options.history,
       ...(this.options.blobStrategy !== undefined ? { blobStrategy: this.options.blobStrategy } : {}),
       ...(this.options.objectStore !== undefined ? { objectStore: this.options.objectStore } : {}),
@@ -629,6 +632,7 @@ export class Noydb {
       ...(this.options.tiersStrategy !== undefined ? { tiersStrategy: this.options.tiersStrategy } : {}),
       ...(this.options.searchStrategy !== undefined ? { searchStrategy: this.options.searchStrategy } : {}),
       ...(this.options.cargoStrategy !== undefined ? { cargoStrategy: this.options.cargoStrategy } : {}),
+      ...(this.options.brokerStrategy !== undefined ? { brokerStrategy: this.options.brokerStrategy } : {}),
       ...(this.options.consentStrategy !== undefined ? { consentStrategy: this.options.consentStrategy } : {}),
       ...(this.options.periodsStrategy !== undefined ? { periodsStrategy: this.options.periodsStrategy } : {}),
       ...(this.options.shadowStrategy !== undefined ? { shadowStrategy: this.options.shadowStrategy } : {}),
@@ -676,12 +680,13 @@ export class Noydb {
     })
     // #598: sync-applied writes must refresh Collection in-memory views.
     this._forEachSyncEngine(name, engine => {
-      engine.setCacheInvalidator((collection, id) => comp._invalidateSyncApplied(collection, id))
+      engine.setCacheInvalidator((collection, id, action) => comp._invalidateSyncApplied(collection, id, action))
+      engine.setGraphBatchController({ begin: () => comp._beginGraphBatch(), flush: () => comp._flushGraphBatch() })
+      engine.setReservedLookupSource({ collections: () => comp._reservedLookupCollectionNames() }) // #650 Task 4
+      engine.setReservedDictExpander(names => comp._reservedDictDepsOf(names)) // #653
     })
-    // Initialise the optional guard + derivation registries via
-    // dynamic-import. Both calls are no-ops when the corresponding
-    // strategies array is empty / unset, leaving the service code
-    // out of the floor bundle for consumers that don't use it.
+    // Initialise the optional guard + derivation registries via dynamic-import — no-ops when the
+    // corresponding strategies array is empty/unset, keeping the service code out of the floor bundle.
     await comp._initGuards(this.options.guardStrategies ?? [])
     await comp._initDerivations(this.options.derivationStrategies ?? [])
     await comp._initMaterializedViews(this.options.materializedViewStrategies ?? [])
@@ -718,6 +723,7 @@ export class Noydb {
       ...(this.options.tiersStrategy !== undefined ? { tiersStrategy: this.options.tiersStrategy } : {}),
       ...(this.options.searchStrategy !== undefined ? { searchStrategy: this.options.searchStrategy } : {}),
       ...(this.options.cargoStrategy !== undefined ? { cargoStrategy: this.options.cargoStrategy } : {}),
+      ...(this.options.brokerStrategy !== undefined ? { brokerStrategy: this.options.brokerStrategy } : {}),
       ...(this.options.consentStrategy !== undefined ? { consentStrategy: this.options.consentStrategy } : {}),
       ...(this.options.periodsStrategy !== undefined ? { periodsStrategy: this.options.periodsStrategy } : {}),
       ...(this.options.shadowStrategy !== undefined ? { shadowStrategy: this.options.shadowStrategy } : {}),
@@ -761,6 +767,7 @@ export class Noydb {
       ...(this.options.tiersStrategy !== undefined ? { tiersStrategy: this.options.tiersStrategy } : {}),
       ...(this.options.searchStrategy !== undefined ? { searchStrategy: this.options.searchStrategy } : {}),
       ...(this.options.cargoStrategy !== undefined ? { cargoStrategy: this.options.cargoStrategy } : {}),
+      ...(this.options.brokerStrategy !== undefined ? { brokerStrategy: this.options.brokerStrategy } : {}),
       ...(this.options.consentStrategy !== undefined ? { consentStrategy: this.options.consentStrategy } : {}),
       ...(this.options.periodsStrategy !== undefined ? { periodsStrategy: this.options.periodsStrategy } : {}),
       ...(this.options.shadowStrategy !== undefined ? { shadowStrategy: this.options.shadowStrategy } : {}),
@@ -1277,9 +1284,13 @@ export class Noydb {
     return engine.push(options)
   }
 
-  /** Pull remote changes to local for a vault. */
+  /**
+   * Pull remote changes to local for a vault. A `backup`/`archive` primary is a
+   * push-only sink and is never pulled from (#616) — returns an empty result.
+   */
   async pull(vault: string, options?: PullOptions): Promise<PullResult> {
     const engine = this.getSyncEngine(vault)
+    if (engine.role !== 'sync-peer') return emptyPullResult()
     return engine.pull(options)
   }
 
@@ -1289,7 +1300,10 @@ export class Noydb {
    */
   async sync(vault: string, options?: { push?: PushOptions; pull?: PullOptions }): Promise<{ pull: PullResult; push: PushResult }> {
     const primary = this.getSyncEngine(vault)
-    const result = await primary.sync(options)
+    const result: { pull: PullResult; push: PushResult } =
+      primary.role === 'sync-peer'
+        ? await primary.sync(options)
+        : { pull: emptyPullResult(), push: await primary.push(options?.push) }
 
     // Fan out push to backup/archive targets (fire-and-mark-dirty)
     for (const [key, engine] of this.syncEngines) {
@@ -1640,6 +1654,17 @@ export class Noydb {
    */
   get coordination(): CoordinationProvider {
     return this.coordinationProvider
+  }
+
+  /**
+   * #693: true when multi-tab coordination is active at all — presence/election
+   * alone (`propagateWrites: false`) or full write-propagation — a peer tab can
+   * write this instance's shared store out-of-band either way, so per-collection
+   * marker-id sets are not authoritative and the re-create gate must fall back to
+   * a store read. Live (tab coordination is enable/disable-able at runtime).
+   */
+  get _tabCoordinationActive(): boolean {
+    return this.tabCoordinator !== undefined
   }
 
   /**

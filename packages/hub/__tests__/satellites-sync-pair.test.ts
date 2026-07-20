@@ -17,6 +17,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withSync } from '../src/with-party/sync/index.js'
+import { isDeleteMarker } from '../src/kernel/enclave/record-keys/tombstone.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -91,8 +92,17 @@ describe('satellite sync pair-expansion + resolver mirroring (#591 Task 11)', ()
     const result = await db.push(COMP, { collections: ['msgs'] })
 
     expect(result.pushed).toBe(2)
-    expect(await remote.get(COMP, 'msgs', 'm2')).toBeNull()
-    expect(await remote.get(COMP, 'msgs_text', 'm2')).toBeNull() // no lingering heavy envelope
+    // #589: under sync, delete() no longer removes the remote envelope outright —
+    // it leaves a version-ordered `_del` marker (empty _iv/_data) so the deletion
+    // converges to other pullers. The security property this test guards — no
+    // lingering *heavy* satellite payload (subject/body) on the remote — still
+    // holds: the marker strips the data.
+    const remoteBase = await remote.get(COMP, 'msgs', 'm2')
+    const remoteSat = await remote.get(COMP, 'msgs_text', 'm2')
+    expect(remoteBase).not.toBeNull()
+    expect(remoteSat).not.toBeNull()
+    expect(isDeleteMarker(remoteBase!)).toBe(true)
+    expect(isDeleteMarker(remoteSat!)).toBe(true) // no lingering heavy envelope — data stripped
     expect(db.syncStatus(COMP).dirty).toBe(0)
   })
 

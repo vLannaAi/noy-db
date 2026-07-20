@@ -1,6 +1,6 @@
 {
   "subpath": "@noy-db/hub/to",
-  "source": "src/kernel/to/index.ts",
+  "source": "src/port/to/index.ts",
   "values": [
     "BundleVersionConflictError",
     "ConflictError",
@@ -15,6 +15,8 @@
     "NoydbPodStore",
     "NoydbStore",
     "StoreCapabilities",
+    "StoreCredentialSource",
+    "StoreCredentials",
     "StoreTime",
     "TxOp",
     "VaultSnapshot"

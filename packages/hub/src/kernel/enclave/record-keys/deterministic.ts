@@ -12,6 +12,7 @@
  * Both functions take a small {@link DeterministicContext} (the exact `this.*`
  * the moving methods touched) instead of `this`, mirroring the `record-keys/`
  * siblings. Behaviour is byte-identical to the inline code they replaced.
+ * Elevated records (_tier > 0) are skipped: invisible to tier-0 scans (#691).
  *
  * Internal service — not exported as a `@noy-db/hub/*` subpath.
  */
@@ -89,9 +90,14 @@ export async function findByDet<T>(ctx: DeterministicContext<T>, field: string, 
   const ids = await ctx.adapter.list(ctx.vault, ctx.name)
   for (const id of ids) {
     const env = await ctx.adapter.get(ctx.vault, ctx.name, id)
-    if (!env || !env._det) continue
+    // #691: an elevated record's _det slot is tier-independent (#662 carries
+    // it), so it MATCHES — but its key material is tier-wrapped. Skip it
+    // explicitly: invisible to tier-0 det scans regardless of cekCache state
+    // (a catch-based fix would still leak plaintext, audit-free, in the
+    // session that performed the elevate).
+    if (!env || !env._det || (env._tier ?? 0) > 0) continue
     if (env._det[field] === target || env._det[field] === legacyTarget) {
-      return ctx.codec.decryptRecord(env)
+      return ctx.codec.decryptRecord(env, { id })
     }
   }
   return null
@@ -109,9 +115,10 @@ export async function queryByDet<T>(ctx: DeterministicContext<T>, field: string,
   const matches: T[] = []
   for (const id of ids) {
     const env = await ctx.adapter.get(ctx.vault, ctx.name, id)
-    if (!env || !env._det) continue
+    // #691: skip elevated — see findByDet above
+    if (!env || !env._det || (env._tier ?? 0) > 0) continue
     if (env._det[field] === target || env._det[field] === legacyTarget) {
-      const rec = await ctx.codec.decryptRecord(env)
+      const rec = await ctx.codec.decryptRecord(env, { id })
       if (rec !== null) matches.push(rec) // skip tombstone (defensive)
     }
   }

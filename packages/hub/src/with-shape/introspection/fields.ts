@@ -41,6 +41,23 @@ function jsonSchemaType(node: JsonSchemaShape): string {
   return 'opaque'
 }
 
+// #657 — zod v4's native `toJSONSchema()` injects a ±Number.MAX_SAFE_INTEGER
+// bound on every `.int()` field (a JS-safe-integer representability fact,
+// not authored validation intent — `type: 'integer'` already carries it).
+// Empirically verified: `z.number().int()` → `{type:'integer', minimum:
+// -9007199254740991, maximum:9007199254740991}`, and — critically — zod
+// emits NO metadata distinguishing that derived bound from an authored one
+// at the exact same value (`z.number().min(-9007199254740991)
+// .max(9007199254740991)` on a plain, non-int number produces a
+// byte-identical minimum/maximum). Without that distinguishing signal, a
+// value-based filter gated on `type === 'integer'` is the pragmatic call:
+// it never touches a non-int field's authored bound (whatever its value),
+// and an authored `.int().min(Number.MAX_SAFE_INTEGER)` is pathological
+// either way, so folding it into the same omission is an acceptable trade.
+function isIntSentinel(node: JsonSchemaShape, value: number): boolean {
+  return node.type === 'integer' && Math.abs(value) === Number.MAX_SAFE_INTEGER
+}
+
 function constraintsFor(node: JsonSchemaShape): Record<string, unknown> | undefined {
   const out: Record<string, unknown> = {}
   if (node.enum) out.values = node.enum
@@ -50,8 +67,8 @@ function constraintsFor(node: JsonSchemaShape): Record<string, unknown> | undefi
   if (node.maxLength !== undefined) out.maxLength = node.maxLength
   if (node.pattern !== undefined) out.pattern = node.pattern
   if (node.format !== undefined) out.format = node.format
-  if (node.minimum !== undefined) out.minimum = node.minimum
-  if (node.maximum !== undefined) out.maximum = node.maximum
+  if (node.minimum !== undefined && !isIntSentinel(node, node.minimum)) out.minimum = node.minimum
+  if (node.maximum !== undefined && !isIntSentinel(node, node.maximum)) out.maximum = node.maximum
   if (node.exclusiveMinimum !== undefined) out.gt = node.exclusiveMinimum
   if (node.exclusiveMaximum !== undefined) out.lt = node.exclusiveMaximum
   return Object.keys(out).length === 0 ? undefined : out

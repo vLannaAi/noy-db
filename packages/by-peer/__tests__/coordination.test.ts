@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { isQuorum, runDrainBarrier } from '@noy-db/hub/kernel'
-import type { WriterPresence } from '@noy-db/hub/kernel'
+import { isQuorum, runDrainBarrier } from '@noy-db/hub/cargo'
+import type { WriterPresence } from '@noy-db/hub/cargo'
 import { pairInMemory, peerCoordination, channelCoordination } from '../src/index.js'
 import type { PeerChannel } from '../src/index.js'
 

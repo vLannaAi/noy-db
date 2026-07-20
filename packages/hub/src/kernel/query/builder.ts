@@ -11,7 +11,7 @@ import { evaluateClause, hasFnClause } from './predicate.js'
 import type { CollectionIndexes } from '../../with-lookup/indexing/eager-indexes.js'
 import type { JoinableSource, JoinContext, JoinLeg, JoinStrategy } from './join.js'
 import { applyJoins } from './join.js'
-import { CrossJoinTooLargeError, CrossJoinSourceUnknownError } from '../errors.js'
+import { CrossJoinTooLargeError, CrossJoinSourceUnknownError, FieldNotQueryableError } from '../errors.js'
 import type { LiveQuery, LiveUpstream } from './live.js'
 import { buildLiveQuery } from './live.js'
 import type { AggregateSpec, AggregateResult, AggregationUpstream, Aggregation } from '../../with-lookup/aggregate/aggregation.js'
@@ -19,8 +19,7 @@ import type { ReducerBuilder } from '../../with-lookup/aggregate/reducers.js'
 import { reducerBuilder } from '../../with-lookup/aggregate/reducers.js'
 import type { GroupedQuery, GroupedQueryN } from '../../with-lookup/aggregate/groupby.js'
 import { NO_AGGREGATE, type AggregateStrategy } from '../../with-lookup/aggregate/strategy.js'
-import type { MoneyDescriptor } from '../../with-shape/money/descriptor.js'
-import { moneyRuntime } from '../money-runtime.js'
+import type { ViaPipeline } from '../via/pipeline.js'
 
 export interface OrderBy {
   readonly field: string
@@ -90,10 +89,11 @@ export interface QuerySource<T> {
   /** O(1) record lookup by id, used to materialize index hits. */
   lookupById?(id: string): T | undefined
   /**
-   * Money field descriptors for the backing collection, used to rewrite
-   * `sum`/`min`/`max` over money fields into exact BigInt reducers.
+   * The backing collection's compiled Via pipeline (money now; more Via
+   * features later), used to rewrite `where()` operands, decode results,
+   * order, and rewrite aggregate reducers for covered fields.
    */
-  moneyFields?: Record<string, MoneyDescriptor>
+  via?: ViaPipeline
   /**
    * Id-paired snapshot for `Query._idArray()` (the `retrieve({within})`
    * id projection). Optional: only collection-backed queries supply it.
@@ -106,7 +106,7 @@ interface InternalSource {
   subscribe?(cb: () => void): () => void
   getIndexes?(): CollectionIndexes | null
   lookupById?(id: string): unknown
-  moneyFields?: Record<string, MoneyDescriptor>
+  via?: ViaPipeline
   snapshotEntries?(): readonly { id: string; record: unknown }[]
 }
 
@@ -277,11 +277,30 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * quantized into stored scaled-int space at build time and evaluated
    * BigInt-exact per record. A malformed operand or a string operator
    * (`contains`/`startsWith`) throws here, at the call site.
+   *
+   * Consults the Via pipeline's posture before building a clause (#629
+   * Task 8): a field whose posture is `queryable: 'none'` (e.g. a
+   * `blobFields` slot) throws `FieldNotQueryableError` here, at the call
+   * site. Every other posture is unaffected — the existing per-binding
+   * `buildClause` machinery runs exactly as before.
    */
   where(field: QueryField<T, S, Q>, op: Operator, value: unknown): Query<T, S, Q, M> {
-    const desc = this.source.moneyFields?.[field]
-    const clause: FieldClause = desc
-      ? moneyRuntime().moneyFieldClause(field, op, value, desc)
+    const via = this.source.via
+    if (via?.postureFor(field)?.queryable === 'none') throw new FieldNotQueryableError(field)
+    const viaClause = via?.buildClause(field, op, value)
+    const clause: FieldClause = viaClause
+      ? {
+          type: 'field',
+          field,
+          op,
+          value,
+          via: {
+            brand: viaClause.brand,
+            payload: viaClause.payload,
+            evaluate: (actual: unknown, evalOp: string) => via!.evaluateClause(viaClause, actual, evalOp),
+            indexValue: via!.indexProbe(viaClause, op),
+          },
+        }
       : { type: 'field', field, op, value }
     return new Query<T, S, Q, M>(
       this.source as QuerySource<T>,
@@ -356,8 +375,13 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * Sort by a field. Subsequent calls are tie-breakers. Pass
    * `{ by: 'label' }` to sort a `dictKey`/`staticDict` field by its resolved
    * label at the query locale instead of the stored code.
+   *
+   * Consults the Via pipeline's posture (#629 Task 8): a field whose posture
+   * is `queryable: 'none'` throws `FieldNotQueryableError` here, at the call
+   * site — same gate as `where()`.
    */
   orderBy(field: QueryField<T, S>, direction: 'asc' | 'desc' = 'asc', opts?: { by?: 'value' | 'label' }): Query<T, S, Q, M> {
+    if (this.source.via?.postureFor(field)?.queryable === 'none') throw new FieldNotQueryableError(field)
     const entry: OrderBy = opts?.by === 'label' ? { field, direction, by: 'label' } : { field, direction }
     return new Query<T, S, Q, M>(
       this.source as QuerySource<T>,
@@ -610,11 +634,12 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * (Left/base i18n fields are resolved by `get`/`list`, not here.)
    */
   toArray(opts?: { locale?: string }): T[] {
-    // Decode money fields (stored scaled-int → canonical decimal) so
-    // query().toArray() matches get()/sum(), which already return decimal.
-    // Decode the left/base records before joins (right-side aliased fields
-    // belong to other collections and are out of this source's money scope).
-    const base = this.decodeMoney(executePlanWithSource(this.source, this.plan, this.joinContext, opts?.locale))
+    // Decode Via-covered fields (e.g. money: stored scaled-int → canonical
+    // decimal) so query().toArray() matches get()/sum(), which already
+    // apply the same decode. Decode the left/base records before joins
+    // (right-side aliased fields belong to other collections and are out
+    // of this source's Via scope).
+    const base = this.decodeVia(executePlanWithSource(this.source, this.plan, this.joinContext, opts?.locale))
     if (this.plan.joins.length === 0) return base as T[]
     if (!this.joinContext) {
       // Unreachable in practice — .join() throws if joinContext is
@@ -630,21 +655,23 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
   }
 
   /**
-   * Decode this source's money fields on read (stored scaled-int → canonical
-   * decimal), so `query().toArray()` agrees with `get()`/`sum()` on the value.
-   * No-op when the source declares no money fields.
+   * Decode this source's Via-covered fields on read (e.g. money: stored
+   * scaled-int → canonical decimal), so `query().toArray()` agrees with
+   * `get()`/`sum()` on the value. No-op when the source's Via pipeline
+   * declares no result decode.
    *
-   * The query layer carries no locale context, so we decode with `'raw'` —
-   * canonical decimal, WITHOUT fabricating locale-formatted `<field>Formatted`
-   * / `<field>Number` virtuals. Producing a guessed-locale string here would
-   * reintroduce a "two read paths disagree" failure on the virtual
-   * field (e.g. it-IT via `get()` vs en-US here). Consumers who need formatted
-   * money read through `get()`/`list()` with a locale.
+   * The query layer carries no locale context, so money decodes with
+   * `'raw'` — canonical decimal, WITHOUT fabricating locale-formatted
+   * `<field>Formatted` / `<field>Number` virtuals. Producing a
+   * guessed-locale string here would reintroduce a "two read paths
+   * disagree" failure on the virtual field (e.g. it-IT via `get()` vs
+   * en-US here). Consumers who need formatted money read through
+   * `get()`/`list()` with a locale.
    */
-  private decodeMoney(records: readonly unknown[]): unknown[] {
-    const moneyFields = this.source.moneyFields
-    if (!moneyFields || Object.keys(moneyFields).length === 0) return records as unknown[]
-    return records.map(r => moneyRuntime().decodeMoneyFields(r as Record<string, unknown>, moneyFields, 'raw'))
+  private decodeVia(records: readonly unknown[]): unknown[] {
+    const via = this.source.via
+    if (!via || !via.hasResultDecode) return records as unknown[]
+    return records.map(r => via.decodeResults(r))
   }
 
   /** Return the first matching record, or null. Joins are applied. `opts.locale` resolves joined i18n fields. */
@@ -740,12 +767,10 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     let spec = typeof specOrBuild === 'function'
       ? (specOrBuild as (b: ReducerBuilder<T, S, M>) => Spec)((reducerBuilder as unknown) as ReducerBuilder<T, S, M>)
       : specOrBuild
-    // Rewrite sum/min/max over money fields into exact BigInt reducers
-    // before the strategy runs (covers static run() and live/MV paths).
-    const moneyFields = this.source.moneyFields
-    if (moneyFields) {
-      spec = moneyRuntime().wrapMoneyReducers(spec, moneyFields) as Spec
-    }
+    // Rewrite sum/min/max over Via-covered fields (e.g. money) into exact
+    // BigInt reducers before the strategy runs (covers static run() and
+    // live/MV paths).
+    spec = this.source.via?.wrapReducers(spec) ?? spec
     // Closure over the current query. Produces the record set that
     // the aggregation reduces — same pipeline as `count()`, skipping
     // limit/offset because aggregation is over the full match set,
@@ -870,14 +895,14 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
         field,
         upstreams,
         dictLabelResolver,
-        this.source.moneyFields,
+        this.source.via,
       )
     }
     return this.aggregateStrategy.groupByN<T, readonly string[], S, M>(
       executeRecords,
       fields,
       upstreams,
-      this.source.moneyFields,
+      this.source.via,
     )
   }
 
@@ -1047,9 +1072,11 @@ function executePlanWithSource(
 
   if (plan.orderBy.length > 0) {
     // dictKey label-sort: for any `orderBy(..., { by: 'label' })`, build a
-    // sync code→label map at the query locale so the sort compares labels.
-    const labelMaps = buildOrderLabelMaps(plan.orderBy, joinContext, locale)
-    result = sortRecords(result, plan.orderBy, source.moneyFields, labelMaps)
+    // sync code→label resolver at the query locale so the sort compares
+    // labels. `source.via` also feeds the #650 Task 7 matrix-tier fallback
+    // (fields `joinContext.resolveDictSource` doesn't bridge).
+    const labelMaps = buildOrderLabelMaps(plan.orderBy, joinContext, locale, source.via)
+    result = sortRecords(result, plan.orderBy, source.via, labelMaps)
   }
   if (plan.offset > 0) {
     result = result.slice(plan.offset)
@@ -1093,18 +1120,40 @@ function candidateRecords(source: InternalSource, clauses: readonly Clause[]): C
     const clause = clauses[i]!
     if (clause.type !== 'field') continue
     if (!indexes.has(clause.field)) continue
-    // Multi-currency money operands are { amount, currency } objects —
-    // the index stringifies object keys to a no-match sentinel, so a
-    // lookup would return an authoritative-empty set and silently drop
-    // every record. Fixed-mode money is fine: `value` was rewritten to
-    // the stored digit string at build time.
-    if (clause.money?.mode === 'multi') continue
+    // A Via-covered clause (e.g. money) only carries a build-time
+    // evaluator payload for per-record comparison by default — `buildClause`
+    // does not rewrite `clause.value` into the index's stored representation
+    // (e.g. multi-currency money operands are `{ amount, currency }`
+    // objects; the index would stringify their keys to a no-match
+    // sentinel). A binding MAY additionally supply `indexValue` (#625,
+    // via `ViaBinding.indexProbe`) — the STORED-form operand for a direct
+    // probe (fixed-mode money `==`/`in` today). When it's absent, skip the
+    // index fast path for this clause; the fallback scan evaluates it via
+    // `clause.via.evaluate`. MIXED-ERA DATA (money, #672 fixed, incl. the
+    // #672 review's C1 finding): the index bucket this probe hits is no
+    // longer keyed by the RAW stored string — EAGER-mode `CollectionIndexes`
+    // canonicalizes money keys through `ViaPipeline.canonicalizeIndexKey` at
+    // EVERY bucket-mutation site (`build`, `upsert`, `remove`), not just
+    // build/rebuild, so a legacy non-canonical scaled value (predates the
+    // field's money() declaration) lands in — and stays in — the SAME bucket
+    // a canonical probe looks up, across later put()/delete() too. LAZY
+    // mode's `PersistedCollectionIndex` gained the SAME guarantee (#677) —
+    // its bucket-mutation sites (`ingest`/`upsert`/`remove`) canonicalize
+    // through the same `ViaPipeline.canonicalizeIndexKey`, and its probe
+    // path (`lazy-builder.ts`'s `resolveCandidateIds()`) canonicalizes the
+    // `==`/`in` lookup value before calling `lookupEqual`/`lookupIn` — see
+    // `moneyIndexProbe`'s doc comment (via-money/where.ts) for the full
+    // story — lazy mode's post-filter is now Via-aware too (#684), so
+    // end-to-end `lazyQuery().where()` money parity with this eager path
+    // holds at every scale (`orderBy` ordering parity remains open, #695).
+    if (clause.via && clause.via.indexValue === undefined) continue
+    const probeValue = clause.via ? clause.via.indexValue : clause.value
 
     let ids: ReadonlySet<string> | null = null
     if (clause.op === '==') {
-      ids = indexes.lookupEqual(clause.field, clause.value)
-    } else if (clause.op === 'in' && Array.isArray(clause.value)) {
-      ids = indexes.lookupIn(clause.field, clause.value)
+      ids = indexes.lookupEqual(clause.field, probeValue)
+    } else if (clause.op === 'in' && Array.isArray(probeValue)) {
+      ids = indexes.lookupIn(clause.field, probeValue)
     }
 
     if (ids !== null) {
@@ -1170,14 +1219,15 @@ export function executePlan(records: readonly unknown[], plan: QueryPlan): unkno
 /**
  * Build the per-record DECODED view factory for user-callback clauses
  * (`filter` / `wherePredicate`) — those callbacks must see the canonical
- * money shape, never the stored scaled-int. Field clauses are NOT
- * affected: their operands were quantized into raw stored space at build
- * time. Returns undefined when the source declares no money.
+ * shape (e.g. money's decimal string), never a Via-transformed stored
+ * form. Field clauses are NOT affected: their operands were pre-built
+ * into raw stored space at build time. Returns undefined when the
+ * source's Via pipeline declares no result decode.
  */
 function fnViewDecoder(source: InternalSource): ((r: unknown) => unknown) | undefined {
-  const mf = source.moneyFields
-  if (!mf || Object.keys(mf).length === 0) return undefined
-  return r => moneyRuntime().decodeMoneyFields(r as Record<string, unknown>, mf, 'raw')
+  const via = source.via
+  if (!via || !via.hasResultDecode) return undefined
+  return r => via.decodeResults(r)
 }
 
 function filterRecords(
@@ -1303,30 +1353,31 @@ function applyCrossJoin(
 function sortRecords(
   records: unknown[],
   orderBy: readonly OrderBy[],
-  moneyFields?: Record<string, MoneyDescriptor>,
-  labelMaps?: Map<string, Map<string, string>>,
+  via?: ViaPipeline,
+  labelMaps?: Map<string, (code: string) => string | undefined>,
 ): unknown[] {
   // Stable sort: Array.prototype.sort is required to be stable since ES2019.
   return [...records].sort((a, b) => {
     for (const { field, direction, by } of orderBy) {
       let av = readField(a, field)
       let bv = readField(b, field)
-      // dictKey label-sort: compare resolved labels (fallback to the code
-      // when unresolved), so e.g. honorific codes sort by their locale label.
-      const labelMap = by === 'label' ? labelMaps?.get(field) : undefined
-      if (labelMap) {
-        av = (typeof av === 'string' ? labelMap.get(av) : undefined) ?? av
-        bv = (typeof bv === 'string' ? labelMap.get(bv) : undefined) ?? bv
+      // dictKey/lookup label-sort: compare resolved labels (fallback to the
+      // code when unresolved), so e.g. honorific codes sort by their locale label.
+      const labelResolver = by === 'label' ? labelMaps?.get(field) : undefined
+      if (labelResolver) {
+        av = (typeof av === 'string' ? labelResolver(av) : undefined) ?? av
+        bv = (typeof bv === 'string' ? labelResolver(bv) : undefined) ?? bv
         const cmp = compareValues(av, bv)
         if (cmp !== 0) return direction === 'asc' ? cmp : -cmp
         continue
       }
-      // Money fields are stored as scaled-integer strings; the generic
-      // string comparator would sort them lexically ('9882' > '10004'). Compare
-      // declared money fields by their BigInt scaled value instead — exact, and
-      // consistent with `where` and `sum`.
-      const desc = moneyFields?.[field]
-      const cmp = desc ? compareMoney(av, bv, desc) : compareValues(av, bv)
+      // A Via-covered field (e.g. money) may store a representation the
+      // generic comparator would order wrong (money's scaled-integer
+      // strings sort lexically, not numerically: '9882' > '10004'). Ask
+      // the pipeline for an exact ordering first; fall back to the
+      // generic comparator when no binding covers the field.
+      const viaCmp = via?.compareForOrder(field, av, bv)
+      const cmp = viaCmp !== undefined ? viaCmp : compareValues(av, bv)
       if (cmp !== 0) return direction === 'asc' ? cmp : -cmp
     }
     return 0
@@ -1334,45 +1385,57 @@ function sortRecords(
 }
 
 /**
- * dictKey label-sort: for each `orderBy(..., { by: 'label' })` field, build
- * a sync `code → label` map at the query `locale` (falling back to a
- * `staticDict` `displayLocale`) from the join context's dict source. Fields
- * with no resolvable dict source are skipped — the sort then falls back to the
- * stored code for them.
+ * dictKey/lookup label-sort: for each `orderBy(..., { by: 'label' })`
+ * field, build a sync per-key label RESOLVER at the query `locale` (falling
+ * back to a `staticDict` `displayLocale`). Two sources, tried in order:
+ *
+ * 1. `joinContext.resolveDictSource(field)` — the pre-existing dict-registry
+ *    bridge (unchanged from before #650 Task 7): covers dictKey/staticDict
+ *    AND their native `dict()`/`lookup(static)`/`lookup(reserved)` aliases
+ *    (`registry.ts`'s `collectLookupDictCompat` bridges those tiers into the
+ *    same vault registries this reads). Builds an EAGER `code -> label` map
+ *    from the source's full snapshot, same as always.
+ * 2. `via.resolveOrderLabel(field, key, locale)` (#650 Task 7) — the
+ *    fallback for lookup fields the bridge above doesn't cover (matrix/
+ *    collection tier — no vault registry backs it). Per-key, LAZY (no full
+ *    snapshot enumeration API at this layer), memoized per field so a
+ *    repeated key within one sort doesn't re-resolve.
+ *
+ * Fields with neither source available are skipped — the sort then falls
+ * back to the raw stored code for them.
  */
 function buildOrderLabelMaps(
   orderBy: readonly OrderBy[],
   joinContext: JoinContext | undefined,
   locale: string | undefined,
-): Map<string, Map<string, string>> | undefined {
-  if (!joinContext?.resolveDictSource) return undefined
-  const resolveDict = joinContext.resolveDictSource.bind(joinContext)
-  let maps: Map<string, Map<string, string>> | undefined
+  via: ViaPipeline | undefined,
+): Map<string, (code: string) => string | undefined> | undefined {
+  let maps: Map<string, (code: string) => string | undefined> | undefined
   for (const { field, by } of orderBy) {
     if (by !== 'label') continue
-    const dictSource = resolveDict(field)
-    if (!dictSource) continue
-    const loc = locale ?? dictSource.displayLocale
-    if (loc === undefined) continue
-    const codeToLabel = new Map<string, string>()
-    for (const entry of dictSource.snapshot()) {
-      const k = (entry as Record<string, unknown>)['key']
-      const labels = (entry as Record<string, unknown>)['labels'] as Record<string, string> | undefined
-      const label = labels?.[loc]
-      if (typeof k === 'string' && typeof label === 'string') codeToLabel.set(k, label)
+    const dictSource = joinContext?.resolveDictSource?.(field)
+    if (dictSource) {
+      const loc = locale ?? dictSource.displayLocale
+      if (loc === undefined) continue
+      const codeToLabel = new Map<string, string>()
+      for (const entry of dictSource.snapshot()) {
+        const k = (entry as Record<string, unknown>)['key']
+        const labels = (entry as Record<string, unknown>)['labels'] as Record<string, string> | undefined
+        const label = labels?.[loc]
+        if (typeof k === 'string' && typeof label === 'string') codeToLabel.set(k, label)
+      }
+      ;(maps ??= new Map()).set(field, (code: string) => codeToLabel.get(code))
+      continue
     }
-    ;(maps ??= new Map()).set(field, codeToLabel)
+    if (via) {
+      const cache = new Map<string, string | undefined>()
+      ;(maps ??= new Map()).set(field, (code: string) => {
+        if (!cache.has(code)) cache.set(code, via.resolveOrderLabel(field, code, locale))
+        return cache.get(code)
+      })
+    }
   }
   return maps
-}
-
-/** Compare two stored money values by BigInt scaled-int; nullish/malformed last (asc). */
-function compareMoney(a: unknown, b: unknown, desc: MoneyDescriptor): number {
-  const av = moneyRuntime().moneyScaledValue(a, desc)
-  const bv = moneyRuntime().moneyScaledValue(b, desc)
-  if (av === null) return bv === null ? 0 : 1
-  if (bv === null) return -1
-  return av < bv ? -1 : av > bv ? 1 : 0
 }
 
 function readField(record: unknown, field: string): unknown {

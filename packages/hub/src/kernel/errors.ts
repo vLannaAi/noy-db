@@ -34,16 +34,19 @@
  *       │    ├─ IndexRequiredError                — lazy-mode query touches unindexed field
  *       │    ├─ IndexWriteFailureError            — index side-car put/delete failed post-main
  *       │    ├─ UniqueConstraintError             — duplicate value on unique index
- *       │    └─ UnsupportedIndexOptionError       — unique+lazy or unique+crdt at registration
+ *       │    ├─ UnsupportedIndexOptionError       — unique+lazy or unique+crdt at registration
+ *       │    └─ FieldNotQueryableError            — field's Via posture is queryable: 'none'
  *       ├─ i18n / Dictionary errors
  *       │    ├─ ReservedCollectionNameError
  *       │    ├─ DictKeyMissingError
  *       │    ├─ DictKeyInUseError
+ *       │    ├─ RestrictRefUnresolvableError — restrict edge's compare-key unresolvable (#654)
  *       │    ├─ MissingTranslationError
  *       │    ├─ LocaleNotSpecifiedError
  *       │    ├─ ScriptViolationError
  *       │    ├─ StaticDictReadonlyError
  *       │    ├─ UnknownDictCodeError
+ *       │    ├─ UnknownLookupKeyError
  *       │    └─ TranslatorNotConfiguredError
  *       ├─ Backup errors
  *       │    ├─ BackupLedgerError      — hash-chain verification failed
@@ -713,6 +716,88 @@ export class TierNotGrantedError extends NoydbError {
 }
 
 /**
+ * Thrown when a tier-0 `put()` or `delete()` targets a record whose LIVE
+ * envelope is elevated (`_tier > 0`) — regardless of whether the caller
+ * holds the tier's DEK. `put()`/`delete()` are the tier-0 write APIs;
+ * the sanctioned way to write an elevated record is `putAtTier()`,
+ * `elevate()`, or `demote()`.
+ *
+ * Distinct from `TierNotGrantedError`, which means "no DEK for tier N"
+ * and refuses only non-holders. This error refuses HOLDERS too — the
+ * problem isn't clearance, it's that `put()`/`delete()` are the wrong
+ * API for an already-elevated record (a tier-0 `put()` over one would
+ * otherwise silently demote it; a tier-0 `delete()` would write a
+ * marker with no `_tier`, erasing the elevation signal). It is also
+ * distinct from the read-path invisibility gate (`liveRecordIsElevated`
+ * in `tier-visibility.ts`), which throws nothing — elevated records
+ * simply read as absent there. This is a write-path refusal, not a
+ * read-path ghost.
+ *
+ * #708: also raised by the coordinated-cutover pre-check
+ * (`assertCutoverTierSafe`) — a bulk-rewrite is a third tier-0 write path,
+ * so it gets the same refusal with a `detail` override naming the record.
+ */
+export class TierWriteRefusedError extends NoydbError {
+  readonly tier: number
+  readonly collection: string
+
+  constructor(collection: string, tier: number, detail?: string) {
+    super(
+      'TIER_WRITE_REFUSED',
+      detail ?? `put()/delete() cannot write to record in collection "${collection}" — ` +
+        `it is elevated to tier ${tier}. Use putAtTier()/elevate()/demote() instead.`,
+    )
+    this.name = 'TierWriteRefusedError'
+    this.collection = collection
+    this.tier = tier
+  }
+}
+
+/**
+ * Thrown at `vault.collection()` registration when `tiers` is declared
+ * together with a derived-artifact feature whose crypto has not yet been
+ * made tier-aware (elevate()/demote() do not re-key it), so an elevated
+ * record's data would stay readable at tier 0. Mirrors
+ * `UnsupportedIndexOptionError` — the refusal happens loudly at
+ * registration instead of leaking silently at rest.
+ *
+ * `feature` names the incompatible feature (e.g. `'blobs'`) so catch
+ * blocks can pattern-match without inspecting the error message.
+ */
+export class UnsupportedTierCompositionError extends NoydbError {
+  readonly feature: string
+  constructor(feature: string, message: string) {
+    super('UNSUPPORTED_TIER_COMPOSITION', message)
+    this.name = 'UnsupportedTierCompositionError'
+    this.feature = feature
+  }
+}
+
+/**
+ * Thrown by `createIntent` (blob durability journal, #753 spec §7 C8) when a
+ * `_blob_intent` marker already exists for `{collection}::{recordId}` — the
+ * CAS create-if-absent (`expectedVersion: 0`) lost to a present row. A
+ * present marker means a shred or rehome is already in flight for this
+ * record and MUST be resumed before any new intent is minted (overwriting it
+ * would orphan the prior op's op-stamps — spec C8). Callers catch this and
+ * resume the pending marker first, then retry.
+ */
+export class BlobIntentPendingError extends NoydbError {
+  readonly collection: string
+  readonly recordId: string
+  constructor(collection: string, recordId: string) {
+    super(
+      'BLOB_INTENT_PENDING',
+      `A blob durability marker is already pending for "${collection}::${recordId}" — ` +
+        `resume it before starting a new shred/rehome.`,
+    )
+    this.name = 'BlobIntentPendingError'
+    this.collection = collection
+    this.recordId = recordId
+  }
+}
+
+/**
  * Thrown when an elevated-handle operation runs after the elevation's
  * TTL expired. Reads continue at the original tier; only writes
  * through the scoped handle flip to throwing once expired.
@@ -1230,6 +1315,58 @@ export class IndexWriteFailureError extends NoydbError {
   }
 }
 
+/**
+ * Thrown when `PersistedIndexStore`'s compensating `remove()` — the undo of a
+ * stale debounced `_ftindex` save that raced a purge (#725) — itself fails.
+ * That failure is sticky (`pendingCompensation`) and retried-first by every
+ * subsequent store entrypoint (`ensureBuilt`/`rebuildAndPersist`/
+ * `removePersisted`) rather than silently dropped, but was previously
+ * rethrown as the RAW adapter error indefinitely — indistinguishable from
+ * any other adapter failure, so a caller could not catch it deliberately the
+ * way `forget()` catches `_purgeSearchIndex` into `indexResidue` (#764).
+ *
+ * `cause` is the underlying adapter error. Callers that want stuck-
+ * compensation resilience instead of an abort (e.g. `elevate()`/`demote()`,
+ * #764) catch this type specifically and surface it as residue.
+ */
+export class PersistedIndexCompensationError extends NoydbError {
+  override readonly cause: unknown
+
+  constructor(cause: unknown) {
+    super(
+      'PERSISTED_INDEX_COMPENSATION_STUCK',
+      'Persisted search-index compensation is stuck — a compensating remove() of a stale ' +
+        '_ftindex blob failed and is being retried by every subsequent store call.',
+    )
+    this.name = 'PersistedIndexCompensationError'
+    this.cause = cause
+  }
+}
+
+/**
+ * Thrown by `.where()` / `.orderBy()` / `.aggregate()` (via the Via
+ * pipeline's `postureFor`/`wrapReducers`) when the field is covered by a Via
+ * feature whose declared posture is `queryable: 'none'` — e.g. a `blobFields`
+ * slot (blob content is out-of-band; it never reaches the decrypted record,
+ * so nothing indexes or compares it). #629 Task 8 — the first posture
+ * consumer.
+ *
+ * Payload:
+ * - `field` — the refused field name
+ */
+export class FieldNotQueryableError extends NoydbError {
+  readonly field: string
+
+  constructor(field: string) {
+    super(
+      'FIELD_NOT_QUERYABLE',
+      `Field "${field}" is not queryable — its Via feature declares queryable: 'none'.`,
+    )
+    this.name = 'FieldNotQueryableError'
+    this.field = field
+  }
+}
+
 // ─── Bundle Format Errors ─────────────────────────────────
 
 /**
@@ -1392,6 +1529,36 @@ export class DictKeyInUseError extends NoydbError {
 }
 
 /**
+ * Thrown by `VaultLinks.checkLookupRefsRestrict()` (#654) when a `restrict`-mode lookup-ref
+ * edge's compare-key cannot be resolved from the backing row — a matrix dimension with a
+ * non-default `key` whose row is missing that field or holds a non-string/non-number value
+ * (corruption-class rarity). Whether the referencer still points at this row can't be proven
+ * either way, so the delete/forget is refused rather than silently allowed through — the
+ * fail-closed twin of `DictKeyInUseError` ("cannot prove no references ⇒ do not delete").
+ */
+export class RestrictRefUnresolvableError extends NoydbError {
+  /** The dimension (backing collection/dictionary) whose row's compare-key was unresolvable. */
+  readonly dimension: string
+  /** The backing row's key (its PUT-id) that was being deleted/forgotten. */
+  readonly key: string
+  /** The unresolvable restrict edge, formatted `"collection.field"`. */
+  readonly referencing: string
+
+  constructor(dimension: string, key: string, referencing: string) {
+    super(
+      'RESTRICT_REF_UNRESOLVABLE',
+      `Cannot delete "${dimension}" key "${key}": the restrict-mode reference from "${referencing}" ` +
+        `could not be resolved (its compare-key is unreadable on the backing row). Refusing to ` +
+        `delete — cannot prove no references exist.`,
+    )
+    this.name = 'RestrictRefUnresolvableError'
+    this.dimension = dimension
+    this.key = key
+    this.referencing = referencing
+  }
+}
+
+/**
  * Thrown by `Collection.put()` when an `i18nText` field is missing one
  * or more required translations.
  *
@@ -1540,6 +1707,40 @@ export class UnknownDictCodeError extends NoydbError {
     this.dictionaryName = dictionaryName
     this.field = field
     this.code = code
+  }
+}
+
+/**
+ * Thrown at put-time when a `vocabulary: 'closed'` lookup field (#650 Task
+ * 3 — `lookup()`/`enumOf()`/`dict()`, the via-lookup binding) carries a key
+ * that is not a member of its dimension — the enum tier's declared key set,
+ * the dict tier's declared keys / live reserved-collection entries, or the
+ * matrix tier's backing collection.
+ *
+ * Distinct from {@link UnknownDictCodeError} (the `staticDict()` alias's own
+ * error, unchanged by this task) — this is the native `lookup`/`dict`/`enum`
+ * descriptors' equivalent. `'open'` vocabulary (the default) never throws
+ * this; declare `{ vocabulary: 'closed' }` to opt in.
+ */
+export class UnknownLookupKeyError extends NoydbError {
+  /** The dimension (dictionary/target collection) name. */
+  readonly dimension: string
+  /** The field that carried the unknown key. */
+  readonly field: string
+  /** The offending key value. */
+  readonly key: string
+
+  constructor(dimension: string, field: string, key: string) {
+    super(
+      'UNKNOWN_LOOKUP_KEY',
+      `Field "${field}": key "${key}" is not a known member of the "${dimension}" ` +
+        `lookup vocabulary (closed). Use a declared/existing key, or declare ` +
+        `{ vocabulary: 'open' } to allow unknown keys.`,
+    )
+    this.name = 'UnknownLookupKeyError'
+    this.dimension = dimension
+    this.field = field
+    this.key = key
   }
 }
 
@@ -1830,6 +2031,50 @@ export class CargoNotEnabledError extends NoydbError {
   ) {
     super('CARGO_NOT_ENABLED', message)
     this.name = 'CargoNotEnabledError'
+  }
+}
+
+// ─── Broker Errors (#479 credential broker) ───────────────
+
+/**
+ * Thrown when `vault.broker()` is called without opting into the broker
+ * capability (the default `NO_BROKER` stub). Opt in with
+ * `brokerStrategy: withBroker(config)` from "@noy-db/hub/broker" in
+ * createNoydb().
+ */
+export class BrokerNotEnabledError extends NoydbError {
+  constructor(
+    message = 'Credential-broker operations require the broker capability. ' +
+      'Pass `brokerStrategy: withBroker(config)` (from "@noy-db/hub/broker") to createNoydb().',
+  ) {
+    super('BROKER_NOT_ENABLED', message)
+    this.name = 'BrokerNotEnabledError'
+  }
+}
+
+/**
+ * Thrown when the `_broker` seed cannot be enrolled with the broker host:
+ * `enroll()`/`rotate()` called on a DEK-only keyring (KEK required to
+ * provision the `_broker` DEK on first use — R-B8/I3), a `/enroll` POST
+ * refused for lacking a valid dev-backend attestation (R-B3), or
+ * `credentialSource()` called on a seed whose `/enroll` never completed
+ * successfully (`registered !== true` — a partial enrol, I9).
+ */
+export class BrokerEnrolmentError extends NoydbError {
+  constructor(message = 'Credential-broker enrolment failed') {
+    super('BROKER_ENROLMENT_ERROR', message)
+    this.name = 'BrokerEnrolmentError'
+  }
+}
+
+/**
+ * Thrown when the broker host rejects a submitted challenge proof (MAC
+ * mismatch, expired `expiresAt`, or a reused/burned challenge — R-B5).
+ */
+export class BrokerProofError extends NoydbError {
+  constructor(message = 'Broker rejected the challenge proof') {
+    super('BROKER_PROOF_ERROR', message)
+    this.name = 'BrokerProofError'
   }
 }
 
@@ -2792,10 +3037,10 @@ export class EnclaveNotSupportedError extends NoydbError {
 /**
  * Raised when a collection's `classifiedFields` configuration is invalid
  * (e.g. a claimed field name collides with a rider companion or another
- * classified field). Homed in `kernel/errors.ts` (rather than
- * `with-shape/classified/errors.ts`) so `kernel/enclave/classify/*` can throw
- * it without importing with-*; `with-shape/classified/errors.ts` re-exports
- * it under the same name for backward-compatible import paths.
+ * classified field). Homed in `kernel/errors.ts` (rather than the classified
+ * feature module) so `kernel/enclave/classify/*` can throw it without
+ * importing with-*; the classified feature module re-exports it under the
+ * same name for backward-compatible import paths.
  */
 export class ClassifiedConfigError extends Error {
   constructor(public readonly collection: string, message: string) {
@@ -2843,7 +3088,7 @@ export class ClassifiedRotationError extends Error {
 
 /**
  * A satellite-collection declaration or operation violated the refusal
- * matrix (R-S1…R-S9) of the satellite-collections design. The message
+ * matrix (R-S1…R-S10) of the satellite-collections design. The message
  * always names the R-S id.
  */
 export class SatelliteConfigError extends NoydbError {

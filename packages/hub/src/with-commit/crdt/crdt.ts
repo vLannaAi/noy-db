@@ -8,47 +8,12 @@
  */
 
 // Hoisted to kernel/types.ts (C3 — enclave self-containment: record-codec.ts
-// consumes this as a spine-owned contract type). Re-exported here so existing
-// importers of this module are unaffected.
-import type { CrdtState } from '../../kernel/types.js'
-export type { CrdtMode, CrdtState } from '../../kernel/types.js'
-
-// ─── State shapes ─────────────────────────────────────────────────────
-
-/**
- * Per-field last-write-wins registers.
- * Each field carries its latest value and the ISO timestamp of the last write.
- * Merge: for each field, keep the entry with the lexicographically higher `ts`.
- */
-export interface LwwMapState {
-  readonly _crdt: 'lww-map'
-  readonly fields: Record<string, { readonly v: unknown; readonly ts: string }>
-}
-
-/**
- * Simplified Replicated Growable Array.
- * Items are assigned stable NID (noy-db id) strings on first insertion.
- * Deleted items are tracked as tombstones so concurrent removals commute.
- *
- * The resolved snapshot is the ordered list of non-tombstoned `v` values.
- */
-export interface RgaState {
-  readonly _crdt: 'rga'
-  readonly items: ReadonlyArray<{ readonly nid: string; readonly v: unknown }>
-  readonly tombstones: readonly string[]
-}
-
-/**
- * Yjs binary state marker. `update` is base64(Y.encodeStateAsUpdate()).
- * Core stores and retrieves the blob opaquely. `@noy-db/yjs` is responsible
- * for encoding, decoding, and merging via `Y.mergeUpdates`.
- * Core falls back to last-write-wins (higher `_v`) for conflict resolution.
- */
-export interface YjsState {
-  readonly _crdt: 'yjs'
-  /** base64-encoded Y.encodeStateAsUpdate() bytes. */
-  readonly update: string
-}
+// consumes CrdtState/CrdtMode as spine-owned contract types; LwwMapState/
+// RgaState/YjsState were hoisted alongside them to break the types.ts ↔
+// crdt.ts cycle — #667). Re-exported here so existing importers of this
+// module are unaffected.
+import type { CrdtState, LwwMapState, RgaState } from '../../kernel/types.js'
+export type { CrdtMode, CrdtState, LwwMapState, RgaState, YjsState } from '../../kernel/types.js'
 
 // ─── Snapshot resolution ──────────────────────────────────────────────
 

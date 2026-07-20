@@ -1,15 +1,11 @@
 /**
- * **@noy-db/hub/kernel** — the stable internal surface that outward
- * orchestration frameworks bind to *instead of* reaching into hub
- * internals via relative paths.
- *
- * This is the kernel surface: the minimal set
- * of runtime helpers, error classes, and types the federation /
- * orchestration layer needs from the vault core. Treat it as a
- * contract — additive changes only; removals are breaking.
- *
- * @deprecated Prefer `@noy-db/hub/cargo`, which carries this whole surface
- * plus the orchestration delta. Kept for existing pins.
+ * The `@noy-db/hub/kernel` published subpath has been retired (coordinated
+ * removal; consumers migrated to `@noy-db/hub/cargo`). This file survives
+ * unpublished as `/cargo`'s internal re-export floor — `with-cargo/index.ts`
+ * does `export * from '../legacy/kernel.js'` to consolidate this runtime-helper
+ * / error-class / type surface into the cargo seam, and
+ * `cargo-surface-golden.test.ts` reads this file directly as part of that
+ * union. Do not reintroduce it as a tsup entry or package.json export.
  *
  * @packageDocumentation
  */
@@ -44,7 +40,7 @@ export {
 
 // Types only (erased at emit). NOTE: Vault / Collection / Noydb / Query are
 // runtime classes in hub, but are re-exported here as TYPES — `instanceof`
-// against these will not work from `@noy-db/hub/kernel`. Consumers needing a
+// against these will not work from `@noy-db/hub/cargo`. Consumers needing a
 // runtime class value must import it from `@noy-db/hub` directly.
 // ─── types ────────────────────────────────────────────────────────
 export type { CollectionMeta, VaultMeta } from '../with-shape/introspection/meta.js'

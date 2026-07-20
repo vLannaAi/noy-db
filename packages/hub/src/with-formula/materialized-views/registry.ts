@@ -1,10 +1,18 @@
-import { MaterializedViewCycleError, MaterializedViewSourceUnknownError } from '../../kernel/errors.js'
-import type { DerivationRegistry } from '../derivations/registry.js'
+import { MaterializedViewSourceUnknownError } from '../../kernel/errors.js'
+import type { ViaGraph, FieldRef, EdgeKind, Grain } from '../../kernel/via/graph.js'
 import type { Clause, FieldClause } from '../../kernel/query/predicate.js'
 import type { DeclaredPredicate } from '../../kernel/query/builder.js'
 import { analyzeDependencies, summarizeQueryPlan, summarizeUnionPlan } from './dependency-analyzer.js'
 import { computeQueryHash } from './query-hash.js'
 import type { MaterializedViewStrategy, MVQueryContext } from './types.js'
+
+/**
+ * Whole-record artifact-grain field marker (#638 Task 2) — MUST match
+ * `derivations/registry.ts`'s and `vault.ts`'s overlay-edge marker so
+ * cross-registry edges (a derivation feeding an MV, or vice versa) resolve
+ * to the SAME graph node. See that file's `WHOLE_RECORD` doc comment.
+ */
+const WHOLE_RECORD = '*'
 
 /**
  * One registered MV strategy alongside its derived metadata. Stored
@@ -26,6 +34,13 @@ export interface RegisteredMV {
    * check. Empty when `spec.output?.partition` is undefined.
    */
   readonly partitionClauses: readonly FieldClause[]
+  /**
+   * #638 Task 2 — `'record'` for a row-per-source-row Query<T> or
+   * `unionSources` MV, `'aggregate'` for a `.groupBy().aggregate()` MV
+   * (the shape that requires explicit `sources`, since the dependency
+   * analyzer can't walk an aggregate plan). Feeds `edges()`'s grain.
+   */
+  readonly grain: Grain
 }
 
 /**
@@ -153,7 +168,11 @@ export class MaterializedViewRegistry {
         if (isFieldClauseOnField(clause, partitionField)) partitionClauses.push(clause)
       }
     }
-    const reg: RegisteredMV = { spec, outputCollection, dependencies, queryHash, partitionClauses }
+    // #638 Task 2 — 'aggregate' only for the explicit-sources aggregate shape
+    // (groupBy().aggregate() with no chainable plan); a row-per-source-row
+    // Query<T> or a unionSources MV is 'record'.
+    const grain: Grain = spec.unionSources || isQuery ? 'record' : 'aggregate'
+    const reg: RegisteredMV = { spec, outputCollection, dependencies, queryHash, partitionClauses, grain }
 
     this._byName.set(spec.name, reg)
     for (const dep of dependencies) {
@@ -179,95 +198,41 @@ export class MaterializedViewRegistry {
   }
 
   /**
-   * Cycle detection over the combined derivation + MV graph. Edges:
-   *   - Derivation: derivation.source → output.collection (each output)
-   *   - MV: every dep in MV.dependencies → MV.outputCollection
-   *
-   * Throws `MaterializedViewCycleError` if the cycle's terminal node
-   * is an MV output collection; otherwise (a pure-derivation cycle)
-   * the caller's `DerivationRegistry.validate()` will surface
-   * `DerivationCycleError` separately at vault open.
-   *
-   * Call AFTER all `register()` calls complete.
+   * Graph edges for #638 Task 2: one `'mv'` edge per registered MV — target
+   * = the output collection (a `WHOLE_RECORD` artifact node), sources =
+   * every dependency (also `WHOLE_RECORD` nodes). Same-collection edges
+   * (`dep === outputCollection`) are skipped IFF the MV declares an
+   * `output.partition` discriminator AND the query has a where-clause that
+   * provably excludes the partition value (`partitionDisjoint`) — the SAME
+   * condition the old local DFS used. Grain comes from the registration-time
+   * `RegisteredMV.grain`.
    */
-  validate(derivationRegistry?: DerivationRegistry | null): void {
-    const visited = new Set<string>()
-    const stack: string[] = []
-    const mvOutputs = new Set<string>()
-    for (const reg of this._byName.values()) mvOutputs.add(reg.outputCollection)
-
-    const edges = new Map<string, string[]>()
-
-    // MV edges: every dep → output. Same-collection edges (dep ===
-    // outputCollection) are skipped IFF the MV declares an
-    // `output.partition` discriminator AND the query has a where-clause
-    // that provably excludes the partition value. Otherwise the cycle
-    // detector treats the edge as real — naïve same-collection MVs
-    // surface as `MaterializedViewCycleError`.
+  edges(): ReadonlyArray<{ readonly target: FieldRef; readonly sources: readonly FieldRef[]; readonly kind: EdgeKind; readonly grain: Grain }> {
+    const out: Array<{ target: FieldRef; sources: FieldRef[]; kind: EdgeKind; grain: Grain }> = []
     for (const reg of this._byName.values()) {
+      const sources: FieldRef[] = []
       for (const dep of reg.dependencies) {
         if (dep === reg.outputCollection && partitionDisjoint(reg)) continue
-        const arr = edges.get(dep)
-        if (arr) arr.push(reg.outputCollection)
-        else edges.set(dep, [reg.outputCollection])
+        sources.push({ collection: dep, field: WHOLE_RECORD })
       }
+      if (sources.length === 0) continue
+      out.push({ target: { collection: reg.outputCollection, field: WHOLE_RECORD }, sources, kind: 'mv', grain: reg.grain })
     }
+    return out
+  }
 
-    // Derivation edges: source → output collections
-    if (derivationRegistry) {
-      // The shared DerivationRegistry exposes its edges via the same
-      // `strategiesForSource` API its own `validate()` uses. We don't
-      // duplicate cycle detection — we add MV nodes to the graph and
-      // run the unified DFS, attributing cycles that touch an MV
-      // output to `MaterializedViewCycleError`.
-      for (const reg of this._byName.values()) {
-        // Walk every dependency through derivation edges too: a
-        // derivation whose output we depend on is itself a source.
-        void reg
-      }
-      // Pull derivation edges by scanning every MV dep + every MV
-      // output as potential derivation sources.
-      const sourcesToScan = new Set<string>()
-      for (const reg of this._byName.values()) {
-        for (const dep of reg.dependencies) sourcesToScan.add(dep)
-        sourcesToScan.add(reg.outputCollection)
-      }
-      for (const src of sourcesToScan) {
-        const strategies = derivationRegistry.strategiesForSource(src)
-        if (strategies.length === 0) continue
-        for (const s of strategies) {
-          for (const key of Object.keys(s.spec.outputs)) {
-            const o = s.spec.outputs[key]
-            if (!o) continue
-            const arr = edges.get(src)
-            if (arr) arr.push(o.collection)
-            else edges.set(src, [o.collection])
-          }
-        }
-      }
-    }
-
-    const visit = (node: string): void => {
-      if (stack.includes(node)) {
-        const cycle = stack.slice(stack.indexOf(node)).concat(node)
-        // If any node on the cycle is an MV output, attribute as MV
-        // cycle. Otherwise let DerivationRegistry.validate() surface it.
-        if (cycle.some(n => mvOutputs.has(n))) {
-          throw new MaterializedViewCycleError(cycle)
-        }
-        // Pure-derivation cycle — caller's DerivationRegistry.validate()
-        // will catch it separately. Don't double-report.
-        return
-      }
-      if (visited.has(node)) return
-      stack.push(node)
-      const outs = edges.get(node)
-      if (outs) for (const o of outs) visit(o)
-      stack.pop()
-      visited.add(node)
-    }
-
-    for (const node of edges.keys()) visit(node)
+  /**
+   * Cycle detection, delegated to `ViaGraph.assertAcyclic()` (#638 Task 2 —
+   * retires the local DFS). `graph` is the caller's shared per-vault graph,
+   * ALREADY carrying this registry's `edges()` AND `DerivationRegistry`'s
+   * (registered by the caller — see `Vault._initMaterializedViews`, which
+   * runs after `_initDerivations`, so a pure-derivation cycle already threw
+   * `DerivationCycleError` there; any cycle surfacing here necessarily
+   * touches an MV edge). Throws `MaterializedViewCycleError` — SAME class as
+   * before.
+   */
+  validate(graph: ViaGraph): void {
+    graph.assertAcyclic()
   }
 }
 

@@ -17,6 +17,10 @@ export type { PeriodsStrategy } from './strategy.js'
 
 export {
   PERIODS_COLLECTION,
+  PERIOD_FREEZES_COLLECTION,
+  PERIOD_ARCHIVES_COLLECTION,
+  PERIOD_TARGET_PURGES_COLLECTION,
+  periodExclusiveUpperBound,
   loadPeriods,
   chainAnchor,
   assertTsWritable,
@@ -25,6 +29,10 @@ export {
 } from './periods.js'
 export type {
   PeriodRecord,
+  PeriodFreezeRecord,
+  PeriodArchiveRecord,
+  PeriodTargetPurgeRecord,
+  TargetPurgeCount,
   ClosePeriodOptions,
   OpenPeriodOptions,
   CarryForwardContext,

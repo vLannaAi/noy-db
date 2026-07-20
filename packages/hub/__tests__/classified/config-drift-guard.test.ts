@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
 import { inlineMemory, type InlineMemoryStore } from './harness.js'
-import { classified } from '../../src/with-shape/classified/presets.js'
-import { withClassified } from '../../src/with-shape/classified/active.js'
+import { classified } from '../../src/via/classified/presets.js'
+import { withClassified } from '../../src/via/classified/active.js'
 import { ClassifiedConfigError } from '../../src/kernel/errors.js'
-import type { ClassifiedFieldSpec } from '../../src/with-shape/classified/descriptor.js'
+import type { ClassifiedFieldSpec } from '../../src/via/classified/descriptor.js'
 
 // Raw digest-only spec (presets land in Task 12; the equatable knob + `_bidx`
 // wiring land in Task 10). Both drift vectors below therefore open the

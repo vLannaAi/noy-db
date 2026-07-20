@@ -145,6 +145,27 @@ export class PersistedCollectionIndex {
   private readonly defs = new Map<string, PersistedIndexDef>()
 
   /**
+   * Per-field bucket-key canonicalizer (#677 — lazy twin of #672's
+   * `CollectionIndexes.setCanonicalizer`), registered ONCE via
+   * {@link setCanonicalizer} when the collection wires indexing up
+   * (money-aware via `ViaPipeline.canonicalizeIndexKey`). Consulted by
+   * EVERY bucket-mutation site — `ingest`/`upsert`/`remove` — so bucket
+   * membership is symmetric: a legacy non-canonical stored value (e.g.
+   * `'0100'`) and a canonical one (`'100'`) land in the SAME bucket,
+   * mirroring `eager-indexes.ts`'s `addToIndex`/`removeFromIndex`.
+   */
+  private canonicalize?: (field: string, value: unknown) => string | undefined
+
+  /**
+   * Register the bucket-key canonicalizer. Called once, where the
+   * collection constructs its indexing state — safe to call again (the
+   * closure is simply replaced) but there is normally only one caller.
+   */
+  setCanonicalizer(fn: (field: string, value: unknown) => string | undefined): void {
+    this.canonicalize = fn
+  }
+
+  /**
    * Declare a single-field index. Subsequent `upsert` / `ingest` calls
    * populate the in-memory mirror; calls before `declare` are no-ops
    * (tolerant bulk-load ordering). Idempotent.
@@ -211,7 +232,7 @@ export class PersistedCollectionIndex {
     const state = this.indexes.get(field)
     if (!state) return
     for (const row of rows) {
-      addToState(state, row.recordId, row.value)
+      addToState(state, row.recordId, row.value, field, this.canonicalize)
     }
   }
 
@@ -226,9 +247,9 @@ export class PersistedCollectionIndex {
     const state = this.indexes.get(field)
     if (!state) return
     if (previousValue !== null && previousValue !== undefined) {
-      removeFromState(state, recordId, previousValue)
+      removeFromState(state, recordId, previousValue, field, this.canonicalize)
     }
-    addToState(state, recordId, newValue)
+    addToState(state, recordId, newValue, field, this.canonicalize)
   }
 
   /**
@@ -240,7 +261,7 @@ export class PersistedCollectionIndex {
   remove(recordId: string, field: string, value: unknown): void {
     const state = this.indexes.get(field)
     if (!state) return
-    removeFromState(state, recordId, value)
+    removeFromState(state, recordId, value, field, this.canonicalize)
   }
 
   /**
@@ -261,6 +282,14 @@ export class PersistedCollectionIndex {
    * back to scan or throws `IndexRequiredError`). Returns a shared empty
    * set if the field is declared but no record matches — that set MUST
    * NOT be mutated by the caller.
+   *
+   * `value` is bucketed via the plain {@link stringifyKey} — it is NOT
+   * canonicalized here. Callers on a Via-covered field (money) canonicalize
+   * `value` themselves BEFORE calling (see `lazy-builder.ts`'s
+   * `resolveCandidateIds()`, #677) — the SAME caller-canonicalizes split
+   * `eager-indexes.ts`'s `lookupEqual`/`lookupIn` use (see `kernel/query/
+   * builder.ts`'s `candidateRecords()`), so probing here twice never
+   * double-canonicalizes.
    */
   lookupEqual(field: string, value: unknown): ReadonlySet<string> | null {
     const state = this.indexes.get(field)
@@ -272,7 +301,8 @@ export class PersistedCollectionIndex {
   /**
    * Set lookup — return the union of record ids whose `field` matches any
    * of `values`. Returns `null` if the field is not declared. Returns a
-   * fresh (non-shared) Set — safe for the caller to mutate.
+   * fresh (non-shared) Set — safe for the caller to mutate. Same
+   * caller-canonicalizes contract as {@link lookupEqual} (#677).
    */
   lookupIn(field: string, values: readonly unknown[]): ReadonlySet<string> | null {
     const state = this.indexes.get(field)
@@ -295,6 +325,23 @@ export class PersistedCollectionIndex {
    * Supported ops: `'<'`, `'<='`, `'>'`, `'>='`, `'between'`. For
    * `'between'`, `value` is `[lo, hi]` and both bounds are inclusive
    * (matches the eager-mode operator contract in `predicate.ts`).
+   *
+   * NOT canonicalized (#677): this method compares `value` against the
+   * ORIGINAL TYPED `state.values`, not a stringified bucket key, so a
+   * `canonicalizeIndexKey`-shaped (`string | undefined`) result would not
+   * even type-check as a bound here. This does NOT mirror eager mode the
+   * way `lookupEqual`/`lookupIn` do: `moneyIndexProbe` (`via/money/
+   * where.ts`) never emits a range probe, so EAGER mode's `candidateRecords`
+   * never calls an index for a range clause and always scans.
+   *
+   * LAZY mode's `resolveCandidateIds()` (`lazy-builder.ts`) no longer
+   * dispatches a Via-covered (e.g. money) range clause through THIS method
+   * at all (#684) — it enumerates the field's indexed ids via `orderedBy()`
+   * instead and leaves the raw/typed comparison here for the (now
+   * Via-aware) post-filter to redo correctly in scaled-int space. A
+   * NON-via range clause still dispatches through this method exactly as
+   * before — the raw/typed comparison here is correct and sufficient for
+   * fields with no decode-transforming Via binding.
    */
   lookupRange(
     field: string,
@@ -358,9 +405,15 @@ function stringifyKey(value: unknown): string {
   return '\0OBJECT\0'
 }
 
-function addToState(state: PersistedFieldState, recordId: string, value: unknown): void {
+function addToState(
+  state: PersistedFieldState,
+  recordId: string,
+  value: unknown,
+  field: string,
+  canonicalize?: (field: string, value: unknown) => string | undefined,
+): void {
   if (value === null || value === undefined) return
-  const key = stringifyKey(value)
+  const key = canonicalize?.(field, value) ?? stringifyKey(value)
   let bucket = state.buckets.get(key)
   if (!bucket) {
     bucket = new Set()
@@ -370,9 +423,15 @@ function addToState(state: PersistedFieldState, recordId: string, value: unknown
   state.values.set(recordId, value)
 }
 
-function removeFromState(state: PersistedFieldState, recordId: string, value: unknown): void {
+function removeFromState(
+  state: PersistedFieldState,
+  recordId: string,
+  value: unknown,
+  field: string,
+  canonicalize?: (field: string, value: unknown) => string | undefined,
+): void {
   if (value === null || value === undefined) return
-  const key = stringifyKey(value)
+  const key = canonicalize?.(field, value) ?? stringifyKey(value)
   const bucket = state.buckets.get(key)
   if (bucket) {
     bucket.delete(recordId)

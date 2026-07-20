@@ -7,7 +7,7 @@
  * / editable blocks added incrementally). This test pins the full output shape
  * for a representative collection — money + staticDict + ref + computed + i18n +
  * a sensitive field + a plain field — against an inline expected structure, so
- * the contract `@noy-db/ui` binds via `@noy-db/hub/describe` cannot drift silently.
+ * the contract `@noy-db/ui` binds via `@noy-db/hub/ui` cannot drift silently.
  *
  * The fixture mirrors the existing `__tests__/introspection/describe.test.ts`
  * fixtures; the inline expectation is the exact `describe()` output (sorted-key,
@@ -15,13 +15,13 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
-import { money } from '../src/with-shape/money/descriptor.js'
-import { staticDict } from '../src/with-shape/i18n/dictionary.js'
-import { i18nText } from '../src/with-shape/i18n/core.js'
+import { money } from '../src/via/money/descriptor.js'
+import { staticDict } from '../src/via/i18n/dictionary.js'
+import { i18nText } from '../src/via/i18n/core.js'
 import { ref } from '../src/kernel/refs.js'
-import { withI18n } from '../src/with-shape/i18n/active.js'
+import { withI18n } from '../src/via/i18n/active.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
-import type { CollectionDescription } from '@noy-db/hub/describe'
+import type { CollectionDescription } from '@noy-db/hub/ui'
 import { ConflictError } from '../src/kernel/errors.js'
 
 function inlineMemory(): NoydbStore {

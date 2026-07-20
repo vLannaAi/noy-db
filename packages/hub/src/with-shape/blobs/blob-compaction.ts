@@ -37,6 +37,14 @@ import { encrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
 
 export interface BlobFieldPolicy<T = unknown> {
   /**
+   * Via port brand marker — lets a `BlobFieldPolicy` satisfy the kernel's
+   * opaque `ViaDescriptor` (#629 Task 7). Optional (the
+   * `ClassifiedFieldSpec._viaBrand` precedent): `blobFields` policies are
+   * plain object literals with no declaration factory to stamp it, so a
+   * mandatory field would break every existing declaration.
+   */
+  readonly _viaBrand?: 'blob'
+  /**
    * Age-based TTL in days. A slot whose `uploadedAt` is older than
    * `now - retainDays × 86400s` evicts on the next `vault.compact()`.
    * Omit to disable age-based eviction.

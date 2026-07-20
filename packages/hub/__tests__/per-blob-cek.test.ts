@@ -13,10 +13,12 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
-import { withBlobs } from '../src/with-shape/blobs/index.js'
+import { withBlobs } from '../src/via/blob/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withTiers } from '../src/with-audit/tiers/index.js'
 import { BLOB_INDEX_COLLECTION, BLOB_CHUNKS_COLLECTION } from '../src/with-shape/blobs/blob-set.js'
+import { BLOB_INTENT_COLLECTION } from '../src/with-shape/blobs/blob-intent.js'
 
 function makeStore(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -261,6 +263,147 @@ describe('per-blob CEK (slice 3: migration of legacy blobs)', () => {
     expect(result.blobResidueCollections).toEqual([])
     expect(await store.get(VAULT, BLOB_INDEX_COLLECTION, eTag)).toBeNull()
     db2.close()
+  })
+})
+
+/** Hang forever on the Nth `put` matching `match` — mirrors blob-shred-journal.test.ts's twin. */
+function hangOnNthPut(
+  store: NoydbStore,
+  match: (col: string, id: string) => boolean,
+  n: number,
+  onReached: () => void,
+): NoydbStore {
+  let count = 0
+  return {
+    ...store,
+    async put(v, col, id, env, ev) {
+      if (match(col, id)) {
+        count++
+        if (count === n) { onReached(); return new Promise<void>(() => {}) }
+      }
+      return store.put(v, col, id, env, ev)
+    },
+  }
+}
+
+describe('per-blob CEK (slice 3b: migrate() tier-awareness, #756)', () => {
+  let store: NoydbStore
+  beforeEach(() => { store = makeStore() })
+
+  it('migrate() on a still-elevated record works instead of TamperedError (#756 regression)', async () => {
+    // Session 1: legacy (untiered) collection — the blob is written flat,
+    // no `_cek`. `assertBlobWritable` refuses a blob write once `tiers` is
+    // configured on the Collection instance doing the write, so the legacy
+    // blob must be seeded BEFORE tiers are ever declared for this collection.
+    const db1 = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const v1 = await db1.openVault(VAULT)
+    const docs1 = v1.collection<{ id: string }>('docs')
+    await docs1.put('d-1', { id: 'd-1' })
+    await docs1.blob('d-1').put('f.bin', bytes('legacy content, elevated later'))
+    db1.close()
+
+    // Session 2: same store, collection reopened with `tiers` declared (no
+    // `blobFields`, so the construction-time mandate never fires).
+    // `elevate()` is blob-agnostic — it re-keys the slot map onto the
+    // destination tier's DEK regardless of whether the blob is legacy.
+    const db2 = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const v2 = await db2.openVault(VAULT)
+    const docs2 = v2.collection<{ id: string }>('docs', { tiers: [0, 1] })
+    await docs2.elevate('d-1', 1)
+
+    // Pre-fix: `migrate()`'s hardcoded `loadSlots(0)` throws `TamperedError`
+    // here — the slot map is now only openable under the tier-1 DEK.
+    const r = await docs2.blob('d-1').migrate()
+    expect(r.migrated).toHaveLength(1)
+    expect(r.alreadyErasable).toEqual([])
+
+    // Still decrypts correctly (through the elevated/cleared surface).
+    const atTier = await docs2.blob('d-1').atTier()
+    expect(new TextDecoder().decode((await atTier.get('f.bin'))!)).toBe('legacy content, elevated later')
+    db2.close()
+  })
+
+  it('a mixed legacy+erasable slot map migrates only the legacy blob — the already-erasable one is untouched', async () => {
+    // Session 1: legacy collection. One blob is migrated to a content CEK
+    // BEFORE the second (still-legacy) blob is even written, so the record
+    // ends up with one already-erasable slot and one genuinely flat slot.
+    const db1 = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const v1 = await db1.openVault(VAULT)
+    const docs1 = v1.collection<{ id: string }>('docs')
+    await docs1.put('d-1', { id: 'd-1' })
+    await docs1.blob('d-1').put('erasable.bin', bytes('already migrated before elevation'))
+    await docs1.blob('d-1').migrate()
+    expect((await docs1.blob('d-1').blobInfo('erasable.bin'))!._cek).toBeDefined()
+
+    await docs1.blob('d-1').put('legacy.bin', bytes('still flat when elevated'))
+    const legacyETag = (await docs1.blob('d-1').blobInfo('legacy.bin'))!.eTag
+    expect((await docs1.blob('d-1').blobInfo('legacy.bin'))!._cek).toBeUndefined()
+    db1.close()
+
+    // Session 2: elevate — the erasable slot's content is rehomed onto tier
+    // 1 (`_cek` defined ⇒ rehome rewraps it); the legacy slot's content is
+    // left flat at tier 0 (rehome's per-eTag loop skips `_cek === undefined`
+    // objects). Only the slot MAP row moves, for both.
+    const db2 = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const v2 = await db2.openVault(VAULT)
+    const docs2 = v2.collection<{ id: string }>('docs', { tiers: [0, 1] })
+    await docs2.elevate('d-1', 1)
+
+    // Rehoming an erasable (per-record-CEK) blob mints a fresh tier-scoped
+    // eTag (its address is HMAC-derived from the encryption key too, not
+    // just the plaintext) — re-read it post-elevate rather than reusing the
+    // pre-elevate value. The legacy blob is never rewrapped, so its eTag is
+    // unchanged.
+    const atTierPostElevate = await docs2.blob('d-1').atTier()
+    const rehomedErasableETag = (await atTierPostElevate.blobInfo('erasable.bin'))!.eTag
+
+    const r = await docs2.blob('d-1').migrate()
+    expect(r.alreadyErasable).toEqual([rehomedErasableETag]) // rehomed, opens at tier 1 — never touched
+    expect(r.migrated).toEqual([legacyETag]) // genuinely flat — upgraded now
+
+    const atTier = await docs2.blob('d-1').atTier()
+    expect(new TextDecoder().decode((await atTier.get('erasable.bin'))!)).toBe('already migrated before elevation')
+    expect(new TextDecoder().decode((await atTier.get('legacy.bin'))!)).toBe('still flat when elevated')
+    db2.close()
+  })
+
+  it('migrate() resumes a stranded mid-rehome record before migrating (#756 spec §3)', async () => {
+    const db1 = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const v1 = await db1.openVault(VAULT)
+    const docs1 = v1.collection<{ id: string }>('docs')
+    await docs1.put('d-1', { id: 'd-1' })
+    await docs1.blob('d-1').put('f.bin', bytes('legacy content, crashed mid-move'))
+    db1.close()
+
+    // Crash `elevate()` exactly at the rehome marker's own first write (the
+    // slot-CAS inside `runRehomeSteps`) — the record's own `_tier` already
+    // landed at 1 (elevate() writes the record before syncBlobs), but the
+    // slot map's physical move never lands, leaving a pending `_blob_intent`
+    // rehome marker.
+    let reached!: () => void
+    const reachedPromise = new Promise<void>((r) => { reached = r })
+    const crashing = hangOnNthPut(store, (col) => col === '_blob_slots_docs', 1, () => reached())
+    const dbCrash = await createNoydb({ store: crashing, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const vaultCrash = await dbCrash.openVault(VAULT)
+    const docsCrash = vaultCrash.collection<{ id: string }>('docs', { tiers: [0, 1] })
+    void docsCrash.elevate('d-1', 1) // fire-and-forget: never settles (simulated crash)
+    await reachedPromise
+    expect(await store.list(VAULT, BLOB_INTENT_COLLECTION)).toHaveLength(1)
+
+    // Fresh session: `migrate()` must resume the stranded rehome to
+    // completion (via `resolvePendingIntent()`) BEFORE reading the slot map
+    // for its own upgrade pass.
+    const dbResume = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const vaultResume = await dbResume.openVault(VAULT)
+    const docsResume = vaultResume.collection<{ id: string }>('docs', { tiers: [0, 1] })
+    const r = await docsResume.blob('d-1').migrate()
+
+    expect(await store.list(VAULT, BLOB_INTENT_COLLECTION)).toEqual([]) // marker resumed, gone
+    expect(r.migrated).toHaveLength(1) // legacy content, upgraded post-resume
+
+    const atTier = await docsResume.blob('d-1').atTier()
+    expect(new TextDecoder().decode((await atTier.get('f.bin'))!)).toBe('legacy content, crashed mid-move')
+    dbResume.close()
   })
 })
 

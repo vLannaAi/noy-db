@@ -23,13 +23,15 @@
  */
 import type { NoydbStore } from '../../kernel/types.js'
 import type { RecordCodec } from '../../kernel/enclave/index.js'
-import { stripI18nFilled, type I18nTextDescriptor } from '../../with-shape/i18n/core.js'
-import { isStaticDictDescriptor, type DictKeyDescriptor, type StaticDictDescriptor, type DictionaryHandle } from '../../with-shape/i18n/dictionary.js'
+import { stripI18nFilled, type I18nTextDescriptor } from '../../via/i18n/core.js'
+import { isStaticDictDescriptor, type DictKeyDescriptor, type StaticDictDescriptor, type DictionaryHandle } from '../../via/i18n/dictionary.js'
 import type { BlobSet } from '../../with-shape/blobs/blob-set.js'
 import type { BlobFieldsConfig } from '../../with-shape/blobs/blob-compaction.js'
 import type { Query } from '../../kernel/query/index.js'
 import { embeddingSourceText, type VectorSet, type EmbeddingDescriptor, type StoredVector } from '../embeddings/index.js'
+import { encodeVecId, decodeVecId, isVecIdFor } from '../embeddings/vec-id.js'
 import { EmbeddingDimMismatchError } from '../../kernel/errors.js'
+import { liveRecordIsElevated } from '../../kernel/tier-visibility.js'
 import { searchScan, fuseRetrieval, type SearchOptions, type SearchResult } from './index.js'
 import type { IndexStore } from './index-store.js'
 import type { PersistedIndexCallbacks } from './persisted-index-store.js'
@@ -191,10 +193,30 @@ function buildVectorLoad<T>(ctx: SearchContext<T>): () => Promise<StoredVector[]
   return async () => {
     const ids = await ctx.adapter.list(ctx.vault, '_vec')
     const out: StoredVector[] = []
-    for (const id of ids) {
-      const env = await ctx.adapter.get(ctx.vault, '_vec', id)
+    for (const vecId of ids) {
+      // #726: _vec is a vault-wide bucket namespaced by collection prefix —
+      // skip rows belonging to other collections before touching this one's.
+      if (!isVecIdFor(ctx.name, vecId)) continue
+      const id = decodeVecId(ctx.name, vecId)!
+      // #721 defense-in-depth: a _vec row carries no _tier of its own; the purge
+      // on elevate is best-effort and cannot reach a legacy sidecar, so gate on
+      // the owning record's live tier. Envelope peek, no decryption.
+      if (await liveRecordIsElevated(ctx.adapter, ctx.vault, ctx.name, id)) continue
+      const env = await ctx.adapter.get(ctx.vault, '_vec', vecId)
       if (!env) continue
-      const body = await ctx.codec.decryptJsonString(env)
+      // #726 fails-safe: a row can pass isVecIdFor's prefix filter yet still
+      // be undecryptable under THIS collection's DEK — a surviving legacy
+      // bare-id row whose record id happens to start with `<thisCollection>/`,
+      // or plain corruption. _vec sidecars are derived, re-derivable
+      // artifacts (embedOnWrite regenerates them on the record's next put()),
+      // so best-effort skip is correct: never let one poison row crash
+      // similarTo()/retrieve() for the whole collection.
+      let body: string | null
+      try {
+        body = await ctx.codec.decryptJsonString(env)
+      } catch {
+        continue
+      }
       if (body === null) continue
       const parsed = JSON.parse(body) as { vec: number[]; model: string }
       out.push({ id, vec: new Float32Array(parsed.vec), model: parsed.model })
@@ -237,10 +259,16 @@ export function buildPersistedIndexCallbacks<T>(provideCtx: () => SearchContext<
         return null
       }
     },
-    save: async (json, fp) => {
+    save: async (json, fp, isStale) => {
       const ctx = provideCtx()
       const body = JSON.stringify({ fp, idx: json })
       const env = await ctx.codec.encryptJsonString(body, fp.count)
+      // #725 review: a purge (removePersisted) can land while the encrypt above was
+      // in flight — check right before the write and skip it rather than resurrect a
+      // purged/forgotten record's blob. PersistedIndexStore's own post-save epoch
+      // check is the backstop for every other ordering (incl. a purge landing during
+      // this very put).
+      if (isStale()) return
       await ctx.adapter.put(ctx.vault, FT, ctx.name, env)
     },
     remove: async () => { const ctx = provideCtx(); await ctx.adapter.delete(ctx.vault, FT, ctx.name) },
@@ -381,6 +409,76 @@ export async function embedOnWrite<T>(ctx: SearchContext<T>, id: string, record:
   if (vec.length !== ctx.embeddings.dim) throw new EmbeddingDimMismatchError('embeddings', ctx.embeddings.dim, vec.length)
   const body = JSON.stringify({ vec: Array.from(vec), model: ctx.embeddings.model, dim: ctx.embeddings.dim })
   const vecEnv = await ctx.codec.encryptJsonString(body, version)
-  await ctx.adapter.put(ctx.vault, '_vec', id, vecEnv)
+  await ctx.adapter.put(ctx.vault, '_vec', encodeVecId(ctx.name, id), vecEnv)
   ctx.vectorSet?.markDirty()
+}
+
+/**
+ * Force-re-derive every eligible tier-0 record's `_vec` sidecar once (#788).
+ * Opt-in bulk repair for the #726 re-namespace: legacy bare-id rows are
+ * unreachable to `buildVectorLoad` (it only recognises `<collection>/<id>`
+ * keys) and otherwise self-heal only when a record is next `put()` — this
+ * lets an adopter recover recall immediately instead of waiting on writes.
+ *
+ * **Skips elevated records** (`liveRecordIsElevated`) rather than refusing
+ * the whole walk — the OPPOSITE of `_applyCutoverTransform`'s
+ * `assertCutoverTierSafe` refuse-whole-batch precedent. An elevated record is
+ * SUPPOSED to have no `_vec` (`syncTierSearch` purges it on elevate);
+ * re-embedding one here would write searchable plaintext-derived data above
+ * tier 0. Load-bearing: never write a `_vec` row for an elevated record.
+ *
+ * Tombstones, delete markers, and a raw `get` racing a delete between `list`
+ * and `get` all decrypt to `null` (`decryptRecord` already folds
+ * tombstone/delete-marker into that null) and are skipped the same way.
+ * Unconditional re-derive, no already-migrated check — safe to re-run after
+ * a partial failure (each id is independently idempotent).
+ */
+export async function rebuildEmbeddings<T>(ctx: SearchContext<T>): Promise<{ rebuilt: number; skipped: number }> {
+  if (!ctx.embeddings) return { rebuilt: 0, skipped: 0 }
+  const ids = await ctx.adapter.list(ctx.vault, ctx.name)
+  let rebuilt = 0
+  let skipped = 0
+  for (const id of ids) {
+    if (await liveRecordIsElevated(ctx.adapter, ctx.vault, ctx.name, id)) { skipped++; continue }
+    const env = await ctx.adapter.get(ctx.vault, ctx.name, id)
+    if (!env) { skipped++; continue }
+    const decoded = await ctx.codec.decryptRecord(env, { id })
+    if (decoded === null) { skipped++; continue }
+    await embedOnWrite(ctx, id, decoded, env._v ?? 1)
+    rebuilt++
+  }
+  return { rebuilt, skipped }
+}
+
+/**
+ * Sync the collection's SEARCH artifacts after a tier move (#721). Both the
+ * lexical `_ftindex` blob and the `_vec/<id>` embedding are encrypted under
+ * the tier-0 DEK and hold the record's derived plaintext (full field text /
+ * a text-invertible vector), so leaving them means elevation never hid what
+ * the record was searchable by — the `forget()` precedent, unapplied to
+ * elevate. `null` → the record left tier 0: purge its `_vec` sidecar (mirrors
+ * `Collection._purgeVector`), and invalidate the `_ftindex` blob (mirrors
+ * `Collection._purgeSearchIndex`: deletes the persisted blob when persisted,
+ * else drops the in-memory index) so the next `retrieve()` rebuilds from the
+ * elevated-free `ctx.cache`. A record → it is tier-0 again: re-embed it via
+ * {@link embedOnWrite}, then invalidate `_ftindex` so the rebuild includes it
+ * again. No-op fast when the collection has neither a lexical index nor a
+ * vector set.
+ */
+export async function syncTierSearch<T>(
+  ctx: SearchContext<T>,
+  id: string,
+  record: T | null,
+  version?: number,
+): Promise<void> {
+  if (!ctx.searchIndexStore && !ctx.vectorSet) return
+  if (record === null) {
+    await ctx.adapter.delete(ctx.vault, '_vec', encodeVecId(ctx.name, id))
+    ctx.vectorSet?.markDirty()
+  } else {
+    await embedOnWrite(ctx, id, record, version ?? 1)
+  }
+  const store = ctx.searchIndexStore
+  if (store && 'removePersisted' in store) await (store as { removePersisted(): Promise<void> }).removePersisted()
+  else store?.markDirty()
 }

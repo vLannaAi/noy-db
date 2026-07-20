@@ -24,6 +24,8 @@ import type {
   PutObjectOptions,
   ObjectUrlOptions,
   PutUrlOptions,
+  StoreCredentials,
+  StoreCredentialSource,
 } from '@noy-db/hub'
 import {
   S3Client,
@@ -52,6 +54,16 @@ export interface AsAwsS3Options {
   baseUrl?: string
   /** Default presigned-URL TTL (seconds). Default 900 (15 min). */
   defaultExpiresInSeconds?: number
+  /**
+   * Vendor-neutral rolling-credential hook (`@noy-db/hub`'s `StoreCredentials`
+   * seam, #479). Wired as a functional `AwsCredentialIdentityProvider` so the
+   * AWS SDK's own `memoizeIdentityProvider` re-invokes it at the credential's
+   * expiry — this package does not run its own refresh logic on this arm.
+   * Ignored when `client` is supplied (the pre-built client owns its own
+   * provider). Omit to keep the ambient credential chain (default provider
+   * chain / env vars / instance role).
+   */
+  credentials?: StoreCredentialSource
 }
 
 /** The projection plus an S3-specific stable-public-URL helper. */
@@ -65,11 +77,34 @@ function isNotFound(err: unknown): boolean {
   return e?.name === 'NotFound' || e?.name === 'NoSuchKey' || e?.$metadata?.httpStatusCode === 404
 }
 
+/**
+ * Maps a `kind:'aws'` {@link StoreCredentials} to the shape the AWS SDK's
+ * credential provider expects. `expiration` MUST be a `Date` — the SDK's
+ * `memoizeIdentityProvider` only re-invokes the provider when the returned
+ * identity carries one; omitting it silently defeats rolling credentials
+ * (the SDK memoizes forever). `kind:'token'` is a later slice (#479).
+ */
+function mapAws(creds: StoreCredentials) {
+  if (creds.kind !== 'aws') {
+    throw new Error(`@noy-db/as-aws-s3: credentials source returned kind '${creds.kind}' — only 'aws' is supported`)
+  }
+  return {
+    accessKeyId: creds.accessKeyId,
+    secretAccessKey: creds.secretAccessKey,
+    ...(creds.sessionToken ? { sessionToken: creds.sessionToken } : {}),
+    ...(creds.expiresAt ? { expiration: new Date(creds.expiresAt) } : {}),
+  }
+}
+
 export function asAwsS3(options: AsAwsS3Options): AsAwsS3Projection {
   const { bucket } = options
   const prefix = options.prefix ? options.prefix.replace(/\/+$/, '') + '/' : ''
   const region = options.region ?? 'us-east-1'
-  const client = options.client ?? new S3Client({ region })
+  const credentialsSource = options.credentials
+  const client = options.client ?? new S3Client({
+    region,
+    ...(credentialsSource ? { credentials: async () => mapAws(await credentialsSource()) } : {}),
+  })
   // getSignedUrl types its client against its own @smithy/types copy; when the
   // installed @aws-sdk/client-s3 and s3-request-presigner resolve to different
   // minor versions, S3Client and the expected Client diverge only on a private

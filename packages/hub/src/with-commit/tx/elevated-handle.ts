@@ -9,6 +9,7 @@
  */
 import { ElevationExpiredError } from '../../kernel/errors.js'
 import type { Vault } from '../../kernel/vault.js'
+import type { TierMoveResult } from '../../with-audit/tiers/index.js'
 
 /**
  * Reserved collection that holds the audit ledger of elevation
@@ -63,15 +64,18 @@ export class ElevatedHandle {
    * `collection(...)`, which keeps "writes elevated, reads
    * unprivileged" trivially true.
    */
-  collection<T>(name: string): { put(id: string, record: T): Promise<void> } {
+  collection<T>(name: string): { put(id: string, record: T): Promise<TierMoveResult> } {
     // Don't gate the wrapper itself — just the operation. Adopters
     // commonly cache `const docs = elev.collection('docs')` and the
     // lazy-check still works correctly because assertActive runs at
     // every `put` call, against a fresh `Date.now()`.
     return {
-      put: async (id: string, record: T): Promise<void> => {
+      // #779 — surface `_elevatedPut`'s `TierMoveResult` (searchResidue) instead of
+      // discarding it, so a stuck search compensation on this convenience path is
+      // observable by the caller, mirroring `putAtTier`'s direct-call parity (#774).
+      put: async (id: string, record: T): Promise<TierMoveResult> => {
         this.assertActive()
-        await this.vault._elevatedPut<T>(name, id, record, this.tier, this.reason)
+        return await this.vault._elevatedPut<T>(name, id, record, this.tier, this.reason)
       },
     }
   }

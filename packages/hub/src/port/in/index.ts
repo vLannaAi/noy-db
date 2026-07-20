@@ -6,7 +6,7 @@
  * types it wraps (`Noydb`, `Vault`, `Collection`, `Query`, `LiveQuery`) plus
  * the change-event shape it observes (`ChangeEvent`). Type-only — a
  * framework binding always receives a live instance from `createNoydb()`/
- * `openVault()`/`collection()` via the root barrel or `@noy-db/hub/kernel`;
+ * `openVault()`/`collection()` via the root barrel or `@noy-db/hub/cargo`;
  * this port exists so its wrapper types can name the shapes without
  * importing the whole hub surface.
  *

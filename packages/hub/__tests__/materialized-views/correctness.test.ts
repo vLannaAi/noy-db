@@ -11,6 +11,7 @@ import {
 import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
 import { sum, count } from '../../src/with-lookup/aggregate/reducers.js'
 import { withTransactions } from '../../src/with-commit/tx/index.js'
+import { withTiers } from '../../src/with-audit/tiers/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 function memory(): NoydbStore {
@@ -229,6 +230,52 @@ describe('MV correctness (#152)', () => {
       expect(second.written).toBe(1) // 'b' re-emitted
       expect(second.deleted).toBe(1) // 'a' tombstoned
     })
+
+    it('tombstone leg counts honestly: a #718 elevated-skip on the output row is NOT counted as deleted (#776 part b)', async () => {
+      // The tombstone loop uses `_internalDelete`, which returns `false` (no
+      // erasure) when the target record is elevated above tier 0 on a tiered
+      // collection (#718). Before the fix, the loop still incremented
+      // `deleted` unconditionally after calling it.
+      const mv = withMaterializedView<Item>({
+        name: 'red-items',
+        query: (db) => db.collection<Item>('items').query().where('tag', '==', 'red'),
+        rowKey: (r) => r.id,
+        refresh: 'manual',
+        output: { collection: 'red-items-out' },
+      })
+      const db = await createNoydb({
+        store: memory(),
+        user: 'alice',
+        secret: 'mv-correctness-776b-eager-count-passphrase-2026',
+        tiersStrategy: withTiers(),
+        materializedViewStrategies: [mv],
+      })
+      const vault = await db.openVault('demo')
+      // Declare tiers on the OUTPUT collection BEFORE the first refresh
+      // constructs it untiered (first-construction-wins, same discipline as
+      // tiers-derived.test.ts / mv-tier-staleness.test.ts).
+      const out = vault.collection<Item>('red-items-out', { tiers: [0, 1], perRecordKeys: true })
+      await vault.collection<Item>('items').put('a', { id: 'a', tag: 'red' })
+      const first = await vault.refreshView('red-items')
+      expect(first.written).toBe(1)
+
+      // Elevate the OUTPUT row directly — same session, so the executor's
+      // ownership decode below still succeeds (the CEK cache is warm from the
+      // elevate call itself), but `_internalDelete` is #718-gated.
+      await out.elevate('a', 1)
+
+      // Flip the source's tag so it no longer matches the MV's filter — the
+      // next refresh must attempt to tombstone the (now-elevated) output row.
+      await vault.collection<Item>('items').put('a', { id: 'a', tag: 'blue' })
+      const second = await vault.refreshView('red-items')
+
+      expect(second.deleted).toBe(0) // #776 part b — the over-count RED this test pins
+      // #782 part b / #785 — decoded (warm cek) + stamp-owned but #718-declined: a real
+      // silent survival, must be surfaced in the declined channel, not just correctly
+      // excluded from `deleted`.
+      expect(second.residueDeclined).toEqual(['red-items-out:a'])
+      expect(second.residueUndecodable).toEqual([])
+    })
   })
 
   describe('same-collection partition (DERIV-PP30-001 shape)', () => {
@@ -313,6 +360,115 @@ describe('MV correctness (#152)', () => {
         materializedViewStrategies: [mv],
       })
       await db.openVault('demo')
+    })
+
+    it('ordinary delete() of one source row does not wipe OTHER source rows at rest (#762)', async () => {
+      const mv = withMaterializedView<Disbursement>({
+        name: 'pp30-aggregate',
+        query: (db) => db.collection<Disbursement>('disbursements')
+          .query()
+          .where('type', 'in', ['vatSales', 'vatPurchase', 'vatCredit']),
+        rowKey: (r) => `pp30|${r.period}|${r.id}`,
+        refresh: 'eager',
+        output: { collection: 'disbursements', partition: { field: 'type', value: 'pp30' } },
+      })
+      const db = await createNoydb({
+        store: memory(),
+        user: 'alice',
+        secret: 'mv-correctness-762-tombstone-passphrase-2026',
+        materializedViewStrategies: [mv],
+      })
+      const vault = await db.openVault('demo')
+      const coll = vault.collection<Disbursement>('disbursements')
+      await coll.put('d1', { id: 'd1', type: 'vatSales', period: '2026-05', amount: 1000 })
+      await coll.put('d2', { id: 'd2', type: 'vatPurchase', period: '2026-05', amount: 500 })
+      expect(await coll.get('pp30|2026-05|d1')).not.toBeNull()
+      expect(await coll.get('pp30|2026-05|d2')).not.toBeNull()
+
+      // Ordinary delete() of d1 fires the eager MV refresh (onEmpty: 'delete', the default).
+      // Before the fix, the tombstone diff (`listOutputIds` with no ownership filter) wipes
+      // EVERY id in the output collection absent from the new result set — including d2, an
+      // untouched USER source row that still matches the MV's own query.
+      await coll.delete('d1')
+
+      expect(await coll.get('d2')).not.toBeNull() // #762 — the data-loss RED this test pins
+      expect((await coll.get('d2'))?.amount).toBe(500)
+    })
+
+    it('does not self-perpetuate: a stale stamped output row is excluded from the MV\'s own input scan (#777)', async () => {
+      // Same-collection Query-form MV whose input filter is on a field DISJOINT
+      // from the partition field ('type'). The output row is a VERBATIM copy of
+      // the source row, so it still carries `type: 'vatSales'` — meaning it
+      // itself satisfies the MV's own input filter. A fixed rowKey means the
+      // recomputed id always lands on the SAME output row. Before the fix, once
+      // the true source (d1) is deleted, the next eager refresh's input scan
+      // still picks up the stale stamped output row (it matches the filter),
+      // re-derives it under the same id, and it lands back in `newIds` — the
+      // row survives the tombstone diff and self-perpetuates forever.
+      const mv = withMaterializedView<Disbursement>({
+        name: 'vatSales-summary',
+        query: (db) => db.collection<Disbursement>('disbursements').query().where('type', '==', 'vatSales'),
+        rowKey: () => 'summary',
+        refresh: 'eager',
+        output: { collection: 'disbursements', partition: { field: 'type', value: 'pp30' } },
+      })
+      const db = await createNoydb({
+        store: memory(),
+        user: 'alice',
+        secret: 'mv-correctness-777-self-perpetuation-passphrase-2026',
+        materializedViewStrategies: [mv],
+      })
+      const vault = await db.openVault('demo')
+      const coll = vault.collection<Disbursement>('disbursements')
+      await coll.put('d1', { id: 'd1', type: 'vatSales', period: '2026-05', amount: 1000 })
+      expect(await coll.get('summary')).not.toBeNull()
+
+      // Delete the true source. The next eager refresh must NOT re-select the
+      // stale stamped 'summary' output row as if it were live source input.
+      await coll.delete('d1')
+
+      expect(await coll.get('summary')).toBeNull() // #777 — the self-perpetuation RED this test pins
+    })
+
+    it('manual MV sharing an output collection with an invalidated sibling keeps its rows (#761 item 2)', async () => {
+      interface Order extends Record<string, unknown> { id: string; amount: number }
+      interface Invoice extends Record<string, unknown> { id: string; amount: number }
+      const mvA = withMaterializedView<Order>({
+        name: 'orders-report',
+        query: (db) => db.collection<Order>('orders').query(),
+        rowKey: (r) => `orders|${r.id}`,
+        refresh: 'lazy',
+        output: { collection: 'reports' },
+      })
+      const mvB = withMaterializedView<Invoice>({
+        name: 'invoices-report',
+        query: (db) => db.collection<Invoice>('invoices').query(),
+        rowKey: (r) => `invoices|${r.id}`,
+        refresh: 'manual',
+        output: { collection: 'reports' },
+      })
+      const db = await createNoydb({
+        store: memory(),
+        user: 'alice',
+        secret: 'mv-correctness-sibling-passphrase-2026',
+        materializedViewStrategies: [mvA, mvB],
+      })
+      const vault = await db.openVault('demo')
+      await vault.collection<Order>('orders').put('o1', { id: 'o1', amount: 10 })
+      await vault.collection<Invoice>('invoices').put('i1', { id: 'i1', amount: 20 })
+
+      // Materialize mvA lazily (a read triggers resolve-on-read) and mvB explicitly (manual).
+      expect(await vault.collection('reports').get('orders|o1')).not.toBeNull()
+      await vault.refreshView('invoices-report')
+      expect(await vault.collection('reports').get('invoices|i1')).not.toBeNull()
+
+      // Deleting mvA's source row invalidates mvA's OWN stamped output row at rest
+      // (`invalidateMVAtRest`). mvB's row — a manual sibling sharing the SAME output
+      // collection — must survive: the stamp-scoped discipline in `invalidateMVAtRest`
+      // must never collaterally wipe a sibling MV's rows (#761 item 2).
+      await vault.collection<Order>('orders').delete('o1')
+      expect(await vault.collection('reports').get('orders|o1')).toBeNull()
+      expect(await vault.collection('reports').get('invoices|i1')).not.toBeNull()
     })
   })
 

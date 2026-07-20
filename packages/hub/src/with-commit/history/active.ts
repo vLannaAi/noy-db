@@ -35,6 +35,7 @@ import {
   pruneHistory,
   clearHistory,
   tombstoneHistory,
+  rewrapHistory,
 } from './history.js'
 import { diff as computeDiff } from './diff.js'
 import { LedgerStore, envelopePayloadHash } from './ledger/store.js'
@@ -59,6 +60,7 @@ export function withHistory(): HistoryStrategy {
     pruneHistory,
     clearHistory,
     tombstoneHistory,
+    rewrapHistory,
     envelopePayloadHash,
     computePatch,
     diff: computeDiff,

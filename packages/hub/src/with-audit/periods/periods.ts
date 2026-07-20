@@ -41,6 +41,97 @@
  * as normal records with fresh timestamps that fall outside every
  * closed period.
  *
+ * ## Freeze
+ *
+ * ```
+ * vault.freezePeriod('FY2026-Q1')
+ *   └─► physically purges delete markers whose write-time falls inside
+ *       the closed period's window (via the #589 `_purgeDeleteMarkers`
+ *       seam), then records the fact:
+ *         ├─ PeriodFreezeRecord written to _period_freezes/<name>
+ *         └─ normal ledger append fires (LedgerStore.append)
+ * ```
+ *
+ * The chained `_periods/<name>` record is never mutated — `frozenAt` /
+ * `frozenBy` / `purgedMarkerCount` are merged onto the returned
+ * `PeriodRecord` at read time from the companion, so a tamper with the
+ * freeze can never break the inter-period hash chain. Freezing is
+ * terminal (a closed period, once frozen, stays frozen) and idempotent
+ * (a second call is a no-op that returns the same merged record without
+ * re-purging or re-appending a ledger entry). Freeze does NOT purge
+ * forget-tombstones (GDPR crypto-shred erasure evidence), `_history`
+ * versions, or live records — the delete-markers-only seam leaves all
+ * three untouched by construction.
+ *
+ * Freeze purges the LOCAL adapter only. On a synced vault, markers already
+ * pushed to sync targets survive there, and a later pull re-imports them
+ * (benign — they still read deleted, but the space isn't reclaimed). A
+ * re-imported marker keeps its original `_ts` (inside the already-frozen
+ * period's window), so — like any late-booked delete — it is reclaimed by
+ * the NEXT period's freeze, whose window covers it; freeze stays terminal
+ * and does NOT re-purge an already-frozen period (#611). Sweeping the sync
+ * targets themselves is a cross-target-purge concern deferred to the
+ * cold-archival spec. Purging re-opens the #589 resurrection window for a
+ * peer offline since before the cutoff, which is why the closed period is
+ * the operator-asserted safe-point that gates the call.
+ *
+ * A period whose purge window has not fully elapsed cannot be frozen —
+ * `freezePeriod` throws rather than purge markers for deletes that may not
+ * have converged yet (#610).
+ *
+ * ## Archive
+ *
+ * ```
+ * vault.archivePeriod('FY2026-Q1')
+ *   └─► relocates the closed period's in-window records (those with
+ *       `_ts < periodExclusiveUpperBound(endDate)`) from the hot store to
+ *       the configured cold tier (routeStore's `cold` route), then records:
+ *         ├─ PeriodArchiveRecord written to _period_archives/<name>
+ *         └─ a ledger entry attributed to _period_archives
+ * ```
+ *
+ * Archival is NON-DESTRUCTIVE: routeStore reads fall through to the cold
+ * tier on a hot miss, so an archived record still reads normally. It is
+ * therefore gated only on `closed` (not `frozen`) — it does not re-open the
+ * #589 resurrection window and needs no convergence safe-point. Freeze
+ * (purge markers) and archive (relocate records) are independent and compose
+ * in either order. Like freeze, archival keeps the chained `_periods/<name>`
+ * record byte-immutable (state lives in the companion) and is idempotent.
+ *
+ * Bounds by write-time `_ts`, NOT business date: the store tier sees only
+ * encrypted envelopes. A record with an in-period business date but a later
+ * `_ts` (late-booked) archives at the NEXT period's archive — the same rule
+ * freeze uses for late-booked delete markers. Requires a `routeStore` with a
+ * cold route (`age: { cold }`); throws otherwise.
+ *
+ * Read cost: with `withLazy()` (per-id reads) archived records are truly
+ * cold — fetched from cold only on access. In the default hydrated mode,
+ * `loadAll` merges the cold store, so archived records still load into RAM
+ * on vault open (hot-tier STORAGE is reclaimed; RAM is not). Summaries
+ * (`_`-prefixed) always stay hot.
+ *
+ * ## Target-purge
+ *
+ * ```
+ * vault.purgePeriodTargets('FY2026-Q1')
+ *   └─► sweeps delete markers (`_ts < periodExclusiveUpperBound(endDate)`) off
+ *       the vault's PUSH-ONLY sync targets (backup/archive roles), then records:
+ *         ├─ PeriodTargetPurgeRecord written to _period_target_purges/<name>
+ *         └─ a ledger entry attributed to _period_target_purges
+ * ```
+ *
+ * Extends freeze's local marker purge to the vault's own remote sinks.
+ * `sync-peer` (bidirectional) targets are SKIPPED: purging a marker there
+ * re-opens the #589 resurrection window for a client offline before the
+ * cutoff, an assertion no single vault can verify. Backup/archive targets are
+ * push-only — never pulled from into convergence — so sweeping their markers
+ * is safe. Requires the period be frozen first (closed → frozen →
+ * target-purged) so the local safe-point is already established. Idempotent
+ * once run; a vault with no push-only targets writes no companion and is
+ * re-runnable (so a target added later is still swept). Single-vault only —
+ * fleet-wide purge across sovereign vaults is klum's concern over
+ * `@noy-db/hub/cargo`.
+ *
  * ## Not covered
  *
  * - Partial re-opening of a closed period. If an auditor needs to
@@ -61,6 +152,75 @@ import { PeriodClosedError, ValidationError } from '../../kernel/errors.js'
 
 /** The reserved collection name holding closed-period metadata. */
 export const PERIODS_COLLECTION = '_periods'
+
+/** Sibling of {@link PERIODS_COLLECTION} holding freeze companions (#604). */
+export const PERIOD_FREEZES_COLLECTION = '_period_freezes'
+
+/** Sibling of {@link PERIODS_COLLECTION} holding archive companions (#613). */
+export const PERIOD_ARCHIVES_COLLECTION = '_period_archives'
+
+/** Sibling of {@link PERIODS_COLLECTION} holding target-purge companions (#615). */
+export const PERIOD_TARGET_PURGES_COLLECTION = '_period_target_purges'
+
+/**
+ * Companion record recording that a closed period was frozen (its delete
+ * markers physically purged). Stored in {@link PERIOD_FREEZES_COLLECTION},
+ * keyed by period name — kept OFF the hash-chained `_periods/<name>` record so
+ * freeze never alters the inter-period chain.
+ */
+export interface PeriodFreezeRecord {
+  readonly period: string
+  readonly frozenAt: string
+  readonly frozenBy: string
+  readonly purgedMarkerCount: number
+}
+
+/**
+ * Companion record noting that a closed period was cold-archived (its
+ * in-window records physically relocated hot → cold). Stored in
+ * {@link PERIOD_ARCHIVES_COLLECTION}, keyed by period name — kept OFF the
+ * hash-chained `_periods/<name>` record so archive never alters the chain.
+ */
+export interface PeriodArchiveRecord {
+  readonly period: string
+  readonly archivedAt: string
+  readonly archivedBy: string
+  readonly archivedRecordCount: number
+}
+
+/** Per-target count of delete markers purged off one push-only sync target (#615). */
+export interface TargetPurgeCount {
+  readonly label?: string
+  readonly role: 'backup' | 'archive'
+  readonly purgedCount: number
+}
+
+/**
+ * Companion record noting that a closed+frozen period's delete markers were
+ * swept off the vault's push-only sync targets (#615). Stored in
+ * {@link PERIOD_TARGET_PURGES_COLLECTION}, keyed by period name — kept OFF the
+ * hash-chained `_periods/<name>` record so target-purge never alters the chain.
+ */
+export interface PeriodTargetPurgeRecord {
+  readonly period: string
+  readonly purgedAt: string
+  readonly purgedBy: string
+  readonly targets: readonly TargetPurgeCount[]
+}
+
+/**
+ * Exclusive upper bound for a period's delete-marker purge window (#604).
+ * Markers carry no business date (empty body), only write-time `_ts`, so freeze
+ * purges markers with `_ts < bound`, `bound` being the instant just after the
+ * period's inclusive `endDate`: a date-only `endDate` seals through end-of-day
+ * → next midnight; a full-timestamp `endDate` seals through that instant → +1ms.
+ */
+export function periodExclusiveUpperBound(endDate: string): string {
+  const ms = Date.parse(endDate)
+  if (Number.isNaN(ms)) throw new ValidationError(`freezePeriod: unparseable period endDate "${endDate}".`)
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(endDate)
+  return new Date(ms + (dateOnly ? 86_400_000 : 1)).toISOString()
+}
 
 /**
  * Stored record for one closed or opened accounting period. One entry
@@ -116,6 +276,24 @@ export interface PeriodRecord {
    * cross-check the opening balances against the closing snapshot.
    */
   readonly openingCollections?: readonly string[]
+  /** #604 return-only — merged from the `_period_freezes/<name>` companion on
+   *  read; NEVER written into the stored `_periods/<name>` record (would break
+   *  the hash chain). Absent = not yet frozen. */
+  readonly frozenAt?: string
+  readonly frozenBy?: string
+  readonly purgedMarkerCount?: number
+  /** #613 return-only — merged from the `_period_archives/<name>` companion on
+   *  read; NEVER written into the stored `_periods/<name>` record. Absent = not
+   *  yet archived. */
+  readonly archivedAt?: string
+  readonly archivedBy?: string
+  readonly archivedRecordCount?: number
+  /** #615 return-only — merged from the `_period_target_purges/<name>` companion
+   *  on read; NEVER written into the stored `_periods/<name>` record. Absent =
+   *  target-purge not yet run (or the vault has no push-only targets). */
+  readonly targetsPurgedAt?: string
+  readonly targetsPurgedBy?: string
+  readonly targetsPurged?: readonly TargetPurgeCount[]
 }
 
 /** Options for `vault.closePeriod()`. */
@@ -320,12 +498,13 @@ export async function appendPeriodLedgerEntry(
   actor: string,
   envelope: EncryptedEnvelope,
   name: string,
+  collection: string = PERIODS_COLLECTION,
 ): Promise<void> {
   if (!ledger) return
   const { envelopePayloadHash } = await import('../../with-commit/history/ledger/index.js')
   await ledger.append({
     op: 'put',
-    collection: PERIODS_COLLECTION,
+    collection,
     id: name,
     version: envelope._v,
     actor,

@@ -71,9 +71,10 @@ import type { ReducerBuilder } from './reducers.js'
 import { reducerBuilder } from './reducers.js'
 import { canonicalGroupKey } from './canonical-key.js'
 import { GroupCardinalityError } from '../../kernel/errors.js'
-import type { MoneyDescriptor } from '../../with-shape/money/descriptor.js'
-import { moneyRuntime } from '../../kernel/money-runtime.js'
-import { applyI18nLocale, type I18nTextDescriptor } from '../../with-shape/i18n/core.js'
+import type { MoneyDescriptor } from '../../via/money/descriptor.js'
+import type { ViaPipeline } from '../../kernel/via/pipeline.js'
+import { viaBinder } from '../../kernel/via/index.js'
+import { applyI18nLocale, type I18nTextDescriptor } from '../../via/i18n/core.js'
 
 /**
  * Cardinality thresholds for `.groupBy()`. The warn threshold gives
@@ -178,19 +179,19 @@ abstract class GroupedQueryBase {
       fallback?: string | readonly string[],
     ) => Promise<string | undefined>,
     /**
-     * Money field descriptors for the backing collection — used to
-     * rewrite `sum`/`min`/`max` over money fields into exact BigInt
-     * reducers when `.aggregate(spec)` is terminated.
+     * The backing collection's compiled Via pipeline — used to rewrite
+     * `sum`/`min`/`max` over Via-covered fields (e.g. money) into exact
+     * BigInt reducers when `.aggregate(spec)` is terminated.
      */
-    protected readonly moneyFields?: Record<string, MoneyDescriptor>,
+    protected readonly via?: ViaPipeline,
   ) {
     this.fields =
       typeof fieldOrFields === 'string' ? [fieldOrFields] : [...fieldOrFields]
   }
 
-  /** Apply money-aware reducer rewriting when money fields are declared. */
+  /** Apply Via-aware reducer rewriting (e.g. money) when the source declares one. */
   protected wrapSpec<Spec extends AggregateSpec>(spec: Spec): Spec {
-    return this.moneyFields ? (moneyRuntime().wrapMoneyReducers(spec, this.moneyFields) as Spec) : spec
+    return this.via ? this.via.wrapReducers(spec) : spec
   }
 }
 
@@ -293,9 +294,11 @@ export function groupAndReduce<R>(
   // passes through unchanged (backward compatible). The chainable
   // `GroupedQuery` path already wraps upstream via `wrapSpec`; this
   // covers direct `groupAndReduce` callers (UNION-form MVs) that have
-  // no Query wrapper to do it.
+  // no Query wrapper to do it. Builds a transient money binding via the
+  // kernel's Via port rather than a Query-attached pipeline — `moneyFields`
+  // here is the MV spec's OWN descriptor map, not a collection's.
   if (moneyFields) {
-    spec = moneyRuntime().wrapMoneyReducers(spec, moneyFields)
+    spec = viaBinder('money')({ moneyFields }).wrapReducers!(spec) as AggregateSpec
   }
 
   // Bucket value is { keyValues, records } so the output row can stamp

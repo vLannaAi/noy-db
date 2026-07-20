@@ -8,16 +8,16 @@
 // money engine, (b) every converted engine still behaves identically
 // when its declaration is present.
 //
-// NOTE on ordering: the money engine installs into module-level state
-// when `money()` is first called, so the "not installed" assertions run
-// FIRST in this file (vitest runs a file's tests sequentially, and each
-// test file gets its own module registry).
+// NOTE on ordering: the money Via binder installs into module-level state
+// (kernel/via/index.ts's `binders` map) when `money()` is first called, so the
+// "not installed" assertions run FIRST in this file (vitest runs a file's
+// tests sequentially, and each test file gets its own module registry).
 
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../src/index.js'
-import { money } from '../src/with-shape/money/descriptor.js'
-import { isMoneyEngineInstalled, moneyRuntime } from '../src/kernel/money-runtime.js'
+import { money } from '../src/via/money/descriptor.js'
+import { isViaInstalled, viaBinder } from '../src/kernel/via/index.js'
 import { withAggregate } from '../src/with-lookup/aggregate/index.js'
 import { sum } from '../src/with-lookup/aggregate/reducers.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
@@ -64,8 +64,8 @@ describe('#553 — floor collection without ③ declarations', () => {
   it('never installs the money engine (write/read/query all work without it)', async () => {
     // Nothing in this file has called money() yet — importing the barrel
     // alone must not link the engine.
-    expect(isMoneyEngineInstalled()).toBe(false)
-    expect(() => moneyRuntime()).toThrowError(/money\(\)/)
+    expect(isViaInstalled('money')).toBe(false)
+    expect(() => viaBinder('money')).toThrowError(/money/)
 
     const vault = await openTestVault()
     const coll = vault.collection<Record<string, unknown>>('plain')
@@ -78,7 +78,7 @@ describe('#553 — floor collection without ③ declarations', () => {
     expect(await coll.get('b')).toBeNull()
 
     // The plain collection's whole lifecycle consulted no money engine.
-    expect(isMoneyEngineInstalled()).toBe(false)
+    expect(isViaInstalled('money')).toBe(false)
   })
 })
 
@@ -88,7 +88,7 @@ describe('#553 — engines still work when declared', () => {
     const coll = vault.collection<Record<string, unknown>>('invoices', {
       moneyFields: { total: money({ currency: 'EUR', scale: 2 }) },
     })
-    expect(isMoneyEngineInstalled()).toBe(true)
+    expect(isViaInstalled('money')).toBe(true)
 
     await coll.put('i1', { id: 'i1', total: '10.50' })
     await coll.put('i2', { id: 'i2', total: 3 })

@@ -19,7 +19,15 @@ import { ConflictError } from '../../kernel/errors.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
 import type { SyncPolicy } from '../../kernel/sync-policy.js'
 import { SyncScheduler } from '../../kernel/sync-policy.js'
-import { isTombstoneShape } from '../../kernel/enclave/index.js'
+import { isTombstoneShape, isDeleteMarker } from '../../kernel/enclave/index.js'
+
+/** #650 Task 4 (#647) — the declared reserved-lookup (`_dict_*`/`_lookup_*`) collection-name
+ *  registry a `SyncEngine` enumerates on pull. Explicit, not a blanket underscore-glob — other
+ *  `_`-prefixed namespaces keep their `loadAll`-skip semantics untouched. */
+export interface ReservedLookupSource {
+  /** Declared reserved-lookup collection names to enumerate on pull. */
+  collections(): readonly string[]
+}
 
 /** Sync engine: dirty tracking, push, pull, conflict resolution, scheduling. */
 export class SyncEngine {
@@ -53,12 +61,47 @@ export class SyncEngine {
    */
   private pairExpander?: (names: readonly string[]) => readonly string[]
 
-  /** #598: refreshes Collection in-memory views after a sync-applied local write. Wired by the vault at open. */
-  private cacheInvalidator?: (collection: string, id: string) => Promise<void>
+  /** #598: refreshes Collection in-memory views after a sync-applied local write. Wired by the
+   *  vault at open. `action` (#640): `'delete'` for a pulled tombstone/delete-marker, `'put'`
+   *  otherwise — classified at `applyRemote`, the one choke point that holds the envelope. */
+  private cacheInvalidator?: (collection: string, id: string, action: 'put' | 'delete') => Promise<void>
 
   /** Wire the Collection-cache invalidation hook (#598). Same injection pattern as `setPairExpander`. */
-  setCacheInvalidator(fn: (collection: string, id: string) => Promise<void>): void {
+  setCacheInvalidator(fn: (collection: string, id: string, action: 'put' | 'delete') => Promise<void>): void {
     this.cacheInvalidator = fn
+  }
+
+  /** #638 Task 4: opens/flushes the vault's graph-dispatch touch batch around a whole `pull()`/
+   *  `push()` call, so N `applyRemote`d records feeding the same derivation/rollup/MV target
+   *  recompute once. Wired by the vault at open, mirroring `cacheInvalidator`. */
+  private graphBatchController?: { begin(): void; flush(): Promise<void> }
+
+  /** Wire the graph-dispatch batch controller (#638 Task 4). Same injection pattern as `setCacheInvalidator`. */
+  setGraphBatchController(controller: { begin(): void; flush(): Promise<void> }): void {
+    this.graphBatchController = controller
+  }
+
+  /** #650 Task 4 (#647): declared reserved-lookup collections `pull()` enumerates explicitly (the
+   *  store's `list()` does not skip `_`-prefixed names, unlike `loadAll()`). Wired by the vault at
+   *  open, same injection pattern as `setCacheInvalidator`/`setGraphBatchController`. */
+  private reservedLookup?: ReservedLookupSource
+
+  /** Wire the reserved-lookup source (#650 Task 4). */
+  setReservedLookupSource(source: ReservedLookupSource): void {
+    this.reservedLookup = source
+  }
+
+  /** #653: expands a (pair-expanded) collection-name filter to include the reserved `_dict_*`
+   *  collections those names depend on via their lookup fields — mirrors `pairExpander` so a
+   *  partial `push`/`pull({collections:[...]})` never drops the dictionary a named collection's
+   *  labels/membership rely on. Wired unconditionally from the vault's `dictKeyFieldRegistry` via
+   *  `setReservedDictExpander` (returns `[]` when the vault has no dict-backed collections); only
+   *  `undefined` on a standalone engine that was never vault-attached. */
+  private reservedDictExpander?: (names: readonly string[]) => readonly string[]
+
+  /** Wire the reserved-dict expansion function (#653). Same injection pattern as `setPairExpander`. */
+  setReservedDictExpander(expander: (names: readonly string[]) => readonly string[]): void {
+    this.reservedDictExpander = expander
   }
 
   constructor(opts: {
@@ -179,6 +222,7 @@ export class SyncEngine {
   /** Push dirty records to remote adapter. Accepts optional `PushOptions` for partial sync. */
   async push(options?: PushOptions): Promise<PushResult> {
     await this.ensureLoaded()
+    this.graphBatchController?.begin() // #638 Task 4
 
     let pushed = 0
     const conflicts: Conflict[] = []
@@ -186,8 +230,11 @@ export class SyncEngine {
     const errors: Error[] = []
     const completed: number[] = []
 
-    // Partial sync: expand the filter to cover satellite pair partners (#591 rule 5b)
-    const filter = options?.collections ? new Set(this.pairExpander?.(options.collections) ?? options.collections) : null
+    // Partial sync: expand the filter to cover satellite pair partners (#591 rule 5b), then the
+    // reserved `_dict_*` collections those (expanded) names depend on (#653) — a locally-dirty
+    // dict edit pushes alongside push({collections:['orders']}), symmetric with pull below.
+    const expanded = options?.collections ? (this.pairExpander?.(options.collections) ?? options.collections) : null
+    const filter = expanded ? new Set([...expanded, ...(this.reservedDictExpander?.(expanded) ?? [])]) : null
 
     for (let i = 0; i < this.dirty.length; i++) {
       const entry = this.dirty[i]!
@@ -239,6 +286,25 @@ export class SyncEngine {
                   await this.applyRemote(entry.collection, entry.id, remoteEnvelope)
                   erasures.push(this.reportErasure(entry.collection, entry.id, remoteEnvelope, envelope, 'push'))
                   completed.push(i)
+                } else if (
+                  remoteEnvelope._v === envelope._v &&
+                  isDeleteMarker(remoteEnvelope) !== isDeleteMarker(envelope) &&
+                  !this.conflictResolvers.get(entry.collection)
+                ) {
+                  // #589: a same-_v delete-vs-edit tie on the push channel. handleConflict's db-level
+                  // 'version' default would resolve it to local-wins; the tie rule consults ONLY the
+                  // per-collection resolver, else delete-wins. (When a per-collection resolver IS set,
+                  // fall through to handleConflict, which already honors it — incl. the merged case.)
+                  if (isDeleteMarker(remoteEnvelope)) {
+                    // remote already deleted → converge locally, drop our (edit) push
+                    await this.applyRemote(entry.collection, entry.id, remoteEnvelope)
+                    completed.push(i)
+                  } else {
+                    // our local is the marker → force the delete onto the remote (unconditional put)
+                    await this.remote.put(this.vault, entry.collection, entry.id, envelope)
+                    completed.push(i)
+                    pushed++
+                  }
                 } else {
                   const { handled, conflict } = await this.handleConflict(
                     entry.collection,
@@ -282,7 +348,14 @@ export class SyncEngine {
     }
 
     this.lastPush = new Date().toISOString()
-    await this.persistMeta()
+    try {
+      await this.persistMeta()
+    } finally {
+      // #644 item 1: flush (which clears `_graphBatch` unconditionally, vault.ts:1316-1320) must
+      // run even if `persistMeta()` throws — else a throw here leaves the batch open, corrupting
+      // the NEXT pull()/push() call's wave with THIS call's stale touches.
+      await this.graphBatchController?.flush() // #638 Task 4
+    }
 
     const result: PushResult = { pushed, conflicts, errors, erasures }
     this.emitter.emit('sync:push', result)
@@ -292,14 +365,19 @@ export class SyncEngine {
   /** Pull remote records to local adapter. Accepts optional `PullOptions` for partial sync. */
   async pull(options?: PullOptions): Promise<PullResult> {
     await this.ensureLoaded()
+    this.graphBatchController?.begin() // #638 Task 4
 
     let pulled = 0
     const conflicts: Conflict[] = []
     const erasures: ErasureEnforcement[] = []
     const errors: Error[] = []
 
-    // Partial sync: expand the filter to cover satellite pair partners (#591 rule 5b)
-    const filter = options?.collections ? new Set(this.pairExpander?.(options.collections) ?? options.collections) : null
+    // Partial sync: expand the filter to cover satellite pair partners (#591 rule 5b), then the
+    // reserved `_dict_*` collections those (expanded) names depend on (#653) — adopters never
+    // name `_dict_*` in a `collections` filter, so a named collection's lookup-field dependency
+    // must be pulled alongside it or its labels/membership go stale.
+    const expanded = options?.collections ? (this.pairExpander?.(options.collections) ?? options.collections) : null
+    const filter = expanded ? new Set([...expanded, ...(this.reservedDictExpander?.(expanded) ?? [])]) : null
 
     try {
       const remoteSnapshot = await this.remote.loadAll(this.vault)
@@ -313,7 +391,12 @@ export class SyncEngine {
         for (const [id, remoteEnvelope] of Object.entries(records)) {
           // Partial sync: modifiedSince filter — arriving tombstones are exempt (#590):
           // an erasure must never be skipped by partial sync.
-          if (options?.modifiedSince && remoteEnvelope._ts <= options.modifiedSince && !isTombstoneShape(remoteEnvelope)) {
+          if (
+            options?.modifiedSince &&
+            remoteEnvelope._ts <= options.modifiedSince &&
+            !isTombstoneShape(remoteEnvelope) &&
+            !isDeleteMarker(remoteEnvelope)
+          ) {
             continue
           }
 
@@ -342,6 +425,36 @@ export class SyncEngine {
               this.dirty = this.dirty.filter(d => !(d.collection === collName && d.id === id))
               pulled++
               if (wasDirty) erasures.push(this.reportErasure(collName, id, remoteEnvelope, localEnvelope, 'pull'))
+            } else if (
+              remoteEnvelope._v === localEnvelope._v &&
+              isDeleteMarker(remoteEnvelope) !== isDeleteMarker(localEnvelope)
+            ) {
+              // #589: true concurrent delete-vs-edit at the SAME version. Version order
+              // can't break the tie. A per-collection resolver decides if one is set;
+              // otherwise DELETE wins (the db-level 'version' default is deliberately NOT
+              // consulted — it would resolve a tie to local-wins).
+              const resolver = this.conflictResolvers.get(collName)
+              if (resolver) {
+                const winner = await resolver(id, localEnvelope, remoteEnvelope)
+                if (winner !== localEnvelope && winner !== null) {
+                  // #589 (review): a novel/merged winner (neither side verbatim) must also be
+                  // pushed to remote — mirrors handleConflict's 'merged' handling — so both
+                  // sides converge instead of local applying it while remote keeps its old copy.
+                  if (winner !== remoteEnvelope) {
+                    await this.remote.put(this.vault, collName, id, winner)
+                  }
+                  await this.applyRemote(collName, id, winner)
+                  this.dirty = this.dirty.filter(d => !(d.collection === collName && d.id === id))
+                  pulled++
+                }
+                // winner === localEnvelope or null → keep local (its dirty entry, if any, pushes out)
+              } else if (isDeleteMarker(remoteEnvelope)) {
+                // no resolver → delete wins; the incoming marker is the delete
+                await this.applyRemote(collName, id, remoteEnvelope)
+                this.dirty = this.dirty.filter(d => !(d.collection === collName && d.id === id))
+                pulled++
+              }
+              // no resolver and LOCAL is the marker → keep local marker; its dirty 'put' pushes it outward
             } else if (remoteEnvelope._v > localEnvelope._v) {
               // Remote is newer — check if we have a dirty entry for this
               const isDirty = this.dirty.some(d => d.collection === collName && d.id === id)
@@ -378,12 +491,79 @@ export class SyncEngine {
           }
         }
       }
+
+      // #650 Task 4 (#647) — reserved lookup collections (`_dict_*`/`_lookup_*`) are invisible to
+      // `remote.loadAll()` above (the store contract skips `_`-prefixed names) but DO sync via
+      // this EXPLICIT, declared registry — not a blanket underscore-glob; other `_` namespaces
+      // keep their `loadAll`-skip semantics untouched. Applied through the SAME `applyRemote` path,
+      // still inside this try block, BEFORE `persistMeta`/`flush` below — so a pulled vocabulary
+      // row lands before the wave (flushed at the end of `pull()`) recomputes any dependent.
+      //
+      // #647 fix wave 1: `LookupHandle.delete()`/`rename()` now write a version-ordered
+      // delete-marker row (mirroring #589) instead of a raw adapter delete, so a removed key is
+      // a normal row here too — reachable via `remote.list()` like any other id, applied by
+      // version like any other write. The only reserved-tier-specific rule is the same-version
+      // tie-break below: reserved lookups have no per-collection conflict-resolver concept
+      // (dictionaries are admin-edited, not multi-actor-negotiated), so a converging delete
+      // unconditionally wins over a same-version live edit.
+      for (const collName of this.reservedLookup?.collections() ?? []) {
+        if (filter && !filter.has(collName)) continue
+        for (const id of await this.remote.list(this.vault, collName)) {
+          try {
+            const remoteEnvelope = await this.remote.get(this.vault, collName, id)
+            if (!remoteEnvelope) continue
+
+            // Partial sync: modifiedSince filter — a delete marker is exempt, mirroring the
+            // main loop's tombstone/marker exemption above: a deletion must never be silently
+            // skipped by a time-window partial pull.
+            if (
+              options?.modifiedSince &&
+              remoteEnvelope._ts <= options.modifiedSince &&
+              !isDeleteMarker(remoteEnvelope)
+            ) {
+              continue
+            }
+
+            const localEnvelope = await this.local.get(this.vault, collName, id)
+            if (!localEnvelope) {
+              await this.applyRemote(collName, id, remoteEnvelope)
+              pulled++
+            } else if (
+              remoteEnvelope._v === localEnvelope._v &&
+              isDeleteMarker(remoteEnvelope) !== isDeleteMarker(localEnvelope)
+            ) {
+              // Same-version delete-vs-edit tie (#589's rule, reserved-tier default: no
+              // resolver concept here, so delete always wins).
+              if (isDeleteMarker(remoteEnvelope)) {
+                await this.applyRemote(collName, id, remoteEnvelope)
+                this.dirty = this.dirty.filter(d => !(d.collection === collName && d.id === id))
+                pulled++
+              }
+              // else: local already holds the marker (a local delete not yet observed
+              // remotely) — keep it; push re-asserts it.
+            } else if (remoteEnvelope._v > localEnvelope._v) {
+              await this.applyRemote(collName, id, remoteEnvelope)
+              // Drop any now-superseded local dirty entry so a subsequent push doesn't
+              // redundantly re-fight a CAS conflict over content pull just overwrote.
+              this.dirty = this.dirty.filter(d => !(d.collection === collName && d.id === id))
+              pulled++
+            }
+          } catch (err) {
+            errors.push(err instanceof Error ? err : new Error(String(err)))
+          }
+        }
+      }
     } catch (err) {
       errors.push(err instanceof Error ? err : new Error(String(err)))
     }
 
     this.lastPull = new Date().toISOString()
-    await this.persistMeta()
+    try {
+      await this.persistMeta()
+    } finally {
+      // #644 item 1: flush must run even if `persistMeta()` throws (see push()'s identical guard).
+      await this.graphBatchController?.flush() // #638 Task 4
+    }
 
     const result: PullResult = { pulled, conflicts, errors, erasures }
     this.emitter.emit('sync:pull', result)
@@ -456,6 +636,25 @@ export class SyncEngine {
                   await this.applyRemote(entry.collection, entry.id, remoteEnvelope)
                   erasures.push(this.reportErasure(entry.collection, entry.id, remoteEnvelope, envelope, 'push'))
                   completed.push(i)
+                } else if (
+                  remoteEnvelope._v === envelope._v &&
+                  isDeleteMarker(remoteEnvelope) !== isDeleteMarker(envelope) &&
+                  !this.conflictResolvers.get(entry.collection)
+                ) {
+                  // #589: a same-_v delete-vs-edit tie on the push channel. handleConflict's db-level
+                  // 'version' default would resolve it to local-wins; the tie rule consults ONLY the
+                  // per-collection resolver, else delete-wins. (When a per-collection resolver IS set,
+                  // fall through to handleConflict, which already honors it — incl. the merged case.)
+                  if (isDeleteMarker(remoteEnvelope)) {
+                    // remote already deleted → converge locally, drop our (edit) push
+                    await this.applyRemote(entry.collection, entry.id, remoteEnvelope)
+                    completed.push(i)
+                  } else {
+                    // our local is the marker → force the delete onto the remote (unconditional put)
+                    await this.remote.put(this.vault, entry.collection, entry.id, envelope)
+                    completed.push(i)
+                    pushed++
+                  }
                 } else {
                   const { handled, conflict } = await this.handleConflict(
                     entry.collection,
@@ -557,10 +756,16 @@ export class SyncEngine {
     this.emitter.emit('sync:offline', undefined as never)
   }
 
-  /** Apply an envelope to the local store and refresh in-memory views (#598). */
+  /** Apply an envelope to the local store and refresh in-memory views (#598). `action` (#640):
+   *  classified HERE — the one choke point that still holds the envelope — so the
+   *  cacheInvalidator seam (and, downstream, the dispatch wave) can tell a pulled delete from an
+   *  ordinary put. `isTombstoneShape` covers a forgotten-elsewhere record arriving as a shred;
+   *  `isDeleteMarker` covers an ordinary (#589) delete — both route to the SAME 'delete' action
+   *  (sync delete ≠ forget: freshness only, no shred/residue channel on the receiving side). */
   private async applyRemote(collection: string, id: string, envelope: EncryptedEnvelope): Promise<void> {
     await this.local.put(this.vault, collection, id, envelope)
-    await this.cacheInvalidator?.(collection, id)
+    const action: 'put' | 'delete' = isTombstoneShape(envelope) || isDeleteMarker(envelope) ? 'delete' : 'put'
+    await this.cacheInvalidator?.(collection, id, action)
   }
 
   /** Record + emit a tombstone enforcement (#590). */

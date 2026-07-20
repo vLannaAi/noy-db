@@ -44,8 +44,8 @@
 
 import { readFile, writeFile, mkdir, readdir, unlink, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub/adapter'
-import { ConflictError } from '@noy-db/hub/adapter'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub/to'
+import { ConflictError } from '@noy-db/hub/to'
 import type {
   Vault,
   WriteNoydbBundleOptions,

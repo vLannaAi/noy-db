@@ -6,11 +6,11 @@
  * contract (plus its optional extension methods), the envelope / snapshot / op
  * types a store passes through, the store-facing error classes, and the
  * `NoydbPodStore` contract (plus `PodVersionConflictError`) for pod stores
- * such as `to-drive` and `to-icloud`. Mirrors the `@noy-db/hub/kernel` seam
+ * such as `to-drive` and `to-icloud`. Mirrors the `@noy-db/hub/cargo` seam
  * used by klum-db and the `by-*` transports.
  *
- * Supersedes `@noy-db/hub/adapter`, which is now a deprecated alias for this
- * subpath.
+ * Supersedes `@noy-db/hub/adapter`, which has been retired (coordinated
+ * removal; consumers migrated to this subpath).
  *
  * Named re-exports only (no `export *`) so the published surface is explicit and
  * tsup's per-entry bundling keeps class identity stable across subpaths.
@@ -23,6 +23,8 @@ export type {
   VaultSnapshot,
   TxOp,
   StoreCapabilities,
+  StoreCredentials,
+  StoreCredentialSource,
   StoreTime,
   ListPageResult,
 } from '../../kernel/types.js'

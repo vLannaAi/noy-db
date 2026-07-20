@@ -14,7 +14,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
-import { withI18n } from '../src/with-shape/i18n/index.js'
+import { withI18n } from '../src/via/i18n/index.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
@@ -25,7 +25,7 @@ import {
   StaticDictReadonlyError,
   UnknownDictCodeError,
 } from '../src/kernel/errors.js'
-import { dictKey, staticDict } from '../src/with-shape/i18n/dictionary.js'
+import { dictKey, staticDict } from '../src/via/i18n/dictionary.js'
 import { withAggregate, count } from '../src/with-lookup/aggregate/index.js'
 import { withTeam } from '../src/with-party/team/index.js'
 

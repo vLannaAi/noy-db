@@ -31,9 +31,10 @@ function spyMemory() {
     return coll
   }
   const deleteOrder: Array<[string, string]> = []
+  const putOrder: Array<[string, string]> = []
   const store: NoydbStore = {
     async get(v, c, id) { return data.get(v)?.get(c)?.get(id) ?? null },
-    async put(v, c, id, env) { gc(v, c).set(id, env) },
+    async put(v, c, id, env) { putOrder.push([c, id]); gc(v, c).set(id, env) },
     async delete(v, c, id) { deleteOrder.push([c, id]); gc(v, c).delete(id) },
     async list(v, c) { const coll = data.get(v)?.get(c); return coll ? [...coll.keys()] : [] },
     async loadAll(v) {
@@ -45,7 +46,7 @@ function spyMemory() {
       for (const [n, byId] of Object.entries(recs)) { const coll = gc(v, n); for (const [id, e] of Object.entries(byId)) coll.set(id, e) }
     },
   }
-  return { store, deleteOrder, reset: (): void => { deleteOrder.length = 0 } }
+  return { store, deleteOrder, putOrder, reset: (): void => { deleteOrder.length = 0; putOrder.length = 0 } }
 }
 
 async function openPair() {
@@ -65,6 +66,7 @@ async function openPair() {
     entries.filter(([c]) => c === 'msgs' || c === 'msgs_text')
   const spy = {
     get deleteOrder() { return pairOnly(local.deleteOrder) },
+    get putOrder() { return pairOnly(local.putOrder) },
     reset: local.reset,
   }
   return { vault, rawStore: local.store, spy }
@@ -99,7 +101,9 @@ describe('JoinedHandle', () => {
     await vault.joined<Msg>('msgs_full').put('x', { from: 'a', body: 'B' })
     spy.reset()
     await vault.joined<Msg>('msgs_full').delete('x')
-    expect(spy.deleteOrder).toEqual([['msgs_text', 'x'], ['msgs', 'x']])
+    // #589: under sync, delete() writes a version-ordered marker via adapter.put
+    // (not adapter.delete), so the ordering now shows up on putOrder.
+    expect(spy.putOrder).toEqual([['msgs_text', 'x'], ['msgs', 'x']])
   })
 
   it('list returns merged records for live-base ids only (mirror of satellite proxy list test, through joined)', async () => {

@@ -109,6 +109,23 @@ export async function dumpVault(ctx: BackupContext): Promise<string> {
     LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION, SCHEMAS_COLLECTION, SEQUENCE_COLLECTION,
     '_history', // full-snapshot version history — so history()/getVersion()/diff() survive the bundle
     '_blob_index', '_blob_chunks', '_blob_eviction_audit',
+    // #753 spec §7 Q3: `_blob_intent` markers travel too — restoring mid-op
+    // state (a blob row without its marker) would reproduce the ambiguity
+    // the journal exists to prevent. Note: `_mv_stale` does NOT travel
+    // today (a pre-existing, separate gap) — observed here, tracked on
+    // #761, not fixed in this pass.
+    '_blob_intent',
+    // #769: `_blob_slots_<c>` envelopes travel verbatim (raw ciphertext,
+    // same DEK, same vault) — including any `SlotRecord.pendingRelease`
+    // resume breadcrumb they carry. This is INTENTIONALLY the opposite of
+    // `extract-partition`'s `reKeyBlobs`, which STRIPS `pendingRelease`:
+    // a full-vault backup restores into the SAME vault it was taken from,
+    // so a breadcrumb taken mid-rehome (together with its `_blob_intent`
+    // marker, carried above) is resumable on restore — carry-and-resume is
+    // correct here. A partition extraction crosses vaults: the breadcrumb's
+    // old eTag may not exist in the destination, so it must be stripped
+    // there instead. Asymmetry: backup = same-vault-resumable = carry;
+    // partition = cross-vault = strip-breadcrumb-carry-marker.
     ...Object.keys(snapshot).flatMap((c) => [`_blob_slots_${c}`, `_blob_versions_${c}`]),
   ]
   for (const internalName of internalNames) {

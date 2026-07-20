@@ -1,5 +1,70 @@
 # @noy-db/in-nextjs
 
+## 1.0.0-pre.12
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0-pre.12
+  - @noy-db/in-react@1.0.0-pre.12
+
+## 1.0.0-pre.11
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0-pre.11
+  - @noy-db/in-react@1.0.0-pre.11
+
+## 1.0.0-pre.10
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0-pre.10
+  - @noy-db/in-react@1.0.0-pre.10
+
+## 1.0.0-pre.9
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0-pre.9
+  - @noy-db/in-react@1.0.0-pre.9
+
+## 1.0.0-pre.8
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0-pre.8
+  - @noy-db/in-react@1.0.0-pre.8
+
+## 1.0.0-pre.7
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0-pre.7
+  - @noy-db/in-react@1.0.0-pre.7
+
 ## 1.0.0-pre.6
 
 ### Patch Changes

@@ -63,6 +63,26 @@ export class CollectionIndexes {
   private readonly indexes = new Map<string, HashIndex>()
 
   /**
+   * Per-field bucket-key canonicalizer (#672 review C1), registered ONCE
+   * via {@link setCanonicalizer} when the collection wires indexing up
+   * (money-aware via `ViaPipeline.canonicalizeIndexKey`). Consulted by
+   * EVERY bucket-mutation site — `build`/`upsert`/`remove` — so bucket
+   * membership is symmetric by construction: a value can never be added
+   * under a canonical key and later removed under the raw one (or vice
+   * versa), which is what stranded ids on `put`/`delete` before this fix.
+   */
+  private canonicalize?: (field: string, value: unknown) => string | undefined
+
+  /**
+   * Register the bucket-key canonicalizer. Called once, where the
+   * collection constructs its indexing state — safe to call again (the
+   * closure is simply replaced) but there is normally only one caller.
+   */
+  setCanonicalizer(fn: (field: string, value: unknown) => string | undefined): void {
+    this.canonicalize = fn
+  }
+
+  /**
    * Declare an index. Subsequent record additions are tracked under it.
    * Calling this twice for the same field is a no-op (idempotent).
    */
@@ -83,13 +103,14 @@ export class CollectionIndexes {
 
   /**
    * Build all declared indexes from a snapshot of records.
-   * Called once per hydration. O(N × indexes.size).
+   * Called once per hydration. O(N × indexes.size). Buckets through the
+   * registered {@link setCanonicalizer} closure, same as `upsert`/`remove`.
    */
   build<T>(records: ReadonlyArray<{ id: string; record: T }>): void {
     for (const idx of this.indexes.values()) {
       idx.buckets.clear()
       for (const { id, record } of records) {
-        addToIndex(idx, id, record)
+        addToIndex(idx, id, record, this.canonicalize)
       }
     }
   }
@@ -107,7 +128,7 @@ export class CollectionIndexes {
       this.remove(id, previousRecord)
     }
     for (const idx of this.indexes.values()) {
-      addToIndex(idx, id, newRecord)
+      addToIndex(idx, id, newRecord, this.canonicalize)
     }
   }
 
@@ -118,7 +139,7 @@ export class CollectionIndexes {
   remove<T>(id: string, record: T): void {
     if (this.indexes.size === 0) return
     for (const idx of this.indexes.values()) {
-      removeFromIndex(idx, id, record)
+      removeFromIndex(idx, id, record, this.canonicalize)
     }
   }
 
@@ -182,10 +203,15 @@ function stringifyKey(value: unknown): string {
   return '\0OBJECT\0'
 }
 
-function addToIndex<T>(idx: HashIndex, id: string, record: T): void {
+function addToIndex<T>(
+  idx: HashIndex,
+  id: string,
+  record: T,
+  canonicalize?: (field: string, value: unknown) => string | undefined,
+): void {
   const value = readPath(record, idx.field)
   if (value === null || value === undefined) return
-  const key = stringifyKey(value)
+  const key = canonicalize?.(idx.field, value) ?? stringifyKey(value)
   let bucket = idx.buckets.get(key)
   if (!bucket) {
     bucket = new Set()
@@ -194,10 +220,15 @@ function addToIndex<T>(idx: HashIndex, id: string, record: T): void {
   bucket.add(id)
 }
 
-function removeFromIndex<T>(idx: HashIndex, id: string, record: T): void {
+function removeFromIndex<T>(
+  idx: HashIndex,
+  id: string,
+  record: T,
+  canonicalize?: (field: string, value: unknown) => string | undefined,
+): void {
   const value = readPath(record, idx.field)
   if (value === null || value === undefined) return
-  const key = stringifyKey(value)
+  const key = canonicalize?.(idx.field, value) ?? stringifyKey(value)
   const bucket = idx.buckets.get(key)
   if (!bucket) return
   bucket.delete(id)
