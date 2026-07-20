@@ -414,6 +414,43 @@ export async function embedOnWrite<T>(ctx: SearchContext<T>, id: string, record:
 }
 
 /**
+ * Force-re-derive every eligible tier-0 record's `_vec` sidecar once (#788).
+ * Opt-in bulk repair for the #726 re-namespace: legacy bare-id rows are
+ * unreachable to `buildVectorLoad` (it only recognises `<collection>/<id>`
+ * keys) and otherwise self-heal only when a record is next `put()` — this
+ * lets an adopter recover recall immediately instead of waiting on writes.
+ *
+ * **Skips elevated records** (`liveRecordIsElevated`) rather than refusing
+ * the whole walk — the OPPOSITE of `_applyCutoverTransform`'s
+ * `assertCutoverTierSafe` refuse-whole-batch precedent. An elevated record is
+ * SUPPOSED to have no `_vec` (`syncTierSearch` purges it on elevate);
+ * re-embedding one here would write searchable plaintext-derived data above
+ * tier 0. Load-bearing: never write a `_vec` row for an elevated record.
+ *
+ * Tombstones, delete markers, and a raw `get` racing a delete between `list`
+ * and `get` all decrypt to `null` (`decryptRecord` already folds
+ * tombstone/delete-marker into that null) and are skipped the same way.
+ * Unconditional re-derive, no already-migrated check — safe to re-run after
+ * a partial failure (each id is independently idempotent).
+ */
+export async function rebuildEmbeddings<T>(ctx: SearchContext<T>): Promise<{ rebuilt: number; skipped: number }> {
+  if (!ctx.embeddings) return { rebuilt: 0, skipped: 0 }
+  const ids = await ctx.adapter.list(ctx.vault, ctx.name)
+  let rebuilt = 0
+  let skipped = 0
+  for (const id of ids) {
+    if (await liveRecordIsElevated(ctx.adapter, ctx.vault, ctx.name, id)) { skipped++; continue }
+    const env = await ctx.adapter.get(ctx.vault, ctx.name, id)
+    if (!env) { skipped++; continue }
+    const decoded = await ctx.codec.decryptRecord(env, { id })
+    if (decoded === null) { skipped++; continue }
+    await embedOnWrite(ctx, id, decoded, env._v ?? 1)
+    rebuilt++
+  }
+  return { rebuilt, skipped }
+}
+
+/**
  * Sync the collection's SEARCH artifacts after a tier move (#721). Both the
  * lexical `_ftindex` blob and the `_vec/<id>` embedding are encrypted under
  * the tier-0 DEK and hold the record's derived plaintext (full field text /
