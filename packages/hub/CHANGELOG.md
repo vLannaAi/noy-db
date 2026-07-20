@@ -1,5 +1,813 @@
 # Changelog — hub
 
+## 0.3.0
+
+### Minor Changes
+
+- Credential broker (#479, slices 1+2): passphrase-bound, rolling, non-extractable store-auth.
+
+  Slice 1 (adapter seam): `StoreCredentials`/`StoreCredentialSource` on `@noy-db/hub`'s `/to` port
+  (additive, golden-bumped) and a `credentials?: StoreCredentialSource` option on `@noy-db/as-aws-s3`
+  (`asAwsS3({ credentials })`), wired as a functional AWS SDK credential provider so
+  `memoizeIdentityProvider` re-invokes it at each credential's own expiry.
+
+  Slice 2 (service): new opt-in `@noy-db/hub/broker` (`withBroker()`, `vault.broker()`) — enrol a
+  per-vault `_broker` seed (CAS create-if-absent, owner/admin-gated, KEK required only on first
+  enrolment), then mint short-lived cloud credentials via a challenge/response HMAC proof
+  (HKDF-derived, non-extractable `['sign']` key) against a broker host, with a single-flight
+  per-profile refresh cache and a quiesce-then-swap `rotate()`. Ships `kernel/enclave/broker/proof.ts`
+  (the proof crypto: `deriveBrokerProofBits`/`deriveBrokerProofKey`/`computeBrokerProof`/
+  `issueChallenge`/`verifyBrokerProof`), the `_broker` reserved-collection guard + grant-exclusion
+  (rides the already-shipped secret-bearing-reserved-collection guard), the three new error classes
+  (`BrokerNotEnabledError`, `BrokerEnrolmentError`, `BrokerProofError`), and a `docs/subsystems/broker.md`
+  service page with the threat-model candor table and a reference Lambda/STS broker host documenting
+  the four mandated host obligations (KMS-wrap registered proof keys at rest, atomic burn-on-presentation
+  challenge consumption, SHOULD rate-limit `/credentials`, accept old+new registration on rotate).
+  SERVICES.md gains the Cluster G row.
+
+  Bundle impact: 0 bytes when not opted in (`NO_BROKER` stub + dynamic-import seam).
+
+  Deferred: slice 3 (sealed-to-instance credential delivery + non-extractable instance keypair) is
+  not part of this release — see the spec's OQ4. `noy-db-to`'s `to-aws-dynamo`/`to-aws-s3` adoption
+  (the `credentials` option + the required hub peer-floor bump) is a separate, manually-gated
+  follow-up in that repo once this hub minor is published.
+
+- Opt-in `scopedPurge` forget-strategy knob (#633). `withForgetCascade({ scopedPurge: true })` gates
+  `vault.forget()`'s two vault-level purges — the `_sealed_cek` host-delivery envelope purge and the
+  blob crypto-shred scan — on a per-collection via-declaration signal (`classifiedFields` for the
+  sealed-CEK arm, `blobFields` for the blob arm) instead of running them unconditionally over every
+  forgotten ref. Default (`scopedPurge` absent/false) stays fully unconditional — byte-identical to
+  today's behavior — because a declaration is a necessary-but-not-sufficient proxy:
+  `sealRecordToHost()` and `.blob(id)` both work on collections that never declared anything, so
+  scoping by default would silently narrow the erasure promise.
+
+  When scoped, an undeclared collection's purge is never silently skipped: `ForgetResult` gains a new
+  additive field, `scopedPurgeResidue: readonly { reason, collection, count }[]`, with reasons
+  `'skipped-undeclared-sealed-cek'` and `'skipped-undeclared-blob-scan'` — always empty under the
+  unconditional default. The blob arm's scoped skip is also a perf win: an undeclared collection's
+  scan is skipped entirely, with no `_blob_slots_<collection>` `list()` call at all. The knob rides
+  `ForgetStrategy` the same way `subjects` does — set once per `createNoydb()` instance, threaded
+  identically into every `Vault` opened from it.
+
+  **Footgun:** a bare `sensitive: [...]` collection with no `classifiedFields` binding counts as
+  UNDECLARED for the sealed-CEK arm — under `scopedPurge: true` its sealed-CEK envelopes are
+  skipped-and-reported, not purged, even if `sealRecordToHost()` was called on it.
+
+- New opt-in `Collection.rebuildEmbeddings(): Promise<{ rebuilt: number; skipped: number }>`
+  (#788) — force-re-derive every eligible tier-0 record's `_vec` embedding sidecar once. Closes the
+  recall gap #726 left open: `_vec` rows are now collection-namespaced (`<collection>/<recordId>`),
+  so any pre-#726 bare-id sidecar is unreachable residue that previously only self-healed when its
+  owning record was next `put()`. Calling `rebuildEmbeddings()` walks every live record and
+  re-derives its sidecar immediately, without waiting for organic writes.
+
+  Gated behind `searchStrategy: withSearch()`, mirroring every other search/retrieval method — a
+  collection that never declared `embeddings` returns `{ rebuilt: 0, skipped: 0 }` without touching
+  the strategy at all, and a collection that declared `embeddings` but never opted into
+  `withSearch()` throws `SearchNotEnabledError`, matching `put()`'s existing behavior.
+
+  Elevated records are **skipped, not refused** — the opposite of the `_applyCutoverTransform`/
+  `migrateSatellitePerRecordKeys` precedent, which refuses the whole batch on any elevated record.
+  An elevated record is _supposed_ to have no `_vec` sidecar (`syncTierSearch` purges it on
+  elevate); re-deriving one here would write searchable plaintext-derived data above tier 0. Each
+  elevated record is counted in `skipped` and the walk continues to the next id. Tombstones,
+  delete-marker rows, and a raw read racing a concurrent delete all decode to `null` and are
+  likewise skipped. Idempotent/resumable: a partial failure (e.g. a store error mid-walk) leaves
+  earlier records rebuilt; re-running completes the rest — each id's re-derive is independent.
+
+- Blob content now follows the tier of its owning record (#724, #741). Previously `tiers` + `blobFields` was refused (`UnsupportedTierCompositionError`); that refusal is removed and the composition is supported. A blob's storage tier equals its owning record's tier: its content-CEK, chunk address (eTag), slot-map metadata, and published versions are all keyed under `getDEK(dekKey('_blob'|collection, ownerTier))`. `blob(id)` reads are tier-gated at runtime (every content and metadata accessor refuses an elevated record's blob to a tier-0 caller, before any decrypt); writes to an elevated record are keyed at that record's tier; on `elevate` the record's blobs (and published versions) are re-homed under the tier DEK, and `demote` restores them (fully reversible). `forget()` of an elevated blob-owner now correctly crypto-shreds under the record's pre-tombstone tier.
+
+  New collection option **`blobTierPolicy?: 'isolate' | 'dedup'`** (default `'isolate'`). For a blob shared (content-deduplicated) across records, `isolate` forks a private tier-scoped copy on elevate so co-owning tier-0 records are untouched; `dedup` (#741) leaves the shared object in place — the runtime read gate still hides it, but the shared chunks remain decryptable at rest under the flat `_blob` DEK (a documented, accepted residue, analogous to #722's aggregate-inference channel). A tiered collection that declares `blobFields` must set `perRecordKeys`; writing a legacy (non-`perRecordKeys`) blob to a tiered collection is refused (legacy blobs have no per-record key and cannot be tier-isolated).
+
+  Known residuals, tracked separately: multi-blob re-home is not crash-atomic (#746); the `BlobObject` index-envelope metadata (size/mimeType/timestamps) stays under the flat `_blob` DEK (#747); `extract-partition` and external-projection blob writes are tier-blind (#748); there is no cleared-caller `blobAtTier` read path — an elevated record's own attachment is unreachable until demote (#749); and `forget()` does not shred published versions at all (#750, pre-existing).
+
+- Deletes now converge under sync (#589). `collection.delete()` on a synced vault writes a version-ordered `_del` marker instead of a physical removal, so a delete propagates on pull and offline peers can no longer resurrect deleted records; a legitimate re-create at a higher version still resurrects the id (guaranteed non-resurrection remains `forget()`'s job). A concurrent same-version delete-vs-edit resolves via the collection's conflict resolver, or delete-wins by default. Adds an operator purge seam (`Vault._purgeDeleteMarkers`) for the forthcoming period-close feature (#604). Adds an optional `_del` field to `EncryptedEnvelope` on the `@noy-db/hub/adapter` seam (additive) — every `to-*` store must round-trip it (new adapter-conformance vector); `noy-db-to` stores need a conformance pass. Local-only (non-synced) collections keep physical deletes — no change.
+- Retire the `/adapter`, `/kernel`, and `/describe` deprecated subpath aliases (legacy retirement, phase 1). This is a coordinated removal, not a deprecation: all known consumers were verified migrated before the aliases were pulled. `noy-db-to`'s stores bind `@noy-db/hub/to` (0 remaining `/adapter` references); `klum-db`'s lobby binds `@noy-db/hub/cargo` (0 remaining `/kernel` references); `@noy-db/ui`/`@noy-db/ui-nuxt` bind `@noy-db/hub/ui` (0 remaining `/describe` references). In-repo consumers (`to-memory`, `to-file`, `to-browser-idb`, `by-peer`, `by-tabs`, the `test-adapter-conformance` harness) were migrated in the same commit — `/adapter` → `/to`, `/kernel` → `/cargo`.
+
+  `/adapter` and `/describe`'s backing `src/legacy/*.ts` files are deleted outright — nothing referenced them internally. `src/legacy/kernel.ts` survives on disk (unpublished): `@noy-db/hub/cargo` re-exports its runtime-helper/error-class/type surface as its internal floor (`export * from '../legacy/kernel.js'`), so the file stays as an implementation detail of `/cargo`, not as a published subpath — the `./kernel` entry is gone from both `tsup.config.ts` and the `package.json` exports map.
+
+  `/bundle` is untouched and stays published — klum-db's interchange still binds it; its migration to `/pod` + `/cargo` is tracked as phase 2/3. Old published `@noy-db/hub` versions keep their `/adapter`, `/kernel`, `/describe` aliases; this only shapes the next release.
+
+  Removed the now-redundant golden freeze tests for the retired aliases (`adapter-surface-golden.test.ts`, `adapter-seam.test.ts`, `kernel-surface-golden.test.ts`, `kernel-surface.test.ts`, and their baseline JSON fixtures). `kernel-api-surface-golden.test.ts` (the `Noydb`/`Vault`/`Collection` prototype freeze) and `cargo-surface-golden.test.ts` are untouched — the latter still reads `src/legacy/kernel.ts` directly as part of its own mechanism, which is exactly why that file had to stay.
+
+- Satellite collections v1 follow-ups (milestone #22).
+
+  - **#596 (fix):** a satellite fan-out leg whose write throws no longer drops a pre-existing
+    dirty entry for the same `(collection, id)` — a data-loss bug where a legitimate, already-queued
+    sync write could silently vanish when a _different_ leg of a joined put/pair delete failed.
+    `Leg` now tracks a `wrote` flag; dirty-compensation is skipped for a leg that never actually
+    wrote. A narrow, pre-existing edge case (a leg whose write lands but throws afterward, during
+    derivation/materialized-view dispatch) is out of scope for this fix and tracked separately as #687.
+  - **#595 (rename, no behavior change):** the one-satellite-per-base v1 scope guard's refusal id
+    moves `R-S1` → `R-S10`, freeing `R-S1` for the design's real fields-overlap routing-ambiguity
+    rule (`post-register.ts`), which was always the documented R-S1 but shared the id with the
+    scope guard in the shipped v1 error string.
+  - **#597 (additive):** persisted satellite pairing markers and classified markers now carry an
+    optional `epoch` (ISO-8601, stamped on first persist, stable across every later re-declare/no-op
+    fast path — deliberately excluded from marker equality). A latent reuse-staleness guard for
+    when a collection name gets freed and reused; the epoch-mismatch _rejection_ itself is deferred
+    until a delete-collection API exists — there's nothing to reject against yet.
+  - **#599 (new public API):** `Vault.migrateSatellitePerRecordKeys(satelliteName)` unblocks R-S7
+    retro-coverage — walks an existing satellite's records via `_applyCutoverTransform`, minting a
+    distinct per-record CEK for each, so a satellite declared before forget-coverage was added can
+    be migrated into `perRecordKeys` mode instead of being permanently stuck behind R-S7's refusal.
+    Resumable (already-migrated records keep their CEK on a re-run); asserts the collection wasn't
+    already opened this session without `perRecordKeys` (throws `SatelliteConfigError` otherwise);
+    no vault-wide fence/quiesce — run it before the satellite collection serves other traffic.
+  - **Bounded #588 consolidation:** `kernel/best-effort-revert.ts` — a shared best-effort-revert
+    helper now consumed by both satellite fan-out (`with-shape/satellites/fanout.ts`) and
+    `with-commit`'s transaction revert (`with-commit/tx/transaction.ts`), replacing two near-identical
+    reverse-iterate/put-or-delete loops with one. Internal-only (not part of any public barrel).
+    #588's actual ask — a kernel cross-collection atomic-write primitive — remains descoped/parked
+    (closed not-planned): it's adapter-contract-breaking (ripples to every `to-*` store in the
+    sibling `noy-db-to` repo plus the `adapter-conformance` harness) and needs its own design spec;
+    revisit on a real torn-pair report or when that cross-repo adapter work is independently scheduled.
+
+- Milestone #26 — docs/release infra + a CRDT build-warning fix + a delete-conflict caveat.
+
+  - **#660 (hub minor trigger): DTS build memory.** The hub's declaration build blew past 8GB peak
+    RSS (measured ~4.9GB steady-state, up to ~9GB peak footprint), forcing a
+    `--max-old-space-size=12288` cap in both CI workflows and the package's own `build` script.
+    Replaced tsup's `dts: true` (rollup-plugin-dts bundling) with a single plain
+    `tsc --emitDeclarationOnly` pass (`packages/hub/tsconfig.dts.json`), wrapped in an RSS guard
+    (`packages/hub/scripts/build.mjs`). Peak RSS dropped ~4.9GB → ~410-435MB (~91% reduction);
+    `.github/workflows/ci.yml` / `release.yml` `NODE_OPTIONS` dropped 12288 → 4096.
+    **Shipped `.d.ts` layout changed**: instead of tsup's flat bundled-per-subpath files, `dist/**`
+    now mirrors `src/`'s directory tree 1:1 (e.g. `dist/with-commit/history/index.d.ts` instead of
+    `dist/history/index.d.ts`), so the file count went from 54 to 398. All 41 `package.json`
+    `exports[...].types` targets were retargeted accordingly. The public API, types, and import
+    specifiers are unchanged — every subpath still resolves the same way through `exports` — but the
+    on-disk layout behind that map is different, which is why this is a **minor**, not a patch, per
+    pre-1.0 convention for consumer-visible packaging changes. A build-time guard now also verifies
+    every `exports` target (`types`/`import`/`default`) actually resolves to a file in `dist/` after
+    build, catching a stale/typo'd subpath before it ships.
+  - **#667**: fixed a Rollup dts circular-dependency warning between `kernel/types.ts` and
+    `with-commit/crdt/strategy.ts` (`CrdtStrategy` re-export cycle). Hoisted `LwwMapState`/
+    `RgaState`/`YjsState` into `kernel/types.ts` alongside the other CRDT types, and redirected the
+    `CrdtStrategy` type import in `vault.ts`/`collection.ts`/`collection-config.ts` from the indirect
+    `with-commit/crdt/strategy.js` re-export to the direct `kernel/types.js` origin. No runtime
+    behavior change; no public API change.
+  - **#600**: `release.yml`'s `publish` job now opens a `noy-db-docs` issue (`continue-on-error`,
+    via a `DOCS_SYNC_TOKEN` PAT) on every successful publish, carrying the version/tag, npm
+    dist-tag, run link, and the list of published `@noy-db/*` packages — so the docs repo's doc-sync
+    has a trigger instead of relying on someone noticing a new release.
+  - **#607**: added a JSDoc caveat to `ConflictPolicy<T>` (`kernel/types.ts`) — and mirrored in
+    `docs/subsystems/via.md` — documenting that `'last-writer-wins'`/`'first-writer-wins'`/`'manual'`
+    compare raw envelopes, so an edit _can_ beat a delete marker, whereas a custom-fn resolver and
+    the CRDT modes `'lww-map'`/`'rga'` decrypt both sides first and unconditionally let a
+    shred/tombstone win before the merge function ever runs (`'yjs'` is the one CRDT-mode exception:
+    it never decrypts and falls back to a plain higher-`_v` compare, so an edit can win there too).
+    Doc-only; no behavior change.
+  - **#624**: taxonomy-convergence analysis for the `noy-db-docs` migration (PR #498) — a gap
+    analysis (9 verified divergences between `SERVICES.md`/`packages/hub/src/**` and
+    `noy-db-docs`'s `features.yaml`/taxonomy), a `feature-schema.json`/`features.yaml` proposal,
+    two new ADRs (`docs/adr/0001-minimal-kernel-core.md`, `docs/adr/0002-placement-is-not-opt-in.md`
+    — the first ADRs in this repo), and an 18-step migration checklist. Analysis/docs only; nothing
+    in `packages/**` changed.
+
+- Milestone #31 via backlog closure — six issues (#666, #664, #639, #665, #661, #625), one branch.
+
+  - **#666 — `Collection._setVia(pipeline)` writer seam.** Internal refactor: the untyped
+    `coll as { via; codec: { setVia } }` cast `applyTaintOverlay` used to reassign a collection's
+    compiled `ViaPipeline` is replaced by a typed method. No observable behavior change; it exists
+    to give #664's late-attach machinery a sound way to rebuild the pipeline from outside
+    `collection.ts`.
+
+  - **#664 — late-attach (reconcile) parity for `i18nFields`/`dictKeyFields`/`lookupFields`.** A
+    SECOND-OR-LATER `vault.collection(name, {...})` call against an already-open collection always
+    supported `moneyFields`/`computed`/`fieldMeta`/`meta`/`classifiedFields`; these three families
+    were silently ignored on that path with no error. Now they attach: enum/static-tier lookup
+    fields attach cleanly (self-contained, no vault registry touch); reserved-tier (`dict()`) attach
+    additionally wires the same vault registries fresh construction populates (sync + reference-graph
+    both see the field immediately). **Matrix-tier lookup fields (`backing: 'collection'`) REFUSE to
+    late-attach** with a `ValidationError` naming the field/dimension/remedy unless the backing
+    collection is already open, this vault session, in eager (prefetch-enabled) mode — this is a
+    deliberate scope limit, not a bug: a lazy or not-yet-open backing dimension fails LOUD at
+    declare time instead of surfacing a confusing error the first time a query touches the field.
+    The pre-existing declare-time collision guard (two via families claiming the same field) now
+    also runs on every late-attach call, both within one call's own incoming fields and against the
+    collection's already-declared fields. Three known late-attach residuals, documented, not fixed
+    in this pass: `describeAsync({resolveDictLabels:true})`, `describe()`'s legacy top-level field
+    list, and join-side `presentForJoin` dressing — each reads a `Collection` field captured once at
+    fresh construction, not re-derived by a later reconcile call.
+
+  - **#639 — mutual/rotating rollup cycles now refused at declare time.** Two or more `withRollup()`
+    strategies whose targets mutually depend on each other used to be silently declarable — the
+    cycle was invisible to the dependency graph's cycle check because a rollup's target is a field
+    the graph only ever writes into, never reads from. `ViaGraph.assertAcyclic()`'s traversal now
+    additionally treats a real-field write as also being a write to its owning collection, closing
+    the gap. Fires at `Noydb.openVault()` (every derivation/MV strategy validates at vault open), and
+    throws `DerivationCycleError` — the same class every other declare-time cycle already throws.
+    Deliberately scoped to rollup-shaped cycles only; no runtime depth/reentrancy guard was added
+    (a declare-time sentinel fix, not a cycle breaker).
+
+  - **#665 — computed-first present order; `<field>Label`/`<field>Formatted` dressing now sees a
+    virtual computed field's output.** Before this fix, `computed`'s `present()` hook ran LAST, so
+    i18n/lookup's dressing hooks ran before a `mode: 'virtual'` computed field's value existed —
+    dressing was always a no-op for a composed field. `ViaPipeline._presentOrder` reorders the
+    PRESENT phase only (every other phase keeps the existing money-first compile order) so computed
+    runs before i18n/lookup. **Money is explicitly carved OUT of the generic reorder and kept in its
+    original present position** (a three-way partition: money, then computed, then everything else)
+    — money's `present()` DECODES its input as a stored scaled-int, unlike i18n/lookup which only
+    ADD a dressing key; running money after a virtual computed on the same field would misread the
+    computed output's raw major-unit number as a scaled-int and corrupt the value, not just leave it
+    undressed. **Two tradeoffs, pinned as tests, not follow-ups:** (1) a virtual computed field can
+    no longer read another field's dressing output (`<field>Label`/`Formatted`) — that composition
+    direction was never in this fix's scope and silently regresses if anyone relied on it; (2)
+    chained virtual computeds stay declaration-order-sensitive (a later-declared virtual field can
+    read an earlier-declared one's output; the reverse falls back to the reader's sentinel) — this
+    was already true before #665 and is unrelated to the present-order fix, just documented
+    alongside it. **Money-decorating-a-virtual-computed-field's-own-output stays an explicit,
+    out-of-scope KNOWN LIMITATION** — closing it needs a quantize-the-computed-output decision, not
+    an ordering fix; filed as a wrap-up follow-up.
+
+  - **#661 — bare-array lookup fields gain element-wise support.** A plain field whose own value is
+    an array (distinct from the pre-existing `[].`-wildcard multi-value path) had ZERO enforcement —
+    `getAtPath` resolved it to one opaque value, so both the altKey-normalizing `ingest` hook and the
+    closed-vocabulary `enforceWrite` hook silently skipped it; any value, known or not, passed
+    `put()` under `vocabulary: 'closed'`. Both hooks now handle this shape element-wise, reusing the
+    same canonical core the scalar and `[].`-wildcard paths already use — including at a dotted,
+    non-wildcard path (`'meta.tags'`), which works with no dedicated code since the underlying path
+    helpers already resolve dotted paths generically.
+
+  - **#625 — `ViaBinding.indexProbe` restores the index-accelerated fast path for fixed-mode money
+    `where()`.** A new, optional hook lets a binding hand the query builder a STORED-form operand for
+    a direct index-bucket lookup on `==`/`in`; without it (multi-currency money, every other
+    operator), the query builder falls back to a full scan, unchanged. This restores a fast path
+    phase A lost for money fields specifically. **Honest mixed-era caveat**: the fast path is
+    byte-exact for every record written through the money write path (which always produces a
+    canonical scaled-integer digit string); a legacy record whose stored value predates the field's
+    `money()` declaration may hold a non-canonical scaled string (e.g. `'0100'` instead of `'100'`)
+    — the index buckets it under that raw string and a canonical `==`/`in` probe misses it, while
+    the fallback scan (which re-parses via `BigInt`) still matches it correctly. The indexed fast
+    path therefore returns the canonical subset of matches, not literally every stored byte
+    sequence; a re-`put()` of a legacy record canonicalizes it going forward. A money-aware
+    index-key canonicalization would close this generally — filed as a wrap-up follow-up, not
+    implemented here.
+
+  **Additive surface, no breaking change:** `ViaBinding.indexProbe?(op, payload): unknown | undefined`
+  (kernel/via.ts) is a new optional hook — a type-level addition every existing binding is free to
+  leave unimplemented (falls back to a scan, unchanged behavior). Verified no `**/*golden*` file
+  changed anywhere on this branch (`git diff a2c80969..HEAD -- '**/golden*'` — empty), so no frozen
+  public-surface snapshot needed regenerating for any of the six issues above.
+
+  See [`docs/subsystems/via.md`](../docs/subsystems/via.md) (new "Milestone #31" section),
+  [`docs/subsystems/via-lookup.md`](../docs/subsystems/via-lookup.md) (late-attach + bare-array
+  sections), [`docs/subsystems/via-computed.md`](../docs/subsystems/via-computed.md) (present-order
+  section), and [`docs/subsystems/via-money.md`](../docs/subsystems/via-money.md) (indexing section)
+  for the full story, every example traced to a shipped test.
+
+- Milestone #32 via follow-ups — four issues closed.
+
+  - **#670** — `LookupHandle.rename()` publishes the new key to the sync cache before rewriting referencing records, so renaming a key on a `vocabulary: 'closed'` field no longer self-refuses with `UnknownLookupKeyError`; mid-rename, both the old and new keys are legitimately members.
+  - **#672** — Money-aware eager-index key canonicalization now runs at every bucket-mutation site (build/rebuild-on-hydrate, `put()`, `delete()`), via a new `ViaBinding.canonicalizeIndexKey` hook. A mixed-era (pre-money-declaration) legacy value's index fast path now agrees with the fallback scan instead of stranding it under its raw, non-canonical key. Boundary: lazy-mode (`prefetch: false`) collections keep their own raw-bucketing `PersistedCollectionIndex` side-car, unaffected — tracked separately.
+  - **#669** — Money now dresses a virtual computed field's own output (`via(computed(fn, {mode:'virtual'}), money(...))` on the same field) as MAJOR UNITS: the fn's return value is quantized to the currency scale (per the descriptor's declared rounding) and presented exactly like a stored money field — decimal string, `<field>Formatted`, `<field>Number` — via a new `ViaBinding.presentLate` hook. Unparseable/absent output is left raw, no throw. A taint-redacted virtual field's `Formatted`/`Number` companions are stripped along with the base field.
+  - **#671** — Five late-attach (reconcile) residuals fixed: (1) `getDictionary`/`resolveDictLabels` now resolves a late-attached dict field's labels, (2) `describe()`'s legacy top-level field list now includes late-attached fields, (3) `presentForJoin` now dresses late-attached i18n/lookup fields through the join path, (4) a money- or classified-only late-attach no longer silently drops an already-materialized taint overlay, (5) `ViaGraph.assertAcyclic()` no longer false-positives on legitimate mutual-FK `lookup`/`ref` edges between two collections. Items 1-3 ride a new `Collection._reconcileReadState` writer seam.
+
+- Period-driven cold archival (#613, #604 Spec 3). New `vault.archivePeriod(name)` relocates a closed period's in-window records (`_ts < periodExclusiveUpperBound(endDate)`) from the hot store to a configured cold tier, driving `routeStore`'s existing hot→cold migration + cold read-through. Non-destructive (reads still resolve), idempotent, gated only on a `closed` period, and records a `_period_archives/<name>` companion + ledger entry parallel to `freezePeriod` (the chained `_periods` record stays byte-immutable). Requires a `routeStore` with a cold route (`age: { cold }`); throws otherwise.
+
+  Supporting additions: `routeStore.compact(vault, { before })` accepts an explicit cutoff (and `AgeRoute.coldAfterDays` is now optional — `age: { cold }` alone = period-driven archival only); `StoreCapabilities.coldArchival` advertises a cold-capable router.
+
+  Note: `routeStore` now surfaces its primary store's `capabilities` (previously it exposed none), layering `coldArchival` on top. A consequence is that CAS-gated features (e.g. gap-free `sequence().next()`) are now permitted on a routeStore-backed vault when the primary store reports `casAtomic` — previously they refused on any routeStore. A router without its own cold route never advertises `coldArchival`, even when nested over a cold-capable primary.
+
+- Period freeze (#604). `vault.freezePeriod(name)` physically reclaims the space held by a closed accounting period's delete markers — it purges the delete markers whose write-time falls within the period (via the operator-asserted safe-point the closed period provides), records a `_period_freezes/<name>` companion + a tamper-evident ledger entry, and leaves the hash-chained period record byte-immutable. Terminal and idempotent; requires `withPeriods()`. Forget-tombstones, history, and live records are untouched. Closes the `_purgeDeleteMarkers` audit-emission deferred from #589.
+- Single-vault target-purge (#615, scoped base of #611). New `vault.purgePeriodTargets(name)` sweeps delete markers (`_ts < periodExclusiveUpperBound(endDate)`) off the vault's **push-only** sync targets (`backup`/`archive` roles) for a period that is already **closed and frozen** locally — reclaiming remote marker space that `freezePeriod`'s local purge can't reach. Records a `_period_target_purges/<name>` companion + ledger entry (mirroring freeze/archive; the chained `_periods` record stays byte-immutable), idempotent, gated on frozen-first. `sync-peer` targets are deliberately skipped (purging their markers could re-open the resurrection window — the deferred half of #611). A vault with no push-only targets writes no companion and is re-runnable. Single-vault only; fleet-wide purge remains klum's concern over `@noy-db/hub/cargo`. `surface: api` — rides the existing store contract (`loadAll`/`delete`), no adapter change.
+- Via consolidation (milestone #30): four latent gaps surfaced by the phase A–D whole-branch
+  reviews — #642, #651, #654, #640 — plus riders on #644 (items 1+3) and #646 (fixture discipline).
+  No shipped consumer uses any of the affected surfaces yet (pre-1.0), so none of this carries a
+  migration story.
+
+  - **#642 — formula outputs derived from a classified-bearing collection are now sealed at rest,
+    non-exportable, and query-refused by default (BEHAVIOR CHANGE, the #636-principle completion).**
+    #636/#638 closed the leak for a `computed` field's own declared `deps`; a with-formula edge
+    (derivation/rollup/MV) still folded its posture from its source's whole-record `'*'` node, which
+    never carried a registered posture and always fell back to max-permissive — so a derive/rollup/MV
+    `fn` (which receives DECRYPTED records by design) that copied a classified field's plaintext
+    landed it UNSEALED in the output: exportable, queryable, synced. Both target shapes are now
+    covered — **rollup targets** (a real field on the parent) inherit the fold automatically through
+    the existing field-specific taint overlay; **derivation/MV/overlay output collections** (`'*'`
+    targets) gain a collection-level default posture that seals every non-`_`-prefixed field of the
+    output record. The fold is axis-scoped, not a blanket clamp: only `encryptedAtRest`/`exportable`/
+    `forgettable` fold from a classified source; `queryable` is left at the base posture and is never
+    pulled down by a blob/money/i18n-only source, and a `ref` edge's `'*'` source is excluded from the
+    fold entirely (kept at identity, so a lookup-referencing field never seals just because its
+    backing dimension happens to have a classified column — the countries-matrix recipe stays
+    byte-identical). **No migration**: pre-1.0, no shipped consumer reads a formula output today, so
+    there is nothing to migrate — a deliberate, ratified security-correct default. Explicit
+    per-declaration declassification is deferred to phase E, not built here. **KNOWN LIMIT**: the MV
+    leg is currently theoretical for classified sources — all three MV refresh modes pre-open their
+    source collection at `openVault`, and the pre-existing classified retro-declare guard then refuses
+    classifying it there, so the fold applies mechanically but is structurally unreachable today.
+    Landing this exposed
+    three genuine, pre-existing latent bugs in the at-rest cache layer — all three gated on a
+    collection's _local_ `sensitiveFields` being non-empty, which was always true historically because
+    a sealed field always co-occurred with a locally-declared classified field until a
+    taint-only-sealed collection (zero local `sensitiveFields`, sealed entirely via the graph fold)
+    became reachable: `RecordCodec.toCacheRecord` (a write-then-immediate-`get()` returned cached
+    plaintext instead of a `SealedHandle`), `Collection.resolvePriorValues`, and the `_getStoredRecord`
+    lazy-mode branch (both of the latter, left unfixed, broke the self-write cycle-termination guard
+    for a rollup patching its own parent — an **infinite write loop**, not a wrong-value bug).
+    `resolvePriorValues` and the `_getStoredRecord` lazy branch are now gated on
+    `sensitiveFields.size > 0 || via?.hasAtRestHooks === true`; `toCacheRecord`'s equivalent stale gate
+    was removed outright — the envelope's own `_sealed` presence fully determines whether wrapping is
+    needed.
+  - **#651 — one canonical key-resolution core; matrix direct-read `present()` dressing now works for
+    a non-default `key`.** A matrix lookup declared with `key !== 'id'` (e.g. `lookup('countries', {
+key: 'iso2' })`) previously resolved its DIRECT (non-join) `<field>Label` read by the backing
+    collection's PUT-id, not `descriptor.key` — silently omitting the label for exactly the canonical
+    recipe this feature exists for. `coerceLookupKey`/`resolveBackingRowKey`/`matchesReferencingValue`
+    are now the one shared key-resolution core all six call sites converge on (snapshot rows, altKey
+    index, membership check, compare-key resolution, the restrict/propagation match predicate, and
+    `getLookupBacking`'s direct-read closure) — ending a bare-`String()`-vs-guarded-coercion drift
+    between them. Two poisoning classes close as a result: a backing row missing its `descriptor.key`
+    field no longer enters the snapshot/altIndex under the literal string `"undefined"` (previously a
+    closed-vocabulary field could wrongly accept `"undefined"` as a valid key); and a nullified or
+    never-set referencing field no longer bare-`String()`-coerces to the literal `"null"`/`"undefined"`
+    and spuriously matches a dimension whose canonical key genuinely is that string. An altKey
+    candidate row VALUE may now be a string or a number — both normalize through the same core
+    (deliberate uniformity, not a new capability anyone asked for), and the ownership-uniqueness
+    collision check still fires across the numeric/string boundary (a numeric `1` and a string `'1'`
+    on two different rows still throw `ValidationError`).
+  - **#654 — an unresolvable restrict edge now REFUSES instead of silently letting the delete through;
+    ordinary-delete propagation residue-reports instead of silently dropping.** A `restrict`-mode
+    lookup edge whose compare-key can't be resolved (a corrupted backing row — the `key` field missing
+    or non-scalar) used to `continue` past the check entirely, deleting/forgetting the row with no
+    proof references don't exist. It now throws the new `RestrictRefUnresolvableError` (root-exported,
+    `{ dimension, key, referencing }`), the same "cannot prove no references ⇒ refuse" reasoning
+    `DictKeyInUseError` already applies when references ARE provably present. The `cascade`/`nullify`
+    ordinary-delete propagation path's twin failure (previously a bare `continue`, no report channel
+    at all) now proceeds but reports the skipped edge on a new `lookup:propagation-residue` event
+    (`{ vault, dimension, key, residue }`) — the ordinary-delete counterpart of the pre-existing
+    `forget()`-path `ForgetResult.lookupReferencesResidue` channel, which is unaffected. A resolvable
+    edge behaves exactly as before in every mode; this is a corruption-class-rarity refinement, not a
+    change to the common path.
+  - **#640 — sync-applied deletes now recompute rollup parents.** Previously, only a _local_ delete
+    triggered `dispatchRollupsOnDelete`; a remotely-deleted rollup child pulled over sync left its
+    parent aggregate stale indefinitely. The sync-apply choke point now classifies each applied
+    envelope as a put or a delete and threads deleted ids, batched and per-parent-deduped, through the
+    same dispatch wave `pull()`/`push()`/cutover/restore already run — routed to the rollup-recompute
+    trio only, never `dispatchDerivations`/MV-on-delete, mirroring the existing local-delete dispatch
+    boundary. **KNOWN LIMIT, stated honestly**: the deleted child's rollup-parent intents are resolved
+    from a synchronous pre-invalidation cache peek with no extra I/O; if that peek misses — a cold or
+    evicted child (lazy-mode LRU eviction before the sync-apply lands) **or** an un-hydrated eager
+    collection whose first sync operation for that child is itself a delete — the miss is silent and
+    freshness-only: that one child's contribution to the parent goes uncounted until the next sibling
+    write recomputes the parent from scratch. Correctness elsewhere is unaffected (the recompute always
+    reads the remaining children from the store, so nothing double-counts). Riders: `push()`/`pull()`
+    now flush the graph batch in a `finally` around `persistMeta()`, so a throw there no longer leaves
+    a stale open batch silently dropping the next wave's touches (#644 item 1); both the puts and
+    deletes legs of the dispatch wave now additionally emit a structured `'derivation:wave-error'`
+    event (`{ collection, id, error }`) alongside the pre-existing `console.warn`, so a sync that
+    completed with a failed per-id recompute is programmatically discoverable, not just logged (#644
+    item 3).
+
+  **Additive surfaces** (non-breaking): `RestrictRefUnresolvableError` (root-exported, alongside
+  `DictKeyInUseError`); the kernel event map gains `'lookup:propagation-residue'` and
+  `'derivation:wave-error'`.
+
+  See [`docs/subsystems/via.md`](../docs/subsystems/via.md) (Phase C section — the #642
+  formula-output-posture and #640 sync-delete-rollup subsections) and
+  [`docs/subsystems/via-lookup.md`](../docs/subsystems/via-lookup.md) (the #651 key-resolution/altKey
+  notes and the #654 restrict/propagation policy section) for the full story, every example traced to
+  its shipped test.
+
+- The Via port (#629, phase B): classified fields and blobs join phase A's money/i18n as
+  kernel-orchestrated via-features, and every binding's declared `ViaPosture` — `encryptedAtRest`,
+  `queryable`, `exportable`, `forgettable` — is now an **enforced** contract instead of
+  documentation. `via-classified` (`shape/via-classified/`) seals `'recoverable'` fields at rest,
+  enforces preset validation and `storage: 'never'` rejection before a write reaches the store, and
+  participates in erasure; `via-blob` (`shape/via-blob/`) is a deliberately thin declaration +
+  posture binding — blob content crypto stays service-side (`with-shape/blobs/`), never routed
+  through the kernel's field-feature pipeline. Query, export, and forget all now consult posture
+  generically (no per-feature brand checks): the query DSL refuses a `queryable: 'none'` field
+  (new `FieldNotQueryableError` for `blobFields` — classified's own `det-exact` query behavior is
+  unchanged, a byte-for-byte parity pin); `Vault.exportStream()`/`exportJSON()` deliberately redact
+  an `exportable: false` field to the literal `'[sealed]'` on the record itself, ahead of the
+  pre-existing `SealedHandle.toJSON()` accident that produced the same string as a side effect
+  (both layers now verified independently); `vault.forget()` consults `forgettable` and folds each
+  sealed-posture binding's `erase()` hook into its report, with parity-pinned shred/residue counts.
+  New kernel machinery, `ViaCryptoCtx` (`sealedSlots` + `reservedEnvelopes`, both in
+  `kernel/enclave/record-keys/sealed-slots.ts`), gives via-features a scoped, key-free door into
+  per-record/per-collection crypto — the first consumer is `via-i18n`'s dictionary handle, which
+  this phase reroutes off a direct `kernel/enclave` import onto `reservedEnvelopes('_dict_')`,
+  **retiring the one remaining `via-enclave-isolation` grandfather** (that allowlist is now empty;
+  `via-layering`'s allowlist is unchanged, still exactly `kernel/query/join.ts` → #626).
+
+  **Downstream export output change:** the default (non-`redact`-option) export of a classified
+  field via `@noy-db/as-csv`/`@noy-db/as-sql`/`@noy-db/as-xml` changes bytes — pre-#629 these
+  satellites saw a live `SealedHandle` object and fell through to `JSON.stringify`-shaped output
+  (`"""[sealed]"""` in a CSV cell; a `jsonb` SQL column with literal `'"[sealed]"'`); post-#629 they
+  see the plain string `'[sealed]'` directly (a bare `[sealed]` CSV cell; a `text` SQL column with
+  literal `'[sealed]'`). The new output is the intended one — the old bytes were an accidental echo
+  of a live, `.reveal()`-capable handle reaching an export stream, which this phase's deliberate
+  redaction closes.
+
+  **Two erase-hook code paths ship real and unit-tested but stay production-dormant by design:**
+  the sealed-CEK `_sealed_cek/*` host-delivery envelope purge (`via-classified`) and the blob-shred
+  purge (`via-blob`) are both proven, by their respective pre-existing forget/erasure suites, to be
+  vault-level operations unconditional on any given collection declaring `classifiedFields`/
+  `blobFields` — routing either exclusively through its via `erase()` hook would silently regress
+  collections that don't declare the field but still exercise `.blob()`/`sealRecordToHost()`.
+  `vault.forget()` keeps calling both directly; the via bindings' `erase()` hooks carry only the
+  classification/participation they legitimately own (classified's `_sealed`-slot shred/residue
+  accounting, which IS live and wired). Making the purge scoping collection-declaration-aware is a
+  future product decision, not a gap in this phase.
+
+- The Via port (#638, phase C): a per-vault dependency graph (`ViaGraph`, `kernel/via-graph.ts`)
+  now connects every derivation, rollup, materialized view, and `computed` field to the sources it
+  reads, and enforces four structural fixes that were previously either silently wrong or a design
+  gap:
+
+  - **#636 — derived fields now inherit their strictest source's security posture.** A
+    `computed` field whose `deps` include a classified source used to silently copy that source's
+    plaintext (or a derivative of it) into an ordinary, unredacted field — the taint algebra
+    (`foldPosture`) now folds `encryptedAtRest`/`queryable`/`exportable`/`forgettable` from every
+    source, and a materialized field folding to `encryptedAtRest: 'sealed'` is actually sealed at
+    rest (the same `ctx.sealedSlots` capability `via-classified` uses); a virtual field (never
+    stored) is redacted on every read instead. **BEHAVIOR CHANGE, pre-1.0, deliberate security
+    fix:** any existing `computed`-from-classified configuration now inherits the classified
+    posture where it previously did not — such a field's `get()`/`list()`/export/query behavior
+    changes from plaintext to sealed/redacted/refused after upgrading.
+  - **#621 — sync-applied, cutover, and restore writes now dispatch derivations.** Previously only
+    a local `put()` triggered a collection's derivations/rollups/materialized views; a write
+    applied by `pull()`/`push()`/schema cutover/restore silently skipped dispatch entirely. A
+    batched, per-target-deduped wave now runs once at the end of a sync session (and around
+    cutover/restore) — N synced children of one rollup parent recompute the parent exactly once,
+    not N times; a collection with no dependents in the graph is skipped with zero decrypt cost
+    (unchanged for money/i18n-only collections).
+  - **#622 — `vault.forget()` now fans out to derived residue.** Forgetting a record used to leave
+    its derived copies and aggregate contributions behind. Record-grain derived artifacts (MV
+    rows, array-shape derivation rows, same-id record-shape derivation copies) are now erased;
+    aggregate-grain rollups are recomputed without the forgotten contribution in open periods, or
+    skip + audit in frozen ones — the subject's own record is still unconditionally shredded
+    either way.
+  - **#637 — a frozen-period derivation output now skips + audits instead of failing the source
+    write.** A derivation/rollup/MV output landing in a closed period used to throw
+    `PeriodClosedError` straight through the _legal_ write that triggered the recompute (live
+    local-write dispatch, `deriveAll()`, `refreshView()`, and — after the #621 fix above — the
+    sync dispatch wave too). It now skips the write (the historical output stands) and emits a
+    new `'derivation:skipped-frozen'` event, plus a `'lifecycle'` audit-ledger entry when
+    `withHistory()` is active. In the sync dispatch wave specifically, one frozen (or otherwise
+    failing) target in a batch no longer aborts the whole `pull()`/`push()` or starves a co-batched
+    healthy target.
+
+  **The declare-time typo guard (closes the #636 "typo reopening"):** on a collection that also
+  declares classified fields, a `computed` entry with no declared `deps` — or with a `deps` entry
+  naming an unknown field — now throws `ValidationError` at construction (an opaque function could
+  otherwise silently copy a classified field's plaintext with no way for the graph to know). On a
+  non-classified collection, `deps` may still name any field, including a plain field with no via
+  feature declared on it at all — there is no schema-introspection API to validate against, and an
+  unregistered dep folds to the default (untainted) posture, which is safe. **KNOWN LIMIT** (pinned,
+  not silently left): the guard only checks that a `deps` entry names _some_ known field, not that
+  it names the field the function actually reads — `deps: ['amount']` on a function that actually
+  reads `ssn` still passes construction and still leaks, because the graph edge folds from
+  `amount`'s posture, not `ssn`'s. Closing this fully needs runtime read-tracking or a
+  schema-introspection capability outside this phase's scope. See
+  [`docs/subsystems/via-computed.md`](../docs/subsystems/via-computed.md) for the declaration-order
+  asymmetry this guard has (a single call combining a `storage: 'never'` classified field with a
+  depsless `computed` field is refused; the identical pairing split across two separate
+  `vault.collection()` calls is accepted, by design — a `never`-storage value cannot structurally
+  reach a computed field's output) and its reconcile-path scope limit (a `deps` entry naming a
+  classified field declared in an _earlier_, separate call currently over-refuses; the workaround is
+  to declare both together in one call).
+
+  **`computed(fn, { deps, mode })` ships as a full via-feature**, composable through `via(...)`
+  (`via(computed(fn, { deps: [...], mode: 'virtual' }))`) and through an extended `computed: {
+field: { fn, deps, mode } }` sugar form — both additive. `mode: 'materialized'` (the default) is
+  byte-for-byte the prior eager write-time compute. `mode: 'virtual'` is new: the field is computed
+  fresh on every read, never stored (absent from `_data`), and unconditionally
+  `queryable: 'none'`. **Composition semantics are pinned for both modes** — `computed` always
+  compiles last in the via-binding stack, so `via(computed(...), money(...))` on the _same_ field
+  behaves differently per mode: in `mode: 'virtual'`, money's `present()` runs before the computed
+  value exists, so the raw computed number survives unformatted; in `mode: 'materialized'`
+  (default), the computed value is merged into the record before `encodeWrite`, so money's own
+  encode/decode/present hooks format it normally, exactly like a plain money field. The formerly
+  `@internal` `computedDeps` staging option (an interim seam from earlier in this phase, explicitly
+  documented as "do not depend on this shape") is **removed** — folded into each `computed` entry's
+  own `{ fn, deps?, mode? }` shape.
+
+  **Additive surfaces** (non-breaking): `vault.deriveAll()`'s result gains a `skippedFrozen` counter,
+  distinct from `derived` (a frozen-skip is not counted as a successful write); `ForgetResult` gains
+  `derivedRecordsErased: number`, `derivedAggregatesRecomputed: number`, and
+  `derivedResidueFrozen: readonly string[]` (all pre-existing `ForgetResult` fields are byte-shape
+  unchanged); the kernel event map gains `'derivation:skipped-frozen'`
+  (`db.on('derivation:skipped-frozen', handler)`).
+
+  See [`docs/subsystems/via.md`](../docs/subsystems/via.md) (Phase C section) and
+  [`docs/subsystems/via-computed.md`](../docs/subsystems/via-computed.md) for the full story,
+  including every example above traced to its shipped test.
+
+- The Via port (#650, phase D): a new `'lookup'` via-feature — `lookup()` / `enum()` / `dict()` —
+  collapses the legacy `dictKey()`/`staticDict()` code-field pattern and a first-class
+  reference-collection pattern into **one** binding with three backing tiers: `enum` (inline keys,
+  no store), `dict` (a reserved `_dict_<name>` micro-collection — the native spelling of `dict()`,
+  what `dictKey()` compiles onto), and `matrix` (a first-class collection like `countries` — the
+  native spelling of `lookup()`'s default `backing: 'collection'`, what `staticDict()`'s table-based
+  sibling `lookup(name, { backing: 'static', table })` also compiles onto for its own tier).
+
+  **`dictKey()`/`staticDict()` are now aliases**, not deprecated spellings — internally they build
+  the equivalent `LookupDescriptor` shape and validate against it, but they still compile onto the
+  **`'i18n'`** via-binding, not the new `'lookup'` one. Their stored envelopes, the
+  `type`/`widget`/`dict` slice of `describe()` output, and `.join()` dressing stay byte-identical to
+  their native equivalent (`packages/hub/__tests__/via/lookup-alias-parity.test.ts`), but they do
+  **not** gain the new `.lookup` describe() block below (only a native `lookup()`/`enum()`/`dict()`
+  field produces one). Existing code using either sugar continues to work unchanged.
+
+  **New capability, additive:**
+
+  - `altKeys` — declare candidate values (e.g. an ISO3 code, a phone call-prefix) that normalize to
+    the canonical key on `ingest`, sync and pure, from an already-materialized backing snapshot (no
+    store read per `put()`).
+  - `vocabulary: 'closed'` — write-time membership refusal (`UnknownLookupKeyError`) against the
+    backing dimension's **actual current rows**, checked live, not a hardcoded universe. `'open'`
+    (the `dictKey()`/`dict()` default) is unaffected. The dict tier's closed membership specifically
+    is declared `keys` **union** the reserved dictionary's live rows (a declared key is known even
+    before any row for it exists; a live row for an undeclared key is known too) — pinned by
+    `lookup-vocabulary.test.ts:96`. Matrix tier has no declared key list at all — membership is
+    purely the backing collection's live rows.
+  - `sortBy` / `orderBy(field, dir, { by: 'label' })` — exact ordering by the resolved label, either
+    fixed (`compareForOrder`, needs a declared `displayLocale`) or per-call (`{ by: 'label' }`,
+    resolves at the query's own locale — a genuinely different sort order per call, not cached).
+
+  **BEHAVIOR CHANGES (deliberate, pre-1.0, `@next` only):**
+
+  - **#649 — closed-vocabulary membership is now real.** The `dictKey()` doc comment always claimed
+    that a declared key set was enforced on `put()`; it never actually was (the runtime `keys` array
+    was silently dropped at registration). `dictKey()` itself is UNCHANGED (still open — closing
+    this for the alias was explicitly out of scope, to avoid silently breaking existing dictKey
+    collections). The fix landed on the native `lookup()`/`enum()`/`dict()` spellings' own
+    `vocabulary: 'closed'` opt-in only.
+  - **#648 — `restrict` is the default reference semantics for a declared lookup field, and it is
+    now enforced.** Deleting (or `forget()`-ing) a backing dictionary/collection row that a declared
+    lookup field still references now throws `DictKeyInUseError` naming the referencing collection
+    and count, refusing the delete before any mutation. `DictKeyInUseError` was declared, exported,
+    and documented since before this phase, but its throw site was an empty comment block — this is
+    its first-ever implementation. `cascade` (tombstones/deletes the referencing records) and
+    `nullify` (nulls the referencing field via an ordinary `put()`) are opt-in per declaration
+    (`onDelete`), propagating additively through both plain deletes and `forget()`
+    (`ForgetResult.lookupReferencesCascaded`/`lookupReferencesNullified`/`lookupReferencesResidue`,
+    new additive fields — `lookupReferencesResidue` reports any `cascade`/`nullify` propagation
+    skipped because a reference's compare-key couldn't be resolved even from the live pre-shred
+    backing row, always empty in the ordinary case, never silent when non-empty — every pre-existing
+    `ForgetResult` field is unchanged). **A plain dictionary delete with no declared
+    lookup-referencing field is completely unaffected** — this only fires for dimensions a
+    `lookupFields`/`via(lookup(...))` declaration actually points at.
+  - **Matrix-tier `sortBy` was silently inert through Task 6; it is now functional.** `sortBy` was
+    accepted at declare time on a matrix-tier (`backing: 'collection'`) lookup field since it
+    shipped, but `compareForOrder` had no route for that tier — a plain `orderBy()` on such a field
+    silently fell back to raw stored-code order, no warning, no error. This task wires the matrix
+    branch through the same sync snapshot `presentForJoin` already reads (`registry.ts`'s
+    `buildLookupSnapshotRows`, keyed by `descriptor.key`), so a `sortBy` + `displayLocale`-declared
+    matrix field's plain `orderBy()` now genuinely sorts by its resolved label, same as the reserved
+    tier already did. Reserved-tier `sortBy` is unaffected.
+  - **#647 — reserved (`_dict_*`) collections now participate in sync.** Before this phase,
+    `vault.dictionary()` writes bypassed the mutation choke point entirely (raw adapter I/O, no
+    dirty-log entry) and `SyncEngine.pull()` skipped every `_`-prefixed collection by the store
+    contract — dictionaries never crossed `push()`/`pull()`, only backup/bundle export. Reserved
+    lookup writes now dirty-log and dispatch like any other write, and `pull()` additionally
+    enumerates an explicit reserved-lookup prefix registry through the ordinary apply path.
+    **Deletes travel as version-ordered delete-markers**, the same #589 law every ordinary
+    collection's sync-safe delete already follows — a deleted dictionary key can no longer be
+    silently resurrected by a stale peer's next push.
+
+  **#626 retired**: `kernel/query/join.ts` no longer imports `shape/via-i18n/core.js` — it calls a
+  sync `presentForJoin` hook the `Collection` builds from its own i18n + lookup bindings instead
+  (now covering the matrix tier too, not just reserved). The `via-layering` architecture guard's
+  allowlist (`VIA_SHAPE_ALLOWLIST`) is EMPTY, proven to still fire on a synthetic violation. The
+  sibling `via-enclave-isolation` guard's allowlist (`VIA_ENCLAVE_ALLOWLIST`) has also been empty
+  since phase B and gains the same synthetic-fire proof (both in `via-guards-empty.test.ts`).
+
+  **`describe()` gains a normalized `lookup` block**, sourced from `ViaBinding.describeFragment()` —
+  declared since phase A, unconsumed until now. Present alongside (not replacing) the pre-existing
+  `dict` block, which stays byte-stable for the `dictKey()`/`staticDict()` alias. Carries
+  `dimension`/`backing`/`vocabulary`/`key`/`altKeys`/`present`/`sortBy`/`onDelete`, and the
+  statically-known closed-vocabulary key set where one exists.
+
+  **Removed**: `vault.applyLocale()` — a full parallel i18n+dict+static label-resolution path with
+  zero production callers (superseded by `via.present`, orphaned since the phase A/C cutover).
+  Dead public API; no behavior change for any caller (there were none).
+
+  See [`docs/subsystems/via.md`](../docs/subsystems/via.md) (Phase D section) and
+  [`docs/subsystems/via-lookup.md`](../docs/subsystems/via-lookup.md) for the full story — the
+  canonical countries-matrix example, every capability traced to its shipped test.
+
+- The Via port (#623, phase A): a kernel-owned field-feature SPI. Everything a field can be is now a **via-feature** — a per-field declaration plugging into one phased pipeline (write: ingest → encode; read: present) with a brand-keyed binder registry generalizing the #553 declaration-links-engine pattern. **money and i18n are fully retrofitted** behind the port: the kernel imports nothing from the feature layer (closes #612), enforced by two new architecture rules (`via-layering`, `via-enclave-isolation`) with exactly two documented grandfathers (`kernel/query/join.ts` → #626; `via-i18n/dictionary.ts` → phase-B ViaCryptoCtx). New public surface (additive): `via(...)` composer + the `viaFields` collection option — existing spellings (`moneyFields`, `i18nFields`, `dictKeyFields`) are preserved as sugar compiling to identical bindings (byte-identical stored envelopes, identical `describe()`). Also: an origin-tagged mutation choke point lands with strict behavior parity (the socket phase C plugs the dependency graph into — #621/#622); generic path utilities moved to `kernel/paths`; `I18nStrategy`/`NO_I18N`/dict predicates moved to the kernel port (`port/with/i18n-strategy`). Folder moves: `with-shape/money` → `shape/via-money`, `with-shape/i18n` → `shape/via-i18n` (subpath exports unchanged). Kernel net effect: collection.ts −232 lines (first ratchet-down since Phase 5); 20 money call sites + 10 i18n value bindings + 7 type inversions collapse to one grandfathered import. Upgrade note: materialized views with money `where()` clauses re-materialize once after upgrade (query-hash format changed; self-healing). Behavior is otherwise unchanged — the full money/i18n suites pass unmodified.
+- **Behavior change:** on a collection that declares `tiers`, a tier-0 `put()` or `delete()` targeting an **elevated** (`_tier > 0`) record now throws the new `TierWriteRefusedError` instead of succeeding (#715, #716). Use `putAtTier()` / `elevate()` / `demote()` — the tier-aware paths — which are unaffected, as are tier-0 records and any collection that never declares `tiers`.
+
+  Previously such a write **silently demoted** the record to tier 0 with no clearance check and no cross-tier audit event, destroying the elevated content: because elevated records correctly read as _missing_ on tier-0 surfaces, `put()` treated the id as a create — and a create at tier 0 is a demotion. `delete()` was worse in a quieter way: its marker carried no tier, so it **erased the elevation signal** and the record's prior versions re-decrypted through `history()`. Refusing at the two write choke points also makes the write path's remaining ungated decodes unreachable, including a CRDT branch that threw a raw crypto error and a lazy path that wrote a history snapshot of the elevated plaintext.
+
+  Note on hooks: `onBeforeWrite` user hooks still fire for a refused put (consistent with every other `put()` rejection, e.g. schema validation) and receive a **null** prior for the elevated record, never its plaintext. `beforePut` **gate** handlers do not fire at all — the refusal precedes the gate bus.
+
+  Known residue, tracked: writes made by internal machinery are not gated — derivation/materialized-view cleanup deletes (#718) and sync-apply / coordinated-cutover migration rewrites (#708) can still drop an elevated record's tier. An elevated record's prior versions also remain decryptable at rest until history keys are rewrapped on elevation (#712).
+
+### Patch Changes
+
+- **BREAKING (embeddings, `@next` only) — `_vec` embedding sidecars are now collection-namespaced
+  (#726).** `_vec` rows used to be keyed by the bare record id, vault-wide — two collections sharing
+  a record id shared one `_vec` row. This was NOT a confidentiality leak: every collection has its
+  own DEK, and AES-GCM auth-tag verification means decrypting a foreign collection's `_vec` row under
+  the wrong DEK throws `TamperedError` rather than returning wrong plaintext, so no cross-collection
+  content ever surfaced. The actual bug was id collision: `put()`/`elevate()`/`forget()` in one
+  collection could **clobber or delete** a same-id sidecar owned by another collection, and a
+  collection whose `similarTo()` / cold semantic `retrieve()` encountered a foreign same-id row
+  **crashed with an uncaught `TamperedError`** (a denial-of-service, not a disclosure). The store
+  bucket stays the literal `'_vec'`; the id is now composite (`<collection>/<recordId>`, via the new
+  `encodeVecId`/`decodeVecId`/`isVecIdFor` helpers in `with-lookup/embeddings/vec-id.ts`), which
+  eliminates both the clobber and the crash and structurally precludes even a theoretical
+  cross-collection read.
+
+  **Migration: no dual-read fallback.** A read-time fallback to the legacy bare-id key would be
+  unsound in the colliding-id case — which collection a legacy `_vec/<id>` row belongs to is
+  irreducibly ambiguous. Consumers with embeddings already populated on `@next` should expect a
+  **recall gap** for un-rewritten records: an existing bare-id `_vec` row becomes unreachable
+  ciphertext residue (fails safe — toward not-found, never toward wrong-record-surfaced) until the
+  owning record is rewritten. `embedOnWrite` re-derives and re-persists the sidecar on every `put()`
+  when embeddings are declared, so any record written after upgrading self-heals for free — no action
+  needed beyond a normal `put()`. Sidecars are a pure function of live plaintext + model, so they are
+  always re-derivable.
+
+  An opt-in bulk re-embed/rebuild utility (mirroring the `Vault.migrateSatellitePerRecordKeys()`
+  precedent, for consumers who want to close the recall gap proactively rather than wait for organic
+  rewrites) is a planned follow-up, tracked separately as #788.
+
+- `elevate()`/`demote()`/`putAtTier()` now snapshot the pre-move version into `_history` (#728). Previously a tier move bumped `_v` and overwrote the live envelope without ever saving the version that existed just before the move, so `history()`/`getVersion()` silently lost it. The snapshot reuses the SAME `rewrapBodyToDek(envelope, fromDek, toDek)` rewrap each function already computes for its live write (`putAtTier` computes one more, over the record it's about to overwrite), so it lands wrapped under the DESTINATION tier's DEK — never `ctx.codec.encryptRecord`, which always resolves the tier-0 DEK and would have leaked the pre-move body at rest whenever the prior tier was above 0. The snapshot is untagged (`_tier`/`_elevatedBy` stripped, matching an ordinary `put()` history entry) so the read-gate doesn't hide it permanently once the record demotes back — at-rest protection comes from the ciphertext's DEK, not from a tag. No-op when history is disabled or no history strategy is wired.
+- `vault.collection()` now refuses `tiers` + `crdt` on a collection that is (or becomes) a registered rollup/derivation/materialized-view source (#739). `RecordCodec.decryptRecordAtDek()` — the tier-aware pre-move decode `syncDerived` uses on `elevate()`/`demote()`/`putAtTier()` (#722) — has no CRDT resolution step, so a registered rollup/derivation reading a CRDT-mode tiered source saw raw `CrdtState` instead of the resolved record: its key/value fields read as `undefined` and the recompute silently no-op'd, letting the #722 derived-output-follows-tier leak back in for this one combination. Refused loudly at construction (`UnsupportedTierCompositionError`, mirrors the #724/#748/#740 tier-composition guards) instead of building CRDT-aware pre-move decode. Reliably catches rollup/derivation sources (`DerivationRegistry` is fully populated before any `vault.collection()` call reaches user code); does NOT catch a materialized-view source first constructed inside the MV's own single-query `query(db)` callback — see the doc comment in `collection-config.ts` for the exact boundary.
+- `decryptResponse()` now unwraps the per-blob content CEK, resolves the tier-scoped `_blob` DEK, and verifies the content address (#757). Previously it decrypted chunks directly under the flat `_blob` DEK, so it was **broken for every erasable (`perRecordKeys`) blob** (whose chunks live under a per-blob CEK), tier-blind, and — because it decrypts caller-provided ciphertext with no integrity check beyond AEAD — a **silent substitution side door**: a holder of the flat `_blob` DEK could feed forged, self-consistent bytes and have them returned as genuine content. It now resolves the chunk key via `resolveChunkKey` (unwrapping `_cek`), resolves the blob DEK at the owner/cleared tier (so a cleared `atTier()` read works, an elevated record stays invisible to an uncleared caller), and recomputes `hmacSha256Hex(blobDEK, plaintext)` against the requested eTag — throwing `TamperedError` on mismatch (the same content-address defense the main read paths got in #749). Multi-chunk blobs, which this single-Response API shape cannot carry, are now refused loudly (`ValidationError`) instead of silently mis-decrypting.
+- A permanently-stuck persisted-search-index compensation no longer aborts a tier move (#764). The sticky compensation retry from #725 rethrew the raw adapter error uncaught, so a genuinely permanent failure (e.g. a read-only store) would abort `elevate()`/`demote()` mid-flight — after the record's tier-move write landed but before ledger/derived sync — and recur on every future move for that collection. The stuck compensation is now a distinguishable `PersistedIndexCompensationError` (wrapping the raw error as `cause`), and `elevate()`/`demote()` catch it and complete the move — reporting the deferred search-index purge via a new `TierMoveResult { searchResidue: boolean }` return — instead of aborting. Only the compensation-stuck case is caught; any other search failure still propagates.
+- `putAtTier()` now registers the record's subject ref in the forget index (#766). A record whose FIRST persistence was `putAtTier(id, rec, tier)` — the sensitive-from-birth pattern — previously bypassed the write-hook pipeline that maintains `_subject_index`, so `vault.forget(subjectId)` silently never found it: an unforgettable record, a GDPR-erasure gap. `putAtTier` now registers the ref through the same path `Collection.put()` uses (idempotent, no-op when no forget strategy is declared, and consistent with the existing `put()`+`elevate()` flow which already leaves the ref in the index). `elevate()`/`demote()` are unaffected — they operate only on records that already exist (and were therefore already registered).
+- Two milestone-34 follow-ups. The `describeExtraction` dry-run preview now surfaces `danglingRefs` (with a `reason: 'missing' | 'elevated'` discriminant), so a caller who previews a partition sees that an FK will dangle — matching what the actual `extractPartition` result reports (#772). And `putAtTier()` now routes its search-index purge through the same `syncSearchResilient` guard `elevate()`/`demote()` use, so a permanently-stuck persisted-index compensation no longer aborts the write mid-flight — the record is written and the deferred search purge is reported via `TierMoveResult { searchResidue }` (#774, the putAtTier sibling of #764).
+- Two MV/derivation candor follow-ups. A same-collection Query-form materialized view whose input filter matched a field its output copies could **self-perpetuate** — its stale output row re-satisfied the MV's own filter on the next eager refresh, re-deriving after the true source was deleted/forgotten (a forgotten record's contribution reappearing via its own orphaned output). The executor's input scan now excludes rows stamped with the MV's own `_materializedFrom.mvName` before they feed materialization or the tombstone diff (#777). Separately, `forget()` erasure candor improves: an MV output row that is elevated above tier 0 and can't be decoded under the default DEK is now surfaced as `ForgetResult.derivedResidueUndecodable` instead of being silently skipped (#776a), and the eager executor's tombstone leg now counts only rows it actually erased — a `#718`-skipped elevated row no longer over-reports as erased (#776b).
+- Two final erasure-candor follow-ups. The eager materialized-view executor's tombstone leg now surfaces residue instead of silently skipping: an MV output row that is elevated-and-undecodable, or decoded-and-owned but undeletable (the `#718` tier gate declined), is reported via `ForgetResult.derivedResidueUndecodable` on both the eager and lazy invalidation paths — closing a silent-survival gap on the eager `forget()` path (#782). A legitimate other-owner/other-MV row (stamp mismatch) is still correctly skipped, never reported as residue. Separately, the `vault.elevate(...).collection().put()` convenience path now surfaces the `TierMoveResult { searchResidue }` signal (previously discarded), so a caller can tell whether a stuck search-index compensation left residue on that write (#779).
+- **Audit precision (`@next` only) — MV forget/refresh residue now splits undecodable vs. declined
+  (#785).** `ForgetResult.derivedResidueUndecodable` used to fold two compliance-distinct outcomes
+  into one array: (1) an MV output row whose `_materializedFrom` ownership stamp could not be
+  decoded (undecodable under the default DEK — ownership **unconfirmed**), and (2) a row that DID
+  decode and stamp-match but whose erasure was declined by the #718 tier-elevation gate (ownership
+  **confirmed**, a live tier-holder-decryptable copy deliberately retained). An auditor reading the
+  field name as "couldn't tell" was, for the second case, wrong — the system knew exactly whose data
+  it was and chose to keep it.
+
+  `derivedResidueUndecodable` is now narrowed to undecodable-only; a new `derivedResidueDeclined`
+  carries the #718-declined rows. The split threads all the way down: `RefreshResult` (the
+  `with-formula/materialized-views/executor.ts` `refresh()` return, also the shape of the **public**
+  `vault.refreshView()`) gains `residueUndecodable`/`residueDeclined` in place of the single
+  `residue` field; `invalidateMVAtRest`'s return does the same; `dispatchMaterializedViewsOnDelete`
+  and `ForgetFanoutStats` mirror it. `vault.refreshView()`'s return shape changes as part of this —
+  acceptable since the whole campaign is unpublished on `@next`.
+
+  No behavior changes: every row that was previously reported now still is, just routed into the
+  array matching its actual reason.
+
+- Blob writes (`put`/`adoptExternal`/`publish`) now refuse a record id, slot name, or version label that contains `::` or starts/ends with `:` (`ValidationError`, #752). `::` is the blob version-key separator; without the guard, ids like `a` and `a::x` (or the boundary case `a:`) made the `{recordId}::` prefix scans match across records — which escalated from a mis-read to destructive cross-record erasure once `forget()` began shredding published versions (#750). The rule makes the `::`-joined key grammar prefix-free by construction. Write-surface only: pre-existing `::`/boundary-colon data stays readable, sheddable, and tier-movable (a constructor throw would have broken `forget()` on such records); re-put under a clean id to clear the legacy ambiguity.
+- Crash-safe tier-move blob rehome (#746) + tier-aware migrate() (#756), completing the blob durability journal (#753 shipped the shred half). A tier move (`elevate`/`demote`/`putAtTier`) that re-keys a record's blobs to the destination tier's DEK is now journaled: destination refCount increments are row-scoped stamped so a crash mid-move can't over-count (and thus never strand content undecryptable-but-alive), and `rehomeForTier` resumes with per-step from-then-to tolerance — a half-moved record heals on the next tier op or blob touch instead of staying silently split across tiers at rest. `forget()` resumes a pending rehome to completion before erasing (so a half-moved blob a row no longer references can't survive erasure), and a shred supersedes a pending rehome the other way. `migrate()` (legacy-blob → per-record-CEK upgrade) is now tier-aware — it no longer throws `TamperedError` on a previously-elevated record and skips already-erasable blobs. No swallowed releases under a marker: a failed from-tier crypto-shred during a rehome surfaces rather than silently dropping. Known residuals (documented for the audit): a version whose eTag is held only by a published version (never a slot) can read `null` after a crash between its release and metadata write (availability only); and rehome destination-increment idempotency has one intrinsic non-atomic window — the refCount `+1` and the marker's `appliedStamps` append are separate writes (`+1` first, deliberately, so a crash can only over-retain, never under-count and data-loss), so a crash in that window plus ≥8 concurrent rehomes converging on one shared destination before resume can still over-count (retained-too-long, not a leak of readable content).
+- Crash-safe blob erasure (#753). `shredAllForRecord` (the `forget()` blob arm) is now journaled: `forget()` mints an encrypted intent marker (reserved `_blob_intent` collection) BEFORE the tombstone, each refCount release is stamped atomically in its CAS write (bounded `lastOps` ring on the `BlobObject`), and every blob mutator resumes a pending shred before proceeding. A crash at any point — mid-release, between a decrement-to-zero and its chunk deletion, before or after row deletion — now resumes to exactly-once semantics: a co-owned blob can never be over-released by a retry (the destructive case), and an elevated record's holds are never stranded by the tombstone (the permanent-leak case). Markers travel in backups; two-tab terminal-race residue is documented. Rehome journaling (#746) and migrate() tier-awareness (#756) follow on these primitives.
+- Tiers×blobs completeness (#747, #749). The `BlobObject` index envelope (size/mimeType/compression/chunkCount/refCount/createdAt) now follows its eTag's tier `_blob` DEK, so an elevated record's blob metadata is no longer readable by a tier-0 DEK holder at rest — content was already tier-isolated (#724); this closes the metadata sidecar. Dedup-policy shared blobs and legacy blobs legitimately stay under the flat DEK (documented residue; reads fall back, and a cleared read that resolves via the flat fallback re-verifies the content address — `hmacSha256Hex(flatDEK, plaintext)` against the requested eTag — so a tier-0 key holder with raw store write access cannot silently substitute an elevated blob's content; forged rows throw `TamperedError`). Known accepted residue: `blobInfo()`/`list()` metadata on a cleared view is not content-verified (no content fetch happens there). No migration: the tiers×blobs arc has never been published. And `blob(id).atTier()` is the new sanctioned cleared-read path to an elevated record's blobs — the `getAtTier` analogue, gated by `assertTierAccess` on the caller's keyring for BOTH the data collection and the `_blob` tier DEK BEFORE any key resolution (an ungranted or partially-granted caller gets `TierNotGrantedError` and no key material is minted), while plain `blob(id)` keeps treating the elevated record's blobs as nonexistent.
+- Partition extraction is now tier- and journal-aware (#759, #767, #769). `walkClosure`'s outbound-completion phase re-checks a referenced FK parent's tier visibility (the same gate root selection and inbound expansion already use): an elevated (or missing) parent is skipped rather than admitted — no longer crashing `reKeyClosure` on an undecryptable elevated record — and the resulting dangling FK is surfaced as a `danglingRefs` notice on the extraction result so the caller knows the child's reference points outside the partition. In-flight `_blob_intent` crash-recovery markers are now carried into an extracted partition (re-keyed under the destination DEK) so resume-on-touch heals a mid-shred/mid-rehome record after restore, mirroring the full-vault backup allowlist. The per-slot `pendingRelease` resume breadcrumb is stripped from partition slot records (it is a source-vault-local pointer, meaningless cross-vault) while full-vault `dump()` deliberately retains it (same-vault-resumable) — the asymmetry is documented.
+- Elevating a record now removes its contribution from **eager** derived outputs — materialized-view rows, rollup values, and `withDerivation` outputs (#722). These are computed from a source record and written to output collections at tier 0, holding the source's plaintext; `elevate()` previously left them, so any tier-0 caller could read an elevated record's derived plaintext there. On a tier move, the record's eager derived outputs are recomputed from the tier-aware cache — which excludes elevated records — so a record-grain view row is deleted and an aggregate/rollup drops the elevated contribution. `demote()` (and `putAtTier()` back to tier 0) restore it: the change is fully reversible. Recompute reuses the same fanout `forget()` uses and reads only the tier-gated cache, so it never re-materializes the elevated plaintext.
+
+  Scope and known residuals (all shared with `forget()`'s fanout, tracked separately): this covers **eager** materialized views; a **lazy or manual** MV keeps its stale persisted output row until its next refresh, so a cold-session tier-0 read can still serve the pre-elevation row (#736). A rollup contribution baked into a **frozen** period is not recomputed (freeze law). For **aggregate** views and rollups, the value changes observably when a contributor is elevated (a tier-0 observer can infer that a record with roughly that contribution was elevated) — an accepted property, since `_tier` is already store-visible metadata. A tier move on a collection with no derivations does no extra work (the record decode is gated on the presence of a derivation/materialized-view source).
+
+- Fix three `describe()` fidelity gaps (#657):
+
+  - A field declared only via `blobFields` was invisible in `describe()` — or, with a `fieldMeta` entry, appeared as `type:'unknown', widget:'text', editable:true`, actively wrong for binary content. The `'blob'` binding's `describeFragment()` is now consumed (mirroring the existing `'lookup'` consumer), so a blobFields field always appears with `type:'blob'`, `widget:'file'`, `editable:false`, and a `blob: { retainDays, ..., queryable:'none' }` block.
+  - Async `describe({}).constraints` no longer leaks zod's `.int()` ±`Number.MAX_SAFE_INTEGER` safe-integer sentinel as `minimum`/`maximum` — those are JS-representability facts, not authored validation intent. An authored bound on a non-`.int()` field is untouched.
+  - The static tier of `lookup()`/`dict()` (table-backed, no declared `keys`) now emits `lookup.keys` from the table's own key set, matching the `DescribedField.lookup` docblock's promise. Reserved/matrix tiers are unaffected.
+
+  - Note: `toJSONSchema()` currently degrades the new `type: 'blob'` to JSON-Schema `type: 'string'` with no marker — a describe()-only fidelity pass; the JSON-Schema story is a separate follow-up.
+
+- Tiers × external-projection guards (#748). `adoptExternal()`/`setExternalMeta()` now require the slot to be a declared `blobFields[slot].external` field (`ValidationError`) — they previously bypassed both `put()`'s declaration gate and the construction-time tiers mandate. Declaring `tiers` together with an external blob field marked `public: true` is now refused at construction (`UnsupportedTierCompositionError`): the object key is deterministic and the bytes world-readable by design, so elevation can never make that content invisible — use a presigned/private external field or a non-tiered collection. Private/presigned external fields on tiered collections are unaffected. Extraction hardening: `reKeyClosure`/`reKeyBlobs` carry defense-in-depth canaries (`PartitionExtractionError`) refusing any elevated envelope reaching a partition, and a regression test pins that elevated records are excluded from closure roots and inbound expansion (the outbound-completion gap is tracked as #759).
+- `vault.forget()` erasure now covers two residue classes it previously left at rest (#734, #750). (1) The forgotten record's plaintext `_ledger_deltas` rows are purged via the #729 primitive — chain-safe (`verify()` recomputes the tamper-chain from the retained entries, never the delta rows), with the count reported as `ForgetResult.ledgerDeltasPurged` and failures surfaced in `ForgetResult.ledgerDeltaResidue` rather than swallowed. As part of this, forget() without a history strategy now fails FAST with nothing shredded (was: shred everything, then throw on the summary-entry step). (2) `shredAllForRecord` now enumerates the record's published blob versions (`_blob_versions_*`): each version's independent refCount hold is released (crypto-shredding version-held content at refCount 0, retaining shared content for co-owners) and the version rows are deleted; an unreadable version row is reported as blob residue and left in place rather than blind-deleted (which would orphan its refCount hold).
+- Elevating a record now re-keys its history snapshots to the tier DEK, so an elevated record's prior versions are no longer decryptable at rest under the collection's tier-0 DEK (#712 — completing the fix whose read-gate shipped earlier). Each `_history` snapshot carries its own tier-0-wrapped key material, which `elevate()` previously left untouched — so any tier-0 holder could recover a prior version's plaintext at rest even though `history()`/`getVersion()` returned nothing. `elevate()`, `demote()`, and `putAtTier()` now rewrap every history snapshot's key from the record's current-tier DEK to its new-tier DEK (via the enclave's `rewrapEnvelope`, reusing the vetted `rewrapBodyToDek`); `demote()` restores tier-0 readability. This is defense-in-depth beneath the read-gate: the ciphertext is protected even if the gate is bypassed. A record elevated before this release keeps tier-0-wrapped history until its next tier move, handled by a tier-0 fallback in the rewrap.
+
+  **Whole-branch review fixes (same PR):**
+
+  - **`putAtTier` now also asserts access to the record's EXISTING tier**, not just the target tier. Previously, a caller cleared only for the target tier could `putAtTier` over a record parked at a tier they'd never been granted; the history-rewrap's from-tier `getDEK` would then silently mint a fresh tier DEK into their keyring — a non-cleared caller creating tier key material. `putAtTier` over a record whose current tier you don't hold is now refused (`TierNotGrantedError`) instead of silently minting — this is an intended, correct behavior change (you can't move a record you can't see); owner/admin/custodian are unaffected (they may still mint).
+  - **`syncHistory` now runs LAST** in `elevate`/`demote`/`putAtTier` (after indexes/cache/search are synced), so a `syncHistory` failure strands only its own `_history` artifact instead of leaving a moved-tier live record with unsynced cache/indexes/search on the error path.
+  - **`rewrapHistory` gained a toDek-first idempotency skip**: before rewrapping an entry, it checks whether the entry is already wrapped under `toDek` and skips it if so. This makes same-target retries and demote-after-crash fully self-healing. **Residual limitation (accepted, fail-closed):** a crash that strands entries mid-loop under an _intermediate_ tier — i.e. some entries already moved to `toDek` from THIS call, then a later, different tier move targets yet another key — can still leave those entries permanently un-rewrappable (unreadable under `fromDek`, the tier-0 fallback, or the new call's `toDek`, since the original `toDek` is a third key nothing probes for). There is no recovery API for this window; it is availability-only (the ciphertext is never exposed under the wrong key) and considered acceptable given how narrow the trigger is (a crash exactly between two back-to-back tier moves on the same record).
+
+- Elevating a record now purges its tier-0-era plaintext audit deltas from the ledger (#729). The audit ledger is a flat, vault-wide, tamper-evident hash-chained log; a record's reverse-JSON-Patch deltas (the exact fields that changed at each tier-0-era put) were stored in `_ledger_deltas` under a shared ledger key that `elevate()` never touched, so any tier-0 caller could reconstruct an elevated record's prior plaintext at rest. `elevate()` (and `putAtTier()` above tier 0) now delete the record's delta rows. This is chain-safe — `verify()` recomputes the tamper-chain from the ledger entries (which retain the `deltaHash`), never from the deleted delta rows, so the chain stays valid and the audit record that a change occurred (op/version/timestamp/actor) is preserved; only the change's plaintext content is removed. Two consequences by design: it is irreversible (`demote()` does not restore delta reconstruction), and the retained entry metadata still reveals that the record was mutated. `forget()` has the same unaddressed gap for its erasure path (#734, a follow-up reusing this purge).
+- `listPage`/`scan`/`aggregate` skip elevated records (#706, completing the tier-0 read-surface invisibility law of #691/#701): no more elevated plaintext in page items from the elevating session (the warm-CEK-cache leak was audit-free), no more cold-session `InvalidKeyError` bricking every scan over a collection containing one elevated record, and the opportunistic page-fill can no longer poison the eager cache/indexes with elevated plaintext. Lazy `count()` now counts only live tier-0 envelopes (envelope inspection, no decryption) — parity with eager count, which also stops counting delete-markers left by sync.
+- Milestone #29 sync-engine follow-ups.
+
+  - **#653** — Partial sync (`pull`/`push({ collections })`) now auto-includes the reserved `_dict_*` dictionaries a named collection's lookup fields depend on (mirrors the satellite-pair expansion), so labels and membership no longer go stale on partially-synced instances.
+  - **#606** — A per-collection marker-id set skips the redundant, usually-null `adapter.get` on every synced-eager insert that #589's re-create version-continuity gate previously forced.
+  - **#693** — Under multi-tab coordination sharing one store, the re-create gate falls back to the pre-#606 unconditional store read (the marker-id set is per-instance and can't see a peer tab's out-of-band delete-marker until the relay lands) — closing a data-loss window.
+  - **#658** — Sync-applied deletes now heal materialized-view rows and array-shape derivation outputs, matching the local-delete boundary (previously the sync-delete wave was rollup-only).
+
+- Milestone #33 via follow-ups — two internal correctness fixes.
+
+  - **#678** — `ViaGraph.assertAcyclic()`'s ref-edge filter now keys on the edge itself, not the target. Previously it re-derefed the target's `_in` entry for `kind`, which a later `registerDerived` call could have overwritten (e.g. a dual-role target registered computed-then-ref, #631's exempt composition order) — silently excluding a genuine computed edge from the cycle-detection DFS and hiding a real derivation cycle. `_out` edges now carry their own `kind` at registration; the filter and `referencingEdgesOf` both read it edge-local. Latent regression guard — not reachable in production today (`assertAcyclic()` runs once at `openVault()`, before `_in`/`_out` is populated).
+  - **#677** — Lazy-mode `PersistedCollectionIndex` now canonicalizes money index keys at every bucket-mutation site (`ingest`/`upsert`/`remove`) and canonicalizes the `==`/`in` probe value before lookup, mirroring eager mode's #672 fix. A lazy-mode mixed-era (pre-money-declaration) record now agrees with the fallback scan the same way an eager one does. The end-to-end gap this fix did NOT close — `LazyQuery.where()` never built a `clause.via`, so `lazyQuery().where(moneyField, ...).toArray()` returned empty at `scale > 0`, and lazy money range clauses dispatched through `lookupRange` with no scan fallback — was tracked in #684 and is CLOSED in this same release (see the via-port lazy/index follow-ups entry).
+
+- Milestone-34 batch D — read-gate, race, and write-ring completeness (#730, #725, #720, #718, #708). Time-machine reads (`vault.at(ts)`) now honor the tier invisibility law: an elevated record's history returns `null`/is omitted instead of an opaque decrypt error plus an id-existence reveal, and per-record-CEK snapshots decrypt correctly. Persisted full-text-index saves are epoch-guarded — a stale save is skipped before its write, a purge landing mid-save is undone by a compensating remove, and a failed compensation is retried stickily by every subsequent store operation rather than swallowed — closing the debounced-flush race that could briefly re-persist an elevated or forgotten record's text at rest (both the elevate and forget entry points are test-locked; #764 tracks stuck-compensation ergonomics). Lazy `putAtTier` resolves the prior record through a tier-gated decode, so dropping an indexed field clears its sidecar exactly like `put()` does. The write ring now covers machinery paths: internal derivation/MV cleanup deletes SKIP elevated records (tier-0 machinery treats them as nonexistent — no tier-signal erasure), and a coordinated schema cutover REFUSES loudly (`TierWriteRefusedError`) while any record is elevated, instead of silently demoting it — demote first, then cut over. Housekeeping: the tier-composition guard now lives in the tier domain (`with-audit/tiers`).
+- MV/derivation erasure candor (#761, #762). Fixes a data-loss bug: the eager
+  materialized-view executor's `onEmpty: 'delete'` tombstone diff listed every
+  id in the output collection with no ownership filter, so a same-collection
+  partition MV (`output: { collection: <source>, partition }`) wiped OTHER
+  untouched user source rows on every refresh — including an ordinary
+  `delete()`. The diff is now scoped to rows the MV itself stamped via
+  `_materializedFrom.mvName`, the same discipline `invalidateMVAtRest` already
+  used.
+
+  Also fixes `vault.forget()` never reaching a same-collection MV — the
+  partition-disjoint same-collection edge was dropped from the derived-artifact
+  graph, so `forgetDerivedFanout`'s MV arm never fired for it, leaving the
+  forgotten subject's contribution in the MV's output row at rest. The MV arm
+  now runs unconditionally (self-guarding, O(1) no-op when the collection has
+  no MV).
+
+  Candor improvements: `ForgetResult.derivedRecordsErased` now counts lazy/manual
+  MV purges (`invalidateMVAtRest`), not just the eager executor's tombstone leg;
+  a `#718`-skipped elevated record (internal cleanup over an elevated row) no
+  longer over-counts as erased in completeness-tracking callers.
+
+- Derived-output tier/erasure completeness (#736, #737, #740). Invalidating a lazy or manual materialized view from `forget()` or a tier move now DELETES the MV's persisted output rows at rest (previously the pre-elevation/pre-forget plaintext row survived until an in-session refresh — and a cold session served it as fresh), and for lazy MVs persists the stale mark in the reserved `_mv_stale` collection so a cold session recomputes on first read instead of serving an empty view; a manual MV serves empty until `vault.refreshView()` (erasure wins over manual staleness). Ordinary source writes keep the cheap in-memory-only stale path. The tier-move pre-move decode gate is now source-grained (#737) — a tiered collection with no derivations of its own no longer decodes on elevate/demote when an unrelated derivation exists in the vault. And `tiers` on an `encrypted: false` collection is now refused at construction (`UnsupportedTierCompositionError`, #740) — per-record clearance IS per-tier encryption; a plaintext collection cannot honor it.
+- Write-path prior reads and history reads treat elevated records as missing (#707, #712 read-gate), and lazy `count()` batches via `adapter.listPage` when the store provides it (#713).
+
+  Write hooks, subsystem gate handlers, and the `i18nProvenance` audit accessor no longer receive an elevated record's plaintext when a tier-0 write touches it (previously the elevating session leaked it through the warm CEK cache while a cold session threw `InvalidKeyError`); the gate-prior read's swallowing `try/catch` is replaced by an explicit pre-decrypt check, so a genuine decrypt failure now fails loudly instead of silently presenting the record as absent. `history()`/`getVersion()` no longer return an elevated record's prior-version plaintext, and CRDT `getRaw()` returns `null` for an elevated record instead of throwing — history snapshots keep tier-0-wrapped keys and carry no tier of their own, so these doors gate on the live record's tier.
+
+  Known limitations, tracked: the history read-gate can still be bypassed by a tier-0 `delete()` (which erases the elevation signal, #716) or by a `put()` (which silently demotes the record, #715); an elevated record's prior versions also remain decryptable at rest until the history keys are rewrapped on elevation (#712).
+
+- Never pull from a `backup`/`archive` sync target (#616). `Noydb.sync()` now calls the primary engine push-only when the primary's role isn't `sync-peer`, and `Noydb.pull()` is a no-op (empty result) for a non-`sync-peer` primary — so a backup/archive-only config (where the sink was elected as the primary) is no longer pulled from. This applies the role→direction policy the secondary fan-out already used to the primary too, making the code match `sync()`'s existing "backup/archive do push-only" contract. `surface: internal` — no public API change; an explicitly constructed `SyncEngine.pull()` still pulls.
+- Security (#590): sync now treats crypto-shred tombstones as terminal. `pull()` never overwrites a `forget()` tombstone with a live envelope regardless of `_v` and re-asserts the shred outward; `push()` asserts tombstones unconditionally and never conflict-resolves against one (resolvers are bypassed — an erasure cannot be overruled); `forget()` tombstones now enter the sync dirty log so the shred propagates on push. Suppressed edits are reported via `PushResult.erasures` / `PullResult.erasures` and the new `sync:erasure` event (new `ErasureEnforcement` type). Also fixes #598: every sync-applied local write now refreshes the Collection in-memory caches, so same-session readers see sync results (and never a decrypted residue of a shredded record).
+- Complete the elevated-record invisibility story on tier-0 surfaces (#701, #702; extends #691). Eager cold-session hydration and the vault-snapshot hydration path skip elevated envelopes instead of throwing — a single elevated record no longer bricks the whole collection; lazy cache-miss reads return `null` in both sessions (previously the elevating session leaked tier plaintext through the warm CEK cache while cold sessions threw); `reveal()` on an elevated record throws the domain not-found error instead of a raw crypto error (no elevation disclosure). `putAtTier` now keeps the record cache coherent like `elevate`/`demote`: evict above tier 0, canonical re-seed at tier 0.
+- Declaring `blobFields` on a `tiers`-enabled collection is now refused at registration with `UnsupportedTierCompositionError` (#724). An elevated record's blob content is not yet tier-aware — the blob chunks use a vault-shared key that tier moves don't re-key, and `collection.blob(id)` isn't tier-gated, so the content stays readable at rest and through the blob API even when `get()` correctly returns null. Until a blob tier handler ships, the composition is refused rather than left to leak silently (a forward-compatible "not yet supported" wall, mirroring `unique` + `tiers`). Note: the guard catches the declared-`blobFields` case; ad-hoc `collection.blob(id)` use on a tiered collection without declared fields is tracked separately in #724. The already-supported tier compositions — field indexes, full-text/vector search, and history — are unaffected.
+- Tier-0 read paths treat elevated records as missing instead of throwing on tier-wrapped key material (#691). `verify`/`verifyGroup` return the padded `{ok:false}` verdict (no elevation oracle, C4 pad path identical to a missing record), `findByDigest` drops the elevated hit without aborting the scan, and `findByDet`/`queryByDet` skip elevated envelopes — deterministically, regardless of CEK-cache state, closing the elevating-session leak that bypassed the cross-tier audit trail. Tier moves now maintain the record cache (`elevate`/`demote` evict after the write lands; demote-to-tier-0 re-seeds, so demoted records stay plain-readable), and `elevate`/`demote` on a deleted/tombstoned id throw the domain not-found error instead of `TamperedError`.
+- Elevating a record now removes it from tier-0 indexes (#709). Previously its persisted index side-cars (`_idx/<field>/<recordId>`) survived the tier move holding the indexed field's **plaintext value**, always encrypted under the collection's tier-0 DEK whatever the record's own tier — so elevating a record never hid what it was indexed by, and any tier-0 caller could read the value back. `elevate()` (and `putAtTier()` above tier 0) now purge the record's side-cars and drop its in-memory index entries; `demote()` and a tier-0 `putAtTier()` rebuild them from the record. This applies to `elevate()` the same fix `forget()` already had via `purgePersistedIndexes`.
+
+  Index rebuild and reconcile now skip elevated records instead of decrypting them: previously the elevating session's warm key cache let the decrypt succeed and **minted a fresh tier-0 side-car** from the elevated record's plaintext (reconcile would even re-create one that had been deleted), while a cold session threw and bricked the whole operation.
+
+  A tier-0 `putAtTier()` also refreshes the record's index entries, fixing a stale-entry false positive: a query on the record's **old** field value could return it, because an index hit is not re-verified against the record.
+
+  Intended consequence: an elevated record is not present in any **secondary (field) index**, so it is not findable by structured index-driven queries — including from a session that holds its tier DEK. `getAtTier()` / `listAtTier()` remain the tier-aware read surfaces. Unique indexes were already refused on tiered collections, and are unaffected.
+
+  This covers field indexes only. The **search** subsystem is not yet tier-aware: full-text (`retrieve()`) and vector (`similarTo()`) indexes still retain an elevated record's derived plaintext and can still surface it (#721), and materialized-view / rollup outputs derived from a record survive its elevation (#722).
+
+- Elevating a record now removes it from full-text and semantic search (#721). Previously the persisted lexical index (`_ftindex`) held each record's **complete verbatim indexed text**, and the embedding sidecar (`_vec/<recordId>`) held its text-invertible vector — both encrypted under the collection's tier-0 DEK whatever the record's own tier, and neither touched by `elevate()`. So elevating a record never hid what it was searchable by: any tier-0 caller could read the verbatim text out of the at-rest `_ftindex` blob, and even a cold `similarTo()` surfaced the elevated record's id and similarity score. `elevate()` (and `putAtTier()` above tier 0) now purge the `_vec` sidecar and delete the stale `_ftindex` blob; `demote()` and a tier-0 `putAtTier()` re-embed and rebuild. As defense against a legacy or failed-purge sidecar, the vector loader also skips `_vec` rows whose owning record is elevated. This applies to `elevate()` the same purge `forget()` already had.
+
+  Intended consequence: an elevated record is not present in any search index, so it is not findable by `retrieve()` or `similarTo()` — including from a session that holds its tier DEK — until it is demoted. `getAtTier()` / `listAtTier()` remain the tier-aware read surfaces.
+
+  With #723's field indexes, this closes the derived-index surface. Materialized-view / rollup outputs derived from a record still survive its elevation (#722), and blob content may (#724, unverified); an elevated record's prior history versions remain decryptable at rest until #712; and a debounced index flush racing the purge can briefly re-persist a stale `_ftindex` blob (#725).
+
+- Via hardening round 2 (milestone #30 closure batch): nine small, independent hardening fixes on
+  top of the merged via-consolidation pass, plus a build-script rider. No shipped consumer uses any
+  of the affected surfaces yet (pre-1.0).
+
+  - **#632** — the static-import scanner (`scripts/check-architecture.mjs`) now also catches
+    side-effect imports (`import './x.js'`) and default imports (`import x from './x.js'`), not just
+    named/namespace imports. Both new forms are proven by a synthetic-violation canary; the guard
+    stays green on the real tree.
+  - **#645** — the reconcile computed-deps validator's "known fields" universe now unions
+    `ViaGraph`'s own field memory with the current call's options-derived set. A two-call scenario
+    (classified field declared in call 1, a computed field's `deps` naming it in call 2) no longer
+    spuriously refuses with "does not name a declared field".
+  - **#631** — a declare-time cross-binding guard refuses two different binding families (e.g.
+    `moneyFields` + `blobFields`) claiming the same field name. The exemption set is earned, not
+    assumed: `{computed,money}`, `{computed,i18n}`, and `{computed,lookup}` compositions are proven
+    legal by dedicated pins, and the guard is tightened to exactly-two-claimants. Classified/blob
+    collisions always refuse. The guard is construction-time; the late-attach reconcile path remains
+    narrower (a colliding re-open still half-applies as before — tracked follow-up).
+  - **#652** — lookup ingest now normalizes an array-valued (`[].`-wildcard) field element-wise,
+    matching `enforceWrite`'s existing all-elements semantics, instead of bailing on
+    `values.length !== 1`. Single-value behavior is unchanged. (Bare-array — non-`[].`-wildcard —
+    shape is a separate, still-open gap tracked by #661.)
+  - **#635** — an elevated-tier (`tier > 0`) read now processes `_sealed` slots through the same
+    `applySealedSlots` codec helper `decryptRecord` already uses, instead of falling back to raw
+    plaintext-shaped JSON. Tier-0 and tier>0 reads now share one contract. (The write-side
+    elevate/demote gap is separate and tracked by #662.)
+  - **#627** — `viaFields` sugar (e.g. `viaFields: { price: money('EUR') }`) now participates in the
+    late-attach reconcile path the same way the raw `moneyFields` sugar key already did — driven off
+    the merged `mergeViaFields` view, not the raw sugar key alone. A colliding late-attach
+    declaration now refuses loudly instead of silently no-op'ing.
+  - **#634** — `exportRedact`'s `(coll as any).via` reach-in is replaced by a typed internal `_via`
+    accessor; no behavior change, just removes the any-cast.
+  - **#641** — lazy materialized-view resolve-on-read now respects the frozen-output rule in both
+    strict and non-strict modes: a read whose MV output row falls in a frozen period returns the
+    historical row, skips the write, and emits `derivation:skipped-frozen` — it no longer lets a
+    `PeriodClosedError` escape through a read path.
+  - **#646** — the two remaining vacuous two-instance sync pins (`mutation-choke-point.test.ts`'s
+    MV sync-apply pin, `sync-dispatch.test.ts`'s id-threaded-decrypt pin) are retrofitted to
+    db2-only strategy registration, so a passing assertion can only be satisfied by the puller's own
+    wave-driven dispatch, not a shared-store write riding along from the local writer. Adds the two
+    net-new tests the issue's mutation-testing pass flagged as missing: cm23 (a virtual computed
+    field's structural absence from the sync payload, proven end-to-end over a real push()/pull()
+    cycle) and cm15 (the reconcile cross-read taint assertion, replayed against a fresh session so
+    the read is envelope-empirical rather than served from the writer's own warm cache).
+
+  Rider: the hub package's `build` script now carries the DTS worker's heap flag via `execArgv`
+  instead of requiring it in the caller's environment — plain `pnpm build` works with no env setup.
+  (#660 tracks the underlying type-surface fix that makes the larger heap necessary in the first
+  place.)
+
+- Via-port follow-ups — lazy/index correctness.
+
+  - **#684** — Lazy queries are now Via-aware end-to-end. `LazyQuery.where()` builds a `clause.via` and the lazy post-filter runs against the RAW stored record (mirroring eager: filter stored-form, decode survivors on output), fixing money (and any decode-transforming via) lazy queries that previously returned empty at `scale > 0` under every query spelling. Money range clauses enumerate the field index and post-filter via-aware (closing the no-scan-fallback hole); `==`/`in` prefer `clause.via.indexValue`, and the `queryable: 'none'` posture guard + multi-currency `==`/`in` now match eager. The `LazyQuerySource` shape on the `@noy-db/hub/indexing` subpath changed (a raw-fetch seam added) — pre-1.0, no external implementer exists. Lazy `orderBy` ordering parity for money is a separate, still-open item (#695).
+  - **#695** — Lazy `orderBy` on a money field is now Via-aware: `toArray()` sorts the RAW survivors via `ViaPipeline.compareForOrder` (scaled BigInt compare, mirroring eager) and decodes only the returned page, so money orders numerically instead of lexicographically (`'10.00'` no longer sorts before `'2.00'`).
+  - **#696** — The lazy composite-index `==` fast path is skipped when a covered clause is Via-covered (money), falling through to the already-Via-aware single-field path — a money field in a composite index no longer misses (returned `[]`).
+  - **#698** — Lazy now decomposes a composite index into its component single-field indexes on declare (matching eager), so a composite-ONLY declaration serves single-field queries and the #696 fall-through instead of throwing `IndexRequiredError`. (Adds per-component single-field side-cars, the same tradeoff eager makes.)
+  - **#686** — Late-attaching `money()` (a second `vault.collection()` call) onto an already-built EAGER index now re-canonicalizes the existing buckets, so rows indexed before the money declaration are no longer silently under-returned by canonical `==`/`in` probes until the next rebuild.
+  - **#687** — Documented (as an accepted known limitation) the narrow satellites fan-out post-`onDirty`-dispatch-throw orphaned-dirty-entry hazard (harm: one self-healing sync-push cycle), and hardened the pair-delete revert test with a direct dirty-log assertion.
+  - @noy-db/attestation@0.3.0
+
 ## 0.3.0-pre.13
 
 ### Minor Changes
