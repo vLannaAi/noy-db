@@ -2299,7 +2299,7 @@ export class Vault {
     const sealedCekResidue: string[] = []; const sealedResidue: string[] = []; const indexResidue: string[] = []; const ledgerDeltaResidue: string[] = []
     const blobsEnabled = this.blobStrategy !== undefined
     const actor = this.keyring.userId
-    const fanoutStats: ForgetFanoutStats = { recordsErased: 0, aggregatesRecomputed: 0, residueFrozen: [], lookupReferencesCascaded: 0, lookupReferencesNullified: 0, lookupReferencesResidue: [], derivedResidueUndecodable: [] }
+    const fanoutStats: ForgetFanoutStats = { recordsErased: 0, aggregatesRecomputed: 0, residueFrozen: [], lookupReferencesCascaded: 0, lookupReferencesNullified: 0, lookupReferencesResidue: [], derivedResidueUndecodable: [], derivedResidueDeclined: [] }
     // #633 — scoped-purge per-collection skip accumulators (empty under the unconditional default); lazy (S4 gate: kernel spine → with-* service via dynamic import()).
     const { partitionSealedCekKeys, shouldSkipBlobScan, bumpResidueCount, residueNoticesFromMap } = await import('../with-audit/forget/purge-scope.js')
     const scopedPurge = this.forgetStrategy.scopedPurge === true
@@ -2495,7 +2495,7 @@ export class Vault {
       derivedAggregatesRecomputed: fanoutStats.aggregatesRecomputed,
       derivedResidueFrozen: fanoutStats.residueFrozen,
       lookupReferencesCascaded: fanoutStats.lookupReferencesCascaded, lookupReferencesNullified: fanoutStats.lookupReferencesNullified, lookupReferencesResidue: fanoutStats.lookupReferencesResidue, scopedPurgeResidue, ledgerDeltasPurged, ledgerDeltaResidue, // #650 Task 5 (+ review Important fix: residue) + #633 + #734
-      derivedResidueUndecodable: fanoutStats.derivedResidueUndecodable, // #776
+      derivedResidueUndecodable: fanoutStats.derivedResidueUndecodable, derivedResidueDeclined: fanoutStats.derivedResidueDeclined, // #776/#785
     }
   }
 
@@ -2758,13 +2758,13 @@ export class Vault {
   /**
    * Manual re-materialize for a single registered MV (`refresh: 'manual'` consumers,
    * stale-bit recovery on vault reopen, bulk-recompute escape hatch after a strategy
-   * change). Returns `{ written, deleted, failed, residue }` (`deleted` always 0 without
-   * tombstoning; `residue` = #782 undecodable/declined leftovers). Throws if not registered.
+   * change). Returns `{ written, deleted, failed, residueUndecodable, residueDeclined }` (`deleted`
+   * always 0 without tombstoning; #785 splits the #782 leftovers — undecodable vs #718-declined). Throws if not registered.
    */
-  async refreshView(name: string): Promise<{ written: number; deleted: number; failed: number; residue: string[] }> {
+  async refreshView(name: string): Promise<{ written: number; deleted: number; failed: number; residueUndecodable: string[]; residueDeclined: string[] }> {
     const registry = this.materializedViewRegistry
     if (registry === null) {
-      return { written: 0, deleted: 0, failed: 0, residue: [] }
+      return { written: 0, deleted: 0, failed: 0, residueUndecodable: [], residueDeclined: [] }
     }
     const reg = registry.byName(name)
     if (!reg) {

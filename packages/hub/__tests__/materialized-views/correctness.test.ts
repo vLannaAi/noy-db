@@ -270,9 +270,11 @@ describe('MV correctness (#152)', () => {
       const second = await vault.refreshView('red-items')
 
       expect(second.deleted).toBe(0) // #776 part b — the over-count RED this test pins
-      // #782 part b — decoded (warm cek) + stamp-owned but #718-declined: a real silent
-      // survival, must be surfaced as residue, not just correctly excluded from `deleted`.
-      expect(second.residue).toEqual(['red-items-out:a'])
+      // #782 part b / #785 — decoded (warm cek) + stamp-owned but #718-declined: a real
+      // silent survival, must be surfaced in the declined channel, not just correctly
+      // excluded from `deleted`.
+      expect(second.residueDeclined).toEqual(['red-items-out:a'])
+      expect(second.residueUndecodable).toEqual([])
     })
   })
 

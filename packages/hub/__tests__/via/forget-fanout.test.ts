@@ -288,15 +288,18 @@ describe('forget() fanout to derived residue (#622)', () => {
     expect(result.lookupReferencesResidue).toEqual([])
     // Additive #776 field defaults to empty when nothing was undecodable.
     expect(result.derivedResidueUndecodable).toEqual([])
+    // Additive #785 field defaults to empty when nothing was declined.
+    expect(result.derivedResidueDeclined).toEqual([])
     // Snapshot the full key set — a byte-shape regression on an EXISTING field
     // would silently pass value assertions above but fail this key list.
     // #650 Task 5 — lookupReferencesCascaded/lookupReferencesNullified are new,
     // additive fields (see lookup-forget-ref.test.ts); lookupReferencesResidue is
     // additive too (#650 Task 5 review, Important fix); derivedResidueUndecodable
-    // is additive too (#776); every pre-existing key below is unchanged.
+    // is additive too (#776); derivedResidueDeclined is additive too (#785); every
+    // pre-existing key below is unchanged.
     expect(Object.keys(result).sort()).toEqual([
       'blobResidueCollections', 'blobsRetainedShared', 'blobsShredded', 'collections',
-      'derivedAggregatesRecomputed', 'derivedRecordsErased', 'derivedResidueFrozen', 'derivedResidueUndecodable',
+      'derivedAggregatesRecomputed', 'derivedRecordsErased', 'derivedResidueDeclined', 'derivedResidueFrozen', 'derivedResidueUndecodable',
       'historyVersionsShredded', 'indexPostingsPurged', 'indexResidue', 'ledgerDeltaResidue',
       'ledgerDeltasPurged', 'ledgerEntry',
       'lookupReferencesCascaded', 'lookupReferencesNullified', 'lookupReferencesResidue',
@@ -420,8 +423,9 @@ describe('forget() fanout to derived residue (#622)', () => {
     // Deletion declined (elevated) → NOT counted as erased...
     expect(result.derivedRecordsErased).toBe(0)
     // ...but this is a REAL silent survival (ownership confirmed, erasure declined) — must
-    // be surfaced, not dropped (#782 part b).
-    expect(result.derivedResidueUndecodable).toEqual(['people-mirror-lazy-782b:p1'])
+    // be surfaced, not dropped, in the declined channel (#785, was folded into
+    // derivedResidueUndecodable pre-#785 as #782 part b).
+    expect(result.derivedResidueDeclined).toEqual(['people-mirror-lazy-782b:p1'])
   })
 
   it('forget × eager MV: a decoded, stamp-owned, but #718-declined output row is surfaced as residue too (#782 part b, eager leg)', async () => {
@@ -452,6 +456,58 @@ describe('forget() fanout to derived residue (#622)', () => {
     const result = await vault.forget('subj-1')
 
     expect(result.derivedRecordsErased).toBe(0)
-    expect(result.derivedResidueUndecodable).toEqual(['people-mirror-eager-782b:p1'])
+    expect(result.derivedResidueDeclined).toEqual(['people-mirror-eager-782b:p1'])
+  })
+
+  it('forget × two lazy MVs: one undecodable row and one #718-declined row from a SINGLE forget() call route into their own distinct arrays (#785)', async () => {
+    interface Person extends Record<string, unknown> { id: string; subjectId: string; name: string }
+    const mvA = withMaterializedView<Person>({
+      name: 'people-mirror-785-undecodable',
+      query: (db) => db.collection<Person>('people').query(),
+      rowKey: (r) => r.id,
+      refresh: 'lazy',
+    })
+    const mvB = withMaterializedView<Person>({
+      name: 'people-mirror-785-declined',
+      query: (db) => db.collection<Person>('people').query(),
+      rowKey: (r) => r.id,
+      refresh: 'lazy',
+    })
+    const store = memory()
+    const open = async () => {
+      const db = await createNoydb({
+        store, user: 'alice', secret: 'forget-fanout-785-passphrase-2026',
+        materializedViewStrategies: [mvA, mvB],
+        historyStrategy: withHistory(),
+        forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+        tiersStrategy: withTiers(),
+      })
+      const vault = await db.openVault('firm')
+      const mirrorA = vault.collection<Person>('people-mirror-785-undecodable', { tiers: [0, 1], perRecordKeys: true })
+      const mirrorB = vault.collection<Person>('people-mirror-785-declined', { tiers: [0, 1], perRecordKeys: true })
+      return { vault, people: vault.collection<Person>('people'), mirrorA, mirrorB }
+    }
+
+    // Session 1: materialize BOTH mirrors, elevate only mirrorA's row — its tier-1 DEK
+    // cache dies with this session; mirrorB stays at tier 0 for now.
+    const { people, mirrorA, mirrorB: mirrorB1 } = await open()
+    await people.put('p1', { id: 'p1', subjectId: 'subj-1', name: 'Ada' })
+    expect(await mirrorA.get('p1')).not.toBeNull() // materialize A (lazy resolve-on-read)
+    expect(await mirrorB1.get('p1')).not.toBeNull() // materialize B (lazy resolve-on-read)
+    await mirrorA.elevate('p1', 1)
+
+    // Session 2 (cold for A): elevate mirrorB HERE instead — its row already exists at
+    // rest from session 1, so `elevate()` needs no fresh materialize — warming THIS
+    // session's cache for B while A's stays cold. One forget() call now hits both
+    // conditions at once: A's row fails to decode (undecodable), B's row decodes and
+    // stamp-matches but `_internalDelete` declines (owned, retained).
+    const { vault: coldVault, mirrorB } = await open()
+    await mirrorB.elevate('p1', 1)
+
+    const result = await coldVault.forget('subj-1')
+
+    expect(result.derivedRecordsErased).toBe(0)
+    expect(result.derivedResidueUndecodable).toEqual(['people-mirror-785-undecodable:p1'])
+    expect(result.derivedResidueDeclined).toEqual(['people-mirror-785-declined:p1'])
   })
 })

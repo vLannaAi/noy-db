@@ -284,14 +284,16 @@ export interface ForgetFanoutStats {
    *  skipped for these, reported here so the skip is never silent. `backing:key:collection.field`
    *  entries, one per un-propagated edge. */
   readonly lookupReferencesResidue: string[]
-  /** #776/#782 — `outputCollection:id` MV-output rows that survived erasure invalidation
+  /** #776/#782/#785 — `outputCollection:id` MV-output rows that survived erasure invalidation
    *  (eager tombstone leg AND lazy/manual `invalidateMVAtRest`) despite belonging to the
-   *  forgotten subject: either the ownership stamp could not be decoded (undecodable under
-   *  the default DEK — e.g. elevated above tier 0 on a tiered output collection, ownership
-   *  unconfirmed), or it decoded and stamp-matched but `_internalDelete` declined (the #718
-   *  tier-elevation gate — ownership confirmed, erasure declined). Never erased either way,
-   *  but surfaced here rather than silently skipped. */
+   *  forgotten subject, because the ownership stamp could not be decoded (undecodable under
+   *  the default DEK — e.g. elevated above tier 0 on a tiered output collection). Ownership
+   *  UNCONFIRMED. Never erased, but surfaced here rather than silently skipped. */
   readonly derivedResidueUndecodable: string[]
+  /** #782/#785 — `outputCollection:id` MV-output rows that decoded and stamp-matched but whose
+   *  `_internalDelete` declined (the #718 tier-elevation gate). Ownership CONFIRMED, erasure
+   *  declined — a real silent survival, surfaced here rather than silently skipped. */
+  readonly derivedResidueDeclined: string[]
 }
 
 /**
@@ -332,7 +334,8 @@ export async function forgetDerivedFanout(
   if (coll) {
     const mv = await coll.dispatchMaterializedViewsOnDelete(ref.id)
     stats.recordsErased += mv.deleted
-    stats.derivedResidueUndecodable.push(...mv.residue)
+    stats.derivedResidueUndecodable.push(...mv.residueUndecodable)
+    stats.derivedResidueDeclined.push(...mv.residueDeclined)
   }
 
   const edges = vault.graph.derivedArtifactsOf(ref.collection)
