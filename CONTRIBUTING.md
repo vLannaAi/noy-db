@@ -134,6 +134,13 @@ Releases are **manual and event-driven**. There is no automated "merge to main �
 7. Creating the release fires `.github/workflows/release.yml`, which checks out the tag, runs build + test + privacy guard, and publishes every package whose local version is ahead of npm — with provenance attestations via `NPM_CONFIG_PROVENANCE=true`. The workflow's "Resolve npm dist-tag" step is the source of truth — read its summary line in the GitHub Actions UI before authorising any retry.
 8. Verify all packages are live: `for pkg in hub to-memory to-file to-browser-idb in-nuxt in-pinia in-vue on-password create-noy-db; do npm view @noy-db/$pkg dist-tags; done`. (Cloud/SQL adapters live in the [noy-db-to](https://github.com/vLannaAi/noy-db-to) companion repo — verify them separately if released together.) The output should list both `latest` and (if applicable) `next` with the version you just shipped. Note that `registry.npmjs.org` may serve a stale CDN cache for first-time package publishes — use `https://registry.npmjs.com/@noy-db/<pkg>` (note `.com`, not `.org`) for the canonical response if you see lingering 404s.
 9. **Post-publish dogfood test** — install the public packages into a fresh temp dir and run an end-to-end smoke. Catches CDN issues, metadata bugs, and the rare "published but actually broken" scenario. For an `@next` publish, install with the explicit tag (`pnpm add @noy-db/hub@next`) — the default install path stays on `@latest` and would test the wrong version.
+10. **Clear the ship gap** — every issue fixed on `main` since the last release carries `status: awaiting-release` (added at merge; it marks the closed-but-unpublished window that GitHub itself cannot express). Now that the fix is live on npm, remove the label from the issues this release shipped:
+   ```bash
+   # review what this release closes, then clear each
+   gh issue list --repo vLannaAi/noy-db --state closed --label "status: awaiting-release" --json number,title
+   gh issue edit <N> --repo vLannaAi/noy-db --remove-label "status: awaiting-release"
+   ```
+   A leftover `status: awaiting-release` on an already-published issue is the one way this label lies — clearing it here is what keeps it honest.
 
 #### When to publish `@latest` vs `@next`
 
