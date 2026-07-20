@@ -1,5 +1,5 @@
 /**
- * i18n entrypoint for the `@noy-db/create` wizard.
+ * i18n entrypoint for the `create-noy-db` wizard.
  *
  * Three responsibilities:
  *
@@ -24,7 +24,7 @@
  * for 30+ years — that's what a Thai-speaking dev's terminal will
  * actually have set. Following that convention also means power
  * users can override per-invocation with `LANG=th_TH.UTF-8 npm
- * create @noy-db`, no flag required.
+ * create noy-db`, no flag required.
  */
 
 import { en } from './en.js'

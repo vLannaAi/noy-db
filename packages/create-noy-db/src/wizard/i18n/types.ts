@@ -1,5 +1,5 @@
 /**
- * Internationalization types for the `@noy-db/create` wizard.
+ * Internationalization types for the `create-noy-db` wizard.
  *
  * `WizardMessages` is the full set of user-facing strings the
  * wizard emits: prompt labels, note titles, note bodies, outro

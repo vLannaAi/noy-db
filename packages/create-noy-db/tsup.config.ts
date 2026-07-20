@@ -4,10 +4,10 @@ export default defineConfig({
   // Three entry points:
   //   - `src/index.ts` → public API surface (exported wizard + commands so
   //     they can be re-used programmatically and tested cleanly)
-  //   - `src/bin/create.ts` → the `create` bin — the wizard for fresh
-  //     projects, invoked by `npm create @noy-db`. Bin name matches npm's
-  //     scoped-initializer convention: `npm create @scope` resolves to
-  //     package `@scope/create` and looks for a bin named `create`.
+  //   - `src/bin/create.ts` → the `create-noy-db` bin — the wizard for
+  //     fresh projects, invoked by `npm create noy-db`. Bin name matches
+  //     npm's initializer convention: `npm create <name>` resolves to
+  //     package `create-<name>` and looks for a bin of the same name.
   //   - `src/bin/noy-db.ts` → the `noy-db` bin (subcommand dispatcher for
   //     ongoing project commands like `add` and `verify`)
   //

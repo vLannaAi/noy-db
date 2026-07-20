@@ -12,9 +12,10 @@
  *   - `blob` routes (if present) sit on a bundle-capable store.
  *
  * **scaffold** — emit a working skeleton for one of the topology
- * profiles from `docs/guides/topology-matrix.md`. Output goes to stdout
- * (pipe to a file yourself) and is a ready-to-edit `.ts` + `.env`
- * pair, concatenated so the consumer can split them.
+ * profiles from `docs/guides/topology-matrix.md`. The `.ts`/`.mjs`
+ * config is written to **stdout** (pipe it straight to a file, e.g.
+ * `> noydb.config.mjs`); the companion `.env` template is written to
+ * **stderr** so it stays out of the piped config.
  *
  * @module
  */
@@ -359,12 +360,15 @@ export async function runConfigScaffold(argv: readonly string[]): Promise<number
     return 2
   }
   const out = scaffold(profile)
+  // The config goes to stdout so `noydb config scaffold > noydb.config.mjs`
+  // captures a loadable module with no .env contamination; the companion
+  // .env template goes to stderr as guidance (see #705).
   process.stdout.write(`// ── noydb config (profile ${out.profile}) ───────────────────\n`)
   process.stdout.write(`// ${out.notes}\n\n`)
-  process.stdout.write(out.code + '\n\n')
+  process.stdout.write(out.code + '\n')
   if (out.env) {
-    process.stdout.write(`// ── .env template ───────────────────────────────────────\n`)
-    process.stdout.write(out.env)
+    process.stderr.write(`\n# ── .env template (profile ${out.profile}) ─────────────────\n`)
+    process.stderr.write(out.env)
   }
   return 0
 }

@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 /**
- * The `create` bin of `@noy-db/create`. Invoked by the scoped-initializer
- * idioms `npm create @noy-db`, `pnpm create @noy-db`, `yarn create @noy-db`,
- * and `bun create @noy-db`.
+ * The `create-noy-db` bin of the `create-noy-db` package. Invoked by the
+ * initializer idioms `npm create noy-db`, `pnpm create noy-db`,
+ * `yarn create noy-db`, and `bun create noy-db`.
  *
- * Why the bin is called `create` (no suffix): npm's `npm init @scope` is
- * sugar for `npm exec @scope/create`, and `npm exec` picks the bin whose
- * name matches the package's "stripped" name. For `@noy-db/create` that's
- * literally `create`. If we named the bin anything else, the shortcut
- * `npm create @noy-db` would break.
+ * Why the bin is named `create-noy-db` (matching the package): npm's
+ * `npm init <name>` / `npm create <name>` is sugar for
+ * `npm exec create-<name>`, and `npm exec` picks the bin whose name
+ * matches the package name. `npm create noy-db` therefore resolves to the
+ * package `create-noy-db` and runs its `create-noy-db` bin. If we named
+ * the bin anything else, that shortcut would break.
  *
  * Argument convention follows the de-facto standard for `create-*` tools:
  * the first positional argument (if any) becomes the project name. Flags:
@@ -29,7 +30,7 @@ import { runWizard } from '../wizard/run.js'
 import { parseArgs, type ParsedArgs } from './parse-args.js'
 import { detectLocale, loadMessages } from '../wizard/i18n/index.js'
 
-const HELP = `Usage: npm create @noy-db [project-name] [options]
+const HELP = `Usage: npm create noy-db [project-name] [options]
 
 The wizard auto-detects whether cwd is an existing Nuxt 4 project:
 
@@ -45,7 +46,7 @@ Options:
   -y, --yes               Skip prompts; use defaults for missing values
       --adapter <name>    Adapter: browser (default) | file | memory
       --template <name>   Template: nuxt-default (default) | vite-vue | vanilla | electron
-      --sync <name>       Sync target (multi-backend, ):
+      --sync <name>       Sync target (multi-backend):
                           none (default) | memory | file | browser
       --no-sample-data    (fresh mode) Skip the seed invoice records
       --dry-run           (augment mode) Show the diff without writing
@@ -57,16 +58,16 @@ Options:
 
 Examples:
   # Fresh project in a new directory
-  npm create @noy-db my-app
-  npm create @noy-db my-app --yes --adapter file
-  npm create @noy-db my-app --yes --template vite-vue
-  npm create @noy-db my-app --yes --template vanilla
+  npm create noy-db my-app
+  npm create noy-db my-app --yes --adapter file
+  npm create noy-db my-app --yes --template vite-vue
+  npm create noy-db my-app --yes --template vanilla
 
   # Augment an existing Nuxt 4 project (run from its root)
   cd ~/my-existing-nuxt-app
-  npm create @noy-db                          # preview the diff and confirm
-  npm create @noy-db --dry-run                # print the diff, no write
-  npm create @noy-db --yes                    # non-interactive, write immediately
+  npm create noy-db                          # preview the diff and confirm
+  npm create noy-db --dry-run                # print the diff, no write
+  npm create noy-db --yes                    # non-interactive, write immediately
 `
 
 async function main(): Promise<void> {
@@ -91,7 +92,7 @@ async function main(): Promise<void> {
     // banner matches the rest of the flow. Explicit --lang wins;
     // otherwise we fall back to env-var detection.
     const msg = loadMessages(parsed.options.locale ?? detectLocale())
-    p.intro(pc.bgCyan(pc.black(' @noy-db/create ')))
+    p.intro(pc.bgCyan(pc.black(' create-noy-db ')))
     p.note(msg.wizardIntro)
   }
 
