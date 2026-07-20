@@ -29,6 +29,7 @@ import type { BlobSet } from '../../with-shape/blobs/blob-set.js'
 import type { BlobFieldsConfig } from '../../with-shape/blobs/blob-compaction.js'
 import type { Query } from '../../kernel/query/index.js'
 import { embeddingSourceText, type VectorSet, type EmbeddingDescriptor, type StoredVector } from '../embeddings/index.js'
+import { encodeVecId, decodeVecId, isVecIdFor } from '../embeddings/vec-id.js'
 import { EmbeddingDimMismatchError } from '../../kernel/errors.js'
 import { liveRecordIsElevated } from '../../kernel/tier-visibility.js'
 import { searchScan, fuseRetrieval, type SearchOptions, type SearchResult } from './index.js'
@@ -192,14 +193,30 @@ function buildVectorLoad<T>(ctx: SearchContext<T>): () => Promise<StoredVector[]
   return async () => {
     const ids = await ctx.adapter.list(ctx.vault, '_vec')
     const out: StoredVector[] = []
-    for (const id of ids) {
+    for (const vecId of ids) {
+      // #726: _vec is a vault-wide bucket namespaced by collection prefix —
+      // skip rows belonging to other collections before touching this one's.
+      if (!isVecIdFor(ctx.name, vecId)) continue
+      const id = decodeVecId(ctx.name, vecId)!
       // #721 defense-in-depth: a _vec row carries no _tier of its own; the purge
       // on elevate is best-effort and cannot reach a legacy sidecar, so gate on
       // the owning record's live tier. Envelope peek, no decryption.
       if (await liveRecordIsElevated(ctx.adapter, ctx.vault, ctx.name, id)) continue
-      const env = await ctx.adapter.get(ctx.vault, '_vec', id)
+      const env = await ctx.adapter.get(ctx.vault, '_vec', vecId)
       if (!env) continue
-      const body = await ctx.codec.decryptJsonString(env)
+      // #726 fails-safe: a row can pass isVecIdFor's prefix filter yet still
+      // be undecryptable under THIS collection's DEK — a surviving legacy
+      // bare-id row whose record id happens to start with `<thisCollection>/`,
+      // or plain corruption. _vec sidecars are derived, re-derivable
+      // artifacts (embedOnWrite regenerates them on the record's next put()),
+      // so best-effort skip is correct: never let one poison row crash
+      // similarTo()/retrieve() for the whole collection.
+      let body: string | null
+      try {
+        body = await ctx.codec.decryptJsonString(env)
+      } catch {
+        continue
+      }
       if (body === null) continue
       const parsed = JSON.parse(body) as { vec: number[]; model: string }
       out.push({ id, vec: new Float32Array(parsed.vec), model: parsed.model })
@@ -392,7 +409,7 @@ export async function embedOnWrite<T>(ctx: SearchContext<T>, id: string, record:
   if (vec.length !== ctx.embeddings.dim) throw new EmbeddingDimMismatchError('embeddings', ctx.embeddings.dim, vec.length)
   const body = JSON.stringify({ vec: Array.from(vec), model: ctx.embeddings.model, dim: ctx.embeddings.dim })
   const vecEnv = await ctx.codec.encryptJsonString(body, version)
-  await ctx.adapter.put(ctx.vault, '_vec', id, vecEnv)
+  await ctx.adapter.put(ctx.vault, '_vec', encodeVecId(ctx.name, id), vecEnv)
   ctx.vectorSet?.markDirty()
 }
 
@@ -419,7 +436,7 @@ export async function syncTierSearch<T>(
 ): Promise<void> {
   if (!ctx.searchIndexStore && !ctx.vectorSet) return
   if (record === null) {
-    await ctx.adapter.delete(ctx.vault, '_vec', id)
+    await ctx.adapter.delete(ctx.vault, '_vec', encodeVecId(ctx.name, id))
     ctx.vectorSet?.markDirty()
   } else {
     await embedOnWrite(ctx, id, record, version ?? 1)

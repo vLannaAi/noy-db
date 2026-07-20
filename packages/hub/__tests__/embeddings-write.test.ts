@@ -62,8 +62,8 @@ describe('embeddings write derivation (#308 L2)', () => {
     const v = await db.openVault('v')
     const c = v.collection<Doc>('d', { embeddings: enc(8) })
     await c.put('x', { id: 'x', text: 'overdue invoice' })
-    expect(puts.some((p) => p.startsWith('_vec/x'))).toBe(true)
-    const env = await wrapped.get('v', '_vec', 'x')
+    expect(puts.some((p) => p.startsWith('_vec/d/x'))).toBe(true)
+    const env = await wrapped.get('v', '_vec', 'd/x')
     expect(JSON.stringify(env)).not.toContain('overdue')          // source text not leaked
     expect((await c.list()).map((r) => r.id)).toEqual(['x'])   // _vec not a phantom record
   })
