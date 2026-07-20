@@ -1,5 +1,90 @@
 # @noy-db/in-devtools-tui
 
+## 1.0.0
+
+### Patch Changes
+
+- CLI / scaffolder packaging polish (#704, #705).
+
+  #704 — `create-noy-db` is published unscoped, but its README, package description, `--help`, and
+  code comments documented the scoped `npm create @noy-db` / `@noy-db/create` spelling, which 404s.
+  Every documented invocation now points at the working `npm create noy-db`, and the bin-naming
+  rationale (create.ts / tsup.config.ts) is rewritten to describe the actual unscoped package rather
+  than a never-shipped scoped one. No `@noy-db/create` alias is published — the canonical invocation
+  is `npm create noy-db`.
+
+  #705 — developer-tooling polish:
+
+  - `@noy-db/in-devtools` and `@noy-db/in-devtools-tui` now ship a README (they published blank npm
+    pages) and include it in `files`.
+  - `noydb --version` derives from `package.json` at build time (was hardcoded `0.1.0`); the stale
+    version string is dropped from the `@noy-db/cli` README.
+  - Finished two truncated help/comment sentences: `--sync (multi-backend, )` → `(multi-backend)` in
+    the scaffolder `--help`, and a dangling `monitor.ts` doc sentence.
+  - `noydb config scaffold` now writes the loadable config to stdout and the `.env` template to
+    stderr, so `noydb config scaffold > noydb.config.mjs` produces a clean, loadable config file.
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.3.0
+  - @noy-db/in-devtools@1.0.0
+  - @noy-db/to-meter@1.0.0
+
 ## 1.0.0-pre.13
 
 ### Patch Changes
