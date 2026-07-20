@@ -220,6 +220,7 @@
     "queryByDet",
     "querySourceForJoin",
     "rebuildEagerIndexesFromCache",
+    "rebuildEmbeddings",
     "rebuildIndexes",
     "rebuildUniqueConstraintsFromCache",
     "recomputeRollup",

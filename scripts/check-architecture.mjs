@@ -764,6 +764,12 @@ const KERNEL_SURFACE_BUDGET = {
   // were paid for by reflowing the adjacent 4-line `ledger` field JSDoc's first paragraph
   // (byte-preserving — same wording, joined onto one line) to a single line, a −3 net.
   // Net zero versus pre-#766: the file lands back at the exact same line count.
+  // #788 (2026-07-20, Collection.rebuildEmbeddings() thin delegator): funded IN PLACE,
+  // no bump. The +6 lines (doc comment + method signature + embeddings guard + delegate
+  // call + closing brace, beside similarTo/flushIndex) were paid for by reflowing the
+  // `indexing/collection-facade.js` named-import block from one name per line to three
+  // per line (byte-preserving — same 9 imported names, only the line breaks moved), a
+  // −6 net. Net zero versus pre-#788: the file lands back at the exact same line count.
   'packages/hub/src/kernel/collection.ts': 4549,
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The

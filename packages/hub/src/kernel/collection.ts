@@ -39,15 +39,9 @@ import {
 } from '../with-lookup/search/collection-facade.js'
 import type { SearchStrategy } from '../with-lookup/search/strategy.js'
 import {
-  rebuildEagerIndexesFromCache as rebuildEagerIndexesFromCacheImpl,
-  rebuildUniqueConstraintsFromCache as rebuildUniqueConstraintsFromCacheImpl,
-  rebuildIndexes as rebuildIndexesImpl,
-  reconcileIndex as reconcileIndexImpl,
-  maintainPersistedIndexesOnPut as maintainPersistedIndexesOnPutImpl,
-  maintainPersistedIndexesOnDelete as maintainPersistedIndexesOnDeleteImpl,
-  purgePersistedIndexes as purgePersistedIndexesImpl,
-  syncTierIndexes as syncTierIndexesImpl,
-  type IndexingContext,
+  rebuildEagerIndexesFromCache as rebuildEagerIndexesFromCacheImpl, rebuildUniqueConstraintsFromCache as rebuildUniqueConstraintsFromCacheImpl, rebuildIndexes as rebuildIndexesImpl,
+  reconcileIndex as reconcileIndexImpl, maintainPersistedIndexesOnPut as maintainPersistedIndexesOnPutImpl, maintainPersistedIndexesOnDelete as maintainPersistedIndexesOnDeleteImpl,
+  purgePersistedIndexes as purgePersistedIndexesImpl, syncTierIndexes as syncTierIndexesImpl, type IndexingContext,
 } from '../with-lookup/indexing/collection-facade.js'
 import { ConflictError, ReadOnlyError, ClassifiedConfigError, ClassifiedRevealError, ClassifiedVerifyError } from './errors.js'
 import type { GhostRecord, TierMode, CrossTierAccessEvent } from './types.js'
@@ -3027,6 +3021,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /** Raw-vector kNN — gated behind `searchStrategy: withSearch()`. */
   similarTo(vector: Float32Array, opts: { k?: number; minScore?: number; includeRecord?: boolean } = {}): Promise<RetrieveHit<T>[]> {
     return this.searchStrategy.similarTo(this.searchContext(), vector, opts)
+  }
+
+  /** Opt-in bulk `_vec` re-derive (#788) — a plain collection has nothing to rebuild; gated behind `searchStrategy: withSearch()` otherwise. */
+  rebuildEmbeddings(): Promise<{ rebuilt: number; skipped: number }> {
+    if (!this.embeddings) return Promise.resolve({ rebuilt: 0, skipped: 0 })
+    return this.searchStrategy.rebuildEmbeddings(this.searchContext())
   }
 
   /**
