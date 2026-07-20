@@ -2924,16 +2924,16 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * row count TOMBSTONED across EVERY MV sourced here (#638 T6 — `forgetDerivedFanout`'s
    * `derivedRecordsErased`) — eager AND lazy/manual `invalidateMVAtRest` purges both contribute now
    * (#761 item 1, previously eager-only); lazy persists a stale mark for cold-session recompute;
-   * manual serves empty until `refreshView()`. `residue` (#776) carries `outputCollection:id` entries whose ownership stamp `invalidateMVAtRest` could not decode — surfaced, not erased.
+   * manual serves empty until `refreshView()`. `residueUndecodable`/`residueDeclined` (#776/#785) carry `outputCollection:id` entries whose ownership stamp `invalidateMVAtRest` could not decode, resp. decoded+stamp-matched but declined erasure — surfaced, not erased.
    * @internal
    */
-  async dispatchMaterializedViewsOnDelete(id: string): Promise<{ deleted: number; residue: string[] }> {
-    if (this.materializedViewSource === undefined) return { deleted: 0, residue: [] }
+  async dispatchMaterializedViewsOnDelete(id: string): Promise<{ deleted: number; residueUndecodable: string[]; residueDeclined: string[] }> {
+    if (this.materializedViewSource === undefined) return { deleted: 0, residueUndecodable: [], residueDeclined: [] }
     const registry = this.materializedViewSource.registry()
     const mvs = registry.mvsForSource(this.name)
-    if (mvs.length === 0) return { deleted: 0, residue: [] }
+    if (mvs.length === 0) return { deleted: 0, residueUndecodable: [], residueDeclined: [] }
     let executor: typeof MVExecutorType | null = null; let staleHelpers: typeof MVStaleModule | null = null
-    let deleted = 0; const residue: string[] = []
+    let deleted = 0; const residueUndecodable: string[] = []; const residueDeclined: string[] = []
     for (const reg of mvs) {
       const mode = reg.spec.refresh
       if (mode === 'eager') {
@@ -2945,16 +2945,16 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
           getActiveTxContext: () => this.materializedViewSource!.getActiveTxContext(),
           getQueryContext: () => this.materializedViewSource!.getQueryContext(),
           dispatchCtx: this.#dispatchCtx({ collection: this.name, id }),
-        }); deleted += rr.deleted; residue.push(...rr.residue) // #782 — eager leg now reports too
+        }); deleted += rr.deleted; residueUndecodable.push(...rr.residueUndecodable); residueDeclined.push(...rr.residueDeclined) // #782/#785 — eager leg now reports both channels
       } else {
         if (staleHelpers === null) {
           staleHelpers = await import('../with-formula/materialized-views/stale.js')
         }
         const inv = await staleHelpers.invalidateMVAtRest(this.materializedViewSource, reg, mode)
-        deleted += inv.deleted; residue.push(...inv.residue.map((rid) => `${reg.outputCollection}:${rid}`))
+        deleted += inv.deleted; residueUndecodable.push(...inv.residueUndecodable.map((rid) => `${reg.outputCollection}:${rid}`)); residueDeclined.push(...inv.residueDeclined.map((rid) => `${reg.outputCollection}:${rid}`))
       }
     }
-    return { deleted, residue }
+    return { deleted, residueUndecodable, residueDeclined }
   }
 
   /**

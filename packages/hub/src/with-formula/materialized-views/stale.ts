@@ -132,13 +132,15 @@ async function hydratePersistedStaleMarkers(accessor: MVStaleAccessor, registry:
  *
  * Returns the count of rows actually `_internalDelete`d (#761 item 1) — folded by the
  * caller into `dispatchMaterializedViewsOnDelete`'s `deleted` so `ForgetResult.derivedRecordsErased`
- * counts lazy/manual purges too, not just the eager executor's tombstone leg — plus `residue`,
- * the bare ids whose ownership stamp could NOT be decoded (#776): a candidate row that fails to
- * decode under the collection's default DEK (e.g. elevated above tier 0 on a tiered output
- * collection) has UNKNOWN ownership — it might be this MV's own output, or (same-collection
- * shape) a plain user record — so it is never erased, but it must be SURFACED rather than
- * silently skipped (the #724 posture), since it may still hold the forgotten/pre-elevation
- * contribution, decryptable by tier-holders.
+ * counts lazy/manual purges too, not just the eager executor's tombstone leg — plus
+ * `residueUndecodable`, the bare ids whose ownership stamp could NOT be decoded (#776): a
+ * candidate row that fails to decode under the collection's default DEK (e.g. elevated above
+ * tier 0 on a tiered output collection) has UNKNOWN ownership — it might be this MV's own
+ * output, or (same-collection shape) a plain user record — so it is never erased, but it must
+ * be SURFACED rather than silently skipped (the #724 posture), since it may still hold the
+ * forgotten/pre-elevation contribution, decryptable by tier-holders — and `residueDeclined`
+ * (#785), the bare ids that DID decode and stamp-match but whose `_internalDelete` declined
+ * (ownership CONFIRMED, erasure declined).
  *
  * @internal
  */
@@ -146,12 +148,13 @@ export async function invalidateMVAtRest(
   accessor: MVStaleAccessor,
   reg: RegisteredMV,
   mode: 'lazy' | 'manual',
-): Promise<{ deleted: number; residue: string[] }> {
+): Promise<{ deleted: number; residueUndecodable: string[]; residueDeclined: string[] }> {
   const outputColl = accessor.getCollection(reg.outputCollection)
   const txCtx = accessor.getActiveTxContext()
   const { adapter, vault } = storeOf(accessor, reg.outputCollection)
   let deleted = 0
-  const residue: string[] = []
+  const residueUndecodable: string[] = []
+  const residueDeclined: string[] = []
   for (const id of await adapter.list(vault, reg.outputCollection)) {
     // A same-collection partition MV (`output: { collection: <source>, partition }`,
     // the DERIV-PP30-001 shape) writes INTO its own source collection — `adapter.list`
@@ -164,7 +167,7 @@ export async function invalidateMVAtRest(
     if (envelope === null) continue
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const decoded = await (outputColl as any)._decodeEnvelope(envelope, id)
-    if (decoded === null) { residue.push(id); continue } // #776 — ownership unknown, surfaced not skipped
+    if (decoded === null) { residueUndecodable.push(id); continue } // #776 — ownership unknown, surfaced not skipped
     const stampedBy = (decoded as Record<string, unknown>)._materializedFrom as { mvName?: string } | undefined
     if (stampedBy?.mvName !== reg.spec.name) continue
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -173,8 +176,8 @@ export async function invalidateMVAtRest(
     } else {
       // #782 part b — decoded AND stamp-owned, but erasure declined (#718 tier-elevation
       // gate). Ownership IS confirmed — a real silent survival, not a legit stamp-mismatch
-      // skip. Surface it too, same channel as the decode-null case above.
-      residue.push(id)
+      // skip. Surface it too, in its own channel (#785 — distinct from the decode-null case).
+      residueDeclined.push(id)
     }
   }
 
@@ -187,7 +190,7 @@ export async function invalidateMVAtRest(
     markMVStale(registry, reg.spec.name)
     await writeMVStaleMarker(adapter, vault, reg.spec.name)
   }
-  return { deleted, residue }
+  return { deleted, residueUndecodable, residueDeclined }
 }
 
 /**

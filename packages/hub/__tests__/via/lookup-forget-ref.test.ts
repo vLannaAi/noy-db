@@ -222,7 +222,7 @@ describe('forget() × lookup ref semantics (#650 Task 5, fixes #648)', () => {
     // strictly additive to the existing set.
     expect(Object.keys(result).sort()).toEqual([
       'blobResidueCollections', 'blobsRetainedShared', 'blobsShredded', 'collections',
-      'derivedAggregatesRecomputed', 'derivedRecordsErased', 'derivedResidueFrozen', 'derivedResidueUndecodable',
+      'derivedAggregatesRecomputed', 'derivedRecordsErased', 'derivedResidueDeclined', 'derivedResidueFrozen', 'derivedResidueUndecodable',
       'historyVersionsShredded', 'indexPostingsPurged', 'indexResidue', 'ledgerDeltaResidue',
       'ledgerDeltasPurged', 'ledgerEntry',
       'lookupReferencesCascaded', 'lookupReferencesNullified', 'lookupReferencesResidue',
