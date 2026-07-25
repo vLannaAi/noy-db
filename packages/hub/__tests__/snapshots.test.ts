@@ -38,7 +38,7 @@ function makeMockStore(): NoydbBundleStore & { blobs: Map<string, Uint8Array> } 
 }
 
 // Minimal mock vault for unit tests. writeNoydbBundle calls getBundleHandle(),
-// dump(), and getPublicEnvelope() on the vault when invoked with empty opts.
+// dump(), and getCover() on the vault when invoked with empty opts.
 // getBundleHandle() must return a valid 26-char Crockford base32 ULID.
 function makeMockVault(name: string): unknown {
   // Static valid ULID-format handle (26 chars, Crockford base32 alphabet)
@@ -48,7 +48,7 @@ function makeMockVault(name: string): unknown {
     async getBundleHandle() { return handle },
     async dump() { return JSON.stringify({ collections: {}, keyrings: {} }) },
     async load(_dumpJson: string) { /* no-op in unit tests */ },
-    async getPublicEnvelope() { return undefined },
+    async getCover() { return undefined },
   }
 }
 

@@ -1,22 +1,22 @@
 /**
- * Validate-on-write for the public envelope. Runs at every
- * `setPublicEnvelope` call; the developer's schema decides which
- * fields are allowed and the size caps that apply.
+ * Validate-on-write for the cover. Runs at every `setCover` call;
+ * the developer's schema decides which fields are allowed and the
+ * size caps that apply.
  *
  * @module
  */
 import { ValidationError } from '../../../kernel/errors.js'
 import type {
-  PublicEnvelope,
-  PublicEnvelopeText,
-  ResolvedPublicEnvelopeSchema,
-  PublicEnvelopeField,
+  Cover,
+  CoverText,
+  ResolvedCoverSchema,
+  CoverField,
 } from './types.js'
 
-/** Owner-supplied input — the subset of {@link PublicEnvelope} the owner can set. */
-export interface SetPublicEnvelopeInput {
-  readonly name?: PublicEnvelopeText
-  readonly description?: PublicEnvelopeText
+/** Owner-supplied input — the subset of {@link Cover} the owner can set. */
+export interface SetCoverInput {
+  readonly name?: CoverText
+  readonly description?: CoverText
   readonly icon?: string
   readonly defaultLocale?: string
 }
@@ -24,7 +24,7 @@ export interface SetPublicEnvelopeInput {
 const DATA_URL_PREFIX = /^data:([a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+);base64,/
 
 /**
- * Validate an owner-supplied envelope input against the developer's
+ * Validate an owner-supplied cover input against the developer's
  * resolved schema. Throws `ValidationError` on the first violation;
  * returns void on success.
  *
@@ -33,27 +33,27 @@ const DATA_URL_PREFIX = /^data:([a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+);base64,/
  * which field they oversized rather than discovering a truncated
  * label months later.
  */
-export function validatePublicEnvelopeInput(
-  input: SetPublicEnvelopeInput,
-  schema: ResolvedPublicEnvelopeSchema,
+export function validateCoverInput(
+  input: SetCoverInput,
+  schema: ResolvedCoverSchema,
 ): void {
-  const allowed = new Set<PublicEnvelopeField>(schema.fields)
+  const allowed = new Set<CoverField>(schema.fields)
 
   // Reject any key not in the schema's allowed-field list.
   for (const key of Object.keys(input)) {
-    const known: PublicEnvelopeField | undefined =
+    const known: CoverField | undefined =
       key === 'name' || key === 'description' || key === 'icon' || key === 'defaultLocale'
         ? key
         : undefined
     if (!known) {
       throw new ValidationError(
-        `setPublicEnvelope: unknown field "${key}". ` +
+        `setCover: unknown field "${key}". ` +
           `Allowed fields: ${[...allowed].join(', ')}.`,
       )
     }
     if (!allowed.has(known)) {
       throw new ValidationError(
-        `setPublicEnvelope: field "${known}" is not enabled in this vault's schema. ` +
+        `setCover: field "${known}" is not enabled in this vault's schema. ` +
           `Allowed fields: ${[...allowed].join(', ')}.`,
       )
     }
@@ -70,59 +70,59 @@ export function validatePublicEnvelopeInput(
   }
   if (input.defaultLocale !== undefined && typeof input.defaultLocale !== 'string') {
     throw new ValidationError(
-      `setPublicEnvelope: defaultLocale must be a string (BCP-47), got ${typeof input.defaultLocale}.`,
+      `setCover: defaultLocale must be a string (BCP-47), got ${typeof input.defaultLocale}.`,
     )
   }
 }
 
 function validateText(
-  value: PublicEnvelopeText,
+  value: CoverText,
   field: string,
   maxChars: number,
 ): void {
   if (typeof value === 'string') {
     if (value.length > maxChars) {
       throw new ValidationError(
-        `setPublicEnvelope: ${field} exceeds the ${maxChars}-character cap (got ${value.length}).`,
+        `setCover: ${field} exceeds the ${maxChars}-character cap (got ${value.length}).`,
       )
     }
     return
   }
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new ValidationError(
-      `setPublicEnvelope: ${field} must be a string or { [locale]: string } map, got ${typeof value}.`,
+      `setCover: ${field} must be a string or { [locale]: string } map, got ${typeof value}.`,
     )
   }
   // Locale map. Each value must be a non-empty string within the cap.
   for (const [locale, str] of Object.entries(value)) {
     if (typeof str !== 'string') {
       throw new ValidationError(
-        `setPublicEnvelope: ${field}[${locale}] must be a string, got ${typeof str}.`,
+        `setCover: ${field}[${locale}] must be a string, got ${typeof str}.`,
       )
     }
     if (str.length > maxChars) {
       throw new ValidationError(
-        `setPublicEnvelope: ${field}[${locale}] exceeds the ${maxChars}-character cap (got ${str.length}).`,
+        `setCover: ${field}[${locale}] exceeds the ${maxChars}-character cap (got ${str.length}).`,
       )
     }
   }
 }
 
-function validateIcon(icon: string, schema: ResolvedPublicEnvelopeSchema): void {
+function validateIcon(icon: string, schema: ResolvedCoverSchema): void {
   if (typeof icon !== 'string') {
     throw new ValidationError(
-      `setPublicEnvelope: icon must be a data: URL string, got ${typeof icon}.`,
+      `setCover: icon must be a data: URL string, got ${typeof icon}.`,
     )
   }
   if (icon.length > schema.maxIconBytes) {
     throw new ValidationError(
-      `setPublicEnvelope: icon exceeds the ${schema.maxIconBytes}-byte cap (got ${icon.length}).`,
+      `setCover: icon exceeds the ${schema.maxIconBytes}-byte cap (got ${icon.length}).`,
     )
   }
   const m = DATA_URL_PREFIX.exec(icon)
   if (!m) {
     throw new ValidationError(
-      'setPublicEnvelope: icon must be a base64 data URL ' +
+      'setCover: icon must be a base64 data URL ' +
         '(`data:image/png;base64,…` or `data:image/svg+xml;base64,…`). ' +
         'External URLs are not supported in v1.',
     )
@@ -130,7 +130,7 @@ function validateIcon(icon: string, schema: ResolvedPublicEnvelopeSchema): void 
   const mime = m[1]!
   if (!schema.iconMimeTypes.includes(mime)) {
     throw new ValidationError(
-      `setPublicEnvelope: icon MIME type "${mime}" is not allowed. ` +
+      `setCover: icon MIME type "${mime}" is not allowed. ` +
         `Permitted types: ${schema.iconMimeTypes.join(', ')}.`,
     )
   }
@@ -138,10 +138,20 @@ function validateIcon(icon: string, schema: ResolvedPublicEnvelopeSchema): void 
 
 /**
  * Lightweight runtime predicate — used by the bundle header
- * validator to recognise a public envelope without requiring it.
+ * validator to recognise a cover without requiring it. (The wire
+ * discriminator keeps its frozen name: `_noydb_public: 1`.)
  */
-export function isPublicEnvelope(x: unknown): x is PublicEnvelope {
+export function isCover(x: unknown): x is Cover {
   if (x === null || typeof x !== 'object' || Array.isArray(x)) return false
   const obj = x as Record<string, unknown>
   return obj['_noydb_public'] === 1 && typeof obj['version'] === 'number'
 }
+
+// ─── Deprecated aliases (#799 public-envelope → cover; remove after one pre-release window) ───
+
+/** @deprecated Use {@link SetCoverInput}. */
+export type SetPublicEnvelopeInput = SetCoverInput
+/** @deprecated Use {@link validateCoverInput}. */
+export const validatePublicEnvelopeInput = validateCoverInput
+/** @deprecated Use {@link isCover}. */
+export const isPublicEnvelope = isCover

@@ -16,11 +16,15 @@ export {
   writePod,
   readPod,
   readPodHeader,
+  readPodCover,
   writeNoydbBundle,
   readNoydbBundle,
   readNoydbBundleHeader,
   resetBrotliSupportCache,
 } from './bundle.js'
+// The cover type rides the pod header (frozen wire key `publicEnvelope`),
+// so orchestrator-side consumers get it from this frozen seam (#799).
+export type { Cover } from '../with-party/directory/cover/types.js'
 export type {
   WritePodOptions,
   WriteNoydbBundleOptions,

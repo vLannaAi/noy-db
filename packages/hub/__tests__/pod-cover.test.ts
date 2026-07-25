@@ -1,6 +1,7 @@
 /**
- * Bundle header round-trip + minimum-disclosure regression for the
- * public envelope.
+ * Pod (bundle) header round-trip + minimum-disclosure regression for
+ * the cover. The header's JSON key keeps its frozen wire name
+ * `publicEnvelope` (#799 renamed only the developer surface).
  *
  * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md
  */
@@ -18,7 +19,7 @@ import {
   writeNoydbBundle,
   readNoydbBundle,
   readNoydbBundleHeader,
-  readNoydbBundlePublicEnvelope,
+  readPodCover,
 } from '../src/with-pod/bundle.js'
 
 function inlineMemory(): NoydbStore {
@@ -170,23 +171,23 @@ describe('bundle header — publicEnvelope shape', () => {
   })
 })
 
-describe('writeNoydbBundle / readNoydbBundlePublicEnvelope round-trip', () => {
-  it('snapshots the vault\'s public envelope into the bundle header', async () => {
+describe('writeNoydbBundle / readPodCover round-trip', () => {
+  it('snapshots the vault\'s cover into the bundle header', async () => {
     const store = inlineMemory()
     const db = await createNoydb({
       store,
       user: 'alice',
       secret: 'correct horse battery staple printer toaster',
-      publicEnvelope: true,
+      cover: true,
     })
     const vault = await db.openVault('acme')
-    await db.setPublicEnvelope('acme', {
+    await db.setCover('acme', {
       name: 'Acme 2026 Tax Records',
       icon: TINY_PNG,
     })
 
     const bundleBytes = await writeNoydbBundle(vault)
-    const env = readNoydbBundlePublicEnvelope(bundleBytes)
+    const env = readPodCover(bundleBytes)
     expect(env?.name).toBe('Acme 2026 Tax Records')
     expect(env?.icon).toBe(TINY_PNG)
 
@@ -195,41 +196,41 @@ describe('writeNoydbBundle / readNoydbBundlePublicEnvelope round-trip', () => {
     expect(header.publicEnvelope?.name).toBe('Acme 2026 Tax Records')
   }, 60_000)
 
-  it('locale-resolves on the readNoydbBundlePublicEnvelope path', async () => {
+  it('locale-resolves on the readPodCover path', async () => {
     const store = inlineMemory()
     const db = await createNoydb({
       store,
       user: 'alice',
       secret: 'correct horse battery staple printer toaster',
-      publicEnvelope: true,
+      cover: true,
     })
     const vault = await db.openVault('acme')
-    await db.setPublicEnvelope('acme', {
+    await db.setCover('acme', {
       name: { en: 'Acme 2026', th: 'อะคมี 2026' },
       defaultLocale: 'en',
     })
     const bundleBytes = await writeNoydbBundle(vault)
-    const th = readNoydbBundlePublicEnvelope(bundleBytes, { locale: 'th' })
+    const th = readPodCover(bundleBytes, { locale: 'th' })
     expect(th?.name).toBe('อะคมี 2026')
 
-    const fallback = readNoydbBundlePublicEnvelope(bundleBytes, { locale: 'de' })
+    const fallback = readPodCover(bundleBytes, { locale: 'de' })
     expect(fallback?.name).toBe('Acme 2026') // defaultLocale = 'en'
   }, 60_000)
 
-  it('returns undefined when the source vault has no envelope', async () => {
+  it('returns undefined when the source vault has no cover', async () => {
     const store = inlineMemory()
     const db = await createNoydb({
       store,
       user: 'alice',
       secret: 'correct horse battery staple printer toaster',
-      publicEnvelope: true,
+      cover: true,
     })
     const vault = await db.openVault('acme')
     const bundleBytes = await writeNoydbBundle(vault)
-    expect(readNoydbBundlePublicEnvelope(bundleBytes)).toBeUndefined()
+    expect(readPodCover(bundleBytes)).toBeUndefined()
   }, 60_000)
 
-  it('receiver-side reattachment pattern — header carries envelope, owner re-attaches via setPublicEnvelope', async () => {
+  it('receiver-side reattachment pattern — header carries cover, owner re-attaches via setCover', async () => {
     // Use the same credentials throughout — `vault.load` rebuilds the
     // keyring set from the bundle, so a fresh-user destination would
     // need Alice's passphrase to unlock the restored vault. The point
@@ -237,16 +238,16 @@ describe('writeNoydbBundle / readNoydbBundlePublicEnvelope round-trip', () => {
     // multi-user-transfer story.
     const SECRET = 'correct horse battery staple printer toaster'
 
-    // Source — has a public envelope persisted.
+    // Source — has a cover persisted.
     const sourceStore = inlineMemory()
     const source = await createNoydb({
       store: sourceStore,
       user: 'alice',
       secret: SECRET,
-      publicEnvelope: true,
+      cover: true,
     })
     const sourceVault = await source.openVault('acme')
-    await source.setPublicEnvelope('acme', { name: 'Acme 2026 Tax Records' })
+    await source.setCover('acme', { name: 'Acme 2026 Tax Records' })
     const bundleBytes = await writeNoydbBundle(sourceVault)
 
     // Destination — different store, different vault name.
@@ -255,41 +256,41 @@ describe('writeNoydbBundle / readNoydbBundlePublicEnvelope round-trip', () => {
       store: destStore,
       user: 'alice',
       secret: SECRET,
-      publicEnvelope: true,
+      cover: true,
     })
     const destVault = await dest.openVault('acme-restored')
 
-    // Header read first — surfaces the envelope without unlocking.
+    // Header read first — surfaces the cover without unlocking.
     const result = await readNoydbBundle(bundleBytes)
     expect(result.header.publicEnvelope?.name).toBe('Acme 2026 Tax Records')
 
     // vault.load — whether _meta/* survives is store-dependent
     // (some stores filter underscore-prefixed collections in
     // loadAll). The reattachment pattern is the safe portable
-    // approach: read the envelope from the bundle header, set it
+    // approach: read the cover from the bundle header, set it
     // explicitly on the destination.
     await destVault.load(result.dumpJson)
 
     if (result.header.publicEnvelope) {
       const env = result.header.publicEnvelope
-      await dest.setPublicEnvelope('acme-restored', {
+      await dest.setCover('acme-restored', {
         ...(env.name !== undefined ? { name: env.name } : {}),
       })
     }
 
-    expect((await dest.getPublicEnvelope('acme-restored'))?.name).toBe('Acme 2026 Tax Records')
+    expect((await dest.getCover('acme-restored'))?.name).toBe('Acme 2026 Tax Records')
   }, 60_000)
 
-  it('the body still round-trips through readNoydbBundle (envelope does not break decryption)', async () => {
+  it('the body still round-trips through readNoydbBundle (cover does not break decryption)', async () => {
     const store = inlineMemory()
     const db = await createNoydb({
       store,
       user: 'alice',
       secret: 'correct horse battery staple printer toaster',
-      publicEnvelope: true,
+      cover: true,
     })
     const vault = await db.openVault('acme')
-    await db.setPublicEnvelope('acme', { name: 'Acme' })
+    await db.setCover('acme', { name: 'Acme' })
     const bundleBytes = await writeNoydbBundle(vault)
 
     // Verify the body's integrity hash matches; this also exercises

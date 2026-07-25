@@ -302,7 +302,7 @@ export class TeamFacade {
    * ```
    *
    * Returns the WebAuthn `credentialId` (extracted from `meta.credentialId`)
-   * for the caller's lookup index (a bootstrap vault, a PublicEnvelope,
+   * for the caller's lookup index (a bootstrap vault, a Cover,
    * a server-side allowlist).
    *
    * Gated by `enroll-authenticator` like `enrollAuthenticator()` itself.

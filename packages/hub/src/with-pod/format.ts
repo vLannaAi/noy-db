@@ -46,7 +46,7 @@
  * bundle and verify its integrity — nothing about the contents.
  */
 
-import type { PublicEnvelope } from '../with-party/directory/public-envelope/types.js'
+import type { Cover } from '../with-party/directory/cover/types.js'
 
 /** Magic bytes 'NDB1' (ASCII), identifying a NOYDB bundle. */
 export const NOYDB_BUNDLE_MAGIC = new Uint8Array([0x4e, 0x44, 0x42, 0x31])
@@ -118,17 +118,21 @@ export interface NoydbPodHeader {
   /** SHA-256 of the compressed body bytes (lowercase hex). Lets readers verify integrity without decompressing. */
   readonly bodySha256: string
   /**
-   * Owner-curated public envelope (`https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md`).
+   * Owner-curated cover (`https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md`).
    * Optional — present only when the source vault has a
    * `_meta/public-envelope` document AND the writer's hub is opted
    * into the feature. Treat as **untrusted hint**; the body's
    * encrypted contents remain the source of truth.
    *
-   * The envelope deliberately widens the minimum-disclosure rule
+   * The JSON key keeps its frozen wire name `publicEnvelope` (#799
+   * renamed only the developer surface — existing bundles stay
+   * readable byte-for-byte).
+   *
+   * The cover deliberately widens the minimum-disclosure rule
    * for explicit, owner-curated label fields (name, icon, …). Every
    * other unknown header key still rejects at parse time.
    */
-  readonly publicEnvelope?: PublicEnvelope
+  readonly publicEnvelope?: Cover
   /**
    * Auto-unlock material indicator. When present, the bundle
    * body wraps the dump JSON in a structure carrying per-user
