@@ -53,6 +53,20 @@ describe('broker seed lifecycle', () => {
     expect(creds).toMatchObject({ kind: 'aws' })
   })
 
+  it("#795: a host minting kind:'password' connection-auth creds passes through verbatim (username/password/domain/expiresAt)", async () => {
+    const store = memoryStore()
+    const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
+    const expiresAt = new Date(Date.now() + 3600_000).toISOString()
+    const host = makeTestHost({
+      credentials: () => ({ kind: 'password', username: 'svc-noydb', password: 'pw-rolled', domain: 'CORP', expiresAt }),
+    })
+    const cfg = config(host)
+
+    await enrollSeed(ctx(store, owner, cfg))
+    const creds = await mintStoreCredentials(ctx(store, owner, cfg), 'read')
+    expect(creds).toEqual({ kind: 'password', username: 'svc-noydb', password: 'pw-rolled', domain: 'CORP', expiresAt })
+  })
+
   it('V23: a partial enrol (host 401s /enroll) leaves registered !== true; credentialSource fails fast with BrokerEnrolmentError, not an opaque proof error', async () => {
     const store = memoryStore()
     const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
