@@ -1,5 +1,20 @@
 # Changelog — hub
 
+## 0.4.0-pre.0
+
+### Minor Changes
+
+- Cover: namespaced `custom` extension slot + total-size caps (#800).
+
+  - `Cover.custom` / `SetCoverInput.custom` — a sanctioned, namespaced slot (`{ 'noydb.viewer': {...} }`) for integrator data that travels with the vault/pod, readable pre-unlock. Keys must be reverse-DNS / package-style (`/^[a-z0-9]+([.-][a-z0-9]+)+$/i`); values must be JSON-serializable (new `JsonValue` type) within an 8-level depth cap. Plaintext, public, unauthenticated — hints, never authority.
+  - **Opt-in**: `'custom'` joins `COVER_FIELDS` but is excluded from `DEFAULT_COVER_SCHEMA.fields` — `cover: true` shorthand does NOT enable it; list it explicitly in `schema.fields`.
+  - **Namespace-level patch semantics**: `setCover({ custom })` replaces provided namespaces, preserves absent ones, and deletes on explicit `null` (which never persists), so coexisting frameworks never read-modify-write each other's data.
+  - **Size caps** (post-merge, on the would-be-persisted document): `maxCustomBytes` (default 8 KB) on the serialized `custom` object, and `maxCoverBytes` (default 300 KB) on the entire serialized cover — the latter also closes the previously unbounded locale-map key-count hole for `name` / `description`.
+  - **Wire: purely additive** — no format-version bump; `isCover` and the pod-header validator already tolerate the new key, and `readPodCover` / `resolveLocale` carry `custom` through untouched.
+
+- Rename the public-envelope feature to **cover** across the developer surface (#799). New canonical names: `Cover`/`CoverText`/`CoverSchema`/`ResolvedCoverSchema`/`CoverField`/`COVER_FIELDS`/`DEFAULT_COVER_SCHEMA`/`SetCoverInput`, `validateCoverInput`/`isCover`, `loadCover`/`saveCover`/`readCover`, `resolveCoverSchema`, `COVER_RECORD_ID`, `Noydb.setCover`/`Noydb.getCover`, `Vault.getCover`, `NoydbOptions.cover`, and `readPodCover`. Every old name remains as an `@deprecated` alias for one pre-release window (including the `NoydbOptions.publicEnvelope` option key — accepted alongside `cover`; `cover` wins when both are set). The wire format is byte-for-byte unchanged: the `_meta/public-envelope` record id, the `_noydb_public: 1` discriminator, and the pod-header JSON key `publicEnvelope` are frozen — existing vaults and bundles need zero migration. `readPodCover` and the `Cover` type are promoted to the frozen `@noy-db/hub/pod` subpath surface.
+- Join/projection materialized view (#810) — a third `withMaterializedView` strategy form, `projection`, mutually exclusive with `query` / `unionSources`. One output row per record of a primary `source` collection, enriched BEFORE `map` runs by forward FK legs (`{ field, as }` — same `ref()`/`.join()` machinery as UNION arms) and NEW reverse one-to-many "collect" legs (`{ collect, on, as }` — every row of `collect` whose `on` field references the primary record's id, attached as a possibly-empty array; `on` must carry a `ref()` targeting the source, checked at first materialization; per-primary-row `maxRows` fan-out ceiling throws `JoinTooLargeError`). Filtering lives in `map` (return `null`/`undefined` to omit); post-map `groupBy` + `aggregate` run through the same shared pipeline as UNION. Dependencies are all auto — `{source} ∪ forward ref() targets ∪ collect collections` (explicit `sources` still additive) — so a write to ANY referenced collection drives eager refresh / lazy stale-marking; forward targets fold in on the first dispatch after their refs are declared. New exported types: `ProjectionSpec`, `ProjectionJoinLeg`.
+
 ## 0.3.0
 
 ### Minor Changes
