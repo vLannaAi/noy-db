@@ -73,6 +73,17 @@ export async function writeEnvelopeBody(
 }
 
 /**
+ * Approximate protected-body payload size for KPI/telemetry (#807's
+ * period-scoped pull download counters): `_data` + `_iv` string length —
+ * ≈ ciphertext bytes for base64 payloads, exact for plaintext (`_iv: ''`)
+ * collections. A measuring door, not a crypto one: callers get a size
+ * without touching the protected fields directly.
+ */
+export function envelopeBodySize(env: EncryptedEnvelope): number {
+  return env._data.length + env._iv.length
+}
+
+/**
  * Discriminant: does this envelope carry a per-record key?
  *
  * Replaces raw `envelope._cek !== undefined` checks scattered across

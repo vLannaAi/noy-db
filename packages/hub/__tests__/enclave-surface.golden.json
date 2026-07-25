@@ -32,6 +32,7 @@
     "encryptBytesWithAAD",
     "encryptDeterministic",
     "envelopeBodyForHash",
+    "envelopeBodySize",
     "evaluateKofN",
     "findByDet",
     "generateDEK",

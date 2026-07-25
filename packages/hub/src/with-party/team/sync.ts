@@ -15,11 +15,18 @@ import type {
   ErasureEnforcement,
 } from '../../kernel/types.js'
 import { NOYDB_SYNC_VERSION } from '../../kernel/types.js'
-import { ConflictError } from '../../kernel/errors.js'
+import { ConflictError, ValidationError } from '../../kernel/errors.js'
+import {
+  PERIOD_SUMMARY_COLLECTIONS,
+  PERIODS_COLLECTION,
+  buildPeriodScope,
+  validatePeriodsOption,
+  type PeriodPullSource,
+} from './sync-period-scope.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
 import type { SyncPolicy } from '../../kernel/sync-policy.js'
 import { SyncScheduler } from '../../kernel/sync-policy.js'
-import { isTombstoneShape, isDeleteMarker } from '../../kernel/enclave/index.js'
+import { isTombstoneShape, isDeleteMarker, envelopeBodySize } from '../../kernel/enclave/index.js'
 
 /** #650 Task 4 (#647) — the declared reserved-lookup (`_dict_*`/`_lookup_*`) collection-name
  *  registry a `SyncEngine` enumerates on pull. Explicit, not a blanket underscore-glob — other
@@ -103,6 +110,23 @@ export class SyncEngine {
   setReservedDictExpander(expander: (names: readonly string[]) => readonly string[]): void {
     this.reservedDictExpander = expander
   }
+
+  /** #807: vault-injected source of decrypted period records — resolves the `_ts` windows a
+   *  `pull({ periods })` scopes to. Re-read AFTER the summaries phase, so a fresh device's
+   *  freshly pulled `_periods` index is what the windows are computed from. `undefined` on a
+   *  standalone engine that was never vault-attached (period-scoped pull then throws). */
+  private periodPullSource?: PeriodPullSource
+
+  /** Wire the period-window source (#807). Same injection pattern as `setReservedLookupSource`. */
+  setPeriodPullSource(source: PeriodPullSource): void {
+    this.periodPullSource = source
+  }
+
+  /** #807: KPI accumulator `applyRemote` feeds during a period-scoped `pull()` — pointed at the
+   *  active phase's counters (summaries → records) and cleared before pull returns. Approximate
+   *  by design: a push interleaved mid-pull on the same engine would attribute its converge
+   *  applies to the open phase; the counters are a download-budget KPI, not an audit source. */
+  private pullByteSink: { records: number; bytes: number } | null = null
 
   constructor(opts: {
     local: NoydbStore
@@ -365,12 +389,63 @@ export class SyncEngine {
   /** Pull remote records to local adapter. Accepts optional `PullOptions` for partial sync. */
   async pull(options?: PullOptions): Promise<PullResult> {
     await this.ensureLoaded()
-    this.graphBatchController?.begin() // #638 Task 4
 
     let pulled = 0
     const conflicts: Conflict[] = []
     const erasures: ErasureEnforcement[] = []
     const errors: Error[] = []
+
+    // ── #807 period-scoped pull: validate the option, sync the period summaries
+    // (`_periods` + companions — the navigation index, ALWAYS pulled in full,
+    // exempt from every filter), then resolve the selected `_ts` windows from the
+    // freshly synced index. All BEFORE the graph batch opens, so an invalid
+    // option throws without leaving a batch dangling; summary applies route
+    // through `applyRemote` like any pull (reserved names have no Collection
+    // instance, so the invalidator/graph seams are no-ops for them). ──
+    let periodScope: ((envelope: EncryptedEnvelope) => boolean) | null = null
+    let phases: { summaries: { records: number; bytes: number }; records: { records: number; bytes: number } } | null = null
+    if (options?.periods !== undefined) {
+      validatePeriodsOption(options.periods)
+      if (!this.periodPullSource) {
+        throw new ValidationError(
+          'period-scoped pull requires a vault-attached sync engine (open the vault via createNoydb + openVault).',
+        )
+      }
+      phases = { summaries: { records: 0, bytes: 0 }, records: { records: 0, bytes: 0 } }
+      let remotePeriodCount = 0
+      this.pullByteSink = phases.summaries
+      try {
+        for (const collName of PERIOD_SUMMARY_COLLECTIONS) {
+          for (const id of await this.remote.list(this.vault, collName)) {
+            if (collName === PERIODS_COLLECTION) remotePeriodCount++
+            try {
+              const remoteEnvelope = await this.remote.get(this.vault, collName, id)
+              if (!remoteEnvelope) continue
+              const localEnvelope = await this.local.get(this.vault, collName, id)
+              if (!localEnvelope || remoteEnvelope._v > localEnvelope._v) {
+                await this.applyRemote(collName, id, remoteEnvelope)
+                pulled++
+              }
+            } catch (err) {
+              errors.push(err instanceof Error ? err : new Error(String(err)))
+            }
+          }
+        }
+      } finally {
+        this.pullByteSink = null
+      }
+      const periodRecords = await this.periodPullSource.periods()
+      if (remotePeriodCount > 0 && periodRecords.length === 0) {
+        throw new ValidationError(
+          'period-scoped pull: the vault holds _periods records but none are readable — enable the ' +
+            'periods service (`periodsStrategy: withPeriods()`) so pull can resolve the period windows.',
+        )
+      }
+      periodScope = buildPeriodScope(options.periods, periodRecords)
+    }
+
+    this.graphBatchController?.begin() // #638 Task 4
+    if (phases) this.pullByteSink = phases.records
 
     // Partial sync: expand the filter to cover satellite pair partners (#591 rule 5b), then the
     // reserved `_dict_*` collections those (expanded) names depend on (#653) — adopters never
@@ -397,6 +472,16 @@ export class SyncEngine {
             !isTombstoneShape(remoteEnvelope) &&
             !isDeleteMarker(remoteEnvelope)
           ) {
+            continue
+          }
+
+          // #807: period scope — a record whose `_ts` falls outside every selected
+          // window is skipped. Tombstones and delete markers are ALWAYS in scope
+          // (built into the predicate): an erasure or delete must never be skipped
+          // by partial sync, mirroring the modifiedSince exemption above — that is
+          // what lets a device that never pulled a period backfill it later without
+          // resurrecting its deleted records.
+          if (periodScope !== null && !periodScope(remoteEnvelope)) {
             continue
           }
 
@@ -506,6 +591,10 @@ export class SyncEngine {
       // tie-break below: reserved lookups have no per-collection conflict-resolver concept
       // (dictionaries are admin-edited, not multi-actor-negotiated), so a converging delete
       // unconditionally wins over a same-version live edit.
+      //
+      // #807: the period scope deliberately does NOT apply here — vocabularies/config rows are
+      // not period-partitioned data (a thin client's lookups must be complete regardless of
+      // which periods it pulled), the same always-pull rule as the `_periods` summaries phase.
       for (const collName of this.reservedLookup?.collections() ?? []) {
         if (filter && !filter.has(collName)) continue
         for (const id of await this.remote.list(this.vault, collName)) {
@@ -561,11 +650,12 @@ export class SyncEngine {
     try {
       await this.persistMeta()
     } finally {
+      this.pullByteSink = null // #807: stop attributing applies to this pull's KPI counters
       // #644 item 1: flush must run even if `persistMeta()` throws (see push()'s identical guard).
       await this.graphBatchController?.flush() // #638 Task 4
     }
 
-    const result: PullResult = { pulled, conflicts, errors, erasures }
+    const result: PullResult = { pulled, conflicts, errors, erasures, ...(phases !== null ? { phases } : {}) }
     this.emitter.emit('sync:pull', result)
     return result
   }
@@ -764,6 +854,11 @@ export class SyncEngine {
    *  (sync delete ≠ forget: freshness only, no shred/residue channel on the receiving side). */
   private async applyRemote(collection: string, id: string, envelope: EncryptedEnvelope): Promise<void> {
     await this.local.put(this.vault, collection, id, envelope)
+    if (this.pullByteSink !== null) {
+      // #807: KPI — one applied envelope; bytes ≈ ciphertext payload size.
+      this.pullByteSink.records++
+      this.pullByteSink.bytes += envelopeBodySize(envelope)
+    }
     const action: 'put' | 'delete' = isTombstoneShape(envelope) || isDeleteMarker(envelope) ? 'delete' : 'put'
     await this.cacheInvalidator?.(collection, id, action)
   }

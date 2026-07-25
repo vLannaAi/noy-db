@@ -1330,6 +1330,22 @@ export interface PullOptions {
    * to a full scan with client-side filtering.
    */
   modifiedSince?: string
+  /**
+   * #807 — period-scoped pull (thin-client bootstrap). `{ current: true }`
+   * pulls only records at-or-after the latest closed period's boundary;
+   * an array of closed-period names backfills exactly those periods'
+   * windows. Membership is by envelope write-time `_ts` (the freeze/
+   * archive store-tier law — the engine never sees business dates).
+   *
+   * Never filtered regardless of this option: the `_periods` summaries +
+   * companions (always pulled first — the navigation index), delete
+   * markers/tombstones (the #589/#590 convergence law), and reserved
+   * lookup collections. Composes with `collections` as an intersection.
+   * Requires the periods service (`periodsStrategy: withPeriods()`) to
+   * resolve windows once the vault holds `_periods` records. Push is
+   * never period-filtered.
+   */
+  periods?: string[] | { current: true }
 }
 
 export interface PushResult {
@@ -1346,6 +1362,17 @@ export interface PullResult {
   readonly errors: Error[]
   /** #590: tombstone enforcements applied during this run (never resolver-visible). */
   readonly erasures?: ErasureEnforcement[]
+  /**
+   * #807: present on period-scoped pulls only — per-phase KPI counters
+   * (`summaries` = the `_periods` navigation index + companions; `records`
+   * = everything after it). `records`/`bytes` count envelopes applied to
+   * the local store; `bytes` approximates ciphertext payload size
+   * (`_data` + `_iv` length), for bounding a first sync's download budget.
+   */
+  readonly phases?: {
+    readonly summaries: { readonly records: number; readonly bytes: number }
+    readonly records: { readonly records: number; readonly bytes: number }
+  }
 }
 
 /** Result of a sync transaction commit. */

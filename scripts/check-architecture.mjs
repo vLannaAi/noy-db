@@ -1156,7 +1156,13 @@ const KERNEL_SURFACE_BUDGET = {
   // field-by-field rebuild plus a post-merge `validateCoverSize(next, schema)`
   // call (+ JSDoc). The merge/validation logic itself lives in
   // with-party/directory/cover/custom.ts.
-  'packages/hub/src/kernel/noydb.ts': 2419,
+  // Bumped 2419→2420 (#807 period-scoped pull): ONE wiring line in the
+  // _forEachSyncEngine block — `engine.setPeriodPullSource({ periods: () =>
+  // comp.listPeriods() })`, the same injection pattern as the #650/#653 lines
+  // beside it. All period-scope logic lives in with-party/team/
+  // sync-period-scope.ts + sync.ts; windows resolve through the PUBLIC
+  // Vault.listPeriods(), so vault.ts is untouched.
+  'packages/hub/src/kernel/noydb.ts': 2420,
 }
 
 function checkKernelSurface() {

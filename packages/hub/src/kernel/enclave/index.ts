@@ -111,7 +111,7 @@ export type { DeterministicContext } from './record-keys/deterministic.js'
 export { isTombstone, isTombstoneShape, buildTombstone, isDeleteMarker, buildDeleteMarker } from './record-keys/tombstone.js'
 
 // ─── envelope body (C1 protected-body access contract) ──────────────
-export { openEnvelopeJson, writeEnvelopeBody, hasPerRecordKey, envelopeBodyForHash } from './record-keys/envelope-body.js'
+export { openEnvelopeJson, writeEnvelopeBody, hasPerRecordKey, envelopeBodyForHash, envelopeBodySize } from './record-keys/envelope-body.js'
 
 // ─── reserved envelopes (ViaCryptoCtx.reservedEnvelopes capability) ──
 export { makeReservedEnvelopes } from './record-keys/sealed-slots.js'
