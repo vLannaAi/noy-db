@@ -2235,6 +2235,11 @@ export type StoreCredentials =
   | { readonly kind: 'token'                     // postgres/turso/supabase/webdav/bearer — a LATER slice
       readonly token: string
       readonly expiresAt?: string }
+  | { readonly kind: 'password'                  // connection-auth stores: to-postgres/to-mysql user+password; to-smb NTLM via `domain`
+      readonly username: string
+      readonly password: string
+      readonly domain?: string                   // NTLM domain (to-smb); postgres/mysql omit it
+      readonly expiresAt?: string }              // ISO 8601 — cloud IAM auth tokens are password-shaped and expire
 
 /** Refresh hook a store calls when it has no credentials or they are near expiry. */
 export type StoreCredentialSource = () => Promise<StoreCredentials>

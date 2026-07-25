@@ -9,8 +9,8 @@
 ## What it does
 
 The credential broker lets a client **passphrase-bound to a vault** obtain short-lived,
-rolling cloud-storage credentials (AWS access keys today; a vendor-neutral token shape is
-reserved for a later slice) **without ever putting a long-lived secret in the client**. A
+rolling cloud-storage credentials (AWS access keys today; vendor-neutral token and
+password/connection-auth shapes are reserved for later slices) **without ever putting a long-lived secret in the client**. A
 32-byte seed is generated once, encrypted under the vault's own `_broker` collection DEK, and
 never leaves the device. A **derived proof key** — never the seed itself — is registered with
 a broker host at enrolment; from then on the client re-derives the same key, signs a
@@ -111,7 +111,20 @@ export type StoreCredentials =
   | { readonly kind: 'aws'; readonly accessKeyId: string; readonly secretAccessKey: string
       readonly sessionToken?: string; readonly expiresAt?: string }
   | { readonly kind: 'token'; readonly token: string; readonly expiresAt?: string } // a later slice
+  | { readonly kind: 'password'; readonly username: string; readonly password: string
+      readonly domain?: string; readonly expiresAt?: string } // connection auth (#795)
 ```
+
+Which store families consume which `kind`:
+
+| `kind` | Consuming stores | Notes |
+|---|---|---|
+| `'aws'` | `to-aws-s3`, `to-aws-dynamo`, `as-aws-s3` | Feeds the AWS SDK's identity provider (access key + secret + optional session token). |
+| `'token'` | `to-turso`, `to-cloudflare-d1`, `to-webdav`, `to-supabase`, `to-drive` (bearer/API-token stores) | Reserved shape; adoption tracked in noy-db-to. |
+| `'password'` | `to-postgres`, `to-mysql` (connection `user`+`password` — omit `domain`); `to-smb` (NTLM `username`/`password`/`domain`) | `expiresAt` applies when the "password" is a short-lived cloud IAM auth token. |
+
+Key-shaped auth (`kind: 'key'`) is deliberately **not** in the union — `to-ssh` is keys-only
+by design and may refuse brokered keys entirely; it stays a separate decision.
 
 ## Opt-in
 
@@ -281,8 +294,10 @@ export async function handleCredentials(req: { vaultId: string; brokerId: string
 - **`profile` and `endpointOrigin` are bound into the MAC.** A proof captured at one `profile`
   (e.g. `'read'`) cannot be replayed at another (`'admin'`); a proof cannot be relayed to a
   different broker endpoint reusing the same `brokerId`.
-- **`kind:'token'` stores** (postgres/turso/supabase/webdav) are not wired yet — the
-  `StoreCredentials` type reserves the shape, but no store owns its refresh loop for it today.
+- **`kind:'token'` stores** (turso/supabase/webdav/cloudflare-d1/drive) and **`kind:'password'`
+  stores** (postgres/mysql user+password, smb NTLM) are not wired yet — the `StoreCredentials`
+  type reserves the shapes, but no store owns its refresh loop for them today (adoption is
+  tracked in noy-db-to).
 - **Sealed-to-instance delivery** (encrypting the credential response to a specific device's
   keypair) is deferred to a future slice — see Non-goals.
 
