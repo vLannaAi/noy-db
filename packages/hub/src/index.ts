@@ -571,6 +571,7 @@ export type {
   CoverText,
   CoverSchema,
   CoverField,
+  JsonValue,
   ResolvedCoverSchema,
   SetCoverInput,
 } from './with-party/directory/cover/index.js'

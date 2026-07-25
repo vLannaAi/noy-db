@@ -1151,7 +1151,12 @@ const KERNEL_SURFACE_BUDGET = {
   // setCover/getCover are the canonical methods; the old setPublicEnvelope/
   // getPublicEnvelope remain as @deprecated one-line delegators for one
   // pre-release window, then this ceiling ratchets back down with them.
-  'packages/hub/src/kernel/noydb.ts': 2411,
+  // Bumped 2411→2419 (#800 cover custom slot + size caps): thin call-sites only —
+  // one `...mergeCustom(existing?.custom, input.custom)` spread in the setCover
+  // field-by-field rebuild plus a post-merge `validateCoverSize(next, schema)`
+  // call (+ JSDoc). The merge/validation logic itself lives in
+  // with-party/directory/cover/custom.ts.
+  'packages/hub/src/kernel/noydb.ts': 2419,
 }
 
 function checkKernelSurface() {

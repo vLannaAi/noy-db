@@ -11,6 +11,7 @@ export type {
   CoverText,
   CoverSchema,
   CoverField,
+  JsonValue,
   ResolvedCoverSchema,
 } from './types.js'
 export {
@@ -21,6 +22,8 @@ export {
 
 export type { SetCoverInput } from './schema.js'
 export { validateCoverInput, isCover } from './schema.js'
+
+export { mergeCustom, validateCoverSize } from './custom.js'
 
 export {
   loadCover,

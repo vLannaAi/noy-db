@@ -6,9 +6,11 @@
  * @module
  */
 import { ValidationError } from '../../../kernel/errors.js'
+import { validateCustomInput } from './custom.js'
 import type {
   Cover,
   CoverText,
+  JsonValue,
   ResolvedCoverSchema,
   CoverField,
 } from './types.js'
@@ -19,6 +21,14 @@ export interface SetCoverInput {
   readonly description?: CoverText
   readonly icon?: string
   readonly defaultLocale?: string
+  /**
+   * Namespace-level patch for the cover's `custom` slot (#800):
+   * provided namespaces replace their previous value, absent
+   * namespaces are preserved, an explicit `null` deletes that
+   * namespace. Requires `'custom'` in the schema's `fields` list —
+   * the `cover: true` shorthand does NOT enable it.
+   */
+  readonly custom?: Record<string, JsonValue>
 }
 
 const DATA_URL_PREFIX = /^data:([a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+);base64,/
@@ -42,7 +52,7 @@ export function validateCoverInput(
   // Reject any key not in the schema's allowed-field list.
   for (const key of Object.keys(input)) {
     const known: CoverField | undefined =
-      key === 'name' || key === 'description' || key === 'icon' || key === 'defaultLocale'
+      key === 'name' || key === 'description' || key === 'icon' || key === 'defaultLocale' || key === 'custom'
         ? key
         : undefined
     if (!known) {
@@ -72,6 +82,9 @@ export function validateCoverInput(
     throw new ValidationError(
       `setCover: defaultLocale must be a string (BCP-47), got ${typeof input.defaultLocale}.`,
     )
+  }
+  if (input.custom !== undefined) {
+    validateCustomInput(input.custom)
   }
 }
 

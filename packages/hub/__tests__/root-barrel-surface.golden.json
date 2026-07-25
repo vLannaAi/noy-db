@@ -651,6 +651,7 @@
     "JoinableSource",
     "JsonPatch",
     "JsonPatchOp",
+    "JsonValue",
     "KeyringAuthenticator",
     "KeyringAuthenticatorWrappingDEKs",
     "KeyringAuthenticatorWrappingKEK",
