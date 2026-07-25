@@ -331,6 +331,13 @@ export class VaultPeriods {
 
   /** Return every closed / opened period in `closedAt` order, merged with any freeze + archive companions. */
   async listPeriods(): Promise<readonly PeriodRecord[]> {
+    // #807: always re-read `_periods` from the adapter — a period-scoped pull
+    // applies freshly synced period envelopes UNDERNEATH this cache, then
+    // resolves its windows through this very method (the engine's
+    // PeriodPullSource). Repopulating the shared cache here also refreshes the
+    // write guard's view, so a pulled closure seals writes without a reopen.
+    // (The companions below were already re-read fresh on every call.)
+    this.periodCache = null
     const all = await this.loadPeriodsCache()
     const freezeIds = await this.deps.adapter.list(this.deps.vault, PERIOD_FREEZES_COLLECTION)
     const freezes = new Map<string, PeriodFreezeRecord>()

@@ -684,6 +684,7 @@ export class Noydb {
       engine.setGraphBatchController({ begin: () => comp._beginGraphBatch(), flush: () => comp._flushGraphBatch() })
       engine.setReservedLookupSource({ collections: () => comp._reservedLookupCollectionNames() }) // #650 Task 4
       engine.setReservedDictExpander(names => comp._reservedDictDepsOf(names)) // #653
+      engine.setPeriodPullSource({ periods: () => comp.listPeriods() }) // #807 period-scoped pull windows
     })
     // Initialise the optional guard + derivation registries via dynamic-import — no-ops when the
     // corresponding strategies array is empty/unset, keeping the service code out of the floor bundle.
