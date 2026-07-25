@@ -783,6 +783,8 @@ export type {
   MaterializedFromMeta,
   UnionSource,
   UnionArmJoin,
+  ProjectionSpec,
+  ProjectionJoinLeg,
 } from './with-formula/materialized-views/index.js'
 export {
   MaterializedViewCycleError,

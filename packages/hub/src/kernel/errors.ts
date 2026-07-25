@@ -2486,12 +2486,17 @@ export class MaterializedViewTooLargeError extends NoydbError {
  * error fires before either check, at the moment the spec is being
  * normalized.
  *
- * Today the trigger cases are all about the `query` / `unionSources`
- * dichotomy:
- *   - both `query` and `unionSources` were set (mutually exclusive),
- *   - neither `query` nor `unionSources` was set,
+ * Today the trigger cases are all about the `query` / `unionSources` /
+ * `projection` trichotomy:
+ *   - more than one of `query` / `unionSources` / `projection` was set
+ *     (mutually exclusive),
+ *   - none of the three was set,
  *   - `unionSources` has fewer than 2 arms,
- *   - two arms in `unionSources` reference the same `collection`.
+ *   - two arms in `unionSources` reference the same `collection`,
+ *   - a malformed `projection` leg (dup / empty `as`, neither `field`
+ *     nor `collect`, empty leg list) — plus, at first materialization,
+ *     a collect leg whose `on` field lacks a `ref()` targeting the
+ *     projection source.
  *
  * The error message is prefixed with `[noy-db] withMaterializedView:`
  * so it's grep-friendly in logs and looks consistent with the existing

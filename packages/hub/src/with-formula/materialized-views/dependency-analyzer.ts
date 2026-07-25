@@ -134,7 +134,43 @@ export function summarizeQueryPlan(query: Query<any>): string {
 export function summarizeUnionPlan<T extends Record<string, unknown>>(
   spec: MaterializedViewStrategy<T>,
 ): string {
-  const arms = (spec.unionSources ?? [])
+  return `union(${summarizeUnionArms(spec)})${summarizeGroupingTail(spec)}`
+}
+
+/**
+ * Canonical string description of a projection MV's plan (#810), used
+ * as input to `computeQueryHash`.
+ *
+ * Leg descriptors ARE sorted (contrast with UNION arm order): every
+ * leg attaches under a distinct `as` alias, forward legs are
+ * one-to-one attachments and collect legs are independent
+ * hash-grouped passes, so declaration order never changes the
+ * materialized rows — a pure reorder must NOT force a refresh.
+ *
+ * The projection `map` is NOT fingerprinted (identical limitation as
+ * the UNION arm `map`); consumers must bump the MV's `name` when
+ * `map` semantics change non-equivalently.
+ */
+export function summarizeProjectionPlan<T extends Record<string, unknown>>(
+  spec: MaterializedViewStrategy<T>,
+): string {
+  const projection = spec.projection!
+  const legs = projection.joins
+    .map(leg =>
+      'collect' in leg
+        ? `collect:${leg.collect}.${leg.on}→${leg.as}`
+        : `field:${leg.field}→${leg.as}`,
+    )
+    .sort()
+  const body = JSON.stringify({ source: projection.source, legs })
+  return `projection(${body})${summarizeGroupingTail(spec)}`
+}
+
+/** Arm descriptors for `summarizeUnionPlan` — declaration order preserved (see its doc). */
+function summarizeUnionArms<T extends Record<string, unknown>>(
+  spec: MaterializedViewStrategy<T>,
+): string {
+  return (spec.unionSources ?? [])
     .map(s => {
       // Fold each arm's join legs into the summary so adding or
       // reordering joins (which changes the materialized rows) bumps
@@ -146,6 +182,16 @@ export function summarizeUnionPlan<T extends Record<string, unknown>>(
       return `${s.collection}${joins}`
     })
     .join(',')
+}
+
+/**
+ * Shared `|groupBy(…)|aggregate(…)|money(…)` tail for the UNION and
+ * projection summaries — both feed the same post-map grouping pipeline,
+ * so the same spec fields fold into both hashes with the same rules.
+ */
+function summarizeGroupingTail<T extends Record<string, unknown>>(
+  spec: MaterializedViewStrategy<T>,
+): string {
   const groupBy: string = Array.isArray(spec.groupBy)
     ? [...spec.groupBy].sort().join(',')
     : typeof spec.groupBy === 'string'
@@ -157,5 +203,5 @@ export function summarizeUnionPlan<T extends Record<string, unknown>>(
   // sorted — they're independent of each other (one descriptor per
   // output field), same rationale as aggregate keys.
   const moneyKeys = spec.moneyFields ? Object.keys(spec.moneyFields).sort().join(',') : ''
-  return `union(${arms})|groupBy(${groupBy})|aggregate(${aggKeys})|money(${moneyKeys})`
+  return `|groupBy(${groupBy})|aggregate(${aggKeys})|money(${moneyKeys})`
 }

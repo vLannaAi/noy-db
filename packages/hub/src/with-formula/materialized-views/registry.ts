@@ -2,7 +2,7 @@ import { MaterializedViewSourceUnknownError } from '../../kernel/errors.js'
 import type { ViaGraph, FieldRef, EdgeKind, Grain } from '../../kernel/via/graph.js'
 import type { Clause, FieldClause } from '../../kernel/query/predicate.js'
 import type { DeclaredPredicate } from '../../kernel/query/builder.js'
-import { analyzeDependencies, summarizeQueryPlan, summarizeUnionPlan } from './dependency-analyzer.js'
+import { analyzeDependencies, summarizeQueryPlan, summarizeUnionPlan, summarizeProjectionPlan } from './dependency-analyzer.js'
 import { computeQueryHash } from './query-hash.js'
 import type { MaterializedViewStrategy, MVQueryContext } from './types.js'
 
@@ -55,6 +55,24 @@ export class MaterializedViewRegistry {
   private readonly _byName = new Map<string, RegisteredMV>()
   /** Keyed by dependency source-collection → MVs that depend on it. */
   private readonly _bySource = new Map<string, RegisteredMV[]>()
+  /**
+   * Projection MVs (#810) whose forward-leg ref() targets could not be
+   * resolved at registration time. A forward leg names only the FK
+   * FIELD; its dependency is the field's ref() TARGET, declared on the
+   * source collection — but registration runs at vault open, BEFORE
+   * user code declares collections (and their refs). Constructing the
+   * source collection here to look them up would be worse: a later
+   * `vault.collection(source, { refs })` call only registers refs on a
+   * cache miss, so an early construction would silently drop them.
+   * Instead each entry carries a non-constructive ref-registry probe;
+   * `mvsForSource` retries on every dispatch until every forward
+   * target has resolved (see `_resolvePendingForwardDeps`).
+   */
+  private readonly _pendingForwardDeps: Array<{
+    reg: RegisteredMV
+    fields: Set<string>
+    resolveTarget: (field: string) => string | null
+  }> = []
 
   /**
    * Register an MV. Invokes `spec.query()` once at registration time to
@@ -94,6 +112,10 @@ export class MaterializedViewRegistry {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let qAny: any = null
     let isQuery = false
+    // Projection-form (#810): forward legs whose ref() target wasn't
+    // resolvable at registration time — folded in lazily, see
+    // `_pendingForwardDeps`.
+    const pendingForwardFields: string[] = []
     if (spec.unionSources) {
       dependencies = new Set(spec.unionSources.map(s => s.collection))
       // Per-arm joins resolve right-side collections that aren't among
@@ -102,6 +124,21 @@ export class MaterializedViewRegistry {
       // collection triggers MV refresh (and contributes a cycle edge).
       if (spec.sources) for (const s of spec.sources) dependencies.add(s)
       queryPlanSummary = summarizeUnionPlan(spec)
+    } else if (spec.projection) {
+      // Projection-form (#810): dependencies are all AUTO — the primary
+      // source, every collect leg's collection (both literal names), and
+      // every forward leg's ref() target. Forward targets usually can't
+      // resolve yet (refs are declared after vault open) — those go
+      // through the pending-resolution path below. Explicit `sources`
+      // remains additive, same as the other two forms.
+      const projection = spec.projection
+      dependencies = new Set([projection.source])
+      for (const leg of projection.joins) {
+        if ('collect' in leg) dependencies.add(leg.collect)
+        else pendingForwardFields.push(leg.field)
+      }
+      if (spec.sources) for (const s of spec.sources) dependencies.add(s)
+      queryPlanSummary = summarizeProjectionPlan(spec)
     } else {
       const q = spec.query!(dbForQuery)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -170,8 +207,8 @@ export class MaterializedViewRegistry {
     }
     // #638 Task 2 — 'aggregate' only for the explicit-sources aggregate shape
     // (groupBy().aggregate() with no chainable plan); a row-per-source-row
-    // Query<T> or a unionSources MV is 'record'.
-    const grain: Grain = spec.unionSources || isQuery ? 'record' : 'aggregate'
+    // Query<T>, unionSources, or projection MV is 'record'.
+    const grain: Grain = spec.unionSources || spec.projection || isQuery ? 'record' : 'aggregate'
     const reg: RegisteredMV = { spec, outputCollection, dependencies, queryHash, partitionClauses, grain }
 
     this._byName.set(spec.name, reg)
@@ -180,11 +217,63 @@ export class MaterializedViewRegistry {
       if (arr) arr.push(reg)
       else this._bySource.set(dep, [reg])
     }
+    if (pendingForwardFields.length > 0) {
+      // Non-constructive ref-registry probe: the Vault (the real
+      // MVQueryContext) carries its RefRegistry as a private field,
+      // reachable structurally at runtime. Test stubs without one simply
+      // never resolve — forward deps then come only from explicit `sources`.
+      const refRegistry = (db as unknown as {
+        refRegistry?: { getOutbound(collection: string): Record<string, { target: string }> }
+      }).refRegistry
+      const source = spec.projection!.source
+      this._pendingForwardDeps.push({
+        reg,
+        fields: new Set(pendingForwardFields),
+        resolveTarget: (field) => refRegistry?.getOutbound(source)[field]?.target ?? null,
+      })
+      // Immediate attempt — covers refs already declared by the time
+      // this MV registers (re-registration flows, test wiring).
+      this._resolvePendingForwardDeps()
+    }
   }
 
   /** All MVs that depend on `source`, in registration order. */
   mvsForSource(source: string): ReadonlyArray<RegisteredMV> {
+    if (this._pendingForwardDeps.length > 0) this._resolvePendingForwardDeps()
     return this._bySource.get(source) ?? []
+  }
+
+  /**
+   * Retry ref() resolution for every pending projection forward leg
+   * (#810). A field resolves once its source collection's refs have
+   * been declared; the target then folds into the owning MV's
+   * dependency set and `_bySource`, so subsequent writes to it
+   * dispatch a refresh. Idempotent and cheap — the pending list
+   * empties as fields resolve, and `mvsForSource` skips the call
+   * entirely once it's empty.
+   *
+   * Late-resolved targets do NOT retro-feed `edges()` — the cycle
+   * pass runs once at vault open, before refs exist. A cycle routed
+   * exclusively through a forward leg is therefore not detected at
+   * open (collect + source edges, the literal names, are).
+   */
+  private _resolvePendingForwardDeps(): void {
+    for (let i = this._pendingForwardDeps.length - 1; i >= 0; i--) {
+      const entry = this._pendingForwardDeps[i]!
+      for (const field of [...entry.fields]) {
+        const target = entry.resolveTarget(field)
+        if (target === null) continue
+        entry.fields.delete(field)
+        if (entry.reg.dependencies.has(target)) continue
+        // `dependencies` is declared ReadonlySet for consumers; the
+        // registry owns the underlying Set and is the one writer.
+        ;(entry.reg.dependencies as Set<string>).add(target)
+        const arr = this._bySource.get(target)
+        if (arr) arr.push(entry.reg)
+        else this._bySource.set(target, [entry.reg])
+      }
+      if (entry.fields.size === 0) this._pendingForwardDeps.splice(i, 1)
+    }
   }
 
   /** Single MV by name, or `undefined`. */

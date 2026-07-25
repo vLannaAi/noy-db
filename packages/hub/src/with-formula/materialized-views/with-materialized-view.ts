@@ -9,19 +9,23 @@ import type { MaterializedViewStrategy, MaterializedViewStrategyHandle } from '.
  * user `onDelete` guards on the output collection aren't tripped by
  * housekeeping.
  *
- * Two registration modes:
+ * Three registration modes:
  *   - **single-source** — declare `query: (db) => Query<TRow>`; the
  *     dependency analyzer derives source collections from the plan.
  *   - **UNION** — declare `unionSources: [{ collection, map }, ...]`
  *     plus optional `groupBy` + `aggregate`; the executor reads each
  *     arm, maps to the unified row shape, concatenates, then groups
  *     and aggregates.
+ *   - **projection** (#810) — declare `projection: { source, joins,
+ *     map }`; one output row per primary record, enriched with
+ *     forward FK legs and reverse "collect" legs before `map` runs.
  *
- * The two modes are mutually exclusive — exactly one of `query` /
- * `unionSources` must be set at registration time.
+ * The three modes are mutually exclusive — exactly one of `query` /
+ * `unionSources` / `projection` must be set at registration time.
  *
- * See docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md (single-source v2)
- * and docs/superpowers/specs/2026-05-21-dim14-mv-multikey-and-union.md (UNION).
+ * See docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md (single-source v2),
+ * docs/superpowers/specs/2026-05-21-dim14-mv-multikey-and-union.md (UNION),
+ * and docs/superpowers/specs/2026-07-25-join-projection-mv-design.md (projection).
  */
 export function withMaterializedView<TRow extends Record<string, unknown>>(
   spec: MaterializedViewStrategy<TRow>,
@@ -29,16 +33,17 @@ export function withMaterializedView<TRow extends Record<string, unknown>>(
   if (!spec.name || spec.name.length === 0) {
     throw new ValidationError('withMaterializedView: name is required')
   }
-  // Mutual exclusion: query and unionSources cannot coexist.
-  if (spec.query && spec.unionSources) {
+  // Mutual exclusion: exactly one of the three forms must be declared.
+  const declaredForms = [spec.query, spec.unionSources, spec.projection]
+    .filter((f) => f !== undefined).length
+  if (declaredForms > 1) {
     throw new MaterializedViewConfigError(
-      'query and unionSources are mutually exclusive — pick one',
+      'query, unionSources, and projection are mutually exclusive — pick one',
     )
   }
-  // Strategy must declare one of the two.
-  if (!spec.query && !spec.unionSources) {
+  if (declaredForms === 0) {
     throw new MaterializedViewConfigError(
-      'strategy must declare either query or unionSources',
+      'strategy must declare exactly one of query, unionSources, or projection',
     )
   }
   if (spec.query !== undefined && typeof spec.query !== 'function') {
@@ -111,6 +116,102 @@ export function withMaterializedView<TRow extends Record<string, unknown>>(
         `withMaterializedView "${spec.name}": predicates are not supported on UNION strategies — `
         + `UNION mode does not use a Query<T> chain, so .wherePredicate() cannot fire. `
         + `Use the query() form, or open an issue if per-arm predicates are needed`,
+      )
+    }
+  }
+  // Projection-form invariants (#810). Shape checks only — the
+  // semantic ref() check on collect legs (the `on` field must carry a
+  // ref() targeting the projection source) runs at first
+  // materialization, parity with join-time ref errors.
+  if (spec.projection) {
+    const projection = spec.projection
+    if (typeof projection.source !== 'string' || projection.source.length === 0) {
+      throw new MaterializedViewConfigError(
+        `withMaterializedView "${spec.name}": projection.source must be a non-empty collection name`,
+      )
+    }
+    if (typeof projection.map !== 'function') {
+      throw new MaterializedViewConfigError(
+        `withMaterializedView "${spec.name}": projection is missing a \`map\` function`,
+      )
+    }
+    if (!Array.isArray(projection.joins) || projection.joins.length < 1) {
+      throw new MaterializedViewConfigError(
+        `withMaterializedView "${spec.name}": projection.joins must declare at least 1 leg — `
+        + `a leg-less single-source MV is the query() form's job`,
+      )
+    }
+    const seenAs = new Set<string>()
+    for (const leg of projection.joins) {
+      const l = leg as { field?: unknown; collect?: unknown; on?: unknown; as?: unknown }
+      const isForward = l.field !== undefined
+      const isCollect = l.collect !== undefined
+      if (isForward && isCollect) {
+        throw new MaterializedViewConfigError(
+          `withMaterializedView "${spec.name}": a projection leg cannot declare both \`field\` `
+          + `(forward) and \`collect\` (reverse) — split it into two legs`,
+        )
+      }
+      if (!isForward && !isCollect) {
+        throw new MaterializedViewConfigError(
+          `withMaterializedView "${spec.name}": each projection leg must declare either \`field\` `
+          + `(forward FK) or \`collect\` (reverse one-to-many)`,
+        )
+      }
+      if (isForward && (typeof l.field !== 'string' || l.field.length === 0)) {
+        throw new MaterializedViewConfigError(
+          `withMaterializedView "${spec.name}": a forward projection leg must declare a non-empty \`field\``,
+        )
+      }
+      if (isCollect) {
+        if (typeof l.collect !== 'string' || l.collect.length === 0) {
+          throw new MaterializedViewConfigError(
+            `withMaterializedView "${spec.name}": a collect projection leg must declare a non-empty \`collect\` collection name`,
+          )
+        }
+        if (typeof l.on !== 'string' || l.on.length === 0) {
+          throw new MaterializedViewConfigError(
+            `withMaterializedView "${spec.name}": collect leg for "${l.collect}" must declare a non-empty \`on\` FK field`,
+          )
+        }
+      }
+      if (typeof l.as !== 'string' || l.as.length === 0) {
+        throw new MaterializedViewConfigError(
+          `withMaterializedView "${spec.name}": each projection leg must declare a non-empty \`as\` alias`,
+        )
+      }
+      if (seenAs.has(l.as)) {
+        throw new MaterializedViewConfigError(
+          `withMaterializedView "${spec.name}": projection legs must attach under distinct \`as\` aliases (duplicate: "${l.as}")`,
+        )
+      }
+      seenAs.add(l.as)
+    }
+    // Post-map grouping invariants — same rules as UNION (the mapped
+    // stream feeds the same shared groupAndReduce tail).
+    if (Array.isArray(spec.groupBy) && spec.groupBy.length === 0) {
+      throw new MaterializedViewConfigError(
+        `withMaterializedView "${spec.name}": groupBy must not be an empty array — omit it or provide at least one field name`,
+      )
+    }
+    if (spec.aggregate && !spec.groupBy) {
+      throw new MaterializedViewConfigError(
+        `withMaterializedView "${spec.name}": projection strategy with aggregate requires groupBy — `
+        + `use groupBy to declare the bucketing keys, or remove aggregate for a row-per-primary-record MV`,
+      )
+    }
+    if (spec.moneyFields && !spec.aggregate) {
+      throw new MaterializedViewConfigError(
+        `withMaterializedView "${spec.name}": moneyFields requires aggregate — `
+        + `moneyFields rewrites sum/min/max reducers over money output fields, `
+        + `so it is meaningless without an aggregate spec`,
+      )
+    }
+    if (spec.predicates) {
+      throw new MaterializedViewConfigError(
+        `withMaterializedView "${spec.name}": predicates are not supported on projection strategies — `
+        + `projection mode does not use a Query<T> chain, so .wherePredicate() cannot fire. `
+        + `Filter inside projection.map (return null to omit) instead`,
       )
     }
   }

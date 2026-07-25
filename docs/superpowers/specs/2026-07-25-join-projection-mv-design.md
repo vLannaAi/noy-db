@@ -94,6 +94,10 @@ All inside `src/with-formula/materialized-views/*` (the lazy-import chunk — mu
 7. queryHash stability across re-open; change of leg set forces refresh
 8. surface goldens updated (`with-surface`, root barrel) for the new exported types
 
+## Implementation note (deviation, accepted)
+
+**Forward-leg auto-dependencies resolve lazily, not at registration.** MV registration runs at vault open — before user code declares collections and their `ref()`s — so a forward leg's target is unknowable then (and constructing the source collection early would silently drop later ref declarations). The registry records pending forward fields with a non-constructive ref-registry probe and retries on each dispatch (`mvsForSource`) until resolved, then folds targets into the dependency set. Net freshness behavior matches the spec. Two documented residuals: (a) a cycle routed *exclusively* through a forward leg is not visible to the open-time cycle pass (source + collect edges are); (b) `queryHash` deliberately excludes late-folded forward targets so hash inputs stay deterministic at registration.
+
 ## Out of scope
 
 - Reverse joins in the general query DSL (`Query.collect()`) — only the MV form
