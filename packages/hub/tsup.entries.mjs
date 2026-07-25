@@ -32,6 +32,7 @@ export const ENTRIES = {
   'overlay-views/index': 'src/with-formula/overlay-views/index.ts',
   'sync/index': 'src/with-party/sync/index.ts',
   'util/index': 'src/kernel/util/index.ts',
+  'share-link/index': 'src/share-link/index.ts',
   'attestation/index': 'src/with-audit/attestation/index.ts',
   'classified/index': 'src/via/classified/index.ts',
   'satellites/index': 'src/with-shape/satellites/index.ts',

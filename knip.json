@@ -15,6 +15,7 @@
         "src/kernel/{to,on,at,in,by,ui,with}/index.ts",
         "src/**/active.ts",
         "src/kernel/util/index.ts",
+        "src/share-link/index.ts",
         "src/with-fork/snapshots/index.ts",
         "src/with-party/session/index.ts",
         "src/with-party/team/index.ts",

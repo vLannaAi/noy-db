@@ -1,0 +1,14 @@
+{
+  "subpath": "@noy-db/hub/share-link",
+  "source": "src/share-link/index.ts",
+  "values": [
+    "ShareLinkParseError",
+    "buildShareLink",
+    "parseShareLink"
+  ],
+  "types": [
+    "ShareLink",
+    "ShareLinkParts",
+    "ShareLinkErrorCode"
+  ]
+}

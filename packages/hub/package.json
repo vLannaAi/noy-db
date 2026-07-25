@@ -120,6 +120,10 @@
       "types": "./dist/kernel/util/index.d.ts",
       "default": "./dist/util/index.js"
     },
+    "./share-link": {
+      "types": "./dist/share-link/index.d.ts",
+      "default": "./dist/share-link/index.js"
+    },
     "./attestation": {
       "types": "./dist/with-audit/attestation/index.d.ts",
       "default": "./dist/attestation/index.js"
