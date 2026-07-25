@@ -552,7 +552,30 @@ export type {
   SlotRewrapCeremony,
 } from './with-party/team/rotate-recover.js'
 
-// Public envelope (https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md)
+// Cover (https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md)
+// Formerly "public envelope" (#799) — the old names below remain as
+// deprecated aliases for one pre-release window; the wire format is frozen.
+export {
+  loadCover,
+  saveCover,
+  readCover,
+  resolveSchema as resolveCoverSchema,
+  validateCoverInput,
+  isCover,
+  COVER_FIELDS,
+  DEFAULT_COVER_SCHEMA,
+  COVER_RECORD_ID,
+} from './with-party/directory/cover/index.js'
+export type {
+  Cover,
+  CoverText,
+  CoverSchema,
+  CoverField,
+  ResolvedCoverSchema,
+  SetCoverInput,
+} from './with-party/directory/cover/index.js'
+export { readPodCover } from './with-pod/bundle.js'
+// Deprecated aliases (#799; remove after one pre-release window)
 export {
   loadPublicEnvelope,
   savePublicEnvelope,
@@ -563,7 +586,7 @@ export {
   PUBLIC_ENVELOPE_FIELDS,
   DEFAULT_PUBLIC_ENVELOPE_SCHEMA,
   PUBLIC_ENVELOPE_RECORD_ID,
-} from './with-party/directory/public-envelope/index.js'
+} from './with-party/directory/cover/index.js'
 export type {
   PublicEnvelope,
   PublicEnvelopeText,
@@ -571,7 +594,7 @@ export type {
   PublicEnvelopeField,
   ResolvedPublicEnvelopeSchema,
   SetPublicEnvelopeInput,
-} from './with-party/directory/public-envelope/index.js'
+} from './with-party/directory/cover/index.js'
 export { readNoydbBundlePublicEnvelope } from './with-pod/bundle.js'
 
 // User envelope (docs/superpowers/specs/2026-05-05-user-envelope-design.md)

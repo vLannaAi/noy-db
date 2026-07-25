@@ -57,7 +57,7 @@ import type { GuardStrategyHandleAny } from '../with-audit/guards/types.js'
 import type { DerivationStrategyHandle } from '../with-formula/derivations/types.js'
 import type { UnlockedKeyring } from '../with-party/team/keyring.js'
 import type { PassphrasePolicy } from './validation.js'
-import type { PublicEnvelopeSchema } from '../with-party/directory/public-envelope/types.js'
+import type { CoverSchema } from '../with-party/directory/cover/types.js'
 import type { MaterializedViewStrategyHandle } from '../with-formula/materialized-views/types.js'
 import type { OverlayedViewStrategyHandle } from '../with-formula/overlay-views/types.js'
 import type { SealingKeyProvider, RecipientHint } from '../with-party/team/managed-passphrase.js'
@@ -2798,13 +2798,19 @@ export interface NoydbOptions {
    */
   readonly onInvalidKey?: 'error' | 'reset'
   /**
-   * Enable the public envelope service (`https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md`).
+   * Enable the cover service (`https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md`).
    * Pass `true` for the default schema (every standard field, 256 KB
-   * icon cap, 200-char text cap), or a `PublicEnvelopeSchema` to
-   * narrow what the owner can set. Off by default — vaults written
-   * by hubs without this option carry no envelope, full stop.
+   * icon cap, 200-char text cap), or a `CoverSchema` to narrow what
+   * the owner can set. Off by default — vaults written by hubs
+   * without this option carry no cover, full stop.
    */
-  readonly publicEnvelope?: true | PublicEnvelopeSchema
+  readonly cover?: true | CoverSchema
+  /**
+   * @deprecated Use {@link NoydbOptions.cover} (#799 rename). Still
+   * accepted for one pre-release window; when both keys are set,
+   * `cover` wins.
+   */
+  readonly publicEnvelope?: true | CoverSchema
   /** Audit history configuration. */
   readonly history?: HistoryConfig
   /**

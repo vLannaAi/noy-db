@@ -1,6 +1,7 @@
 /**
- * Public envelope service — schema validation, storage round-trip,
- * locale resolution, disabled-feature negative path.
+ * Cover service — schema validation, storage round-trip, locale
+ * resolution, disabled-feature negative path. (Formerly "public
+ * envelope" — the wire keeps that name: `_meta/public-envelope`.)
  *
  * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md
  */
@@ -8,15 +9,15 @@ import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { ValidationError } from '../src/kernel/errors.js'
 import {
-  loadPublicEnvelope,
-  savePublicEnvelope,
-  readPublicEnvelope,
+  loadCover,
+  saveCover,
+  readCover,
   resolveSchema,
-  validatePublicEnvelopeInput,
-  isPublicEnvelope,
-  PUBLIC_ENVELOPE_FIELDS,
-  type PublicEnvelope,
-} from '../src/with-party/directory/public-envelope/index.js'
+  validateCoverInput,
+  isCover,
+  COVER_FIELDS,
+  type Cover,
+} from '../src/with-party/directory/cover/index.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 
 function inlineMemory(): NoydbStore {
@@ -49,7 +50,7 @@ describe('resolveSchema', () => {
 
   it('returns full defaults for shorthand `true`', () => {
     const r = resolveSchema(true)!
-    expect(r.fields).toEqual(PUBLIC_ENVELOPE_FIELDS)
+    expect(r.fields).toEqual(COVER_FIELDS)
     expect(r.maxIconBytes).toBe(256 * 1024)
     expect(r.iconMimeTypes).toEqual(['image/png', 'image/svg+xml'])
     expect(r.maxStringChars).toBe(200)
@@ -64,86 +65,86 @@ describe('resolveSchema', () => {
   })
 })
 
-describe('validatePublicEnvelopeInput', () => {
+describe('validateCoverInput', () => {
   const schema = resolveSchema(true)!
 
   it('accepts a well-formed string name', () => {
-    expect(() => validatePublicEnvelopeInput({ name: 'Acme' }, schema)).not.toThrow()
+    expect(() => validateCoverInput({ name: 'Acme' }, schema)).not.toThrow()
   })
 
   it('accepts a locale-map name', () => {
     expect(() =>
-      validatePublicEnvelopeInput({ name: { en: 'Acme', th: 'อะคมี' } }, schema),
+      validateCoverInput({ name: { en: 'Acme', th: 'อะคมี' } }, schema),
     ).not.toThrow()
   })
 
   it('rejects an unknown field', () => {
     expect(() =>
-      validatePublicEnvelopeInput({ stranger: 'value' } as never, schema),
+      validateCoverInput({ stranger: 'value' } as never, schema),
     ).toThrow(ValidationError)
   })
 
   it('rejects a field not enabled by the schema', () => {
     const narrow = resolveSchema({ fields: ['name'] })!
-    expect(() => validatePublicEnvelopeInput({ icon: TINY_PNG }, narrow)).toThrow(ValidationError)
+    expect(() => validateCoverInput({ icon: TINY_PNG }, narrow)).toThrow(ValidationError)
   })
 
   it('rejects an oversize string', () => {
     const huge = 'a'.repeat(201)
-    expect(() => validatePublicEnvelopeInput({ name: huge }, schema)).toThrow(/200-character/)
+    expect(() => validateCoverInput({ name: huge }, schema)).toThrow(/200-character/)
   })
 
   it('rejects an oversize string inside a locale map', () => {
     const huge = 'a'.repeat(201)
     expect(() =>
-      validatePublicEnvelopeInput({ name: { en: huge } }, schema),
+      validateCoverInput({ name: { en: huge } }, schema),
     ).toThrow(/200-character/)
   })
 
   it('rejects a non-data-URL icon', () => {
     expect(() =>
-      validatePublicEnvelopeInput({ icon: 'https://example.com/icon.png' }, schema),
+      validateCoverInput({ icon: 'https://example.com/icon.png' }, schema),
     ).toThrow(/data URL|External URLs/)
   })
 
   it('rejects a disallowed MIME type', () => {
     const jpeg = 'data:image/jpeg;base64,/9j/AA=='
-    expect(() => validatePublicEnvelopeInput({ icon: jpeg }, schema)).toThrow(/MIME/)
+    expect(() => validateCoverInput({ icon: jpeg }, schema)).toThrow(/MIME/)
   })
 
   it('rejects an icon larger than the cap', () => {
     const tiny = resolveSchema({ maxIconBytes: 100 })!
     expect(() =>
-      validatePublicEnvelopeInput({ icon: TINY_PNG }, tiny),
+      validateCoverInput({ icon: TINY_PNG }, tiny),
     ).toThrow(/byte cap/)
   })
 
   it('accepts an icon at exactly the cap', () => {
     const fits = resolveSchema({ maxIconBytes: TINY_PNG.length })!
     expect(() =>
-      validatePublicEnvelopeInput({ icon: TINY_PNG }, fits),
+      validateCoverInput({ icon: TINY_PNG }, fits),
     ).not.toThrow()
   })
 })
 
-describe('isPublicEnvelope', () => {
-  it('recognises a well-formed envelope', () => {
-    expect(isPublicEnvelope({ _noydb_public: 1, version: 1 })).toBe(true)
+describe('isCover', () => {
+  it('recognises a well-formed cover', () => {
+    expect(isCover({ _noydb_public: 1, version: 1 })).toBe(true)
   })
 
   it('rejects shape impostors', () => {
-    expect(isPublicEnvelope({ _noydb_public: 2, version: 1 })).toBe(false)
-    expect(isPublicEnvelope({ _noydb_public: 1, version: 'one' })).toBe(false)
-    expect(isPublicEnvelope(null)).toBe(false)
-    expect(isPublicEnvelope([])).toBe(false)
-    expect(isPublicEnvelope('string')).toBe(false)
+    expect(isCover({ _noydb_public: 2, version: 1 })).toBe(false)
+    expect(isCover({ _noydb_public: 1, version: 'one' })).toBe(false)
+    expect(isCover(null)).toBe(false)
+    expect(isCover([])).toBe(false)
+    expect(isCover('string')).toBe(false)
   })
 })
 
 describe('storage round-trip', () => {
   it('save → load returns the same shape', async () => {
     const store = inlineMemory()
-    const env: PublicEnvelope = {
+    const env: Cover = {
       _noydb_public: 1,
       version: 1,
       name: 'Acme 2026',
@@ -151,14 +152,14 @@ describe('storage round-trip', () => {
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
     }
-    await savePublicEnvelope(store, 'acme', env)
-    const loaded = await loadPublicEnvelope(store, 'acme')
+    await saveCover(store, 'acme', env)
+    const loaded = await loadCover(store, 'acme')
     expect(loaded).toEqual(env)
   })
 
-  it('returns undefined when no envelope is on disk', async () => {
+  it('returns undefined when no cover is on disk', async () => {
     const store = inlineMemory()
-    expect(await loadPublicEnvelope(store, 'never-saved')).toBeUndefined()
+    expect(await loadCover(store, 'never-saved')).toBeUndefined()
   })
 
   it('returns undefined on a corrupted document (does not throw)', async () => {
@@ -170,7 +171,7 @@ describe('storage round-trip', () => {
       _iv: '',
       _data: 'not json{',
     })
-    expect(await loadPublicEnvelope(store, 'acme')).toBeUndefined()
+    expect(await loadCover(store, 'acme')).toBeUndefined()
   })
 
   it('returns undefined on a shape-mismatch document', async () => {
@@ -182,14 +183,14 @@ describe('storage round-trip', () => {
       _iv: '',
       _data: JSON.stringify({ _noydb_public: 2, version: 1 }),
     })
-    expect(await loadPublicEnvelope(store, 'acme')).toBeUndefined()
+    expect(await loadCover(store, 'acme')).toBeUndefined()
   })
 })
 
-describe('readPublicEnvelope locale resolution', () => {
-  async function withLocaleMapEnvelope() {
+describe('readCover locale resolution', () => {
+  async function withLocaleMapCover() {
     const store = inlineMemory()
-    await savePublicEnvelope(store, 'acme', {
+    await saveCover(store, 'acme', {
       _noydb_public: 1,
       version: 1,
       name: { en: 'Acme 2026', th: 'อะคมี 2026' },
@@ -202,40 +203,40 @@ describe('readPublicEnvelope locale resolution', () => {
   }
 
   it('returns the raw map when locale is omitted', async () => {
-    const store = await withLocaleMapEnvelope()
-    const r = (await readPublicEnvelope(store, 'acme'))!
+    const store = await withLocaleMapCover()
+    const r = (await readCover(store, 'acme'))!
     expect(typeof r.name).toBe('object')
     expect((r.name as Record<string, string>).en).toBe('Acme 2026')
   })
 
   it('resolves to the requested locale', async () => {
-    const store = await withLocaleMapEnvelope()
-    const r = (await readPublicEnvelope(store, 'acme', { locale: 'th' }))!
+    const store = await withLocaleMapCover()
+    const r = (await readCover(store, 'acme', { locale: 'th' }))!
     expect(r.name).toBe('อะคมี 2026')
     expect(r.description).toBe('ใบแจ้งหนี้ Q1-Q4')
   })
 
   it('falls back to defaultLocale when the requested locale is missing', async () => {
-    const store = await withLocaleMapEnvelope()
-    const r = (await readPublicEnvelope(store, 'acme', { locale: 'de' }))!
+    const store = await withLocaleMapCover()
+    const r = (await readCover(store, 'acme', { locale: 'de' }))!
     expect(r.name).toBe('Acme 2026') // defaultLocale = 'en'
   })
 
   it('passes single-string fields through unchanged', async () => {
     const store = inlineMemory()
-    await savePublicEnvelope(store, 'acme', {
+    await saveCover(store, 'acme', {
       _noydb_public: 1,
       version: 1,
       name: 'Acme 2026',
       defaultLocale: 'en',
     })
-    const r = (await readPublicEnvelope(store, 'acme', { locale: 'th' }))!
+    const r = (await readCover(store, 'acme', { locale: 'th' }))!
     expect(r.name).toBe('Acme 2026')
   })
 })
 
 describe('Noydb integration — disabled feature', () => {
-  it('throws ValidationError when setPublicEnvelope is called without enabling the feature', async () => {
+  it('throws ValidationError when setCover is called without enabling the feature', async () => {
     const store = inlineMemory()
     const db = await createNoydb({
       store,
@@ -244,11 +245,11 @@ describe('Noydb integration — disabled feature', () => {
     })
     await db.openVault('acme')
     await expect(
-      db.setPublicEnvelope('acme', { name: 'Acme' }),
+      db.setCover('acme', { name: 'Acme' }),
     ).rejects.toBeInstanceOf(ValidationError)
   })
 
-  it('getPublicEnvelope returns undefined for vaults with no envelope', async () => {
+  it('getCover returns undefined for vaults with no cover', async () => {
     const store = inlineMemory()
     const db = await createNoydb({
       store,
@@ -256,21 +257,21 @@ describe('Noydb integration — disabled feature', () => {
       secret: 'correct horse battery staple printer toaster',
     })
     await db.openVault('acme')
-    expect(await db.getPublicEnvelope('acme')).toBeUndefined()
+    expect(await db.getCover('acme')).toBeUndefined()
   })
 })
 
 describe('Noydb integration — enabled feature', () => {
-  it('setPublicEnvelope persists, getPublicEnvelope reads it back', async () => {
+  it('setCover persists, getCover reads it back', async () => {
     const store = inlineMemory()
     const db = await createNoydb({
       store,
       user: 'alice',
       secret: 'correct horse battery staple printer toaster',
-      publicEnvelope: true,
+      cover: true,
     })
     await db.openVault('acme')
-    const written = await db.setPublicEnvelope('acme', {
+    const written = await db.setCover('acme', {
       name: 'Acme 2026',
       description: 'Q1-Q4 invoices',
       icon: TINY_PNG,
@@ -278,7 +279,7 @@ describe('Noydb integration — enabled feature', () => {
     expect(written.version).toBe(1)
     expect(written.createdAt).toBeDefined()
 
-    const read = await db.getPublicEnvelope('acme')
+    const read = await db.getCover('acme')
     expect(read?.name).toBe('Acme 2026')
     expect(read?.icon).toBe(TINY_PNG)
   })
@@ -289,12 +290,12 @@ describe('Noydb integration — enabled feature', () => {
       store,
       user: 'alice',
       secret: 'correct horse battery staple printer toaster',
-      publicEnvelope: true,
+      cover: true,
     })
     await db.openVault('acme')
-    const first = await db.setPublicEnvelope('acme', { name: 'Acme 2026' })
+    const first = await db.setCover('acme', { name: 'Acme 2026' })
     await new Promise((r) => setTimeout(r, 5))
-    const second = await db.setPublicEnvelope('acme', { name: 'Acme 2026 v2' })
+    const second = await db.setCover('acme', { name: 'Acme 2026 v2' })
     expect(second.createdAt).toBe(first.createdAt)
     expect(second.version).toBe(first.version + 1)
     expect(Date.parse(second.updatedAt!)).toBeGreaterThanOrEqual(Date.parse(first.updatedAt!))
@@ -306,16 +307,16 @@ describe('Noydb integration — enabled feature', () => {
       store,
       user: 'alice',
       secret: 'correct horse battery staple printer toaster',
-      publicEnvelope: true,
+      cover: true,
     })
     await db.openVault('acme')
-    await db.setPublicEnvelope('acme', {
+    await db.setCover('acme', {
       name: { en: 'Acme 2026', th: 'อะคมี 2026' },
       defaultLocale: 'en',
     })
-    const th = await db.getPublicEnvelope('acme', { locale: 'th' })
+    const th = await db.getCover('acme', { locale: 'th' })
     expect(th?.name).toBe('อะคมี 2026')
-    const raw = await db.getPublicEnvelope('acme')
+    const raw = await db.getCover('acme')
     expect(typeof raw?.name).toBe('object')
   })
 
@@ -325,11 +326,11 @@ describe('Noydb integration — enabled feature', () => {
       store,
       user: 'alice',
       secret: 'correct horse battery staple printer toaster',
-      publicEnvelope: { fields: ['name'] },
+      cover: { fields: ['name'] },
     })
     await db.openVault('acme')
     await expect(
-      db.setPublicEnvelope('acme', { name: 'OK', icon: TINY_PNG }),
+      db.setCover('acme', { name: 'OK', icon: TINY_PNG }),
     ).rejects.toBeInstanceOf(ValidationError)
   })
 })

@@ -25,7 +25,7 @@ import type { MaterializedViewStrategyHandle, MVQueryContext } from '../with-for
 import type { OverlayedViewRegistry } from '../with-formula/overlay-views/registry.js'
 import type { OverlayedViewStrategyHandle } from '../with-formula/overlay-views/types.js'
 import { OverlayedCollection } from '../with-formula/overlay-views/virtual-collection.js'
-import type { PublicEnvelope } from '../with-party/directory/public-envelope/types.js'
+import type { Cover } from '../with-party/directory/cover/types.js'
 import { buildRecipientKeyringFile } from '../with-party/team/keyring.js'
 import { ensureCollectionDEK, hasAccess } from '../with-party/team/keyring.js'
 import { isSecretBearingReservedCollection } from '../with-party/team/reserved-secret-collections.js'
@@ -3569,21 +3569,26 @@ export class Vault {
   }
 
   /**
-   * Read the owner-curated public envelope for this vault (or
-   * `undefined` if none is persisted). The envelope lives in
-   * `_meta/public-envelope` as plaintext — readable without any KEK
+   * Read the owner-curated cover for this vault (or `undefined` if
+   * none is persisted). The cover lives in `_meta/public-envelope`
+   * (the frozen wire name) as plaintext — readable without any KEK
    * — so `getBundleHandle`-style callers can label a vault before
    * unlock.
    *
-   * Mirrors `Noydb.getPublicEnvelope(vault, opts)` but scoped to a
+   * Mirrors `Noydb.getCover(vault, opts)` but scoped to a
    * single, already-opened `Vault` instance so the
    * bundle writer can snapshot it without holding a `Noydb` reference.
    *
    * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md
    */
-  async getPublicEnvelope(opts: { readonly locale?: string } = {}): Promise<PublicEnvelope | undefined> {
-    const { readPublicEnvelope } = await import('../with-party/directory/public-envelope/index.js')
-    return readPublicEnvelope(this.adapter, this.name, opts)
+  async getCover(opts: { readonly locale?: string } = {}): Promise<Cover | undefined> {
+    const { readCover } = await import('../with-party/directory/cover/index.js')
+    return readCover(this.adapter, this.name, opts)
+  }
+
+  /** @deprecated Use {@link Vault.getCover} (#799 rename). */
+  async getPublicEnvelope(opts: { readonly locale?: string } = {}): Promise<Cover | undefined> {
+    return this.getCover(opts)
   }
 
   /**

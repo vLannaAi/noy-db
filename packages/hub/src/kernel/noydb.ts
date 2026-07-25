@@ -54,8 +54,8 @@ import {
 import { resolveManagedSecret } from '../with-party/team/managed-passphrase.js'
 import { generateULID } from '../with-pod/ulid.js'
 import { createDefaultCoordinationProvider, type CoordinationProvider } from '../port/by/default-provider.js'
-import type { PublicEnvelope } from '../with-party/directory/public-envelope/types.js'
-import type { SetPublicEnvelopeInput } from '../with-party/directory/public-envelope/schema.js'
+import type { Cover } from '../with-party/directory/cover/types.js'
+import type { SetCoverInput } from '../with-party/directory/cover/schema.js'
 import { Vault } from './vault.js'
 import type { VaultMeta } from '../with-shape/introspection/meta.js'
 import { NoydbEventEmitter } from './events.js'
@@ -1998,11 +1998,11 @@ export class Noydb {
     return this.team.unlockViaAuthenticator(vault, slotId, verify)
   }
 
-  // ─── Public envelope (https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md) ──────
+  // ─── Cover (https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md) ──────
   /**
-   * Set the owner-curated public envelope for a vault. Throws
+   * Set the owner-curated cover for a vault. Throws
    * `ValidationError` if the developer did not opt the hub into
-   * `publicEnvelope` via `NoydbOptions`, or if the input violates
+   * `cover` via `NoydbOptions`, or if the input violates
    * the resolved schema (oversized icon, disallowed MIME, oversized
    * string, unknown field).
    *
@@ -2010,24 +2010,26 @@ export class Noydb {
    * subsequent write. `updatedAt` is refreshed on every write.
    * `version` is monotonic — increments on every successful write.
    */
-  async setPublicEnvelope(
+  async setCover(
     vault: string,
-    input: SetPublicEnvelopeInput,
-  ): Promise<PublicEnvelope> {
-    if (!this.options.publicEnvelope) {
+    input: SetCoverInput,
+  ): Promise<Cover> {
+    // `cover` wins over the deprecated `publicEnvelope` key (#799).
+    const coverOption = this.options.cover ?? this.options.publicEnvelope
+    if (!coverOption) {
       throw new ValidationError(
-        'setPublicEnvelope: the public-envelope feature is not enabled. ' +
-          'Pass `publicEnvelope: true` (or a schema object) to `createNoydb`.',
+        'setCover: the cover feature is not enabled. ' +
+          'Pass `cover: true` (or a schema object) to `createNoydb`.',
       )
     }
-    const { loadPublicEnvelope, savePublicEnvelope, resolveSchema, validatePublicEnvelopeInput } =
-      await import('../with-party/directory/public-envelope/index.js')
-    const schema = resolveSchema(this.options.publicEnvelope)!
-    validatePublicEnvelopeInput(input, schema)
+    const { loadCover, saveCover, resolveSchema, validateCoverInput } =
+      await import('../with-party/directory/cover/index.js')
+    const schema = resolveSchema(coverOption)!
+    validateCoverInput(input, schema)
 
     const now = new Date().toISOString()
-    const existing = await loadPublicEnvelope(this.options.store, vault)
-    const next: PublicEnvelope = {
+    const existing = await loadCover(this.options.store, vault)
+    const next: Cover = {
       _noydb_public: 1,
       version: (existing?.version ?? 0) + 1,
       ...(existing?.createdAt !== undefined ? { createdAt: existing.createdAt } : { createdAt: now }),
@@ -2037,26 +2039,39 @@ export class Noydb {
       ...(input.icon !== undefined ? { icon: input.icon } : (existing?.icon !== undefined ? { icon: existing.icon } : {})),
       ...(input.defaultLocale !== undefined ? { defaultLocale: input.defaultLocale } : (existing?.defaultLocale !== undefined ? { defaultLocale: existing.defaultLocale } : {})),
     }
-    await savePublicEnvelope(this.options.store, vault, next)
+    await saveCover(this.options.store, vault, next)
     return next
   }
 
   /**
-   * Read the public envelope for a vault. Returns `undefined` when
-   * none has been written. Pass `locale` to resolve any locale-map
-   * fields to plain strings; omitting `locale` returns the raw map.
+   * Read the cover for a vault. Returns `undefined` when none has
+   * been written. Pass `locale` to resolve any locale-map fields to
+   * plain strings; omitting `locale` returns the raw map.
    *
    * Works even when the developer didn't enable
-   * `publicEnvelope` — reads are passive and never throw on a
-   * missing schema (the envelope is plaintext and exists on disk
+   * `cover` — reads are passive and never throw on a
+   * missing schema (the cover is plaintext and exists on disk
    * regardless).
    */
+  async getCover(
+    vault: string,
+    opts: { readonly locale?: string } = {},
+  ): Promise<Cover | undefined> {
+    const { readCover } = await import('../with-party/directory/cover/index.js')
+    return readCover(this.options.store, vault, opts)
+  }
+
+  /** @deprecated Use {@link Noydb.setCover} (#799 rename). */
+  async setPublicEnvelope(vault: string, input: SetCoverInput): Promise<Cover> {
+    return this.setCover(vault, input)
+  }
+
+  /** @deprecated Use {@link Noydb.getCover} (#799 rename). */
   async getPublicEnvelope(
     vault: string,
     opts: { readonly locale?: string } = {},
-  ): Promise<PublicEnvelope | undefined> {
-    const { readPublicEnvelope } = await import('../with-party/directory/public-envelope/index.js')
-    return readPublicEnvelope(this.options.store, vault, opts)
+  ): Promise<Cover | undefined> {
+    return this.getCover(vault, opts)
   }
 
   // ─── Auth introspection ─────────────────────────────────────────

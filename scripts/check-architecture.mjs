@@ -1028,7 +1028,11 @@ const KERNEL_SURFACE_BUDGET = {
   // `if (options?.perRecordKeys !== undefined) { ... }` block to this file's own one-line
   // `if (...) collOpts.x = ...` style (matches the block immediately above it) — a −2 net,
   // leaving the file 1 line UNDER ceiling.
-  'packages/hub/src/kernel/vault.ts': 3959,
+  // Bumped 3959→3964 (#799 public-envelope → cover rename, remove next window):
+  // getCover is the canonical method; getPublicEnvelope remains as a
+  // @deprecated one-line delegator for one pre-release window, then this
+  // ceiling ratchets back down with it.
+  'packages/hub/src/kernel/vault.ts': 3964,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -1143,7 +1147,11 @@ const KERNEL_SURFACE_BUDGET = {
   // (presence/election alone or full write-propagation), not only while writes are relayed
   // (review fix: `propagateWrites: false` left `writeRelay` unset, so the narrower signal
   // missed a peer tab's delete-marker on a shared store — permanent #589-class data loss).
-  'packages/hub/src/kernel/noydb.ts': 2396,
+  // Bumped 2396→2411 (#799 public-envelope → cover rename, remove next window):
+  // setCover/getCover are the canonical methods; the old setPublicEnvelope/
+  // getPublicEnvelope remain as @deprecated one-line delegators for one
+  // pre-release window, then this ceiling ratchets back down with them.
+  'packages/hub/src/kernel/noydb.ts': 2411,
 }
 
 function checkKernelSurface() {
@@ -1363,8 +1371,8 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-fork/snapshots/noydb-facade.js',
     '../with-fork/snapshots/strategy.js',
     '../with-party/custody/strategy.js',
-    '../with-party/directory/public-envelope/schema.js',
-    '../with-party/directory/public-envelope/types.js',
+    '../with-party/directory/cover/schema.js',
+    '../with-party/directory/cover/types.js',
     '../with-party/directory/storage.js',
     '../with-party/session/session-policy.js',
     '../with-party/session/strategy.js',
@@ -1411,7 +1419,7 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-lookup/indexing/strategy.js',
     '../with-lookup/search/strategy.js',
     '../with-party/custody/strategy.js',
-    '../with-party/directory/public-envelope/types.js',
+    '../with-party/directory/cover/types.js',
     '../with-party/session/strategy.js',
     '../with-party/team/keyring.js',
     '../with-party/team/managed-passphrase.js',
@@ -1464,7 +1472,7 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-lookup/indexing/strategy.js',
     '../with-lookup/search/strategy.js',
     '../with-party/custody/index.js',
-    '../with-party/directory/public-envelope/types.js',
+    '../with-party/directory/cover/types.js',
     '../with-party/team/delegation.js',
     '../with-party/team/keyring.js',
     // reserved-secret-collection guard (security fix) — the collection() door
@@ -1768,7 +1776,7 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-formula/derivations/fanout-sidecar.ts', 6],
   ['packages/hub/src/with-party/auth-introspection/index.ts', 1],
   ['packages/hub/src/with-party/custody/liberate.ts', 2],
-  ['packages/hub/src/with-party/directory/public-envelope/storage.ts', 3],
+  ['packages/hub/src/with-party/directory/cover/storage.ts', 3],
   ['packages/hub/src/with-party/directory/storage.ts', 3],
   ['packages/hub/src/with-party/directory/user-envelope/storage.ts', 2],
   ['packages/hub/src/with-party/directory/visibility.ts', 3],

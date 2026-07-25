@@ -33,7 +33,7 @@ export type OnMissing = 'substitute' | 'null' | 'throw'
  * - `join`       — a joined record expanded onto a row.
  * - `mv`         — materialized-view input.
  * - `derivation` — derivation input.
- * - `export`     — bundle/public-envelope export.
+ * - `export`     — bundle/cover export.
  */
 export type Layer = 'read' | 'guard' | 'join' | 'mv' | 'derivation' | 'export'
 

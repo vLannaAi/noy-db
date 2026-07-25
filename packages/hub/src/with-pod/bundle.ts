@@ -54,8 +54,8 @@ import { sha256Hex as sha256HexBytes } from '../kernel/enclave/index.js'
 import { BundleIntegrityError, BundleSealMismatchError, ValidationError } from '../kernel/errors.js'
 import type { Vault } from '../kernel/vault.js'
 import type { BundleRecipient } from '../with-party/team/keyring.js'
-import { pickLocale } from '../with-party/directory/public-envelope/storage.js'
-import type { PublicEnvelope } from '../with-party/directory/public-envelope/types.js'
+import { pickLocale } from '../with-party/directory/cover/storage.js'
+import type { Cover } from '../with-party/directory/cover/types.js'
 import type { SealingKeyProvider, RecipientSealer, RecipientHint } from '../with-party/team/managed-passphrase.js'
 
 // ─── Auto-credential types ────────────────────────────────────────────────────
@@ -1116,7 +1116,7 @@ function applySliceFilters(
  * implement `_introspectState()` at all — some call sites pass a minimal
  * duck-typed vault-like object for unit tests (e.g.
  * `snapshots.test.ts`'s `makeMockVault`, which implements only
- * `getBundleHandle`/`dump`/`load`/`getPublicEnvelope`); a real `Vault`
+ * `getBundleHandle`/`dump`/`load`/`getCover`); a real `Vault`
  * always implements it.
  *
  * @internal
@@ -1319,20 +1319,21 @@ export async function writePod(
   const bodyJsonStr = normalizedAutoUnlock === null
     ? filtered
     : JSON.stringify(await buildAutoUnlockWrapper(filtered, normalizedAutoUnlock))
-  // Snapshot the source vault's public envelope into the header
-  // when one is persisted. `Vault.getPublicEnvelope` tolerates a
-  // missing document and returns undefined, which we propagate as
-  // "no envelope in the header." Vaults without a
-  // `_meta/public-envelope` document produce minimum-disclosure
-  // headers exactly like before, preserving back-compat.
-  const publicEnvelope = await vault.getPublicEnvelope()
+  // Snapshot the source vault's cover into the header when one is
+  // persisted. `Vault.getCover` tolerates a missing document and
+  // returns undefined, which we propagate as "no cover in the
+  // header." Vaults without a `_meta/public-envelope` document
+  // (the frozen wire name) produce minimum-disclosure headers
+  // exactly like before, preserving back-compat.
+  const cover = await vault.getCover()
 
   return assembleBundleContainer({
     handle,
     bodyJsonStr,
     compression: opts.compression,
     headerExtras: {
-      ...(publicEnvelope !== undefined ? { publicEnvelope } : {}),
+      // `publicEnvelope` is the frozen wire key for the cover (#799).
+      ...(cover !== undefined ? { publicEnvelope: cover } : {}),
       ...(autoUnlockMode !== null ? { autoUnlock: autoUnlockMode } : {}),
     },
   })
@@ -1412,22 +1413,22 @@ export function readPodHeader(bytes: Uint8Array): NoydbPodHeader {
 export const readNoydbBundleHeader = readPodHeader
 
 /**
- * Read just the bundle's public envelope (`https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md`)
+ * Read just the bundle's cover (`https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md`)
  * — without verifying the body or even parsing the dump JSON. Pass
  * the raw bundle bytes; receive the owner-curated metadata or
  * `undefined` if the bundle was written without one.
  *
  * Locale-resolves any `name` / `description` map fields when `locale`
- * is supplied. Omitting `locale` returns the raw envelope.
+ * is supplied. Omitting `locale` returns the raw cover.
  *
- * Same security caveat as the on-vault read path — the public
- * envelope is **untrusted hint** in v1; the encrypted body remains
+ * Same security caveat as the on-vault read path — the cover is an
+ * **untrusted hint** in v1; the encrypted body remains
  * the source of truth for vault contents.
  */
-export function readNoydbBundlePublicEnvelope(
+export function readPodCover(
   bytes: Uint8Array,
   opts: { readonly locale?: string } = {},
-): PublicEnvelope | undefined {
+): Cover | undefined {
   const header = parsePrefixAndHeader(bytes).header
   const env = header.publicEnvelope
   if (!env) return undefined
@@ -1438,6 +1439,9 @@ export function readNoydbBundlePublicEnvelope(
     ...(env.description !== undefined ? { description: pickLocale(env.description, opts.locale, env.defaultLocale) } : {}),
   }
 }
+
+/** @deprecated Use `readPodCover` (#799 rename). */
+export const readNoydbBundlePublicEnvelope = readPodCover
 
 /**
  * Read a full `.noydb` bundle: validate magic + header, verify
