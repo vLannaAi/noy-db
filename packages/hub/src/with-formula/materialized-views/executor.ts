@@ -1,7 +1,8 @@
 import type { Collection } from '../../kernel/collection.js'
 import type { TxContext } from '../../with-commit/tx/transaction.js'
 import type { EncryptedEnvelope } from '../../kernel/types.js'
-import { MaterializedViewTooLargeError, LocaleNotSpecifiedError } from '../../kernel/errors.js'
+import { MaterializedViewTooLargeError, MaterializedViewConfigError, LocaleNotSpecifiedError, JoinTooLargeError } from '../../kernel/errors.js'
+import { DEFAULT_JOIN_MAX_ROWS } from '../../kernel/query/join.js'
 import type { MaterializedFromMeta, MVQueryContext, MaterializedViewStrategy } from './types.js'
 import type { RegisteredMV } from './registry.js'
 import { wrapDbWithPredicates } from './registry.js'
@@ -152,6 +153,23 @@ async function materializeUnionResult<TRow extends Record<string, unknown>>(
     }
   }
 
+  return finalizeMappedRows(spec, unified)
+}
+
+/**
+ * Shared post-map tail for the UNION and projection (#810) forms:
+ * optional `groupBy` (+ `aggregate`) over the mapped-row stream.
+ * Extracted verbatim from `materializeUnionResult` so both forms feed
+ * the identical grouping pipeline — i18n group-key resolution, the
+ * object-group-key guard, dedup-without-aggregate, and the shared
+ * `groupAndReduce` delegate.
+ *
+ * @internal
+ */
+function finalizeMappedRows<TRow extends Record<string, unknown>>(
+  spec: MaterializedViewStrategy<TRow>,
+  unified: TRow[],
+): ReadonlyArray<Record<string, unknown>> {
   if (!spec.groupBy) return unified
 
   const groupFields: readonly string[] =
@@ -210,6 +228,134 @@ async function materializeUnionResult<TRow extends Record<string, unknown>>(
 }
 
 /**
+ * Materialize a projection-form MV (#810): hydrate the primary source
+ * rows, resolve forward FK legs through the same `.join()` machinery
+ * the UNION arms use, attach reverse "collect" legs via one
+ * hash-grouped snapshot pass per leg, then run the projection `map`
+ * (null / undefined omits the primary row) and the shared post-map
+ * grouping tail.
+ *
+ * @internal
+ */
+async function materializeProjectionResult<TRow extends Record<string, unknown>>(
+  spec: MaterializedViewStrategy<TRow>,
+  db: MVQueryContext,
+): Promise<ReadonlyArray<Record<string, unknown>>> {
+  const projection = spec.projection!
+  const coll = db.collection<Record<string, unknown>>(projection.source)
+  // Forward legs chain through the query builder exactly like UNION arm
+  // joins — ref() resolution, dangling-mode semantics, presentation
+  // dressing, and ceilings all ride the existing `.join()` path. Cast to
+  // `any` for the same reason `materializeUnionResult` does.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let q: any = coll.query()
+  for (const leg of projection.joins) {
+    if ('collect' in leg) continue
+    q = q.join(leg.field, { as: leg.as, maxRows: leg.maxRows, strategy: leg.strategy })
+  }
+  let rows = q.toArray() as Array<Record<string, unknown>>
+  for (const leg of projection.joins) {
+    if (!('collect' in leg)) continue
+    rows = applyCollectLeg(rows, leg, spec.name, projection.source, db)
+  }
+  const mapped: TRow[] = []
+  for (const r of rows) {
+    const m = projection.map(r)
+    // null / undefined means "omit this primary row" — same contract
+    // as the UNION arm `map`.
+    if (m == null) continue
+    mapped.push(m)
+  }
+  return finalizeMappedRows(spec, mapped)
+}
+
+/**
+ * Attach one reverse "collect" leg (#810): every row of `leg.collect`
+ * whose `leg.on` field references a primary record's id lands in a
+ * possibly-empty ARRAY under `leg.as` on that primary row. One
+ * snapshot pass over the collect collection, hash-grouped by the `on`
+ * FK — O(N+M), mirroring the forward hash-join fallback.
+ *
+ * Semantic check (first materialization, not factory time — parity
+ * with join-time ref errors): `leg.on` must carry a `ref()` declared
+ * on the collect collection targeting the projection `source`.
+ *
+ * @internal
+ */
+function applyCollectLeg(
+  primaryRows: ReadonlyArray<Record<string, unknown>>,
+  leg: { readonly collect: string; readonly on: string; readonly as: string; readonly maxRows?: number },
+  mvName: string,
+  source: string,
+  db: MVQueryContext,
+): Array<Record<string, unknown>> {
+  const childColl = db.collection<Record<string, unknown>>(leg.collect)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const childQ = childColl.query() as any
+  const refDesc = childQ._joinContext?.()?.resolveRef(leg.on) as { target: string } | null | undefined
+  if (refDesc == null) {
+    throw new MaterializedViewConfigError(
+      `"${mvName}": projection collect leg "${leg.as}" requires a ref() on field "${leg.on}" of `
+      + `collection "${leg.collect}" targeting "${source}" — declare `
+      + `refs: { ${leg.on}: ref('${source}') } on collection "${leg.collect}", then retry`,
+    )
+  }
+  if (refDesc.target !== source) {
+    throw new MaterializedViewConfigError(
+      `"${mvName}": projection collect leg "${leg.as}" expects field "${leg.on}" of collection `
+      + `"${leg.collect}" to reference the projection source "${source}", but its ref() targets `
+      + `"${refDesc.target}"`,
+    )
+  }
+  const maxRows = leg.maxRows ?? DEFAULT_JOIN_MAX_ROWS
+  const groups = new Map<string, Array<Record<string, unknown>>>()
+  for (const child of childQ.toArray() as Array<Record<string, unknown>>) {
+    const key = coerceCollectKey(child[leg.on])
+    // Nullish / non-scalar FK values mean "no reference" — same
+    // narrowing as the forward join path's key coercion.
+    if (key === null) continue
+    const bucket = groups.get(key)
+    if (bucket) bucket.push(child)
+    else groups.set(key, [child])
+  }
+  const out: Array<Record<string, unknown>> = []
+  for (const row of primaryRows) {
+    const key = coerceCollectKey(row.id)
+    const children = key === null ? [] : groups.get(key) ?? []
+    if (children.length > maxRows) {
+      throw new JoinTooLargeError({
+        leftRows: primaryRows.length,
+        rightRows: children.length,
+        maxRows,
+        side: 'right',
+        message:
+          `projection MV "${mvName}": collect leg "${leg.as}" gathered ${children.length} ` +
+          `"${leg.collect}" rows for one "${source}" record, exceeding the ${maxRows}-row ` +
+          `per-primary-row ceiling. Raise the ceiling via { maxRows } on the leg if the ` +
+          `fan-out genuinely fits in memory, or restructure the child collection.`,
+      })
+    }
+    out.push({ ...row, [leg.as]: children })
+  }
+  return out
+}
+
+/**
+ * Coerce an unknown FK value into a collect-grouping key. Same
+ * narrowing as the join path's `coerceRefKey` (not exported from
+ * there): strings and numbers are legitimate ref values; anything
+ * else is "no reference" and returns `null`.
+ *
+ * @internal
+ */
+function coerceCollectKey(value: unknown): string | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'bigint') return String(value)
+  return null
+}
+
+/**
  * Run an MV's `query()` and write the result rows to the output
  * collection. Same-DEK encryption: routes through the standard
  * `Collection.put` pipeline, so the output collection's DEK is what
@@ -258,11 +404,15 @@ export const MaterializedViewExecutor = {
       ? wrapDbWithPredicates(baseCtx, spec.predicates)
       : baseCtx
     // UNION-form strategies: read every arm, map to the unified
-    // row shape, concatenate, then optionally groupBy + aggregate. The
-    // single-source `query()` path is untouched.
+    // row shape, concatenate, then optionally groupBy + aggregate.
+    // Projection-form strategies (#810): hydrate the primary source,
+    // attach forward + collect legs, map, then the same optional
+    // grouping tail. The single-source `query()` path is untouched.
     let rows: ReadonlyArray<Record<string, unknown>>
     if (spec.unionSources) {
       rows = await materializeUnionResult(spec, ctxForQuery)
+    } else if (spec.projection) {
+      rows = await materializeProjectionResult(spec, ctxForQuery)
     } else {
       const q = spec.query!(ctxForQuery)
       rows = await materializeQueryResult(q, spec.name, spec.i18nLocale, spec.i18nFields)

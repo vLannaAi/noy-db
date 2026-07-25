@@ -721,6 +721,8 @@
     "PlaintextTranslatorFn",
     "PolicyDenyReason",
     "PresencePeer",
+    "ProjectionJoinLeg",
+    "ProjectionSpec",
     "PruneOptions",
     "PublicEnvelope",
     "PublicEnvelopeField",

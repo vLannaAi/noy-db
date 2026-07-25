@@ -123,6 +123,72 @@ export interface UnionArmJoin {
 }
 
 /**
+ * Projection-form registration (#810): one output row per record of a
+ * primary `source` collection, enriched with forward FK legs and
+ * reverse one-to-many "collect" legs BEFORE `map` shapes the MV row.
+ * The niwat federated read-model shape — a bill row carrying its
+ * client lookup plus the receipt / application / credit-note sets
+ * that point back at it.
+ */
+export interface ProjectionSpec<TRow extends Record<string, unknown>> {
+  /** Primary collection. One output row per primary record (unless {@link map} omits). */
+  readonly source: string
+  /** Join legs attached to each primary row BEFORE {@link map} runs. */
+  readonly joins: ReadonlyArray<ProjectionJoinLeg>
+  /**
+   * Pure projection: primary row + leg attachments → MV row. Called
+   * once per primary record at materialization time, AFTER every leg
+   * has attached under its `as` alias.
+   *
+   * Returning `null` or `undefined` **omits** the primary record from
+   * the materialized output entirely (same contract as the UNION arm
+   * `map`) — filtering lives here; there is no `where` on the
+   * projection form.
+   */
+  readonly map: (row: Record<string, unknown>) => TRow | null | undefined
+}
+
+/**
+ * One join leg of a projection MV. Discriminated by the presence of
+ * `collect` (reverse leg) vs `field` (forward leg); `as` aliases must
+ * be unique across legs and non-empty.
+ *
+ * - **Forward FK leg** — identical shape + machinery as
+ *   {@link UnionArmJoin} / `Query.join()`: resolves a `ref()`-declared
+ *   FK on the projection source into an attached right-side record
+ *   (record | null) under `as`.
+ * - **Reverse "collect" leg** — every row of `collect` whose `on`
+ *   field references the primary record's id, attached as a
+ *   possibly-empty ARRAY under `as`. `on` must carry a `ref()`
+ *   declared on the `collect` collection targeting the projection
+ *   `source` — checked at first materialization (parity with
+ *   join-time ref errors). `maxRows` here is a PER-PRIMARY-ROW
+ *   fan-out ceiling (default: the join default); exceeding it throws
+ *   `JoinTooLargeError`.
+ */
+export type ProjectionJoinLeg =
+  | {
+      /** FK field on the projection source (must have a `ref()` declared). */
+      readonly field: string
+      /** Alias under which the resolved right-side record attaches. */
+      readonly as: string
+      /** Per-side row ceiling override. `undefined` → the join default. */
+      readonly maxRows?: number
+      /** Planner strategy override. `undefined` → auto-select. */
+      readonly strategy?: JoinStrategy
+    }
+  | {
+      /** Sibling collection to collect from. */
+      readonly collect: string
+      /** FK field on `collect` (`ref()` targeting the projection source required). */
+      readonly on: string
+      /** Alias under which the collected array attaches. */
+      readonly as: string
+      /** Per-primary-row fan-out ceiling. `undefined` → the join default. */
+      readonly maxRows?: number
+    }
+
+/**
  * Registration shape passed to `withMaterializedView()`.
  *
  * @typeParam TRow - the materialized row type (the query's result row)
@@ -171,6 +237,25 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
    * {@link sources} is ignored.
    */
   unionSources?: ReadonlyArray<UnionSource<TRow>>
+  /**
+   * Projection-form registration (#810): one output row per primary
+   * record of `projection.source`, enriched with forward FK legs and
+   * reverse one-to-many "collect" legs before `projection.map` shapes
+   * the MV row. Post-map {@link groupBy} + {@link aggregate} are
+   * supported exactly as in UNION mode.
+   *
+   * Mutually exclusive with {@link query} and {@link unionSources} —
+   * a strategy must declare exactly one of the three forms.
+   * Registration throws `MaterializedViewConfigError` otherwise.
+   *
+   * Dependencies are all AUTO: `{source} ∪ forward ref() targets ∪
+   * collect collections` (explicit {@link sources} remains additive).
+   * Forward targets resolve from the source collection's `ref()`
+   * declarations; those are declared by user code AFTER the vault
+   * opens (registration time), so the registry folds them into the
+   * dependency set on the first MV dispatch that finds them declared.
+   */
+  projection?: ProjectionSpec<TRow>
   /**
    * Group-key field(s) for UNION mode. Applied to the
    * concatenated mapped-row stream from {@link unionSources} before
