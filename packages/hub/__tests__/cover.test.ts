@@ -50,10 +50,14 @@ describe('resolveSchema', () => {
 
   it('returns full defaults for shorthand `true`', () => {
     const r = resolveSchema(true)!
-    expect(r.fields).toEqual(COVER_FIELDS)
+    // #800: the default field set is the six display fields — the
+    // opt-in 'custom' slot is in COVER_FIELDS but NOT the defaults.
+    expect(r.fields).toEqual(COVER_FIELDS.filter((f) => f !== 'custom'))
     expect(r.maxIconBytes).toBe(256 * 1024)
     expect(r.iconMimeTypes).toEqual(['image/png', 'image/svg+xml'])
     expect(r.maxStringChars).toBe(200)
+    expect(r.maxCustomBytes).toBe(8 * 1024)
+    expect(r.maxCoverBytes).toBe(300 * 1024)
   })
 
   it('merges partial overrides onto defaults', () => {

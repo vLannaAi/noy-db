@@ -2009,6 +2009,10 @@ export class Noydb {
    * `createdAt` is set on the first write and preserved on every
    * subsequent write. `updatedAt` is refreshed on every write.
    * `version` is monotonic — increments on every successful write.
+   *
+   * `custom` (opt-in via `fields: [..., 'custom']`) patches at the
+   * namespace level — provided namespaces replace their previous
+   * value, absent ones are preserved, `null` deletes (#800).
    */
   async setCover(
     vault: string,
@@ -2022,7 +2026,7 @@ export class Noydb {
           'Pass `cover: true` (or a schema object) to `createNoydb`.',
       )
     }
-    const { loadCover, saveCover, resolveSchema, validateCoverInput } =
+    const { loadCover, saveCover, resolveSchema, validateCoverInput, mergeCustom, validateCoverSize } =
       await import('../with-party/directory/cover/index.js')
     const schema = resolveSchema(coverOption)!
     validateCoverInput(input, schema)
@@ -2038,7 +2042,11 @@ export class Noydb {
       ...(input.description !== undefined ? { description: input.description } : (existing?.description !== undefined ? { description: existing.description } : {})),
       ...(input.icon !== undefined ? { icon: input.icon } : (existing?.icon !== undefined ? { icon: existing.icon } : {})),
       ...(input.defaultLocale !== undefined ? { defaultLocale: input.defaultLocale } : (existing?.defaultLocale !== undefined ? { defaultLocale: existing.defaultLocale } : {})),
+      // #800: namespace-level patch — provided namespaces replace, absent are preserved, `null` deletes.
+      ...mergeCustom(existing?.custom, input.custom),
     }
+    // #800: size caps run against the WOULD-BE-PERSISTED (post-merge) document.
+    validateCoverSize(next, schema)
     await saveCover(this.options.store, vault, next)
     return next
   }
