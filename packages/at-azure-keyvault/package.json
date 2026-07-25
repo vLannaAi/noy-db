@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/at-azure-keyvault",
-  "version": "0.3.0",
+  "version": "0.4.0-pre.0",
   "description": "Azure Key Vault sealing key provider for noy-db managed-passphrase mode.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
