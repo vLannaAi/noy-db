@@ -1173,7 +1173,11 @@ const KERNEL_SURFACE_BUDGET = {
   // beside it. All period-scope logic lives in with-party/team/
   // sync-period-scope.ts + sync.ts; windows resolve through the PUBLIC
   // Vault.listPeriods(), so vault.ts is untouched.
-  'packages/hub/src/kernel/noydb.ts': 2407,
+  'packages/hub/src/kernel/noydb.ts': 2345,
+  // Lowered 2407→2345 (#834 vault() cache-only, 2026-07-26): deleting the two drifted
+  // fallback Vault constructors from vault() removed ~80 lines of duplicated option block.
+  // A test now asserts noydb.ts contains exactly ONE `new Vault(` site — that invariant,
+  // not this ceiling, is what keeps the six-strategy drift from recurring.
   // Lowered 2420→2406 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
 }
 

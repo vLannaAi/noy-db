@@ -698,89 +698,27 @@ export class Noydb {
     return comp
   }
 
-  /** Synchronous vault access (must call openVault first, or auto-opens). */
+  /**
+   * Synchronous access to an ALREADY-OPEN vault.
+   *
+   * Returns the instance `openVault()` produced, or throws — it never
+   * constructs. It used to fall back to building a Vault itself (once for
+   * plaintext, once for encrypted-with-cached-keyring), and those copies
+   * drifted from the real open path: the encrypted one silently omitted six
+   * strategies, so a vault reached this way threw `*NotEnabledError` for
+   * services the caller had configured (#834). Both fallbacks also skipped
+   * the async registry init and schema-fence snapshot that `openVault`
+   * performs, which a synchronous method cannot await. One construction
+   * path is the only way that divergence stays fixed.
+   */
   vault(name: string): Vault {
     const cached = this.vaultCache.get(name)
     if (cached) return cached
-
-    // For backwards compat: if not opened yet, create with cached keyring or plaintext
-    if (this.options.encrypt === false) {
-      const keyring = createPlaintextKeyring(this.options.user, this.options.debugPlaintext === true)
-      const comp = new Vault({
-        adapter: this.options.store,
-        name,
-        noydb: this,
-        keyring,
-        encrypted: false,
-        emitter: this.emitter,
-        historyConfig: this.options.history,
-      ...(this.options.blobStrategy !== undefined ? { blobStrategy: this.options.blobStrategy } : {}),
-      ...(this.options.objectStore !== undefined ? { objectStore: this.options.objectStore } : {}),
-      ...(this.options.archiveStrategy !== undefined ? { archiveStrategy: this.options.archiveStrategy } : {}),
-      ...(this.options.indexStrategy !== undefined ? { indexStrategy: this.options.indexStrategy } : {}),
-      ...(this.options.lazyStrategy !== undefined ? { lazyStrategy: this.options.lazyStrategy } : {}),
-      ...(this.options.aggregateStrategy !== undefined ? { aggregateStrategy: this.options.aggregateStrategy } : {}),
-      ...(this.options.crdtStrategy !== undefined ? { crdtStrategy: this.options.crdtStrategy } : {}),
-      ...(this.options.tiersStrategy !== undefined ? { tiersStrategy: this.options.tiersStrategy } : {}),
-      ...(this.options.searchStrategy !== undefined ? { searchStrategy: this.options.searchStrategy } : {}),
-      ...(this.options.cargoStrategy !== undefined ? { cargoStrategy: this.options.cargoStrategy } : {}),
-      ...(this.options.brokerStrategy !== undefined ? { brokerStrategy: this.options.brokerStrategy } : {}),
-      ...(this.options.consentStrategy !== undefined ? { consentStrategy: this.options.consentStrategy } : {}),
-      ...(this.options.periodsStrategy !== undefined ? { periodsStrategy: this.options.periodsStrategy } : {}),
-      ...(this.options.shadowStrategy !== undefined ? { shadowStrategy: this.options.shadowStrategy } : {}),
-      ...(this.options.historyStrategy !== undefined ? { historyStrategy: this.options.historyStrategy } : {}),
-      ...(this.options.i18nStrategy !== undefined ? { i18nStrategy: this.options.i18nStrategy } : {}),
-      ...(this.options.syncStrategy !== undefined ? { syncStrategy: this.options.syncStrategy } : {}),
-      ...(this.options.guardStrategies !== undefined ? { guardStrategies: this.options.guardStrategies } : {}),
-      ...(this.options.numbering !== undefined ? { numberingConfigs: this.options.numbering } : {}),
-      forgetStrategy: this.forgetStrategy,
-      ...(this.options.attestationStrategy !== undefined ? { attestationStrategy: this.options.attestationStrategy } : {}),
-      ...(this.options.classifiedStrategy !== undefined ? { classifiedStrategy: this.options.classifiedStrategy } : {}),
-      ...(this.options.sealedRecordStrategy !== undefined ? { sealedRecordStrategy: this.options.sealedRecordStrategy } : {}),
-      ...(this.options.portabilityStrategy !== undefined ? { portabilityStrategy: this.options.portabilityStrategy } : {}),
-      ...(this.options.sequenceStrategy !== undefined ? { sequenceStrategy: this.options.sequenceStrategy } : {}),
-      })
-      this.vaultCache.set(name, comp)
-      return comp
-    }
-
-    const keyring = this.keyringCache.get(name)
-    if (!keyring) {
-      throw new ValidationError(
-        `Vault "${name}" not opened. Use await db.openVault("${name}") first.`,
-      )
-    }
-
-    const comp = new Vault({
-      adapter: this.options.store,
-      name,
-      noydb: this,
-      keyring,
-      encrypted: true,
-      historyConfig: this.options.history,
-      ...(this.options.blobStrategy !== undefined ? { blobStrategy: this.options.blobStrategy } : {}),
-      ...(this.options.objectStore !== undefined ? { objectStore: this.options.objectStore } : {}),
-      ...(this.options.archiveStrategy !== undefined ? { archiveStrategy: this.options.archiveStrategy } : {}),
-      ...(this.options.indexStrategy !== undefined ? { indexStrategy: this.options.indexStrategy } : {}),
-      ...(this.options.lazyStrategy !== undefined ? { lazyStrategy: this.options.lazyStrategy } : {}),
-      ...(this.options.aggregateStrategy !== undefined ? { aggregateStrategy: this.options.aggregateStrategy } : {}),
-      ...(this.options.crdtStrategy !== undefined ? { crdtStrategy: this.options.crdtStrategy } : {}),
-      ...(this.options.tiersStrategy !== undefined ? { tiersStrategy: this.options.tiersStrategy } : {}),
-      ...(this.options.searchStrategy !== undefined ? { searchStrategy: this.options.searchStrategy } : {}),
-      ...(this.options.cargoStrategy !== undefined ? { cargoStrategy: this.options.cargoStrategy } : {}),
-      ...(this.options.brokerStrategy !== undefined ? { brokerStrategy: this.options.brokerStrategy } : {}),
-      ...(this.options.consentStrategy !== undefined ? { consentStrategy: this.options.consentStrategy } : {}),
-      ...(this.options.periodsStrategy !== undefined ? { periodsStrategy: this.options.periodsStrategy } : {}),
-      ...(this.options.shadowStrategy !== undefined ? { shadowStrategy: this.options.shadowStrategy } : {}),
-      ...(this.options.historyStrategy !== undefined ? { historyStrategy: this.options.historyStrategy } : {}),
-      ...(this.options.i18nStrategy !== undefined ? { i18nStrategy: this.options.i18nStrategy } : {}),
-      ...(this.options.syncStrategy !== undefined ? { syncStrategy: this.options.syncStrategy } : {}),
-      ...(this.options.guardStrategies !== undefined ? { guardStrategies: this.options.guardStrategies } : {}),
-      ...(this.options.numbering !== undefined ? { numberingConfigs: this.options.numbering } : {}),
-      emitter: this.emitter,
-    })
-    this.vaultCache.set(name, comp)
-    return comp
+    throw new ValidationError(
+      `Vault "${name}" is not open. Call \`await db.openVault("${name}")\` first — ` +
+        `vault() only returns an already-open vault, because opening involves ` +
+        `async work (registry init, schema fence) that a sync accessor cannot do.`,
+    )
   }
 
   /**

@@ -11,7 +11,8 @@
  *   historyStrategy: withHistory(),               // ledger for the erasure proof
  *   forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
  * })
- * const result = await db.vault('main').forget('buyer-123')
+ * const vault = await db.openVault('main')
+ * const result = await vault.forget('buyer-123')
  * ```
  *
  * The erasure flow (`vault.forget`), the subject-index maintenance hooks, and
