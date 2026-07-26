@@ -5,7 +5,7 @@
  *   - record counts per collection + total from the closure
  *   - byte totals + oldest/newest _ts from raw envelopes (no decrypt)
  *   - graph passthrough + empty inaccessible on the owner path
- *   - exported from the @noy-db/hub/bundle subpath
+ *   - exported from the @noy-db/hub/cargo subpath
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
@@ -141,13 +141,9 @@ describe('describeExtraction', () => {
     expect(preview.inaccessible).toEqual([])
   })
 
-  it('is exported from the @noy-db/hub/cargo seam (and, until retirement, /bundle)', async () => {
+  it('is exported from the @noy-db/hub/cargo seam', async () => {
     const mod = await import('../src/with-cargo/index.js')
-    // #812: /bundle re-exports the same symbols until the subpath is
-    // retired; delete the legacy half of this assertion with it.
-    const legacy = await import('../src/legacy/bundle.js')
     expect(typeof mod.describeExtraction).toBe('function')
-    expect(typeof legacy.describeExtraction).toBe('function')
   })
 
   /**

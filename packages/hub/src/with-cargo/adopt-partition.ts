@@ -334,7 +334,7 @@ export async function createOwnerOnAdoptedPartition(
   //    now a managed-mode vault on disk (sealed passphrase + keyring), so we
   //    open it as a normal client and let openVaultAndEnrollRecovery do the
   //    gate-bypass + enroll + re-assert. Dynamic import keeps the Noydb class
-  //    out of the @noy-db/hub/bundle static graph. Runs BEFORE seal destruction
+  //    out of the @noy-db/hub/cargo static graph. Runs BEFORE seal destruction
   //    so a failure here leaves the seal intact and the call retryable.
   if (isManaged(opts)) {
     const { createNoydb } = await import('../kernel/noydb.js')

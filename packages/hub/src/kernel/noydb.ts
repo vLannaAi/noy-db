@@ -2020,7 +2020,7 @@ export class Noydb {
     input: SetCoverInput,
   ): Promise<Cover> {
     // `cover` wins over the deprecated `publicEnvelope` key (#799).
-    const coverOption = this.options.cover ?? this.options.publicEnvelope
+    const coverOption = this.options.cover
     if (!coverOption) {
       throw new ValidationError(
         'setCover: the cover feature is not enabled. ' +
@@ -2068,19 +2068,6 @@ export class Noydb {
   ): Promise<Cover | undefined> {
     const { readCover } = await import('../with-party/directory/cover/index.js')
     return readCover(this.options.store, vault, opts)
-  }
-
-  /** @deprecated Use {@link Noydb.setCover} (#799 rename). */
-  async setPublicEnvelope(vault: string, input: SetCoverInput): Promise<Cover> {
-    return this.setCover(vault, input)
-  }
-
-  /** @deprecated Use {@link Noydb.getCover} (#799 rename). */
-  async getPublicEnvelope(
-    vault: string,
-    opts: { readonly locale?: string } = {},
-  ): Promise<Cover | undefined> {
-    return this.getCover(vault, opts)
   }
 
   // ─── Auth introspection ─────────────────────────────────────────

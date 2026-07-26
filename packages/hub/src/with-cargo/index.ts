@@ -14,8 +14,9 @@
  */
 
 // The runtime floor — unpublished now that `/kernel` the subpath is retired;
-// `src/legacy/kernel.ts` survives only as this re-export source.
-export * from '../legacy/kernel.js'
+// `floor.ts` is that re-export source (was `src/legacy/kernel.ts` until
+// the /bundle retirement deleted the legacy folder, #812).
+export * from './floor.js'
 
 // Custody & ownership.
 export { CustodyApi } from '../with-party/custody/index.js'

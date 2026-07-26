@@ -2738,8 +2738,6 @@ export interface NoydbOptions {
   /** Required to use `profile: 'shamir'` recovery. Pass
    *  `shamirRecoveryProvider()` from `@noy-db/on-shamir`. */
   readonly shamirRecovery?: ShamirRecoveryProvider
-  /** Auth method. Default: 'passphrase'. */
-  readonly auth?: 'passphrase' | 'biometric'
   /** Enable encryption. Default: true. */
   readonly encrypt?: boolean
   /**
@@ -2766,15 +2764,6 @@ export interface NoydbOptions {
    * bundle → `debounce 30s`.
    */
   readonly syncPolicy?: SyncPolicy
-  /**
-   * @deprecated Use `syncPolicy` instead. Kept for backward compatibility.
-   * When both are supplied, `syncPolicy` takes precedence.
-   */
-  readonly autoSync?: boolean
-  /**
-   * @deprecated Use `syncPolicy` instead. Kept for backward compatibility.
-   */
-  readonly syncInterval?: number
   /**
    * Session timeout in ms. Clears keys after inactivity. Default: none.
    * @deprecated Use `sessionPolicy.idleTimeoutMs` instead. This field is
@@ -2857,12 +2846,6 @@ export interface NoydbOptions {
    * without this option carry no cover, full stop.
    */
   readonly cover?: true | CoverSchema
-  /**
-   * @deprecated Use {@link NoydbOptions.cover} (#799 rename). Still
-   * accepted for one pre-release window; when both keys are set,
-   * `cover` wins.
-   */
-  readonly publicEnvelope?: true | CoverSchema
   /** Audit history configuration. */
   readonly history?: HistoryConfig
   /**

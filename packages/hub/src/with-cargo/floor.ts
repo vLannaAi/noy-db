@@ -2,7 +2,7 @@
  * The `@noy-db/hub/kernel` published subpath has been retired (coordinated
  * removal; consumers migrated to `@noy-db/hub/cargo`). This file survives
  * unpublished as `/cargo`'s internal re-export floor — `with-cargo/index.ts`
- * does `export * from '../legacy/kernel.js'` to consolidate this runtime-helper
+ * does `export * from './floor.js'` to consolidate this runtime-helper
  * / error-class / type surface into the cargo seam, and
  * `cargo-surface-golden.test.ts` reads this file directly as part of that
  * union. Do not reintroduce it as a tsup entry or package.json export.

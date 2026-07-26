@@ -1440,9 +1440,6 @@ export function readPodCover(
   }
 }
 
-/** @deprecated Use `readPodCover` (#799 rename). */
-export const readNoydbBundlePublicEnvelope = readPodCover
-
 /**
  * Read a full `.noydb` bundle: validate magic + header, verify
  * integrity hash over the body bytes, decompress, and return the
