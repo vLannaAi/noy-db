@@ -47,7 +47,7 @@ describe('resolveStrategies (#838)', () => {
   })
 
   it('treats an explicitly-undefined option as not provided', () => {
-    const bag = resolveStrategies({ blobStrategy: undefined } as NoydbOptions)
+    const bag = resolveStrategies({ blobStrategy: undefined } as unknown as NoydbOptions)
 
     expect(bag.blob).toBe(NO_BLOBS)
   })
