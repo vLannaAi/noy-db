@@ -354,6 +354,55 @@ describe('period-scoped pull (#807)', () => {
     })
   })
 
+  describe('#822 — a closure made on a private-store authority PUSHES', () => {
+    it('closePeriod marks _periods dirty so push carries the summary to the shared store', async () => {
+      // The authority device here does NOT write straight to the shared
+      // store: it has its own local store and syncs. Before #822 the
+      // closure never left this device, because writeReserved bypasses
+      // Collection.put and so never marked the record dirty.
+      const remote = inlineMemory()
+      const authorityLocal = inlineMemory()
+      const authority = await createNoydb({
+        store: authorityLocal, sync: remote, user: 'server', encrypt: false,
+        syncStrategy: withSync(), periodsStrategy: withPeriods(),
+      })
+      const aVault = await authority.openVault(COMP)
+      await aVault.collection<Invoice>('invoices').put('inv-now', { amount: 42 })
+      await aVault.closePeriod({ name: 'HIST', endDate: '2026-03-31' })
+
+      await authority.push(COMP)
+
+      // The summary reached the shared store...
+      expect(await remote.get(COMP, '_periods', 'HIST')).not.toBeNull()
+
+      // ...so a second device sees the closure and can scope its pull by it.
+      const local = inlineMemory()
+      const db = await thinClient(local, remote)
+      const vault = await db.openVault(COMP)
+      await db.pull(COMP, { periods: { current: true } })
+      expect((await vault.listPeriods()).map((p) => p.name)).toEqual(['HIST'])
+    })
+
+    it('leaves the other reserved collections device-local', async () => {
+      // freezes / archives / target-purges are deliberately NOT pushed —
+      // see the writeReserved comment for why each stays put.
+      const remote = inlineMemory()
+      const authorityLocal = inlineMemory()
+      const authority = await createNoydb({
+        store: authorityLocal, sync: remote, user: 'server', encrypt: false,
+        syncStrategy: withSync(), periodsStrategy: withPeriods(),
+      })
+      const aVault = await authority.openVault(COMP)
+      await aVault.collection<Invoice>('invoices').put('inv-now', { amount: 1 })
+      await aVault.closePeriod({ name: 'HIST', endDate: '2026-03-31' })
+      await aVault.freezePeriod('HIST')
+      await authority.push(COMP)
+
+      expect(await remote.get(COMP, '_periods', 'HIST')).not.toBeNull()
+      expect(await remote.get(COMP, '_period_freezes', 'HIST')).toBeNull()
+    })
+  })
+
   describe('option validation', () => {
     it('rejects an unknown period name', async () => {
       const local = inlineMemory(); const remote = inlineMemory()

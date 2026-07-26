@@ -527,6 +527,8 @@ export class Vault {
       purgeDeleteMarkers: (before) => this._purgeDeleteMarkers(before),
       archiveRecords: (before) => this._archiveClosedPeriod(before),
       purgeTargets: (before) => this._purgePeriodTargets(before),
+      // #822: push symmetry for the period summaries — see writeReserved.
+      onDirty: this.onDirty,
     })
     this.linksEnforcer = new VaultLinks({
       refRegistry: this.refRegistry,

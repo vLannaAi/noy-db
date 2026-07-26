@@ -55,6 +55,12 @@ export interface VaultPeriodsDeps {
   archiveRecords(before: string): Promise<number>
   /** #615: sweep delete markers off the vault's push-only sync targets. Bound to `vault._purgePeriodTargets`. */
   purgeTargets(before: string): Promise<readonly TargetPurgeCount[]>
+  /**
+   * #822: mark a reserved-collection write dirty so the sync engine pushes
+   * it. Bound to the vault's `onDirty` when sync is configured, `undefined`
+   * otherwise. Only `_periods` uses it — see `writeReserved`.
+   */
+  onDirty?: ((collection: string, id: string, action: 'put', version: number) => Promise<void>) | undefined
 }
 
 export class VaultPeriods {
@@ -438,6 +444,17 @@ export class VaultPeriods {
       }
     }
     await this.deps.adapter.put(this.deps.vault, collection, key, envelope)
+    // #822: the period summaries are vault-wide state — period-scoped pull
+    // (#807) treats `_periods` as always-sync precisely because it is the
+    // navigation index a thin client needs first. Pull symmetry without push
+    // symmetry meant a closure never left the device that made it. The other
+    // reserved collections deliberately stay local: freezes are marker-
+    // convergence state (#589/#590 territory), archives record a per-
+    // deployment hot→cold relocation, and target-purges describe the very
+    // targets they would be pushed to.
+    if (collection === PERIODS_COLLECTION && this.deps.onDirty) {
+      await this.deps.onDirty(collection, key, 'put', envelope._v)
+    }
     return envelope
   }
 

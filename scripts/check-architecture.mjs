@@ -1037,7 +1037,12 @@ const KERNEL_SURFACE_BUDGET = {
   // CompactionContext gains ONE thin `dropLocalCache` closure line so the
   // budget pass can drop device-local external cache copies; all the
   // pin/budget machinery itself lives in with-shape/blobs/ behind withBlobs().
-  'packages/hub/src/kernel/vault.ts': 3960,
+  'packages/hub/src/kernel/vault.ts': 3962,
+  // Bumped 3960→3962 (#822 period-summary push symmetry, 2026-07-26): two lines wiring
+  // the vault's existing `onDirty` into VaultPeriods so `closePeriod` marks the `_periods`
+  // summary dirty and push carries it. The decision (which reserved collections push and
+  // why the other three deliberately do not) lives in `writeReserved`; the spine holds only
+  // the binding.
   // Lowered 3965→3959 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
