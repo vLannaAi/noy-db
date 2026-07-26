@@ -1,5 +1,21 @@
 # Changelog — hub
 
+## 0.4.0-pre.1
+
+### Minor Changes
+
+- `/cargo` gains the partition-transfer helpers klum-db's interchange binds — `extractPartition` (withCargo()-gated), `walkClosure`, `describeExtraction`, `decryptExtractedPartition` + types `ExtractionPreview`, `DecryptedRecord` — promoted from the transitional `/bundle` subpath (#812 step 1). `/bundle` remains published until the orchestrator migrates; its retirement (and `src/legacy/`'s deletion) follows.
+- Period-scoped sync pull — thin-client bootstrap (#807).
+
+  - `PullOptions.periods?: string[] | { current: true }` — `{ current: true }` bounds a fresh device's first sync to records at-or-after the latest closed period's boundary; an array of closed-period names backfills exactly those periods on demand (idempotent — a deep link into an old period just calls `pull({ periods: ['FY2026-Q1'] })` again). Membership is by envelope write-time `_ts` against the closed periods' exclusive upper bounds — the same store-tier law freeze/archive use (the engine never sees business dates).
+  - **Period summaries always sync**: a period-scoped pull first fetches `_periods` + the freeze/archive/target-purge companions in full — the navigation index — exempt from every filter, then resolves its windows from that freshly synced index (new `SyncEngine.setPeriodPullSource` injection seam, wired from `Vault.listPeriods()`; `listPeriods()` now always re-reads from the store so pulled closures are immediately visible and seal writes).
+  - **Never period-filtered**: delete markers and tombstones (the #589/#590 convergence law — a device that never pulled period P backfills P later without resurrecting its deleted records, and tolerates a remote whose P-markers were already frozen away) and reserved lookup collections. `collections` ∧ `periods` = intersection; `modifiedSince` ANDs on top. **Push is never period-filtered** — `PushOptions` has no `periods` member; client writes always flow up in full.
+  - **KPI hook**: period-scoped `PullResult` gains `phases` — `{ summaries: { records, bytes }, records: { records, bytes } }` (bytes ≈ ciphertext payload via the new sanctioned `envelopeBodySize` enclave helper) — for demonstrating a bounded first-sync download budget.
+  - Validation: malformed shapes, unknown or opened-kind period names, and a period-scoped pull whose `_periods` records are unreadable (periods service not enabled — pass `periodsStrategy: withPeriods()`) throw `ValidationError` loudly.
+
+- New `@noy-db/hub/share-link` subpath (#806): the canonical portal share-link grammar plus `buildShareLink`/`parseShareLink`. One link shape — `/r/{vaultHandle}/{collection}/{recordId}` with optional `?period=`/`?v=` and an optional single-use grant token carried ONLY in the URL fragment (`#g=`, the on-magic-link transport rule) — addresses vault/period/collection/record identically across the LIFF permalink, installed-PWA, and vendor-console surfaces. Strict-canonical `encodeURIComponent` segment encoding, LIFF permalink-prefix tolerance on parse, and fail-closed typed `ShareLinkParseError`s (never a default-vault fallback). Pure string/URL code with no dependency on the hub floor; export surface frozen by a golden test.
+- Additive `kind: 'password'` variant on the `/to` seam's `StoreCredentials` union (#795): `{ kind: 'password'; username; password; domain?; expiresAt? }` for connection-auth stores — to-postgres/to-mysql user+password (omit `domain`), to-smb NTLM via `domain`; `expiresAt` covers password-shaped short-lived cloud IAM auth tokens. No breaking change — the export surface is unchanged and existing `'aws'`/`'token'` consumers are unaffected. Key-shaped auth (`kind: 'key'`) is deferred (to-ssh is keys-only by design and may refuse brokered keys entirely).
+
 ## 0.4.0-pre.0
 
 ### Minor Changes

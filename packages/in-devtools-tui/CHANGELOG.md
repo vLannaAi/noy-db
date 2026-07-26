@@ -1,5 +1,17 @@
 # @noy-db/in-devtools-tui
 
+## 0.4.0-pre.1
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.4.0-pre.1
+  - @noy-db/in-devtools@1.0.0-pre.1
+  - @noy-db/to-meter@1.0.0-pre.1
+
 ## 1.0.0-pre.0
 
 ### Patch Changes
@@ -96,7 +108,7 @@
   - @noy-db/in-devtools@1.0.0
   - @noy-db/to-meter@1.0.0
 
-## 1.0.0-pre.13
+## 0.4.0-pre.13
 
 ### Patch Changes
 
@@ -137,7 +149,7 @@
   - @noy-db/in-devtools@1.0.0-pre.13
   - @noy-db/to-meter@1.0.0-pre.13
 
-## 1.0.0-pre.12
+## 0.4.0-pre.12
 
 ### Patch Changes
 
@@ -149,7 +161,7 @@
   - @noy-db/in-devtools@1.0.0-pre.12
   - @noy-db/to-meter@1.0.0-pre.12
 
-## 1.0.0-pre.11
+## 0.4.0-pre.11
 
 ### Patch Changes
 
@@ -160,7 +172,7 @@
   - @noy-db/in-devtools@1.0.0-pre.11
   - @noy-db/to-meter@1.0.0-pre.11
 
-## 1.0.0-pre.10
+## 0.4.0-pre.10
 
 ### Patch Changes
 
