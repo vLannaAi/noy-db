@@ -1,3 +1,5 @@
+import { NO_BLOBS } from '../port/with/blob-strategy.js'
+import type { StrategyBag } from '../port/with/strategies.js'
 import type {
   NoydbStore,
   EncryptedEnvelope,
@@ -19,7 +21,6 @@ import type { IndexDef } from '../with-lookup/indexing/eager-indexes.js'
 import type { JoinableSource } from './query/index.js'
 import type { OnDirtyCallback } from './collection.js'
 import type { UnlockedKeyring, BundleRecipient } from '../with-party/team/keyring.js'
-import { NO_PORTABILITY, type PortabilityStrategy } from '../with-audit/portability/strategy.js'
 import type { MaterializedViewRegistry } from '../with-formula/materialized-views/registry.js'
 import type { MaterializedViewStrategyHandle, MVQueryContext } from '../with-formula/materialized-views/types.js'
 import type { OverlayedViewRegistry } from '../with-formula/overlay-views/registry.js'
@@ -44,23 +45,15 @@ import {
 import { ElevatedHandle, ELEVATION_AUDIT_COLLECTION } from '../with-commit/tx/elevated-handle.js'
 import type { NoydbEventEmitter } from './events.js'
 import type { StandardSchemaV1 } from './schema.js'
-import type { BlobStrategy } from '../port/with/blob-strategy.js'
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
-import type { ArchiveStrategy } from '../with-fork/archive/index.js'
 import type { ArchivePolicy, ArchiveContext, ArchiveResult, ArchiveRunOptions } from '../with-fork/archive/index.js'
 import { runArchive, runRestore, runListArchived } from '../with-fork/archive/index.js'
 import { type SequenceStore, type SequenceHandle, type FormattedSequenceHandle, type SequenceOptions, resolveSequenceKey, compileSequenceFormat, SEQUENCE_COLLECTION } from '../with-commit/sequence/index.js'
-import { NO_SEQUENCE, type SequenceStrategy } from '../with-commit/sequence/strategy.js'
 import { DeferredNumberingStore, type Assignment } from '../with-commit/numbering/index.js'
 import type { DeferredNumberingConfig } from '../with-commit/numbering/descriptor.js'
-import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
-import type { LazyStrategy } from '../port/with/lazy-strategy.js'
-import type { AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
-import type { CrdtStrategy } from './types.js' // direct, not via crdt/strategy.js — avoids a dts cycle (#667)
-import type { TiersStrategy, TierMoveResult } from '../with-audit/tiers/strategy.js'
-import type { SearchStrategy } from '../with-lookup/search/strategy.js'
-import { NO_CARGO, type CargoStrategy } from '../with-cargo/strategy.js'
-import { NO_BROKER, buildCredentialBrokerHandle, type BrokerStrategy, type CredentialBrokerHandle } from '../port/with/broker-strategy.js'
+import type { TierMoveResult } from '../with-audit/tiers/strategy.js'
+import { type CargoStrategy } from '../with-cargo/strategy.js'
+import { buildCredentialBrokerHandle, type CredentialBrokerHandle } from '../port/with/broker-strategy.js'
 //  — import from leaf modules (NOT from ./history/ledger/index.js
 // or store.js) so the LedgerStore class never reaches the floor
 // bundle. The leaf files hold pure constants + a tiny hash helper;
@@ -68,8 +61,7 @@ import { NO_BROKER, buildCredentialBrokerHandle, type BrokerStrategy, type Crede
 import type { LedgerStore } from '../with-commit/history/ledger/store.js'
 import { sha256Hex } from '../with-commit/history/ledger/entry.js'
 import type { VaultInstant } from '../with-commit/history/time-machine.js'
-import { NO_HISTORY, type HistoryStrategy } from '../with-commit/history/strategy.js'
-import { NO_FORGET, type ForgetStrategy, type ForgetResult } from '../with-audit/forget/strategy.js'
+import { type ForgetResult } from '../with-audit/forget/strategy.js'
 import {
   addSubjectRef, readDottedPath, coerceSubjectId,
   removeSubjectRef,
@@ -79,10 +71,7 @@ import {
 } from '../with-audit/forget/subject-index.js'
 import { ForgetStrategyNotConfiguredError } from './errors.js'
 import type { VaultFrame } from '../with-fork/shadow/vault-frame.js'
-import { NO_SHADOW, type ShadowStrategy } from '../with-fork/shadow/strategy.js'
 import type { ConsentContext, ConsentAuditEntry, ConsentAuditFilter, ConsentOp } from '../with-audit/consent/consent.js'
-import { NO_CONSENT, type ConsentStrategy } from '../with-audit/consent/strategy.js'
-import { NO_PERIODS, type PeriodsStrategy } from '../with-audit/periods/strategy.js'
 import { VaultPeriods } from '../with-audit/periods/vault-facade.js'
 import { VaultLinks } from '../with-shape/links/vault-facade.js'
 import {
@@ -114,7 +103,7 @@ import { makeLazyLinkSetHandle, type LazyLinkSetHandle } from '../with-shape/lin
 import type { EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
 import { getAtPath } from './paths.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
-import { NO_I18N, type I18nStrategy, type I18nTextDescriptor } from '../port/with/i18n-strategy.js'
+import { type I18nTextDescriptor } from '../port/with/i18n-strategy.js'
 import { isViaInstalled } from './via/index.js'
 import { mergeViaFields, type ViaFieldSpec } from './via/compose.js'
 import { exportRedact } from './via/pipeline.js'
@@ -122,7 +111,6 @@ import { ViaGraph } from './via/graph.js'
 import { registerCollectionGraphSources, applyTaintOverlay, reapplyDependentOverlays } from './via/graph-wiring.js'
 import { reconcileViaAttach, type ViaReconcileVaultCtx } from './via/reconcile.js'
 import { runGraphDispatchWave, putDerivedOutput, ledgerAuditHook, forgetDerivedFanout, touchFor, type GraphBatch, type ForgetFanoutStats, type RollupDeleteIntent } from './via/dispatch.js'
-import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 // Type-only imports for the guard + derivation services. The
 // runtime classes are loaded on demand via `await import(...)` inside
 // `_initGuards` / `_initDerivations` (and the read-only-facade
@@ -172,13 +160,12 @@ import { SchemaFenceController } from '../with-shape/schema-update/fence-control
 import { loadFence, type FenceDoc } from '../with-shape/schema-update/fence.js'
 import type { SchemaUpdateStrategy, UpdateDecision, TransformFn } from '../with-shape/schema-update/types.js'
 import type { AttestationFieldSchema, RevocationList } from '@noy-db/attestation'
-import { VaultAttestation, NO_ATTESTATION, type AttestationStrategy } from '../with-audit/attestation/vault-facade.js'
-import { NO_SEALED_RECORD, type SealedRecordStrategy } from '../with-audit/sealed-record/strategy.js'
+import { VaultAttestation } from '../with-audit/attestation/vault-facade.js'
 import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from '../with-shape/introspection/types.js'
 import type { VaultIntrospectState } from '../with-shape/introspection/walk.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta, VaultMeta } from '../with-shape/introspection/meta.js'
-import { NO_CLASSIFIED, type ClassifiedEntry, type ClassifiedStrategy } from '../port/with/classified-strategy.js'
+import { type ClassifiedEntry } from '../port/with/classified-strategy.js'
 import { USER_ENVELOPE_COLLECTION } from './constants.js'
 
 /** A vault (tenant namespace) containing collections. */
@@ -199,38 +186,24 @@ export class Vault {
   private readonly syncAdapter: NoydbStore | undefined
   private readonly getPurgeableTargets: () => readonly { store: NoydbStore; role: 'backup' | 'archive'; label?: string }[]
   private readonly historyConfig: HistoryConfig
-  /** tree-shake seam for the optional blob service; `undefined` means "blobs are off for this
-   *  vault" — every `collection.blob(id)` call throws with a pointer at `@noy-db/hub/blobs`. */
-  private readonly blobStrategy: BlobStrategy | undefined
+  /**
+   * Every opt-in service, resolved once by `createNoydb` (#838). Shared by
+   * reference with the owning `Noydb` and with every `Collection` this vault
+   * opens, so all three always agree about which services are enabled.
+   */
+  private readonly strategies: StrategyBag
   private readonly objectStore: ObjectProjection | undefined
-
-  /** Cold-storage archival strategy (the archive target store). */
-  private readonly archiveStrategy: ArchiveStrategy | undefined
 
   /** Per-collection record archival policies. Indexed by collection name. */
   private readonly archiveRegistry = new Map<string, ArchivePolicy>()
-  private readonly indexStrategy: IndexStrategy | undefined
-  private readonly lazyStrategy: LazyStrategy | undefined
-  private readonly aggregateStrategy: AggregateStrategy | undefined
-  private readonly crdtStrategy: CrdtStrategy | undefined
-  private readonly tiersStrategy: TiersStrategy | undefined
-  private readonly searchStrategy: SearchStrategy | undefined
-  /** Cargo (partition extraction) strategy — `NO_CARGO` (throwing) unless `withCargo()` was passed.
-   *  Public so the `extractPartition` free function (which takes a `Vault`) routes through it. */
-  readonly cargoStrategy: CargoStrategy
-  private readonly brokerStrategy: BrokerStrategy
-  private readonly sealedRecordStrategy: SealedRecordStrategy
-  private readonly portabilityStrategy: PortabilityStrategy
-  private readonly sequenceStrategy: SequenceStrategy
-  private readonly consentStrategy: ConsentStrategy
   private readonly periods: VaultPeriods
   private readonly linksEnforcer: VaultLinks
-  private readonly shadowStrategy: ShadowStrategy
-  private readonly historyStrategy: HistoryStrategy
-  private readonly forgetStrategy: ForgetStrategy
-  private readonly i18nStrategy: I18nStrategy
-  private readonly syncStrategy: SyncStrategy
-  private readonly classifiedStrategy: ClassifiedStrategy
+
+  /** Cargo (partition extraction) strategy — `NO_CARGO` (throwing) unless `withCargo()` was passed.
+   *  Public so the `extractPartition` free function (which takes a `Vault`) routes through it. */
+  get cargoStrategy(): CargoStrategy {
+    return this.strategies.cargo
+  }
   /** Per-vault guard registry; `null` until `_initGuards()` runs (or for vaults that never register
    *  one) — the runtime class is dynamic-imported on demand to keep it out of the floor bundle. */
   private guardRegistry: GuardRegistry | null = null
@@ -453,31 +426,15 @@ export class Vault {
      * `undefined` => every `collection.blob(id)` throws with a pointer
      * at `@noy-db/hub/blobs`.
      */
-    blobStrategy?: BlobStrategy | undefined
+    /**
+     * Every opt-in service, already resolved by `createNoydb` (#838). Not
+     * optional: a Vault cannot be built without it, which is what makes the
+     * partially-populated construction path of #834 unrepresentable.
+     */
+    strategies: StrategyBag
     objectStore?: ObjectProjection | undefined
-    archiveStrategy?: ArchiveStrategy | undefined
-    indexStrategy?: IndexStrategy | undefined
-    lazyStrategy?: LazyStrategy | undefined
-    aggregateStrategy?: AggregateStrategy | undefined
-    crdtStrategy?: CrdtStrategy | undefined
-    tiersStrategy?: TiersStrategy | undefined
-    searchStrategy?: SearchStrategy | undefined
-    cargoStrategy?: CargoStrategy | undefined
-    brokerStrategy?: BrokerStrategy | undefined
-    consentStrategy?: ConsentStrategy | undefined
-    periodsStrategy?: PeriodsStrategy | undefined
-    shadowStrategy?: ShadowStrategy | undefined
-    historyStrategy?: HistoryStrategy | undefined
-    i18nStrategy?: I18nStrategy | undefined
-    syncStrategy?: SyncStrategy | undefined
     guardStrategies?: ReadonlyArray<GuardStrategyHandleAny> | undefined
     numberingConfigs?: ReadonlyArray<DeferredNumberingConfig> | undefined
-    forgetStrategy?: ForgetStrategy | undefined
-    attestationStrategy?: AttestationStrategy | undefined
-    classifiedStrategy?: ClassifiedStrategy | undefined
-    sealedRecordStrategy?: SealedRecordStrategy | undefined
-    portabilityStrategy?: PortabilityStrategy | undefined
-    sequenceStrategy?: SequenceStrategy | undefined
     /** Vault-level descriptive metadata — set once at construction (first-wins). */
     meta?: VaultMeta | undefined
   }) {
@@ -500,23 +457,12 @@ export class Vault {
     this.onRegisterConflictResolver = opts.onRegisterConflictResolver
     this.syncAdapter = opts.syncAdapter
     this.getPurgeableTargets = opts.getPurgeableTargets ?? (() => [])
-    this.blobStrategy = opts.blobStrategy
+    // #838 — 20 field assignments, each re-applying a `?? NO_*` default that
+    // `createNoydb` had already resolved, are one shared reference.
+    this.strategies = opts.strategies
     this.objectStore = opts.objectStore
-    this.archiveStrategy = opts.archiveStrategy
-    this.indexStrategy = opts.indexStrategy
-    this.lazyStrategy = opts.lazyStrategy
-    this.aggregateStrategy = opts.aggregateStrategy
-    this.crdtStrategy = opts.crdtStrategy
-    this.tiersStrategy = opts.tiersStrategy
-    this.searchStrategy = opts.searchStrategy
-    this.cargoStrategy = opts.cargoStrategy ?? NO_CARGO
-    this.brokerStrategy = opts.brokerStrategy ?? NO_BROKER
-    this.sealedRecordStrategy = opts.sealedRecordStrategy ?? NO_SEALED_RECORD
-    this.portabilityStrategy = opts.portabilityStrategy ?? NO_PORTABILITY
-    this.sequenceStrategy = opts.sequenceStrategy ?? NO_SEQUENCE
-    this.consentStrategy = opts.consentStrategy ?? NO_CONSENT
     this.periods = new VaultPeriods({
-      strategy: opts.periodsStrategy ?? NO_PERIODS,
+      strategy: this.strategies.periods,
       adapter: this.adapter,
       vault: this.name,
       encrypted: this.encrypted,
@@ -541,12 +487,6 @@ export class Vault {
       getActiveTxContext: () => this.noydb._activeTxContextOrNull,
       emitter: this.emitter,
     })
-    this.shadowStrategy = opts.shadowStrategy ?? NO_SHADOW
-    this.historyStrategy = opts.historyStrategy ?? NO_HISTORY
-    this.forgetStrategy = opts.forgetStrategy ?? NO_FORGET
-    this.i18nStrategy = opts.i18nStrategy ?? NO_I18N
-    this.syncStrategy = opts.syncStrategy ?? NO_SYNC
-    this.classifiedStrategy = opts.classifiedStrategy ?? NO_CLASSIFIED
     this.graph = new ViaGraph()
     // Guard + derivation registries are initialised lazily via
     // `_initGuards()` / `_initDerivations()` from `Noydb.openVault()`.
@@ -581,7 +521,7 @@ export class Vault {
       role: () => this.keyring.role,
       getRawRecord: async (collection, recId) =>
         (await this.collection(collection).get(recId, { locale: 'raw' })) as Record<string, unknown> | null,
-    }, opts.attestationStrategy ?? NO_ATTESTATION)
+    }, this.strategies.attestation)
 
     // User envelope API — frozen writerKeyringId, dynamic DEK resolver
     // (so a post-load() keyring refresh transparently rotates the DEK
@@ -594,12 +534,12 @@ export class Vault {
       writerKeyringId: this.keyring.userId,
       getDek: () => this.getDEK(USER_ENVELOPE_COLLECTION),
       checkGate: (gate, presented) => this.noydb.checkGate(this.name, gate, presented),
-      exportAccessible: (opts) => this.portabilityStrategy.exportAccessibleData(this, opts),
-      unilateralWithdraw: (opts) => this.portabilityStrategy.withdrawAccessibleData(this, opts),
-      requestWithdraw: (opts) => this.portabilityStrategy.requestWithdrawal(this, opts),
-      listWithdrawals: (opts) => this.portabilityStrategy.listWithdrawalRequests(this, opts),
-      approveWithdraw: (requestId, opts) => this.portabilityStrategy.approveWithdrawal(this, requestId, opts),
-      rejectWithdraw: (requestId, opts) => this.portabilityStrategy.rejectWithdrawal(this, requestId, opts),
+      exportAccessible: (opts) => this.strategies.portability.exportAccessibleData(this, opts),
+      unilateralWithdraw: (opts) => this.strategies.portability.withdrawAccessibleData(this, opts),
+      requestWithdraw: (opts) => this.strategies.portability.requestWithdrawal(this, opts),
+      listWithdrawals: (opts) => this.strategies.portability.listWithdrawalRequests(this, opts),
+      approveWithdraw: (requestId, opts) => this.strategies.portability.approveWithdrawal(this, requestId, opts),
+      rejectWithdraw: (requestId, opts) => this.strategies.portability.rejectWithdrawal(this, requestId, opts),
     })
 
     // FR-6 custody API — mirrors the UserApi injection pattern: vault-bound
@@ -666,7 +606,7 @@ export class Vault {
    *  dispatch reads/writes — from this vault's OWN privates, rather than passing `this` itself. */
   private _viaReconcileCtx(): ViaReconcileVaultCtx {
     return {
-      i18nStrategy: this.i18nStrategy, locale: this.locale, translateText: this.translateText,
+      i18nStrategy: this.strategies.i18n, locale: this.locale, translateText: this.translateText,
       i18nFieldRegistry: this.i18nFieldRegistry, dictKeyFieldRegistry: this.dictKeyFieldRegistry,
       staticDescriptorByField: this.staticDescriptorByField, reservedLookupCollections: this.reservedLookupCollections,
       staticByName: this.staticByName, staticDictNames: this.staticDictNames, getOpenCollection: (n) => this._getCollection(n), getCollection: (n) => this.collection<Record<string, unknown>>(n),
@@ -844,7 +784,7 @@ export class Vault {
     }
     if (options?.satelliteOf !== undefined) { // #591 thin call-site (archetype-③) — wiring lives in with-shape/satellites/declare.ts
       this.satelliteRegistry = declareSatellite({
-        adapter: this.adapter, vaultName: this.name, forgetSubjects: this.forgetStrategy.subjects, getDEK: this.getDEK,
+        adapter: this.adapter, vaultName: this.name, forgetSubjects: this.strategies.forget.subjects, getDEK: this.getDEK,
         getBaseSchema: (base) => this.collectionCache.get(base)?.getSchema(),
         getBaseCrdt: (base) => this.collectionCache.get(base)?.getConfig()?.crdt,
         collectionExists: (name) => this.collectionCache.has(name),
@@ -994,22 +934,9 @@ export class Vault {
         tabCoordinated: () => this.noydb._tabCoordinationActive, // #693: re-create gate fallback
         historyConfig: effectiveHistoryConfig,
         historyConfigExplicit: options?.historyConfig !== undefined,
-        // thread the vault-wide blob strategy into every
-        // collection. `undefined` is intentionally preserved so the
-        // Collection constructor uses its NO_BLOBS default.
-        ...(this.blobStrategy !== undefined ? { blobStrategy: this.blobStrategy } : {}),
         ...(this.objectStore !== undefined ? { objectStore: this.objectStore } : {}),
         ...(options?.blobFields !== undefined ? { blobFields: options.blobFields as BlobFieldsConfig<unknown> } : {}),
-        ...(this.indexStrategy !== undefined ? { indexStrategy: this.indexStrategy } : {}),
-        ...(this.lazyStrategy !== undefined ? { lazyStrategy: this.lazyStrategy } : {}),
-        ...(this.aggregateStrategy !== undefined ? { aggregateStrategy: this.aggregateStrategy } : {}),
-        ...(this.crdtStrategy !== undefined ? { crdtStrategy: this.crdtStrategy } : {}),
-        ...(this.tiersStrategy !== undefined ? { tiersStrategy: this.tiersStrategy } : {}),
-        ...(this.searchStrategy !== undefined ? { searchStrategy: this.searchStrategy } : {}),
-        historyStrategy: this.historyStrategy,
-        i18nStrategy: this.i18nStrategy,
-        syncStrategy: this.syncStrategy,
-        classifiedStrategy: this.classifiedStrategy,
+        strategies: this.strategies,
         // Per-collection ledger opt-out: when this collection sets
         // `historyConfig.ledger: false`, withhold the ledger reference so all
         // four `if (this.ledger)` append sites in Collection no-op. The chain
@@ -1077,7 +1004,7 @@ export class Vault {
       // use per-record CEKs: crypto-shred can only guarantee erasure of a body
       // keyed off a per-record CEK. Force it on (and warn if the caller
       // explicitly set it false — that would silently defeat erasure).
-      const subjectKey = this.forgetStrategy.subjects[collectionName]
+      const subjectKey = this.strategies.forget.subjects[collectionName]
       if (subjectKey !== undefined) {
         if (options?.perRecordKeys === false) {
           console.warn(
@@ -1525,7 +1452,7 @@ export class Vault {
       const values = getAtPath(obj, field)
       for (const value of values) {
         if (value === undefined || value === null) continue
-        this.i18nStrategy.validateI18nTextValue(value, field, descriptor)
+        this.strategies.i18n.validateI18nTextValue(value, field, descriptor)
       }
     }
   }
@@ -1574,7 +1501,7 @@ export class Vault {
     this.reservedLookupCollections.set(dictCollectionName(name), name) // #650 Task 4 (#647)
     let handle = this.dictionaryCache.get(name)
     if (!handle) {
-      handle = this.i18nStrategy.buildDictionaryHandle<Keys>({
+      handle = this.strategies.i18n.buildDictionaryHandle<Keys>({
         adapter: this.adapter,
         compartmentName: this.name,
         dictionaryName: name,
@@ -1904,7 +1831,7 @@ export class Vault {
     if (!this.sequenceStore) {
       // Opt-in gate (S4): NO_SEQUENCE.createStore throws SequenceNotEnabledError
       // unless `sequenceStrategy: withSequence()` was passed to createNoydb.
-      this.sequenceStore = this.sequenceStrategy.createStore({
+      this.sequenceStore = this.strategies.sequence.createStore({
         adapter: this.adapter,
         vault: this.name,
         encrypted: this.encrypted,
@@ -2012,7 +1939,7 @@ export class Vault {
   }
 
   private _archiveContext(): ArchiveContext {
-    const strategy = this.archiveStrategy
+    const strategy = this.strategies.archive
     if (!strategy) {
       throw new Error(
         'vault.archive/restore/listArchived require `archiveStrategy: withArchive({ store })` in createNoydb',
@@ -2218,7 +2145,7 @@ export class Vault {
    */
   private getLedgerOrNull(): LedgerStore | null {
     if (!this.ledgerStore) {
-      this.ledgerStore = this.historyStrategy.buildLedger({
+      this.ledgerStore = this.strategies.history.buildLedger({
         adapter: this.adapter,
         vault: this.name,
         encrypted: this.encrypted,
@@ -2247,7 +2174,7 @@ export class Vault {
    * number of distinct subjects re-indexed.
    */
   async rebuildSubjectIndex(): Promise<number> {
-    if (Object.keys(this.forgetStrategy.subjects).length === 0) {
+    if (Object.keys(this.strategies.forget.subjects).length === 0) {
       throw new ForgetStrategyNotConfiguredError()
     }
     return rebuildSubjectIndexImpl(
@@ -2255,7 +2182,7 @@ export class Vault {
       this.name,
       this.getDEK,
       this.encrypted,
-      this.forgetStrategy.subjects,
+      this.strategies.forget.subjects,
       async (collectionName, id, env) => {
         const coll = this.collection<Record<string, unknown>>(collectionName)
         return coll._decodeEnvelope(env, id)
@@ -2281,7 +2208,7 @@ export class Vault {
    * @throws ForgetStrategyNotConfiguredError when no `withForgetCascade` was set.
    */
   async forget(subjectId: string): Promise<ForgetResult> {
-    if (Object.keys(this.forgetStrategy.subjects).length === 0) {
+    if (Object.keys(this.strategies.forget.subjects).length === 0) {
       throw new ForgetStrategyNotConfiguredError()
     }
 
@@ -2300,18 +2227,22 @@ export class Vault {
     let blobsShredded = 0; let blobsRetainedShared = 0; let indexPostingsPurged = 0
     let sealedFieldsShredded = 0; let sealedCekEnvelopesPurged = 0; let ledgerDeltasPurged = 0
     const sealedCekResidue: string[] = []; const sealedResidue: string[] = []; const indexResidue: string[] = []; const ledgerDeltaResidue: string[] = []
-    const blobsEnabled = this.blobStrategy !== undefined
+    // #838 — "is the blob service opted in?" is now a stub-identity check.
+    // It used to be `blobStrategy !== undefined`; with every key resolved,
+    // absence is NO_BLOBS rather than `undefined`, and reading it as
+    // always-enabled would drive forget() into NO_BLOBS.openSlot()'s throw.
+    const blobsEnabled = this.strategies.blob !== NO_BLOBS
     const actor = this.keyring.userId
     const fanoutStats: ForgetFanoutStats = { recordsErased: 0, aggregatesRecomputed: 0, residueFrozen: [], lookupReferencesCascaded: 0, lookupReferencesNullified: 0, lookupReferencesResidue: [], derivedResidueUndecodable: [], derivedResidueDeclined: [] }
     // #633 — scoped-purge per-collection skip accumulators (empty under the unconditional default); lazy (S4 gate: kernel spine → with-* service via dynamic import()).
     const { partitionSealedCekKeys, shouldSkipBlobScan, bumpResidueCount, residueNoticesFromMap } = await import('../with-audit/forget/purge-scope.js')
-    const scopedPurge = this.forgetStrategy.scopedPurge === true
+    const scopedPurge = this.strategies.forget.scopedPurge === true
     const sealedCekScopedSkipped = new Map<string, number>(); const blobScopedSkipped = new Map<string, number>()
 
     for (const ref of allRefs) {
       const coll = this.collection<Record<string, unknown>>(ref.collection)
       const satelliteOf = (ref as { satelliteOf?: string }).satelliteOf
-      const perRecordKeys = this.forgetStrategy.subjects[satelliteOf ?? ref.collection] !== undefined // #591 classification inheritance
+      const perRecordKeys = this.strategies.forget.subjects[satelliteOf ?? ref.collection] !== undefined // #591 classification inheritance
       const lookupCompareKeys = await this.linksEnforcer.checkLookupRefsRestrict(this.graph, ref.collection, ref.collection, ref.id) // #650 (#648) — restrict BEFORE any shred; ALSO live-resolves every ref edge's compare-key (#650 review, Important fix — no post-shred decode needed by forgetDerivedFanout)
 
       // Detect an un-migrated record BEFORE shredding: a perRecordKeys
@@ -2388,7 +2319,7 @@ export class Vault {
       }
 
       // Tombstone every history version (idempotent — already-shredded skip).
-      historyVersionsShredded += await this.historyStrategy.tombstoneHistory(
+      historyVersionsShredded += await this.strategies.history.tombstoneHistory(
         this.adapter, this.name, ref.collection, ref.id, actor, this.encrypted,
       )
 
@@ -2536,7 +2467,7 @@ export class Vault {
     hostSealer: RecipientSealer,
     opts: { expiresAt: string },
   ): Promise<{ pid: string; envelopeKey: string }> {
-    return this.sealedRecordStrategy.sealRecordToHost(this._sealingContext(), collection, id, hostSealer, opts)
+    return this.strategies.sealedRecord.sealRecordToHost(this._sealingContext(), collection, id, hostSealer, opts)
   }
 
   /**
@@ -2547,7 +2478,7 @@ export class Vault {
    * longer open the record. See `revokeSealedRecord` in `record-keys/sealing.ts`.
    */
   async revokeSealedRecord(collection: string, id: string, pid: string, opts?: { hard?: boolean }): Promise<void> {
-    return this.sealedRecordStrategy.revokeSealedRecord(this._sealingContext(), collection, id, pid, opts)
+    return this.strategies.sealedRecord.revokeSealedRecord(this._sealingContext(), collection, id, pid, opts)
   }
 
   /**
@@ -2568,7 +2499,7 @@ export class Vault {
    * @throws {@link RecordCekNotFoundError} if the record is missing or has no `_cek`.
    */
   async rotateRecordCek(collection: string, id: string): Promise<void> {
-    return this.sealedRecordStrategy.rotateRecordCek(this._sealingContext(), collection, id)
+    return this.strategies.sealedRecord.rotateRecordCek(this._sealingContext(), collection, id)
   }
 
   /**
@@ -2940,7 +2871,7 @@ export class Vault {
    */
   at(timestamp: string | Date): VaultInstant {
     const iso = timestamp instanceof Date ? timestamp.toISOString() : timestamp
-    return this.historyStrategy.buildVaultInstant(
+    return this.strategies.history.buildVaultInstant(
       {
         adapter: this.adapter,
         name: this.name,
@@ -2973,12 +2904,12 @@ export class Vault {
    *.
    */
   frame(): VaultFrame {
-    return this.shadowStrategy.buildFrame(this)
+    return this.strategies.shadow.buildFrame(this)
   }
 
   /** Credential-broker handle (#479); `NO_BROKER` throws unless `brokerStrategy: withBroker(config)` was passed to createNoydb(). */
   broker(): CredentialBrokerHandle {
-    return buildCredentialBrokerHandle(this.brokerStrategy, this.adapter, this.name, () => this.keyring)
+    return buildCredentialBrokerHandle(this.strategies.broker, this.adapter, this.name, () => this.keyring)
   }
 
   /**
@@ -3022,7 +2953,7 @@ export class Vault {
    *.
    */
   async consentAudit(filter: ConsentAuditFilter = {}): Promise<ConsentAuditEntry[]> {
-    return this.consentStrategy.read(this.adapter, this.name, this.encrypted, this.getDEK, filter)
+    return this.strategies.consent.read(this.adapter, this.name, this.encrypted, this.getDEK, filter)
   }
 
   /**
@@ -3034,7 +2965,7 @@ export class Vault {
   async _logConsent(op: ConsentOp, collection: string, recordId: string): Promise<void> {
     const ctx = this.consentContext
     if (!ctx) return
-    await this.consentStrategy.write(
+    await this.strategies.consent.write(
       this.adapter,
       this.name,
       this.encrypted,
@@ -3617,7 +3548,7 @@ export class Vault {
       vault: this.name,
       userId: () => this.keyring.userId,
       getLedgerOrNull: () => this.getLedgerOrNull(),
-      envelopePayloadHash: (envelope: EncryptedEnvelope) => this.historyStrategy.envelopePayloadHash(envelope),
+      envelopePayloadHash: (envelope: EncryptedEnvelope) => this.strategies.history.envelopePayloadHash(envelope),
       reloadKeyringAndRebuildDEK: async () => {
         if (this.reloadKeyring) {
           this.keyring = await this.reloadKeyring()

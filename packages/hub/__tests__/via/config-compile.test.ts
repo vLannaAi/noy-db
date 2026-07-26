@@ -3,6 +3,7 @@ import { installViaBinder } from '../../src/kernel/via/index.js'
 import { compileViaBindings, resolveCollectionConfig, type CollectionOpts } from '../../src/kernel/collection-config.js'
 import { ViaPipeline } from '../../src/kernel/via/pipeline.js'
 import { NoydbEventEmitter } from '../../src/kernel/events.js'
+import { STRATEGY_DEFAULTS } from '../../src/port/with/strategies.js'
 import { classified } from '../../src/via/classified/presets.js'
 import type { ClassifiedGuardCtx } from '../../src/port/with/classified-strategy.js'
 import { via } from '../../src/kernel/via/compose.js'
@@ -24,6 +25,7 @@ function syntheticOpts(): CollectionOpts<unknown> {
     encrypted: false,
     emitter: new NoydbEventEmitter(),
     getDEK: async () => { throw new Error('unused in this test') },
+    strategies: STRATEGY_DEFAULTS,
   } as unknown as CollectionOpts<unknown>
 }
 
@@ -66,6 +68,7 @@ describe('via config-compile seam — classified (#629 Task 6)', () => {
     const opts = {
       ...syntheticOpts(),
       classifiedFields: { note: classified.email() },
+      strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
     const bindings = compileViaBindings(opts, emptyGuardCtx())
@@ -88,6 +91,7 @@ describe('via config-compile seam — classified (#629 Task 6)', () => {
       encrypted: true,
       perRecordKeys: true,
       classifiedFields: { secret: classified.password() },
+      strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
     const cfg = resolveCollectionConfig(opts)
@@ -102,6 +106,7 @@ describe('via config-compile seam — blob (#629 Task 7)', () => {
     const opts = {
       ...syntheticOpts(),
       blobFields: { receipt: { retainDays: 30 } },
+      strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
     const bindings = compileViaBindings(opts, emptyGuardCtx())
@@ -123,6 +128,7 @@ describe('via config-compile seam — blob (#629 Task 7)', () => {
       ...syntheticOpts(),
       classifiedFields: { note: classified.email() },
       blobFields: { attachment: {} },
+      strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
     const bindings = compileViaBindings(opts, emptyGuardCtx())
@@ -135,6 +141,7 @@ describe('via config-compile seam — blob (#629 Task 7)', () => {
     const opts = {
       ...syntheticOpts(),
       blobFields: { receipt: { retainDays: 30 } },
+      strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
     const cfg = resolveCollectionConfig(opts)
@@ -151,6 +158,7 @@ describe('via config-compile seam — computed (#638 Task 7)', () => {
       ...syntheticOpts(),
       moneyFields: { amount: money({ currency: 'EUR' }) },
       viaFields: { doubled: via(computed((r) => (r.amount as number) * 2, { deps: ['amount'], mode: 'virtual' })) },
+      strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
     const bindings = compileViaBindings(opts, emptyGuardCtx())
@@ -165,6 +173,7 @@ describe('via config-compile seam — computed (#638 Task 7)', () => {
     const opts = {
       ...syntheticOpts(),
       viaFields: { total: via(computed((r) => (r.qty as number) * 2, { mode: 'materialized' })) },
+      strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
     const bindings = compileViaBindings(opts, emptyGuardCtx())
@@ -180,6 +189,7 @@ describe('via config-compile seam — computed (#638 Task 7)', () => {
     const opts = {
       ...syntheticOpts(),
       viaFields: { doubled: via(computed((r) => (r.n as number) * 2, { mode: 'virtual' })) },
+      strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
     const cfg = resolveCollectionConfig(opts)
@@ -195,6 +205,7 @@ describe('via config-compile seam — computed (#638 Task 7)', () => {
     const opts = {
       ...syntheticOpts(),
       viaFields: { total: via(computed((r) => (r.qty as number) * 2, { mode: 'materialized' })) },
+      strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
     const cfg = resolveCollectionConfig(opts)
@@ -209,6 +220,7 @@ describe('via config-compile seam — cross-binding same-field collision guard (
       ...syntheticOpts(),
       moneyFields: { amount: money({ currency: 'EUR' }) },
       blobFields: { amount: {} },
+      strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
     expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(ValidationError)
@@ -222,6 +234,7 @@ describe('via config-compile seam — cross-binding same-field collision guard (
       ...syntheticOpts(),
       classifiedFields: { ssn: classified.email() },
       lookupFields: { ssn: enumOf(['a', 'b'] as const) },
+      strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
     expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(ValidationError)
@@ -238,6 +251,7 @@ describe('via config-compile seam — cross-binding same-field collision guard (
       ...syntheticOpts(),
       classifiedFields: { card: classified.creditCard({ pan: 'pan' }) },
       blobFields: { card: {} },
+      strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
     expect(() => compileViaBindings(opts, emptyGuardCtx())).not.toThrow()
@@ -252,6 +266,7 @@ describe('via config-compile seam — cross-binding same-field collision guard (
           money({ currency: 'EUR', scale: 2 }),
         ),
       },
+      strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
     const bindings = compileViaBindings(opts, emptyGuardCtx())
@@ -267,6 +282,7 @@ describe('via config-compile seam — cross-binding same-field collision guard (
           dictKey('status', ['draft', 'paid'] as const),
         ),
       },
+      strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
     expect(() => compileViaBindings(opts, emptyGuardCtx())).not.toThrow()
@@ -281,6 +297,7 @@ describe('via config-compile seam — cross-binding same-field collision guard (
           dict('status'),
         ),
       },
+      strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
     expect(() => compileViaBindings(opts, emptyGuardCtx())).not.toThrow()
@@ -291,6 +308,7 @@ describe('via config-compile seam — cross-binding same-field collision guard (
       ...syntheticOpts(),
       computed: { status: (r: Record<string, unknown>) => (r.n as number) > 0 ? 'paid' : 'draft' },
       dictKeyFields: { status: dictKey('status', ['draft', 'paid'] as const) },
+      strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
     expect(() => compileViaBindings(opts, emptyGuardCtx())).not.toThrow()
@@ -301,6 +319,7 @@ describe('via config-compile seam — cross-binding same-field collision guard (
       ...syntheticOpts(),
       computed: { status: (r: Record<string, unknown>) => (r.n as number) > 0 ? 'paid' : 'draft' },
       lookupFields: { status: dict('status') },
+      strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
     expect(() => compileViaBindings(opts, emptyGuardCtx())).not.toThrow()
@@ -317,6 +336,7 @@ describe('via config-compile seam — cross-binding same-field collision guard (
       computed: { status: (r: Record<string, unknown>) => (r.n as number) > 0 ? 'paid' : 'draft' },
       i18nFields: { status: i18nText({ languages: ['en', 'th'], required: 'all' }) },
       dictKeyFields: { status: dictKey('status', ['draft', 'paid'] as const) },
+      strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
     expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(ValidationError)

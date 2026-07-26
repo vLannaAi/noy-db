@@ -1,3 +1,4 @@
+import { resolveStrategies, type StrategyBag } from '../port/with/strategies.js'
 import type {
   NoydbOptions,
   NoydbEventMap,
@@ -72,7 +73,6 @@ import {
   listUsers as keyringListUsers,
   updateKeyringIdentity,
 } from '../with-party/team/keyring.js'
-import { NO_TEAM, type TeamStrategy } from '../port/with/team-strategy.js'
 import type { UnlockedKeyring } from '../with-party/team/keyring.js'
 import {
   type EnrollAuthenticatorOptions,
@@ -82,20 +82,17 @@ import { QuickUnlockStore, type QuickUnlockState } from '../with-party/session/u
 import type { KeyringAuthenticator } from './types.js'
 import type { SyncEngine } from '../with-party/team/sync.js'
 import type { SyncTransaction } from '../with-party/team/sync-transaction.js'
-import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
 import { type SnapshotMeta } from '../with-fork/snapshots/strategy.js'
-import { NoydbSnapshots, NO_SNAPSHOTS } from '../with-fork/snapshots/noydb-facade.js'
+import { NoydbSnapshots } from '../with-fork/snapshots/noydb-facade.js'
 import type { AmendmentTxOptions } from '../with-commit/tx/transaction.js'
 import { TxContext } from '../with-commit/tx/transaction.js'
 import type { DryRunResult } from '../with-commit/tx/dry-run.js'
-import { NO_TX, type TxStrategy } from '../with-commit/tx/strategy.js'
-import { NO_FORGET, type ForgetStrategy } from '../with-audit/forget/strategy.js'
-import { NO_CUSTODY, type CustodyStrategy, type CustodyHost } from '../with-party/custody/strategy.js'
+import { type ForgetStrategy } from '../with-audit/forget/strategy.js'
+import { type CustodyStrategy, type CustodyHost } from '../with-party/custody/strategy.js'
 import { readDottedPath, coerceSubjectId } from '../with-audit/forget/subject-index.js'
 import { INDEXED_STORE_POLICY } from './sync-policy.js'
 import { memoryStore } from './memory-store.js'
 import type { PolicyEnforcer } from '../with-party/session/session-policy.js'
-import { NO_SESSION, type SessionStrategy } from '../with-party/session/strategy.js'
 import { TeamFacade } from '../with-party/team/noydb-facade.js'
 
 /**
@@ -196,21 +193,22 @@ export class Noydb {
   private writeRelay: CrossTabWriteRelay | undefined
   /** Per-vault policy enforcers. */
   private readonly policyEnforcers = new Map<string, PolicyEnforcer>()
-  private readonly txStrategy: TxStrategy
-  private readonly forgetStrategy: ForgetStrategy
+  /**
+   * Every opt-in service, resolved once (#838). Shared by reference with each
+   * `Vault` this instance opens and, through them, every `Collection` — so
+   * there is exactly one resolution and no construction path can disagree
+   * about which services are enabled (the #834 bug class).
+   */
+  private readonly strategies: StrategyBag
   /**
    * Opt-in sovereign-custody (FR-6) strategy — `NO_CUSTODY` (throwing) unless
-   * `withCustody()` was passed. Public so `Vault` routes `vault.custody.liberate`
-   * through it; grant/revoke route through it from this class. @internal
+   * `withCustody()` was passed. Kept as a public accessor because `Vault`
+   * routes `vault.custody.liberate` through `this.noydb.custodyStrategy`.
+   * @internal
    */
-  readonly custodyStrategy: CustodyStrategy
-  /**
-   * Opt-in multi-user team strategy (#267 keyring-grant → team split) —
-   * `NO_TEAM` (throwing) unless `withTeam()` was passed; the keyring
-   * engines are linked only by the active strategy, not by this file. */
-  private readonly teamStrategy: TeamStrategy
-  private readonly sessionStrategy: SessionStrategy
-  private readonly syncStrategy: SyncStrategy
+  get custodyStrategy(): CustodyStrategy {
+    return this.strategies.custody
+  }
   private readonly snapshots: NoydbSnapshots
   private readonly policyManager: NoydbPolicyApi
   /** Pre-resolved policy-gate engine function (mirrors `coordinationProvider`/`userApiFactory` above). */
@@ -260,14 +258,12 @@ export class Noydb {
     this.userApiFactory = options.userApiFactory
     if (!options.policyFactory || !options.policyCheckGateFn) throw new ValidationError('Noydb must be constructed via createNoydb(), which resolves the default policy service.')
     this.policyCheckGate = options.policyCheckGateFn
-    this.txStrategy = options.txStrategy ?? NO_TX
-    this.forgetStrategy = options.forgetStrategy ?? NO_FORGET
-    this.custodyStrategy = options.custodyStrategy ?? NO_CUSTODY
-    this.teamStrategy = options.teamStrategy ?? NO_TEAM
-    this.sessionStrategy = options.sessionStrategy ?? NO_SESSION
-    this.syncStrategy = options.syncStrategy ?? NO_SYNC
+    // One resolution for the whole instance (#838) — every `?? NO_*` default
+    // that used to be scattered across this constructor, the Vault option
+    // block, and collection-config now lives in STRATEGY_DEFAULTS.
+    this.strategies = resolveStrategies(options)
     this.snapshots = new NoydbSnapshots({
-      strategy: options.snapshotStrategy ?? NO_SNAPSHOTS,
+      strategy: this.strategies.snapshot,
       user: options.user,
       isClosed: () => this.closed,
       getVault: (name) => this.vaultCache.get(name),
@@ -309,7 +305,7 @@ export class Noydb {
     // The strategy's stub throws with a pointer at the subpath if the
     // consumer set a policy without opting in.
     if (options.sessionPolicy) {
-      this.sessionStrategy.validateSessionPolicy(options.sessionPolicy)
+      this.strategies.session.validateSessionPolicy(options.sessionPolicy)
     }
     this.#registerGuardGate()
     this.#registerPeriodGate()
@@ -319,7 +315,7 @@ export class Noydb {
 
   /** @internal — resolved forget strategy (NO_FORGET when not configured). */
   get _forgetStrategy(): ForgetStrategy {
-    return this.forgetStrategy
+    return this.strategies.forget
   }
 
   // GDPR subject-index maintenance. When `withForgetCascade` declares
@@ -333,7 +329,7 @@ export class Noydb {
   //     does NOT) — drop the ref so a deleted record never lingers in the
   //     index (RISK #2). Without it, forget() would try to shred a ghost.
   #registerForgetHooks(): void {
-    const subjects = this.forgetStrategy.subjects
+    const subjects = this.strategies.forget.subjects
     if (Object.keys(subjects).length === 0) return
 
     const subjectFieldFor = (collection: string): string | undefined => subjects[collection]
@@ -562,7 +558,7 @@ export class Noydb {
       // Primary sync engine is the first sync-peer (or first target if none)
       const primary = targets.find(t => t.role === 'sync-peer') ?? targets[0]!
       const effectivePolicy = this.options.syncPolicy ?? primary.policy ?? INDEXED_STORE_POLICY
-      syncEngine = this.syncStrategy.buildSyncEngine({
+      syncEngine = this.strategies.sync.buildSyncEngine({
         local: this.options.store,
         remote: primary.store,
         vault: name,
@@ -578,7 +574,7 @@ export class Noydb {
       for (const target of targets) {
         if (target === primary) continue
         const targetPolicy = target.policy ?? this.options.syncPolicy ?? INDEXED_STORE_POLICY
-        const engine = this.syncStrategy.buildSyncEngine({
+        const engine = this.strategies.sync.buildSyncEngine({
           local: this.options.store,
           remote: target.store,
           vault: name,
@@ -622,31 +618,14 @@ export class Noydb {
           .filter((t) => t.role === 'backup' || t.role === 'archive')
           .map((t) => ({ store: t.store, role: t.role as 'backup' | 'archive', ...(t.label !== undefined ? { label: t.label } : {}) })),
       historyConfig: this.options.history,
-      ...(this.options.blobStrategy !== undefined ? { blobStrategy: this.options.blobStrategy } : {}),
+      // #838 — the 21 conditional strategy spreads that used to live here are
+      // one shared reference. This block is where #834's drift happened: a
+      // copy of it silently omitted six strategies, and there was nothing to
+      // catch that. There is no longer a per-service line to omit.
+      strategies: this.strategies,
       ...(this.options.objectStore !== undefined ? { objectStore: this.options.objectStore } : {}),
-      ...(this.options.archiveStrategy !== undefined ? { archiveStrategy: this.options.archiveStrategy } : {}),
-      ...(this.options.indexStrategy !== undefined ? { indexStrategy: this.options.indexStrategy } : {}),
-      ...(this.options.lazyStrategy !== undefined ? { lazyStrategy: this.options.lazyStrategy } : {}),
-      ...(this.options.aggregateStrategy !== undefined ? { aggregateStrategy: this.options.aggregateStrategy } : {}),
-      ...(this.options.crdtStrategy !== undefined ? { crdtStrategy: this.options.crdtStrategy } : {}),
-      ...(this.options.tiersStrategy !== undefined ? { tiersStrategy: this.options.tiersStrategy } : {}),
-      ...(this.options.searchStrategy !== undefined ? { searchStrategy: this.options.searchStrategy } : {}),
-      ...(this.options.cargoStrategy !== undefined ? { cargoStrategy: this.options.cargoStrategy } : {}),
-      ...(this.options.brokerStrategy !== undefined ? { brokerStrategy: this.options.brokerStrategy } : {}),
-      ...(this.options.consentStrategy !== undefined ? { consentStrategy: this.options.consentStrategy } : {}),
-      ...(this.options.periodsStrategy !== undefined ? { periodsStrategy: this.options.periodsStrategy } : {}),
-      ...(this.options.shadowStrategy !== undefined ? { shadowStrategy: this.options.shadowStrategy } : {}),
-      ...(this.options.historyStrategy !== undefined ? { historyStrategy: this.options.historyStrategy } : {}),
-      ...(this.options.i18nStrategy !== undefined ? { i18nStrategy: this.options.i18nStrategy } : {}),
-      ...(this.options.syncStrategy !== undefined ? { syncStrategy: this.options.syncStrategy } : {}),
       ...(this.options.guardStrategies !== undefined ? { guardStrategies: this.options.guardStrategies } : {}),
       ...(this.options.numbering !== undefined ? { numberingConfigs: this.options.numbering } : {}),
-      forgetStrategy: this.forgetStrategy,
-      ...(this.options.attestationStrategy !== undefined ? { attestationStrategy: this.options.attestationStrategy } : {}),
-      ...(this.options.classifiedStrategy !== undefined ? { classifiedStrategy: this.options.classifiedStrategy } : {}),
-      ...(this.options.sealedRecordStrategy !== undefined ? { sealedRecordStrategy: this.options.sealedRecordStrategy } : {}),
-      ...(this.options.portabilityStrategy !== undefined ? { portabilityStrategy: this.options.portabilityStrategy } : {}),
-      ...(this.options.sequenceStrategy !== undefined ? { sequenceStrategy: this.options.sequenceStrategy } : {}),
       locale: opts?.locale,
       ...(opts?.meta !== undefined ? { meta: opts.meta } : {}),
       // Thread the translator hook so Collection.put() can invoke it
@@ -737,7 +716,7 @@ export class Noydb {
     options: GrantOptions,
     factors?: FactorProofBundle,
   ): Promise<void> {
-    return this.teamStrategy.grant(this.team, vault, options, factors)
+    return this.strategies.team.grant(this.team, vault, options, factors)
   }
 
   /**
@@ -755,7 +734,7 @@ export class Noydb {
     options: RevokeOptions,
     factors?: FactorProofBundle,
   ): Promise<void> {
-    return this.teamStrategy.revoke(this.team, vault, options, factors)
+    return this.strategies.team.revoke(this.team, vault, options, factors)
   }
 
   /**
@@ -775,7 +754,7 @@ export class Noydb {
   ): Promise<void> {
     // Opt-in gate (S4): NO_CUSTODY throws CustodyNotEnabledError unless
     // `custodyStrategy: withCustody()` was passed; withCustody() runs the impl.
-    return this.custodyStrategy.grantCustodian(this as CustodyHost, vault, options, factors)
+    return this.strategies.custody.grantCustodian(this as CustodyHost, vault, options, factors)
   }
 
   /** @internal — grant-custodian engine, reached only via withCustody(); the
@@ -806,7 +785,7 @@ export class Noydb {
     factors?: FactorProofBundle,
   ): Promise<void> {
     // Opt-in gate (S4): NO_CUSTODY throws unless withCustody() was opted in.
-    return this.custodyStrategy.revokeCustodian(this as CustodyHost, vault, options, factors)
+    return this.strategies.custody.revokeCustodian(this as CustodyHost, vault, options, factors)
   }
 
   /** @internal — revoke-custodian engine, reached only via withCustody().
@@ -901,7 +880,7 @@ export class Noydb {
    * Opt-in (#267): throws {@link TeamNotEnabledError} without `withTeam()`.
    */
   async rotate(vault: string, collections: string[]): Promise<void> {
-    return this.teamStrategy.rotate(this.team, vault, collections)
+    return this.strategies.team.rotate(this.team, vault, collections)
   }
 
   /** List all users with access to a vault. */
@@ -1322,7 +1301,7 @@ export class Noydb {
     maybeFn?: (tx: TxContext) => Promise<T> | T,
   ): SyncTransaction | Promise<T> | Promise<DryRunResult> {
     if (typeof arg === 'function') {
-      return this.txStrategy.runTransaction(this, arg)
+      return this.strategies.tx.runTransaction(this, arg)
     }
     if (typeof arg === 'object' && arg !== null && (arg as { dryRun?: boolean }).dryRun === true) {
       // Dry-run form: stage + diff, no commit.
@@ -1331,7 +1310,7 @@ export class Noydb {
           'db.transaction({ dryRun: true }, fn) requires the callback as the second argument.',
         )
       }
-      return this.txStrategy.runDryRun(this, maybeFn)
+      return this.strategies.tx.runDryRun(this, maybeFn)
     }
     if (typeof arg === 'object' && arg !== null && (arg as { amendment?: boolean }).amendment === true) {
       // Two-arg amendment form. We forward `arg` as the options bag —
@@ -1341,7 +1320,7 @@ export class Noydb {
           'db.transaction({ amendment: true }, fn) requires the callback as the second argument.',
         )
       }
-      return this.txStrategy.runTransaction(this, maybeFn, arg as AmendmentTxOptions)
+      return this.strategies.tx.runTransaction(this, maybeFn, arg as AmendmentTxOptions)
     }
     const vault = arg as string
     const comp = this.vaultCache.get(vault)
@@ -1351,7 +1330,7 @@ export class Noydb {
       )
     }
     const engine = this.getSyncEngine(vault)
-    return this.syncStrategy.buildSyncTransaction(comp, engine)
+    return this.strategies.sync.buildSyncTransaction(comp, engine)
   }
 
   /**
@@ -1639,7 +1618,7 @@ export class Noydb {
     // Intentionally NOT cleared:
     //   - this.quickUnlock — preserves PIN resume.
     //   - this.policyCache — vault policy is on-disk data, survives lock.
-    //   - this.sessionStrategy — no per-vault revoke; close() handles bulk.
+    //   - this.strategies.session — no per-vault revoke; close() handles bulk.
   }
 
   close(): void {
@@ -1655,7 +1634,7 @@ export class Noydb {
     }
     this.policyEnforcers.clear()
     // Revoke all in-memory session keys
-    this.sessionStrategy.revokeAllSessions()
+    this.strategies.session.revokeAllSessions()
     // Stop all sync engines
     for (const engine of this.syncEngines.values()) {
       engine.stopAutoSync()

@@ -770,7 +770,7 @@ const KERNEL_SURFACE_BUDGET = {
   // `indexing/collection-facade.js` named-import block from one name per line to three
   // per line (byte-preserving — same 9 imported names, only the line breaks moved), a
   // −6 net. Net zero versus pre-#788: the file lands back at the exact same line count.
-  'packages/hub/src/kernel/collection.ts': 4549,
+  'packages/hub/src/kernel/collection.ts': 4533,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
@@ -1037,7 +1037,7 @@ const KERNEL_SURFACE_BUDGET = {
   // CompactionContext gains ONE thin `dropLocalCache` closure line so the
   // budget pass can drop device-local external cache copies; all the
   // pin/budget machinery itself lives in with-shape/blobs/ behind withBlobs().
-  'packages/hub/src/kernel/vault.ts': 3962,
+  'packages/hub/src/kernel/vault.ts': 3908,
   // Bumped 3960→3962 (#822 period-summary push symmetry, 2026-07-26): two lines wiring
   // the vault's existing `onDirty` into VaultPeriods so `closePeriod` marks the `_periods`
   // summary dirty and push carries it. The decision (which reserved collections push and
@@ -1173,7 +1173,7 @@ const KERNEL_SURFACE_BUDGET = {
   // beside it. All period-scope logic lives in with-party/team/
   // sync-period-scope.ts + sync.ts; windows resolve through the PUBLIC
   // Vault.listPeriods(), so vault.ts is untouched.
-  'packages/hub/src/kernel/noydb.ts': 2345,
+  'packages/hub/src/kernel/noydb.ts': 2328,
   // Lowered 2407→2345 (#834 vault() cache-only, 2026-07-26): deleting the two drifted
   // fallback Vault constructors from vault() removed ~80 lines of duplicated option block.
   // A test now asserts noydb.ts contains exactly ONE `new Vault(` site — that invariant,
