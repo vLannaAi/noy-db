@@ -5,7 +5,7 @@ import {
   resolveStrategies,
   type StrategyBag,
   type StrategyKey,
-} from '../src/kernel/strategies.js'
+} from '../src/port/with/strategies.js'
 import type { NoydbOptions } from '../src/kernel/types.js'
 import { NO_BLOBS } from '../src/port/with/blob-strategy.js'
 import { NO_ARCHIVE } from '../src/port/with/archive-strategy.js'

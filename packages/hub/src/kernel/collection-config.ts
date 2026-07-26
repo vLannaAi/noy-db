@@ -17,6 +17,7 @@
  * signature can't be exposed via a method without breaking `Collection<T>`
  * assignability to `Collection<unknown>`).
  */
+import type { StrategyBag } from '../port/with/strategies.js'
 import type { NoydbStore, ConflictPolicy, CollectionConflictResolver, HistoryConfig, TierMode, CrossTierAccessEvent, VdigFieldPolicy } from './types.js'
 import type { EnclaveKey } from './enclave/index.js'
 import type { UnlockedKeyring } from '../with-party/team/keyring.js'
@@ -33,18 +34,8 @@ import type { CrdtMode } from '../with-commit/crdt/crdt.js'
 // — #667: collection-config.ts sits in the shared dts chunk with types.ts, so
 // routing this through strategy.ts's re-export closed a cycle in the dts rollup
 // graph. NO_CRDT (a runtime value, only defined in strategy.ts) still comes from there.
-import { NO_CRDT } from '../with-commit/crdt/strategy.js'
-import type { CrdtStrategy } from './types.js'
-import { NO_HISTORY, type HistoryStrategy } from '../with-commit/history/strategy.js'
-import { NO_I18N, type I18nStrategy } from '../port/with/i18n-strategy.js'
-import { NO_SYNC, type SyncStrategy } from '../with-party/team/sync-strategy.js'
-import { NO_BLOBS, type BlobStrategy } from '../port/with/blob-strategy.js'
-import { NO_AGGREGATE, type AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
-import { NO_TIERS, type TiersStrategy } from '../with-audit/tiers/strategy.js'
-import { NO_SEARCH, type SearchStrategy } from '../with-lookup/search/strategy.js'
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { BlobFieldsConfig } from '../with-shape/blobs/blob-compaction.js'
-import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
 import type { IndexDef } from '../with-lookup/indexing/eager-indexes.js'
 import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../port/with/i18n-strategy.js'
 // #650 Task 2 — `LookupDescriptor` type-only, mirroring the i18n descriptor
@@ -61,8 +52,8 @@ import type { RollupDeleteIntent } from './via/dispatch.js'
 import '../port/with/computed-strategy.js'
 import type { ComputedDescriptor } from '../port/with/computed-strategy.js'
 import {
-  resolveClassifiedFields, guardClassifiedCompat, NO_CLASSIFIED,
-  type ClassifiedEntry, type ResolvedClassified, type ClassifiedGuardCtx, type ClassifiedStrategy, type ClassifiedViaConfig,
+  resolveClassifiedFields, guardClassifiedCompat,
+  type ClassifiedEntry, type ResolvedClassified, type ClassifiedGuardCtx, type ClassifiedViaConfig,
 } from '../port/with/classified-strategy.js'
 import { ClassifiedConfigError, ValidationError, UnsupportedTierCompositionError } from './errors.js'
 import type { FieldRef, Grain } from './via/graph.js'
@@ -78,7 +69,6 @@ import type { TxContext } from '../with-commit/tx/transaction.js'
 import type { MaterializedViewRegistry } from '../with-formula/materialized-views/registry.js'
 import type { MVQueryContext } from '../with-formula/materialized-views/types.js'
 import type { Collection, OnDirtyCallback, CacheOptions } from './collection.js'
-import type { LazyStrategy } from '../port/with/lazy-strategy.js'
 import { ViaPipeline } from './via/pipeline.js'
 import { viaBinder, type ViaBinding, type ViaDescriptor } from './via/index.js'
 import { mergeViaFields, guardCrossBindingFieldCollisions, type ViaFieldSpec } from './via/compose.js'
@@ -93,6 +83,14 @@ export interface CollectionOpts<T> {
   name: string
   keyring: UnlockedKeyring
   encrypted: boolean
+  /**
+   * Every opt-in service, resolved once by `createNoydb` (#838). Replaces the
+   * eleven optional `*Strategy` fields this interface used to declare, each of
+   * which re-applied a `?? NO_*` default that had already been applied
+   * upstream. Each entry is a tree-shake seam: an un-opted-in service holds
+   * its `NO_*` stub, so the real machinery never reaches the bundle.
+   */
+  strategies: StrategyBag
   /**
    * Opt-in: keep the working set encrypted in RAM, decrypting on read (future phase).
    * Default false — the working set is plaintext.
@@ -132,13 +130,6 @@ export interface CollectionOpts<T> {
    * back to an unconditional store read on re-create.
    */
   tabCoordinated?: (() => boolean) | undefined
-  /**
-   * tree-shake seam. When omitted, `collection.blob(id)` throws
-   * with a pointer at the `@noy-db/hub/blobs` subpath. When set (via
-   * `createNoydb({ blobStrategy: blobs() })`), blob storage is live.
-   * `@internal` by virtue of `BlobStrategy` being `@internal`.
-   */
-  blobStrategy?: BlobStrategy | undefined
   objectStore?: ObjectProjection | undefined
   blobFields?: BlobFieldsConfig | undefined
   /**
@@ -151,26 +142,6 @@ export interface CollectionOpts<T> {
    * decryptable at rest under the flat `_blob` DEK (documented residue).
    */
   blobTierPolicy?: 'isolate' | 'dedup' | undefined
-  aggregateStrategy?: AggregateStrategy | undefined
-  crdtStrategy?: CrdtStrategy | undefined
-  /**
-   * tree-shake seam — strategy for optional history/ledger/
-   * time-machine. When omitted, history snapshots and ledger appends
-   * become silent no-ops (data still writes); the read APIs
-   * (`history`, `getVersion`, `revert`, `diff`, `clearHistory`,
-   * `pruneRecordHistory`) throw with a pointer at `@noy-db/hub/history`.
-   */
-  historyStrategy?: HistoryStrategy | undefined
-  i18nStrategy?: I18nStrategy | undefined
-  syncStrategy?: SyncStrategy | undefined
-  /**
-   * tree-shake seam. When omitted, indexing is off for this
-   * collection — every `.lazyQuery()` call throws, `.rebuildIndexes()`
-   * is a no-op, and `indexes: [...]` declarations are ignored. Enable
-   * by passing `withIndexing()` from `@noy-db/hub/indexing` at
-   * `createNoydb` time.
-   */
-  indexStrategy?: IndexStrategy | undefined
   indexes?: IndexDef[] | undefined
   /**
    * Auto-reconcile behavior for persisted-index drift on lazy-mode
@@ -202,12 +173,6 @@ export interface CollectionOpts<T> {
    * unbounded lazy cache defeats the purpose.
    */
   cache?: CacheOptions | undefined
-  /**
-   * Lazy service seam (#267) — supplies the bounded-LRU working-set cache
-   * when `prefetch: false`. Omitted → the deprecated IMPLICIT_LAZY
-   * back-compat default (identical behavior + one-time warn).
-   */
-  lazyStrategy?: LazyStrategy | undefined
   /**
    * Optional Standard Schema v1 validator (Zod, Valibot, ArkType,
    * Effect Schema, etc.). When set, every `put()` is validated before
@@ -297,8 +262,6 @@ export interface CollectionOpts<T> {
    * `undefined` when no forget strategy declares this collection (no-op).
    */
   addSubjectRef?: ((id: string, record: unknown) => Promise<void>) | undefined
-  /** — tree-shake seam for `collection.reveal()`. Defaults to `NO_CLASSIFIED`. */
-  classifiedStrategy?: ClassifiedStrategy | undefined
   /**
    * async callback that resolves a dict key to its label
    * for a given locale. Provided by the Vault.
@@ -467,20 +430,6 @@ export interface CollectionOpts<T> {
    * throw). Tier 0 is implicit and always available.
    */
   tiers?: readonly number[] | undefined
-  /**
-   * tree-shake seam — strategy for the collection-level tier operations
-   * (`putAtTier`/`getAtTier`/`listAtTier`/`elevate`/`demote`). When omitted,
-   * every tier operation throws `TiersNotEnabledError`. Enable by passing
-   * `withTiers()` from `@noy-db/hub/tiers` at `createNoydb` time.
-   */
-  tiersStrategy?: TiersStrategy | undefined
-  /**
-   * Search / retrieval capability strategy. When omitted, a collection's
-   * `search`/`retrieve`/`similarTo`/`warmIndex`/`flushIndex` methods and the
-   * embedding write-hook throw `SearchNotEnabledError`. Enable by passing
-   * `withSearch()` from `@noy-db/hub` at `createNoydb` time.
-   */
-  searchStrategy?: SearchStrategy | undefined
   /**
    * what a lower-tier caller sees for above-tier
    * records. Default `'invisibility'`.
@@ -670,7 +619,7 @@ export function compileViaBindings<T>(
       ...(i18nFields !== undefined ? { i18nFields } : {}),
       ...(dictKeyFields !== undefined ? { dictKeyFields } : {}),
       ...(i18nDensifyFields !== undefined ? { i18nDensifyFields } : {}),
-      strategy: opts.i18nStrategy ?? NO_I18N,
+      strategy: opts.strategies.i18n,
       ...(opts.defaultLocale !== undefined ? { defaultLocale: opts.defaultLocale } : {}),
       ...(opts.autoTranslateHook !== undefined ? { autoTranslateHook: opts.autoTranslateHook } : {}),
       ...(opts.dictLabelResolver !== undefined ? { dictLabelResolver: opts.dictLabelResolver } : {}),
@@ -1184,14 +1133,9 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     writeHooks: opts.writeHooks,
     subsystemBus: opts.subsystemBus,
     activeTxId: opts.activeTxId,
-    blobStrategy: opts.blobStrategy ?? NO_BLOBS,
+    strategies: opts.strategies,
     objectStore: opts.objectStore,
     blobFields: opts.blobFields,
-    aggregateStrategy: opts.aggregateStrategy ?? NO_AGGREGATE,
-    crdtStrategy: opts.crdtStrategy ?? NO_CRDT,
-    historyStrategy: opts.historyStrategy ?? NO_HISTORY,
-    i18nStrategy: opts.i18nStrategy ?? NO_I18N,
-    syncStrategy: opts.syncStrategy ?? NO_SYNC,
     reconcileOnOpen: opts.reconcileOnOpen ?? 'off',
     getDEK: opts.getDEK,
     onDirty: opts.onDirty,
@@ -1220,7 +1164,6 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     moneyFields: effectiveViaFields.moneyFields,
     classified: resolvedClassified,
     classifiedGuardCtx,
-    classifiedStrategy: opts.classifiedStrategy ?? NO_CLASSIFIED,
     computed: mergedComputed,
     computedEdges,
     viaDepsEdges,
@@ -1242,8 +1185,6 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     materializedViewSource: opts.materializedViewSource,
     graphDispatch: opts.graphDispatch,
     tiers: opts.tiers && opts.tiers.length > 0 ? new Set(opts.tiers) : null,
-    tiersStrategy: opts.tiersStrategy ?? NO_TIERS,
-    searchStrategy: opts.searchStrategy ?? NO_SEARCH,
     tierMode: opts.tierMode ?? 'invisibility',
     blobTierPolicy: opts.blobTierPolicy ?? 'isolate',
     onCrossTierAccess: opts.onCrossTierAccess,

@@ -1,9 +1,9 @@
+import type { StrategyBag } from '../port/with/strategies.js'
 import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult, SealedView, VdigFieldPolicy, ClassifiedVerdict } from './types.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
-import { resolveClassifiedFields, guardClassifiedCompat, type ClassifiedEntry, type ClassifiedFieldSpec, type ResolvedClassified, type ClassifiedGuardCtx, type ClassifiedStrategy, type ClassifiedVerifyCtx } from '../port/with/classified-strategy.js'
+import { resolveClassifiedFields, guardClassifiedCompat, type ClassifiedEntry, type ClassifiedFieldSpec, type ResolvedClassified, type ClassifiedGuardCtx, type ClassifiedVerifyCtx } from '../port/with/classified-strategy.js'
 import type { CrdtMode, CrdtState, LwwMapState, RgaState } from '../with-commit/crdt/crdt.js'
-import type { CrdtStrategy } from './types.js' // direct, not via crdt/strategy.js — avoids a dts cycle (#667)
 import type { I18nTextDescriptor, DictKeyDescriptor, StaticDictDescriptor, DictionaryHandle } from '../port/with/i18n-strategy.js'
 import { isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
 import type { LookupDescriptor } from '../port/with/lookup-strategy.js'
@@ -31,13 +31,11 @@ import {
   classifySealedShred as classifySealedShredImpl, syncDerivedOutputs,
   type TiersContext, type TierMoveResult,
 } from '../with-audit/tiers/index.js'
-import type { TiersStrategy } from '../with-audit/tiers/strategy.js'
 import {
   buildPersistedIndexCallbacks as buildPersistedIndexCallbacksImpl,
   syncTierSearch as syncTierSearchImpl,
   type SearchContext,
 } from '../with-lookup/search/collection-facade.js'
-import type { SearchStrategy } from '../with-lookup/search/strategy.js'
 import {
   rebuildEagerIndexesFromCache as rebuildEagerIndexesFromCacheImpl, rebuildUniqueConstraintsFromCache as rebuildUniqueConstraintsFromCacheImpl, rebuildIndexes as rebuildIndexesImpl,
   reconcileIndex as reconcileIndexImpl, maintainPersistedIndexesOnPut as maintainPersistedIndexesOnPutImpl, maintainPersistedIndexesOnDelete as maintainPersistedIndexesOnDeleteImpl,
@@ -58,7 +56,7 @@ import { validateSchemaInput } from './schema.js'
 import { derivePersistedSchema } from '../with-shape/persisted-schemas/derive.js'
 import type { LedgerStore } from '../with-commit/history/ledger/index.js'
 import type { DiffEntry } from '../with-commit/history/diff.js'
-import { NO_HISTORY, type HistoryStrategy } from '../with-commit/history/strategy.js'
+import { NO_HISTORY } from '../with-commit/history/strategy.js'
 import { Query, ScanBuilder } from './query/index.js'
 import type { QuerySource, JoinContext, JoinableSource } from './query/index.js'
 import type { CollectionIndexes } from '../with-lookup/indexing/eager-indexes.js'
@@ -66,7 +64,7 @@ import { decodeIdxId } from '../with-lookup/indexing/persisted-indexes.js'
 import type { PersistedCollectionIndex } from '../with-lookup/indexing/persisted-indexes.js'
 import { LazyQuery } from '../with-lookup/indexing/lazy-builder.js'
 import type { LazyQuerySource } from '../with-lookup/indexing/lazy-builder.js'
-import { NO_INDEXING, type IndexState } from '../with-lookup/indexing/strategy.js'
+import { type IndexState } from '../with-lookup/indexing/strategy.js'
 import type { SearchOptions, SearchResult } from '../with-lookup/search/index.js'
 import { MemoryIndexStore, type IndexStore } from '../with-lookup/search/index-store.js'
 import { PersistedIndexStore } from '../with-lookup/search/persisted-index-store.js'
@@ -78,15 +76,12 @@ import type { RefDescriptor } from './refs.js'
 import { buildDescription, deriveZodFields, type CollectionDescription, type DescribeOptions } from '../with-shape/introspection/describe.js'
 import type { CollectionConfig } from '../with-shape/introspection/types.js'
 import { estimateRecordBytes, type Lru, type LruStats } from './cache/index.js'
-import { IMPLICIT_LAZY } from '../port/with/lazy-strategy.js'
 import { generateULID } from '../with-pod/ulid.js'
 import type { PresenceHandle, PresenceHandleOpts } from '../with-party/team/presence.js'
-import type { SyncStrategy } from '../with-party/team/sync-strategy.js'
 import type { BlobSet } from '../with-shape/blobs/blob-set.js'
-import { NO_BLOBS, type BlobStrategy } from '../port/with/blob-strategy.js'
+import { NO_BLOBS } from '../port/with/blob-strategy.js'
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { BlobFieldsConfig } from '../with-shape/blobs/blob-compaction.js'
-import type { AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
 import type { ReadOnlyVaultFacade } from '../with-audit/guards/types.js'
 import type { DerivationRegistry } from '../with-formula/derivations/registry.js'
 import type { TxContext, ExecutedOp } from '../with-commit/tx/transaction.js'
@@ -214,22 +209,18 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private readonly historyConfigExplicit: boolean
 
   /**
-   * tree-shake seam — the strategy that backs `collection.blob(id)`.
-   * Defaults to `NO_BLOBS`, a ~10-line stub that throws with an actionable
-   * message. Consumers opt into real blob storage by importing
-   * `{ blobs }` from `@noy-db/hub/blobs` and passing the returned
-   * strategy to `createNoydb({ blobStrategy: blobs() })`. With the
-   * default stub, none of the BlobSet / chunk / MIME-magic machinery
-   * reaches the bundle.
+   * Every opt-in service, resolved once by `createNoydb` (#838) and shared by
+   * reference with the owning `Vault` and `Noydb`.
+   *
+   * Each entry is a tree-shake seam. An un-opted-in service resolves to its
+   * `NO_*` stub — a tiny module that throws with an actionable message —
+   * so, for example, none of the BlobSet / chunk / MIME-magic machinery
+   * reaches the bundle unless the consumer imports `@noy-db/hub/blobs` and
+   * passes `blobStrategy: blobs()` to `createNoydb`.
    */
-  private readonly blobStrategy: BlobStrategy
+  private readonly strategies: StrategyBag
   private readonly objectStore: ObjectProjection | undefined
   private readonly blobFields: BlobFieldsConfig | undefined; private readonly blobTierPolicy: 'isolate' | 'dedup' // #724 T2/T3
-  private readonly aggregateStrategy: AggregateStrategy; private readonly crdtStrategy: CrdtStrategy
-  private readonly tiersStrategy: TiersStrategy
-  private readonly searchStrategy: SearchStrategy
-  private readonly historyStrategy: HistoryStrategy
-  private readonly syncStrategy: SyncStrategy
 
   // In-memory cache of decrypted records (eager mode only). Lazy mode
   // uses `lru` instead. Both fields exist so a single Collection instance
@@ -427,12 +418,6 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   private _markerDigestOnlyCache: readonly string[] | undefined = undefined
   private _markerPersisted = false
 
-  /**
-   * Tree-shake seam for `reveal()` — defaults to `NO_CLASSIFIED`, which
-   * throws `ClassifiedNotEnabledError`. Set via the `classifiedStrategy`
-   * `createNoydb()` option (opt in with `withClassified()`).
-   */
-  private readonly classifiedStrategy: ClassifiedStrategy
 
   /** Async callback provided by the Vault to open a dynamic dictionary handle (for label-map pre-computation in the search index). Only used in `resolveDictLabelMaps()`; static dicts bypass this entirely. Mutable, assign-once — see {@link _reconcileReadState} (#671 item 1). */
   private getDictionary: ((name: string) => Promise<DictionaryHandle>) | undefined
@@ -640,15 +625,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.writeHooks = cfg.writeHooks
     this.subsystemBus = cfg.subsystemBus
     this.activeTxId = cfg.activeTxId
-    this.blobStrategy = cfg.blobStrategy
+    this.strategies = cfg.strategies
     this.objectStore = cfg.objectStore
     this.blobFields = cfg.blobFields; this.blobTierPolicy = cfg.blobTierPolicy ?? 'isolate'
-    this.aggregateStrategy = cfg.aggregateStrategy
-    this.crdtStrategy = cfg.crdtStrategy
-    this.tiersStrategy = cfg.tiersStrategy
-    this.searchStrategy = cfg.searchStrategy
-    this.historyStrategy = cfg.historyStrategy
-    this.syncStrategy = cfg.syncStrategy
     this.reconcileOnOpen = cfg.reconcileOnOpen
     this.getDEK = cfg.getDEK
     this.onDirty = cfg.onDirty
@@ -685,7 +664,6 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.classified = cfg.classified
     this.classifiedGuardCtx = cfg.classifiedGuardCtx
     this.vdigFields = cfg.vdigFields
-    this.classifiedStrategy = cfg.classifiedStrategy
     this.computed = cfg.computed
     this.getDictionary = cfg.getDictionary
     this.defaultLocale = cfg.defaultLocale
@@ -750,7 +728,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       deterministicFields: this.deterministicFields,
       vdigFields: this.vdigFields,
       crdtMode: this.crdtMode,
-      crdtStrategy: this.crdtStrategy,
+      crdtStrategy: this.strategies.crdt,
       schema: this.schema,
       getDEK: (collection) => this.getDEK(collection ?? this.name),
       cekCache: this.cekCache,
@@ -761,7 +739,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // Build + register this collection's SyncEngine conflict resolvers (the CRDT
     // merge resolver + the per-collection `conflictPolicy` resolver). Kept inline
     // here: the closures capture private `this` state (this.codec,
-    // this.crdtStrategy, this.resolveRecordCek) AND close over `conflictPolicy:
+    // this.strategies.crdt, this.resolveRecordCek) AND close over `conflictPolicy:
     // ConflictPolicy<T>`, whose custom-merge `(T, T) => T` is invariant in T —
     // exposing them through a method parameter would break the `Collection<T>` →
     // `Collection<unknown>` assignment the Vault relies on. MUST run after
@@ -781,7 +759,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         // authoritative merge result — a shred must win and stay shredded.
         if (localJson === null) return local
         if (remoteJson === null) return remote
-        const merged = this.crdtStrategy.mergeCrdtStates(JSON.parse(localJson) as CrdtState, JSON.parse(remoteJson) as CrdtState)
+        const merged = this.strategies.crdt.mergeCrdtStates(JSON.parse(localJson) as CrdtState, JSON.parse(remoteJson) as CrdtState)
         const mergedVersion = Math.max(local._v, remote._v) + 1
         const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
         return this.codec.encryptJsonString(JSON.stringify(merged), mergedVersion, cek)
@@ -856,7 +834,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (this.lazy) {
       // #267 lazy service — budget validation + LRU construction live on the
       // strategy seam (withLazy(); IMPLICIT_LAZY = deprecated implicit path).
-      this.lru = (opts.lazyStrategy ?? IMPLICIT_LAZY)
+      this.lru = opts.strategies.lazy
         .createCache<{ record: T; version: number }>(this.name, opts.cache)
       this.hydrated = true // lazy mode is always "hydrated" — no bulk load
     } else {
@@ -869,7 +847,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // constructs the appropriate mirror based on lazy vs eager mode and
     // declares every IndexDef. With NO_INDEXING the heavy index classes
     // never reach the bundle.
-    const strategy = opts.indexStrategy ?? NO_INDEXING
+    const strategy = opts.strategies.index
     this.indexState = strategy.createState({
       defs: opts.indexes ?? [],
       lazy: this.lazy,
@@ -1071,7 +1049,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (spec.storage === 'digest-only') {
       throw new ClassifiedRevealError(this.name, field, `storage:'digest-only' — verify-only; nothing recoverable to reveal`)
     }
-    return this.classifiedStrategy.reveal({
+    return this.strategies.classified.reveal({
       collection: this.name,
       spec,
       encrypted: this.storeCiphertext,
@@ -1093,8 +1071,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     }
     const ctx = this._classifiedVerifyCtx(spec)
     return spec.storage === 'digest-only'
-      ? this.classifiedStrategy.verify(ctx, id, field, candidate)
-      : this.classifiedStrategy.verifyText(ctx, id, field, candidate)
+      ? this.strategies.classified.verify(ctx, id, field, candidate)
+      : this.strategies.classified.verifyText(ctx, id, field, candidate)
   }
 
   /** k-of-n challenge over the collection's secretAnswer members. Requires withClassified(). */
@@ -1106,7 +1084,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       throw new ClassifiedVerifyError(this.name, '*', 'no groupable digest-only (secretAnswer) fields declared')
     }
     const ctx = { ...this._classifiedVerifyCtx(members[0]!.spec), groupMembers: members }
-    return this.classifiedStrategy.matchGroup(ctx, id, answers, opts)
+    return this.strategies.classified.matchGroup(ctx, id, answers, opts)
   }
 
   private _classifiedVerifyCtx(spec: ClassifiedFieldSpec): ClassifiedVerifyCtx {
@@ -1163,7 +1141,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
     // 2. ONE full 600K PBKDF2, run UNCONDITIONALLY before the scan (I-1). A
     //    NO_CLASSIFIED strategy surfaces ClassifiedNotEnabledError here.
-    const target = await this.classifiedStrategy.computeTarget(this._classifiedVerifyCtx(spec), field, candidate)
+    const target = await this.strategies.classified.computeTarget(this._classifiedVerifyCtx(spec), field, candidate)
 
     // 3. Scan: list + one get per id; string-compare the stored tag; decrypt
     //    nothing; retain each hit's already-fetched envelope for the confirm.
@@ -1260,7 +1238,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         await this.ledger.append({
           op: 'migration', collection: this.name, id, version: scrubbed._v,
           actor: this.keyring.userId,
-          payloadHash: await this.historyStrategy.envelopePayloadHash(scrubbed),
+          payloadHash: await this.strategies.history.envelopePayloadHash(scrubbed),
           reason: 'classified:scrub-equatable-tags',
         })
       }
@@ -1537,7 +1515,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (this.syncAdapter !== undefined) presenceOpts.syncAdapter = this.syncAdapter
     if (opts?.staleMs !== undefined) presenceOpts.staleMs = opts.staleMs
     if (opts?.pollIntervalMs !== undefined) presenceOpts.pollIntervalMs = opts.pollIntervalMs
-    return this.syncStrategy.buildPresence<P>(presenceOpts)
+    return this.strategies.sync.buildPresence<P>(presenceOpts)
   }
 
   /**
@@ -1823,7 +1801,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
             }
           }
         }
-        crdtState = this.crdtStrategy.buildLwwMapState(record as Record<string, unknown>, existingState, now)
+        crdtState = this.strategies.crdt.buildLwwMapState(record as Record<string, unknown>, existingState, now)
       } else if (this.crdtMode === 'rga') {
         let existingState: RgaState | undefined
         if (existingEnvelope) {
@@ -1835,7 +1813,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
             }
           }
         }
-        crdtState = this.crdtStrategy.buildRgaState(Array.isArray(record) ? record : [record], existingState, generateULID)
+        crdtState = this.strategies.crdt.buildRgaState(Array.isArray(record) ? record : [record], existingState, generateULID)
       } else {
         // yjs: record is the base64 update string (produced by @noy-db/yjs)
         crdtState = { _crdt: 'yjs', update: record as unknown as string }
@@ -1849,7 +1827,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       await this.adapter.put(this.vault, this.name, id, envelope)
 
       // Resolve snapshot for cache and history
-      const resolvedRecord = this.crdtStrategy.resolveCrdtSnapshot(crdtState) as T
+      const resolvedRecord = this.strategies.crdt.resolveCrdtSnapshot(crdtState) as T
       // A tombstone (shredded) prior envelope yields a null record → treat as
       // "no previous version" so we don't snapshot/diff an erased value.
       const existingResolvedRecord = existingEnvelope
@@ -1861,19 +1839,19 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
       if (existingResolved && this.historyConfig.enabled !== false) {
         // History snapshot of the PRIOR version — does NOT carry source from the new write
-        await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord(existingResolved.record, existingResolved.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: existingEnvelope } : undefined, id))
+        await this.strategies.history.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord(existingResolved.record, existingResolved.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: existingEnvelope } : undefined, id))
         this.emitter.emit('history:save', { vault: this.vault, collection: this.name, id, version: existingResolved.version })
         if (this.historyConfig.maxVersions) {
-          await this.historyStrategy.pruneHistory(this.adapter, this.vault, this.name, id, { keepVersions: this.historyConfig.maxVersions })
+          await this.strategies.history.pruneHistory(this.adapter, this.vault, this.name, id, { keepVersions: this.historyConfig.maxVersions })
         }
       }
 
       if (this.ledger) {
         const appendInput: Parameters<typeof this.ledger.append>[0] = {
           op: 'put', collection: this.name, id, version, actor: this.keyring.userId,
-          payloadHash: await this.historyStrategy.envelopePayloadHash(envelope),
+          payloadHash: await this.strategies.history.envelopePayloadHash(envelope),
         }
-        if (existingResolved) appendInput.delta = this.historyStrategy.computePatch(resolvedRecord, existingResolved.record)
+        if (existingResolved) appendInput.delta = this.strategies.history.computePatch(resolvedRecord, existingResolved.record)
         if (options?.reason !== undefined) appendInput.reason = options.reason
         await this.ledger.append(appendInput)
       }
@@ -1973,7 +1951,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // CRITICAL: the history snapshot is a record of the PRIOR version — it must
     // NOT carry the source from the current write (source belongs to the new write only).
     if (existing && this.historyConfig.enabled !== false) {
-      await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, vdigCtx, id))
+      await this.strategies.history.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, vdigCtx, id))
 
       this.emitter.emit('history:save', {
         vault: this.vault,
@@ -1983,7 +1961,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       })
 
       // Auto-prune if maxVersions configured
-      if (this.historyConfig.maxVersions) await this.historyStrategy.pruneHistory(this.adapter, this.vault, this.name, id, { keepVersions: this.historyConfig.maxVersions })
+      if (this.historyConfig.maxVersions) await this.strategies.history.pruneHistory(this.adapter, this.vault, this.name, id, { keepVersions: this.historyConfig.maxVersions })
     }
 
     const envelope = await this.codec.encryptRecord(record, version, cek, options?.source, options?.sourceTs, vdigCtx, id)
@@ -2000,7 +1978,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // Gated behind `searchStrategy: withSearch()`: a collection declaring
     // `embeddings` but not opting into search hits NO_SEARCH's throw here.
     if (this.embeddings) {
-      await this.searchStrategy.embedOnWrite(this.searchContext(), id, record, version)
+      await this.strategies.search.embedOnWrite(this.searchContext(), id, record, version)
     }
 
     // Ledger append — AFTER the adapter write succeeds so a failed
@@ -2025,7 +2003,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         id,
         version,
         actor: this.keyring.userId,
-        payloadHash: await this.historyStrategy.envelopePayloadHash(envelope),
+        payloadHash: await this.strategies.history.envelopePayloadHash(envelope),
       }
       if (existing) {
         // REVERSE patch: describes how to undo this put — i.e., how
@@ -2035,7 +2013,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         // data collection) without needing a forward-walking base
         // snapshot, which would double the storage cost of the
         // delta scheme. See `LedgerStore.reconstruct` for the walk.
-        appendInput.delta = this.historyStrategy.computePatch(record, existing.record)
+        appendInput.delta = this.strategies.history.computePatch(record, existing.record)
       }
       if (options?.reason !== undefined) appendInput.reason = options.reason
       await this.ledger.append(appendInput)
@@ -2710,7 +2688,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (existing && this.historyConfig.enabled !== false) {
       const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
       const prevForVdig = this.vdigFields !== null ? await this.adapter.get(this.vault, this.name, id) : null
-      await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: prevForVdig } : undefined, id))
+      await this.strategies.history.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: prevForVdig } : undefined, id))
     }
 
     // Capture the previous envelope's payloadHash BEFORE delete so we
@@ -2719,7 +2697,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // never-existed record, we use the empty string (which the
     // ledger entry's `payloadHash` field tolerates).
     const previousEnvelope = await this.adapter.get(this.vault, this.name, id)
-    const previousPayloadHash = await this.historyStrategy.envelopePayloadHash(previousEnvelope)
+    const previousPayloadHash = await this.strategies.history.envelopePayloadHash(previousEnvelope)
 
     // #589 (review): the version the marker is minted at (live._v + 1) — captured
     // here so `onDirty` below reports the SAME version, not `existing?.version`
@@ -3000,33 +2978,33 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * see `src/search/tokenize.ts` for the Thai/CJK caveat.
    */
   search(field: string, query: string, opts: SearchOptions = {}): Promise<SearchResult<T>[]> {
-    return this.searchStrategy.search(this.searchContext(), field, query, opts)
+    return this.strategies.search.search(this.searchContext(), field, query, opts)
   }
 
   /** Force-persist the lexical index now — gated behind `searchStrategy: withSearch()`. */
   flushIndex(): Promise<void> {
-    return this.searchStrategy.flushIndex(this.searchContext())
+    return this.strategies.search.flushIndex(this.searchContext())
   }
 
   /** Pre-build the lexical index — gated behind `searchStrategy: withSearch()`. */
   warmIndex(): Promise<void> {
-    return this.searchStrategy.warmIndex(this.searchContext())
+    return this.strategies.search.warmIndex(this.searchContext())
   }
 
   /** Retrieval (lexical | semantic | hybrid) — gated behind `searchStrategy: withSearch()`. */
   retrieve(query: string, opts: RetrieveOptions<T> = {}): Promise<RetrieveHit<T>[]> {
-    return this.searchStrategy.retrieve(this.searchContext(), query, opts)
+    return this.strategies.search.retrieve(this.searchContext(), query, opts)
   }
 
   /** Raw-vector kNN — gated behind `searchStrategy: withSearch()`. */
   similarTo(vector: Float32Array, opts: { k?: number; minScore?: number; includeRecord?: boolean } = {}): Promise<RetrieveHit<T>[]> {
-    return this.searchStrategy.similarTo(this.searchContext(), vector, opts)
+    return this.strategies.search.similarTo(this.searchContext(), vector, opts)
   }
 
   /** Opt-in bulk `_vec` re-derive (#788) — a plain collection has nothing to rebuild; gated behind `searchStrategy: withSearch()` otherwise. */
   rebuildEmbeddings(): Promise<{ rebuilt: number; skipped: number }> {
     if (!this.embeddings) return Promise.resolve({ rebuilt: 0, skipped: 0 })
-    return this.searchStrategy.rebuildEmbeddings(this.searchContext())
+    return this.strategies.search.rebuildEmbeddings(this.searchContext())
   }
 
   /**
@@ -3319,7 +3297,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
             : {}),
         }
       : undefined
-    return new Query<T, S, Q, M>(source, undefined, joinContext, this.aggregateStrategy)
+    return new Query<T, S, Q, M>(source, undefined, joinContext, this.strategies.aggregate)
   }
 
   /**
@@ -3450,7 +3428,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /** Get version history for a record, newest first. */
   async history(id: string, options?: HistoryOptions): Promise<HistoryEntry<T>[]> {
-    const envelopes = await this.historyStrategy.getHistoryEntries(
+    const envelopes = await this.strategies.history.getHistoryEntries(
       this.adapter, this.vault, this.name, id, options,
     )
     if (await liveRecordIsElevated(this.adapter, this.vault, this.name, id)) return [] // #712: elevated ≡ invisible
@@ -3484,7 +3462,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * and re-put the records through the normal `put()` path.
    */
   async getVersion(id: string, version: number): Promise<T | null> {
-    const envelope = await this.historyStrategy.getVersionEnvelope(
+    const envelope = await this.strategies.history.getVersionEnvelope(
       this.adapter, this.vault, this.name, id, version,
     )
     if (!envelope || (envelope._tier ?? 0) > 0 || await liveRecordIsElevated(this.adapter, this.vault, this.name, id)) return null
@@ -3507,7 +3485,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   async diff(id: string, versionA: number, versionB?: number): Promise<DiffEntry[]> {
     const recordA = versionA === 0 ? null : await this.resolveVersion(id, versionA)
-    return this.historyStrategy.diff(recordA, versionB === undefined || versionB === 0
+    return this.strategies.history.diff(recordA, versionB === undefined || versionB === 0
       ? (versionB === 0 ? null : await this.resolveCurrentOrVersion(id))
       : await this.resolveVersion(id, versionB))
   }
@@ -3531,7 +3509,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /** Prune history entries for a record (or all records if id is undefined). */
   async pruneRecordHistory(id: string | undefined, options: PruneOptions): Promise<number> {
-    const pruned = await this.historyStrategy.pruneHistory(
+    const pruned = await this.strategies.history.pruneHistory(
       this.adapter, this.vault, this.name, id, options,
     )
     if (pruned > 0) {
@@ -3547,7 +3525,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /** Clear all history for this collection (or a specific record). */
   async clearHistory(id?: string): Promise<number> {
-    return this.historyStrategy.clearHistory(this.adapter, this.vault, this.name, id)
+    return this.strategies.history.clearHistory(this.adapter, this.vault, this.name, id)
   }
 
   // ─── Core Methods ─────────────────────────────────────────────
@@ -4057,7 +4035,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // subpath). Users who want blob storage pass `blobs()` from that
     // subpath into `createNoydb({ blobStrategy: blobs() })`, which
     // threads the active strategy through Vault → Collection.
-    return this.blobStrategy.openSlot({
+    return this.strategies.blob.openSlot({
       store: this.adapter,
       vault: this.vault,
       collection: this.name,
@@ -4433,27 +4411,27 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /** tier-aware put — gated behind `tiersStrategy: withTiers()`. `searchResidue: true` = stuck search compensation (#774, mirroring #764's elevate/demote posture); the write itself always completes. */
   putAtTier(id: string, record: T, tier: number, opts?: { elevation?: { reason: string; fromTier: number }; source?: string; sourceTs?: string }): Promise<TierMoveResult> {
-    return this.tiersStrategy.putAtTier(this.tiersContext(), id, record, tier, opts)
+    return this.strategies.tiers.putAtTier(this.tiersContext(), id, record, tier, opts)
   }
 
   /** tier-aware get — gated behind `tiersStrategy: withTiers()`. */
   getAtTier(id: string): Promise<T | GhostRecord | null> {
-    return this.tiersStrategy.getAtTier(this.tiersContext(), id)
+    return this.strategies.tiers.getAtTier(this.tiersContext(), id)
   }
 
   /** list ids grouped by the caller's readability — gated behind `withTiers()`. */
   listAtTier(): Promise<Array<{ id: string; tier: number; readable: boolean }>> {
-    return this.tiersStrategy.listAtTier(this.tiersContext())
+    return this.strategies.tiers.listAtTier(this.tiersContext())
   }
 
   /** elevate a record to a higher tier — gated behind `withTiers()`. `searchResidue: true` = stuck search compensation (#764); the move itself always completes. */
   elevate(id: string, toTier: number): Promise<TierMoveResult> {
-    return this.tiersStrategy.elevate(this.tiersContext(), id, toTier)
+    return this.strategies.tiers.elevate(this.tiersContext(), id, toTier)
   }
 
   /** demote a record to a lower tier — gated behind `withTiers()`. Same `searchResidue` posture as {@link elevate} (#764). */
   demote(id: string, toTier: number): Promise<TierMoveResult> {
-    return this.tiersStrategy.demote(this.tiersContext(), id, toTier)
+    return this.strategies.tiers.demote(this.tiersContext(), id, toTier)
   }
 
   /**
@@ -4501,15 +4479,15 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       syncCache: (id: string, e: { record: T; version: number } | null) => { if (e) this.cache.set(id, e); else this.cache.delete(id); this.lru?.remove(id) },
       syncIndexes: (id: string, rec: T | null, version: number, priorEnvelope?: EncryptedEnvelope) => syncTierIndexesImpl(this.indexingContext(), id, rec, version, priorEnvelope),
       syncSearch: (id: string, rec: T | null, version?: number) => syncTierSearchImpl(this.searchContext(), id, rec, version),
-      syncHistory: async (id: string, fromDek: EnclaveKey, toDek: EnclaveKey) => this.historyStrategy.rewrapHistory(this.adapter, this.vault, this.name, id, fromDek, toDek, await this.getDEK(this.name)),
+      syncHistory: async (id: string, fromDek: EnclaveKey, toDek: EnclaveKey) => this.strategies.history.rewrapHistory(this.adapter, this.vault, this.name, id, fromDek, toDek, await this.getDEK(this.name)),
       saveHistorySnapshot: async (id: string, envelope: EncryptedEnvelope) => { // #728: gate folded in here so tiers/index.ts stays simple; review fix — mirror put()'s save→emit→prune parity (maxVersions was unbounded on tier moves)
         if (this.historyConfig.enabled === false) return
-        await this.historyStrategy.saveHistory(this.adapter, this.vault, this.name, id, envelope)
+        await this.strategies.history.saveHistory(this.adapter, this.vault, this.name, id, envelope)
         this.emitter.emit('history:save', { vault: this.vault, collection: this.name, id, version: envelope._v })
-        if (this.historyConfig.maxVersions) await this.historyStrategy.pruneHistory(this.adapter, this.vault, this.name, id, { keepVersions: this.historyConfig.maxVersions })
+        if (this.historyConfig.maxVersions) await this.strategies.history.pruneHistory(this.adapter, this.vault, this.name, id, { keepVersions: this.historyConfig.maxVersions })
       },
-      historyEnabled: this.historyConfig.enabled !== false && this.historyStrategy !== NO_HISTORY, // #728/#737: lets putAtTier skip decrypting `existing` when no real history strategy is wired
-      syncBlobs: (id: string, fromTier: number, toTier: number) => this.blobStrategy !== NO_BLOBS ? this.blob(id).syncTierMove(fromTier, toTier, this.blobTierPolicy) : Promise.resolve(), // #724 I1: gate on blob storage enabled (not on declared blobFields) so undeclared-field blobs still rehome; #746: syncTierMove mints/resumes the rehome journal marker; self-no-ops on an empty slot map
+      historyEnabled: this.historyConfig.enabled !== false && this.strategies.history !== NO_HISTORY, // #728/#737: lets putAtTier skip decrypting `existing` when no real history strategy is wired
+      syncBlobs: (id: string, fromTier: number, toTier: number) => this.strategies.blob !== NO_BLOBS ? this.blob(id).syncTierMove(fromTier, toTier, this.blobTierPolicy) : Promise.resolve(), // #724 I1: gate on blob storage enabled (not on declared blobFields) so undeclared-field blobs still rehome; #746: syncTierMove mints/resumes the rehome journal marker; self-no-ops on an empty slot map
       syncLedger: async (id: string) => { await this.ledger?.purgeRecordDeltas(this.name, id) },
       syncDerived: (id: string, record: T | null, elevated: boolean, version?: number) => syncDerivedOutputs(this, id, record, elevated, version),
       hasDerivedOutputs: (this.materializedViewSource !== undefined && this.materializedViewSource.registry().mvsForSource(this.name).length > 0) || (this.derivationSource !== undefined && this.derivationSource.registry().strategiesForSource(this.name).length > 0), // #737: source-grained (was vault-grained) — a derivation-free tiered collection skips the pre-move decode even when other collections in the vault have derivations
