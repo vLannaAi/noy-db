@@ -25,7 +25,8 @@ import {
   sha256Hex,
   type EnclaveKey,
 } from '../../kernel/enclave/index.js'
-import { BlobIntentPendingError, ConflictError, NotFoundError, TamperedError, TierNotGrantedError, UnsupportedTierCompositionError, ValidationError } from '../../kernel/errors.js'
+import { BlobIntentPendingError, BlobOfflineError, ConflictError, NotFoundError, TamperedError, TierNotGrantedError, UnsupportedTierCompositionError, ValidationError } from '../../kernel/errors.js'
+import { blobPinKey, type BlobPinCache, type BlobPinEntry } from './blob-pinning.js'
 import { liveRecordIsElevated, liveRecordTier } from '../../kernel/tier-visibility.js'
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
@@ -188,6 +189,12 @@ export class BlobSet {
   private readonly blobFields: BlobFieldsConfig | undefined
   private readonly keyring: UnlockedKeyring | undefined
   /**
+   * Device-local pin registry + external side-cache + KPI counters (#808).
+   * Injected by `withBlobs()` (one shared instance per strategy — per
+   * "device"); absent on a direct construction that never threads one.
+   */
+  private readonly pinCache: BlobPinCache | undefined
+  /**
    * Set only on the cleared clone `atTier()` returns (#749) — never by
    * `openSlot`/`Collection.blob()`. Its presence is what makes a `BlobSet`
    * a cleared view: see `ownerRecordElevated()`/`ownerTier()`.
@@ -210,6 +217,7 @@ export class BlobSet {
     blobFields?: BlobFieldsConfig
     keyring?: UnlockedKeyring
     clearedTier?: number
+    pinCache?: BlobPinCache
   }) {
     this.store = opts.store
     this.vault = opts.vault
@@ -226,6 +234,7 @@ export class BlobSet {
     this.blobFields = opts.blobFields
     this.keyring = opts.keyring
     this.clearedTier = opts.clearedTier
+    this.pinCache = opts.pinCache
   }
 
   /**
@@ -401,6 +410,7 @@ export class BlobSet {
       ...(this.maxBlobBytes !== undefined ? { maxBlobBytes: this.maxBlobBytes } : {}),
       ...(this.objectStore !== undefined ? { objectStore: this.objectStore } : {}),
       ...(this.blobFields !== undefined ? { blobFields: this.blobFields } : {}),
+      ...(this.pinCache !== undefined ? { pinCache: this.pinCache } : {}),
     })
   }
 
@@ -1026,6 +1036,19 @@ export class BlobSet {
     retainedShared: string[]
     residue: string[]
   }> {
+    // #808: device-local hygiene — the record's registry rows (pins, access
+    // stamps, cached external copies) die with it. Best-effort and FIRST: a
+    // failing device-local store must never abort the erasure cascade, and
+    // dropping the encrypted cached copies before the shred means no local
+    // copy outlives the record even if the shred itself later degrades.
+    if (this.pinCache) {
+      try {
+        const rows = await this.pinCache.store.entries(blobPinKey(this.vault, this.collection, this.recordId))
+        for (const { key } of rows) await this.pinCache.store.delete(key)
+      } catch {
+        // Device-local only — never part of the erasure accounting.
+      }
+    }
     const tierArg = ownerTier ?? 0
     const intent = await this.resolveShredIntent(tierArg)
     if (!intent) return this.unmarkedShred(tierArg)
@@ -2097,8 +2120,14 @@ export class BlobSet {
     for (let i = 0; i < blob.chunkCount; i++) {
       const chunk = await this.readChunk(blob.eTag, i, blob.chunkCount, chunkKey)
       if (!chunk) {
-        throw new NotFoundError(
-          `Blob chunk ${i}/${blob.chunkCount} missing for eTag "${blob.eTag}" on record "${this.recordId}"`,
+        // #808 offline taxonomy: the index/slot row is present but the chunk
+        // bytes are not IN THIS STORE — a cold local copy (not yet synced to
+        // this device, or evicted), not a missing slot. Typed so UIs can
+        // render "available when online" instead of a silent empty file.
+        throw new BlobOfflineError(
+          this.collection, this.recordId, undefined,
+          `chunk ${i}/${blob.chunkCount} for eTag "${blob.eTag}" is absent from the local store — ` +
+            'content not yet synced to this device, or evicted (#808)',
         )
       }
       chunks.push(chunk)
@@ -2531,7 +2560,11 @@ export class BlobSet {
   /**
    * Fetch all bytes for the named slot.
    * Returns `null` if the slot does not exist.
-   * Throws `NotFoundError` if the index entry exists but a chunk is missing.
+   * Throws `BlobOfflineError` if the content is not available locally (#808):
+   * an internal blob whose chunk envelopes are absent from the local store, or
+   * an external slot with no local cached copy while the object store is
+   * unreachable. External reads populate the device-local encrypted
+   * side-cache, so a repeat read is served locally (see `pin()`).
    */
   async get(slotName: string): Promise<Uint8Array | null> {
     if (await this.ownerRecordElevated()) return null // #724: elevated ≡ invisible, mirrors get()
@@ -2540,10 +2573,7 @@ export class BlobSet {
     if (!slot) return null
 
     if (slot.external) {
-      if (!this.objectStore) {
-        throw new NotFoundError(`Blob slot "${slotName}" is external but no objectStore is configured`)
-      }
-      return this.objectStore.getObject(slot.external.key)
+      return this.readExternal(slotName, slot)
     }
 
     const result = await this.loadBlobObject(slot.eTag)
@@ -2558,7 +2588,9 @@ export class BlobSet {
     // OPENED the index envelope (`result.atTier` — #747), not the flat one,
     // so it must be resolved explicitly here.
     const blobDEK = this.encrypted ? await this.getDEK(dekKey(BLOB_COLLECTION, result.atTier)) : undefined
-    return this.fetchAllChunks(result.blob, blobDEK, this.flatFallbackVerifyETag(slot.eTag, result.atTier))
+    const bytes = await this.fetchAllChunks(result.blob, blobDEK, this.flatFallbackVerifyETag(slot.eTag, result.atTier))
+    await this.recordLocalHit(slotName) // #808: KPI + LRU access stamp
+    return bytes
   }
 
   /**
@@ -2691,16 +2723,36 @@ export class BlobSet {
   /**
    * List all slot entries for this record.
    * Returns metadata only — no chunk data is loaded.
+   *
+   * #808: when a pin registry is present (`withBlobs()`), each entry is
+   * annotated with this DEVICE's view — `pinned` / `lastAccessAt` /
+   * `cachedBytes` (see their `SlotInfo` doc comments). The annotations come
+   * from the device-local registry, never the vault store, and are what
+   * `vault.compact()`'s pin exemption + cache-budget LRU pass key off.
    */
   async list(): Promise<SlotInfo[]> {
     if (await this.ownerRecordElevated()) return [] // #724: elevated ≡ invisible, mirrors get()
     const { slots } = await this.loadSlots()
     // #746: `pendingRelease` is internal rehome-journal bookkeeping (see
     // `SlotRecord`'s doc comment) — never surfaced through the public API.
-    return Object.entries(slots).map(([name, slot]) => {
+    const infos = Object.entries(slots).map(([name, slot]) => {
       const pub: SlotRecord = { ...slot }
       delete (pub as { pendingRelease?: string }).pendingRelease
       return { name, ...pub }
+    })
+    if (!this.pinCache) return infos
+    const prefix = blobPinKey(this.vault, this.collection, this.recordId)
+    const rows = await this.pinCache.store.entries(prefix)
+    const byName = new Map(rows.map(({ key, entry }) => [key.slice(prefix.length), entry]))
+    return infos.map((info) => {
+      const entry = byName.get(info.name)
+      if (!entry) return info
+      return {
+        ...info,
+        ...(entry.pinned ? { pinned: true } : {}),
+        ...(entry.lastAccessAt !== undefined ? { lastAccessAt: entry.lastAccessAt } : {}),
+        ...(entry.cachedBytes !== undefined ? { cachedBytes: entry.cachedBytes } : {}),
+      }
     })
   }
 
@@ -2736,6 +2788,247 @@ export class BlobSet {
         // Best-effort — a missed decrement is reconciled by a later pass.
       })
     }
+
+    // #808: the slot is gone — drop its device-local registry row (pin flag /
+    // access stamp / cached external copy). Best-effort hygiene: a failing
+    // device-local store must not fail the vault-store delete that already
+    // landed above.
+    if (this.pinCache) {
+      await this.pinCache.store.delete(this.pinKeyFor(slotName)).catch(() => {})
+    }
+  }
+
+  // ─── Public API: Offline pinning + device-local cache (#808) ──────
+
+  /**
+   * Pin the named slot for offline availability ON THIS DEVICE.
+   *
+   * - Downloads eagerly (call while online): an internal blob's chunks are
+   *   fetched once to prove they are locally readable; an `external` slot's
+   *   bytes are fetched from the object store and kept in the device-local
+   *   side-cache, **encrypted** under the vault's `_blob` DEK via the same
+   *   enclave path as chunk encryption (the object-store copy sits outside
+   *   the ZK envelope by design; the local copy does not).
+   * - A pinned slot is EXEMPT from `vault.compact()` eviction — both the
+   *   `blobFields` policy pass and the `cacheBudget` LRU pass.
+   * - Pin state is device-local (never synced): it lives in the `withBlobs()`
+   *   pin registry, not in the vault store. Each device pins for itself.
+   *
+   * Throws `NotFoundError` for a missing slot and `BlobOfflineError` when the
+   * eager download cannot complete (offline).
+   */
+  async pin(slotName: string): Promise<void> {
+    this.assertKeyPartSafe(this.recordId, 'record id')
+    this.assertKeyPartSafe(slotName, 'slot name')
+    const pc = this.requirePinCache('pin')
+    // #724: elevated ≡ invisible — same posture as get(), surfaced as the
+    // not-found a caller without clearance would legitimately see.
+    if (await this.ownerRecordElevated()) {
+      throw new NotFoundError(`Slot "${slotName}" not found on record "${this.recordId}"`)
+    }
+    const { slots } = await this.loadSlots()
+    const slot = slots[slotName]
+    if (!slot) throw new NotFoundError(`Slot "${slotName}" not found on record "${this.recordId}"`)
+
+    const now = new Date().toISOString()
+    if (slot.external) {
+      // Eager download (or local cache hit) — readExternal caches the fetched
+      // bytes encrypted, so after this the registry row always carries the
+      // local copy; then flip its pin flag on.
+      const bytes = await this.readExternal(slotName, slot)
+      if (bytes === null) {
+        throw new NotFoundError(`External object for blob slot "${slotName}" is missing from the object store`)
+      }
+      const key = this.pinKeyFor(slotName)
+      const entry = await pc.store.get(key)
+      if (entry?.cipher) {
+        await pc.store.set(key, { ...entry, pinned: true, pinnedAt: entry.pinnedAt ?? now })
+      } else {
+        // Defensive: readExternal always caches on success when a registry is
+        // present — but never leave a pin without its local copy.
+        await this.cacheExternalCopy(slotName, bytes, { pin: true })
+      }
+      return
+    }
+
+    // Internal (chunked) blob: prove the content is locally readable NOW —
+    // a cold chunk surfaces BlobOfflineError here, not at first offline read.
+    const result = await this.loadBlobObject(slot.eTag)
+    if (!result) throw new NotFoundError(`BlobObject ${slot.eTag} not found`)
+    const blobDEK = this.encrypted ? await this.getDEK(dekKey(BLOB_COLLECTION, result.atTier)) : undefined
+    await this.fetchAllChunks(result.blob, blobDEK, this.flatFallbackVerifyETag(slot.eTag, result.atTier))
+    const key = this.pinKeyFor(slotName)
+    const prev = await pc.store.get(key)
+    await pc.store.set(key, { ...(prev ?? {}), pinned: true, pinnedAt: now, lastAccessAt: now })
+  }
+
+  /**
+   * Unpin the named slot on this device — it returns to the normal lifecycle:
+   * `blobFields` policy eviction applies again, and any local cached copy
+   * (external slots) stays but becomes budget-managed (`cacheBudget` LRU).
+   * A no-op when the slot is not pinned here.
+   */
+  async unpin(slotName: string): Promise<void> {
+    this.assertKeyPartSafe(slotName, 'slot name')
+    const pc = this.requirePinCache('unpin')
+    const key = this.pinKeyFor(slotName)
+    const entry = await pc.store.get(key)
+    if (!entry?.pinned) return
+    const rest = { ...entry, pinned: false }
+    delete (rest as { pinnedAt?: string }).pinnedAt
+    await pc.store.set(key, rest)
+  }
+
+  /** Whether the named slot is pinned for offline ON THIS DEVICE (#808). */
+  async isPinned(slotName: string): Promise<boolean> {
+    const pc = this.requirePinCache('isPinned')
+    const entry = await pc.store.get(this.pinKeyFor(slotName))
+    return entry?.pinned === true
+  }
+
+  /**
+   * Drop this slot's device-local cached copy (the encrypted external
+   * side-cache) WITHOUT touching the slot, the vault store, or the object
+   * store. Returns the plaintext bytes freed (0 when nothing was cached, the
+   * slot is pinned — pinned copies are exempt — or no registry is present).
+   * The cache-budget pass inside `vault.compact()` is the expected caller;
+   * the LRU access row itself is kept.
+   */
+  async dropLocalCache(slotName: string): Promise<number> {
+    const pc = this.pinCache
+    if (!pc) return 0
+    const key = this.pinKeyFor(slotName)
+    const entry = await pc.store.get(key)
+    if (!entry || entry.pinned || !entry.cipher) return 0
+    const freed = entry.cachedBytes ?? 0
+    const rest = { ...entry }
+    delete (rest as { cipher?: unknown }).cipher
+    delete (rest as { cachedBytes?: number }).cachedBytes
+    await pc.store.set(key, rest)
+    return freed
+  }
+
+  // ─── Internal: device-local pin registry plumbing (#808) ──────────
+
+  /** This slot's registry key — see {@link blobPinKey}. */
+  private pinKeyFor(slotName: string): string {
+    return blobPinKey(this.vault, this.collection, this.recordId, slotName)
+  }
+
+  /** AAD binding for a cached external copy: the row's own registry key. */
+  private pinCopyAAD(slotName: string): Uint8Array {
+    return new TextEncoder().encode(`pin:${this.pinKeyFor(slotName)}`)
+  }
+
+  private requirePinCache(op: string): BlobPinCache {
+    if (!this.pinCache) {
+      throw new ValidationError(
+        `BlobSet.${op}() requires the withBlobs() pin registry — this handle was constructed without one (#808)`,
+      )
+    }
+    return this.pinCache
+  }
+
+  /** KPI hit + LRU access stamp for a successful LOCAL read. No-op without a registry. */
+  private async recordLocalHit(slotName: string, prev?: BlobPinEntry | null): Promise<void> {
+    const pc = this.pinCache
+    if (!pc) return
+    pc.stats.hits += 1
+    const key = this.pinKeyFor(slotName)
+    const entry = prev ?? await pc.store.get(key)
+    await pc.store.set(key, { ...(entry ?? { pinned: false }), lastAccessAt: new Date().toISOString() })
+  }
+
+  /**
+   * Read an `external` slot (#808 taxonomy): local encrypted side-cache first
+   * (hit); else the object store (miss + `bytesDownloaded`), auto-caching the
+   * fetched bytes so the NEXT read — and any later offline read — is local.
+   * A network failure with no local copy is the typed `BlobOfflineError`;
+   * a genuinely absent object (fetch succeeded, nothing there) stays `null`.
+   */
+  private async readExternal(slotName: string, slot: SlotRecord): Promise<Uint8Array | null> {
+    const pc = this.pinCache
+    if (pc) {
+      const key = this.pinKeyFor(slotName)
+      const entry = await pc.store.get(key)
+      const cached = entry?.cipher ? await this.decryptCachedCopy(slotName, entry.cipher) : null
+      if (cached) {
+        await this.recordLocalHit(slotName, entry)
+        return cached
+      }
+    }
+
+    if (!this.objectStore) {
+      throw new NotFoundError(`Blob slot "${slotName}" is external but no objectStore is configured`)
+    }
+    let bytes: Uint8Array | null
+    try {
+      bytes = await this.objectStore.getObject(slot.external!.key)
+    } catch (err) {
+      throw new BlobOfflineError(
+        this.collection, this.recordId, slotName,
+        'no local cached copy and the object store is unreachable — pin() the slot while online to keep it readable offline (#808)',
+        err,
+      )
+    }
+    if (bytes === null) return null
+    if (pc) {
+      pc.stats.misses += 1
+      pc.stats.bytesDownloaded += bytes.byteLength
+      // Best-effort: a failing device-local cache write must not fail a read
+      // that already holds the bytes (e.g. a full IndexedDB quota). The next
+      // read simply fetches again.
+      await this.cacheExternalCopy(slotName, bytes).catch(() => {})
+    }
+    return bytes
+  }
+
+  /**
+   * Decrypt a cached external copy. `null` (treated as a cache miss → network
+   * refresh) when the vault keys can no longer open it — e.g. the copy was
+   * cached before the owning record moved tiers, so it is sealed under a DEK
+   * this handle no longer resolves. Genuine non-crypto failures propagate.
+   */
+  private async decryptCachedCopy(slotName: string, cipher: { iv: string; data: string }): Promise<Uint8Array | null> {
+    if (!this.encrypted) return base64ToBuffer(cipher.data)
+    const dek = await this.getDEK(dekKey(BLOB_COLLECTION, await this.ownerTier()))
+    try {
+      return await decryptBytesWithAAD(cipher.iv, cipher.data, dek, this.pinCopyAAD(slotName))
+    } catch (err) {
+      if (err instanceof TamperedError) return null
+      throw err
+    }
+  }
+
+  /**
+   * Write an external slot's bytes into the device-local side-cache —
+   * ENCRYPTED under the vault's `_blob` DEK (owner tier) via the enclave's
+   * AAD-bound path, mirroring chunk encryption; base64 plaintext with
+   * `iv: ''` only on an unencrypted vault (the envelope convention). A
+   * pre-existing pin flag survives the rewrite.
+   */
+  private async cacheExternalCopy(slotName: string, bytes: Uint8Array, opts?: { pin?: boolean }): Promise<void> {
+    const pc = this.pinCache
+    if (!pc) return
+    let cipher: { iv: string; data: string }
+    if (this.encrypted) {
+      const dek = await this.getDEK(dekKey(BLOB_COLLECTION, await this.ownerTier()))
+      const enc = await encryptBytesWithAAD(bytes, dek, this.pinCopyAAD(slotName))
+      cipher = { iv: enc.iv, data: enc.data }
+    } else {
+      cipher = { iv: '', data: bufferToBase64(bytes) }
+    }
+    const now = new Date().toISOString()
+    const key = this.pinKeyFor(slotName)
+    const prev = await pc.store.get(key)
+    const pinned = opts?.pin === true || prev?.pinned === true
+    await pc.store.set(key, {
+      pinned,
+      ...(pinned ? { pinnedAt: (opts?.pin === true ? now : prev?.pinnedAt) ?? now } : {}),
+      lastAccessAt: now,
+      cachedBytes: bytes.byteLength,
+      cipher,
+    })
   }
 
   /**

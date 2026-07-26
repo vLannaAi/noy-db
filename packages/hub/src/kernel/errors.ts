@@ -798,6 +798,37 @@ export class BlobIntentPendingError extends NoydbError {
 }
 
 /**
+ * Thrown by a blob content read when the bytes are not available locally and
+ * cannot be fetched right now (#808 offline read taxonomy) — an `external`
+ * slot with no local cached copy while the object store is unreachable, or an
+ * internal (chunked) blob whose chunk envelopes are absent from the local
+ * store (not yet synced to this device, or evicted). The content still exists
+ * at its authoritative home — retry when online/synced, or `pin()` the slot
+ * while online to keep it readable offline. Deliberately typed (never a hang,
+ * never a silent `null`) so UIs can render "available when online".
+ *
+ * `slotName` is `undefined` when the failing read was not slot-addressed
+ * (e.g. a published-version fetch resolving chunks by eTag).
+ */
+export class BlobOfflineError extends NoydbError {
+  readonly collection: string
+  readonly recordId: string
+  readonly slotName?: string
+  constructor(collection: string, recordId: string, slotName: string | undefined, detail: string, cause?: unknown) {
+    super(
+      'BLOB_OFFLINE',
+      `Blob content for ${slotName !== undefined ? `slot "${slotName}" on ` : ''}record "${recordId}" ` +
+        `(collection "${collection}") is not available locally: ${detail}`,
+    )
+    this.name = 'BlobOfflineError'
+    this.collection = collection
+    this.recordId = recordId
+    if (slotName !== undefined) this.slotName = slotName
+    if (cause !== undefined) this.cause = cause
+  }
+}
+
+/**
  * Thrown when an elevated-handle operation runs after the elevation's
  * TTL expired. Reads continue at the original tier; only writes
  * through the scoped handle flip to throwing once expired.

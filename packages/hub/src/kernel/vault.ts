@@ -1983,6 +1983,7 @@ export class Vault {
         const coll = this.collection(name)
         await coll.blob(id).delete(slotName)
       },
+      dropLocalCache: async (name: string, id: string, slotName: string) => this.collection(name).blob(id).dropLocalCache(slotName), // #808: budget pass drops device-local external cache copies
     }, options)
   }
 

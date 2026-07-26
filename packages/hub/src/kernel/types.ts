@@ -2181,6 +2181,26 @@ export interface SlotRecord {
 export interface SlotInfo extends SlotRecord {
   /** The slot name (key in the record's slot map). */
   readonly name: string
+  /**
+   * DEVICE-LOCAL (#808): slot is pinned for offline on THIS device. Read from
+   * the `withBlobs()` pin registry at list time — never stored in (or synced
+   * through) the vault store; present only when `true`. Pinned slots are
+   * exempt from `vault.compact()` eviction and the cache-budget pass.
+   */
+  readonly pinned?: boolean
+  /**
+   * DEVICE-LOCAL (#808): ISO timestamp of the last local read of this slot on
+   * this device — the LRU input for `vault.compact({ cacheBudget })`. Absent
+   * when the slot was never read here (the budget pass falls back to
+   * `uploadedAt`).
+   */
+  readonly lastAccessAt?: string
+  /**
+   * DEVICE-LOCAL (#808): byte size of the local encrypted side-cache copy of
+   * an `external` slot on this device (see `BlobPinEntry.cipher`). Absent for
+   * internal slots and for external slots with no local copy.
+   */
+  readonly cachedBytes?: number
 }
 
 /**

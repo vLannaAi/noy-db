@@ -20,7 +20,13 @@
  */
 
 export { withBlobs } from './active.js'
+export type { WithBlobsOptions, BlobsService } from './active.js'
 export type { BlobStrategy, BlobStrategyOpenArgs } from '../../port/with/blob-strategy.js'
+
+// #808 — offline pinning + mobile cache budget.
+export { memoryBlobPinStore, blobPinKey } from '../../with-shape/blobs/blob-pinning.js'
+export type { BlobPinStore, BlobPinEntry, BlobCacheStats } from '../../with-shape/blobs/blob-pinning.js'
+export { BlobOfflineError } from '../../kernel/errors.js'
 
 export { memoryObjectProjection } from '../../with-shape/blobs/object-projection.js'
 export type {
