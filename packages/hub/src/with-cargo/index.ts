@@ -77,3 +77,7 @@ export type { WriteQueue } from '../kernel/write-queue.js'
 export type { WriteConflict } from '../kernel/types.js'
 export type { AccessibleVault } from '../kernel/types.js'
 export type { Unsubscribe } from '../kernel/types.js'
+
+// #837 — option/payload types named by this seam's own signatures.
+export type { ExtractPartitionOptions } from './extract-partition.js'
+export type { TransferSealPayload } from '../with-pod/bundle.js'

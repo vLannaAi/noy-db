@@ -215,7 +215,7 @@ export function avg(
   }
 }
 
-interface MinMaxState {
+export interface MinMaxState {
   /**
    * Multiset of contributing field values. Stored as a plain array
    * because we need to support `remove` and a plain array gives us

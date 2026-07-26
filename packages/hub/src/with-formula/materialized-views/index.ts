@@ -26,3 +26,6 @@ export {
   MaterializedViewSourceUnknownError,
   MaterializedViewTooLargeError,
 } from '../../kernel/errors.js'
+
+// #837 — dispatch context named by this entry's signatures.
+export type { PutDerivedOutputCtx } from '../../kernel/via/dispatch.js'

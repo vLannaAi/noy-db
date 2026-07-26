@@ -21,3 +21,7 @@ export {
   DerivationOutputShapeError,
   DerivationCapExceededError,
 } from '../../kernel/errors.js'
+
+// #837 — signature types of this entry's own exports must be nameable here.
+export type { DerivationContext } from './types.js'
+export type { RunResult } from './executor.js'
