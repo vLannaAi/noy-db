@@ -1,5 +1,21 @@
 # @noy-db/on-pin
 
+## 0.4.0-pre.2
+
+### Minor Changes
+
+- New **device-trust** unlock mode (#801) — "always safe to open on this device". The session DEKs are wrapped under a non-extractable, device-bound `crypto.subtle` AES-GCM key persisted in IndexedDB as a CryptoKey object (structured clone — raw bits never exist in JS), so the vault reopens on this device with no user factor at all: `enrollDeviceTrust()` (requires an already-unlocked session; gated by the owner-configurable `app:device-trust` policy gate) / `resumeDeviceTrust()` (yields the keyring plus a capped session tier, default 3 — below the passphrase tier) / `clearDeviceTrust()` / `isDeviceTrustEnrolled()`. Storage eviction fails closed with the typed `DeviceTrustNotFoundError` pointing at the real-factor re-enroll path — never a lockout. The OS lock screen IS the factor; the threat model is stated in the README and module docs.
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.4.0-pre.2
+
 ## 0.4.0-pre.1
 
 ### Patch Changes

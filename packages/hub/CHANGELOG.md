@@ -1,5 +1,50 @@
 # Changelog — hub
 
+## 0.4.0-pre.2
+
+### Minor Changes
+
+- Blobs: offline pinning + mobile cache budget (#808).
+
+  - `collection.blob(id).pin(slot)` / `unpin(slot)` / `isPinned(slot)`: pin a blob slot for
+    offline availability on THIS device. Pinning downloads eagerly (call while online) and
+    exempts the slot from `vault.compact()` eviction — both the `blobFields` policy pass
+    (reported via the new `CompactionResult.pinned` counter) and the new cache-budget pass.
+    Pin state is device-local and never synced: it lives in the `withBlobs()` pin registry
+    (`withBlobs({ pinStore })`, a pluggable 4-method `BlobPinStore`; in-memory default —
+    supply an IndexedDB/SQLite-backed store for durable pins).
+  - `vault.compact({ cacheBudget: { maxBytes } })`: LRU budget for locally-cached UNPINNED
+    blob bytes, run as a dedicated pass inside the existing compaction machinery. Internal
+    slots evict through the standard eviction writer (with a new `'budget'` audit reason);
+    `external` slots only drop their device-local cached copy (the object-store copy is
+    untouched). Pinned and `legalHold`/`retainUntil`-held slots are exempt. New
+    `CompactionResult.budgetEvicted` / `budgetBytesFreed`; LRU order from the device-local
+    `SlotInfo.lastAccessAt` stamp (fallback `uploadedAt`).
+  - Offline read taxonomy: new typed `BlobOfflineError` (`code: 'BLOB_OFFLINE'`) — an
+    `external` slot with no local copy while the object store is unreachable, or an internal
+    blob whose chunk envelopes are absent from the local store. BREAKING-ish detail (pre-1.0):
+    the internal missing-chunk case previously threw `NotFoundError`; it now throws
+    `BlobOfflineError`, since the content exists but is not locally available. External reads
+    now auto-populate the device-local encrypted side-cache, so a repeat read is served
+    locally (and offline).
+  - External pins are encrypted at rest locally: the object-store copy of an `external: true`
+    slot is outside the ZK envelope by design, but the local pinned/cached copy is
+    AES-256-GCM-encrypted under the vault's `_blob` DEK via the existing enclave path
+    (AAD-bound), so plaintext never rests in the pin registry.
+  - KPI counters for the 4G-budget demo: `withBlobs().cacheStats()` →
+    `{ hits, misses, bytesDownloaded }` (local reads hit; object-store fetches miss + count
+    bytes). `BlobSet.list()` now annotates `SlotInfo` with the device-local `pinned` /
+    `lastAccessAt` / `cachedBytes` view.
+
+- Complete the `/bundle` promotion (#812): the partition-transfer ops promoted onto `/cargo` in 0.4.0-pre.1 now ship with their own option/result types (`WalkClosureOptions`, `ClosureResult`, `DanglingRefNotice`, `ExtractPartitionResult`) — previously a caller could invoke `walkClosure()` from `/cargo` but could not name its options type. The **adopt half** of the transfer ceremony joins them (`adoptPartition`, `unsealDeks`, `createOwnerOnAdoptedPartition` + 6 option/result types): extraction without adoption was half the story. Transfer errors (`TransferSealError`, `AdoptionStateError`, `PartitionExtractionError`) land on `/cargo`, and the artifact/backup errors (`BundleIntegrityError`, `BundleSealMismatchError`, `PodVersionConflictError`, `BundleVersionConflictError`, `BackupLedgerError`, `BackupCorruptedError`) on `/pod`, so `instanceof` works from the subpath instead of the root barrel. Purely additive — `/bundle` still resolves everything it did, and its retirement follows in a later release. Also promotes `hasNoydbBundleMagic` onto `/pod` (#820) — it sat beside `NOYDB_BUNDLE_MAGIC` everywhere except the subpath, forcing klum's multi-bundle reader to keep a root-barrel import alive for one predicate.
+- **BREAKING (no migration shim).** Removes every deprecated `publicEnvelope` alias left by the cover rename (#799): the 6 type aliases, 10 value re-exports, `Noydb.setPublicEnvelope`/`getPublicEnvelope`, `Vault.getPublicEnvelope`, the `NoydbOptions.publicEnvelope` option key, and `readNoydbBundlePublicEnvelope`. Use `Cover`, `setCover`/`getCover`, `NoydbOptions.cover`, `readPodCover`. The deprecation window's only purpose was the klum-db migration, which shipped in klum-db 0.4.0-pre.1. **The wire format is unchanged and stays frozen**: the `_meta/public-envelope` record id, the `_noydb_public: 1` discriminator, and the pod-header `publicEnvelope` JSON key are untouched — existing vaults and bundles need no migration.
+- **BREAKING (no migration shim).** Removes three `NoydbOptions` fields that were declared but never read anywhere in the codebase, so setting them silently did nothing: `auth` (`'passphrase' | 'biometric'` — its JSDoc claimed a default that no code implemented; the real mechanisms are the `getKeyring` callback and the authenticator slots), `autoSync`, and `syncInterval` (both documented as superseded by `syncPolicy`, but no reader ever honored the stated precedence). Verified zero readers across every package before removal.
+- **BREAKING (no migration shim).** The `@noy-db/hub/bundle` subpath is removed, and with it the entire `src/legacy/` folder. Its surface has permanent homes: `.noydb` artifact ops on `@noy-db/hub/pod`, partition-transfer ops (extract **and** adopt) plus their option/result types and errors on `@noy-db/hub/cargo`. Nothing is orphaned — the promotion completed in #812/#820 before this cut. `/cargo`'s internal re-export floor moved from `src/legacy/kernel.ts` to `src/with-cargo/floor.ts` (unpublished either way). Consumers still on `/bundle`: import from `/pod` or `/cargo`; the symbol names are unchanged.
+
+### Patch Changes
+
+- `closePeriod` (and the other `_periods` summary writes) now mark the record dirty, so a closure made on a device with its own local store **pushes** to the shared store instead of staying put (#822). Period-scoped pull (#807) already treated `_periods` as always-sync — it is the navigation index a thin client needs first — so pull symmetry without push symmetry meant other devices could never see the closure. The other three reserved period collections stay device-local by design: freezes are marker-convergence state, archives record a per-deployment hot→cold relocation, and target-purges describe the very targets they would be pushed to.
+
 ## 0.4.0-pre.1
 
 ### Minor Changes

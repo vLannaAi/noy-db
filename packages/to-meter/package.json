@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/to-meter",
-  "version": "0.4.0-pre.1",
+  "version": "0.4.0-pre.2",
   "description": "Pass-through meter for @noy-db/to-* stores — wraps any NoydbStore and records per-method latency percentiles, error rates, and byte counts on real traffic. Optional synthetic liveness probe emits degraded / restored events. No synthetic benchmarks (see @noy-db/to-probe for that) — this measures what your app is actually doing.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
