@@ -26,7 +26,16 @@ yarn create noy-db my-app
 bun  create noy-db my-app
 ```
 
-The wizard asks at most 3 questions (project name, adapter, include sample data) and writes a complete Nuxt 4 + Pinia + `@noy-db/in-nuxt` starter into `./my-app/`. Nothing is installed automatically — pick your package manager and run it yourself.
+The wizard asks at most 5 questions — project name, adapter, sample data, starter template, and sync adapter — then writes a complete starter into `./my-app/`. Nothing is installed automatically: pick your package manager and run it yourself (the wizard closes by printing `cd <project>`, `pnpm install`, `pnpm dev`).
+
+Four starter templates ship in the package:
+
+| Template | Stack | Why pick it |
+|---|---|---|
+| `nuxt-default` | Nuxt 4 + Pinia | SSR + file-based routing — **the default** |
+| `vite-vue` | Vite + Vue 3 + Pinia | Client-side SPA, shorter install graph |
+| `vanilla` | Vite + TypeScript | No framework, smallest footprint |
+| `electron` | Electron + Vue 3 | Desktop app with the `to-file` adapter — USB workflow |
 
 Skip the prompts with `--yes`:
 
@@ -269,7 +278,6 @@ Everything stored is encrypted with AES-256-GCM before it touches the adapter. T
 These are explicit non-goals:
 
 - **Thai i18n** of the wizard prompts ([#36](https://github.com/vLannaAi/noy-db/issues/36))
-- **Non-Nuxt templates** — no Vite/Vue standalone, no Electron, no vanilla ([#39](https://github.com/vLannaAi/noy-db/issues/39))
 - **`noy-db seed`** — needs a design decision about how seed scripts authenticate
 - **S3 backup targets** — would bundle `@aws-sdk` into this package and break the zero-runtime-deps story; lives in a companion package instead
 - **`noy-db restore <file>`** — paired with the existing `compartment.load()` + integrity check; deferred so it can be designed alongside future identity/session work
