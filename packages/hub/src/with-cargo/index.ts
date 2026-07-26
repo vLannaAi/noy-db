@@ -39,6 +39,18 @@ export { NO_CARGO } from './strategy.js'
 export type { CargoStrategy } from './strategy.js'
 export { CargoNotEnabledError } from '../kernel/errors.js'
 
+// Partition transfer (#812): the interchange helpers klum-db's lobby binds,
+// promoted from the transitional /bundle subpath so the orchestrator's last
+// /bundle imports can move here and src/legacy/ can retire. extractPartition
+// is capability-gated (withCargo(), see the opt-in seam above); walkClosure /
+// describeExtraction / decryptExtractedPartition are ungated host-side.
+export { extractPartition } from './extract-partition.js'
+export { walkClosure } from './walk-closure.js'
+export { describeExtraction } from './describe-extraction.js'
+export { decryptExtractedPartition } from './decrypt-partition.js'
+export type { ExtractionPreview } from './describe-extraction.js'
+export type { DecryptedRecord } from './decrypt-partition.js'
+
 // Change observation.
 export type { WriteHook } from '../port/with/write-hooks.js'
 export type { WriteQueue } from '../kernel/write-queue.js'

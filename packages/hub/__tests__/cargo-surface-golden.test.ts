@@ -25,8 +25,8 @@ import { fileURLToPath } from 'node:url'
 import * as cargo from '../src/with-cargo/index.js'
 import type {
   AccessibleVault, AggregateResult, AggregateSpec, ChangeEvent, Collection,
-  CollectionMeta, CoordinationProvider, DeedMarker, DrainBarrierOptions,
-  FenceState, FuseOptions, GrantCustodianOptions, IndexDef, JoinStrategy,
+  CollectionMeta, CoordinationProvider, DecryptedRecord, DeedMarker, DrainBarrierOptions,
+  ExtractionPreview, FenceState, FuseOptions, GrantCustodianOptions, IndexDef, JoinStrategy,
   LiberateOptions, LiberateResult, LiveAggregation, LiveQuery, Noydb, Operator,
   Query, RetrieveHit, RetrieveOptions, SealingKeyProvider, Unsubscribe, Vault,
   VaultMeta, WriteConflict, WriteHook, WriteQueue, WriterPresence,
@@ -95,7 +95,8 @@ describe('@noy-db/hub/cargo — golden export surface', () => {
 type _FrozenTypes = [
   AccessibleVault, AggregateResult<AggregateSpec>, AggregateSpec, ChangeEvent,
   Collection<Record<string, unknown>>, CollectionMeta, CoordinationProvider,
-  DeedMarker, DrainBarrierOptions, FenceState, FuseOptions, GrantCustodianOptions,
+  DecryptedRecord, DeedMarker, DrainBarrierOptions, ExtractionPreview,
+  FenceState, FuseOptions, GrantCustodianOptions,
   IndexDef, JoinStrategy, LiberateOptions, LiberateResult,
   LiveAggregation<Record<string, unknown>>, LiveQuery<Record<string, unknown>>,
   Noydb, Operator, Query<Record<string, unknown>>, RetrieveHit<Record<string, unknown>>,
