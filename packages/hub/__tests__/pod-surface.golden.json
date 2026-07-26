@@ -20,6 +20,7 @@
     "createPodStore",
     "encodeBundleHeader",
     "generateULID",
+    "hasNoydbBundleMagic",
     "isULID",
     "readNoydbBundle",
     "readNoydbBundleHeader",

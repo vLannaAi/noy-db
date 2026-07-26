@@ -43,6 +43,10 @@ export {
   COMPRESSION_BROTLI,
   validateBundleHeader,
   encodeBundleHeader,
+  // #820: the magic-bytes predicate belongs beside NOYDB_BUNDLE_MAGIC —
+  // klum's multi-bundle reader needed it and had to keep a root-barrel
+  // import alive for this one symbol.
+  hasNoydbBundleMagic,
 } from './format.js'
 export type {
   CompressionAlgo,
