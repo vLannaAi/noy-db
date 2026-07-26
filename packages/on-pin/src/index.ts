@@ -60,10 +60,45 @@
  * const keyring = await resumePin(state, { pin: '1234' })
  * ```
  *
+ * ## The second mode: device-trust
+ *
+ * This package also ships the **device-trust** session-resume mode
+ * ("always safe to open on this device") — the session DEKs wrapped
+ * under a non-extractable device-bound CryptoKey persisted in
+ * IndexedDB, so the vault reopens with no user factor at all. See
+ * `device-trust.ts` for the API (`enrollDeviceTrust` /
+ * `resumeDeviceTrust`) and its explicit threat model (the OS lock
+ * screen IS the factor).
+ *
  * @packageDocumentation
  */
 
-import type { Role, Permissions, UnlockedKeyring } from '@noy-db/hub'
+import type { UnlockedKeyring } from '@noy-db/hub'
+import { serializeKeyring, deserializeKeyring, bytesToBase64, base64ToBytes } from './keyring-codec.js'
+
+// ─── Device-trust mode (see device-trust.ts) ────────────────────────────
+
+export {
+  enrollDeviceTrust,
+  resumeDeviceTrust,
+  clearDeviceTrust,
+  isDeviceTrustEnrolled,
+  indexedDbDeviceTrustStore,
+  DEVICE_TRUST_GATE,
+  DEVICE_TRUST_DEFAULT_RESUME_TIER,
+  DeviceTrustNotFoundError,
+  DeviceTrustEnrollmentError,
+  DeviceTrustInvalidError,
+  DeviceTrustStorageError,
+} from './device-trust.js'
+export type {
+  DeviceTrustState,
+  DeviceTrustStore,
+  DeviceTrustResumeTier,
+  DeviceTrustResumeResult,
+  EnrollDeviceTrustOptions,
+  DeviceTrustStoreOptions,
+} from './device-trust.js'
 
 // ─── Constants ──────────────────────────────────────────────────────────
 
@@ -297,69 +332,5 @@ async function deriveWrappingKey(
   )
 }
 
-interface SerializedKeyring {
-  userId: string
-  displayName: string
-  role: Role
-  permissions: Permissions
-  salt: string
-  deks: Record<string, string>
-}
-
-async function serializeKeyring(k: UnlockedKeyring): Promise<Uint8Array> {
-  const deks: Record<string, string> = {}
-  for (const [collection, key] of k.deks) {
-    const raw = await crypto.subtle.exportKey('raw', key)
-    deks[collection] = bytesToBase64(new Uint8Array(raw))
-  }
-  const json: SerializedKeyring = {
-    userId: k.userId,
-    displayName: k.displayName,
-    role: k.role,
-    permissions: k.permissions,
-    salt: bytesToBase64(k.salt),
-    deks,
-  }
-  return new TextEncoder().encode(JSON.stringify(json))
-}
-
-async function deserializeKeyring(bytes: Uint8Array): Promise<UnlockedKeyring> {
-  const parsed = JSON.parse(new TextDecoder().decode(bytes)) as SerializedKeyring
-  const deks = new Map<string, CryptoKey>()
-  for (const [coll, b64] of Object.entries(parsed.deks)) {
-    const raw = base64ToBytes(b64)
-    const key = await crypto.subtle.importKey(
-      'raw',
-      raw as BufferSource,
-      { name: 'AES-GCM' },
-      true,
-      ['encrypt', 'decrypt'],
-    )
-    deks.set(coll, key)
-  }
-  return {
-    userId: parsed.userId,
-    displayName: parsed.displayName,
-    role: parsed.role,
-    permissions: parsed.permissions,
-    salt: base64ToBytes(parsed.salt),
-    deks,
-    // KEK is deliberately null — PIN-resume returns a keyring that can
-    // read/write but cannot open additional vaults or rotate keys.
-    kek: null,
-    authenticators: [],
-  }
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let s = ''
-  for (const b of bytes) s += String.fromCharCode(b)
-  return btoa(s)
-}
-
-function base64ToBytes(b64: string): Uint8Array {
-  const s = atob(b64)
-  const out = new Uint8Array(s.length)
-  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i)
-  return out
-}
+// serializeKeyring / deserializeKeyring / base64 helpers live in
+// keyring-codec.ts — shared with the device-trust mode.
