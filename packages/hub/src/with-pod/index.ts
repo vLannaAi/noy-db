@@ -59,3 +59,15 @@ export type {
   WrappedBundleNoydbStore,
   WrapBundleStoreOptions,
 } from './pod-store.js'
+
+// Errors thrown by the artifact/backup paths above (#812), so subpath
+// consumers can `instanceof` them without falling back to the root
+// barrel — the retiring /bundle was their only other published home.
+export {
+  BundleIntegrityError,
+  BundleSealMismatchError,
+  PodVersionConflictError,
+  BundleVersionConflictError,
+  BackupLedgerError,
+  BackupCorruptedError,
+} from '../kernel/errors.js'

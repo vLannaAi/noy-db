@@ -141,9 +141,13 @@ describe('describeExtraction', () => {
     expect(preview.inaccessible).toEqual([])
   })
 
-  it('is exported from the @noy-db/hub/bundle subpath', async () => {
-    const mod = await import('../src/legacy/bundle.js')
+  it('is exported from the @noy-db/hub/cargo seam (and, until retirement, /bundle)', async () => {
+    const mod = await import('../src/with-cargo/index.js')
+    // #812: /bundle re-exports the same symbols until the subpath is
+    // retired; delete the legacy half of this assertion with it.
+    const legacy = await import('../src/legacy/bundle.js')
     expect(typeof mod.describeExtraction).toBe('function')
+    expect(typeof legacy.describeExtraction).toBe('function')
   })
 
   /**
