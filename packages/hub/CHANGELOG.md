@@ -1,5 +1,21 @@
 # Changelog — hub
 
+## 0.4.0-pre.4
+
+### Minor Changes
+
+- **One resolved strategy bag replaces the ~10-site-per-service spine plumbing (#838).**
+
+  Threading one opt-in service through the kernel used to cost about ten mechanical edits across four files and three layers — a field on `NoydbOptions`, a conditional spread at the `new Vault(` site, a field declaration plus constructor parameter plus assignment on `Vault`, a forwarding spread, a field and a re-applied `?? NO_*` default in the collection config, and a field plus assignment on `Collection`. None of it carried logic, and nothing verified that a new service had reached every layer. That missing check is what produced #834: a copy of the Vault option block had silently dropped six strategies, so a vault reached that way threw `*NotEnabledError` for services the caller had in fact configured.
+
+  `createNoydb` now resolves every service once into a `StrategyBag`, and `Noydb` → `Vault` → `Collection` share that one reference. The three layers can no longer disagree about which services are enabled. Twenty-one conditional spreads, twenty-one Vault fields with their constructor plumbing, eleven collection-config fields with nine duplicated `?? NO_*` defaults, and seven Collection fields are gone — 149 lines net, 87 of them out of the three ratcheted spine files, whose ceilings ratchet down accordingly.
+
+  Adding a service is now one row in `StrategyBag` and one row in `STRATEGY_DEFAULTS`, both in a single file; omitting either fails the build and names the key, via two compile-time assertions checked against `NoydbOptions`.
+
+  The table lives on the `/with` port rather than in the kernel, because the port-layering guard allows spine → `port/with/` but not spine → `with-*` — the same reason the existing `NO_*` stubs already lived there. Two services needed adjusting to fit "every key always resolves": `archive` gained a `NO_ARCHIVE` stub (it was the one service held as `undefined` behind a hand-rolled null gate), and `lazy` keeps `IMPLICIT_LAZY` as its floor because an un-opted-in collection still gets a working LRU. `coordinationStrategy` stays out of the bag — it is a `CoordinationProvider` with no `with*()` factory, resolved asynchronously from the store.
+
+  No public API changes. `Noydb.custodyStrategy` and `Vault.cargoStrategy` behave exactly as before but are now getters rather than instance fields, which means they finally appear in the prototype-based kernel API manifest — it could not see them at all previously.
+
 ## 0.4.0-pre.3
 
 ### Minor Changes
