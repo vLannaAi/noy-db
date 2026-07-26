@@ -928,6 +928,23 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     )
   }
 
+  // Guard (#850): `sensitive` promises each field its own `_sealed` slot under
+  // an HKDF-derived per-field key, but the CRDT branch of `_putInternal`
+  // persists through `encryptJsonString` and returns before any sealing runs —
+  // so the fields were silently stored in the ordinary body instead, with no
+  // error. Refuse, matching what embeddings / unique indexes / classified
+  // digest-only (R2) already do for the same underlying reason: the CRDT write
+  // path bypasses the pipeline these options are enforced by. Fail loud rather
+  // than deliver less encryption than the caller asked for.
+  if (opts.sensitive && opts.sensitive.length > 0 && opts.crdt) {
+    throw new Error(
+      `Collection "${opts.name}": sensitive (structural group-encryption) is not supported on ` +
+        `CRDT collections — the CRDT write path bypasses per-field sealing, so the fields would ` +
+        `be stored in the ordinary encrypted body with no \`_sealed\` slot and no per-field key. ` +
+        `Use a non-CRDT collection for sealed fields.`,
+    )
+  }
+
   // #724 I1 — a tiered collection that declares blobFields must opt into
   // perRecordKeys: legacy (non-perRecordKeys) blobs have no per-blob `_cek`,
   // so `rehomeForTier` cannot rewrap/re-put them under a tier DEK on
