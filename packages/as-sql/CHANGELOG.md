@@ -1,5 +1,14 @@
 # @noy-db/as-sql
 
+## 0.4.0-pre.3
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.4.0-pre.3
+
 ## 0.4.0-pre.2
 
 ### Patch Changes

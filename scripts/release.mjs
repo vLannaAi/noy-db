@@ -95,7 +95,35 @@ for (const dir of packageDirs) {
   const before = pkg.version
   pkg.version = canonicalVersion
   writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8')
-  corrected.push({ name: pkg.name, before, after: canonicalVersion })
+  corrected.push({ name: pkg.name, dir, before, after: canonicalVersion })
+}
+
+// ─── 3b. Normalize the CHANGELOG headings changeset already wrote ──────
+//
+// `changeset version` writes the CHANGELOG section title from the version its
+// heuristic computed, which step 3 has just overridden in package.json. Without
+// this pass every corrected package ships a `## 1.0.0-pre.N` heading naming a
+// version that was never published (#827). `corrected` is exactly the
+// before → after map needed; rewrite only the exact heading line.
+
+const headingsFixed = []
+
+for (const { dir, before, after } of corrected) {
+  const changelogPath = join(packagesDir, dir, 'CHANGELOG.md')
+  let text
+  try {
+    text = readFileSync(changelogPath, 'utf8')
+  } catch {
+    // Package has no CHANGELOG (nothing released from it yet) — skip
+    continue
+  }
+
+  const lines = text.split('\n')
+  const fixed = lines.map((line) => (line === `## ${before}` ? `## ${after}` : line))
+  if (fixed.some((line, i) => line !== lines[i])) {
+    writeFileSync(changelogPath, fixed.join('\n'), 'utf8')
+    headingsFixed.push(dir)
+  }
 }
 
 // ─── 4. Report ─────────────────────────────────────────────────────────
@@ -107,6 +135,10 @@ if (corrected.length > 0) {
   }
 } else {
   console.log('[release] No version corrections needed — all packages already match core.')
+}
+
+if (headingsFixed.length > 0) {
+  console.log(`\n[release] Rewrote the CHANGELOG heading to ${canonicalVersion} in ${headingsFixed.length} package(s).`)
 }
 
 if (alreadyCorrect.length > 0) {

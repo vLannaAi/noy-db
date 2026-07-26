@@ -1,5 +1,27 @@
 # Changelog — hub
 
+## 0.4.0-pre.3
+
+### Minor Changes
+
+- **Fixes a silent security downgrade (#850).** Declaring `sensitive: [...]` (structural group-encryption) on a CRDT collection is now refused at construction. It used to be accepted and silently ignored: the CRDT branch of `_putInternal` persists through `encryptJsonString` and returns before any sealing runs, so the listed fields were stored in the ordinary encrypted body — no `_sealed` slot, no HKDF-derived per-field key, no error. Verified empirically: an identical declaration on a non-CRDT collection produced `_sealed: { … }` while the CRDT one produced nothing.
+
+  Not a plaintext leak — the CRDT body remains AES-GCM-encrypted under the collection DEK — but the caller received materially less protection than they asked for, silently. The refusal matches what `embeddings`, `unique` indexes and classified digest-only fields (guard R2) already do for the same underlying reason: the CRDT write path bypasses the pipeline those options are enforced by.
+
+  Also adds guard tests pinning the three combinations that keep the CRDT write-tail divergences unreachable (#835), so relaxing any of those refusals fails loudly and points at the tail that would then need fixing.
+
+- **Every previously-unspellable public type is now nameable, and a CI guard keeps it that way (#837).**
+
+  Fourteen types appeared in public signatures but were exported from **no entry at all**, so a consumer could call the function and had no way to annotate the call: `EnclaveKey`, `EncryptResult`, `DerivationContext`, `RunResult`, `ExtractPartitionOptions`, `TransferSealPayload`, `IssuedChallenge`, `PutDerivedOutputCtx`, `SealedShredSlot`, `LookupBacking`, `MinMaxState`, `PolicyEnforcerOptions`, `TransformFn`, and one that only existed as a leaked local import alias. Each now ships from the entry whose signatures mention it (`EnclaveKey`/`EncryptResult`/`SealedShredSlot`/`IssuedChallenge` route through the enclave barrel, per the fork-swap contract).
+
+  New `pnpm --filter @noy-db/hub check:types`, wired into CI after the build: it walks every subpath's built `.d.ts`, resolves re-export aliases, and fails when a subpath exports a function whose signature names a type that subpath does not export. The 137 remaining gaps — types reachable from another entry, so merely a dual-import annoyance — are baselined and ratcheted; new ones fail the build. `--report` splits unspellable from merely-misplaced, and `--counts` prints per-entry export totals.
+
+- **Fixes a correctness bug (#834), breaking for one call pattern.** `db.vault(name)` no longer constructs a Vault — it returns the instance `openVault()` produced, or throws with an actionable message.
+
+  It previously carried two fallback constructors beside the real open path, and the encrypted one had **silently drifted**: it omitted `attestationStrategy`, `classifiedStrategy`, `portabilityStrategy`, `sealedRecordStrategy`, `sequenceStrategy` and `forgetStrategy`. A vault reached that way threw `*NotEnabledError` for services the caller _had_ configured — the error actively misled, naming a strategy you already passed. Both fallbacks also skipped the async registry init and schema-fence snapshot `openVault` performs, which a synchronous accessor cannot await, so the object they returned was structurally incomplete regardless.
+
+  Callers relying on the auto-open must `await db.openVault(name)` first (the thrown error says so). A test now asserts `noydb.ts` contains exactly **one** `new Vault(` site — that invariant, not review vigilance, is what keeps the drift from recurring.
+
 ## 0.4.0-pre.2
 
 ### Minor Changes
