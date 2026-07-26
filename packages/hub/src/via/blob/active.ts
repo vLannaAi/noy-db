@@ -60,7 +60,8 @@ export interface BlobsService extends BlobStrategy {
  * })
  *
  * // Now live — delegates to BlobSet.
- * await db.vault('acme').collection('invoices').blob('inv-1').put('receipt.pdf', bytes)
+ * const vault = await db.openVault('acme')
+ * await vault.collection('invoices').blob('inv-1').put('receipt.pdf', bytes)
  * ```
  */
 export function withBlobs(options: WithBlobsOptions = {}): BlobsService {
