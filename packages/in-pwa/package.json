@@ -1,0 +1,59 @@
+{
+  "name": "@noy-db/in-pwa",
+  "version": "0.4.0-pre.1",
+  "description": "PWA shell helpers for noy-db — storage persistence with a clear grant/deny signal, fail-closed eviction guard for the local vault, install-prompt capture, display-mode context detection, online/offline watcher, and the app-shell service-worker recipe.",
+  "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/in-pwa#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vLannaAi/noy-db.git",
+    "directory": "packages/in-pwa"
+  },
+  "bugs": {
+    "url": "https://github.com/vLannaAi/noy-db/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@noy-db/hub": "workspace:*"
+  },
+  "devDependencies": {
+    "@noy-db/hub": "workspace:*",
+    "@noy-db/to-memory": "workspace:*"
+  },
+  "keywords": [
+    "noy-db",
+    "in-pwa",
+    "pwa",
+    "offline",
+    "persistence",
+    "service-worker"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "tag": "latest"
+  }
+}
