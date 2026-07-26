@@ -1,4 +1,4 @@
-import type { NoydbStore, KeyringFile, KeyringAuthenticator, Role, Permissions, GrantOptions, RevokeOptions, UpdateUserOptions, UserInfo, EncryptedEnvelope, ExportCapability, ExportFormat, ImportCapability, VaultPolicyOnDisk, UserEnvelope as UserEnvelopeReader } from '../../kernel/types.js'
+import type { NoydbStore, KeyringFile, KeyringAuthenticator, Role, Permissions, GrantOptions, RevokeOptions, UpdateUserOptions, UserInfo, EncryptedEnvelope, ExportCapability, ExportFormat, ImportCapability, VaultPolicyOnDisk, UserEnvelope } from '../../kernel/types.js'
 import { NOYDB_KEYRING_VERSION, NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { USER_ENVELOPE_COLLECTION } from '../../kernel/constants.js'
 import {
@@ -1195,7 +1195,7 @@ export async function listUsersWithEnvelopes<T = unknown>(
   userEnvelopeDek: EnclaveKey,
   callerRole: Role,
   options: ListUsersOptions = {},
-): Promise<Array<{ user: UserInfo; envelope: UserEnvelopeReader<T> | null }>> {
+): Promise<Array<{ user: UserInfo; envelope: UserEnvelope<T> | null }>> {
   // FR-6: custodian is INTENTIONALLY treated as NON-privileged here (SAFER
   // default — review flag). Directory-privilege is a team-MANAGEMENT capability
   // (bypassing the visibility toggle + listing hidden principals); a custodian
@@ -1217,7 +1217,7 @@ export async function listUsersWithEnvelopes<T = unknown>(
   }
 
   const users = await listUsers(adapter, vault)
-  const out: Array<{ user: UserInfo; envelope: UserEnvelopeReader<T> | null }> = []
+  const out: Array<{ user: UserInfo; envelope: UserEnvelope<T> | null }> = []
   for (const user of users) {
     if (!options.includeHidden) {
       const visibility = await readUserVisibility(adapter, vault, user.userId)

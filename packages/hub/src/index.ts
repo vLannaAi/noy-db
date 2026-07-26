@@ -1173,3 +1173,12 @@ export { SearchNotEnabledError } from './kernel/errors.js'
 // #764: a stuck persisted search-index compensation (a failed compensating
 // remove() of a stale _ftindex blob) — callers can catch this deliberately.
 export { PersistedIndexCompensationError } from './kernel/errors.js'
+
+// #837 — types named by this barrel's own public signatures that were
+// previously unspellable (exported from no entry at all). The
+// type-reachability guard now fails the build when a new one appears.
+export type { EnclaveKey, EncryptResult } from './kernel/enclave/index.js'
+export type { LookupBacking } from './via/lookup/descriptor.js'
+export type { MinMaxState } from './with-lookup/aggregate/reducers.js'
+export type { PolicyEnforcerOptions } from './with-party/session/session-policy.js'
+export type { TransformFn } from './with-shape/schema-update/types.js'

@@ -119,6 +119,12 @@ jobs:
       - name: Bundle check (hub)
         run: pnpm --filter @noy-db/hub bundle-check
 
+      # #837 — every subpath must export the types its own signatures name.
+      # Runs here because the check reads the BUILT .d.ts surface (what a
+      # consumer actually resolves), not the source.
+      - name: Type reachability (hub subpaths)
+        run: pnpm --filter @noy-db/hub check:types
+
   # ── Test (dev CI) ────────────────────────────────────────────────────
   # Single flake-free runtime (node 24) for fast PR feedback. The full
   # node 22 + 24 matrix AND the cross-OS interop run pre-publish in

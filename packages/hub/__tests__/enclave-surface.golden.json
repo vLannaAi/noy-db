@@ -1,5 +1,5 @@
 {
-  "subpath": "kernel/enclave (internal — not a @noy-db/hub/* subpath)",
+  "subpath": "kernel/enclave (internal \u2014 not a @noy-db/hub/* subpath)",
   "source": "src/kernel/enclave/index.ts",
   "values": [
     "RecordCodec",
@@ -69,6 +69,7 @@
     "BrokerProofCanonicalParts",
     "DeterministicContext",
     "EnclaveKey",
+    "EncryptResult",
     "IssuedChallenge",
     "PassphraseKeyUsage",
     "RewrappedBody",

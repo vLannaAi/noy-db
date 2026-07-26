@@ -926,3 +926,6 @@ export function classifySealedShred<T>(
 ): Promise<{ readonly slots: readonly SealedShredSlot[] }> {
   return ctx.codec.classifySealedShred(live)
 }
+
+// #837 — classifySealedShred's slot type must be nameable from this entry.
+export type { SealedShredSlot } from '../../kernel/enclave/index.js'

@@ -51,3 +51,6 @@ export function issueChallenge(opts?: { ttlMs?: number }): IssuedChallenge {
 }
 export { verifyBrokerProof }
 export type { VerifyBrokerProofArgs }
+
+// #837 — issueChallenge's return type must be nameable from this entry.
+export type { IssuedChallenge } from '../../kernel/enclave/index.js'

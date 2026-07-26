@@ -56,7 +56,7 @@
  */
 
 // ─── key type ──────────────────────────────────────────────────────
-export type { EnclaveKey } from './crypto.js'
+export type { EnclaveKey, EncryptResult } from './crypto.js'
 
 // ─── crypto ops ────────────────────────────────────────────────────
 export {
