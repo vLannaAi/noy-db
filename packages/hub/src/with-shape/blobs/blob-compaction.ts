@@ -31,6 +31,7 @@
 
 import type { NoydbStore, EncryptedEnvelope, SlotInfo } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
+import { ValidationError } from '../../kernel/errors.js'
 import { encrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
 
 // ─── Config types ───────────────────────────────────────────────────────
@@ -115,7 +116,8 @@ export interface BlobEvictionEntry {
   readonly recordId: string
   readonly slotName: string
   readonly blobHash: string
-  readonly reason: 'ttl' | 'predicate' | 'both'
+  /** `'budget'` — evicted by the #808 cache-budget LRU pass, not a policy. */
+  readonly reason: 'ttl' | 'predicate' | 'both' | 'budget'
   readonly evictedAt: string
   readonly actor: string
 }
@@ -123,19 +125,35 @@ export interface BlobEvictionEntry {
 // ─── Compaction result ──────────────────────────────────────────────────
 
 export interface CompactionResult {
-  /** Number of blob slots evicted across all collections. */
+  /** Number of blob slots evicted by the policy pass across all collections. */
   readonly evicted: number
   /** Number of records touched (iterated + policy checked). */
   readonly records: number
   /** Number of collections with `blobFields` configured. */
   readonly collections: number
-  /** Number of audit entries written. Equal to `evicted`. */
+  /**
+   * Number of audit entries written — one per policy eviction plus one per
+   * budget SLOT eviction (dropping a device-local cache copy writes none).
+   */
   readonly auditEntries: number
   /**
    * Number of slots that would have evicted (TTL/predicate triggered)
    * but were retained by a `legalHold` or `retainUntil` floor.
    */
   readonly held: number
+  /**
+   * #808: number of slots whose due policy eviction was skipped because they
+   * are pinned for offline on THIS device (pin state is device-local).
+   */
+  readonly pinned: number
+  /**
+   * #808: number of evictions performed by the `cacheBudget` LRU pass —
+   * internal slots evicted through the standard eviction writer plus
+   * device-local external cache copies dropped. 0 when no budget was given.
+   */
+  readonly budgetEvicted: number
+  /** #808: plaintext bytes freed by the `cacheBudget` LRU pass. */
+  readonly budgetBytesFreed: number
   /** Per-collection breakdown for diagnostics. */
   readonly byCollection: Record<string, { records: number; evicted: number }>
 }
@@ -156,6 +174,20 @@ export interface CompactRunOptions {
    * what would happen.
    */
   readonly dryRun?: boolean
+  /**
+   * #808 mobile cache budget: cap the locally-cached UNPINNED blob bytes.
+   * After the policy pass, a dedicated LRU pass walks every collection's
+   * slots (pinned slots and `legalHold`/`retainUntil`-held slots are exempt
+   * and uncounted) and evicts oldest-access-first — internal slots through
+   * the standard eviction writer (`deleteSlot` + a `'budget'` audit entry),
+   * external slots by dropping their device-local encrypted cache copy only
+   * (the object-store copy is authoritative and untouched) — until the
+   * remaining unpinned bytes fit `maxBytes`. Internal slots count their
+   * uncompressed `size`; external slots count `cachedBytes` (0 = nothing
+   * local, nothing to evict). LRU order comes from the device-local
+   * `lastAccessAt` stamp, falling back to `uploadedAt`.
+   */
+  readonly cacheBudget?: { readonly maxBytes: number }
 }
 
 export interface CompactionContext {
@@ -180,6 +212,13 @@ export interface CompactionContext {
   readonly listSlots: (collection: string, id: string) => Promise<SlotInfo[]>
   /** Delete a slot and decrement its blob's refCount. */
   readonly deleteSlot: (collection: string, id: string, slotName: string) => Promise<void>
+  /**
+   * #808: drop a slot's DEVICE-LOCAL cached copy (the encrypted external
+   * side-cache) without touching the slot or the object store. Returns the
+   * plaintext bytes freed. Optional — absent (or a 0 return) means external
+   * cache entries simply cannot be budget-evicted through this context.
+   */
+  readonly dropLocalCache?: (collection: string, id: string, slotName: string) => Promise<number>
 }
 
 export async function runCompaction(
@@ -189,6 +228,10 @@ export async function runCompaction(
   const now = options.now ?? new Date()
   const maxEvictions = options.maxEvictions ?? Infinity
   const dryRun = options.dryRun === true
+  if (options.cacheBudget !== undefined
+    && (!Number.isFinite(options.cacheBudget.maxBytes) || options.cacheBudget.maxBytes < 0)) {
+    throw new ValidationError('compact(): cacheBudget.maxBytes must be a non-negative finite number (#808)')
+  }
 
   const allCollections = await ctx.listCollections()
   const byCollection: Record<string, { records: number; evicted: number }> = {}
@@ -196,6 +239,7 @@ export async function runCompaction(
   let records = 0
   let auditEntries = 0
   let held = 0
+  let pinned = 0
   let collectionsWithPolicy = 0
 
   outer: for (const collectionName of allCollections) {
@@ -225,6 +269,15 @@ export async function runCompaction(
         const reason = evaluatePolicy(policy, record, slot, now)
         if (!reason) continue
 
+        // #808: device-local offline pin — an exemption inside this existing
+        // pass, exactly like a hold: counted, never evicted. `slot.pinned` is
+        // the device-local annotation `BlobSet.list()` stamps from the
+        // withBlobs() pin registry (never synced state).
+        if (slot.pinned === true) {
+          pinned += 1
+          continue
+        }
+
         // Retention floor: a legal hold or period-bound retainUntil
         // blocks an otherwise-due eviction. Counted, never evicted.
         if (isHeld(policy, record, now)) {
@@ -252,14 +305,128 @@ export async function runCompaction(
     }
   }
 
+  // #808: cache-budget LRU pass — runs AFTER the policy pass so a slot that
+  // just evicted no longer counts toward the budget. Reuses this module's own
+  // eviction writer (deleteSlot + audit), never a parallel one.
+  let budgetEvicted = 0
+  let budgetBytesFreed = 0
+  if (options.cacheBudget !== undefined) {
+    const pass = await runBudgetPass(ctx, options.cacheBudget.maxBytes, {
+      now, dryRun, remainingEvictions: maxEvictions - evicted,
+    })
+    budgetEvicted = pass.evicted
+    budgetBytesFreed = pass.bytesFreed
+    auditEntries += pass.auditEntries
+  }
+
   return {
     evicted,
     records,
     collections: collectionsWithPolicy,
     auditEntries,
     held,
+    pinned,
+    budgetEvicted,
+    budgetBytesFreed,
     byCollection,
   }
+}
+
+// ─── #808: cache-budget LRU pass ───────────────────────────────────────
+
+interface BudgetCandidate {
+  readonly collection: string
+  readonly recordId: string
+  readonly slotName: string
+  readonly eTag: string
+  readonly bytes: number
+  /** `'slot'` — internal blob, evicted via `deleteSlot`; `'cache'` — external device-local copy, dropped via `dropLocalCache`. */
+  readonly kind: 'slot' | 'cache'
+  readonly lastAccessMs: number
+}
+
+/**
+ * Enforce `cacheBudget.maxBytes` over the locally-cached UNPINNED blob bytes
+ * (see {@link CompactRunOptions.cacheBudget} for the full contract). Walks
+ * EVERY collection — unlike the policy pass, the budget is not gated on a
+ * declared `blobFields` config — but still honors a declared policy's
+ * `legalHold`/`retainUntil` floor where one exists.
+ */
+async function runBudgetPass(
+  ctx: CompactionContext,
+  maxBytes: number,
+  opts: { now: Date; dryRun: boolean; remainingEvictions: number },
+): Promise<{ evicted: number; bytesFreed: number; auditEntries: number }> {
+  const candidates: BudgetCandidate[] = []
+  let total = 0
+
+  for (const collectionName of await ctx.listCollections()) {
+    if (collectionName.startsWith('_')) continue
+    const config = ctx.getBlobFields(collectionName)
+    for (const recordId of await ctx.listRecords(collectionName)) {
+      const slots = await ctx.listSlots(collectionName, recordId).catch(() => [])
+      if (slots.length === 0) continue
+      // The record is only needed to evaluate a declared policy's retention
+      // floor — skip the decrypt entirely for policy-less collections.
+      const record = config
+        ? await ctx.getRecord<unknown>(collectionName, recordId).catch(() => null)
+        : null
+      for (const slot of slots) {
+        if (slot.pinned === true) continue // pinned: exempt AND uncounted (#808)
+        const policy = config?.[slot.name]
+        if (policy && record !== null && isHeld(policy, record, opts.now)) continue // floor blocks budget too
+        const lastAccessMs = Date.parse(slot.lastAccessAt ?? slot.uploadedAt) || 0
+        const isExternal = slot.external !== undefined
+        const bytes = isExternal ? slot.cachedBytes ?? 0 : slot.size
+        if (bytes <= 0) continue // external with no local copy: nothing cached to evict
+        total += bytes
+        candidates.push({
+          collection: collectionName, recordId, slotName: slot.name, eTag: slot.eTag,
+          bytes, kind: isExternal ? 'cache' : 'slot', lastAccessMs,
+        })
+      }
+    }
+  }
+
+  // Oldest access first; deterministic tiebreak so equal timestamps (common
+  // within one ms) never make the eviction order flap between runs.
+  candidates.sort((a, b) =>
+    a.lastAccessMs - b.lastAccessMs
+    || a.collection.localeCompare(b.collection)
+    || a.recordId.localeCompare(b.recordId)
+    || a.slotName.localeCompare(b.slotName))
+
+  let evicted = 0
+  let bytesFreed = 0
+  let auditEntries = 0
+  for (const c of candidates) {
+    if (total <= maxBytes || evicted >= opts.remainingEvictions) break
+    if (!opts.dryRun) {
+      if (c.kind === 'slot') {
+        await ctx.deleteSlot(c.collection, c.recordId, c.slotName)
+        await writeAuditEntry(ctx, {
+          id: generateEvictionId(c.collection, c.recordId, c.slotName),
+          collection: c.collection,
+          recordId: c.recordId,
+          slotName: c.slotName,
+          blobHash: c.eTag,
+          reason: 'budget',
+          evictedAt: opts.now.toISOString(),
+          actor: ctx.actor,
+        })
+        auditEntries += 1
+      } else {
+        // Device-local cache drop only — the slot (catalog) and the
+        // object-store copy are untouched, so no eviction audit entry.
+        await ctx.dropLocalCache?.(c.collection, c.recordId, c.slotName)
+      }
+    }
+    evicted += 1
+    bytesFreed += c.bytes
+    total -= c.bytes
+  }
+
+  return { evicted, bytesFreed, auditEntries }
 }
 
 /**

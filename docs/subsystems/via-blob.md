@@ -56,8 +56,103 @@ literal — every knob is optional (`{}` is a valid, no-op policy):
   `'none'` means no backlink.
 
 Run eviction with `vault.compact()`, which returns a `CompactionResult` — `evicted`, `records`,
-`collections`, `auditEntries`, `held`, and a per-collection `byCollection: Record<string, {
-records, evicted }>` breakdown (`packages/hub/src/with-shape/blobs/blob-compaction.ts`).
+`collections`, `auditEntries`, `held`, `pinned`, `budgetEvicted`, `budgetBytesFreed`, and a
+per-collection `byCollection: Record<string, { records, evicted }>` breakdown
+(`packages/hub/src/with-shape/blobs/blob-compaction.ts`).
+
+## Mobile blob strategy — offline pinning + cache budget (#808)
+
+On top of the on-demand read path, blobs carry a client-intent layer for
+mobile/offline consumers: **"keep this document offline"** per slot, plus a
+size-budgeted LRU for everything else.
+
+### Pin / unpin
+
+```ts
+const blob = scans.blob('s1')
+await blob.pin('image')            // eager download (call while online) + eviction exemption
+await blob.isPinned('image')       // → true
+await blob.unpin('image')          // back to the normal lifecycle
+```
+
+- **Eager download.** Pinning an unfetched slot fetches it immediately: an internal
+  blob's chunks are read once to prove they are locally available; an `external`
+  slot's bytes are fetched from the object store into a local encrypted side-cache.
+- **Eviction exemption.** A pinned slot is skipped by BOTH `vault.compact()` passes —
+  the `blobFields` policy pass (counted in `CompactionResult.pinned`) and the
+  `cacheBudget` LRU pass (not even counted toward the budget). `unpin()` returns the
+  slot to the normal lifecycle.
+- **Device-local, never synced.** Pin state lives in the `withBlobs()` **pin
+  registry**, never in the vault store — each device pins for itself. The default
+  registry is in-memory (pins last one app session); pass a durable, device-local
+  backend to keep them across restarts:
+
+```ts
+import { withBlobs, type BlobPinStore } from '@noy-db/hub/blobs'
+const blobStrategy = withBlobs({ pinStore: myIdbBackedPinStore }) // 4-method BlobPinStore
+```
+
+The hub itself ships only the in-memory default — it has no device-persistence
+layer of its own (persistence backends are the `to-*` family), so a production
+mobile/web app supplies an IndexedDB/SQLite-backed `BlobPinStore`.
+
+### Cache budget (LRU)
+
+```ts
+await vault.compact({ cacheBudget: { maxBytes: 50 * 1024 * 1024 } })
+```
+
+After the policy pass, a dedicated budget pass inside the SAME compaction run
+walks every collection's slots and evicts **oldest-access-first** until the
+locally-cached **unpinned** bytes fit `maxBytes`:
+
+- internal slots evict through the standard eviction writer (`delete()` + a
+  `'budget'`-reason audit entry) and count their uncompressed `size`;
+- `external` slots only drop their **device-local cached copy** (the object-store
+  copy is authoritative and untouched) and count `cachedBytes`;
+- pinned slots and `legalHold`/`retainUntil`-held slots are exempt and uncounted.
+
+LRU order comes from the device-local last-read stamp (`SlotInfo.lastAccessAt`,
+maintained by `get()`), falling back to `uploadedAt`. Results land in
+`CompactionResult.budgetEvicted` / `budgetBytesFreed`; `dryRun: true` previews.
+
+### Offline read taxonomy
+
+`get()` never hangs and never silently returns an empty file:
+
+| State | internal (chunked) | `external: true` |
+|---|---|---|
+| pinned | readable (chunks local, eviction-exempt) | readable (encrypted local copy) |
+| unpinned + cached | readable | readable (reads auto-populate the local cache) |
+| unpinned + cold + offline | `BlobOfflineError` (chunk absent from the local store) | `BlobOfflineError` (no local copy, object store unreachable) |
+
+`BlobOfflineError` (`code: 'BLOB_OFFLINE'`, fields `collection`/`recordId`/`slotName`,
+original network failure as `cause`) means "exists, just not here right now" — UIs
+render *available when online*. A genuinely absent slot stays `null`; a genuinely
+deleted external object (fetch succeeded, nothing there) stays `null` too.
+
+### External pins — encryption posture
+
+An `external: true` slot's object-store copy sits **outside the zero-knowledge
+envelope by design** (raw, servable). The local pinned/cached copy does NOT: it is
+AES-256-GCM-encrypted under the vault's `_blob` DEK through the same enclave path
+that encrypts blob chunks (`encryptBytesWithAAD`, AAD-bound to the registry row's
+key) before it touches the pin registry. A stolen device store therefore leaks
+nothing the vault store wouldn't; plaintext bytes never rest in the registry. On an
+unencrypted vault (`encrypt: false`) the copy is stored base64-plain, mirroring the
+envelope convention.
+
+### KPI counters
+
+```ts
+const blobStrategy = withBlobs()
+// … reads happen …
+blobStrategy.cacheStats() // → { hits, misses, bytesDownloaded }
+```
+
+Local reads (internal chunks, cached external copies) count as `hits`; object-store
+fetches count as `misses` and add to `bytesDownloaded` — the number a 4G-budget
+demo charts. Counters are per-`withBlobs()`-instance (per device), like the registry.
 
 ## Query posture — `queryable: 'none'`: a NEW refusal (not parity)
 

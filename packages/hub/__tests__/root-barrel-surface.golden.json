@@ -15,6 +15,7 @@
     "BackupCorruptedError",
     "BackupLedgerError",
     "BlobIntentPendingError",
+    "BlobOfflineError",
     "BlobSet",
     "BundleIntegrityError",
     "BundleSealMismatchError",

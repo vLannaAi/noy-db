@@ -1032,7 +1032,11 @@ const KERNEL_SURFACE_BUDGET = {
   // getCover is the canonical method; getPublicEnvelope remains as a
   // @deprecated one-line delegator for one pre-release window, then this
   // ceiling ratchets back down with it.
-  'packages/hub/src/kernel/vault.ts': 3964,
+  // Bumped 3964→3965 (#808 blob pinning + cache budget): compact()'s
+  // CompactionContext gains ONE thin `dropLocalCache` closure line so the
+  // budget pass can drop device-local external cache copies; all the
+  // pin/budget machinery itself lives in with-shape/blobs/ behind withBlobs().
+  'packages/hub/src/kernel/vault.ts': 3965,
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
