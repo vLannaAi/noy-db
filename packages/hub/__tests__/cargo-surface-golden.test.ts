@@ -25,7 +25,10 @@ import { fileURLToPath } from 'node:url'
 import * as cargo from '../src/with-cargo/index.js'
 import type {
   AccessibleVault, AggregateResult, AggregateSpec, ChangeEvent, Collection,
-  CollectionMeta, CoordinationProvider, DecryptedRecord, DeedMarker, DrainBarrierOptions,
+  AdoptPartitionOptions, AdoptPartitionResult, ClosureResult, CollectionMeta,
+  CoordinationProvider, CreateOwnerManagedOptions, CreateOwnerOptions, CreateOwnerResult,
+  CreateOwnerStandardOptions, DanglingRefNotice, DecryptedRecord, DeedMarker, DrainBarrierOptions,
+  ExtractPartitionResult, WalkClosureOptions,
   ExtractionPreview, FenceState, FuseOptions, GrantCustodianOptions, IndexDef, JoinStrategy,
   LiberateOptions, LiberateResult, LiveAggregation, LiveQuery, Noydb, Operator,
   Query, RetrieveHit, RetrieveOptions, SealingKeyProvider, Unsubscribe, Vault,
@@ -95,7 +98,10 @@ describe('@noy-db/hub/cargo — golden export surface', () => {
 type _FrozenTypes = [
   AccessibleVault, AggregateResult<AggregateSpec>, AggregateSpec, ChangeEvent,
   Collection<Record<string, unknown>>, CollectionMeta, CoordinationProvider,
-  DecryptedRecord, DeedMarker, DrainBarrierOptions, ExtractionPreview,
+  AdoptPartitionOptions, AdoptPartitionResult, ClosureResult,
+  CreateOwnerManagedOptions, CreateOwnerOptions, CreateOwnerResult, CreateOwnerStandardOptions,
+  DanglingRefNotice, DecryptedRecord, DeedMarker, DrainBarrierOptions, ExtractPartitionResult,
+  ExtractionPreview, WalkClosureOptions,
   FenceState, FuseOptions, GrantCustodianOptions,
   IndexDef, JoinStrategy, LiberateOptions, LiberateResult,
   LiveAggregation<Record<string, unknown>>, LiveQuery<Record<string, unknown>>,

@@ -146,8 +146,12 @@ describe('full ceremony end-to-end', () => {
 })
 
 describe('bundle subpath export', () => {
-  it('is exported from the @noy-db/hub/bundle subpath', async () => {
-    const mod = await import('../src/legacy/bundle.js')
+  it('is exported from the @noy-db/hub/cargo seam (and, until retirement, /bundle)', async () => {
+    const mod = await import('../src/with-cargo/index.js')
+    // #812: /bundle re-exports the same symbols until the subpath is
+    // retired; delete the legacy half of this assertion with it.
+    const legacy = await import('../src/legacy/bundle.js')
     expect(typeof mod.createOwnerOnAdoptedPartition).toBe('function')
+    expect(typeof legacy.createOwnerOnAdoptedPartition).toBe('function')
   })
 })

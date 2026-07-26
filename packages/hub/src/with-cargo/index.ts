@@ -50,6 +50,25 @@ export { describeExtraction } from './describe-extraction.js'
 export { decryptExtractedPartition } from './decrypt-partition.js'
 export type { ExtractionPreview } from './describe-extraction.js'
 export type { DecryptedRecord } from './decrypt-partition.js'
+// Each promoted op's own option/result types — a caller can name what it
+// passes and what it gets back without reaching for the retiring /bundle.
+export type { WalkClosureOptions, ClosureResult, DanglingRefNotice } from './walk-closure.js'
+export type { ExtractPartitionResult } from './extract-partition.js'
+// The adopt half. Extraction without adoption is half the transfer story
+// (see docs/services/transferable-partitions.md) — both ends of the
+// ceremony belong on the same seam.
+export { adoptPartition, unsealDeks, createOwnerOnAdoptedPartition } from './adopt-partition.js'
+export type {
+  AdoptPartitionOptions,
+  AdoptPartitionResult,
+  CreateOwnerResult,
+  CreateOwnerOptions,
+  CreateOwnerStandardOptions,
+  CreateOwnerManagedOptions,
+} from './adopt-partition.js'
+// Errors thrown by the transfer ops above, so consumers can `instanceof`
+// them without falling back to the root barrel.
+export { TransferSealError, AdoptionStateError, PartitionExtractionError } from '../kernel/errors.js'
 
 // Change observation.
 export type { WriteHook } from '../port/with/write-hooks.js'
