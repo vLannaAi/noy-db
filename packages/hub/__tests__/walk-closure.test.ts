@@ -7,7 +7,7 @@
  *   - maxDepth guard throws PartitionExtractionError
  *   - outbound completion: referenced parents pulled without re-expansion
  *   - cycle detection flag + termination
- *   - exported from the @noy-db/hub/bundle subpath
+ *   - exported from the @noy-db/hub/cargo subpath
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
@@ -236,14 +236,9 @@ describe('walkClosure', () => {
     ])
   })
 
-  it('is exported from the @noy-db/hub/cargo seam (and, until retirement, /bundle)', async () => {
+  it('is exported from the @noy-db/hub/cargo seam', async () => {
     const mod = await import('../src/with-cargo/index.js')
-    // #812: /bundle re-exports the same symbols until the subpath is
-    // retired; delete the legacy half of this assertion with it.
-    const legacy = await import('../src/legacy/bundle.js')
     expect(typeof mod.walkClosure).toBe('function')
-    expect(typeof legacy.walkClosure).toBe('function')
     expect(typeof mod.PartitionExtractionError).toBe('function')
-    expect(typeof legacy.PartitionExtractionError).toBe('function')
   })
 })

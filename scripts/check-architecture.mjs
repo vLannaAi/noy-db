@@ -771,6 +771,7 @@ const KERNEL_SURFACE_BUDGET = {
   // per line (byte-preserving — same 9 imported names, only the line breaks moved), a
   // −6 net. Net zero versus pre-#788: the file lands back at the exact same line count.
   'packages/hub/src/kernel/collection.ts': 4549,
+  // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
   // engine itself lives in src/numbering/; only the thin vault call-sites are here.
@@ -1036,7 +1037,8 @@ const KERNEL_SURFACE_BUDGET = {
   // CompactionContext gains ONE thin `dropLocalCache` closure line so the
   // budget pass can drop device-local external cache copies; all the
   // pin/budget machinery itself lives in with-shape/blobs/ behind withBlobs().
-  'packages/hub/src/kernel/vault.ts': 3965,
+  'packages/hub/src/kernel/vault.ts': 3960,
+  // Lowered 3965→3959 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 2920 → 2960 (2026-06): two genuinely-core additions landed —
   // #313's `openVault` no-self-provision pre-gate (a 1-line call; the policy
   // logic itself was extracted to team/keyring.ts as `assertKeyringOpenAllowed`),
@@ -1166,7 +1168,8 @@ const KERNEL_SURFACE_BUDGET = {
   // beside it. All period-scope logic lives in with-party/team/
   // sync-period-scope.ts + sync.ts; windows resolve through the PUBLIC
   // Vault.listPeriods(), so vault.ts is untouched.
-  'packages/hub/src/kernel/noydb.ts': 2420,
+  'packages/hub/src/kernel/noydb.ts': 2407,
+  // Lowered 2420→2406 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
 }
 
 function checkKernelSurface() {

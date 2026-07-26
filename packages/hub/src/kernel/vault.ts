@@ -3587,11 +3587,6 @@ export class Vault {
     return readCover(this.adapter, this.name, opts)
   }
 
-  /** @deprecated Use {@link Vault.getCover} (#799 rename). */
-  async getPublicEnvelope(opts: { readonly locale?: string } = {}): Promise<Cover | undefined> {
-    return this.getCover(opts)
-  }
-
   /**
    * Dump vault as a verifiable encrypted JSON backup string.
    *

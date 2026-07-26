@@ -576,27 +576,6 @@ export type {
   SetCoverInput,
 } from './with-party/directory/cover/index.js'
 export { readPodCover } from './with-pod/bundle.js'
-// Deprecated aliases (#799; remove after one pre-release window)
-export {
-  loadPublicEnvelope,
-  savePublicEnvelope,
-  readPublicEnvelope,
-  resolveSchema as resolvePublicEnvelopeSchema,
-  validatePublicEnvelopeInput,
-  isPublicEnvelope,
-  PUBLIC_ENVELOPE_FIELDS,
-  DEFAULT_PUBLIC_ENVELOPE_SCHEMA,
-  PUBLIC_ENVELOPE_RECORD_ID,
-} from './with-party/directory/cover/index.js'
-export type {
-  PublicEnvelope,
-  PublicEnvelopeText,
-  PublicEnvelopeSchema,
-  PublicEnvelopeField,
-  ResolvedPublicEnvelopeSchema,
-  SetPublicEnvelopeInput,
-} from './with-party/directory/cover/index.js'
-export { readNoydbBundlePublicEnvelope } from './with-pod/bundle.js'
 
 // User envelope (docs/superpowers/specs/2026-05-05-user-envelope-design.md)
 export {

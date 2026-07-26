@@ -159,12 +159,3 @@ export function isCover(x: unknown): x is Cover {
   const obj = x as Record<string, unknown>
   return obj['_noydb_public'] === 1 && typeof obj['version'] === 'number'
 }
-
-// ─── Deprecated aliases (#799 public-envelope → cover; remove after one pre-release window) ───
-
-/** @deprecated Use {@link SetCoverInput}. */
-export type SetPublicEnvelopeInput = SetCoverInput
-/** @deprecated Use {@link validateCoverInput}. */
-export const validatePublicEnvelopeInput = validateCoverInput
-/** @deprecated Use {@link isCover}. */
-export const isPublicEnvelope = isCover

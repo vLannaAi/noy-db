@@ -72,10 +72,6 @@
       "types": "./dist/with-commit/crdt/index.d.ts",
       "default": "./dist/crdt/index.js"
     },
-    "./bundle": {
-      "types": "./dist/legacy/bundle.d.ts",
-      "default": "./dist/bundle/index.js"
-    },
     "./consent": {
       "types": "./dist/with-audit/consent/index.d.ts",
       "default": "./dist/consent/index.js"

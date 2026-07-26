@@ -169,20 +169,3 @@ export function resolveSchema(
     maxCoverBytes: schema.maxCoverBytes ?? DEFAULT_COVER_SCHEMA.maxCoverBytes,
   }
 }
-
-// ─── Deprecated aliases (#799 public-envelope → cover; remove after one pre-release window) ───
-
-/** @deprecated Use {@link Cover}. */
-export type PublicEnvelope = Cover
-/** @deprecated Use {@link CoverText}. */
-export type PublicEnvelopeText = CoverText
-/** @deprecated Use {@link CoverField}. */
-export type PublicEnvelopeField = CoverField
-/** @deprecated Use {@link CoverSchema}. */
-export type PublicEnvelopeSchema = CoverSchema
-/** @deprecated Use {@link ResolvedCoverSchema}. */
-export type ResolvedPublicEnvelopeSchema = ResolvedCoverSchema
-/** @deprecated Use {@link COVER_FIELDS}. */
-export const PUBLIC_ENVELOPE_FIELDS = COVER_FIELDS
-/** @deprecated Use {@link DEFAULT_COVER_SCHEMA}. */
-export const DEFAULT_PUBLIC_ENVELOPE_SCHEMA = DEFAULT_COVER_SCHEMA

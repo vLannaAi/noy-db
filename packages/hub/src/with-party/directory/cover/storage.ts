@@ -125,14 +125,3 @@ export function pickLocale(
   }
   return ''
 }
-
-// ─── Deprecated aliases (#799 public-envelope → cover; remove after one pre-release window) ───
-
-/** @deprecated Use {@link COVER_RECORD_ID}. */
-export const PUBLIC_ENVELOPE_RECORD_ID = COVER_RECORD_ID
-/** @deprecated Use {@link loadCover}. */
-export const loadPublicEnvelope = loadCover
-/** @deprecated Use {@link saveCover}. */
-export const savePublicEnvelope = saveCover
-/** @deprecated Use {@link readCover}. */
-export const readPublicEnvelope = readCover

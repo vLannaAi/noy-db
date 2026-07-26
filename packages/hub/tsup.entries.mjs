@@ -19,7 +19,6 @@ export const ENTRIES = {
   'lazy/index': 'src/with-store/lazy/index.ts',
   'aggregate/index': 'src/with-lookup/aggregate/index.ts',
   'crdt/index': 'src/with-commit/crdt/index.ts',
-  'bundle/index': 'src/legacy/bundle.ts',
   'pod/index': 'src/with-pod/index.ts',
   'consent/index': 'src/with-audit/consent/index.ts',
   'periods/index': 'src/with-audit/periods/index.ts',
