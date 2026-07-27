@@ -70,7 +70,7 @@ const STRONG_NEW = 'glasses cabinet bicycle umbrella thunder velvet'
 describe('rotateSecret', () => {
   it('rotates from old phrase to new and lets the user re-unlock', async () => {
     const store = inlineMemory()
-    const keyring = await createOwnerKeyring(store, 'acme', 'alice', STRONG_OLD)
+    const keyring = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: STRONG_OLD })
     keyring.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', keyring)
 
@@ -79,15 +79,15 @@ describe('rotateSecret', () => {
       newSecret: STRONG_NEW,
     })
 
-    await expect(loadKeyring(store, 'acme', 'alice', STRONG_OLD)).rejects.toBeInstanceOf(InvalidKeyError)
+    await expect(loadKeyring(store, 'acme', { userId: 'alice', secret: STRONG_OLD })).rejects.toBeInstanceOf(InvalidKeyError)
 
-    const reloaded = await loadKeyring(store, 'acme', 'alice', STRONG_NEW)
+    const reloaded = await loadKeyring(store, 'acme', { userId: 'alice', secret: STRONG_NEW })
     expect(reloaded.userId).toBe('alice')
   }, 60_000)
 
   it('rejects a weak new phrase', async () => {
     const store = inlineMemory()
-    await createOwnerKeyring(store, 'acme', 'alice', STRONG_OLD)
+    await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: STRONG_OLD })
     await expect(
       rotateSecret(store, 'acme', 'alice', {
         oldSecret: STRONG_OLD,
@@ -98,7 +98,7 @@ describe('rotateSecret', () => {
 
   it('rejects a wrong old phrase', async () => {
     const store = inlineMemory()
-    const keyring = await createOwnerKeyring(store, 'acme', 'alice', STRONG_OLD)
+    const keyring = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: STRONG_OLD })
     keyring.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', keyring)
     await expect(
@@ -116,7 +116,7 @@ describe('recoverSecret (paper profile)', () => {
     code: string
   }> {
     const store = inlineMemory()
-    const keyring = await createOwnerKeyring(store, 'acme', 'alice', STRONG_OLD)
+    const keyring = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: STRONG_OLD })
 
     // Add one DEK so the rewrap path actually rewraps something.
     const dek = await generateDEK()
@@ -138,7 +138,7 @@ describe('recoverSecret (paper profile)', () => {
       recoveryProof: { profile: 'paper', payload: { code } },
     })
 
-    const reloaded = await loadKeyring(store, 'acme', 'alice', STRONG_NEW)
+    const reloaded = await loadKeyring(store, 'acme', { userId: 'alice', secret: STRONG_NEW })
     expect(reloaded.userId).toBe('alice')
 
     // Code was burned — second use must fail with no entries left.
@@ -183,7 +183,7 @@ describe('recoverSecret (paper profile)', () => {
     expect(remaining).toHaveLength(0)
 
     // Old secret still works — the keyring was never rewritten.
-    const reloaded = await loadKeyring(store, 'acme', 'alice', STRONG_OLD)
+    const reloaded = await loadKeyring(store, 'acme', { userId: 'alice', secret: STRONG_OLD })
     expect(reloaded.userId).toBe('alice')
   }, 60_000)
 
@@ -206,7 +206,7 @@ describe('recoverSecret (paper profile)', () => {
     // guard. (Garbage share strings would fail decoding before reaching
     // the no-entries check, so we use a syntactically valid share.)
     const store = inlineMemory()
-    await createOwnerKeyring(store, 'acme', 'alice', STRONG_OLD)
+    await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: STRONG_OLD })
     await expect(
       recoverSecret(undefined, store, 'acme', 'alice', {
         newSecret: STRONG_NEW,
@@ -242,7 +242,7 @@ describe('recoverSecret (paper profile)', () => {
     const { createNoydb } = await import('../src/kernel/noydb.js')
     const store = inlineMemory()
     // Pre-enrol paper-recovery entries directly via the storage helper.
-    const keyring = await createOwnerKeyring(store, 'acme', 'alice', STRONG_OLD)
+    const keyring = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: STRONG_OLD })
     keyring.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', keyring)
     const { mintPaperRecoveryEntry } = await import('../src/with-party/team/recovery.js')
@@ -261,7 +261,7 @@ describe('recoverSecret (paper profile)', () => {
 
   it('throws RecoveryProfileNotImplementedError for multi-channel and admin-mediated', async () => {
     const store = inlineMemory()
-    await createOwnerKeyring(store, 'acme', 'alice', STRONG_OLD)
+    await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: STRONG_OLD })
     await expect(
       recoverSecret(undefined, store, 'acme', 'alice', {
         newSecret: STRONG_NEW,

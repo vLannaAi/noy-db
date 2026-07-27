@@ -185,7 +185,7 @@ describe('money where() — multi-currency mode (#336)', () => {
 
 describe('money where() — indexed fast path agrees with the scan (#336, hardened for #625)', () => {
   // #625: the original version of this suite declared `indexes: ['total']`
-  // but never passed `indexStrategy: withIndexing()` to createNoydb, so
+  // but never passed `indexingStrategy: withIndexing()` to createNoydb, so
   // `getIndexes()` returned null (builder.ts's index fast path never
   // engages without it) and every "indexed" query below silently ran a
   // full scan — the assertions happened to pass, but they proved nothing
@@ -196,7 +196,7 @@ describe('money where() — indexed fast path agrees with the scan (#336, harden
     const db = await createNoydb({
       store: memory(), user: 'alice',
       secret: 'money-where-indexed-secret-2026',
-      indexStrategy: withIndexing(),
+      indexingStrategy: withIndexing(),
     })
     const vault = await db.openVault('books')
     const col = vault.collection<Invoice>('invoices', {
@@ -246,7 +246,7 @@ describe('money where() — indexed fast path agrees with the scan (#336, harden
     const db = await createNoydb({
       store: memory(), user: 'alice',
       secret: 'money-where-indexed-multi-secret-2026',
-      indexStrategy: withIndexing(),
+      indexingStrategy: withIndexing(),
     })
     const vault = await db.openVault('books')
     const col = vault.collection<{ id: string; amount: unknown } & Record<string, unknown>>('payments', {
@@ -286,7 +286,7 @@ describe('money where() — indexed fast path agrees with the scan (#336, harden
     const db = await createNoydb({
       store: memory(), user: 'alice',
       secret: 'money-where-indexed-status-secret-2026',
-      indexStrategy: withIndexing(),
+      indexingStrategy: withIndexing(),
     })
     const vault = await db.openVault('books')
     const col = vault.collection<Invoice>('invoices', {

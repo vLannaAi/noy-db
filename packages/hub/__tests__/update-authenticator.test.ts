@@ -54,7 +54,7 @@ const STRICT_PHRASE = 'correct horse battery staple printer toaster picnic'
 describe('updateAuthenticator (team layer, #55)', () => {
   it('merges meta keys, preserves wrap material (wrap-KEK)', async () => {
     const store = inlineMemory()
-    const keyring = await createOwnerKeyring(store, 'acme', 'alice', PHRASE)
+    const keyring = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: PHRASE })
     keyring.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', keyring)
 
@@ -69,7 +69,7 @@ describe('updateAuthenticator (team layer, #55)', () => {
       meta: { nickname: 'Blue YubiKey' },
     })
 
-    const reloaded = await loadKeyring(store, 'acme', 'alice', PHRASE)
+    const reloaded = await loadKeyring(store, 'acme', { userId: 'alice', secret: PHRASE })
     expect(reloaded.authenticators).toHaveLength(1)
     const slot = reloaded.authenticators[0]!
     // Original meta keys preserved (top-level merge).
@@ -89,7 +89,7 @@ describe('updateAuthenticator (team layer, #55)', () => {
 
   it('round-trips on wrap-DEKs slots without crossing the variant boundary', async () => {
     const store = inlineMemory()
-    const keyring = await createOwnerKeyring(store, 'acme', 'alice', PHRASE)
+    const keyring = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: PHRASE })
     keyring.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', keyring)
 
@@ -102,12 +102,12 @@ describe('updateAuthenticator (team layer, #55)', () => {
       meta: { salt: 'cmFuZG9tc2FsdA==', minLength: 12 },
     })
     // Reload to pick up the persisted slot in a fresh keyring snapshot.
-    const fresh = await loadKeyring(store, 'acme', 'alice', PHRASE)
+    const fresh = await loadKeyring(store, 'acme', { userId: 'alice', secret: PHRASE })
     await updateAuthenticator(store, 'acme', fresh, 'password', {
       meta: { nickname: 'My password' },
     })
 
-    const reloaded = await loadKeyring(store, 'acme', 'alice', PHRASE)
+    const reloaded = await loadKeyring(store, 'acme', { userId: 'alice', secret: PHRASE })
     const slot = reloaded.authenticators[0]!
     expect(slot.wrapKind).toBe('deks')
     if (slot.wrapKind === 'deks') {
@@ -121,7 +121,7 @@ describe('updateAuthenticator (team layer, #55)', () => {
 
   it('null in a meta key deletes that key (#55 ↔ #57 semantics)', async () => {
     const store = inlineMemory()
-    const keyring = await createOwnerKeyring(store, 'acme', 'alice', PHRASE)
+    const keyring = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: PHRASE })
     keyring.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', keyring)
 
@@ -131,14 +131,14 @@ describe('updateAuthenticator (team layer, #55)', () => {
       meta: { credentialId: 'cred-mac', nickname: 'MacBook Touch ID', prfUsed: true },
       wrapped_kek: 'YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=',
     })
-    const fresh = await loadKeyring(store, 'acme', 'alice', PHRASE)
+    const fresh = await loadKeyring(store, 'acme', { userId: 'alice', secret: PHRASE })
 
     // Drop the nickname; preserve the rest.
     await updateAuthenticator(store, 'acme', fresh, 'webauthn-mac', {
       meta: { nickname: null },
     })
 
-    const reloaded = await loadKeyring(store, 'acme', 'alice', PHRASE)
+    const reloaded = await loadKeyring(store, 'acme', { userId: 'alice', secret: PHRASE })
     const slot = reloaded.authenticators[0]!
     expect(slot.meta.nickname).toBeUndefined()
     expect(Object.keys(slot.meta)).not.toContain('nickname')
@@ -148,7 +148,7 @@ describe('updateAuthenticator (team layer, #55)', () => {
 
   it('throws NoAccessError when slot id is unknown', async () => {
     const store = inlineMemory()
-    const keyring = await createOwnerKeyring(store, 'acme', 'alice', PHRASE)
+    const keyring = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: PHRASE })
     await persistKeyring(store, 'acme', keyring)
 
     await expect(
@@ -160,7 +160,7 @@ describe('updateAuthenticator (team layer, #55)', () => {
 
   it('throws ValidationError on empty diff', async () => {
     const store = inlineMemory()
-    const keyring = await createOwnerKeyring(store, 'acme', 'alice', PHRASE)
+    const keyring = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: PHRASE })
     keyring.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', keyring)
 
@@ -178,7 +178,7 @@ describe('updateAuthenticator (team layer, #55)', () => {
 
   it('idempotent meta merge — re-applying the same patch yields the same slot', async () => {
     const store = inlineMemory()
-    const keyring = await createOwnerKeyring(store, 'acme', 'alice', PHRASE)
+    const keyring = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: PHRASE })
     keyring.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', keyring)
 
@@ -208,7 +208,7 @@ describe('Noydb.updateAuthenticator (hub-level wiring, #55)', () => {
     phrase: string,
     slotId: string,
   ): Promise<void> {
-    const keyring = await createOwnerKeyring(store, 'acme', 'alice', phrase)
+    const keyring = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: phrase })
     keyring.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', keyring)
     await enrollAuthenticator(store, 'acme', keyring, {

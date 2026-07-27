@@ -31,7 +31,7 @@ import { MemoryRecipientSealer } from '../src/with-party/team/managed-secret.js'
 import { openSealedRecord, withSealedRecord } from '../src/with-audit/sealed-record/index.js'
 import type { SealedCekDeliveryEnvelope } from '../src/with-audit/sealed-record/types.js'
 import { withHistory } from '../src/with-commit/history/index.js'
-import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withForget } from '../src/with-audit/forget/index.js'
 
 /** In-memory store exposing raw stored envelopes for white-box assertions. */
 function memory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
@@ -105,7 +105,7 @@ async function setup() {
   const db = await createNoydb({
     store, user: 'alice', secret: SECRET,
     historyStrategy: withHistory(),
-    forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+    forgetStrategy: withForget({ subjects: { people: 'subjectId' } }),
     sealedRecordStrategy: withSealedRecord(),
   })
   const vault = await db.openVault('v')
@@ -218,7 +218,7 @@ describe('forget() — regression: non-sealed, non-host-sealed erasure', () => {
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { notes: 'subjectId' } }),
+      forgetStrategy: withForget({ subjects: { notes: 'subjectId' } }),
     })
     const vault = await db.openVault('v')
     interface Note { id: string; subjectId: string; body: string }

@@ -483,7 +483,7 @@ describe('MV correctness (#152)', () => {
         user: 'alice',
         secret: 'mv-correctness-strict-secret-2026',
         materializedViewStrategies: [mv],
-        txStrategy: withTransactions(),
+        transactionsStrategy: withTransactions(),
       })
       const vault = await db.openVault('demo')
       await vault.collection<Item>('items').put('a', { id: 'a' })

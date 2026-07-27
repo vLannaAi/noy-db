@@ -102,7 +102,7 @@ const db = await createNoydb({
   user: ...,
   historyStrategy: withHistory(),     // versioning + ledger + time-machine
   aggregateStrategy: withAggregate(), // sum/groupBy/avg
-  blobStrategy: withBlobs(),          // file attachments
+  blobsStrategy: withBlobs(),          // file attachments
   // ... 21 more available
 })
 ```

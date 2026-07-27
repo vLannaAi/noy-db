@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, ConflictError } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
-import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withForget } from '../src/with-audit/forget/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
 
@@ -63,7 +63,7 @@ async function freshVault(subjects: Record<string, string>) {
     store: memoryStore(), secret: 'putattier-subject-index-pw', user: 'owner',
     tiersStrategy: withTiers(),
     historyStrategy: withHistory(),
-    forgetStrategy: withForgetCascade({ subjects }),
+    forgetStrategy: withForget({ subjects }),
   })
   return db.openVault('v1')
 }

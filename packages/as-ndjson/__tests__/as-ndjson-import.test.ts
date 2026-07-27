@@ -55,7 +55,7 @@ async function setup() {
   init.close()
   const db = await createNoydb({ teamStrategy: withTeam(),
     store: adapter, user: 'alice', secret: 'pw-2026',
-    txStrategy: withTransactions(),
+    transactionsStrategy: withTransactions(),
   })
   const vault = await db.openVault('demo')
   const notes = vault.collection<Note>('notes')

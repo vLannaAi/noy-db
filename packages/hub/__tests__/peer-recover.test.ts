@@ -59,7 +59,7 @@ const TEMP_PHRASE = 'temporary umbrella cabinet bicycle thunder velvet glasses'
 describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
   it('round-trips: owner recovers admin; recipient unlocks with temp phrase', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     aliceKr.deks.set('invoices', await generateDEK())
     aliceKr.deks.set('clients', await generateDEK())
     await persistKeyring(store, 'acme', aliceKr)
@@ -76,9 +76,9 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
     })
 
     // Old phrase no longer unlocks bob's keyring.
-    await expect(loadKeyring(store, 'acme', 'bob', BOB_PHRASE)).rejects.toBeInstanceOf(InvalidKeyError)
+    await expect(loadKeyring(store, 'acme', { userId: 'bob', secret: BOB_PHRASE })).rejects.toBeInstanceOf(InvalidKeyError)
     // Temp phrase does.
-    const bobReloaded = await loadKeyring(store, 'acme', 'bob', TEMP_PHRASE)
+    const bobReloaded = await loadKeyring(store, 'acme', { userId: 'bob', secret: TEMP_PHRASE })
     expect(bobReloaded.userId).toBe('bob')
     expect(bobReloaded.role).toBe('admin')
     expect(bobReloaded.deks.size).toBe(aliceKr.deks.size)
@@ -86,7 +86,7 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
 
   it('owner → owner peer-recovery succeeds (closes #33)', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     aliceKr.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', aliceKr)
     await grant(store, 'acme', aliceKr, {
@@ -101,13 +101,13 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
       recoverUser(store, 'acme', aliceKr, { userId: 'bob', secret: TEMP_PHRASE }),
     ).resolves.toBeUndefined()
 
-    const bobReloaded = await loadKeyring(store, 'acme', 'bob', TEMP_PHRASE)
+    const bobReloaded = await loadKeyring(store, 'acme', { userId: 'bob', secret: TEMP_PHRASE })
     expect(bobReloaded.role).toBe('owner')
   }, 60_000)
 
   it('admin → owner peer-recovery rejected (the structural boundary survives recovery)', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     aliceKr.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', aliceKr)
     await grant(store, 'acme', aliceKr, {
@@ -118,7 +118,7 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
     })
 
     // Admin tries to recover the owner (alice).
-    const adminKr = await loadKeyring(store, 'acme', 'admin1', 'admin-strong-phrase-with-enough-words-here')
+    const adminKr = await loadKeyring(store, 'acme', { userId: 'admin1', secret: 'admin-strong-phrase-with-enough-words-here' })
     await expect(
       recoverUser(store, 'acme', adminKr, { userId: 'alice', secret: TEMP_PHRASE }),
     ).rejects.toBeInstanceOf(PermissionDeniedError)
@@ -126,7 +126,7 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
 
   it('admin cannot uplift a target to owner under cover of recovery', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     aliceKr.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', aliceKr)
     await grant(store, 'acme', aliceKr, {
@@ -142,7 +142,7 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
       secret: BOB_PHRASE,
     })
 
-    const adminKr = await loadKeyring(store, 'acme', 'admin1', 'admin-strong-phrase-with-enough-words-here')
+    const adminKr = await loadKeyring(store, 'acme', { userId: 'admin1', secret: 'admin-strong-phrase-with-enough-words-here' })
     await expect(
       recoverUser(store, 'acme', adminKr, {
         userId: 'bob',
@@ -154,7 +154,7 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
 
   it('throws NoAccessError when the target has no keyring', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     await persistKeyring(store, 'acme', aliceKr)
     await expect(
       recoverUser(store, 'acme', aliceKr, { userId: 'ghost', secret: TEMP_PHRASE }),
@@ -163,7 +163,7 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
 
   it('throws PrivilegeEscalationError when caller lacks a target collection DEK', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     aliceKr.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', aliceKr)
     await grant(store, 'acme', aliceKr, {
@@ -185,7 +185,7 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
 
   it('drops tier-2 authenticator slots on recovery (matches rotateSecret precedent)', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     aliceKr.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', aliceKr)
     await grant(store, 'acme', aliceKr, {
@@ -216,13 +216,13 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
 
     await recoverUser(store, 'acme', aliceKr, { userId: 'bob', secret: TEMP_PHRASE })
 
-    const bobReloaded = await loadKeyring(store, 'acme', 'bob', TEMP_PHRASE)
+    const bobReloaded = await loadKeyring(store, 'acme', { userId: 'bob', secret: TEMP_PHRASE })
     expect(bobReloaded.authenticators).toHaveLength(0)
   }, 60_000)
 
   it('preserves identity (userId / displayName / role) when not overridden', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     aliceKr.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', aliceKr)
     await grant(store, 'acme', aliceKr, {
@@ -234,7 +234,7 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
 
     await recoverUser(store, 'acme', aliceKr, { userId: 'bob', secret: TEMP_PHRASE })
 
-    const bobReloaded = await loadKeyring(store, 'acme', 'bob', TEMP_PHRASE)
+    const bobReloaded = await loadKeyring(store, 'acme', { userId: 'bob', secret: TEMP_PHRASE })
     expect(bobReloaded.userId).toBe('bob')
     expect(bobReloaded.displayName).toBe('Bob the Original')
     expect(bobReloaded.role).toBe('admin')
@@ -242,7 +242,7 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
 
   it('honors displayName override when provided', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     aliceKr.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', aliceKr)
     await grant(store, 'acme', aliceKr, {
@@ -258,13 +258,13 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
       displayName: 'Bob the Recovered',
     })
 
-    const bobReloaded = await loadKeyring(store, 'acme', 'bob', TEMP_PHRASE)
+    const bobReloaded = await loadKeyring(store, 'acme', { userId: 'bob', secret: TEMP_PHRASE })
     expect(bobReloaded.displayName).toBe('Bob the Recovered')
   }, 60_000)
 
   it('atomic-by-construction: pre-put failure leaves the original keyring intact', async () => {
     const innerStore = inlineMemory()
-    const aliceKr = await createOwnerKeyring(innerStore, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(innerStore, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     aliceKr.deks.set('invoices', await generateDEK())
     await persistKeyring(innerStore, 'acme', aliceKr)
     await grant(innerStore, 'acme', aliceKr, {
@@ -294,7 +294,7 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
     ).rejects.toThrow('simulated backend write failure')
 
     // Original keyring still unlocks with the OLD phrase.
-    const bobReloaded = await loadKeyring(innerStore, 'acme', 'bob', BOB_PHRASE)
+    const bobReloaded = await loadKeyring(innerStore, 'acme', { userId: 'bob', secret: BOB_PHRASE })
     expect(bobReloaded.userId).toBe('bob')
   }, 60_000)
 })
@@ -333,7 +333,7 @@ describe('db.recoverUser (#33 + #34 hub-level integration)', () => {
       { factors: [{ kind: 'recovery', mintedAt: new Date().toISOString() }] },
     )
 
-    const bobReloaded = await loadKeyring(store, 'acme', 'bob', TEMP_PHRASE)
+    const bobReloaded = await loadKeyring(store, 'acme', { userId: 'bob', secret: TEMP_PHRASE })
     expect(bobReloaded.userId).toBe('bob')
   }, 60_000)
 })

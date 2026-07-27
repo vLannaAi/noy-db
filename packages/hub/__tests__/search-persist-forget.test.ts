@@ -13,7 +13,7 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import { withSearch } from '../src/index.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { withHistory } from '../src/with-commit/history/index.js'
-import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withForget } from '../src/with-audit/forget/index.js'
 import { withI18n } from '../src/via/i18n/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 
@@ -97,7 +97,7 @@ describe('forget — _ftindex purge failure is resilient (#308 L1.5)', () => {
       secret: SECRET,
       searchStrategy: withSearch(),
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+      forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } }),
       i18nStrategy: withI18n(),
     })
     const vault = await db.openVault('v')
@@ -132,7 +132,7 @@ describe('forget — persisted _ftindex blob is purged (#308 L1.5)', () => {
       secret: SECRET,
       searchStrategy: withSearch(),
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+      forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } }),
       i18nStrategy: withI18n(),
     })
     const vault = await db.openVault('v')

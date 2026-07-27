@@ -1,5 +1,5 @@
 import { ValidationError } from '../../kernel/errors.js'
-import type { OverlayedViewStrategy, OverlayedViewStrategyHandle } from './types.js'
+import type { OverlayedViewSpec, OverlayedViewStrategy } from './types.js'
 
 /**
  * Register a read-shadow overlay: bind an MV-owned base collection to
@@ -9,8 +9,8 @@ import type { OverlayedViewStrategy, OverlayedViewStrategyHandle } from './types
  * See docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md.
  */
 export function withOverlayedView(
-  spec: OverlayedViewStrategy,
-): OverlayedViewStrategyHandle {
+  spec: OverlayedViewSpec,
+): OverlayedViewStrategy {
   if (!spec.name || spec.name.length === 0) {
     throw new ValidationError('withOverlayedView: name is required')
   }

@@ -226,7 +226,7 @@ export async function fromString(
     plan,
     policy,
     async apply(): Promise<void> {
-      // Routes through the txStrategy seam — throws clearly when
+      // Routes through the transactionsStrategy seam — throws clearly when
       // withTransactions() isn't opted in. Atomicity rolls back any
       // partial writes if a put fails mid-batch.
       await vault.noydb.transaction((tx) => {

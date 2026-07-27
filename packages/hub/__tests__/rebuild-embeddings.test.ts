@@ -18,7 +18,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withSearch, ConflictError } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
-import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withForget } from '../src/with-audit/forget/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { SearchNotEnabledError } from '../src/kernel/errors.js'
 import { memory } from '../../to-memory/src/index.js'
@@ -171,7 +171,7 @@ describe('#788 Collection.rebuildEmbeddings()', () => {
       store, user: 'owner', secret: SECRET,
       searchStrategy: withSearch(),
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { docs: 'ownerId' } }),
+      forgetStrategy: withForget({ subjects: { docs: 'ownerId' } }),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Subject>('docs', { embeddings: ENCODER })

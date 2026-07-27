@@ -15,7 +15,7 @@ import type { TransactionInvariant } from './invariants.js'
 /**
  * @internal
  */
-export interface TxStrategy {
+export interface TransactionsStrategy {
   runTransaction<T>(
     db: Noydb,
     fn: (tx: TxContext) => Promise<T> | T,
@@ -28,13 +28,13 @@ export interface TxStrategy {
 const NOT_ENABLED = new Error(
   'Multi-record transactions require the tx strategy. Import ' +
   '`{ withTransactions }` from "@noy-db/hub/tx" and pass it to ' +
-  '`createNoydb({ txStrategy: withTransactions() })`.',
+  '`createNoydb({ transactionsStrategy: withTransactions() })`.',
 )
 
 /**
  * @internal
  */
-export const NO_TX: TxStrategy = {
+export const NO_TRANSACTIONS: TransactionsStrategy = {
   async runTransaction(
     _db: Noydb,
     _fn: unknown,

@@ -1,5 +1,5 @@
 /**
- * `withForgetCascade` — the active factory for GDPR right-to-erasure via
+ * `withForget` — the active factory for GDPR right-to-erasure via
  * per-record CEK crypto-shred. Mirrors the canonical
  * `strategy.ts` (type + `NO_FORGET` sentinel) / `active.ts` (factory) split
  * used by the other services.
@@ -23,12 +23,12 @@ import type { SubjectDeclaration, ForgetStrategy } from './strategy.js'
  * ```ts
  * createNoydb({
  *   secret, user,
- *   forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+ *   forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } }),
  * })
  * const result = await vault.forget('buyer-123')
  * // → { subject, recordsShredded, historyVersionsShredded, collections, … }
  * ```
  */
-export function withForgetCascade(opts: SubjectDeclaration): ForgetStrategy {
+export function withForget(opts: SubjectDeclaration): ForgetStrategy {
   return { subjects: { ...opts.subjects }, ...(opts.scopedPurge !== undefined ? { scopedPurge: opts.scopedPurge } : {}) }
 }

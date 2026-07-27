@@ -64,7 +64,7 @@ async function setup() {
   init.close()
   const db = await createNoydb({ teamStrategy: withTeam(),
     store: adapter, user: 'alice', secret: 'pw-2026',
-    txStrategy: withTransactions(),
+    transactionsStrategy: withTransactions(),
   })
   const vault = await db.openVault('demo')
   const inv = vault.collection<Invoice>('invoices')
@@ -184,7 +184,7 @@ describe('as-json fromString — apply stamps `reason: "import:json"` on every l
     const db = await createNoydb({ teamStrategy: withTeam(),
       store: adapter, user: 'alice', secret: 'pw-2026',
       historyStrategy: withHistory(),
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     const vault = await db.openVault('demo')
     const inv = vault.collection<Invoice>('invoices')

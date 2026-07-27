@@ -59,7 +59,7 @@ function inlineMemory(): NoydbStore {
 
 describe('#657 — blobFields describe() fidelity', () => {
   it('a bare blobFields field (no fieldMeta) now APPEARS in describe({})', async () => {
-    const db = await createNoydb({ store: inlineMemory(), user: 'u', secret: 'pw-blob-1', blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: inlineMemory(), user: 'u', secret: 'pw-blob-1', blobsStrategy: withBlobs() })
     const vault = await db.openVault('v')
     const a = vault.collection('a', { blobFields: { cover: { retainDays: 10 } } })
 
@@ -68,7 +68,7 @@ describe('#657 — blobFields describe() fidelity', () => {
   })
 
   it('a bare blobFields field: honest type/widget/editable/blob block (async describe)', async () => {
-    const db = await createNoydb({ store: inlineMemory(), user: 'u', secret: 'pw-blob-2', blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: inlineMemory(), user: 'u', secret: 'pw-blob-2', blobsStrategy: withBlobs() })
     const vault = await db.openVault('v')
     const a = vault.collection('a', { blobFields: { cover: { retainDays: 10 } } })
 
@@ -81,7 +81,7 @@ describe('#657 — blobFields describe() fidelity', () => {
   })
 
   it('blobFields + fieldMeta: label is preserved, but the shape is honest (not unknown/text/editable)', async () => {
-    const db = await createNoydb({ store: inlineMemory(), user: 'u', secret: 'pw-blob-3', blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: inlineMemory(), user: 'u', secret: 'pw-blob-3', blobsStrategy: withBlobs() })
     const vault = await db.openVault('v')
     const b = vault.collection('b', {
       blobFields: { cover: { retainDays: 10 } },
@@ -97,7 +97,7 @@ describe('#657 — blobFields describe() fidelity', () => {
   })
 
   it('predicate knobs (evictWhen/legalHold/retainUntil) surface as presence flags on the blob block', async () => {
-    const db = await createNoydb({ store: inlineMemory(), user: 'u', secret: 'pw-blob-4', blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: inlineMemory(), user: 'u', secret: 'pw-blob-4', blobsStrategy: withBlobs() })
     const vault = await db.openVault('v')
     const c = vault.collection('c', {
       blobFields: {
@@ -110,7 +110,7 @@ describe('#657 — blobFields describe() fidelity', () => {
   })
 
   it('sync describe() (no store I/O) also surfaces a bare blobFields field', async () => {
-    const db = await createNoydb({ store: inlineMemory(), user: 'u', secret: 'pw-blob-5', blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: inlineMemory(), user: 'u', secret: 'pw-blob-5', blobsStrategy: withBlobs() })
     const vault = await db.openVault('v')
     const a = vault.collection('a', { blobFields: { cover: { retainDays: 10 } } })
 
@@ -127,7 +127,7 @@ describe('#657 — blobFields describe() fidelity', () => {
   // schema (blob content never flows the record codec) but IS known via
   // blobFields.
   it('async describe does not throw when a field is in both blobFields and fieldMeta but not the zod schema', async () => {
-    const db = await createNoydb({ store: inlineMemory(), user: 'u', secret: 'pw-blob-6', blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: inlineMemory(), user: 'u', secret: 'pw-blob-6', blobsStrategy: withBlobs() })
     const vault = await db.openVault('v')
     const d = vault.collection('d', {
       schema: z.object({ id: z.string(), title: z.string() }) as unknown as import('../../src/kernel/schema.js').StandardSchemaV1,

@@ -54,7 +54,7 @@ describe('Derivation strict mode + withTransactions', () => {
       user: 'alice',
       secret: 'derivation-strict-secret-2026',
       derivationStrategies: [strategy],
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     const v = await db.openVault('demo')
     await expect(
@@ -80,7 +80,7 @@ describe('Derivation strict mode + withTransactions', () => {
       user: 'alice',
       secret: 'derivation-nonstrict-secret-2026',
       derivationStrategies: [strategy],
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     const v = await db.openVault('demo')
     await db.transaction(async (tx) => {

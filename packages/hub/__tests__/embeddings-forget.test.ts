@@ -1,7 +1,7 @@
 /**
  * forget() teardown of _vec sidecars — encrypted vector erasure (#308 L2).
  *
- * Harness: forget.test.ts (withForgetCascade/forgetStrategy wiring +
+ * Harness: forget.test.ts (withForget/forgetStrategy wiring +
  * memory store with raw-envelope inspection) + enc() stub from
  * embeddings-write.test.ts.
  *
@@ -18,7 +18,7 @@ import { withSearch } from '../src/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { withHistory } from '../src/with-commit/history/index.js'
-import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withForget } from '../src/with-audit/forget/index.js'
 
 // ── in-memory store with raw-envelope inspection (from forget.test.ts) ──────
 
@@ -91,7 +91,7 @@ describe('embeddings forget — case 1: _vec purged + excluded from retrieve', (
       store, user: 'alice', secret: SECRET,
       searchStrategy: withSearch(),
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { docs: 'ownerId' } }),
+      forgetStrategy: withForget({ subjects: { docs: 'ownerId' } }),
     })
     const vault = await db.openVault('vec-v')
     const encoder = enc(8)
@@ -121,7 +121,7 @@ describe('embeddings forget — case 1: _vec purged + excluded from retrieve', (
       store, user: 'alice', secret: SECRET,
       searchStrategy: withSearch(),
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { docs: 'ownerId' } }),
+      forgetStrategy: withForget({ subjects: { docs: 'ownerId' } }),
     })
     const vault2 = await db2.openVault('vec-v')
     const docs2 = vault2.collection<Doc>('docs', { embeddings: encoder })
@@ -148,7 +148,7 @@ describe('embeddings forget — case 2: resilience (delete throws for _vec)', ()
       store: faultyStore, user: 'alice', secret: SECRET,
       searchStrategy: withSearch(),
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { docs: 'ownerId' } }),
+      forgetStrategy: withForget({ subjects: { docs: 'ownerId' } }),
     })
     const vault = await db.openVault('vec-r')
     const docs = vault.collection<Doc>('docs', { embeddings: enc(4) })
@@ -174,7 +174,7 @@ describe('embeddings forget — case 3: idempotent second forget', () => {
       store, user: 'alice', secret: SECRET,
       searchStrategy: withSearch(),
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { docs: 'ownerId' } }),
+      forgetStrategy: withForget({ subjects: { docs: 'ownerId' } }),
     })
     const vault = await db.openVault('vec-i')
     const docs = vault.collection<Doc>('docs', { embeddings: enc(8) })

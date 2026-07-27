@@ -51,33 +51,33 @@ describe('keyring', () => {
 
   describe('createOwnerKeyring + loadKeyring', () => {
     it('creates and reloads an owner keyring', async () => {
-      const kr = await createOwnerKeyring(adapter, COMP, 'owner-01', 'pass123')
+      const kr = await createOwnerKeyring(adapter, COMP, { userId: 'owner-01', secret: 'pass123' })
       expect(kr.role).toBe('owner')
       expect(kr.userId).toBe('owner-01')
 
-      const loaded = await loadKeyring(adapter, COMP, 'owner-01', 'pass123')
+      const loaded = await loadKeyring(adapter, COMP, { userId: 'owner-01', secret: 'pass123' })
       expect(loaded.role).toBe('owner')
       expect(loaded.userId).toBe('owner-01')
     })
 
     it('loadKeyring with wrong secret throws', async () => {
-      await createOwnerKeyring(adapter, COMP, 'owner-01', 'correct')
+      await createOwnerKeyring(adapter, COMP, { userId: 'owner-01', secret: 'correct' })
       // Loading with wrong pass should throw (if there are DEKs to unwrap)
       // With no DEKs, it'll succeed since there's nothing to unwrap
       // So let's add a DEK first
-      const kr = await createOwnerKeyring(adapter, COMP, 'owner-02', 'right-pass')
+      const kr = await createOwnerKeyring(adapter, COMP, { userId: 'owner-02', secret: 'right-pass' })
       const getDEK = await ensureCollectionDEK(adapter, COMP, kr)
       await getDEK('invoices')
 
       await expect(
-        loadKeyring(adapter, COMP, 'owner-02', 'wrong-pass'),
+        loadKeyring(adapter, COMP, { userId: 'owner-02', secret: 'wrong-pass' }),
       ).rejects.toThrow()
     })
   })
 
   describe('grant', () => {
     it('owner grants operator with specific permissions', async () => {
-      const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'ownerpass')
+      const owner = await createOwnerKeyring(adapter, COMP, { userId: 'owner-01', secret: 'ownerpass' })
       const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
       await getDEK('invoices')
       await getDEK('payments')
@@ -91,14 +91,14 @@ describe('keyring', () => {
       })
 
       // Operator can load their keyring
-      const opKr = await loadKeyring(adapter, COMP, 'op-somchai', 'op-pass')
+      const opKr = await loadKeyring(adapter, COMP, { userId: 'op-somchai', secret: 'op-pass' })
       expect(opKr.role).toBe('operator')
       expect(opKr.deks.has('invoices')).toBe(true)
       expect(opKr.deks.has('payments')).toBe(true)
     })
 
     it('owner grants viewer with all DEKs', async () => {
-      const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'ownerpass')
+      const owner = await createOwnerKeyring(adapter, COMP, { userId: 'owner-01', secret: 'ownerpass' })
       const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
       await getDEK('invoices')
       await getDEK('payments')
@@ -110,7 +110,7 @@ describe('keyring', () => {
         secret: 'viewer-pass',
       })
 
-      const viewerKr = await loadKeyring(adapter, COMP, 'viewer-audit', 'viewer-pass')
+      const viewerKr = await loadKeyring(adapter, COMP, { userId: 'viewer-audit', secret: 'viewer-pass' })
       expect(viewerKr.role).toBe('viewer')
       // Viewer gets ALL DEKs (read-only access to everything)
       expect(viewerKr.deks.has('invoices')).toBe(true)
@@ -118,7 +118,7 @@ describe('keyring', () => {
     })
 
     it('owner grants client with limited permissions', async () => {
-      const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'ownerpass')
+      const owner = await createOwnerKeyring(adapter, COMP, { userId: 'owner-01', secret: 'ownerpass' })
       const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
       await getDEK('invoices')
       await getDEK('payments')
@@ -131,14 +131,14 @@ describe('keyring', () => {
         permissions: { invoices: 'ro' },
       })
 
-      const clientKr = await loadKeyring(adapter, COMP, 'client-abc', 'client-pass')
+      const clientKr = await loadKeyring(adapter, COMP, { userId: 'client-abc', secret: 'client-pass' })
       expect(clientKr.role).toBe('client')
       expect(clientKr.deks.has('invoices')).toBe(true)
       expect(clientKr.deks.has('payments')).toBe(false) // no access to payments
     })
 
     it('admin can grant operator but not owner', async () => {
-      const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'ownerpass')
+      const owner = await createOwnerKeyring(adapter, COMP, { userId: 'owner-01', secret: 'ownerpass' })
       const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
       await getDEK('invoices')
 
@@ -150,7 +150,7 @@ describe('keyring', () => {
         secret: 'admin-pass',
       })
 
-      const adminKr = await loadKeyring(adapter, COMP, 'admin-noi', 'admin-pass')
+      const adminKr = await loadKeyring(adapter, COMP, { userId: 'admin-noi', secret: 'admin-pass' })
 
       // Admin grants operator — should succeed
       await expect(
@@ -175,7 +175,7 @@ describe('keyring', () => {
     })
 
     it('operator cannot grant anyone', async () => {
-      const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'ownerpass')
+      const owner = await createOwnerKeyring(adapter, COMP, { userId: 'owner-01', secret: 'ownerpass' })
       const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
       await getDEK('invoices')
 
@@ -187,7 +187,7 @@ describe('keyring', () => {
         permissions: { invoices: 'rw' },
       })
 
-      const opKr = await loadKeyring(adapter, COMP, 'op-01', 'op-pass')
+      const opKr = await loadKeyring(adapter, COMP, { userId: 'op-01', secret: 'op-pass' })
 
       await expect(
         grant(adapter, COMP, opKr, {
@@ -200,7 +200,7 @@ describe('keyring', () => {
     })
 
     it('rejects when caller kek is null (tier-2 wrap-DEKs / tier-3 PIN-resume sessions cannot grant)', async () => {
-      const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'ownerpass')
+      const owner = await createOwnerKeyring(adapter, COMP, { userId: 'owner-01', secret: 'ownerpass' })
       const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
       await getDEK('invoices')
 
@@ -222,7 +222,7 @@ describe('keyring', () => {
 
   describe('revoke', () => {
     it('owner revokes operator', async () => {
-      const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'ownerpass')
+      const owner = await createOwnerKeyring(adapter, COMP, { userId: 'owner-01', secret: 'ownerpass' })
       const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
       await getDEK('invoices')
 
@@ -247,7 +247,7 @@ describe('keyring', () => {
     })
 
     it('cannot revoke owner', async () => {
-      const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'ownerpass')
+      const owner = await createOwnerKeyring(adapter, COMP, { userId: 'owner-01', secret: 'ownerpass' })
 
       await grant(adapter, COMP, owner, {
         userId: 'admin-01',
@@ -256,7 +256,7 @@ describe('keyring', () => {
         secret: 'admin-pass',
       })
 
-      const adminKr = await loadKeyring(adapter, COMP, 'admin-01', 'admin-pass')
+      const adminKr = await loadKeyring(adapter, COMP, { userId: 'admin-01', secret: 'admin-pass' })
 
       await expect(
         revoke(adapter, COMP, adminKr, { userId: 'owner-01' }),
@@ -264,7 +264,7 @@ describe('keyring', () => {
     })
 
     it('revoke with rotateKeys re-encrypts data', async () => {
-      const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'ownerpass')
+      const owner = await createOwnerKeyring(adapter, COMP, { userId: 'owner-01', secret: 'ownerpass' })
       const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
       const invoiceDek = await getDEK('invoices')
 
@@ -303,7 +303,7 @@ describe('keyring', () => {
 
   describe('changeSecret', () => {
     it('re-wraps DEKs with new secret', async () => {
-      const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'old-pass')
+      const owner = await createOwnerKeyring(adapter, COMP, { userId: 'owner-01', secret: 'old-pass' })
       const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
       const dek = await getDEK('invoices')
 
@@ -311,15 +311,15 @@ describe('keyring', () => {
       const { iv, data } = await encrypt('test-data', dek)
 
       // Change secret (test exercises rewrap, not strength validation)
-      const updated = await changeSecret(adapter, COMP, owner, 'new-pass', { allowWeakSecret: true })
+      const updated = await changeSecret(adapter, COMP, owner, { newSecret: 'new-pass', allowWeakSecret: true })
 
       // Old secret should fail to load (DEKs present, wrong KEK)
       await expect(
-        loadKeyring(adapter, COMP, 'owner-01', 'old-pass'),
+        loadKeyring(adapter, COMP, { userId: 'owner-01', secret: 'old-pass' }),
       ).rejects.toThrow()
 
       // New secret should work
-      const loaded = await loadKeyring(adapter, COMP, 'owner-01', 'new-pass')
+      const loaded = await loadKeyring(adapter, COMP, { userId: 'owner-01', secret: 'new-pass' })
       expect(loaded.role).toBe('owner')
 
       // Data is still decryptable (DEKs unchanged, only wrapping changed)
@@ -329,29 +329,29 @@ describe('keyring', () => {
     })
 
     it('rejects a weak new secret by default', async () => {
-      const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'correct horse battery staple printer toaster')
+      const owner = await createOwnerKeyring(adapter, COMP, { userId: 'owner-01', secret: 'correct horse battery staple printer toaster' })
       const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
       await getDEK('invoices')
 
       await expect(
-        changeSecret(adapter, COMP, owner, 'weak'),
+        changeSecret(adapter, COMP, owner, { newSecret: 'weak' }),
       ).rejects.toThrow()
     })
 
     it('accepts a weak new secret when allowWeakSecret: true', async () => {
-      const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'correct horse battery staple printer toaster')
+      const owner = await createOwnerKeyring(adapter, COMP, { userId: 'owner-01', secret: 'correct horse battery staple printer toaster' })
       const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
       await getDEK('invoices')
 
       await expect(
-        changeSecret(adapter, COMP, owner, 'weak', { allowWeakSecret: true }),
+        changeSecret(adapter, COMP, owner, { newSecret: 'weak', allowWeakSecret: true }),
       ).resolves.toBeDefined()
     })
   })
 
   describe('listUsers', () => {
     it('returns all users in a compartment', async () => {
-      const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'pass')
+      const owner = await createOwnerKeyring(adapter, COMP, { userId: 'owner-01', secret: 'pass' })
       const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
       await getDEK('invoices')
 
@@ -374,7 +374,7 @@ describe('keyring', () => {
 
   describe('buildRecipientKeyringFile (issue #112)', () => {
     it('rejects when caller kek is null (tier-2 wrap-DEKs / tier-3 PIN-resume sessions cannot mint bundle recipients)', async () => {
-      const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'ownerpass')
+      const owner = await createOwnerKeyring(adapter, COMP, { userId: 'owner-01', secret: 'ownerpass' })
       const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
       await getDEK('invoices')
 
@@ -397,7 +397,7 @@ describe('keyring', () => {
     })
 
     it('still works for legitimate tier-1 callers', async () => {
-      const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'ownerpass')
+      const owner = await createOwnerKeyring(adapter, COMP, { userId: 'owner-01', secret: 'ownerpass' })
       const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
       await getDEK('invoices')
 

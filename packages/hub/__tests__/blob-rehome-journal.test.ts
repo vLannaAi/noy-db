@@ -152,7 +152,7 @@ interface BlobSetInternals {
 describe('rehomeForTier — slot re-put destination +1 is row-scoped stamped (#746 spec C3)', () => {
   it('crash after the destination +1 lands, before the slot CAS → resume does not over-count; old object released exactly once', async () => {
     const store = memory()
-    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
 
@@ -179,7 +179,7 @@ describe('rehomeForTier — slot re-put destination +1 is row-scoped stamped (#7
     let reached!: () => void
     const reachedPromise = new Promise<void>((r) => { reached = r })
     const crashing = hangOnNthPut(store, (col) => col === SLOTS_COLLECTION, 1, () => reached())
-    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultCrash = await dbCrash.openVault(VAULT)
     const docsCrash = vaultCrash.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     const opId = 'rehome-op-slot-1'
@@ -197,7 +197,7 @@ describe('rehomeForTier — slot re-put destination +1 is row-scoped stamped (#7
     // Resume: fresh session, same store, same opId — re-running
     // `rehomeForTier` from scratch. The slot map never moved, so
     // `loadSlots(fromTier)` still resolves cleanly.
-    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultResume = await dbResume.openVault(VAULT)
     const docsResume = vaultResume.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     await docsResume.blob('r').rehomeForTier(0, 1, 'isolate', opId)
@@ -230,7 +230,7 @@ describe('rehomeForTier — slot re-put destination +1 is row-scoped stamped (#7
 describe('rehomeForTier — fresh-object CREATE also seeds the stamp (#746 C3 review)', () => {
   it('crash after the fresh-create lands, before the slot CAS → resume does not spuriously double the destination refCount', async () => {
     const store = memory()
-    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
 
@@ -251,7 +251,7 @@ describe('rehomeForTier — fresh-object CREATE also seeds the stamp (#746 C3 re
     let reached!: () => void
     const reachedPromise = new Promise<void>((r) => { reached = r })
     const crashing = hangOnNthPut(store, (col) => col === SLOTS_COLLECTION, 1, () => reached())
-    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultCrash = await dbCrash.openVault(VAULT)
     const docsCrash = vaultCrash.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     const opId = 'rehome-op-fresh-create-1'
@@ -272,7 +272,7 @@ describe('rehomeForTier — fresh-object CREATE also seeds the stamp (#746 C3 re
     // Resume: fresh session, same store, same opId — re-running
     // `rehomeForTier` from scratch. The slot map never moved, so
     // `loadSlots(fromTier)` still resolves cleanly.
-    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultResume = await dbResume.openVault(VAULT)
     const docsResume = vaultResume.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     await docsResume.blob('r4').rehomeForTier(0, 1, 'isolate', opId)
@@ -303,7 +303,7 @@ describe('rehomeForTier — fresh-object CREATE also seeds the stamp (#746 C3 re
 describe('rehomeForTier — version re-put destination +1 is row-scoped stamped (#746 spec C3)', () => {
   it('crash after the destination +1 lands (version fallback re-put), before the old object\'s deletion completes → resume does not over-count', async () => {
     const store = memory()
-    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
 
@@ -341,7 +341,7 @@ describe('rehomeForTier — version re-put destination +1 is row-scoped stamped 
     let reached!: () => void
     const reachedPromise = new Promise<void>((r) => { reached = r })
     const crashing = hangOnNthDelete(store, (col, id) => col === INDEX_COLLECTION && id === oldETag, 1, () => reached())
-    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultCrash = await dbCrash.openVault(VAULT)
     const docsCrash = vaultCrash.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     const opId = 'rehome-op-version-1'
@@ -362,7 +362,7 @@ describe('rehomeForTier — version re-put destination +1 is row-scoped stamped 
     // `loadSlots(fromTier)` sees a clean absent row regardless of any prior
     // partial move, so the full `rehomeForTier` re-run is safe with
     // Task 1's code alone (no two-tier slot-map fallback needed here).
-    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultResume = await dbResume.openVault(VAULT)
     const docsResume = vaultResume.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     await docsResume.blob('r3').rehomeForTier(0, 1, 'isolate', opId)
@@ -388,7 +388,7 @@ describe('rehomeForTier — version re-put destination +1 is row-scoped stamped 
 describe('rehomeForTier — unstamped (no opId) call is byte-identical to today', () => {
   it('a direct call with no opId increments refCount normally and leaves no lastOps stamp', async () => {
     const store = memory()
-    const db = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
 
@@ -424,7 +424,7 @@ describe('rehomeForTier — unstamped (no opId) call is byte-identical to today'
 describe('syncBlobs mints a rehome marker with a FRESH opId per move (#746 spec §7 §2d)', () => {
   it('elevate() leaves a stamp on the destination and no dangling marker; two records elevated in sequence get DIFFERENT opIds', async () => {
     const store = memory()
-    const db = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
 
@@ -482,7 +482,7 @@ describe('syncBlobs mints a rehome marker with a FRESH opId per move (#746 spec 
 describe('mid per-eTag loop crash → resume via a subsequent elevate() attempt (#746 spec §7 §2d)', () => {
   it('two-slot record: one eTag fully moved, one crashed mid-move → resume completes both (mixed alsoTryTier from-then-to open), releases every intermediate object once, marker gone; demote reversal round-trips', async () => {
     const store = memory()
-    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1, 2], perRecordKeys: true })
 
@@ -501,7 +501,7 @@ describe('mid per-eTag loop crash → resume via a subsequent elevate() attempt 
     let reached!: () => void
     const reachedPromise = new Promise<void>((r) => { reached = r })
     const crashing = hangOnNthPut(store, (col) => col === SLOTS_COLLECTION, 2, () => reached())
-    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultCrash = await dbCrash.openVault(VAULT)
     const docsCrash = vaultCrash.collection<Doc>('docs', { tiers: [0, 1, 2], perRecordKeys: true })
     void docsCrash.elevate('mixed', 1) // fire-and-forget: never settles (simulated crash)
@@ -518,7 +518,7 @@ describe('mid per-eTag loop crash → resume via a subsequent elevate() attempt 
     // tier 1 → skip; 'b' still opens at tier 0 → resume it — the mixed
     // record this describe block is named for), deletes it, THEN runs its
     // own fresh 1→2 move.
-    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultResume = await dbResume.openVault(VAULT)
     const docsResume = vaultResume.collection<Doc>('docs', { tiers: [0, 1, 2], perRecordKeys: true })
     await docsResume.elevate('mixed', 2)
@@ -547,7 +547,7 @@ describe('mid per-eTag loop crash → resume via a subsequent elevate() attempt 
 describe('crash after the slot map fully moves → resume skips the move and completes the version pass (#746 spec §7 §2d)', () => {
   it('a shared-eTag version (finding (a): the already-rehomed fast path, now reachable) and a unique-content version both resolve correctly on resume', async () => {
     const store = memory()
-    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
 
@@ -574,7 +574,7 @@ describe('crash after the slot map fully moves → resume skips the move and com
     let reached!: () => void
     const reachedPromise = new Promise<void>((r) => { reached = r })
     const crashing = hangOnNthPut(store, (col) => col === VERSIONS_COLLECTION, 1, () => reached())
-    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultCrash = await dbCrash.openVault(VAULT)
     const docsCrash = vaultCrash.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     void docsCrash.elevate('r5', 1) // fire-and-forget: never settles (simulated crash)
@@ -590,7 +590,7 @@ describe('crash after the slot map fully moves → resume skips the move and com
     // shows 1, so (per this file's other tests) a same-tier `elevate()`
     // would no-op at the collection level; `put()`'s `resolvePendingIntent()`
     // gate is the resuming entry point here instead.
-    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultResume = await dbResume.openVault(VAULT)
     const docsResume = vaultResume.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     await docsResume.blob('r5').put('unrelated', bytes('triggers resume'))
@@ -610,7 +610,7 @@ describe('crash after the slot map fully moves → resume skips the move and com
 describe('the slot-CAS→deferred-release gap is closed by the pendingRelease breadcrumb (#746 review, carried finding (b))', () => {
   it('crash exactly after the slot CAS lands (slot already points at the new eTag) but before the old-object release even starts → resume finds the old eTag via the breadcrumb, not the (now-overwritten) slot map — no stranded hold', async () => {
     const store = memory()
-    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1, 2], perRecordKeys: true })
 
@@ -632,7 +632,7 @@ describe('the slot-CAS→deferred-release gap is closed by the pendingRelease br
     let reached!: () => void
     const reachedPromise = new Promise<void>((r) => { reached = r })
     const crashing = hangOnNthPut(store, (col, id) => col === INDEX_COLLECTION && id === oldETag, 1, () => reached())
-    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultCrash = await dbCrash.openVault(VAULT)
     const docsCrash = vaultCrash.collection<Doc>('docs', { tiers: [0, 1, 2], perRecordKeys: true })
     void docsCrash.elevate('strand', 1) // fire-and-forget: never settles (simulated crash)
@@ -652,7 +652,7 @@ describe('the slot-CAS→deferred-release gap is closed by the pendingRelease br
     // Resume: a fresh session, elevate to a FURTHER tier (a same-tier
     // re-`elevate()` would no-op at the collection level — see this file's
     // other resume tests' shared note).
-    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultResume = await dbResume.openVault(VAULT)
     const docsResume = vaultResume.collection<Doc>('docs', { tiers: [0, 1, 2], perRecordKeys: true })
     await docsResume.elevate('strand', 2)
@@ -679,7 +679,7 @@ describe('the slot-CAS→deferred-release gap is closed by the pendingRelease br
 describe('#746 review Critical 2 — the "already moved" reconstruction is tier-aware (DEK-mismatch fix)', () => {
   it('a shared (refCount>1) dedup-policy slot resumes cleanly: reconstruction leaves the still-flat object alone instead of unwrapping it under the wrong DEK', async () => {
     const store = memory()
-    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1, 2], perRecordKeys: true, blobTierPolicy: 'dedup' })
 
@@ -706,7 +706,7 @@ describe('#746 review Critical 2 — the "already moved" reconstruction is tier-
     let reached!: () => void
     const reachedPromise = new Promise<void>((r) => { reached = r })
     const crashing = hangOnNthDelete(store, (col) => col === '_blob_intent', 1, () => reached())
-    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultCrash = await dbCrash.openVault(VAULT)
     const docsCrash = vaultCrash.collection<Doc>('docs', { tiers: [0, 1, 2], perRecordKeys: true, blobTierPolicy: 'dedup' })
     void docsCrash.elevate('r1', 1) // fire-and-forget: never settles (simulated crash)
@@ -720,7 +720,7 @@ describe('#746 review Critical 2 — the "already moved" reconstruction is tier-
     // tests' shared note on why a same-tier re-`elevate()` can't be the
     // resuming call), re-entering `runRehomeSteps` with the slot map
     // already at tier 1.
-    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultResume = await dbResume.openVault(VAULT)
     const docsResume = vaultResume.collection<Doc>('docs', { tiers: [0, 1, 2], perRecordKeys: true, blobTierPolicy: 'dedup' })
 
@@ -752,7 +752,7 @@ describe('#746 review Critical 2 — the "already moved" reconstruction is tier-
 describe('elevate() resumes a pending SHRED marker first — nothing left to rehome (#746/#753 spec Q1)', () => {
   it('a stranded shred marker (a previous forget() crashed right after minting it) is resumed by the next elevate(): the blob is erased, not moved, and elevate() still completes the record\'s own tier move', async () => {
     const store = memory()
-    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     await docs0.putAtTier('r', { id: 'r', title: 'R' }, 0)
@@ -770,7 +770,7 @@ describe('elevate() resumes a pending SHRED marker first — nothing left to reh
     // A rehome entry (`elevate`) on this SAME record must resume the
     // pending shred FIRST — "nothing left to rehome" once shred takes
     // over — rather than trying to move blobs the shred is about to erase.
-    const db = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     await expect(docs.elevate('r', 1)).resolves.toEqual({ searchResidue: false })
@@ -795,7 +795,7 @@ describe('elevate() resumes a pending SHRED marker first — nothing left to reh
 describe('a pending REHOME marker is never overwritten by a fresh SHRED marker (#746/#753 spec Q1/C8, single-marker-per-record)', () => {
   it('mintShredIntent() discovering a stranded rehome marker returns without minting — a later write resumes the REHOME (content preserved), never a spurious shred (content destroyed)', async () => {
     const store = memory()
-    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     await docs0.putAtTier('r', { id: 'r', title: 'R' }, 0)
@@ -808,7 +808,7 @@ describe('a pending REHOME marker is never overwritten by a fresh SHRED marker (
     let reached!: () => void
     const reachedPromise = new Promise<void>((r) => { reached = r })
     const crashing = hangOnNthPut(store, (col) => col === SLOTS_COLLECTION, 1, () => reached())
-    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultCrash = await dbCrash.openVault(VAULT)
     const docsCrash = vaultCrash.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     void docsCrash.elevate('r', 1) // fire-and-forget: never settles (simulated crash)
@@ -820,7 +820,7 @@ describe('a pending REHOME marker is never overwritten by a fresh SHRED marker (
     // racing a pending rehome) — C8: the CAS create-if-absent refuses to
     // overwrite the pending marker; `mintShredIntent` discovers the raced
     // rehome marker and returns WITHOUT minting a fresh shred marker.
-    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultResume = await dbResume.openVault(VAULT)
     const docsResume = vaultResume.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     await expect(docsResume.blob('r').mintShredIntent(0)).resolves.toBeUndefined()
@@ -859,7 +859,7 @@ describe('#746 whole-branch review — CONCURRENT rehomes converging on one dest
     const store = memory()
     const shared = bytes('concurrent-fanout content')
 
-    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     await docs0.putAtTier('seed', { id: 'seed', title: 'Seed' }, 0)
@@ -876,7 +876,7 @@ describe('#746 whole-branch review — CONCURRENT rehomes converging on one dest
     let reached!: () => void
     const reachedPromise = new Promise<void>((r) => { reached = r })
     const crashing = hangOnNthPut(store, (col, id) => col === SLOTS_COLLECTION && id === 'r1', 1, () => reached())
-    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultCrash = await dbCrash.openVault(VAULT)
     const docsCrash = vaultCrash.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     void docsCrash.elevate('r1', 1) // fire-and-forget: never settles (simulated crash)
@@ -888,7 +888,7 @@ describe('#746 whole-branch review — CONCURRENT rehomes converging on one dest
     // appends past K=8 (seed + r1 + these 8 = 10) and evicting r1's own
     // stamp from the destination's bounded ring.
     for (let i = 2; i <= 9; i++) {
-      const dbI = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+      const dbI = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
       const vaultI = await dbI.openVault(VAULT)
       const docsI = vaultI.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
       await docsI.putAtTier(`r${i}`, { id: `r${i}`, title: `R${i}` }, 0)
@@ -899,7 +899,7 @@ describe('#746 whole-branch review — CONCURRENT rehomes converging on one dest
 
     // Resume r1 via an ordinary put() (its own `_tier` already shows 1 —
     // elevate() writes the record before syncBlobs).
-    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultResume = await dbResume.openVault(VAULT)
     const docsResume = vaultResume.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     await docsResume.blob('r1').put('unrelated', bytes('trigger resume'))
@@ -920,7 +920,7 @@ describe('#746 whole-branch review — SINGLE-RECORD fan-out (≥9 rows of ident
     const store = memory()
     const shared = bytes('single-record fan-out content')
 
-    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     await docs0.putAtTier('r', { id: 'r', title: 'R' }, 0)
@@ -938,7 +938,7 @@ describe('#746 whole-branch review — SINGLE-RECORD fan-out (≥9 rows of ident
     let reached!: () => void
     const reachedPromise = new Promise<void>((r) => { reached = r })
     const crashing = hangOnNthPut(store, (col, id) => col === VERSIONS_COLLECTION && id === 'r::a::v8', 1, () => reached())
-    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultCrash = await dbCrash.openVault(VAULT)
     const docsCrash = vaultCrash.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     void docsCrash.elevate('r', 1) // fire-and-forget: never settles (simulated crash)
@@ -946,7 +946,7 @@ describe('#746 whole-branch review — SINGLE-RECORD fan-out (≥9 rows of ident
     expect(await store.list(VAULT, '_blob_intent')).toHaveLength(1)
 
     // Resume via an ordinary put() (record's `_tier` already shows 1).
-    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultResume = await dbResume.openVault(VAULT)
     const docsResume = vaultResume.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     await docsResume.blob('r').put('unrelated', bytes('trigger resume'))
@@ -978,7 +978,7 @@ describe('#746 whole-branch review — SINGLE-RECORD fan-out (≥9 rows of ident
 describe('#746 whole-branch review Hardening 1 — syncTierMove skips the marker for a blob-less record', () => {
   it('elevate() on a record with no slots and no published versions mints no `_blob_intent` row', async () => {
     const store = memory()
-    const db = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     await docs.putAtTier('bare', { id: 'bare', title: 'Bare' }, 0) // no blob ever attached
@@ -997,7 +997,7 @@ describe('#746 whole-branch review Hardening 1 — syncTierMove skips the marker
 describe('#746 whole-branch review Hardening 2 — post-resume shred mint uses the resumed rehome\'s own toTier', () => {
   it('shredAllForRecord(staleTier) after resuming a pending rehome collects holds at the rehome\'s toTier, not the caller\'s stale argument', async () => {
     const store = memory()
-    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     await docs0.putAtTier('r', { id: 'r', title: 'R' }, 0)
@@ -1008,7 +1008,7 @@ describe('#746 whole-branch review Hardening 2 — post-resume shred mint uses t
     let reached!: () => void
     const reachedPromise = new Promise<void>((r) => { reached = r })
     const crashing = hangOnNthPut(store, (col) => col === SLOTS_COLLECTION, 1, () => reached())
-    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbCrash = await createNoydb({ store: crashing, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultCrash = await dbCrash.openVault(VAULT)
     const docsCrash = vaultCrash.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     void docsCrash.elevate('r', 1) // fire-and-forget: never settles (simulated crash)
@@ -1021,7 +1021,7 @@ describe('#746 whole-branch review Hardening 2 — post-resume shred mint uses t
     // `toTier` (1), `collectShredHolds(0)` would try the slot map's OLD
     // (now-gone, re-keyed-to-1) tier-0 DEK and either throw or silently
     // see an empty/wrong slot map — the exact hazard Hardening 2 closes.
-    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobStrategy: withBlobs() })
+    const dbResume = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vaultResume = await dbResume.openVault(VAULT)
     const docsResume = vaultResume.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
     const result = await docsResume.blob('r').shredAllForRecord(0) // stale — the record actually resumed to tier 1

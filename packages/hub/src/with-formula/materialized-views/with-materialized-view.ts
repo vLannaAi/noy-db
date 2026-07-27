@@ -1,5 +1,5 @@
 import { MaterializedViewConfigError, ValidationError } from '../../kernel/errors.js'
-import type { MaterializedViewStrategy, MaterializedViewStrategyHandle } from './types.js'
+import type { MaterializedViewSpec, MaterializedViewStrategy } from './types.js'
 
 /**
  * Register a materialized view: a declared query whose result is
@@ -28,8 +28,8 @@ import type { MaterializedViewStrategy, MaterializedViewStrategyHandle } from '.
  * and docs/superpowers/specs/2026-07-25-join-projection-mv-design.md (projection).
  */
 export function withMaterializedView<TRow extends Record<string, unknown>>(
-  spec: MaterializedViewStrategy<TRow>,
-): MaterializedViewStrategyHandle {
+  spec: MaterializedViewSpec<TRow>,
+): MaterializedViewStrategy {
   if (!spec.name || spec.name.length === 0) {
     throw new ValidationError('withMaterializedView: name is required')
   }

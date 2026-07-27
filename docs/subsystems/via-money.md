@@ -98,7 +98,7 @@ instead.
 
 ### Indexing — the fast path, and an honest mixed-era caveat (#625)
 
-A declared money field indexed via `indexes: [...]` + `indexStrategy: withIndexing()` gets an
+A declared money field indexed via `indexes: [...]` + `indexingStrategy: withIndexing()` gets an
 index-accelerated fast path for `where(field, '==', ...)` and `where(field, 'in', ...)` in
 **fixed mode only** — `ViaBinding.indexProbe` hands the query builder the exact STORED-form
 scaled-integer digit string (the same one `quantizeMoneyFields` writes), so the index bucket

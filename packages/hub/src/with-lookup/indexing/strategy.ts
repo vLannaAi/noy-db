@@ -1,6 +1,6 @@
 /**
  * Strategy seam between core Collection and the optional indexing
- * service. Core imports `IndexStrategy` and `IndexState` as
+ * service. Core imports `IndexingStrategy` and `IndexState` as
  * TYPE-ONLY symbols and `NO_INDEXING` as a tiny runtime stub.
  *
  * The heavy classes — `CollectionIndexes`, `PersistedCollectionIndex`,
@@ -42,7 +42,7 @@ export interface IndexState {
  *
  * @internal
  */
-export interface IndexStrategy {
+export interface IndexingStrategy {
   createState(args: {
     readonly defs: readonly IndexDef[]
     readonly lazy: boolean
@@ -57,7 +57,7 @@ export interface IndexStrategy {
  *
  * @internal
  */
-export const NO_INDEXING: IndexStrategy = {
+export const NO_INDEXING: IndexingStrategy = {
   createState() {
     return DISABLED_STATE
   },

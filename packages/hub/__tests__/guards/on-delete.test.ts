@@ -143,7 +143,7 @@ describe('withGuard.onDelete (#145)', () => {
       user: 'alice',
       secret: 'guards-ondelete-amendment-secret-2026',
       guardStrategies: [guard],
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     const v = await db.openVault('demo')
     const invs = v.collection<Invoice>('invoices')
@@ -202,7 +202,7 @@ describe('withGuard.onDelete (#145)', () => {
       user: 'alice',
       secret: 'guards-ondelete-unconditional-secret-2026',
       guardStrategies: [guard],
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     const v = await db.openVault('demo')
     await v.collection<Receipt>('receipts').put('r1', { id: 'r1', amount: 100 })

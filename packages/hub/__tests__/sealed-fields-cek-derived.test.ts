@@ -28,7 +28,7 @@ import {
 import { NOYDB_FORMAT_VERSION } from '../src/kernel/types.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { withHistory } from '../src/with-commit/history/index.js'
-import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withForget } from '../src/with-audit/forget/index.js'
 
 interface Person {
   id: string
@@ -172,7 +172,7 @@ describe('#306 Slice B — sealed fields keyed off the per-record CEK', () => {
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+      forgetStrategy: withForget({ subjects: { people: 'subjectId' } }),
     })
     const vault = await db.openVault('v')
     interface Subj { id: string; subjectId: string; name: string; ssn: string }

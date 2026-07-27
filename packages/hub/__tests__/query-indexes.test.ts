@@ -205,7 +205,7 @@ describe('Collection.query() — index-aware execution', () => {
       store: memory(),
       user: 'owner',
       secret: 'index-test-secret-2026',
-      indexStrategy: withIndexing(),
+      indexingStrategy: withIndexing(),
     })
   })
 
@@ -319,7 +319,7 @@ describe('Collection.query() — index-aware execution', () => {
       store: localAdapter,
       user: 'owner',
       secret: 'index-spy-secret-2026',
-      indexStrategy: withIndexing(),
+      indexingStrategy: withIndexing(),
     })
     const c = await localDb.openVault('TEST')
     const invoices = c.collection<Invoice>('invoices', { indexes: ['status'] })
@@ -360,7 +360,7 @@ describe('Collection.query() — index-aware execution', () => {
       user: 'owner',
       secret: 'bench-secret-2026',
       history: { enabled: false }, // skip history snapshots for the bench
-      indexStrategy: withIndexing(),
+      indexingStrategy: withIndexing(),
     })
     const c = await localDb.openVault('BENCH')
     const indexed = c.collection<Invoice>('indexed', { indexes: ['status'] })

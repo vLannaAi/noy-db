@@ -114,7 +114,7 @@ describe('FR-6 Deed — sealed/latent owner provisioning', () => {
     // Re-derive the owner KEK from the unsealed secret + persisted salt
     // and confirm it unlocks the same keyring (canary verifies).
     const { loadKeyring } = await import('../src/with-party/team/keyring.js')
-    const reopened = await loadKeyring(store, 'deed-vault', 'client-01', secret)
+    const reopened = await loadKeyring(store, 'deed-vault', { userId: 'client-01', secret: secret })
     expect(reopened.userId).toBe('client-01')
     expect(reopened.role).toBe('owner')
     expect(reopened.kek).not.toBeNull()

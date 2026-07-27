@@ -1076,7 +1076,7 @@ export async function fromBytes(
     plan,
     policy,
     async apply(): Promise<void> {
-      // Routes through the txStrategy seam — clear error when
+      // Routes through the transactionsStrategy seam — clear error when
       // withTransactions() isn't opted in.
       await vault.noydb.transaction((tx) => {
         const txVault = tx.vault(vault.name)

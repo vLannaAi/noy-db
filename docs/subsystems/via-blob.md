@@ -10,7 +10,7 @@ engine work that the `via-enclave-isolation` architecture rule forbids under `vi
 that machinery stays exactly where it was pre-#629, at `with-shape/blobs/` (service-side); the
 via binding contributes only declaration + posture + `describeFragment` + an `erase` hook.
 
-Enable blob storage with `blobStrategy: withBlobs()` (subpath `@noy-db/hub/blobs`).
+Enable blob storage with `blobsStrategy: withBlobs()` (subpath `@noy-db/hub/blobs`).
 
 ## Declaring fields
 
@@ -23,7 +23,7 @@ interface InvoiceScan {
   status: string
 }
 
-const db = await createNoydb({ user: 'owner', secret: 'pw', blobStrategy: withBlobs() })
+const db = await createNoydb({ user: 'owner', secret: 'pw', blobsStrategy: withBlobs() })
 const vault = await db.openVault('v1')
 const scans = vault.collection<InvoiceScan>('invoiceScans', {
   blobFields: {
@@ -89,7 +89,7 @@ await blob.unpin('image')          // back to the normal lifecycle
 
 ```ts
 import { withBlobs, type BlobPinStore } from '@noy-db/hub/blobs'
-const blobStrategy = withBlobs({ pinStore: myIdbBackedPinStore }) // 4-method BlobPinStore
+const blobsStrategy = withBlobs({ pinStore: myIdbBackedPinStore }) // 4-method BlobPinStore
 ```
 
 The hub itself ships only the in-memory default — it has no device-persistence
@@ -145,9 +145,9 @@ envelope convention.
 ### KPI counters
 
 ```ts
-const blobStrategy = withBlobs()
+const blobsStrategy = withBlobs()
 // … reads happen …
-blobStrategy.cacheStats() // → { hits, misses, bytesDownloaded }
+blobsStrategy.cacheStats() // → { hits, misses, bytesDownloaded }
 ```
 
 Local reads (internal chunks, cached external copies) count as `hits`; object-store
@@ -179,7 +179,7 @@ expect(() => c.scan().where('receipt', '==', 'x')).toThrow(FieldNotQueryableErro
 
 (from `packages/hub/__tests__/via/query-posture-b.test.ts`, `TDD (#629 Task 8): blobFields refuse
 .where()/.orderBy()/.aggregate()`). This refusal is driven purely by the declared posture — it
-fires even without `blobStrategy: withBlobs()` configured, since it's a metadata check, not a
+fires even without `blobsStrategy: withBlobs()` configured, since it's a metadata check, not a
 crypto operation. A reducer with no `.field` (bare `count()`) is unaffected — there's nothing to
 gate:
 
@@ -220,7 +220,7 @@ await expect(b.erase!(eraseCtxFixture())).resolves.toEqual(report)
 (from `packages/hub/__tests__/via/blob-binding.test.ts`). **This hook is not wired into
 production, on purpose.** `vault.forget()`'s blob-shred call site
 (`this.collection(ref.collection).blob(ref.id).shredAllForRecord()`) is gated by DEFAULT **only**
-on whether the vault's `blobStrategy` is configured — never on whether the specific collection
+on whether the vault's `blobsStrategy` is configured — never on whether the specific collection
 declared `blobFields` — proven by `per-blob-cek.test.ts`/`forget.test.ts`, which crypto-shred blobs
 on `forget()` for collections calling `.blob(id)` with **no** `blobFields` declaration at all. Routing
 blob-shred exclusively through this binding's `erase()` hook would silently stop crypto-shredding

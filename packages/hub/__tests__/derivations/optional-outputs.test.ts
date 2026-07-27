@@ -285,7 +285,7 @@ describe('withDerivation — optional outputs (#144)', () => {
       user: 'alice',
       secret: 'derivation-tombstone-lazy-tx-wiring-secret-2026',
       derivationStrategies: [allocationDerivation],
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     const v = await db.openVault('demo')
 
@@ -400,7 +400,7 @@ describe('withDerivation — optional outputs (#144)', () => {
       secret: 'derivation-tombstone-in-amendment-secret-2026',
       derivationStrategies: [allocationDerivation],
       guardStrategies: [receiptGuard],
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     const v = await db.openVault('demo')
 

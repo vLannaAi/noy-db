@@ -61,7 +61,7 @@ describe('retrieve() indexes blob filenames (#308 L1)', () => {
   let db: Noydb
 
   beforeEach(async () => {
-    db = await createNoydb({ store: memory(), user: 'a', secret: 'pw-search-blob-long-enough', blobStrategy: withBlobs(), searchStrategy: withSearch() })
+    db = await createNoydb({ store: memory(), user: 'a', secret: 'pw-search-blob-long-enough', blobsStrategy: withBlobs(), searchStrategy: withSearch() })
   })
 
   it('finds a record by its attached blob filename', async () => {

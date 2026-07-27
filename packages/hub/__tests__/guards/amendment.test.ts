@@ -83,7 +83,7 @@ describe('withTransactions amendment mode', () => {
       user: 'alice',
       secret: 'guards-amendment-ok-secret-2026',
       guardStrategies: [buildGuard()],
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     const v = await db.openVault('demo')
     // Seed via amendment (normal put would be blocked by the guard)
@@ -108,7 +108,7 @@ describe('withTransactions amendment mode', () => {
       user: 'alice',
       secret: 'guards-amendment-fail-secret-2026',
       guardStrategies: [buildGuard()],
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     const v = await db.openVault('demo')
     await db.transaction({ amendment: true, reason: 'seed' }, async (tx) => {
@@ -128,7 +128,7 @@ describe('withTransactions amendment mode', () => {
       store: memory(),
       user: 'alice',
       secret: 'guards-amendment-no-strategies-secret-2026',
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     await db.openVault('demo')
     await expect(
@@ -144,7 +144,7 @@ describe('withTransactions amendment mode', () => {
       user: 'alice',
       secret: 'guards-amendment-no-reason-secret-2026',
       guardStrategies: [buildGuard()],
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     await db.openVault('demo')
     await expect(
@@ -187,7 +187,7 @@ describe('withTransactions amendment mode', () => {
       user: 'alice',
       secret: 'guards-amendment-xread-secret-2026',
       guardStrategies: [lineGuard],
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     const v = await db.openVault('demo')
     // Seed the invoice via a normal put (no guard on `invoices`).
@@ -219,7 +219,7 @@ describe('withTransactions amendment mode', () => {
       user: 'alice',
       secret: 'guards-amendment-audit-secret-2026',
       guardStrategies: [buildGuard()],
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
       historyStrategy: withHistory(),
     })
     const v = await db.openVault('demo')

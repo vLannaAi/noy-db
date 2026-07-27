@@ -70,7 +70,7 @@ const SECRET = 'secret-1234-long-enough'
 describe('#808 — pin surface', () => {
   it('pin/unpin/isPinned round-trip on an internal slot', async () => {
     const store = makeStore()
-    const db = await createNoydb({ store, user: 'op', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, user: 'op', secret: SECRET, blobsStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs')
     await docs.put('d1', { id: 'd1' })
@@ -89,7 +89,7 @@ describe('#808 — pin surface', () => {
   })
 
   it('pin on a missing slot throws NotFoundError', async () => {
-    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, blobsStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs')
     await docs.put('d1', { id: 'd1' })
@@ -97,7 +97,7 @@ describe('#808 — pin surface', () => {
   })
 
   it('pin refuses a slot name containing the reserved separator', async () => {
-    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, blobsStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs')
     await docs.put('d1', { id: 'd1' })
@@ -105,7 +105,7 @@ describe('#808 — pin surface', () => {
   })
 
   it('unpin of a never-pinned slot is a no-op', async () => {
-    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, blobsStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs')
     await docs.put('d1', { id: 'd1' })
@@ -117,7 +117,7 @@ describe('#808 — pin surface', () => {
 describe('#808 — pin state is device-local, never synced', () => {
   it('a fresh device (same store, new withBlobs()) sees no pins, and the vault store holds no pin state', async () => {
     const store = makeStore()
-    const db1 = await createNoydb({ store, user: 'op', secret: SECRET, blobStrategy: withBlobs() })
+    const db1 = await createNoydb({ store, user: 'op', secret: SECRET, blobsStrategy: withBlobs() })
     const v1 = await db1.openVault('t')
     const docs1 = v1.collection<{ id: string }>('docs')
     await docs1.put('d1', { id: 'd1' })
@@ -130,7 +130,7 @@ describe('#808 — pin state is device-local, never synced', () => {
     expect(collections.some((c) => c.toLowerCase().includes('pin'))).toBe(false)
 
     // A second device over the SAME store sees the slot but not the pin.
-    const db2 = await createNoydb({ store, user: 'op', secret: SECRET, blobStrategy: withBlobs() })
+    const db2 = await createNoydb({ store, user: 'op', secret: SECRET, blobsStrategy: withBlobs() })
     const v2 = await db2.openVault('t')
     const docs2 = v2.collection<{ id: string }>('docs')
     expect((await docs2.blob('d1').list()).find((s) => s.name === 'scan')).toBeDefined()
@@ -141,7 +141,7 @@ describe('#808 — pin state is device-local, never synced', () => {
 describe('#808 — pin survives compact, unpin restores lifecycle', () => {
   it('a pinned slot is exempt from policy eviction; unpin makes it evictable again', async () => {
     const store = makeStore()
-    const db = await createNoydb({ store, user: 'op', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, user: 'op', secret: SECRET, blobsStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const scans = vault.collection<{ id: string; status: string }>('scans', {
       blobFields: { image: { evictWhen: (r) => r.status === 'done' } },
@@ -169,7 +169,7 @@ describe('#808 — pin survives compact, unpin restores lifecycle', () => {
 
 describe('#808 — cache budget (LRU) via vault.compact', () => {
   it('evicts oldest-accessed unpinned internal blobs until under budget', async () => {
-    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, blobsStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs')
     for (const id of ['r1', 'r2', 'r3']) {
@@ -190,7 +190,7 @@ describe('#808 — cache budget (LRU) via vault.compact', () => {
   })
 
   it('pinned slots are exempt from the budget (not counted, never evicted)', async () => {
-    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, blobsStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs')
     for (const id of ['r1', 'r2']) {
@@ -215,7 +215,7 @@ describe('#808 — cache budget (LRU) via vault.compact', () => {
 
   it('budget evictions write audit entries with reason "budget"; dryRun only counts', async () => {
     const store = makeStore()
-    const db = await createNoydb({ store, user: 'op', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, user: 'op', secret: SECRET, blobsStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs')
     await docs.put('r1', { id: 'r1' })
@@ -233,7 +233,7 @@ describe('#808 — cache budget (LRU) via vault.compact', () => {
   })
 
   it('refuses a negative or non-finite maxBytes', async () => {
-    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, blobsStrategy: withBlobs() })
     const vault = await db.openVault('t')
     await expect(vault.compact({ cacheBudget: { maxBytes: -1 } })).rejects.toThrow(ValidationError)
     await expect(vault.compact({ cacheBudget: { maxBytes: Number.NaN } })).rejects.toThrow(ValidationError)
@@ -241,7 +241,7 @@ describe('#808 — cache budget (LRU) via vault.compact', () => {
 
   it('drops an unpinned external side-cache copy without touching the slot or the remote object', async () => {
     const { projection, setOffline } = flakyProjection()
-    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, objectStore: projection, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, objectStore: projection, blobsStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs', { blobFields: { video: { external: true } } })
     await docs.put('d1', { id: 'd1' })
@@ -267,7 +267,7 @@ describe('#808 — cache budget (LRU) via vault.compact', () => {
 describe('#808 — offline read taxonomy', () => {
   it('external: pinned → readable offline; cached → readable offline; cold → BlobOfflineError', async () => {
     const { projection, setOffline } = flakyProjection()
-    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, objectStore: projection, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, objectStore: projection, blobsStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs', {
       blobFields: { a: { external: true }, b: { external: true }, c: { external: true } },
@@ -295,7 +295,7 @@ describe('#808 — offline read taxonomy', () => {
 
   it('external: a deleted remote object (online) is null, not BlobOfflineError', async () => {
     const { projection, inner } = flakyProjection()
-    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, objectStore: projection, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, objectStore: projection, blobsStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs', { blobFields: { a: { external: true } } })
     await docs.put('d1', { id: 'd1' })
@@ -306,7 +306,7 @@ describe('#808 — offline read taxonomy', () => {
 
   it('internal: locally-present chunks are readable; missing chunks surface BlobOfflineError', async () => {
     const store = makeStore()
-    const db = await createNoydb({ store, user: 'op', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, user: 'op', secret: SECRET, blobsStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs')
     await docs.put('d1', { id: 'd1' })
@@ -328,7 +328,7 @@ describe('#808 — external pin: local copy is encrypted', () => {
     const { projection } = flakyProjection()
     const db = await createNoydb({
       store: makeStore(), user: 'op', secret: SECRET,
-      objectStore: projection, blobStrategy: withBlobs({ pinStore }),
+      objectStore: projection, blobsStrategy: withBlobs({ pinStore }),
     })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs', { blobFields: { doc: { external: true } } })
@@ -357,7 +357,7 @@ describe('#808 — KPI counters', () => {
   it('counts external hits/misses and bytes downloaded', async () => {
     const strategy = withBlobs()
     const { projection, setOffline } = flakyProjection()
-    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, objectStore: projection, blobStrategy: strategy })
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, objectStore: projection, blobsStrategy: strategy })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs', { blobFields: { a: { external: true } } })
     await docs.put('d1', { id: 'd1' })
@@ -382,7 +382,7 @@ describe('#808 — KPI counters', () => {
   it('counts internal local reads as hits; pin() of an external slot counts its eager download', async () => {
     const strategy = withBlobs()
     const { projection } = flakyProjection()
-    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, objectStore: projection, blobStrategy: strategy })
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, objectStore: projection, blobsStrategy: strategy })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs', { blobFields: { ext: { external: true } } })
     await docs.put('d1', { id: 'd1' })

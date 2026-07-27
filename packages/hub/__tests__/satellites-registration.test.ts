@@ -11,7 +11,7 @@ import { z } from 'zod'
 import { createNoydb } from '../src/kernel/noydb.js'
 import type { NoydbStore } from '../src/kernel/types.js'
 import { memory } from '../../to-memory/src/index.js'
-import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withForget } from '../src/with-audit/forget/index.js'
 import type { ForgetStrategy } from '../src/with-audit/forget/strategy.js'
 import { SatelliteConfigError } from '../src/kernel/errors.js'
 
@@ -59,7 +59,7 @@ describe('satellite declaration wiring (#591)', () => {
   })
 
   it('R-S7: refuses a satellite without perRecordKeys when the base is forget-covered', async () => {
-    const { vault } = await openTestVault({ forgetStrategy: withForgetCascade({ subjects: { msgs: 'from' } }) })
+    const { vault } = await openTestVault({ forgetStrategy: withForget({ subjects: { msgs: 'from' } }) })
     expect(() => vault.collection<Msg>('msgs_text', { satelliteOf: 'msgs', fields: ['body'] }))
       .toThrowError(/R-S7/)
     // With perRecordKeys it registers fine:
@@ -114,7 +114,7 @@ describe('satellite declaration wiring (#591)', () => {
   })
 
   it('a refused declaration leaves no side effects: registry stays null, plain writes unaffected', async () => {
-    const { vault } = await openTestVault({ forgetStrategy: withForgetCascade({ subjects: { msgs: 'from' } }) })
+    const { vault } = await openTestVault({ forgetStrategy: withForget({ subjects: { msgs: 'from' } }) })
     expect(() => vault.collection<Msg>('msgs_text', { satelliteOf: 'msgs', fields: ['body'] }))
       .toThrowError(SatelliteConfigError)
     // Internal invariant: the refused declaration created no registry (and thus no write hook).

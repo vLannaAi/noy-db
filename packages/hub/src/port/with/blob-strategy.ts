@@ -6,7 +6,7 @@
  * `Collection`/`Vault` can hold the `NO_BLOBS` default without a
  * spine→service static import.
  *
- * Core imports `BlobStrategy` as a TYPE-ONLY symbol and `NO_BLOBS` as a
+ * Core imports `BlobsStrategy` as a TYPE-ONLY symbol and `NO_BLOBS` as a
  * minimal runtime stub. Neither pulls in the heavy `BlobSet` / chunk /
  * MIME machinery — those only arrive when the consumer explicitly
  * imports `@noy-db/hub/blobs` (see `via/blob/index.ts` →
@@ -23,6 +23,7 @@ import type { NoydbStore } from '../../kernel/types.js'
 import type { ObjectProjection } from '../../with-shape/blobs/object-projection.js'
 import type { BlobFieldsConfig } from '../../with-shape/blobs/blob-compaction.js'
 import type { EnclaveKey } from '../../kernel/enclave/index.js'
+import type { BlobCacheStats } from '../../with-shape/blobs/blob-pinning.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import { linkBlobVia } from '../../via/blob/binding.js'
 
@@ -44,7 +45,7 @@ linkBlobVia()
  *
  * @internal
  */
-export interface BlobStrategyOpenArgs {
+export interface BlobsStrategyOpenArgs {
   readonly store: NoydbStore
   readonly vault: string
   readonly collection: string
@@ -100,8 +101,17 @@ export interface BlobStrategyOpenArgs {
  *
  * @internal
  */
-export interface BlobStrategy {
-  openSlot(args: BlobStrategyOpenArgs): BlobSet
+export interface BlobsStrategy {
+  openSlot(args: BlobsStrategyOpenArgs): BlobSet
+  /**
+   * Snapshot of this device's blob-cache KPI counters: local-read hits,
+   * network misses, and total bytes downloaded from the object store (#808).
+   *
+   * Lives on the seam rather than on the `withBlobs()` return type so the
+   * service has exactly one name (#844b) — `NO_BLOBS` answers with zeros,
+   * which is the truthful reading of "blobs were never enabled".
+   */
+  cacheStats(): BlobCacheStats
 }
 
 /**
@@ -111,11 +121,14 @@ export interface BlobStrategy {
  *
  * @internal
  */
-export const NO_BLOBS: BlobStrategy = {
+export const NO_BLOBS: BlobsStrategy = {
   openSlot() {
     throw new Error(
       'Blob storage is not enabled on this Noydb instance. ' +
-      'Import `{ withBlobs }` from "@noy-db/hub/blobs" and pass `withBlobs()` to `createNoydb({ blobStrategy: withBlobs() })`.',
+      'Import `{ withBlobs }` from "@noy-db/hub/blobs" and pass `withBlobs()` to `createNoydb({ blobsStrategy: withBlobs() })`.',
     )
+  },
+  cacheStats() {
+    return { hits: 0, misses: 0, bytesDownloaded: 0 }
   },
 }

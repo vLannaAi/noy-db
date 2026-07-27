@@ -1,8 +1,8 @@
 import { FieldFrozenError, InvariantError } from '../../kernel/errors.js'
-import type { GuardStrategy, GuardContext, GuardChange } from './types.js'
+import type { GuardSpec, GuardContext, GuardChange } from './types.js'
 
 /**
- * Pure functions that execute the work declared by a `GuardStrategy`.
+ * Pure functions that execute the work declared by a `GuardSpec`.
  * Stateless — `GuardRegistry` decides when to call these.
  *
  * @internal
@@ -20,7 +20,7 @@ export const GuardExecutor = {
    *   change even when the computed result is unchanged.
    */
   async checkFrozenFields<T extends Record<string, unknown>>(
-    guard: GuardStrategy<T>,
+    guard: GuardSpec<T>,
     id: string,
     existing: T | null,
     incoming: T,
@@ -51,7 +51,7 @@ export const GuardExecutor = {
    * Any throw is converted to `InvariantError` unless it already is one.
    */
   async runInvariant<T extends Record<string, unknown>>(
-    guard: GuardStrategy<T>,
+    guard: GuardSpec<T>,
     changes: ReadonlyArray<GuardChange<T>>,
     ctx: GuardContext<T>,
   ): Promise<void> {

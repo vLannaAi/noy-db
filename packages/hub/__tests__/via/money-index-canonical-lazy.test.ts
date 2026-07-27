@@ -110,7 +110,7 @@ async function seedLegacyRecord(adapter: NoydbStore, id: string, rawAmount: unkn
  * eager's automatic rebuild-on-hydrate self-correction.
  */
 async function openMoneyIndexedLazySession(adapter: NoydbStore) {
-  const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+  const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexingStrategy: withIndexing() })
   const vault = await db.openVault(VAULT)
   const col = vault.collection<Item>(COLL, {
     schema: itemSchema,
@@ -346,7 +346,7 @@ describe('lazy-mode money index-key canonicalization + probe (#677)', () => {
 
     /** Same session shape as `openMoneyIndexedLazySession`, but `amount: z.unknown()` — some shapes are null/garbage. */
     async function openShapesLazySession(adapter: NoydbStore) {
-      const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+      const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexingStrategy: withIndexing() })
       const vault = await db.openVault(VAULT)
       const col = vault.collection<ShapeRecord>(COLL, {
         schema: shapeSchema,
@@ -399,7 +399,7 @@ describe('lazy-mode money index-key canonicalization + probe (#677)', () => {
 describe('lazy-mode via-aware post-filter at scale > 0 (#684)', () => {
   /** scale:2 lazy session — decode is NOT identity (stored '100' <-> decoded '1.00'), the #684 repro precondition. */
   async function openMoneyIndexedLazySession2(adapter: NoydbStore) {
-    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexingStrategy: withIndexing() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<Item>(COLL, {
       schema: itemSchema,
@@ -414,7 +414,7 @@ describe('lazy-mode via-aware post-filter at scale > 0 (#684)', () => {
 
   /** Eager counterpart — same moneyFields, `prefetch: true` (default) — for the mandatory eager-vs-lazy parity assertion. */
   async function openMoneyIndexedEagerSession2(adapter: NoydbStore) {
-    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexingStrategy: withIndexing() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<Item>(COLL, {
       schema: itemSchema,
@@ -427,7 +427,7 @@ describe('lazy-mode via-aware post-filter at scale > 0 (#684)', () => {
   /**
    * amount:1 -> stored '100', 2 -> '200', 3 -> '300' (scale:2 quantization).
    * Written through a PLAIN money session (moneyFields, but no
-   * `indexStrategy`/`indexes`) so the adapter ends up holding only the three
+   * `indexingStrategy`/`indexes`) so the adapter ends up holding only the three
    * canonical `Item` records — no `_idx/*` side-cars. That leaves the
    * adapter safe to layer EITHER a lazy-indexed or an eager-indexed read
    * session on top afterward (a lazy-indexed WRITE session would persist
@@ -560,7 +560,7 @@ describe('lazy-mode queryable:"none" posture guard (#684 review-fix 1 — parity
   async function blobLazySession(adapter: NoydbStore) {
     const db = await createNoydb({
       store: adapter, user: 'alice', secret: 'blob-lazy-posture-secret-2026',
-      indexStrategy: withIndexing(),
+      indexingStrategy: withIndexing(),
     })
     const vault = await db.openVault('docs-vault')
     const col = vault.collection<Doc>('docs', {
@@ -625,7 +625,7 @@ describe('lazy-mode multi-currency money == / in (#684 review-fix 2 — parity w
   }
 
   async function openMultiCurrencyLazySession(adapter: NoydbStore) {
-    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexingStrategy: withIndexing() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<Payment>('payments', {
       schema: paymentSchema,
@@ -639,7 +639,7 @@ describe('lazy-mode multi-currency money == / in (#684 review-fix 2 — parity w
   }
 
   async function openMultiCurrencyEagerSession(adapter: NoydbStore) {
-    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexingStrategy: withIndexing() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<Payment>('payments', {
       schema: paymentSchema,
@@ -731,7 +731,7 @@ describe('lazy-mode multi-currency money == / in (#684 review-fix 2 — parity w
 describe('lazy-mode orderBy is Via-aware (#695)', () => {
   /** scale:2 lazy session — decode is NOT identity, same #684 repro precondition. */
   async function openLazySession(adapter: NoydbStore) {
-    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexingStrategy: withIndexing() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<Item>(COLL, {
       schema: itemSchema,
@@ -746,7 +746,7 @@ describe('lazy-mode orderBy is Via-aware (#695)', () => {
 
   /** Eager counterpart — same moneyFields/indexes, for the mandatory eager-vs-lazy order parity assertion. */
   async function openEagerSession(adapter: NoydbStore) {
-    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexingStrategy: withIndexing() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<Item>(COLL, {
       schema: itemSchema,
@@ -758,7 +758,7 @@ describe('lazy-mode orderBy is Via-aware (#695)', () => {
 
   /**
    * amount 1 -> stored '100', 2 -> '200', 10 -> '1000' (scale:2 quantization).
-   * Written through a PLAIN money session (no `indexStrategy`) so the adapter
+   * Written through a PLAIN money session (no `indexingStrategy`) so the adapter
    * holds only the three canonical `Item` records — same reasoning as
    * `seedDataset` in the #684 suite above (keeps the adapter safe to layer
    * either a lazy-indexed or an eager-indexed read session on top).
@@ -848,7 +848,7 @@ describe('lazy-mode composite-index == skips the fast path for Via-covered field
 
   /** scale:2 lazy session — single index on 'amount' (required for the single-field fallback) PLUS a composite over ['amount', 'tag']. */
   async function openLazySession(adapter: NoydbStore) {
-    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexingStrategy: withIndexing() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<Row>(COLL, {
       schema: rowSchema,
@@ -863,7 +863,7 @@ describe('lazy-mode composite-index == skips the fast path for Via-covered field
 
   /** Eager counterpart — same moneyFields/indexes, for the mandatory eager-vs-lazy parity assertion. */
   async function openEagerSession(adapter: NoydbStore) {
-    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexingStrategy: withIndexing() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<Row>(COLL, {
       schema: rowSchema,
@@ -948,7 +948,7 @@ describe('lazy-mode composite-ONLY declaration decomposes into component singles
 
   /** scale:2 lazy session — COMPOSITE-ONLY over ['amount', 'tag']; no standalone 'amount' index entry. */
   async function openCompositeOnlyLazySession(adapter: NoydbStore) {
-    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexingStrategy: withIndexing() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<Row>(COLL, {
       schema: rowSchema,
@@ -963,7 +963,7 @@ describe('lazy-mode composite-ONLY declaration decomposes into component singles
 
   /** Eager counterpart — same moneyFields, same composite-only declaration, for the mandatory eager-parity assertion. */
   async function openCompositeOnlyEagerSession(adapter: NoydbStore) {
-    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+    const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexingStrategy: withIndexing() })
     const vault = await db.openVault(VAULT)
     const col = vault.collection<Row>(COLL, {
       schema: rowSchema,

@@ -9,7 +9,7 @@
  *
  * Internal service — reached through `noydb.snapshot(...)` etc.
  */
-import { NO_SNAPSHOTS, type SnapshotStrategy, type SnapshotMeta } from './strategy.js'
+import { NO_SNAPSHOTS, type SnapshotsStrategy, type SnapshotMeta } from './strategy.js'
 import { SnapshotScheduler } from './scheduler.js'
 import { ValidationError } from '../../kernel/errors.js'
 import type { Vault } from '../../kernel/vault.js'
@@ -18,7 +18,7 @@ import type { WriteHook, Unsubscribe } from '../../port/with/write-hooks.js'
 /** Everything the moving snapshot methods touched on the Noydb instance's `this.*`. */
 export interface NoydbSnapshotsDeps {
   /** Resolved snapshot strategy (NO_SNAPSHOTS when not configured). */
-  readonly strategy: SnapshotStrategy
+  readonly strategy: SnapshotsStrategy
   /** Acting user id, used as the snapshot `by`. */
   readonly user: string
   /** Whether the owning instance has been closed. */
@@ -39,7 +39,7 @@ export class NoydbSnapshots {
 
   /**
    * Take an on-demand checkpoint of the given vault.
-   * Requires `snapshotStrategy: withSnapshots({ store })` in `createNoydb`.
+   * Requires `snapshotsStrategy: withSnapshots({ store })` in `createNoydb`.
    * @throws ValidationError when the vault is not open
    */
   async snapshot(vault: string, opts?: { label?: string; note?: string }): Promise<SnapshotMeta> {

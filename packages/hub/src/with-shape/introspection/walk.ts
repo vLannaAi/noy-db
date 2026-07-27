@@ -308,7 +308,7 @@ function describeDerivations(registry: unknown): Record<string, DerivationDescri
   const out: Record<string, DerivationDescriptor> = {}
   for (const item of items) {
     // `all()` on DerivationRegistry returns RegisteredStrategy objects:
-    // { spec: DerivationStrategy, strategyHash }. Read `spec` and fall
+    // { spec: DerivationSpec, strategyHash }. Read `spec` and fall
     // back to the item itself for forward-compat with other registries.
     const reg = item as { spec?: { source?: string; outputs?: Record<string, { collection: string }> }; source?: string; outputs?: Record<string, { collection: string }> }
     const s = reg.spec ?? reg

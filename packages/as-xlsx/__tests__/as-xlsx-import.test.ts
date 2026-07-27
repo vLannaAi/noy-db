@@ -34,7 +34,7 @@ async function setup() {
 
   const db = await createNoydb({ teamStrategy: withTeam(),
     store: adapter, user: 'alice', secret: 'pw-2026',
-    txStrategy: withTransactions(),
+    transactionsStrategy: withTransactions(),
   })
   const vault = await db.openVault('demo')
   await vault.collection<Invoice>('invoices').put('a', { id: 'a', client: 'X', amount: 100, paid: false })
@@ -298,7 +298,7 @@ describe('as-xlsx fromBytes — dict inversion (vault fallback)', () => {
     init.close()
     const db = await createNoydb({ teamStrategy: withTeam(),
       store: adapter, user: 'alice', secret: 'pw-2026',
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
       i18nStrategy: withI18n(),
     })
     const vault = await db.openVault('demo')

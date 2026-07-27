@@ -26,17 +26,17 @@
 import type { StandardSchemaV1 } from './schema.js'
 import type { DeferredNumberingConfig } from '../with-commit/numbering/descriptor.js'
 import type { SyncPolicy } from './sync-policy.js'
-import type { BlobStrategy } from '../port/with/blob-strategy.js'
+import type { BlobsStrategy } from '../port/with/blob-strategy.js'
 import type { ArchiveStrategy } from '../with-fork/archive/index.js'
-import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
+import type { IndexingStrategy } from '../with-lookup/indexing/strategy.js'
 import type { ReduceStrategy } from '../with-lookup/reduce/strategy.js'
 import type { ConsentStrategy } from '../with-audit/consent/strategy.js'
 import type { PeriodsStrategy } from '../with-audit/periods/strategy.js'
 import type { ShadowStrategy } from '../with-fork/shadow/strategy.js'
-import type { TxStrategy } from '../with-commit/tx/strategy.js'
+import type { TransactionsStrategy } from '../with-commit/tx/strategy.js'
 import type { HistoryStrategy } from '../with-commit/history/strategy.js'
 import type { ForgetStrategy } from '../with-audit/forget/strategy.js'
-import type { SnapshotStrategy } from '../with-fork/snapshots/strategy.js'
+import type { SnapshotsStrategy } from '../with-fork/snapshots/strategy.js'
 import type { DerivationSkippedFrozen } from './via/dispatch.js'
 import type { AttestationStrategy } from '../with-audit/attestation/strategy.js'
 import type { ClassifiedStrategy } from '../port/with/classified-strategy.js'
@@ -53,13 +53,13 @@ import type { CargoStrategy } from '../with-cargo/strategy.js'
 import type { Layer, I18nStrategy } from '../port/with/i18n-strategy.js'
 import type { SessionStrategy } from '../with-party/session/strategy.js'
 import type { SyncStrategy } from '../with-party/team/sync-strategy.js'
-import type { GuardStrategyHandleAny } from '../with-audit/guards/types.js'
-import type { DerivationStrategyHandle } from '../with-formula/derivations/types.js'
+import type { GuardStrategyAny } from '../with-audit/guards/types.js'
+import type { DerivationStrategy } from '../with-formula/derivations/types.js'
 import type { UnlockedKeyring } from '../with-party/team/keyring.js'
 import type { SecretPolicy } from './validation.js'
 import type { CoverSchema } from '../with-party/directory/cover/types.js'
-import type { MaterializedViewStrategyHandle } from '../with-formula/materialized-views/types.js'
-import type { OverlayedViewStrategyHandle } from '../with-formula/overlay-views/types.js'
+import type { MaterializedViewStrategy } from '../with-formula/materialized-views/types.js'
+import type { OverlayedViewStrategy } from '../with-formula/overlay-views/types.js'
 import type { SealingKeyProvider, RecipientHint } from '../with-party/team/managed-secret.js'
 import type { ShamirRecoveryProvider } from '../with-party/team/shamir-recovery-provider.js'
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
@@ -2360,12 +2360,12 @@ export interface NoydbOptions {
    * from `@noy-db/hub/blobs` to enable `collection.blob(id)` storage.
    * When omitted, hub's blob machinery stays out of the bundle (ESM
    * tree-shaking) and `collection.blob(id)` throws with a pointer at
-   * the subpath. `BlobStrategy` is `@internal` — users only construct
+   * the subpath. `BlobsStrategy` is `@internal` — users only construct
    * it via the subpath factory.
    *
    * @internal
    */
-  readonly blobStrategy?: BlobStrategy
+  readonly blobsStrategy?: BlobsStrategy
   /**
    * Cold-storage archival target. `withArchive({ store })` designates a
    * second store that holds archived record envelopes. Enables
@@ -2379,12 +2379,12 @@ export interface NoydbOptions {
    * and auto-reconcile. When omitted, indexing code never reaches the
    * bundle; `.lazyQuery()` throws with a pointer at the subpath, and
    * eager-mode collections fall back to linear scans regardless of
-   * `indexes: [...]` declarations. `IndexStrategy` is `@internal` —
+   * `indexes: [...]` declarations. `IndexingStrategy` is `@internal` —
    * users only construct it via the subpath factory.
    *
    * @internal
    */
-  readonly indexStrategy?: IndexStrategy
+  readonly indexingStrategy?: IndexingStrategy
   /**
    * tree-shake seam — optional aggregate strategy. Pass
    * `withReduce()` from `@noy-db/hub/reduce` to enable
@@ -2454,7 +2454,7 @@ export interface NoydbOptions {
    *
    * @internal
    */
-  readonly txStrategy?: TxStrategy
+  readonly transactionsStrategy?: TransactionsStrategy
   /**
    * tree-shake seam — optional history + ledger + time-machine.
    * Pass `withHistory()` from `@noy-db/hub/history` to enable
@@ -2469,7 +2469,7 @@ export interface NoydbOptions {
    */
   readonly historyStrategy?: HistoryStrategy
   /**
-   * GDPR right-to-erasure. Pass `withForgetCascade({ subjects })`
+   * GDPR right-to-erasure. Pass `withForget({ subjects })`
    * from `@noy-db/hub/forget` to declare which collections carry erasable
    * subject data and the record field naming the data subject. Enables
    * `vault.forget(subjectId)` crypto-shred (rewrite-to-tombstone of the live
@@ -2524,7 +2524,7 @@ export interface NoydbOptions {
    * `db.snapshot()`, `db.listSnapshots()`, and `db.restoreSnapshot()`.
    * When omitted, all three methods throw with a pointer at the subpath.
    */
-  readonly snapshotStrategy?: SnapshotStrategy
+  readonly snapshotsStrategy?: SnapshotsStrategy
   /**
    * Tree-shake seam — optional attestation capability. Pass
    * `withAttestation()` from `@noy-db/hub/attestation` to enable
@@ -2636,7 +2636,7 @@ export interface NoydbOptions {
    * Multiple guards per collection are allowed; they are dispatched
    * in registration order on `collection.put()`.
    */
-  readonly guardStrategies?: ReadonlyArray<GuardStrategyHandleAny>
+  readonly guardStrategies?: ReadonlyArray<GuardStrategyAny>
   /**
    * Deferred-numbering series declared via `withDeferredNumbering(...)`.
    * `vault.sequence(series).next({ for })` then assigns gap-free serials at a
@@ -2650,7 +2650,7 @@ export interface NoydbOptions {
    * validates the derivation graph for cycles on `openVault`; a cyclic
    * graph throws `DerivationCycleError`.
    */
-  readonly derivationStrategies?: ReadonlyArray<DerivationStrategyHandle>
+  readonly derivationStrategies?: ReadonlyArray<DerivationStrategy>
   /**
    * Optional materialized-view strategies.
    * Each handle returned by `withMaterializedView()` from
@@ -2658,7 +2658,7 @@ export interface NoydbOptions {
    * detection across the MV + derivation graphs at `openVault`; a
    * cyclic graph throws `MaterializedViewCycleError`.
    */
-  readonly materializedViewStrategies?: ReadonlyArray<MaterializedViewStrategyHandle>
+  readonly materializedViewStrategies?: ReadonlyArray<MaterializedViewStrategy>
   /**
    * Optional overlay strategies. Each handle returned by
    * `withOverlayedView()` from `@noy-db/hub/overlay-views`. The vault
@@ -2666,7 +2666,7 @@ export interface NoydbOptions {
    * availability at `openVault`; a clash throws one of the
    * `Overlay*Error` family.
    */
-  readonly overlayedViewStrategies?: ReadonlyArray<OverlayedViewStrategyHandle>
+  readonly overlayedViewStrategies?: ReadonlyArray<OverlayedViewStrategy>
   /** Optional remote store(s) for sync. Accepts a single store, a SyncTarget, or an array. */
   readonly sync?: NoydbStore | SyncTarget | SyncTarget[]
   /** User identifier. */

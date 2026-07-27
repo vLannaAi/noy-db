@@ -352,15 +352,15 @@ const STRATEGY_GATED_APIS = [
   { api: /\.dump\s*\(/,        option: 'historyStrategy', factory: 'withHistory' },
   { api: /\.ledger\s*\(\s*\)/, option: 'historyStrategy', factory: 'withHistory' },
   { api: /\.dictionary\s*\(/,  option: 'i18nStrategy',    factory: 'withI18n' },
-  { api: /\.lazyQuery\s*\(/,   option: 'indexStrategy',   factory: 'withIndexing' },
-  { api: /\.exportBlobs\s*\(/, option: 'blobStrategy',    factory: 'withBlobs' },
+  { api: /\.lazyQuery\s*\(/,   option: 'indexingStrategy',   factory: 'withIndexing' },
+  { api: /\.exportBlobs\s*\(/, option: 'blobsStrategy',    factory: 'withBlobs' },
   { api: /\.broker\s*\(\s*\)/, option: 'brokerStrategy',  factory: 'withBroker' },
 ]
 
 // Per-file exceptions: files that legitimately invoke a gated API
 // on a NON-vault surface (e.g., throw-stub assertions on overlay
 // virtual collections, where the method is named to match Collection<T>
-// but always throws regardless of indexStrategy).
+// but always throws regardless of indexingStrategy).
 const STRATEGY_OPT_IN_EXEMPT = new Set([
   'packages/hub/__tests__/overlay-views/overlay.test.ts',
 ])
@@ -829,7 +829,7 @@ const KERNEL_SURFACE_BUDGET = {
   // record at the export locale through the `export` layer (i18nText collapse +
   // dict-label resolution) + skips the now-redundant dictionary snapshot.
   // Bumped 4495→4505 (2026-06-15, #412 P3): objectStore field + constructor
-  // opt + thread into every Collection (mirrors blobStrategy).
+  // opt + thread into every Collection (mirrors blobsStrategy).
   // Bumped 4505→4510 (2026-06-16, #199 P3): four thin UserApi closures wiring
   // the two-party withdrawal ceremony to the bundle service (logic lives in
   // bundle/request-withdrawal.ts; vault.ts only injects the closures).

@@ -55,7 +55,7 @@ const SECRET = 'lazy-range-composite-2026'
 
 async function openLazy(indexes: (string | readonly string[] | { fields: readonly string[] })[]) {
   const adapter = memory()
-  const db = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexStrategy: withIndexing() })
+  const db = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexingStrategy: withIndexing() })
   const vault = await db.openVault('ACME')
   const coll = vault.collection<Row>('records', { ...LAZY, indexes })
   return { adapter, coll }

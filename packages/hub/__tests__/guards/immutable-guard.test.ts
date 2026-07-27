@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, RecordLockedError, ValidationError, InvariantError } from '../../src/index.js'
-import type { GuardStrategyHandle } from '../../src/index.js'
+import type { GuardStrategy } from '../../src/index.js'
 import { immutableGuard } from '../../src/with-audit/guards/immutable-guard.js'
 import { withTransactions } from '../../src/with-commit/tx/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
@@ -50,10 +50,10 @@ describe('immutableGuard — factory validation', () => {
   })
 })
 
-async function vaultWith(...guards: GuardStrategyHandle<Invoice>[]) {
+async function vaultWith(...guards: GuardStrategy<Invoice>[]) {
   const db = await createNoydb({
     store: memory(), user: 'alice', secret: 'immutable-guard-secret-2026-pilot3',
-    guardStrategies: guards, txStrategy: withTransactions(),
+    guardStrategies: guards, transactionsStrategy: withTransactions(),
   })
   const vault = await db.openVault('books')
   return { db, vault }

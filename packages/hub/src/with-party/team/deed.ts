@@ -102,7 +102,7 @@ export async function createDeedOwner(
 
   // 2. Derive KEK_owner from the (never-human-seen) secret and
   //    write the owner keyring file.
-  const keyring = await createOwnerKeyring(store, vault, ownerUserId, secret)
+  const keyring = await createOwnerKeyring(store, vault, { userId: ownerUserId, secret: secret })
 
   // 3. Write the plaintext Deed marker. NOT sealed — it is audit
   //    metadata that must be readable without unlocking.

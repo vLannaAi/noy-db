@@ -1,8 +1,8 @@
 /**
  * Active blob strategy factory. Calling `blobs()` returns a
- * `BlobStrategy` whose `openSlot` constructs a real `BlobSet` bound
+ * `BlobsStrategy` whose `openSlot` constructs a real `BlobSet` bound
  * to the caller's record. The returned strategy is passed into
- * `createNoydb({ blobStrategy: blobs() })` to light up the
+ * `createNoydb({ blobsStrategy: blobs() })` to light up the
  * `collection.blob(id)` path.
  *
  * This module is only reachable through the `@noy-db/hub/blobs`
@@ -11,9 +11,9 @@
  */
 
 import { BlobSet } from '../../with-shape/blobs/blob-set.js'
-import type { BlobStrategy } from '../../port/with/blob-strategy.js'
+import type { BlobsStrategy } from '../../port/with/blob-strategy.js'
 import { createBlobPinCache } from '../../with-shape/blobs/blob-pinning.js'
-import type { BlobPinStore, BlobCacheStats } from '../../with-shape/blobs/blob-pinning.js'
+import type { BlobPinStore } from '../../with-shape/blobs/blob-pinning.js'
 
 /** Options for {@link withBlobs} (#808). */
 export interface WithBlobsOptions {
@@ -28,19 +28,7 @@ export interface WithBlobsOptions {
 }
 
 /**
- * The strategy `withBlobs()` returns — a `BlobStrategy` plus the device-local
- * blob-cache KPI surface (#808).
- */
-export interface BlobsService extends BlobStrategy {
-  /**
-   * Snapshot of this device's blob-cache KPI counters: local-read hits,
-   * network misses, and total bytes downloaded from the object store.
-   */
-  cacheStats(): BlobCacheStats
-}
-
-/**
- * Build a default `BlobStrategy` ready to pass into `createNoydb`.
+ * Build a default `BlobsStrategy` ready to pass into `createNoydb`.
  *
  * Named `withBlobs` (plugin-pattern canonical) rather than `blobs` to
  * avoid shadowing the very common local idiom
@@ -56,7 +44,7 @@ export interface BlobsService extends BlobStrategy {
  *
  * const db = await createNoydb({
  *   store, user, secret,
- *   blobStrategy: withBlobs(),
+ *   blobsStrategy: withBlobs(),
  * })
  *
  * // Now live — delegates to BlobSet.
@@ -64,7 +52,7 @@ export interface BlobsService extends BlobStrategy {
  * await vault.collection('invoices').blob('inv-1').put('receipt.pdf', bytes)
  * ```
  */
-export function withBlobs(options: WithBlobsOptions = {}): BlobsService {
+export function withBlobs(options: WithBlobsOptions = {}): BlobsStrategy {
   const pinCache = createBlobPinCache(options.pinStore)
   return {
     openSlot(args) {

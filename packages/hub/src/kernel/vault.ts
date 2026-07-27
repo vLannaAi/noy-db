@@ -22,9 +22,9 @@ import type { JoinableSource } from './query/index.js'
 import type { OnDirtyCallback } from './collection.js'
 import type { UnlockedKeyring, BundleRecipient } from '../with-party/team/keyring.js'
 import type { MaterializedViewRegistry } from '../with-formula/materialized-views/registry.js'
-import type { MaterializedViewStrategyHandle, MVQueryContext } from '../with-formula/materialized-views/types.js'
+import type { MaterializedViewStrategy, MVQueryContext } from '../with-formula/materialized-views/types.js'
 import type { OverlayedViewRegistry } from '../with-formula/overlay-views/registry.js'
-import type { OverlayedViewStrategyHandle } from '../with-formula/overlay-views/types.js'
+import type { OverlayedViewStrategy } from '../with-formula/overlay-views/types.js'
 import { OverlayedCollection } from '../with-formula/overlay-views/virtual-collection.js'
 import type { Cover } from '../with-party/directory/cover/types.js'
 import { buildRecipientKeyringFile } from '../with-party/team/keyring.js'
@@ -115,10 +115,10 @@ import { runGraphDispatchWave, putDerivedOutput, ledgerAuditHook, forgetDerivedF
 // derivation strategy don't pay the chunk cost. This seam prevents
 // the bundle regression that motivated the lazy-import pattern.
 import type { GuardRegistry } from '../with-audit/guards/registry.js'
-import type { GuardStrategyHandleAny } from '../with-audit/guards/types.js'
+import type { GuardStrategyAny } from '../with-audit/guards/types.js'
 import type { ReadOnlyVaultFacade } from '../with-audit/guards/read-only-facade.js'
 import type { DerivationRegistry } from '../with-formula/derivations/registry.js'
-import type { DerivationStrategyHandle } from '../with-formula/derivations/types.js'
+import type { DerivationStrategy } from '../with-formula/derivations/types.js'
 import { ReservedCollectionNameError, StaticDictReadonlyError, SatelliteConfigError } from './errors.js'
 import { declareSatellite } from '../with-shape/satellites/declare.js'
 import { makeSatelliteProxy, makeBaseProxy } from '../with-shape/satellites/proxy.js'
@@ -453,7 +453,7 @@ export class Vault {
      */
     strategies: StrategyBag
     objectStore?: ObjectProjection | undefined
-    guardStrategies?: ReadonlyArray<GuardStrategyHandleAny> | undefined
+    guardStrategies?: ReadonlyArray<GuardStrategyAny> | undefined
     numberingConfigs?: ReadonlyArray<DeferredNumberingConfig> | undefined
     /** Vault-level descriptive metadata — set once at construction (first-wins). */
     meta?: VaultMeta | undefined
@@ -835,7 +835,7 @@ export class Vault {
       // stays explicit; the forget-subject rule below still overrides
       // `perRecordKeys` because it runs after this.
       copyDefined(collOpts as unknown as Record<string, unknown>, options as unknown as Record<string, unknown> | undefined, COLLECTION_PASSTHROUGH_KEYS)
-      // A collection declared in `withForgetCascade({ subjects })` MUST
+      // A collection declared in `withForget({ subjects })` MUST
       // use per-record CEKs: crypto-shred can only guarantee erasure of a body
       // keyed off a per-record CEK. Force it on (and warn if the caller
       // explicitly set it false — that would silently defeat erasure).
@@ -843,7 +843,7 @@ export class Vault {
       if (subjectKey !== undefined) {
         if (options?.perRecordKeys === false) {
           console.warn(
-            `[noy-db] Collection "${collectionName}" is declared in withForgetCascade ` +
+            `[noy-db] Collection "${collectionName}" is declared in withForget ` +
             `but opened with perRecordKeys: false. Forcing perRecordKeys: true — ` +
             `GDPR crypto-shred requires per-record CEKs.`,
           )
@@ -2023,7 +2023,7 @@ export class Vault {
    * stay decryptable; migrate, then re-forget) and `blobResidueCollections` (blob attachments, keyed
    * off a separate `_blob` DEK, out of scope here).
    *
-   * @throws ForgetStrategyNotConfiguredError when no `withForgetCascade` was set.
+   * @throws ForgetStrategyNotConfiguredError when no `withForget` was set.
    */
   async forget(subjectId: string): Promise<ForgetResult> {
     if (Object.keys(this.strategies.forget.subjects).length === 0) {
@@ -2046,10 +2046,10 @@ export class Vault {
     let sealedFieldsShredded = 0; let sealedCekEnvelopesPurged = 0; let ledgerDeltasPurged = 0
     const sealedCekResidue: string[] = []; const sealedResidue: string[] = []; const indexResidue: string[] = []; const ledgerDeltaResidue: string[] = []
     // #838 — "is the blob service opted in?" is now a stub-identity check.
-    // It used to be `blobStrategy !== undefined`; with every key resolved,
+    // It used to be `blobsStrategy !== undefined`; with every key resolved,
     // absence is NO_BLOBS rather than `undefined`, and reading it as
     // always-enabled would drive forget() into NO_BLOBS.openSlot()'s throw.
-    const blobsEnabled = this.strategies.blob !== NO_BLOBS
+    const blobsEnabled = this.strategies.blobs !== NO_BLOBS
     const actor = this.keyring.userId
     const fanoutStats: ForgetFanoutStats = { recordsErased: 0, aggregatesRecomputed: 0, residueFrozen: [], lookupReferencesCascaded: 0, lookupReferencesNullified: 0, lookupReferencesResidue: [], derivedResidueUndecodable: [], derivedResidueDeclined: [] }
     // #633 — scoped-purge per-collection skip accumulators (empty under the unconditional default); lazy (S4 gate: kernel spine → with-* service via dynamic import()).
@@ -2350,7 +2350,7 @@ export class Vault {
    * accessor `_getReadOnlyFacade()` (called from the tx amendment
    * runner) stays synchronous.
    */
-  async _initGuards(handles: ReadonlyArray<GuardStrategyHandleAny>): Promise<void> {
+  async _initGuards(handles: ReadonlyArray<GuardStrategyAny>): Promise<void> {
     if (handles.length === 0) return
     const [{ GuardRegistry }, { ReadOnlyVaultFacade }] = await Promise.all([
       import('../with-audit/guards/registry.js'),
@@ -2380,7 +2380,7 @@ export class Vault {
    * bundle for consumers that don't use derivations. Throws
    * `DerivationCycleError` if a cycle is detected after registration.
    */
-  async _initDerivations(handles: ReadonlyArray<DerivationStrategyHandle>): Promise<void> {
+  async _initDerivations(handles: ReadonlyArray<DerivationStrategy>): Promise<void> {
     if (handles.length === 0) return
     const [{ DerivationRegistry }, { ReadOnlyVaultFacade }] = await Promise.all([
       import('../with-formula/derivations/registry.js'),
@@ -2421,7 +2421,7 @@ export class Vault {
    */
   async _initMaterializedViews(
      
-    handles: ReadonlyArray<MaterializedViewStrategyHandle>,
+    handles: ReadonlyArray<MaterializedViewStrategy>,
   ): Promise<void> {
     if (handles.length === 0) return
     const { MaterializedViewRegistry } = await import('../with-formula/materialized-views/registry.js')
@@ -2465,7 +2465,7 @@ export class Vault {
    * Throws on validation failure.
    */
   async _initOverlayedViews(
-    handles: ReadonlyArray<OverlayedViewStrategyHandle>,
+    handles: ReadonlyArray<OverlayedViewStrategy>,
   ): Promise<void> {
     if (handles.length === 0) return
     const { OverlayedViewRegistry } = await import('../with-formula/overlay-views/registry.js')

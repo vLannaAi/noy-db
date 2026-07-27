@@ -13,7 +13,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withMaterializedView, ConflictError } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
-import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withForget } from '../src/with-audit/forget/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { isMVStale, MV_STALE_COLLECTION } from '../src/with-formula/materialized-views/stale.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
@@ -119,7 +119,7 @@ describe('#736 whole-branch review — invalidateMVAtRest scopes deletion to MV-
         store, user: 'owner', secret: 'mv-tier-stale-hydrate-race-2026',
         materializedViewStrategies: [lazyMV],
         historyStrategy: withHistory(),
-        forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+        forgetStrategy: withForget({ subjects: { people: 'subjectId' } }),
       })
       const vault = await db.openVault('demo')
       return { vault, people: vault.collection<Item>('people') }
@@ -279,7 +279,7 @@ describe('#736 MV lazy/manual invalidation purges persisted rows + persists the 
         store, user: 'owner', secret: 'mv-tier-stale-lazy-forget-2026',
         materializedViewStrategies: [lazyMV],
         historyStrategy: withHistory(),
-        forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+        forgetStrategy: withForget({ subjects: { people: 'subjectId' } }),
       })
       const vault = await db.openVault('demo')
       return { vault, people: vault.collection<Item>('people') }

@@ -6,8 +6,8 @@
  * code.
  */
 export { withTransactions } from './active.js'
-export type { TransactionStrategyOptions } from './active.js'
-export type { TxStrategy } from './strategy.js'
+export type { WithTransactionsOptions } from './active.js'
+export type { TransactionsStrategy } from './strategy.js'
 export type { TransactionInvariant } from './invariants.js'
 
 export { TxContext, TxVault, TxCollection, runTransaction } from './transaction.js'

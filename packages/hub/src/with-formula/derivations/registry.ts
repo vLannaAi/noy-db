@@ -1,7 +1,7 @@
 import { DerivationCycleError } from '../../kernel/errors.js'
 import { ViaGraph, type FieldRef, type EdgeKind, type Grain } from '../../kernel/via/graph.js'
 import { computeStrategyHash } from './strategy-hash.js'
-import type { DerivationStrategy } from './types.js'
+import type { DerivationSpec } from './types.js'
 
 /**
  * Whole-record artifact-grain field marker (#638 Task 2). A derivation's
@@ -29,7 +29,7 @@ function stripArtifactSuffix(displayId: string): string {
 interface RegisteredStrategy {
   // Type-erased to allow the registry to hold heterogeneous strategies.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  spec: DerivationStrategy<any, any>
+  spec: DerivationSpec<any, any>
   strategyHash: string
 }
 
@@ -44,7 +44,7 @@ export class DerivationRegistry {
   private readonly _byOutput = new Map<string, RegisteredStrategy[]>()
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async register(spec: DerivationStrategy<any, any>): Promise<void> {
+  async register(spec: DerivationSpec<any, any>): Promise<void> {
     const outputKeys = Object.keys(spec.outputs)
     const strategyHash = await computeStrategyHash(spec.source, outputKeys, spec.derive, spec.sources)
     const reg: RegisteredStrategy = { spec, strategyHash }

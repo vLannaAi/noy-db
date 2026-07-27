@@ -381,6 +381,41 @@ These three invariants make the catalog **load-bearing** rather than aspirationa
 - **Removing a service** requires a deprecation notice in the changelog, a major version bump, and a migration recipe in the doc page.
 - **Renaming a service** requires keeping the old subpath export as a re-export for one minor version with a deprecation warning.
 
+### The naming contract (#844)
+
+**The subpath is canonical.** Every other name for a service derives from it mechanically:
+
+| Position | Rule | Example (`@noy-db/hub/transactions`) |
+|---|---|---|
+| Subpath | `@noy-db/hub/<name>` | `@noy-db/hub/transactions` |
+| Factory | `with<Name>()` | `withTransactions()` |
+| Return type | `<Name>Strategy` | `TransactionsStrategy` |
+| `createNoydb` option | `<name>Strategy` | `transactionsStrategy` |
+| Bag key | `strategies.<name>` | `strategies.transactions` |
+| Un-opted-in stub | `NO_<NAME>` | `NO_TRANSACTIONS` |
+
+Three further rules:
+
+1. **`Strategy` means the output, never the input.** A service you *declare* rather than merely *enable* takes a `<Name>Spec` and returns a `<Name>Strategy` — `withGuard(spec: GuardSpec): GuardStrategy`, and likewise for `withDerivation`, `withMaterializedView`, `withOverlayedView`. Before #844 these four used `<Name>Strategy` for the argument and `<Name>StrategyHandle` for the result, inverting the meaning the other 23 services carry.
+2. **An options bag must be a named, exported type**, never an inline literal — an unnameable parameter type cannot be built on by consumers. Spell it `With<Name>Options` when it is a pure factory argument (`WithBlobsOptions`, `WithArchiveOptions`, `WithSnapshotsOptions`, `WithTransactionsOptions`, `WithRollupOptions`, `WithDeferredNumberingOptions`).
+3. **The parameter is named `opts`.**
+
+Sanctioned exceptions — extend this list only with a stated reason, never by drift:
+
+- **`withBroker(config: BrokerConfig)`** — the argument is not a factory options bag; it is retained as live configuration and read back as `BrokerSeedCtx.config`. Both the parameter and the type say `config` because that is what it is.
+- **`withForget`'s `SubjectDeclaration`** — the bag has an independent domain identity (the subject-key map), so it keeps that name rather than becoming `WithForgetOptions`. (The factory itself was renamed from `withForgetCascade` in #844 to match its `/forget` subpath.)
+- **`with-store`'s middleware** — `withRetry`, `withLogging`, `withMetrics`, `withCircuitBreaker`, `withCache`, `withHealthCheck` return `StoreMiddleware`, not a strategy. They are not services and the table above does not apply.
+- **`withDeferredNumbering`** returns a `DeferredNumberingConfig` consumed via `createNoydb({ numbering: [...] })`. It is a declaration helper, not a service seam; only rules 2 and 3 apply.
+
+### Satellite family conventions (#845) — known debt
+
+The hub is conformed; the satellite families are **not**, and were deliberately left alone in this pass. `as-*` (`toString`/`toBytes`/`download`/`write`/`from*`) and `at-*` (`*SealingProvider`) are the models to copy. The open drift:
+
+- **`to-*` — five entry-point styles across five packages.** `to-file` → `jsonFile` (bare noun), `to-memory` → `memory`, `to-browser-idb` → `browserIdbStore` (noun+`Store`), `to-meter` → `toMeter` (family prefix), `to-probe` → `runStoreProbe`/`probeTopology` (verb). Separately, `to-memory`'s `memory(opts)` duplicates the hub root's `memoryStore()` under a different name *and* a different signature — which of the two is canonical is still undecided.
+- **`on-*` — the `enroll*`/`unlock*` pair holds for `on-webauthn` and `on-oidc` only.** Outliers: `on-password` (`enrollPasswordAuthenticator` + `unwrapDeksWithPassword`), `on-pin` (`enrollPin`/`resumePin` — defensible, it genuinely is a resume), `on-magic-link` (`issueInvite`/`acceptInvite`), `on-shamir` (`splitKEK`/`combineKEK`), and worst, `on-email-otp` exporting bare `issue`/`verify` and `on-totp` a bare `verify` — unnamespaced generic identifiers at package top level.
+
+These are cross-package renames on separately-versioned satellites, so they need their own pass. Pre-1.0 still makes them free.
+
 ---
 
 ## Open questions

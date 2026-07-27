@@ -15,7 +15,7 @@ const VAULT = 'test-vault'
 
 async function setUp(hostOpts: Parameters<typeof makeTestHost>[0] = {}) {
   const store = memoryStore()
-  const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
+  const owner = await createOwnerKeyring(store, VAULT, { userId: 'owner', secret: 'owner-pw' })
   const host = makeTestHost({ requireAttestation: true, ...hostOpts })
   const config: BrokerConfig = {
     brokerId: 'broker-1', endpoint: 'https://broker.example.com',
@@ -152,8 +152,8 @@ describe('broker credentialSource cache', () => {
     const VAULT_A = 'vault-a'
     const VAULT_B = 'vault-b'
     const store = memoryStore()
-    const ownerA = await createOwnerKeyring(store, VAULT_A, 'owner', 'owner-pw')
-    const ownerB = await createOwnerKeyring(store, VAULT_B, 'owner', 'owner-pw')
+    const ownerA = await createOwnerKeyring(store, VAULT_A, { userId: 'owner', secret: 'owner-pw' })
+    const ownerB = await createOwnerKeyring(store, VAULT_B, { userId: 'owner', secret: 'owner-pw' })
     const host = makeTestHost({
       requireAttestation: true,
       // Mint a DISTINCT credential per vaultId so a collided cache would be caught by value, not just by count.

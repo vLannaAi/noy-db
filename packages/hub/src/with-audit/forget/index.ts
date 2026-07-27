@@ -1,15 +1,15 @@
 /**
  * `@noy-db/hub/forget` — GDPR right-to-erasure via per-record CEK crypto-shred.
- * Import `withForgetCascade` and pass it to `createNoydb`:
+ * Import `withForget` and pass it to `createNoydb`:
  *
  * ```ts
  * import { createNoydb } from '@noy-db/hub'
- * import { withForgetCascade } from '@noy-db/hub/forget'
+ * import { withForget } from '@noy-db/hub/forget'
  *
  * const db = createNoydb({
  *   secret, user,
  *   historyStrategy: withHistory(),               // ledger for the erasure proof
- *   forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+ *   forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } }),
  * })
  * const vault = await db.openVault('main')
  * const result = await vault.forget('buyer-123')
@@ -22,7 +22,7 @@
  *
  * @module
  */
-export { withForgetCascade } from './active.js'
+export { withForget } from './active.js'
 export { NO_FORGET } from './strategy.js'
 export type {
   SubjectDeclaration,

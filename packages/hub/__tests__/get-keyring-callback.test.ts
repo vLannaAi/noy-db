@@ -53,7 +53,7 @@ describe('NoydbOptions.getKeyring (issue #5)', () => {
 
     // Now simulate biometric unlock: load the keyring out-of-band, then
     // open a fresh Noydb instance using only the keyring (no secret).
-    const keyring = await loadKeyring(adapter, VAULT, 'alice', 'first-pass')
+    const keyring = await loadKeyring(adapter, VAULT, { userId: 'alice', secret: 'first-pass' })
 
     const phaseTwo = await createNoydb({
       store: adapter,
@@ -71,7 +71,7 @@ describe('NoydbOptions.getKeyring (issue #5)', () => {
 
     const bootstrap = await createNoydb({ store: adapter, user: 'alice', secret: 'first-pass' })
     await bootstrap.openVault(VAULT)
-    const keyring = await loadKeyring(adapter, VAULT, 'alice', 'first-pass')
+    const keyring = await loadKeyring(adapter, VAULT, { userId: 'alice', secret: 'first-pass' })
 
     const db = await createNoydb({
       store: adapter,
@@ -91,7 +91,7 @@ describe('NoydbOptions.getKeyring (issue #5)', () => {
     const v1 = await bootstrap.openVault(VAULT)
     await v1.collection<Note>('notes').put('n1', { title: 'a' })
     await v1.collection<Note>('notes').put('n2', { title: 'b' })
-    const keyring = await loadKeyring(adapter, VAULT, 'alice', 'first-pass')
+    const keyring = await loadKeyring(adapter, VAULT, { userId: 'alice', secret: 'first-pass' })
 
     let callCount = 0
     const db = await createNoydb({
@@ -159,7 +159,7 @@ describe('NoydbOptions.getKeyring (issue #5)', () => {
     await v1.collection<Note>('notes').put('n1', { title: 'hello' })
 
     // Capture the keyring as it would be held by an "auth store" (e.g. niwat-auth_noydb).
-    const authKeyring = await loadKeyring(adapter, 'niwat', 'alice', 'p')
+    const authKeyring = await loadKeyring(adapter, 'niwat', { userId: 'alice', secret: 'p' })
 
     // Simulate the user deleting niwat_noydb in DevTools — use a fresh empty adapter.
     const clearedAdapter = inlineMemory()
@@ -186,8 +186,8 @@ describe('NoydbOptions.getKeyring (issue #5)', () => {
     const vb = await bootstrap.openVault('VB')
     await va.collection<Note>('notes').put('a', { title: 'A' })
     await vb.collection<Note>('notes').put('b', { title: 'B' })
-    const krA = await loadKeyring(adapter, 'VA', 'alice', 'p')
-    const krB = await loadKeyring(adapter, 'VB', 'alice', 'p')
+    const krA = await loadKeyring(adapter, 'VA', { userId: 'alice', secret: 'p' })
+    const krB = await loadKeyring(adapter, 'VB', { userId: 'alice', secret: 'p' })
 
     const seenVaults: string[] = []
     const db = await createNoydb({

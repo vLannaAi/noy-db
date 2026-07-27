@@ -55,7 +55,7 @@ import type { NoydbOptions } from '../../kernel/types.js'
 
 import { NO_REDUCE, type ReduceStrategy } from '../../with-lookup/reduce/strategy.js'
 import { NO_ATTESTATION, type AttestationStrategy } from '../../with-audit/attestation/strategy.js'
-import { NO_BLOBS, type BlobStrategy } from './blob-strategy.js'
+import { NO_BLOBS, type BlobsStrategy } from './blob-strategy.js'
 import { NO_BROKER, type BrokerStrategy } from './broker-strategy.js'
 import { NO_CARGO, type CargoStrategy } from '../../with-cargo/strategy.js'
 import { NO_CLASSIFIED, type ClassifiedStrategy } from './classified-strategy.js'
@@ -65,7 +65,7 @@ import { NO_CUSTODY, type CustodyStrategy } from '../../with-party/custody/strat
 import { NO_FORGET, type ForgetStrategy } from '../../with-audit/forget/strategy.js'
 import { NO_HISTORY, type HistoryStrategy } from '../../with-commit/history/strategy.js'
 import { NO_I18N, type I18nStrategy } from './i18n-strategy.js'
-import { NO_INDEXING, type IndexStrategy } from '../../with-lookup/indexing/strategy.js'
+import { NO_INDEXING, type IndexingStrategy } from '../../with-lookup/indexing/strategy.js'
 import { NO_PERIODS, type PeriodsStrategy } from '../../with-audit/periods/strategy.js'
 import { NO_PORTABILITY, type PortabilityStrategy } from '../../with-audit/portability/strategy.js'
 import { NO_SEALED_RECORD, type SealedRecordStrategy } from '../../with-audit/sealed-record/strategy.js'
@@ -73,11 +73,11 @@ import { NO_SEARCH, type SearchStrategy } from '../../with-lookup/search/strateg
 import { NO_SEQUENCE, type SequenceStrategy } from '../../with-commit/sequence/strategy.js'
 import { NO_SESSION, type SessionStrategy } from '../../with-party/session/strategy.js'
 import { NO_SHADOW, type ShadowStrategy } from '../../with-fork/shadow/strategy.js'
-import { NO_SNAPSHOTS, type SnapshotStrategy } from '../../with-fork/snapshots/strategy.js'
+import { NO_SNAPSHOTS, type SnapshotsStrategy } from '../../with-fork/snapshots/strategy.js'
 import { NO_SYNC, type SyncStrategy } from '../../with-party/team/sync-strategy.js'
 import { NO_TEAM, type TeamStrategy } from './team-strategy.js'
 import { NO_TIERS, type TiersStrategy } from '../../with-audit/tiers/strategy.js'
-import { NO_TX, type TxStrategy } from '../../with-commit/tx/strategy.js'
+import { NO_TRANSACTIONS, type TransactionsStrategy } from '../../with-commit/tx/strategy.js'
 import { IMPLICIT_LAZY, type LazyStrategy } from './lazy-strategy.js'
 import { NO_ARCHIVE } from './archive-strategy.js'
 import type { ArchiveStrategy } from '../../with-fork/archive/index.js'
@@ -93,7 +93,7 @@ export interface StrategyBag {
   readonly reduce: ReduceStrategy
   readonly archive: ArchiveStrategy
   readonly attestation: AttestationStrategy
-  readonly blob: BlobStrategy
+  readonly blobs: BlobsStrategy
   readonly broker: BrokerStrategy
   readonly cargo: CargoStrategy
   readonly classified: ClassifiedStrategy
@@ -103,7 +103,7 @@ export interface StrategyBag {
   readonly forget: ForgetStrategy
   readonly history: HistoryStrategy
   readonly i18n: I18nStrategy
-  readonly index: IndexStrategy
+  readonly indexing: IndexingStrategy
   readonly lazy: LazyStrategy
   readonly periods: PeriodsStrategy
   readonly portability: PortabilityStrategy
@@ -112,11 +112,11 @@ export interface StrategyBag {
   readonly sequence: SequenceStrategy
   readonly session: SessionStrategy
   readonly shadow: ShadowStrategy
-  readonly snapshot: SnapshotStrategy
+  readonly snapshots: SnapshotsStrategy
   readonly sync: SyncStrategy
   readonly team: TeamStrategy
   readonly tiers: TiersStrategy
-  readonly tx: TxStrategy
+  readonly transactions: TransactionsStrategy
 }
 
 /** The name of every service in the bag. */
@@ -131,7 +131,7 @@ export const STRATEGY_DEFAULTS: StrategyBag = {
   reduce: NO_REDUCE,
   archive: NO_ARCHIVE,
   attestation: NO_ATTESTATION,
-  blob: NO_BLOBS,
+  blobs: NO_BLOBS,
   broker: NO_BROKER,
   cargo: NO_CARGO,
   classified: NO_CLASSIFIED,
@@ -141,7 +141,7 @@ export const STRATEGY_DEFAULTS: StrategyBag = {
   forget: NO_FORGET,
   history: NO_HISTORY,
   i18n: NO_I18N,
-  index: NO_INDEXING,
+  indexing: NO_INDEXING,
   lazy: IMPLICIT_LAZY,
   periods: NO_PERIODS,
   portability: NO_PORTABILITY,
@@ -150,11 +150,11 @@ export const STRATEGY_DEFAULTS: StrategyBag = {
   sequence: NO_SEQUENCE,
   session: NO_SESSION,
   shadow: NO_SHADOW,
-  snapshot: NO_SNAPSHOTS,
+  snapshots: NO_SNAPSHOTS,
   sync: NO_SYNC,
   team: NO_TEAM,
   tiers: NO_TIERS,
-  tx: NO_TX,
+  transactions: NO_TRANSACTIONS,
 }
 
 /** Every key of the bag, as a runtime array. Derived, so it cannot drift. */
@@ -164,7 +164,7 @@ const STRATEGY_KEYS = Object.keys(STRATEGY_DEFAULTS) as StrategyKey[]
  * Build the bag from user options. Called ONCE, in `createNoydb` — every
  * layer below shares the resulting reference.
  *
- * The two casts are the price of mapping `blob` ↔ `blobStrategy` in a loop
+ * The two casts are the price of mapping `blob` ↔ `blobsStrategy` in a loop
  * instead of writing 27 hand-copied lines; the correspondence they assume is
  * proven at compile time by the assertion below, so a typo cannot survive a
  * build.

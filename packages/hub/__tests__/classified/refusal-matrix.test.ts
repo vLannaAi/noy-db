@@ -9,7 +9,7 @@ import { createNoydb } from '../../src/kernel/noydb.js'
 import { inlineMemory } from './harness.js'
 import { classified } from '../../src/via/classified/presets.js'
 import { ClassifiedConfigError } from '../../src/kernel/errors.js'
-import { withForgetCascade } from '../../src/with-audit/forget/index.js'
+import { withForget } from '../../src/with-audit/forget/index.js'
 import { RecordCodec, generateDEK } from '../../src/kernel/enclave/index.js'
 import { NO_CRDT } from '../../src/with-commit/crdt/strategy.js'
 import type { VdigFieldPolicy, EncryptedEnvelope } from '../../src/kernel/types.js'
@@ -71,7 +71,7 @@ describe('Refusal matrix — door 1: collection()', () => {
   it('R4: digest-only as the forget-subject key is refused (vault plumbs subjectKeyField)', async () => {
     const db = await createNoydb({
       store: inlineMemory(), user: 'a', secret: 'pw-r4-subject',
-      forgetStrategy: withForgetCascade({ subjects: { users: 'password' } }),
+      forgetStrategy: withForget({ subjects: { users: 'password' } }),
     })
     const v = await db.openVault('v1')
     expect(() => v.collection<Rec>('users', {

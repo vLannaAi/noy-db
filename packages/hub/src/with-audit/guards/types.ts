@@ -40,17 +40,17 @@ export interface GuardChange<T> {
 }
 
 /** @internal — output of {@link withGuard}. */
-export interface GuardStrategyHandle<T extends Record<string, unknown>> {
+export interface GuardStrategy<T extends Record<string, unknown>> {
   readonly __noydb_strategy: 'guard'
-  readonly spec: GuardStrategy<T>
+  readonly spec: GuardSpec<T>
 }
 
 /**
- * Existential erasure of `GuardStrategyHandle<T>` — used as the
+ * Existential erasure of `GuardStrategy<T>` — used as the
  * element type of `ReadonlyArray<>` fields where the per-handle T
  * differs (e.g. `guardStrategies: [invoiceGuard, disbursementGuard]`).
  *
- * Background: `GuardStrategyHandle<T>` is INVARIANT in T because T
+ * Background: `GuardStrategy<T>` is INVARIANT in T because T
  * appears in callback positions on the spec (`check(incoming: T, ctx)`,
  * `invariant(changes: ReadonlyArray<GuardChange<T>>, ctx)`). So
  * `Handle<Invoice>` is not assignable to `Handle<Record<string, unknown>>`.
@@ -60,9 +60,9 @@ export interface GuardStrategyHandle<T extends Record<string, unknown>> {
  * interface that ERASES T from both the discriminant and the spec.
  *
  * Consumers continue to construct typed handles via `withGuard<T>(...)`
- * which returns `GuardStrategyHandle<T>`. Both `Handle<Invoice>` and
- * `Handle<Disbursement>` structurally assign to `GuardStrategyHandleAny`,
- * so an array of them is `GuardStrategyHandleAny[]`.
+ * which returns `GuardStrategy<T>`. Both `Handle<Invoice>` and
+ * `Handle<Disbursement>` structurally assign to `GuardStrategyAny`,
+ * so an array of them is `GuardStrategyAny[]`.
  *
  * Internal code that needs T re-narrows via the runtime discriminant
  * (`__noydb_strategy === 'guard'`) plus per-handle type information
@@ -74,14 +74,14 @@ export interface GuardStrategyHandle<T extends Record<string, unknown>> {
  *
  * @internal
  */
-export interface GuardStrategyHandleAny {
+export interface GuardStrategyAny {
   readonly __noydb_strategy: 'guard'
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly spec: GuardStrategy<any>
+  readonly spec: GuardSpec<any>
 }
 
 /** Public registration shape. See `withGuard()`. */
-export interface GuardStrategy<T extends Record<string, unknown>> {
+export interface GuardSpec<T extends Record<string, unknown>> {
   collection: string
   /**
    * Fires on `Collection.put` (insert + update). The `incoming` argument

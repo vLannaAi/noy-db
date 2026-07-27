@@ -25,7 +25,7 @@ async function makeFixture(): Promise<void> {
     store: jsonFile({ dir: dataDir }),
     user: 'alice',
     secret: SECRET,
-    blobStrategy: withBlobs(),
+    blobsStrategy: withBlobs(),
   })
   await bootstrap.openVault('V1')
   await bootstrap.grant('V1', {
@@ -41,7 +41,7 @@ async function makeFixture(): Promise<void> {
     store: jsonFile({ dir: dataDir }),
     user: 'alice',
     secret: SECRET,
-    blobStrategy: withBlobs(),
+    blobsStrategy: withBlobs(),
   })
   const vault = await db.openVault('V1')
   const docs = vault.collection<Doc>('docs')

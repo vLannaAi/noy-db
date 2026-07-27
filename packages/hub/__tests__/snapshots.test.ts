@@ -76,7 +76,7 @@ describe('SnapshotNotFoundError', () => {
   })
 })
 
-describe('Noydb.snapshot / listSnapshots / restoreSnapshot without snapshotStrategy', () => {
+describe('Noydb.snapshot / listSnapshots / restoreSnapshot without snapshotsStrategy', () => {
   it('snapshot() throws when strategy not configured', async () => {
     const db = await createNoydb({ store: memory(), user: 'u1', secret: 'pass' })
     await db.openVault('v1')
@@ -303,7 +303,7 @@ describe('SnapshotEngine.restoreSnapshot()', () => {
 })
 
 describe('withSnapshots() factory', () => {
-  it('returns a SnapshotStrategy with all 3 methods', () => {
+  it('returns a SnapshotsStrategy with all 3 methods', () => {
     const store = makeMockStore()
     const strategy = withSnapshots({ store })
     expect(typeof strategy.snapshot).toBe('function')
@@ -431,7 +431,7 @@ describe('withSnapshots — policy passthrough', () => {
 describe('Noydb auto-cadence wiring', () => {
   it('manual default wires no auto-snapshot on writes', async () => {
     const store = makeMockStore()
-    const db = await createNoydb({ store: memory(), user: 'u', secret: 'pw', snapshotStrategy: withSnapshots({ store }) })
+    const db = await createNoydb({ store: memory(), user: 'u', secret: 'pw', snapshotsStrategy: withSnapshots({ store }) })
     const v = await db.openVault('cad1')
     const c = v.collection<{ id: string; n: number }>('items')
     await c.put('a', { id: 'a', n: 1 })
@@ -445,7 +445,7 @@ describe('Noydb auto-cadence wiring', () => {
     const store = makeMockStore()
     const db = await createNoydb({
       store: memory(), user: 'u', secret: 'pw',
-      snapshotStrategy: withSnapshots({ store, snapshotPolicy: { mode: 'debounce', debounceMs: 10, onUnload: false } }),
+      snapshotsStrategy: withSnapshots({ store, snapshotPolicy: { mode: 'debounce', debounceMs: 10, onUnload: false } }),
     })
     const v = await db.openVault('cad2')
     const c = v.collection<{ id: string; n: number }>('items')
@@ -476,7 +476,7 @@ describe('Noydb auto-cadence wiring', () => {
     const db = await createNoydb({
       store: memory(), user: 'u', secret: 'pw',
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      snapshotStrategy: failingStrategy as any,
+      snapshotsStrategy: failingStrategy as any,
     })
     const v = await db.openVault('cad4')
     const c = v.collection<{ id: string; n: number }>('items')
@@ -491,7 +491,7 @@ describe('Noydb auto-cadence wiring', () => {
     const store = makeMockStore()
     const db = await createNoydb({
       store: memory(), user: 'u', secret: 'pw',
-      snapshotStrategy: withSnapshots({ store, snapshotPolicy: { mode: 'debounce', debounceMs: 50, onUnload: false } }),
+      snapshotsStrategy: withSnapshots({ store, snapshotPolicy: { mode: 'debounce', debounceMs: 50, onUnload: false } }),
     })
     const v = await db.openVault('cad3')
     const c = v.collection<{ id: string; n: number }>('items')

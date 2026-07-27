@@ -1,5 +1,5 @@
 /**
- * `withForgetCascade` — declaration surface for GDPR right-to-erasure via
+ * `withForget` — declaration surface for GDPR right-to-erasure via
  * per-record CEK crypto-shred.
  *
  * This file holds only the *declaration* shape and the disabled sentinel.
@@ -19,12 +19,12 @@
 import type { LedgerEntry } from '../../with-commit/history/ledger/entry.js'
 
 /**
- * User-supplied declaration passed to {@link withForgetCascade}. Maps a
+ * User-supplied declaration passed to {@link withForget}. Maps a
  * collection name to the record field (dotted path supported, e.g.
  * `'billing.buyerId'`) that identifies the data subject for erasure.
  *
  * ```ts
- * withForgetCascade({ subjects: { invoices: 'buyerId', contacts: 'id' } })
+ * withForget({ subjects: { invoices: 'buyerId', contacts: 'id' } })
  * ```
  */
 export interface SubjectDeclaration {
@@ -71,7 +71,7 @@ export interface ForgetStrategy {
  */
 export const NO_FORGET: ForgetStrategy = { subjects: {} }
 
-// The `withForgetCascade` factory lives in `active.ts` (canonical
+// The `withForget` factory lives in `active.ts` (canonical
 // strategy.ts/active.ts/index.ts split); this file holds only the
 // declaration shape + disabled sentinel.
 

@@ -346,7 +346,10 @@ export type { SequenceStrategy } from './with-commit/sequence/index.js'
 
 // Deferred numbering — store-clock-ordered serials for non-CAS stores.
 export { withDeferredNumbering } from './with-commit/numbering/descriptor.js'
-export type { DeferredNumberingConfig } from './with-commit/numbering/descriptor.js'
+export type {
+  DeferredNumberingConfig,
+  WithDeferredNumberingOptions,
+} from './with-commit/numbering/descriptor.js'
 export type { Assignment as NumberingAssignment } from './with-commit/numbering/index.js'
 export { NumberingUncertaintyError } from './kernel/errors.js'
 export type { StoreTime } from './kernel/types.js'
@@ -743,7 +746,7 @@ export { SyncTransaction } from './with-party/team/sync-transaction.js'
 export { TxContext, TxVault, TxCollection, runTransaction } from './with-commit/tx/transaction.js'
 export type { TxOp } from './kernel/types.js'
 export type { TransactionInvariant } from './with-commit/tx/invariants.js'
-export type { TransactionStrategyOptions } from './with-commit/tx/active.js'
+export type { WithTransactionsOptions } from './with-commit/tx/active.js'
 
 // Guards (record lock + field freeze + amendment invariant) — see docs/superpowers/specs/2026-05-18-guards-design.md
 export { withGuard } from './with-audit/guards/index.js'
@@ -752,8 +755,8 @@ export type { ImmutableGuardConfig } from './with-audit/guards/index.js'
 export { transitionGuard } from './with-audit/guards/index.js'
 export type { TransitionGuardConfig } from './with-audit/guards/index.js'
 export type {
+  GuardSpec,
   GuardStrategy,
-  GuardStrategyHandle,
   GuardContext,
   GuardChange,
 } from './with-audit/guards/index.js'
@@ -761,9 +764,10 @@ export type {
 // Derivations (Dim 14) — see docs/superpowers/specs/2026-05-01-dim14-derivation-v1-design.md
 export { withDerivation } from './with-formula/derivations/index.js'
 export { withRollup } from './with-formula/derivations/index.js'
+export type { WithRollupOptions } from './with-formula/derivations/index.js'
 export type {
+  DerivationSpec,
   DerivationStrategy,
-  DerivationStrategyHandle,
   DerivedFromMeta,
   OutputSpec,
   RecordOutputSpec,
@@ -780,8 +784,8 @@ export {
 // Materialized views (Dim 14 v2) — see docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md
 export { withMaterializedView } from './with-formula/materialized-views/index.js'
 export type {
+  MaterializedViewSpec,
   MaterializedViewStrategy,
-  MaterializedViewStrategyHandle,
   MaterializedViewOutput,
   MaterializedFromMeta,
   UnionSource,
@@ -799,8 +803,8 @@ export {
 // Overlay views (Dim 14 v2) — see docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md § Composition with operator-editable lifecycle
 export { withOverlayedView } from './with-formula/overlay-views/index.js'
 export type {
+  OverlayedViewSpec,
   OverlayedViewStrategy,
-  OverlayedViewStrategyHandle,
   OverlayFieldMergeRule,
   OverlayFieldMergeMode,
 } from './with-formula/overlay-views/index.js'

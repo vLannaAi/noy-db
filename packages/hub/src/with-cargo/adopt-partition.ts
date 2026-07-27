@@ -286,7 +286,7 @@ export async function createOwnerOnAdoptedPartition(
       : opts.secret
 
     // Mint the owner keyring (KEK + _users DEK + canary, written to disk).
-    const unlocked = await createOwnerKeyring(store, vaultName, userId, secret)
+    const unlocked = await createOwnerKeyring(store, vaultName, { userId: userId, secret: secret })
 
     // Merge the partition DEKs (wrapped under the new KEK) into the keyring.
     const env = await store.get(vaultName, '_keyring', userId)

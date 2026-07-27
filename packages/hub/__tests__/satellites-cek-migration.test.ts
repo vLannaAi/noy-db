@@ -6,7 +6,7 @@
  *
  * The scenario: app v1 declares `msgs_text satelliteOf msgs` WITHOUT
  * `perRecordKeys` and writes records under the shared collection DEK. App
- * v2 adds `withForgetCascade({ subjects: { msgs: 'from' } })` — the base
+ * v2 adds `withForget({ subjects: { msgs: 'from' } })` — the base
  * is now forget-covered, so R-S7 (`declare.ts:89-91`) correctly refuses
  * re-declaring `msgs_text` without `perRecordKeys: true`. Before this
  * migration existed there was no way past that refusal: `perRecordKeys`
@@ -26,7 +26,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
-import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withForget } from '../src/with-audit/forget/index.js'
 import { memory } from '../../to-memory/src/index.js'
 import { SatelliteConfigError } from '../src/kernel/errors.js'
 import type { NoydbStore } from '../src/kernel/types.js'
@@ -86,7 +86,7 @@ async function declareV1(store: NoydbStore) {
 async function reopenV2(store: NoydbStore) {
   const db = await createNoydb({
     store, user: 'alice', secret: SECRET,
-    forgetStrategy: withForgetCascade({ subjects: { msgs: 'from' } }),
+    forgetStrategy: withForget({ subjects: { msgs: 'from' } }),
   })
   const vault = await db.openVault('v1')
   vault.collection<Msg>('msgs', { perRecordKeys: true })
@@ -200,7 +200,7 @@ describe('satellite per-record-CEK migration (#599)', () => {
 
     const db2 = await createNoydb({
       store, user: 'alice', secret: SECRET,
-      forgetStrategy: withForgetCascade({ subjects: { msgs: 'from' } }),
+      forgetStrategy: withForget({ subjects: { msgs: 'from' } }),
     })
     const vault2 = await db2.openVault('v1')
     vault2.collection<Msg>('msgs', { perRecordKeys: true })

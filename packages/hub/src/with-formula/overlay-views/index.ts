@@ -2,8 +2,8 @@ export { withOverlayedView } from './with-overlayed-view.js'
 export { OverlayedViewRegistry } from './registry.js'
 export { OverlayedCollection } from './virtual-collection.js'
 export type {
+  OverlayedViewSpec,
   OverlayedViewStrategy,
-  OverlayedViewStrategyHandle,
   OverlayFieldMergeRule,
   OverlayFieldMergeMode,
 } from './types.js'

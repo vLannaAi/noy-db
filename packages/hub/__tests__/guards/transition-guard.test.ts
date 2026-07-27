@@ -74,7 +74,7 @@ describe('transitionGuard — factory validation', () => {
 async function vaultWith(...guards: ReturnType<typeof saleGuard>[]) {
   const db = await createNoydb({
     store: memory(), user: 'alice', secret: 'transition-guard-secret-2026-pilot2',
-    guardStrategies: guards, txStrategy: withTransactions(),
+    guardStrategies: guards, transactionsStrategy: withTransactions(),
   })
   const vault = await db.openVault('books')
   return { db, vault }

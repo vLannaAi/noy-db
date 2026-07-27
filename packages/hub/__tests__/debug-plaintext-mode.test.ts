@@ -126,7 +126,7 @@ describe('#413 P3 — readPlaintextRecord helper', () => {
 describe('#413 P2 — debug-plaintext blobs: single un-gzipped object', () => {
   it('stores a blob as one un-gzipped, directly-decodable object', async () => {
     const store = makeStore()
-    const db = await createNoydb({ store, user: 'op', encrypt: false, debugPlaintext: true, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, user: 'op', encrypt: false, debugPlaintext: true, blobsStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs', { blobFields: { f: {} } })
     await docs.put('d1', { id: 'd1' })
@@ -153,7 +153,7 @@ describe('#413 P2 — debug-plaintext blobs: single un-gzipped object', () => {
 
   it('classic plaintext mode still gzips blobs (debug differs)', async () => {
     const store = makeStore()
-    const db = await createNoydb({ store, user: 'op', encrypt: false, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, user: 'op', encrypt: false, blobsStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs', { blobFields: { f: {} } })
     await docs.put('d1', { id: 'd1' })

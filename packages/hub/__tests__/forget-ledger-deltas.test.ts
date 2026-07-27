@@ -15,7 +15,7 @@ import { withHistory } from '../src/with-commit/history/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { paddedIndex } from '../src/with-commit/history/ledger/entry.js'
-import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withForget } from '../src/with-audit/forget/index.js'
 
 // Inline memory adapter (same shape as other ledger test files).
 function memory(): NoydbStore {
@@ -75,7 +75,7 @@ describe('vault.forget() purges _ledger_deltas (#734)', () => {
     const db = await createNoydb({
       store: adapter,
       user: 'alice', historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { docs: 'buyerId' } }),
+      forgetStrategy: withForget({ subjects: { docs: 'buyerId' } }),
       secret: 'test-secret-1234',
     })
     const company = await db.openVault('demo-co')
@@ -114,7 +114,7 @@ describe('vault.forget() purges _ledger_deltas (#734)', () => {
     const db = await createNoydb({
       store: adapter,
       user: 'alice',
-      forgetStrategy: withForgetCascade({ subjects: { docs: 'buyerId' } }),
+      forgetStrategy: withForget({ subjects: { docs: 'buyerId' } }),
       secret: 'test-secret-1234',
     })
     const company = await db.openVault('demo-co')

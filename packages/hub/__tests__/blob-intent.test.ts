@@ -208,7 +208,7 @@ describe('backup allowlist — _blob_intent travels in the bundle (#753 spec §7
 
   it('a pending marker is present in vault.dump()\'s _internal section', async () => {
     const store = memory()
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET, blobStrategy: withBlobs(), historyStrategy: withHistory() })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET, blobsStrategy: withBlobs(), historyStrategy: withHistory() })
     const vault = await db.openVault('demo-co')
     const docs = vault.collection<{ title: string }>('docs')
     await docs.put('rec-1', { title: 'hello' })
@@ -231,7 +231,7 @@ describe('backup allowlist — _blob_intent travels in the bundle (#753 spec §7
 
   it('a vault with no pending markers omits _blob_intent from the bundle', async () => {
     const store = memory()
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET, blobStrategy: withBlobs(), historyStrategy: withHistory() })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET, blobsStrategy: withBlobs(), historyStrategy: withHistory() })
     const vault = await db.openVault('demo-co')
     const docs = vault.collection<{ title: string }>('docs')
     await docs.put('rec-1', { title: 'hello' })

@@ -55,7 +55,7 @@ async function setup() {
   init.close()
   const db = await createNoydb({ teamStrategy: withTeam(),
     store: adapter, user: 'alice', secret: 'pw-2026',
-    txStrategy: withTransactions(),
+    transactionsStrategy: withTransactions(),
   })
   const vault = await db.openVault('demo')
   await vault.collection<Invoice>('invoices').put('a', { id: 'a', client: 'X', amount: 100 })
@@ -135,7 +135,7 @@ describe('as-csv fromString', () => {
     dstInit.close()
     const dst = await createNoydb({ teamStrategy: withTeam(),
       store: dstAdapter, user: 'alice', secret: 'pw-2026',
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     const dstVault = await dst.openVault('demo')
     const importer = await fromString(dstVault, csv, {

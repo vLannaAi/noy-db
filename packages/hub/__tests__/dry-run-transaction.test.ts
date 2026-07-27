@@ -7,7 +7,7 @@ import { memory } from '../../to-memory/src/index.js'
 interface Inv extends Record<string, unknown> { id: string; amount: number }
 
 async function setup(extra: Record<string, unknown> = {}): Promise<Noydb> {
-  return createNoydb({ store: memory(), user: 'owner', secret: 'dryrun-pass-1234', encrypt: false, txStrategy: withTransactions(), ...extra })
+  return createNoydb({ store: memory(), user: 'owner', secret: 'dryrun-pass-1234', encrypt: false, transactionsStrategy: withTransactions(), ...extra })
 }
 
 describe('db.transaction({ dryRun: true }) (#231)', () => {

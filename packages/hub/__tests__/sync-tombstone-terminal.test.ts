@@ -3,7 +3,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, ErasureEnforcement }
 import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withSync } from '../src/with-party/sync/index.js'
-import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withForget } from '../src/with-audit/forget/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { isTombstoneShape } from '../src/kernel/enclave/record-keys/tombstone.js'
 
@@ -219,7 +219,7 @@ describe('end-to-end: forget() + sync (#590 exit criteria)', () => {
     const local = inlineMemory(); const remote = inlineMemory()
     const db = await createNoydb({
       store: local, sync: remote, user: 'alice', secret: 'hunter2', syncStrategy: withSync(),
-      forgetStrategy: withForgetCascade({ subjects: { notes: 'subjectId' } }),
+      forgetStrategy: withForget({ subjects: { notes: 'subjectId' } }),
       historyStrategy: withHistory(),
     })
     const vault = await db.openVault(V)

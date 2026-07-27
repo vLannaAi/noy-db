@@ -233,7 +233,7 @@ export async function fromObject(
       // permissions check + envelope encryption + ledger write.
       // Delete only runs under the 'replace' policy.
       // Wrapped via vault.noydb.transaction so a partial failure rolls
-      // back every executed put. Routes through the txStrategy seam —
+      // back every executed put. Routes through the transactionsStrategy seam —
       // throws a clear error pointing at withTransactions() when the
       // strategy is not opted in.
       await vault.noydb.transaction((tx) => {

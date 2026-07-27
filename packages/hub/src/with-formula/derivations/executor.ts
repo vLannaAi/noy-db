@@ -1,5 +1,5 @@
 import { DerivationCapExceededError, DerivationOutputShapeError } from '../../kernel/errors.js'
-import type { DerivationContext, DerivationStrategy, DerivedFromMeta } from './types.js'
+import type { DerivationContext, DerivationSpec, DerivedFromMeta } from './types.js'
 
 export interface RunResult {
   outputs: Record<string, OutputResult>
@@ -66,7 +66,7 @@ export const DerivationExecutor = {
     TSource extends Record<string, unknown>,
     TOutputs extends Record<string, Record<string, unknown> | ReadonlyArray<Record<string, unknown>>>,
   >(
-    strategy: DerivationStrategy<TSource, TOutputs>,
+    strategy: DerivationSpec<TSource, TOutputs>,
     source: TSource & { id: string },
     sourceVersion: number,
     strategyHash: string,

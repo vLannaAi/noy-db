@@ -47,7 +47,7 @@ import type { BlobFieldsConfig } from '../../with-shape/blobs/blob-compaction.js
  * DELIBERATELY left unwired by `compileViaBindings` (#629 Task 10, resolved
  * within parity-first — see task-10-report.md "blob purge" section):
  * `per-blob-cek.test.ts`/`forget.test.ts` prove blob-shred-on-forget is
- * gated SOLELY on the vault's `blobStrategy` being configured, never on a
+ * gated SOLELY on the vault's `blobsStrategy` being configured, never on a
  * given collection's OWN `blobFields` declaration (`.blob(id)` is callable,
  * and IS exercised by those tests, on collections with no `blobFields` at
  * all). Routing it exclusively through this binding would silently stop

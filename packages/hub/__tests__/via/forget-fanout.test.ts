@@ -8,7 +8,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withRollup, withMaterializedView, withDerivation } from '../../src/index.js'
-import { withForgetCascade } from '../../src/with-audit/forget/index.js'
+import { withForget } from '../../src/with-audit/forget/index.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
 import { withPeriods } from '../../src/with-audit/periods/index.js'
 import { withTiers } from '../../src/with-audit/tiers/index.js'
@@ -57,7 +57,7 @@ describe('forget() fanout to derived residue (#622)', () => {
       store: memory(), user: 'alice', secret: 'forget-fanout-rollup-secret-2026',
       derivationStrategies: [totalSpentRollup()],
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { sales: 'subjectId' } }),
+      forgetStrategy: withForget({ subjects: { sales: 'subjectId' } }),
     })
     const vault = await db.openVault('firm')
     const buyers = vault.collection<Buyer>('buyers')
@@ -90,7 +90,7 @@ describe('forget() fanout to derived residue (#622)', () => {
       store: memory(), user: 'alice', secret: 'forget-fanout-mv-secret-2026',
       materializedViewStrategies: [mv],
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+      forgetStrategy: withForget({ subjects: { people: 'subjectId' } }),
     })
     const vault = await db.openVault('firm')
     const people = vault.collection<Person>('people')
@@ -119,7 +119,7 @@ describe('forget() fanout to derived residue (#622)', () => {
       store: memory(), user: 'alice', secret: 'forget-fanout-lazy-mv-count-secret-2026',
       materializedViewStrategies: [mv],
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+      forgetStrategy: withForget({ subjects: { people: 'subjectId' } }),
     })
     const vault = await db.openVault('firm')
     const people = vault.collection<Person>('people')
@@ -162,7 +162,7 @@ describe('forget() fanout to derived residue (#622)', () => {
       store: memory(), user: 'alice', secret: 'forget-fanout-same-collection-mv-secret-2026',
       materializedViewStrategies: [mv],
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { disbursements: 'subjectId' } }),
+      forgetStrategy: withForget({ subjects: { disbursements: 'subjectId' } }),
     })
     const vault = await db.openVault('firm')
     const coll = vault.collection<Disbursement>('disbursements')
@@ -206,7 +206,7 @@ describe('forget() fanout to derived residue (#622)', () => {
       store: memory(), user: 'alice', secret: 'forget-fanout-optional-skip-secret-2026',
       derivationStrategies: [strategy],
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { allocations: 'subjectId' } }),
+      forgetStrategy: withForget({ subjects: { allocations: 'subjectId' } }),
     })
     const vault = await db.openVault('firm')
     await vault.collection<Alloc>('allocations').put('a1', { id: 'a1', subjectId: 'subj-1', servicesNetPortion: 0 })
@@ -224,7 +224,7 @@ describe('forget() fanout to derived residue (#622)', () => {
       derivationStrategies: [totalSpentRollup()],
       periodsStrategy: withPeriods(),
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { sales: 'subjectId' } }),
+      forgetStrategy: withForget({ subjects: { sales: 'subjectId' } }),
     })
     const vault = await db.openVault('firm')
     const buyers = vault.collection<Buyer>('buyers')
@@ -259,7 +259,7 @@ describe('forget() fanout to derived residue (#622)', () => {
     const db = await createNoydb({
       store: memory(), user: 'alice', secret: 'forget-fanout-plain-secret-2026',
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+      forgetStrategy: withForget({ subjects: { people: 'subjectId' } }),
     })
     const vault = await db.openVault('firm')
     await vault.collection<Person>('people').put('p1', { id: 'p1', subjectId: 'subj-1', name: 'Ada' })
@@ -322,7 +322,7 @@ describe('forget() fanout to derived residue (#622)', () => {
         store, user: 'alice', secret: 'forget-fanout-776a-secret-2026',
         materializedViewStrategies: [mv],
         historyStrategy: withHistory(),
-        forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+        forgetStrategy: withForget({ subjects: { people: 'subjectId' } }),
         tiersStrategy: withTiers(),
       })
       const vault = await db.openVault('firm')
@@ -363,7 +363,7 @@ describe('forget() fanout to derived residue (#622)', () => {
         store, user: 'alice', secret: 'forget-fanout-782a-secret-2026',
         materializedViewStrategies: [mv],
         historyStrategy: withHistory(),
-        forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+        forgetStrategy: withForget({ subjects: { people: 'subjectId' } }),
         tiersStrategy: withTiers(),
       })
       const vault = await db.openVault('firm')
@@ -403,7 +403,7 @@ describe('forget() fanout to derived residue (#622)', () => {
       store: memory(), user: 'alice', secret: 'forget-fanout-782b-lazy-secret-2026',
       materializedViewStrategies: [mv],
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+      forgetStrategy: withForget({ subjects: { people: 'subjectId' } }),
       tiersStrategy: withTiers(),
     })
     const vault = await db.openVault('firm')
@@ -440,7 +440,7 @@ describe('forget() fanout to derived residue (#622)', () => {
       store: memory(), user: 'alice', secret: 'forget-fanout-782b-eager-secret-2026',
       materializedViewStrategies: [mv],
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+      forgetStrategy: withForget({ subjects: { people: 'subjectId' } }),
       tiersStrategy: withTiers(),
     })
     const vault = await db.openVault('firm')
@@ -479,7 +479,7 @@ describe('forget() fanout to derived residue (#622)', () => {
         store, user: 'alice', secret: 'forget-fanout-785-secret-2026',
         materializedViewStrategies: [mvA, mvB],
         historyStrategy: withHistory(),
-        forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+        forgetStrategy: withForget({ subjects: { people: 'subjectId' } }),
         tiersStrategy: withTiers(),
       })
       const vault = await db.openVault('firm')

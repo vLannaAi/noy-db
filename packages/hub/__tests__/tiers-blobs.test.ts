@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb, ConflictError, dekKey, UnsupportedTierCompositionError, TierNotGrantedError, TamperedError } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withBlobs } from '../src/via/blob/index.js'
-import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withForget } from '../src/with-audit/forget/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { openEnvelopeJson, unwrapCek, type EnclaveKey } from '../src/kernel/enclave/index.js'
 import { BLOB_INDEX_COLLECTION, BLOB_CHUNKS_COLLECTION } from '../src/with-shape/blobs/blob-set.js'
@@ -61,7 +61,7 @@ describe('#724 blob read gate', () => {
   it('a tiered collection with blobFields constructs (Arc-7 refusal removed)', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     expect(() => vault.collection<Doc>('docs', {
@@ -72,7 +72,7 @@ describe('#724 blob read gate', () => {
   it('elevating a blob-owning record hides its blob from a tier-0 caller', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -108,7 +108,7 @@ describe('#724 blob metadata gate', () => {
   it('list/blobInfo/listVersions on an elevated record are invisible to a tier-0 caller', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -144,7 +144,7 @@ describe('#724 solo blob at-rest isolation', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -205,7 +205,7 @@ describe('#724 solo blob at-rest isolation', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -238,7 +238,7 @@ describe('#724 solo blob at-rest isolation', () => {
   })
 
   it('a tiered collection with NO blobFields — syncBlobs is a fast no-op', async () => {
-    // No blobStrategy passed — the default NO_BLOBS stub throws if
+    // No blobsStrategy passed — the default NO_BLOBS stub throws if
     // `.blob(id)` is ever reached. hasBlobFields being false must keep
     // syncBlobs from calling it at all.
     const db = await createNoydb({
@@ -260,7 +260,7 @@ describe('#724 shared blob — blobTierPolicy', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -317,7 +317,7 @@ describe('#724 shared blob — blobTierPolicy', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -372,7 +372,7 @@ describe('#724 slot-map metadata + reversibility (Arc 10 Task 4)', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -417,7 +417,7 @@ describe('#724 slot-map metadata + reversibility (Arc 10 Task 4)', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -455,7 +455,7 @@ describe('#724 slot-map metadata + reversibility (Arc 10 Task 4)', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -517,7 +517,7 @@ describe('#724 slot-map metadata + reversibility (Arc 10 Task 4)', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -582,7 +582,7 @@ describe('#724 slot-map metadata + reversibility (Arc 10 Task 4)', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -641,7 +641,7 @@ describe('#724 tier-scoped eTag (C1/C2)', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -675,7 +675,7 @@ describe('#724 tier-scoped eTag (C1/C2)', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -700,7 +700,7 @@ describe('#724 tier-scoped eTag (C1/C2)', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -740,7 +740,7 @@ describe('#724 versions follow tier (C4)', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -787,7 +787,7 @@ describe('#724 versions follow tier (C4)', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -829,7 +829,7 @@ describe('#724 versions follow tier (C4)', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -871,9 +871,9 @@ describe('#724 forget of elevated blob-owner (C3)', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { docs: 'id' } }),
+      forgetStrategy: withForget({ subjects: { docs: 'id' } }),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -901,9 +901,9 @@ describe('#724 forget of elevated blob-owner (C3)', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { docs: 'id' } }),
+      forgetStrategy: withForget({ subjects: { docs: 'id' } }),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -925,7 +925,7 @@ describe('#724 composition enforcement (I1)', () => {
   it('a tiered collection declaring blobFields WITHOUT perRecordKeys throws at construction — legacy blobs cannot be tier-isolated', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     expect(() => vault.collection<Doc>('docs', {
@@ -945,7 +945,7 @@ describe('#724 composition enforcement (I1)', () => {
   it('a tiered collection with blobFields AND perRecordKeys constructs fine', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     expect(() => vault.collection<Doc>('docs', {
@@ -957,7 +957,7 @@ describe('#724 composition enforcement (I1)', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     // No `blobFields` declared — the original #724 repro shape (blobs written
@@ -991,7 +991,7 @@ describe('#724 composition enforcement (I1)', () => {
   it('a tiered collection with NO blobFields and NO perRecordKeys constructs fine, but writing a legacy blob to it is refused at write time (undeclared-blobFields I1 leak)', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     // Construction mandate only fires on DECLARED blobFields — this
@@ -1012,7 +1012,7 @@ describe('#724 composition enforcement (I1)', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
@@ -1042,7 +1042,7 @@ describe('#724 composition enforcement (I1)', () => {
   it('control: a NON-tiered collection without perRecordKeys still accepts a legacy blob write (back-compat, not refused)', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
-      blobStrategy: withBlobs(),
+      blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {})
@@ -1058,7 +1058,7 @@ describe('#724 empty-but-present slot map (re-review High)', () => {
   it('a cleared caller can write a new blob after put→delete(last slot)→elevate', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -1077,7 +1077,7 @@ describe('#724 empty-but-present slot map (re-review High)', () => {
   it('demote does not throw after put→delete(last slot)→elevate', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -1095,9 +1095,9 @@ describe('#724 empty-but-present slot map (re-review High)', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+      forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } }),
     })
     const vault = await db.openVault('v1')
     interface Inv { id: string; buyerId: string; title: string }
@@ -1120,9 +1120,9 @@ describe('#724 empty-but-present slot map (re-review High)', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { docs: 'id' } }),
+      forgetStrategy: withForget({ subjects: { docs: 'id' } }),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -1144,9 +1144,9 @@ describe('#724 re-review: genuine slot-map read failure surfaces as forget resid
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { docs: 'id' } }),
+      forgetStrategy: withForget({ subjects: { docs: 'id' } }),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -1182,7 +1182,7 @@ describe('#747 BlobObject index envelope follows the eTag tier DEK', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -1225,7 +1225,7 @@ describe('#747 BlobObject index envelope follows the eTag tier DEK', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -1255,7 +1255,7 @@ describe('#747 BlobObject index envelope follows the eTag tier DEK', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -1277,9 +1277,9 @@ describe('#747 BlobObject index envelope follows the eTag tier DEK', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { docs: 'id' } }),
+      forgetStrategy: withForget({ subjects: { docs: 'id' } }),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -1337,7 +1337,7 @@ describe('#749 blob(id).atTier() — sanctioned cleared-read path', () => {
   it('a cleared owner reads an elevated record\'s blobs via atTier() while blob(id) stays hidden — list()/blobInfo() too', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -1376,7 +1376,7 @@ describe('#749 blob(id).atTier() — sanctioned cleared-read path', () => {
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -1404,7 +1404,7 @@ describe('#749 blob(id).atTier() — sanctioned cleared-read path', () => {
   it('an ungranted operator session\'s atTier() rejects with TierNotGrantedError and mints no junk DEK', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -1441,7 +1441,7 @@ describe('#749 blob(id).atTier() — sanctioned cleared-read path', () => {
   it('M3 (whole-branch review): a member granted docs#N but not _blob#N is refused at the SECOND gate — before any junk _blob#N mint', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -1476,7 +1476,7 @@ describe('#749 blob(id).atTier() — sanctioned cleared-read path', () => {
   it('a tier-0 record: atTier() returns an equivalent working view (round-trip put/get)', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -1500,7 +1500,7 @@ describe('#749 blob(id).atTier() — sanctioned cleared-read path', () => {
   it('regression lock: blob(id) WITHOUT atTier() still hides an elevated record\'s blobs', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -1519,7 +1519,7 @@ describe('#749 blob(id).atTier() — sanctioned cleared-read path', () => {
   it('a cleared owner reads a published VERSION\'s response on an elevated record via atTier() — the fourth fetchAllChunks site (review)', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -1547,7 +1547,7 @@ describe('#747/#749 whole-branch review (I1): fallback content substitution is c
     const store = memoryStore()
     const db = await createNoydb({
       store, secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', {
@@ -1597,7 +1597,7 @@ describe('#748 composition enforcement — tiers × external public:true', () =>
   it('a tiered collection declaring a `public: true` external blob field throws at construction', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     expect(() => vault.collection<Doc>('docs', {
@@ -1611,7 +1611,7 @@ describe('#748 composition enforcement — tiers × external public:true', () =>
   it('a tiered collection declaring a private (non-public) external blob field constructs fine', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     // `public` omitted — presigned/private external, unaffected.
@@ -1625,7 +1625,7 @@ describe('#748 composition enforcement — tiers × external public:true', () =>
   })
 
   it('a non-tiered collection declaring a `public: true` external blob field still constructs fine', async () => {
-    const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner', blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner', blobsStrategy: withBlobs() })
     const vault = await db.openVault('v1')
     expect(() => vault.collection<Doc>('docs', {
       blobFields: { video: { external: true, public: true } },
@@ -1635,7 +1635,7 @@ describe('#748 composition enforcement — tiers × external public:true', () =>
   it('a tiered collection with a `public: true` external field alongside an ordinary (non-external) blob field still throws, naming the offending field', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     expect(() => vault.collection<Doc>('docs', {

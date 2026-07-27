@@ -277,7 +277,7 @@ export async function fromString(
     plan,
     policy,
     async apply(): Promise<void> {
-      // Routes through the txStrategy seam — vault.noydb.transaction()
+      // Routes through the transactionsStrategy seam — vault.noydb.transaction()
       // throws a clear error pointing at withTransactions() when the
       // strategy is not opted in. Atomicity ensures a partial failure
       // rolls back every executed put.

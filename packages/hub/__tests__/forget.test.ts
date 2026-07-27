@@ -1,5 +1,5 @@
 /**
- * withForgetCascade / vault.forget() — GDPR crypto-shred (#304, epic step 2).
+ * withForget / vault.forget() — GDPR crypto-shred (#304, epic step 2).
  *
  * Spec: docs/superpowers/specs/2026-06-08-forget-cascade-design.md
  * Foundation: docs/superpowers/specs/2026-06-13-per-record-cek-foundation-design.md
@@ -29,7 +29,7 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import { ConflictError, ForgetStrategyNotConfiguredError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { withHistory } from '../src/with-commit/history/index.js'
-import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withForget } from '../src/with-audit/forget/index.js'
 import { withBlobs } from '../src/via/blob/index.js'
 import { withIndexing } from '../src/with-lookup/indexing/index.js'
 import { withCrdt } from '../src/with-commit/crdt/index.js'
@@ -97,7 +97,7 @@ describe('forget — group 1: tombstones live + history of matching records', ()
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+      forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } }),
     })
     const vault = await db.openVault('v')
     const invoices = vault.collection<Invoice>('invoices')
@@ -149,7 +149,7 @@ describe('forget — group 2: ledger verify + head op + payloadHash', () => {
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+      forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } }),
     })
     const vault = await db.openVault('v')
     const invoices = vault.collection<Invoice>('invoices')
@@ -178,7 +178,7 @@ describe('forget — group 3: _det stripped, findByDet returns null (no Tampered
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+      forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } }),
     })
     const vault = await db.openVault('v')
     const invoices = vault.collection<Invoice>('invoices', {
@@ -205,7 +205,7 @@ describe('forget — group 4: un-migrated record reported + still tombstoned', (
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { legacy_invoices: 'buyerId' } }),
+      forgetStrategy: withForget({ subjects: { legacy_invoices: 'buyerId' } }),
     })
     const vault = await db.openVault('v')
     // Force a legacy (no-CEK) body by writing through a DIFFERENT collection
@@ -237,7 +237,7 @@ describe('forget — group 5: blob residue reported', () => {
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+      forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } }),
     })
     const vault = await db.openVault('v')
     const invoices = vault.collection<Invoice>('invoices')
@@ -260,8 +260,8 @@ describe('forget — group 5: blob residue reported', () => {
     const db1 = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
-      blobStrategy: withBlobs(),
+      forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } }),
+      blobsStrategy: withBlobs(),
     })
     const vault1 = await db1.openVault('v')
     const invoices1 = vault1.collection<Invoice>('invoices', { perRecordKeys: true })
@@ -277,7 +277,7 @@ describe('forget — group 5: blob residue reported', () => {
     const db2 = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+      forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } }),
     })
     const vault2 = await db2.openVault('v')
     const result = await vault2.forget('buyer-1')
@@ -291,7 +291,7 @@ describe('forget — group 6: idempotent', () => {
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+      forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } }),
     })
     const vault = await db.openVault('v')
     const invoices = vault.collection<Invoice>('invoices')
@@ -314,7 +314,7 @@ describe('forget — group 7: rebuildSubjectIndex recovers', () => {
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+      forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } }),
     })
     const vault = await db.openVault('v')
     const invoices = vault.collection<Invoice>('invoices')
@@ -359,7 +359,7 @@ describe('forget — group 9: CRDT-mode tombstone + list() skip do not throw', (
       historyStrategy: withHistory(),
       crdtStrategy: withCrdt(),
       syncStrategy: withSync(),
-      forgetStrategy: withForgetCascade({ subjects: { crdt_invoices: 'buyerId' } }),
+      forgetStrategy: withForget({ subjects: { crdt_invoices: 'buyerId' } }),
     })
     const vault = await db.openVault('v')
     const invoices = vault.collection<CrdtDoc>('crdt_invoices', { crdt: 'lww-map' })
@@ -387,8 +387,8 @@ describe('forget — group 10: persisted _idx side-cars are purged (#401)', () =
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
-      indexStrategy: withIndexing(),
+      forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } }),
+      indexingStrategy: withIndexing(),
     })
     const vault = await db.openVault('v')
     // Lazy mode (prefetch:false) → durable `_idx/<field>/<recordId>` side-cars.

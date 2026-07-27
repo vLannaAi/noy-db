@@ -4,7 +4,7 @@ import {
   OverlayNameCollisionError,
 } from '../../kernel/errors.js'
 import type { MaterializedViewRegistry } from '../materialized-views/registry.js'
-import type { OverlayedViewStrategy } from './types.js'
+import type { OverlayedViewSpec } from './types.js'
 
 /**
  * Vault-internal registry of overlay strategies. Resolves the base
@@ -14,7 +14,7 @@ import type { OverlayedViewStrategy } from './types.js'
  * @internal
  */
 export class OverlayedViewRegistry {
-  private readonly _byName = new Map<string, OverlayedViewStrategy>()
+  private readonly _byName = new Map<string, OverlayedViewSpec>()
 
   /**
    * Register an overlay. Validates name uniqueness, base concreteness,
@@ -23,7 +23,7 @@ export class OverlayedViewRegistry {
    * checks but still validate self-consistency.
    */
   register(
-    spec: OverlayedViewStrategy,
+    spec: OverlayedViewSpec,
     options: {
       isOverlayName?: (name: string) => boolean
       isMVOutput?: (name: string) => boolean
@@ -62,7 +62,7 @@ export class OverlayedViewRegistry {
     this._byName.set(spec.name, spec)
   }
 
-  byName(name: string): OverlayedViewStrategy | undefined {
+  byName(name: string): OverlayedViewSpec | undefined {
     return this._byName.get(name)
   }
 
@@ -82,7 +82,7 @@ export class OverlayedViewRegistry {
    *
    * Used by `dumpSchema()` to populate the `overlayViews` map.
    */
-  all(): ReadonlyArray<OverlayedViewStrategy> {
+  all(): ReadonlyArray<OverlayedViewSpec> {
     return [...this._byName.values()]
   }
 

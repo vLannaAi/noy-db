@@ -22,7 +22,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
-import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withForget } from '../src/with-audit/forget/index.js'
 import { withIndexing } from '../src/with-lookup/indexing/index.js'
 import { memory } from '../../to-memory/src/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
@@ -59,8 +59,8 @@ async function openForgetPair(opts: { indexed?: boolean } = {}) {
     user: 'alice',
     secret: SECRET,
     historyStrategy: withHistory(),
-    ...(opts.indexed ? { indexStrategy: withIndexing() } : {}),
-    forgetStrategy: withForgetCascade({ subjects: { msgs: 'from' } }),
+    ...(opts.indexed ? { indexingStrategy: withIndexing() } : {}),
+    forgetStrategy: withForget({ subjects: { msgs: 'from' } }),
   })
   const vault = await db.openVault('v1')
   // R-S7: both pair members declare perRecordKeys explicitly (the base's is

@@ -71,7 +71,7 @@ describe('#724 — blob content on an elevated record is gated (Arc 10 Task 1)',
   it('a caller without the elevated tier DEK no longer reads blob content via collection.blob()', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     // No `blobFields` declared — basic blob put/get never required it, and
@@ -107,7 +107,7 @@ describe('tier + blobFields composition (Arc-7 refusal removed — #724)', () =>
   it('tiers + blobFields constructs fine and the blob is reachable at tier 0', async () => {
     const db = await createNoydb({
       store: memoryStore(), secret: 'pw', user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault('v1')
     const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true, blobFields: { receipt: {} } })
@@ -128,7 +128,7 @@ describe('tier + blobFields composition (Arc-7 refusal removed — #724)', () =>
   })
 
   it('blobFields alone (no tiers) still constructs fine', async () => {
-    const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner', blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner', blobsStrategy: withBlobs() })
     const vault = await db.openVault('v1')
     expect(() => vault.collection<Doc>('docs', { blobFields: { receipt: {} } })).not.toThrow()
   })
