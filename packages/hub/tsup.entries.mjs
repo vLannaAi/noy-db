@@ -39,11 +39,4 @@ export const ENTRIES = {
   'portability/index': 'src/with-audit/portability/index.ts',
   'cargo/index': 'src/with-cargo/index.ts',
   'to/index': 'src/port/to/index.ts',
-  'with/index': 'src/port/with/index.ts',
-  'ui/index': 'src/port/ui/index.ts',
-  'by/index': 'src/port/by/index.ts',
-  'on/index': 'src/port/on/index.ts',
-  'at/index': 'src/port/at/index.ts',
-  'in/index': 'src/port/in/index.ts',
-  'as/index': 'src/port/as/index.ts',
 }

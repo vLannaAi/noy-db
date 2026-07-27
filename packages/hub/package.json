@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/hub",
   "version": "0.4.0-pre.5",
-  "description": "Zero-knowledge, offline-first, encrypted document store — core library with AES-256-GCM, PBKDF2, multi-user keyring, and sync engine",
+  "description": "Zero-knowledge, offline-first, encrypted document store \u2014 core library with AES-256-GCM, PBKDF2, multi-user keyring, and sync engine",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/hub#readme",
@@ -151,34 +151,6 @@
     "./to": {
       "types": "./dist/port/to/index.d.ts",
       "default": "./dist/to/index.js"
-    },
-    "./with": {
-      "types": "./dist/port/with/index.d.ts",
-      "default": "./dist/with/index.js"
-    },
-    "./ui": {
-      "types": "./dist/port/ui/index.d.ts",
-      "default": "./dist/ui/index.js"
-    },
-    "./by": {
-      "types": "./dist/port/by/index.d.ts",
-      "default": "./dist/by/index.js"
-    },
-    "./on": {
-      "types": "./dist/port/on/index.d.ts",
-      "default": "./dist/on/index.js"
-    },
-    "./at": {
-      "types": "./dist/port/at/index.d.ts",
-      "default": "./dist/at/index.js"
-    },
-    "./in": {
-      "types": "./dist/port/in/index.d.ts",
-      "default": "./dist/in/index.js"
-    },
-    "./as": {
-      "types": "./dist/port/as/index.d.ts",
-      "default": "./dist/as/index.js"
     }
   },
   "module": "./dist/index.js",
