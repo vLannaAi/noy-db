@@ -38,3 +38,6 @@ export type {
   CarryForwardContext,
   ReadOnlyCollection,
 } from './periods.js'
+
+/** The un-opted-in stub for this service — exported so callers can compare against it (#844). */
+export { NO_PERIODS } from './strategy.js'

@@ -14,3 +14,6 @@ export { withShadow } from './active.js'
 export type { ShadowStrategy } from './strategy.js'
 
 export { VaultFrame, CollectionFrame } from './vault-frame.js'
+
+/** The un-opted-in stub for this service — exported so callers can compare against it (#844). */
+export { NO_SHADOW } from './strategy.js'
