@@ -208,6 +208,8 @@ export type { WriteQueue } from './kernel/write-queue.js'
 
 // Write lifecycle hooks
 export type { WriteEvent, WriteHook } from './port/with/write-hooks.js'
+/** #841 — the option shape `vault.collection()` takes, so callers can name it. */
+export type { OpenCollectionOptions } from './port/with/collection-options.js'
 
 // Runtime schema introspection
 export type { SchemaIntrospection } from './with-shape/introspection/types.js'

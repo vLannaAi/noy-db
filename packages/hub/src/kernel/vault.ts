@@ -1,3 +1,4 @@
+import type { OpenCollectionOptions } from '../port/with/collection-options.js'
 import { NO_BLOBS } from '../port/with/blob-strategy.js'
 import type { StrategyBag } from '../port/with/strategies.js'
 import type {
@@ -8,7 +9,6 @@ import type {
   ExportChunk,
   CollectionConflictResolver,
   CrossTierAccessEvent,
-  TierMode,
   Role,
   VaultUserApi,
 } from './types.js'
@@ -16,8 +16,6 @@ import type { Noydb } from './noydb.js'
 import type { IssueDelegationOptions, DelegationToken } from '../with-party/team/delegation.js'
 import { NOYDB_FORMAT_VERSION } from './types.js'
 import { Collection } from './collection.js'
-import type { CacheOptions } from './collection.js'
-import type { IndexDef } from '../with-lookup/indexing/eager-indexes.js'
 import type { JoinableSource } from './query/index.js'
 import type { OnDirtyCallback } from './collection.js'
 import type { UnlockedKeyring, BundleRecipient } from '../with-party/team/keyring.js'
@@ -36,7 +34,7 @@ import {
   canExport as canExportCapability,
   canImport as canImportCapability,
 } from '../port/with/capabilities.js'
-import type { ExportFormat, KeyringFile, SensitiveOpt, IndexFieldName, IndexDefFor, MoneyFieldsOpt } from './types.js'
+import type { ExportFormat, KeyringFile } from './types.js'
 import {
   ValidationError,
   AlreadyElevatedError,
@@ -44,7 +42,6 @@ import {
 } from './errors.js'
 import { ElevatedHandle, ELEVATION_AUDIT_COLLECTION } from '../with-commit/tx/elevated-handle.js'
 import type { NoydbEventEmitter } from './events.js'
-import type { StandardSchemaV1 } from './schema.js'
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { ArchivePolicy, ArchiveContext, ArchiveResult, ArchiveRunOptions } from '../with-fork/archive/index.js'
 import { runArchive, runRestore, runListArchived } from '../with-fork/archive/index.js'
@@ -79,7 +76,7 @@ import {
   type RefDescriptor,
   type RefViolation,
 } from './refs.js'
-import type { DictionaryHandle, DictionaryOptions, DictKeyDescriptor, StaticDictDescriptor } from '../port/with/i18n-strategy.js'
+import type { DictionaryHandle, DictionaryOptions, StaticDictDescriptor } from '../port/with/i18n-strategy.js'
 import { isDictCollectionName, isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
 // #650 Task 1 (via-lookup extraction) — the pure dict-registry helpers now live in
 // via/lookup/registry.ts, reached only through this port seam (never via/lookup/*
@@ -100,12 +97,11 @@ import {
 } from '../port/with/lookup-strategy.js'
 import { isLinkCollectionName, type LinkSpec, type LinkSetHandle } from '../with-shape/links/names.js'
 import { makeLazyLinkSetHandle, type LazyLinkSetHandle } from '../with-shape/links/lazy-handle.js'
-import type { EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
 import { getAtPath } from './paths.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import { type I18nTextDescriptor } from '../port/with/i18n-strategy.js'
 import { isViaInstalled } from './via/index.js'
-import { mergeViaFields, type ViaFieldSpec } from './via/compose.js'
+import { mergeViaFields } from './via/compose.js'
 import { exportRedact } from './via/pipeline.js'
 import { ViaGraph } from './via/graph.js'
 import { registerCollectionGraphSources, applyTaintOverlay, reapplyDependentOverlays } from './via/graph-wiring.js'
@@ -122,8 +118,6 @@ import type { GuardStrategyHandleAny } from '../with-audit/guards/types.js'
 import type { ReadOnlyVaultFacade } from '../with-audit/guards/read-only-facade.js'
 import type { DerivationRegistry } from '../with-formula/derivations/registry.js'
 import type { DerivationStrategyHandle } from '../with-formula/derivations/types.js'
-import type { ConflictPolicy } from './types.js'
-import type { CrdtMode } from '../with-commit/crdt/crdt.js'
 import { ReservedCollectionNameError, StaticDictReadonlyError, SatelliteConfigError } from './errors.js'
 import { declareSatellite } from '../with-shape/satellites/declare.js'
 import { makeSatelliteProxy, makeBaseProxy } from '../with-shape/satellites/proxy.js'
@@ -158,17 +152,42 @@ import type { FenceWatcher } from '../with-shape/schema-update/fence-watcher.js'
 import { SchemaUpdateGate } from '../with-shape/schema-update/gate.js'
 import { SchemaFenceController } from '../with-shape/schema-update/fence-controller.js'
 import { loadFence, type FenceDoc } from '../with-shape/schema-update/fence.js'
-import type { SchemaUpdateStrategy, UpdateDecision, TransformFn } from '../with-shape/schema-update/types.js'
-import type { AttestationFieldSchema, RevocationList } from '@noy-db/attestation'
+import type { UpdateDecision, TransformFn } from '../with-shape/schema-update/types.js'
+import type { RevocationList } from '@noy-db/attestation'
 import { VaultAttestation } from '../with-audit/attestation/vault-facade.js'
 import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from '../with-shape/introspection/types.js'
 import type { VaultIntrospectState } from '../with-shape/introspection/walk.js'
-import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
-import type { CollectionMeta, VaultMeta } from '../with-shape/introspection/meta.js'
-import { type ClassifiedEntry } from '../port/with/classified-strategy.js'
+import type { VaultMeta } from '../with-shape/introspection/meta.js'
 import { USER_ENVELOPE_COLLECTION } from './constants.js'
 
 /** A vault (tenant namespace) containing collections. */
+/**
+ * Collection options that `vault.collection()` threads straight through to
+ * `CollectionOpts` under the same name, with no transformation (#841).
+ *
+ * These were 28 hand-written `if (options?.X !== undefined) collOpts.X =
+ * options.X` lines. Adding a pass-through option is now one entry here.
+ * Options needing any logic — `refs`, `attestation`, `satelliteOf`, the
+ * forget-subject `perRecordKeys` override — deliberately stay explicit below.
+ */
+const COLLECTION_PASSTHROUGH_KEYS = [
+  'indexes', 'reconcileOnOpen', 'prefetch', 'cache', 'schema', 'conflictPolicy', 'crdt',
+  'deterministicFields', 'acknowledgeDeterministicRisk', 'acknowledgeEquatableRisk',
+  'sensitive', 'perRecordKeys', 'provenance', 'ramCiphertext', 'tiers', 'tierMode',
+  'blobTierPolicy', 'i18nFields', 'embeddings', 'textIndexes', 'warmIndexOnOpen',
+  'textIndexPersist', 'moneyFields', 'viaFields', 'computed', 'classifiedFields',
+  'fieldMeta', 'meta',
+] as const
+
+/** Copy `keys` from `src` onto `dst`, skipping any that are `undefined`. */
+function copyDefined(dst: Record<string, unknown>, src: Record<string, unknown> | undefined, keys: readonly string[]): void {
+  if (src === undefined) return
+  for (const key of keys) {
+    const value = src[key]
+    if (value !== undefined) dst[key] = value
+  }
+}
+
 export class Vault {
   private readonly adapter: NoydbStore
   /** The vault's name as passed to `openVault()`. Stable for the instance lifetime. */
@@ -616,130 +635,10 @@ export class Vault {
     }
   }
 
-  collection<T, S extends keyof T & string = never, Q extends keyof T & string = never, M extends keyof T & string = never>(collectionName: string, options?: {
-    indexes?: readonly IndexDefFor<IndexFieldName<T, S, Q>>[]
-    /** — auto-reconcile policy for persisted-index drift. */
-    reconcileOnOpen?: 'off' | 'dry-run' | 'auto'
-    prefetch?: boolean
-    cache?: CacheOptions
-    schema?: StandardSchemaV1<unknown, T>
-    refs?: Record<string, RefDescriptor>
-    /** — declare i18nText fields for locale-aware reads. */
-    i18nFields?: Record<string, I18nTextDescriptor>
-    /** — embedding config for write-time vector derivation + semantic retrieval. */
-    embeddings?: EmbeddingDescriptor
-    /** — string fields exposed to client-side `retrieve()`. */
-    textIndexes?: readonly IndexFieldName<T, S>[]
-    /** — pre-build the lexical index on open (eager-only). */
-    warmIndexOnOpen?: boolean
-    /** — persist the lexical index as an opaque encrypted blob at `_ftindex/<name>`. */
-    textIndexPersist?: boolean
-    /** — declare dictKey / staticDict fields for label resolution on reads. */
-    dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor>
-    /** — declare lookup() / enumOf() / dict() fields (#650 Task 2 — the 'lookup' via binding's three tiers). */
-    lookupFields?: Record<string, LookupDescriptor>
-    /** Consumer-neutral per-field descriptors (label/unit/semanticType/sensitivity…). See collection.describe(). */
-    fieldMeta?: Record<string, FieldMeta>
-    /** The collection's own descriptive metadata (label/description/icon). See collection.describe(). */
-    meta?: CollectionMeta
-    /** — declare money() fields for currency-safe decimal storage/formatting. */
-    moneyFields?: MoneyFieldsOpt<T, M>
-    viaFields?: Record<string, ViaFieldSpec> // via() composed fields; merged with the money/i18n sugar keys (field in both throws)
-    /** — declare computed scalar fields, evaluated on write (schema-owned). Each entry may be
-     *  a plain `(record) => value` function, OR `{ fn, deps }` to declare source fields for
-     *  taint propagation (#638 Task 7 — supersedes the retired `computedDeps` option). */
-    computed?: ComputedFields<T>
-    /** — declare classified() sensitive-field descriptors. See the classified-fields spec. */
-    classifiedFields?: Record<string, ClassifiedEntry>
-    /** — per-collection conflict resolution policy. */
-    conflictPolicy?: ConflictPolicy<T>
-    /** — CRDT mode for collaborative editing without conflicts. */
-    crdt?: CrdtMode
-    /**
-     * declare deterministic-encryption fields for blind
-     * equality search. See `Collection` constructor docs for the full
-     * trade-off. Requires `acknowledgeDeterministicRisk: true`.
-     */
-    deterministicFields?: readonly IndexFieldName<T, S>[]
-    /** — explicit ack that deterministic encryption leaks equality. */
-    acknowledgeDeterministicRisk?: boolean
-    /** — explicit ack for the classified `equatable` knob (R8 door). Required
-     *  when any classified field declares `equatable: true`. */
-    acknowledgeEquatableRisk?: boolean
-    /**
-     * — structural group-encryption. Fields sealed into their own
-     * `_sealed[field]` envelope slot (per-field key), kept out of the open
-     * `_data` blob. Default-off; byte-identical output when absent.
-     */
-    sensitive?: SensitiveOpt<T, S>
-    /**
-     * — per-record content-encryption keys. When `true`, every record
-     * body is encrypted under a fresh per-record CEK wrapped under the
-     * collection DEK (`_cek`), stable across versions. Foundation for
-     * per-record erasure / record-scoped sealing. Off by
-     * default; non-adopting collections take the legacy path unchanged.
-     */
-    perRecordKeys?: boolean
-    satelliteOf?: string // satellite pairing (spec #591)
-    fields?: readonly string[] // satellite routing table (required with satelliteOf)
-    joined?: string // registers the joined handle (see vault.joined())
-    /**
-     * Per-record provenance tracking. When `true`, `put()` calls that
-     * supply a `source` option stamp `_source` / `_sourceTs` onto the
-     * unencrypted envelope metadata. Off by default.
-     */
-    provenance?: boolean
-    /**
-     * declarative blob retention / TTL policy per slot
-     * name. Values are `{ retainDays?, evictWhen? }`. Evaluated only
-     * when `vault.compact()` runs.
-     */
-    blobFields?: BlobFieldsConfig<T>; blobTierPolicy?: 'isolate' | 'dedup' // — shared-blob rehome policy on tier move (#724/#741); default 'isolate'
-    /** — declarative record archival policy: `{ archiveWhen, legalHold? }`. Evaluated when `vault.archive()` runs. */
-    archive?: ArchivePolicy<T>
-    /** — declared tiers for this collection. */
-    tiers?: readonly number[]
-    /**  — how lower-tier reads see above-tier records. */
-    tierMode?: TierMode
-    /**
-     * Opt-in persisted JSON Schema. When `true` AND a Zod `schema` is
-     * provided, hub derives a JSON Schema via `zod-to-json-schema`
-     * (optional peer-dep) and writes an encrypted snapshot to
-     * `_schemas/<collectionName>`. Re-runs on every open; hash-skip
-     * avoids write churn when the schema is unchanged.
-     *
-     * Default: `false`. Non-Zod Standard Schema validators receive a
-     * stub envelope flagging the kind without a JSON Schema body.
-     *
-     * @see docs/superpowers/specs/2026-05-22-schema-dump-design.md
-     */
-    persistJsonSchema?: boolean
-    /**
-     * Ordered schema-update strategies. On a detected schema
-     * change, evaluated in order; the first non-`allow` decision wins.
-     * A `reject` is enforced at the write path (`put`/`delete` throw).
-     * Requires `persistJsonSchema: true` (detection needs the baseline).
-     */
-    schemaUpdate?: readonly SchemaUpdateStrategy[]
-    /** — declare the per-field schema for document attestation (issue side). */
-    attestation?: AttestationFieldSchema
-    /**
-     * Per-collection history & tamper-ledger scoping. Overrides the
-     * vault-wide `history` config for THIS collection only (wholesale, not
-     * merged). `enabled: false` suppresses per-record snapshots for this
-     * collection; `ledger: false` excludes its writes from the vault-wide
-     * hash-chained tamper ledger. Lets you confine version snapshots +
-     * tamper-evidence to the few collections where they carry legal weight,
-     * without paying snapshot + ledger-entry-per-write across operational /
-     * derived collections. Defaults to the vault-wide `history` config.
-     */
-    historyConfig?: HistoryConfig
-    /**
-     * Opt-in: keep the working set encrypted in RAM, decrypting on read (future phase).
-     * Default false — the working set is plaintext.
-     */
-    ramCiphertext?: boolean
-  }): Collection<T, S, Q, M> {
+  collection<T, S extends keyof T & string = never, Q extends keyof T & string = never, M extends keyof T & string = never>(
+    collectionName: string,
+    options?: OpenCollectionOptions<T, S, Q, M>,
+  ): Collection<T, S, Q, M> {
     // Overlay intercept. When the requested collection name
     // matches a registered `withOverlayedView`, return the virtual
     // proxy that merges base + overlay on read and routes writes to
@@ -980,26 +879,10 @@ export class Vault {
             }
           : {}),
       }
-      if (options?.indexes !== undefined) collOpts.indexes = options.indexes as unknown as IndexDef[]
-      if (options?.reconcileOnOpen !== undefined) collOpts.reconcileOnOpen = options.reconcileOnOpen
-      if (options?.prefetch !== undefined) collOpts.prefetch = options.prefetch
-      if (options?.cache !== undefined) collOpts.cache = options.cache
-      if (options?.schema !== undefined) collOpts.schema = options.schema
-      if (options?.conflictPolicy !== undefined) collOpts.conflictPolicy = options.conflictPolicy
-      if (options?.crdt !== undefined) collOpts.crdt = options.crdt
-      if (options?.deterministicFields !== undefined) {
-        collOpts.deterministicFields = options.deterministicFields
-      }
-      if (options?.acknowledgeDeterministicRisk !== undefined) {
-        collOpts.acknowledgeDeterministicRisk = options.acknowledgeDeterministicRisk
-      }
-      if (options?.acknowledgeEquatableRisk !== undefined) {
-        collOpts.acknowledgeEquatableRisk = options.acknowledgeEquatableRisk
-      }
-      if (options?.sensitive !== undefined) {
-        collOpts.sensitive = options.sensitive
-      }
-      if (options?.perRecordKeys !== undefined) collOpts.perRecordKeys = options.perRecordKeys
+      // #841 — 28 pass-through options in one call. Anything needing logic
+      // stays explicit; the forget-subject rule below still overrides
+      // `perRecordKeys` because it runs after this.
+      copyDefined(collOpts as unknown as Record<string, unknown>, options as unknown as Record<string, unknown> | undefined, COLLECTION_PASSTHROUGH_KEYS)
       // A collection declared in `withForgetCascade({ subjects })` MUST
       // use per-record CEKs: crypto-shred can only guarantee erasure of a body
       // keyed off a per-record CEK. Force it on (and warn if the caller
@@ -1019,21 +902,8 @@ export class Vault {
         collOpts.subjectKeyField = subjectKey
         collOpts.addSubjectRef = async (id, record) => { const value = readDottedPath(record as Record<string, unknown>, subjectKey); if (value !== undefined && value !== null) await this._addSubjectRef(coerceSubjectId(value), { collection: collectionName, id }) } // #766: putAtTier's raw write bypasses onAfterWrite — register the first-write subject ref directly
       }
-      if (options?.provenance !== undefined) collOpts.provenance = options.provenance
-      if (options?.ramCiphertext !== undefined) collOpts.ramCiphertext = options.ramCiphertext
-      if (options?.tiers !== undefined) collOpts.tiers = options.tiers
-      if (options?.tierMode !== undefined) collOpts.tierMode = options.tierMode; if (options?.blobTierPolicy !== undefined) collOpts.blobTierPolicy = options.blobTierPolicy
       collOpts.onCrossTierAccess = (event) => this.emitCrossTier(event)
       if (this.syncAdapter !== undefined) collOpts.syncAdapter = this.syncAdapter
-      if (options?.i18nFields !== undefined) collOpts.i18nFields = options.i18nFields
-      if (options?.embeddings !== undefined) collOpts.embeddings = options.embeddings
-      if (options?.textIndexes !== undefined) collOpts.textIndexes = options.textIndexes
-      if (options?.warmIndexOnOpen !== undefined) collOpts.warmIndexOnOpen = options.warmIndexOnOpen
-      if (options?.textIndexPersist !== undefined) collOpts.textIndexPersist = options.textIndexPersist
-      if (options?.moneyFields !== undefined) collOpts.moneyFields = options.moneyFields
-      if (options?.viaFields !== undefined) collOpts.viaFields = options.viaFields
-      if (options?.computed !== undefined) collOpts.computed = options.computed as ComputedFields
-      if (options?.classifiedFields !== undefined) collOpts.classifiedFields = options.classifiedFields
       if (effectiveViaFields.dictKeyFields !== undefined || effectiveViaFields.lookupFields !== undefined) {
         // Build the label resolver callback for this collection. A static dict resolves from
         // its in-memory table — no dictionary() lookup, no _dict_* read — while a plain dictKey
@@ -1084,11 +954,7 @@ export class Vault {
       // schema-derived fields) happens in the async describe() path where the full
       // known-field set is available. The sync path at vault-construction time cannot
       // validate schema fields, so no validate call here.
-      if (options?.fieldMeta !== undefined) {
-        collOpts.fieldMeta = options.fieldMeta
-      }
       // meta: thread through to the collection; surfaced via getMeta() / describe().
-      if (options?.meta !== undefined) collOpts.meta = options.meta
       // Pass a snapshot of the outbound refs for describe() (sync, config-only).
       if (options?.refs !== undefined) {
         collOpts.declaredRefs = this.refRegistry.getOutbound(collectionName)
