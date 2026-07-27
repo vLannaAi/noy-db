@@ -95,8 +95,6 @@ import type {
 import { markStale, resolveStaleOnRead } from '../with-formula/derivations/stale.js'
 import type { MaterializedViewRegistry } from '../with-formula/materialized-views/registry.js'
 import type { MVQueryContext } from '../with-formula/materialized-views/types.js'
-import type { MaterializedViewExecutor as MVExecutorType } from '../with-formula/materialized-views/executor.js'
-import type * as MVStaleModule from '../with-formula/materialized-views/stale.js'
 import { resolveCollectionConfig, resolveVirtualMoneyFields, type CollectionOpts } from './collection-config.js'
 import { loadEvalComputedFields } from '../with-formula/computed/lazy.js'
 
@@ -2088,41 +2086,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   async dispatchMaterializedViews(id: string, record: T, wave?: WaveContext): Promise<void> {
     if (this.materializedViewSource === undefined) return
-    const incoming = record as unknown as Record<string, unknown>
-    if (incoming && typeof incoming === 'object' && '_materializedFrom' in incoming) return
-    const registry = this.materializedViewSource.registry()
-    const mvs = registry.mvsForSource(this.name)
-    if (mvs.length === 0) return
-    // Dynamic-import the executor only on first eager-MV dispatch —
-    // keeps the MV executor chunk out of the floor bundle (mirrors the
-    // dynamic-import pattern used for derivations). Lazy mode
-    // uses the pure-helper `markMVStale` which lives in `stale.js` and
-    // is also dynamic-imported (only when at least one lazy MV depends
-    // on this source).
-    let executor: typeof MVExecutorType | null = null
-    let staleHelpers: typeof MVStaleModule | null = null
-    for (const reg of mvs) {
-      const mode = reg.spec.refresh
-      if (mode === 'eager') {
-        if (wave?.seen(`mv\0${reg.spec.name}`)) continue
-        if (executor === null) {
-          ;({ MaterializedViewExecutor: executor } = await import('../with-formula/materialized-views/executor.js'))
-        }
-        await executor.refresh(reg, {
-          getCollection: (name) => this.materializedViewSource!.getCollection(name),
-          getActiveTxContext: () => this.materializedViewSource!.getActiveTxContext(),
-          getQueryContext: () => this.materializedViewSource!.getQueryContext(),
-          dispatchCtx: this.#dispatchCtx({ collection: this.name, id }),
-        })
-      } else if (mode === 'lazy') {
-        if (staleHelpers === null) {
-          staleHelpers = await import('../with-formula/materialized-views/stale.js')
-        }
-        staleHelpers.markMVStale(registry, reg.spec.name)
-      }
-      // manual: no-op on source-write. `vault.refreshView(name)` is
-      // the only path that materializes a manual MV.
-    }
+    // S4 gate: dynamic import only — see #derivationDeleteCtx (#842).
+    const { dispatchMaterializedViews } = await import('../with-formula/materialized-views/dispatch.js')
+    return dispatchMaterializedViews(this.#mvDispatchCtx(this.materializedViewSource), id, record as unknown as Record<string, unknown>, wave)
   }
 
   /**
@@ -2226,6 +2192,15 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /** @internal — ctx for `putDerivedOutput`'s frozen-period skip+audit (#638 Task 5). */
+  /** What `with-formula/materialized-views/dispatch.ts` needs from this collection (#842). */
+  #mvDispatchCtx(materializedViewSource: NonNullable<Collection<T, S, Q, M>['materializedViewSource']>) {
+    return {
+      materializedViewSource,
+      collectionName: this.name,
+      dispatchCtx: (source: { readonly collection: string; readonly id: string }) => this.#dispatchCtx(source),
+    }
+  }
+
   /**
    * What `with-formula/derivations/dispatch.ts` needs from this collection (#842).
    *
@@ -2892,11 +2867,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (this.materializedViewSource === undefined) return { deleted: 0, residueUndecodable: [], residueDeclined: [] }
     // S4 gate: dynamic import only — see #derivationDeleteCtx (#842).
     const { dispatchMaterializedViewsOnDelete } = await import('../with-formula/materialized-views/dispatch.js')
-    return dispatchMaterializedViewsOnDelete({
-      materializedViewSource: this.materializedViewSource,
-      collectionName: this.name,
-      dispatchCtx: (source) => this.#dispatchCtx(source),
-    }, id)
+    return dispatchMaterializedViewsOnDelete(this.#mvDispatchCtx(this.materializedViewSource), id)
   }
 
   /**

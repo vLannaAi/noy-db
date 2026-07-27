@@ -14,7 +14,7 @@
 
 import type { TxContext } from '../../with-commit/tx/transaction.js'
 import type { Collection } from '../../kernel/collection.js'
-import type { ledgerAuditHook } from '../../kernel/via/dispatch.js'
+import type { ledgerAuditHook, WaveContext } from '../../kernel/via/dispatch.js'
 import type { MaterializedViewExecutor } from './executor.js'
 import type * as MVStale from './stale.js'
 import type { MaterializedViewRegistry } from './registry.js'
@@ -43,7 +43,58 @@ export interface MvDispatchCtx {
 }
 
 /**
- * Mirror of `dispatchMaterializedViews` for the delete/forget path. There is
+ * Fire every MV whose dependency set includes this collection, on write.
+ *
+ * Skips entirely when the record being written is itself an MV-emitted row
+ * (it carries `_materializedFrom`) — a defensive guard against missed cycle
+ * detection.
+ *
+ * @param wave #638 Task 4 — the sync/cutover/restore dispatch wave. An eager
+ *   MV already refreshed in this wave is skipped, deduped per target on the
+ *   spec name.
+ */
+export async function dispatchMaterializedViews(
+  ctx: MvDispatchCtx,
+  id: string,
+  record: Record<string, unknown>,
+  wave?: WaveContext,
+): Promise<void> {
+  const { materializedViewSource: source, collectionName, dispatchCtx } = ctx
+
+  if (record && typeof record === 'object' && '_materializedFrom' in record) return
+
+  const registry = source.registry()
+  const mvs = registry.mvsForSource(collectionName)
+  if (mvs.length === 0) return
+
+  let executor: typeof MaterializedViewExecutor | null = null
+  let staleHelpers: typeof MVStale | null = null
+
+  for (const reg of mvs) {
+    const mode = reg.spec.refresh
+
+    if (mode === 'eager') {
+      if (wave?.seen(`mv\0${reg.spec.name}`)) continue
+      if (executor === null) {
+        ;({ MaterializedViewExecutor: executor } = await import('./executor.js'))
+      }
+      await executor.refresh(reg, {
+        getCollection: (name) => source.getCollection(name),
+        getActiveTxContext: () => source.getActiveTxContext(),
+        getQueryContext: () => source.getQueryContext(),
+        dispatchCtx: dispatchCtx({ collection: collectionName, id }),
+      })
+    } else if (mode === 'lazy') {
+      if (staleHelpers === null) staleHelpers = await import('./stale.js')
+      staleHelpers.markMVStale(registry, reg.spec.name)
+    }
+    // manual: no-op on source-write. `vault.refreshView(name)` is the only
+    // path that materializes a manual MV.
+  }
+}
+
+/**
+ * Mirror of {@link dispatchMaterializedViews} for the delete/forget path. There is
  * no `_materializedFrom` skip — the record is gone — and the `internal` gate
  * at `_doDelete` is the recursion guard.
  *
