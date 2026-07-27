@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
 import { ConflictError, createNoydb } from '@noy-db/hub'
-import { withTransactions } from '@noy-db/hub/tx'
+import { withTransactions } from '@noy-db/hub/transactions'
 import { withHistory } from '@noy-db/hub/history'
 import { fromString, fromObject } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'

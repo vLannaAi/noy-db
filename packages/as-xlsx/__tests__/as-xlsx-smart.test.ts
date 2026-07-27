@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { createNoydb, ref } from '@noy-db/hub'
 import { withI18n, i18nText, dictKey } from '@noy-db/hub/i18n'
-import { withTransactions } from '@noy-db/hub/tx'
+import { withTransactions } from '@noy-db/hub/transactions'
 import { memory } from '@noy-db/to-memory'
 import { readZip } from '@noy-db/as-zip'
 import { toBytes, readXlsx, formula, fromBytes, writeXlsx, inferSchema, zodSourceFor } from '../src/index.js'

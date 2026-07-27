@@ -518,6 +518,107 @@ function checkEveryServiceGated() {
   }
 }
 
+// ─── Check 5b: service-subpath naming contract (#844 / #843) ───────────
+
+// SERVICES.md § "The naming contract": the subpath is canonical, so a service
+// published as `@noy-db/hub/<name>` must be produced by `with<Name>()`. Before
+// #874 the doc and package.json disagreed on nine entries and nothing caught
+// it; this makes the rule executable.
+//
+// Two allowlists, both requiring a written reason in SERVICES.md:
+//
+//   NOT_SERVICE_SUBPATHS — entries that are contract seams or plain modules,
+//   not opt-in capabilities, so they have no with*() factory by design.
+//
+//   NO_SUBPATH_FACTORIES — capabilities that ship reachable only from the root
+//   barrel. Each is recorded in SERVICES.md § "Shipped capabilities with no
+//   subpath". Removing a name from here means giving it a subpath.
+const NOT_SERVICE_SUBPATHS = new Set([
+  'cargo', 'to', 'pod', 'satellites', 'util', 'share-link', 'query',
+])
+const NO_SUBPATH_FACTORIES = new Set([
+  // Complete seams that qualify for a subpath — no reason on record yet.
+  'withArchive',   // held as `ArchiveStrategy | null`, no NO_* stub — decide the stub first
+  'withLookup',    // deliberate: via/lookup/index.ts records root-barrel re-export instead
+  // Store middleware: returns StoreMiddleware, not a strategy. Not services.
+  'withRetry', 'withLogging', 'withMetrics', 'withCircuitBreaker', 'withCache', 'withHealthCheck',
+  // Declaration helpers consumed via createNoydb({ numbering }) / desugared onto another service.
+  'withDeferredNumbering', 'withRollup',
+])
+// Subpath spellings that legitimately differ from the factory stem.
+const SUBPATH_ALIASES = new Map([
+  ['withOverlayedView', 'overlay-views'],
+  ['withDerivation', 'derivations'],
+  ['withMaterializedView', 'materialized-views'],
+  ['withGuard', 'guards'],
+  ['withBlobs', 'blobs'],
+  ['withTransactions', 'transactions'],
+  ['withI18n', 'i18n'],
+  ['withCrdt', 'crdt'],
+  ['withSealedRecord', 'sealed-record'],
+])
+
+function checkServiceSubpathNaming() {
+  const CHECK = 'service-subpath-naming'
+  const hubDir = join(PACKAGES_DIR, 'hub')
+  const pkg = JSON.parse(readFileSync(join(hubDir, 'package.json'), 'utf8'))
+  const subpaths = new Set(
+    Object.keys(pkg.exports).filter(k => k !== '.').map(k => k.replace('./', '')),
+  )
+
+  // Collect every with*() factory declared in hub/src.
+  const factories = new Map() // name -> file
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name)
+      if (e.isDirectory()) { if (e.name !== 'node_modules' && e.name !== 'dist') walk(p); continue }
+      if (!e.name.endsWith('.ts') || e.name.endsWith('.test.ts')) continue
+      const src = readFileSync(p, 'utf8')
+      for (const m of src.matchAll(/^export function (with[A-Z][A-Za-z0-9]*)/gm)) {
+        if (!factories.has(m[1])) factories.set(m[1], p)
+      }
+    }
+  }
+  walk(join(hubDir, 'src'))
+
+  const kebab = (f) =>
+    f.replace(/^with/, '').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
+
+  // 1. Every factory either owns a subpath named for it, or is allowlisted.
+  for (const [factory, file] of factories) {
+    if (NO_SUBPATH_FACTORIES.has(factory)) continue
+    const expected = SUBPATH_ALIASES.get(factory) ?? kebab(factory)
+    if (!subpaths.has(expected)) {
+      fail(
+        CHECK,
+        `\`${factory}()\` has no subpath \`@noy-db/hub/${expected}\`. The subpath is canonical ` +
+        `(SERVICES.md § The naming contract) — add the export, or add the factory to ` +
+        `NO_SUBPATH_FACTORIES here WITH a reason recorded in SERVICES.md § "Shipped capabilities ` +
+        `with no subpath".`,
+        file,
+      )
+    }
+  }
+
+  // 2. Every service subpath is produced by a factory named for it — this is
+  //    the direction that would have caught /transactions, /joins and /live.
+  const produced = new Set(
+    [...factories.keys()].map(f => SUBPATH_ALIASES.get(f) ?? kebab(f)),
+  )
+  for (const sub of subpaths) {
+    if (NOT_SERVICE_SUBPATHS.has(sub)) continue
+    if (!produced.has(sub)) {
+      fail(
+        CHECK,
+        `Subpath \`@noy-db/hub/${sub}\` has no \`with${sub.replace(/(^|-)([a-z])/g, (_, __, c) => c.toUpperCase())}()\` ` +
+        `factory producing it. Either it is not a service — add it to NOT_SERVICE_SUBPATHS with a ` +
+        `reason — or the export is stale.`,
+        join(hubDir, 'package.json'),
+      )
+    }
+  }
+}
+
 // ─── Check 6: kernel-surface ceiling ───────────────────────────────────
 
 // The always-on orchestration files (loaded by every `createNoydb`) must not
@@ -2152,6 +2253,7 @@ checkNoCryptoDeps()
 checkHubPortable()
 checkStoresCiphertextOnly()
 checkStrategyOptIns()
+checkServiceSubpathNaming()
 checkEveryServiceGated()
 checkKernelSurface()
 checkNoDebugPlaintextInSource()

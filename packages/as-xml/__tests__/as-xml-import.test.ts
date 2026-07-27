@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
 import { ConflictError, ImportCapabilityError, createNoydb } from '@noy-db/hub'
-import { withTransactions } from '@noy-db/hub/tx'
+import { withTransactions } from '@noy-db/hub/transactions'
 import { fromString, toString } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
 

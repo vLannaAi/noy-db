@@ -1,5 +1,5 @@
 /**
- * Active transactions strategy. Only reachable via `@noy-db/hub/tx`.
+ * Active transactions strategy. Only reachable via `@noy-db/hub/transactions`.
  */
 
 import { runTransaction } from './transaction.js'

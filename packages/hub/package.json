@@ -88,9 +88,21 @@
       "types": "./dist/with-fork/snapshots/index.d.ts",
       "default": "./dist/snapshots/index.js"
     },
-    "./tx": {
+    "./transactions": {
       "types": "./dist/with-commit/tx/index.d.ts",
-      "default": "./dist/tx/index.js"
+      "default": "./dist/transactions/index.js"
+    },
+    "./search": {
+      "types": "./dist/with-lookup/search/index.d.ts",
+      "default": "./dist/search/index.js"
+    },
+    "./sequence": {
+      "types": "./dist/with-commit/sequence/index.d.ts",
+      "default": "./dist/sequence/index.js"
+    },
+    "./custody": {
+      "types": "./dist/with-party/custody/index.d.ts",
+      "default": "./dist/custody/index.js"
     },
     "./derivations": {
       "types": "./dist/with-formula/derivations/index.d.ts",
