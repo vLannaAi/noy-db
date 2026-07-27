@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   encodeBase32,
   decodeBase32,
-  generateSecret,
-  provisioningUri,
-  generateCode,
-  verify,
+  generateTotpSecret,
+  totpProvisioningUri,
+  generateTotpCode,
+  verifyTotp,
 } from '../src/index.js'
 
 describe('base32', () => {
@@ -28,22 +28,22 @@ describe('base32', () => {
   })
 })
 
-describe('generateSecret', () => {
+describe('generateTotpSecret', () => {
   it('produces a 32-character Base32 string (20 bytes)', () => {
-    const secret = generateSecret()
+    const secret = generateTotpSecret()
     expect(secret).toHaveLength(32)
     expect(secret).toMatch(/^[A-Z2-7]{32}$/)
   })
 
   it('produces unique secrets', () => {
-    const set = new Set(Array.from({ length: 20 }, () => generateSecret()))
+    const set = new Set(Array.from({ length: 20 }, () => generateTotpSecret()))
     expect(set.size).toBe(20)
   })
 })
 
-describe('provisioningUri', () => {
+describe('totpProvisioningUri', () => {
   it('builds a standard otpauth:// URI', () => {
-    const uri = provisioningUri('JBSWY3DPEHPK3PXP', {
+    const uri = totpProvisioningUri('JBSWY3DPEHPK3PXP', {
       account: 'alice@example.com',
       issuer: 'Acme',
     })
@@ -56,7 +56,7 @@ describe('provisioningUri', () => {
   })
 
   it('omits issuer when absent', () => {
-    const uri = provisioningUri('JBSWY3DPEHPK3PXP', { account: 'alice' })
+    const uri = totpProvisioningUri('JBSWY3DPEHPK3PXP', { account: 'alice' })
     expect(uri).not.toContain('issuer=')
     expect(uri).toMatch(/^otpauth:\/\/totp\/alice\?/)
   })
@@ -67,7 +67,7 @@ describe('RFC 6238 test vectors', () => {
   const SECRET_SHA1 = encodeBase32(new TextEncoder().encode('12345678901234567890'))
 
   it('vector @ T=59s matches 94287082 (SHA1, 8 digits)', async () => {
-    const ok = await verify(SECRET_SHA1, '94287082', {
+    const ok = await verifyTotp(SECRET_SHA1, '94287082', {
       digits: 8,
       timestamp: 59,
       window: 0,
@@ -76,7 +76,7 @@ describe('RFC 6238 test vectors', () => {
   })
 
   it('vector @ T=1111111109s matches 07081804 (SHA1, 8 digits)', async () => {
-    const ok = await verify(SECRET_SHA1, '07081804', {
+    const ok = await verifyTotp(SECRET_SHA1, '07081804', {
       digits: 8,
       timestamp: 1111111109,
       window: 0,
@@ -85,45 +85,45 @@ describe('RFC 6238 test vectors', () => {
   })
 })
 
-describe('verify', () => {
+describe('verifyTotp', () => {
   it('accepts the current window code', async () => {
-    const secret = generateSecret()
-    const code = await generateCode(secret)
-    expect(await verify(secret, code)).toBe(true)
+    const secret = generateTotpSecret()
+    const code = await generateTotpCode(secret)
+    expect(await verifyTotp(secret, code)).toBe(true)
   })
 
   it('rejects malformed codes of wrong length', async () => {
-    const secret = generateSecret()
-    expect(await verify(secret, '12345')).toBe(false)
-    expect(await verify(secret, '1234567')).toBe(false)
+    const secret = generateTotpSecret()
+    expect(await verifyTotp(secret, '12345')).toBe(false)
+    expect(await verifyTotp(secret, '1234567')).toBe(false)
   })
 
   it('rejects wrong codes', async () => {
-    const secret = generateSecret()
-    expect(await verify(secret, '000000')).toBe(false)
-    expect(await verify(secret, '999999')).toBe(false)
+    const secret = generateTotpSecret()
+    expect(await verifyTotp(secret, '000000')).toBe(false)
+    expect(await verifyTotp(secret, '999999')).toBe(false)
   })
 
   it('accepts ±1 window by default', async () => {
-    const secret = generateSecret()
-    // Pick a timestamp, compute the code at the neighbouring step, verify now.
+    const secret = generateTotpSecret()
+    // Pick a timestamp, compute the code at the neighbouring step, verifyTotp now.
     const now = 1_700_000_000
-    const { generateCode: gen } = await import('../src/index.js')
+    const { generateTotpCode: gen } = await import('../src/index.js')
     const neighborCode = await gen(secret, {}).catch(() => null) // rough usage
     void neighborCode
-    // Simplest: verify(sameStep) should always work.
-    const code = await verify(secret, await (await import('../src/index.js')).generateCode(secret), {
+    // Simplest: verifyTotp(sameStep) should always work.
+    const code = await verifyTotp(secret, await (await import('../src/index.js')).generateTotpCode(secret), {
       timestamp: now,
       window: 1,
     })
     void code
-    // Directly exercise the window — compute code at step N-1, verify now expecting window=1.
+    // Directly exercise the window — compute code at step N-1, verifyTotp now expecting window=1.
     const period = 30
     const stepAgoTs = now - period
     const stepAgoSec = Math.floor(stepAgoTs / period) * period
     // Regenerate by passing timestamp:
     const oldCode = await ((): Promise<string> => {
-      // Re-use verify with timestamp override to indirectly assert window=1 accepts stepAgo.
+      // Re-use verifyTotp with timestamp override to indirectly assert window=1 accepts stepAgo.
       return Promise.resolve('dummy')
     })()
     void oldCode
@@ -134,7 +134,7 @@ describe('verify', () => {
   it('rejects codes outside window=0', async () => {
     const secret = encodeBase32(new TextEncoder().encode('12345678901234567890'))
     // RFC vector at T=59 is 287082. Verify at T=91 (different step) with window=0.
-    const ok = await verify(secret, '287082', { digits: 8, timestamp: 91, window: 0 })
+    const ok = await verifyTotp(secret, '287082', { digits: 8, timestamp: 91, window: 0 })
     expect(ok).toBe(false)
   })
 })

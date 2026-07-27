@@ -28,15 +28,15 @@
  * ## API
  *
  * ```ts
- * import { generateSecret, provisioningUri, verify, generateCode } from '@noy-db/on-totp'
+ * import { generateTotpSecret, totpProvisioningUri, verifyTotp, generateTotpCode } from '@noy-db/on-totp'
  *
  * // Enroll
- * const secret = generateSecret()
- * const uri = provisioningUri(secret, { account: 'alice@acme.com', issuer: 'Acme' })
+ * const secret = generateTotpSecret()
+ * const uri = totpProvisioningUri(secret, { account: 'alice@acme.com', issuer: 'Acme' })
  * // Show QR code of `uri`.
  *
  * // Unlock
- * const ok = await verify(secret, userEnteredCode)
+ * const ok = await verifyTotp(secret, userEnteredCode)
  * ```
  *
  * @packageDocumentation
@@ -87,14 +87,14 @@ export function decodeBase32(input: string): Uint8Array {
 // ─── Secret generation ──────────────────────────────────────────────────
 
 /** Random 20-byte (160-bit) TOTP secret — RFC 4226 recommended minimum. */
-export function generateSecret(): string {
+export function generateTotpSecret(): string {
   const bytes = globalThis.crypto.getRandomValues(new Uint8Array(20))
   return encodeBase32(bytes)
 }
 
 // ─── Provisioning URI ───────────────────────────────────────────────────
 
-export interface ProvisioningUriOptions {
+export interface TotpProvisioningUriOptions {
   /** Account label shown in the authenticator — typically the user's email. */
   readonly account: string
   /** Issuer name shown in the authenticator — your product name. */
@@ -108,7 +108,7 @@ export interface ProvisioningUriOptions {
 }
 
 /** Build a standard `otpauth://totp/` URI that authenticator apps parse from QR codes. */
-export function provisioningUri(secret: string, options: ProvisioningUriOptions): string {
+export function totpProvisioningUri(secret: string, options: TotpProvisioningUriOptions): string {
   const issuer = options.issuer
   const label = issuer
     ? `${encodeURIComponent(issuer)}:${encodeURIComponent(options.account)}`
@@ -133,7 +133,7 @@ export interface TotpOptions {
   readonly algorithm?: 'SHA1' | 'SHA256' | 'SHA512'
 }
 
-export interface VerifyOptions extends TotpOptions {
+export interface VerifyTotpOptions extends TotpOptions {
   /**
    * Clock-drift tolerance window, in steps before/after the current
    * interval. `1` (default) accepts the current step ± 1. `0` is
@@ -145,7 +145,7 @@ export interface VerifyOptions extends TotpOptions {
 }
 
 /** Compute the TOTP code for the given secret at the current time. */
-export async function generateCode(secret: string, options: TotpOptions = {}): Promise<string> {
+export async function generateTotpCode(secret: string, options: TotpOptions = {}): Promise<string> {
   const now = Math.floor(Date.now() / 1000)
   return codeAt(secret, now, options)
 }
@@ -154,7 +154,7 @@ export async function generateCode(secret: string, options: TotpOptions = {}): P
  * Verify a user-entered code against the secret. Constant-time comparison;
  * accepts drift within `window` steps.
  */
-export async function verify(secret: string, code: string, options: VerifyOptions = {}): Promise<boolean> {
+export async function verifyTotp(secret: string, code: string, options: VerifyTotpOptions = {}): Promise<boolean> {
   const digits = options.digits ?? 6
   if (code.length !== digits) return false
   const window = options.window ?? 1

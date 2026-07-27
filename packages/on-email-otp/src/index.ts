@@ -15,10 +15,10 @@
  * ## Usage
  *
  * ```ts
- * import { issue, verify } from '@noy-db/on-email-otp'
+ * import { issueEmailOtp, verifyEmailOtp } from '@noy-db/on-email-otp'
  *
  * // Challenge issue (server side, post-secret)
- * const challenge = await issue({
+ * const challenge = await issueEmailOtp({
  *   email: 'alice@example.com',
  *   ttlSeconds: 300,
  *   transport: async ({ to, code, expiresAt }) => {
@@ -28,7 +28,7 @@
  * // Store `challenge.record` somewhere the verifier can retrieve later.
  *
  * // Verify
- * const ok = await verify('123456', challenge.record)
+ * const ok = await verifyEmailOtp('123456', challenge.record)
  * ```
  *
  * ## Security model
@@ -39,7 +39,7 @@
  * - The record carries `sha256(code + salt)` — the plaintext code is
  *   never written to storage. Verification hashes the input with the
  *   stored salt and compares in constant time.
- * - `expiresAt` is enforced on every `verify()` — expired records are
+ * - `expiresAt` is enforced on every `verifyEmailOtp()` — expired records are
  *   rejected before the hash comparison.
  * - Burn-on-success is the caller's responsibility — delete the
  *   record after a successful verify returns.
@@ -56,7 +56,7 @@ export interface EmailOtpTransportArgs {
 
 export type EmailOtpTransport = (args: EmailOtpTransportArgs) => Promise<void> | void
 
-export interface IssueOptions {
+export interface EmailOtpIssueOptions {
   readonly email: string
   /** Seconds before the challenge expires. Default 300 (5 min). */
   readonly ttlSeconds?: number
@@ -78,11 +78,11 @@ export interface EmailOtpRecord {
   attempts: number
 }
 
-export interface IssueResult {
+export interface EmailOtpIssueResult {
   readonly record: EmailOtpRecord
 }
 
-export interface VerifyResult {
+export interface EmailOtpVerifyResult {
   readonly ok: boolean
   /**
    * When `ok === false`, `reason` is one of:
@@ -95,7 +95,7 @@ export interface VerifyResult {
 }
 
 /** Issue a new email OTP challenge. Calls the transport in the same tick. */
-export async function issue(options: IssueOptions): Promise<IssueResult> {
+export async function issueEmailOtp(options: EmailOtpIssueOptions): Promise<EmailOtpIssueResult> {
   const digits = options.digits ?? 6
   const ttl = options.ttlSeconds ?? 300
   const maxAttempts = options.maxAttempts ?? 5
@@ -132,7 +132,7 @@ export async function issue(options: IssueOptions): Promise<IssueResult> {
  * `attempts` on every call (pass or fail). Caller should delete the
  * record on success or when `remainingAttempts === 0`.
  */
-export async function verify(input: string, record: EmailOtpRecord): Promise<VerifyResult> {
+export async function verifyEmailOtp(input: string, record: EmailOtpRecord): Promise<EmailOtpVerifyResult> {
   if (record.attempts >= record.maxAttempts) {
     return { ok: false, reason: 'locked', remainingAttempts: 0 }
   }
