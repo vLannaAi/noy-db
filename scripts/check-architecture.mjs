@@ -1037,7 +1037,7 @@ const KERNEL_SURFACE_BUDGET = {
   // CompactionContext gains ONE thin `dropLocalCache` closure line so the
   // budget pass can drop device-local external cache copies; all the
   // pin/budget machinery itself lives in with-shape/blobs/ behind withBlobs().
-  'packages/hub/src/kernel/vault.ts': 3908,
+  'packages/hub/src/kernel/vault.ts': 3759,
   // Bumped 3960→3962 (#822 period-summary push symmetry, 2026-07-26): two lines wiring
   // the vault's existing `onDirty` into VaultPeriods so `closePeriod` marks the `_periods`
   // summary dirty and push carries it. The decision (which reserved collections push and

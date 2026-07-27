@@ -706,6 +706,7 @@
     "OnDelete",
     "OnMissing",
     "OnMissingPolicy",
+    "OpenCollectionOptions",
     "OpenPeriodOptions",
     "Operator",
     "OrderBy",
