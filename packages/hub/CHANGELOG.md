@@ -1,5 +1,80 @@
 # Changelog — hub
 
+## 0.4.0-pre.6
+
+### Minor Changes
+
+- **Every service's `NO_*` stub is now importable from that service's own subpath (#844).**
+
+  The stubs are how you ask whether a service is actually enabled — the check is an identity comparison, exactly as `vault.forget()` does internally with `strategies.blob !== NO_BLOBS`. Several subpath docblocks recommend precisely that, but twelve of the stubs were exported from no entry a consumer could import, so the advice could not be followed:
+
+  ```ts
+  import { NO_SYNC } from "@noy-db/hub/sync"; // ← previously unresolvable
+
+  if (db.strategies.sync !== NO_SYNC) {
+    /* sync is really on */
+  }
+  ```
+
+  Now exported from the subpath that owns each service: `NO_BLOBS` (`/blobs`), `NO_I18N` (`/i18n`), `NO_SESSION` (`/session`), `NO_HISTORY` (`/history`), `NO_CRDT` (`/crdt`), `NO_SHADOW` (`/shadow`), `NO_SNAPSHOTS` (`/snapshots`), `NO_SYNC` (`/sync`), `NO_INDEXING` (`/indexing`), `NO_AGGREGATE` (`/aggregate`), `NO_CONSENT` (`/consent`), `NO_PERIODS` (`/periods`).
+
+  Purely additive. A test now walks the built declarations to keep it that way.
+
+- **BREAKING: the `aggregate` service is now `reduce`, and its symbols have exactly one home (#843).**
+
+  ```ts
+  // before
+  import { withAggregate, count, sum } from "@noy-db/hub"; // …or /query, or /aggregate
+  createNoydb({ aggregateStrategy: withAggregate() });
+
+  // after
+  import { withReduce, count, sum } from "@noy-db/hub/reduce";
+  createNoydb({ reduceStrategy: withReduce() });
+  ```
+
+  `./aggregate` becomes `./reduce`. Renamed with it: `withAggregate` → `withReduce`, `AggregateStrategy` → `ReduceStrategy`, `NO_AGGREGATE` → `NO_REDUCE`, `aggregateStrategy` → `reduceStrategy`, `Aggregation` → `Reduction`, `GroupedAggregation` → `GroupedReduction`, `AggregateSpec` → `ReduceSpec`, `AggregateResult` → `ReduceResult`, `buildLiveAggregation` → `buildLiveReduction`.
+
+  "reduce" matches the vocabulary the service already used — `reduceRecords`, `reducerBuilder`, `groupAndReduce`.
+
+  **The root barrel and `/query` no longer re-export any of it.** `count`, `sum`, `avg`, `min`, `max`, `moneySum`, `groupAndReduce`, `GroupedQuery` and the rest were reachable from three entries at once; they now have exactly one. Those re-exports were a backward-compatibility window left open after an earlier relocation, which the service's own documentation already described as superseded.
+
+  `MinMaxState`, `MoneyString` and `MoneyDescriptor` are now exported from `/reduce` too — they appear in its signatures, so a caller needs them to annotate a result.
+
+  Unaffected: derivation **rollup** aggregates. `ForgetResult.derivedAggregatesRecomputed` and the rollup vocabulary in `withRollup` are a different concept and keep their names.
+
+- **Fixes a silent access-loss contract bug: `rotate()` now reports what it dropped (#854).**
+
+  `Noydb.rotate(vault, collections)` documented that fresh DEKs are "re-wrapped into every remaining user's keyring" and that "every current member keeps access, but with fresh keys". The engine does the opposite — it deletes the rotated collections' DEK entries and permissions from every other member's keyring. An admin running the "just rotate, nobody is removed" path after a suspected leak locked their entire team out of those collections, with nothing in the API to indicate it.
+
+  The engine is right and the documentation was wrong. A member's DEKs are wrapped under that member's KEK, and a KEK derives only from that member's own secret, so the caller cannot re-wrap a fresh DEK for anyone else. That is the zero-knowledge property working as intended; honouring the old wording would require a re-grant handshake against member public keys, which do not exist.
+
+  **`rotate()` now returns `RotateResult`** instead of `void`:
+
+  ```ts
+  const { needsRegrant } = await db.rotate("acme", ["invoices"]);
+  // needsRegrant → [{ userId: 'bob', collection: 'invoices' }]
+
+  for (const { userId, collection } of needsRegrant) {
+    // re-grant, or that member stays locked out
+  }
+  ```
+
+  Members who never held a rotated collection are not reported. The caller is never reported — their own keyring is re-wrapped in place. `rotate()` still does not remove anyone from the vault; that remains `revoke()`.
+
+  This is breaking only for callers who assigned the `void` return; ignoring it continues to work.
+
+- **BREAKING: seven unused subpath entries removed, and six internals taken off the root barrel (#843).**
+
+  The `./on`, `./at`, `./as`, `./by`, `./in`, `./with` and `./ui` subpaths were published as "port contracts" for satellite authors and had **zero importers**. Across the monorepo, satellites import `@noy-db/hub` (252×), `@noy-db/hub/team` (29×) and `@noy-db/hub/to` (9×) — and these seven not once. `/to` stays, because stores genuinely bind a narrow ciphertext contract that `check-architecture` enforces; the other six families never needed an equivalent.
+
+  The exports map goes from 41 entries to 34. Anything that was reachable through one of the seven is still reachable from the root barrel.
+
+  Also removed from the root barrel, as internal machinery that was never meant to be public API: `InternalCollectionStats`, `resetJoinWarnings`, `resetBrotliSupportCache`, `DebugPlaintextError`, `DebugReservedFieldError`, `readPlaintextRecord`. Each is still exported from its own module for internal use; none had a single import through the barrel.
+
+  A side effect worth noting: the removed entries were exporting types that no entry made reachable, so this closes **13 type-reachability gaps** — the guard's baseline ratchets from 137 to 124.
+
+  The root barrel still carries 472 values and 427 types, most reachable from no other entry. Classifying those, and pruning `/cargo`'s non-cargo re-exports, remain open under #843.
+
 ## 0.4.0-pre.5
 
 ### Minor Changes

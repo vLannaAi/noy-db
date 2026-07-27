@@ -1,5 +1,15 @@
 # @noy-db/in-pwa
 
+## 0.4.0-pre.6
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.4.0-pre.6
+
 ## 0.4.0-pre.5
 
 ### Patch Changes
