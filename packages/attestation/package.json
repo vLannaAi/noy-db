@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/attestation",
-  "version": "0.4.0-pre.4",
+  "version": "0.4.0-pre.5",
   "description": "Pure, zero-dependency document-attestation primitive for noy-db — per-field salted commitments, Ed25519 sign/verify, QR credential codec, and revocation checks. Runs in Node and the browser; the offline verifier imports only this.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
