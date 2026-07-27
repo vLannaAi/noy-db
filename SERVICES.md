@@ -27,7 +27,7 @@ const db = await createNoydb({
 
 When a service is not opted into, its real implementation is replaced by a NO-OP stub (or a throwing stub on opt-in surfaces) and the heavy code is fully tree-shaken from the bundle.
 
-This document lists the always-on core and the service catalog. It is the table of contents for the rest of the documentation. The catalog groups **27 capabilities** for teaching; `package.json` ships **36 subpaths plus the root barrel**, and the two do not map one-to-one — [Subpath inventory](#subpath-inventory) reconciles them and is authoritative.
+This document lists the always-on core and the service catalog. It is the table of contents for the rest of the documentation. The catalog groups **27 capabilities** for teaching; `package.json` ships **39 subpaths plus the root barrel**, and the two do not map one-to-one — [Subpath inventory](#subpath-inventory) reconciles them and is authoritative.
 
 ---
 
@@ -131,7 +131,7 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 
 | # | Subpath | Headline | LOC saved | Pairs with |
 |---|---|---|---:|---|
-| 17 | *(no subpath — root barrel)* ‡ | Multi-store routing + middleware + sync-policy | ~1,800 | `indexing`, `pod`, `lazy` |
+| 17 | `@noy-db/hub/store` | Multi-store routing + middleware + sync-policy | ~1,800 | `indexing`, `pod`, `lazy` |
 | 26 | `@noy-db/hub/lazy` | Lazy mode — `prefetch: false` on-demand per-id reads over a bounded LRU working set (`withLazy()`; promoted out of `routing`, #267) | ~185 | `indexing` (persisted mirrors), `routing` |
 | 24 | *(preview)* | Multi-vault partition federation — `db.openVaultGroup()` transparent shard routing + `vault-registry` source-of-truth + `minVersion` fan-out guard (MVP, milestone 16) | — | `queryAcross`, `permissions` |
 
@@ -143,7 +143,11 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 
 ## Subpath inventory — the authoritative list
 
-`package.json`'s `exports` is the source of truth: **36 subpaths plus the root barrel**. It is enforced by the `service-subpath-naming` check in `scripts/check-architecture.mjs`, which fails in both directions — a factory with no subpath, and a subpath with no factory. The catalog above groups capabilities for teaching and does not map one-to-one onto it. This section reconciles the two, and is the list to check against when adding or removing an entry.
+`package.json`'s `exports` is the source of truth: **39 subpaths plus the root barrel**. It is enforced by the `service-subpath-naming` check in `scripts/check-architecture.mjs`, which fails in both directions — a factory with no subpath, and a subpath with no factory. The catalog above groups capabilities for teaching and does not map one-to-one onto it. This section reconciles the two, and is the list to check against when adding or removing an entry.
+
+### Themed homes (#843 C3a)
+
+`./store`, `./introspection` and `./money` group symbols that previously had no home but the root barrel. They are **additive** — each is also still re-exported from `.`, matching how the Via features are dual-homed (`./classified` and `./i18n` have always been reachable both ways). The subpath exists so the surface is navigable and tree-shakeable, not to force a migration. None has a `with<Name>()` factory, so each is allowlisted in the `service-subpath-naming` guard as a themed grouping rather than a service.
 
 ### Shipped subpaths not represented as rows above
 
@@ -159,7 +163,6 @@ Each is reachable only from the root barrel. Listed so the omission is a recorde
 |---|---|---|
 | `withArchive` | factory + `ArchiveStrategy`, **no `NO_*` stub** | Held as `ArchiveStrategy \| null` rather than a stub, so it does not yet match the service shape. Decide the stub first. |
 | `withLookup` | `active.ts`, no stub | **Deliberate** — `via/lookup/index.ts` records that its declaration surface (`lookup`/`enumOf`/`dict`) is re-exported from the root barrel instead. Note this makes it the only Via feature without one (`i18n`, `classified`, `blobs` each have theirs). |
-| routing / middleware | `with-store/` | 26 symbols on the root barrel (`routeStore`, `wrapStore`, the six `StoreMiddleware` factories). A `./store` subpath is the obvious home. |
 
 ### Documented previously but never shipped
 

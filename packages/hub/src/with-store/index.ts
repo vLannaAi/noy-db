@@ -3,8 +3,9 @@
  *
  * Store routing (multiplex by collection/size/age) and composable store
  * middleware (retry, logging, metrics, circuit-breaker, cache, health-check).
- * Root-barrel-only: no dedicated `@noy-db/hub/with-store` subpath export —
- * consumers reach these through the main `@noy-db/hub` entry.
+ * Published as `@noy-db/hub/store` (#843 C3a). Also re-exported from the root
+ * barrel, matching how the Via features are dual-homed — the subpath exists so
+ * the surface is navigable and tree-shakeable, not to force a migration.
  *
  * Named re-exports (not `export *`) so tsup keeps the barrel populated
  * even with `sideEffects: false`.

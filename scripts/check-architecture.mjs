@@ -535,6 +535,11 @@ function checkEveryServiceGated() {
 //   subpath". Removing a name from here means giving it a subpath.
 const NOT_SERVICE_SUBPATHS = new Set([
   'cargo', 'to', 'pod', 'satellites', 'util', 'share-link', 'query',
+  // #843 C3a — themed homes for root-barrel-exclusive clusters, not opt-in
+  // capabilities. Each groups symbols that previously had no home but `.`:
+  'store',          // routeStore + wrapStore + the six StoreMiddleware factories
+  'introspection',  // dumpVaultSchema + the describe/meta descriptor types
+  'money',          // the via-money field feature (declared per-field, not per-vault)
 ])
 const NO_SUBPATH_FACTORIES = new Set([
   // Complete seams that qualify for a subpath — no reason on record yet.
