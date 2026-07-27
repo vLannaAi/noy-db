@@ -15,6 +15,8 @@
 import type { TxContext } from '../../with-commit/tx/transaction.js'
 import type { Collection } from '../../kernel/collection.js'
 import type { ledgerAuditHook } from '../../kernel/via/dispatch.js'
+import type { MaterializedViewExecutor } from './executor.js'
+import type * as MVStale from './stale.js'
 import type { MaterializedViewRegistry } from './registry.js'
 import type { MVQueryContext } from './types.js'
 
@@ -64,8 +66,8 @@ export async function dispatchMaterializedViewsOnDelete(
   const empty = { deleted: 0, residueUndecodable: [], residueDeclined: [] }
   if (mvs.length === 0) return empty
 
-  let executor: typeof import('./executor.js').MaterializedViewExecutor | null = null
-  let staleHelpers: typeof import('./stale.js') | null = null
+  let executor: typeof MaterializedViewExecutor | null = null
+  let staleHelpers: typeof MVStale | null = null
 
   let deleted = 0
   const residueUndecodable: string[] = []

@@ -91,9 +91,6 @@ import { revertExecuted } from '../with-commit/tx/transaction.js'
 // derivation executor chunk out of the floor bundle.
 import type { DerivationExecutor as DerivationExecutorType } from '../with-formula/derivations/executor.js'
 import type {
-  loadFanoutSidecar as LoadFanoutSidecarType,
-  deleteFanoutSidecar as DeleteFanoutSidecarType,
-  saveFanoutSidecar as SaveFanoutSidecarType,
 } from '../with-formula/derivations/fanout-sidecar.js'
 import { markStale, resolveStaleOnRead } from '../with-formula/derivations/stale.js'
 import type { MaterializedViewRegistry } from '../with-formula/materialized-views/registry.js'
