@@ -8,12 +8,12 @@
  * deferred-load pattern used for guards/derivations.
  */
 import type * as ComputedModule from './index.js'
+import { lazy } from '../../kernel/lazy.js'
 
 type EvalComputedFieldsFn = typeof ComputedModule.evalComputedFields
 
-let fn: EvalComputedFieldsFn | null = null
+const loadComputed = lazy(() => import('./index.js'))
 
 export async function loadEvalComputedFields(): Promise<EvalComputedFieldsFn> {
-  fn ??= (await import('./index.js')).evalComputedFields
-  return fn
+  return (await loadComputed()).evalComputedFields
 }
