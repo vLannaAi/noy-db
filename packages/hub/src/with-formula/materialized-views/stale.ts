@@ -1,14 +1,19 @@
 import type { Collection } from '../../kernel/collection.js'
+import type { MaterializedViewExecutor as MVExecutorType } from './executor.js'
 import type { TxContext } from '../../with-commit/tx/transaction.js'
 import type { PutDerivedOutputCtx } from '../../kernel/via/dispatch.js'
 import type { MaterializedViewRegistry, RegisteredMV } from './registry.js'
 // Type-only — runtime class loaded via dynamic import in
 // `resolveStaleMVOnRead` only when a stale flag actually fires.
 // Keeps the executor chunk out of the floor bundle (mirrors v1 floor-bundle isolation).
-import type { MaterializedViewExecutor as MVExecutorType } from './executor.js'
 import type { MVQueryContext } from './types.js'
 import type { NoydbStore } from '../../kernel/types.js'
 import { RecordCodec } from '../../kernel/enclave/index.js'
+
+import { lazy } from '../../kernel/lazy.js'
+
+/** #846c — one memoized binding instead of a cast at the call site. */
+const loadMVExecutor = lazy(() => import('./executor.js'))
 
 /**
  * Accessor shape passed in from the owning Vault. Provides the
@@ -280,11 +285,7 @@ export async function resolveStaleMVOnRead(
       await deleteMVStaleMarker(adapter, vault, name)
       continue
     }
-    if (executor === null) {
-      ({ MaterializedViewExecutor: executor } = (await import('./executor.js')) as {
-        MaterializedViewExecutor: typeof MVExecutorType
-      })
-    }
+    executor ??= (await loadMVExecutor()).MaterializedViewExecutor
     // A cold-hydrated stale flag (unlike an in-session one) can fire with
     // NONE of the MV's dependency collections touched yet this session —
     // the sync `Query.toArray()` `spec.query()` runs reads straight off
