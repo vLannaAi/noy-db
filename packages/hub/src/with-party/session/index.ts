@@ -57,3 +57,6 @@ export {
   SessionNotFoundError,
   SessionPolicyError,
 } from '../../kernel/errors.js'
+
+/** The un-opted-in stub for this service — exported so callers can compare against it (#844). */
+export { NO_SESSION } from './strategy.js'

@@ -47,3 +47,6 @@ export type {
 // `Collection.lazyQuery()` in lazy mode.
 export { LazyQuery } from './lazy-builder.js'
 export type { LazyQuerySource, LazyOrderBy } from './lazy-builder.js'
+
+/** The un-opted-in stub for this service — exported so callers can compare against it (#844). */
+export { NO_INDEXING } from './strategy.js'

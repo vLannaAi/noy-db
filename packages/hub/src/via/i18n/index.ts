@@ -39,3 +39,6 @@ export {
   StaticDictReadonlyError,
   UnknownDictCodeError,
 } from '../../kernel/errors.js'
+
+/** The un-opted-in stub for this service — exported so callers can compare against it (#844). */
+export { NO_I18N } from '../../port/with/i18n-strategy.js'

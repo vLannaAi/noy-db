@@ -23,3 +23,6 @@ export type {
   ConsentAuditEntry,
   ConsentAuditFilter,
 } from './consent.js'
+
+/** The un-opted-in stub for this service — exported so callers can compare against it (#844). */
+export { NO_CONSENT } from './strategy.js'

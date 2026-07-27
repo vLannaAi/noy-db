@@ -38,3 +38,6 @@ export type { GroupedRow, GroupedRowN } from './groupby.js'
 
 export { count, sum, avg, min, max, moneySum, moneyMin, moneyMax, reducerBuilder } from './reducers.js'
 export type { Reducer, ReducerOptions, ReducerBuilder } from './reducers.js'
+
+/** The un-opted-in stub for this service — exported so callers can compare against it (#844). */
+export { NO_AGGREGATE } from './strategy.js'

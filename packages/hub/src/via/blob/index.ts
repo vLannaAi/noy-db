@@ -85,3 +85,6 @@ export type {
   ExportBlobsHandle,
   ExportBlobsAuditEntry,
 } from '../../with-shape/blobs/export-blobs.js'
+
+/** The un-opted-in stub for this service — exported so callers can compare against it (#844). */
+export { NO_BLOBS } from '../../port/with/blob-strategy.js'

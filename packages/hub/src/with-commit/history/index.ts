@@ -58,3 +58,6 @@ export type { JsonPatch, JsonPatchOp } from './ledger/patch.js'
 // ─── Time-machine queries ──────────────────────────────
 export { VaultInstant, CollectionInstant } from './time-machine.js'
 export type { VaultEngine } from './time-machine.js'
+
+/** The un-opted-in stub for this service — exported so callers can compare against it (#844). */
+export { NO_HISTORY } from './strategy.js'
