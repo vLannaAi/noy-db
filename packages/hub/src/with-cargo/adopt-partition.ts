@@ -345,7 +345,7 @@ export async function createOwnerOnAdoptedPartition(
       sealingKey: opts.sealingKey,
       shamirRecovery: opts.shamirRecovery,
     })
-    await db.openVaultAndEnrollRecovery(vaultName, { recovery: opts.recovery })
+    await db.team.openVaultAndEnrollRecovery(vaultName, { recovery: opts.recovery })
   }
 
   // Stage D — Destroy the transfer seal LAST — the commit point. Everything

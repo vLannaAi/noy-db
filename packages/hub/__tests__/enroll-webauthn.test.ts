@@ -1,5 +1,5 @@
 /**
- * db.enrollWebAuthn() — native WebAuthn enrollment using the real
+ * db.team.enrollWebAuthn() — native WebAuthn enrollment using the real
  * internal keyring (#16). Unblocks vLannaAi/niwat#31.
  *
  * The ceremony callback receives the live `UnlockedKeyring` so the
@@ -46,7 +46,7 @@ function inlineMemory(): NoydbStore {
   } as unknown as NoydbStore
 }
 
-describe('db.enrollWebAuthn() (#16)', () => {
+describe('db.team.enrollWebAuthn() (#16)', () => {
   let db: Noydb
 
   beforeEach(async () => {
@@ -61,7 +61,7 @@ describe('db.enrollWebAuthn() (#16)', () => {
 
   it('runs ceremony with the real internal keyring (not synthetic)', async () => {
     let receivedKeyring: { userId: string; kek: CryptoKey; deks: Map<string, CryptoKey> } | undefined
-    await db.enrollWebAuthn('demo', async (keyring) => {
+    await db.team.enrollWebAuthn('demo', async (keyring) => {
       // The whole point of #16: ceremony sees the LIVE keyring,
       // including the live KEK and the live DEKs map. The wrapped_kek
       // returned here is what the real @noy-db/on-webauthn produces
@@ -89,7 +89,7 @@ describe('db.enrollWebAuthn() (#16)', () => {
   })
 
   it('persists the slot via the standard tier-2 enrollAuthenticator path', async () => {
-    const result = await db.enrollWebAuthn('demo', async () => ({
+    const result = await db.team.enrollWebAuthn('demo', async () => ({
       id: 'webauthn-yubikey',
       method: 'webauthn',
       wrapped_kek: FAKE_WRAPPED_PAYLOAD,
@@ -98,7 +98,7 @@ describe('db.enrollWebAuthn() (#16)', () => {
 
     expect(result.credentialId).toBe('cred-yubikey-base64')
 
-    const slots = await db.listAuthenticators('demo')
+    const slots = await db.team.listAuthenticators('demo')
     expect(slots.length).toBe(1)
     expect(slots[0]!.id).toBe('webauthn-yubikey')
     expect(slots[0]!.method).toBe('webauthn')
@@ -106,7 +106,7 @@ describe('db.enrollWebAuthn() (#16)', () => {
 
   it('rejects ceremony results with method !== "webauthn"', async () => {
     await expect(
-      db.enrollWebAuthn('demo', async () => ({
+      db.team.enrollWebAuthn('demo', async () => ({
         id: 'wrong-1',
         method: 'password' as const,
         wrapped_kek: FAKE_WRAPPED_PAYLOAD,
@@ -117,7 +117,7 @@ describe('db.enrollWebAuthn() (#16)', () => {
 
   it('rejects ceremony results without a credentialId in meta', async () => {
     await expect(
-      db.enrollWebAuthn('demo', async () => ({
+      db.team.enrollWebAuthn('demo', async () => ({
         id: 'webauthn-no-credid',
         method: 'webauthn',
         wrapped_kek: FAKE_WRAPPED_PAYLOAD,
@@ -127,7 +127,7 @@ describe('db.enrollWebAuthn() (#16)', () => {
   })
 })
 
-describe('db.listWebAuthnSlots() (#16)', () => {
+describe('db.team.listWebAuthnSlots() (#16)', () => {
   it('filters the slot list to webauthn-method slots only', async () => {
     const db = await createNoydb({
       store: inlineMemory(),
@@ -136,13 +136,13 @@ describe('db.listWebAuthnSlots() (#16)', () => {
     })
     await db.openVault('demo')
 
-    await db.enrollWebAuthn('demo', async () => ({
+    await db.team.enrollWebAuthn('demo', async () => ({
       id: 'webauthn-1',
       method: 'webauthn',
       wrapped_kek: FAKE_WRAPPED_PAYLOAD,
       meta: { credentialId: 'cred-1' },
     }))
-    await db.enrollWebAuthn('demo', async () => ({
+    await db.team.enrollWebAuthn('demo', async () => ({
       id: 'webauthn-2',
       method: 'webauthn',
       wrapped_kek: FAKE_WRAPPED_PAYLOAD,
@@ -150,17 +150,17 @@ describe('db.listWebAuthnSlots() (#16)', () => {
     }))
 
     // Mix in a password slot via the existing enrollAuthenticator path.
-    await db.enrollAuthenticator('demo', {
+    await db.team.enrollAuthenticator('demo', {
       id: 'password',
       method: 'password',
       wrapped_kek: FAKE_WRAPPED_PAYLOAD,
       meta: { salt: 'fake-salt-base64' },
     })
 
-    const allSlots = await db.listAuthenticators('demo')
+    const allSlots = await db.team.listAuthenticators('demo')
     expect(allSlots.length).toBe(3)
 
-    const webauthnOnly = await db.listWebAuthnSlots('demo')
+    const webauthnOnly = await db.team.listWebAuthnSlots('demo')
     expect(webauthnOnly.length).toBe(2)
     expect(webauthnOnly.map((s) => s.id).sort()).toEqual(['webauthn-1', 'webauthn-2'])
     expect(webauthnOnly.map((s) => s.credentialId).sort()).toEqual(['cred-1', 'cred-2'])
@@ -173,7 +173,7 @@ describe('db.listWebAuthnSlots() (#16)', () => {
       secret: 'alice-pass-2026-strong',
     })
     await db.openVault('demo')
-    const slots = await db.listWebAuthnSlots('demo')
+    const slots = await db.team.listWebAuthnSlots('demo')
     expect(slots.length).toBe(0)
   })
 })

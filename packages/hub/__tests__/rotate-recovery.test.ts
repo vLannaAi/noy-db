@@ -1,5 +1,5 @@
 /**
- * #121 — `db.rotateRecovery(vault, options, factors?)`.
+ * #121 — `db.team.rotateRecovery(vault, options, factors?)`.
  *
  * Deliberate paper-recovery-code regeneration. The user remembers their
  * passphrase but wants a fresh sheet (lost the printout, suspect compromise
@@ -51,7 +51,7 @@ function inlineMemory(): NoydbStore {
 const ALICE_PHRASE = 'correct horse battery staple printer toaster'
 
 async function enrollCodes(db: Noydb, vault: string, count: number, prefix = 'CODE'): Promise<string[]> {
-  const keyring = await db.getKeyring(vault)
+  const keyring = await db.team.getKeyring(vault)
   const codes: string[] = []
   const entries: PaperRecoveryEntry[] = []
   for (let i = 0; i < count; i++) {
@@ -59,7 +59,7 @@ async function enrollCodes(db: Noydb, vault: string, count: number, prefix = 'CO
     codes.push(code)
     entries.push(await mintPaperRecoveryEntry(keyring.deks, code, `${prefix}-${i}`))
   }
-  await db.enrollRecovery(vault, { profile: 'paper', entries })
+  await db.team.enrollRecovery(vault, { profile: 'paper', entries })
   return codes
 }
 
@@ -70,7 +70,7 @@ describe('db.rotateRecovery (#121)', () => {
     await db.openVault('acme')
     await enrollCodes(db, 'acme', 6)
 
-    const result = await db.rotateRecovery('acme', { profile: 'paper' })
+    const result = await db.team.rotateRecovery('acme', { profile: 'paper' })
     expect(result.newCodes).toHaveLength(6)
     const post = await loadPaperRecoveryEntries(store, 'acme')
     expect(post).toHaveLength(6)
@@ -82,7 +82,7 @@ describe('db.rotateRecovery (#121)', () => {
     await db.openVault('acme')
     await enrollCodes(db, 'acme', 8)
 
-    const result = await db.rotateRecovery('acme', { profile: 'paper', count: 12 })
+    const result = await db.team.rotateRecovery('acme', { profile: 'paper', count: 12 })
     expect(result.newCodes).toHaveLength(12)
     const post = await loadPaperRecoveryEntries(store, 'acme')
     expect(post).toHaveLength(12)
@@ -94,17 +94,17 @@ describe('db.rotateRecovery (#121)', () => {
     await db.openVault('acme')
     const oldCodes = await enrollCodes(db, 'acme', 4)
 
-    const result = await db.rotateRecovery('acme', { profile: 'paper' })
+    const result = await db.team.rotateRecovery('acme', { profile: 'paper' })
     // Old codes no longer match any persisted entry — recovery with one should fail.
     await expect(
-      db.recoverPassphrase('acme', {
+      db.team.recoverPassphrase('acme', {
         newPassphrase: 'fresh passphrase after rotation today morning glass tower',
         recoveryProof: { profile: 'paper', payload: { code: oldCodes[0]! } },
       }),
     ).rejects.toThrow()
 
     // A new code DOES recover.
-    const recovered = await db.recoverPassphrase('acme', {
+    const recovered = await db.team.recoverPassphrase('acme', {
       newPassphrase: 'fresh passphrase after rotation today morning glass tower',
       recoveryProof: { profile: 'paper', payload: { code: result.newCodes![0]! } },
     })
@@ -118,7 +118,7 @@ describe('db.rotateRecovery (#121)', () => {
     await enrollCodes(db, 'acme', 3)
 
     let counter = 0
-    const result = await db.rotateRecovery('acme', {
+    const result = await db.team.rotateRecovery('acme', {
       profile: 'paper',
       codeGenerator: () => `CUSTOM-CODE-${counter++}`,
     })
@@ -132,7 +132,7 @@ describe('db.rotateRecovery (#121)', () => {
     await enrollCodes(db, 'acme', 4)
 
     // Default PERSONAL_POLICY — rotate-recovery: { minTier: 1 }
-    const result = await db.rotateRecovery('acme', { profile: 'paper' })
+    const result = await db.team.rotateRecovery('acme', { profile: 'paper' })
     expect(result.newCodes).toHaveLength(4)
   }, 120_000)
 
@@ -146,7 +146,7 @@ describe('db.rotateRecovery (#121)', () => {
     await enrollCodes(db, 'acme', 4)
 
     await expect(
-      db.rotateRecovery('acme', { profile: 'paper' }),
+      db.team.rotateRecovery('acme', { profile: 'paper' }),
     ).rejects.toThrow(PolicyDeniedError)
   }, 120_000)
 
@@ -157,7 +157,7 @@ describe('db.rotateRecovery (#121)', () => {
 
     await expect(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      db.rotateRecovery('acme', { profile: 'shamir' as any }),
+      db.team.rotateRecovery('acme', { profile: 'shamir' as any }),
     ).rejects.toThrow(/RecoveryProfileNotImplementedError|profile/i)
   }, 120_000)
 
@@ -167,7 +167,7 @@ describe('db.rotateRecovery (#121)', () => {
     // NO enrollRecovery call — there is nothing to rotate.
 
     await expect(
-      db.rotateRecovery('acme', { profile: 'paper' }),
+      db.team.rotateRecovery('acme', { profile: 'paper' }),
     ).rejects.toThrow(/no recovery codes|nothing to rotate|not enrolled/i)
   }, 60_000)
 

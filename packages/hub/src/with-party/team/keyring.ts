@@ -918,7 +918,7 @@ export async function rotateKeys(
  * `allowWeakPassphrase: true` is passed. Mirrors `rotatePassphrase`'s
  * default-on validation contract.
  *
- * `db.rotatePassphrase()` adds a `checkGate('rotate-passphrase')` step
+ * `db.team.rotatePassphrase()` adds a `checkGate('rotate-passphrase')` step
  * on top of this primitive and additionally requires the OLD passphrase
  * for re-derivation; `changeSecret` reuses the cached unlocked KEK so
  * the OLD passphrase is not retyped.
@@ -969,7 +969,7 @@ export async function changeSecret(
     // Tier-2 slots are NOT preserved through `changeSecret` —
     // each slot wraps the OLD KEK, so the new keyring has no
     // authenticator slots until the user re-enrolls. The higher-level
-    // `db.rotatePassphrase()` preserves slots by rewrapping the
+    // `db.team.rotatePassphrase()` preserves slots by rewrapping the
     // KEK reference, not the KEK itself.
     authenticators: [],
     ...(keyring.policy !== undefined && { policy: keyring.policy }),

@@ -2781,7 +2781,7 @@ export interface NoydbOptions {
    * Validate passphrase strength against the phrase format
    * on first-time keyring creation. When
    * `true`, weak phrases throw {@link WeakPassphraseError} from
-   * `createNoydb()` / `db.rotatePassphrase()`. Default: `false` for
+   * `createNoydb()` / `db.team.rotatePassphrase()`. Default: `false` for
    * back-compat; planned to flip to `true` in a future major release.
    */
   readonly validatePassphrase?: boolean

@@ -146,7 +146,7 @@ describe('createNoydb({ passphraseMode: "managed" }) — slice 1', () => {
       sealingKey: provider,
       shamirRecovery: shamirRecoveryProvider(),
     })
-    await db.openVaultAndEnrollRecovery('acme', {
+    await db.team.openVaultAndEnrollRecovery('acme', {
       recovery: [{ profile: 'shamir', k: 2, n: 3 }],
     })
     const loaded = await loadSealedPassphrase(store, 'acme')
@@ -163,7 +163,7 @@ describe('createNoydb({ passphraseMode: "managed" }) — slice 1', () => {
       sealingKey: provider,
       shamirRecovery: shamirRecoveryProvider(),
     })
-    await db1.openVaultAndEnrollRecovery('acme', {
+    await db1.team.openVaultAndEnrollRecovery('acme', {
       recovery: [{ profile: 'shamir', k: 2, n: 3 }],
     })
     const sealed1 = (await loadSealedPassphrase(store, 'acme'))!.sealed
@@ -188,7 +188,7 @@ describe('createNoydb({ passphraseMode: "managed" }) — slice 1', () => {
       sealingKey: provider,
       shamirRecovery: shamirRecoveryProvider(),
     })
-    const { vault } = await db.openVaultAndEnrollRecovery('acme', {
+    const { vault } = await db.team.openVaultAndEnrollRecovery('acme', {
       recovery: [{ profile: 'shamir', k: 2, n: 3 }],
     })
     const notes = vault.collection<Note>('notes')
@@ -213,11 +213,11 @@ describe('createNoydb({ passphraseMode: "managed" }) — slice 1', () => {
       sealingKey: provider,
       shamirRecovery: shamirRecoveryProvider(),
     })
-    await db.openVaultAndEnrollRecovery('acme', {
+    await db.team.openVaultAndEnrollRecovery('acme', {
       recovery: [{ profile: 'shamir', k: 2, n: 3 }],
     })
     await expect(
-      db.rotatePassphrase('acme', {
+      db.team.rotatePassphrase('acme', {
         oldPassphrase: 'irrelevant — user does not know it',
         newPassphrase: 'also-irrelevant-but-policy-fires-first',
         allowWeakPassphrase: true,
@@ -232,7 +232,7 @@ describe('createNoydb({ passphraseMode: "managed" }) — slice 1', () => {
       sealingKey: provider,
       shamirRecovery: shamirRecoveryProvider(),
     })
-    await db.openVaultAndEnrollRecovery('acme', {
+    await db.team.openVaultAndEnrollRecovery('acme', {
       recovery: [{ profile: 'shamir', k: 2, n: 3 }],
     })
     db.close()

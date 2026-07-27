@@ -8,12 +8,12 @@
  *      throws ManagedRecoveryNotEnrolledError. Paper alone is not
  *      strong under managed mode.
  *
- *   2. `db.openVaultAndEnrollRecovery(vault, { recovery: [...] })`
+ *   2. `db.team.openVaultAndEnrollRecovery(vault, { recovery: [...] })`
  *      bootstraps a managed-mode vault and enrolls strong recovery
  *      atomically. Returns the vault handle plus show-once
  *      enrollment results (Shamir shares).
  *
- *   3. `db.recoverManagedPassphrase(vault, { recoveryProof })` mints
+ *   3. `db.team.recoverManagedPassphrase(vault, { recoveryProof })` mints
  *      a fresh sealed passphrase, replaces _meta/sealed-passphrase,
  *      and rewraps DEKs under the new KEK.
  */
@@ -107,7 +107,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
         shamirRecovery: shamirRecoveryProvider(),
       })
 
-      const result = await db.openVaultAndEnrollRecovery('acme', {
+      const result = await db.team.openVaultAndEnrollRecovery('acme', {
         recovery: [{ profile: 'shamir', k: 2, n: 3 }],
       })
 
@@ -126,7 +126,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
         passphraseMode: 'managed', sealingKey: provider,
         shamirRecovery: shamirRecoveryProvider(),
       })
-      await db1.openVaultAndEnrollRecovery('acme', {
+      await db1.team.openVaultAndEnrollRecovery('acme', {
         recovery: [{ profile: 'shamir', k: 2, n: 3 }],
       })
 
@@ -147,7 +147,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
         sealingKey: freshProvider('test-5'),
       })
       await expect(
-        db.openVaultAndEnrollRecovery('acme', { recovery: [] }),
+        db.team.openVaultAndEnrollRecovery('acme', { recovery: [] }),
       ).rejects.toThrow(/at least one recovery/i)
     })
 
@@ -159,7 +159,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
         sealingKey: freshProvider('test-6'),
       })
       await expect(
-        db.openVaultAndEnrollRecovery('acme', {
+        db.team.openVaultAndEnrollRecovery('acme', {
           recovery: [{ profile: 'paper', entries: [] }],
         }),
       ).rejects.toBeInstanceOf(ValidationError)
@@ -176,7 +176,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       // Empty paper entries array — the paper profile is allowed
       // alongside shamir; the shamir profile is the one carrying the
       // "strong" requirement.
-      const result = await db.openVaultAndEnrollRecovery('acme', {
+      const result = await db.team.openVaultAndEnrollRecovery('acme', {
         recovery: [
           { profile: 'shamir', k: 2, n: 3 },
           { profile: 'paper', entries: [] },
@@ -197,7 +197,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       await expect(db.openVault('acme')).rejects.toBeInstanceOf(ManagedRecoveryNotEnrolledError)
       // But enrollRecovery on the same vault works (it uses
       // getKeyringInternal directly, bypassing the policy bootstrap).
-      const enrollResult = await db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3 })
+      const enrollResult = await db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3 })
       expect(enrollResult.shares).toHaveLength(3)
       // Now openVault succeeds.
       await expect(db.openVault('acme')).resolves.toBeDefined()
@@ -213,7 +213,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       })
       await db.openVault('acme')
       await expect(
-        db.recoverManagedPassphrase('acme', {
+        db.team.recoverManagedPassphrase('acme', {
           recoveryProof: { profile: 'shamir', payload: { shares: [] } },
         }),
       ).rejects.toBeInstanceOf(ValidationError)
@@ -227,7 +227,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
         passphraseMode: 'managed', sealingKey: provider,
         shamirRecovery: shamirRecoveryProvider(),
       })
-      const enroll = await db.openVaultAndEnrollRecovery('acme', {
+      const enroll = await db.team.openVaultAndEnrollRecovery('acme', {
         recovery: [{ profile: 'shamir', k: 2, n: 3 }],
       })
       const shares = enroll.recoveryEnrollments[0]!.shares!
@@ -237,7 +237,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       expect(beforeEnvelope).toBeDefined()
 
       // Run managed recovery using the Shamir shares.
-      await db.recoverManagedPassphrase('acme', {
+      await db.team.recoverManagedPassphrase('acme', {
         recoveryProof: {
           profile: 'shamir',
           payload: { shares: [shares[0]!, shares[1]!] },
@@ -270,7 +270,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
         passphraseMode: 'managed', sealingKey: provider,
         shamirRecovery: shamirRecoveryProvider(),
       })
-      const enroll = await db.openVaultAndEnrollRecovery('acme', {
+      const enroll = await db.team.openVaultAndEnrollRecovery('acme', {
         recovery: [{ profile: 'shamir', k: 2, n: 3 }],
       })
       const shares = enroll.recoveryEnrollments[0]!.shares!
@@ -282,7 +282,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
         passphraseMode: 'managed', sealingKey: provider,
         shamirRecovery: shamirRecoveryProvider(),
       })
-      await db2.recoverManagedPassphrase('acme', {
+      await db2.team.recoverManagedPassphrase('acme', {
         recoveryProof: {
           profile: 'shamir',
           payload: { shares: [shares[0]!, shares[1]!] },
@@ -308,13 +308,13 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
         passphraseMode: 'managed', sealingKey: provider,
         shamirRecovery: shamirRecoveryProvider(),
       })
-      const enroll = await db.openVaultAndEnrollRecovery('acme', {
+      const enroll = await db.team.openVaultAndEnrollRecovery('acme', {
         recovery: [{ profile: 'shamir', k: 2, n: 3 }],
       })
       const shares = enroll.recoveryEnrollments[0]!.shares!
 
       // Recover once.
-      await db.recoverManagedPassphrase('acme', {
+      await db.team.recoverManagedPassphrase('acme', {
         recoveryProof: {
           profile: 'shamir',
           payload: { shares: [shares[0]!, shares[1]!] },
@@ -324,7 +324,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       // The Shamir entry should still exist on disk — shares are
       // reusable for future recoveries (per #196 spec §3.3).
       // Recovery a second time with a different K-of-N combination.
-      await db.recoverManagedPassphrase('acme', {
+      await db.team.recoverManagedPassphrase('acme', {
         recoveryProof: {
           profile: 'shamir',
           payload: { shares: [shares[0]!, shares[2]!] },

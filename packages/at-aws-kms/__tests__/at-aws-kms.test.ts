@@ -69,7 +69,7 @@ describe('@noy-db/at-aws-kms — integration with @noy-db/hub managed-passphrase
       sealingKey: awsKmsSealingProvider({ keyId, client: sharedFake as any }),
       shamirRecovery: shamirRecoveryProvider(),
     })
-    const { vault: vault1 } = await db1.openVaultAndEnrollRecovery('demo', {
+    const { vault: vault1 } = await db1.team.openVaultAndEnrollRecovery('demo', {
       recovery: [{ profile: 'shamir', k: 2, n: 3 }],
     })
     await vault1.collection<{ id: string; note: string }>('notes').put('n1', {

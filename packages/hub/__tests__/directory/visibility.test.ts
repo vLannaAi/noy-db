@@ -224,7 +224,7 @@ describe('User-list visibility (#122)', () => {
     bobDb.close()
 
     // Alice peer-recovers Bob (resets passphrase but preserves identity).
-    await aliceDb.recoverUser('demo', {
+    await aliceDb.team.recoverUser('demo', {
       userId: 'bob',
       passphrase: 'temp-bob-recovered-2026-strong',
     })

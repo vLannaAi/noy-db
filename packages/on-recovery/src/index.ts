@@ -32,15 +32,15 @@
  * import { generateRecoveryCodeSet, parseRecoveryCode } from '@noy-db/on-recovery'
  *
  * // ENROLL — after the user unlocks at tier 1, mint N codes
- * const keyring = await db.getKeyring('acme')
+ * const keyring = await db.team.getKeyring('acme')
  * const { codes, entries } = await generateRecoveryCodeSet({ deks: keyring.deks, count: 10 })
  * showCodesToUser(codes)
- * await db.enrollRecovery('acme', { profile: 'paper', entries })
+ * await db.team.enrollRecovery('acme', { profile: 'paper', entries })
  *
  * // RECOVER — user types one back later (handled by db.recoverPassphrase)
  * const parsed = parseRecoveryCode(userInput)
  * if (parsed.status !== 'valid') return handleInvalid(parsed.status)
- * await db.recoverPassphrase('acme', {
+ * await db.team.recoverPassphrase('acme', {
  *   newPassphrase,
  *   recoveryProof: { profile: 'paper', payload: { code: parsed.code } },
  * })
@@ -72,7 +72,7 @@ export interface GenerateRecoveryCodeSetOptions {
   /** Number of codes to generate. Default 10. Reasonable: 8-20. */
   count?: number
   /**
-   * The vault's current DEK set (typically `(await db.getKeyring(vault)).deks`).
+   * The vault's current DEK set (typically `(await db.team.getKeyring(vault)).deks`).
    * Required — proves possession and is the input the hub's
    * `mintPaperRecoveryEntry` needs.
    */
@@ -90,7 +90,7 @@ export type ParseResult =
 /**
  * Generate a fresh recovery-code set. Returned `codes` must be shown
  * to the user exactly once (print/save); `entries` go into the vault
- * via `db.enrollRecovery({ profile: 'paper', entries })`.
+ * via `db.team.enrollRecovery({ profile: 'paper', entries })`.
  *
  * Internally calls the hub's `mintPaperRecoveryEntry` once per code.
  * The hub's wrap-DEKs format is preserved end-to-end — `db.enrollRecovery`

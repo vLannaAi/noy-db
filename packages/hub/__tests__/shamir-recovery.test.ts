@@ -2,9 +2,9 @@
  * Shamir recovery profile dispatch (#196 slice 1).
  *
  * End-to-end tests for the three Shamir-flavored APIs:
- *   - db.enrollRecovery({ profile: 'shamir', k, n })
- *   - db.recoverPassphrase({ profile: 'shamir', shares })
- *   - db.rotateRecovery({ profile: 'shamir', k, n })
+ *   - db.team.enrollRecovery({ profile: 'shamir', k, n })
+ *   - db.team.recoverPassphrase({ profile: 'shamir', shares })
+ *   - db.team.rotateRecovery({ profile: 'shamir', k, n })
  *
  * The architectural pattern mirrors paper-recovery (mint a wrapped
  * DEK blob; the unlock material — recovery secret here, code there —
@@ -58,7 +58,7 @@ describe('Shamir recovery enrollment (#196 slice 1)', () => {
   beforeEach(async () => { db = await freshDb() })
 
   it('returns exactly n share strings and a stable entryId', async () => {
-    const result = await db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3 })
+    const result = await db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3 })
     expect(result.shares).toBeDefined()
     expect(result.shares!.length).toBe(3)
     expect(result.entryId).toBeTypeOf('string')
@@ -70,7 +70,7 @@ describe('Shamir recovery enrollment (#196 slice 1)', () => {
   })
 
   it('produces base32-shaped share strings (canonical wire format)', async () => {
-    const { shares } = await db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3 })
+    const { shares } = await db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3 })
     for (const s of shares!) {
       // Per on-shamir share-format: 'SHAMIR_S<x>_K<k>N<n>__<base32-groups>'
       expect(s).toMatch(/^SHAMIR_S\d+_K2N3__[A-Z2-7\-]+$/)
@@ -78,7 +78,7 @@ describe('Shamir recovery enrollment (#196 slice 1)', () => {
   })
 
   it('accepts a caller-supplied label and entryId', async () => {
-    const result = await db.enrollRecovery('acme', {
+    const result = await db.team.enrollRecovery('acme', {
       profile: 'shamir',
       k: 2,
       n: 3,
@@ -90,19 +90,19 @@ describe('Shamir recovery enrollment (#196 slice 1)', () => {
 
   it('rejects k < 2', async () => {
     await expect(
-      db.enrollRecovery('acme', { profile: 'shamir', k: 1, n: 3 }),
+      db.team.enrollRecovery('acme', { profile: 'shamir', k: 1, n: 3 }),
     ).rejects.toThrow(/k.*>=\s*2|k must/i)
   })
 
   it('rejects n < k', async () => {
     await expect(
-      db.enrollRecovery('acme', { profile: 'shamir', k: 3, n: 2 }),
+      db.team.enrollRecovery('acme', { profile: 'shamir', k: 3, n: 2 }),
     ).rejects.toThrow(/k\s*<=\s*n|k <= n/i)
   })
 
   it('rejects n > 255', async () => {
     await expect(
-      db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 256 }),
+      db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 256 }),
     ).rejects.toThrow(/255|n must/i)
   })
 })
@@ -114,13 +114,13 @@ describe('Shamir recovery — recoverPassphrase round-trip', () => {
 
   beforeEach(async () => {
     db = await freshDb()
-    const result = await db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3 })
+    const result = await db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3 })
     shares = [...result.shares!]
     entryId = result.entryId
   })
 
   it('recovers with shares 1+2 (any K of N)', async () => {
-    await db.recoverPassphrase('acme', {
+    await db.team.recoverPassphrase('acme', {
       newPassphrase: STRONG_NEW,
       recoveryProof: {
         profile: 'shamir',
@@ -129,12 +129,12 @@ describe('Shamir recovery — recoverPassphrase round-trip', () => {
     })
     // Verify the new passphrase actually unlocks the vault.
     const db2 = await createNoydb({ store: (db as any).options.store, user: 'alice', secret: STRONG_NEW })
-    const keyring = await db2.getKeyring('acme')
+    const keyring = await db2.team.getKeyring('acme')
     expect(keyring.userId).toBe('alice')
   })
 
   it('recovers with shares 1+3 (different combination)', async () => {
-    await db.recoverPassphrase('acme', {
+    await db.team.recoverPassphrase('acme', {
       newPassphrase: STRONG_NEW,
       recoveryProof: {
         profile: 'shamir',
@@ -142,12 +142,12 @@ describe('Shamir recovery — recoverPassphrase round-trip', () => {
       },
     })
     const db2 = await createNoydb({ store: (db as any).options.store, user: 'alice', secret: STRONG_NEW })
-    const keyring = await db2.getKeyring('acme')
+    const keyring = await db2.team.getKeyring('acme')
     expect(keyring.userId).toBe('alice')
   })
 
   it('recovers with shares 2+3', async () => {
-    await db.recoverPassphrase('acme', {
+    await db.team.recoverPassphrase('acme', {
       newPassphrase: STRONG_NEW,
       recoveryProof: {
         profile: 'shamir',
@@ -156,11 +156,11 @@ describe('Shamir recovery — recoverPassphrase round-trip', () => {
     })
     const db2 = await createNoydb({ store: (db as any).options.store, user: 'alice', secret: STRONG_NEW })
     expect(keyring => keyring.userId === 'alice').toBeTruthy()
-    expect((await db2.getKeyring('acme')).userId).toBe('alice')
+    expect((await db2.team.getKeyring('acme')).userId).toBe('alice')
   })
 
   it('recovers with all 3 shares (above threshold is fine)', async () => {
-    await db.recoverPassphrase('acme', {
+    await db.team.recoverPassphrase('acme', {
       newPassphrase: STRONG_NEW,
       recoveryProof: {
         profile: 'shamir',
@@ -168,12 +168,12 @@ describe('Shamir recovery — recoverPassphrase round-trip', () => {
       },
     })
     const db2 = await createNoydb({ store: (db as any).options.store, user: 'alice', secret: STRONG_NEW })
-    expect((await db2.getKeyring('acme')).userId).toBe('alice')
+    expect((await db2.team.getKeyring('acme')).userId).toBe('alice')
   })
 
   it('rejects below-threshold (1 share for 2-of-3)', async () => {
     await expect(
-      db.recoverPassphrase('acme', {
+      db.team.recoverPassphrase('acme', {
         newPassphrase: STRONG_NEW,
         recoveryProof: {
           profile: 'shamir',
@@ -185,7 +185,7 @@ describe('Shamir recovery — recoverPassphrase round-trip', () => {
 
   it('rejects empty shares array', async () => {
     await expect(
-      db.recoverPassphrase('acme', {
+      db.team.recoverPassphrase('acme', {
         newPassphrase: STRONG_NEW,
         recoveryProof: { profile: 'shamir', payload: { shares: [] } },
       }),
@@ -194,7 +194,7 @@ describe('Shamir recovery — recoverPassphrase round-trip', () => {
 
   it('rejects malformed share strings (non-base32 garbage)', async () => {
     await expect(
-      db.recoverPassphrase('acme', {
+      db.team.recoverPassphrase('acme', {
         newPassphrase: STRONG_NEW,
         recoveryProof: {
           profile: 'shamir',
@@ -206,7 +206,7 @@ describe('Shamir recovery — recoverPassphrase round-trip', () => {
 
   it('does NOT burn shares — same shares unlock again after a future enrollment', async () => {
     // First recovery succeeds with the original shares.
-    await db.recoverPassphrase('acme', {
+    await db.team.recoverPassphrase('acme', {
       newPassphrase: STRONG_NEW,
       recoveryProof: {
         profile: 'shamir',
@@ -217,7 +217,7 @@ describe('Shamir recovery — recoverPassphrase round-trip', () => {
     // under the new passphrase, then the same shares can recover again.
     const db2 = await createNoydb({ store: (db as any).options.store, user: 'alice', secret: STRONG_NEW, shamirRecovery: shamirRecoveryProvider() })
     await db2.openVault('acme')
-    await db2.recoverPassphrase('acme', {
+    await db2.team.recoverPassphrase('acme', {
       newPassphrase: STRONG_NEW_2,
       recoveryProof: {
         profile: 'shamir',
@@ -225,7 +225,7 @@ describe('Shamir recovery — recoverPassphrase round-trip', () => {
       },
     })
     const db3 = await createNoydb({ store: (db as any).options.store, user: 'alice', secret: STRONG_NEW_2 })
-    expect((await db3.getKeyring('acme')).userId).toBe('alice')
+    expect((await db3.team.getKeyring('acme')).userId).toBe('alice')
 
     // The unused entryId is still in scope and still valid.
     expect(entryId.length).toBeGreaterThan(0)
@@ -242,8 +242,8 @@ describe('Shamir recovery — multiple coexisting entries', () => {
   })
 
   it('allows two Shamir entries to coexist', async () => {
-    const a = await db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: 'board' })
-    const b = await db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 2, entryId: 'spouse' })
+    const a = await db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: 'board' })
+    const b = await db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 2, entryId: 'spouse' })
     expect(a.entryId).toBe('board')
     expect(b.entryId).toBe('spouse')
     expect(a.shares!.length).toBe(3)
@@ -251,10 +251,10 @@ describe('Shamir recovery — multiple coexisting entries', () => {
   })
 
   it('disambiguates via explicit entryId in the recovery proof', async () => {
-    const a = await db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: 'board' })
-    await db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 2, entryId: 'spouse' })
+    const a = await db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: 'board' })
+    await db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 2, entryId: 'spouse' })
 
-    await db.recoverPassphrase('acme', {
+    await db.team.recoverPassphrase('acme', {
       newPassphrase: STRONG_NEW,
       recoveryProof: {
         profile: 'shamir',
@@ -262,15 +262,15 @@ describe('Shamir recovery — multiple coexisting entries', () => {
       },
     })
     const db2 = await createNoydb({ store: storeRef, user: 'alice', secret: STRONG_NEW })
-    expect((await db2.getKeyring('acme')).userId).toBe('alice')
+    expect((await db2.team.getKeyring('acme')).userId).toBe('alice')
   })
 
   it('iterates entries when no entryId provided (first that combines wins)', async () => {
-    const a = await db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: 'board' })
-    await db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 2, entryId: 'spouse' })
+    const a = await db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: 'board' })
+    await db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 2, entryId: 'spouse' })
 
     // Provide board's shares; no entryId. Should find the board entry by trial.
-    await db.recoverPassphrase('acme', {
+    await db.team.recoverPassphrase('acme', {
       newPassphrase: STRONG_NEW,
       recoveryProof: {
         profile: 'shamir',
@@ -278,13 +278,13 @@ describe('Shamir recovery — multiple coexisting entries', () => {
       },
     })
     const db2 = await createNoydb({ store: storeRef, user: 'alice', secret: STRONG_NEW })
-    expect((await db2.getKeyring('acme')).userId).toBe('alice')
+    expect((await db2.team.getKeyring('acme')).userId).toBe('alice')
   })
 
   it('rejects when entryId points at non-existent entry', async () => {
-    const a = await db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: 'board' })
+    const a = await db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: 'board' })
     await expect(
-      db.recoverPassphrase('acme', {
+      db.team.recoverPassphrase('acme', {
         newPassphrase: STRONG_NEW,
         recoveryProof: {
           // entryId pointing at something that doesn't exist; shares
@@ -299,13 +299,13 @@ describe('Shamir recovery — multiple coexisting entries', () => {
 
   it('rejects a mixed-bag of shares from two different entries (per-entry contract, #211)', async () => {
     // Enroll two separate Shamir entries, each 2-of-3.
-    const a = await db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: 'board' })
-    const b = await db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: 'spouse' })
+    const a = await db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: 'board' })
+    const b = await db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: 'spouse' })
 
     // Mixed bag: one share from entry A + one share from entry B, no entryId.
     // AES-GCM auth-tag will reject for every candidate entry — fails closed.
     await expect(
-      db.recoverPassphrase('acme', {
+      db.team.recoverPassphrase('acme', {
         newPassphrase: STRONG_NEW,
         recoveryProof: {
           profile: 'shamir',
@@ -316,7 +316,7 @@ describe('Shamir recovery — multiple coexisting entries', () => {
 
     // Supplying a same-entry pair for entry A (no entryId) DOES recover —
     // the contract is "group shares per entry," not "shamir is broken."
-    await db.recoverPassphrase('acme', {
+    await db.team.recoverPassphrase('acme', {
       newPassphrase: STRONG_NEW,
       recoveryProof: {
         profile: 'shamir',
@@ -324,7 +324,7 @@ describe('Shamir recovery — multiple coexisting entries', () => {
       },
     })
     const db2 = await createNoydb({ store: storeRef, user: 'alice', secret: STRONG_NEW, shamirRecovery: shamirRecoveryProvider() })
-    expect((await db2.getKeyring('acme')).userId).toBe('alice')
+    expect((await db2.team.getKeyring('acme')).userId).toBe('alice')
   })
 })
 
@@ -338,25 +338,25 @@ describe('Shamir recovery — rotateRecovery', () => {
   })
 
   it('replaces an existing entry; old shares no longer combine, new shares do', async () => {
-    const a = await db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3 })
+    const a = await db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3 })
     const oldShares = [...a.shares!]
     const oldEntryId = a.entryId
 
-    const rotated = await db.rotateRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: oldEntryId })
+    const rotated = await db.team.rotateRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: oldEntryId })
     expect(rotated.newShares).toBeDefined()
     expect(rotated.newShares!.length).toBe(3)
     expect(rotated.entryId).toBe(oldEntryId)
 
     // Old shares no longer recover (they wrap a different recovery secret).
     await expect(
-      db.recoverPassphrase('acme', {
+      db.team.recoverPassphrase('acme', {
         newPassphrase: STRONG_NEW,
         recoveryProof: { profile: 'shamir', payload: { shares: [oldShares[0]!, oldShares[1]!] } },
       }),
     ).rejects.toThrow()
 
     // New shares do recover.
-    await db.recoverPassphrase('acme', {
+    await db.team.recoverPassphrase('acme', {
       newPassphrase: STRONG_NEW,
       recoveryProof: {
         profile: 'shamir',
@@ -364,20 +364,20 @@ describe('Shamir recovery — rotateRecovery', () => {
       },
     })
     const db2 = await createNoydb({ store: storeRef, user: 'alice', secret: STRONG_NEW })
-    expect((await db2.getKeyring('acme')).userId).toBe('alice')
+    expect((await db2.team.getKeyring('acme')).userId).toBe('alice')
   })
 
   it('rejects rotation when entryId is ambiguous (multiple entries, no entryId given)', async () => {
-    await db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: 'board' })
-    await db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 2, entryId: 'spouse' })
+    await db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: 'board' })
+    await db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 2, entryId: 'spouse' })
     await expect(
-      db.rotateRecovery('acme', { profile: 'shamir', k: 2, n: 3 }),
+      db.team.rotateRecovery('acme', { profile: 'shamir', k: 2, n: 3 }),
     ).rejects.toThrow(/ambiguous|entryId|multiple/i)
   })
 
   it('rejects rotation when no Shamir entry exists', async () => {
     await expect(
-      db.rotateRecovery('acme', { profile: 'shamir', k: 2, n: 3 }),
+      db.team.rotateRecovery('acme', { profile: 'shamir', k: 2, n: 3 }),
     ).rejects.toThrow(/no.*shamir.*enrol|no recovery|enroll/i)
   })
 })
@@ -389,7 +389,7 @@ describe('Shamir recovery — error reporting at error class level', () => {
     // throws RecoveryProfileNotImplementedError. After this slice, it
     // should succeed.
     await expect(
-      db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3 }),
+      db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3 }),
     ).resolves.toBeDefined()
   })
 })
@@ -404,7 +404,7 @@ describe('Shamir recovery — no-provider guard', () => {
     })
     await db.openVault('acme')
     await expect(
-      db.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3 }),
+      db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3 }),
     ).rejects.toThrow(/requires a ShamirRecoveryProvider/)
   })
 })
