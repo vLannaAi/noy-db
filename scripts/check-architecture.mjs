@@ -1178,7 +1178,15 @@ const KERNEL_SURFACE_BUDGET = {
   // beside it. All period-scope logic lives in with-party/team/
   // sync-period-scope.ts + sync.ts; windows resolve through the PUBLIC
   // Vault.listPeriods(), so vault.ts is untouched.
-  'packages/hub/src/kernel/noydb.ts': 2150,
+  // #854 raises this by 11 from the 2150 that #846a ratcheted it to. The
+  // rotate() jsdoc promised that every member keeps access while the engine
+  // silently dropped the rotated collections from their keyrings; the
+  // corrected contract has to explain WHY (a KEK derives only from its own
+  // member's secret, so re-wrapping for others is impossible) and document
+  // the needsRegrant report. Shaving that explanation to hit a line budget
+  // is what let the contract drift in the first place. Still 183 under the
+  // 2344 this file started the milestone at.
+  'packages/hub/src/kernel/noydb.ts': 2161,
   // Lowered 2407→2345 (#834 vault() cache-only, 2026-07-26): deleting the two drifted
   // fallback Vault constructors from vault() removed ~80 lines of duplicated option block.
   // A test now asserts noydb.ts contains exactly ONE `new Vault(` site — that invariant,

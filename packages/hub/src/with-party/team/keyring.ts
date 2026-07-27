@@ -800,12 +800,29 @@ export async function updateKeyringIdentity(
  * 2. Re-encrypt all records in affected collections
  * 3. Re-wrap new DEKs for all remaining users
  */
+/**
+ * What a DEK rotation leaves behind (#854).
+ *
+ * A member's DEKs are wrapped under that member's KEK, and a KEK derives only
+ * from that member's secret — so the caller cannot re-wrap a fresh DEK for
+ * anyone else. That is the zero-knowledge property working as designed, but it
+ * means rotation necessarily DROPS the rotated collections from every other
+ * member's keyring rather than re-keying them.
+ *
+ * `needsRegrant` names exactly who lost what, so the caller can re-run
+ * `grant()` instead of discovering the access loss later.
+ */
+export interface RotateResult {
+  /** (member, collection) pairs whose access was dropped by the rotation. */
+  readonly needsRegrant: ReadonlyArray<{ readonly userId: string; readonly collection: string }>
+}
+
 export async function rotateKeys(
   adapter: NoydbStore,
   vault: string,
   callerKeyring: UnlockedKeyring,
   collections: string[],
-): Promise<void> {
+): Promise<RotateResult> {
   // FR-6: re-keying is an owner-only meta-capability. A custodian operates the
   // vault fully but must NOT rotate — rotation would let it mint fresh DEKs and
   // strip the sealed owner's access, breaking the inalienability floor.
@@ -873,7 +890,12 @@ export async function rotateKeys(
   }
   await persistKeyring(adapter, vault, callerKeyring)
 
-  // Update all remaining users' keyrings with re-wrapped new DEKs
+  // Drop the rotated collections from every OTHER member's keyring.
+  //
+  // The old comment here said these were "re-wrapped", which is what
+  // `Noydb.rotate`'s jsdoc promised too — but re-wrapping is impossible and
+  // always was (#854). See the note below.
+  const needsRegrant: Array<{ userId: string; collection: string }> = []
   const userIds = await adapter.list(vault, '_keyring')
   for (const userId of userIds) {
     if (userId === callerKeyring.userId) continue
@@ -890,12 +912,14 @@ export async function rotateKeys(
     // the owner must re-run grant() for those users/collections.
 
     const updatedDeks = { ...userKeyringFile.deks }
-    for (const collName of collections) {
-      delete updatedDeks[collName]
-    }
-
     const updatedPermissions = { ...userKeyringFile.permissions }
     for (const collName of collections) {
+      // Report only what the member actually held — a user who never had the
+      // collection does not "need a re-grant".
+      if (collName in updatedDeks || collName in updatedPermissions) {
+        needsRegrant.push({ userId, collection: collName })
+      }
+      delete updatedDeks[collName]
       delete updatedPermissions[collName]
     }
 
@@ -907,6 +931,8 @@ export async function rotateKeys(
 
     await writeKeyringFile(adapter, vault, userId, updatedKeyring)
   }
+
+  return { needsRegrant }
 }
 
 // ─── Change Secret ─────────────────────────────────────────────────────
