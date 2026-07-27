@@ -300,7 +300,7 @@ describe('audit history', () => {
       const encDb = await createNoydb({
         store: persistentMemory(),
         user: 'owner-enc', historyStrategy: withHistory(),
-        secret: 'test-passphrase',
+        secret: 'test-secret',
         history: { enabled: true },
       })
 

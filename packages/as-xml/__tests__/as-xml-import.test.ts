@@ -63,7 +63,7 @@ async function setup() {
   await init.openVault('demo')
   await init.grant('demo', {
     userId: 'alice', displayName: 'Alice', role: 'owner',
-    passphrase: 'pw-2026',
+    secret: 'pw-2026',
     importCapability: { plaintext: ['xml'] },
     exportCapability: { plaintext: ['xml'] },  // round-trip needs export too
   })
@@ -223,7 +223,7 @@ describe('as-xml fromString — apply() requires withTransactions()', () => {
     await init.openVault('demo')
     await init.grant('demo', {
       userId: 'alice', displayName: 'Alice', role: 'owner',
-      passphrase: 'pw-2026',
+      secret: 'pw-2026',
       importCapability: { plaintext: ['xml'] },
     })
     init.close()

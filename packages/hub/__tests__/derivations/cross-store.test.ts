@@ -87,7 +87,7 @@ describe('Derivation conformance on file-backed store', () => {
     const open = () => createNoydb({
       store: fileStore(dir),
       user: 'alice',
-      secret: 'derivation-tofile-passphrase-2026',
+      secret: 'derivation-tofile-secret-2026',
       derivationStrategies: [strategy],
     })
     const db1 = await open()

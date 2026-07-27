@@ -34,7 +34,7 @@
  * @module
  */
 
-import { derivePassphraseKey, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { deriveSecretKey, type EnclaveKey } from '../../kernel/enclave/index.js'
 
 const PBKDF2_ITERATIONS = 600_000
 const SALT_BYTES = 32
@@ -154,7 +154,7 @@ export async function unwrapDeksFromBlob(
 // ─── Internals ─────────────────────────────────────────────────────────
 
 async function deriveWrappingKey(credential: string, salt: Uint8Array): Promise<CryptoKey> {
-  return derivePassphraseKey(credential, salt, { iterations: PBKDF2_ITERATIONS, keyUsage: 'aes-gcm' })
+  return deriveSecretKey(credential, salt, { iterations: PBKDF2_ITERATIONS, keyUsage: 'aes-gcm' })
 }
 
 function bytesToBase64(b: Uint8Array): string {

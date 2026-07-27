@@ -1,7 +1,7 @@
 /**
- * Managed-passphrase mode — rubber-hose-resistant vaults.
+ * Managed-secret mode — rubber-hose-resistant vaults.
  *
- * A vault mode where the passphrase is machine-generated and never
+ * A vault mode where the secret is machine-generated and never
  * exposed to the user, sealed under a developer-provided
  * {@link SealingKeyProvider} (macOS Keychain, Windows Credential
  * Manager, libsecret, AWS KMS, …). The user has no secret to give
@@ -27,23 +27,23 @@
  *     implementation of both `RecipientSealer` and
  *     `SealingKeyProvider` using real WebCrypto RSA-OAEP + AES-GCM;
  *     safe for tests and same-process sender/recipient scenarios.
- *   - {@link loadSealedPassphrase} / {@link saveSealedPassphrase} —
- *     plaintext envelope storage at `_meta/sealed-passphrase`.
+ *   - {@link loadSealedSecret} / {@link saveSealedSecret} —
+ *     plaintext envelope storage at `_meta/sealed-secret`.
  *     Mirrors the `_meta/handle` and `_meta/public-envelope` AES-
  *     GCM-bypassed patterns. The sealing layer (provider's job)
  *     is the security boundary; hub doesn't have a key to encrypt
  *     with at this layer — that's the whole point of the design.
  *   - {@link resolveManagedSecret} — orchestrates the "generate +
  *     seal + persist on first open; unseal on reopen" flow.
- *     Returns the plaintext passphrase string that the rest of the
+ *     Returns the plaintext secret string that the rest of the
  *     `createNoydb` keyring path consumes.
  *
  * Deferred to follow-ups:
- *   - Block `rotate-passphrase` policy gate under managed mode.
+ *   - Block `rotate-secret` policy gate under managed mode.
  *   - Mandatory strong-recovery enforcement.
  *   - Recovery flow under managed mode (generates fresh sealed phrase).
  *
- * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/session-tiers.md → Managed-passphrase mode
+ * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/session-tiers.md → Managed-secret mode
  *
  * @module
  */
@@ -53,8 +53,8 @@ import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 
 /**
  * The contract concrete providers (per-platform key stores) implement
- * to seal and unseal a hub-generated random passphrase. The plaintext
- * passphrase NEVER leaves hub-controlled memory in unsealed form —
+ * to seal and unseal a hub-generated random secret. The plaintext
+ * secret NEVER leaves hub-controlled memory in unsealed form —
  * the provider receives the bytes, returns opaque sealed bytes, and
  * later reverses the operation. Hub treats the sealed bytes as
  * fully opaque.
@@ -72,7 +72,7 @@ import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 export interface SealingKeyProvider {
   /**
    * Non-sensitive identifier disclosed in the persisted envelope.
-   * Surfaced to consumers via `loadSealedPassphrase().providerId` so
+   * Surfaced to consumers via `loadSealedSecret().providerId` so
    * a vault opened with the wrong provider class can detect the
    * mismatch and surface a clear error. NOT secret — fine to log.
    *
@@ -82,8 +82,8 @@ export interface SealingKeyProvider {
    */
   readonly id: string
 
-  /** Seal raw passphrase bytes. Output bytes are opaque to hub. */
-  seal(passphrase: Uint8Array): Promise<Uint8Array>
+  /** Seal raw secret bytes. Output bytes are opaque to hub. */
+  seal(secret: Uint8Array): Promise<Uint8Array>
 
   /**
    * Reverse {@link seal}. MUST throw on tamper, wrong-provider, or
@@ -96,7 +96,7 @@ export interface SealingKeyProvider {
 /**
  * In-memory test provider. NOT secure — uses a deterministic
  * per-instance "key" (16-byte SHA-256 of `id`) XOR'd over the
- * passphrase plus a 4-byte provider-id fingerprint prefix. The XOR is
+ * secret plus a 4-byte provider-id fingerprint prefix. The XOR is
  * sufficient to make different `id` values produce mutually-unsealable
  * outputs (the contract tests for that), but offers ZERO real
  * confidentiality — never use outside tests.
@@ -131,11 +131,11 @@ export class MemorySealingKeyProvider implements SealingKeyProvider {
     }
   }
 
-  async seal(passphrase: Uint8Array): Promise<Uint8Array> {
-    const out = new Uint8Array(4 + passphrase.length)
+  async seal(secret: Uint8Array): Promise<Uint8Array> {
+    const out = new Uint8Array(4 + secret.length)
     out.set(this.fingerprint, 0)
-    for (let i = 0; i < passphrase.length; i++) {
-      out[4 + i] = passphrase[i]! ^ this.keyBytes[i % 16]!
+    for (let i = 0; i < secret.length; i++) {
+      out[4 + i] = secret[i]! ^ this.keyBytes[i % 16]!
     }
     return out
   }
@@ -345,11 +345,11 @@ export class MemoryRecipientSealer implements SealingKeyProvider, RecipientSeale
 
 // ─── Persisted envelope ────────────────────────────────────────────────
 
-/** Reserved id for the managed-passphrase envelope under `_meta`. */
-export const SEALED_PASSPHRASE_RECORD_ID = 'sealed-passphrase' as const
+/** Reserved id for the managed-secret envelope under `_meta`. */
+export const SEALED_SECRET_RECORD_ID = 'sealed-secret' as const
 
-/** Plaintext payload stored inside the `_meta/sealed-passphrase` envelope. */
-export interface SealedPassphrase {
+/** Plaintext payload stored inside the `_meta/sealed-secret` envelope. */
+export interface SealedSecret {
   readonly _noydb_sealed: 1
   readonly providerId: string
   /** Sealed bytes. Base64-encoded on the wire; decoded on load. */
@@ -357,7 +357,7 @@ export interface SealedPassphrase {
 }
 
 /**
- * Wire-format envelope persisted at `_meta/sealed-passphrase` for
+ * Wire-format envelope persisted at `_meta/sealed-secret` for
  * managed-mode vaults. The provider produces raw sealed bytes via
  * {@link SealingKeyProvider.seal}; this wrapper carries the dispatch
  * metadata hub needs to pick the right provider on the unseal path.
@@ -397,8 +397,8 @@ function base64ToBytes(b64: string): Uint8Array {
 }
 
 /**
- * Parse a `_meta/sealed-passphrase` `_data` JSON string into the
- * in-memory {@link SealedPassphrase} representation. Accepts both:
+ * Parse a `_meta/sealed-secret` `_data` JSON string into the
+ * in-memory {@link SealedSecret} representation. Accepts both:
  *
  *   1. v1 wire format `{ v: 1, _noydb_sealed: 1, pid, payload }` —
  *      the current shape.
@@ -411,7 +411,7 @@ function base64ToBytes(b64: string): Uint8Array {
  *
  * @internal — exported only for the migration safety-net test suite.
  */
-export function parseSealedEnvelope(raw: unknown): SealedPassphrase | undefined {
+export function parseSealedEnvelope(raw: unknown): SealedSecret | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined
   const r = raw as Record<string, unknown>
   if (r._noydb_sealed !== 1) return undefined
@@ -444,7 +444,7 @@ export function parseSealedEnvelope(raw: unknown): SealedPassphrase | undefined 
   return undefined
 }
 
-export async function saveSealedPassphrase(
+export async function saveSealedSecret(
   store: NoydbStore,
   vault: string,
   payload: { readonly providerId: string; readonly sealed: Uint8Array },
@@ -455,7 +455,7 @@ export async function saveSealedPassphrase(
     pid: payload.providerId,
     payload: bytesToBase64(payload.sealed),
   }
-  const prior = await store.get(vault, '_meta', SEALED_PASSPHRASE_RECORD_ID)
+  const prior = await store.get(vault, '_meta', SEALED_SECRET_RECORD_ID)
   const env: EncryptedEnvelope = {
     _noydb: NOYDB_FORMAT_VERSION,
     _v: (prior?._v ?? 0) + 1,
@@ -464,14 +464,14 @@ export async function saveSealedPassphrase(
     _iv: '',
     _data: JSON.stringify(persisted),
   }
-  await store.put(vault, '_meta', SEALED_PASSPHRASE_RECORD_ID, env)
+  await store.put(vault, '_meta', SEALED_SECRET_RECORD_ID, env)
 }
 
-export async function loadSealedPassphrase(
+export async function loadSealedSecret(
   store: NoydbStore,
   vault: string,
-): Promise<SealedPassphrase | undefined> {
-  const envelope = await store.get(vault, '_meta', SEALED_PASSPHRASE_RECORD_ID)
+): Promise<SealedSecret | undefined> {
+  const envelope = await store.get(vault, '_meta', SEALED_SECRET_RECORD_ID)
   if (!envelope) return undefined
   try {
     return parseSealedEnvelope(JSON.parse(envelope._data))
@@ -483,13 +483,13 @@ export async function loadSealedPassphrase(
 // ─── createNoydb orchestration ─────────────────────────────────────────
 
 /**
- * Resolve the effective plaintext passphrase string for a managed-mode
+ * Resolve the effective plaintext secret string for a managed-mode
  * vault. Two paths:
  *
  *   1. **First open (no envelope persisted):** generate a 256-bit random
  *      via `crypto.getRandomValues`, base64-encode for use as a
- *      passphrase string, seal the underlying bytes under the
- *      provider, persist `_meta/sealed-passphrase`, return the
+ *      secret string, seal the underlying bytes under the
+ *      provider, persist `_meta/sealed-secret`, return the
  *      base64 string.
  *
  *   2. **Reopen (envelope exists):** read + unseal + decode → return.
@@ -507,7 +507,7 @@ export async function resolveManagedSecret(
   vault: string,
   provider: SealingKeyProvider,
 ): Promise<string> {
-  const existing = await loadSealedPassphrase(store, vault)
+  const existing = await loadSealedSecret(store, vault)
   if (existing) {
     if (existing.providerId !== provider.id) {
       throw new Error(
@@ -515,7 +515,7 @@ export async function resolveManagedSecret(
         + `"${existing.providerId}" but the current SealingKeyProvider is `
         + `"${provider.id}". Pass the same provider that originally enrolled `
         + 'the vault, or treat this as a fresh enrollment and clear '
-        + '`_meta/sealed-passphrase` first.',
+        + '`_meta/sealed-secret` first.',
       )
     }
     const plaintext = await provider.unseal(existing.sealed)
@@ -526,6 +526,6 @@ export async function resolveManagedSecret(
   const random = new Uint8Array(32)
   globalThis.crypto.getRandomValues(random)
   const sealed = await provider.seal(random)
-  await saveSealedPassphrase(store, vault, { providerId: provider.id, sealed })
+  await saveSealedSecret(store, vault, { providerId: provider.id, sealed })
   return bytesToBase64(random)
 }

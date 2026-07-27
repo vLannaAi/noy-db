@@ -34,9 +34,9 @@ import {
   readDirectoryConfig,
   persistDirectoryConfig,
 } from '../with-party/directory/storage.js'
-import type { PassphrasePolicy } from './validation.js'
+import type { SecretPolicy } from './validation.js'
 import { hasRecoveryEnrolled, hasStrongRecoveryEnrolled } from '../with-party/team/recovery.js'
-import { resolveManagedSecret } from '../with-party/team/managed-passphrase.js'
+import { resolveManagedSecret } from '../with-party/team/managed-secret.js'
 import { generateULID } from '../with-pod/ulid.js'
 import { createDefaultCoordinationProvider, type CoordinationProvider } from '../port/by/default-provider.js'
 import type { Cover } from '../with-party/directory/cover/types.js'
@@ -144,7 +144,7 @@ export class Noydb {
   private readonly keyringCache = new Map<string, UnlockedKeyring>()
   private readonly syncEngines = new Map<string, SyncEngine>()
   /**
-   * Per-vault active session tier — defaults to `1` after a passphrase
+   * Per-vault active session tier — defaults to `1` after a secret
    * unlock; tier-2 / tier-3 unlocks downgrade it. Used by
    * {@link checkGate} to evaluate `gate.minTier`.
    */
@@ -193,12 +193,12 @@ export class Noydb {
   /** Pre-resolved policy-gate engine function (mirrors `coordinationProvider`/`userApiFactory` above). */
   private readonly policyCheckGate: PolicyCheckGateFn
   /**
-   * Credential and multi-user operations — enrolment, passphrase rotation,
+   * Credential and multi-user operations — enrolment, secret rotation,
    * recovery, quick-unlock (#846).
    *
    * Public because 23 methods on this class did nothing but restate a
    * TeamFacade signature and forward to it, so every signature had to be
-   * hand-kept in sync with its counterpart. `db.team.rotatePassphrase(…)`
+   * hand-kept in sync with its counterpart. `db.team.rotateSecret(…)`
    * reads the same and has one source of truth.
    *
    * A getter, not a field, so it appears in the prototype-based kernel API
@@ -536,7 +536,7 @@ export class Noydb {
     opts?: { locale?: string; create?: boolean; meta?: VaultMeta },
   ): Promise<Vault> {
     const keyring = await this._getKeyringInternal(name, { create: opts?.create !== false })
-    // Tier-1 unlock — passphrase / getKeyring callbacks both yield the
+    // Tier-1 unlock — secret / getKeyring callbacks both yield the
     // most-privileged tier. Tier-2 / tier-3 unlocks install
     // a lower tier here when they land.
     if (!this.activeTier.has(name)) this.activeTier.set(name, 1)
@@ -892,9 +892,9 @@ export class Noydb {
    *
    * The walk is a two-step pipeline: first ask the adapter for the
    * universe of compartments it stores, then for each one attempt to
-   * load the calling user's keyring with the in-memory passphrase.
+   * load the calling user's keyring with the in-memory secret.
    * Compartments where the user has no keyring file (`NoAccessError`)
-   * or where the passphrase doesn't unwrap (`InvalidKeyError`) are
+   * or where the secret doesn't unwrap (`InvalidKeyError`) are
    * silently dropped from the result — the existence of those
    * compartments is **not** confirmed in the return value.
    *
@@ -915,15 +915,15 @@ export class Noydb {
    * **Known edge case.** A vault whose keyring file
    * happens to have an empty wrapped-DEKs map (because the owner
    * granted access before any collection was created) will pass the
-   * `loadKeyring` probe with *any* passphrase — there are no DEKs to
+   * `loadKeyring` probe with *any* secret — there are no DEKs to
    * unwrap, so the integrity-checked unwrap that normally rejects
-   * wrong passphrases never runs. The result is that an unrelated
+   * wrong secrets never runs. The result is that an unrelated
    * principal who happens to know the user-id and the vault
    * name can show up in `listAccessibleVaults()` as having
    * access to that empty vault. They cannot read any actual
    * data (their DEK set is empty), so this is a metadata leak
    * (vault name + user-id), not a content leak. Hardening this
-   * via a passphrase canary in the keyring file is a deferred
+   * via a secret canary in the keyring file is a deferred
    * follow-up.
    *
    * **Cost.** O(compartments × keyring-load) — one `loadKeyring`
@@ -971,7 +971,7 @@ export class Noydb {
 
     if (!this.options.secret) {
       throw new ValidationError(
-        'Noydb.listAccessibleVaults(): a secret (passphrase) is required ' +
+        'Noydb.listAccessibleVaults(): a secret (secret) is required ' +
           'when encryption is enabled.',
       )
     }
@@ -986,7 +986,7 @@ export class Noydb {
       // silently grant access to every empty vault in the
       // universe and is exactly the wrong shape for an enumeration
       // API). The two expected failure modes — no keyring file, or
-      // wrong passphrase — are caught and silently dropped so the
+      // wrong secret — are caught and silently dropped so the
       // return value never leaks existence.
       let keyring: UnlockedKeyring
       try {
@@ -1166,17 +1166,17 @@ export class Noydb {
   }
 
   /**
-   * Change the current user's passphrase for a vault.
+   * Change the current user's secret for a vault.
    *
-   * Validates the new passphrase against the strength rules. Pass
-   * `{ allowWeakPassphrase: true }` to skip — typically only useful for
-   * fixtures and migrations. Pass a `PassphrasePolicy` to override the
+   * Validates the new secret against the strength rules. Pass
+   * `{ allowWeakSecret: true }` to skip — typically only useful for
+   * fixtures and migrations. Pass a `SecretPolicy` to override the
    * default rules (e.g. consumer-tunable `pattern` / `customValidator`).
    */
   async changeSecret(
     vault: string,
-    newPassphrase: string,
-    options?: PassphrasePolicy & { allowWeakPassphrase?: boolean },
+    newSecret: string,
+    options?: SecretPolicy & { allowWeakSecret?: boolean },
   ): Promise<void> {
     this.checkPolicyOperation(vault, 'changeSecret')
     const keyring = await this._getKeyringInternal(vault)
@@ -1184,7 +1184,7 @@ export class Noydb {
       this.options.store,
       vault,
       keyring,
-      newPassphrase,
+      newSecret,
       options,
     )
     this.keyringCache.set(vault, updated)
@@ -1769,7 +1769,7 @@ export class Noydb {
    * denial; resolves with `void` on success.
    *
    * @param vault    The vault whose policy applies.
-   * @param gate     Gate name — built-in (e.g. `'rotate-passphrase'`)
+   * @param gate     Gate name — built-in (e.g. `'rotate-secret'`)
    *                 or app-defined (`app:*`).
    * @param presented Caller-supplied factor proofs.
    */
@@ -1805,12 +1805,12 @@ export class Noydb {
    * Two enforcement modes:
    *
    * 1. **Managed-mode mandatory strong-recovery.** When
-   *    `passphraseMode === 'managed'`, the vault MUST have at least
+   *    `secretMode === 'managed'`, the vault MUST have at least
    *    one **strong** recovery profile (Shamir today). Paper alone is
    *    rejected because under managed mode the user has no memorized
-   *    passphrase, so losing the paper sheet = losing every record.
+   *    secret, so losing the paper sheet = losing every record.
    *    This check is unconditional — independent of `requireRecovery`
-   *    and the `recover-passphrase` gate.
+   *    and the `recover-secret` gate.
    *
    * 2. **Opt-in strict mandatory-recovery.** When
    *    `requireRecovery: true` is set on createNoydb (and the gate is
@@ -1828,14 +1828,14 @@ export class Noydb {
     opts?: { skipManagedCheck?: boolean },
   ): Promise<void> {
     const skipManaged = (opts?.skipManagedCheck ?? false) || this._skipNextManagedRecoveryCheck
-    if (this.options.passphraseMode === 'managed' && !skipManaged) {
+    if (this.options.secretMode === 'managed' && !skipManaged) {
       const enrolled = await hasStrongRecoveryEnrolled(this.options.store, vault)
       if (!enrolled) {
         throw new ManagedRecoveryNotEnrolledError(vault)
       }
     }
     if (this.options.requireRecovery !== true) return
-    const gate = policy.gates['recover-passphrase']
+    const gate = policy.gates['recover-secret']
     if (gate?.enabled === false) return
     const enrolled = await hasRecoveryEnrolled(this.options.store, vault)
     if (enrolled) return
@@ -1983,13 +1983,13 @@ export class Noydb {
     // always on the encrypted path here. Logic lives in team/keyring.ts.
     await assertKeyringOpenAllowed(this.options.store, vault, this.options.user, opts.create)
 
-    // Managed-passphrase mode — resolve the effective secret
+    // Managed-secret mode — resolve the effective secret
     // before falling into the normal load/create path. The first call
     // mints + seals + persists; subsequent calls unseal what's there.
     // The returned string takes the place of `options.secret` for the
     // rest of this method (and is NOT persisted on `this.options`).
     let effectiveSecret: string | undefined
-    if (this.options.passphraseMode === 'managed') {
+    if (this.options.secretMode === 'managed') {
       // sealingKey presence was validated at createNoydb time.
        
       effectiveSecret = await resolveManagedSecret(
@@ -2002,7 +2002,7 @@ export class Noydb {
     }
 
     if (!effectiveSecret) {
-      throw new ValidationError('A secret (passphrase) or getKeyring callback is required when encryption is enabled')
+      throw new ValidationError('A secret (secret) or getKeyring callback is required when encryption is enabled')
     }
 
     let keyring: UnlockedKeyring
@@ -2018,12 +2018,12 @@ export class Noydb {
           effectiveSecret,
           {
             // Managed mode generates 256-bit base64 strings that don't satisfy
-            // the human-passphrase strength rules (no spaces, no "words").
+            // the human-secret strength rules (no spaces, no "words").
             // Skip validation in managed mode — the entropy floor is already
             // 256 bits by construction.
-            validate: this.options.passphraseMode === 'managed'
+            validate: this.options.secretMode === 'managed'
               ? false
-              : this.options.validatePassphrase === true,
+              : this.options.validateSecret === true,
           },
         )
       } else if (err instanceof InvalidKeyError && this.options.onInvalidKey === 'reset') {
@@ -2038,9 +2038,9 @@ export class Noydb {
           this.options.user,
           effectiveSecret,
           {
-            validate: this.options.passphraseMode === 'managed'
+            validate: this.options.secretMode === 'managed'
               ? false
-              : this.options.validatePassphrase === true,
+              : this.options.validateSecret === true,
           },
         )
       } else {
@@ -2084,39 +2084,39 @@ export class Noydb {
 export async function createNoydb(options: NoydbOptions): Promise<Noydb> {
   if (!options.store) options = { ...options, store: memoryStore() }
   const encrypted = options.encrypt !== false
-  const managed = options.passphraseMode === 'managed'
+  const managed = options.secretMode === 'managed'
 
   if (options.secret && options.getKeyring) {
     throw new ValidationError('Provide either `secret` or `getKeyring`, not both')
   }
 
-  // Managed-passphrase mode — mutually exclusive with both
+  // Managed-secret mode — mutually exclusive with both
   // `secret` (the whole point is hub generates and seals; the user
   // doesn't supply one) and `getKeyring` (a custom unlock path that
   // bypasses the sealing flow entirely). Requires a SealingKeyProvider.
   if (managed) {
     if (options.secret) {
       throw new ValidationError(
-        '`passphraseMode: "managed"` is mutually exclusive with `secret` — '
-        + 'managed mode generates the passphrase itself. Drop `secret`.',
+        '`secretMode: "managed"` is mutually exclusive with `secret` — '
+        + 'managed mode generates the secret itself. Drop `secret`.',
       )
     }
     if (options.getKeyring) {
       throw new ValidationError(
-        '`passphraseMode: "managed"` is mutually exclusive with `getKeyring` — '
+        '`secretMode: "managed"` is mutually exclusive with `getKeyring` — '
         + 'a custom unlock callback would bypass the sealing flow. Drop `getKeyring`.',
       )
     }
     if (!options.sealingKey) {
       throw new ValidationError(
-        '`passphraseMode: "managed"` requires `sealingKey: SealingKeyProvider` '
+        '`secretMode: "managed"` requires `sealingKey: SealingKeyProvider` '
         + '(see @noy-db/seal-macos-keychain / @noy-db/seal-aws-kms / etc.).',
       )
     }
   }
 
   if (encrypted && !managed && !options.secret && !options.getKeyring) {
-    throw new ValidationError('A secret (passphrase) or getKeyring callback is required when encryption is enabled')
+    throw new ValidationError('A secret (secret) or getKeyring callback is required when encryption is enabled')
   }
 
   if (!options.coordinationStrategy) options = { ...options, coordinationStrategy: await createDefaultCoordinationProvider(options.store!) }

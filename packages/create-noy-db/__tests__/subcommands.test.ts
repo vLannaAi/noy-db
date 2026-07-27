@@ -2,18 +2,18 @@
  * Tests for the v0.5 CLI subcommands.
  *
  * Each subcommand is a pure function that accepts injected
- * dependencies (passphrase reader, Noydb factory, adapter factory),
+ * dependencies (secret reader, Noydb factory, adapter factory),
  * so these tests don't spawn a subprocess, don't need a real
  * terminal, and don't touch the filesystem (except for the backup
  * command, which writes to `os.tmpdir()` and cleans up).
  *
  * Coverage goals per command:
  *   rotate   — happy path, explicit collections list, auto-detect
- *              collections, passphrase prompt cancelled, wrong
- *              passphrase
+ *              collections, secret prompt cancelled, wrong
+ *              secret
  *   addUser  — owner happy path, operator with permissions,
- *              operator without permissions rejected, passphrase
- *              mismatch rejected, wrong caller passphrase
+ *              operator without permissions rejected, secret
+ *              mismatch rejected, wrong caller secret
  *   backup   — happy path writes a verifiable backup, rejects
  *              unsupported URI schemes, creates parent directories,
  *              resolves `file://` prefix, resolves plain paths
@@ -35,7 +35,7 @@ import { withHistory } from '@noy-db/hub/history'
 import { rotate } from '../src/commands/rotate.js'
 import { addUser } from '../src/commands/add-user.js'
 import { backup, resolveBackupTarget } from '../src/commands/backup.js'
-import type { ReadPassphrase } from '../src/commands/shared.js'
+import type { ReadSecret } from '../src/commands/shared.js'
 
 // ─── Shared in-memory adapter (same shape as other test files) ──────
 
@@ -89,21 +89,21 @@ function memory(): NoydbStore {
 }
 
 /**
- * Build a ReadPassphrase stub that returns the next queued answer
+ * Build a ReadSecret stub that returns the next queued answer
  * each time it's called. Test authors pass the sequence of
- * passphrases they expect the subcommand to ask for, in order.
+ * secrets they expect the subcommand to ask for, in order.
  *
  * If the subcommand prompts more times than the queue has entries,
  * the stub throws — this catches tests that accidentally regressed
  * the prompt count and would otherwise silently return `undefined`.
  */
-function scripted(...answers: string[]): ReadPassphrase {
+function scripted(...answers: string[]): ReadSecret {
   const queue = [...answers]
   return async (label: string) => {
     const next = queue.shift()
     if (next === undefined) {
       throw new Error(
-        `scripted(): ran out of passphrases at prompt "${label}" (consumed ${answers.length})`,
+        `scripted(): ran out of secrets at prompt "${label}" (consumed ${answers.length})`,
       )
     }
     return next
@@ -165,7 +165,7 @@ describe('noy-db rotate.', () => {
       dir: 'unused',
       vault: 'demo-co',
       user: 'owner-alice',
-      readPassphrase: scripted('alice-pass-1234'),
+      readSecret: scripted('alice-pass-1234'),
       buildAdapter: fx.buildAdapter,
     })
     // Data collections are rotated; internal collections (`_ledger`,
@@ -180,7 +180,7 @@ describe('noy-db rotate.', () => {
       vault: 'demo-co',
       user: 'owner-alice',
       collections: ['invoices'],
-      readPassphrase: scripted('alice-pass-1234'),
+      readSecret: scripted('alice-pass-1234'),
       buildAdapter: fx.buildAdapter,
     })
     expect(result.rotated).toEqual(['invoices'])
@@ -193,7 +193,7 @@ describe('noy-db rotate.', () => {
       dir: 'unused',
       vault: 'demo-co',
       user: 'owner-alice',
-      readPassphrase: scripted('alice-pass-1234'),
+      readSecret: scripted('alice-pass-1234'),
       buildAdapter: fx.buildAdapter,
     })
     // Reconnect via a fresh Noydb against the same (rotated) adapter.
@@ -209,13 +209,13 @@ describe('noy-db rotate.', () => {
     db.close()
   })
 
-  it('throws on a wrong passphrase', async () => {
+  it('throws on a wrong secret', async () => {
     await expect(
       rotate({
         dir: 'unused',
         vault: 'demo-co',
         user: 'owner-alice',
-        readPassphrase: scripted('wrong-pass'),
+        readSecret: scripted('wrong-pass'),
         buildAdapter: fx.buildAdapter,
       }),
     ).rejects.toThrow(InvalidKeyError)
@@ -236,7 +236,7 @@ describe('noy-db add user.', () => {
       newUserId: 'accountant-ann',
       role: 'operator',
       permissions: { invoices: 'rw' },
-      readPassphrase: scripted(
+      readSecret: scripted(
         'alice-pass-1234',    // caller
         'ann-pass-5678',       // new user
         'ann-pass-5678',       // confirm
@@ -255,11 +255,11 @@ describe('noy-db add user.', () => {
       newUserId: 'ann',
       role: 'operator',
       permissions: { invoices: 'rw', clients: 'ro' },
-      readPassphrase: scripted('alice-pass-1234', 'ann-pass', 'ann-pass'),
+      readSecret: scripted('alice-pass-1234', 'ann-pass', 'ann-pass'),
       buildAdapter: fx.buildAdapter,
     })
     // Try to open the vault as Ann. If the grant succeeded,
-    // this works with the new passphrase and NOT the old one.
+    // this works with the new secret and NOT the old one.
     const annDb = await realCreateNoydb({
       store: fx.adapter,
       user: 'ann',
@@ -279,13 +279,13 @@ describe('noy-db add user.', () => {
         callerUser: 'owner-alice',
         newUserId: 'ann',
         role: 'operator',
-        readPassphrase: scripted('alice-pass-1234', 'ann', 'ann'),
+        readSecret: scripted('alice-pass-1234', 'ann', 'ann'),
         buildAdapter: fx.buildAdapter,
       }),
     ).rejects.toThrow(/requires explicit --collections/)
   })
 
-  it('rejects on passphrase confirmation mismatch', async () => {
+  it('rejects on secret confirmation mismatch', async () => {
     await expect(
       addUser({
         dir: 'unused',
@@ -293,7 +293,7 @@ describe('noy-db add user.', () => {
         callerUser: 'owner-alice',
         newUserId: 'bob',
         role: 'admin',
-        readPassphrase: scripted(
+        readSecret: scripted(
           'alice-pass-1234',
           'bob-pass-first',
           'bob-pass-DIFFERENT',
@@ -303,7 +303,7 @@ describe('noy-db add user.', () => {
     ).rejects.toThrow(/do not match/)
   })
 
-  it('rejects on wrong caller passphrase', async () => {
+  it('rejects on wrong caller secret', async () => {
     await expect(
       addUser({
         dir: 'unused',
@@ -311,7 +311,7 @@ describe('noy-db add user.', () => {
         callerUser: 'owner-alice',
         newUserId: 'bob',
         role: 'admin',
-        readPassphrase: scripted(
+        readSecret: scripted(
           'WRONG-CALLER-PASS',
           'bob-pass',
           'bob-pass',
@@ -344,7 +344,7 @@ describe('noy-db backup.', () => {
       vault: 'demo-co',
       user: 'owner-alice',
       target,
-      readPassphrase: scripted('alice-pass-1234'),
+      readSecret: scripted('alice-pass-1234'),
       buildAdapter: fx.buildAdapter,
     })
     expect(result.path).toBe(target)
@@ -367,7 +367,7 @@ describe('noy-db backup.', () => {
       vault: 'demo-co',
       user: 'owner-alice',
       target,
-      readPassphrase: scripted('alice-pass-1234'),
+      readSecret: scripted('alice-pass-1234'),
       buildAdapter: fx.buildAdapter,
     })
     // File exists — the parent directory chain was created.
@@ -381,7 +381,7 @@ describe('noy-db backup.', () => {
       vault: 'demo-co',
       user: 'owner-alice',
       target: `file://${target}`,
-      readPassphrase: scripted('alice-pass-1234'),
+      readSecret: scripted('alice-pass-1234'),
       buildAdapter: fx.buildAdapter,
     })
     await expect(fs.access(target)).resolves.toBeUndefined()
@@ -399,7 +399,7 @@ describe('noy-db backup.', () => {
     )
   })
 
-  it('rejects on wrong passphrase', async () => {
+  it('rejects on wrong secret', async () => {
     const target = path.join(tmp, 'wont-exist.json')
     await expect(
       backup({
@@ -407,7 +407,7 @@ describe('noy-db backup.', () => {
         vault: 'demo-co',
         user: 'owner-alice',
         target,
-        readPassphrase: scripted('WRONG'),
+        readSecret: scripted('WRONG'),
         buildAdapter: fx.buildAdapter,
       }),
     ).rejects.toThrow(InvalidKeyError)

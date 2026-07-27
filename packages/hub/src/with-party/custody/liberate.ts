@@ -24,7 +24,7 @@
  * unseal the original sealed owner. The old sealed-owner credential is left
  * untouched and ORPHANED (its `_keyring/<id>` file remains, its KEK is still
  * sealed under the non-firm provider), never impersonated. The new owner is a
- * DISTINCT principal under a fresh KEK derived from `newOwnerPassphrase`. This
+ * DISTINCT principal under a fresh KEK derived from `newOwnerSecret`. This
  * preserves the inalienability floor: the act of claiming ownership is itself
  * auditable and produces a different principal, rather than silently assuming
  * the latent owner's identity.
@@ -54,8 +54,8 @@ import { loadDeedMarker, saveDeedMarker } from '../team/deed.js'
 export interface LiberateOptions {
   /** The id of the new owner principal the custodian mints by claiming ownership. */
   readonly newOwnerId: string
-  /** The passphrase that derives the new owner's KEK (the DEKs are re-wrapped under it). */
-  readonly newOwnerPassphrase: string
+  /** The secret that derives the new owner's KEK (the DEKs are re-wrapped under it). */
+  readonly newOwnerSecret: string
   /** Legal/contractual basis recorded in the audit (e.g. 'contractual-handover'). */
   readonly legalBasis: string
   readonly factors?: FactorProofBundle
@@ -105,7 +105,7 @@ export async function liberateVault(
   //    owner's fresh KEK. The old sealed owner is NOT unsealed — a DISTINCT
   //    principal is minted and the original owner credential is left orphaned
   //    (inalienability floor). Mirrors adopt-partition.ts's DEK re-wrap.
-  const newOwner = await createOwnerKeyring(adapter, vaultName, opts.newOwnerId, opts.newOwnerPassphrase)
+  const newOwner = await createOwnerKeyring(adapter, vaultName, opts.newOwnerId, opts.newOwnerSecret)
   if (!newOwner.kek) {
     throw new PermissionDeniedError(
       `new owner keyring for "${opts.newOwnerId}" has no KEK to re-wrap the incumbent DEKs under`,

@@ -44,7 +44,7 @@ function inlineMemory(): NoydbStore {
 describe('user envelope — policy gates (#22)', () => {
   // ─── edit-own-profile tightening ─────────────────────────────────────
 
-  it('default policy: updateMe succeeds for tier-1 (passphrase-unlocked) owner', async () => {
+  it('default policy: updateMe succeeds for tier-1 (secret-unlocked) owner', async () => {
     const store = inlineMemory()
     const db = await createNoydb({ teamStrategy: withTeam(),
       store,
@@ -130,7 +130,7 @@ describe('user envelope — policy gates (#22)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'viewer',
-      passphrase: 'bob-pass-2026-strong',
+      secret: 'bob-pass-2026-strong',
       initialProfile: { profile: { displayName: 'Bob' } } satisfies TestProfile,
     })
     setup.close()
@@ -156,7 +156,7 @@ describe('user envelope — policy gates (#22)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'viewer',
-      passphrase: 'bob-pass-2026-strong',
+      secret: 'bob-pass-2026-strong',
       initialProfile: { profile: { displayName: 'Bob' } } satisfies TestProfile,
     })
     // list() under enabled: false silently returns only self.
@@ -183,7 +183,7 @@ describe('user envelope — policy gates (#22)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'viewer',
-      passphrase: 'bob-pass-2026-strong',
+      secret: 'bob-pass-2026-strong',
       initialProfile: { profile: { displayName: 'Bob' } } satisfies TestProfile,
     })
     await expect(v.user.get<TestProfile>('bob')).rejects.toThrow(PolicyDeniedError)

@@ -74,7 +74,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
       const db = await createNoydb({
         store: memory(),
         user: 'alice',
-        secret: 'overlay-merge-passphrase-2026',
+        secret: 'overlay-merge-secret-2026',
         materializedViewStrategies: [baseMV],
         overlayedViewStrategies: [overlay],
       })
@@ -158,7 +158,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
       const db = await createNoydb({
         store: memory(),
         user: 'alice',
-        secret: 'overlay-write-passphrase-2026',
+        secret: 'overlay-write-secret-2026',
         materializedViewStrategies: [baseMV],
         overlayedViewStrategies: [overlay],
       })
@@ -194,7 +194,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
       const db = await createNoydb({
         store: memory(),
         user: 'alice',
-        secret: 'overlay-id-mismatch-passphrase-2026',
+        secret: 'overlay-id-mismatch-secret-2026',
         materializedViewStrategies: [baseMV],
         overlayedViewStrategies: [overlay],
       })
@@ -223,7 +223,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
       const db = await createNoydb({
         store: memory(),
         user: 'alice',
-        secret: 'overlay-delete-passphrase-2026',
+        secret: 'overlay-delete-secret-2026',
         materializedViewStrategies: [baseMV],
         overlayedViewStrategies: [overlay],
       })
@@ -263,7 +263,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
       const db = await createNoydb({
         store: memory(),
         user: 'alice',
-        secret: 'overlay-stub-passphrase-2026',
+        secret: 'overlay-stub-secret-2026',
         materializedViewStrategies: [baseMV],
         overlayedViewStrategies: [overlay],
       })
@@ -325,7 +325,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
         const db = await createNoydb({
           store: memory(),
           user: 'alice',
-          secret: 'overlay-collide-passphrase-2026',
+          secret: 'overlay-collide-secret-2026',
           materializedViewStrategies: [mv],
           overlayedViewStrategies: [ov],
         })
@@ -352,7 +352,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
         const db = await createNoydb({
           store: memory(),
           user: 'alice',
-          secret: 'overlay-virtual-base-passphrase-2026',
+          secret: 'overlay-virtual-base-secret-2026',
           overlayedViewStrategies: [ov1, ov2],
         })
         await db.openVault('demo')
@@ -377,7 +377,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
         const db = await createNoydb({
           store: memory(),
           user: 'alice',
-          secret: 'overlay-mv-as-overlay-passphrase-2026',
+          secret: 'overlay-mv-as-overlay-secret-2026',
           materializedViewStrategies: [mv],
           overlayedViewStrategies: [ov],
         })
@@ -423,7 +423,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
       const db = await createNoydb({
         store: memory(),
         user: 'alice',
-        secret: 'overlay-field-merge-passphrase-2026',
+        secret: 'overlay-field-merge-secret-2026',
         materializedViewStrategies: [baseMV],
         overlayedViewStrategies: [overlay],
       })
@@ -546,7 +546,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
       const db = await createNoydb({
         store: memory(),
         user: 'alice',
-        secret: 'overlay-rule-order-passphrase-2026',
+        secret: 'overlay-rule-order-secret-2026',
         materializedViewStrategies: [baseMV],
         overlayedViewStrategies: [overlay],
       })
@@ -582,7 +582,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
       const db = await createNoydb({
         store: memory(),
         user: 'alice',
-        secret: 'overlay-no-mergemode-passphrase-2026',
+        secret: 'overlay-no-mergemode-secret-2026',
         materializedViewStrategies: [baseMV],
         overlayedViewStrategies: [overlay],
       })

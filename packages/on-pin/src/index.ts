@@ -1,16 +1,16 @@
 /**
  * **@noy-db/on-pin** — session-resume PIN quick-lock for noy-db.
  *
- * The use case: after the user unlocks a vault with the full passphrase,
+ * The use case: after the user unlocks a vault with the full secret,
  * the session goes idle (screen lock, tab switch). Instead of re-entering
- * the full passphrase, the user types a 4–6 digit PIN (or taps their
+ * the full secret, the user types a 4–6 digit PIN (or taps their
  * device biometric) to **resume the already-open session**.
  *
  * ## What this is NOT
  *
- * This is **NOT** a passphrase replacement. If the vault is cold-started
+ * This is **NOT** a secret replacement. If the vault is cold-started
  * (fresh app launch, no prior unlock), a PIN alone cannot open it — the
- * KEK must be re-derived from the real passphrase via PBKDF2-600K.
+ * KEK must be re-derived from the real secret via PBKDF2-600K.
  *
  * ## Security model
  *
@@ -23,7 +23,7 @@
  *    keyring — they can only re-open THIS session's cached DEKs.
  * 3. **TTL-bounded.** Every `PinResumeState` has an `expiresAt`. After
  *    expiry, `resumePin()` throws; the user must re-enter the full
- *    passphrase.
+ *    secret.
  * 4. **Attempt-bounded.** After `maxAttempts` wrong PINs, the state
  *    refuses further attempts until re-enrolment.
  * 5. **Memory-scoped by convention.** The caller is responsible for
@@ -52,7 +52,7 @@
  * ```ts
  * import { enrollPin, resumePin } from '@noy-db/on-pin'
  *
- * // After the user has opened the vault with the full passphrase:
+ * // After the user has opened the vault with the full secret:
  * const state = await enrollPin(keyring, { pin: '1234', ttlMs: 15 * 60 * 1000 })
  * // Keep `state` in memory. Do not write it anywhere durable.
  *
@@ -110,7 +110,7 @@ export const PIN_DEFAULT_MAX_ATTEMPTS = 5
 
 /**
  * PBKDF2 iteration count for the PIN. Lower than the 600k used for
- * passphrase KEK derivation because (a) the window is short, (b) the
+ * secret KEK derivation because (a) the window is short, (b) the
  * attempt counter bounds online attacks, (c) the state is not
  * persisted in a public location. Do not lower this further without
  * also raising attempt-counter rigour.
@@ -129,7 +129,7 @@ export class PinInvalidError extends Error {
 
 export class PinExpiredError extends Error {
   readonly code = 'PIN_EXPIRED' as const
-  constructor(message = 'PIN resume window has expired; re-enter full passphrase.') {
+  constructor(message = 'PIN resume window has expired; re-enter full secret.') {
     super(message)
     this.name = 'PinExpiredError'
   }
@@ -137,7 +137,7 @@ export class PinExpiredError extends Error {
 
 export class PinAttemptsExceededError extends Error {
   readonly code = 'PIN_ATTEMPTS_EXCEEDED' as const
-  constructor(message = 'Too many wrong PIN attempts; re-enter full passphrase.') {
+  constructor(message = 'Too many wrong PIN attempts; re-enter full secret.') {
     super(message)
     this.name = 'PinAttemptsExceededError'
   }
@@ -246,7 +246,7 @@ export async function enrollPin(
  * The returned keyring has `kek: null` — PIN resume does NOT reconstruct
  * the KEK (by design). The DEKs are sufficient for normal reads and
  * writes; operations that require a KEK (opening additional vaults,
- * re-enrolling, key rotation) still need the full passphrase flow.
+ * re-enrolling, key rotation) still need the full secret flow.
  *
  * @throws `PinExpiredError` if the resume window has elapsed.
  * @throws `PinAttemptsExceededError` if `attempts >= maxAttempts`.

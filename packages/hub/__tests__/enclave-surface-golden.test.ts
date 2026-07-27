@@ -20,7 +20,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import * as enclave from '../src/kernel/enclave/index.js'
-import type { DeterministicContext, EnclaveKey, PassphraseKeyUsage, SealingContext } from '../src/kernel/enclave/index.js'
+import type { DeterministicContext, EnclaveKey, SecretKeyUsage, SealingContext } from '../src/kernel/enclave/index.js'
 import type { BrokerProofCanonicalParts, VerifyBrokerProofArgs, IssuedChallenge } from '../src/kernel/enclave/index.js'
 
 interface Surface {
@@ -77,7 +77,7 @@ describe('kernel/enclave — golden export surface (fork-swap contract)', () => 
 type _FrozenTypes = [
   DeterministicContext<unknown>,
   EnclaveKey,
-  PassphraseKeyUsage,
+  SecretKeyUsage,
   SealingContext,
   BrokerProofCanonicalParts,
   VerifyBrokerProofArgs,

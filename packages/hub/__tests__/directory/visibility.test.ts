@@ -50,7 +50,7 @@ describe('User-list visibility (#122)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'viewer',
-      passphrase: 'bob-pass-2026-strong',
+      secret: 'bob-pass-2026-strong',
     })
 
     // Bob marks himself hidden.
@@ -144,7 +144,7 @@ describe('User-list visibility (#122)', () => {
       userId: 'admin1',
       displayName: 'Admin One',
       role: 'admin',
-      passphrase: 'admin1-pass-2026-strong',
+      secret: 'admin1-pass-2026-strong',
     })
 
     const adminDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'admin1', secret: 'admin1-pass-2026-strong' })
@@ -174,7 +174,7 @@ describe('User-list visibility (#122)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'operator',
-      passphrase: 'bob-pass-2026-strong',
+      secret: 'bob-pass-2026-strong',
     })
     const bobDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: 'bob-pass-2026-strong' })
     const bobV = await bobDb.openVault('demo')
@@ -188,7 +188,7 @@ describe('User-list visibility (#122)', () => {
       userId: 'bob',
       displayName: 'Bob (fresh)',
       role: 'operator',
-      passphrase: 'bob-pass-redux-2026-strong',
+      secret: 'bob-pass-redux-2026-strong',
     })
 
     // Fresh listing — bob is NOT hidden anymore. The sidecar from the
@@ -214,7 +214,7 @@ describe('User-list visibility (#122)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'viewer',
-      passphrase: 'bob-pass-2026-strong',
+      secret: 'bob-pass-2026-strong',
     })
 
     // Bob marks himself hidden.
@@ -223,13 +223,13 @@ describe('User-list visibility (#122)', () => {
     await bobV.user.setMyVisibility({ hidden: true })
     bobDb.close()
 
-    // Alice peer-recovers Bob (resets passphrase but preserves identity).
+    // Alice peer-recovers Bob (resets secret but preserves identity).
     await aliceDb.team.recoverUser('demo', {
       userId: 'bob',
-      passphrase: 'temp-bob-recovered-2026-strong',
+      secret: 'temp-bob-recovered-2026-strong',
     })
 
-    // Bob re-opens with the temp passphrase. Visibility doc survived.
+    // Bob re-opens with the temp secret. Visibility doc survived.
     const bobAfter = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: 'temp-bob-recovered-2026-strong' })
     const bobAfterV = await bobAfter.openVault('demo')
     expect(await bobAfterV.user.getMyVisibility()).toEqual({ hidden: true })

@@ -1,6 +1,6 @@
 /**
  * Managed-mode adoption (#208 follow-up) — Plan 10. The recipient owner is
- * minted in managed mode (passphrase sealed under a SealingKeyProvider) with
+ * minted in managed mode (secret sealed under a SealingKeyProvider) with
  * mandatory strong (Shamir) recovery (#195), so the partition auto-unlocks on
  * the recipient's device.
  */
@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withCargo } from '../src/index.js'
 import { ConflictError } from '../src/kernel/errors.js'
-import { MemorySealingKeyProvider } from '../src/with-party/team/managed-passphrase.js'
+import { MemorySealingKeyProvider } from '../src/with-party/team/managed-secret.js'
 import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { extractPartition } from '../src/with-cargo/extract-partition.js'
@@ -78,13 +78,13 @@ async function extractAndAdopt() {
 }
 
 describe('managed-mode adoption', () => {
-  it('mints a managed owner (sealed passphrase + Shamir recovery); recipient auto-unlocks', async () => {
+  it('mints a managed owner (sealed secret + Shamir recovery); recipient auto-unlocks', async () => {
     const { dest, transferKey } = await extractAndAdopt()
     const provider = new MemorySealingKeyProvider({ id: 'belle-keychain' })
 
     const result = await createOwnerOnAdoptedPartition(dest, 'acme', {
       userId: 'belle',
-      passphraseMode: 'managed',
+      secretMode: 'managed',
       sealingKey: provider,
       recovery: [{ profile: 'shamir', k: 2, n: 3 }],
       shamirRecovery: shamirRecoveryProvider(),
@@ -92,11 +92,11 @@ describe('managed-mode adoption', () => {
     })
     expect(result).toEqual({ vaultName: 'acme', userId: 'belle' })
 
-    // The sealed passphrase is persisted; the recipient opens with NO passphrase
+    // The sealed secret is persisted; the recipient opens with NO secret
     // — just the same sealing provider (the at-* auto-unlock #198 motivates).
-    expect(await dest.get('acme', '_meta', 'sealed-passphrase')).toBeTruthy()
+    expect(await dest.get('acme', '_meta', 'sealed-secret')).toBeTruthy()
     const belleDb = await createNoydb({ cargoStrategy: withCargo(),
-      store: dest, user: 'belle', passphraseMode: 'managed',
+      store: dest, user: 'belle', secretMode: 'managed',
       sealingKey: provider, shamirRecovery: shamirRecoveryProvider(),
     })
     const vault = await belleDb.openVault('acme')
@@ -108,7 +108,7 @@ describe('managed-mode adoption', () => {
     await expect(
       createOwnerOnAdoptedPartition(dest, 'acme', {
         userId: 'belle',
-        passphraseMode: 'managed',
+        secretMode: 'managed',
         sealingKey: new MemorySealingKeyProvider({ id: 'belle-keychain' }),
         recovery: [{ profile: 'paper', entries: [] }], // paper alone is not strong
         shamirRecovery: shamirRecoveryProvider(),
@@ -135,7 +135,7 @@ describe('managed-mode adoption', () => {
 
     const opts = {
       userId: 'belle' as const,
-      passphraseMode: 'managed' as const,
+      secretMode: 'managed' as const,
       sealingKey: provider,
       recovery: [{ profile: 'shamir' as const, k: 2, n: 3 }],
       shamirRecovery: flaky,
@@ -152,7 +152,7 @@ describe('managed-mode adoption', () => {
 
     // Recovery is now enrolled and the partition auto-unlocks for the recipient.
     const belleDb = await createNoydb({ cargoStrategy: withCargo(),
-      store: dest, user: 'belle', passphraseMode: 'managed',
+      store: dest, user: 'belle', secretMode: 'managed',
       sealingKey: provider, shamirRecovery: real,
     })
     const vault = await belleDb.openVault('acme')
@@ -176,7 +176,7 @@ describe('managed-mode adoption', () => {
     await expect(
       createOwnerOnAdoptedPartition(dest, 'acme', {
         userId: 'belle',
-        passphraseMode: 'managed',
+        secretMode: 'managed',
         sealingKey: new MemorySealingKeyProvider({ id: 'belle-keychain' }),
         recovery: [{ profile: 'shamir', k: 2, n: 3 }],
         shamirRecovery: flaky,
@@ -186,16 +186,16 @@ describe('managed-mode adoption', () => {
 
     // Carol cannot claim the same adopted partition while belle's keyring is present.
     await expect(
-      createOwnerOnAdoptedPartition(dest, 'acme', { userId: 'carol', passphrase: 'carol-2026', transferKey }),
+      createOwnerOnAdoptedPartition(dest, 'acme', { userId: 'carol', secret: 'carol-2026', transferKey }),
     ).rejects.toThrow(/different owner/)
   })
 
-  it('still supports the standard passphrase arm unchanged', async () => {
+  it('still supports the standard secret arm unchanged', async () => {
     const { dest, transferKey } = await extractAndAdopt()
     const result = await createOwnerOnAdoptedPartition(dest, 'acme', {
-      userId: 'belle', passphrase: 'belle-2026', transferKey,
+      userId: 'belle', secret: 'belle-2026', transferKey,
     })
     expect(result).toEqual({ vaultName: 'acme', userId: 'belle' })
-    expect(await dest.get('acme', '_meta', 'sealed-passphrase')).toBeNull() // no sealing in standard mode
+    expect(await dest.get('acme', '_meta', 'sealed-secret')).toBeNull() // no sealing in standard mode
   })
 })

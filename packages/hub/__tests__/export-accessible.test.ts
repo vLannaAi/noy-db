@@ -43,15 +43,15 @@ describe('#199 P1 — exportMyAccessibleData', () => {
     await ov.collection<{ id: string; total: number }>('invoices').put('i1', { id: 'i1', total: 100 })
     await ov.collection<{ id: string; note: string }>('secrets').put('s1', { id: 's1', note: 'internal' })
     await owner.grant('acme', {
-      userId: 'client1', displayName: 'Client', role: 'client', passphrase: 'client-pw-long-enough',
+      userId: 'client1', displayName: 'Client', role: 'client', secret: 'client-pw-long-enough',
       permissions: { invoices: 'ro' },
     })
     owner.close()
 
-    // Client opens + exports their accessible scope, re-keyed to a new passphrase.
+    // Client opens + exports their accessible scope, re-keyed to a new secret.
     const client = await createNoydb({ teamStrategy: withTeam(), store, user: 'client1', secret: 'client-pw-long-enough', portabilityStrategy: withPortability() })
     const cv = await client.openVault('acme')
-    const bytes = await cv.user.exportMyAccessibleData({ reKey: { passphrase: 'new-owner-pw' } })
+    const bytes = await cv.user.exportMyAccessibleData({ reKey: { secret: 'new-owner-pw' } })
 
     const { dumpJson } = await readNoydbBundle(bytes)
     const cols = bundleCollections(dumpJson)

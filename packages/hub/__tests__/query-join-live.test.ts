@@ -83,7 +83,7 @@ describe('Query.live() with .join() — v0.6', () => {
     db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'live-join-test-passphrase-2026',
+      secret: 'live-join-test-secret-2026',
     })
     resetJoinWarnings()
   })

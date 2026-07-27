@@ -182,7 +182,7 @@ describe('vault.elevate', () => {
       userId: 'op',
       displayName: 'Op',
       role: 'operator',
-      passphrase: 'op-pw',
+      secret: 'op-pw',
       permissions: { docs: 'rw' },
     })
     await db.close()

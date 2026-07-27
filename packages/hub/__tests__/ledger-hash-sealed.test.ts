@@ -109,7 +109,7 @@ describe('#306 Slice C — envelopePayloadHash binds _sealed', () => {
     const db = await createNoydb({
       store,
       user: 'alice',
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
       historyStrategy: withHistory(),
     })
     const vault = await db.openVault('firm')
@@ -141,7 +141,7 @@ describe('#306 Slice C — envelopePayloadHash binds _sealed', () => {
     const db = await createNoydb({
       store,
       user: 'alice',
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
       historyStrategy: withHistory(),
     })
     const vault = await db.openVault('firm')
@@ -166,7 +166,7 @@ describe('#306 Slice C — envelopePayloadHash binds _sealed', () => {
     const db = await createNoydb({
       store,
       user: 'alice',
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
       historyStrategy: withHistory(),
     })
     const vault = await db.openVault('firm')

@@ -2,7 +2,7 @@
  * FR-6 — Deed: sealed / hidden-owner provisioning.
  *
  * A **Deed** is a vault owned by a *latent* principal who never
- * authenticates. The owner credential (the random passphrase that
+ * authenticates. The owner credential (the random secret that
  * derives `KEK_owner`) is minted machine-side and sealed under a
  * **non-firm** {@link SealingKeyProvider} — that sealing boundary is
  * the cryptographic *inalienability anchor*: whoever holds the
@@ -13,10 +13,10 @@
  *
  * Provisioning reuses the managed-mode seam:
  *   - {@link resolveManagedSecret} mints + seals + persists the random
- *     passphrase at `_meta/sealed-passphrase` (and unseals it on every
+ *     secret at `_meta/sealed-secret` (and unseals it on every
  *     subsequent open through the same provider).
  *   - {@link createOwnerKeyring} derives `KEK_owner` from that
- *     passphrase and writes the `_keyring/<ownerUserId>` file.
+ *     secret and writes the `_keyring/<ownerUserId>` file.
  *
  * On top of that, a Deed writes a `_meta/deed` **marker**. The marker
  * is PLAINTEXT metadata — it records WHO the latent owner is and WHICH
@@ -33,8 +33,8 @@ import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { createOwnerKeyring } from './keyring.js'
-import type { SealingKeyProvider } from './managed-passphrase.js'
-import { resolveManagedSecret } from './managed-passphrase.js'
+import type { SealingKeyProvider } from './managed-secret.js'
+import { resolveManagedSecret } from './managed-secret.js'
 
 /** Reserved id for the Deed marker under `_meta`. */
 export const DEED_RECORD_ID = 'deed' as const
@@ -76,7 +76,7 @@ interface DeedEnvelopePayload extends DeedMarker {
 
 /**
  * Provision a Deed: a latent owner whose credential is sealed under
- * `sealing` (a NON-firm provider). Mints + seals the owner passphrase
+ * `sealing` (a NON-firm provider). Mints + seals the owner secret
  * via {@link resolveManagedSecret}, derives the owner keyring via
  * {@link createOwnerKeyring}, then writes the plaintext `_meta/deed`
  * marker. Returns the unlocked owner keyring.
@@ -84,8 +84,8 @@ interface DeedEnvelopePayload extends DeedMarker {
  * The returned keyring is the only in-memory window onto `KEK_owner`
  * for this call; the persistent re-entry point is the sealing provider
  * (re-run {@link resolveManagedSecret} with the same provider to
- * re-resolve the passphrase, then {@link createOwnerKeyring}/load to
- * unlock — no interactive passphrase is ever required).
+ * re-resolve the secret, then {@link createOwnerKeyring}/load to
+ * unlock — no interactive secret is ever required).
  *
  * There is deliberately no firm-controlled fallback: the marker's
  * `sealedUnder` is the single cryptographic anchor of ownership.
@@ -96,13 +96,13 @@ export async function createDeedOwner(
   ownerUserId: string,
   sealing: SealingKeyProvider,
 ): Promise<UnlockedKeyring> {
-  // 1. Mint + seal + persist the random owner passphrase under the
-  //    non-firm provider (writes _meta/sealed-passphrase).
-  const passphrase = await resolveManagedSecret(store, vault, sealing)
+  // 1. Mint + seal + persist the random owner secret under the
+  //    non-firm provider (writes _meta/sealed-secret).
+  const secret = await resolveManagedSecret(store, vault, sealing)
 
-  // 2. Derive KEK_owner from the (never-human-seen) passphrase and
+  // 2. Derive KEK_owner from the (never-human-seen) secret and
   //    write the owner keyring file.
-  const keyring = await createOwnerKeyring(store, vault, ownerUserId, passphrase)
+  const keyring = await createOwnerKeyring(store, vault, ownerUserId, secret)
 
   // 3. Write the plaintext Deed marker. NOT sealed — it is audit
   //    metadata that must be readable without unlocking.
@@ -164,7 +164,7 @@ export async function isDeedVault(
 
 /**
  * Persist a {@link DeedMarker} at `_meta/deed`. Mirrors
- * `saveSealedPassphrase`'s envelope shape: a standard
+ * `saveSealedSecret`'s envelope shape: a standard
  * {@link EncryptedEnvelope} with AES-GCM bypassed (`_iv: ''`), the
  * payload stored as plaintext JSON in `_data`. The marker is metadata,
  * not a secret — sealing it would defeat its purpose (auditors /

@@ -41,7 +41,7 @@ async function openVault() {
   const db = await createNoydb({
     store: memory(),
     user: 'alice',
-    secret: 'money-collection-roundtrip-passphrase-2026-pilot3',
+    secret: 'money-collection-roundtrip-secret-2026-pilot3',
   })
   return db.openVault('books')
 }

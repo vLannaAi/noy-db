@@ -79,7 +79,7 @@ function memoryStore(): NoydbStore & { _data: Map<string, Map<string, Map<string
   }
 }
 
-const SECRET = 'sealed-cek-derived-passphrase-2026-pilot'
+const SECRET = 'sealed-cek-derived-secret-2026-pilot'
 
 describe('#306 Slice B — sealed fields keyed off the per-record CEK', () => {
   it('Test 1 — round-trips a sealed field; non-sealed field stays plain', async () => {

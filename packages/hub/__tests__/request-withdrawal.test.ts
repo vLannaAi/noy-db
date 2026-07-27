@@ -37,7 +37,7 @@ async function setup(store: NoydbStore, clientMode: 'rw' | 'ro' = 'ro') {
   await ov.collection<{ id: string; total: number }>('invoices').put('i1', { id: 'i1', total: 100 })
   await ov.collection<{ id: string; total: number }>('invoices').put('i2', { id: 'i2', total: 50 })
   await owner.grant('acme', {
-    userId: 'client1', displayName: 'Client', role: 'client', passphrase: 'client-pw-long-enough',
+    userId: 'client1', displayName: 'Client', role: 'client', secret: 'client-pw-long-enough',
     permissions: { invoices: clientMode },
   })
   const client = await createNoydb({ teamStrategy: withTeam(), store, user: 'client1', secret: 'client-pw-long-enough', portabilityStrategy: withPortability() })
@@ -59,7 +59,7 @@ describe('#199 P3 — two-party withdrawal', () => {
     expect(pending[0]!.collections).toEqual(['invoices'])
 
     // Owner approves → bundle handed back + records deleted under owner authority.
-    const { bundle, snapshot } = await ov.user.approveWithdrawal(requestId, { reKey: { passphrase: 'client-takeaway' } })
+    const { bundle, snapshot } = await ov.user.approveWithdrawal(requestId, { reKey: { secret: 'client-takeaway' } })
     expect(snapshot).toBeUndefined()
     const dump = JSON.parse((await readNoydbBundle(bundle)).dumpJson) as { collections?: Record<string, unknown> }
     expect(Object.keys(dump.collections ?? {})).toContain('invoices')
@@ -74,7 +74,7 @@ describe('#199 P3 — two-party withdrawal', () => {
   it('freeze disposition flows end-to-end through the request', async () => {
     const { ov, cv } = await setup(makeStore())
     const { requestId } = await cv.user.requestWithdrawal({ disposition: 'freeze', legalBasis: 'retention' })
-    const { snapshot } = await ov.user.approveWithdrawal(requestId, { reKey: { passphrase: 'p' } })
+    const { snapshot } = await ov.user.approveWithdrawal(requestId, { reKey: { secret: 'p' } })
     expect(snapshot).toBeTruthy()
     expect(snapshot!.recordCount).toBe(2)
     expect(snapshot!.sha256).toMatch(/^[0-9a-f]{64}$/)
@@ -104,8 +104,8 @@ describe('#199 P3 — two-party withdrawal', () => {
   it('a request cannot be approved twice', async () => {
     const { ov, cv } = await setup(makeStore())
     const { requestId } = await cv.user.requestWithdrawal({ legalBasis: 'gdpr-art-17' })
-    await ov.user.approveWithdrawal(requestId, { reKey: { passphrase: 'p' } })
-    await expect(ov.user.approveWithdrawal(requestId, { reKey: { passphrase: 'p' } }))
+    await ov.user.approveWithdrawal(requestId, { reKey: { secret: 'p' } })
+    await expect(ov.user.approveWithdrawal(requestId, { reKey: { secret: 'p' } }))
       .rejects.toBeInstanceOf(WithdrawalRequestError)
   })
 

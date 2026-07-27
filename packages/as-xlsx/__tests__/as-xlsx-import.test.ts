@@ -26,7 +26,7 @@ async function setup() {
   await init.openVault('demo')
   await init.grant('demo', {
     userId: 'alice', displayName: 'Alice', role: 'owner',
-    passphrase: 'pw-2026',
+    secret: 'pw-2026',
     importCapability: { plaintext: ['xlsx'] },
     exportCapability: { plaintext: ['xlsx'] },
   })
@@ -205,7 +205,7 @@ describe('as-xlsx fromBytes — apply() requires withTransactions()', () => {
     await init.openVault('demo')
     await init.grant('demo', {
       userId: 'alice', displayName: 'Alice', role: 'owner',
-      passphrase: 'pw-2026',
+      secret: 'pw-2026',
       importCapability: { plaintext: ['xlsx'] },
     })
     init.close()
@@ -291,7 +291,7 @@ describe('as-xlsx fromBytes — dict inversion (vault fallback)', () => {
     await init.openVault('demo')
     await init.grant('demo', {
       userId: 'alice', displayName: 'Alice', role: 'owner',
-      passphrase: 'pw-2026',
+      secret: 'pw-2026',
       importCapability: { plaintext: ['xlsx'] },
       exportCapability: { plaintext: ['xlsx'] },
     })

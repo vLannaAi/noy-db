@@ -24,7 +24,7 @@
  *   - Optional Nitro server proxy (`/api/_noydb/...`)
  *   - Optional Nitro scheduled backup task
  *   - `nuxi noydb` CLI extension
- *   - Eager Noydb instantiation (requires the user's passphrase callback,
+ *   - Eager Noydb instantiation (requires the user's secret callback,
  *     which can't be serialized through runtime config — better to let
  *     users call setActiveNoydb from their own setup file)
  */
@@ -75,11 +75,11 @@ export interface ModuleOptions {
 
   /**
    * Optional auth configuration metadata. Same passthrough pattern as
-   * `sync`. The user provides the actual passphrase / biometric callback
+   * `sync`. The user provides the actual secret / biometric callback
    * in their own setup file.
    */
   auth?: {
-    mode?: 'passphrase' | 'biometric' | 'session'
+    mode?: 'secret' | 'biometric' | 'session'
     sessionTimeout?: string
   }
 
@@ -142,7 +142,7 @@ export default defineNuxtModule<ModuleOptions>({
     // the client plugin (and any downstream composable) can read them
     // without re-parsing nuxt.config.ts. `public` is required so the
     // values reach the browser bundle — but EVERY field is metadata
-    // (store name, table name, etc.), NEVER a secret. Passphrases
+    // (store name, table name, etc.), NEVER a secret. Secrets
     // and tokens are still provided at runtime via user callbacks.
     nuxt.options.runtimeConfig.public.noydb = {
       // The cast is necessary because Nuxt's runtimeConfig type is

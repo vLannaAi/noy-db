@@ -8,7 +8,7 @@
  *      `defineNoydbStore` call can find it without manual wiring.
  *   4. Mount the Vue app.
  *
- * The passphrase prompt is deliberately simple — swap in a proper
+ * The secret prompt is deliberately simple — swap in a proper
  * modal once you've understood the flow.
  */
 
@@ -23,13 +23,13 @@ import './style.css'
 async function bootstrap(): Promise<void> {
   const pinia = createPinia()
 
-  // 1. Collect the passphrase. Reload = re-enter.
-  const passphrase =
+  // 1. Collect the secret. Reload = re-enter.
+  const secret =
     prompt(
-      'Enter passphrase for {{PROJECT_NAME}}\n\n' +
+      'Enter secret for {{PROJECT_NAME}}\n\n' +
         'Derives the master encryption key. Lose it and the data is unrecoverable.',
     ) ?? ''
-  if (passphrase.length === 0) {
+  if (secret.length === 0) {
     document.body.textContent = 'Cancelled — reload to try again.'
     return
   }
@@ -40,7 +40,7 @@ async function bootstrap(): Promise<void> {
   const db = await createNoydb({
     store: browserIdbStore({ prefix: '{{PROJECT_NAME}}' }),
     user: 'owner',
-    secret: passphrase,
+    secret: secret,
   })
   await db.openVault('demo')
 

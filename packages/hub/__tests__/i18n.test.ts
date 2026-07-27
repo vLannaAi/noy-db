@@ -185,7 +185,7 @@ describe('i18nText — Collection integration', () => {
     db = await createNoydb({
       store: memory(),
       user: 'alice', i18nStrategy: withI18n(),
-      secret: 'test-passphrase-i18n-1234',
+      secret: 'test-secret-i18n-1234',
     })
   })
 
@@ -471,7 +471,7 @@ describe('i18nText — nested field paths (Collection integration)', () => {
       store: memory(),
       user: 'alice',
       i18nStrategy: withI18n(),
-      secret: 'test-passphrase-nested-i18n',
+      secret: 'test-secret-nested-i18n',
     })
   })
 

@@ -20,7 +20,7 @@ import { encryptEntryWzAes, decryptEntryWzAes, ZipCipherError } from '../src/aes
 import { writeZip, readZip, type ZipEntry } from '../src/index.js'
 
 const PW = 'shared-with-recipient-2026'
-const ALT = 'wrong-passphrase'
+const ALT = 'wrong-secret'
 
 describe('encryptEntryWzAes / decryptEntryWzAes', () => {
   it('round-trips a small payload', async () => {

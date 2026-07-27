@@ -8,7 +8,7 @@
  * subpath (bundle-charged to team consumers, not the floor).
  *
  * Single-user primitives stay ungated: owner keyring creation, unlock,
- * `listUsers`, `updateUser`, passphrase rotate/recover.
+ * `listUsers`, `updateUser`, secret rotate/recover.
  */
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
@@ -50,7 +50,7 @@ describe('team opt-in gate (#267)', () => {
     const db = await createNoydb({ store: inlineMemory(), user: 'owner-01', secret: 'owner-pass' })
     await db.openVault(VAULT)
     await expect(
-      db.grant(VAULT, { userId: 'bob', displayName: 'Bob', role: 'operator', passphrase: 'bob-pass-long' }),
+      db.grant(VAULT, { userId: 'bob', displayName: 'Bob', role: 'operator', secret: 'bob-pass-long' }),
     ).rejects.toThrow(TeamNotEnabledError)
     await expect(db.revoke(VAULT, { userId: 'bob' })).rejects.toThrow(TeamNotEnabledError)
     await expect(db.rotate(VAULT, ['notes'])).rejects.toThrow(TeamNotEnabledError)
@@ -74,7 +74,7 @@ describe('team opt-in gate (#267)', () => {
     await notes.put('n1', { text: 'hello' })
 
     await db.grant(VAULT, {
-      userId: 'bob', displayName: 'Bob', role: 'operator', passphrase: 'bob-pass-long',
+      userId: 'bob', displayName: 'Bob', role: 'operator', secret: 'bob-pass-long',
       permissions: { notes: 'rw' },
     })
     const users = await db.listUsers(VAULT)

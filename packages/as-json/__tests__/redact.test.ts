@@ -62,7 +62,7 @@ async function makeVault() {
   await db.openVault('acme')
   await db.grant('acme', {
     userId: 'owner-01', displayName: 'Owner', role: 'owner',
-    passphrase: 'owner-pass',
+    secret: 'owner-pass',
     exportCapability: { plaintext: ['json'] },
   })
   await db.close()

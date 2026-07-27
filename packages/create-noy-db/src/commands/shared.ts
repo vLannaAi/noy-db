@@ -4,12 +4,12 @@
  *
  * Three things live here:
  *
- *   1. `ReadPassphrase` — a tiny interface for "prompt the user for
- *      a passphrase", with a test-friendly default. Subcommands take
+ *   1. `ReadSecret` — a tiny interface for "prompt the user for
+ *      a secret", with a test-friendly default. Subcommands take
  *      this as an injected dependency so tests can short-circuit
  *      the prompt without spawning a pty.
  *
- *   2. `defaultReadPassphrase` — the production implementation,
+ *   2. `defaultReadSecret` — the production implementation,
  *      built on `@clack/prompts` `password()`. Never echoes the
  *      value to the terminal, never logs it, clears it from the
  *      returned promise after the caller consumes it.
@@ -20,10 +20,10 @@
  * ## Why pull this out
  *
  * `rotate`, `addUser`, and `backup` all need the same "prompt for
- * a passphrase" shape and the same "open a file adapter and get
+ * a secret" shape and the same "open a file adapter and get
  * back a Noydb instance" shape. Duplicating it in three files would
  * drift over time; centralizing means one place to audit the
- * passphrase-handling contract (never log, never persist, clear
+ * secret-handling contract (never log, never persist, clear
  * local variables after use).
  */
 
@@ -33,28 +33,28 @@ import type { Role } from '@noy-db/hub'
 const VALID_ROLES = ['owner', 'admin', 'operator', 'viewer', 'client'] as const
 
 /**
- * Asynchronous passphrase reader. Production code passes
- * `defaultReadPassphrase`; tests pass a stub that returns a fixed
+ * Asynchronous secret reader. Production code passes
+ * `defaultReadSecret`; tests pass a stub that returns a fixed
  * string without touching stdin.
  *
  * The `label` is shown to the user as the prompt message. It
- * should never contain the expected passphrase or any secret.
+ * should never contain the expected secret or any secret.
  */
-export type ReadPassphrase = (label: string) => Promise<string>
+export type ReadSecret = (label: string) => Promise<string>
 
 /**
- * Clack-based passphrase prompt. Cancellation (Ctrl-C) aborts the
+ * Clack-based secret prompt. Cancellation (Ctrl-C) aborts the
  * process with exit code 1 — prompts are always the first thing to
  * fire in a subcommand, so aborting here doesn't leave the system
  * in a half-mutated state.
  */
-export const defaultReadPassphrase: ReadPassphrase = async (label) => {
+export const defaultReadSecret: ReadSecret = async (label) => {
   const value = await password({
     message: label,
     // Basic sanity: reject empty strings up front. We don't enforce
     // length here because the caller's KEK-derivation step will
-    // reject weak passphrases with its own, richer error.
-    validate: (v) => (v.length === 0 ? 'Passphrase cannot be empty' : undefined),
+    // reject weak secrets with its own, richer error.
+    validate: (v) => (v.length === 0 ? 'Secret cannot be empty' : undefined),
   })
   if (isCancel(value)) {
     cancel('Cancelled.')

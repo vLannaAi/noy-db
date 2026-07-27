@@ -85,7 +85,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'graph-edges-fixture-passphrase-2026',
+      secret: 'graph-edges-fixture-secret-2026',
       derivationStrategies: [pdfDerivation, rollup],
       materializedViewStrategies: [mv],
     })

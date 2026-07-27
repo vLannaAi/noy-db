@@ -74,7 +74,7 @@ interface Payment { id: string; invoiceId: string; amount: number }
 async function freshVault(): Promise<{ db: Noydb; vault: Vault; store: NoydbStore }> {
   const store = memoryStore()
   const db = await createNoydb({ store, secret: 'pw', user: 'owner' })
-  const vault = await db.openVault('acme', { passphrase: 'pw' })
+  const vault = await db.openVault('acme', { secret: 'pw' })
   return { db, vault, store }
 }
 

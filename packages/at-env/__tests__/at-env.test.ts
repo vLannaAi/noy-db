@@ -1,5 +1,5 @@
 /**
- * Tests for @noy-db/at-env — env-var sealing key provider for managed-passphrase mode.
+ * Tests for @noy-db/at-env — env-var sealing key provider for managed-secret mode.
  *
  * The provider implements the {@link SealingKeyProvider} contract from
  * @noy-db/hub: seal(bytes) → sealed bytes; unseal(sealed) → bytes.
@@ -25,11 +25,11 @@ describe('@noy-db/at-env — envSealingProvider', () => {
 
   it('seal → unseal round-trips arbitrary bytes', async () => {
     const p = envSealingProvider({ envVar: TEST_ENV })
-    const original = new TextEncoder().encode('the managed passphrase bytes')
+    const original = new TextEncoder().encode('the managed secret bytes')
     const sealed = await p.seal(original)
     expect(sealed).not.toEqual(original) // ciphertext differs
     const unsealed = await p.unseal(sealed)
-    expect(new TextDecoder().decode(unsealed)).toBe('the managed passphrase bytes')
+    expect(new TextDecoder().decode(unsealed)).toBe('the managed secret bytes')
   })
 
   it('produces different ciphertext for the same plaintext (fresh IV per seal)', async () => {
@@ -98,14 +98,14 @@ describe('@noy-db/at-env — envSealingProvider', () => {
   })
 })
 
-describe('@noy-db/at-env — integration with @noy-db/hub managed-passphrase mode', () => {
+describe('@noy-db/at-env — integration with @noy-db/hub managed-secret mode', () => {
   beforeEach(() => { process.env[TEST_ENV] = TEST_KEY_BASE64 })
   afterEach(() => { delete process.env[TEST_ENV] })
 
   // 30s timeout (#564): two full managed-mode opens = several 600K-PBKDF2
   // derivations plus first-import transform of three packages — legitimately
   // near the 5s vitest default when parallel suites compete for CPU.
-  it('round-trips a managed-mode vault end-to-end (no user passphrase typed)', async () => {
+  it('round-trips a managed-mode vault end-to-end (no user secret typed)', async () => {
     const { createNoydb } = await import('@noy-db/hub')
     const { memory } = await import('@noy-db/to-memory')
     const { shamirRecoveryProvider } = await import('@noy-db/on-shamir')
@@ -118,7 +118,7 @@ describe('@noy-db/at-env — integration with @noy-db/hub managed-passphrase mod
     // managed-mode vaults.
     const db1 = await createNoydb({
       store, user: 'alice',
-      passphraseMode: 'managed',
+      secretMode: 'managed',
       sealingKey: provider,
       shamirRecovery: shamirRecoveryProvider(),
     })
@@ -133,7 +133,7 @@ describe('@noy-db/at-env — integration with @noy-db/hub managed-passphrase mod
     // Second open — fresh provider built from the same env, unseal works.
     const db2 = await createNoydb({
       store, user: 'alice',
-      passphraseMode: 'managed',
+      secretMode: 'managed',
       sealingKey: envSealingProvider({ envVar: TEST_ENV }),
       shamirRecovery: shamirRecoveryProvider(),
     })

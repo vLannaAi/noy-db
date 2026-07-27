@@ -133,7 +133,7 @@ import {
   type OpenPeriodOptions,
 } from '../with-audit/periods/index.js'
 import { encrypt, openEnvelopeJson, hasPerRecordKey, SEALED_CEK_NS, type SealingContext, type EnclaveKey, isDeleteMarker, buildDeleteMarker, makeReservedEnvelopes } from './enclave/index.js'
-import type { RecipientSealer } from '../with-party/team/managed-passphrase.js'
+import type { RecipientSealer } from '../with-party/team/managed-secret.js'
 import {
   createExportBlobsHandle,
   EXPORT_AUDIT_COLLECTION,
@@ -275,7 +275,7 @@ export class Vault {
    */
   public readonly custody: CustodyApi
 
-  /** Re-derives an UnlockedKeyring from the adapter using the active user's passphrase; called by
+  /** Re-derives an UnlockedKeyring from the adapter using the active user's secret; called by
    *  `load()` after the on-disk keyring file has been replaced. Provided by Noydb at openVault()
    *  time; `undefined` in tests that construct Vault directly (load() then skips the refresh). */
   private readonly reloadKeyring: (() => Promise<UnlockedKeyring>) | undefined
@@ -1528,7 +1528,7 @@ export class Vault {
    * is re-keyed for distinct recipients.
    *
    * Each recipient becomes its own `KeyringFile` sealed with that
-   * recipient's passphrase. The DEKs wrapped into each slot are
+   * recipient's secret. The DEKs wrapped into each slot are
    * exactly those the recipient's role + permissions justify, and
    * never wider than the source keyring's own DEK set
    * (privilege-escalation check).
@@ -2886,14 +2886,14 @@ export class Vault {
     // The target user's KEK is derived from THEIR keyring — we read
     // the keyring file to pick up the wrapped DEKs and their KEK salt,
     // but we cannot derive their KEK from our side (we don't have
-    // their passphrase). For the delegation wraps against the
+    // their secret). For the delegation wraps against the
     // grantor's own KEK as a simpler first cut; swapping to a proper
     // per-target KEK exchange (via `on-magic-link` or OIDC) is a
     // follow-up tracked in the design doc.
     if (!this.keyring.kek) {
       throw new ValidationError(
         'issueDelegation: keyring.kek is null — issuing a delegation requires ' +
-          'a tier-1 unlock. Re-authenticate at tier 1 (passphrase) first.',
+          'a tier-1 unlock. Re-authenticate at tier 1 (secret) first.',
       )
     }
     const targetKek = this.keyring.kek

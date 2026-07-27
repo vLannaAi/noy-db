@@ -16,7 +16,7 @@ import {
 import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, InvalidKeyError, ValidationError, DirectoryDisabledError } from '../../kernel/errors.js'
 import { readDirectoryConfig } from '../directory/storage.js'
 import { readUserVisibility, deleteUserVisibility } from '../directory/visibility.js'
-import { assertStrongPassphrase, type PassphrasePolicy } from '../../kernel/validation.js'
+import { assertStrongSecret, type SecretPolicy } from '../../kernel/validation.js'
 import {
   saveUserEnvelope,
   loadUserEnvelope as loadUserEnvelopeFn,
@@ -101,7 +101,7 @@ export interface UnlockedKeyring {
   readonly permissions: Permissions
   readonly deks: Map<string, EnclaveKey>
   /**
-   * The KEK, when this keyring was unlocked via tier 1 (passphrase) or
+   * The KEK, when this keyring was unlocked via tier 1 (secret) or
    * a wrap-KEK tier-2 method (WebAuthn / OIDC). `null` when the
    * keyring was opened via:
    *
@@ -162,7 +162,7 @@ export interface UnlockedKeyring {
   readonly policy?: VaultPolicyOnDisk
 }
 
-// ─── Passphrase canary ─────────────────────────────────────────────────
+// ─── Secret canary ─────────────────────────────────────────────────
 //
 // The canary is a fixed 256-bit AES-GCM key (32 zero bytes), wrapped
 // under the keyring's KEK with AES-KW. Because AES-KW is deterministic
@@ -173,7 +173,7 @@ export interface UnlockedKeyring {
 //
 // On load, the canary unwraps cleanly iff the KEK is correct AND the
 // canary bytes on disk are intact. Combined with each-DEK try/catch,
-// this distinguishes wrong-passphrase (canary fails AND every DEK fails)
+// this distinguishes wrong-secret (canary fails AND every DEK fails)
 // from corruption (canary succeeds OR at least one DEK succeeds) —
 // closing the all-DEKs-corrupt and single-DEK ambiguities that the
 // pre-canary heuristic left open.
@@ -217,7 +217,7 @@ export async function loadKeyring(
   adapter: NoydbStore,
   vault: string,
   userId: string,
-  passphrase: string,
+  secret: string,
 ): Promise<UnlockedKeyring> {
   const envelope = await adapter.get(vault, '_keyring', userId)
 
@@ -229,7 +229,7 @@ export async function loadKeyring(
 
   //  — refuse to unwrap an expired slot. Check happens before any
   // KEK derivation so an expired slot doesn't leak timing on the
-  // passphrase. Comparison uses Date.parse → ms-since-epoch; an
+  // secret. Comparison uses Date.parse → ms-since-epoch; an
   // unparseable expires_at is treated as "no expiry" so a malformed
   // value can't silently lock users out (it'll surface in tests).
   if (keyringFile.expires_at !== undefined) {
@@ -240,7 +240,7 @@ export async function loadKeyring(
   }
 
   const salt = base64ToBuffer(keyringFile.salt)
-  const kek = await deriveKey(passphrase, salt)
+  const kek = await deriveKey(secret, salt)
 
   // Verify the canary first when present. A canary success proves the
   // KEK is correct independent of any DEK byte — so subsequent DEK
@@ -318,7 +318,7 @@ export async function loadKeyring(
  * `store.list`. Returns when the open may proceed (the caller is a member, or
  * the vault is genuinely-new and `create` is allowed, in which case the caller
  * falls through to the normal `createOwnerKeyring` path); throws `NoAccessError`
- * otherwise. Placed before managed-passphrase secret resolution (which persists
+ * otherwise. Placed before managed-secret secret resolution (which persists
  * on first open), so a fail-closed open writes nothing.
  */
 export async function assertKeyringOpenAllowed(
@@ -343,23 +343,23 @@ export async function assertKeyringOpenAllowed(
 /**
  * Create the initial owner keyring for a new vault.
  *
- * Pass `{ validate: true }` (or a `PassphrasePolicy`) to gate creation
+ * Pass `{ validate: true }` (or a `SecretPolicy`) to gate creation
  * on the phrase-format strength rules — `Noydb` threads this from
- * `NoydbOptions.validatePassphrase`. Direct callers (CLI, scripts,
+ * `NoydbOptions.validateSecret`. Direct callers (CLI, scripts,
  * test fixtures) opt in explicitly.
  */
 export async function createOwnerKeyring(
   adapter: NoydbStore,
   vault: string,
   userId: string,
-  passphrase: string,
-  passphraseOpts?: PassphrasePolicy & { validate?: boolean; allowWeakPassphrase?: boolean },
+  secret: string,
+  secretOpts?: SecretPolicy & { validate?: boolean; allowWeakSecret?: boolean },
 ): Promise<UnlockedKeyring> {
-  if (passphraseOpts?.validate && !passphraseOpts.allowWeakPassphrase) {
-    assertStrongPassphrase(passphrase, passphraseOpts)
+  if (secretOpts?.validate && !secretOpts.allowWeakSecret) {
+    assertStrongSecret(secret, secretOpts)
   }
   const salt = generateSalt()
-  const kek = await deriveKey(passphrase, salt)
+  const kek = await deriveKey(secret, salt)
 
   // Eager-provision the _users DEK at owner creation. This guarantees
   // every subsequent grant inherits it via the existing
@@ -414,7 +414,7 @@ export async function grant(
     throw new ValidationError(
       'grant: caller keyring has no KEK — tier-2 wrap-DEKs and tier-3 PIN-resume ' +
         'sessions cannot grant access to other users. Re-authenticate at tier 1 ' +
-        '(passphrase) before granting.',
+        '(secret) before granting.',
     )
   }
 
@@ -424,22 +424,22 @@ export async function grant(
     )
   }
 
-  // Optional strength validation — opt-in via grant({ validatePassphrase: true })
-  // or via the calling Noydb's NoydbOptions.validatePassphrase flag.
-  // The override `allowWeakPassphrase: true` skips even when validate is on.
+  // Optional strength validation — opt-in via grant({ validateSecret: true })
+  // or via the calling Noydb's NoydbOptions.validateSecret flag.
+  // The override `allowWeakSecret: true` skips even when validate is on.
   if (
-    (options as { validatePassphrase?: boolean }).validatePassphrase &&
-    !options.allowWeakPassphrase
+    (options as { validateSecret?: boolean }).validateSecret &&
+    !options.allowWeakSecret
   ) {
-    assertStrongPassphrase(options.passphrase)
+    assertStrongSecret(options.secret)
   }
 
   // Determine which collections the new user gets access to
   const permissions = resolvePermissions(options.role, options.permissions)
 
-  // Derive the new user's KEK from their passphrase
+  // Derive the new user's KEK from their secret
   const newSalt = generateSalt()
-  const newKek = await deriveKey(options.passphrase, newSalt)
+  const newKek = await deriveKey(options.secret, newSalt)
 
   // Only owner and admin may ever hold a secret-bearing reserved DEK
   // (`_sync_credentials`, `_broker`) — they are the roles the dedicated
@@ -883,7 +883,7 @@ export async function rotateKeys(
 
     const userKeyringFile = JSON.parse(userEnvelope._data) as KeyringFile
     // A user's DEKs are wrapped with that user's KEK, and a KEK derives only
-    // from the user's passphrase — the caller can never derive another user's
+    // from the user's secret — the caller can never derive another user's
     // KEK, so re-wrapping the new DEKs for them is impossible. Rotation
     // therefore REMOVES the rotated collections' DEK entries (and permissions)
     // from each remaining user's keyring: secure (revoked keys are gone) but
@@ -912,29 +912,29 @@ export async function rotateKeys(
 // ─── Change Secret ─────────────────────────────────────────────────────
 
 /**
- * Change the user's passphrase. Re-wraps every DEK under the new KEK.
+ * Change the user's secret. Re-wraps every DEK under the new KEK.
  *
- * Validates the new passphrase against the strength rules unless
- * `allowWeakPassphrase: true` is passed. Mirrors `rotatePassphrase`'s
+ * Validates the new secret against the strength rules unless
+ * `allowWeakSecret: true` is passed. Mirrors `rotateSecret`'s
  * default-on validation contract.
  *
- * `db.team.rotatePassphrase()` adds a `checkGate('rotate-passphrase')` step
- * on top of this primitive and additionally requires the OLD passphrase
+ * `db.team.rotateSecret()` adds a `checkGate('rotate-secret')` step
+ * on top of this primitive and additionally requires the OLD secret
  * for re-derivation; `changeSecret` reuses the cached unlocked KEK so
- * the OLD passphrase is not retyped.
+ * the OLD secret is not retyped.
  */
 export async function changeSecret(
   adapter: NoydbStore,
   vault: string,
   keyring: UnlockedKeyring,
-  newPassphrase: string,
-  passphraseOpts?: PassphrasePolicy & { allowWeakPassphrase?: boolean },
+  newSecret: string,
+  secretOpts?: SecretPolicy & { allowWeakSecret?: boolean },
 ): Promise<UnlockedKeyring> {
-  if (!passphraseOpts?.allowWeakPassphrase) {
-    assertStrongPassphrase(newPassphrase, passphraseOpts)
+  if (!secretOpts?.allowWeakSecret) {
+    assertStrongSecret(newSecret, secretOpts)
   }
   const newSalt = generateSalt()
-  const newKek = await deriveKey(newPassphrase, newSalt)
+  const newKek = await deriveKey(newSecret, newSalt)
 
   // Re-wrap all DEKs with the new KEK
   const wrappedDeks: Record<string, string> = {}
@@ -969,7 +969,7 @@ export async function changeSecret(
     // Tier-2 slots are NOT preserved through `changeSecret` —
     // each slot wraps the OLD KEK, so the new keyring has no
     // authenticator slots until the user re-enrolls. The higher-level
-    // `db.team.rotatePassphrase()` preserves slots by rewrapping the
+    // `db.team.rotateSecret()` preserves slots by rewrapping the
     // KEK reference, not the KEK itself.
     authenticators: [],
     ...(keyring.policy !== undefined && { policy: keyring.policy }),
@@ -980,7 +980,7 @@ export async function changeSecret(
 
 /**
  * Recipient slot in a re-keyed `.noydb` bundle. Each slot becomes its
- * own keyring file inside the bundle, sealed with its own passphrase.
+ * own keyring file inside the bundle, sealed with its own secret.
  * Same role/permission semantics as `db.grant()` but no adapter side
  * effect — the slot only exists inside the bundle bytes.
  *
@@ -991,8 +991,8 @@ export interface BundleRecipient {
   readonly id: string
   /** Optional display name. Defaults to `id`. */
   readonly displayName?: string
-  /** Passphrase the recipient will type to unlock. */
-  readonly passphrase: string
+  /** Secret the recipient will type to unlock. */
+  readonly secret: string
   /** Role on the destination vault. Defaults to `'viewer'`. */
   readonly role?: Role
   /**
@@ -1041,7 +1041,7 @@ export async function buildRecipientKeyringFile(
     throw new ValidationError(
       'buildRecipientKeyringFile: caller keyring has no KEK — tier-2 wrap-DEKs ' +
         'and tier-3 PIN-resume sessions cannot create bundle recipients. ' +
-        'Re-authenticate at tier 1 (passphrase) before building a bundle.',
+        'Re-authenticate at tier 1 (secret) before building a bundle.',
     )
   }
 
@@ -1049,7 +1049,7 @@ export async function buildRecipientKeyringFile(
   const permissions = resolvePermissions(role, recipient.permissions)
 
   const newSalt = generateSalt()
-  const newKek = await deriveKey(recipient.passphrase, newSalt)
+  const newKek = await deriveKey(recipient.secret, newSalt)
 
   const wrappedDeks: Record<string, string> = {}
 
@@ -1307,7 +1307,7 @@ export async function persistKeyring(
       'persistKeyring: keyring.kek is null — cannot wrap DEKs without the KEK. ' +
         'This typically means the keyring was opened via tier-3 PIN resume, ' +
         'session restore, or a wrap-DEKs tier-2 unlock. Re-authenticate at ' +
-        'tier 1 (passphrase) before persisting.',
+        'tier 1 (secret) before persisting.',
     )
   }
   const wrappedDeks: Record<string, string> = {}

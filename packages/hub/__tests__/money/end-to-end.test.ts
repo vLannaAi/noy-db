@@ -46,7 +46,7 @@ describe('money — invoice-shaped end-to-end', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'money-e2e-passphrase-2026-pilot3-invoices',
+      secret: 'money-e2e-secret-2026-pilot3-invoices',
       aggregateStrategy: withAggregate(),
     })
     const vault = await db.openVault('books')

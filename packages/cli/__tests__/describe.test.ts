@@ -51,7 +51,7 @@ async function buildSampleBundle(dir: string): Promise<string> {
   const db = await createNoydb({
     store: memoryStore(),
     user: 'owner@acme.example',
-    secret: 'test-passphrase-12345678',
+    secret: 'test-secret-12345678',
   })
   const vault = await db.openVault('acme')
   vault.collection<Invoice>('invoices', { schema: InvoiceSchema, persistJsonSchema: true })
@@ -77,7 +77,7 @@ describe('describeBundle — programmatic API', () => {
     const out = await describeBundle({
       bundlePath: path,
       user: 'owner@acme.example',
-      passphrase: 'test-passphrase-12345678',
+      secret: 'test-secret-12345678',
       format: 'yaml',
       withStats: false,
       schemas: 'none',
@@ -96,7 +96,7 @@ describe('describeBundle — programmatic API', () => {
     const out = await describeBundle({
       bundlePath: path,
       user: 'owner@acme.example',
-      passphrase: 'test-passphrase-12345678',
+      secret: 'test-secret-12345678',
       format: 'json',
       withStats: false,
       schemas: 'none',
@@ -117,7 +117,7 @@ describe('describeBundle — programmatic API', () => {
     const out = await describeBundle({
       bundlePath: path,
       user: 'owner@acme.example',
-      passphrase: 'test-passphrase-12345678',
+      secret: 'test-secret-12345678',
       format: 'json',
       withStats: false,
       schemas: 'none',
@@ -133,7 +133,7 @@ describe('describeBundle — programmatic API', () => {
     const out = await describeBundle({
       bundlePath: path,
       user: 'owner@acme.example',
-      passphrase: 'test-passphrase-12345678',
+      secret: 'test-secret-12345678',
       format: 'json',
       withStats: true,
       schemas: 'none',
@@ -151,7 +151,7 @@ describe('describeBundle — programmatic API', () => {
     const out = await describeBundle({
       bundlePath: path,
       user: 'owner@acme.example',
-      passphrase: 'test-passphrase-12345678',
+      secret: 'test-secret-12345678',
       format: 'json',
       withStats: false,
       schemas: 'full',
@@ -164,12 +164,12 @@ describe('describeBundle — programmatic API', () => {
     })
   })
 
-  it('rejects a wrong passphrase with a clear error', async () => {
+  it('rejects a wrong secret with a clear error', async () => {
     const path = await buildSampleBundle(dir)
     await expect(describeBundle({
       bundlePath: path,
       user: 'owner@acme.example',
-      passphrase: 'wrong-passphrase-not-the-real-one',
+      secret: 'wrong-secret-not-the-real-one',
       format: 'yaml',
       withStats: false,
       schemas: 'none',
@@ -183,7 +183,7 @@ describe('describeBundle — programmatic API', () => {
     const out = await describeBundle({
       bundlePath: path,
       user: 'owner@acme.example',
-      passphrase: 'test-passphrase-12345678',
+      secret: 'test-secret-12345678',
       format: 'json',
       withStats: false,
       schemas: 'none',

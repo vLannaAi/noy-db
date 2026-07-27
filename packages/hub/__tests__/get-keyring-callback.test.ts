@@ -1,7 +1,7 @@
 /**
  * Tests for `NoydbOptions.getKeyring` — the fix for issue #5
  * (biometric / WebAuthn / OIDC unlock paths producing UnlockedKeyring
- * cannot currently be plumbed into createNoydb without a passphrase
+ * cannot currently be plumbed into createNoydb without a secret
  * bridge).
  */
 
@@ -46,13 +46,13 @@ describe('NoydbOptions.getKeyring (issue #5)', () => {
     const adapter = inlineMemory()
     const VAULT = 'V1'
 
-    // Bootstrap: passphrase-based session writes a record to disk.
+    // Bootstrap: secret-based session writes a record to disk.
     const phaseOne = await createNoydb({ store: adapter, user: 'alice', secret: 'first-pass' })
     const v1 = await phaseOne.openVault(VAULT)
     await v1.collection<Note>('notes').put('n1', { title: 'hello' })
 
     // Now simulate biometric unlock: load the keyring out-of-band, then
-    // open a fresh Noydb instance using only the keyring (no passphrase).
+    // open a fresh Noydb instance using only the keyring (no secret).
     const keyring = await loadKeyring(adapter, VAULT, 'alice', 'first-pass')
 
     const phaseTwo = await createNoydb({
@@ -125,7 +125,7 @@ describe('NoydbOptions.getKeyring (issue #5)', () => {
     const adapter = inlineMemory()
     await expect(
       createNoydb({ store: adapter, user: 'alice' }),
-    ).rejects.toThrow(/passphrase\) or getKeyring/)
+    ).rejects.toThrow(/secret\) or getKeyring/)
   })
 
   it('still allows encrypt: false without secret OR getKeyring', async () => {
@@ -180,7 +180,7 @@ describe('NoydbOptions.getKeyring (issue #5)', () => {
   it('different vaults invoke the callback independently', async () => {
     const adapter = inlineMemory()
 
-    // Bootstrap two vaults under the same user with passphrase.
+    // Bootstrap two vaults under the same user with secret.
     const bootstrap = await createNoydb({ store: adapter, user: 'alice', secret: 'p' })
     const va = await bootstrap.openVault('VA')
     const vb = await bootstrap.openVault('VB')

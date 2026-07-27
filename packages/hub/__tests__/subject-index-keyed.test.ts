@@ -73,7 +73,7 @@ function memory(): NoydbStore & {
 }
 
 interface Invoice { id: string; buyerId: string; amount: number }
-const SECRET = 'subject-index-test-passphrase-1234'
+const SECRET = 'subject-index-test-secret-1234'
 
 async function buildDb(store: NoydbStore) {
   const db = await createNoydb({

@@ -81,7 +81,7 @@ describe('withTransactions amendment mode', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-amendment-ok-passphrase-2026',
+      secret: 'guards-amendment-ok-secret-2026',
       guardStrategies: [buildGuard()],
       txStrategy: withTransactions(),
     })
@@ -106,7 +106,7 @@ describe('withTransactions amendment mode', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-amendment-fail-passphrase-2026',
+      secret: 'guards-amendment-fail-secret-2026',
       guardStrategies: [buildGuard()],
       txStrategy: withTransactions(),
     })
@@ -127,7 +127,7 @@ describe('withTransactions amendment mode', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-amendment-no-strategies-passphrase-2026',
+      secret: 'guards-amendment-no-strategies-secret-2026',
       txStrategy: withTransactions(),
     })
     await db.openVault('demo')
@@ -142,7 +142,7 @@ describe('withTransactions amendment mode', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-amendment-no-reason-passphrase-2026',
+      secret: 'guards-amendment-no-reason-secret-2026',
       guardStrategies: [buildGuard()],
       txStrategy: withTransactions(),
     })
@@ -185,7 +185,7 @@ describe('withTransactions amendment mode', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-amendment-xread-passphrase-2026',
+      secret: 'guards-amendment-xread-secret-2026',
       guardStrategies: [lineGuard],
       txStrategy: withTransactions(),
     })
@@ -217,7 +217,7 @@ describe('withTransactions amendment mode', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-amendment-audit-passphrase-2026',
+      secret: 'guards-amendment-audit-secret-2026',
       guardStrategies: [buildGuard()],
       txStrategy: withTransactions(),
       historyStrategy: withHistory(),

@@ -40,7 +40,7 @@ import App from './App.vue';
 const db = await createNoydb({
   adapter: jsonFile({ dir: './data' }),
   user: 'owner',
-  secret: () => prompt('Passphrase')!,
+  secret: () => prompt('Secret')!,
 });
 
 setActiveNoydb(db);

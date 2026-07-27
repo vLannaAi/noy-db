@@ -4,7 +4,7 @@
  * FKs, MVs, overlays, derivations) with optional counters.
  *
  * Loads the bundle into an in-memory store, unlocks it with the
- * supplied passphrase + user, calls `vault.dumpSchema()`, then emits.
+ * supplied secret + user, calls `vault.dumpSchema()`, then emits.
  *
  * See `docs/superpowers/specs/2026-05-22-schema-dump-design.md`.
  *
@@ -37,7 +37,7 @@ export type SchemasMode = 'none' | 'full' | 'sidecar'
 export interface DescribeOptions {
   readonly bundlePath: string
   readonly user: string
-  readonly passphrase: string
+  readonly secret: string
   readonly format: DescribeFormat
   readonly withStats: boolean
   readonly schemas: SchemasMode
@@ -108,7 +108,7 @@ export async function describeBundle(opts: DescribeOptions): Promise<string> {
   const db = await createNoydb({
     store: memoryStore(),
     user: opts.user,
-    secret: opts.passphrase,
+    secret: opts.secret,
   })
   const vault = await db.openVault(compartmentName)
   await vault.load(dumpJson)
@@ -241,7 +241,7 @@ function emit(snapshot: SnapshotWithProvenance, format: DescribeFormat): string 
 interface ParsedArgs {
   bundlePath: string
   user?: string
-  passphrase?: string
+  secret?: string
   format: DescribeFormat
   withStats: boolean
   schemas: SchemasMode
@@ -276,10 +276,10 @@ function parseArgs(argv: readonly string[]): ParsedArgs | { error: string } {
       const v = argv[++i]
       if (v === undefined) return { error: '-o requires a value' }
       out.outPath = v
-    } else if (arg === '--passphrase') {
+    } else if (arg === '--secret') {
       const v = argv[++i]
-      if (v === undefined) return { error: '--passphrase requires a value' }
-      out.passphrase = v
+      if (v === undefined) return { error: '--secret requires a value' }
+      out.secret = v
     } else if (arg === '--user') {
       const v = argv[++i]
       if (v === undefined) return { error: '--user requires a value' }
@@ -315,7 +315,7 @@ function usage(): string {
     '                           - sidecar: write `<out>.schemas/<col>.schema.json` siblings',
     '  -o, --out <file>         write to file instead of stdout',
     '  --user <userId>          keyring user identifier (required)',
-    '  --passphrase <p>         decryption passphrase (or via NOYDB_PASSPHRASE env)',
+    '  --secret <p>         decryption secret (or via NOYDB_SECRET env)',
     '  --sample <n>             max records sampled when no persisted/live schema (default: 50)',
     '',
     'Exit codes: 0 ok, 1 internal error, 2 usage error, 3 auth failure',
@@ -332,14 +332,14 @@ export async function runDescribe(argv: readonly string[]): Promise<number> {
     process.stderr.write(`describe: ${parsed.error}\n\n${usage()}\n`)
     return 2
   }
-  const passphrase = parsed.passphrase ?? process.env.NOYDB_PASSPHRASE
-  if (!passphrase) {
-    process.stderr.write('describe: passphrase required — pass --passphrase or set NOYDB_PASSPHRASE env\n')
+  const secret = parsed.secret ?? process.env.NOYDB_SECRET
+  if (!secret) {
+    process.stderr.write('describe: secret required — pass --secret or set NOYDB_SECRET env\n')
     return 3
   }
-  if (parsed.passphrase) {
+  if (parsed.secret) {
     process.stderr.write(
-      '[noy-db] warning: --passphrase appears in shell history; consider NOYDB_PASSPHRASE env instead\n',
+      '[noy-db] warning: --secret appears in shell history; consider NOYDB_SECRET env instead\n',
     )
   }
   if (!parsed.user) {
@@ -351,7 +351,7 @@ export async function runDescribe(argv: readonly string[]): Promise<number> {
     const out = await describeBundle({
       bundlePath: parsed.bundlePath,
       user: parsed.user,
-      passphrase,
+      secret,
       format: parsed.format,
       withStats: parsed.withStats,
       schemas: parsed.schemas,
@@ -363,7 +363,7 @@ export async function runDescribe(argv: readonly string[]): Promise<number> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (/decrypt|tamper|wrong key|invalid/i.test(msg)) {
-      process.stderr.write(`describe: decryption failed — check --user and --passphrase\n  ${msg}\n`)
+      process.stderr.write(`describe: decryption failed — check --user and --secret\n  ${msg}\n`)
       return 3
     }
     process.stderr.write(`describe: ${msg}\n`)

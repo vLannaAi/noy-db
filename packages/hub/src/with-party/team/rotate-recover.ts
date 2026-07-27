@@ -1,12 +1,12 @@
 /**
- * Tier-1 change flows — `rotatePassphrase` (user remembers old) and
- * `recoverPassphrase` (user supplies a recovery proof).
+ * Tier-1 change flows — `rotateSecret` (user remembers old) and
+ * `recoverSecret` (user supplies a recovery proof).
  *
  * The two flows share the post-verification half — fresh salt, fresh
  * KEK, rewrap every DEK — and differ only in how they re-derive the
  * old KEK:
  *
- * - **Rotate**: derive from the supplied `oldPassphrase`.
+ * - **Rotate**: derive from the supplied `oldSecret`.
  * - **Recover (paper)**: unwrap from a `RecoveryCodeEntry` using a
  *   user-supplied recovery code. The entry is burned on success.
  *
@@ -38,7 +38,7 @@ import {
   type ShamirRecoveryEntry,
 } from './recovery.js'
 import type { ShamirRecoveryProvider } from './shamir-recovery-provider.js'
-import { assertStrongPassphrase, type PassphrasePolicy } from '../../kernel/validation.js'
+import { assertStrongSecret, type SecretPolicy } from '../../kernel/validation.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { mintKeyringCanary } from './keyring.js'
 import type { KeyringAuthenticator } from '../../kernel/types.js'
@@ -46,7 +46,7 @@ import type { EnrollAuthenticatorOptions } from './authenticators.js'
 import { ValidationError } from '../../kernel/errors.js'
 
 /**
- * Context handed to a {@link SlotRewrapCeremony} when `rotatePassphrase`
+ * Context handed to a {@link SlotRewrapCeremony} when `rotateSecret`
  * preserves a tier-2 slot. The ceremony's job is to re-derive its
  * method-specific wrapping material (PRF assertion, PBKDF2 of the
  * password, etc.) and wrap the freshly rewrapped DEK set under
@@ -79,7 +79,7 @@ export interface SlotRewrapContext {
 }
 
 /**
- * Callback that re-enrolls one tier-2 slot during `rotatePassphrase`.
+ * Callback that re-enrolls one tier-2 slot during `rotateSecret`.
  * Returns the new slot's `EnrollAuthenticatorOptions` — same shape
  * the consumer would pass to `db.enrollAuthenticator` for a fresh
  * enrollment. Hub persists the result atomically with the rotation.
@@ -88,19 +88,19 @@ export type SlotRewrapCeremony = (
   ctx: SlotRewrapContext,
 ) => Promise<EnrollAuthenticatorOptions>
 
-/** Caller payload for {@link rotatePassphrase}. */
-export interface RotatePassphraseInput {
-  readonly oldPassphrase: string
-  readonly newPassphrase: string
-  readonly passphrasePolicy?: PassphrasePolicy
-  readonly allowWeakPassphrase?: boolean
+/** Caller payload for {@link rotateSecret}. */
+export interface RotateSecretInput {
+  readonly oldSecret: string
+  readonly newSecret: string
+  readonly secretPolicy?: SecretPolicy
+  readonly allowWeakSecret?: boolean
   /**
    * Map of slot id → re-enrolment ceremony. Slots whose id appears
    * here are PRESERVED across rotation (the ceremony re-derives the
    * method-specific wrapping under the new keyring); slots whose id
    * is absent are DROPPED (the pre-slot-ceremony behavior).
    *
-   * Without this map, `rotatePassphrase` wipes every tier-2 slot. Consumers building a
+   * Without this map, `rotateSecret` wipes every tier-2 slot. Consumers building a
    * "rotate without losing my biometric" flow supply ceremonies for
    * each slot they want to keep.
    *
@@ -114,8 +114,8 @@ export interface RotatePassphraseInput {
 }
 
 /**
- * Re-derive the user's KEK from `oldPassphrase`, rewrap every DEK
- * under a freshly-derived KEK from `newPassphrase`, and persist.
+ * Re-derive the user's KEK from `oldSecret`, rewrap every DEK
+ * under a freshly-derived KEK from `newSecret`, and persist.
  *
  * Tier-2 authenticator slots are dropped UNLESS the caller supplies
  * a `slotCeremonies` map — each ceremony re-derives its
@@ -123,19 +123,19 @@ export interface RotatePassphraseInput {
  * the rewrapped slots atomically with the rotation. Slots whose id
  * isn't in the map are still dropped.
  *
- * @throws `InvalidKeyError` if `oldPassphrase` does not unwrap the keyring.
- * @throws `WeakPassphraseError` if `newPassphrase` fails the strength rule.
+ * @throws `InvalidKeyError` if `oldSecret` does not unwrap the keyring.
+ * @throws `WeakSecretError` if `newSecret` fails the strength rule.
  * @throws `ValidationError` if a ceremony's result mismatches the
  *         slot's id or method (anti-slot-swap guard).
  */
-export async function rotatePassphrase(
+export async function rotateSecret(
   store: NoydbStore,
   vault: string,
   userId: string,
-  input: RotatePassphraseInput,
+  input: RotateSecretInput,
 ): Promise<UnlockedKeyring> {
-  if (!input.allowWeakPassphrase) {
-    assertStrongPassphrase(input.newPassphrase, input.passphrasePolicy)
+  if (!input.allowWeakSecret) {
+    assertStrongSecret(input.newSecret, input.secretPolicy)
   }
 
   const env = await store.get(vault, '_keyring', userId)
@@ -144,17 +144,17 @@ export async function rotatePassphrase(
   }
   const file = JSON.parse(env._data) as KeyringFile
   const oldSalt = base64ToBuffer(file.salt)
-  const oldKek = await deriveKey(input.oldPassphrase, oldSalt)
+  const oldKek = await deriveKey(input.oldSecret, oldSalt)
 
   // Unwrap every DEK with the OLD KEK first — this also validates the
-  // passphrase (a bad KEK throws InvalidKeyError on the first unwrap).
+  // secret (a bad KEK throws InvalidKeyError on the first unwrap).
   const deks = new Map<string, EnclaveKey>()
   for (const [coll, wrapped] of Object.entries(file.deks)) {
     deks.set(coll, await unwrapKey(wrapped, oldKek))
   }
 
   const newSalt = generateSalt()
-  const newKek = await deriveKey(input.newPassphrase, newSalt)
+  const newKek = await deriveKey(input.newSecret, newSalt)
 
   // Rewrap with the new KEK.
   const wrappedDeks: Record<string, string> = {}
@@ -264,7 +264,7 @@ export async function rotatePassphrase(
 }
 
 /**
- * Caller payload for {@link recoverPassphrase}.
+ * Caller payload for {@link recoverSecret}.
  *
  * `paper` and `shamir` are wired end-to-end.
  * The remaining two profiles (`multi-channel`, `admin-mediated`)
@@ -282,11 +282,11 @@ export type RecoveryProof =
       readonly shares: ReadonlyArray<string>
     } }
 
-export interface RecoverPassphraseInput {
-  readonly newPassphrase: string
+export interface RecoverSecretInput {
+  readonly newSecret: string
   readonly recoveryProof: RecoveryProof
-  readonly passphrasePolicy?: PassphrasePolicy
-  readonly allowWeakPassphrase?: boolean
+  readonly secretPolicy?: SecretPolicy
+  readonly allowWeakSecret?: boolean
   /**
    * After a successful paper-recovery, replace ALL remaining recovery
    * entries with freshly-minted ones. Defaults to `true` (defensive).
@@ -331,29 +331,29 @@ export interface RecoverPassphraseInput {
 }
 
 /**
- * Return shape of `db.recoverPassphrase`. `newCodes` is populated when
+ * Return shape of `db.recoverSecret`. `newCodes` is populated when
  * `rotateRemainingCodes` was enabled and at least one entry was
  * rotated; an empty array means no rotation happened (rotation
  * disabled, or no remaining codes after burn). Show the codes to the
  * user once — they are the canonical credential for future recovery
  * and CANNOT be retrieved again.
  */
-export interface RecoverPassphraseResult {
+export interface RecoverSecretResult {
   readonly newCodes: readonly string[]
 }
 
 /**
  * Input for {@link Noydb.rotateRecovery} — deliberate
  * recovery-credential regeneration when the user knows their
- * passphrase but wants a fresh sheet (paper) or fresh shares
- * (shamir). Symmetric to {@link RotatePassphraseInput}.
+ * secret but wants a fresh sheet (paper) or fresh shares
+ * (shamir). Symmetric to {@link RotateSecretInput}.
  */
 export type RotateRecoveryOptions =
   | {
       readonly profile: 'paper'
       /** How many fresh codes to mint. Default: existing sheet size. */
       readonly count?: number
-      /** Optional code generator — see {@link RecoverPassphraseInput.codeGenerator}. */
+      /** Optional code generator — see {@link RecoverSecretInput.codeGenerator}. */
       readonly codeGenerator?: () => string
     }
   | {
@@ -425,22 +425,22 @@ export type RecoveryEnrollmentInput =
     }
 
 /**
- * Reset the user's passphrase using a recovery proof.
+ * Reset the user's secret using a recovery proof.
  * Supports `'paper'` and `'shamir'` profiles. The other profiles throw
  * {@link RecoveryProfileNotImplementedError}.
  *
  * On success, the used recovery entry is burned (deleted from the
  * stored set).
  */
-export async function recoverPassphrase(
+export async function recoverSecret(
   provider: ShamirRecoveryProvider | undefined,
   store: NoydbStore,
   vault: string,
   userId: string,
-  input: RecoverPassphraseInput,
+  input: RecoverSecretInput,
 ): Promise<UnlockedKeyring> {
-  if (!input.allowWeakPassphrase) {
-    assertStrongPassphrase(input.newPassphrase, input.passphrasePolicy)
+  if (!input.allowWeakSecret) {
+    assertStrongSecret(input.newSecret, input.secretPolicy)
   }
 
   // Runtime defense-in-depth: the type narrows to 'paper' | 'shamir',
@@ -464,7 +464,7 @@ async function recoverViaPaperCode(
   store: NoydbStore,
   vault: string,
   userId: string,
-  input: RecoverPassphraseInput,
+  input: RecoverSecretInput,
 ): Promise<UnlockedKeyring> {
   if (input.recoveryProof.profile !== 'paper') throw new Error('unreachable')
   const { code } = input.recoveryProof.payload
@@ -503,9 +503,9 @@ async function recoverViaPaperCode(
 
   const deks = recovered.deks
 
-  // Fresh salt + KEK from the new passphrase, rewrap.
+  // Fresh salt + KEK from the new secret, rewrap.
   const newSalt = generateSalt()
-  const newKek = await deriveKey(input.newPassphrase, newSalt)
+  const newKek = await deriveKey(input.newSecret, newSalt)
   const wrappedDeks: Record<string, string> = {}
   for (const [coll, dek] of deks) {
     wrappedDeks[coll] = await wrapKey(dek, newKek)
@@ -524,7 +524,7 @@ async function recoverViaPaperCode(
   // Burn first, then rewrite the keyring. The two writes are not
   // atomic — if the second fails, the safer ordering is:
   //
-  //   1. Code burned, keyring untouched: user keeps their old passphrase
+  //   1. Code burned, keyring untouched: user keeps their old secret
   //      and loses one recovery code (recoverable: contact admin / use
   //      another code).
   //
@@ -573,7 +573,7 @@ function normalizePaperCode(input: string): string {
  *    match the entry's parameters, then attempt
  *    `unwrapDeksFromShamirEntry`. AES-GCM auth-tag failure means
  *    the combined secret doesn't match — try the next entry.
- * 5. With unwrapped DEKs: derive fresh KEK from `newPassphrase` +
+ * 5. With unwrapped DEKs: derive fresh KEK from `newSecret` +
  *    fresh salt, rewrap, write the keyring.
  * 6. Shamir entries are NOT burned on recovery (shares reusable);
  *    explicit {@link Noydb.rotateRecovery} is the refresh ceremony.
@@ -583,7 +583,7 @@ async function recoverViaShamir(
   store: NoydbStore,
   vault: string,
   userId: string,
-  input: RecoverPassphraseInput,
+  input: RecoverSecretInput,
 ): Promise<UnlockedKeyring> {
   if (input.recoveryProof.profile !== 'shamir') throw new Error('unreachable')
   const { entryId: requestedEntryId, shares: shareStrings } = input.recoveryProof.payload
@@ -666,9 +666,9 @@ async function recoverViaShamir(
     )
   }
 
-  // Mint fresh KEK from new passphrase, rewrap DEKs (mirrors paper).
+  // Mint fresh KEK from new secret, rewrap DEKs (mirrors paper).
   const newSalt = generateSalt()
-  const newKek = await deriveKey(input.newPassphrase, newSalt)
+  const newKek = await deriveKey(input.newSecret, newSalt)
   const wrappedDeks: Record<string, string> = {}
   for (const [coll, dek] of recoveredDeks) {
     wrappedDeks[coll] = await wrapKey(dek, newKek)

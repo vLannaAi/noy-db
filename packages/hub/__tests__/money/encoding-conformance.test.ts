@@ -94,7 +94,7 @@ describe('money encoding conformance — every extension point sees the same can
 
     const db = await createNoydb({
       store: memory(), user: 'alice',
-      secret: 'money-conformance-passphrase-2026',
+      secret: 'money-conformance-secret-2026',
       guardStrategies: [guard],
       materializedViewStrategies: [mv],
       derivationStrategies: [derivation],
@@ -168,7 +168,7 @@ describe('money encoding conformance — every extension point sees the same can
     })
     const db = await createNoydb({
       store: memory(), user: 'alice',
-      secret: 'money-conformance-overlay-passphrase-2026',
+      secret: 'money-conformance-overlay-secret-2026',
       overlayedViewStrategies: [overlay],
     })
     const vault = await db.openVault('books')
@@ -198,7 +198,7 @@ describe('money encoding conformance — every extension point sees the same can
   it('where() + filter() compose: field clause in scaled space, callback sees decoded', async () => {
     const db = await createNoydb({
       store: memory(), user: 'alice',
-      secret: 'money-conformance-compose-passphrase-2026',
+      secret: 'money-conformance-compose-secret-2026',
     })
     const vault = await db.openVault('books')
     const col = vault.collection<Cert>('certs', {

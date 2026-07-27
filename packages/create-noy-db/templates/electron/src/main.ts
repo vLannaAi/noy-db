@@ -26,11 +26,11 @@ async function bootstrap(): Promise<void> {
     ? path.resolve('./.{{PROJECT_NAME}}-dev-vault')
     : path.resolve(process.resourcesPath ?? '.', '{{PROJECT_NAME}}-vault')
 
-  const passphrase = prompt(
-    'Enter passphrase for {{PROJECT_NAME}}\n\n' +
+  const secret = prompt(
+    'Enter secret for {{PROJECT_NAME}}\n\n' +
       'Master encryption key — lose it and the data is unrecoverable.',
   ) ?? ''
-  if (passphrase.length === 0) {
+  if (secret.length === 0) {
     document.body.textContent = 'Cancelled — reload to try again.'
     return
   }
@@ -38,7 +38,7 @@ async function bootstrap(): Promise<void> {
   const db = await createNoydb({
     store: jsonFile({ dir: baseDir }),
     user: 'owner',
-    secret: passphrase,
+    secret: secret,
   })
   await db.openVault('demo')
   setActiveNoydb(db)

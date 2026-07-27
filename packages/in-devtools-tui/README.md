@@ -14,13 +14,13 @@ pnpm add -D @noy-db/in-devtools-tui
 
 ## Usage
 
-Point the `noydb-inspect` bin at a config file that default-exports your `NoydbOptions`. It unlocks the vault (prompting for the passphrase, or reading `--passphrase=…` / `NOYDB_PASSPHRASE`), then opens a read-only terminal dashboard of collections, records, and live writes.
+Point the `noydb-inspect` bin at a config file that default-exports your `NoydbOptions`. It unlocks the vault (prompting for the secret, or reading `--secret=…` / `NOYDB_SECRET`), then opens a read-only terminal dashboard of collections, records, and live writes.
 
 ```bash
 npx noydb-inspect ./noydb.config.mjs --vault=acme
 ```
 
-Add `--meter` to wrap the store in [`@noy-db/to-meter`](https://www.npmjs.com/package/@noy-db/to-meter) and show live store metrics. Like the inspector core it wraps, the TUI is read-only and never persists your passphrase.
+Add `--meter` to wrap the store in [`@noy-db/to-meter`](https://www.npmjs.com/package/@noy-db/to-meter) and show live store metrics. Like the inspector core it wraps, the TUI is read-only and never persists your secret.
 
 ## Documentation
 

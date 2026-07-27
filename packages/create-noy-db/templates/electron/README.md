@@ -32,7 +32,7 @@ pnpm dev          # launches Electron with Vite HMR
 pnpm build        # builds the renderer + packages with electron-builder
 ```
 
-First launch prompts for a passphrase — that passphrase derives the
+First launch prompts for a secret — that secret derives the
 master encryption key. Lose it and the data is unrecoverable (by
 design: the library cannot help you recover it).
 

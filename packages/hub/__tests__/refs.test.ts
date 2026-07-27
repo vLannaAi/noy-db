@@ -168,7 +168,7 @@ describe('strict mode on put.', () => {
     db = await createNoydb({
       store: memory(),
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
   })
 
@@ -263,7 +263,7 @@ describe('strict mode on delete.', () => {
     db = await createNoydb({
       store: memory(),
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
   })
 
@@ -309,7 +309,7 @@ describe('warn mode.', () => {
     db = await createNoydb({
       store: memory(),
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
   })
 
@@ -356,7 +356,7 @@ describe('cascade mode.', () => {
     db = await createNoydb({
       store: memory(),
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
   })
 
@@ -422,7 +422,7 @@ describe('cascade mode.', () => {
     const txDb = await createNoydb({
       store: memory(),
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
       txStrategy: withTransactions(),
     })
     const company = await txDb.openVault('demo-co')
@@ -464,7 +464,7 @@ describe('cascade mode.', () => {
     const txDb = await createNoydb({
       store: memory(),
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
       txStrategy: withTransactions(),
     })
     const company = await txDb.openVault('demo-co')
@@ -533,7 +533,7 @@ describe('checkIntegrity.', () => {
     db = await createNoydb({
       store: memory(),
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
   })
 
@@ -622,7 +622,7 @@ describe('refArray() helper', () => {
 describe('refArray — strict on put', () => {
   let db: Noydb
   beforeEach(async () => {
-    db = await createNoydb({ store: memory(), user: 'alice', historyStrategy: withHistory(), secret: 'test-passphrase-1234' })
+    db = await createNoydb({ store: memory(), user: 'alice', historyStrategy: withHistory(), secret: 'test-secret-1234' })
   })
 
   it('allows put when every element target exists', async () => {
@@ -673,7 +673,7 @@ describe('refArray — strict on put', () => {
 describe('refArray — delete (strict / cascade / warn)', () => {
   let db: Noydb
   beforeEach(async () => {
-    db = await createNoydb({ store: memory(), user: 'alice', historyStrategy: withHistory(), secret: 'test-passphrase-1234' })
+    db = await createNoydb({ store: memory(), user: 'alice', historyStrategy: withHistory(), secret: 'test-secret-1234' })
   })
 
   it('strict: blocks delete of a target still referenced by any array', async () => {

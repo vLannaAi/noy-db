@@ -20,7 +20,7 @@
  *
  * The default session store reads an opaque session token from a
  * cookie (`noydb_session` by default) and passes it to the hub. The
- * token IS NOT the vault passphrase — it's a reference token that
+ * token IS NOT the vault secret — it's a reference token that
  * the hub resolves against its own session table. Tokens rotate on
  * every unlock and invalidate on logout.
  *
@@ -224,7 +224,7 @@ export function withNoydb<T extends Request, R>(
 
 /**
  * Server action helper — write a new session on login. Called from a
- * server action that validated the user's passphrase through
+ * server action that validated the user's secret through
  * `@noy-db/on-*` and received a session token back.
  */
 export async function writeSession(value: { userId: string; sessionToken: string; maxAgeSeconds?: number }): Promise<void> {

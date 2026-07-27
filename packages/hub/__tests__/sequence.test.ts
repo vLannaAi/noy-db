@@ -151,7 +151,7 @@ describe('#303 vault.sequence', () => {
     // withHistory() so the backup also carries a verifiable ledger head —
     // exercising the full dump()/load() round-trip end to end.
     const srcStore = memoryFaithful()
-    const srcDb = await createNoydb({ store: srcStore, user: 'owner', secret: 'passphrase', historyStrategy: withHistory(), sequenceStrategy: withSequence() })
+    const srcDb = await createNoydb({ store: srcStore, user: 'owner', secret: 'secret', historyStrategy: withHistory(), sequenceStrategy: withSequence() })
     const srcVault = await srcDb.openVault('acme')
     const seq = srcVault.sequence('invoice-2026')
     expect(await seq.next()).toBe(1)
@@ -161,7 +161,7 @@ describe('#303 vault.sequence', () => {
 
     // Target vault: restore from backup, then next() must continue at 4.
     const tgtStore = memoryFaithful()
-    const tgtDb = await createNoydb({ store: tgtStore, user: 'owner', secret: 'passphrase', historyStrategy: withHistory(), sequenceStrategy: withSequence() })
+    const tgtDb = await createNoydb({ store: tgtStore, user: 'owner', secret: 'secret', historyStrategy: withHistory(), sequenceStrategy: withSequence() })
     const tgtVault = await tgtDb.openVault('acme')
     await tgtVault.load(backupJson)
     // Counter must resume from 3, not reset to 0.

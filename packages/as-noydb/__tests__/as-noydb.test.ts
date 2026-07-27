@@ -49,7 +49,7 @@ async function seed(opts: { role?: 'owner' | 'operator'; bundle?: boolean } = {}
   if (opts.bundle !== undefined) {
     await db.grant('acme', {
       userId: 'u1', displayName: 'User', role,
-      passphrase: 'pw',
+      secret: 'pw',
       exportCapability: { bundle: opts.bundle },
     })
     await db.close()

@@ -64,7 +64,7 @@ describe('team integration — listUsersWithEnvelopes (#23)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'operator',
-      passphrase: 'bob-pass-2026-strong',
+      secret: 'bob-pass-2026-strong',
       permissions: { invoices: 'rw' },
       initialProfile: {
         profile: { displayName: 'Bob the Auditor', locale: 'fr-FR' },
@@ -75,7 +75,7 @@ describe('team integration — listUsersWithEnvelopes (#23)', () => {
       userId: 'carol',
       displayName: 'Carol',
       role: 'viewer',
-      passphrase: 'carol-pass-2026-strong',
+      secret: 'carol-pass-2026-strong',
       // No initialProfile — empty seed envelope.
     })
   })

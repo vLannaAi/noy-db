@@ -6,12 +6,12 @@
  * ------------
  * Wraps `noydb.grant()` in the CLI's auth-prompt ritual:
  *
- *   1. Prompt the caller for their own passphrase (to unlock the
+ *   1. Prompt the caller for their own secret (to unlock the
  *      caller's keyring and derive the wrapping key).
- *   2. Prompt for the new user's passphrase.
- *   3. Prompt for confirmation of the new passphrase.
+ *   2. Prompt for the new user's secret.
+ *   3. Prompt for confirmation of the new secret.
  *   4. Reject on mismatch.
- *   5. Call `noydb.grant(vault, { userId, role, passphrase, permissions })`.
+ *   5. Call `noydb.grant(vault, { userId, role, secret, permissions })`.
  *
  * For owner/admin/viewer roles, every collection is granted
  * automatically (the core keyring.ts grant logic handles that via
@@ -31,8 +31,8 @@
 import { withTeam } from '@noy-db/hub/team'
 import { createNoydb, type Noydb, type NoydbStore, type Role } from '@noy-db/hub'
 import { jsonFile } from '@noy-db/to-file'
-import type { ReadPassphrase } from './shared.js'
-import { defaultReadPassphrase } from './shared.js'
+import type { ReadSecret } from './shared.js'
+import { defaultReadSecret } from './shared.js'
 
 export interface AddUserOptions {
   /** Directory containing the vault data (file adapter only). */
@@ -57,8 +57,8 @@ export interface AddUserOptions {
    * converts it to this shape.
    */
   permissions?: Record<string, 'rw' | 'ro'>
-  /** Injected passphrase reader. Defaults to the clack implementation. */
-  readPassphrase?: ReadPassphrase
+  /** Injected secret reader. Defaults to the clack implementation. */
+  readSecret?: ReadSecret
   /** Injected Noydb factory. */
   createDb?: typeof createNoydb
   /** Injected adapter factory. */
@@ -73,12 +73,12 @@ export interface AddUserResult {
 }
 
 /**
- * Run the grant flow. Two passphrase prompts: caller's, then new
+ * Run the grant flow. Two secret prompts: caller's, then new
  * user's (twice for confirmation). Calls `noydb.grant()` with the
  * collected values.
  */
 export async function addUser(options: AddUserOptions): Promise<AddUserResult> {
-  const readPassphrase = options.readPassphrase ?? defaultReadPassphrase
+  const readSecret = options.readSecret ?? defaultReadSecret
   const buildAdapter = options.buildAdapter ?? ((dir) => jsonFile({ dir }))
   const createDb = options.createDb ?? createNoydb
 
@@ -94,18 +94,18 @@ export async function addUser(options: AddUserOptions): Promise<AddUserResult> {
     )
   }
 
-  const callerSecret = await readPassphrase(
-    `Your passphrase (${options.callerUser})`,
+  const callerSecret = await readSecret(
+    `Your secret (${options.callerUser})`,
   )
-  const newSecret = await readPassphrase(
-    `New passphrase for ${options.newUserId}`,
+  const newSecret = await readSecret(
+    `New secret for ${options.newUserId}`,
   )
-  const confirmSecret = await readPassphrase(
-    `Confirm passphrase for ${options.newUserId}`,
+  const confirmSecret = await readSecret(
+    `Confirm secret for ${options.newUserId}`,
   )
 
   if (newSecret !== confirmSecret) {
-    throw new Error(`Passphrases do not match — grant aborted.`)
+    throw new Error(`Secrets do not match — grant aborted.`)
   }
 
   let db: Noydb | null = null
@@ -128,7 +128,7 @@ export async function addUser(options: AddUserOptions): Promise<AddUserResult> {
       userId: options.newUserId,
       displayName: options.newUserDisplayName ?? options.newUserId,
       role: options.role,
-      passphrase: newSecret,
+      secret: newSecret,
       ...(options.permissions ? { permissions: options.permissions } : {}),
     }
 

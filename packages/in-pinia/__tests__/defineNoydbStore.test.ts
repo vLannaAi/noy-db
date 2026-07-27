@@ -69,7 +69,7 @@ async function makeNoydb(): Promise<Noydb> {
   return createNoydb({
     store: memory(),
     user: 'owner',
-    secret: 'pinia-test-passphrase-2026',
+    secret: 'pinia-test-secret-2026',
     attestationStrategy: withAttestation(),
   })
 }
@@ -494,7 +494,7 @@ describe('defineNoydbStore — i18nFields / dictKeyFields forwarding', () => {
       store: memory(),
       user: 'owner',
       i18nStrategy: withI18n(),
-      secret: 'pinia-i18n-test-passphrase',
+      secret: 'pinia-i18n-test-secret',
     })
     setActiveNoydb(db)
   })

@@ -50,7 +50,7 @@ describe('Derivation — eager lifecycle', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-eager-passphrase-2026',
+      secret: 'derivation-eager-secret-2026',
       derivationStrategies: [strategy],
     })
     const v = await db.openVault('demo')
@@ -71,7 +71,7 @@ describe('Derivation — eager lifecycle', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-rederive-passphrase-2026',
+      secret: 'derivation-rederive-secret-2026',
       derivationStrategies: [strategy],
     })
     const v = await db.openVault('demo')
@@ -96,7 +96,7 @@ describe('Derivation — eager lifecycle', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-multi-passphrase-2026',
+      secret: 'derivation-multi-secret-2026',
       derivationStrategies: [strategy],
     })
     const v = await db.openVault('demo')

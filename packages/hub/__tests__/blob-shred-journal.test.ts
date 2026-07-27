@@ -31,7 +31,7 @@ import {
   type BlobIntent,
 } from '../src/with-shape/blobs/blob-intent.js'
 
-const SECRET = 'blob-shred-journal-test-passphrase'
+const SECRET = 'blob-shred-journal-test-secret'
 const bytes = (s: string) => new TextEncoder().encode(s)
 
 // ─── Store ──────────────────────────────────────────────────────────────

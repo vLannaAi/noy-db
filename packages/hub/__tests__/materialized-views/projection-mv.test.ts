@@ -101,7 +101,7 @@ function billRowsMV(refresh: 'eager' | 'lazy' | 'manual' = 'eager') {
 }
 
 /** Open a vault with the niwat-shaped collections + refs declared. */
-async function openBillsVault(mv = billRowsMV(), secret = 'mv-projection-niwat-passphrase-2026') {
+async function openBillsVault(mv = billRowsMV(), secret = 'mv-projection-niwat-secret-2026') {
   const db = await createNoydb({
     store: memory(),
     user: 'alice',
@@ -173,7 +173,7 @@ describe('projection MV (#810) — niwat-shaped acceptance', () => {
   })
 
   it('forward-leg freshness: renaming the client refreshes the bill row', async () => {
-    const vault = await openBillsVault(billRowsMV(), 'mv-projection-fwd-fresh-passphrase-2026')
+    const vault = await openBillsVault(billRowsMV(), 'mv-projection-fwd-fresh-secret-2026')
     const clients = vault.collection<Client>('clients')
     const bills = vault.collection<Bill>('bills')
 
@@ -190,7 +190,7 @@ describe('projection MV (#810) — niwat-shaped acceptance', () => {
 
 describe('projection MV (#810) — freshness', () => {
   it('eager: a child (collect) write refreshes the bill row', async () => {
-    const vault = await openBillsVault(billRowsMV(), 'mv-projection-eager-child-passphrase-2026')
+    const vault = await openBillsVault(billRowsMV(), 'mv-projection-eager-child-secret-2026')
     const clients = vault.collection<Client>('clients')
     const bills = vault.collection<Bill>('bills')
     const receipts = vault.collection<Receipt>('receipts')
@@ -206,7 +206,7 @@ describe('projection MV (#810) — freshness', () => {
   })
 
   it('lazy: child write marks stale; first read materializes and clears the bit', async () => {
-    const vault = await openBillsVault(billRowsMV('lazy'), 'mv-projection-lazy-passphrase-2026')
+    const vault = await openBillsVault(billRowsMV('lazy'), 'mv-projection-lazy-secret-2026')
     const clients = vault.collection<Client>('clients')
     const bills = vault.collection<Bill>('bills')
     const receipts = vault.collection<Receipt>('receipts')
@@ -228,7 +228,7 @@ describe('projection MV (#810) — freshness', () => {
 
 describe('projection MV (#810) — map omission + empty collect arrays', () => {
   it('map null → primary row omitted; onEmpty delete tombstones it after a status flip', async () => {
-    const vault = await openBillsVault(billRowsMV(), 'mv-projection-null-omit-passphrase-2026')
+    const vault = await openBillsVault(billRowsMV(), 'mv-projection-null-omit-secret-2026')
     const clients = vault.collection<Client>('clients')
     const bills = vault.collection<Bill>('bills')
 
@@ -246,7 +246,7 @@ describe('projection MV (#810) — map omission + empty collect arrays', () => {
   })
 
   it('a primary row with no children gets empty collect arrays (not null)', async () => {
-    const vault = await openBillsVault(billRowsMV(), 'mv-projection-empty-collect-passphrase-2026')
+    const vault = await openBillsVault(billRowsMV(), 'mv-projection-empty-collect-secret-2026')
     await vault.collection<Client>('clients').put('c1', { id: 'c1', name: 'Acme' })
     await vault.collection<Bill>('bills').put('b1', { id: 'b1', clientId: 'c1', amount: 100, status: 'open' })
 
@@ -274,7 +274,7 @@ describe('projection MV (#810) — collect ceilings + ref requirement', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-projection-ceiling-passphrase-2026',
+      secret: 'mv-projection-ceiling-secret-2026',
       materializedViewStrategies: [mv],
     })
     const vault = await db.openVault('books')
@@ -304,7 +304,7 @@ describe('projection MV (#810) — collect ceilings + ref requirement', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-projection-noref-passphrase-2026',
+      secret: 'mv-projection-noref-secret-2026',
       materializedViewStrategies: [mv],
     })
     const vault = await db.openVault('books')
@@ -330,7 +330,7 @@ describe('projection MV (#810) — collect ceilings + ref requirement', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-projection-wrongref-passphrase-2026',
+      secret: 'mv-projection-wrongref-secret-2026',
       materializedViewStrategies: [mv],
     })
     const vault = await db.openVault('books')
@@ -474,7 +474,7 @@ describe('projection MV (#810) — cycle refusal', () => {
         const db = await createNoydb({
           store: memory(),
           user: 'alice',
-          secret: 'mv-projection-cycle-passphrase-2026',
+          secret: 'mv-projection-cycle-secret-2026',
           materializedViewStrategies: [proj, loop],
         })
         await db.openVault('books')
@@ -491,7 +491,7 @@ describe('projection MV (#810) — queryHash', () => {
       const db = await createNoydb({
         store,
         user: 'alice',
-        secret: 'mv-projection-hash-stable-passphrase-2026',
+        secret: 'mv-projection-hash-stable-secret-2026',
         materializedViewStrategies: [billRowsMV()],
       })
       const vault = await db.openVault('books')

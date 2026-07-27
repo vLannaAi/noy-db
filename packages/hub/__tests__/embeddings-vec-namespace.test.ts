@@ -72,7 +72,7 @@ const enc = (dim: number, model = 'stub') => ({
 })
 const ENCODER = enc(8)
 
-const SECRET = 'vec-namespace-passphrase-726'
+const SECRET = 'vec-namespace-secret-726'
 
 describe('#726 crash/clobber closed: same record id in two collections neither collides nor crashes similarTo() (NOT a disclosure bug)', () => {
   it('A.similarTo() returns only A\'s own "x" row — no TamperedError crash, no blending of B\'s content', async () => {

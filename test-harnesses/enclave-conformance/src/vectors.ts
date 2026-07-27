@@ -5,7 +5,7 @@
  * call — even under the same key + plaintext — produces different bytes),
  * so these vectors don't assert "the reference enclave still produces THIS
  * exact ciphertext". Instead they pin STRUCTURE + DECRYPTABILITY: a fixed
- * passphrase + salt deterministically re-derives the same KEK on every run
+ * secret + salt deterministically re-derives the same KEK on every run
  * (PBKDF2 is deterministic), which unwraps a fixed wrapped-DEK captured
  * below, which then must decrypt each captured envelope back to its known
  * plaintext. A fork that claims wire-compat with noy-db's reference codec
@@ -14,24 +14,31 @@
  *
  * Generated ONCE (2026-07-03) via a scratch script run against noy-db's
  * real enclave (`packages/hub/src/kernel/enclave/crypto.ts`) with the fixed
- * `passphrase` + `saltBase64` below, then deleted — see git history of this
+ * `secret` + `saltBase64` below, then deleted — see git history of this
  * file for the generator if it ever needs to be regenerated (e.g. the KDF
  * parameters change).
  */
 import type { EncryptedEnvelope } from '@noy-db/hub'
 
 export interface EnclaveVector {
-  /** Base64 AES-KW-wrapped DEK, wrapped under the KEK derived from `passphrase` + `salt`. */
+  /** Base64 AES-KW-wrapped DEK, wrapped under the KEK derived from `secret` + `salt`. */
   readonly wrappedDek: string
   readonly envelope: EncryptedEnvelope
   /** The exact JSON text `openEnvelopeJson` must recover. */
   readonly plaintext: string
 }
 
-/** Fixed passphrase all three vectors' DEKs are wrapped under. */
-export const VECTOR_PASSPHRASE = 'enclave-conformance-fixed-passphrase-v1'
+/**
+ * Fixed secret all three vectors' DEKs are wrapped under.
+ *
+ * The VALUE is frozen and deliberately still says "passphrase" after the
+ * #862 rename. These are known-answer vectors: the wrapped DEKs below were
+ * computed under this exact string, so changing it changes the derived KEK
+ * and nothing decrypts. Only the symbol was renamed.
+ */
+export const VECTOR_SECRET = 'enclave-conformance-fixed-passphrase-v1'
 
-/** Fixed 32-byte PBKDF2 salt (base64), paired with {@link VECTOR_PASSPHRASE}. */
+/** Fixed 32-byte PBKDF2 salt (base64), paired with {@link VECTOR_SECRET}. */
 export const VECTOR_SALT_BASE64 = 'RW5jbGF2ZUNvbmZvcm1hbmNlRml4ZWRTYWx0MTIzNDU2Nzg='
 
 /** Vector 1 — plain body, keyed directly off the (unwrapped) DEK. */

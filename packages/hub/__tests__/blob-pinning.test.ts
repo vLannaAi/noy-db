@@ -65,7 +65,7 @@ function payload(n: number, seed = 13): Uint8Array {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-const SECRET = 'passphrase-1234-long-enough'
+const SECRET = 'secret-1234-long-enough'
 
 describe('#808 — pin surface', () => {
   it('pin/unpin/isPinned round-trip on an internal slot', async () => {

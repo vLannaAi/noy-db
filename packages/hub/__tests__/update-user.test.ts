@@ -66,7 +66,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'viewer',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
     })
 
     const bobBefore = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
@@ -79,7 +79,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       permissions: { invoices: 'rw' },
     })
 
-    // Same passphrase still unlocks — KEK / salt / DEKs unchanged.
+    // Same secret still unlocks — KEK / salt / DEKs unchanged.
     const bobAfter = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
     expect(bobAfter.userId).toBe('bob')
     expect(bobAfter.displayName).toBe('Bob the Operator')
@@ -100,7 +100,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       userId: 'bob',
       displayName: 'Bob the Original',
       role: 'admin',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
     })
 
     await updateKeyringIdentity(store, 'acme', aliceKr, {
@@ -123,7 +123,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       userId: 'bob',
       displayName: 'Bob the Original',
       role: 'admin',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
     })
 
     await updateKeyringIdentity(store, 'acme', aliceKr, {
@@ -146,7 +146,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       userId: 'bob',
       displayName: 'Bob the Original',
       role: 'admin',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
     })
 
     // Update only role — displayName should survive.
@@ -170,7 +170,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'admin',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
     })
 
     // Inject a tier-2 slot directly into bob's keyring file (no real
@@ -211,7 +211,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'admin',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
     })
 
     await expect(
@@ -242,13 +242,13 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'admin',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
     })
     await grant(store, 'acme', aliceKr, {
       userId: 'carol',
       displayName: 'Carol',
       role: 'operator',
-      passphrase: CAROL_PHRASE,
+      secret: CAROL_PHRASE,
     })
     const bobKr = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
 
@@ -272,7 +272,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'admin',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
     })
     const bobKr = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
 
@@ -293,7 +293,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'admin',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
     })
     const bobKr = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
 
@@ -314,7 +314,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'operator',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
     })
     const bobKr = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
 
@@ -341,7 +341,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'operator',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
       permissions: { invoices: 'rw', clients: 'rw' },
     })
 
@@ -364,7 +364,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'operator',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
       permissions: { invoices: 'rw', clients: 'rw' },
     })
 
@@ -391,13 +391,13 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'admin',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
     })
     await grant(store, 'acme', aliceKr, {
       userId: 'carol',
       displayName: 'Carol',
       role: 'client',
-      passphrase: CAROL_PHRASE,
+      secret: CAROL_PHRASE,
     })
     const bobKr = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
 
@@ -421,7 +421,7 @@ describe('Noydb.updateUser (hub-level wiring, #54)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'viewer',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
     })
 
     await alice.updateUser('acme', {
@@ -453,7 +453,7 @@ describe('Noydb.updateUser (hub-level wiring, #54)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'admin',
-      passphrase: 'glasses cabinet bicycle umbrella thunder velvet picnic',
+      secret: 'glasses cabinet bicycle umbrella thunder velvet picnic',
     }, { factors: [{ kind: 'totp', mintedAt: new Date().toISOString() }] })
 
     // No factor proof — STRICT_POLICY's update-user gate requires totp/email-otp.

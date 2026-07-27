@@ -333,17 +333,17 @@ export async function saveBundle(
  * Read and verify a `.noydb` container from a local file.
  *
  * Returns the parsed header plus the unwrapped `dump()` JSON
- * string ready to feed to `vault.load(json, passphrase)`.
+ * string ready to feed to `vault.load(json, secret)`.
  * Throws `BundleIntegrityError` from `@noy-db/core` if the body
  * bytes don't match the integrity hash declared in the header
  * (the bundle was modified between write and read), or any
  * format error from the core reader if the bytes aren't a valid
  * bundle at all.
  *
- * Does NOT take a passphrase — the bundle reader is purely a
+ * Does NOT take a secret — the bundle reader is purely a
  * format layer. Restoring a vault from the returned dump
  * JSON requires a separate `vault.load()` call with the
- * passphrase, mirroring the split between
+ * secret, mirroring the split between
  * `readNoydbBundle()` and `vault.load()` in core.
  */
 export async function loadBundle(path: string): Promise<NoydbBundleReadResult> {

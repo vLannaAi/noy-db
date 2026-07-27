@@ -49,7 +49,7 @@ describe('MV lazy lifecycle + vault.refreshView (#151)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-lazy-passphrase-2026',
+      secret: 'mv-lazy-secret-2026',
       materializedViewStrategies: [lazyMV],
     })
     const vault = await db.openVault('demo')
@@ -81,7 +81,7 @@ describe('MV lazy lifecycle + vault.refreshView (#151)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-lazy-restale-passphrase-2026',
+      secret: 'mv-lazy-restale-secret-2026',
       materializedViewStrategies: [lazyMV],
     })
     const vault = await db.openVault('demo')
@@ -117,7 +117,7 @@ describe('MV lazy lifecycle + vault.refreshView (#151)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-manual-passphrase-2026',
+      secret: 'mv-manual-secret-2026',
       materializedViewStrategies: [manualMV],
     })
     const vault = await db.openVault('demo')
@@ -153,7 +153,7 @@ describe('MV lazy lifecycle + vault.refreshView (#151)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-refresh-clears-stale-passphrase-2026',
+      secret: 'mv-refresh-clears-stale-secret-2026',
       materializedViewStrategies: [lazyMV],
     })
     const vault = await db.openVault('demo')
@@ -172,7 +172,7 @@ describe('MV lazy lifecycle + vault.refreshView (#151)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-refresh-unknown-passphrase-2026',
+      secret: 'mv-refresh-unknown-secret-2026',
     })
     const vault = await db.openVault('demo')
     // No MVs registered — returns zero counts.
@@ -188,7 +188,7 @@ describe('MV lazy lifecycle + vault.refreshView (#151)', () => {
     const db2 = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-refresh-unknown-2-passphrase-2026',
+      secret: 'mv-refresh-unknown-2-secret-2026',
       materializedViewStrategies: [mv],
     })
     const v2 = await db2.openVault('demo')
@@ -205,7 +205,7 @@ describe('MV lazy lifecycle + vault.refreshView (#151)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-list-resolves-lazy-passphrase-2026',
+      secret: 'mv-list-resolves-lazy-secret-2026',
       materializedViewStrategies: [lazyMV],
     })
     const vault = await db.openVault('demo')
@@ -235,7 +235,7 @@ describe('MV lazy lifecycle + vault.refreshView (#151)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-refresh-deleted-count-passphrase-2026',
+      secret: 'mv-refresh-deleted-count-secret-2026',
       materializedViewStrategies: [mv],
     })
     const vault = await db.openVault('demo')

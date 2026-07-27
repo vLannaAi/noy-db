@@ -258,7 +258,7 @@ describe('bundle > round-trip with real compartment', () => {
     db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'bundle-test-passphrase-2026',
+      secret: 'bundle-test-secret-2026',
       // Bundle round-trip exercises vault.dump(); the history strategy
       // is what populates `ledgerHead` for tamper detection.
       historyStrategy: withHistory(),
@@ -408,7 +408,7 @@ describe('bundle > readNoydbBundleHeader (no decompression)', () => {
     db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'bundle-test-passphrase-2026',
+      secret: 'bundle-test-secret-2026',
     })
   })
 
@@ -446,7 +446,7 @@ describe('bundle > integrity tampering', () => {
     db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'bundle-test-passphrase-2026',
+      secret: 'bundle-test-secret-2026',
     })
   })
 
@@ -504,7 +504,7 @@ describe('bundle > handle stability across re-exports', () => {
     db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'bundle-test-passphrase-2026',
+      secret: 'bundle-test-secret-2026',
     })
   })
 
@@ -541,7 +541,7 @@ describe('bundle > handle stability across re-exports', () => {
     const db1 = await createNoydb({
       store: adapter,
       user: 'owner',
-      secret: 'bundle-test-passphrase-2026',
+      secret: 'bundle-test-secret-2026',
     })
     const c1 = await db1.openVault('TEST')
     const handle1 = await c1.getBundleHandle()
@@ -550,7 +550,7 @@ describe('bundle > handle stability across re-exports', () => {
     const db2 = await createNoydb({
       store: adapter,
       user: 'owner',
-      secret: 'bundle-test-passphrase-2026',
+      secret: 'bundle-test-secret-2026',
     })
     const c2 = await db2.openVault('TEST')
     const handle2 = await c2.getBundleHandle()

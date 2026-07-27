@@ -14,7 +14,7 @@ pnpm add @noy-db/hub @noy-db/on-threat
 
 ## What it is
 
-Threat-response primitives for noy-db — multi-attempt lockout, duress-passphrase data destruction, duress-passphrase honeypot decoy. Pure stateful helpers; the caller coordinates keyring + audit-ledger integration. Part of the @noy-db/on-* authentication family.
+Threat-response primitives for noy-db — multi-attempt lockout, duress-secret data destruction, duress-secret honeypot decoy. Pure stateful helpers; the caller coordinates keyring + audit-ledger integration. Part of the @noy-db/on-* authentication family.
 
 ## Status
 

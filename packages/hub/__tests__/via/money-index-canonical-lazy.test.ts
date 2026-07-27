@@ -48,7 +48,7 @@ interface Item extends Record<string, unknown> {
 const itemSchema = z.object({ id: z.string(), amount: z.union([z.number(), z.string()]) })
 
 const USER = 'alice'
-const PASS = 'money-index-canonical-lazy-passphrase-2026'
+const PASS = 'money-index-canonical-lazy-secret-2026'
 const VAULT = 'books'
 const COLL = 'items'
 
@@ -559,7 +559,7 @@ describe('lazy-mode queryable:"none" posture guard (#684 review-fix 1 — parity
 
   async function blobLazySession(adapter: NoydbStore) {
     const db = await createNoydb({
-      store: adapter, user: 'alice', secret: 'blob-lazy-posture-passphrase-2026',
+      store: adapter, user: 'alice', secret: 'blob-lazy-posture-secret-2026',
       indexStrategy: withIndexing(),
     })
     const vault = await db.openVault('docs-vault')

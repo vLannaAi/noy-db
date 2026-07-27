@@ -60,7 +60,7 @@ type Invoice = { id: string; amount: number; customer: string }
 const db = await createNoydb({
   store: memory(),
   userId: 'alice',
-  passphrase: 'correct horse battery staple',
+  secret: 'correct horse battery staple',
 })
 
 const acme = await db.openVault('acme')
@@ -85,7 +85,7 @@ When a single principal holds grants across many vaults — multi-tenant apps, m
 
 ### `db.listAccessibleVaults(options?)` — enumerate
 
-Returns every vault the calling principal can unwrap, optionally filtered by minimum role. The walk is bounded by the local keyring index — vaults where the user has no keyring file or where the passphrase doesn't unwrap are silently dropped from the result.
+Returns every vault the calling principal can unwrap, optionally filtered by minimum role. The walk is bounded by the local keyring index — vaults where the user has no keyring file or where the secret doesn't unwrap are silently dropped from the result.
 
 ```ts
 // All vaults I can unlock

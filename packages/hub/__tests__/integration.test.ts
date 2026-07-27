@@ -50,7 +50,7 @@ describe('integration: full lifecycle', () => {
       db = await createNoydb({
         store: memory(),
         user: 'owner-01',
-        secret: 'test-passphrase-12345',
+        secret: 'test-secret-12345',
         // Tests in this block exercise vault.dump() / load() round-trips;
         // the history strategy populates the ledger that vault.dump()
         // embeds for tamper detection.

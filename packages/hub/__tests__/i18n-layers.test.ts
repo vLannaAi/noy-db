@@ -79,7 +79,7 @@ describe('per-layer onMissing — guard layer (#285)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'i18n-layers-guard-passphrase-2026',
+      secret: 'i18n-layers-guard-secret-2026',
       i18nStrategy: withI18n(),
       guardStrategies: [orderGuard],
     })
@@ -98,7 +98,7 @@ describe('per-layer onMissing — guard layer (#285)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'i18n-layers-read-passphrase-2026',
+      secret: 'i18n-layers-read-secret-2026',
       i18nStrategy: withI18n(),
     })
     const v = await db.openVault('demo', { locale: 'en' })
@@ -120,7 +120,7 @@ describe('per-layer onMissing — guard layer (#285)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'i18n-layers-guard-default-passphrase-2026',
+      secret: 'i18n-layers-guard-default-secret-2026',
       i18nStrategy: withI18n(),
       guardStrategies: [orderGuard],
     })
@@ -160,7 +160,7 @@ describe('per-layer onMissing — derivation layer (#285)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'i18n-layers-derivation-passphrase-2026',
+      secret: 'i18n-layers-derivation-secret-2026',
       i18nStrategy: withI18n(),
       derivationStrategies: [summarize],
     })

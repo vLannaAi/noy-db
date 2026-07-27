@@ -2,7 +2,7 @@
  * PR4 — auto-rotate remaining recovery codes (#36).
  *
  * After a successful paper-recovery, the hub-level
- * `db.recoverPassphrase` defaults to replacing ALL remaining recovery
+ * `db.recoverSecret` defaults to replacing ALL remaining recovery
  * entries with freshly-minted ones. This closes the window where a
  * leaked-or-stolen recovery sheet has 7 still-valid codes after the
  * user reset their phrase.
@@ -13,7 +13,7 @@
  *   2. Old remaining codes are invalid post-rotation — the original 7
  *      codes that the user did NOT consume can no longer recover.
  *   3. New codes round-trip — using one of the `newCodes` works for
- *      a subsequent `db.recoverPassphrase`.
+ *      a subsequent `db.recoverSecret`.
  *   4. Opt-out — `rotateRemainingCodes: false` preserves the
  *      previous behavior (only the matched code burned).
  *   5. Custom code count — `newCodeCount: 10` mints exactly 10 codes
@@ -68,15 +68,15 @@ async function enrollCodes(db: Noydb, vault: string, count: number, codePrefix: 
   return codes
 }
 
-describe('db.recoverPassphrase auto-rotate (#36)', () => {
+describe('db.recoverSecret auto-rotate (#36)', () => {
   it('default: rotates 7 remaining codes after consuming 1 of 8', async () => {
     const store = inlineMemory()
     const db = await createNoydb({ store, user: 'alice', secret: ALICE_PHRASE })
     await db.openVault('acme')
     const enrolled = await enrollCodes(db, 'acme', 8, 'CODEA')
 
-    const result = await db.team.recoverPassphrase('acme', {
-      newPassphrase: PHRASE_AFTER_RECOVERY_1,
+    const result = await db.team.recoverSecret('acme', {
+      newSecret: PHRASE_AFTER_RECOVERY_1,
       recoveryProof: { profile: 'paper', payload: { code: enrolled[0]! } },
     })
 
@@ -92,8 +92,8 @@ describe('db.recoverPassphrase auto-rotate (#36)', () => {
     await db.openVault('acme')
     const enrolled = await enrollCodes(db, 'acme', 4, 'CODEB')
 
-    await db.team.recoverPassphrase('acme', {
-      newPassphrase: PHRASE_AFTER_RECOVERY_1,
+    await db.team.recoverSecret('acme', {
+      newSecret: PHRASE_AFTER_RECOVERY_1,
       recoveryProof: { profile: 'paper', payload: { code: enrolled[0]! } },
     })
 
@@ -102,8 +102,8 @@ describe('db.recoverPassphrase auto-rotate (#36)', () => {
     const reopen = await createNoydb({ store, user: 'alice', secret: PHRASE_AFTER_RECOVERY_1 })
     await reopen.openVault('acme')
     await expect(
-      reopen.team.recoverPassphrase('acme', {
-        newPassphrase: PHRASE_AFTER_RECOVERY_2,
+      reopen.team.recoverSecret('acme', {
+        newSecret: PHRASE_AFTER_RECOVERY_2,
         recoveryProof: { profile: 'paper', payload: { code: enrolled[1]! } },
       }),
     ).rejects.toBeInstanceOf(InvalidKeyError)
@@ -115,8 +115,8 @@ describe('db.recoverPassphrase auto-rotate (#36)', () => {
     await db.openVault('acme')
     const enrolled = await enrollCodes(db, 'acme', 3, 'CODEC')
 
-    const { newCodes } = await db.team.recoverPassphrase('acme', {
-      newPassphrase: PHRASE_AFTER_RECOVERY_1,
+    const { newCodes } = await db.team.recoverSecret('acme', {
+      newSecret: PHRASE_AFTER_RECOVERY_1,
       recoveryProof: { profile: 'paper', payload: { code: enrolled[0]! } },
     })
     expect(newCodes).toHaveLength(2)
@@ -126,8 +126,8 @@ describe('db.recoverPassphrase auto-rotate (#36)', () => {
     const reopen = await createNoydb({ store, user: 'alice', secret: PHRASE_AFTER_RECOVERY_1 })
     await reopen.openVault('acme')
     await expect(
-      reopen.team.recoverPassphrase('acme', {
-        newPassphrase: PHRASE_AFTER_RECOVERY_2,
+      reopen.team.recoverSecret('acme', {
+        newSecret: PHRASE_AFTER_RECOVERY_2,
         recoveryProof: { profile: 'paper', payload: { code: newCodes[0]! } },
       }),
     ).resolves.toMatchObject({ newCodes: expect.any(Array) })
@@ -139,8 +139,8 @@ describe('db.recoverPassphrase auto-rotate (#36)', () => {
     await db.openVault('acme')
     const enrolled = await enrollCodes(db, 'acme', 4, 'CODED')
 
-    const result = await db.team.recoverPassphrase('acme', {
-      newPassphrase: PHRASE_AFTER_RECOVERY_1,
+    const result = await db.team.recoverSecret('acme', {
+      newSecret: PHRASE_AFTER_RECOVERY_1,
       recoveryProof: { profile: 'paper', payload: { code: enrolled[0]! } },
       rotateRemainingCodes: false,
     })
@@ -156,8 +156,8 @@ describe('db.recoverPassphrase auto-rotate (#36)', () => {
     const reopen = await createNoydb({ store, user: 'alice', secret: PHRASE_AFTER_RECOVERY_1 })
     await reopen.openVault('acme')
     await expect(
-      reopen.team.recoverPassphrase('acme', {
-        newPassphrase: PHRASE_AFTER_RECOVERY_2,
+      reopen.team.recoverSecret('acme', {
+        newSecret: PHRASE_AFTER_RECOVERY_2,
         recoveryProof: { profile: 'paper', payload: { code: enrolled[1]! } },
         rotateRemainingCodes: false,
       }),
@@ -170,8 +170,8 @@ describe('db.recoverPassphrase auto-rotate (#36)', () => {
     await db.openVault('acme')
     const enrolled = await enrollCodes(db, 'acme', 3, 'CODEE')
 
-    const { newCodes } = await db.team.recoverPassphrase('acme', {
-      newPassphrase: PHRASE_AFTER_RECOVERY_1,
+    const { newCodes } = await db.team.recoverSecret('acme', {
+      newSecret: PHRASE_AFTER_RECOVERY_1,
       recoveryProof: { profile: 'paper', payload: { code: enrolled[0]! } },
       newCodeCount: 10,
     })
@@ -190,8 +190,8 @@ describe('db.recoverPassphrase auto-rotate (#36)', () => {
     let counter = 0
     const codeGenerator = () => `CUSTOMCODE${(counter++).toString().padStart(2, '0')}AAAA`
 
-    const { newCodes } = await db.team.recoverPassphrase('acme', {
-      newPassphrase: PHRASE_AFTER_RECOVERY_1,
+    const { newCodes } = await db.team.recoverSecret('acme', {
+      newSecret: PHRASE_AFTER_RECOVERY_1,
       recoveryProof: { profile: 'paper', payload: { code: enrolled[0]! } },
       codeGenerator,
     })
@@ -207,8 +207,8 @@ describe('db.recoverPassphrase auto-rotate (#36)', () => {
     await db.openVault('acme')
     const enrolled = await enrollCodes(db, 'acme', 1, 'CODEG')
 
-    const { newCodes } = await db.team.recoverPassphrase('acme', {
-      newPassphrase: PHRASE_AFTER_RECOVERY_1,
+    const { newCodes } = await db.team.recoverSecret('acme', {
+      newSecret: PHRASE_AFTER_RECOVERY_1,
       recoveryProof: { profile: 'paper', payload: { code: enrolled[0]! } },
     })
 

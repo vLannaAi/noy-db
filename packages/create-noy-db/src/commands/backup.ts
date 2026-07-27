@@ -30,7 +30,7 @@
  *   The dumped file is a valid noy-db backup, which means
  *   individual records are still encrypted but the keyring is
  *   included (wrapped with each user's KEK). Anyone who loads
- *   the backup still needs the correct passphrase to read.
+ *   the backup still needs the correct secret to read.
  * - No restore — that's a separate subcommand tracked as a
  *   follow-up. For now users can restore via
  *   `vault.load(backupString)` from their own app code.
@@ -41,8 +41,8 @@ import path from 'node:path'
 import { createNoydb, type Noydb, type NoydbStore } from '@noy-db/hub'
 import { withHistory } from '@noy-db/hub/history'
 import { jsonFile } from '@noy-db/to-file'
-import type { ReadPassphrase } from './shared.js'
-import { defaultReadPassphrase } from './shared.js'
+import type { ReadSecret } from './shared.js'
+import { defaultReadSecret } from './shared.js'
 
 export interface BackupOptions {
   /** Directory containing the vault data (file adapter only). */
@@ -56,8 +56,8 @@ export interface BackupOptions {
    * filesystem path. Relative paths resolve against `process.cwd()`.
    */
   target: string
-  /** Injected passphrase reader. */
-  readPassphrase?: ReadPassphrase
+  /** Injected secret reader. */
+  readSecret?: ReadSecret
   /** Injected Noydb factory. */
   createDb?: typeof createNoydb
   /** Injected adapter factory. */
@@ -96,17 +96,17 @@ export function resolveBackupTarget(target: string, cwd: string = process.cwd())
 }
 
 export async function backup(options: BackupOptions): Promise<BackupResult> {
-  const readPassphrase = options.readPassphrase ?? defaultReadPassphrase
+  const readSecret = options.readSecret ?? defaultReadSecret
   const buildAdapter = options.buildAdapter ?? ((dir) => jsonFile({ dir }))
   const createDb = options.createDb ?? createNoydb
 
   // Resolve the target FIRST so a bad URI fails before any
-  // passphrase is collected. This keeps the UX clean: a typo in
+  // secret is collected. This keeps the UX clean: a typo in
   // `s3://bucket/x` rejects without asking for a secret the user
   // would then have to type again.
   const absolutePath = resolveBackupTarget(options.target)
 
-  const secret = await readPassphrase(`Passphrase for ${options.user}`)
+  const secret = await readSecret(`Secret for ${options.user}`)
 
   let db: Noydb | null = null
   try {

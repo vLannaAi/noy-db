@@ -55,7 +55,7 @@ function memoryStore(): NoydbStore {
   }
 }
 
-const SECRET = 'tiers-indexing-passphrase-2026'
+const SECRET = 'tiers-indexing-secret-2026'
 
 /**
  * A lazy, tiered, indexed collection: `prefetch: false` (side-cars are

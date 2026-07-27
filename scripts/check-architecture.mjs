@@ -1085,8 +1085,8 @@ const KERNEL_SURFACE_BUDGET = {
   // Lowered 3085→3019 (Phase 5 A10: policy/session extraction): `attachPolicyEnforcer`/`touchPolicy`/`checkPolicyOperation`/`getPolicy`/`updatePolicy`/`bootstrapPolicy` bodies moved to `policy/noydb-facade.ts` (`NoydbPolicy`); noydb.ts holds a facade instance + thin delegators (the dead, never-called `attachPolicyEnforcer` is dropped, its body lives on the facade). The session *timer* (`resetSessionTimer` + `sessionTimer` field) and the managed-recovery enrolment check (`assertRecoveryEnrolled`) stay kernel-resident and arrive as callbacks; the policy cache + enforcer map stay noydb-resident (touched by openVault/close) and arrive by reference.
   // Lowered 3019→2275 (Phase 5 A8: auth/recovery/enrollment extraction): the
   // tier-2 authenticator enroll/remove/update/unlock wrappers, WebAuthn enrollment,
-  // auth-config introspection, tier-1 passphrase rotate/recover, paper/Shamir recovery
-  // rotate/enroll, managed-passphrase recovery, peer-recover, tier-3 PIN unlock, and the
+  // auth-config introspection, tier-1 secret rotate/recover, paper/Shamir recovery
+  // rotate/enroll, managed-secret recovery, peer-recover, tier-3 PIN unlock, and the
   // public `getKeyring` accessor moved verbatim to `with-party/team/noydb-facade.ts`
   // (`TeamFacade`); noydb.ts holds a facade instance + thin delegators. Pure relocation —
   // the near-parallel rotate/recover variants are NOT consolidated. The keyring/active-tier/
@@ -1413,7 +1413,7 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-party/tab-write-relay.js',
     '../with-party/team/authenticators.js',
     '../with-party/team/keyring.js',
-    '../with-party/team/managed-passphrase.js',
+    '../with-party/team/managed-secret.js',
     '../with-party/team/noydb-facade.js',
     '../with-party/team/peer-recover.js',
     '../with-party/team/recovery.js',
@@ -1454,7 +1454,7 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-party/directory/cover/types.js',
     '../with-party/session/strategy.js',
     '../with-party/team/keyring.js',
-    '../with-party/team/managed-passphrase.js',
+    '../with-party/team/managed-secret.js',
     '../with-party/team/shamir-recovery-provider.js',
     '../with-party/team/sync-strategy.js',
     '../with-shape/blobs/object-projection.js',
@@ -1512,7 +1512,7 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     // reserved-name predicates i18n/dictionary.js and links/names.js below.
     '../with-party/team/reserved-secret-collections.js',
     '../with-party/team/magic-link-grant.js',
-    '../with-party/team/managed-passphrase.js',
+    '../with-party/team/managed-secret.js',
     '../with-party/team/sync-strategy.js',
     '../with-shape/blobs/blob-compaction.js',
     '../with-shape/blobs/export-blobs.js',
@@ -1565,7 +1565,7 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
   ]],
   ['packages/hub/src/kernel/enclave/record-keys/sealing.ts', [
     '../../../with-audit/sealed-record/types.js',
-    '../../../with-party/team/managed-passphrase.js',
+    '../../../with-party/team/managed-secret.js',
   ]],
 ])
 
@@ -1817,7 +1817,7 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-party/team/delegation.ts', 2],
   ['packages/hub/src/with-party/team/keyring.ts', 14],
   ['packages/hub/src/with-party/team/magic-link-grant.ts', 2],
-  ['packages/hub/src/with-party/team/managed-passphrase.ts', 3],
+  ['packages/hub/src/with-party/team/managed-secret.ts', 3],
   ['packages/hub/src/with-party/team/peer-recover.ts', 3],
   ['packages/hub/src/with-party/team/presence.ts', 3],
   ['packages/hub/src/with-party/team/recovery.ts', 6],

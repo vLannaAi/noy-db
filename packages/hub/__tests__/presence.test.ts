@@ -217,7 +217,7 @@ describe('presence (v0.9)', () => {
     it('update() writes encrypted presence record when encrypt: true', async () => {
       const syncAdapter = inlineMemory()
 
-      // We can't test full encryption without a real passphrase in this adapter,
+      // We can't test full encryption without a real secret in this adapter,
       // but we can verify that when encrypt is false, the record is readable.
       const db = await createNoydb({
         store: inlineMemory(),

@@ -45,5 +45,5 @@ export type { AddUserOptions, AddUserResult } from './commands/add-user.js'
 export { backup, resolveBackupTarget } from './commands/backup.js'
 export type { BackupOptions, BackupResult } from './commands/backup.js'
 
-export type { ReadPassphrase } from './commands/shared.js'
+export type { ReadSecret } from './commands/shared.js'
 export { assertRole, parseCollectionList } from './commands/shared.js'

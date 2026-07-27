@@ -1,7 +1,7 @@
 /**
  * Pin test — `with-party/team/wrapped-deks.ts`'s `deriveWrappingKey` used to
  * PBKDF2/AES-GCM-derive its wrapping key inline; C6 (enclave contract v1)
- * consolidates that onto the barrel's `derivePassphraseKey` primitive
+ * consolidates that onto the barrel's `deriveSecretKey` primitive
  * (`kernel/enclave/crypto.ts`). This is call-site consolidation, not a KDF
  * change — the derived key must be byte-identical to what the old inline
  * code produced.
@@ -10,12 +10,12 @@
  * we assert equivalence behaviorally: a fixed plaintext encrypted under a key
  * derived by the OLD inline code (reconstructed here as an oracle, verbatim —
  * see `deriveOldWrappingKey`) must decrypt under a key derived by the NEW
- * `derivePassphraseKey` primitive for the same credential/salt, and vice
+ * `deriveSecretKey` primitive for the same credential/salt, and vice
  * versa. If either derivation produced different bytes, the AES-GCM auth tag
  * would fail and decryption would throw.
  */
 import { describe, it, expect } from 'vitest'
-import { derivePassphraseKey } from '../src/kernel/enclave/index.js'
+import { deriveSecretKey } from '../src/kernel/enclave/index.js'
 
 const PBKDF2_ITERATIONS = 600_000
 const subtle = globalThis.crypto.subtle
@@ -46,7 +46,7 @@ async function deriveOldWrappingKey(credential: string, salt: Uint8Array): Promi
   )
 }
 
-describe('derivePassphraseKey — byte-identical to the old inline wrapped-deks derivation', () => {
+describe('deriveSecretKey — byte-identical to the old inline wrapped-deks derivation', () => {
   const credential = 'correct horse battery staple'
   const salt = new Uint8Array(32).fill(7)
   const iv = new Uint8Array(12).fill(3)
@@ -54,7 +54,7 @@ describe('derivePassphraseKey — byte-identical to the old inline wrapped-deks 
 
   it('ciphertext produced under the OLD key decrypts under the NEW primitive key', async () => {
     const oldKey = await deriveOldWrappingKey(credential, salt)
-    const newKey = await derivePassphraseKey(credential, salt, {
+    const newKey = await deriveSecretKey(credential, salt, {
       iterations: PBKDF2_ITERATIONS,
       keyUsage: 'aes-gcm',
     })
@@ -66,7 +66,7 @@ describe('derivePassphraseKey — byte-identical to the old inline wrapped-deks 
 
   it('ciphertext produced under the NEW primitive key decrypts under the OLD key', async () => {
     const oldKey = await deriveOldWrappingKey(credential, salt)
-    const newKey = await derivePassphraseKey(credential, salt, {
+    const newKey = await deriveSecretKey(credential, salt, {
       iterations: PBKDF2_ITERATIONS,
       keyUsage: 'aes-gcm',
     })
@@ -78,7 +78,7 @@ describe('derivePassphraseKey — byte-identical to the old inline wrapped-deks 
 
   it('sanity: a mismatched credential does NOT decrypt (the pin would catch a wrong param)', async () => {
     const oldKey = await deriveOldWrappingKey(credential, salt)
-    const wrongKey = await derivePassphraseKey('wrong credential', salt, {
+    const wrongKey = await deriveSecretKey('wrong credential', salt, {
       iterations: PBKDF2_ITERATIONS,
       keyUsage: 'aes-gcm',
     })

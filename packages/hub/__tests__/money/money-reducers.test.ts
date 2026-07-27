@@ -45,7 +45,7 @@ async function linesWith3() {
   const db = await createNoydb({
     store: memory(),
     user: 'alice',
-    secret: 'money-reducers-passphrase-2026-pilot3-exact',
+    secret: 'money-reducers-secret-2026-pilot3-exact',
     aggregateStrategy: withAggregate(),
   })
   const vault = await db.openVault('books')
@@ -81,7 +81,7 @@ describe('money reducer constructors — runtime', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'money-reducers-passphrase-2026-pilot3-exact',
+      secret: 'money-reducers-secret-2026-pilot3-exact',
       aggregateStrategy: withAggregate(),
     })
     const vault = await db.openVault('books')

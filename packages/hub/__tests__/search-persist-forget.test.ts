@@ -68,7 +68,7 @@ function memory(): NoydbStore & {
 
 interface Invoice { id: string; buyerId: string; memo: string }
 
-const SECRET = 'search-forget-passphrase-5678'
+const SECRET = 'search-forget-secret-5678'
 
 /**
  * A NoydbStore wrapper whose `delete` throws for the `_ftindex` collection

@@ -60,7 +60,7 @@ describe('withGuard.onDelete (#145)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-ondelete-bill-delete-passphrase-2026',
+      secret: 'guards-ondelete-bill-delete-secret-2026',
       guardStrategies: [guard],
     })
     const v = await db.openVault('demo')
@@ -89,7 +89,7 @@ describe('withGuard.onDelete (#145)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-ondelete-absent-passphrase-2026',
+      secret: 'guards-ondelete-absent-secret-2026',
       guardStrategies: [guard],
     })
     const v = await db.openVault('demo')
@@ -116,7 +116,7 @@ describe('withGuard.onDelete (#145)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-ondelete-cross-collection-passphrase-2026',
+      secret: 'guards-ondelete-cross-collection-secret-2026',
       guardStrategies: [guard],
     })
     const v = await db.openVault('demo')
@@ -141,7 +141,7 @@ describe('withGuard.onDelete (#145)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-ondelete-amendment-passphrase-2026',
+      secret: 'guards-ondelete-amendment-secret-2026',
       guardStrategies: [guard],
       txStrategy: withTransactions(),
     })
@@ -200,7 +200,7 @@ describe('withGuard.onDelete (#145)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-ondelete-unconditional-passphrase-2026',
+      secret: 'guards-ondelete-unconditional-secret-2026',
       guardStrategies: [guard],
       txStrategy: withTransactions(),
     })

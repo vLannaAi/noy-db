@@ -54,7 +54,7 @@ const invoiceSchema = z.object({
 async function seedFixed() {
   const db = await createNoydb({
     store: memory(), user: 'alice',
-    secret: 'money-where-fixed-passphrase-2026',
+    secret: 'money-where-fixed-secret-2026',
   })
   const vault = await db.openVault('books')
   const col = vault.collection<Invoice>('invoices', {
@@ -139,7 +139,7 @@ describe('money where() — multi-currency mode (#336)', () => {
   async function seedMulti() {
     const db = await createNoydb({
       store: memory(), user: 'alice',
-      secret: 'money-where-multi-passphrase-2026',
+      secret: 'money-where-multi-secret-2026',
     })
     const vault = await db.openVault('books')
     const col = vault.collection<Payment>('payments', {
@@ -195,7 +195,7 @@ describe('money where() — indexed fast path agrees with the scan (#336, harden
   async function seedIndexedFixed() {
     const db = await createNoydb({
       store: memory(), user: 'alice',
-      secret: 'money-where-indexed-passphrase-2026',
+      secret: 'money-where-indexed-secret-2026',
       indexStrategy: withIndexing(),
     })
     const vault = await db.openVault('books')
@@ -245,7 +245,7 @@ describe('money where() — indexed fast path agrees with the scan (#336, harden
   it('multi-currency money never probes the index — always scans, results still correct', async () => {
     const db = await createNoydb({
       store: memory(), user: 'alice',
-      secret: 'money-where-indexed-multi-passphrase-2026',
+      secret: 'money-where-indexed-multi-secret-2026',
       indexStrategy: withIndexing(),
     })
     const vault = await db.openVault('books')
@@ -285,7 +285,7 @@ describe('money where() — indexed fast path agrees with the scan (#336, harden
   it('a non-money indexed field keeps hitting the fast path unchanged (behavior lock)', async () => {
     const db = await createNoydb({
       store: memory(), user: 'alice',
-      secret: 'money-where-indexed-status-passphrase-2026',
+      secret: 'money-where-indexed-status-secret-2026',
       indexStrategy: withIndexing(),
     })
     const vault = await db.openVault('books')

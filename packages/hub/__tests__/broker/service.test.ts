@@ -78,7 +78,7 @@ describe('vault.broker() service wiring', () => {
     await vault.broker().enroll() // creates + registers the _broker DEK/seed
 
     await db.grant(VAULT, {
-      userId: 'op1', displayName: 'Operator', role: 'operator', passphrase: 'op-pass-long',
+      userId: 'op1', displayName: 'Operator', role: 'operator', secret: 'op-pass-long',
       permissions: { notes: 'rw' },
     })
     const opKeyring = await loadKeyring(adapter, VAULT, 'op1', 'op-pass-long')
@@ -86,7 +86,7 @@ describe('vault.broker() service wiring', () => {
 
     // An admin grantee, by contrast, DOES receive the secret-bearing DEK (owner/admin bucket).
     await db.grant(VAULT, {
-      userId: 'admin1', displayName: 'Admin', role: 'admin', passphrase: 'admin-pass-long',
+      userId: 'admin1', displayName: 'Admin', role: 'admin', secret: 'admin-pass-long',
     })
     const adminKeyring = await loadKeyring(adapter, VAULT, 'admin1', 'admin-pass-long')
     expect(adminKeyring.deks.has(BROKER_COLLECTION)).toBe(true)
@@ -107,7 +107,7 @@ describe('vault.broker() service wiring', () => {
     })
     const vault = await db.openVault(VAULT)
     await db.grant(VAULT, {
-      userId: 'viewer1', displayName: 'Viewer', role: 'viewer', passphrase: 'viewer-pass-long',
+      userId: 'viewer1', displayName: 'Viewer', role: 'viewer', secret: 'viewer-pass-long',
     })
     await db.close()
 

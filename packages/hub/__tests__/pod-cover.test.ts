@@ -233,7 +233,7 @@ describe('writeNoydbBundle / readPodCover round-trip', () => {
   it('receiver-side reattachment pattern — header carries cover, owner re-attaches via setCover', async () => {
     // Use the same credentials throughout — `vault.load` rebuilds the
     // keyring set from the bundle, so a fresh-user destination would
-    // need Alice's passphrase to unlock the restored vault. The point
+    // need Alice's secret to unlock the restored vault. The point
     // of this test is the *envelope reattachment pattern*, not the
     // multi-user-transfer story.
     const SECRET = 'correct horse battery staple printer toaster'

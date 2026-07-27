@@ -19,7 +19,7 @@ import { memory } from '@noy-db/to-memory'
 const db = await createNoydb({
   adapter: memory(),
   userId: 'alice',
-  passphrase: 'correct horse battery staple',
+  secret: 'correct horse battery staple',
 })
 ```
 

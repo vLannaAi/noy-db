@@ -275,7 +275,7 @@ describe('Collection.scan() > backward-compatible for-await iteration', () => {
     db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'scan-agg-test-passphrase-2026',
+      secret: 'scan-agg-test-secret-2026',
     })
   })
 
@@ -296,7 +296,7 @@ describe('Collection.scan().aggregate() > real collection over memory adapter', 
     db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'scan-agg-test-passphrase-2026',
+      secret: 'scan-agg-test-secret-2026',
     })
   })
 

@@ -74,7 +74,7 @@ const enc = (dim: number, model = 'stub') => ({
 })
 const ENCODER = enc(8)
 
-const SECRET = 'rebuild-embeddings-passphrase-788'
+const SECRET = 'rebuild-embeddings-secret-788'
 
 describe('#788 Collection.rebuildEmbeddings()', () => {
   it('rebuilds every live tier-0 record\'s missing/stale _vec sidecar; round-trips through similarTo()', async () => {

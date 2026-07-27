@@ -58,7 +58,7 @@ async function seed(grantFormats: readonly ('json' | 'csv' | 'xml' | 'ndjson' | 
   await payments.put('p1', { id: 'p1', invoiceId: 'i1', amount: 100 })
   await db.grant('acme', {
     userId: 'owner', displayName: 'Owner', role: 'owner',
-    passphrase: 'pw',
+    secret: 'pw',
     exportCapability: { plaintext: grantFormats },
   })
   await db.close()

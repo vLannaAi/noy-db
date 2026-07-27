@@ -31,7 +31,7 @@ const attestation = { fields: [
 ] }
 
 async function ownerVault() {
-  const db = await createNoydb({ teamStrategy: withTeam(), store: memory(), user: 'firm', secret: 'firm-passphrase-2026', attestationStrategy: withAttestation() })
+  const db = await createNoydb({ teamStrategy: withTeam(), store: memory(), user: 'firm', secret: 'firm-secret-2026', attestationStrategy: withAttestation() })
   const vault = await db.openVault('books')
   const invoices = vault.collection<Invoice>('invoices', { attestation })
   await invoices.put('inv-1', { id: 'inv-1', invoiceNo: 'INV-1', total: 1234.5, issueDate: '2026-05-29' })
@@ -85,7 +85,7 @@ describe('vault.issueAttestation (integration)', () => {
       { path: 'issueDate', normalize: 'iso-date' as const },
       { path: 'vendorName', normalize: 'trim' as const },
     ] }
-    const db = await createNoydb({ teamStrategy: withTeam(), store: memory(), user: 'firm', secret: 'firm-passphrase-2026', i18nStrategy: withI18n(), attestationStrategy: withAttestation() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: memory(), user: 'firm', secret: 'firm-secret-2026', i18nStrategy: withI18n(), attestationStrategy: withAttestation() })
     // Default locale 'en' would collapse vendorName to 'ACME Co' on a plain get().
     const vault = await db.openVault('books', { locale: 'en' })
     const invoices = vault.collection<I18nInvoice>('invoices', {
@@ -112,7 +112,7 @@ describe('vault.issueAttestation (integration)', () => {
 
 describe('vault.getDocumentSigningPublicKey (mint-on-read role gate)', () => {
   it('owner: mints the signing key on first read and returns it', async () => {
-    const db = await createNoydb({ teamStrategy: withTeam(), store: memory(), user: 'firm', secret: 'firm-passphrase-2026', attestationStrategy: withAttestation() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: memory(), user: 'firm', secret: 'firm-secret-2026', attestationStrategy: withAttestation() })
     const vault = await db.openVault('books')
 
     const { keyId, publicKeyB64 } = await vault.getDocumentSigningPublicKey()
@@ -126,9 +126,9 @@ describe('vault.getDocumentSigningPublicKey (mint-on-read role gate)', () => {
 
   it('non-owner on a fresh vault: refuses to mint and throws AttestationError (no signer written)', async () => {
     const adapter = memory()
-    const ownerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'firm', secret: 'firm-passphrase-2026', attestationStrategy: withAttestation() })
+    const ownerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'firm', secret: 'firm-secret-2026', attestationStrategy: withAttestation() })
     await ownerDb.openVault('books')
-    await ownerDb.grant('books', { userId: 'viewer-01', displayName: 'Viewer', role: 'viewer', passphrase: 'viewer-pass' })
+    await ownerDb.grant('books', { userId: 'viewer-01', displayName: 'Viewer', role: 'viewer', secret: 'viewer-pass' })
 
     const viewerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'viewer-01', secret: 'viewer-pass', attestationStrategy: withAttestation() })
     const viewerVault = await viewerDb.openVault('books')
@@ -140,10 +140,10 @@ describe('vault.getDocumentSigningPublicKey (mint-on-read role gate)', () => {
 
   it('non-owner after the owner has minted: the read does NOT mint (gate only guards minting)', async () => {
     const adapter = memory()
-    const ownerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'firm', secret: 'firm-passphrase-2026', attestationStrategy: withAttestation() })
+    const ownerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'firm', secret: 'firm-secret-2026', attestationStrategy: withAttestation() })
     const ownerVault = await ownerDb.openVault('books')
     const minted = await ownerVault.getDocumentSigningPublicKey() // owner mints
-    await ownerDb.grant('books', { userId: 'viewer-01', displayName: 'Viewer', role: 'viewer', passphrase: 'viewer-pass' })
+    await ownerDb.grant('books', { userId: 'viewer-01', displayName: 'Viewer', role: 'viewer', secret: 'viewer-pass' })
 
     const viewerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'viewer-01', secret: 'viewer-pass', attestationStrategy: withAttestation() })
     const viewerVault = await viewerDb.openVault('books')
@@ -166,7 +166,7 @@ describe('vault.getDocumentSigningPublicKey (mint-on-read role gate)', () => {
   // attestation issuance/verification keeps working across a backup round-trip.
   it('issues + verifies attestations across a dump/load round-trip', async () => {
     const adapter = memory()
-    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'firm', secret: 'firm-passphrase-2026', historyStrategy: withHistory(), attestationStrategy: withAttestation() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'firm', secret: 'firm-secret-2026', historyStrategy: withHistory(), attestationStrategy: withAttestation() })
     const vault = await db.openVault('books')
     const invoices = vault.collection<Invoice>('invoices', { attestation })
     await invoices.put('inv-1', { id: 'inv-1', invoiceNo: 'INV-1', total: 1234.5, issueDate: '2026-05-29' })

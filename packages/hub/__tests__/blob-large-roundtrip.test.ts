@@ -43,7 +43,7 @@ function payload(n: number): Uint8Array {
 describe('#409 — blob get() resolves + round-trips for any size', () => {
   for (const kb of [8, 16, 64, 256, 1024]) {
     it(`round-trips a ${kb} KB blob without hanging`, async () => {
-      const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'passphrase-1234-long-enough', blobStrategy: withBlobs() })
+      const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'secret-1234-long-enough', blobStrategy: withBlobs() })
       const vault = await db.openVault('t')
       const docs = vault.collection<{ id: string }>('docs', { blobFields: { f: {} } })
       await docs.put('d1', { id: 'd1' })
@@ -59,7 +59,7 @@ describe('#409 — blob get() resolves + round-trips for any size', () => {
   }
 
   it('round-trips a highly-compressible (all-zero) 64 KB blob', async () => {
-    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'passphrase-1234-long-enough', blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'secret-1234-long-enough', blobStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs', { blobFields: { f: {} } })
     await docs.put('d1', { id: 'd1' })

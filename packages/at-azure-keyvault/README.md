@@ -1,8 +1,8 @@
 # @noy-db/at-azure-keyvault
 
-**Azure Key Vault sealing key provider for noy-db [managed-passphrase mode](https://github.com/vLannaAi/noy-db/issues/14).**
+**Azure Key Vault sealing key provider for noy-db [managed-secret mode](https://github.com/vLannaAi/noy-db/issues/14).**
 
-An `at-*` provider that seals and unseals the hub-generated random passphrase via Azure Key Vault Encrypt / Decrypt. Every seal and unseal is an authenticated Key Vault API call — giving you an Azure Monitor / Key Vault audit-log-backed access record of every time a user's vault is opened, with no additional instrumentation required.
+An `at-*` provider that seals and unseals the hub-generated random secret via Azure Key Vault Encrypt / Decrypt. Every seal and unseal is an authenticated Key Vault API call — giving you an Azure Monitor / Key Vault audit-log-backed access record of every time a user's vault is opened, with no additional instrumentation required.
 
 Like all `at-*` providers, this is a *trusted host* provider: the host you deploy it on CAN decrypt what it unseals. The security boundary is your Azure RBAC / Key Vault access policy — access is controlled by which managed identities or service principals hold the `encrypt` + `decrypt` key permissions on the Key Vault key, not by a secret the host keeps in memory.
 
@@ -41,7 +41,7 @@ import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 const db = await createNoydb({
   store,
   user: 'alice',
-  passphraseMode: 'managed',
+  secretMode: 'managed',
   sealingKey: azureKeyVaultSealingProvider({
     keyId: 'https://my-noydb-vault.vault.azure.net/keys/noydb-sealing/<version>',
   }),
@@ -50,7 +50,7 @@ const db = await createNoydb({
 
 const vault = await db.openVault('acme')
 // Hub generated a 256-bit random on first open, sealed it via Key Vault Encrypt,
-// and persisted to _meta/sealed-passphrase. The user never sees a passphrase.
+// and persisted to _meta/sealed-secret. The user never sees a secret.
 // On reopen, at-azure-keyvault calls Key Vault Decrypt transparently.
 // Azure Key Vault audit logs record every Encrypt/Decrypt call with caller
 // identity + key identifier.
@@ -71,13 +71,13 @@ const vault = await db.openVault('acme')
 
 **Azure RSA decrypt is version-bound.** Unlike AWS/GCP symmetric KMS — where the key version travels inside the ciphertext blob — Azure's `CryptographyClient` resolves the key version at construction time and every decrypt call is pinned to that version. This has a critical consequence:
 
-- **Always use a versioned `keyId`** (`https://<vault>.vault.azure.net/keys/<name>/<version>`). The version in the URL is your guarantee that every sealed passphrase can be decrypted by the exact key material used to encrypt it.
-- **Do NOT enable Key Vault auto-rotation on a versionless `keyId`.** If the key rotates while you are using a versionless URL, the `CryptographyClient` will resolve to the new version, and every passphrase sealed under the previous version becomes **permanently undecryptable** — every managed-mode vault is locked out with no recovery path.
+- **Always use a versioned `keyId`** (`https://<vault>.vault.azure.net/keys/<name>/<version>`). The version in the URL is your guarantee that every sealed secret can be decrypted by the exact key material used to encrypt it.
+- **Do NOT enable Key Vault auto-rotation on a versionless `keyId`.** If the key rotates while you are using a versionless URL, the `CryptographyClient` will resolve to the new version, and every secret sealed under the previous version becomes **permanently undecryptable** — every managed-mode vault is locked out with no recovery path.
 
 **To rotate your sealing key** (e.g. for scheduled cryptographic hygiene):
 
 1. Create a new key version (or a new key) in Key Vault.
-2. For each vault, call `unseal` with the old versioned `keyId` to recover the plaintext passphrase.
+2. For each vault, call `unseal` with the old versioned `keyId` to recover the plaintext secret.
 3. Call `seal` with a provider configured for the **new** versioned `keyId` to produce a new ciphertext.
 4. Persist the new sealed blob and update your app configuration to the new versioned `keyId`.
 
@@ -95,7 +95,7 @@ function azureKeyVaultSealingProvider(opts: {
 
 Never pass raw Azure credentials in the options — inject a pre-configured `CryptographyClient` for non-default auth. The default builds a `CryptographyClient` with `DefaultAzureCredential`.
 
-Returns a [`SealingKeyProvider`](../hub/src/team/managed-passphrase.ts) — the contract `@noy-db/hub`'s managed-passphrase mode consumes.
+Returns a [`SealingKeyProvider`](../hub/src/team/managed-secret.ts) — the contract `@noy-db/hub`'s managed-secret mode consumes.
 
 ## License
 

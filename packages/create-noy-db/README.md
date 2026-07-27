@@ -145,7 +145,7 @@ All commands that touch real compartments use the **file adapter** and require t
 - `--compartment <name>` — the compartment (tenant) name. Required.
 - `--user <id>` — your own user id in the compartment. Required.
 
-You'll be prompted for your passphrase at runtime. Passphrases are never echoed, never logged, never written to disk, and cleared from process memory when the command exits.
+You'll be prompted for your secret at runtime. Secrets are never echoed, never logged, never written to disk, and cleared from process memory when the command exits.
 
 ### `noy-db add <collection>`
 
@@ -162,7 +162,7 @@ Refuses to overwrite existing files — if either target already exists, the com
 
 ### `noy-db add user <userId> <role> [options]`
 
-Grants a new user access to a compartment. Two passphrase prompts: yours (caller), then the new user's (with confirmation).
+Grants a new user access to a compartment. Two secret prompts: yours (caller), then the new user's (with confirmation).
 
 ```bash
 pnpm exec noy-db add user accountant-ann operator \
@@ -210,7 +210,7 @@ pnpm exec noy-db rotate --dir ./data --compartment demo-co --user owner-alice \
 
 Use cases:
 
-- **Suspected key leak**: an operator lost a laptop, a developer accidentally pasted a passphrase into a Slack channel, a USB stick went missing. Rotating is cheap insurance.
+- **Suspected key leak**: an operator lost a laptop, a developer accidentally pasted a secret into a Slack channel, a USB stick went missing. Rotating is cheap insurance.
 - **Scheduled rotation**: some compliance regimes require periodic key rotation regardless of exposure. This command makes rotation scriptable from cron or a CI job.
 
 Different from `noydb.revoke({ rotateKeys: true })` in that it doesn't kick anyone out — it's the "just rotate" path.
@@ -231,7 +231,7 @@ Target paths:
 
 Parent directories are created on demand, so `./backups/2026/04/demo.json` works even if `./backups/2026/04/` doesn't exist yet.
 
-Unsupported schemes (`s3://`, `https://`, etc.) are rejected **before** the passphrase prompt so a typo doesn't waste a passphrase entry.
+Unsupported schemes (`s3://`, `https://`, etc.) are rejected **before** the secret prompt so a typo doesn't waste a secret entry.
 
 ### `noy-db help`
 
@@ -243,11 +243,11 @@ Prints the full usage message for all subcommands.
 
 Every command that touches real compartments follows these rules:
 
-1. **Passphrase via `@clack/prompts` `password()`** — never echoes to the terminal, never logged.
-2. **Passphrase never leaves the local closure** — no file writes, no error messages, no telemetry.
+1. **Secret via `@clack/prompts` `password()`** — never echoes to the terminal, never logged.
+2. **Secret never leaves the local closure** — no file writes, no error messages, no telemetry.
 3. **Ctrl-C at the prompt aborts before any I/O happens** — cancelling doesn't leave the system in a half-mutated state.
 4. **`finally { db.close() }`** — KEK is cleared from process memory on exit, success or failure.
-5. **Unsupported backup schemes are rejected before the prompt** — a typo doesn't waste a passphrase entry.
+5. **Unsupported backup schemes are rejected before the prompt** — a typo doesn't waste a secret entry.
 
 ---
 

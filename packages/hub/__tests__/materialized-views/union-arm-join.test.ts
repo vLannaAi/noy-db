@@ -61,7 +61,7 @@ describe('UNION MV — per-arm join (#347 / AU+031)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-union-armjoin-basic-passphrase-2026',
+      secret: 'mv-union-armjoin-basic-secret-2026',
       materializedViewStrategies: [byRegion],
       aggregateStrategy: withAggregate(),
     })
@@ -107,7 +107,7 @@ describe('UNION MV — per-arm join (#347 / AU+031)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-union-armjoin-rhs-refresh-passphrase-2026',
+      secret: 'mv-union-armjoin-rhs-refresh-secret-2026',
       materializedViewStrategies: [byRegion],
       aggregateStrategy: withAggregate(),
     })
@@ -155,7 +155,7 @@ describe('UNION MV — per-arm join (#347 / AU+031)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-union-armjoin-dangling-passphrase-2026',
+      secret: 'mv-union-armjoin-dangling-secret-2026',
       materializedViewStrategies: [byRegion],
       aggregateStrategy: withAggregate(),
     })
@@ -229,7 +229,7 @@ describe('UNION MV — per-arm join (#347 / AU+031)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-union-armjoin-mixed-passphrase-2026',
+      secret: 'mv-union-armjoin-mixed-secret-2026',
       materializedViewStrategies: [byRegion],
       aggregateStrategy: withAggregate(),
     })

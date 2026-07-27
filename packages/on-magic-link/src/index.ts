@@ -2,7 +2,7 @@
  * **@noy-db/on-magic-link** — one-time-link viewer unlock for noy-db.
  *
  * A magic link is a single-use URL that opens a vault in a read-only,
- * viewer-scoped session WITHOUT entering a passphrase. The link
+ * viewer-scoped session WITHOUT entering a secret. The link
  * expires after use or after a configurable TTL; the resulting
  * session is strictly limited to the `viewer` role.
  *
@@ -483,7 +483,7 @@ export type { MagicLinkGrantPayload }
 // Parallel primitives in the same package, layered on top of db.grant
 // (invite mints a NEW user) and db.recoverUser (peer-recovery rewraps
 // an EXISTING user). Different threat model than delegation grants —
-// the temp passphrase travels in the URL fragment, single-use enforced
+// the temp secret travels in the URL fragment, single-use enforced
 // by atomic rotation inside acceptInvite. See ./invite.ts.
 export {
   issueInvite,

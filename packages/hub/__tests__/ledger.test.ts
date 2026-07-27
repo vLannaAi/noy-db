@@ -181,7 +181,7 @@ describe('LedgerStore via Vault.ledger().', () => {
     db = await createNoydb({
       store: memory(),
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
   })
 
@@ -297,7 +297,7 @@ describe('LedgerStore via Vault.ledger().', () => {
     const tamperDb = await createNoydb({
       store: adapter,
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
     const company = await tamperDb.openVault('demo-co')
     const invoices = company.collection<Invoice>('invoices')
@@ -359,7 +359,7 @@ describe('LedgerStore via Vault.ledger().', () => {
     const tamperDb = await createNoydb({
       store: adapter,
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
     const company = await tamperDb.openVault('demo-co')
     const invoices = company.collection<Invoice>('invoices')
@@ -419,7 +419,7 @@ describe('LedgerStore via Vault.ledger().', () => {
     const db1 = await createNoydb({
       store: adapter,
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
     const c1 = await db1.openVault('demo-co')
     await c1.collection<Invoice>('invoices').put('a', { id: 'a', amount: 1 })
@@ -429,7 +429,7 @@ describe('LedgerStore via Vault.ledger().', () => {
     const db2 = await createNoydb({
       store: adapter,
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
     const c2 = await db2.openVault('demo-co')
     const ledger2 = c2.ledger()

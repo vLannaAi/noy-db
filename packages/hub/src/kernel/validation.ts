@@ -1,8 +1,8 @@
 /**
- * Passphrase validation — phrase format (per the three-tier session-tiers
+ * Secret validation — phrase format (per the three-tier session-tiers
  * design, locked 2026-05-04).
  *
- * Passphrases are **phrases**: multiple simple words, easy to remember,
+ * Secrets are **phrases**: multiple simple words, easy to remember,
  * structurally constrained so a weak choice cannot silently collapse the
  * security floor. The format is intentionally narrow: lowercase letters
  * and single spaces only, no punctuation, no symbols, no digits.
@@ -12,16 +12,16 @@
  * - Per-word minimum: 3 characters (excludes "a", "is", "of").
  * - Adjacent repeats rejected ("the the").
  *
- * The hub runs validation default-on at every passphrase ingress
- * (`createOwnerKeyring`, `grant`, `rotatePassphrase`); test fixtures and
- * CLI scripts override via `{ allowWeakPassphrase: true }`.
+ * The hub runs validation default-on at every secret ingress
+ * (`createOwnerKeyring`, `grant`, `rotateSecret`); test fixtures and
+ * CLI scripts override via `{ allowWeakSecret: true }`.
  *
  * @module
  */
 import { NoydbError, ValidationError } from './errors.js'
 
 /** All reasons a phrase can be rejected. */
-export type WeakPassphraseReason =
+export type WeakSecretReason =
   | 'empty'
   | 'invalid-chars'
   | 'leading-or-trailing-space'
@@ -30,8 +30,8 @@ export type WeakPassphraseReason =
   | 'word-too-short'
   | 'repeated-adjacent'
 
-/** Per-vault knobs. Aligns with `VaultPolicy.passphrase`. */
-export interface PassphrasePolicy {
+/** Per-vault knobs. Aligns with `VaultPolicy.secret`. */
+export interface SecretPolicy {
   /** Minimum number of words. Default 6. Strict policy uses 8. */
   readonly minWords?: number
   /** Minimum characters per word. Default 3. */
@@ -51,7 +51,7 @@ export interface PassphrasePolicy {
    * // Thai + English mix with digits permitted
    * pattern: /^[\p{L}0-9 ]+( [\p{L}0-9 ]+)*$/u
    *
-   * // Allow uppercase + hyphens (passphrase-with-hyphens style)
+   * // Allow uppercase + hyphens (secret-with-hyphens style)
    * pattern: /^[A-Za-z]+([- ][A-Za-z]+)*$/
    * ```
    *
@@ -64,7 +64,7 @@ export interface PassphrasePolicy {
   readonly pattern?: RegExp
   /**
    * Replace ALL validation entirely with a custom function. When set,
-   * none of the other PassphrasePolicy fields apply — the consumer
+   * none of the other SecretPolicy fields apply — the consumer
    * owns every rule (word splitting, character classes, entropy
    * thresholds, allowlist/denylist). Use sparingly; this is the
    * escape hatch for domain-specific phrase formats:
@@ -73,35 +73,35 @@ export interface PassphrasePolicy {
    *   - BIP-39 seed phrases (24 words, fixed wordlist, etc.)
    *   - Organization-specific HR password policies
    *
-   * The returned `PassphraseValidationResult` is what
-   * {@link assertStrongPassphrase} dispatches on — `ok: true` accepts;
-   * `ok: false` throws `WeakPassphraseError` with the supplied reason.
+   * The returned `SecretValidationResult` is what
+   * {@link assertStrongSecret} dispatches on — `ok: true` accepts;
+   * `ok: false` throws `WeakSecretError` with the supplied reason.
    *
    */
-  readonly customValidator?: (phrase: string) => PassphraseValidationResult
+  readonly customValidator?: (phrase: string) => SecretValidationResult
 }
 
 /** Result of a check. Discriminated union — compile-time exhaustive. */
-export type PassphraseValidationResult =
+export type SecretValidationResult =
   | { readonly ok: true; readonly words: number }
   | {
       readonly ok: false
-      readonly reason: WeakPassphraseReason
+      readonly reason: WeakSecretReason
       readonly minimum?: number
       readonly got?: number
     }
 
 /**
- * Thrown by `assertStrongPassphrase()` and by every hub ingress
- * point (`createOwnerKeyring`, `grant`, `rotatePassphrase`) when a
+ * Thrown by `assertStrongSecret()` and by every hub ingress
+ * point (`createOwnerKeyring`, `grant`, `rotateSecret`) when a
  * supplied phrase fails the structural rules above.
  */
-export class WeakPassphraseError extends NoydbError {
-  readonly reason: WeakPassphraseReason
+export class WeakSecretError extends NoydbError {
+  readonly reason: WeakSecretReason
   readonly suggestion: string
-  constructor(reason: WeakPassphraseReason, suggestion: string) {
-    super('WEAK_PASSPHRASE', `Weak passphrase (${reason}). ${suggestion}`)
-    this.name = 'WeakPassphraseError'
+  constructor(reason: WeakSecretReason, suggestion: string) {
+    super('WEAK_SECRET', `Weak secret (${reason}). ${suggestion}`)
+    this.name = 'WeakSecretError'
     this.reason = reason
     this.suggestion = suggestion
   }
@@ -110,7 +110,7 @@ export class WeakPassphraseError extends NoydbError {
 const DEFAULT_MIN_WORDS = 6
 const DEFAULT_MIN_WORD_LENGTH = 3
 
-const SUGGESTIONS: Record<WeakPassphraseReason, string> = {
+const SUGGESTIONS: Record<WeakSecretReason, string> = {
   empty: 'Provide a phrase of at least 6 lowercase words separated by single spaces.',
   'invalid-chars':
     'Use only lowercase letters [a-z] and single spaces. No punctuation, symbols, digits, or uppercase.',
@@ -125,12 +125,12 @@ const SUGGESTIONS: Record<WeakPassphraseReason, string> = {
 /**
  * Inspect a phrase against the format rules and return a structured
  * verdict. Never throws — callers either branch on `ok` or pass the
- * result to {@link assertStrongPassphrase} for the throwing flavour.
+ * result to {@link assertStrongSecret} for the throwing flavour.
  */
-export function validatePassphrase(
+export function validateSecret(
   s: string,
-  opts?: PassphrasePolicy,
-): PassphraseValidationResult {
+  opts?: SecretPolicy,
+): SecretValidationResult {
   // Escape hatch: customValidator owns the entire decision. None of
   // the structural rules below run when this is set — the consumer is
   // responsible for the full validation contract.
@@ -155,7 +155,7 @@ export function validatePassphrase(
   }
 
   // The default character class is lowercase-letters-and-spaces;
-  // consumers can override via PassphrasePolicy.pattern (e.g. to
+  // consumers can override via SecretPolicy.pattern (e.g. to
   // allow digits, uppercase, or non-Latin scripts). Word splitting
   // below remains space-based — for non-space word semantics the
   // consumer should use customValidator instead.
@@ -188,22 +188,22 @@ export function validatePassphrase(
 }
 
 /**
- * Throw {@link WeakPassphraseError} when the phrase fails. Used by
- * `createOwnerKeyring`, `grant`, and `rotatePassphrase` at ingress.
+ * Throw {@link WeakSecretError} when the phrase fails. Used by
+ * `createOwnerKeyring`, `grant`, and `rotateSecret` at ingress.
  *
- * Pass `{ allowWeakPassphrase: true }` to bypass — intended for test
+ * Pass `{ allowWeakSecret: true }` to bypass — intended for test
  * fixtures, CLI scripts, and dev environments. The override never
  * loosens the cryptographic key derivation; it only relaxes the
  * structural-strength gate.
  */
-export function assertStrongPassphrase(
+export function assertStrongSecret(
   s: string,
-  opts?: PassphrasePolicy & { allowWeakPassphrase?: boolean },
+  opts?: SecretPolicy & { allowWeakSecret?: boolean },
 ): void {
-  if (opts?.allowWeakPassphrase) return
-  const result = validatePassphrase(s, opts)
+  if (opts?.allowWeakSecret) return
+  const result = validateSecret(s, opts)
   if (result.ok) return
-  throw new WeakPassphraseError(result.reason, SUGGESTIONS[result.reason])
+  throw new WeakSecretError(result.reason, SUGGESTIONS[result.reason])
 }
 
 /**
@@ -214,26 +214,26 @@ export function assertStrongPassphrase(
  * estimates aren't comparable to phrase entropy, and surfacing 0 makes
  * weak inputs visible in any UI that displays an entropy meter.
  */
-export function estimateEntropy(passphrase: string): number {
-  const result = validatePassphrase(passphrase)
+export function estimateEntropy(secret: string): number {
+  const result = validateSecret(secret)
   if (!result.ok) return 0
   return Math.round(result.words * Math.log2(7776))
 }
 
 /**
  * Internal compatibility shim. Older code paths used the throwing
- * `validatePassphrase(s)` directly; some still do via re-exports. Routes
- * to the new `assertStrongPassphrase` so the contract holds for both
+ * `validateSecret(s)` directly; some still do via re-exports. Routes
+ * to the new `assertStrongSecret` so the contract holds for both
  * shapes during the transition. New code should call
- * {@link assertStrongPassphrase} directly.
+ * {@link assertStrongSecret} directly.
  *
  * @internal
  */
-export function legacyAssertPassphrase(s: string): void {
+export function legacyAssertSecret(s: string): void {
   try {
-    assertStrongPassphrase(s)
+    assertStrongSecret(s)
   } catch (err) {
-    if (err instanceof WeakPassphraseError) {
+    if (err instanceof WeakSecretError) {
       throw new ValidationError(err.message)
     }
     throw err

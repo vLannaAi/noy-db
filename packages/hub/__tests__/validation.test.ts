@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
-  validatePassphrase,
-  assertStrongPassphrase,
+  validateSecret,
+  assertStrongSecret,
   estimateEntropy,
-  WeakPassphraseError,
+  WeakSecretError,
 } from '../src/kernel/validation.js'
 import {
   NoydbError,
@@ -19,19 +19,19 @@ import {
   ValidationError,
 } from '../src/kernel/errors.js'
 
-describe('validatePassphrase (phrase format)', () => {
+describe('validateSecret (phrase format)', () => {
   it('accepts well-formed 6-word phrases', () => {
-    expect(validatePassphrase('correct horse battery staple printer toaster')).toEqual({
+    expect(validateSecret('correct horse battery staple printer toaster')).toEqual({
       ok: true,
       words: 6,
     })
     expect(
-      validatePassphrase('glasses cabinet bicycle umbrella thunder velvet'),
+      validateSecret('glasses cabinet bicycle umbrella thunder velvet'),
     ).toEqual({ ok: true, words: 6 })
   })
 
   it('rejects too-few-words', () => {
-    const r = validatePassphrase('correct horse battery staple printer')
+    const r = validateSecret('correct horse battery staple printer')
     expect(r.ok).toBe(false)
     if (!r.ok) {
       expect(r.reason).toBe('too-few-words')
@@ -41,46 +41,46 @@ describe('validatePassphrase (phrase format)', () => {
   })
 
   it('rejects empty', () => {
-    const r = validatePassphrase('')
+    const r = validateSecret('')
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('empty')
   })
 
   it('rejects uppercase', () => {
-    const r = validatePassphrase('Correct horse battery staple printer toaster')
+    const r = validateSecret('Correct horse battery staple printer toaster')
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('invalid-chars')
   })
 
   it('rejects punctuation / digits / symbols', () => {
-    expect((validatePassphrase('correct horse battery staple printer toaster!') as { reason: string }).reason).toBe(
+    expect((validateSecret('correct horse battery staple printer toaster!') as { reason: string }).reason).toBe(
       'invalid-chars',
     )
-    expect((validatePassphrase('correct horse battery staple printer toaster1') as { reason: string }).reason).toBe(
+    expect((validateSecret('correct horse battery staple printer toaster1') as { reason: string }).reason).toBe(
       'invalid-chars',
     )
-    expect((validatePassphrase('correct-horse-battery-staple-printer-toaster') as { reason: string }).reason).toBe(
+    expect((validateSecret('correct-horse-battery-staple-printer-toaster') as { reason: string }).reason).toBe(
       'invalid-chars',
     )
   })
 
   it('rejects double space', () => {
-    const r = validatePassphrase('correct  horse battery staple printer toaster')
+    const r = validateSecret('correct  horse battery staple printer toaster')
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('double-space')
   })
 
   it('rejects leading and trailing space', () => {
-    expect((validatePassphrase(' correct horse battery staple printer toaster') as { reason: string }).reason).toBe(
+    expect((validateSecret(' correct horse battery staple printer toaster') as { reason: string }).reason).toBe(
       'leading-or-trailing-space',
     )
-    expect((validatePassphrase('correct horse battery staple printer toaster ') as { reason: string }).reason).toBe(
+    expect((validateSecret('correct horse battery staple printer toaster ') as { reason: string }).reason).toBe(
       'leading-or-trailing-space',
     )
   })
 
   it('rejects words shorter than minimum', () => {
-    const r = validatePassphrase('correct horse battery staple printer is')
+    const r = validateSecret('correct horse battery staple printer is')
     expect(r.ok).toBe(false)
     if (!r.ok) {
       expect(r.reason).toBe('word-too-short')
@@ -89,13 +89,13 @@ describe('validatePassphrase (phrase format)', () => {
   })
 
   it('rejects repeated adjacent words', () => {
-    const r = validatePassphrase('correct horse battery staple printer the the')
+    const r = validateSecret('correct horse battery staple printer the the')
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('repeated-adjacent')
   })
 
   it('honours strict policy (minWords: 8)', () => {
-    const r = validatePassphrase('correct horse battery staple printer toaster', { minWords: 8 })
+    const r = validateSecret('correct horse battery staple printer toaster', { minWords: 8 })
     expect(r.ok).toBe(false)
     if (!r.ok) {
       expect(r.reason).toBe('too-few-words')
@@ -103,7 +103,7 @@ describe('validatePassphrase (phrase format)', () => {
     }
 
     expect(
-      validatePassphrase('correct horse battery staple printer toaster glasses cabinet', {
+      validateSecret('correct horse battery staple printer toaster glasses cabinet', {
         minWords: 8,
       }),
     ).toEqual({ ok: true, words: 8 })
@@ -111,37 +111,37 @@ describe('validatePassphrase (phrase format)', () => {
 
   it('rejectRepeatedAdjacent=false allows "the the"', () => {
     expect(
-      validatePassphrase('correct horse battery staple printer the the', {
+      validateSecret('correct horse battery staple printer the the', {
         rejectRepeatedAdjacent: false,
       }),
     ).toEqual({ ok: true, words: 7 })
   })
 })
 
-describe('assertStrongPassphrase', () => {
-  it('throws WeakPassphraseError on weak input', () => {
-    expect(() => assertStrongPassphrase('abc')).toThrow(WeakPassphraseError)
+describe('assertStrongSecret', () => {
+  it('throws WeakSecretError on weak input', () => {
+    expect(() => assertStrongSecret('abc')).toThrow(WeakSecretError)
   })
 
   it('passes on strong phrase', () => {
     expect(() =>
-      assertStrongPassphrase('correct horse battery staple printer toaster'),
+      assertStrongSecret('correct horse battery staple printer toaster'),
     ).not.toThrow()
   })
 
-  it('allowWeakPassphrase: true bypasses (test fixtures)', () => {
-    expect(() => assertStrongPassphrase('abc', { allowWeakPassphrase: true })).not.toThrow()
+  it('allowWeakSecret: true bypasses (test fixtures)', () => {
+    expect(() => assertStrongSecret('abc', { allowWeakSecret: true })).not.toThrow()
   })
 
   it('exposes machine-readable reason', () => {
     try {
-      assertStrongPassphrase('abc')
+      assertStrongSecret('abc')
       throw new Error('should have thrown')
     } catch (err) {
-      expect(err).toBeInstanceOf(WeakPassphraseError)
-      if (err instanceof WeakPassphraseError) {
+      expect(err).toBeInstanceOf(WeakSecretError)
+      if (err instanceof WeakSecretError) {
         expect(err.reason).toBe('too-few-words')
-        expect(err.code).toBe('WEAK_PASSPHRASE')
+        expect(err.code).toBe('WEAK_SECRET')
       }
     }
   })

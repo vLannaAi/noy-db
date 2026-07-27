@@ -21,16 +21,16 @@
  * Two real-world scenarios:
  *
  *   1. **Suspected key leak.** An operator lost a laptop, a
- *      developer accidentally pasted a passphrase into a Slack
+ *      developer accidentally pasted a secret into a Slack
  *      channel, a USB stick went missing. Even if you think the
- *      passphrase is safe, rotating is cheap insurance.
+ *      secret is safe, rotating is cheap insurance.
  *
  *   2. **Scheduled rotation.** Some compliance regimes require
  *      periodic key rotation regardless of exposure. A CLI makes
  *      this scriptable from cron or a CI job.
  *
  * This module is test-first: all inputs are plain options, the
- * passphrase reader is injected, and the Noydb factory is
+ * secret reader is injected, and the Noydb factory is
  * injectable. The production bin is a thin wrapper that defaults
  * those injections to their real implementations.
  */
@@ -38,8 +38,8 @@
 import { withTeam } from '@noy-db/hub/team'
 import { createNoydb, type Noydb, type NoydbStore } from '@noy-db/hub'
 import { jsonFile } from '@noy-db/to-file'
-import type { ReadPassphrase } from './shared.js'
-import { defaultReadPassphrase } from './shared.js'
+import type { ReadSecret } from './shared.js'
+import { defaultReadSecret } from './shared.js'
 
 export interface RotateOptions {
   /** Directory containing the vault data (file adapter only). */
@@ -54,8 +54,8 @@ export interface RotateOptions {
    * resolved at run time by reading the vault snapshot.
    */
   collections?: string[]
-  /** Injected passphrase reader. Defaults to the clack implementation. */
-  readPassphrase?: ReadPassphrase
+  /** Injected secret reader. Defaults to the clack implementation. */
+  readSecret?: ReadSecret
   /**
    * Injected Noydb factory. Production code leaves this undefined
    * and gets `createNoydb`; tests pass a constructor that builds
@@ -86,14 +86,14 @@ export interface RotateResult {
  * failure modes.
  */
 export async function rotate(options: RotateOptions): Promise<RotateResult> {
-  const readPassphrase = options.readPassphrase ?? defaultReadPassphrase
+  const readSecret = options.readSecret ?? defaultReadSecret
   const buildAdapter = options.buildAdapter ?? ((dir) => jsonFile({ dir }))
   const createDb = options.createDb ?? createNoydb
 
-  // Read the passphrase BEFORE opening the database. This way a
+  // Read the secret BEFORE opening the database. This way a
   // cancelled prompt (Ctrl-C at the password entry) leaves the
   // adapter completely untouched — no files opened, no locks held.
-  const secret = await readPassphrase(`Passphrase for ${options.user}`)
+  const secret = await readSecret(`Secret for ${options.user}`)
 
   let db: Noydb | null = null
   try {
@@ -126,7 +126,7 @@ export async function rotate(options: RotateOptions): Promise<RotateResult> {
   } finally {
     // Always close the DB on exit — success or failure. Close()
     // clears the KEK and DEKs from process memory, which is the
-    // final line of defense if the passphrase somehow leaked
+    // final line of defense if the secret somehow leaked
     // into a log line above this block.
     db?.close()
   }

@@ -54,13 +54,13 @@ export type {
 
 // ─── Tier-1 change flows ─────────────────────────────────
 export {
-  rotatePassphrase,
-  recoverPassphrase,
+  rotateSecret,
+  recoverSecret,
 } from './rotate-recover.js'
 export type {
-  RotatePassphraseInput,
-  RecoverPassphraseInput,
-  RecoverPassphraseResult,
+  RotateSecretInput,
+  RecoverSecretInput,
+  RecoverSecretResult,
   RecoveryProof,
   SlotRewrapContext,
   SlotRewrapCeremony,

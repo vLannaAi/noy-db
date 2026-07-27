@@ -2,7 +2,7 @@
  * `noydb inspect <file.noydb>` — print the unencrypted header.
  *
  * This command is the security-sensitive one in the CLI: it must
- * never prompt for a passphrase and never decrypt anything. It reads
+ * never prompt for a secret and never decrypt anything. It reads
  * exactly the unencrypted header bytes (magic + flags + header
  * length prefix + JSON header) and returns structured metadata.
  *

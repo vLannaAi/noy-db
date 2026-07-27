@@ -3,8 +3,8 @@
  *
  * Verifies that opening a vault you hold no grant to that is already
  * held by other principals fails closed (NoAccessError) and writes
- * NOTHING into the vault — including managed-passphrase mode where
- * resolveManagedSecret would otherwise persist _meta/sealed-passphrase
+ * NOTHING into the vault — including managed-secret mode where
+ * resolveManagedSecret would otherwise persist _meta/sealed-secret
  * before the loadKeyring check fires.
  *
  * The pre-gate sits in getKeyringInternal BEFORE resolveManagedSecret
@@ -17,7 +17,7 @@ import { ConflictError, NoAccessError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import {
   MemorySealingKeyProvider,
-} from '../src/with-party/team/managed-passphrase.js'
+} from '../src/with-party/team/managed-secret.js'
 import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 import { withTeam } from '../src/with-party/team/index.js'
 
@@ -104,29 +104,29 @@ describe('openVault no-self-provision (#313)', () => {
     expect(await adapter.get('client-1', '_keyring', 'bob')).toBeNull()
   })
 
-  it('MANAGED mode: bob (managed) opening alice\'s vault fails closed and writes no _meta/sealed-passphrase', async () => {
+  it('MANAGED mode: bob (managed) opening alice\'s vault fails closed and writes no _meta/sealed-secret', async () => {
     const { adapter, mark, writesSince } = trackingMemory()
 
     // alice creates + populates with a standard secret-based vault
     const alice = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'alice-pass' })
     await (await alice.openVault('client-1')).collection<{ n: number }>('c').put('r1', { n: 1 })
 
-    // bob uses managed mode — resolveManagedSecret would write _meta/sealed-passphrase
+    // bob uses managed mode — resolveManagedSecret would write _meta/sealed-secret
     // on first open if the pre-gate weren't there
     const bobProvider = new MemorySealingKeyProvider({ id: 'test-kms' })
     const bob = await createNoydb({ teamStrategy: withTeam(),
       store: adapter,
       user: 'bob',
-      passphraseMode: 'managed',
+      secretMode: 'managed',
       sealingKey: bobProvider,
       shamirRecovery: shamirRecoveryProvider(),
     })
     const m = mark()
     await expect(bob.openVault('client-1')).rejects.toBeInstanceOf(NoAccessError)
-    // The pre-gate must fire BEFORE resolveManagedSecret, so no _meta/sealed-passphrase
+    // The pre-gate must fire BEFORE resolveManagedSecret, so no _meta/sealed-secret
     // or any other artifact is written into client-1.
     expect(writesSince(m)).toEqual([])          // nothing written — gate is before resolveManagedSecret
-    expect(await adapter.get('client-1', '_meta', 'sealed-passphrase')).toBeNull()
+    expect(await adapter.get('client-1', '_meta', 'sealed-secret')).toBeNull()
   })
 
   it('new vault still open-or-creates (default)', async () => {
@@ -148,7 +148,7 @@ describe('openVault no-self-provision (#313)', () => {
     const { adapter } = trackingMemory()
     const alice = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'alice-pass' })
     await (await alice.openVault('client-1')).collection<{ n: number }>('c').put('r1', { n: 1 })
-    await alice.grant('client-1', { userId: 'bob', displayName: 'Bob', role: 'viewer', passphrase: 'bob-pass', allowWeakPassphrase: true })
+    await alice.grant('client-1', { userId: 'bob', displayName: 'Bob', role: 'viewer', secret: 'bob-pass', allowWeakSecret: true })
     const bob = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'bob', secret: 'bob-pass' })
     const bv = await bob.openVault('client-1', { create: false })
     expect(await bv.collection<{ n: number }>('c').get('r1')).toEqual({ n: 1 })
@@ -162,8 +162,8 @@ describe('openVault no-self-provision (#313)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'viewer',
-      passphrase: 'bob-pass',
-      allowWeakPassphrase: true,
+      secret: 'bob-pass',
+      allowWeakSecret: true,
     })
 
     const bob = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'bob', secret: 'bob-pass' })

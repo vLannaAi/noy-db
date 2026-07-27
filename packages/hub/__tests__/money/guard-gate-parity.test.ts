@@ -65,7 +65,7 @@ describe('money + guards — gate context encoding parity (#332)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'money-guard-parity-passphrase-2026',
+      secret: 'money-guard-parity-secret-2026',
       guardStrategies: [guard],
     })
     const vault = await db.openVault('books')
@@ -95,7 +95,7 @@ describe('money + guards — gate context encoding parity (#332)', () => {
     })
     const db = await createNoydb({
       store: memory(), user: 'alice',
-      secret: 'money-guard-number-passphrase-2026',
+      secret: 'money-guard-number-secret-2026',
       guardStrategies: [guard],
     })
     const col = (await db.openVault('books')).collection<Certificate>('certificates', {
@@ -116,7 +116,7 @@ describe('money + guards — gate context encoding parity (#332)', () => {
     })
     const db = await createNoydb({
       store: memory(), user: 'alice',
-      secret: 'money-guard-frozen-passphrase-2026',
+      secret: 'money-guard-frozen-secret-2026',
       guardStrategies: [guard],
     })
     const col = (await db.openVault('books')).collection<Certificate>('certificates', {
@@ -145,7 +145,7 @@ describe('money + guards — gate context encoding parity (#332)', () => {
     })
     const db = await createNoydb({
       store: memory(), user: 'alice',
-      secret: 'money-guard-frozen-num-passphrase-2026',
+      secret: 'money-guard-frozen-num-secret-2026',
       guardStrategies: [guard],
     })
     const col = (await db.openVault('books')).collection<Certificate>('certificates', {
@@ -173,7 +173,7 @@ describe('money + guards — gate context encoding parity (#332)', () => {
     })
     const db = await createNoydb({
       store: memory(), user: 'alice',
-      secret: 'money-guard-multi-passphrase-2026',
+      secret: 'money-guard-multi-secret-2026',
       guardStrategies: [guard],
     })
     const col = (await db.openVault('books')).collection<Payment>('payments', {
@@ -198,7 +198,7 @@ describe('money + guards — gate context encoding parity (#332)', () => {
     })
     const db = await createNoydb({
       store: memory(), user: 'alice',
-      secret: 'money-guard-delete-passphrase-2026',
+      secret: 'money-guard-delete-secret-2026',
       guardStrategies: [guard],
     })
     const col = (await db.openVault('books')).collection<Certificate>('certificates', {
@@ -218,7 +218,7 @@ describe('money + guards — gate context encoding parity (#332)', () => {
     })
     const db = await createNoydb({
       store: memory(), user: 'alice',
-      secret: 'money-guard-invalid-passphrase-2026',
+      secret: 'money-guard-invalid-secret-2026',
       guardStrategies: [guard],
     })
     const col = (await db.openVault('books')).collection<Certificate>('certificates', {
@@ -251,7 +251,7 @@ describe('money + guards — gate context encoding parity (#332)', () => {
     })
     const db = await createNoydb({
       store: memory(), user: 'alice',
-      secret: 'money-guard-amendment-passphrase-2026',
+      secret: 'money-guard-amendment-secret-2026',
       guardStrategies: [guard],
       txStrategy: withTransactions(),
     })

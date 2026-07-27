@@ -1,5 +1,5 @@
 /**
- * rotatePassphrase + recoverPassphrase (paper profile) — issue #10.
+ * rotateSecret + recoverSecret (paper profile) — issue #10.
  *
  * Covers:
  *   - rotate happy path (old phrase + new phrase → reads still work)
@@ -9,14 +9,14 @@
  *   - recover paper rejects unknown code (InvalidKeyError)
  *   - recover non-paper profiles throw RecoveryProfileNotImplementedError
  *   - createNoydb without a recovery profile throws RecoveryNotEnrolledError when
- *     `recover-passphrase` gate is enabled (default)
+ *     `recover-secret` gate is enabled (default)
  */
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createOwnerKeyring, loadKeyring } from '../src/with-party/team/keyring.js'
 import {
-  rotatePassphrase,
-  recoverPassphrase,
+  rotateSecret,
+  recoverSecret,
   type RecoveryProof,
 } from '../src/with-party/team/rotate-recover.js'
 import {
@@ -26,7 +26,7 @@ import {
 } from '../src/with-party/team/recovery.js'
 import { generateDEK } from '../src/kernel/enclave/index.js'
 import { persistKeyring } from '../src/with-party/team/keyring.js'
-import { WeakPassphraseError } from '../src/kernel/validation.js'
+import { WeakSecretError } from '../src/kernel/validation.js'
 import { InvalidKeyError } from '../src/kernel/errors.js'
 import { RecoveryProfileNotImplementedError } from '../src/kernel/errors.js'
 
@@ -67,16 +67,16 @@ function inlineMemory(): NoydbStore {
 const STRONG_OLD = 'correct horse battery staple printer toaster'
 const STRONG_NEW = 'glasses cabinet bicycle umbrella thunder velvet'
 
-describe('rotatePassphrase', () => {
+describe('rotateSecret', () => {
   it('rotates from old phrase to new and lets the user re-unlock', async () => {
     const store = inlineMemory()
     const keyring = await createOwnerKeyring(store, 'acme', 'alice', STRONG_OLD)
     keyring.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', keyring)
 
-    await rotatePassphrase(store, 'acme', 'alice', {
-      oldPassphrase: STRONG_OLD,
-      newPassphrase: STRONG_NEW,
+    await rotateSecret(store, 'acme', 'alice', {
+      oldSecret: STRONG_OLD,
+      newSecret: STRONG_NEW,
     })
 
     await expect(loadKeyring(store, 'acme', 'alice', STRONG_OLD)).rejects.toBeInstanceOf(InvalidKeyError)
@@ -89,11 +89,11 @@ describe('rotatePassphrase', () => {
     const store = inlineMemory()
     await createOwnerKeyring(store, 'acme', 'alice', STRONG_OLD)
     await expect(
-      rotatePassphrase(store, 'acme', 'alice', {
-        oldPassphrase: STRONG_OLD,
-        newPassphrase: 'abc',
+      rotateSecret(store, 'acme', 'alice', {
+        oldSecret: STRONG_OLD,
+        newSecret: 'abc',
       }),
-    ).rejects.toBeInstanceOf(WeakPassphraseError)
+    ).rejects.toBeInstanceOf(WeakSecretError)
   })
 
   it('rejects a wrong old phrase', async () => {
@@ -102,15 +102,15 @@ describe('rotatePassphrase', () => {
     keyring.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', keyring)
     await expect(
-      rotatePassphrase(store, 'acme', 'alice', {
-        oldPassphrase: 'wrong horse battery staple printer toaster',
-        newPassphrase: STRONG_NEW,
+      rotateSecret(store, 'acme', 'alice', {
+        oldSecret: 'wrong horse battery staple printer toaster',
+        newSecret: STRONG_NEW,
       }),
     ).rejects.toBeInstanceOf(InvalidKeyError)
   }, 60_000)
 })
 
-describe('recoverPassphrase (paper profile)', () => {
+describe('recoverSecret (paper profile)', () => {
   async function buildVaultWithPaperRecovery(): Promise<{
     store: NoydbStore
     code: string
@@ -133,8 +133,8 @@ describe('recoverPassphrase (paper profile)', () => {
   it('recovers via a paper code, unlocks with the new phrase, burns the code', async () => {
     const { store, code } = await buildVaultWithPaperRecovery()
 
-    await recoverPassphrase(undefined, store, 'acme', 'alice', {
-      newPassphrase: STRONG_NEW,
+    await recoverSecret(undefined, store, 'acme', 'alice', {
+      newSecret: STRONG_NEW,
       recoveryProof: { profile: 'paper', payload: { code } },
     })
 
@@ -143,8 +143,8 @@ describe('recoverPassphrase (paper profile)', () => {
 
     // Code was burned — second use must fail with no entries left.
     await expect(
-      recoverPassphrase(undefined, store, 'acme', 'alice', {
-        newPassphrase: 'glasses cabinet bicycle umbrella thunder oranges',
+      recoverSecret(undefined, store, 'acme', 'alice', {
+        newSecret: 'glasses cabinet bicycle umbrella thunder oranges',
         recoveryProof: { profile: 'paper', payload: { code } },
       }),
     ).rejects.toThrow()
@@ -153,9 +153,9 @@ describe('recoverPassphrase (paper profile)', () => {
   it('issue #84: burn happens before keyring rewrite — failed rewrite leaves code BURNED, old phrase intact', async () => {
     // Pre-fix ordering (write keyring → burn code) made store-side failure
     // between the two writes leave the consumed code reusable: keyring is
-    // already on the new passphrase, but the burn step never landed. After
+    // already on the new secret, but the burn step never landed. After
     // #84, burn comes first — so a failure on the keyring write leaves the
-    // user on their OLD passphrase with the code GONE.
+    // user on their OLD secret with the code GONE.
     const { store, code } = await buildVaultWithPaperRecovery()
 
     // Wrap the store: every put to `_keyring` fails. The recovery call's
@@ -172,8 +172,8 @@ describe('recoverPassphrase (paper profile)', () => {
     } as NoydbStore
 
     await expect(
-      recoverPassphrase(undefined, wrapped, 'acme', 'alice', {
-        newPassphrase: STRONG_NEW,
+      recoverSecret(undefined, wrapped, 'acme', 'alice', {
+        newSecret: STRONG_NEW,
         recoveryProof: { profile: 'paper', payload: { code } },
       }),
     ).rejects.toThrow()
@@ -182,7 +182,7 @@ describe('recoverPassphrase (paper profile)', () => {
     const remaining = await loadPaperRecoveryEntries(store, 'acme')
     expect(remaining).toHaveLength(0)
 
-    // Old passphrase still works — the keyring was never rewritten.
+    // Old secret still works — the keyring was never rewritten.
     const reloaded = await loadKeyring(store, 'acme', 'alice', STRONG_OLD)
     expect(reloaded.userId).toBe('alice')
   }, 60_000)
@@ -190,8 +190,8 @@ describe('recoverPassphrase (paper profile)', () => {
   it('rejects an unknown paper code', async () => {
     const { store } = await buildVaultWithPaperRecovery()
     await expect(
-      recoverPassphrase(undefined, store, 'acme', 'alice', {
-        newPassphrase: STRONG_NEW,
+      recoverSecret(undefined, store, 'acme', 'alice', {
+        newSecret: STRONG_NEW,
         recoveryProof: { profile: 'paper', payload: { code: 'WRONGCODE0000' } },
       }),
     ).rejects.toBeInstanceOf(InvalidKeyError)
@@ -208,8 +208,8 @@ describe('recoverPassphrase (paper profile)', () => {
     const store = inlineMemory()
     await createOwnerKeyring(store, 'acme', 'alice', STRONG_OLD)
     await expect(
-      recoverPassphrase(undefined, store, 'acme', 'alice', {
-        newPassphrase: STRONG_NEW,
+      recoverSecret(undefined, store, 'acme', 'alice', {
+        newSecret: STRONG_NEW,
         recoveryProof: {
           profile: 'shamir',
           // Two well-formed-but-meaningless share strings; they will
@@ -263,15 +263,15 @@ describe('recoverPassphrase (paper profile)', () => {
     const store = inlineMemory()
     await createOwnerKeyring(store, 'acme', 'alice', STRONG_OLD)
     await expect(
-      recoverPassphrase(undefined, store, 'acme', 'alice', {
-        newPassphrase: STRONG_NEW,
+      recoverSecret(undefined, store, 'acme', 'alice', {
+        newSecret: STRONG_NEW,
         recoveryProof: { profile: 'multi-channel', payload: { proofs: [] } } as unknown as RecoveryProof,
       }),
     ).rejects.toBeInstanceOf(RecoveryProfileNotImplementedError)
 
     await expect(
-      recoverPassphrase(undefined, store, 'acme', 'alice', {
-        newPassphrase: STRONG_NEW,
+      recoverSecret(undefined, store, 'acme', 'alice', {
+        newSecret: STRONG_NEW,
         recoveryProof: { profile: 'admin-mediated', payload: { token: 'x' } } as unknown as RecoveryProof,
       }),
     ).rejects.toBeInstanceOf(RecoveryProfileNotImplementedError)

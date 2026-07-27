@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { ConflictError, TamperedError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
-import { MemoryRecipientSealer } from '../src/with-party/team/managed-passphrase.js'
+import { MemoryRecipientSealer } from '../src/with-party/team/managed-secret.js'
 import { openSealedRecord, withSealedRecord } from '../src/with-audit/sealed-record/index.js'
 import type { SealedCekDeliveryEnvelope } from '../src/with-audit/sealed-record/types.js'
 
@@ -55,7 +55,7 @@ function memory(): NoydbStore & { raw(c: string, col: string, id: string): Encry
 }
 
 interface Doc { id: string; secret: string }
-const SECRET = 'test-passphrase-1234'
+const SECRET = 'test-secret-1234'
 const HOUR = 60 * 60 * 1000
 
 async function setup() {

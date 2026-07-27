@@ -4,7 +4,7 @@
  * A Deed vault has a latent owner: the owner credential is minted
  * machine-side and sealed under a NON-FIRM {@link SealingKeyProvider}
  * (the cryptographic inalienability anchor). The owner never types a
- * passphrase — they re-resolve it through the same provider.
+ * secret — they re-resolve it through the same provider.
  *
  * The `_meta/deed` marker is PLAINTEXT metadata: it records WHO the
  * latent owner is and WHICH sealing boundary protects them, so it must
@@ -14,7 +14,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
-import { MemorySealingKeyProvider } from '../src/with-party/team/managed-passphrase.js'
+import { MemorySealingKeyProvider } from '../src/with-party/team/managed-secret.js'
 import {
   createDeedOwner,
   loadDeedMarker,
@@ -57,7 +57,7 @@ describe('FR-6 Deed — sealed/latent owner provisioning', () => {
     const keyring = await createDeedOwner(store, 'deed-vault', 'client-01', provider)
     expect(keyring.userId).toBe('client-01')
     expect(keyring.role).toBe('owner')
-    // Owner is unlocked (KEK present — derived from the sealed passphrase).
+    // Owner is unlocked (KEK present — derived from the sealed secret).
     expect(keyring.kek).not.toBeNull()
   })
 
@@ -98,23 +98,23 @@ describe('FR-6 Deed — sealed/latent owner provisioning', () => {
     expect(await loadDeedMarker(store, 'plain-vault')).toBeNull()
   })
 
-  it('the latent owner can be re-resolved via the SAME provider with no interactive passphrase', async () => {
+  it('the latent owner can be re-resolved via the SAME provider with no interactive secret', async () => {
     // Provision the Deed owner once.
     const first = await createDeedOwner(store, 'deed-vault', 'client-01', provider)
     expect(first.role).toBe('owner')
 
-    // Re-resolve the sealed passphrase through the SAME provider — no human
+    // Re-resolve the sealed secret through the SAME provider — no human
     // ever typed it. This is the latent-owner proof.
-    const { resolveManagedSecret } = await import('../src/with-party/team/managed-passphrase.js')
+    const { resolveManagedSecret } = await import('../src/with-party/team/managed-secret.js')
     const reopenProvider = new MemorySealingKeyProvider({ id: 'client-kms' })
-    const passphrase = await resolveManagedSecret(store, 'deed-vault', reopenProvider)
-    expect(typeof passphrase).toBe('string')
-    expect(passphrase.length).toBeGreaterThan(0)
+    const secret = await resolveManagedSecret(store, 'deed-vault', reopenProvider)
+    expect(typeof secret).toBe('string')
+    expect(secret.length).toBeGreaterThan(0)
 
-    // Re-derive the owner KEK from the unsealed passphrase + persisted salt
+    // Re-derive the owner KEK from the unsealed secret + persisted salt
     // and confirm it unlocks the same keyring (canary verifies).
     const { loadKeyring } = await import('../src/with-party/team/keyring.js')
-    const reopened = await loadKeyring(store, 'deed-vault', 'client-01', passphrase)
+    const reopened = await loadKeyring(store, 'deed-vault', 'client-01', secret)
     expect(reopened.userId).toBe('client-01')
     expect(reopened.role).toBe('owner')
     expect(reopened.kek).not.toBeNull()
@@ -123,7 +123,7 @@ describe('FR-6 Deed — sealed/latent owner provisioning', () => {
   it('a non-firm provider is the only anchor — a different provider id cannot re-resolve', async () => {
     await createDeedOwner(store, 'deed-vault', 'client-01', provider)
     const firmProvider = new MemorySealingKeyProvider({ id: 'firm-kms' })
-    const { resolveManagedSecret } = await import('../src/with-party/team/managed-passphrase.js')
+    const { resolveManagedSecret } = await import('../src/with-party/team/managed-secret.js')
     await expect(
       resolveManagedSecret(store, 'deed-vault', firmProvider),
     ).rejects.toThrow()

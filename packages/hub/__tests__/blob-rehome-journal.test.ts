@@ -40,7 +40,7 @@ import { withTiers } from '../src/with-audit/tiers/index.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, BlobObject, SlotRecord } from '../src/kernel/types.js'
 
-const SECRET = 'blob-rehome-journal-test-passphrase'
+const SECRET = 'blob-rehome-journal-test-secret'
 const bytes = (s: string) => new TextEncoder().encode(s)
 
 // ─── Store ──────────────────────────────────────────────────────────────

@@ -57,12 +57,12 @@ describe('inspect — bundle header extraction', () => {
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'noydb-cli-')) })
   afterEach(async () => { await rm(dir, { recursive: true, force: true }) })
 
-  it('reads formatVersion/handle/bodyBytes/bodySha256 without a passphrase', async () => {
+  it('reads formatVersion/handle/bodyBytes/bodySha256 without a secret', async () => {
     // Build a real bundle via createNoydb → writeNoydbBundle
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'test-passphrase-12345678',
+      secret: 'test-secret-12345678',
     })
     const vault = await db.openVault('test-vault')
     const bundleBytes = await writeNoydbBundle(vault, { compression: 'none' })
@@ -84,7 +84,7 @@ describe('verify — integrity check', () => {
 
   it('returns ok=true for a well-formed bundle', async () => {
     const db = await createNoydb({
-      store: memoryStore(), user: 'owner', secret: 'test-passphrase-12345678',
+      store: memoryStore(), user: 'owner', secret: 'test-secret-12345678',
     })
     const vault = await db.openVault('test-vault')
     const bundleBytes = await writeNoydbBundle(vault, { compression: 'none' })
@@ -100,7 +100,7 @@ describe('verify — integrity check', () => {
 
   it('returns ok=false for a tampered body', async () => {
     const db = await createNoydb({
-      store: memoryStore(), user: 'owner', secret: 'test-passphrase-12345678',
+      store: memoryStore(), user: 'owner', secret: 'test-secret-12345678',
     })
     const vault = await db.openVault('test-vault')
     const bundleBytes = await writeNoydbBundle(vault, { compression: 'none' })

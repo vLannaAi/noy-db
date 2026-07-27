@@ -197,7 +197,7 @@ describe('carryLedger full ceremony — verifyBackupIntegrity', () => {
 
     const dest = memory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'acme' })
-    await createOwnerOnAdoptedPartition(dest, 'acme', { userId: 'belle', passphrase: 'belle-2026', transferKey })
+    await createOwnerOnAdoptedPartition(dest, 'acme', { userId: 'belle', secret: 'belle-2026', transferKey })
 
     const recipientDb = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-2026', historyStrategy: withHistory() })
     const vault = await recipientDb.openVault('acme')

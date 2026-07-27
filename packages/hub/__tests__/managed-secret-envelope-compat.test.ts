@@ -1,5 +1,5 @@
 /**
- * Migration safety-net for the `_meta/sealed-passphrase` wire format.
+ * Migration safety-net for the `_meta/sealed-secret` wire format.
  *
  * v1 (pre.16+): { v: 1, _noydb_sealed: 1, pid, payload }
  * Legacy (pre.14 / pre.15): { _noydb_sealed: 1, providerId, sealed }
@@ -17,11 +17,11 @@ import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import {
-  loadSealedPassphrase,
-  saveSealedPassphrase,
+  loadSealedSecret,
+  saveSealedSecret,
   parseSealedEnvelope,
-  SEALED_PASSPHRASE_RECORD_ID,
-} from '../src/with-party/team/managed-passphrase.js'
+  SEALED_SECRET_RECORD_ID,
+} from '../src/with-party/team/managed-secret.js'
 
 function inlineMemory(): NoydbStore {
   const data = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -62,7 +62,7 @@ async function writeLegacyEnvelope(
       sealed: sealedBase64,
     }),
   }
-  await store.put(vault, '_meta', SEALED_PASSPHRASE_RECORD_ID, env)
+  await store.put(vault, '_meta', SEALED_SECRET_RECORD_ID, env)
 }
 
 describe('parseSealedEnvelope — accepts both wire formats', () => {
@@ -121,38 +121,38 @@ describe('parseSealedEnvelope — accepts both wire formats', () => {
   })
 })
 
-describe('loadSealedPassphrase — reads existing pre.14/pre.15 envelopes', () => {
+describe('loadSealedSecret — reads existing pre.14/pre.15 envelopes', () => {
   it('loads a legacy-shape envelope written before the rename', async () => {
     const store = inlineMemory()
     // Simulate what pre.14/pre.15 wrote on disk.
     await writeLegacyEnvelope(store, 'acme', 'env:NOYDB_SEALING_KEY', 'AAEC')
 
-    const loaded = await loadSealedPassphrase(store, 'acme')
+    const loaded = await loadSealedSecret(store, 'acme')
     expect(loaded).toBeDefined()
     expect(loaded?.providerId).toBe('env:NOYDB_SEALING_KEY')
     expect(Array.from(loaded?.sealed ?? [])).toEqual([0, 1, 2])
   })
 
-  it('loads a v1-shape envelope written by saveSealedPassphrase', async () => {
+  it('loads a v1-shape envelope written by saveSealedSecret', async () => {
     const store = inlineMemory()
-    await saveSealedPassphrase(store, 'acme', {
+    await saveSealedSecret(store, 'acme', {
       providerId: 'env:NOYDB_SEALING_KEY',
       sealed: new Uint8Array([10, 20, 30]),
     })
-    const loaded = await loadSealedPassphrase(store, 'acme')
+    const loaded = await loadSealedSecret(store, 'acme')
     expect(loaded?.providerId).toBe('env:NOYDB_SEALING_KEY')
     expect(Array.from(loaded?.sealed ?? [])).toEqual([10, 20, 30])
   })
 })
 
-describe('saveSealedPassphrase — always produces v1 shape going forward', () => {
+describe('saveSealedSecret — always produces v1 shape going forward', () => {
   it('writes the v1 wire format on first save', async () => {
     const store = inlineMemory()
-    await saveSealedPassphrase(store, 'acme', {
+    await saveSealedSecret(store, 'acme', {
       providerId: 'env:NOYDB_SEALING_KEY',
       sealed: new Uint8Array([0xDE, 0xAD]),
     })
-    const onDisk = await store.get('acme', '_meta', SEALED_PASSPHRASE_RECORD_ID)
+    const onDisk = await store.get('acme', '_meta', SEALED_SECRET_RECORD_ID)
     expect(onDisk).toBeDefined()
     const parsed = JSON.parse(onDisk!._data) as Record<string, unknown>
     expect(parsed.v).toBe(1)
@@ -170,11 +170,11 @@ describe('saveSealedPassphrase — always produces v1 shape going forward', () =
     await writeLegacyEnvelope(store, 'acme', 'env:LEGACY', 'AAEC')
 
     // Now save through the modern API — should produce v1.
-    await saveSealedPassphrase(store, 'acme', {
+    await saveSealedSecret(store, 'acme', {
       providerId: 'env:NEW',
       sealed: new Uint8Array([42]),
     })
-    const onDisk = await store.get('acme', '_meta', SEALED_PASSPHRASE_RECORD_ID)
+    const onDisk = await store.get('acme', '_meta', SEALED_SECRET_RECORD_ID)
     const parsed = JSON.parse(onDisk!._data) as Record<string, unknown>
     expect(parsed.v).toBe(1)
     expect(parsed.pid).toBe('env:NEW')

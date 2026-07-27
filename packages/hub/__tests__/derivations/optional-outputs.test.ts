@@ -67,7 +67,7 @@ describe('withDerivation — optional outputs (#144)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-optional-outputs-passphrase-2026',
+      secret: 'derivation-optional-outputs-secret-2026',
       derivationStrategies: [strategy],
     })
     const v = await db.openVault('demo')
@@ -103,7 +103,7 @@ describe('withDerivation — optional outputs (#144)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-optional-delete-passphrase-2026',
+      secret: 'derivation-optional-delete-secret-2026',
       derivationStrategies: [strategy],
     })
     const v = await db.openVault('demo')
@@ -136,7 +136,7 @@ describe('withDerivation — optional outputs (#144)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-required-null-rejects-passphrase-2026',
+      secret: 'derivation-required-null-rejects-secret-2026',
       derivationStrategies: [strategy],
     })
     const v = await db.openVault('demo')
@@ -175,7 +175,7 @@ describe('withDerivation — optional outputs (#144)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-tombstone-bypasses-ondelete-passphrase-2026',
+      secret: 'derivation-tombstone-bypasses-ondelete-secret-2026',
       derivationStrategies: [allocationDerivation],
       guardStrategies: [receiptGuard],
     })
@@ -231,7 +231,7 @@ describe('withDerivation — optional outputs (#144)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-tombstone-lazy-bypasses-ondelete-passphrase-2026',
+      secret: 'derivation-tombstone-lazy-bypasses-ondelete-secret-2026',
       derivationStrategies: [allocationDerivation],
       guardStrategies: [receiptGuard],
     })
@@ -283,7 +283,7 @@ describe('withDerivation — optional outputs (#144)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-tombstone-lazy-tx-wiring-passphrase-2026',
+      secret: 'derivation-tombstone-lazy-tx-wiring-secret-2026',
       derivationStrategies: [allocationDerivation],
       txStrategy: withTransactions(),
     })
@@ -330,7 +330,7 @@ describe('withDerivation — optional outputs (#144)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-deriveAll-idempotency-passphrase-2026',
+      secret: 'derivation-deriveAll-idempotency-secret-2026',
       derivationStrategies: [strategy],
       historyStrategy: withHistory(),
     })
@@ -397,7 +397,7 @@ describe('withDerivation — optional outputs (#144)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-tombstone-in-amendment-passphrase-2026',
+      secret: 'derivation-tombstone-in-amendment-secret-2026',
       derivationStrategies: [allocationDerivation],
       guardStrategies: [receiptGuard],
       txStrategy: withTransactions(),
@@ -445,7 +445,7 @@ describe('withDerivation — optional outputs (#144)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-optional-lazy-passphrase-2026',
+      secret: 'derivation-optional-lazy-secret-2026',
       derivationStrategies: [strategy],
     })
     const v = await db.openVault('demo')

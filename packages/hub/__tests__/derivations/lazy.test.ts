@@ -51,7 +51,7 @@ describe('Derivation — lazy lifecycle', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-lazy-noderive-passphrase-2026',
+      secret: 'derivation-lazy-noderive-secret-2026',
       derivationStrategies: [strategy],
     })
     const v = await db.openVault('demo')
@@ -71,7 +71,7 @@ describe('Derivation — lazy lifecycle', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-lazy-onread-passphrase-2026',
+      secret: 'derivation-lazy-onread-secret-2026',
       derivationStrategies: [strategy],
     })
     const v = await db.openVault('demo')
@@ -93,7 +93,7 @@ describe('Derivation — lazy lifecycle', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-lazy-twice-passphrase-2026',
+      secret: 'derivation-lazy-twice-secret-2026',
       derivationStrategies: [strategy],
     })
     const v = await db.openVault('demo')

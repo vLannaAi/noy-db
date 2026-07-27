@@ -157,7 +157,7 @@ describe('grant() persistence — importCapability round-trips via keyring file'
       userId: 'op@test',
       displayName: 'Operator',
       role: 'operator',
-      passphrase: 'op-pass',
+      secret: 'op-pass',
       permissions: { invoices: 'rw' },
       importCapability: { plaintext: ['csv', 'json'], bundle: true },
     })
@@ -184,7 +184,7 @@ describe('grant() persistence — importCapability round-trips via keyring file'
       userId: 'op@test',
       displayName: 'Operator',
       role: 'operator',
-      passphrase: 'op-pass',
+      secret: 'op-pass',
       permissions: { invoices: 'rw' },
     })
     await ownerDb.close()
@@ -231,7 +231,7 @@ describe('vault.assertCanImport / canImport', () => {
     await ownerDb.openVault('acme')
     await ownerDb.grant('acme', {
       userId: 'op@test', displayName: 'Operator', role: 'operator',
-      passphrase: 'op-pass',
+      secret: 'op-pass',
       permissions: { invoices: 'rw' },
       importCapability: { plaintext: ['csv'] },
     })

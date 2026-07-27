@@ -68,7 +68,7 @@ describe('Strict-mode derivation multi-output orphan (#133)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-orphan-133-passphrase-2026',
+      secret: 'derivation-orphan-133-secret-2026',
       derivationStrategies: [stratGood, stratBad],
       txStrategy: withTransactions(),
     })
@@ -109,7 +109,7 @@ describe('Strict-mode derivation multi-output orphan (#133)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-orphan-133-nonstrict-passphrase-2026',
+      secret: 'derivation-orphan-133-nonstrict-secret-2026',
       derivationStrategies: [stratGood, stratBad],
       txStrategy: withTransactions(),
     })
@@ -152,7 +152,7 @@ describe('Strict-mode derivation multi-output orphan (#133)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-orphan-133-putmany-passphrase-2026',
+      secret: 'derivation-orphan-133-putmany-secret-2026',
       derivationStrategies: [stratGood, stratBad],
     })
     const v = await db.openVault('demo')

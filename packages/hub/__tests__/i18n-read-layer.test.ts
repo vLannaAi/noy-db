@@ -68,7 +68,7 @@ async function freshDb(): Promise<Noydb> {
   return createNoydb({
     store: memory(),
     user: 'alice',
-    secret: 'test-passphrase-read-layer',
+    secret: 'test-secret-read-layer',
     i18nStrategy: withI18n(),
   })
 }

@@ -175,7 +175,7 @@ describe('vault.withConsent / vault.consentAudit (v0.16)', () => {
       const encDb = await createNoydb({
         store,
         user: 'alice',
-        secret: 'test-passphrase-12345678',
+        secret: 'test-secret-12345678',
         consentStrategy: withConsent(),
       })
       const vault = await encDb.openVault('acme')

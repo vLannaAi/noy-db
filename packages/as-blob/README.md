@@ -29,7 +29,7 @@ await db.grant('firm', {
   userId: 'accountant',
   displayName: 'Somchai',
   role: 'operator',
-  passphrase: '…',
+  secret: '…',
   permissions: { invoices: 'ro' },
   exportCapability: { plaintext: ['blob', 'pdf'] }, // or ['*']
 })

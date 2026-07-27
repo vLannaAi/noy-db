@@ -5,7 +5,7 @@
  * ## Usage
  *
  * ```ts
- * const vault = await db.openVault('acme', { passphrase })
+ * const vault = await db.openVault('acme', { secret })
  * const q1End = vault.at('2026-03-31T23:59:59Z')
  * const invoice = await q1End.collection<Invoice>('invoices').get('inv-001')
  * // → the record as it stood at the close of Q1 2026
@@ -68,7 +68,7 @@ export interface VaultEngine {
   /** Vault name (the compartment). */
   readonly name: string
   /**
-   * `true` when the vault was opened with a passphrase (the normal
+   * `true` when the vault was opened with a secret (the normal
    * case). `false` in plaintext-mode vaults (`encrypt: false`) — in
    * that case `envelope._data` is raw JSON and we skip the DEK lookup.
    */

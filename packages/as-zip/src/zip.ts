@@ -66,11 +66,11 @@ export interface ZipEntry {
 export interface WriteZipOptions {
   /**
    * When set, every entry is encrypted with WinZip-AES-256 sealed
-   * under this passphrase. Recipients open with stock archive
+   * under this secret. Recipients open with stock archive
    * tooling (7-Zip, Archive Utility, WinRAR, modern unzip builds)
-   * by typing the same passphrase.
+   * by typing the same secret.
    *
-   * Single passphrase across all entries by design — per-entry
+   * Single secret across all entries by design — per-entry
    * passwords don't fit a noy-db export workflow and would muddy
    * the API.
    */

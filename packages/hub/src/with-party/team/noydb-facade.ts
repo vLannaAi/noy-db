@@ -2,9 +2,9 @@
  * Noydb-side auth / recovery / enrollment facade.
  *
  * Holds the tier-2 authenticator enrollment/unlock wrappers, WebAuthn
- * enrollment, auth-config introspection, the tier-1 passphrase
+ * enrollment, auth-config introspection, the tier-1 secret
  * rotate/recover flows, the paper/Shamir recovery rotate/enroll flows,
- * managed-passphrase recovery, peer-recovery, tier-3 PIN unlock, and the
+ * managed-secret recovery, peer-recovery, tier-3 PIN unlock, and the
  * public `getKeyring` accessor.
  *
  * The near-parallel rotate/recover variants (managed vs user vs paper vs
@@ -16,16 +16,16 @@
  * (`assertRecoveryEnrolled`), `openVault`, and the one-shot
  * managed-recovery skip flag stay kernel-resident and arrive as callbacks.
  *
- * Internal service — reached through `noydb.team.rotatePassphrase(...)` etc.
+ * Internal service — reached through `noydb.team.rotateSecret(...)` etc.
  */
 import type { NoydbOptions, NoydbStore, KeyringAuthenticator } from '../../kernel/types.js'
 import { ValidationError } from '../../kernel/errors.js'
 import {
-  rotatePassphrase as keyringRotatePassphrase,
-  recoverPassphrase as keyringRecoverPassphrase,
-  type RotatePassphraseInput,
-  type RecoverPassphraseInput,
-  type RecoverPassphraseResult,
+  rotateSecret as keyringRotateSecret,
+  recoverSecret as keyringRecoverSecret,
+  type RotateSecretInput,
+  type RecoverSecretInput,
+  type RecoverSecretResult,
   type RotateRecoveryOptions,
   type RotateRecoveryResult,
   type EnrollRecoveryResult,
@@ -46,7 +46,7 @@ import {
   mintShamirRecoveryEntry,
   type ShamirRecoveryEntry,
 } from './recovery.js'
-import { saveSealedPassphrase } from './managed-passphrase.js'
+import { saveSealedSecret } from './managed-secret.js'
 import type { ShamirRecoveryProvider } from './shamir-recovery-provider.js'
 import { generateULID } from '../../with-pod/ulid.js'
 import { RecoveryProfileNotImplementedError, PolicyDeniedError } from '../../kernel/errors.js'
@@ -67,7 +67,7 @@ import {
   type UpdateAuthenticatorOptions,
 } from './authenticators.js'
 import type { QuickUnlockStore, QuickUnlockState } from '../session/unlock-state.js'
-import type { PassphrasePolicy } from '../../kernel/validation.js'
+import type { SecretPolicy } from '../../kernel/validation.js'
 import type {
   ActiveTier,
   FactorProofBundle,
@@ -83,7 +83,7 @@ type ResolvedNoydbOptions = NoydbOptions & { readonly store: NoydbStore }
 
 /** Everything the moving auth/recovery/enrollment methods touched on the Noydb instance's `this.*`. */
 export interface TeamFacadeDeps {
-  /** Resolved Noydb options (store, user, passphraseMode, sealingKey, shamirRecovery, …). */
+  /** Resolved Noydb options (store, user, secretMode, sealingKey, shamirRecovery, …). */
   readonly options: ResolvedNoydbOptions
   /** Live unlocked-keyring cache (Noydb-resident; read/written by reference). */
   readonly keyringCache: Map<string, UnlockedKeyring>
@@ -421,61 +421,61 @@ export class TeamFacade {
 
   // ─── Tier-1 change flows ────────────────────────────────────────
   /**
-   * Rotate the user's passphrase (user remembers old). Validates the
-   * new phrase against the configured `passphrase` policy, runs the
-   * `rotate-passphrase` gate, then re-derives + re-wraps every DEK.
+   * Rotate the user's secret (user remembers old). Validates the
+   * new phrase against the configured `secret` policy, runs the
+   * `rotate-secret` gate, then re-derives + re-wraps every DEK.
    *
    * Tier-2 authenticator slots are dropped — each slot wraps the old
    * KEK and would need its derivation key to be re-presented. Re-enrol
    * via `db.enrollAuthenticator` after rotation.
    *
-   * @throws `WeakPassphraseError` on a weak new phrase.
+   * @throws `WeakSecretError` on a weak new phrase.
    * @throws `PolicyDeniedError` when the gate denies (missing factor, …).
-   * @throws `InvalidKeyError` when `oldPassphrase` is wrong.
+   * @throws `InvalidKeyError` when `oldSecret` is wrong.
    */
-  async rotatePassphrase(
+  async rotateSecret(
     vault: string,
-    input: RotatePassphraseInput,
+    input: RotateSecretInput,
     factors?: FactorProofBundle,
   ): Promise<void> {
-    // Managed-passphrase mode: the user does NOT know the
-    // current passphrase (hub generated it and sealed it under the
+    // Managed-secret mode: the user does NOT know the
+    // current secret (hub generated it and sealed it under the
     // provider). Manual rotation via this method is impossible by
     // construction — surface a clear error rather than fail mid-way
-    // with InvalidKeyError once `oldPassphrase` doesn't match the
+    // with InvalidKeyError once `oldSecret` doesn't match the
     // hub-generated one. Recovery-under-managed (which mints a fresh
-    // sealed passphrase via the provider) is the supported path; it
+    // sealed secret via the provider) is the supported path; it
     // lands in a follow-up.
-    if (this.deps.options.passphraseMode === 'managed') {
+    if (this.deps.options.secretMode === 'managed') {
       throw new PolicyDeniedError(
-        'rotate-passphrase',
+        'rotate-secret',
         'disabled',
         { minTier: 1, enabled: false },
-        'Managed-passphrase mode (#14): the passphrase is hub-generated '
+        'Managed-secret mode (#14): the secret is hub-generated '
         + 'and sealed under the SealingKeyProvider — there is no '
         + 'plaintext to rotate. Use the recovery flow (follow-up issue) '
-        + 'to mint a fresh sealed passphrase.',
+        + 'to mint a fresh sealed secret.',
       )
     }
-    await this.deps.checkGate(vault, 'rotate-passphrase', factors)
+    await this.deps.checkGate(vault, 'rotate-secret', factors)
     const userId = this.deps.options.user
-    const next = await keyringRotatePassphrase(this.deps.options.store, vault, userId, input)
+    const next = await keyringRotateSecret(this.deps.options.store, vault, userId, input)
     this.deps.keyringCache.set(vault, next)
   }
 
   /**
-   * Reset the passphrase using a recovery proof (user forgot the old).
+   * Reset the secret using a recovery proof (user forgot the old).
    * Currently supports the `'paper'` profile end-to-end; the
    * other profiles throw {@link RecoveryProfileNotImplementedError}.
    *
    * Burns the used recovery entry on success.
    */
-  async recoverPassphrase(
+  async recoverSecret(
     vault: string,
-    input: RecoverPassphraseInput,
+    input: RecoverSecretInput,
     factors?: FactorProofBundle,
-  ): Promise<RecoverPassphraseResult> {
-    await this.deps.checkGate(vault, 'recover-passphrase', factors)
+  ): Promise<RecoverSecretResult> {
+    await this.deps.checkGate(vault, 'recover-secret', factors)
     const userId = this.deps.options.user
 
     // Snapshot the entries BEFORE recovery — the team function burns
@@ -485,7 +485,7 @@ export class TeamFacade {
     // under the auto-rotation logic.
     const entriesBeforeRecovery = await loadPaperRecoveryEntries(this.deps.options.store, vault)
 
-    const next = await keyringRecoverPassphrase(this.deps.options.shamirRecovery, this.deps.options.store, vault, userId, input)
+    const next = await keyringRecoverSecret(this.deps.options.shamirRecovery, this.deps.options.store, vault, userId, input)
     this.deps.keyringCache.set(vault, next)
 
     const rotateRemaining = input.rotateRemainingCodes ?? true
@@ -497,7 +497,7 @@ export class TeamFacade {
     // Auto-rotate: replace the remaining entries with a fresh set
     // minted under the new keyring's DEKs. Wraps the same DEK set the
     // recovered keyring just got, so the new codes round-trip through
-    // a future `db.recoverPassphrase` cleanly.
+    // a future `db.recoverSecret` cleanly.
     //
     // If this step fails (store error mid-mint), we leave the existing
     // post-burn entries in place — the user falls back to the
@@ -522,15 +522,15 @@ export class TeamFacade {
 
   /**
    * Deliberate paper-recovery-code regeneration. User knows their
-   * passphrase but wants a fresh sheet — they lost the printout or
+   * secret but wants a fresh sheet — they lost the printout or
    * suspect compromise of the off-site copy.
    *
-   * Symmetric to {@link rotatePassphrase} for the recovery profile:
+   * Symmetric to {@link rotateSecret} for the recovery profile:
    * gated, audit-trackable, ergonomic. Replaces (not appends) the
    * paper sheet under `_meta/recovery-paper` in a single envelope `put`.
    *
    * Gated by the `rotate-recovery` policy gate:
-   *   - PERSONAL_POLICY: `{ minTier: 1 }` — knowing the passphrase
+   *   - PERSONAL_POLICY: `{ minTier: 1 }` — knowing the secret
    *     suffices, matching the lower-level flow's bar.
    *   - STRICT_POLICY: `{ minTier: 1, factors: [{ anyOf: ['totp',
    *     'email-otp', 'webauthn-roaming'] }] }` — rotation is an
@@ -678,7 +678,7 @@ export class TeamFacade {
    * **Atomic create-and-enroll for managed-mode vaults.**
    *
    * Bootstraps a managed-mode vault and enrolls strong recovery in
-   * a single ceremony. Under `passphraseMode: 'managed'`, every
+   * a single ceremony. Under `secretMode: 'managed'`, every
    * `openVault` call requires a strong recovery profile (Shamir
    * today) to be enrolled — otherwise it throws
    * {@link ManagedRecoveryNotEnrolledError}. This method bypasses
@@ -697,7 +697,7 @@ export class TeamFacade {
    * ```ts
    * const db = await createNoydb({
    *   store, user: 'alice',
-   *   passphraseMode: 'managed',
+   *   secretMode: 'managed',
    *   sealingKey: macosKeychainSealingProvider({ ... }),
    * })
    *
@@ -729,13 +729,13 @@ export class TeamFacade {
     }
 
     // Validate "at least one strong" when managed mode is on.
-    if (this.deps.options.passphraseMode === 'managed') {
+    if (this.deps.options.secretMode === 'managed') {
       const hasStrong = opts.recovery.some(r => r.profile === 'shamir')
       if (!hasStrong) {
         throw new ValidationError(
           'openVaultAndEnrollRecovery: managed-mode vaults require at least one strong '
           + 'recovery profile in the `recovery` array. Paper alone is not strong under '
-          + 'managed mode (no user passphrase to fall back on). Include '
+          + 'managed mode (no user secret to fall back on). Include '
           + '{ profile: "shamir", k, n } in `recovery`.',
         )
       }
@@ -759,7 +759,7 @@ export class TeamFacade {
     }
 
     // Belt-and-braces final check — by now, strong recovery must be on disk.
-    if (this.deps.options.passphraseMode === 'managed') {
+    if (this.deps.options.secretMode === 'managed') {
       const policy = this.deps.policyCache.get(vault)
       if (policy) {
         await this.deps.assertRecoveryEnrolled(vault, policy)
@@ -770,20 +770,20 @@ export class TeamFacade {
   }
 
   /**
-   * **Recovery flow under managed-passphrase mode.**
+   * **Recovery flow under managed-secret mode.**
    *
-   * Replaces the sealed passphrase of a managed-mode vault with a
+   * Replaces the sealed secret of a managed-mode vault with a
    * fresh 256-bit random, sealed under the configured
-   * `SealingKeyProvider`. The user never sees the new passphrase.
+   * `SealingKeyProvider`. The user never sees the new secret.
    *
    * Internally:
    *   1. Verify the recovery proof (Shamir today) and unwrap the
    *      DEK set.
-   *   2. Mint a fresh 256-bit random as the new effective passphrase.
+   *   2. Mint a fresh 256-bit random as the new effective secret.
    *   3. Rewrap the DEK set under a fresh KEK derived from the new
-   *      passphrase (via the existing `recoverPassphrase` path).
+   *      secret (via the existing `recoverSecret` path).
    *   4. Seal the random bytes under the provider and overwrite
-   *      `_meta/sealed-passphrase`.
+   *      `_meta/sealed-secret`.
    *   5. Drop the keyring cache so the next operation re-derives.
    *
    * The vault's strong-recovery enrollment is preserved across
@@ -791,61 +791,61 @@ export class TeamFacade {
    *
    * @throws ValidationError if the Noydb instance is not in managed mode.
    */
-  async recoverManagedPassphrase(
+  async recoverManagedSecret(
     vault: string,
     options: {
       readonly recoveryProof: RecoveryProof
-      readonly passphrasePolicy?: PassphrasePolicy
+      readonly secretPolicy?: SecretPolicy
     },
   ): Promise<void> {
-    if (this.deps.options.passphraseMode !== 'managed') {
+    if (this.deps.options.secretMode !== 'managed') {
       throw new ValidationError(
-        'recoverManagedPassphrase: this method only applies to vaults opened '
-        + 'in managed-passphrase mode. For standard mode, use db.recoverPassphrase.',
+        'recoverManagedSecret: this method only applies to vaults opened '
+        + 'in managed-secret mode. For standard mode, use db.recoverSecret.',
       )
     }
     const provider = this.deps.options.sealingKey
     if (!provider) {
       throw new ValidationError(
-        'recoverManagedPassphrase: createNoydb({ passphraseMode: "managed" }) requires '
-        + '`sealingKey` to be supplied; without it the new sealed passphrase cannot '
+        'recoverManagedSecret: createNoydb({ secretMode: "managed" }) requires '
+        + '`sealingKey` to be supplied; without it the new sealed secret cannot '
         + 'be persisted.',
       )
     }
 
     // Mint fresh 256-bit random; base64 it for use as the new
-    // effective passphrase. AES-GCM auth-tag failures in the
+    // effective secret. AES-GCM auth-tag failures in the
     // managed-mode envelope catch tampering.
     const randomBytes = new Uint8Array(32)
     globalThis.crypto.getRandomValues(randomBytes)
     let binary = ''
     for (let i = 0; i < randomBytes.length; i++) binary += String.fromCharCode(randomBytes[i]!)
-    const newPassphrase = btoa(binary)
+    const newSecret = btoa(binary)
 
     try {
       // Seal first; if the provider fails (KMS down, keychain locked),
-      // we don't touch the keyring. Then run recoverPassphrase which
+      // we don't touch the keyring. Then run recoverSecret which
       // rewraps DEKs under the new KEK derived from the random bytes.
       const sealed = await provider.seal(randomBytes)
-      await keyringRecoverPassphrase(
+      await keyringRecoverSecret(
         this.deps.options.shamirRecovery,
         this.deps.options.store,
         vault,
         this.deps.options.user,
         {
-          newPassphrase,
+          newSecret,
           recoveryProof: options.recoveryProof,
-          // The new passphrase IS 256 bits of random; policy gates on
+          // The new secret IS 256 bits of random; policy gates on
           // length/entropy don't apply.
-          allowWeakPassphrase: true,
-          ...(options.passphrasePolicy !== undefined
-            ? { passphrasePolicy: options.passphrasePolicy }
+          allowWeakSecret: true,
+          ...(options.secretPolicy !== undefined
+            ? { secretPolicy: options.secretPolicy }
             : {}),
         },
       )
-      // Update _meta/sealed-passphrase with the freshly sealed random.
-      // The previous envelope is overwritten by saveSealedPassphrase.
-      await saveSealedPassphrase(this.deps.options.store, vault, {
+      // Update _meta/sealed-secret with the freshly sealed random.
+      // The previous envelope is overwritten by saveSealedSecret.
+      await saveSealedSecret(this.deps.options.store, vault, {
         providerId: provider.id,
         sealed,
       })
@@ -861,7 +861,7 @@ export class TeamFacade {
 
   /**
    * Atomic peer-recovery — re-wraps an EXISTING user's keyring under
-   * a fresh temp passphrase in a single store write. Closes the
+   * a fresh temp secret in a single store write. Closes the
    * partial-failure window (the previous compose-from-primitives
    * pattern was `db.revoke + db.grant`, two writes — if the issuer
    * cancelled between them the target was locked out entirely).
@@ -880,17 +880,17 @@ export class TeamFacade {
    * recovery / TOTP / email-OTP factor proof at the moment of
    * recovery, so the issuer affirmatively re-asserts identity.
    *
-   * The recipient should call `db.rotatePassphrase` on first session
+   * The recipient should call `db.rotateSecret` on first session
    * to choose their own phrase — the temp acts as a single-use
    * bridge.
    *
    * ```ts
    * await db.team.recoverUser('acme', {
    *   userId: 'bob',
-   *   passphrase: 'temporary-correct-horse-battery-staple-printer',
+   *   secret: 'temporary-correct-horse-battery-staple-printer',
    * }, { factors: [{ kind: 'recovery' }] })
    * // Bob opens createNoydb({ user: 'bob', secret: tempPhrase })
-   * // and immediately calls db.rotatePassphrase to set his own.
+   * // and immediately calls db.rotateSecret to set his own.
    * ```
    *
    * @throws `NoAccessError` when no keyring exists for the target.

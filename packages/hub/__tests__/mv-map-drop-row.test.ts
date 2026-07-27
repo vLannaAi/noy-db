@@ -95,7 +95,7 @@ describe('UNION MV map drop-row (#297)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-map-drop-row-passphrase-2026',
+      secret: 'mv-map-drop-row-secret-2026',
       materializedViewStrategies: [invoiceTotals],
       aggregateStrategy: withAggregate(),
     })
@@ -164,7 +164,7 @@ describe('UNION MV map drop-row (#297)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-map-drop-row-undef-passphrase-2026',
+      secret: 'mv-map-drop-row-undef-secret-2026',
       materializedViewStrategies: [totals],
       aggregateStrategy: withAggregate(),
     })

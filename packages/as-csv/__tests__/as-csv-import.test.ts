@@ -49,7 +49,7 @@ async function setup() {
   await init.openVault('demo')
   await init.grant('demo', {
     userId: 'alice', displayName: 'Alice', role: 'owner',
-    passphrase: 'pw-2026',
+    secret: 'pw-2026',
     importCapability: { plaintext: ['csv'] },
   })
   init.close()
@@ -113,7 +113,7 @@ describe('as-csv fromString', () => {
     const { db: src, vault: srcVault } = await setup()
     await src.grant('demo', {
       userId: 'alice', displayName: 'Alice', role: 'owner',
-      passphrase: 'pw-2026',
+      secret: 'pw-2026',
       exportCapability: { plaintext: ['csv'] },
     })
     src.close()
@@ -129,7 +129,7 @@ describe('as-csv fromString', () => {
     await dstInit.openVault('demo')
     await dstInit.grant('demo', {
       userId: 'alice', displayName: 'Alice', role: 'owner',
-      passphrase: 'pw-2026',
+      secret: 'pw-2026',
       importCapability: { plaintext: ['csv'] },
     })
     dstInit.close()
@@ -161,7 +161,7 @@ describe('as-csv fromString — apply() requires withTransactions()', () => {
     await init.openVault('demo')
     await init.grant('demo', {
       userId: 'alice', displayName: 'Alice', role: 'owner',
-      passphrase: 'pw-2026',
+      secret: 'pw-2026',
       importCapability: { plaintext: ['csv'] },
     })
     init.close()

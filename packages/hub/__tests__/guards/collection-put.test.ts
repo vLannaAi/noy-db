@@ -53,7 +53,7 @@ describe('Collection.put — guard hook integration', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-cross-collection-passphrase-2026',
+      secret: 'guards-cross-collection-secret-2026',
       guardStrategies: [lineGuard],
     })
     const v = await db.openVault('demo')
@@ -71,7 +71,7 @@ describe('Collection.put — guard hook integration', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-frozenfields-passphrase-2026',
+      secret: 'guards-frozenfields-secret-2026',
       guardStrategies: [invoiceGuard],
     })
     const v = await db.openVault('demo')
@@ -94,7 +94,7 @@ describe('Collection.put — guard hook integration', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-permits-passphrase-2026',
+      secret: 'guards-permits-secret-2026',
       guardStrategies: [guard],
     })
     const v = await db.openVault('demo')
@@ -113,7 +113,7 @@ describe('Collection.put — guard hook integration', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-delete-passphrase-2026',
+      secret: 'guards-delete-secret-2026',
       guardStrategies: [guard],
     })
     const v = await db.openVault('demo')
@@ -130,7 +130,7 @@ describe('Collection.put — guard hook integration', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-check-put-only-passphrase-2026',
+      secret: 'guards-check-put-only-secret-2026',
       guardStrategies: [guard],
     })
     const v = await db.openVault('demo')

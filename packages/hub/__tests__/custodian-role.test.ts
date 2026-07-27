@@ -70,7 +70,7 @@ describe('custodian role', () => {
     beforeEach(async () => {
       await ownerDb.grant(COMP, {
         userId: 'cust-01', displayName: 'Custodian', role: 'custodian',
-        passphrase: 'cust-pass',
+        secret: 'cust-pass',
       })
       custodianDb = await createNoydb({ teamStrategy: withTeam(), cargoStrategy: withCargo(), store: adapter, user: 'cust-01', secret: 'cust-pass', tiersStrategy: withTiers() })
     })
@@ -98,19 +98,19 @@ describe('custodian role', () => {
     beforeEach(async () => {
       await ownerDb.grant(COMP, {
         userId: 'cust-01', displayName: 'Custodian', role: 'custodian',
-        passphrase: 'cust-pass',
+        secret: 'cust-pass',
       })
       // a separate user the custodian might try to revoke
-      await ownerDb.grant(COMP, { userId: 'viewer-01', displayName: 'V', role: 'viewer', passphrase: 'p' })
+      await ownerDb.grant(COMP, { userId: 'viewer-01', displayName: 'V', role: 'viewer', secret: 'p' })
       custodianDb = await createNoydb({ teamStrategy: withTeam(), cargoStrategy: withCargo(), store: adapter, user: 'cust-01', secret: 'cust-pass', tiersStrategy: withTiers() })
     })
 
     it('cannot grant any role', async () => {
       await expect(
-        custodianDb.grant(COMP, { userId: 'x', displayName: 'X', role: 'viewer', passphrase: 'p' }),
+        custodianDb.grant(COMP, { userId: 'x', displayName: 'X', role: 'viewer', secret: 'p' }),
       ).rejects.toThrow(PermissionDeniedError)
       await expect(
-        custodianDb.grant(COMP, { userId: 'y', displayName: 'Y', role: 'operator', passphrase: 'p', permissions: { invoices: 'rw' } }),
+        custodianDb.grant(COMP, { userId: 'y', displayName: 'Y', role: 'operator', secret: 'p', permissions: { invoices: 'rw' } }),
       ).rejects.toThrow(PermissionDeniedError)
     })
 
@@ -123,16 +123,16 @@ describe('custodian role', () => {
 
   describe('(d) admin cannot grant a custodian — only the owner can', () => {
     it('admin → custodian is denied', async () => {
-      await ownerDb.grant(COMP, { userId: 'admin-01', displayName: 'Admin', role: 'admin', passphrase: 'admin-pass' })
+      await ownerDb.grant(COMP, { userId: 'admin-01', displayName: 'Admin', role: 'admin', secret: 'admin-pass' })
       const adminDb = await createNoydb({ teamStrategy: withTeam(), cargoStrategy: withCargo(), store: adapter, user: 'admin-01', secret: 'admin-pass' })
       await expect(
-        adminDb.grant(COMP, { userId: 'cust-from-admin', displayName: 'C', role: 'custodian', passphrase: 'p' }),
+        adminDb.grant(COMP, { userId: 'cust-from-admin', displayName: 'C', role: 'custodian', secret: 'p' }),
       ).rejects.toThrow(PermissionDeniedError)
     })
 
     it('owner → custodian succeeds (control)', async () => {
       await expect(
-        ownerDb.grant(COMP, { userId: 'cust-02', displayName: 'C', role: 'custodian', passphrase: 'p' }),
+        ownerDb.grant(COMP, { userId: 'cust-02', displayName: 'C', role: 'custodian', secret: 'p' }),
       ).resolves.not.toThrow()
     })
   })
@@ -143,7 +143,7 @@ describe('custodian role', () => {
     beforeEach(async () => {
       await ownerDb.grant(COMP, {
         userId: 'cust-01', displayName: 'Custodian', role: 'custodian',
-        passphrase: 'cust-pass',
+        secret: 'cust-pass',
       })
       custodianDb = await createNoydb({ teamStrategy: withTeam(), cargoStrategy: withCargo(), store: adapter, user: 'cust-01', secret: 'cust-pass', tiersStrategy: withTiers() })
     })
@@ -188,7 +188,7 @@ describe('FR-6 Task 2 — custodian blocked from rotate / sever / extract', () =
     await comp.collection<Inv>('invoices').put('inv-001', { id: 'inv-001', amount: 5000, status: 'draft' })
     await comp.collection<Inv>('payments').put('pay-001', { id: 'pay-001', amount: 3000, status: 'paid' })
     await ownerDb.grant(COMP, {
-      userId: 'cust-01', displayName: 'Custodian', role: 'custodian', passphrase: 'cust-pass',
+      userId: 'cust-01', displayName: 'Custodian', role: 'custodian', secret: 'cust-pass',
     })
     custodianDb = await createNoydb({ teamStrategy: withTeam(), cargoStrategy: withCargo(), store: adapter, user: 'cust-01', secret: 'cust-pass', portabilityStrategy: withPortability() })
   })
@@ -203,7 +203,7 @@ describe('FR-6 Task 2 — custodian blocked from rotate / sever / extract', () =
   it('(b) custodian cannot destructively withdraw/sever — redirected to liberate (delete)', async () => {
     const comp = await custodianDb.openVault(COMP)
     const p = comp.user.unilateralWithdrawal({
-      disposition: 'delete', legalBasis: 'x', reKey: { passphrase: 'new-pw' },
+      disposition: 'delete', legalBasis: 'x', reKey: { secret: 'new-pw' },
     })
     await expect(p).rejects.toThrow(ReadOnlyError)
     await expect(p).rejects.toThrow(/liberate|custody/)
@@ -215,7 +215,7 @@ describe('FR-6 Task 2 — custodian blocked from rotate / sever / extract', () =
     const comp = await custodianDb.openVault(COMP)
     await expect(
       comp.user.unilateralWithdrawal({
-        disposition: 'freeze', legalBasis: 'x', reKey: { passphrase: 'new-pw' },
+        disposition: 'freeze', legalBasis: 'x', reKey: { secret: 'new-pw' },
       }),
     ).rejects.toThrow(/liberate|custody/)
   })
@@ -236,7 +236,7 @@ describe('FR-6 Task 2 — custodian blocked from rotate / sever / extract', () =
   })
 
   it('control: an admin CAN rotate (no regression)', async () => {
-    await ownerDb.grant(COMP, { userId: 'admin-01', displayName: 'Admin', role: 'admin', passphrase: 'admin-pass' })
+    await ownerDb.grant(COMP, { userId: 'admin-01', displayName: 'Admin', role: 'admin', secret: 'admin-pass' })
     const adminDb = await createNoydb({ teamStrategy: withTeam(), cargoStrategy: withCargo(), store: adapter, user: 'admin-01', secret: 'admin-pass' })
     await adminDb.openVault(COMP)
     await expect(adminDb.rotate(COMP, ['invoices'])).resolves.not.toThrow()

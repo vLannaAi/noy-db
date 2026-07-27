@@ -73,7 +73,7 @@ describe('withTransactions({ invariants }) — commit-time changeset invariants'
     const db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'tx-invariants-pass-passphrase-2026',
+      secret: 'tx-invariants-pass-secret-2026',
       txStrategy: withTransactions({ invariants: [assertR1] }),
     })
     const v = await db.openVault('acme')
@@ -89,7 +89,7 @@ describe('withTransactions({ invariants }) — commit-time changeset invariants'
     const db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'tx-invariants-fail-passphrase-2026',
+      secret: 'tx-invariants-fail-secret-2026',
       txStrategy: withTransactions({ invariants: [assertR1] }),
     })
     const v = await db.openVault('acme')
@@ -124,7 +124,7 @@ describe('withTransactions({ invariants }) — commit-time changeset invariants'
     const db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'tx-invariants-beforeafter-passphrase-2026',
+      secret: 'tx-invariants-beforeafter-secret-2026',
       txStrategy: withTransactions({ invariants: [captureInv] }),
     })
     await db.openVault('acme')
@@ -155,7 +155,7 @@ describe('withTransactions({ invariants }) — commit-time changeset invariants'
     const db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'tx-invariants-unrelated-passphrase-2026',
+      secret: 'tx-invariants-unrelated-secret-2026',
       txStrategy: withTransactions({ invariants: [assertR1, unrelated] }),
     })
     await db.openVault('acme')
@@ -181,7 +181,7 @@ describe('withTransactions({ invariants }) — commit-time changeset invariants'
     const db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'tx-invariants-amendment-passphrase-2026',
+      secret: 'tx-invariants-amendment-secret-2026',
       guardStrategies: [guard],
       txStrategy: withTransactions({ invariants: [assertR1] }),
     })

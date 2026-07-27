@@ -52,7 +52,7 @@ async function setup(): Promise<{ db: Noydb; vault: Vault }> {
   const vault = await db.openVault('acme')
   await db.grant('acme', {
     userId: 'owner-01', displayName: 'Owner', role: 'owner',
-    passphrase: 'pw',
+    secret: 'pw',
     exportCapability: { plaintext: ['blob'] },
   })
   await db.close()

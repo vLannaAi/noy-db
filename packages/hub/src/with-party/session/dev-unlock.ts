@@ -2,11 +2,11 @@
  * Dev-mode persistent unlock —
  *
  * Solves the developer inner-loop friction: hot-reload destroys the session
- * (page navigation semantics), forcing a passphrase re-entry every refresh.
+ * (page navigation semantics), forcing a secret re-entry every refresh.
  *
  * This module provides an opt-in, deliberately-named escape hatch that lets
  * developers store the keyring payload in sessionStorage or localStorage so
- * the vault auto-unlocks on every page load — without a passphrase,
+ * the vault auto-unlocks on every page load — without a secret,
  * without a biometric prompt, without any OIDC flow.
  *
  * ⚠️ WARNING — this is a loaded footgun ⚠️

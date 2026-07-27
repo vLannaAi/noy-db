@@ -71,7 +71,7 @@ describe('UNION MV — money-aware aggregation (#350)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-union-money-fixed-passthrough-passphrase-2026',
+      secret: 'mv-union-money-fixed-passthrough-secret-2026',
       materializedViewStrategies: [rollup],
       aggregateStrategy: withAggregate(),
     })
@@ -118,7 +118,7 @@ describe('UNION MV — money-aware aggregation (#350)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-union-money-drift-passphrase-2026',
+      secret: 'mv-union-money-drift-secret-2026',
       materializedViewStrategies: [rollup],
       aggregateStrategy: withAggregate(),
     })
@@ -165,7 +165,7 @@ describe('UNION MV — money-aware aggregation (#350)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-union-money-minmax-passphrase-2026',
+      secret: 'mv-union-money-minmax-secret-2026',
       materializedViewStrategies: [mv],
       aggregateStrategy: withAggregate(),
     })
@@ -217,7 +217,7 @@ describe('UNION MV — money-aware aggregation (#350)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-union-money-multi-passphrase-2026',
+      secret: 'mv-union-money-multi-secret-2026',
       materializedViewStrategies: [mv],
       aggregateStrategy: withAggregate(),
     })
@@ -269,7 +269,7 @@ describe('UNION MV — money-aware aggregation (#350)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-union-money-single-arm-passphrase-2026',
+      secret: 'mv-union-money-single-arm-secret-2026',
       materializedViewStrategies: [mv],
       aggregateStrategy: withAggregate(),
     })
@@ -305,7 +305,7 @@ describe('UNION MV — money-aware aggregation (#350)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-union-plain-numeric-passphrase-2026',
+      secret: 'mv-union-plain-numeric-secret-2026',
       materializedViewStrategies: [mv],
       aggregateStrategy: withAggregate(),
     })

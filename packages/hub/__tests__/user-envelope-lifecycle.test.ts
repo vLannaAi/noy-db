@@ -70,7 +70,7 @@ describe('user envelope — keyring lifecycle (#20)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'viewer',
-      passphrase: 'bob-pass-2026-strong',
+      secret: 'bob-pass-2026-strong',
     })
     aliceDb.close()
 
@@ -89,7 +89,7 @@ describe('user envelope — keyring lifecycle (#20)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'viewer',
-      passphrase: 'bob-pass-2026-strong',
+      secret: 'bob-pass-2026-strong',
       initialProfile: {
         profile: { displayName: 'Bob (pre-filled)', locale: 'fr-FR' },
         preferences: { theme: 'dark' },
@@ -112,7 +112,7 @@ describe('user envelope — keyring lifecycle (#20)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'viewer',
-      passphrase: 'bob-pass-2026-strong',
+      secret: 'bob-pass-2026-strong',
       initialProfile: { profile: { displayName: 'Bob' } } satisfies TestProfile,
     })
     const aliceVault = await aliceDb.openVault('demo')
@@ -126,7 +126,7 @@ describe('user envelope — keyring lifecycle (#20)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'viewer',
-      passphrase: 'bob-pass-2026-strong',
+      secret: 'bob-pass-2026-strong',
       initialProfile: { profile: { displayName: 'Bob' } } satisfies TestProfile,
     })
     const aliceVault = await aliceDb.openVault('demo')
@@ -151,7 +151,7 @@ describe('user envelope — keyring lifecycle (#20)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'viewer',
-      passphrase: 'bob-pass-2026-strong',
+      secret: 'bob-pass-2026-strong',
       // No initialProfile — bob has only the empty `{}` envelope from grant.
     })
     // Even if we hypothetically deleted bob's envelope already (e.g. a
@@ -166,7 +166,7 @@ describe('user envelope — keyring lifecycle (#20)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'admin',
-      passphrase: 'bob-pass-2026-strong',
+      secret: 'bob-pass-2026-strong',
       initialProfile: { profile: { displayName: 'Bob' } } satisfies TestProfile,
     })
     aliceDb.close()
@@ -176,7 +176,7 @@ describe('user envelope — keyring lifecycle (#20)', () => {
       userId: 'carol',
       displayName: 'Carol',
       role: 'admin',
-      passphrase: 'carol-pass-2026-strong',
+      secret: 'carol-pass-2026-strong',
       initialProfile: { profile: { displayName: 'Carol' } } satisfies TestProfile,
     })
     bobDb.close()

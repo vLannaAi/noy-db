@@ -63,7 +63,7 @@ function memory(): NoydbStore {
   }
 }
 
-const SECRET = 'cap-grant-test-passphrase-2026'
+const SECRET = 'cap-grant-test-secret-2026'
 
 let db: Noydb
 
@@ -207,7 +207,7 @@ describe('useCapabilityGrant', () => {
       userId: 'op',
       displayName: 'Op',
       role: 'operator',
-      passphrase: 'op-pw',
+      secret: 'op-pw',
       permissions: { [CAPABILITY_REQUESTS_COLLECTION]: 'rw' },
     })
     await ownerDb.close()

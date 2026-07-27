@@ -70,7 +70,7 @@ describe('Derivation cycle detection at vault open', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-cycle-ab-passphrase-2026',
+      secret: 'derivation-cycle-ab-secret-2026',
       derivationStrategies: [a, b],
     })
     await expect(db.openVault('demo')).rejects.toBeInstanceOf(DerivationCycleError)
@@ -87,7 +87,7 @@ describe('Derivation cycle detection at vault open', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-cycle-abc-passphrase-2026',
+      secret: 'derivation-cycle-abc-secret-2026',
       derivationStrategies: [make('a', 'b'), make('b', 'c'), make('c', 'a')],
     })
     await expect(db.openVault('demo')).rejects.toBeInstanceOf(DerivationCycleError)
@@ -104,7 +104,7 @@ describe('Derivation cycle detection at vault open', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-cycle-acyclic-passphrase-2026',
+      secret: 'derivation-cycle-acyclic-secret-2026',
       derivationStrategies: [make('a', 'b'), make('b', 'c')],
     })
     await expect(db.openVault('demo')).resolves.toBeDefined()
@@ -121,7 +121,7 @@ describe('Derivation cycle detection at vault open', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-cycle-path-passphrase-2026',
+      secret: 'derivation-cycle-path-secret-2026',
       derivationStrategies: [make('a', 'b'), make('b', 'a')],
     })
     try {

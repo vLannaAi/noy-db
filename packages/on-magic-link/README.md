@@ -14,7 +14,7 @@ pnpm add @noy-db/hub @noy-db/on-magic-link
 
 ## What it is
 
-Magic-link unlock for noy-db — one-time URL that opens a vault in a viewer-scoped session without a passphrase. Part of the @noy-db/on-* authentication family.
+Magic-link unlock for noy-db — one-time URL that opens a vault in a viewer-scoped session without a secret. Part of the @noy-db/on-* authentication family.
 
 ## Status
 

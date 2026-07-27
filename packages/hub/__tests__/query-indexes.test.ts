@@ -204,7 +204,7 @@ describe('Collection.query() — index-aware execution', () => {
     db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'index-test-passphrase-2026',
+      secret: 'index-test-secret-2026',
       indexStrategy: withIndexing(),
     })
   })
@@ -318,7 +318,7 @@ describe('Collection.query() — index-aware execution', () => {
     const localDb = await createNoydb({
       store: localAdapter,
       user: 'owner',
-      secret: 'index-spy-passphrase-2026',
+      secret: 'index-spy-secret-2026',
       indexStrategy: withIndexing(),
     })
     const c = await localDb.openVault('TEST')
@@ -358,7 +358,7 @@ describe('Collection.query() — index-aware execution', () => {
     const localDb = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'bench-passphrase-2026',
+      secret: 'bench-secret-2026',
       history: { enabled: false }, // skip history snapshots for the bench
       indexStrategy: withIndexing(),
     })

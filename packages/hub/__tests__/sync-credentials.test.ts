@@ -198,7 +198,7 @@ describe('_sync_credentials', () => {
       userId: 'viewer1',
       displayName: 'Viewer One',
       role: 'viewer',
-      passphrase: 'viewer-pw',
+      secret: 'viewer-pw',
     })
     const { loadKeyring } = await import('../src/with-party/team/keyring.js')
     const viewerKeyring = await loadKeyring(adapter, COMPARTMENT, 'viewer1', 'viewer-pw')
@@ -219,7 +219,7 @@ describe('_sync_credentials', () => {
       userId: 'op1',
       displayName: 'Operator',
       role: 'operator',
-      passphrase: 'op-pw',
+      secret: 'op-pw',
       permissions: { invoices: 'rw' },
     })
     const { loadKeyring } = await import('../src/with-party/team/keyring.js')
@@ -235,7 +235,7 @@ describe('_sync_credentials', () => {
       userId: 'admin1',
       displayName: 'Admin',
       role: 'admin',
-      passphrase: 'admin-pw',
+      secret: 'admin-pw',
     })
     const { loadKeyring } = await import('../src/with-party/team/keyring.js')
     const adminKeyring = await loadKeyring(adapter, COMPARTMENT, 'admin1', 'admin-pw')

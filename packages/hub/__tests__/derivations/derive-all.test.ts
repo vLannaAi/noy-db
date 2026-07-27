@@ -50,7 +50,7 @@ describe('vault.deriveAll', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-deriveall-passphrase-2026',
+      secret: 'derivation-deriveall-secret-2026',
       derivationStrategies: [strategy],
     })
     const v = await db.openVault('demo')
@@ -70,7 +70,7 @@ describe('vault.deriveAll', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-deriveall-empty-passphrase-2026',
+      secret: 'derivation-deriveall-empty-secret-2026',
     })
     const v = await db.openVault('demo')
     const result = await v.deriveAll('absent')

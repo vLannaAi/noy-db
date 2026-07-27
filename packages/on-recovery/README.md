@@ -1,6 +1,6 @@
 # @noy-db/on-recovery
 
-One-time printable recovery codes for noy-db. The **last-resort unlock path** when the primary authentication (passphrase, WebAuthn, OIDC) is unavailable. Codes are generated once, shown to the user once, printed on paper, stored in a safe. Each code unlocks the vault exactly **one time** and then burns itself.
+One-time printable recovery codes for noy-db. The **last-resort unlock path** when the primary authentication (secret, WebAuthn, OIDC) is unavailable. Codes are generated once, shown to the user once, printed on paper, stored in a safe. Each code unlocks the vault exactly **one time** and then burns itself.
 
 Part of the `@noy-db/on-*` authentication family. Sibling packages: `on-webauthn`, `on-oidc`, `on-magic-link`, `on-pin`.
 
@@ -13,14 +13,14 @@ pnpm add @noy-db/on-recovery
 ## Threat model
 
 **Protects against:**
-- Primary authentication becoming unavailable (forgotten passphrase, lost passkey device, OIDC provider down)
+- Primary authentication becoming unavailable (forgotten secret, lost passkey device, OIDC provider down)
 - Code replay — each code burns on successful unlock by deleting its keyring entry
 
 **Does NOT protect against:**
 - Physical theft of printed codes — assume paper compromise → user calls `revokeAllRecoveryCodes` + re-enrolls
 - User enrolling without actually printing — the calling application must enforce this UX
 
-Recovery codes should NEVER be the only unlock method on a vault. Enroll passphrase / WebAuthn / OIDC first, then recovery codes as a fallback.
+Recovery codes should NEVER be the only unlock method on a vault. Enroll secret / WebAuthn / OIDC first, then recovery codes as a fallback.
 
 ## Code format
 
@@ -44,7 +44,7 @@ Each code is processed through:
 wrappingKey = PBKDF2-SHA256(
   password   = normalizeCode(code),
   salt       = perCodeRandomSalt,   // Stored alongside wrapped KEK
-  iterations = 600_000,              // Matches hub's passphrase derivation
+  iterations = 600_000,              // Matches hub's secret derivation
   length     = 256                   // bits
 )
 
@@ -62,7 +62,7 @@ This package provides the **crypto layer only**. Storage, audit, rate-limiting, 
 ```ts
 import { generateRecoveryCodeSet } from '@noy-db/on-recovery'
 
-// After the user unlocks with passphrase, offer recovery-code enrollment
+// After the user unlocks with secret, offer recovery-code enrollment
 const { codes, entries } = await generateRecoveryCodeSet({
   count: 10,        // 8-20 is reasonable; default 10
   kek: currentKEK,  // The vault's currently-unwrapped KEK

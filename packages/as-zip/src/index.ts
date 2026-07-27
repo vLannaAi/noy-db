@@ -21,7 +21,7 @@
  * await db.grant('firm', {
  *   userId: 'auditor',
  *   role: 'viewer',
- *   passphrase: '…',
+ *   secret: '…',
  *   exportCapability: { plaintext: ['zip'] },
  * })
  * ```
@@ -87,10 +87,10 @@ export interface AsZipOptions {
   readonly records: AsZipRecordsOptions
   readonly attachments?: AsZipAttachmentsOptions
   /**
-   * Optional WinZip-AES-256 passphrase. When set, every entry
+   * Optional WinZip-AES-256 secret. When set, every entry
    * inside the archive (records + attachments + manifest) is
    * encrypted with WinZip-AES-256 and the recipient must supply the
-   * passphrase to extract.
+   * secret to extract.
    *
    * **Interop note:** the implementation is strictly to spec but has
    * not been validated against 7-Zip / Archive Utility / WinRAR in
@@ -296,7 +296,7 @@ export interface AsZipImportOptions {
   readonly idKey?: string
   /** Reconciliation policy. Default `'merge'`. */
   readonly policy?: ImportPolicy
-  /** WinZip-AES-256 passphrase if the archive is encrypted. */
+  /** WinZip-AES-256 secret if the archive is encrypted. */
   readonly password?: string
 }
 

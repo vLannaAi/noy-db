@@ -36,7 +36,7 @@ async function makeDb(dataDir?: string): Promise<Noydb> {
   return createNoydb({
     store: jsonFile({ dir: dataDir ?? join(testDir, 'data') }),
     user: 'owner',
-    secret: 'bundle-file-test-passphrase-2026',
+    secret: 'bundle-file-test-secret-2026',
   })
 }
 

@@ -50,7 +50,7 @@ describe('money in materialized views + live aggregation (the saleRollups scenar
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'money-mv-passphrase-2026-pilot3-rollups',
+      secret: 'money-mv-secret-2026-pilot3-rollups',
       aggregateStrategy: withAggregate(),
       materializedViewStrategies: [rollup],
     })
@@ -79,7 +79,7 @@ describe('money in materialized views + live aggregation (the saleRollups scenar
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'money-live-passphrase-2026-pilot3',
+      secret: 'money-live-secret-2026-pilot3',
       aggregateStrategy: withAggregate(),
     })
     const vault = await db.openVault('books')

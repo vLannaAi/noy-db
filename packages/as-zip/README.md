@@ -67,7 +67,7 @@ isolation (the archive concatenates them anyway).
 await db.grant('firm', {
   userId: 'auditor',
   role: 'viewer',
-  passphrase: '…',
+  secret: '…',
   exportCapability: { plaintext: ['zip'] },
 })
 ```

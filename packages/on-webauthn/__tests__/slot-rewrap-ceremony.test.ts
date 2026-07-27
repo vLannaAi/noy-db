@@ -1,5 +1,5 @@
 /**
- * #56 — webAuthnSlotRewrapCeremony helper for rotatePassphrase slotCeremonies.
+ * #56 — webAuthnSlotRewrapCeremony helper for rotateSecret slotCeremonies.
  *
  * Pinned behaviors:
  *   1. End-to-end — enrollWebAuthn produces a slot whose wrappedPayload
@@ -169,7 +169,7 @@ describe('webAuthnSlotRewrapCeremony — end-to-end (PRF path)', () => {
     const enrollment = await enrollWebAuthn(oldKeyring, 'acme')
     const oldSlot = slotFromEnrollment(enrollment)
 
-    // 2. Simulate rotatePassphrase: hub generates fresh DEKs (rewrapped
+    // 2. Simulate rotateSecret: hub generates fresh DEKs (rewrapped
     //    under the new KEK in the keyring file). The ceremony receives
     //    these via ctx.newDeks.
     const newDek = await makeDek()

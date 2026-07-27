@@ -77,7 +77,7 @@ interface Client { id: string; name: string; operatorUserId: string }
 describe('reKeyClosure', () => {
   let db: Noydb
   beforeEach(async () => {
-    db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+    db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-secret-1234' })
   })
 
   it('re-encrypts each closure record under a fresh DEK that decrypts to the same plaintext', async () => {
@@ -117,7 +117,7 @@ describe('sealDeks', () => {
 describe('extractPartition', () => {
   let db: Noydb
   beforeEach(async () => {
-    db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+    db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-secret-1234' })
   })
 
   it('produces an extracted-partition bundle with bundleKind + transferSeal header', async () => {
@@ -158,7 +158,7 @@ describe('extractPartition', () => {
 
 describe('extractPartition end-to-end', () => {
   it('round-trips: unseal DEKs with the transfer key, decrypt a re-keyed record', async () => {
-    const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-secret-1234' })
     const company = await db.openVault('demo-co')
     const clients = company.collection<Client>('clients')
     await clients.put('c-1', { id: 'c-1', name: 'Hotel', operatorUserId: 'belle' })
@@ -211,7 +211,7 @@ describe('extractPartition — #748: elevated records are structurally excluded'
       cargoStrategy: withCargo(),
       store,
       user: 'alice',
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
       tiersStrategy: withTiers(),
       blobStrategy: withBlobs(),
     })
@@ -263,7 +263,7 @@ describe('extractPartition — #748: elevated records are structurally excluded'
     const dest = memory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
     await createOwnerOnAdoptedPartition(dest, 'fresh', {
-      userId: 'belle', passphrase: 'belle-pass-phrase-2026', transferKey,
+      userId: 'belle', secret: 'belle-pass-phrase-2026', transferKey,
     })
     const recipientDb = await createNoydb({
       cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-pass-phrase-2026',
@@ -303,7 +303,7 @@ describe('extractPartition — #759: elevated FK parent is excluded with a dangl
       cargoStrategy: withCargo(),
       store,
       user: 'alice',
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
       tiersStrategy: withTiers(),
     })
     const company = await db.openVault('demo-co')
@@ -337,7 +337,7 @@ describe('extractPartition — #759: elevated FK parent is excluded with a dangl
     const dest = memory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
     await createOwnerOnAdoptedPartition(dest, 'fresh', {
-      userId: 'belle', passphrase: 'belle-pass-phrase-2026', transferKey,
+      userId: 'belle', secret: 'belle-pass-phrase-2026', transferKey,
     })
     const recipientDb = await createNoydb({
       cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-pass-phrase-2026',

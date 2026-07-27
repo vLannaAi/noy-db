@@ -84,12 +84,12 @@ async function grantXlsxBothVaults(adapter: ReturnType<typeof memory>) {
   const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
   await db.grant('primary', {
     userId: 'owner-01', displayName: 'Owner', role: 'owner',
-    passphrase: 'owner-pass',
+    secret: 'owner-pass',
     exportCapability: { plaintext: ['xlsx'] },
   })
   await db.grant('directory', {
     userId: 'owner-01', displayName: 'Owner', role: 'owner',
-    passphrase: 'owner-pass',
+    secret: 'owner-pass',
     exportCapability: { plaintext: ['xlsx'] },
   })
   await db.close()
@@ -375,12 +375,12 @@ describe('toBytesMultiVault — denormalized columns', () => {
     const db2 = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     await db2.grant('primary', {
       userId: 'owner-01', displayName: 'Owner', role: 'owner',
-      passphrase: 'owner-pass',
+      secret: 'owner-pass',
       exportCapability: { plaintext: ['xlsx'] },
     })
     await db2.grant('directory', {
       userId: 'owner-01', displayName: 'Owner', role: 'owner',
-      passphrase: 'owner-pass',
+      secret: 'owner-pass',
       exportCapability: { plaintext: ['xlsx'] },
     })
     await db2.close()

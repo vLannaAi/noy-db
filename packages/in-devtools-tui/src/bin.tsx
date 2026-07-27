@@ -5,8 +5,8 @@ import { createNoydb } from '@noy-db/hub'
 import type { NoydbOptions } from '@noy-db/hub'
 import { toMeter } from '@noy-db/to-meter'
 import { App } from './App.js'
-import { loadOptionsFromFile, resolvePassphrase } from './load-options.js'
-import { promptMasked } from './prompt-passphrase.js'
+import { loadOptionsFromFile, resolveSecret } from './load-options.js'
+import { promptMasked } from './prompt-secret.js'
 
 function fail(msg: string): never {
   process.stderr.write(`noydb-inspect: ${msg}\n`)
@@ -16,15 +16,15 @@ function fail(msg: string): never {
 async function main(): Promise<void> {
   const argv = process.argv.slice(2)
   const configPath = argv.find((a) => !a.startsWith('--'))
-  if (!configPath) fail('usage: noydb-inspect <config.js|mjs> --vault=<name> [--passphrase=…]')
+  if (!configPath) fail('usage: noydb-inspect <config.js|mjs> --vault=<name> [--secret=…]')
   const vaultFlag = argv.find((a) => a.startsWith('--vault='))
   if (!vaultFlag) fail('missing --vault=<name>')
   const vaultName = vaultFlag.slice('--vault='.length)
 
-  let passphrase = resolvePassphrase(argv, process.env)
-  if (passphrase === undefined) {
-    if (!process.stdin.isTTY) fail('no passphrase — pass --passphrase=… or set NOYDB_PASSPHRASE')
-    passphrase = await promptMasked('Passphrase: ')
+  let secret = resolveSecret(argv, process.env)
+  if (secret === undefined) {
+    if (!process.stdin.isTTY) fail('no secret — pass --secret=… or set NOYDB_SECRET')
+    secret = await promptMasked('Secret: ')
   }
 
   let baseOptions: NoydbOptions
@@ -41,8 +41,8 @@ async function main(): Promise<void> {
     meter = metered.meter
   }
 
-  // Passphrase lives in NoydbOptions.secret — openVault(name) picks it up internally.
-  const options: NoydbOptions = { ...baseOptions, secret: passphrase }
+  // Secret lives in NoydbOptions.secret — openVault(name) picks it up internally.
+  const options: NoydbOptions = { ...baseOptions, secret: secret }
   const db = await createNoydb(options)
 
   let vault

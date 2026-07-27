@@ -6,12 +6,12 @@
  * A TypeScript library that encrypts every record with AES-256-GCM before it
  * reaches any storage backend. The store (file, DynamoDB, S3, IndexedDB, …)
  * only ever sees ciphertext — it has no way to read or tamper with your data
- * without the user's passphrase.
+ * without the user's secret.
  *
  * ## Architecture in one diagram
  *
  * ```
- * Passphrase
+ * Secret
  *   └─► PBKDF2-SHA256 (600K iterations) → KEK  [memory only]
  *         └─► AES-KW unwrap → DEK per collection  [memory only]
  *               └─► AES-256-GCM encrypt/decrypt
@@ -25,7 +25,7 @@
  * import { jsonFile } from '@noy-db/to-file'
  *
  * const db = await createNoydb({ store: jsonFile({ dir: './data' }) })
- * const acme = await db.openVault('acme', { passphrase: 'hunter2' })
+ * const acme = await db.openVault('acme', { secret: 'hunter2' })
  * const invoices = acme.collection<Invoice>('invoices')
  *
  * await invoices.put('inv-001', { amount: 1200, client: 'Acme Corp' })
@@ -544,13 +544,13 @@ export type { QuickUnlockState } from './with-party/session/unlock-state.js'
 
 // Tier-1 change flows
 export {
-  rotatePassphrase as keyringRotatePassphrase,
-  recoverPassphrase as keyringRecoverPassphrase,
+  rotateSecret as keyringRotateSecret,
+  recoverSecret as keyringRecoverSecret,
 } from './with-party/team/rotate-recover.js'
 export type {
-  RotatePassphraseInput,
-  RecoverPassphraseInput,
-  RecoverPassphraseResult,
+  RotateSecretInput,
+  RecoverSecretInput,
+  RecoverSecretResult,
   RecoveryProof,
   SlotRewrapContext,
   SlotRewrapCeremony,
@@ -655,7 +655,7 @@ export type {
 
 // Recovery dispatch types — discriminated
 // unions for the polymorphic enroll/rotate paths. (RecoveryProof /
-// RecoverPassphraseInput / RecoverPassphraseResult are already
+// RecoverSecretInput / RecoverSecretResult are already
 // exported above.)
 export type {
   EnrollRecoveryResult,
@@ -670,12 +670,12 @@ export type {
 export { mintWrappedDeksBlob, unwrapDeksFromBlob } from './with-party/team/wrapped-deks.js'
 export type { WrappedDeksBlob } from './with-party/team/wrapped-deks.js'
 
-// Managed-passphrase mode — rubber-hose-resistant vaults where
-// hub generates the passphrase and seals it under a developer-provided
+// Managed-secret mode — rubber-hose-resistant vaults where
+// hub generates the secret and seals it under a developer-provided
 // SealingKeyProvider. The interface lives here; concrete providers
 // (macOS Keychain, Windows Credential Manager, libsecret, AWS KMS)
 // ship as separate packages.
-export type { SealingKeyProvider, SealedPassphrase, SealedEnvelope, RecipientHint, RecipientSealer } from './with-party/team/managed-passphrase.js'
+export type { SealingKeyProvider, SealedSecret, SealedEnvelope, RecipientHint, RecipientSealer } from './with-party/team/managed-secret.js'
 export type { ShamirRecoveryProvider } from './with-party/team/shamir-recovery-provider.js'
 export {
   MemorySealingKeyProvider,
@@ -683,11 +683,11 @@ export {
   sealRsaOaepTlv,
   parseRsaOaepTlv,
   aesGcmOpen,
-  loadSealedPassphrase,
-  saveSealedPassphrase,
+  loadSealedSecret,
+  saveSealedSecret,
   parseSealedEnvelope,
-  SEALED_PASSPHRASE_RECORD_ID,
-} from './with-party/team/managed-passphrase.js'
+  SEALED_SECRET_RECORD_ID,
+} from './with-party/team/managed-secret.js'
 
 // Peer-recovery — atomic db.recoverUser primitive.
 // The team/peer-recover module also runs through Noydb.recoverUser for
@@ -1082,15 +1082,15 @@ export type { CheckGateContext } from './with-party/policy/index.js'
 
 // Validation — phrase format (#7)
 export {
-  validatePassphrase,
-  assertStrongPassphrase,
+  validateSecret,
+  assertStrongSecret,
   estimateEntropy,
-  WeakPassphraseError,
+  WeakSecretError,
 } from './kernel/validation.js'
 export type {
-  PassphrasePolicy,
-  PassphraseValidationResult,
-  WeakPassphraseReason,
+  SecretPolicy,
+  SecretValidationResult,
+  WeakSecretReason,
 } from './kernel/validation.js'
 
 // Query DSL

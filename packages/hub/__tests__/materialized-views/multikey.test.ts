@@ -70,7 +70,7 @@ describe('withMaterializedView — multi-key groupBy inside query() (#166)', () 
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-multikey-groupby-passphrase-2026',
+      secret: 'mv-multikey-groupby-secret-2026',
       materializedViewStrategies: [pnd1Auto],
       aggregateStrategy: withAggregate(),
     })

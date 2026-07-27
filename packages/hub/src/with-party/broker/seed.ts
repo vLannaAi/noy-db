@@ -107,7 +107,7 @@ async function brokerDek(store: NoydbStore, vault: string, keyring: UnlockedKeyr
       if (err instanceof ValidationError) {
         throw new BrokerEnrolmentError(
           'enroll()/rotate() need the KEK to provision the _broker DEK on first use — ' +
-            're-authenticate at tier 1 (passphrase) before enrolling. Using an already-' +
+            're-authenticate at tier 1 (secret) before enrolling. Using an already-' +
             'enrolled seed (credentialSource()) needs only the DEK.',
         )
       }

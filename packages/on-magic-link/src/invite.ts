@@ -3,17 +3,17 @@
  *
  * Layered on top of `db.grant` (for invite, mints a NEW user) and
  * `db.recoverUser` (for peer-recovery, rewraps an EXISTING user under
- * a fresh temp passphrase). These flows are SIBLINGS of the existing
+ * a fresh temp secret). These flows are SIBLINGS of the existing
  * delegation-grant primitives in `./index.ts` — different threat
  * model, different on-disk audit shape, no server-held secret.
  *
  * ## Threat model
  *
- * The temp passphrase travels in the **URL fragment** — server-blind
+ * The temp secret travels in the **URL fragment** — server-blind
  * transport (fragments don't traverse TLS proxies, don't appear in
  * access logs). Trade-off: any party who sees the URL can claim the
  * invite once. Single-use semantics close the window: `acceptInvite`
- * rotates the passphrase atomically, marking the audit doc accepted —
+ * rotates the secret atomically, marking the audit doc accepted —
  * a second `acceptInvite` call rejects.
  *
  * ## What this module does NOT do
@@ -28,13 +28,13 @@
 import {
   generateULID,
   createNoydb,
-  keyringRotatePassphrase,
+  keyringRotateSecret,
   type Noydb,
   type NoydbStore,
   type EncryptedEnvelope,
   type Role,
   type FactorProof,
-  type PassphrasePolicy,
+  type SecretPolicy,
 } from '@noy-db/hub'
 
 const INVITE_AUDIT_DOC_PREFIX = 'invite-audit-'
@@ -47,7 +47,7 @@ export type InviteKind = 'invite' | 'peer-recovery'
 
 /**
  * Serializable payload encoded into the URL fragment. The temp
- * passphrase is the secret; the rest is metadata the recipient
+ * secret is the secret; the rest is metadata the recipient
  * needs to open the right vault as the right user.
  */
 export interface InvitePayload {
@@ -60,7 +60,7 @@ export interface InvitePayload {
   readonly kind: InviteKind
   /** Issuer's userId (for forensics; not enforced cryptographically). */
   readonly issuer: string
-  /** Single-use temporary passphrase — replaced on `acceptInvite`. */
+  /** Single-use temporary secret — replaced on `acceptInvite`. */
   readonly tempPhrase: string
   readonly expiresAt: string
 }
@@ -114,10 +114,10 @@ export interface AcceptInviteOptions {
    */
   readonly store: NoydbStore
   /**
-   * The recipient's chosen new passphrase. `acceptInvite` rotates
+   * The recipient's chosen new secret. `acceptInvite` rotates
    * the temp phrase to this value atomically before returning. Must
    * pass the vault's phrase strength policy (or the recipient must
-   * pass `validatePassphrase: false` via the underlying createNoydb
+   * pass `validateSecret: false` via the underlying createNoydb
    * options — currently exposed via `noydbOptions`).
    */
   readonly newPhrase: string
@@ -128,32 +128,32 @@ export interface AcceptInviteOptions {
   readonly now?: Date
   /**
    * Extra options forwarded to `createNoydb` when the recipient's
-   * session opens. Useful for `policy`, `validatePassphrase`, or
+   * session opens. Useful for `policy`, `validateSecret`, or
    * `sessionPolicy` tweaks the application layer wants in scope.
    */
   readonly noydbOptions?: Omit<Parameters<typeof createNoydb>[0], 'store' | 'user' | 'secret'>
   /**
-   * Forwarded to the inner `keyringRotatePassphrase` call so the
+   * Forwarded to the inner `keyringRotateSecret` call so the
    * recipient's `newPhrase` is validated against the same policy the
    * vault uses elsewhere. Without this, the rotation step applies the
    * default phrase validator (lowercase letters + spaces) regardless
    * of any `customValidator` / `pattern` set on the vault — a
    * consumer using non-default phrase shapes (e.g. hyphen-separated
    * alphanumeric, BIP-39 word-lists, Thai/EN-mixed scripts) hits a
-   * spurious `WeakPassphraseError`.
+   * spurious `WeakSecretError`.
    *
-   * `noydbOptions.policy.passphrase` is NOT auto-derived because
+   * `noydbOptions.policy.secret` is NOT auto-derived because
    * `noydbOptions` flows to the post-rotation `createNoydb`, not the
-   * rotation itself. Passing the same `PassphrasePolicy` here and
-   * (via `noydbOptions.policy.passphrase`) keeps both gates aligned.
+   * rotation itself. Passing the same `SecretPolicy` here and
+   * (via `noydbOptions.policy.secret`) keeps both gates aligned.
    */
-  readonly passphrasePolicy?: PassphrasePolicy
+  readonly secretPolicy?: SecretPolicy
   /**
    * Skip phrase strength validation for the recipient's `newPhrase`.
    * Forwarded to the inner rotation. Use sparingly — bypasses the
    * structural rules that protect against weak phrases.
    */
-  readonly allowWeakPassphrase?: boolean
+  readonly allowWeakSecret?: boolean
 }
 
 export interface AcceptInviteResult {
@@ -203,7 +203,7 @@ export class InviteAuditMissingError extends Error {
 
 /**
  * Mint an invite for a NEW user. Generates a random temp phrase,
- * calls `db.grant({ userId, passphrase: tempPhrase })`, writes the
+ * calls `db.grant({ userId, secret: tempPhrase })`, writes the
  * audit doc, and returns the URL-encodable payload.
  *
  * The recipient claims via `acceptInvite(encoded, { store, newPhrase })`;
@@ -216,7 +216,7 @@ export class InviteAuditMissingError extends Error {
  *
  * @throws Whatever `db.grant` throws (TeamNotEnabledError when the issuing
  *         db lacks `withTeam()`, PrivilegeEscalationError,
- *         WeakPassphraseError if the temp phrase fails policy, …)
+ *         WeakSecretError if the temp phrase fails policy, …)
  */
 export async function issueInvite(
   db: Noydb,
@@ -230,17 +230,17 @@ export async function issueInvite(
   const issuer = (db as unknown as { options: { user: string } }).options.user
 
   // Mint the new user under the temp phrase. The recipient will
-  // overwrite the wrapping at acceptInvite time via rotatePassphrase.
+  // overwrite the wrapping at acceptInvite time via rotateSecret.
   await db.grant(vault, {
     userId: options.userId,
     displayName: options.displayName,
     role: options.role,
-    passphrase: tempPhrase,
+    secret: tempPhrase,
     // Allow weak temp phrase — random-generated phrases are
     // high-entropy but may not satisfy the human-typeable rules
     // (lowercase + spaces + min words). The recipient's chosen
     // newPhrase will be validated normally.
-    allowWeakPassphrase: true,
+    allowWeakSecret: true,
   })
 
   const payload: InvitePayload = {
@@ -293,11 +293,11 @@ export async function issuePeerRecovery(
     vault,
     {
       userId: options.userId,
-      passphrase: tempPhrase,
+      secret: tempPhrase,
       ...(options.role !== undefined && { role: options.role }),
       ...(options.displayName !== undefined && { displayName: options.displayName }),
       // Same allow-weak rationale as issueInvite.
-      allowWeakPassphrase: true,
+      allowWeakSecret: true,
     },
     factors,
   )
@@ -414,20 +414,20 @@ export async function acceptInvite(
   }
 
   // Atomic rotate inside acceptInvite. We call the
-  // team-level `keyringRotatePassphrase` directly rather than going
-  // through `db.rotatePassphrase`, which is gated by the
-  // `rotate-passphrase` policy gate (PERSONAL_POLICY requires a
+  // team-level `keyringRotateSecret` directly rather than going
+  // through `db.rotateSecret`, which is gated by the
+  // `rotate-secret` policy gate (PERSONAL_POLICY requires a
   // factor proof there). In the invite flow, the temp phrase reaching
   // the recipient through a trusted issuer-side audit-trailed channel
   // IS the freshness proof — the policy gate's factor requirement
   // doesn't apply to "rotate FROM a temp phrase delivered via the
   // invite mechanism." The audit-doc-presence check above + this
   // single rotation closes the single-use semantics by construction.
-  await keyringRotatePassphrase(options.store, payload.vault, payload.userId, {
-    oldPassphrase: payload.tempPhrase,
-    newPassphrase: options.newPhrase,
-    ...(options.passphrasePolicy !== undefined && { passphrasePolicy: options.passphrasePolicy }),
-    ...(options.allowWeakPassphrase !== undefined && { allowWeakPassphrase: options.allowWeakPassphrase }),
+  await keyringRotateSecret(options.store, payload.vault, payload.userId, {
+    oldSecret: payload.tempPhrase,
+    newSecret: options.newPhrase,
+    ...(options.secretPolicy !== undefined && { secretPolicy: options.secretPolicy }),
+    ...(options.allowWeakSecret !== undefined && { allowWeakSecret: options.allowWeakSecret }),
   })
 
   // Mark accepted — second acceptInvite for this token throws.
@@ -505,7 +505,7 @@ async function writeAuditDoc(
 }
 
 /**
- * Generate a high-entropy random temp passphrase. Uses 256 bits of
+ * Generate a high-entropy random temp secret. Uses 256 bits of
  * entropy, base32-encoded — readable enough to log for forensics
  * without being trivially copy-paste typeable.
  */

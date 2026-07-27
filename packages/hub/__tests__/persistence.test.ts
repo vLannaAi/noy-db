@@ -35,10 +35,10 @@ interface Invoice { amount: number; status: string }
 
 describe('persistence round-trip (simulated page reload)', () => {
   const COMP = 'C101'
-  const PASS = 'test-passphrase-2026'
+  const PASS = 'test-secret-2026'
   const USER = 'owner-01'
 
-  it('second createNoydb with same adapter+passphrase loads existing keyring and reads records', async () => {
+  it('second createNoydb with same adapter+secret loads existing keyring and reads records', async () => {
     const adapter = persistentMemory()
 
     // Session 1: create and write
@@ -59,7 +59,7 @@ describe('persistence round-trip (simulated page reload)', () => {
     db2.close()
   })
 
-  it('second createNoydb with wrong passphrase throws InvalidKeyError', async () => {
+  it('second createNoydb with wrong secret throws InvalidKeyError', async () => {
     const adapter = persistentMemory()
 
     // Session 1: create keyring + add DEK via collection use
@@ -68,8 +68,8 @@ describe('persistence round-trip (simulated page reload)', () => {
     await comp1.collection<Invoice>('invoices').put('inv-1', { amount: 100, status: 'x' })
     db1.close()
 
-    // Session 2: wrong passphrase — must throw, NOT silently create new keyring
-    const db2 = await createNoydb({ store: adapter, user: USER, secret: 'wrong-passphrase' })
+    // Session 2: wrong secret — must throw, NOT silently create new keyring
+    const db2 = await createNoydb({ store: adapter, user: USER, secret: 'wrong-secret' })
     await expect(db2.openVault(COMP)).rejects.toThrow(InvalidKeyError)
     db2.close()
   })
@@ -111,7 +111,7 @@ describe('persistence round-trip (simulated page reload)', () => {
       }
     }
 
-    // Session 1: create vault with passphrase PASS, write data
+    // Session 1: create vault with secret PASS, write data
     const db1 = await createNoydb({ store: adapter, user: USER, secret: PASS })
     const comp1 = await db1.openVault(COMP)
     await comp1.collection<Invoice>('invoices').put('inv-1', { amount: 999, status: 'paid' })
@@ -120,12 +120,12 @@ describe('persistence round-trip (simulated page reload)', () => {
     // Simulate: user cleared the IDB data records but _keyring row survived.
     clearDataCollections(COMP)
 
-    // Now the user's WebAuthn credential was rotated → different derived passphrase.
+    // Now the user's WebAuthn credential was rotated → different derived secret.
     // Without onInvalidKey: 'reset' this throws InvalidKeyError (stale keyring, wrong key).
     const db2 = await createNoydb({
       store: adapter,
       user: USER,
-      secret: 'rotated-passphrase-from-new-credential',
+      secret: 'rotated-secret-from-new-credential',
       onInvalidKey: 'reset',
     })
 
@@ -134,15 +134,15 @@ describe('persistence round-trip (simulated page reload)', () => {
     expect(await comp2.collection<Invoice>('invoices').list()).toHaveLength(0)
     db2.close()
 
-    // Verify: new session with the rotated passphrase opens the blank vault correctly
-    const db3 = await createNoydb({ store: adapter, user: USER, secret: 'rotated-passphrase-from-new-credential' })
+    // Verify: new session with the rotated secret opens the blank vault correctly
+    const db3 = await createNoydb({ store: adapter, user: USER, secret: 'rotated-secret-from-new-credential' })
     const comp3 = await db3.openVault(COMP)
     await comp3.collection<Invoice>('invoices').put('inv-new', { amount: 1, status: 'draft' })
     expect(await comp3.collection<Invoice>('invoices').count()).toBe(1)
     db3.close()
   })
 
-  it('issue #6: onInvalidKey defaults to "error" — wrong passphrase still throws', async () => {
+  it('issue #6: onInvalidKey defaults to "error" — wrong secret still throws', async () => {
     const adapter = persistentMemory()
 
     const db1 = await createNoydb({ store: adapter, user: USER, secret: PASS })
@@ -155,23 +155,23 @@ describe('persistence round-trip (simulated page reload)', () => {
     db2.close()
   })
 
-  it('third session after changeSecret uses new passphrase correctly', async () => {
+  it('third session after changeSecret uses new secret correctly', async () => {
     const adapter = persistentMemory()
 
     // Session 1: create and write
     const db1 = await createNoydb({ store: adapter, user: USER, secret: PASS })
     const comp1 = await db1.openVault(COMP)
     await comp1.collection<Invoice>('invoices').put('inv-1', { amount: 7000, status: 'sent' })
-    await db1.changeSecret(COMP, 'new-passphrase', { allowWeakPassphrase: true })
+    await db1.changeSecret(COMP, 'new-secret', { allowWeakSecret: true })
     db1.close()
 
-    // Session 2: old passphrase fails
+    // Session 2: old secret fails
     const db2 = await createNoydb({ store: adapter, user: USER, secret: PASS })
     await expect(db2.openVault(COMP)).rejects.toThrow()
     db2.close()
 
-    // Session 3: new passphrase works and data is intact
-    const db3 = await createNoydb({ store: adapter, user: USER, secret: 'new-passphrase' })
+    // Session 3: new secret works and data is intact
+    const db3 = await createNoydb({ store: adapter, user: USER, secret: 'new-secret' })
     const comp3 = await db3.openVault(COMP)
     const inv = await comp3.collection<Invoice>('invoices').get('inv-1')
     expect(inv).toEqual({ amount: 7000, status: 'sent' })
@@ -202,7 +202,7 @@ describe('persistence round-trip (simulated page reload)', () => {
       _data: JSON.stringify(file),
     })
 
-    // Reload with the CORRECT passphrase + onInvalidKey: 'reset'. Pre-fix,
+    // Reload with the CORRECT secret + onInvalidKey: 'reset'. Pre-fix,
     // the loop's first failure threw InvalidKeyError, the reset path fired,
     // and the keyring was destroyed. Post-fix, the partial unwrap is
     // recognized as corruption and KeyringCorruptError is raised — the
@@ -217,15 +217,15 @@ describe('persistence round-trip (simulated page reload)', () => {
     db2.close()
 
     // The keyring on disk was NOT replaced — opening with a different
-    // passphrase still fails, proving the original keyring survives.
+    // secret still fails, proving the original keyring survives.
     const db3 = await createNoydb({ store: adapter, user: USER, secret: 'wrong-pass' })
     await expect(db3.openVault(COMP)).rejects.toThrow(InvalidKeyError)
     db3.close()
   })
 
-  it('issue #113: canary distinguishes single-DEK corruption from wrong passphrase', async () => {
+  it('issue #113: canary distinguishes single-DEK corruption from wrong secret', async () => {
     // Pre-#113 (with #99 only), a keyring with exactly one corrupted DEK
-    // could not be distinguished from a wrong passphrase — both surfaced
+    // could not be distinguished from a wrong secret — both surfaced
     // as InvalidKeyError, and onInvalidKey: 'reset' would silently
     // destroy the user's only DEK. Post-#113, the canary proves the KEK
     // is correct; the corrupted DEK is reported as KeyringCorruptError.
@@ -244,7 +244,7 @@ describe('persistence round-trip (simulated page reload)', () => {
       .slice(0, original.length)
     await adapter.put(COMP, '_keyring', USER, { ...env!, _data: JSON.stringify(file) })
 
-    // Correct passphrase + onInvalidKey: 'reset': the canary proves the
+    // Correct secret + onInvalidKey: 'reset': the canary proves the
     // KEK is right, the corrupt DEK becomes KeyringCorruptError, reset
     // does NOT fire.
     const db2 = await createNoydb({
@@ -253,7 +253,7 @@ describe('persistence round-trip (simulated page reload)', () => {
     await expect(db2.openVault(COMP)).rejects.toBeInstanceOf(KeyringCorruptError)
     db2.close()
 
-    // Wrong passphrase still throws InvalidKeyError — keyring on disk
+    // Wrong secret still throws InvalidKeyError — keyring on disk
     // wasn't reset.
     const dbWrong = await createNoydb({ store: adapter, user: USER, secret: 'wrong-pass' })
     await expect(dbWrong.openVault(COMP)).rejects.toThrow(InvalidKeyError)
@@ -293,7 +293,7 @@ describe('persistence round-trip (simulated page reload)', () => {
     delete file['canary']
     await adapter.put(COMP, '_keyring', USER, { ...env!, _data: JSON.stringify(file) })
 
-    // Correct passphrase still works (no canary, all DEKs unwrap).
+    // Correct secret still works (no canary, all DEKs unwrap).
     const db2 = await createNoydb({ store: adapter, user: USER, secret: PASS })
     const comp2 = await db2.openVault(COMP)
     expect((await comp2.collection<Invoice>('invoices').get('inv-1'))?.amount).toBe(100)

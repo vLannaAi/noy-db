@@ -25,7 +25,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
 import { ConflictError } from '../../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
-import { MemoryRecipientSealer } from '../../src/with-party/team/managed-passphrase.js'
+import { MemoryRecipientSealer } from '../../src/with-party/team/managed-secret.js'
 import { withSealedRecord } from '../../src/with-audit/sealed-record/index.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
 import { withForgetCascade } from '../../src/with-audit/forget/index.js'
@@ -94,7 +94,7 @@ interface Person { id: string; subjectId: string; name: string; ssn: string }
 interface Contact { id: string; subjectId: string; email: string }
 interface Inv { id: string; buyerId: string }
 
-const SECRET = 'scoped-purge-passphrase-2026'
+const SECRET = 'scoped-purge-secret-2026'
 const HOUR = 60 * 60 * 1000
 const bytes = (s: string) => new TextEncoder().encode(s)
 

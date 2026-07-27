@@ -40,7 +40,7 @@ async function grantExport(adapter: ReturnType<typeof memory>) {
   const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass', blobStrategy: withBlobs() })
   await db.grant('acme', {
     userId: 'owner-01', displayName: 'Owner', role: 'owner',
-    passphrase: 'owner-pass',
+    secret: 'owner-pass',
     exportCapability: { plaintext: ['zip'] },
   })
   await db.close()
@@ -214,7 +214,7 @@ describe('authorisation refusals', () => {
     const { db, adapter } = await seedVault()
     await db.grant('acme', {
       userId: 'op', displayName: 'Op', role: 'operator',
-      passphrase: 'op-pass',
+      secret: 'op-pass',
       permissions: { invoices: 'rw' },
     })
     await db.close()

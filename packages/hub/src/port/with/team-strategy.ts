@@ -16,7 +16,7 @@
  * argument from the strategy.
  *
  * Deliberately NOT gated (single-user primitives): owner keyring creation,
- * unlock, `listUsers`, `updateUser`, passphrase rotate/recover, and the
+ * unlock, `listUsers`, `updateUser`, secret rotate/recover, and the
  * `createDeedOwner` free function (no createNoydb instance to gate against —
  * the same carve-out as `liberateVault`).
  * @internal

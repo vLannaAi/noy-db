@@ -74,7 +74,7 @@ function gateFtindexPut(store: NoydbStore, hooks: { gate: () => Promise<void> | 
   }
 }
 
-const SECRET = 'flush-purge-race-passphrase-725'
+const SECRET = 'flush-purge-race-secret-725'
 
 describe('#725 elevate() purge cannot be overtaken by an in-flight debounced flush', () => {
   interface Doc { id: string; body: string }

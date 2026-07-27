@@ -42,7 +42,7 @@ interface Line extends Record<string, unknown> {
 
 async function vault(extra?: { aggregate?: boolean }) {
   const db = await createNoydb({
-    store: memory(), user: 'alice', secret: 'computed-fields-passphrase-2026-pilot3',
+    store: memory(), user: 'alice', secret: 'computed-fields-secret-2026-pilot3',
     ...(extra?.aggregate ? { aggregateStrategy: withAggregate() } : {}),
   })
   return db.openVault('books')

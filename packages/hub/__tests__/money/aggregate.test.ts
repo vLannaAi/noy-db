@@ -40,7 +40,7 @@ async function vaultWith(moneyField: ReturnType<typeof money>) {
   const db = await createNoydb({
     store: memory(),
     user: 'alice',
-    secret: 'money-aggregate-passphrase-2026-pilot3-exact',
+    secret: 'money-aggregate-secret-2026-pilot3-exact',
     aggregateStrategy: withAggregate(),
   })
   const vault = await db.openVault('books')
@@ -165,7 +165,7 @@ describe('money aggregation — exact', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'money-grouped-passphrase-2026-pilot3',
+      secret: 'money-grouped-secret-2026-pilot3',
       aggregateStrategy: withAggregate(),
     })
     const vault = await db.openVault('books')

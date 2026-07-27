@@ -69,21 +69,21 @@ describe('access control: permission matrix', () => {
 
     it('can grant all roles', async () => {
       await expect(
-        ownerDb.grant(COMP, { userId: 'admin-01', displayName: 'Admin', role: 'admin', passphrase: 'p' }),
+        ownerDb.grant(COMP, { userId: 'admin-01', displayName: 'Admin', role: 'admin', secret: 'p' }),
       ).resolves.not.toThrow()
       await expect(
-        ownerDb.grant(COMP, { userId: 'op-01', displayName: 'Op', role: 'operator', passphrase: 'p', permissions: { invoices: 'rw' } }),
+        ownerDb.grant(COMP, { userId: 'op-01', displayName: 'Op', role: 'operator', secret: 'p', permissions: { invoices: 'rw' } }),
       ).resolves.not.toThrow()
       await expect(
-        ownerDb.grant(COMP, { userId: 'viewer-01', displayName: 'V', role: 'viewer', passphrase: 'p' }),
+        ownerDb.grant(COMP, { userId: 'viewer-01', displayName: 'V', role: 'viewer', secret: 'p' }),
       ).resolves.not.toThrow()
       await expect(
-        ownerDb.grant(COMP, { userId: 'client-01', displayName: 'C', role: 'client', passphrase: 'p', permissions: { invoices: 'ro' } }),
+        ownerDb.grant(COMP, { userId: 'client-01', displayName: 'C', role: 'client', secret: 'p', permissions: { invoices: 'ro' } }),
       ).resolves.not.toThrow()
     })
 
     it('can revoke non-owner roles', async () => {
-      await ownerDb.grant(COMP, { userId: 'op-01', displayName: 'Op', role: 'operator', passphrase: 'p', permissions: { invoices: 'rw' } })
+      await ownerDb.grant(COMP, { userId: 'op-01', displayName: 'Op', role: 'operator', secret: 'p', permissions: { invoices: 'rw' } })
       await expect(
         ownerDb.revoke(COMP, { userId: 'op-01', rotateKeys: false }),
       ).resolves.not.toThrow()
@@ -101,7 +101,7 @@ describe('access control: permission matrix', () => {
     let adminDb: Noydb
 
     beforeEach(async () => {
-      await ownerDb.grant(COMP, { userId: 'admin-01', displayName: 'Admin', role: 'admin', passphrase: 'admin-pass' })
+      await ownerDb.grant(COMP, { userId: 'admin-01', displayName: 'Admin', role: 'admin', secret: 'admin-pass' })
       adminDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'admin-01', secret: 'admin-pass' })
     })
 
@@ -120,13 +120,13 @@ describe('access control: permission matrix', () => {
 
     it('can grant operator, viewer, client', async () => {
       await expect(
-        adminDb.grant(COMP, { userId: 'op-from-admin', displayName: 'Op', role: 'operator', passphrase: 'p', permissions: { invoices: 'rw' } }),
+        adminDb.grant(COMP, { userId: 'op-from-admin', displayName: 'Op', role: 'operator', secret: 'p', permissions: { invoices: 'rw' } }),
       ).resolves.not.toThrow()
     })
 
     it('cannot grant owner', async () => {
       await expect(
-        adminDb.grant(COMP, { userId: 'fake-owner', displayName: 'X', role: 'owner', passphrase: 'p' }),
+        adminDb.grant(COMP, { userId: 'fake-owner', displayName: 'X', role: 'owner', secret: 'p' }),
       ).rejects.toThrow(PermissionDeniedError)
     })
 
@@ -140,7 +140,7 @@ describe('access control: permission matrix', () => {
           userId: 'admin-from-admin',
           displayName: 'Peer Admin',
           role: 'admin',
-          passphrase: 'p',
+          secret: 'p',
         }),
       ).resolves.not.toThrow()
     })
@@ -158,7 +158,7 @@ describe('access control: permission matrix', () => {
     beforeEach(async () => {
       await ownerDb.grant(COMP, {
         userId: 'op-01', displayName: 'Op', role: 'operator',
-        passphrase: 'op-pass',
+        secret: 'op-pass',
         permissions: { invoices: 'rw' },
       })
       opDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'op-01', secret: 'op-pass' })
@@ -179,13 +179,13 @@ describe('access control: permission matrix', () => {
 
     it('cannot grant anyone', async () => {
       await expect(
-        opDb.grant(COMP, { userId: 'x', displayName: 'X', role: 'viewer', passphrase: 'p' }),
+        opDb.grant(COMP, { userId: 'x', displayName: 'X', role: 'viewer', secret: 'p' }),
       ).rejects.toThrow(PermissionDeniedError)
     })
 
     it('cannot revoke anyone', async () => {
       // Grant another user first via owner
-      await ownerDb.grant(COMP, { userId: 'viewer-01', displayName: 'V', role: 'viewer', passphrase: 'p' })
+      await ownerDb.grant(COMP, { userId: 'viewer-01', displayName: 'V', role: 'viewer', secret: 'p' })
       await expect(
         opDb.revoke(COMP, { userId: 'viewer-01' }),
       ).rejects.toThrow(PermissionDeniedError)
@@ -210,7 +210,7 @@ describe('access control: permission matrix', () => {
     beforeEach(async () => {
       await ownerDb.grant(COMP, {
         userId: 'viewer-01', displayName: 'Viewer', role: 'viewer',
-        passphrase: 'viewer-pass',
+        secret: 'viewer-pass',
       })
       viewerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'viewer-01', secret: 'viewer-pass' })
     })
@@ -237,7 +237,7 @@ describe('access control: permission matrix', () => {
 
     it('cannot grant anyone', async () => {
       await expect(
-        viewerDb.grant(COMP, { userId: 'x', displayName: 'X', role: 'viewer', passphrase: 'p' }),
+        viewerDb.grant(COMP, { userId: 'x', displayName: 'X', role: 'viewer', secret: 'p' }),
       ).rejects.toThrow(PermissionDeniedError)
     })
   })
@@ -248,7 +248,7 @@ describe('access control: permission matrix', () => {
     beforeEach(async () => {
       await ownerDb.grant(COMP, {
         userId: 'client-01', displayName: 'Client', role: 'client',
-        passphrase: 'client-pass',
+        secret: 'client-pass',
         permissions: { invoices: 'ro' },
       })
       clientDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'client-01', secret: 'client-pass' })
@@ -269,7 +269,7 @@ describe('access control: permission matrix', () => {
 
     it('cannot grant anyone', async () => {
       await expect(
-        clientDb.grant(COMP, { userId: 'x', displayName: 'X', role: 'viewer', passphrase: 'p' }),
+        clientDb.grant(COMP, { userId: 'x', displayName: 'X', role: 'viewer', secret: 'p' }),
       ).rejects.toThrow(PermissionDeniedError)
     })
   })

@@ -16,7 +16,7 @@
  * pinia.use(createNoydbPiniaPlugin({
  *   adapter: jsonFile({ dir: './data' }),
  *   user: 'owner-01',
- *   secret: () => promptPassphrase(),
+ *   secret: () => promptSecret(),
  * }));
  *
  * // existing store — add one option, no component changes:
@@ -35,7 +35,7 @@
  *   instantiation, then memoized for the lifetime of the Pinia app.
  *   This means apps that don't actually use any noydb-augmented stores
  *   pay zero crypto cost.
- * - `secret` is a function so the passphrase can come from a prompt,
+ * - `secret` is a function so the secret can come from a prompt,
  *   biometric unlock, or session token — never stored in config.
  * - The plugin sets `store.$noydbReady` (a `Promise<void>`) and
  *   `store.$noydbError` (an `Error | null`) on every augmented store
@@ -72,7 +72,7 @@ export interface StoreNoydbOptions<S extends StateTree = StateTree> {
 
 /**
  * Configuration for `createNoydbPiniaPlugin`. Mirrors `NoydbOptions` but
- * makes `secret` a function so the passphrase can come from a prompt
+ * makes `secret` a function so the secret can come from a prompt
  * rather than being stored in config.
  */
 export interface NoydbPiniaPluginOptions {
@@ -81,7 +81,7 @@ export interface NoydbPiniaPluginOptions {
   /** User identifier (matches the keyring file). */
   user: string
   /**
-   * Passphrase provider. Called once on first noydb-augmented store
+   * Secret provider. Called once on first noydb-augmented store
    * instantiation. Return a string or a Promise that resolves to one.
    */
   secret: () => string | Promise<string>

@@ -57,7 +57,7 @@ describe('MV foundation (#150) — end-to-end', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-foundation-eager-passphrase-2026',
+      secret: 'mv-foundation-eager-secret-2026',
       materializedViewStrategies: [openInvoicesMV],
     })
     const vault = await db.openVault('demo')
@@ -95,7 +95,7 @@ describe('MV foundation (#150) — end-to-end', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-foundation-default-output-passphrase-2026',
+      secret: 'mv-foundation-default-output-secret-2026',
       materializedViewStrategies: [mv],
     })
     const vault = await db.openVault('demo')
@@ -121,7 +121,7 @@ describe('MV foundation (#150) — end-to-end', () => {
         const db = await createNoydb({
           store: memory(),
           user: 'alice',
-          secret: 'mv-foundation-cycle-passphrase-2026',
+          secret: 'mv-foundation-cycle-secret-2026',
           materializedViewStrategies: [cyclic],
         })
         await db.openVault('demo')
@@ -141,7 +141,7 @@ describe('MV foundation (#150) — end-to-end', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-foundation-explicit-output-passphrase-2026',
+      secret: 'mv-foundation-explicit-output-secret-2026',
       materializedViewStrategies: [mv],
     })
     const vault = await db.openVault('demo')
@@ -166,7 +166,7 @@ describe('MV foundation (#150) — end-to-end', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-foundation-manual-passphrase-2026',
+      secret: 'mv-foundation-manual-secret-2026',
       materializedViewStrategies: [manualMV],
     })
     const vault = await db.openVault('demo')

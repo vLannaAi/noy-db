@@ -52,7 +52,7 @@ describe('Derivation strict mode + withTransactions', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-strict-passphrase-2026',
+      secret: 'derivation-strict-secret-2026',
       derivationStrategies: [strategy],
       txStrategy: withTransactions(),
     })
@@ -78,7 +78,7 @@ describe('Derivation strict mode + withTransactions', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-nonstrict-passphrase-2026',
+      secret: 'derivation-nonstrict-secret-2026',
       derivationStrategies: [strategy],
       txStrategy: withTransactions(),
     })

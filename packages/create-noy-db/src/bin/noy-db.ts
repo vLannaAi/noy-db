@@ -27,10 +27,10 @@
  * subcommand itself so the wiring is obvious and the pure
  * subcommand functions stay testable in isolation.
  *
- * ## Passphrase handling invariants
+ * ## Secret handling invariants
  *
  * Every subcommand that unlocks a vault goes through the
- * shared `defaultReadPassphrase` helper (see `commands/shared.ts`).
+ * shared `defaultReadSecret` helper (see `commands/shared.ts`).
  * That helper:
  *
  *   - Uses @clack/prompts `password()` so nothing echoes to stdout
@@ -39,7 +39,7 @@
  *     happens inside the core's KEK derivation
  *   - Aborts the process on Ctrl-C before any I/O happens
  *
- * The passphrase never leaves the closure in which it was read —
+ * The secret never leaves the closure in which it was read —
  * every subcommand closes the Noydb instance in a `finally` block
  * so the KEK is cleared from memory on the way out.
  */
