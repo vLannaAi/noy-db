@@ -33,7 +33,7 @@ export interface SnapshotIndex {
 }
 
 /** @internal */
-export interface SnapshotStrategy {
+export interface SnapshotsStrategy {
   snapshot(vault: unknown, by: string, opts?: { label?: string; note?: string }): Promise<SnapshotMeta>
   listSnapshots(vaultId: string): Promise<SnapshotMeta[]>
   restoreSnapshot(vault: unknown, version: string): Promise<void>
@@ -46,11 +46,11 @@ export interface SnapshotStrategy {
 const NOT_ENABLED = new Error(
   'Snapshots require the snapshot strategy. Import `{ withSnapshots }` from ' +
   '"@noy-db/hub/snapshots" and pass it to ' +
-  '`createNoydb({ snapshotStrategy: withSnapshots({ store }) })`.',
+  '`createNoydb({ snapshotsStrategy: withSnapshots({ store }) })`.',
 )
 
 /** No-op stub. @internal */
-export const NO_SNAPSHOTS: SnapshotStrategy = {
+export const NO_SNAPSHOTS: SnapshotsStrategy = {
   async snapshot() { throw NOT_ENABLED },
   async listSnapshots() { throw NOT_ENABLED },
   async restoreSnapshot() { throw NOT_ENABLED },

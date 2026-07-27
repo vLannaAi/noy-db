@@ -72,7 +72,7 @@ function lazyIndexedHarness() {
         store,
         user: 'owner',
         secret: SECRET,
-        indexStrategy: withIndexing(),
+        indexingStrategy: withIndexing(),
         tiersStrategy: withTiers(),
       })
       const vault = await db.openVault('v1')
@@ -104,7 +104,7 @@ async function openEagerIndexed() {
     store: memoryStore(),
     user: 'owner',
     secret: SECRET,
-    indexStrategy: withIndexing(),
+    indexingStrategy: withIndexing(),
     tiersStrategy: withTiers(),
   })
   const vault = await db.openVault('v1')

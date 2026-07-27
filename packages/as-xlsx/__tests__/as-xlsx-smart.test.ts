@@ -220,7 +220,7 @@ describe('#414 P1 — smart export', () => {
       exportCapability: { plaintext: ['xlsx'] }, importCapability: { plaintext: ['xlsx'] },
     })
     init.close()
-    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-rt', i18nStrategy: withI18n(), txStrategy: withTransactions() })
+    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-rt', i18nStrategy: withI18n(), transactionsStrategy: withTransactions() })
     const vault = await db.openVault('shop')
     const products = vault.collection<{ id: string; name: Record<string, string> }>('products', {
       i18nFields: { name: i18nText({ languages: ['en', 'th'], required: 'all' }) },

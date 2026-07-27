@@ -4,7 +4,7 @@ import type { Clause, FieldClause } from '../../kernel/query/predicate.js'
 import type { DeclaredPredicate } from '../../kernel/query/builder.js'
 import { analyzeDependencies, summarizeQueryPlan, summarizeUnionPlan, summarizeProjectionPlan } from './dependency-analyzer.js'
 import { computeQueryHash } from './query-hash.js'
-import type { MaterializedViewStrategy, MVQueryContext } from './types.js'
+import type { MaterializedViewSpec, MVQueryContext } from './types.js'
 
 /**
  * Whole-record artifact-grain field marker (#638 Task 2) — MUST match
@@ -20,7 +20,7 @@ const WHOLE_RECORD = '*'
  */
 export interface RegisteredMV {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly spec: MaterializedViewStrategy<any>
+  readonly spec: MaterializedViewSpec<any>
   /** Output collection name (`spec.output?.collection ?? spec.name`). */
   readonly outputCollection: string
   /** Set of source collections; populated at registration via the analyzer. */
@@ -87,7 +87,7 @@ export class MaterializedViewRegistry {
    */
   async register(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    spec: MaterializedViewStrategy<any>,
+    spec: MaterializedViewSpec<any>,
     db: MVQueryContext,
     options?: { knownCollections?: (name: string) => boolean },
   ): Promise<void> {
@@ -345,7 +345,7 @@ function isFieldClauseOnField(clause: Clause, field: string): clause is FieldCla
  */
 export function wrapDbWithPredicates(
   db: MVQueryContext,
-  predicates: NonNullable<MaterializedViewStrategy<Record<string, unknown>>['predicates']>,
+  predicates: NonNullable<MaterializedViewSpec<Record<string, unknown>>['predicates']>,
 ): MVQueryContext {
   // Build the predicate map once — the fn signature in the MV spec
   // is row-typed but the QueryBuilder casts to unknown, so we widen

@@ -246,7 +246,7 @@ export class BlobSet {
    * DECLARED; a collection with an undeclared field (or no `blobFields` at
    * all) constructs fine and reaches this write path unguarded. Refuse the
    * write itself instead of broadening the construction mandate, which
-   * would over-refuse blobless tiered collections (`blobStrategy` is
+   * would over-refuse blobless tiered collections (`blobsStrategy` is
    * vault-wide, not per-collection). Called from every content-write entry
    * (`put()`, `publish()`) — never from a read path, so a pre-existing
    * legacy blob stays readable (back-compat).

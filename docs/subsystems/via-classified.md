@@ -150,7 +150,7 @@ collection with a `classifiedFields` binding compiled in, routes sealed-slot cla
 through the via `erase()` hook instead of the pre-#629 hand-rolled path:
 
 ```ts
-// createNoydb({ ..., forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }) })
+// createNoydb({ ..., forgetStrategy: withForget({ subjects: { people: 'subjectId' } }) })
 const vault = await db.openVault('v')
 const people = vault.collection('people', {
   perRecordKeys: true,
@@ -164,7 +164,7 @@ expect(result.sealedResidue).toEqual([])
 ```
 
 (from `packages/hub/__tests__/via/forget-classified-erase.test.ts`, using
-`forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } })`). The reported counts
+`forgetStrategy: withForget({ subjects: { people: 'subjectId' } })`). The reported counts
 are byte-identical to the pre-#629 path for the same scenarios (a normally-written CEK-derived
 slot is shredded; a legacy DEK-derived slot is reported as residue, not shredded) — this is a
 parity guarantee, not new behavior.
@@ -181,11 +181,11 @@ directly; the via binding's own `purgeSealedCekEnvelopes` closure exists and is 
 
 ### #633 — the opt-in `scopedPurge` knob
 
-`SubjectDeclaration.scopedPurge` (`@noy-db/hub/forget`, threaded through `withForgetCascade`) scopes
+`SubjectDeclaration.scopedPurge` (`@noy-db/hub/forget`, threaded through `withForget`) scopes
 the unconditional sealed-CEK purge above to declaration-backed collections only:
 
 ```ts
-forgetStrategy: withForgetCascade({
+forgetStrategy: withForget({
   subjects: { contacts: 'subjectId', people: 'subjectId' },
   scopedPurge: true,
 })

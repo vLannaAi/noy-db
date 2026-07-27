@@ -30,7 +30,7 @@
  *   `InvariantError` thrown by the check passes through unwrapped).
  *
  * ```ts
- * createNoydb({ txStrategy: withTransactions({
+ * createNoydb({ transactionsStrategy: withTransactions({
  *   invariants: [{
  *     scope: 'payments',
  *     check(changes) {

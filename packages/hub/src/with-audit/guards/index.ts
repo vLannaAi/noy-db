@@ -7,8 +7,8 @@ export { GuardRegistry } from './registry.js'
 export { GuardExecutor } from './executor.js'
 export { ReadOnlyVaultFacade } from './read-only-facade.js'
 export type {
+  GuardSpec,
   GuardStrategy,
-  GuardStrategyHandle,
   GuardContext,
   GuardChange,
 } from './types.js'

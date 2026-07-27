@@ -97,7 +97,7 @@ describe('reserved secret-collections — Layer 1: vault.collection() guard', ()
 describe('reserved secret-collections — Layer 2: grant DEK propagation', () => {
   it('does NOT propagate the _sync_credentials DEK to a granted operator', async () => {
     const store = inlineMemory()
-    const owner = await createOwnerKeyring(store, COMP, 'owner', OWNER_SECRET)
+    const owner = await createOwnerKeyring(store, COMP, { userId: 'owner', secret: OWNER_SECRET })
     // Owner creates a credential → owner keyring now holds the _sync_credentials DEK.
     await putCredential(store, COMP, owner, GDRIVE)
     expect(owner.deks.has(SYNC_CREDENTIALS_COLLECTION)).toBe(true)
@@ -109,25 +109,25 @@ describe('reserved secret-collections — Layer 2: grant DEK propagation', () =>
       secret: OP_SECRET,
       permissions: { invoices: 'rw' },
     })
-    const op = await loadKeyring(store, COMP, 'op1', OP_SECRET)
+    const op = await loadKeyring(store, COMP, { userId: 'op1', secret: OP_SECRET })
     expect(op.deks.has(SYNC_CREDENTIALS_COLLECTION)).toBe(false)
   })
 
   it('does NOT propagate a secret-bearing DEK to a granted client/viewer either', async () => {
     const store = inlineMemory()
-    const owner = await createOwnerKeyring(store, COMP, 'owner', OWNER_SECRET)
+    const owner = await createOwnerKeyring(store, COMP, { userId: 'owner', secret: OWNER_SECRET })
     await putCredential(store, COMP, owner, GDRIVE)
 
     await grant(store, COMP, owner, {
       userId: 'v1', displayName: 'Viewer', role: 'viewer', secret: OP_SECRET,
     })
-    const viewer = await loadKeyring(store, COMP, 'v1', OP_SECRET)
+    const viewer = await loadKeyring(store, COMP, { userId: 'v1', secret: OP_SECRET })
     expect(viewer.deks.has(SYNC_CREDENTIALS_COLLECTION)).toBe(false)
   })
 
   it('does NOT leak the DEK even when the grantor names it explicitly in permissions', async () => {
     const store = inlineMemory()
-    const owner = await createOwnerKeyring(store, COMP, 'owner', OWNER_SECRET)
+    const owner = await createOwnerKeyring(store, COMP, { userId: 'owner', secret: OWNER_SECRET })
     await putCredential(store, COMP, owner, GDRIVE)
 
     await grant(store, COMP, owner, {
@@ -135,13 +135,13 @@ describe('reserved secret-collections — Layer 2: grant DEK propagation', () =>
       // Deliberate escalation attempt: name the reserved secret collection.
       permissions: { invoices: 'rw', [SYNC_CREDENTIALS_COLLECTION]: 'rw' },
     })
-    const op = await loadKeyring(store, COMP, 'op1', OP_SECRET)
+    const op = await loadKeyring(store, COMP, { userId: 'op1', secret: OP_SECRET })
     expect(op.deks.has(SYNC_CREDENTIALS_COLLECTION)).toBe(false)
   })
 
   it('KEEPS propagating operational reserved DEKs (_ledger) to a granted operator', async () => {
     const store = inlineMemory()
-    const owner = await createOwnerKeyring(store, COMP, 'owner', OWNER_SECRET)
+    const owner = await createOwnerKeyring(store, COMP, { userId: 'owner', secret: OWNER_SECRET })
     // Materialise an operational reserved DEK on the owner keyring.
     const getDek = await ensureCollectionDEK(store, COMP, owner)
     await getDek(LEDGER_COLLECTION)
@@ -151,19 +151,19 @@ describe('reserved secret-collections — Layer 2: grant DEK propagation', () =>
       userId: 'op1', displayName: 'Operator', role: 'operator', secret: OP_SECRET,
       permissions: { invoices: 'rw' },
     })
-    const op = await loadKeyring(store, COMP, 'op1', OP_SECRET)
+    const op = await loadKeyring(store, COMP, { userId: 'op1', secret: OP_SECRET })
     expect(op.deks.has(LEDGER_COLLECTION)).toBe(true)
   })
 
   it('STILL propagates the _sync_credentials DEK to a granted ADMIN (legit flow preserved)', async () => {
     const store = inlineMemory()
-    const owner = await createOwnerKeyring(store, COMP, 'owner', OWNER_SECRET)
+    const owner = await createOwnerKeyring(store, COMP, { userId: 'owner', secret: OWNER_SECRET })
     await putCredential(store, COMP, owner, GDRIVE)
 
     await grant(store, COMP, owner, {
       userId: 'admin1', displayName: 'Admin', role: 'admin', secret: ADMIN_SECRET,
     })
-    const admin = await loadKeyring(store, COMP, 'admin1', ADMIN_SECRET)
+    const admin = await loadKeyring(store, COMP, { userId: 'admin1', secret: ADMIN_SECRET })
     expect(admin.deks.has(SYNC_CREDENTIALS_COLLECTION)).toBe(true)
     // And the admin can read the owner's existing credential through the gated API.
     const got = await getCredential(store, COMP, admin, 'google-drive')

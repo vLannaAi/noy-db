@@ -78,7 +78,7 @@ async function makeFixture(): Promise<{ db: Noydb; col: Awaited<ReturnType<Noydb
     store: memory(),
     user: 'alice',
     secret: 'use-blob-url-test-secret-2026',
-    blobStrategy: withBlobs(),
+    blobsStrategy: withBlobs(),
   })
   const vault = await db.openVault('V1')
   const col = vault.collection<Doc>('docs')
@@ -94,7 +94,7 @@ describe('useBlobURL', () => {
   afterEach(restoreURLSpies)
 
   it('1. populates url asynchronously and revokes on scope dispose', async () => {
-    const db = await createNoydb({ store: memory(), user: 'a', secret: 'x'.repeat(32), blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: memory(), user: 'a', secret: 'x'.repeat(32), blobsStrategy: withBlobs() })
     const vault = await db.openVault('V1')
     const col = vault.collection<Doc>('docs')
     await col.put('rec-1', { id: 'rec-1', title: 'one' })
@@ -116,7 +116,7 @@ describe('useBlobURL', () => {
   })
 
   it('2. revokes the prior URL before creating the new one when id changes', async () => {
-    const db = await createNoydb({ store: memory(), user: 'a', secret: 'y'.repeat(32), blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: memory(), user: 'a', secret: 'y'.repeat(32), blobsStrategy: withBlobs() })
     const vault = await db.openVault('V1')
     const col = vault.collection<Doc>('docs')
     await col.put('rec-1', { id: 'rec-1', title: 'one' })
@@ -145,7 +145,7 @@ describe('useBlobURL', () => {
   })
 
   it('3. returns null when the slot does not exist', async () => {
-    const db = await createNoydb({ store: memory(), user: 'a', secret: 'z'.repeat(32), blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: memory(), user: 'a', secret: 'z'.repeat(32), blobsStrategy: withBlobs() })
     const vault = await db.openVault('V1')
     const col = vault.collection<Doc>('docs')
     await col.put('rec-1', { id: 'rec-1', title: 'one' }) // no blob attached
@@ -160,7 +160,7 @@ describe('useBlobURL', () => {
   })
 
   it('4. clears url to null when the id getter returns null', async () => {
-    const db = await createNoydb({ store: memory(), user: 'a', secret: '0'.repeat(32), blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: memory(), user: 'a', secret: '0'.repeat(32), blobsStrategy: withBlobs() })
     const vault = await db.openVault('V1')
     const col = vault.collection<Doc>('docs')
     await col.put('rec-1', { id: 'rec-1', title: 'one' })
@@ -186,7 +186,7 @@ describe('useBlobURL', () => {
     // Hide URL on globalThis so the composable's feature-detect bails out.
     Object.defineProperty(globalThis, 'URL', { value: undefined, configurable: true })
     try {
-      const db = await createNoydb({ store: memory(), user: 'a', secret: 's'.repeat(32), blobStrategy: withBlobs() })
+      const db = await createNoydb({ store: memory(), user: 'a', secret: 's'.repeat(32), blobsStrategy: withBlobs() })
       const vault = await db.openVault('V1')
       const col = vault.collection<Doc>('docs')
       await col.put('rec-1', { id: 'rec-1', title: 'one' })
@@ -204,7 +204,7 @@ describe('useBlobURL', () => {
   })
 
   it('6. mimeType resolver is called and forwarded to objectURL', async () => {
-    const db = await createNoydb({ store: memory(), user: 'a', secret: 'm'.repeat(32), blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: memory(), user: 'a', secret: 'm'.repeat(32), blobsStrategy: withBlobs() })
     const vault = await db.openVault('V1')
     const col = vault.collection<Doc>('docs')
     await col.put('rec-1', { id: 'rec-1', title: 'one' })

@@ -89,7 +89,7 @@ describeBench('acceptance bench — 50K lazy indexes on to-browser-idb', () => {
       secret: SECRET,
       // The bench exercises lazyQuery() on indexed fields, which
       // requires the indexing strategy to be opted in.
-      indexStrategy: withIndexing(),
+      indexingStrategy: withIndexing(),
     })
     const vault = await db.openVault('BENCH')
     const coll = vault.collection<Disbursement>('disbursements', {

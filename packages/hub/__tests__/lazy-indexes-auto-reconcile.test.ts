@@ -50,7 +50,7 @@ describe('reconcileOnOpen: auto', () => {
     const adapter = memory()
 
     // Phase 1: seed via a first Noydb with no auto-reconcile.
-    const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexStrategy: withIndexing() })
+    const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexingStrategy: withIndexing() })
     const v1 = await db1.openVault('ACME')
     const c1 = v1.collection<Row>('rows', {
       prefetch: false,
@@ -64,7 +64,7 @@ describe('reconcileOnOpen: auto', () => {
     await adapter.delete('ACME', 'rows', '_idx/clientId/r-2')
 
     // Phase 2: reopen with reconcileOnOpen: 'auto'.
-    const db2 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexStrategy: withIndexing() })
+    const db2 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexingStrategy: withIndexing() })
     const v2 = await db2.openVault('ACME')
     const c2 = v2.collection<Row>('rows', {
       prefetch: false,
@@ -96,7 +96,7 @@ describe('reconcileOnOpen: auto', () => {
   it('dry-run reports drift without writing anything', async () => {
     const adapter = memory()
 
-    const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexStrategy: withIndexing() })
+    const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexingStrategy: withIndexing() })
     const v1 = await db1.openVault('ACME')
     const c1 = v1.collection<Row>('rows', {
       prefetch: false,
@@ -106,7 +106,7 @@ describe('reconcileOnOpen: auto', () => {
     await c1.put('r-1', { id: 'r-1', clientId: 'c-A', amount: 10 })
     await adapter.delete('ACME', 'rows', '_idx/clientId/r-1')
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexStrategy: withIndexing() })
+    const db2 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexingStrategy: withIndexing() })
     const v2 = await db2.openVault('ACME')
     const c2 = v2.collection<Row>('rows', {
       prefetch: false,
@@ -135,7 +135,7 @@ describe('reconcileOnOpen: auto', () => {
 
   it('off (default) does nothing on open', async () => {
     const adapter = memory()
-    const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexStrategy: withIndexing() })
+    const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexingStrategy: withIndexing() })
     const v1 = await db1.openVault('ACME')
     const c1 = v1.collection<Row>('rows', {
       prefetch: false,
@@ -144,7 +144,7 @@ describe('reconcileOnOpen: auto', () => {
     })
     await c1.put('r-1', { id: 'r-1', clientId: 'c-A', amount: 10 })
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexStrategy: withIndexing() })
+    const db2 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexingStrategy: withIndexing() })
     const v2 = await db2.openVault('ACME')
     const c2 = v2.collection<Row>('rows', {
       prefetch: false,
@@ -161,7 +161,7 @@ describe('reconcileOnOpen: auto', () => {
 
   it('runs once per session, not on every subsequent query', async () => {
     const adapter = memory()
-    const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexStrategy: withIndexing() })
+    const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexingStrategy: withIndexing() })
     const v1 = await db1.openVault('ACME')
     const c1 = v1.collection<Row>('rows', {
       prefetch: false,
@@ -170,7 +170,7 @@ describe('reconcileOnOpen: auto', () => {
     })
     await c1.put('r-1', { id: 'r-1', clientId: 'c-A', amount: 10 })
 
-    const db2 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexStrategy: withIndexing() })
+    const db2 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexingStrategy: withIndexing() })
     const v2 = await db2.openVault('ACME')
     const c2 = v2.collection<Row>('rows', {
       prefetch: false,

@@ -44,7 +44,7 @@
  */
 
 import { withGuard } from './with-guard.js'
-import type { GuardStrategy, GuardStrategyHandle, GuardContext, GuardChange } from './types.js'
+import type { GuardSpec, GuardStrategy, GuardContext, GuardChange } from './types.js'
 import { IllegalTransitionError, ValidationError } from '../../kernel/errors.js'
 
 export interface TransitionGuardConfig<T extends Record<string, unknown>> {
@@ -72,7 +72,7 @@ export interface TransitionGuardConfig<T extends Record<string, unknown>> {
   amendmentRoles?: ReadonlyArray<'admin' | 'owner'>
   /**
    * Optional set-level invariant run over the amendment change-set after
-   * the writes execute. Signature matches `GuardStrategy.amendment.invariant`
+   * the writes execute. Signature matches `GuardSpec.amendment.invariant`
    * exactly. When omitted the amendment is unconditionally allowed (the
    * amendment itself is the sanctioned, ledgered override) — the
    * backward-compatible default. Mirrors {@link immutableGuard}.
@@ -99,7 +99,7 @@ function stateOf(record: Record<string, unknown>, field: string): string {
  */
 export function transitionGuard<T extends Record<string, unknown>>(
   config: TransitionGuardConfig<T>,
-): GuardStrategyHandle<T> {
+): GuardStrategy<T> {
   const { collection, field, transitions, initial, amendmentRoles, amendmentInvariant } = config
   const allowIdempotent = config.allowIdempotent ?? true
 
@@ -110,7 +110,7 @@ export function transitionGuard<T extends Record<string, unknown>>(
     throw new ValidationError('transitionGuard: `transitions` must be a state→states map')
   }
 
-  const spec: GuardStrategy<T> = {
+  const spec: GuardSpec<T> = {
     collection,
     check: (incoming: T, ctx: GuardContext<T>) => {
       const rec = incoming as Record<string, unknown>

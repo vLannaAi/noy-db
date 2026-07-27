@@ -216,8 +216,8 @@ const SCENARIOS = [
     code: `
       import { createNoydb } from '@noy-db/hub'
       import { withBlobs } from '@noy-db/hub/blobs'
-      const blobStrategy = withBlobs()
-      export { createNoydb, blobStrategy }
+      const blobsStrategy = withBlobs()
+      export { createNoydb, blobsStrategy }
     `,
     leakCanaries: [],
   },

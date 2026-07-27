@@ -1,5 +1,5 @@
 import { SnapshotEngine } from './engine.js'
-import type { SnapshotStrategy, RetentionPolicy } from './strategy.js'
+import type { SnapshotsStrategy, RetentionPolicy } from './strategy.js'
 import type { SnapshotPolicy } from './policy.js'
 import type { NoydbPodStore } from '../../kernel/types.js'
 import type { Vault } from '../../kernel/vault.js'
@@ -21,7 +21,7 @@ export interface WithSnapshotsOptions {
   snapshotPolicy?: SnapshotPolicy
 }
 
-export function withSnapshots(opts: WithSnapshotsOptions): SnapshotStrategy {
+export function withSnapshots(opts: WithSnapshotsOptions): SnapshotsStrategy {
   const engine = new SnapshotEngine(opts.store, opts.retention ?? {})
   return {
     snapshot(vault, by, snapOpts) {

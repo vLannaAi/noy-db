@@ -74,7 +74,7 @@ describe('withTransactions({ invariants }) — commit-time changeset invariants'
       store: memory(),
       user: 'owner',
       secret: 'tx-invariants-pass-secret-2026',
-      txStrategy: withTransactions({ invariants: [assertR1] }),
+      transactionsStrategy: withTransactions({ invariants: [assertR1] }),
     })
     const v = await db.openVault('acme')
 
@@ -90,7 +90,7 @@ describe('withTransactions({ invariants }) — commit-time changeset invariants'
       store: memory(),
       user: 'owner',
       secret: 'tx-invariants-fail-secret-2026',
-      txStrategy: withTransactions({ invariants: [assertR1] }),
+      transactionsStrategy: withTransactions({ invariants: [assertR1] }),
     })
     const v = await db.openVault('acme')
 
@@ -125,7 +125,7 @@ describe('withTransactions({ invariants }) — commit-time changeset invariants'
       store: memory(),
       user: 'owner',
       secret: 'tx-invariants-beforeafter-secret-2026',
-      txStrategy: withTransactions({ invariants: [captureInv] }),
+      transactionsStrategy: withTransactions({ invariants: [captureInv] }),
     })
     await db.openVault('acme')
 
@@ -156,7 +156,7 @@ describe('withTransactions({ invariants }) — commit-time changeset invariants'
       store: memory(),
       user: 'owner',
       secret: 'tx-invariants-unrelated-secret-2026',
-      txStrategy: withTransactions({ invariants: [assertR1, unrelated] }),
+      transactionsStrategy: withTransactions({ invariants: [assertR1, unrelated] }),
     })
     await db.openVault('acme')
 
@@ -183,7 +183,7 @@ describe('withTransactions({ invariants }) — commit-time changeset invariants'
       user: 'owner',
       secret: 'tx-invariants-amendment-secret-2026',
       guardStrategies: [guard],
-      txStrategy: withTransactions({ invariants: [assertR1] }),
+      transactionsStrategy: withTransactions({ invariants: [assertR1] }),
     })
     const v = await db.openVault('acme')
 

@@ -323,7 +323,7 @@ describe('delete convergence on pull (#589)', () => {
     const local = memory(); const remote = memory()
     const db = await createNoydb({ store: local, sync: remote, user: 'u', secret: 'hunter2', syncStrategy: withSync(),
       historyStrategy: (await import('../src/with-commit/history/index.js')).withHistory(),
-      forgetStrategy: (await import('../src/with-audit/forget/index.js')).withForgetCascade({ subjects: { notes: 'subjectId' } }) })
+      forgetStrategy: (await import('../src/with-audit/forget/index.js')).withForget({ subjects: { notes: 'subjectId' } }) })
     const notes = (await db.openVault(V)).collection<Note & { subjectId?: string }>('notes', { perRecordKeys: true })
     await notes.put('n1', { body: 'secret', subjectId: 's1' }); await db.push(V)
     const preShred = local.raw(V, 'notes', 'n1')!

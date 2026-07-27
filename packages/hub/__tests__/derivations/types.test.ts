@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { DerivedFromMeta, DerivationStrategy, OutputSpec } from '../../src/with-formula/derivations/types.js'
+import type { DerivedFromMeta, DerivationSpec, OutputSpec } from '../../src/with-formula/derivations/types.js'
 
 describe('Derivation types', () => {
   it('DerivedFromMeta has the documented fields', () => {
@@ -14,8 +14,8 @@ describe('Derivation types', () => {
     expect(meta.strategyHash).toBe('sha256-x')
   })
 
-  it('DerivationStrategy carries source, outputs map, derive, lifecycle', () => {
-    const strategy: DerivationStrategy<{ body: string }, { meta: { len: number } }> = {
+  it('DerivationSpec carries source, outputs map, derive, lifecycle', () => {
+    const strategy: DerivationSpec<{ body: string }, { meta: { len: number } }> = {
       source: 'pdfs',
       deterministic: true,
       outputs: { meta: { shape: 'record', collection: 'pdf-meta' } },

@@ -125,7 +125,7 @@ export type OutputSpec = RecordOutputSpec | ArrayOutputSpec
  *   value may be a single record, or — for `shape: 'array'` outputs — an
  *   array of records (the fanout sidecar upserts/deletes each row).
  */
-export interface DerivationStrategy<
+export interface DerivationSpec<
   TSource extends Record<string, unknown>,
   TOutputs extends Record<string, Record<string, unknown> | ReadonlyArray<Record<string, unknown>>>,
 > {
@@ -244,8 +244,8 @@ export interface DerivationStrategy<
 }
 
 /** Returned by `withDerivation()` and consumed by `createNoydb`. */
-export interface DerivationStrategyHandle {
+export interface DerivationStrategy {
   readonly __noydb_strategy: 'derivation'
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly spec: DerivationStrategy<any, any>
+  readonly spec: DerivationSpec<any, any>
 }

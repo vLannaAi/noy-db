@@ -194,7 +194,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * `NO_*` stub — a tiny module that throws with an actionable message —
    * so, for example, none of the BlobSet / chunk / MIME-magic machinery
    * reaches the bundle unless the consumer imports `@noy-db/hub/blobs` and
-   * passes `blobStrategy: blobs()` to `createNoydb`.
+   * passes `blobsStrategy: blobs()` to `createNoydb`.
    */
   private readonly strategies: StrategyBag
   private readonly objectStore: ObjectProjection | undefined
@@ -239,7 +239,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /**
    * tree-shake seam — per-Collection indexing state. Owned by the
-   * `IndexStrategy` passed through from `createNoydb({ indexStrategy })`.
+   * `IndexingStrategy` passed through from `createNoydb({ indexingStrategy })`.
    * Defaults to a disabled state (both accessors return null) so the
    * `CollectionIndexes` / `PersistedCollectionIndex` / `LazyQuery`
    * classes never reach the bundle when indexing is unused.
@@ -825,7 +825,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // constructs the appropriate mirror based on lazy vs eager mode and
     // declares every IndexDef. With NO_INDEXING the heavy index classes
     // never reach the bundle.
-    const strategy = opts.strategies.index
+    const strategy = opts.strategies.indexing
     this.indexState = strategy.createState({
       defs: opts.indexes ?? [],
       lazy: this.lazy,
@@ -3767,12 +3767,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * vault-shared `_blob` DEK (enabling cross-collection deduplication).
    */
   blob(id: string): BlobSet {
-    // tree-shake refactor: delegate to `blobStrategy`. The default
+    // tree-shake refactor: delegate to `blobsStrategy`. The default
     // is `NO_BLOBS` (throws with a message pointing at the `@noy-db/hub/blobs`
     // subpath). Users who want blob storage pass `blobs()` from that
-    // subpath into `createNoydb({ blobStrategy: blobs() })`, which
+    // subpath into `createNoydb({ blobsStrategy: blobs() })`, which
     // threads the active strategy through Vault → Collection.
-    return this.strategies.blob.openSlot({
+    return this.strategies.blobs.openSlot({
       store: this.adapter,
       vault: this.vault,
       collection: this.name,
@@ -4050,7 +4050,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       throw new Error(
         `Collection "${this.name}": lazyQuery() requires indexing to be enabled. ` +
         `Pass \`withIndexing()\` from "@noy-db/hub/indexing" to ` +
-        `\`createNoydb({ indexStrategy: withIndexing() })\`.`,
+        `\`createNoydb({ indexingStrategy: withIndexing() })\`.`,
       )
     }
     if (persisted.fields().length === 0) {
@@ -4224,7 +4224,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         if (this.historyConfig.maxVersions) await this.strategies.history.pruneHistory(this.adapter, this.vault, this.name, id, { keepVersions: this.historyConfig.maxVersions })
       },
       historyEnabled: this.historyConfig.enabled !== false && this.strategies.history !== NO_HISTORY, // #728/#737: lets putAtTier skip decrypting `existing` when no real history strategy is wired
-      syncBlobs: (id: string, fromTier: number, toTier: number) => this.strategies.blob !== NO_BLOBS ? this.blob(id).syncTierMove(fromTier, toTier, this.blobTierPolicy) : Promise.resolve(), // #724 I1: gate on blob storage enabled (not on declared blobFields) so undeclared-field blobs still rehome; #746: syncTierMove mints/resumes the rehome journal marker; self-no-ops on an empty slot map
+      syncBlobs: (id: string, fromTier: number, toTier: number) => this.strategies.blobs !== NO_BLOBS ? this.blob(id).syncTierMove(fromTier, toTier, this.blobTierPolicy) : Promise.resolve(), // #724 I1: gate on blob storage enabled (not on declared blobFields) so undeclared-field blobs still rehome; #746: syncTierMove mints/resumes the rehome journal marker; self-no-ops on an empty slot map
       syncLedger: async (id: string) => { await this.ledger?.purgeRecordDeltas(this.name, id) },
       syncDerived: (id: string, record: T | null, elevated: boolean, version?: number) => syncDerivedOutputs(this, id, record, elevated, version),
       hasDerivedOutputs: (this.materializedViewSource !== undefined && this.materializedViewSource.registry().mvsForSource(this.name).length > 0) || (this.derivationSource !== undefined && this.derivationSource.registry().strategiesForSource(this.name).length > 0), // #737: source-grained (was vault-grained) — a derivation-free tiered collection skips the pre-move decode even when other collections in the vault have derivations

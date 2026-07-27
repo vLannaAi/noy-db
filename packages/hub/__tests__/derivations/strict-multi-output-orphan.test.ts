@@ -70,7 +70,7 @@ describe('Strict-mode derivation multi-output orphan (#133)', () => {
       user: 'alice',
       secret: 'derivation-orphan-133-secret-2026',
       derivationStrategies: [stratGood, stratBad],
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     const v = await db.openVault('demo')
 
@@ -111,7 +111,7 @@ describe('Strict-mode derivation multi-output orphan (#133)', () => {
       user: 'alice',
       secret: 'derivation-orphan-133-nonstrict-secret-2026',
       derivationStrategies: [stratGood, stratBad],
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     const v = await db.openVault('demo')
 

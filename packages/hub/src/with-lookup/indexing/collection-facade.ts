@@ -236,7 +236,7 @@ export async function reconcileIndex<T>(
   if (!persisted) {
     throw new Error(
       `Collection "${ctx.name}": indexing is disabled on this Noydb instance. ` +
-      `Pass \`withIndexing()\` from "@noy-db/hub/indexing" to \`createNoydb({ indexStrategy })\`.`,
+      `Pass \`withIndexing()\` from "@noy-db/hub/indexing" to \`createNoydb({ indexingStrategy })\`.`,
     )
   }
   if (!persisted.has(field)) {

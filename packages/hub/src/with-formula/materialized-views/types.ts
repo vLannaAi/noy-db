@@ -99,7 +99,7 @@ export interface UnionSource<TRow extends Record<string, unknown>> {
    * `as` — the same machinery as the query-form `Query.join()`.
    *
    * The right-side collections must be listed in the strategy's
-   * {@link MaterializedViewStrategy.sources} so writes to them trigger
+   * {@link MaterializedViewSpec.sources} so writes to them trigger
    * MV refresh — registration throws `MaterializedViewConfigError`
    * otherwise (the union dependency set comes from arm `collection`s
    * alone, which would not include join targets).
@@ -193,7 +193,7 @@ export type ProjectionJoinLeg =
  *
  * @typeParam TRow - the materialized row type (the query's result row)
  */
-export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> {
+export interface MaterializedViewSpec<TRow extends Record<string, unknown>> {
   /**
    * Stable identity for this view. Used as the output collection name
    * unless `output.collection` overrides. Must be unique within the vault.
@@ -402,8 +402,8 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
 }
 
 /** Returned by `withMaterializedView()` and consumed by `createNoydb`. */
-export interface MaterializedViewStrategyHandle {
+export interface MaterializedViewStrategy {
   readonly __noydb_strategy: 'materialized-view'
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly spec: MaterializedViewStrategy<any>
+  readonly spec: MaterializedViewSpec<any>
 }

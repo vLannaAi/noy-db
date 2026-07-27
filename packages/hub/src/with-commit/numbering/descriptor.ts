@@ -20,17 +20,28 @@ export interface DeferredNumberingConfig {
   readonly settleWindowMs: number
 }
 
+/**
+ * Options for {@link withDeferredNumbering} (#844b — was an inline literal, so
+ * unnameable). Same shape as {@link DeferredNumberingConfig} except
+ * `settleWindowMs` is optional; the factory defaults it to 0.
+ */
+export interface WithDeferredNumberingOptions {
+  /** Series name — the key passed to `vault.sequence(series)`. */
+  readonly series: string
+  /** Collection holding the records to number. */
+  readonly collection: string
+  /** Field on each record where the assigned serial is written. */
+  readonly field: string
+  /** See {@link DeferredNumberingConfig.settleWindowMs}. Default 0. */
+  readonly settleWindowMs?: number
+}
+
 /** Declare a deferred-numbering series. Pass the result in `createNoydb({ numbering: [...] })`. */
-export function withDeferredNumbering(config: {
-  series: string
-  collection: string
-  field: string
-  settleWindowMs?: number
-}): DeferredNumberingConfig {
+export function withDeferredNumbering(opts: WithDeferredNumberingOptions): DeferredNumberingConfig {
   return {
-    series: config.series,
-    collection: config.collection,
-    field: config.field,
-    settleWindowMs: config.settleWindowMs ?? 0,
+    series: opts.series,
+    collection: opts.collection,
+    field: opts.field,
+    settleWindowMs: opts.settleWindowMs ?? 0,
   }
 }

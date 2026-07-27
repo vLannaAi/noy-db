@@ -76,7 +76,7 @@ describe('#629 whole-branch fix wave — cross-feature classified id threading (
   })
 
   it('rebuildIndexes (lazy) and reconcileIndex complete on a classified collection with a non-classified indexed field', async () => {
-    const db = await createNoydb({ store: inlineMemory(), user: 'a', secret: 'pw-c1-idx', indexStrategy: withIndexing() })
+    const db = await createNoydb({ store: inlineMemory(), user: 'a', secret: 'pw-c1-idx', indexingStrategy: withIndexing() })
     const v = await db.openVault('v1')
     const c = v.collection<{ pan: string; name: string }>('cards', {
       classifiedFields: { card: classified.creditCard({ pan: 'pan' }) },

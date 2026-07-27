@@ -1,10 +1,11 @@
 export { withDerivation } from './with-derivation.js'
 export { withRollup } from './with-rollup.js'
+export type { WithRollupOptions } from './with-rollup.js'
 export { DerivationRegistry } from './registry.js'
 export { DerivationExecutor } from './executor.js'
 export type {
+  DerivationSpec,
   DerivationStrategy,
-  DerivationStrategyHandle,
   DerivedFromMeta,
   OutputSpec,
   RecordOutputSpec,

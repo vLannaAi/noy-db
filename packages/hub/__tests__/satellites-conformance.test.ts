@@ -21,7 +21,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withSync } from '../src/with-party/sync/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
-import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withForget } from '../src/with-audit/forget/index.js'
 import { withSearch } from '../src/with-lookup/search/index.js'
 import { memory } from '../../to-memory/src/index.js'
 import { ConflictError, SatelliteConfigError } from '../src/kernel/errors.js'
@@ -220,7 +220,7 @@ describe('spec conformance — cross-cutting vectors (#591, Task 13)', () => {
       const opts = {
         store, user: 'alice', secret: SECRET, searchStrategy: withSearch(),
         historyStrategy: withHistory(),
-        forgetStrategy: withForgetCascade({ subjects: { msgs: 'from' } }),
+        forgetStrategy: withForget({ subjects: { msgs: 'from' } }),
       }
       const db1 = await createNoydb(opts)
       const vault1 = await db1.openVault('v1')
@@ -366,7 +366,7 @@ describe('spec conformance — cross-cutting vectors (#591, Task 13)', () => {
       // R-S7's retro clause must refuse the redeclare outright.
       const db2 = await createNoydb({
         store, user: 'alice', secret: SECRET,
-        forgetStrategy: withForgetCascade({ subjects: { msgs: 'from' } }),
+        forgetStrategy: withForget({ subjects: { msgs: 'from' } }),
       })
       const vault2 = await db2.openVault('v1')
       expect(() => vault2.collection<Msg>('msgs', {})).not.toThrow() // base: perRecordKeys force-on, no refusal
@@ -393,7 +393,7 @@ describe('spec conformance — cross-cutting vectors (#591, Task 13)', () => {
       const db = await createNoydb({
         store: rawStore, user: 'alice', secret: SECRET,
         historyStrategy: withHistory(),
-        forgetStrategy: withForgetCascade({ subjects: { msgs: 'from' } }),
+        forgetStrategy: withForget({ subjects: { msgs: 'from' } }),
       })
       const vault = await db.openVault('v1')
       vault.collection<Msg>('msgs', { perRecordKeys: true })

@@ -3,7 +3,7 @@ import type { TxContext } from '../../with-commit/tx/transaction.js'
 import type { EncryptedEnvelope } from '../../kernel/types.js'
 import { MaterializedViewTooLargeError, MaterializedViewConfigError, LocaleNotSpecifiedError, JoinTooLargeError } from '../../kernel/errors.js'
 import { DEFAULT_JOIN_MAX_ROWS } from '../../kernel/query/join.js'
-import type { MaterializedFromMeta, MVQueryContext, MaterializedViewStrategy } from './types.js'
+import type { MaterializedFromMeta, MVQueryContext, MaterializedViewSpec } from './types.js'
 import type { RegisteredMV } from './registry.js'
 import { wrapDbWithPredicates } from './registry.js'
 import { groupAndReduce } from '../../with-lookup/reduce/groupby.js'
@@ -124,7 +124,7 @@ async function materializeQueryResult(
  * @internal
  */
 async function materializeUnionResult<TRow extends Record<string, unknown>>(
-  spec: MaterializedViewStrategy<TRow>,
+  spec: MaterializedViewSpec<TRow>,
   db: MVQueryContext,
 ): Promise<ReadonlyArray<Record<string, unknown>>> {
   const unified: TRow[] = []
@@ -167,7 +167,7 @@ async function materializeUnionResult<TRow extends Record<string, unknown>>(
  * @internal
  */
 function finalizeMappedRows<TRow extends Record<string, unknown>>(
-  spec: MaterializedViewStrategy<TRow>,
+  spec: MaterializedViewSpec<TRow>,
   unified: TRow[],
 ): ReadonlyArray<Record<string, unknown>> {
   if (!spec.groupBy) return unified
@@ -238,7 +238,7 @@ function finalizeMappedRows<TRow extends Record<string, unknown>>(
  * @internal
  */
 async function materializeProjectionResult<TRow extends Record<string, unknown>>(
-  spec: MaterializedViewStrategy<TRow>,
+  spec: MaterializedViewSpec<TRow>,
   db: MVQueryContext,
 ): Promise<ReadonlyArray<Record<string, unknown>>> {
   const projection = spec.projection!

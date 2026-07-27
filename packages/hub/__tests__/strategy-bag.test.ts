@@ -32,7 +32,7 @@ describe('resolveStrategies (#838)', () => {
 
     expect(bag.search).toBe(search)
     expect(bag.search).not.toBe(NO_SEARCH)
-    expect(bag.blob).toBe(NO_BLOBS) // everything else stays on the floor
+    expect(bag.blobs).toBe(NO_BLOBS) // everything else stays on the floor
   })
 
   it('maps each option name to its suffix-stripped bag key', () => {
@@ -47,14 +47,14 @@ describe('resolveStrategies (#838)', () => {
   })
 
   it('treats an explicitly-undefined option as not provided', () => {
-    const bag = resolveStrategies({ blobStrategy: undefined } as unknown as NoydbOptions)
+    const bag = resolveStrategies({ blobsStrategy: undefined } as unknown as NoydbOptions)
 
-    expect(bag.blob).toBe(NO_BLOBS)
+    expect(bag.blobs).toBe(NO_BLOBS)
   })
 
   it('does not mutate the shared defaults', () => {
     const before = { ...STRATEGY_DEFAULTS }
-    resolveStrategies({ blobStrategy: { ...NO_BLOBS } } as NoydbOptions)
+    resolveStrategies({ blobsStrategy: { ...NO_BLOBS } } as NoydbOptions)
 
     expect({ ...STRATEGY_DEFAULTS }).toEqual(before)
   })

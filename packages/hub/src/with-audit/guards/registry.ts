@@ -1,4 +1,4 @@
-import type { GuardStrategy, GuardContext, GuardChange } from './types.js'
+import type { GuardSpec, GuardContext, GuardChange } from './types.js'
 
 /**
  * Per-record metadata attached to every entry in an amendment's
@@ -23,8 +23,8 @@ export interface AmendmentChangeMeta {
  * @internal
  */
 // Internal storage alias — guards are heterogeneous in their record type T,
-// so the registry stores them at the upper bound of GuardStrategy's T constraint.
-type AnyGuard = GuardStrategy<Record<string, unknown>>
+// so the registry stores them at the upper bound of GuardSpec's T constraint.
+type AnyGuard = GuardSpec<Record<string, unknown>>
 type AnyChange = GuardChange<Record<string, unknown>>
 
 export class GuardRegistry {
@@ -33,7 +33,7 @@ export class GuardRegistry {
   private _amendmentMeta: Map<string, AmendmentChangeMeta[]> | null = null
 
   /** Register a guard. Multiple guards per collection are allowed. */
-  register<T extends Record<string, unknown>>(spec: GuardStrategy<T>): void {
+  register<T extends Record<string, unknown>>(spec: GuardSpec<T>): void {
     const existing = this._byCollection.get(spec.collection)
     if (existing) existing.push(spec as unknown as AnyGuard)
     else this._byCollection.set(spec.collection, [spec as unknown as AnyGuard])

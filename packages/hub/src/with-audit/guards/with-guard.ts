@@ -1,5 +1,5 @@
 import { ValidationError } from '../../kernel/errors.js'
-import type { GuardStrategy, GuardStrategyHandle } from './types.js'
+import type { GuardSpec, GuardStrategy } from './types.js'
 
 /**
  * Register a guard for a collection. Guards run on every `put()` /
@@ -15,8 +15,8 @@ import type { GuardStrategy, GuardStrategyHandle } from './types.js'
  * @see docs/superpowers/specs/2026-05-18-guards-design.md
  */
 export function withGuard<T extends Record<string, unknown>>(
-  strategy: GuardStrategy<T>,
-): GuardStrategyHandle<T> {
+  strategy: GuardSpec<T>,
+): GuardStrategy<T> {
   if (!strategy.collection || strategy.collection.length === 0) {
     throw new ValidationError('withGuard: collection name is required')
   }

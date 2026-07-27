@@ -212,14 +212,22 @@ async function verifyKeyringCanary(wrappedCanary: string, kek: EnclaveKey): Prom
 
 // ─── Load / Create ─────────────────────────────────────────────────────
 
+/** Options for {@link loadKeyring} (#846b). */
+export interface LoadKeyringOptions {
+  /** The user whose keyring to unlock. */
+  readonly userId: string
+  /** That user's secret. */
+  readonly secret: string
+}
+
 /** Load and unlock a user's keyring for a vault. */
 export async function loadKeyring(
-  adapter: NoydbStore,
+  store: NoydbStore,
   vault: string,
-  userId: string,
-  secret: string,
+  opts: LoadKeyringOptions,
 ): Promise<UnlockedKeyring> {
-  const envelope = await adapter.get(vault, '_keyring', userId)
+  const { userId, secret } = opts
+  const envelope = await store.get(vault, '_keyring', userId)
 
   if (!envelope) {
     throw new NoAccessError(`No keyring found for user "${userId}" in vault "${vault}"`)
@@ -341,22 +349,37 @@ export async function assertKeyringOpenAllowed(
 }
 
 /**
+ * Options for {@link createOwnerKeyring} (#846b). The `SecretPolicy` knobs are
+ * flattened into the same bag rather than nested, so `assertStrongSecret` can
+ * take `opts` directly.
+ */
+export interface CreateOwnerKeyringOptions extends SecretPolicy {
+  /** The owner to create. */
+  readonly userId: string
+  /** The owner's secret. */
+  readonly secret: string
+  /** Gate creation on the phrase-format strength rules. Default false. */
+  readonly validate?: boolean
+  /** Escape hatch for fixtures and migrations — skips the strength gate. */
+  readonly allowWeakSecret?: boolean
+}
+
+/**
  * Create the initial owner keyring for a new vault.
  *
- * Pass `{ validate: true }` (or a `SecretPolicy`) to gate creation
+ * Pass `{ validate: true }` (or any `SecretPolicy` knob) to gate creation
  * on the phrase-format strength rules — `Noydb` threads this from
  * `NoydbOptions.validateSecret`. Direct callers (CLI, scripts,
  * test fixtures) opt in explicitly.
  */
 export async function createOwnerKeyring(
-  adapter: NoydbStore,
+  store: NoydbStore,
   vault: string,
-  userId: string,
-  secret: string,
-  secretOpts?: SecretPolicy & { validate?: boolean; allowWeakSecret?: boolean },
+  opts: CreateOwnerKeyringOptions,
 ): Promise<UnlockedKeyring> {
-  if (secretOpts?.validate && !secretOpts.allowWeakSecret) {
-    assertStrongSecret(secret, secretOpts)
+  const { userId, secret } = opts
+  if (opts.validate && !opts.allowWeakSecret) {
+    assertStrongSecret(secret, opts)
   }
   const salt = generateSalt()
   const kek = await deriveKey(secret, salt)
@@ -387,7 +410,7 @@ export async function createOwnerKeyring(
     canary,
   }
 
-  await writeKeyringFile(adapter, vault, userId, keyringFile)
+  await writeKeyringFile(store, vault, userId, keyringFile)
 
   return {
     userId,
@@ -405,7 +428,7 @@ export async function createOwnerKeyring(
 
 /** Grant access to a new user. Caller must have grant privilege. */
 export async function grant(
-  adapter: NoydbStore,
+  store: NoydbStore,
   vault: string,
   callerKeyring: UnlockedKeyring,
   options: GrantOptions,
@@ -541,7 +564,7 @@ export async function grant(
     ...(options.importCapability !== undefined && { import_capability: options.importCapability }),
   }
 
-  await writeKeyringFile(adapter, vault, options.userId, keyringFile)
+  await writeKeyringFile(store, vault, options.userId, keyringFile)
 
   // User envelope bootstrap. Seeded with `options.initialProfile` if
   // provided, otherwise an empty `{}`. Encrypted with the caller's
@@ -555,7 +578,7 @@ export async function grant(
   if (userEnvelopeDek) {
     const initialPayload = options.initialProfile ?? {}
     await saveUserEnvelope(
-      adapter,
+      store,
       vault,
       options.userId,
       initialPayload,
@@ -583,18 +606,18 @@ export async function grant(
  * was originally granted by A) terminate cleanly.
  */
 async function findAdminDescendants(
-  adapter: NoydbStore,
+  store: NoydbStore,
   vault: string,
   rootUserId: string,
 ): Promise<string[]> {
-  const allUserIds = await adapter.list(vault, '_keyring')
+  const allUserIds = await store.list(vault, '_keyring')
 
   // Build a map: parentUserId → child KeyringFiles. We only ever
   // descend into admins, so non-admin children are skipped at the
   // edge level rather than after a recursive call.
   const childrenByParent = new Map<string, string[]>()
   for (const userId of allUserIds) {
-    const env = await adapter.get(vault, '_keyring', userId)
+    const env = await store.get(vault, '_keyring', userId)
     if (!env) continue
     const kf = JSON.parse(env._data) as KeyringFile
     // Only admins can grant, so only admins have a delegation subtree to
@@ -626,13 +649,13 @@ async function findAdminDescendants(
 
 /** Revoke a user's access. Optionally rotate keys for affected collections. */
 export async function revoke(
-  adapter: NoydbStore,
+  store: NoydbStore,
   vault: string,
   callerKeyring: UnlockedKeyring,
   options: RevokeOptions,
 ): Promise<void> {
   // Load the target's keyring to check their role
-  const targetEnvelope = await adapter.get(vault, '_keyring', options.userId)
+  const targetEnvelope = await store.get(vault, '_keyring', options.userId)
   if (!targetEnvelope) {
     throw new NoAccessError(`User "${options.userId}" has no keyring in vault "${vault}"`)
   }
@@ -653,7 +676,7 @@ export async function revoke(
   const affectedCollections = new Set(Object.keys(targetKeyring.deks))
 
   if (targetKeyring.role === 'admin') {
-    const descendants = await findAdminDescendants(adapter, vault, options.userId)
+    const descendants = await findAdminDescendants(store, vault, options.userId)
     if (descendants.length > 0) {
       if (cascadeMode === 'warn') {
         // Diagnostic mode: leave the descendants in place but make
@@ -672,7 +695,7 @@ export async function revoke(
         // revoke set. We collect their affected collections too so
         // the single rotation pass at the end covers everything.
         for (const userId of descendants) {
-          const descEnv = await adapter.get(vault, '_keyring', userId)
+          const descEnv = await store.get(vault, '_keyring', userId)
           if (!descEnv) continue
           const descKf = JSON.parse(descEnv._data) as KeyringFile
           usersToRevoke.push(userId)
@@ -686,17 +709,17 @@ export async function revoke(
   // because each keyring file is independent on disk; we don't have
   // referential integrity to maintain across deletes.
   for (const userId of usersToRevoke) {
-    await adapter.delete(vault, '_keyring', userId)
+    await store.delete(vault, '_keyring', userId)
     // Cascade-delete the principal's user envelope. Idempotent — no
     // error when the envelope was never written (e.g. the user was
     // granted but never authenticated to write their own profile).
-    await deleteUserEnvelope(adapter, vault, userId)
+    await deleteUserEnvelope(store, vault, userId)
     // Also drop the visibility sidecar at `_meta/visibility/<userId>`.
     // If the same `userId` is re-granted later (rare for humans,
     // possible for service accounts and test fixtures), the new
     // principal must start with a fresh visibility state instead of
     // silently inheriting the revoked user's `hidden` flag.
-    await deleteUserVisibility(adapter, vault, userId)
+    await deleteUserVisibility(store, vault, userId)
   }
 
   // Single rotation pass at the end. The cost is O(records in
@@ -705,7 +728,7 @@ export async function revoke(
   // before we got here, so the rotation re-encrypts each affected
   // record exactly once regardless of how deep the cascade went.
   if (options.rotateKeys !== false && affectedCollections.size > 0) {
-    await rotateKeys(adapter, vault, callerKeyring, [...affectedCollections])
+    await rotateKeys(store, vault, callerKeyring, { collections: [...affectedCollections] })
   }
 }
 
@@ -736,7 +759,7 @@ export async function revoke(
  *
  */
 export async function updateKeyringIdentity(
-  adapter: NoydbStore,
+  store: NoydbStore,
   vault: string,
   callerKeyring: UnlockedKeyring,
   options: UpdateUserOptions,
@@ -752,7 +775,7 @@ export async function updateKeyringIdentity(
     )
   }
 
-  const env = await adapter.get(vault, '_keyring', options.userId)
+  const env = await store.get(vault, '_keyring', options.userId)
   if (!env) {
     throw new NoAccessError(
       `updateUser: user "${options.userId}" has no keyring in vault "${vault}".`,
@@ -789,7 +812,7 @@ export async function updateKeyringIdentity(
     ...(options.permissions !== undefined && { permissions: options.permissions }),
   }
 
-  await writeKeyringFile(adapter, vault, options.userId, next)
+  await writeKeyringFile(store, vault, options.userId, next)
 }
 
 // ─── Key Rotation ──────────────────────────────────────────────────────
@@ -817,12 +840,19 @@ export interface RotateResult {
   readonly needsRegrant: ReadonlyArray<{ readonly userId: string; readonly collection: string }>
 }
 
+/** Options for {@link rotateKeys} (#846b — was a bare `string[]`). */
+export interface RotateKeysOptions {
+  /** Collections whose DEKs are re-minted. */
+  readonly collections: readonly string[]
+}
+
 export async function rotateKeys(
-  adapter: NoydbStore,
+  store: NoydbStore,
   vault: string,
   callerKeyring: UnlockedKeyring,
-  collections: string[],
+  opts: RotateKeysOptions,
 ): Promise<RotateResult> {
+  const { collections } = opts
   // FR-6: re-keying is an owner-only meta-capability. A custodian operates the
   // vault fully but must NOT rotate — rotation would let it mint fresh DEKs and
   // strip the sealed owner's access, breaking the inalienability floor.
@@ -863,9 +893,9 @@ export async function rotateKeys(
     const newDek = newDeks.get(collName)!
     if (!oldDek) continue
 
-    const ids = await adapter.list(vault, collName)
+    const ids = await store.list(vault, collName)
     for (const id of ids) {
-      const envelope = await adapter.get(vault, collName, id)
+      const envelope = await store.get(vault, collName, id)
       if (!envelope || !envelope._iv) continue
 
       // Decrypt with old DEK
@@ -880,7 +910,7 @@ export async function rotateKeys(
         _iv: iv,
         _data: data,
       }
-      await adapter.put(vault, collName, id, newEnvelope)
+      await store.put(vault, collName, id, newEnvelope)
     }
   }
 
@@ -888,7 +918,7 @@ export async function rotateKeys(
   for (const [collName, newDek] of newDeks) {
     callerKeyring.deks.set(collName, newDek)
   }
-  await persistKeyring(adapter, vault, callerKeyring)
+  await persistKeyring(store, vault, callerKeyring)
 
   // Drop the rotated collections from every OTHER member's keyring.
   //
@@ -896,11 +926,11 @@ export async function rotateKeys(
   // `Noydb.rotate`'s jsdoc promised too — but re-wrapping is impossible and
   // always was (#854). See the note below.
   const needsRegrant: Array<{ userId: string; collection: string }> = []
-  const userIds = await adapter.list(vault, '_keyring')
+  const userIds = await store.list(vault, '_keyring')
   for (const userId of userIds) {
     if (userId === callerKeyring.userId) continue
 
-    const userEnvelope = await adapter.get(vault, '_keyring', userId)
+    const userEnvelope = await store.get(vault, '_keyring', userId)
     if (!userEnvelope) continue
 
     const userKeyringFile = JSON.parse(userEnvelope._data) as KeyringFile
@@ -929,13 +959,21 @@ export async function rotateKeys(
       permissions: updatedPermissions,
     }
 
-    await writeKeyringFile(adapter, vault, userId, updatedKeyring)
+    await writeKeyringFile(store, vault, userId, updatedKeyring)
   }
 
   return { needsRegrant }
 }
 
 // ─── Change Secret ─────────────────────────────────────────────────────
+
+/** Options for {@link changeSecret} (#846b). */
+export interface ChangeSecretOptions extends SecretPolicy {
+  /** The replacement secret. */
+  readonly newSecret: string
+  /** Escape hatch for fixtures and migrations — skips the strength gate. */
+  readonly allowWeakSecret?: boolean
+}
 
 /**
  * Change the user's secret. Re-wraps every DEK under the new KEK.
@@ -950,14 +988,14 @@ export async function rotateKeys(
  * the OLD secret is not retyped.
  */
 export async function changeSecret(
-  adapter: NoydbStore,
+  store: NoydbStore,
   vault: string,
   keyring: UnlockedKeyring,
-  newSecret: string,
-  secretOpts?: SecretPolicy & { allowWeakSecret?: boolean },
+  opts: ChangeSecretOptions,
 ): Promise<UnlockedKeyring> {
-  if (!secretOpts?.allowWeakSecret) {
-    assertStrongSecret(newSecret, secretOpts)
+  const { newSecret } = opts
+  if (!opts.allowWeakSecret) {
+    assertStrongSecret(newSecret, opts)
   }
   const newSalt = generateSalt()
   const newKek = await deriveKey(newSecret, newSalt)
@@ -982,7 +1020,7 @@ export async function changeSecret(
     canary,
   }
 
-  await writeKeyringFile(adapter, vault, keyring.userId, keyringFile)
+  await writeKeyringFile(store, vault, keyring.userId, keyringFile)
 
   return {
     userId: keyring.userId,
@@ -1007,7 +1045,7 @@ export async function changeSecret(
 /**
  * Recipient slot in a re-keyed `.noydb` bundle. Each slot becomes its
  * own keyring file inside the bundle, sealed with its own secret.
- * Same role/permission semantics as `db.grant()` but no adapter side
+ * Same role/permission semantics as `db.grant()` but no store side
  * effect — the slot only exists inside the bundle bytes.
  *
  * @public
@@ -1050,7 +1088,7 @@ export interface BundleRecipient {
 
 /**
  * Build a `KeyringFile` for one bundle recipient, given the source
- * vault's unwrapped DEKs. Mirrors `grant()` minus the adapter write —
+ * vault's unwrapped DEKs. Mirrors `grant()` minus the store write —
  * the produced file is meant to be embedded in the bundle's
  * `keyrings` map, never persisted to the source vault.
  *
@@ -1142,14 +1180,14 @@ export async function buildRecipientKeyringFile(
 
 /** List all users with access to a vault. */
 export async function listUsers(
-  adapter: NoydbStore,
+  store: NoydbStore,
   vault: string,
 ): Promise<UserInfo[]> {
-  const userIds = await adapter.list(vault, '_keyring')
+  const userIds = await store.list(vault, '_keyring')
   const users: UserInfo[] = []
 
   for (const userId of userIds) {
-    const envelope = await adapter.get(vault, '_keyring', userId)
+    const envelope = await store.get(vault, '_keyring', userId)
     if (!envelope) continue
     const kf = JSON.parse(envelope._data) as KeyringFile
     users.push({
@@ -1216,7 +1254,7 @@ export interface ListUsersOptions {
  * stable display order).
  */
 export async function listUsersWithEnvelopes<T = unknown>(
-  adapter: NoydbStore,
+  store: NoydbStore,
   vault: string,
   userEnvelopeDek: EnclaveKey,
   callerRole: Role,
@@ -1230,7 +1268,7 @@ export async function listUsersWithEnvelopes<T = unknown>(
   const isPrivileged = callerRole === 'owner' || callerRole === 'admin'
 
   // 1. Vault-level directory toggle.
-  const dirConfig = await readDirectoryConfig(adapter, vault)
+  const dirConfig = await readDirectoryConfig(store, vault)
   if (dirConfig?.enabled === false && !isPrivileged) {
     throw new DirectoryDisabledError(vault)
   }
@@ -1242,15 +1280,15 @@ export async function listUsersWithEnvelopes<T = unknown>(
     )
   }
 
-  const users = await listUsers(adapter, vault)
+  const users = await listUsers(store, vault)
   const out: Array<{ user: UserInfo; envelope: UserEnvelope<T> | null }> = []
   for (const user of users) {
     if (!options.includeHidden) {
-      const visibility = await readUserVisibility(adapter, vault, user.userId)
+      const visibility = await readUserVisibility(store, vault, user.userId)
       if (visibility?.hidden) continue
     }
     const envelope = await loadUserEnvelopeFn<T>(
-      adapter,
+      store,
       vault,
       user.userId,
       userEnvelopeDek,
@@ -1265,7 +1303,7 @@ export async function listUsersWithEnvelopes<T = unknown>(
 
 /** Ensure a DEK exists for a collection. Generates one if new. */
 export async function ensureCollectionDEK(
-  adapter: NoydbStore,
+  store: NoydbStore,
   vault: string,
   keyring: UnlockedKeyring,
 ): Promise<(collectionName: string) => Promise<EnclaveKey>> {
@@ -1285,7 +1323,7 @@ export async function ensureCollectionDEK(
     const promise = (async () => {
       const dek = await generateDEK()
       keyring.deks.set(collectionName, dek)
-      await persistKeyring(adapter, vault, keyring)
+      await persistKeyring(store, vault, keyring)
       return dek
     })()
     inFlight.set(collectionName, promise)
@@ -1322,9 +1360,9 @@ export function hasAccess(keyring: UnlockedKeyring, collectionName: string): boo
 
 // ─── Helpers ───────────────────────────────────────────────────────────
 
-/** Persist a keyring file to the adapter. */
+/** Persist a keyring file to the store. */
 export async function persistKeyring(
-  adapter: NoydbStore,
+  store: NoydbStore,
   vault: string,
   keyring: UnlockedKeyring,
 ): Promise<void> {
@@ -1359,7 +1397,7 @@ export async function persistKeyring(
     ...(keyring.policy !== undefined && { policy: keyring.policy }),
   }
 
-  await writeKeyringFile(adapter, vault, keyring.userId, keyringFile)
+  await writeKeyringFile(store, vault, keyring.userId, keyringFile)
 }
 
 // ─── Export capability ──────────────────────────────────────
@@ -1536,7 +1574,7 @@ function resolvePermissions(role: Role, explicit?: Permissions): Permissions {
 }
 
 async function writeKeyringFile(
-  adapter: NoydbStore,
+  store: NoydbStore,
   vault: string,
   userId: string,
   keyringFile: KeyringFile,
@@ -1548,5 +1586,5 @@ async function writeKeyringFile(
     _iv: '',
     _data: JSON.stringify(keyringFile),
   }
-  await adapter.put(vault, '_keyring', userId, envelope)
+  await store.put(vault, '_keyring', userId, envelope)
 }

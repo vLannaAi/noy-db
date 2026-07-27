@@ -1,5 +1,22 @@
 import { ValidationError } from '../../kernel/errors.js'
-import type { DerivationStrategy, DerivationStrategyHandle } from './types.js'
+import type { DerivationSpec, DerivationStrategy } from './types.js'
+
+/** Options for {@link withRollup} (#844b — was an inline literal, so unnameable). */
+export interface WithRollupOptions<
+  TChild extends Record<string, unknown> = Record<string, unknown>,
+  TParent extends Record<string, unknown> = Record<string, unknown>,
+> {
+  /** Child collection — the trigger. */
+  readonly from: string
+  /** FK field on the child pointing at the parent id. */
+  readonly key: keyof TChild & string
+  /** Parent collection carrying the maintained summary. */
+  readonly into: string
+  /** Field on the parent to maintain. */
+  readonly field: keyof TParent & string
+  /** Reduces the matching children to the value written at `field`. */
+  readonly compute: (children: TChild[]) => unknown
+}
 
 /**
  * `withRollup` — aggregate many child records onto a single field of their
@@ -30,14 +47,8 @@ import type { DerivationStrategy, DerivationStrategyHandle } from './types.js'
 export function withRollup<
   TChild extends Record<string, unknown> = Record<string, unknown>,
   TParent extends Record<string, unknown> = Record<string, unknown>,
->(config: {
-  from: string
-  key: keyof TChild & string
-  into: string
-  field: keyof TParent & string
-  compute: (children: TChild[]) => unknown
-}): DerivationStrategyHandle {
-  const { from, key, into, field, compute } = config
+>(opts: WithRollupOptions<TChild, TParent>): DerivationStrategy {
+  const { from, key, into, field, compute } = opts
   if (!from || from.length === 0) {
     throw new ValidationError('withRollup: `from` (child collection) is required')
   }
@@ -58,7 +69,7 @@ export function withRollup<
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const spec: DerivationStrategy<any, any> = {
+  const spec: DerivationSpec<any, any> = {
     source: into, // the parent record is what carries the rolled-up field
     deterministic: true,
     rollup: { from, key, field, compute: compute as (children: unknown[]) => unknown },

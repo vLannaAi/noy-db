@@ -46,7 +46,7 @@ function memory(): NoydbStore {
 interface InvoiceScan { id: string; status: string }
 
 async function setup(): Promise<{ db: Noydb; vault: Vault }> {
-  const db = await createNoydb({ store: memory(), user: 'owner', secret: 'pw' , blobStrategy: withBlobs() })
+  const db = await createNoydb({ store: memory(), user: 'owner', secret: 'pw' , blobsStrategy: withBlobs() })
   const vault = await db.openVault('acme')
   return { db, vault }
 }

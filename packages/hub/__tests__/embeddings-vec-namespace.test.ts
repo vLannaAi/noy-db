@@ -18,7 +18,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withSearch, ConflictError } from '../src/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
-import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withForget } from '../src/with-audit/forget/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
 
 interface Doc {
@@ -133,7 +133,7 @@ describe('#726 isolation: same record id in two collections keeps separate _vec 
       store, user: 'owner', secret: SECRET,
       searchStrategy: withSearch(),
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { a: 'ownerId', b: 'ownerId' } }),
+      forgetStrategy: withForget({ subjects: { a: 'ownerId', b: 'ownerId' } }),
     })
     const vault = await db.openVault('v3')
     const a = vault.collection<Doc>('a', { embeddings: ENCODER })

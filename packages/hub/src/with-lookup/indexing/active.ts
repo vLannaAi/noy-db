@@ -1,6 +1,6 @@
 /**
  * Active indexing strategy factory. Calling `withIndexing()` returns
- * an `IndexStrategy` whose `createState` constructs a real
+ * an `IndexingStrategy` whose `createState` constructs a real
  * `CollectionIndexes` (eager) or `PersistedCollectionIndex` (lazy)
  * per Collection, depending on the collection's `prefetch` mode and
  * its declared `IndexDef[]`.
@@ -13,11 +13,11 @@
 import { CollectionIndexes } from './eager-indexes.js'
 import type { IndexDef } from './eager-indexes.js'
 import { PersistedCollectionIndex } from './persisted-indexes.js'
-import type { IndexStrategy, IndexState } from './strategy.js'
+import type { IndexingStrategy, IndexState } from './strategy.js'
 
 /**
  * Build the default indexing strategy. Pass into
- * `createNoydb({ indexStrategy: withIndexing() })` to light up the
+ * `createNoydb({ indexingStrategy: withIndexing() })` to light up the
  * eager-mode `==/in` fast-path on `.query()` and the full lazy-mode
  * `.lazyQuery()` + rebuild / reconcile / auto-reconcile surface.
  *
@@ -28,11 +28,11 @@ import type { IndexStrategy, IndexState } from './strategy.js'
  *
  * const db = await createNoydb({
  *   store, user, secret,
- *   indexStrategy: withIndexing(),
+ *   indexingStrategy: withIndexing(),
  * })
  * ```
  */
-export function withIndexing(): IndexStrategy {
+export function withIndexing(): IndexingStrategy {
   return {
     createState({ defs, lazy }) {
       if (lazy) {

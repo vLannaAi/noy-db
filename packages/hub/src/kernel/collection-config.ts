@@ -250,7 +250,7 @@ export interface CollectionOpts<T> {
   classifiedFields?: Record<string, ClassifiedEntry> | undefined
   /**
    * The forget-cascade subject key for this collection (from
-   * `withForgetCascade({ subjects })`), plumbed by the Vault. Consumed by the
+   * `withForget({ subjects })`), plumbed by the Vault. Consumed by the
    * classified refusal matrix (R4: a digest-only field cannot be the subject key).
    */
   subjectKeyField?: string | undefined

@@ -59,7 +59,7 @@ const NEW_PHRASE = 'glasses cabinet bicycle umbrella thunder velvet'
  */
 async function setupVaultWithSlots(slots: KeyringAuthenticator[]): Promise<NoydbStore> {
   const store = inlineMemory()
-  const keyring = await createOwnerKeyring(store, 'acme', 'alice', OLD_PHRASE)
+  const keyring = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: OLD_PHRASE })
   keyring.deks.set('invoices', await generateDEK())
   keyring.deks.set('clients', await generateDEK())
   await persistKeyring(store, 'acme', keyring)
@@ -95,7 +95,7 @@ describe('rotateSecret slot preservation (#29)', () => {
       newSecret: NEW_PHRASE,
     })
 
-    const reloaded = await loadKeyring(store, 'acme', 'alice', NEW_PHRASE)
+    const reloaded = await loadKeyring(store, 'acme', { userId: 'alice', secret: NEW_PHRASE })
     expect(reloaded.authenticators).toHaveLength(0)
   }, 60_000)
 
@@ -137,7 +137,7 @@ describe('rotateSecret slot preservation (#29)', () => {
     expect(ceremonyCallCount).toBe(1)
     expect(receivedNewDeks?.size).toBeGreaterThan(0)
 
-    const reloaded = await loadKeyring(store, 'acme', 'alice', NEW_PHRASE)
+    const reloaded = await loadKeyring(store, 'acme', { userId: 'alice', secret: NEW_PHRASE })
     expect(reloaded.authenticators).toHaveLength(1)
     const slot = reloaded.authenticators[0]!
     expect(slot.id).toBe('password')
@@ -182,7 +182,7 @@ describe('rotateSecret slot preservation (#29)', () => {
 
     expect(receivedNewKek).toBeInstanceOf(CryptoKey)
 
-    const reloaded = await loadKeyring(store, 'acme', 'alice', NEW_PHRASE)
+    const reloaded = await loadKeyring(store, 'acme', { userId: 'alice', secret: NEW_PHRASE })
     expect(reloaded.authenticators).toHaveLength(1)
     const slot = reloaded.authenticators[0]!
     expect(slot.id).toBe('webauthn-touchid')
@@ -239,7 +239,7 @@ describe('rotateSecret slot preservation (#29)', () => {
       slotCeremonies: { 'webauthn-yubikey': webauthnCeremony },
     })
 
-    const reloaded = await loadKeyring(store, 'acme', 'alice', NEW_PHRASE)
+    const reloaded = await loadKeyring(store, 'acme', { userId: 'alice', secret: NEW_PHRASE })
     expect(reloaded.authenticators).toHaveLength(1)
     expect(reloaded.authenticators[0]!.id).toBe('webauthn-yubikey')
   }, 60_000)
@@ -397,7 +397,7 @@ describe('rotateSecret slot preservation (#29)', () => {
       slotCeremonies: { 'webauthn-touchid': ceremony },
     })
 
-    const reloaded = await loadKeyring(store, 'acme', 'alice', NEW_PHRASE)
+    const reloaded = await loadKeyring(store, 'acme', { userId: 'alice', secret: NEW_PHRASE })
     expect(reloaded.authenticators[0]!.enrolled_at).toBe(originalEnrolledAt)
   }, 60_000)
 
@@ -426,7 +426,7 @@ describe('rotateSecret slot preservation (#29)', () => {
     ).rejects.toThrow(/user cancelled/)
 
     // Original keyring intact — old phrase still works.
-    const reloaded = await loadKeyring(store, 'acme', 'alice', OLD_PHRASE)
+    const reloaded = await loadKeyring(store, 'acme', { userId: 'alice', secret: OLD_PHRASE })
     expect(reloaded.authenticators).toHaveLength(1)
     expect(reloaded.authenticators[0]!.id).toBe('webauthn-touchid')
   }, 60_000)

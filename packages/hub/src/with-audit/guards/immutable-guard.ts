@@ -27,7 +27,7 @@
  */
 
 import { withGuard } from './with-guard.js'
-import type { GuardStrategy, GuardStrategyHandle, GuardContext, GuardChange } from './types.js'
+import type { GuardSpec, GuardStrategy, GuardContext, GuardChange } from './types.js'
 import { RecordLockedError, ValidationError } from '../../kernel/errors.js'
 
 export interface ImmutableGuardConfig<T extends Record<string, unknown>> {
@@ -46,7 +46,7 @@ export interface ImmutableGuardConfig<T extends Record<string, unknown>> {
   amendmentRoles?: ReadonlyArray<'admin' | 'owner'>
   /**
    * Optional set-level invariant run over the amendment change-set after
-   * the writes execute. Signature matches `GuardStrategy.amendment.invariant`
+   * the writes execute. Signature matches `GuardSpec.amendment.invariant`
    * exactly: it receives every {before, after} pair touching this
    * collection in the amendment plus the guard context; throwing reverts
    * the whole amendment and surfaces as `InvariantError`.
@@ -75,7 +75,7 @@ function recordId(record: Record<string, unknown> | null): string {
  */
 export function immutableGuard<T extends Record<string, unknown>>(
   config: ImmutableGuardConfig<T>,
-): GuardStrategyHandle<T> {
+): GuardStrategy<T> {
   const { collection, after, appendOnly, amendmentRoles, amendmentInvariant } = config
   if (appendOnly && after !== undefined) {
     throw new ValidationError('immutableGuard: `after` and `appendOnly` are mutually exclusive')
@@ -87,7 +87,7 @@ export function immutableGuard<T extends Record<string, unknown>>(
   const isImmutable: (record: T) => boolean = appendOnly ? () => true : after!
   const reason = appendOnly ? 'append-only collection' : 'record is immutable after issue'
 
-  const spec: GuardStrategy<T> = {
+  const spec: GuardSpec<T> = {
     collection,
     // Block updates to an already-immutable record. Inserts (existing
     // null) and the transition write that first makes the record

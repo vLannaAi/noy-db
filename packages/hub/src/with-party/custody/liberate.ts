@@ -105,7 +105,7 @@ export async function liberateVault(
   //    owner's fresh KEK. The old sealed owner is NOT unsealed — a DISTINCT
   //    principal is minted and the original owner credential is left orphaned
   //    (inalienability floor). Mirrors adopt-partition.ts's DEK re-wrap.
-  const newOwner = await createOwnerKeyring(adapter, vaultName, opts.newOwnerId, opts.newOwnerSecret)
+  const newOwner = await createOwnerKeyring(adapter, vaultName, { userId: opts.newOwnerId, secret: opts.newOwnerSecret })
   if (!newOwner.kek) {
     throw new PermissionDeniedError(
       `new owner keyring for "${opts.newOwnerId}" has no KEK to re-wrap the incumbent DEKs under`,

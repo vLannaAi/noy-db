@@ -62,7 +62,7 @@
  *       └─ Computed field errors
  *            └─ ComputedFieldError     — computed function threw during a write
  *       └─ Erasure errors
- *            └─ ForgetStrategyNotConfiguredError — vault.forget() with no withForgetCascade
+ *            └─ ForgetStrategyNotConfiguredError — vault.forget() with no withForget
  *       ├─ Sealed-record errors (record-scoped CEK sealing)
  *       │    ├─ SealedRecordExpiredError  — sealed CEK binding past expiresAt
  *       │    ├─ SealedRecordMismatchError — CEK sealed for record A used on record B
@@ -2759,12 +2759,12 @@ export class VaultTemplateNotFoundError extends NoydbError {
  * record index to know which records belong to a data subject; without
  * one there is nothing to erase and a silent no-op would be a dangerous
  * false "erased" signal. Configure with
- * `forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } })`.
+ * `forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } })`.
  */
 export class ForgetStrategyNotConfiguredError extends NoydbError {
   constructor(
     message = 'vault.forget() requires a forget strategy. Pass ' +
-      '`forgetStrategy: withForgetCascade({ subjects: { <collection>: <subjectField> } })` ' +
+      '`forgetStrategy: withForget({ subjects: { <collection>: <subjectField> } })` ' +
       'from "@noy-db/hub/forget" to createNoydb().',
   ) {
     super('FORGET_NOT_CONFIGURED', message)

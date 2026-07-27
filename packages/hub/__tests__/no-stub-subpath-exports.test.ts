@@ -4,7 +4,7 @@
  *
  * The stubs are how a caller asks "is this service actually enabled?" — the
  * check is an identity comparison against the stub (see `vault.forget()`'s
- * `strategies.blob !== NO_BLOBS`, #838). Several subpath docblocks tell users
+ * `strategies.blobs !== NO_BLOBS`, #838). Several subpath docblocks tell users
  * to do exactly that, while the stub was exported from no entry they could
  * import, so the advice was unfollowable.
  *

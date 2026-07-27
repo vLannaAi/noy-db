@@ -6,7 +6,7 @@
  * v2 ships the read-shadow variant only — arbitrary `mergePolicy`
  * callbacks are deferred to v3.
  */
-export interface OverlayedViewStrategy {
+export interface OverlayedViewSpec {
   /**
    * Virtual collection name. `vault.collection(name)` returns a
    * proxy that merges `base` and `overlay` per the shadow rule.
@@ -94,7 +94,7 @@ export interface OverlayFieldMergeMode {
 }
 
 /** Returned by `withOverlayedView()` and consumed by `createNoydb`. */
-export interface OverlayedViewStrategyHandle {
+export interface OverlayedViewStrategy {
   readonly __noydb_strategy: 'overlayed-view'
-  readonly spec: OverlayedViewStrategy
+  readonly spec: OverlayedViewSpec
 }

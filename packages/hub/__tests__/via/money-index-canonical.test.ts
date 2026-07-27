@@ -61,7 +61,7 @@ async function seedLegacyRecord(adapter: NoydbStore): Promise<void> {
 
 /** A fresh session declaring money(fixed) + an eager index on 'amount'. */
 async function openMoneyIndexedSession(adapter: NoydbStore) {
-  const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+  const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexingStrategy: withIndexing() })
   const vault = await db.openVault(VAULT)
   const col = vault.collection<Item>(COLL, {
     schema: itemSchema,
@@ -71,7 +71,7 @@ async function openMoneyIndexedSession(adapter: NoydbStore) {
   return { db, col }
 }
 
-/** Same money declaration as `openMoneyIndexedSession`, but no `indexStrategy` — `getIndexes()` returns null, forcing the scan. */
+/** Same money declaration as `openMoneyIndexedSession`, but no `indexingStrategy` — `getIndexes()` returns null, forcing the scan. */
 async function openMoneyForcedScanSession(adapter: NoydbStore) {
   const db = await createNoydb({ store: adapter, user: USER, secret: PASS })
   const vault = await db.openVault(VAULT)
@@ -264,7 +264,7 @@ describe('money index-key canonicalization (#672)', () => {
     }
 
     async function openFastPath(adapter: NoydbStore) {
-      const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+      const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexingStrategy: withIndexing() })
       const vault = await db.openVault(VAULT)
       const col = vault.collection<ShapeRecord>(SHAPES_COLL, {
         schema: shapeSchema,
@@ -274,7 +274,7 @@ describe('money index-key canonicalization (#672)', () => {
       return { db, col }
     }
 
-    /** Same money declaration, but no `indexStrategy` — `getIndexes()` returns null, forcing the scan. */
+    /** Same money declaration, but no `indexingStrategy` — `getIndexes()` returns null, forcing the scan. */
     async function openForcedScan(adapter: NoydbStore) {
       const db = await createNoydb({ store: adapter, user: USER, secret: PASS })
       const vault = await db.openVault(VAULT)
@@ -334,7 +334,7 @@ describe('money index-key canonicalization (#672)', () => {
   describe('money() late-attach onto an already-hydrated eager index (#686)', () => {
     it('a row indexed before the late-attached money() declaration is found by a canonical == probe without an explicit rebuildIndexes()', async () => {
       const adapter = persistentMemory()
-      const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+      const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexingStrategy: withIndexing() })
       const vault = await db.openVault(VAULT)
 
       // First call: indexes only, no moneyFields — triggers eager hydration
@@ -363,7 +363,7 @@ describe('money index-key canonicalization (#672)', () => {
 
     it('rebuildIndexes() also fixes the same strand (the pre-existing manual escape hatch keeps working)', async () => {
       const adapter = persistentMemory()
-      const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexStrategy: withIndexing() })
+      const db = await createNoydb({ store: adapter, user: USER, secret: PASS, indexingStrategy: withIndexing() })
       const vault = await db.openVault(VAULT)
 
       const colIndexedOnly = vault.collection<Item>(COLL, { schema: itemSchema, indexes: ['amount'] })

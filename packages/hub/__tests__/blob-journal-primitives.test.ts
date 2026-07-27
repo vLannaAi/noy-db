@@ -124,7 +124,7 @@ describe('loadBlobObject — two-tier mode (#753 spec §7 C7/§2d)', () => {
   it('opens-at-tier / opens-at-alsoTry / opens-at-neither / flat (today\'s default preserved)', async () => {
     const db = await createNoydb({
       store, secret: SECRET, user: 'owner',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const vault = await db.openVault(VAULT)
     const docs = vault.collection<Doc>('docs', {
@@ -188,7 +188,7 @@ describe('casUpdateRefCountStamped (#753 spec §7 C2/C4)', () => {
     // Seed the blob via a plain (ungated) db/store pair — the eTag is
     // content-derived and only known after this write, so it can't be
     // named by the gate up front.
-    const db0 = await createNoydb({ store, secret: SECRET, user: 'a', blobStrategy: withBlobs() })
+    const db0 = await createNoydb({ store, secret: SECRET, user: 'a', blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const invoices0 = vault0.collection<Doc>('invoices', { perRecordKeys: true })
     await invoices0.put('inv-1', { ref: 'A' })
@@ -210,7 +210,7 @@ describe('casUpdateRefCountStamped (#753 spec §7 C2/C4)', () => {
       onReached: () => reached(),
     })
 
-    const db = await createNoydb({ store: gated, secret: SECRET, user: 'a', blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: gated, secret: SECRET, user: 'a', blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<Doc>('invoices', { perRecordKeys: true })
     const blobSet = invoices.blob('inv-1') as unknown as BlobSetInternals
@@ -238,7 +238,7 @@ describe('casUpdateRefCountStamped (#753 spec §7 C2/C4)', () => {
   })
 
   it('ring eviction at K=8: only the 8 most recent stamps survive, oldest evicted first', async () => {
-    const db = await createNoydb({ store, secret: SECRET, user: 'a', blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, secret: SECRET, user: 'a', blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<Doc>('invoices', { perRecordKeys: true })
     await invoices.put('inv-1', { ref: 'A' })
@@ -271,7 +271,7 @@ describe('releaseRef — stamped two-armed resume rule (#753 spec §7 C1)', () =
   beforeEach(() => { store = memoryStore() })
 
   it('arm 1 (stamped && refCount > 0): skips re-decrementing on resume', async () => {
-    const db = await createNoydb({ store, secret: SECRET, user: 'a', blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, secret: SECRET, user: 'a', blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<Doc>('invoices', { perRecordKeys: true })
 
@@ -300,7 +300,7 @@ describe('releaseRef — stamped two-armed resume rule (#753 spec §7 C1)', () =
   })
 
   it('arm 2 (stamped && refCount <= 0, index row still present): completes the deletion idempotently', async () => {
-    const db = await createNoydb({ store, secret: SECRET, user: 'a', blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, secret: SECRET, user: 'a', blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<Doc>('invoices', { perRecordKeys: true })
     await invoices.put('inv-1', { ref: 'A' })
@@ -326,7 +326,7 @@ describe('releaseRef — stamped two-armed resume rule (#753 spec §7 C1)', () =
   })
 
   it('arm 2 (index row already gone): chunkCountHint completes chunk cleanup idempotently', async () => {
-    const db = await createNoydb({ store, secret: SECRET, user: 'a', blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, secret: SECRET, user: 'a', blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<Doc>('invoices', { perRecordKeys: true })
     await invoices.put('inv-1', { ref: 'A' })
@@ -355,7 +355,7 @@ describe('releaseRef — stamped two-armed resume rule (#753 spec §7 C1)', () =
   })
 
   it('unstamped releaseRef calls remain byte-identical (no lastOps written)', async () => {
-    const db = await createNoydb({ store, secret: SECRET, user: 'a', blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, secret: SECRET, user: 'a', blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<Doc>('invoices', { perRecordKeys: true })
     await invoices.put('inv-1', { ref: 'A' })

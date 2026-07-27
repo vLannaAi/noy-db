@@ -1,6 +1,6 @@
 export { withSnapshots } from './active.js'
 export type { WithSnapshotsOptions } from './active.js'
-export type { SnapshotStrategy, SnapshotMeta, RetentionPolicy } from './strategy.js'
+export type { SnapshotsStrategy, SnapshotMeta, RetentionPolicy } from './strategy.js'
 export type { SnapshotPolicy, SnapshotMode } from './policy.js'
 export { SnapshotNotFoundError } from '../../kernel/errors.js'
 

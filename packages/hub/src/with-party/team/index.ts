@@ -37,6 +37,13 @@ export {
   buildRecipientKeyringFile,
 } from './keyring.js'
 export type { BundleRecipient, ListUsersOptions } from './keyring.js'
+// #846b — the credential functions' trailing options objects, nameable.
+export type {
+  LoadKeyringOptions,
+  CreateOwnerKeyringOptions,
+  RotateKeysOptions,
+  ChangeSecretOptions,
+} from './keyring.js'
 
 // ─── Tier-2 authenticator slots ─────────────────────────
 export {

@@ -95,7 +95,7 @@ describe('#307 record cold-storage archival', () => {
         collection: 'invoices',
         onDelete: (existing) => { if (existing.status === 'issued') throw new RecordLockedError('invoices', existing.id, 'issued') },
       })],
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     const vault = await db.openVault('books')
     const inv = vault.collection<Invoice>('invoices', { archive: { archiveWhen: (r) => r.year <= 2022 } })

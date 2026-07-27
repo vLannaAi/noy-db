@@ -260,7 +260,7 @@ export class Noydb {
     // block, and collection-config now lives in STRATEGY_DEFAULTS.
     this.strategies = resolveStrategies(options)
     this.snapshots = new NoydbSnapshots({
-      strategy: this.strategies.snapshot,
+      strategy: this.strategies.snapshots,
       user: options.user,
       isClosed: () => this.closed,
       getVault: (name) => this.vaultCache.get(name),
@@ -315,7 +315,7 @@ export class Noydb {
     return this.strategies.forget
   }
 
-  // GDPR subject-index maintenance. When `withForgetCascade` declares
+  // GDPR subject-index maintenance. When `withForget` declares
   // any subject fields, keep the encrypted `_subject_index` in lock-step with
   // writes so `vault.forget(subjectId)` can find every record for a subject.
   //
@@ -643,12 +643,10 @@ export class Noydb {
               // cache so subsequent openVault calls see the
               // refreshed keyring too.
               this.keyringCache.delete(name)
-              const refreshed = await loadKeyring(
-                this.options.store,
-                name,
-                this.options.user,
-                this.options.secret as string,
-              )
+              const refreshed = await loadKeyring(this.options.store, name, {
+                userId: this.options.user,
+                secret: this.options.secret as string,
+              })
               this.keyringCache.set(name, refreshed)
               return refreshed
             }
@@ -1001,12 +999,10 @@ export class Noydb {
       // return value never leaks existence.
       let keyring: UnlockedKeyring
       try {
-        keyring = await loadKeyring(
-          adapter,
-          vault,
-          this.options.user,
-          this.options.secret,
-        )
+        keyring = await loadKeyring(adapter, vault, {
+          userId: this.options.user,
+          secret: this.options.secret,
+        })
       } catch (err) {
         if (
           err instanceof NoAccessError ||
@@ -1191,13 +1187,10 @@ export class Noydb {
   ): Promise<void> {
     this.checkPolicyOperation(vault, 'changeSecret')
     const keyring = await this._getKeyringInternal(vault)
-    const updated = await keyringChangeSecret(
-      this.options.store,
-      vault,
-      keyring,
+    const updated = await keyringChangeSecret(this.options.store, vault, keyring, {
+      ...options,
       newSecret,
-      options,
-    )
+    })
     this.keyringCache.set(vault, updated)
   }
 
@@ -1308,7 +1301,7 @@ export class Noydb {
     maybeFn?: (tx: TxContext) => Promise<T> | T,
   ): SyncTransaction | Promise<T> | Promise<DryRunResult> {
     if (typeof arg === 'function') {
-      return this.strategies.tx.runTransaction(this, arg)
+      return this.strategies.transactions.runTransaction(this, arg)
     }
     if (typeof arg === 'object' && arg !== null && (arg as { dryRun?: boolean }).dryRun === true) {
       // Dry-run form: stage + diff, no commit.
@@ -1317,7 +1310,7 @@ export class Noydb {
           'db.transaction({ dryRun: true }, fn) requires the callback as the second argument.',
         )
       }
-      return this.strategies.tx.runDryRun(this, maybeFn)
+      return this.strategies.transactions.runDryRun(this, maybeFn)
     }
     if (typeof arg === 'object' && arg !== null && (arg as { amendment?: boolean }).amendment === true) {
       // Two-arg amendment form. We forward `arg` as the options bag —
@@ -1327,7 +1320,7 @@ export class Noydb {
           'db.transaction({ amendment: true }, fn) requires the callback as the second argument.',
         )
       }
-      return this.strategies.tx.runTransaction(this, maybeFn, arg as AmendmentTxOptions)
+      return this.strategies.transactions.runTransaction(this, maybeFn, arg as AmendmentTxOptions)
     }
     const vault = arg as string
     const comp = this.vaultCache.get(vault)
@@ -2018,42 +2011,34 @@ export class Noydb {
 
     let keyring: UnlockedKeyring
     try {
-      keyring = await loadKeyring(this.options.store, vault, this.options.user, effectiveSecret)
+      keyring = await loadKeyring(this.options.store, vault, { userId: this.options.user, secret: effectiveSecret })
     } catch (err) {
       if (err instanceof NoAccessError) {
         // No keyring on disk — first boot or cleared store.
-        keyring = await createOwnerKeyring(
-          this.options.store,
-          vault,
-          this.options.user,
-          effectiveSecret,
-          {
-            // Managed mode generates 256-bit base64 strings that don't satisfy
-            // the human-secret strength rules (no spaces, no "words").
-            // Skip validation in managed mode — the entropy floor is already
-            // 256 bits by construction.
-            validate: this.options.secretMode === 'managed'
-              ? false
-              : this.options.validateSecret === true,
-          },
-        )
+        keyring = await createOwnerKeyring(this.options.store, vault, {
+          userId: this.options.user,
+          secret: effectiveSecret,
+          // Managed mode generates 256-bit base64 strings that don't satisfy
+          // the human-secret strength rules (no spaces, no "words").
+          // Skip validation in managed mode — the entropy floor is already
+          // 256 bits by construction.
+          validate: this.options.secretMode === 'managed'
+            ? false
+            : this.options.validateSecret === true,
+        })
       } else if (err instanceof InvalidKeyError && this.options.onInvalidKey === 'reset') {
         // Stale keyring: exists in the store but the current credentials can't
         // decrypt it (e.g. the data records were cleared while the _keyring row
         // survived, or a WebAuthn credential was rotated between sessions).
         // The caller opted into reset — delete the stale row and start fresh.
         await this.options.store.delete(vault, '_keyring', this.options.user)
-        keyring = await createOwnerKeyring(
-          this.options.store,
-          vault,
-          this.options.user,
-          effectiveSecret,
-          {
-            validate: this.options.secretMode === 'managed'
-              ? false
-              : this.options.validateSecret === true,
-          },
-        )
+        keyring = await createOwnerKeyring(this.options.store, vault, {
+          userId: this.options.user,
+          secret: effectiveSecret,
+          validate: this.options.secretMode === 'managed'
+            ? false
+            : this.options.validateSecret === true,
+        })
       } else {
         throw err
       }
@@ -2065,7 +2050,7 @@ export class Noydb {
 
   /**
    * Take an on-demand checkpoint of the given vault.
-   * Requires `snapshotStrategy: withSnapshots({ store })` in `createNoydb`.
+   * Requires `snapshotsStrategy: withSnapshots({ store })` in `createNoydb`.
    * @throws ValidationError when the vault is not open
    */
   async snapshot(vault: string, opts?: { label?: string; note?: string }): Promise<SnapshotMeta> {

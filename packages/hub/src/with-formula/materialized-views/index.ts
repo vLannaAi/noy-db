@@ -6,8 +6,8 @@ export { computeQueryHash, canonicalizeQueryPlan } from './query-hash.js'
 export { markMVStale, resolveStaleMVOnRead, isMVStale, clearMVStale } from './stale.js'
 export type { MVStaleAccessor } from './stale.js'
 export type {
+  MaterializedViewSpec,
   MaterializedViewStrategy,
-  MaterializedViewStrategyHandle,
   MaterializedViewOutput,
   MaterializedFromMeta,
   UnionSource,

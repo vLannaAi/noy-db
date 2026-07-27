@@ -65,7 +65,7 @@ function memory(): NoydbStore {
 let db: Noydb
 
 beforeEach(async () => {
-  db = await createNoydb({ store: memory(), indexStrategy: withIndexing(), secret: 'unique-index-test-pass', user: 'owner' })
+  db = await createNoydb({ store: memory(), indexingStrategy: withIndexing(), secret: 'unique-index-test-pass', user: 'owner' })
 })
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -299,7 +299,7 @@ describe('hydration rebuild (two-session path)', () => {
     // Session 1: write a record.
     const db1 = await createNoydb({
       store: sharedStore,
-      indexStrategy: withIndexing(),
+      indexingStrategy: withIndexing(),
       secret: 'unique-index-test-pass',
       user: 'owner',
     })
@@ -314,7 +314,7 @@ describe('hydration rebuild (two-session path)', () => {
     // that 'b' with the same taxId is rejected.
     const db2 = await createNoydb({
       store: sharedStore,
-      indexStrategy: withIndexing(),
+      indexingStrategy: withIndexing(),
       secret: 'unique-index-test-pass',
       user: 'owner',
     })

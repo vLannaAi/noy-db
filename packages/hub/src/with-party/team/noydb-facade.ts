@@ -19,7 +19,7 @@
  * Internal service — reached through `noydb.team.rotateSecret(...)` etc.
  */
 import type { NoydbOptions, NoydbStore, KeyringAuthenticator } from '../../kernel/types.js'
-import type { RotateResult } from './keyring.js'
+import type { RotateResult, RotateKeysOptions } from './keyring.js'
 import { ValidationError } from '../../kernel/errors.js'
 import {
   rotateSecret as keyringRotateSecret,
@@ -166,13 +166,13 @@ export class TeamFacade {
 
   /** Gate + run a `rotateKeys` engine. See `Noydb.rotate` for the public contract. */
   async runRotate(
-    engine: (adapter: NoydbStore, vault: string, callerKeyring: UnlockedKeyring, collections: string[]) => Promise<RotateResult>,
+    engine: (store: NoydbStore, vault: string, callerKeyring: UnlockedKeyring, opts: RotateKeysOptions) => Promise<RotateResult>,
     vault: string,
     collections: string[],
   ): Promise<RotateResult> {
     this.deps.checkPolicyOperation(vault, 'rotate')
     const keyring = await this.deps.getKeyringInternal(vault)
-    const result = await engine(this.deps.options.store, vault, keyring, collections)
+    const result = await engine(this.deps.options.store, vault, keyring, { collections })
     // Refresh the cached keyring so subsequent operations see the
     // freshly-rotated DEKs. Without this, `ensureCollectionDEK` on
     // the next Collection access would still hold the old ones.

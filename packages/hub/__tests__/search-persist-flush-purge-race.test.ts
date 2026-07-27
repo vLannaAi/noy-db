@@ -17,7 +17,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withSearch, ConflictError } from '../src/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
-import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withForget } from '../src/with-audit/forget/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { withI18n } from '../src/via/i18n/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
@@ -134,7 +134,7 @@ describe('#725 forget() erasure cannot be overtaken by an in-flight debounced fl
       secret: SECRET,
       searchStrategy: withSearch(),
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+      forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } }),
       i18nStrategy: withI18n(),
     })
     const vault = await db.openVault('v1')

@@ -1,6 +1,6 @@
 import type { Query, QueryPlan } from '../../kernel/query/builder.js'
 import type { JoinContext } from '../../kernel/query/join.js'
-import type { MaterializedViewStrategy } from './types.js'
+import type { MaterializedViewSpec } from './types.js'
 
 /**
  * Walks a `Query<T>` plan and returns the set of source collection
@@ -132,7 +132,7 @@ export function summarizeQueryPlan(query: Query<any>): string {
  * `map` semantics change non-equivalently.
  */
 export function summarizeUnionPlan<T extends Record<string, unknown>>(
-  spec: MaterializedViewStrategy<T>,
+  spec: MaterializedViewSpec<T>,
 ): string {
   return `union(${summarizeUnionArms(spec)})${summarizeGroupingTail(spec)}`
 }
@@ -152,7 +152,7 @@ export function summarizeUnionPlan<T extends Record<string, unknown>>(
  * `map` semantics change non-equivalently.
  */
 export function summarizeProjectionPlan<T extends Record<string, unknown>>(
-  spec: MaterializedViewStrategy<T>,
+  spec: MaterializedViewSpec<T>,
 ): string {
   const projection = spec.projection!
   const legs = projection.joins
@@ -168,7 +168,7 @@ export function summarizeProjectionPlan<T extends Record<string, unknown>>(
 
 /** Arm descriptors for `summarizeUnionPlan` — declaration order preserved (see its doc). */
 function summarizeUnionArms<T extends Record<string, unknown>>(
-  spec: MaterializedViewStrategy<T>,
+  spec: MaterializedViewSpec<T>,
 ): string {
   return (spec.unionSources ?? [])
     .map(s => {
@@ -190,7 +190,7 @@ function summarizeUnionArms<T extends Record<string, unknown>>(
  * so the same spec fields fold into both hashes with the same rules.
  */
 function summarizeGroupingTail<T extends Record<string, unknown>>(
-  spec: MaterializedViewStrategy<T>,
+  spec: MaterializedViewSpec<T>,
 ): string {
   const groupBy: string = Array.isArray(spec.groupBy)
     ? [...spec.groupBy].sort().join(',')

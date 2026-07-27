@@ -101,7 +101,7 @@ describe('bundle includes blobs (dump → load round-trip).', () => {
       store: sourceStore,
       user: 'alice',
       secret: SECRET,
-      blobStrategy: withBlobs(),
+      blobsStrategy: withBlobs(),
       historyStrategy: withHistory(),
     })
     const sourceVault = await sourceDb.openVault('demo-co')
@@ -135,7 +135,7 @@ describe('bundle includes blobs (dump → load round-trip).', () => {
       store: targetStore,
       user: 'alice',
       secret: SECRET,
-      blobStrategy: withBlobs(),
+      blobsStrategy: withBlobs(),
       historyStrategy: withHistory(),
     })
     const targetVault = await targetDb.openVault('demo-co')
@@ -167,7 +167,7 @@ describe('bundle includes blobs (dump → load round-trip).', () => {
       store: sourceStore,
       user: 'alice',
       secret: SECRET,
-      blobStrategy: withBlobs(),
+      blobsStrategy: withBlobs(),
       historyStrategy: withHistory(),
     })
     const sourceVault = await sourceDb.openVault('demo-co')
@@ -188,7 +188,7 @@ describe('bundle includes blobs (dump → load round-trip).', () => {
       store: targetStore,
       user: 'alice',
       secret: SECRET,
-      blobStrategy: withBlobs(),
+      blobsStrategy: withBlobs(),
       historyStrategy: withHistory(),
     })
     const targetVault = await targetDb.openVault('demo-co')

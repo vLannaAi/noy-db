@@ -213,7 +213,7 @@ describe('extractPartition — #748: elevated records are structurally excluded'
       user: 'alice',
       secret: 'test-secret-1234',
       tiersStrategy: withTiers(),
-      blobStrategy: withBlobs(),
+      blobsStrategy: withBlobs(),
     })
     const company = await db.openVault('demo-co')
     const clients = company.collection<Client>('clients', {
@@ -267,7 +267,7 @@ describe('extractPartition — #748: elevated records are structurally excluded'
     })
     const recipientDb = await createNoydb({
       cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-pass-phrase-2026',
-      tiersStrategy: withTiers(), blobStrategy: withBlobs(),
+      tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
     })
     const recipientVault = await recipientDb.openVault('fresh')
     const recipientClients = recipientVault.collection<Client>('clients', {

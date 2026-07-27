@@ -195,7 +195,7 @@ describe('computed × immutableGuard — WORM semantics preserved', () => {
           after: (r) => r.status === 'confirmed',
         }),
       ],
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     const vault = await db.openVault('shop')
     vault.collection<Order>('orders', {

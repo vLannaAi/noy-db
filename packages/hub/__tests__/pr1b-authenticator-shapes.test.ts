@@ -46,7 +46,7 @@ const PHRASE = 'correct horse battery staple printer toaster'
 describe('KeyringAuthenticator wrap-KEK / wrap-DEKs (#26 Path C)', () => {
   it('round-trips a wrap-KEK slot through _keyring (legacy WebAuthn shape)', async () => {
     const store = inlineMemory()
-    const keyring = await createOwnerKeyring(store, 'acme', 'alice', PHRASE)
+    const keyring = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: PHRASE })
     keyring.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', keyring)
 
@@ -58,7 +58,7 @@ describe('KeyringAuthenticator wrap-KEK / wrap-DEKs (#26 Path C)', () => {
     })
     expect(next.authenticators).toHaveLength(1)
 
-    const reloaded = await loadKeyring(store, 'acme', 'alice', PHRASE)
+    const reloaded = await loadKeyring(store, 'acme', { userId: 'alice', secret: PHRASE })
     expect(reloaded.authenticators).toHaveLength(1)
     const slot = reloaded.authenticators[0]!
     // Discriminator absence (or 'kek') → wrap-KEK
@@ -74,7 +74,7 @@ describe('KeyringAuthenticator wrap-KEK / wrap-DEKs (#26 Path C)', () => {
 
   it('round-trips a wrap-DEKs slot through _keyring (new password shape)', async () => {
     const store = inlineMemory()
-    const keyring = await createOwnerKeyring(store, 'acme', 'alice', PHRASE)
+    const keyring = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: PHRASE })
     keyring.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', keyring)
 
@@ -88,7 +88,7 @@ describe('KeyringAuthenticator wrap-KEK / wrap-DEKs (#26 Path C)', () => {
     })
     expect(next.authenticators).toHaveLength(1)
 
-    const reloaded = await loadKeyring(store, 'acme', 'alice', PHRASE)
+    const reloaded = await loadKeyring(store, 'acme', { userId: 'alice', secret: PHRASE })
     expect(reloaded.authenticators).toHaveLength(1)
     const slot = reloaded.authenticators[0]!
     expect(slot.wrapKind).toBe('deks')
@@ -104,7 +104,7 @@ describe('KeyringAuthenticator wrap-KEK / wrap-DEKs (#26 Path C)', () => {
 
   it('coexists — both shapes can live in the same keyring', async () => {
     const store = inlineMemory()
-    const keyring = await createOwnerKeyring(store, 'acme', 'alice', PHRASE)
+    const keyring = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: PHRASE })
     await persistKeyring(store, 'acme', keyring)
 
     const afterWebAuthn = await enrollAuthenticator(store, 'acme', keyring, {
@@ -123,7 +123,7 @@ describe('KeyringAuthenticator wrap-KEK / wrap-DEKs (#26 Path C)', () => {
     })
     expect(afterPassword.authenticators).toHaveLength(2)
 
-    const reloaded = await loadKeyring(store, 'acme', 'alice', PHRASE)
+    const reloaded = await loadKeyring(store, 'acme', { userId: 'alice', secret: PHRASE })
     const kinds = reloaded.authenticators.map((a) => a.wrapKind ?? 'kek')
     expect(kinds).toEqual(['kek', 'deks'])
   })

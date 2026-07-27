@@ -15,7 +15,7 @@ import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withBlobs } from '../src/via/blob/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
-import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withForget } from '../src/with-audit/forget/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { BLOB_INDEX_COLLECTION, BLOB_CHUNKS_COLLECTION } from '../src/with-shape/blobs/blob-set.js'
 import { BLOB_INTENT_COLLECTION } from '../src/with-shape/blobs/blob-intent.js'
@@ -64,7 +64,7 @@ describe('per-blob CEK (slice 1: content-CEK write/read path)', () => {
   beforeEach(() => { store = makeStore() })
 
   it('erasable collection: blob round-trips and the BlobObject carries a wrapped _cek', async () => {
-    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<{ ref: string }>('invoices', { perRecordKeys: true })
     await invoices.put('inv-1', { ref: 'A' })
@@ -79,7 +79,7 @@ describe('per-blob CEK (slice 1: content-CEK write/read path)', () => {
   })
 
   it('legacy (non-erasable) collection: blob round-trips with NO _cek (byte-for-byte unchanged)', async () => {
-    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const invoices = vault.collection<{ ref: string }>('invoices')
     await invoices.put('inv-1', { ref: 'A' })
@@ -94,7 +94,7 @@ describe('per-blob CEK (slice 1: content-CEK write/read path)', () => {
   })
 
   it('dedup preserved on erasable: identical content shares one chunk set + one content CEK, refCount 2', async () => {
-    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const docs = vault.collection<{ ref: string }>('docs', { perRecordKeys: true })
     await docs.put('d-1', { ref: 'A' })
@@ -119,7 +119,7 @@ describe('per-blob CEK (slice 1: content-CEK write/read path)', () => {
   })
 
   it('shred primitive: deleting the BlobObject renders an erasable blob unrecoverable', async () => {
-    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const docs = vault.collection<{ ref: string }>('docs', { perRecordKeys: true })
     await docs.put('d-1', { ref: 'A' })
@@ -145,9 +145,9 @@ describe('per-blob CEK (slice 2: forget() crypto-shred)', () => {
   type Inv = { id: string; buyerId: string }
   const setup = () => createNoydb({
     store, user: 'a', secret: SECRET,
-    blobStrategy: withBlobs(),
+    blobsStrategy: withBlobs(),
     historyStrategy: withHistory(),
-    forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+    forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } }),
   })
 
   it('forget() crypto-shreds a subject-exclusive blob (refCount 0) and reports it', async () => {
@@ -201,7 +201,7 @@ describe('per-blob CEK (slice 3: migration of legacy blobs)', () => {
   beforeEach(() => { store = makeStore() })
 
   it('migrate() re-keys a legacy blob to a content CEK, preserving readability', async () => {
-    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const docs = vault.collection<{ id: string }>('docs') // legacy: no perRecordKeys
     await docs.put('d-1', { id: 'd-1' })
@@ -217,7 +217,7 @@ describe('per-blob CEK (slice 3: migration of legacy blobs)', () => {
   })
 
   it('migrate() is idempotent — a second pass reports already-erasable, no change', async () => {
-    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const docs = vault.collection<{ id: string }>('docs')
     await docs.put('d-1', { id: 'd-1' })
@@ -234,7 +234,7 @@ describe('per-blob CEK (slice 3: migration of legacy blobs)', () => {
 
   it('a migrated legacy blob becomes crypto-shreddable by forget() (cross-session adoption)', async () => {
     // Session 1: plain collection, legacy blob (no _cek).
-    const db1 = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const db1 = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs() })
     const v1 = await db1.openVault(VAULT)
     const c1 = v1.collection<{ id: string; sub: string }>('docs')
     await c1.put('d-1', { id: 'd-1', sub: 'subj-1' })
@@ -243,9 +243,9 @@ describe('per-blob CEK (slice 3: migration of legacy blobs)', () => {
 
     // Session 2: same store, now with forget cascade (forces perRecordKeys).
     const db2 = await createNoydb({
-      store, user: 'a', secret: SECRET, blobStrategy: withBlobs(),
+      store, user: 'a', secret: SECRET, blobsStrategy: withBlobs(),
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { docs: 'sub' } }),
+      forgetStrategy: withForget({ subjects: { docs: 'sub' } }),
     })
     const v2 = await db2.openVault(VAULT)
     const c2 = v2.collection<{ id: string; sub: string }>('docs')
@@ -295,7 +295,7 @@ describe('per-blob CEK (slice 3b: migrate() tier-awareness, #756)', () => {
     // no `_cek`. `assertBlobWritable` refuses a blob write once `tiers` is
     // configured on the Collection instance doing the write, so the legacy
     // blob must be seeded BEFORE tiers are ever declared for this collection.
-    const db1 = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const db1 = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs() })
     const v1 = await db1.openVault(VAULT)
     const docs1 = v1.collection<{ id: string }>('docs')
     await docs1.put('d-1', { id: 'd-1' })
@@ -306,7 +306,7 @@ describe('per-blob CEK (slice 3b: migrate() tier-awareness, #756)', () => {
     // `blobFields`, so the construction-time mandate never fires).
     // `elevate()` is blob-agnostic — it re-keys the slot map onto the
     // destination tier's DEK regardless of whether the blob is legacy.
-    const db2 = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const db2 = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs(), tiersStrategy: withTiers() })
     const v2 = await db2.openVault(VAULT)
     const docs2 = v2.collection<{ id: string }>('docs', { tiers: [0, 1] })
     await docs2.elevate('d-1', 1)
@@ -327,7 +327,7 @@ describe('per-blob CEK (slice 3b: migrate() tier-awareness, #756)', () => {
     // Session 1: legacy collection. One blob is migrated to a content CEK
     // BEFORE the second (still-legacy) blob is even written, so the record
     // ends up with one already-erasable slot and one genuinely flat slot.
-    const db1 = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const db1 = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs() })
     const v1 = await db1.openVault(VAULT)
     const docs1 = v1.collection<{ id: string }>('docs')
     await docs1.put('d-1', { id: 'd-1' })
@@ -344,7 +344,7 @@ describe('per-blob CEK (slice 3b: migrate() tier-awareness, #756)', () => {
     // 1 (`_cek` defined ⇒ rehome rewraps it); the legacy slot's content is
     // left flat at tier 0 (rehome's per-eTag loop skips `_cek === undefined`
     // objects). Only the slot MAP row moves, for both.
-    const db2 = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const db2 = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs(), tiersStrategy: withTiers() })
     const v2 = await db2.openVault(VAULT)
     const docs2 = v2.collection<{ id: string }>('docs', { tiers: [0, 1] })
     await docs2.elevate('d-1', 1)
@@ -368,7 +368,7 @@ describe('per-blob CEK (slice 3b: migrate() tier-awareness, #756)', () => {
   })
 
   it('migrate() resumes a stranded mid-rehome record before migrating (#756 spec §3)', async () => {
-    const db1 = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const db1 = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs() })
     const v1 = await db1.openVault(VAULT)
     const docs1 = v1.collection<{ id: string }>('docs')
     await docs1.put('d-1', { id: 'd-1' })
@@ -383,7 +383,7 @@ describe('per-blob CEK (slice 3b: migrate() tier-awareness, #756)', () => {
     let reached!: () => void
     const reachedPromise = new Promise<void>((r) => { reached = r })
     const crashing = hangOnNthPut(store, (col) => col === '_blob_slots_docs', 1, () => reached())
-    const dbCrash = await createNoydb({ store: crashing, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const dbCrash = await createNoydb({ store: crashing, user: 'a', secret: SECRET, blobsStrategy: withBlobs(), tiersStrategy: withTiers() })
     const vaultCrash = await dbCrash.openVault(VAULT)
     const docsCrash = vaultCrash.collection<{ id: string }>('docs', { tiers: [0, 1] })
     void docsCrash.elevate('d-1', 1) // fire-and-forget: never settles (simulated crash)
@@ -393,7 +393,7 @@ describe('per-blob CEK (slice 3b: migrate() tier-awareness, #756)', () => {
     // Fresh session: `migrate()` must resume the stranded rehome to
     // completion (via `resolvePendingIntent()`) BEFORE reading the slot map
     // for its own upgrade pass.
-    const dbResume = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const dbResume = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs(), tiersStrategy: withTiers() })
     const vaultResume = await dbResume.openVault(VAULT)
     const docsResume = vaultResume.collection<{ id: string }>('docs', { tiers: [0, 1] })
     const r = await docsResume.blob('d-1').migrate()
@@ -412,7 +412,7 @@ describe('per-blob CEK (slice 4: eager shred on delete / compaction path)', () =
   beforeEach(() => { store = makeStore() })
 
   it('delete() crypto-shreds an erasable blob at refCount 0 (covers compaction eviction)', async () => {
-    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const docs = vault.collection<{ id: string }>('docs', { perRecordKeys: true })
     await docs.put('d-1', { id: 'd-1' })
@@ -428,7 +428,7 @@ describe('per-blob CEK (slice 4: eager shred on delete / compaction path)', () =
   })
 
   it('delete() retains a shared erasable blob (refCount > 0) — other owner still reads it', async () => {
-    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const docs = vault.collection<{ id: string }>('docs', { perRecordKeys: true })
     await docs.put('d-1', { id: 'd-1' })
@@ -446,7 +446,7 @@ describe('per-blob CEK (slice 4: eager shred on delete / compaction path)', () =
   })
 
   it('delete() does NOT eager-delete a legacy blob — defers to GC / orphan retention', async () => {
-    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const docs = vault.collection<{ id: string }>('docs') // legacy: no _cek
     await docs.put('d-1', { id: 'd-1' })

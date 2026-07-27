@@ -67,7 +67,7 @@ let ownerKeyring: UnlockedKeyring
 
 beforeEach(async () => {
   adapter = memory()
-  ownerKeyring = await createOwnerKeyring(adapter, COMPARTMENT, 'owner', 'secret-owner-pw')
+  ownerKeyring = await createOwnerKeyring(adapter, COMPARTMENT, { userId: 'owner', secret: 'secret-owner-pw' })
 })
 
 // ─── Tests ─────────────────────────────────────────────────────────────────
@@ -201,7 +201,7 @@ describe('_sync_credentials', () => {
       secret: 'viewer-pw',
     })
     const { loadKeyring } = await import('../src/with-party/team/keyring.js')
-    const viewerKeyring = await loadKeyring(adapter, COMPARTMENT, 'viewer1', 'viewer-pw')
+    const viewerKeyring = await loadKeyring(adapter, COMPARTMENT, { userId: 'viewer1', secret: 'viewer-pw' })
 
     await expect(
       putCredential(adapter, COMPARTMENT, viewerKeyring, gdriveToken),
@@ -223,7 +223,7 @@ describe('_sync_credentials', () => {
       permissions: { invoices: 'rw' },
     })
     const { loadKeyring } = await import('../src/with-party/team/keyring.js')
-    const opKeyring = await loadKeyring(adapter, COMPARTMENT, 'op1', 'op-pw')
+    const opKeyring = await loadKeyring(adapter, COMPARTMENT, { userId: 'op1', secret: 'op-pw' })
 
     await expect(
       getCredential(adapter, COMPARTMENT, opKeyring, 'google-drive'),
@@ -238,7 +238,7 @@ describe('_sync_credentials', () => {
       secret: 'admin-pw',
     })
     const { loadKeyring } = await import('../src/with-party/team/keyring.js')
-    const adminKeyring = await loadKeyring(adapter, COMPARTMENT, 'admin1', 'admin-pw')
+    const adminKeyring = await loadKeyring(adapter, COMPARTMENT, { userId: 'admin1', secret: 'admin-pw' })
 
     await putCredential(adapter, COMPARTMENT, adminKeyring, gdriveToken)
     const got = await getCredential(adapter, COMPARTMENT, adminKeyring, 'google-drive')

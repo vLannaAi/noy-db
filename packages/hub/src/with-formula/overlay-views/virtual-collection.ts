@@ -1,6 +1,6 @@
 import { OverlayIdMismatchError } from '../../kernel/errors.js'
 import type { Collection } from '../../kernel/collection.js'
-import type { OverlayedViewStrategy } from './types.js'
+import type { OverlayedViewSpec } from './types.js'
 
 /**
  * Virtual-collection proxy returned by `vault.collection(overlayName)`
@@ -23,7 +23,7 @@ import type { OverlayedViewStrategy } from './types.js'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export class OverlayedCollection<T extends Record<string, unknown> = any> {
   constructor(
-    private readonly spec: OverlayedViewStrategy,
+    private readonly spec: OverlayedViewSpec,
     private readonly baseCollection: Collection<T>,
     private readonly overlayCollection: Collection<T>,
     private readonly baseRowKey: ((row: Record<string, unknown>) => string) | undefined,

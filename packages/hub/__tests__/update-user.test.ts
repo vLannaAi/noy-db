@@ -58,7 +58,7 @@ const CAROL_PHRASE = 'evergreen marble lantern apricot velvet thunder'
 describe('updateKeyringIdentity (team layer, #54)', () => {
   it('owner updates role + displayName + permissions in one call', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     aliceKr.deks.set('invoices', await generateDEK())
     aliceKr.deks.set('clients', await generateDEK())
     await persistKeyring(store, 'acme', aliceKr)
@@ -69,7 +69,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       secret: BOB_PHRASE,
     })
 
-    const bobBefore = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
+    const bobBefore = await loadKeyring(store, 'acme', { userId: 'bob', secret: BOB_PHRASE })
     const dekKeysBefore = [...bobBefore.deks.keys()].sort()
 
     await updateKeyringIdentity(store, 'acme', aliceKr, {
@@ -80,7 +80,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
     })
 
     // Same secret still unlocks — KEK / salt / DEKs unchanged.
-    const bobAfter = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
+    const bobAfter = await loadKeyring(store, 'acme', { userId: 'bob', secret: BOB_PHRASE })
     expect(bobAfter.userId).toBe('bob')
     expect(bobAfter.displayName).toBe('Bob the Operator')
     expect(bobAfter.role).toBe('operator')
@@ -93,7 +93,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
 
   it('partial diff — only specified field changes', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     aliceKr.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', aliceKr)
     await grant(store, 'acme', aliceKr, {
@@ -108,7 +108,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       displayName: 'Bob the Renamed',
     })
 
-    const bob = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
+    const bob = await loadKeyring(store, 'acme', { userId: 'bob', secret: BOB_PHRASE })
     expect(bob.displayName).toBe('Bob the Renamed')
     // Untouched fields survive.
     expect(bob.role).toBe('admin')
@@ -116,7 +116,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
 
   it('issue #85: displayName: null clears the field (matches UserApi.updateMe convention)', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     aliceKr.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', aliceKr)
     await grant(store, 'acme', aliceKr, {
@@ -131,7 +131,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       displayName: null,
     })
 
-    const bob = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
+    const bob = await loadKeyring(store, 'acme', { userId: 'bob', secret: BOB_PHRASE })
     expect(bob.displayName).toBe('')
     // Other fields untouched.
     expect(bob.role).toBe('admin')
@@ -139,7 +139,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
 
   it('issue #85: displayName: undefined leaves the field untouched (preserve semantics)', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     aliceKr.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', aliceKr)
     await grant(store, 'acme', aliceKr, {
@@ -156,14 +156,14 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       permissions: { invoices: 'rw' },
     })
 
-    const bob = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
+    const bob = await loadKeyring(store, 'acme', { userId: 'bob', secret: BOB_PHRASE })
     expect(bob.displayName).toBe('Bob the Original')
     expect(bob.role).toBe('operator')
   }, 60_000)
 
   it('tier-2 authenticator slots survive the update (#54 vs peer-recover)', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     aliceKr.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', aliceKr)
     await grant(store, 'acme', aliceKr, {
@@ -197,7 +197,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       role: 'operator',
     })
 
-    const bob = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
+    const bob = await loadKeyring(store, 'acme', { userId: 'bob', secret: BOB_PHRASE })
     expect(bob.role).toBe('operator')
     expect(bob.authenticators).toHaveLength(1)
     expect(bob.authenticators[0]?.id).toBe('webauthn-yubikey')
@@ -205,7 +205,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
 
   it('empty diff throws ValidationError', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     await persistKeyring(store, 'acme', aliceKr)
     await grant(store, 'acme', aliceKr, {
       userId: 'bob',
@@ -221,7 +221,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
 
   it('missing target keyring throws NoAccessError', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     await persistKeyring(store, 'acme', aliceKr)
 
     await expect(
@@ -234,7 +234,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
 
   it('admin cannot promote target to owner (PermissionDeniedError on new role)', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     aliceKr.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', aliceKr)
     // Alice grants Bob admin; Bob then tries to promote Carol (operator) to owner.
@@ -250,7 +250,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       role: 'operator',
       secret: CAROL_PHRASE,
     })
-    const bobKr = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
+    const bobKr = await loadKeyring(store, 'acme', { userId: 'bob', secret: BOB_PHRASE })
 
     await expect(
       updateKeyringIdentity(store, 'acme', bobKr, {
@@ -262,7 +262,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
 
   it('admin cannot demote an owner (PermissionDeniedError on old role)', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     aliceKr.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', aliceKr)
     // Alice (owner) grants Bob admin. Bob tries to demote Alice (owner)
@@ -274,7 +274,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       role: 'admin',
       secret: BOB_PHRASE,
     })
-    const bobKr = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
+    const bobKr = await loadKeyring(store, 'acme', { userId: 'bob', secret: BOB_PHRASE })
 
     await expect(
       updateKeyringIdentity(store, 'acme', bobKr, {
@@ -286,7 +286,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
 
   it('admin cannot self-promote to owner', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     aliceKr.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', aliceKr)
     await grant(store, 'acme', aliceKr, {
@@ -295,7 +295,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       role: 'admin',
       secret: BOB_PHRASE,
     })
-    const bobKr = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
+    const bobKr = await loadKeyring(store, 'acme', { userId: 'bob', secret: BOB_PHRASE })
 
     await expect(
       updateKeyringIdentity(store, 'acme', bobKr, {
@@ -307,7 +307,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
 
   it('non-admin callers cannot call updateUser even on themselves (use vault.user.updateMe instead)', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     aliceKr.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', aliceKr)
     await grant(store, 'acme', aliceKr, {
@@ -316,7 +316,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       role: 'operator',
       secret: BOB_PHRASE,
     })
-    const bobKr = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
+    const bobKr = await loadKeyring(store, 'acme', { userId: 'bob', secret: BOB_PHRASE })
 
     // Operator tries to rename themselves via updateUser. The
     // role-elevation guard rejects (operator role can't manage any
@@ -333,7 +333,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
 
   it('permissions: {} clears all collection ACLs', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     aliceKr.deks.set('invoices', await generateDEK())
     aliceKr.deks.set('clients', await generateDEK())
     await persistKeyring(store, 'acme', aliceKr)
@@ -350,13 +350,13 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       permissions: {},
     })
 
-    const bob = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
+    const bob = await loadKeyring(store, 'acme', { userId: 'bob', secret: BOB_PHRASE })
     expect(bob.permissions).toEqual({})
   }, 60_000)
 
   it('permissions is full-replacement at the map level (not deep merge)', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     aliceKr.deks.set('invoices', await generateDEK())
     aliceKr.deks.set('clients', await generateDEK())
     await persistKeyring(store, 'acme', aliceKr)
@@ -377,14 +377,14 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       permissions: { invoices: 'ro' },
     })
 
-    const bob = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
+    const bob = await loadKeyring(store, 'acme', { userId: 'bob', secret: BOB_PHRASE })
     expect(bob.permissions).toEqual({ invoices: 'ro' })
     expect(bob.permissions).not.toHaveProperty('clients')
   }, 60_000)
 
   it('admin can manage admin/operator/viewer/client laterally', async () => {
     const store = inlineMemory()
-    const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
+    const aliceKr = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: ALICE_PHRASE })
     aliceKr.deks.set('invoices', await generateDEK())
     await persistKeyring(store, 'acme', aliceKr)
     await grant(store, 'acme', aliceKr, {
@@ -399,7 +399,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       role: 'client',
       secret: CAROL_PHRASE,
     })
-    const bobKr = await loadKeyring(store, 'acme', 'bob', BOB_PHRASE)
+    const bobKr = await loadKeyring(store, 'acme', { userId: 'bob', secret: BOB_PHRASE })
 
     // Bob (admin) promotes Carol (client → operator). Allowed.
     await updateKeyringIdentity(store, 'acme', bobKr, {
@@ -407,7 +407,7 @@ describe('updateKeyringIdentity (team layer, #54)', () => {
       role: 'operator',
     })
 
-    const carol = await loadKeyring(store, 'acme', 'carol', CAROL_PHRASE)
+    const carol = await loadKeyring(store, 'acme', { userId: 'carol', secret: CAROL_PHRASE })
     expect(carol.role).toBe('operator')
   }, 60_000)
 })

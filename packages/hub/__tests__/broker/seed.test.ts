@@ -25,9 +25,9 @@ function ctx(store: NoydbStore, keyring: UnlockedKeyring, cfg: BrokerConfig): Br
 describe('broker seed lifecycle', () => {
   it('V2b: enroll() by a non-owner/admin role throws PermissionDeniedError', async () => {
     const store = memoryStore()
-    const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
+    const owner = await createOwnerKeyring(store, VAULT, { userId: 'owner', secret: 'owner-pw' })
     await grant(store, VAULT, owner, { userId: 'viewer1', displayName: 'Viewer', role: 'viewer', secret: 'viewer-pw' })
-    const viewer = await loadKeyring(store, VAULT, 'viewer1', 'viewer-pw')
+    const viewer = await loadKeyring(store, VAULT, { userId: 'viewer1', secret: 'viewer-pw' })
 
     const host = makeTestHost()
     await expect(enrollSeed(ctx(store, viewer, config(host)))).rejects.toThrow(PermissionDeniedError)
@@ -36,7 +36,7 @@ describe('broker seed lifecycle', () => {
 
   it('V10: enroll() refused without a valid attestation surfaces BrokerEnrolmentError', async () => {
     const store = memoryStore()
-    const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
+    const owner = await createOwnerKeyring(store, VAULT, { userId: 'owner', secret: 'owner-pw' })
     const host = makeTestHost({ requireAttestation: true })
 
     await expect(enrollSeed(ctx(store, owner, config(host)))).rejects.toThrow(BrokerEnrolmentError)
@@ -44,7 +44,7 @@ describe('broker seed lifecycle', () => {
 
   it('enroll() succeeds with a valid attestation, and mintStoreCredentials then mints creds', async () => {
     const store = memoryStore()
-    const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
+    const owner = await createOwnerKeyring(store, VAULT, { userId: 'owner', secret: 'owner-pw' })
     const host = makeTestHost({ requireAttestation: true })
     const cfg = config(host, { attestation: () => 'dev-token' })
 
@@ -55,7 +55,7 @@ describe('broker seed lifecycle', () => {
 
   it("#795: a host minting kind:'password' connection-auth creds passes through verbatim (username/password/domain/expiresAt)", async () => {
     const store = memoryStore()
-    const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
+    const owner = await createOwnerKeyring(store, VAULT, { userId: 'owner', secret: 'owner-pw' })
     const expiresAt = new Date(Date.now() + 3600_000).toISOString()
     const host = makeTestHost({
       credentials: () => ({ kind: 'password', username: 'svc-noydb', password: 'pw-rolled', domain: 'CORP', expiresAt }),
@@ -69,7 +69,7 @@ describe('broker seed lifecycle', () => {
 
   it('V23: a partial enrol (host 401s /enroll) leaves registered !== true; credentialSource fails fast with BrokerEnrolmentError, not an opaque proof error', async () => {
     const store = memoryStore()
-    const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
+    const owner = await createOwnerKeyring(store, VAULT, { userId: 'owner', secret: 'owner-pw' })
     const host = makeTestHost({ requireAttestation: true }) // no attestation configured below -> 401
     const cfg = config(host)
 
@@ -90,7 +90,7 @@ describe('broker seed lifecycle', () => {
 
   it('V20: two concurrent enroll() calls on an absent seed persist exactly one seed (CAS)', async () => {
     const store = memoryStore()
-    const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
+    const owner = await createOwnerKeyring(store, VAULT, { userId: 'owner', secret: 'owner-pw' })
     const host = makeTestHost({ requireAttestation: true })
     const cfg = config(host, { attestation: () => 'dev-token' })
 
@@ -108,7 +108,7 @@ describe('broker seed lifecycle', () => {
 
   it('V-KEK: enroll() on a DEK-only keyring (kek===null) throws BrokerEnrolmentError when the _broker DEK does not exist yet; use of an already-enrolled seed succeeds with the DEK alone', async () => {
     const store = memoryStore()
-    const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
+    const owner = await createOwnerKeyring(store, VAULT, { userId: 'owner', secret: 'owner-pw' })
     const host = makeTestHost({ requireAttestation: true })
     const cfg = config(host, { attestation: () => 'dev-token' })
 
@@ -130,7 +130,7 @@ describe('broker seed lifecycle', () => {
 
   it('V7: fetch bodies carry no seed, DEK, or secret — only vaultId/brokerId/proofKey/challenge/proof/profile', async () => {
     const store = memoryStore()
-    const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
+    const owner = await createOwnerKeyring(store, VAULT, { userId: 'owner', secret: 'owner-pw' })
     const host = makeTestHost({ requireAttestation: true })
     const cfg = config(host, { attestation: () => 'dev-token' })
 
@@ -157,7 +157,7 @@ describe('broker seed lifecycle', () => {
 
   it('V6/V21: rotate() registers a new proof key and overwrites the local seed; a proof minted under the pre-rotation seed no longer verifies once the grace-window registration for the OLD key is dropped', async () => {
     const store = memoryStore()
-    const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
+    const owner = await createOwnerKeyring(store, VAULT, { userId: 'owner', secret: 'owner-pw' })
     const host = makeTestHost({ requireAttestation: true })
     const cfg = config(host, { attestation: () => 'dev-token' })
 
@@ -177,7 +177,7 @@ describe('broker seed lifecycle', () => {
 
   it('rotate() on a not-yet-enrolled brokerId behaves like a first enrol', async () => {
     const store = memoryStore()
-    const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
+    const owner = await createOwnerKeyring(store, VAULT, { userId: 'owner', secret: 'owner-pw' })
     const host = makeTestHost({ requireAttestation: true })
     const cfg = config(host, { attestation: () => 'dev-token' })
 
@@ -189,7 +189,7 @@ describe('broker seed lifecycle', () => {
 
   it('enrollSeed is idempotent — a second call on an already-registered seed is a no-op (no second /enroll POST)', async () => {
     const store = memoryStore()
-    const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
+    const owner = await createOwnerKeyring(store, VAULT, { userId: 'owner', secret: 'owner-pw' })
     const host = makeTestHost({ requireAttestation: true })
     const cfg = config(host, { attestation: () => 'dev-token' })
 
@@ -201,7 +201,7 @@ describe('broker seed lifecycle', () => {
 
   it('the persisted _broker seed is never reachable via a raw list — only the reserved-collection API sees it', async () => {
     const store = memoryStore()
-    const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
+    const owner = await createOwnerKeyring(store, VAULT, { userId: 'owner', secret: 'owner-pw' })
     const host = makeTestHost({ requireAttestation: true })
     await enrollSeed(ctx(store, owner, config(host, { attestation: () => 'dev-token' })))
     const ids = await store.list(VAULT, BROKER_COLLECTION)
@@ -221,7 +221,7 @@ describe('broker seed lifecycle', () => {
 
   it('F5: a fresh enroll() zeros the seed bytes and the derived proof bits (the only 2 zeroing calls on this path)', async () => {
     const store = memoryStore()
-    const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
+    const owner = await createOwnerKeyring(store, VAULT, { userId: 'owner', secret: 'owner-pw' })
     const host = makeTestHost({ requireAttestation: true })
     const cfg = config(host, { attestation: () => 'dev-token' })
 
@@ -239,7 +239,7 @@ describe('broker seed lifecycle', () => {
 
   it('F5: an idempotent re-enroll() (already registered) still zeros the re-read seed copy', async () => {
     const store = memoryStore()
-    const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
+    const owner = await createOwnerKeyring(store, VAULT, { userId: 'owner', secret: 'owner-pw' })
     const host = makeTestHost({ requireAttestation: true })
     const cfg = config(host, { attestation: () => 'dev-token' })
     await enrollSeed(ctx(store, owner, cfg)) // first call: registers
@@ -256,7 +256,7 @@ describe('broker seed lifecycle', () => {
 
   it('F5: rotateSeed() zeros the new seed bytes and the new proof bits (the only 2 zeroing calls on this path)', async () => {
     const store = memoryStore()
-    const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
+    const owner = await createOwnerKeyring(store, VAULT, { userId: 'owner', secret: 'owner-pw' })
     const host = makeTestHost({ requireAttestation: true })
     const cfg = config(host, { attestation: () => 'dev-token' })
     await enrollSeed(ctx(store, owner, cfg)) // enroll first, so rotate takes the swap path, not the delegate-to-enroll path

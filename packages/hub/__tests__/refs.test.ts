@@ -423,7 +423,7 @@ describe('cascade mode.', () => {
       store: memory(),
       user: 'alice', historyStrategy: withHistory(),
       secret: 'test-secret-1234',
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     const company = await txDb.openVault('demo-co')
     const clients = company.collection<Client>('clients')
@@ -465,7 +465,7 @@ describe('cascade mode.', () => {
       store: memory(),
       user: 'alice', historyStrategy: withHistory(),
       secret: 'test-secret-1234',
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     const company = await txDb.openVault('demo-co')
     // grandparent ← parent ← child, all cascade.
@@ -503,7 +503,7 @@ describe('cascade mode.', () => {
   })
 
   it('regression: cascade OUTSIDE a transaction still deletes children + parent', async () => {
-    // No txStrategy — the plain cascade path must be unchanged.
+    // No transactionsStrategy — the plain cascade path must be unchanged.
     const company = await db.openVault('demo-co')
     const clients = company.collection<Client>('clients')
     const invoices = company.collection<Invoice>('invoices', {

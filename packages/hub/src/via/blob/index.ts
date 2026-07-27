@@ -20,8 +20,8 @@
  */
 
 export { withBlobs } from './active.js'
-export type { WithBlobsOptions, BlobsService } from './active.js'
-export type { BlobStrategy, BlobStrategyOpenArgs } from '../../port/with/blob-strategy.js'
+export type { WithBlobsOptions } from './active.js'
+export type { BlobsStrategy, BlobsStrategyOpenArgs } from '../../port/with/blob-strategy.js'
 
 // #808 — offline pinning + mobile cache budget.
 export { memoryBlobPinStore, blobPinKey } from '../../with-shape/blobs/blob-pinning.js'

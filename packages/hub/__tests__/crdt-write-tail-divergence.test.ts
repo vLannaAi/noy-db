@@ -78,7 +78,7 @@ describe('#835 — CRDT write-tail divergences: which are reachable?', () => {
    * and the un-called `check`/`upsert` cannot matter.
    */
   it('unique index + crdt is REFUSED at config time (so the missing check is unreachable)', async () => {
-    const db = await crdtDb({ indexStrategy: withIndexing() })
+    const db = await crdtDb({ indexingStrategy: withIndexing() })
     const vault = await db.openVault('acme')
     expect(() =>
       vault.collection<Doc>('docs', {

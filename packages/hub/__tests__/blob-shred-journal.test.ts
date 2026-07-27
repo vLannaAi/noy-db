@@ -18,7 +18,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
-import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withForget } from '../src/with-audit/forget/index.js'
 import { withBlobs } from '../src/via/blob/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { ConflictError } from '../src/kernel/errors.js'
@@ -164,8 +164,8 @@ interface Invoice { id: string; buyerId: string; amount: number }
 const dbOpts = (store: NoydbStore, extra?: Record<string, unknown>) => ({
   store, user: 'alice', secret: SECRET,
   historyStrategy: withHistory(),
-  forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
-  blobStrategy: withBlobs(),
+  forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } }),
+  blobsStrategy: withBlobs(),
   ...extra,
 })
 
@@ -328,7 +328,7 @@ describe('C5 — marker minted pre-tombstone recovers an elevated record\'s tier
     // would), then call `shredAllForRecord` with a deliberately stale `0`
     // — the marker's OWN `ownerTier` must win, not the argument.
     const store = memory()
-    const db = await createNoydb({ store, user: 'alice', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const db = await createNoydb({ store, user: 'alice', secret: SECRET, blobsStrategy: withBlobs(), tiersStrategy: withTiers() })
     const vault = await db.openVault('v')
     const invoices = vault.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
     await invoices.putAtTier('r', { id: 'r', buyerId: 'buyer-1', amount: 10 }, 0)
@@ -358,7 +358,7 @@ describe('C5 — marker minted pre-tombstone recovers an elevated record\'s tier
 describe('C4 — two concurrent resumers racing the same stranded marker', () => {
   it('exactly one release applies; both callers complete without throwing', async () => {
     const store = memory()
-    const db0 = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const db0 = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault('v')
     const invoices0 = vault0.collection<Invoice>('invoices', { perRecordKeys: true })
     await invoices0.put('r', { id: 'r', buyerId: 'x', amount: 1 })
@@ -375,7 +375,7 @@ describe('C4 — two concurrent resumers racing the same stranded marker', () =>
     const reachedPromise = new Promise<void>((r) => { reached = r })
     const gated = gateFirstIndexPut(store, eTag, { gate: () => gatePromise, onReached: () => reached() })
 
-    const db = await createNoydb({ store: gated, user: 'a', secret: SECRET, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: gated, user: 'a', secret: SECRET, blobsStrategy: withBlobs() })
     const vault = await db.openVault('v')
     const invoices = vault.collection<Invoice>('invoices', { perRecordKeys: true })
 
@@ -406,7 +406,7 @@ describe('C4 — two concurrent resumers racing the same stranded marker', () =>
 describe('a pending rehome marker is resumed by the next write, not refused (#746 spec §7 C6)', () => {
   it('put() resumes a stranded elevate() rehome to completion before its own write proceeds', async () => {
     const store = memory()
-    const db0 = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const db0 = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs(), tiersStrategy: withTiers() })
     const vault0 = await db0.openVault('v')
     const invoices0 = vault0.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
     await invoices0.put('r', { id: 'r', buyerId: 'x', amount: 1 })
@@ -420,7 +420,7 @@ describe('a pending rehome marker is resumed by the next write, not refused (#74
     let reached!: () => void
     const reachedPromise = new Promise<void>((r) => { reached = r })
     const crashing = hangOnNthPut(store, (col) => col === '_blob_slots_invoices', 1, () => reached())
-    const dbCrash = await createNoydb({ store: crashing, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const dbCrash = await createNoydb({ store: crashing, user: 'a', secret: SECRET, blobsStrategy: withBlobs(), tiersStrategy: withTiers() })
     const vaultCrash = await dbCrash.openVault('v')
     const invoicesCrash = vaultCrash.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
     void invoicesCrash.elevate('r', 1) // fire-and-forget: never settles (simulated crash)
@@ -430,7 +430,7 @@ describe('a pending rehome marker is resumed by the next write, not refused (#74
     // Fresh session: an ORDINARY put() must resume the stranded rehome
     // FIRST (not throw), then proceed with its own write on the now-clean
     // record.
-    const dbResume = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const dbResume = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs(), tiersStrategy: withTiers() })
     const vaultResume = await dbResume.openVault('v')
     const invoicesResume = vaultResume.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
     await invoicesResume.blob('r').put('b.pdf', bytes('new content'))
@@ -446,7 +446,7 @@ describe('a pending rehome marker is resumed by the next write, not refused (#74
 
   it('shredAllForRecord() resumes a pending rehome FIRST, then shreds (#746 spec §7 Q1)', async () => {
     const store = memory()
-    const db0 = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const db0 = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs(), tiersStrategy: withTiers() })
     const vault0 = await db0.openVault('v')
     const invoices0 = vault0.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
     await invoices0.put('r', { id: 'r', buyerId: 'x', amount: 1 })
@@ -456,7 +456,7 @@ describe('a pending rehome marker is resumed by the next write, not refused (#74
     let reached!: () => void
     const reachedPromise = new Promise<void>((r) => { reached = r })
     const crashing = hangOnNthPut(store, (col) => col === '_blob_slots_invoices', 1, () => reached())
-    const dbCrash = await createNoydb({ store: crashing, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const dbCrash = await createNoydb({ store: crashing, user: 'a', secret: SECRET, blobsStrategy: withBlobs(), tiersStrategy: withTiers() })
     const vaultCrash = await dbCrash.openVault('v')
     const invoicesCrash = vaultCrash.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
     void invoicesCrash.elevate('r', 1) // fire-and-forget: never settles (simulated crash)
@@ -467,7 +467,7 @@ describe('a pending rehome marker is resumed by the next write, not refused (#74
     // supersede) is what keeps it reachable. `shredAllForRecord()` must
     // resume the rehome to completion (blob physically at tier 1, marker
     // gone) BEFORE minting/consuming its own shred marker.
-    const dbResume = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const dbResume = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs(), tiersStrategy: withTiers() })
     const vaultResume = await dbResume.openVault('v')
     const invoicesResume = vaultResume.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
     const result = await invoicesResume.blob('r').shredAllForRecord(1) // caller passes the record's live (post-elevate) tier
@@ -486,7 +486,7 @@ describe('a pending rehome marker is resumed by the next write, not refused (#74
 describe('#746 review Critical 1 — a rehome-resume failure propagates, never degrades to unmarkedShred', () => {
   it('shredAllForRecord() discovers a pending rehome marker whose resume release THROWS → the error propagates, the marker survives, rows are not clobbered by an unmarked shred', async () => {
     const store = memory()
-    const db0 = await createNoydb({ store, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const db0 = await createNoydb({ store, user: 'a', secret: SECRET, blobsStrategy: withBlobs(), tiersStrategy: withTiers() })
     const vault0 = await db0.openVault('v')
     const invoices0 = vault0.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
     await invoices0.put('r', { id: 'r', buyerId: 'x', amount: 1 })
@@ -509,7 +509,7 @@ describe('#746 review Critical 1 — a rehome-resume failure propagates, never d
         return store.put(v, col, id, env, ev)
       },
     }
-    const dbCrash = await createNoydb({ store: crashing, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const dbCrash = await createNoydb({ store: crashing, user: 'a', secret: SECRET, blobsStrategy: withBlobs(), tiersStrategy: withTiers() })
     const vaultCrash = await dbCrash.openVault('v')
     const invoicesCrash = vaultCrash.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
     void invoicesCrash.elevate('r', 1) // fire-and-forget: never settles (simulated crash)
@@ -530,7 +530,7 @@ describe('#746 review Critical 1 — a rehome-resume failure propagates, never d
         return store.put(v, col, id, env, ev)
       },
     }
-    const dbResume = await createNoydb({ store: throwing, user: 'a', secret: SECRET, blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const dbResume = await createNoydb({ store: throwing, user: 'a', secret: SECRET, blobsStrategy: withBlobs(), tiersStrategy: withTiers() })
     const vaultResume = await dbResume.openVault('v')
     const invoicesResume = vaultResume.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
 
@@ -637,7 +637,7 @@ describe('#753 whole-branch review — intent-mint failure degrades to best-effo
 describe('Q1 keystone — resume-then-shred reaches a row-unreferenced rehome orphan (#746/#753 spec Q1)', () => {
   it('rehome crashes leaving an orphan destination object (refCount>=1, no slot/version row points at it); vault.forget() resumes the rehome THEN shreds — the orphan is fully erased, proving a row-derived (non-superseding) shred would have stranded it', async () => {
     const store = memory()
-    const db0 = await createNoydb({ store, user: 'a', secret: SECRET, historyStrategy: withHistory(), forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }), blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const db0 = await createNoydb({ store, user: 'a', secret: SECRET, historyStrategy: withHistory(), forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } }), blobsStrategy: withBlobs(), tiersStrategy: withTiers() })
     const vault0 = await db0.openVault('v')
     const invoices0 = vault0.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
     await invoices0.put('r', { id: 'r', buyerId: 'buyer-1', amount: 10 })
@@ -656,7 +656,7 @@ describe('Q1 keystone — resume-then-shred reaches a row-unreferenced rehome or
     let reached!: () => void
     const reachedPromise = new Promise<void>((r) => { reached = r })
     const crashing = hangOnNthPut(store, (col) => col === '_blob_slots_invoices', 1, () => reached())
-    const dbCrash = await createNoydb({ store: crashing, user: 'a', secret: SECRET, historyStrategy: withHistory(), forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }), blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const dbCrash = await createNoydb({ store: crashing, user: 'a', secret: SECRET, historyStrategy: withHistory(), forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } }), blobsStrategy: withBlobs(), tiersStrategy: withTiers() })
     const vaultCrash = await dbCrash.openVault('v')
     const invoicesCrash = vaultCrash.collection<Invoice>('invoices', { perRecordKeys: true, tiers: [0, 1] })
     void invoicesCrash.elevate('r', 1) // fire-and-forget: never settles (simulated crash)
@@ -691,7 +691,7 @@ describe('Q1 keystone — resume-then-shred reaches a row-unreferenced rehome or
     expect(midCrashSlots['a.pdf']!.eTag).toBe(oldETag) // NOT orphanETag — proves the row-derived view is blind to it
 
     // ── Resume-then-shred: vault.forget() on a fresh session ────────────
-    const dbResume = await createNoydb({ store, user: 'a', secret: SECRET, historyStrategy: withHistory(), forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }), blobStrategy: withBlobs(), tiersStrategy: withTiers() })
+    const dbResume = await createNoydb({ store, user: 'a', secret: SECRET, historyStrategy: withHistory(), forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } }), blobsStrategy: withBlobs(), tiersStrategy: withTiers() })
     const vaultResume = await dbResume.openVault('v')
     await expect(vaultResume.forget('buyer-1')).resolves.toBeDefined()
 

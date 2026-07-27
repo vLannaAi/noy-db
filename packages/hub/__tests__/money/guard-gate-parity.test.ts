@@ -253,7 +253,7 @@ describe('money + guards — gate context encoding parity (#332)', () => {
       store: memory(), user: 'alice',
       secret: 'money-guard-amendment-secret-2026',
       guardStrategies: [guard],
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     const vault = await db.openVault('books')
     const col = vault.collection<Certificate>('certificates', {

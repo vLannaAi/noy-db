@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/kernel/noydb.js'
-import { withForgetCascade } from '../../src/with-audit/forget/index.js'
+import { withForget } from '../../src/with-audit/forget/index.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
 import { classified } from '../../src/via/classified/presets.js'
 import { encrypt, deriveSealedFieldKey, generateDEK, wrapCek } from '../../src/kernel/enclave/index.js'
@@ -26,7 +26,7 @@ async function setup() {
   const db = await createNoydb({
     store, user: 'alice', secret: SECRET,
     historyStrategy: withHistory(),
-    forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+    forgetStrategy: withForget({ subjects: { people: 'subjectId' } }),
   })
   const vault = await db.openVault('v')
   const people = vault.collection<Person>('people', {

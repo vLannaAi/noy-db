@@ -19,7 +19,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { createNoydb } from '../../src/index.js'
 import { lookup } from '../../src/via/lookup/descriptor.js'
-import { withForgetCascade } from '../../src/with-audit/forget/index.js'
+import { withForget } from '../../src/with-audit/forget/index.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
 import { withClassified } from '../../src/via/classified/index.js'
 import { classified } from '../../src/via/classified/presets.js'
@@ -62,7 +62,7 @@ describe('forget() × lookup ref semantics (#650 Task 5, fixes #648)', () => {
     const db = await createNoydb({
       store: memory(), user: 'alice', secret: 'lookup-forget-ref-restrict-2026',
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { countries: 'subjectId' } }),
+      forgetStrategy: withForget({ subjects: { countries: 'subjectId' } }),
     })
     const vault = await db.openVault('firm')
     const countries = vault.collection<Country>('countries', {})
@@ -83,7 +83,7 @@ describe('forget() × lookup ref semantics (#650 Task 5, fixes #648)', () => {
     const db = await createNoydb({
       store: memory(), user: 'alice', secret: 'lookup-forget-ref-cascade-2026',
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { countries: 'subjectId' } }),
+      forgetStrategy: withForget({ subjects: { countries: 'subjectId' } }),
     })
     const vault = await db.openVault('firm')
     const countries = vault.collection<Country>('countries', {})
@@ -107,7 +107,7 @@ describe('forget() × lookup ref semantics (#650 Task 5, fixes #648)', () => {
     const db = await createNoydb({
       store: memory(), user: 'alice', secret: 'lookup-forget-ref-cascade-keyfield-2026',
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { countries: 'subjectId' } }),
+      forgetStrategy: withForget({ subjects: { countries: 'subjectId' } }),
     })
     const vault = await db.openVault('firm')
     const countries = vault.collection<CountryKeyed>('countries', {})
@@ -130,7 +130,7 @@ describe('forget() × lookup ref semantics (#650 Task 5, fixes #648)', () => {
     const db = await createNoydb({
       store: memory(), user: 'alice', secret: 'lookup-forget-ref-cascade-decodefail-2026',
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { countries: 'subjectId' } }),
+      forgetStrategy: withForget({ subjects: { countries: 'subjectId' } }),
     })
     const vault = await db.openVault('firm')
     const countries = vault.collection<CountryKeyed>('countries', {})
@@ -158,7 +158,7 @@ describe('forget() × lookup ref semantics (#650 Task 5, fixes #648)', () => {
     const db = await createNoydb({
       store: memory(), user: 'alice', secret: 'lookup-forget-ref-cascade-doublefail-2026',
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { countries: 'subjectId' } }),
+      forgetStrategy: withForget({ subjects: { countries: 'subjectId' } }),
     })
     const vault = await db.openVault('firm')
     const countries = vault.collection<CountryKeyed>('countries', {})
@@ -182,7 +182,7 @@ describe('forget() × lookup ref semantics (#650 Task 5, fixes #648)', () => {
     const db = await createNoydb({
       store: memory(), user: 'alice', secret: 'lookup-forget-ref-nullify-2026',
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { countries: 'subjectId' } }),
+      forgetStrategy: withForget({ subjects: { countries: 'subjectId' } }),
     })
     const vault = await db.openVault('firm')
     const countries = vault.collection<Country>('countries', {})
@@ -206,7 +206,7 @@ describe('forget() × lookup ref semantics (#650 Task 5, fixes #648)', () => {
     const db = await createNoydb({
       store: memory(), user: 'alice', secret: 'lookup-forget-ref-plain-2026',
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }),
+      forgetStrategy: withForget({ subjects: { people: 'subjectId' } }),
     })
     const vault = await db.openVault('firm')
     await vault.collection<Person>('people').put('p1', { id: 'p1', subjectId: 'subj-1', name: 'Ada' })

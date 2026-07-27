@@ -11,7 +11,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { ConflictError } from '../src/kernel/errors.js'
-import { withForgetCascade } from '../src/with-audit/forget/index.js'
+import { withForget } from '../src/with-audit/forget/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { generateDEK } from '../src/kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
@@ -79,7 +79,7 @@ async function buildDb(store: NoydbStore) {
   const db = await createNoydb({
     store, user: 'alice', secret: SECRET,
     historyStrategy: withHistory(),
-    forgetStrategy: withForgetCascade({ subjects: { invoices: 'buyerId' } }),
+    forgetStrategy: withForget({ subjects: { invoices: 'buyerId' } }),
   })
   const vault = await db.openVault('v')
   return { db, vault }

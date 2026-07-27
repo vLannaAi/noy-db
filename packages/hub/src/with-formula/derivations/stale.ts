@@ -6,7 +6,7 @@ import type { DerivationRegistry } from './registry.js'
 // Type-only — runtime class loaded via dynamic import in
 // `resolveStaleOnRead` only when a stale flag actually fires. Keeps
 // the executor chunk out of the floor bundle.
-import type { DerivationStrategy } from './types.js'
+import type { DerivationSpec } from './types.js'
 
 import { lazy } from '../../kernel/lazy.js'
 
@@ -54,7 +54,7 @@ export interface DerivationStaleAccessor {
  * @internal
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _staleByRegistry = new WeakMap<DerivationRegistry, Map<string, Set<DerivationStrategy<any, any>>>>()
+const _staleByRegistry = new WeakMap<DerivationRegistry, Map<string, Set<DerivationSpec<any, any>>>>()
 
 const keyFor = (source: string, sourceId: string): string => `${source}/${sourceId}`
 
@@ -62,7 +62,7 @@ const keyFor = (source: string, sourceId: string): string => `${source}/${source
 export async function markStale(
   registry: DerivationRegistry,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  strategy: DerivationStrategy<any, any>,
+  strategy: DerivationSpec<any, any>,
   sourceId: string,
 ): Promise<void> {
   let map = _staleByRegistry.get(registry)

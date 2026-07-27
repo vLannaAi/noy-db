@@ -30,7 +30,7 @@ describe('db.transaction(fn) — multi-record atomic writes', () => {
       store: memory(),
       user: 'owner', syncStrategy: withSync(),
       encrypt: false,
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     await db.openVault('acme')
   })
@@ -189,7 +189,7 @@ describe('db.transaction(fn) — multi-record atomic writes', () => {
       sync: memory(),
       user: 'owner', syncStrategy: withSync(),
       encrypt: false,
-      txStrategy: withTransactions(),
+      transactionsStrategy: withTransactions(),
     })
     await db2.openVault('acme')
     const st = db2.transaction('acme')

@@ -28,7 +28,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/ker
 import { MemoryRecipientSealer } from '../../src/with-party/team/managed-secret.js'
 import { withSealedRecord } from '../../src/with-audit/sealed-record/index.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
-import { withForgetCascade } from '../../src/with-audit/forget/index.js'
+import { withForget } from '../../src/with-audit/forget/index.js'
 import { withBlobs } from '../../src/via/blob/index.js'
 import { classified } from '../../src/via/classified/presets.js'
 
@@ -104,7 +104,7 @@ describe('forget() scopedPurge — (a) DEFAULT parity (unconditional, pins today
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({ subjects: { people: 'subjectId' } }), // no scopedPurge
+      forgetStrategy: withForget({ subjects: { people: 'subjectId' } }), // no scopedPurge
       sealedRecordStrategy: withSealedRecord(),
     })
     const vault = await db.openVault('v')
@@ -131,7 +131,7 @@ describe('forget() scopedPurge — (b) SCOPED mode: sealed-CEK arm', () => {
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({
+      forgetStrategy: withForget({
         subjects: { contacts: 'subjectId', people: 'subjectId' },
         scopedPurge: true,
       }),
@@ -181,9 +181,9 @@ describe('forget() scopedPurge — (c) SCOPED mode: blob arm', () => {
     const store = memory()
     const db = await createNoydb({
       store, user: 'a', secret: SECRET,
-      blobStrategy: withBlobs(),
+      blobsStrategy: withBlobs(),
       historyStrategy: withHistory(),
-      forgetStrategy: withForgetCascade({
+      forgetStrategy: withForget({
         subjects: { invoicesDeclared: 'buyerId', invoicesUndeclared: 'buyerId' },
         scopedPurge: true,
       }),
@@ -225,7 +225,7 @@ describe('forget() scopedPurge — (d) per-instance independence', () => {
       const db = await createNoydb({
         store, user: 'alice', secret: SECRET,
         historyStrategy: withHistory(),
-        forgetStrategy: withForgetCascade({
+        forgetStrategy: withForget({
           subjects: { people: 'subjectId' },
           ...(scopedPurge !== undefined ? { scopedPurge } : {}),
         }),

@@ -1,5 +1,5 @@
 import { ValidationError } from '../../kernel/errors.js'
-import type { DerivationStrategy, DerivationStrategyHandle } from './types.js'
+import type { DerivationSpec, DerivationStrategy } from './types.js'
 
 /**
  * Register a deterministic derivation: one source collection → one or
@@ -12,7 +12,7 @@ import type { DerivationStrategy, DerivationStrategyHandle } from './types.js'
 export function withDerivation<
   TSource extends Record<string, unknown>,
   TOutputs extends Record<string, Record<string, unknown> | ReadonlyArray<Record<string, unknown>>>,
->(spec: DerivationStrategy<TSource, TOutputs>): DerivationStrategyHandle {
+>(spec: DerivationSpec<TSource, TOutputs>): DerivationStrategy {
   if (!spec.source || spec.source.length === 0) {
     throw new ValidationError('withDerivation: source collection name is required')
   }
@@ -107,6 +107,6 @@ export function withDerivation<
   return {
     __noydb_strategy: 'derivation',
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    spec: spec as DerivationStrategy<any, any>,
+    spec: spec as DerivationSpec<any, any>,
   }
 }
