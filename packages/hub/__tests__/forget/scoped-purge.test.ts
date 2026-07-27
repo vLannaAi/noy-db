@@ -108,7 +108,7 @@ describe('forget() scopedPurge — (a) DEFAULT parity (unconditional, pins today
       sealedRecordStrategy: withSealedRecord(),
     })
     const vault = await db.openVault('v')
-    const people = vault.collection<Person, 'ssn'>('people', { perRecordKeys: true, sensitive: ['ssn'] })
+    const people = vault.collection<Person, { sensitive: 'ssn' }>('people', { perRecordKeys: true, sensitive: ['ssn'] })
     await people.put('p1', { id: 'p1', subjectId: 'subject-1', name: 'Ada', ssn: '123-45-6789' })
 
     const host = new MemoryRecipientSealer({ id: 'kms:host-A' })
@@ -145,7 +145,7 @@ describe('forget() scopedPurge — (b) SCOPED mode: sealed-CEK arm', () => {
     })
     // undeclared: bare `sensitive` (no classified binder) — can still be
     // sealed to a host ad hoc (the exact gap #633 names).
-    const people = vault.collection<Person, 'ssn'>('people', { perRecordKeys: true, sensitive: ['ssn'] })
+    const people = vault.collection<Person, { sensitive: 'ssn' }>('people', { perRecordKeys: true, sensitive: ['ssn'] })
     return { store, vault, contacts, people }
   }
 
@@ -232,7 +232,7 @@ describe('forget() scopedPurge — (d) per-instance independence', () => {
         sealedRecordStrategy: withSealedRecord(),
       })
       const vault = await db.openVault('v')
-      const people = vault.collection<Person, 'ssn'>('people', { perRecordKeys: true, sensitive: ['ssn'] })
+      const people = vault.collection<Person, { sensitive: 'ssn' }>('people', { perRecordKeys: true, sensitive: ['ssn'] })
       await people.put('p1', { id: 'p1', subjectId: 'subject-1', name: 'Ada', ssn: '123-45-6789' })
       const host = new MemoryRecipientSealer({ id: 'kms:host-A' })
       const { pid } = await vault.sealRecordToHost('people', 'p1', host, {

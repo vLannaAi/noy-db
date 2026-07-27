@@ -113,7 +113,7 @@ describe('#306 Slice C — envelopePayloadHash binds _sealed', () => {
       historyStrategy: withHistory(),
     })
     const vault = await db.openVault('firm')
-    const people = vault.collection<Person, 'ssn'>('people', { perRecordKeys: true, sensitive: ['ssn'] })
+    const people = vault.collection<Person, { sensitive: 'ssn' }>('people', { perRecordKeys: true, sensitive: ['ssn'] })
     await people.put('p1', { id: 'p1', name: 'Ann', ssn: '123-45-6789' })
 
     expect((await vault.verifyBackupIntegrity()).ok).toBe(true)
@@ -145,7 +145,7 @@ describe('#306 Slice C — envelopePayloadHash binds _sealed', () => {
       historyStrategy: withHistory(),
     })
     const vault = await db.openVault('firm')
-    const people = vault.collection<Person, 'ssn'>('people', { perRecordKeys: true, sensitive: ['ssn'] })
+    const people = vault.collection<Person, { sensitive: 'ssn' }>('people', { perRecordKeys: true, sensitive: ['ssn'] })
     await people.put('p1', { id: 'p1', name: 'Ann', ssn: '123-45-6789' })
 
     expect((await vault.verifyBackupIntegrity()).ok).toBe(true)

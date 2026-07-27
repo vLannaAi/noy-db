@@ -11,6 +11,7 @@ import type {
   CrossTierAccessEvent,
   Role,
   VaultUserApi,
+  CollectionShape, SensitiveOf, IndexedOf, MoneyOf,
 } from './types.js'
 import type { Noydb } from './noydb.js'
 import type { IssueDelegationOptions, DelegationToken } from '../with-party/team/delegation.js'
@@ -635,10 +636,11 @@ export class Vault {
     }
   }
 
-  collection<T, S extends keyof T & string = never, Q extends keyof T & string = never, M extends keyof T & string = never>(
+  collection<T, O extends CollectionShape<T> = Record<never, never>>(
     collectionName: string,
-    options?: OpenCollectionOptions<T, S, Q, M>,
-  ): Collection<T, S, Q, M> {
+    options?: OpenCollectionOptions<T, SensitiveOf<T, O>, IndexedOf<T, O>, MoneyOf<T, O>>,
+  ): Collection<T, SensitiveOf<T, O>, IndexedOf<T, O>, MoneyOf<T, O>> {
+    type S = SensitiveOf<T, O>; type Q = IndexedOf<T, O>; type M = MoneyOf<T, O> // #839
     // Overlay intercept. When the requested collection name
     // matches a registered `withOverlayedView`, return the virtual
     // proxy that merges base + overlay on read and routes writes to
