@@ -2893,32 +2893,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   async dispatchMaterializedViewsOnDelete(id: string): Promise<{ deleted: number; residueUndecodable: string[]; residueDeclined: string[] }> {
     if (this.materializedViewSource === undefined) return { deleted: 0, residueUndecodable: [], residueDeclined: [] }
-    const registry = this.materializedViewSource.registry()
-    const mvs = registry.mvsForSource(this.name)
-    if (mvs.length === 0) return { deleted: 0, residueUndecodable: [], residueDeclined: [] }
-    let executor: typeof MVExecutorType | null = null; let staleHelpers: typeof MVStaleModule | null = null
-    let deleted = 0; const residueUndecodable: string[] = []; const residueDeclined: string[] = []
-    for (const reg of mvs) {
-      const mode = reg.spec.refresh
-      if (mode === 'eager') {
-        if (executor === null) {
-          ;({ MaterializedViewExecutor: executor } = await import('../with-formula/materialized-views/executor.js'))
-        }
-        const rr = await executor.refresh(reg, {
-          getCollection: (name) => this.materializedViewSource!.getCollection(name),
-          getActiveTxContext: () => this.materializedViewSource!.getActiveTxContext(),
-          getQueryContext: () => this.materializedViewSource!.getQueryContext(),
-          dispatchCtx: this.#dispatchCtx({ collection: this.name, id }),
-        }); deleted += rr.deleted; residueUndecodable.push(...rr.residueUndecodable); residueDeclined.push(...rr.residueDeclined) // #782/#785 — eager leg now reports both channels
-      } else {
-        if (staleHelpers === null) {
-          staleHelpers = await import('../with-formula/materialized-views/stale.js')
-        }
-        const inv = await staleHelpers.invalidateMVAtRest(this.materializedViewSource, reg, mode)
-        deleted += inv.deleted; residueUndecodable.push(...inv.residueUndecodable.map((rid) => `${reg.outputCollection}:${rid}`)); residueDeclined.push(...inv.residueDeclined.map((rid) => `${reg.outputCollection}:${rid}`))
-      }
-    }
-    return { deleted, residueUndecodable, residueDeclined }
+    // S4 gate: dynamic import only — see #derivationDeleteCtx (#842).
+    const { dispatchMaterializedViewsOnDelete } = await import('../with-formula/materialized-views/dispatch.js')
+    return dispatchMaterializedViewsOnDelete({
+      materializedViewSource: this.materializedViewSource,
+      collectionName: this.name,
+      dispatchCtx: (source) => this.#dispatchCtx(source),
+    }, id)
   }
 
   /**
