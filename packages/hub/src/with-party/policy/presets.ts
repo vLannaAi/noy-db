@@ -13,13 +13,13 @@ import type { VaultPolicy } from '../../kernel/types.js'
  * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/session-tiers.md → Built-in gates
  */
 export const PERSONAL_POLICY: VaultPolicy = Object.freeze({
-  passphrase: {
+  secret: {
     minWords: 6,
     minWordLength: 3,
     rejectRepeatedAdjacent: true,
   },
   gates: {
-    'rotate-passphrase': {
+    'rotate-secret': {
       minTier: 1,
       // Any second factor satisfies the gate — off-device kinds (TOTP,
       // email-OTP, paper recovery, roaming WebAuthn) are the strongest;
@@ -35,13 +35,13 @@ export const PERSONAL_POLICY: VaultPolicy = Object.freeze({
         ],
       }],
     },
-    'recover-passphrase': {
+    'recover-secret': {
       minTier: 1,
       enabled: true,
     },
     // rotate-recovery: deliberate paper-sheet regeneration
-    // when the user remembers their passphrase. PERSONAL allows tier-1 —
-    // knowing the passphrase is enough.
+    // when the user remembers their secret. PERSONAL allows tier-1 —
+    // knowing the secret is enough.
     'rotate-recovery': { minTier: 1 },
     'enroll-authenticator': { minTier: 1 },
     'remove-authenticator': { minTier: 1 },
@@ -107,17 +107,17 @@ export const PERSONAL_POLICY: VaultPolicy = Object.freeze({
  * tweaks.
  */
 export const STRICT_POLICY: VaultPolicy = Object.freeze({
-  passphrase: {
+  secret: {
     minWords: 8,
     minWordLength: 3,
     rejectRepeatedAdjacent: true,
   },
   gates: {
-    'rotate-passphrase': {
+    'rotate-secret': {
       minTier: 1,
       factors: [{ anyOf: ['totp', 'email-otp', 'recovery'], count: 2 }],
     },
-    'recover-passphrase': {
+    'recover-secret': {
       minTier: 1,
       enabled: true,
     },
@@ -243,9 +243,9 @@ export function mergePolicy(
   override?: Partial<VaultPolicy>,
 ): VaultPolicy {
   if (!override) return base
-  const passphrase = override.passphrase ?? base.passphrase
+  const secret = override.secret ?? base.secret
   return {
-    ...(passphrase !== undefined ? { passphrase } : {}),
+    ...(secret !== undefined ? { secret } : {}),
     gates: {
       ...base.gates,
       ...(override.gates ?? {}),

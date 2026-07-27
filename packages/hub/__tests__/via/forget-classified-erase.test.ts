@@ -19,7 +19,7 @@ import { inlineMemory } from '../classified/harness.js'
 
 interface Person { id: string; subjectId: string; email: string }
 
-const SECRET = 'via-erase-fold-classified-passphrase-2026'
+const SECRET = 'via-erase-fold-classified-secret-2026'
 
 async function setup() {
   const store = inlineMemory()

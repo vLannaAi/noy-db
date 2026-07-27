@@ -1,10 +1,10 @@
 # @noy-db/at-macos-keychain
 
-**macOS Keychain sealing key provider for noy-db [managed-passphrase mode](https://github.com/vLannaAi/noy-db/issues/14).**
+**macOS Keychain sealing key provider for noy-db [managed-secret mode](https://github.com/vLannaAi/noy-db/issues/14).**
 
 Desktop-app provider in the `at-*` family. Binds the sealing key to the user's macOS login Keychain — accessible only to processes running as the same user, optionally gated by Touch ID via Keychain Access UI.
 
-The user never sees or types a passphrase. The 32-byte AES-256-GCM key lives in the Keychain; the vault opens only when the same OS user (and optionally same biometric) is present.
+The user never sees or types a secret. The 32-byte AES-256-GCM key lives in the Keychain; the vault opens only when the same OS user (and optionally same biometric) is present.
 
 ## Install
 
@@ -24,7 +24,7 @@ import { macosKeychainSealingProvider } from '@noy-db/at-macos-keychain'
 const db = await createNoydb({
   store,
   user: 'alice',
-  passphraseMode: 'managed',
+  secretMode: 'managed',
   sealingKey: macosKeychainSealingProvider({
     service: 'com.acme.app',          // your app's bundle id
     account: 'alice@acme.example',    // per-user keychain item
@@ -33,9 +33,9 @@ const db = await createNoydb({
 
 const vault = db.vault('acme')
 // First open: provider generates a fresh 32-byte AES-256 key, stores it
-// in the Keychain, hub uses it to seal a random passphrase. Subsequent
+// in the Keychain, hub uses it to seal a random secret. Subsequent
 // opens (this process or any future process running as alice on this
-// Mac) retrieve the same key, unseal transparently. No passphrase
+// Mac) retrieve the same key, unseal transparently. No secret
 // prompt ever appears.
 ```
 
@@ -57,7 +57,7 @@ const vault = db.vault('acme')
 macos-keychain:<service>/<account>
 ```
 
-E.g., `macos-keychain:com.acme.app/alice@acme.example`. This format is **frozen** per the [sealing pid stability rule](https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/sealing-pid-stability.md) — once shipped, it never changes. The hub uses it as the dispatch key when reading an existing `_meta/sealed-passphrase` envelope.
+E.g., `macos-keychain:com.acme.app/alice@acme.example`. This format is **frozen** per the [sealing pid stability rule](https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/sealing-pid-stability.md) — once shipped, it never changes. The hub uses it as the dispatch key when reading an existing `_meta/sealed-secret` envelope.
 
 ## Touch ID
 
@@ -90,7 +90,7 @@ function macosKeychainSealingProvider(opts: {
 }): SealingKeyProvider
 ```
 
-Returns a [`SealingKeyProvider`](../hub/src/team/managed-passphrase.ts) — the contract `@noy-db/hub`'s managed-passphrase mode consumes.
+Returns a [`SealingKeyProvider`](../hub/src/team/managed-secret.ts) — the contract `@noy-db/hub`'s managed-secret mode consumes.
 
 Throws at construction when `service` or `account` is empty, or when running on a non-darwin platform without a test stub.
 

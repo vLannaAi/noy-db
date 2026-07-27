@@ -32,13 +32,13 @@ function makeStore(): NoydbStore {
 describe('#413 — debug-plaintext store mode', () => {
   it('rejects debugPlaintext combined with encryption (explicit)', async () => {
     await expect(
-      createNoydb({ store: makeStore(), user: 'op', secret: 'passphrase-1234-long-enough', encrypt: true, debugPlaintext: true }),
+      createNoydb({ store: makeStore(), user: 'op', secret: 'secret-1234-long-enough', encrypt: true, debugPlaintext: true }),
     ).rejects.toBeInstanceOf(DebugPlaintextError)
   })
 
   it('rejects debugPlaintext with default (encryption on)', async () => {
     await expect(
-      createNoydb({ store: makeStore(), user: 'op', secret: 'passphrase-1234-long-enough', debugPlaintext: true }),
+      createNoydb({ store: makeStore(), user: 'op', secret: 'secret-1234-long-enough', debugPlaintext: true }),
     ).rejects.toBeInstanceOf(DebugPlaintextError)
   })
 

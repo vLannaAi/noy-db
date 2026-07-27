@@ -15,7 +15,7 @@
  * Requests live in the reserved `_user_withdrawal_requests` namespace. The
  * record body is plaintext metadata (collection names + disposition + legal
  * basis — none secret in this trust model; the owner sees the data anyway) and
- * carries NO passphrase: the re-key passphrase is supplied by the approver at
+ * carries NO secret: the re-key secret is supplied by the approver at
  * approval time and conveyed to the requester out-of-band, so no secret is
  * stored at rest.
  */
@@ -156,8 +156,8 @@ function assertPending(req: WithdrawalRequest): void {
 }
 
 export interface ApproveWithdrawalOptions {
-  /** Re-key the handed-back bundle to a passphrase the requester will use. */
-  readonly reKey?: { readonly passphrase: string }
+  /** Re-key the handed-back bundle to a secret the requester will use. */
+  readonly reKey?: { readonly secret: string }
 }
 
 /**

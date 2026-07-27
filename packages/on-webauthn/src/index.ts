@@ -13,7 +13,7 @@
  * This package uses the **PRF (Pseudo-Random Function) extension** when
  * available to derive a deterministic wrapping key from the WebAuthn
  * credential. The PRF output is consistent across assertions on the same
- * device/credential, enabling unlock-without-passphrase while keeping the
+ * device/credential, enabling unlock-without-secret while keeping the
  * derived key bound to the physical authenticator.
  *
  * When PRF is not supported by the authenticator (common on older hardware),
@@ -39,7 +39,7 @@
  *
  * Enrollment flow
  * ───────────────
- * 1. User is already authenticated (passphrase or existing session).
+ * 1. User is already authenticated (secret or existing session).
  * 2. Call `enrollWebAuthn(keyring, options)`.
  * 3. WebAuthn credential is created; PRF or rawId-derived key wraps the KEK.
  * 4. Returns a `WebAuthnEnrollment` — persist this to the noy-db adapter
@@ -67,7 +67,7 @@ export { ValidationError } from '@noy-db/hub'
  * Thrown when the WebAuthn API is not available in the current environment.
  *
  * Check `isWebAuthnAvailable()` before calling `enrollWebAuthn()` or
- * `unlockWebAuthn()` and show a fallback UI (passphrase entry) if this
+ * `unlockWebAuthn()` and show a fallback UI (secret entry) if this
  * returns false. Common scenarios: Node.js environments, older browsers,
  * non-HTTPS origins (WebAuthn requires a Secure Context).
  */
@@ -85,7 +85,7 @@ export class WebAuthnNotAvailableError extends Error {
  * The `op` field distinguishes enrollment cancellation (user chose not to
  * enroll a hardware key) from assertion cancellation (user dismissed the
  * unlock prompt). Treat this as a user-initiated action, not an error — show
- * a "use passphrase instead" option rather than an error message.
+ * a "use secret instead" option rather than an error message.
  */
 export class WebAuthnCancelledError extends Error {
   readonly code = 'WEBAUTHN_CANCELLED'
@@ -397,7 +397,7 @@ async function unwrapKeyringSummary(
 /**
  * Enroll a WebAuthn credential for the given keyring.
  *
- * The caller must already have an unlocked keyring (from passphrase auth or
+ * The caller must already have an unlocked keyring (from secret auth or
  * an existing session). The WebAuthn credential creation prompt is triggered
  * by this call.
  *
@@ -574,16 +574,16 @@ export async function unlockWebAuthn(
 
 /**
  * `SlotRewrapCeremony` for WebAuthn slots — used by hub's
- * `rotatePassphrase({ slotCeremonies: { [slotId]: webAuthnSlotRewrapCeremony } })`
+ * `rotateSecret({ slotCeremonies: { [slotId]: webAuthnSlotRewrapCeremony } })`
  * to preserve a tier-2 WebAuthn enrollment across a tier-1 phrase
  * rotation without requiring re-enrollment of the credential.
  *
  * The credential itself is unaffected by phrase rotation — the
  * wrapping key derived from PRF (or rawId fallback) is bound to the
- * authenticator, not to the passphrase. What needs to change is the
+ * authenticator, not to the secret. What needs to change is the
  * **wrapped payload**: the encrypted blob the slot's `wrapped_kek`
  * field holds. After rotation, the old payload still has the old
- * DEKs (now stale because rotatePassphrase rewrapped them under a
+ * DEKs (now stale because rotateSecret rewrapped them under a
  * fresh KEK); the new payload must hold the freshly rewrapped
  * `ctx.newDeks`.
  *

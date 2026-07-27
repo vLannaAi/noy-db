@@ -79,7 +79,7 @@ describe('dumpSchema() — derivations (Gap 1)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'dumpschema-derivations-passphrase-2026',
+      secret: 'dumpschema-derivations-secret-2026',
       derivationStrategies: [handle],
     })
     const vault = await db.openVault('acme')
@@ -123,7 +123,7 @@ describe('dumpSchema() — overlay views (Gap 2)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'dumpschema-overlay-passphrase-2026',
+      secret: 'dumpschema-overlay-secret-2026',
       materializedViewStrategies: [baseMV],
       overlayedViewStrategies: [overlay],
     })
@@ -180,7 +180,7 @@ describe('dumpSchema() — co-sourced derivations (#295 regression)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'dumpschema-cosourced-passphrase-2026',
+      secret: 'dumpschema-cosourced-secret-2026',
       derivationStrategies: [summaryHandle, statusHandle],
     })
     const vault = await db.openVault('acme')
@@ -236,7 +236,7 @@ describe('dumpSchema() — MV aggregate ops (Gap 3)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'dumpschema-aggregate-passphrase-2026',
+      secret: 'dumpschema-aggregate-secret-2026',
       aggregateStrategy: withAggregate(),
       materializedViewStrategies: [mv],
     })
@@ -278,7 +278,7 @@ describe('dumpSchema() — MV aggregate ops (Gap 3)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'dumpschema-count-passphrase-2026',
+      secret: 'dumpschema-count-secret-2026',
       aggregateStrategy: withAggregate(),
       materializedViewStrategies: [mv],
     })

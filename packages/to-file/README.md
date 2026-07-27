@@ -19,7 +19,7 @@ import { file } from '@noy-db/to-file'
 const db = await createNoydb({
   adapter: file({ dir: '/Volumes/USB/firm-data' }),
   userId: 'alice',
-  passphrase: process.env.NOYDB_PASSPHRASE!,
+  secret: process.env.NOYDB_SECRET!,
 })
 ```
 
@@ -27,7 +27,7 @@ Each compartment is written as a set of JSON files containing only ciphertext en
 
 - USB-stick workflows (air-gapped data portability)
 - Local-first desktop apps
-- Network drive sharing with per-user passphrases
+- Network drive sharing with per-user secrets
 - Backup-friendly storage
 
 ## License

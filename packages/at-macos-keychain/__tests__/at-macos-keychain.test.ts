@@ -1,6 +1,6 @@
 /**
  * Unit tests for @noy-db/at-macos-keychain — macOS Keychain sealing
- * key provider for managed-passphrase mode.
+ * key provider for managed-secret mode.
  *
  * These tests use an INJECTED memory-backed `KeychainEntry` stub
  * (via the `entry` option), so they run on every platform without
@@ -67,11 +67,11 @@ describe('@noy-db/at-macos-keychain — seal/unseal pipeline', () => {
       account: 'alice',
       entry: memoryEntry(),
     })
-    const original = new TextEncoder().encode('the managed passphrase bytes')
+    const original = new TextEncoder().encode('the managed secret bytes')
     const sealed = await p.seal(original)
     expect(sealed).not.toEqual(original) // ciphertext differs
     const unsealed = await p.unseal(sealed)
-    expect(new TextDecoder().decode(unsealed)).toBe('the managed passphrase bytes')
+    expect(new TextDecoder().decode(unsealed)).toBe('the managed secret bytes')
   })
 
   it('produces different ciphertext for same plaintext (fresh IV per seal)', async () => {

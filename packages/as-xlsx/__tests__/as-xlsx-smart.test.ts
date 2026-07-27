@@ -22,7 +22,7 @@ async function setup() {
   const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
   await init.openVault('firm')
   await init.grant('firm', {
-    userId: 'alice', displayName: 'Alice', role: 'owner', passphrase: 'pw-2026',
+    userId: 'alice', displayName: 'Alice', role: 'owner', secret: 'pw-2026',
     exportCapability: { plaintext: ['xlsx'] },
   })
   init.close()
@@ -106,7 +106,7 @@ describe('#414 P1 — smart export', () => {
     const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-i18n' })
     await init.openVault('shop')
     await init.grant('shop', {
-      userId: 'alice', displayName: 'Alice', role: 'owner', passphrase: 'pw-i18n',
+      userId: 'alice', displayName: 'Alice', role: 'owner', secret: 'pw-i18n',
       exportCapability: { plaintext: ['xlsx'] },
     })
     init.close()
@@ -140,7 +140,7 @@ describe('#414 P1 — smart export', () => {
     const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-dict' })
     await init.openVault('co')
     await init.grant('co', {
-      userId: 'alice', displayName: 'Alice', role: 'owner', passphrase: 'pw-dict',
+      userId: 'alice', displayName: 'Alice', role: 'owner', secret: 'pw-dict',
       exportCapability: { plaintext: ['xlsx'] },
     })
     init.close()
@@ -176,7 +176,7 @@ describe('#414 P1 — smart export', () => {
     const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-sum' })
     await init.openVault('firm')
     await init.grant('firm', {
-      userId: 'alice', displayName: 'Alice', role: 'owner', passphrase: 'pw-sum',
+      userId: 'alice', displayName: 'Alice', role: 'owner', secret: 'pw-sum',
       exportCapability: { plaintext: ['xlsx'] },
     })
     init.close()
@@ -216,7 +216,7 @@ describe('#414 P1 — smart export', () => {
     const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-rt' })
     await init.openVault('shop')
     await init.grant('shop', {
-      userId: 'alice', displayName: 'Alice', role: 'owner', passphrase: 'pw-rt',
+      userId: 'alice', displayName: 'Alice', role: 'owner', secret: 'pw-rt',
       exportCapability: { plaintext: ['xlsx'] }, importCapability: { plaintext: ['xlsx'] },
     })
     init.close()

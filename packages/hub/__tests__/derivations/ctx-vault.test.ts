@@ -78,7 +78,7 @@ describe('Derivation — ctx.vault facade (#147)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-ctx-vault-passphrase-2026',
+      secret: 'derivation-ctx-vault-secret-2026',
       derivationStrategies: [strategy],
     })
     const v = await db.openVault('demo')
@@ -115,7 +115,7 @@ describe('Derivation — ctx.vault facade (#147)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-ctx-no-writes-passphrase-2026',
+      secret: 'derivation-ctx-no-writes-secret-2026',
       derivationStrategies: [strategy],
     })
     const v = await db.openVault('demo')
@@ -156,7 +156,7 @@ describe('Derivation — ctx.vault facade (#147)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-ctx-vault-lazy-passphrase-2026',
+      secret: 'derivation-ctx-vault-lazy-secret-2026',
       derivationStrategies: [strategy],
     })
     const v = await db.openVault('demo')

@@ -43,7 +43,7 @@ describe('guards-gate-migration — gate handler registration', () => {
     const plain = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-gate-plain-passphrase-2026',
+      secret: 'guards-gate-plain-secret-2026',
     })
     expect((plain as any)._subsystemBus.hasGateHandlers('beforePut')).toBe(false)
   })
@@ -56,7 +56,7 @@ describe('guards-gate-migration — gate handler registration', () => {
     const g = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-gate-registered-passphrase-2026',
+      secret: 'guards-gate-registered-secret-2026',
       guardStrategies: [guard],
     })
     expect((g as any)._subsystemBus.hasGateHandlers('beforePut')).toBe(true)
@@ -70,7 +70,7 @@ describe('guards-gate-migration — gate handler registration', () => {
     const g = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-gate-delete-registered-passphrase-2026',
+      secret: 'guards-gate-delete-registered-secret-2026',
       guardStrategies: [guard],
     })
     expect((g as any)._subsystemBus.hasGateHandlers('beforeDelete')).toBe(true)
@@ -93,7 +93,7 @@ describe('guards-gate-migration — enforcement via gate', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-gate-enforcement-passphrase-2026',
+      secret: 'guards-gate-enforcement-secret-2026',
       guardStrategies: [invoiceGuard],
     })
     const v = await db.openVault('demo')

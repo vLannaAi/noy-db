@@ -1,19 +1,19 @@
 /**
- * PR3 — FactorKind extension (#30) + PassphrasePolicy escape hatches (#31).
+ * PR3 — FactorKind extension (#30) + SecretPolicy escape hatches (#31).
  *
  * Pinned behaviors:
  *
  * #30 — FactorKind:
  *   - The new kinds (`webauthn-platform`, `password`, `pin`) are
  *     accepted by `FactorRequirement.anyOf` and `FactorProof.kind`.
- *   - PERSONAL_POLICY's `rotate-passphrase` accepts ALL kinds (the
+ *   - PERSONAL_POLICY's `rotate-secret` accepts ALL kinds (the
  *     "any second factor I have wired" semantics).
  *   - STRICT_POLICY's `peer-recover-user` accepts only off-device
  *     kinds (recovery / TOTP / email-OTP / roaming WebAuthn) — the
  *     platform-bound kinds are intentionally excluded under STRICT
  *     because they don't survive device theft.
  *
- * #31 — PassphrasePolicy escape hatches:
+ * #31 — SecretPolicy escape hatches:
  *   - Default behavior unchanged (lowercase-letters-and-spaces only).
  *   - `pattern` override accepts digits / uppercase / non-Latin
  *     scripts but other structural rules still apply.
@@ -27,10 +27,10 @@ import {
   type FactorProof,
 } from '../src/with-party/policy/index.js'
 import {
-  validatePassphrase,
-  assertStrongPassphrase,
-  WeakPassphraseError,
-  type PassphraseValidationResult,
+  validateSecret,
+  assertStrongSecret,
+  WeakSecretError,
+  type SecretValidationResult,
 } from '../src/kernel/validation.js'
 
 describe('FactorKind extension (#30)', () => {
@@ -48,8 +48,8 @@ describe('FactorKind extension (#30)', () => {
     expect(original).toHaveLength(5)
   })
 
-  it('PERSONAL_POLICY rotate-passphrase accepts ALL kinds (closes #30 default)', () => {
-    const gate = PERSONAL_POLICY.gates['rotate-passphrase']
+  it('PERSONAL_POLICY rotate-secret accepts ALL kinds (closes #30 default)', () => {
+    const gate = PERSONAL_POLICY.gates['rotate-secret']
     expect(gate?.factors).toBeDefined()
     const accepted = new Set(gate!.factors![0]!.anyOf)
     // All 8 kinds present.
@@ -78,21 +78,21 @@ describe('FactorKind extension (#30)', () => {
   })
 })
 
-describe('PassphrasePolicy escape hatches (#31)', () => {
+describe('SecretPolicy escape hatches (#31)', () => {
   describe('default behavior unchanged', () => {
     it('accepts the canonical 6-lowercase-words phrase', () => {
-      const r = validatePassphrase('correct horse battery staple printer toaster')
+      const r = validateSecret('correct horse battery staple printer toaster')
       expect(r.ok).toBe(true)
     })
 
     it('rejects digits by default', () => {
-      const r = validatePassphrase('correct horse battery staple printer 2026')
+      const r = validateSecret('correct horse battery staple printer 2026')
       expect(r.ok).toBe(false)
       if (!r.ok) expect(r.reason).toBe('invalid-chars')
     })
 
     it('rejects uppercase by default', () => {
-      const r = validatePassphrase('Correct horse battery staple printer toaster')
+      const r = validateSecret('Correct horse battery staple printer toaster')
       expect(r.ok).toBe(false)
       if (!r.ok) expect(r.reason).toBe('invalid-chars')
     })
@@ -100,14 +100,14 @@ describe('PassphrasePolicy escape hatches (#31)', () => {
 
   describe('pattern override (looser char class, tighter structure)', () => {
     it('accepts digits when pattern allows them', () => {
-      const r = validatePassphrase('correct horse battery staple printer 2026', {
+      const r = validateSecret('correct horse battery staple printer 2026', {
         pattern: /^[a-z0-9]+( [a-z0-9]+)*$/,
       })
       expect(r.ok).toBe(true)
     })
 
     it('accepts uppercase when pattern allows it', () => {
-      const r = validatePassphrase('Correct Horse Battery Staple Printer Toaster', {
+      const r = validateSecret('Correct Horse Battery Staple Printer Toaster', {
         pattern: /^[A-Za-z]+( [A-Za-z]+)*$/,
       })
       expect(r.ok).toBe(true)
@@ -119,14 +119,14 @@ describe('PassphrasePolicy escape hatches (#31)', () => {
       // \p{M} (combining marks: vowel signs, tone marks). The pattern
       // class [\p{L}\p{M}] captures complete Thai grapheme clusters.
       const phrase = 'สวัสดี ทุกคน ขอบคุณ ครอบครัว ตำรวจ โรงเรียน'
-      const r = validatePassphrase(phrase, {
+      const r = validateSecret(phrase, {
         pattern: /^[\p{L}\p{M}]+( [\p{L}\p{M}]+)*$/u,
       })
       expect(r.ok).toBe(true)
     })
 
     it('still applies min-words even with permissive pattern', () => {
-      const r = validatePassphrase('correct horse 2026', {
+      const r = validateSecret('correct horse 2026', {
         pattern: /^[a-z0-9]+( [a-z0-9]+)*$/,
       })
       expect(r.ok).toBe(false)
@@ -134,7 +134,7 @@ describe('PassphrasePolicy escape hatches (#31)', () => {
     })
 
     it('still applies min-word-length', () => {
-      const r = validatePassphrase('a b c d e f', {
+      const r = validateSecret('a b c d e f', {
         pattern: /^[a-z]+( [a-z]+)*$/,
       })
       expect(r.ok).toBe(false)
@@ -142,7 +142,7 @@ describe('PassphrasePolicy escape hatches (#31)', () => {
     })
 
     it('still applies repeated-adjacent', () => {
-      const r = validatePassphrase('correct correct battery staple printer toaster', {
+      const r = validateSecret('correct correct battery staple printer toaster', {
         pattern: /^[a-z]+( [a-z]+)*$/,
       })
       expect(r.ok).toBe(false)
@@ -150,13 +150,13 @@ describe('PassphrasePolicy escape hatches (#31)', () => {
     })
 
     it('still applies leading/trailing space and double-space rules', () => {
-      const lt = validatePassphrase(' correct horse battery staple printer toaster', {
+      const lt = validateSecret(' correct horse battery staple printer toaster', {
         pattern: /^[a-z]+( [a-z]+)*$/,
       })
       expect(lt.ok).toBe(false)
       if (!lt.ok) expect(lt.reason).toBe('leading-or-trailing-space')
 
-      const ds = validatePassphrase('correct  horse battery staple printer toaster', {
+      const ds = validateSecret('correct  horse battery staple printer toaster', {
         pattern: /^[a-z]+( [a-z]+)*$/,
       })
       expect(ds.ok).toBe(false)
@@ -167,40 +167,40 @@ describe('PassphrasePolicy escape hatches (#31)', () => {
   describe('customValidator (replace everything)', () => {
     it('takes over completely — none of the default rules run', () => {
       // A custom validator that accepts ANYTHING non-empty.
-      const customValidator = (phrase: string): PassphraseValidationResult =>
+      const customValidator = (phrase: string): SecretValidationResult =>
         phrase.length > 0 ? { ok: true, words: 1 } : { ok: false, reason: 'empty' }
       // This phrase fails default rules (uppercase, digits, double space)
       // but the custom validator accepts it.
-      const r = validatePassphrase('My-PASSWORD-2026', { customValidator })
+      const r = validateSecret('My-PASSWORD-2026', { customValidator })
       expect(r.ok).toBe(true)
     })
 
     it('can REJECT a phrase the default would accept', () => {
       // Custom validator demands the phrase contain a digit.
-      const customValidator = (phrase: string): PassphraseValidationResult =>
+      const customValidator = (phrase: string): SecretValidationResult =>
         /[0-9]/.test(phrase)
           ? { ok: true, words: phrase.split(' ').length }
           : { ok: false, reason: 'invalid-chars' }
       // The canonical 6-lowercase phrase has no digit — would normally pass,
       // but the custom rule rejects it.
-      const r = validatePassphrase('correct horse battery staple printer toaster', { customValidator })
+      const r = validateSecret('correct horse battery staple printer toaster', { customValidator })
       expect(r.ok).toBe(false)
     })
 
-    it('flows through assertStrongPassphrase — custom rejection throws WeakPassphraseError', () => {
-      const customValidator = (): PassphraseValidationResult => ({
+    it('flows through assertStrongSecret — custom rejection throws WeakSecretError', () => {
+      const customValidator = (): SecretValidationResult => ({
         ok: false,
         reason: 'invalid-chars',
       })
       expect(() =>
-        assertStrongPassphrase('anything-at-all', { customValidator }),
-      ).toThrow(WeakPassphraseError)
+        assertStrongSecret('anything-at-all', { customValidator }),
+      ).toThrow(WeakSecretError)
     })
 
     it('customValidator wins over pattern when both supplied (escape hatches don\'t compose)', () => {
-      const customValidator = (): PassphraseValidationResult => ({ ok: true, words: 1 })
+      const customValidator = (): SecretValidationResult => ({ ok: true, words: 1 })
       // pattern would reject digits; customValidator accepts. customValidator wins.
-      const r = validatePassphrase('this 9000 should normally fail', {
+      const r = validateSecret('this 9000 should normally fail', {
         pattern: /^[a-z]+( [a-z]+)*$/,
         customValidator,
       })

@@ -41,8 +41,8 @@ pnpm verify      # run the noy-db integrity check
 pnpm typecheck   # vue-tsc
 ```
 
-First time the page loads it will prompt for a **passphrase** — that
-passphrase derives the master key. Lose it and the data is
+First time the page loads it will prompt for a **secret** — that
+secret derives the master key. Lose it and the data is
 unrecoverable (by design).
 
 ## Project layout

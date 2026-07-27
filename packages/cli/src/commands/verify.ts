@@ -2,13 +2,13 @@
  * `noydb verify <file.noydb>` — integrity check.
  *
  * Validates the three integrity properties of a bundle that can be
- * verified **without the passphrase**:
+ * verified **without the secret**:
  *
  *   1. Magic prefix + format version match what this CLI supports.
  *   2. Header parses as JSON with the minimum-disclosure key set.
  *   3. Compressed body SHA-256 matches `header.bodySha256`.
  *
- * Ledger-head verification (which does need the passphrase) is not
+ * Ledger-head verification (which does need the secret) is not
  * covered here — that's a future enhancement when an `open` subcommand
  * lands. For now, `verify` answers "was this file transmitted intact?"
  * without involving keys.

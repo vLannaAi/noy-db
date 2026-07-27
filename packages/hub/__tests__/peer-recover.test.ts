@@ -11,12 +11,12 @@
  *   4. Anti-privilege-escalation — caller without a target's DEK
  *      throws PrivilegeEscalationError.
  *   5. Tier-2 slots dropped — slots wrap the OLD KEK; recovery
- *      invalidates them (matches rotatePassphrase precedent).
+ *      invalidates them (matches rotateSecret precedent).
  *   6. Identity preserved — userId / role / displayName / capabilities
  *      survive unless explicitly overridden.
  *   7. Atomic-by-construction — a failure mid-recovery (simulated via
  *      a `put`-throwing wrapper store) leaves the original keyring
- *      intact; recipient can still unlock with the OLD passphrase.
+ *      intact; recipient can still unlock with the OLD secret.
  *   8. Hub-level gating — `db.recoverUser` runs `peer-recover-user`
  *      gate before the team function.
  */
@@ -67,12 +67,12 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'admin',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
     })
 
     await recoverUser(store, 'acme', aliceKr, {
       userId: 'bob',
-      passphrase: TEMP_PHRASE,
+      secret: TEMP_PHRASE,
     })
 
     // Old phrase no longer unlocks bob's keyring.
@@ -93,12 +93,12 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'owner',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
     })
 
     // Now bob (also owner) forgets his phrase. Alice (owner) recovers him.
     await expect(
-      recoverUser(store, 'acme', aliceKr, { userId: 'bob', passphrase: TEMP_PHRASE }),
+      recoverUser(store, 'acme', aliceKr, { userId: 'bob', secret: TEMP_PHRASE }),
     ).resolves.toBeUndefined()
 
     const bobReloaded = await loadKeyring(store, 'acme', 'bob', TEMP_PHRASE)
@@ -114,13 +114,13 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
       userId: 'admin1',
       displayName: 'Admin 1',
       role: 'admin',
-      passphrase: 'admin-strong-phrase-with-enough-words-here',
+      secret: 'admin-strong-phrase-with-enough-words-here',
     })
 
     // Admin tries to recover the owner (alice).
     const adminKr = await loadKeyring(store, 'acme', 'admin1', 'admin-strong-phrase-with-enough-words-here')
     await expect(
-      recoverUser(store, 'acme', adminKr, { userId: 'alice', passphrase: TEMP_PHRASE }),
+      recoverUser(store, 'acme', adminKr, { userId: 'alice', secret: TEMP_PHRASE }),
     ).rejects.toBeInstanceOf(PermissionDeniedError)
   }, 60_000)
 
@@ -133,13 +133,13 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
       userId: 'admin1',
       displayName: 'Admin 1',
       role: 'admin',
-      passphrase: 'admin-strong-phrase-with-enough-words-here',
+      secret: 'admin-strong-phrase-with-enough-words-here',
     })
     await grant(store, 'acme', aliceKr, {
       userId: 'bob',
       displayName: 'Bob',
       role: 'operator',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
     })
 
     const adminKr = await loadKeyring(store, 'acme', 'admin1', 'admin-strong-phrase-with-enough-words-here')
@@ -147,7 +147,7 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
       recoverUser(store, 'acme', adminKr, {
         userId: 'bob',
         role: 'owner', // ← role uplift attempt
-        passphrase: TEMP_PHRASE,
+        secret: TEMP_PHRASE,
       }),
     ).rejects.toBeInstanceOf(PermissionDeniedError)
   }, 60_000)
@@ -157,7 +157,7 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
     const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
     await persistKeyring(store, 'acme', aliceKr)
     await expect(
-      recoverUser(store, 'acme', aliceKr, { userId: 'ghost', passphrase: TEMP_PHRASE }),
+      recoverUser(store, 'acme', aliceKr, { userId: 'ghost', secret: TEMP_PHRASE }),
     ).rejects.toBeInstanceOf(NoAccessError)
   })
 
@@ -170,7 +170,7 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'admin',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
     })
     // Drop the 'invoices' DEK from caller's in-memory keyring AFTER
     // bob has it — simulates "the caller's DEK set is narrower than
@@ -179,11 +179,11 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
     aliceKr.deks.delete('invoices')
 
     await expect(
-      recoverUser(store, 'acme', aliceKr, { userId: 'bob', passphrase: TEMP_PHRASE }),
+      recoverUser(store, 'acme', aliceKr, { userId: 'bob', secret: TEMP_PHRASE }),
     ).rejects.toBeInstanceOf(PrivilegeEscalationError)
   }, 60_000)
 
-  it('drops tier-2 authenticator slots on recovery (matches rotatePassphrase precedent)', async () => {
+  it('drops tier-2 authenticator slots on recovery (matches rotateSecret precedent)', async () => {
     const store = inlineMemory()
     const aliceKr = await createOwnerKeyring(store, 'acme', 'alice', ALICE_PHRASE)
     aliceKr.deks.set('invoices', await generateDEK())
@@ -192,7 +192,7 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'admin',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
     })
 
     // Simulate bob having enrolled a tier-2 slot before recovery —
@@ -214,7 +214,7 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
       _data: JSON.stringify(fileWithSlot),
     })
 
-    await recoverUser(store, 'acme', aliceKr, { userId: 'bob', passphrase: TEMP_PHRASE })
+    await recoverUser(store, 'acme', aliceKr, { userId: 'bob', secret: TEMP_PHRASE })
 
     const bobReloaded = await loadKeyring(store, 'acme', 'bob', TEMP_PHRASE)
     expect(bobReloaded.authenticators).toHaveLength(0)
@@ -229,10 +229,10 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
       userId: 'bob',
       displayName: 'Bob the Original',
       role: 'admin',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
     })
 
-    await recoverUser(store, 'acme', aliceKr, { userId: 'bob', passphrase: TEMP_PHRASE })
+    await recoverUser(store, 'acme', aliceKr, { userId: 'bob', secret: TEMP_PHRASE })
 
     const bobReloaded = await loadKeyring(store, 'acme', 'bob', TEMP_PHRASE)
     expect(bobReloaded.userId).toBe('bob')
@@ -249,12 +249,12 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
       userId: 'bob',
       displayName: 'Bob the Original',
       role: 'admin',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
     })
 
     await recoverUser(store, 'acme', aliceKr, {
       userId: 'bob',
-      passphrase: TEMP_PHRASE,
+      secret: TEMP_PHRASE,
       displayName: 'Bob the Recovered',
     })
 
@@ -271,7 +271,7 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'admin',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
     })
 
     // Wrap the store so any put against `_keyring` throws — simulates
@@ -290,7 +290,7 @@ describe('recoverUser (#34 atomicity, #33 owner→owner)', () => {
     } as unknown as NoydbStore
 
     await expect(
-      recoverUser(failingStore, 'acme', aliceKr, { userId: 'bob', passphrase: TEMP_PHRASE }),
+      recoverUser(failingStore, 'acme', aliceKr, { userId: 'bob', secret: TEMP_PHRASE }),
     ).rejects.toThrow('simulated backend write failure')
 
     // Original keyring still unlocks with the OLD phrase.
@@ -318,18 +318,18 @@ describe('db.recoverUser (#33 + #34 hub-level integration)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'admin',
-      passphrase: BOB_PHRASE,
+      secret: BOB_PHRASE,
     }, { factors: [{ kind: 'totp', mintedAt: new Date().toISOString() }] })
 
     // Without a factor proof, the gate denies.
     await expect(
-      db.team.recoverUser('acme', { userId: 'bob', passphrase: TEMP_PHRASE }),
+      db.team.recoverUser('acme', { userId: 'bob', secret: TEMP_PHRASE }),
     ).rejects.toBeInstanceOf(PolicyDeniedError)
 
     // With a recovery factor proof, recovery succeeds.
     await db.team.recoverUser(
       'acme',
-      { userId: 'bob', passphrase: TEMP_PHRASE },
+      { userId: 'bob', secret: TEMP_PHRASE },
       { factors: [{ kind: 'recovery', mintedAt: new Date().toISOString() }] },
     )
 

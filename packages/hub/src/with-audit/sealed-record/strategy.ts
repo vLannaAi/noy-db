@@ -13,7 +13,7 @@
  * @internal
  */
 import type { SealingContext } from '../../kernel/enclave/index.js'
-import type { RecipientSealer } from '../../with-party/team/managed-passphrase.js'
+import type { RecipientSealer } from '../../with-party/team/managed-secret.js'
 import { SealedRecordNotEnabledError } from '../../kernel/errors.js'
 
 export interface SealedRecordStrategy {

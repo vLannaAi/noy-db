@@ -78,7 +78,7 @@ describe('happy path', () => {
     // Grant self (owner) + csv format
     await db.grant('acme', {
       userId: 'owner-01', displayName: 'Owner', role: 'owner',
-      passphrase: 'owner-pass',
+      secret: 'owner-pass',
       exportCapability: { plaintext: ['csv'] },
     })
     await db.close()
@@ -113,7 +113,7 @@ describe('authorization refusals', () => {
     const { db, adapter } = await seedVault()
     await db.grant('acme', {
       userId: 'op', displayName: 'Op', role: 'operator',
-      passphrase: 'op-pass',
+      secret: 'op-pass',
       permissions: { invoices: 'rw' },
     })
     await db.close()
@@ -128,7 +128,7 @@ describe('authorization refusals', () => {
     const { db, adapter } = await seedVault()
     await db.grant('acme', {
       userId: 'op', displayName: 'Op', role: 'operator',
-      passphrase: 'op-pass',
+      secret: 'op-pass',
       permissions: { payments: 'rw' },  // access to OTHER collection
       exportCapability: { plaintext: ['csv'] },
     })
@@ -147,7 +147,7 @@ describe('escaping + formatting', () => {
     const { db, adapter } = await seedVault()
     await db.grant('acme', {
       userId: 'owner-01', displayName: 'Owner', role: 'owner',
-      passphrase: 'owner-pass',
+      secret: 'owner-pass',
       exportCapability: { plaintext: ['csv'] },
     })
     await db.close()
@@ -165,7 +165,7 @@ describe('escaping + formatting', () => {
     const { db, adapter } = await seedVault()
     await db.grant('acme', {
       userId: 'owner-01', displayName: 'Owner', role: 'owner',
-      passphrase: 'owner-pass',
+      secret: 'owner-pass',
       exportCapability: { plaintext: ['*'] },
     })
     await db.close()

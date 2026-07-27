@@ -135,7 +135,7 @@ describe('nested money paths — registration validation (#334)', () => {
   async function open() {
     const db = await createNoydb({
       store: memory(), user: 'alice',
-      secret: 'money-nested-registration-passphrase-2026',
+      secret: 'money-nested-registration-secret-2026',
     })
     return db.openVault('books')
   }
@@ -172,7 +172,7 @@ describe('nested money paths — end-to-end through encryption (#334)', () => {
   it('round-trips a bill with nested money through put/get', async () => {
     const db = await createNoydb({
       store: memory(), user: 'alice',
-      secret: 'money-nested-e2e-passphrase-2026',
+      secret: 'money-nested-e2e-secret-2026',
     })
     const vault = await db.openVault('books')
     const col = vault.collection<Record<string, unknown>>('bills', {

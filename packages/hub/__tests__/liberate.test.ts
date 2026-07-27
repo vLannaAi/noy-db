@@ -87,7 +87,7 @@ describe('FR-6 Task 5 — liberateVault (audited custodian ownership claim)', ()
     await saveDeedMarker(adapter, VAULT, {
       ownerUserId: 'owner-01', sealedUnder: 'client-kms', latent: true, issuedAt: new Date().toISOString(),
     })
-    await ownerDb.grantCustodian(VAULT, { userId: 'firm-01', displayName: 'Firm', passphrase: 'firm-pass-long' })
+    await ownerDb.grantCustodian(VAULT, { userId: 'firm-01', displayName: 'Firm', secret: 'firm-pass-long' })
   }
 
   beforeEach(() => {
@@ -103,7 +103,7 @@ describe('FR-6 Task 5 — liberateVault (audited custodian ownership claim)', ()
 
     const result = await liberateVault(custodianVault, {
       newOwnerId: 'firm-owner-01',
-      newOwnerPassphrase: 'firm-owner-pass-long',
+      newOwnerSecret: 'firm-owner-pass-long',
       legalBasis: 'contractual-handover',
     })
 
@@ -130,7 +130,7 @@ describe('FR-6 Task 5 — liberateVault (audited custodian ownership claim)', ()
     ).resolves.not.toThrow()
     // The new owner can perform an owner-only meta-capability (grant) → proves owner role.
     await expect(
-      newOwnerDb.grant(VAULT, { userId: 'staff-01', displayName: 'Staff', role: 'viewer', passphrase: 'staff-pass-long', permissions: { invoices: 'ro' } }),
+      newOwnerDb.grant(VAULT, { userId: 'staff-01', displayName: 'Staff', role: 'viewer', secret: 'staff-pass-long', permissions: { invoices: 'ro' } }),
     ).resolves.not.toThrow()
 
     // 5. the OLD sealed-owner credential is ORPHANED, not impersonated — the new
@@ -150,7 +150,7 @@ describe('FR-6 Task 5 — liberateVault (audited custodian ownership claim)', ()
     const firmDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'firm-01', secret: 'firm-pass-long', historyStrategy: withHistory() })
     const custodianVault = await firmDb.openVault(VAULT)
     await expect(
-      liberateVault(custodianVault, { newOwnerId: 'firm-owner-01', newOwnerPassphrase: 'firm-owner-pass-long', legalBasis: 'contractual-handover' }),
+      liberateVault(custodianVault, { newOwnerId: 'firm-owner-01', newOwnerSecret: 'firm-owner-pass-long', legalBasis: 'contractual-handover' }),
     ).rejects.toBeInstanceOf(PolicyDeniedError)
   })
 
@@ -159,17 +159,17 @@ describe('FR-6 Task 5 — liberateVault (audited custodian ownership claim)', ()
     // The owner opens the vault and tries to liberate — only the custodian may.
     const ownerVault = await ownerDb.openVault(VAULT)
     await expect(
-      liberateVault(ownerVault, { newOwnerId: 'firm-owner-01', newOwnerPassphrase: 'firm-owner-pass-long', legalBasis: 'contractual-handover' }),
+      liberateVault(ownerVault, { newOwnerId: 'firm-owner-01', newOwnerSecret: 'firm-owner-pass-long', legalBasis: 'contractual-handover' }),
     ).rejects.toBeInstanceOf(PermissionDeniedError)
   })
 
   it('throws when the caller is an operator (not the custodian)', async () => {
     await provisionWithCustodian()
-    await ownerDb.grant(VAULT, { userId: 'op-01', displayName: 'Op', role: 'operator', passphrase: 'op-pass-long', permissions: { invoices: 'rw' } })
+    await ownerDb.grant(VAULT, { userId: 'op-01', displayName: 'Op', role: 'operator', secret: 'op-pass-long', permissions: { invoices: 'rw' } })
     const opDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'op-01', secret: 'op-pass-long', historyStrategy: withHistory() })
     const opVault = await opDb.openVault(VAULT)
     await expect(
-      liberateVault(opVault, { newOwnerId: 'firm-owner-01', newOwnerPassphrase: 'firm-owner-pass-long', legalBasis: 'contractual-handover' }),
+      liberateVault(opVault, { newOwnerId: 'firm-owner-01', newOwnerSecret: 'firm-owner-pass-long', legalBasis: 'contractual-handover' }),
     ).rejects.toBeInstanceOf(PermissionDeniedError)
   })
 
@@ -181,7 +181,7 @@ describe('FR-6 Task 5 — liberateVault (audited custodian ownership claim)', ()
     const before = await adapter.get(VAULT, '_keyring', 'owner-01')
     // newOwnerId collides with the existing sealed owner → must throw, no clobber.
     await expect(
-      liberateVault(custodianVault, { newOwnerId: 'owner-01', newOwnerPassphrase: 'whatever-long-pass', legalBasis: 'contractual-handover' }),
+      liberateVault(custodianVault, { newOwnerId: 'owner-01', newOwnerSecret: 'whatever-long-pass', legalBasis: 'contractual-handover' }),
     ).rejects.toBeInstanceOf(PermissionDeniedError)
     // the original keyring is byte-identical (not overwritten) and no liberation ledger entry was written.
     expect(await adapter.get(VAULT, '_keyring', 'owner-01')).toEqual(before)

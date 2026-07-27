@@ -61,7 +61,7 @@ describe('Derivation — declared sibling sources[] (#344)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-sibling-rerun-passphrase-2026',
+      secret: 'derivation-sibling-rerun-secret-2026',
       derivationStrategies: [strategy],
     })
     const v = await db.openVault('demo')
@@ -91,7 +91,7 @@ describe('Derivation — declared sibling sources[] (#344)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-sibling-primary-passphrase-2026',
+      secret: 'derivation-sibling-primary-secret-2026',
       derivationStrategies: [strategy],
     })
     const v = await db.openVault('demo')
@@ -119,7 +119,7 @@ describe('Derivation — declared sibling sources[] (#344)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-sibling-noprimary-passphrase-2026',
+      secret: 'derivation-sibling-noprimary-secret-2026',
       derivationStrategies: [strategy],
     })
     const v = await db.openVault('demo')
@@ -147,7 +147,7 @@ describe('Derivation — declared sibling sources[] (#344)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-sibling-lazy-passphrase-2026',
+      secret: 'derivation-sibling-lazy-secret-2026',
       derivationStrategies: [strategy],
     })
     const v = await db.openVault('demo')
@@ -180,7 +180,7 @@ describe('Derivation — declared sibling sources[] (#344)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-sibling-multi-passphrase-2026',
+      secret: 'derivation-sibling-multi-secret-2026',
       derivationStrategies: [strategy],
     })
     const v = await db.openVault('demo')
@@ -232,7 +232,7 @@ describe('Derivation — declared sibling sources[] (#344)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-sibling-cycle-passphrase-2026',
+      secret: 'derivation-sibling-cycle-secret-2026',
       derivationStrategies: [cyclic],
     })
     await expect(db.openVault('demo')).rejects.toBeInstanceOf(DerivationCycleError)

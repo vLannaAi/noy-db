@@ -1,8 +1,8 @@
 # @noy-db/at-env
 
-**Env-var sealing key provider for noy-db [managed-passphrase mode](https://github.com/vLannaAi/noy-db/issues/14).**
+**Env-var sealing key provider for noy-db [managed-secret mode](https://github.com/vLannaAi/noy-db/issues/14).**
 
-The smallest production-shape provider in the `at-*` family. Reads a 32-byte AES-256-GCM key from an environment variable (base64-encoded) and uses it to seal the hub-generated random passphrase — so your users never see or type a passphrase, but the encryption keys are still under your control.
+The smallest production-shape provider in the `at-*` family. Reads a 32-byte AES-256-GCM key from an environment variable (base64-encoded) and uses it to seal the hub-generated random secret — so your users never see or type a secret, but the encryption keys are still under your control.
 
 ## Install
 
@@ -27,14 +27,14 @@ import { envSealingProvider } from '@noy-db/at-env'
 const db = await createNoydb({
   store,
   user: 'alice',
-  passphraseMode: 'managed',
+  secretMode: 'managed',
   sealingKey: envSealingProvider(),  // reads NOYDB_SEALING_KEY by default
 })
 
 const vault = await db.openVault('acme')
 // Hub generated a 256-bit random on first open, sealed it under your env
-// key, and persisted to _meta/sealed-passphrase. The user never sees a
-// passphrase. On reopen, at-env unseals transparently.
+// key, and persisted to _meta/sealed-secret. The user never sees a
+// secret. On reopen, at-env unseals transparently.
 ```
 
 ## When to use this provider
@@ -54,9 +54,9 @@ Rotating the env-var key is currently manual:
 
 1. Open the vault under the OLD env key.
 2. Generate a new key: `NEW=$(openssl rand -base64 32)`.
-3. Read `_meta/sealed-passphrase` from the store.
+3. Read `_meta/sealed-secret` from the store.
 4. Unseal under the OLD provider, re-seal under a NEW provider (`envSealingProvider({ envVar: 'NOYDB_NEW_KEY' })`).
-5. Overwrite `_meta/sealed-passphrase`.
+5. Overwrite `_meta/sealed-secret`.
 6. Swap the env var to the new value.
 
 An automated `noydb seal rotate` CLI command is tracked as a follow-up. For lower-touch rotation, use `@noy-db/at-aws-kms` once it lands — KMS handles CMK rotation automatically.
@@ -75,7 +75,7 @@ function envSealingProvider(opts?: {
 }): SealingKeyProvider
 ```
 
-Returns a [`SealingKeyProvider`](../hub/src/team/managed-passphrase.ts) — the contract `@noy-db/hub`'s managed-passphrase mode consumes. The provider validates the env var at construction time and caches the imported `CryptoKey` for the lifetime of the instance.
+Returns a [`SealingKeyProvider`](../hub/src/team/managed-secret.ts) — the contract `@noy-db/hub`'s managed-secret mode consumes. The provider validates the env var at construction time and caches the imported `CryptoKey` for the lifetime of the instance.
 
 Throws at construction when the env var is unset, not valid base64, or not 32 bytes.
 

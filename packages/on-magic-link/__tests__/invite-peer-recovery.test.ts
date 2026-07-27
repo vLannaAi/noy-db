@@ -109,7 +109,7 @@ describe('issuePeerRecovery + acceptInvite round-trip', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'admin',
-      passphrase: BOB_OLD_PHRASE,
+      secret: BOB_OLD_PHRASE,
     })
 
     // Alice (owner) issues a peer-recovery for bob (admin) who forgot
@@ -141,7 +141,7 @@ describe('issuePeerRecovery + acceptInvite round-trip', () => {
       userId: 'mrs-niwat',
       displayName: 'Mrs Niwat',
       role: 'owner',
-      passphrase: BOB_OLD_PHRASE,
+      secret: BOB_OLD_PHRASE,
     })
 
     // Mrs Niwat (also owner) forgets her phrase; alice (owner)
@@ -287,7 +287,7 @@ describe('audit doc + payload encoding', () => {
     expect(typeof audit.acceptedAt).toBe('string')
   }, 180_000)
 
-  it('forwards passphrasePolicy to the inner rotation (#53)', async () => {
+  it('forwards secretPolicy to the inner rotation (#53)', async () => {
     const store = inlineMemory()
     const alice = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: ALICE_PHRASE })
     await alice.openVault('acme')
@@ -300,10 +300,10 @@ describe('audit doc + payload encoding', () => {
 
     // Hyphen-separated phrase — rejected by the default lowercase+spaces
     // validator, accepted by a customValidator. Without the #53 fix,
-    // the inner rotation throws WeakPassphraseError regardless of any
+    // the inner rotation throws WeakSecretError regardless of any
     // policy plumbed through `noydbOptions`.
     const HYPHENATED_PHRASE = 'mrs-niwat-her-own-phrase-2026'
-    const passphrase = {
+    const secret = {
       customValidator: (phrase: string) =>
         phrase.length >= 16 && /^[a-z0-9-]+$/.test(phrase)
           ? ({ ok: true, words: 1 } as const)
@@ -313,7 +313,7 @@ describe('audit doc + payload encoding', () => {
     const result = await acceptInvite(encoded, {
       store,
       newPhrase: HYPHENATED_PHRASE,
-      passphrasePolicy: passphrase,
+      secretPolicy: secret,
     })
     expect(result.payload.userId).toBe('bob')
 
@@ -322,14 +322,14 @@ describe('audit doc + payload encoding', () => {
       store,
       user: 'bob',
       secret: HYPHENATED_PHRASE,
-      policy: { passphrase, gates: {} },
+      policy: { secret, gates: {} },
     })
     await reopen.openVault('acme')
     const verify = await reopen.team.getKeyring('acme')
     expect(verify.userId).toBe('bob')
   }, 180_000)
 
-  it('rejects newPhrase that violates the supplied passphrasePolicy (#53)', async () => {
+  it('rejects newPhrase that violates the supplied secretPolicy (#53)', async () => {
     const store = inlineMemory()
     const alice = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: ALICE_PHRASE })
     await alice.openVault('acme')
@@ -346,7 +346,7 @@ describe('audit doc + payload encoding', () => {
       acceptInvite(encoded, {
         store,
         newPhrase: BOB_NEW_PHRASE,
-        passphrasePolicy: {
+        secretPolicy: {
           customValidator: (phrase: string) =>
             /\d/.test(phrase)
               ? ({ ok: true, words: 1 } as const)
@@ -356,7 +356,7 @@ describe('audit doc + payload encoding', () => {
     ).rejects.toThrow(/invalid-chars/)
   }, 60_000)
 
-  it('allowWeakPassphrase: true bypasses the rotation validator (#53)', async () => {
+  it('allowWeakSecret: true bypasses the rotation validator (#53)', async () => {
     const store = inlineMemory()
     const alice = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: ALICE_PHRASE })
     await alice.openVault('acme')
@@ -368,11 +368,11 @@ describe('audit doc + payload encoding', () => {
     })
 
     // 'short' would normally fail the strength validator. With
-    // allowWeakPassphrase: true, the rotation accepts it.
+    // allowWeakSecret: true, the rotation accepts it.
     const result = await acceptInvite(encoded, {
       store,
       newPhrase: 'short',
-      allowWeakPassphrase: true,
+      allowWeakSecret: true,
     })
     expect(result.payload.userId).toBe('bob')
   }, 120_000)

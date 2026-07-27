@@ -111,7 +111,7 @@ describe('schema validation.', () => {
     db = await createNoydb({
       store: memory(),
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
   })
 
@@ -285,7 +285,7 @@ describe('schema validation.', () => {
     const looseDb = await createNoydb({
       store: sharedAdapter,
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
     const looseCompany = await looseDb.openVault('demo-co')
     const loose = looseCompany.collection<{ id: string; note: string }>('invoices')
@@ -294,7 +294,7 @@ describe('schema validation.', () => {
     const strictDb = await createNoydb({
       store: sharedAdapter,
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
     const strictCompany = await strictDb.openVault('demo-co')
     const strict = strictCompany.collection<Invoice>('invoices', {

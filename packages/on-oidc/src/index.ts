@@ -16,10 +16,10 @@
  * At enrollment time:
  *   1. The full key material is available — the caller holds an
  *      `UnlockedKeyring`. HOW it was unlocked does not matter: a
- *      passphrase-derived session works, and so does an invite-seeded one
+ *      secret-derived session works, and so does an invite-seeded one
  *      (the firm mints a magic-link invite via `@noy-db/on-magic-link`'s
  *      `issueInvite`; the recipient's `acceptInvite` yields the unlocked
- *      session — the portal client never has a passphrase of its own).
+ *      session — the portal client never has a secret of its own).
  *   2. `deviceHalf` is derived: HKDF(deviceSecret, "noydb-oidc-device-v1", sub)
  *      where `deviceSecret` is a per-device random value stored in IndexedDB
  *      or localStorage (never transmitted). A stable random `deviceId` is
@@ -68,7 +68,7 @@
  * multi-device access. Round-tripping through the firm makes every new
  * partition an audit point, a rate-limit point, and a revocation point —
  * client-device compromise cannot self-propagate. Enrollment REQUIRES an
- * `UnlockedKeyring`, which only the invite and passphrase paths produce;
+ * `UnlockedKeyring`, which only the invite and secret paths produce;
  * an enrolled device holds DEKs but no primitive to mint one for a peer.
  * Expired/consumed/revoked invites fail in `@noy-db/on-magic-link`'s
  * `acceptInvite` (InviteExpiredError / InviteAlreadyAcceptedError /
@@ -202,7 +202,7 @@ export class KeyConnectorError extends Error {
  * This error means the device secret was cleared (storage wipe, private
  * browsing session, new device/partition) and this partition must be
  * enrolled afresh — via a new firm invite (`enrollOidcFromInvite`) or, where
- * the user holds one, a passphrase-unlocked `enrollOidc`. There is no
+ * the user holds one, a secret-unlocked `enrollOidc`. There is no
  * device-to-device recovery path by design.
  */
 export class OidcDeviceSecretNotFoundError extends Error {
@@ -473,9 +473,9 @@ async function getServerHalf(
  * Enroll a device for OIDC unlock (client-side portion).
  *
  * Requires an unlocked keyring and a valid OIDC ID token. HOW the keyring
- * was unlocked is irrelevant — a passphrase session works, and so does an
+ * was unlocked is irrelevant — a secret session works, and so does an
  * invite-seeded one (`@noy-db/on-magic-link`'s `acceptInvite` on a firm
- * invite; the portal client never holds a passphrase). Only the keyring's
+ * invite; the portal client never holds a secret). Only the keyring's
  * DEKs/salt/identity are read; `keyring.kek` may be `null`.
  *
  * Derives the device half, XOR-splits the serialized keyring payload,
@@ -488,7 +488,7 @@ async function getServerHalf(
  * or a noy-db collection) so `unlockOidc()` can look up the `sub` and
  * `deviceId` later.
  *
- * @param keyring - The currently unlocked keyring (passphrase- or invite-sourced).
+ * @param keyring - The currently unlocked keyring (secret- or invite-sourced).
  * @param vault - The vault to enroll for.
  * @param config - OIDC provider + key-connector configuration.
  * @param idToken - A valid OIDC ID token from the completed OIDC flow.
@@ -586,7 +586,7 @@ export async function enrollOidc(
  * `revokeOidcDevice` call).
  *
  * This is deliberately the ONLY way to add a device: enrollment requires an
- * `UnlockedKeyring`, which only the invite and passphrase paths produce.
+ * `UnlockedKeyring`, which only the invite and secret paths produce.
  * An enrolled device cannot mint one for a peer — no device-to-device
  * handoff exists, so client-device compromise cannot self-propagate.
  *

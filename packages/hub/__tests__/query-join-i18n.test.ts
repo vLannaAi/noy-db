@@ -42,7 +42,7 @@ function memory(): NoydbStore {
 interface Category extends Record<string, unknown> { id: string; name: Record<string, string> }
 interface Product extends Record<string, unknown> { id: string; categoryId: string }
 const NAME = i18nText({ languages: ['en', 'th'], required: 'all' })
-const SECRET = 'join-i18n-layer-passphrase-2026'
+const SECRET = 'join-i18n-layer-secret-2026'
 
 async function seed(vaultLocale?: string) {
   const db = await createNoydb({ store: memory(), user: 'a', secret: SECRET, i18nStrategy: withI18n() })

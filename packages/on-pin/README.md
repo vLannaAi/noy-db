@@ -14,7 +14,7 @@ pnpm add @noy-db/hub @noy-db/on-pin
 
 ## What it is
 
-Session-resume PIN quick-lock for noy-db — after a full passphrase unlock, a short-lived PIN (or a per-device biometric) re-unlocks the cached DEKs without re-typing the passphrase. PIN never replaces the passphrase; only resumes an already-unlocked session.
+Session-resume PIN quick-lock for noy-db — after a full secret unlock, a short-lived PIN (or a per-device biometric) re-unlocks the cached DEKs without re-typing the secret. PIN never replaces the secret; only resumes an already-unlocked session.
 
 ## Device-trust mode — "always safe to open on this device"
 
@@ -27,7 +27,7 @@ network, no prompt.
 ```ts
 import { enrollDeviceTrust, resumeDeviceTrust } from '@noy-db/on-pin'
 
-// After a real-factor unlock (passphrase, invite, OIDC) — never cold:
+// After a real-factor unlock (secret, invite, OIDC) — never cold:
 await enrollDeviceTrust(keyring, { vault: 'main', policy: await db.policy.getPolicy('main') })
 
 // On the next cold start of this device:
@@ -50,7 +50,7 @@ const { keyring, resumeTier } = await resumeDeviceTrust('main')
   a first-unlock factor.
 - **Policy-gated.** The vault owner/admin forbids or tier-bounds enrollment via
   the `app:device-trust` gate; a resume yields a capped session tier (default
-  3, below the passphrase tier) so sensitive gated ops still need a real
+  3, below the secret tier) so sensitive gated ops still need a real
   factor.
 - **Revocation.** `clearDeviceTrust()` kills it locally; keyring-side DEK
   rotation invalidates the cached wrapped DEKs cryptographically.

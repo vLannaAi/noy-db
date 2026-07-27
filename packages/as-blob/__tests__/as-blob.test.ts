@@ -48,7 +48,7 @@ describe('happy path', () => {
     const { db, adapter } = await seedVault()
     await db.grant('acme', {
       userId: 'owner-01', displayName: 'Owner', role: 'owner',
-      passphrase: 'owner-pass',
+      secret: 'owner-pass',
       exportCapability: { plaintext: ['blob'] },
     })
     await db.close()
@@ -68,7 +68,7 @@ describe('happy path', () => {
     const { db, adapter } = await seedVault()
     await db.grant('acme', {
       userId: 'owner-01', displayName: 'Owner', role: 'owner',
-      passphrase: 'owner-pass',
+      secret: 'owner-pass',
       exportCapability: { plaintext: ['blob'] },
     })
     await db.close()
@@ -85,7 +85,7 @@ describe('happy path', () => {
     const { db, adapter } = await seedVault()
     await db.grant('acme', {
       userId: 'owner-01', displayName: 'Owner', role: 'owner',
-      passphrase: 'owner-pass',
+      secret: 'owner-pass',
       exportCapability: { plaintext: ['blob'] },
     })
     await db.close()
@@ -115,7 +115,7 @@ describe('authorization refusals', () => {
     const { db, adapter } = await seedVault()
     await db.grant('acme', {
       userId: 'op', displayName: 'Op', role: 'operator',
-      passphrase: 'op-pass',
+      secret: 'op-pass',
       permissions: { invoices: 'rw' },
     })
     await db.close()
@@ -134,7 +134,7 @@ describe('not-found cases', () => {
     const { db, adapter } = await seedVault()
     await db.grant('acme', {
       userId: 'owner-01', displayName: 'Owner', role: 'owner',
-      passphrase: 'owner-pass',
+      secret: 'owner-pass',
       exportCapability: { plaintext: ['blob'] },
     })
     await db.close()
@@ -151,7 +151,7 @@ describe('not-found cases', () => {
     const { db, adapter } = await seedVault()
     await db.grant('acme', {
       userId: 'owner-01', displayName: 'Owner', role: 'owner',
-      passphrase: 'owner-pass',
+      secret: 'owner-pass',
       exportCapability: { plaintext: ['blob'] },
     })
     await db.close()
@@ -176,7 +176,7 @@ describe('write() — Node file output', () => {
     const { db, adapter } = await seedVault()
     await db.grant('acme', {
       userId: 'owner-01', displayName: 'Owner', role: 'owner',
-      passphrase: 'owner-pass',
+      secret: 'owner-pass',
       exportCapability: { plaintext: ['blob'] },
     })
     await db.close()
@@ -194,7 +194,7 @@ describe('write() — Node file output', () => {
     const { db, adapter } = await seedVault()
     await db.grant('acme', {
       userId: 'owner-01', displayName: 'Owner', role: 'owner',
-      passphrase: 'owner-pass',
+      secret: 'owner-pass',
       exportCapability: { plaintext: ['blob'] },
     })
     await db.close()
@@ -227,7 +227,7 @@ describe('download() — browser happy path', () => {
     const { db, adapter } = await seedVault()
     await db.grant('acme', {
       userId: 'owner-01', displayName: 'Owner', role: 'owner',
-      passphrase: 'owner-pass',
+      secret: 'owner-pass',
       exportCapability: { plaintext: ['blob'] },
     })
     await db.close()

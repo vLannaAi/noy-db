@@ -23,8 +23,8 @@ function memoryEntry(): KeychainEntry {
   }
 }
 
-describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-passphrase', () => {
-  it('round-trips a managed-mode vault end-to-end (no user passphrase typed)', async () => {
+describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-secret', () => {
+  it('round-trips a managed-mode vault end-to-end (no user secret typed)', async () => {
     // Shared "Keychain" entry persists across simulated process restarts.
     const sharedEntry = memoryEntry()
     const store = memory()
@@ -33,7 +33,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-pas
     const db1 = await createNoydb({
       store,
       user: 'alice',
-      passphraseMode: 'managed',
+      secretMode: 'managed',
       sealingKey: macosKeychainSealingProvider({
         service: 'com.acme.app',
         account: 'alice@acme.example',
@@ -54,7 +54,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-pas
     const db2 = await createNoydb({
       store,
       user: 'alice',
-      passphraseMode: 'managed',
+      secretMode: 'managed',
       sealingKey: macosKeychainSealingProvider({
         service: 'com.acme.app',
         account: 'alice@acme.example',
@@ -77,7 +77,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-pas
     const db1 = await createNoydb({
       store,
       user: 'alice',
-      passphraseMode: 'managed',
+      secretMode: 'managed',
       sealingKey: macosKeychainSealingProvider({
         service: 'com.acme.app',
         account: 'alice',
@@ -99,7 +99,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-pas
     const db2 = await createNoydb({
       store,
       user: 'alice',
-      passphraseMode: 'managed',
+      secretMode: 'managed',
       sealingKey: macosKeychainSealingProvider({
         service: 'com.acme.app',
         account: 'bob', // different!
@@ -118,7 +118,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-pas
     const db1 = await createNoydb({
       store,
       user: 'alice',
-      passphraseMode: 'managed',
+      secretMode: 'managed',
       sealingKey: macosKeychainSealingProvider({
         service: 'com.example.persist',
         account: 'persist-test',
@@ -140,7 +140,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-pas
     const db2 = await createNoydb({
       store,
       user: 'alice',
-      passphraseMode: 'managed',
+      secretMode: 'managed',
       sealingKey: macosKeychainSealingProvider({
         service: 'com.example.persist',
         account: 'persist-test',

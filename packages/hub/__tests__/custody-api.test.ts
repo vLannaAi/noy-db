@@ -12,7 +12,7 @@
  *      provably UNABLE to grant / rotate / sever / extract (spot-checked
  *      denials — invariant #1).
  *   3. The owner — re-resolved through the SAME sealing provider (a latent
- *      owner never types a passphrase) — `vault.custody.revokeCustodian(...)`
+ *      owner never types a secret) — `vault.custody.revokeCustodian(...)`
  *      AND `extractPartition(...)` succeed with the custodian "offline" (we
  *      simply never use the custodian keyring) — invariant #2.
  *   4. A custodian claims ownership via `vault.custody.liberate(...)`, minting
@@ -35,7 +35,7 @@ import { withPortability } from '../src/with-audit/portability/index.js'
 import { withCustody } from '../src/with-party/custody/index.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
-import { MemorySealingKeyProvider, resolveManagedSecret } from '../src/with-party/team/managed-passphrase.js'
+import { MemorySealingKeyProvider, resolveManagedSecret } from '../src/with-party/team/managed-secret.js'
 import { createDeedOwner, loadDeedMarker } from '../src/with-party/team/deed.js'
 import { withTeam } from '../src/with-party/team/index.js'
 
@@ -83,17 +83,17 @@ describe('FR-6 Task 6 — vault.custody.* end-to-end acceptance walkthrough', ()
    * Re-resolve the latent Deed owner as a working `Noydb`. The owner credential
    * was minted + sealed under the non-firm provider by `createDeedOwner`; here
    * we UNSEAL it through the SAME provider (`resolveManagedSecret`) and hand the
-   * resolved passphrase to `createNoydb` as the secret. NO HUMAN ever types it —
+   * resolved secret to `createNoydb` as the secret. NO HUMAN ever types it —
    * the sealing provider is the only re-entry point — which is exactly the
    * latent-owner property. (We resolve-then-pass rather than using
-   * `passphraseMode: 'managed'` so the acceptance walkthrough stays focused on
+   * `secretMode: 'managed'` so the acceptance walkthrough stays focused on
    * custody and isn't entangled with managed-mode's strong-recovery enrolment
    * gate, which is a separate epic.)
    */
   async function openLatentOwner(): Promise<Noydb> {
-    const passphrase = await resolveManagedSecret(adapter, VAULT, sealing)
+    const secret = await resolveManagedSecret(adapter, VAULT, sealing)
     return createNoydb({ teamStrategy: withTeam(), cargoStrategy: withCargo(),
-      store: adapter, user: 'owner-01', secret: passphrase,
+      store: adapter, user: 'owner-01', secret: secret,
       historyStrategy: withHistory(), policy: POLICY, custodyStrategy: withCustody(),
     })
   }
@@ -104,7 +104,7 @@ describe('FR-6 Task 6 — vault.custody.* end-to-end acceptance walkthrough', ()
    * ledger records the ceremony) and three seeded collections.
    */
   async function provisionDeed(): Promise<Noydb> {
-    // Mint the sealed owner + marker (machine-side, no human passphrase).
+    // Mint the sealed owner + marker (machine-side, no human secret).
     await createDeedOwner(adapter, VAULT, 'owner-01', sealing)
     const ownerDb = await openLatentOwner()
     const comp = await ownerDb.openVault(VAULT)
@@ -120,7 +120,7 @@ describe('FR-6 Task 6 — vault.custody.* end-to-end acceptance walkthrough', ()
 
     // ── 1. Owner grants a custodian through vault.custody.grantCustodian ──────
     await expect(
-      ownerVault.custody.grantCustodian({ userId: 'firm-01', displayName: 'Firm', passphrase: 'firm-pass-long' }),
+      ownerVault.custody.grantCustodian({ userId: 'firm-01', displayName: 'Firm', secret: 'firm-pass-long' }),
     ).resolves.not.toThrow()
 
     // ── 2. The custodian opens + reads/writes ALL collections ────────────────
@@ -134,7 +134,7 @@ describe('FR-6 Task 6 — vault.custody.* end-to-end acceptance walkthrough', ()
     // ── 2b. The custodian is PROVABLY UNABLE to grant / rotate / sever / extract
     // grant (via db.grant — the keyring boundary): denied.
     await expect(
-      firmDb.grant(VAULT, { userId: 'mole-01', displayName: 'Mole', role: 'admin', passphrase: 'mole-pass-long' }),
+      firmDb.grant(VAULT, { userId: 'mole-01', displayName: 'Mole', role: 'admin', secret: 'mole-pass-long' }),
     ).rejects.toThrow(PermissionDeniedError)
     // rotate: denied (re-key is an owner meta-capability).
     await expect(firmDb.rotate(VAULT, [])).rejects.toThrow(PermissionDeniedError)
@@ -148,7 +148,7 @@ describe('FR-6 Task 6 — vault.custody.* end-to-end acceptance walkthrough', ()
     ).rejects.toThrow(PartitionExtractionError)
 
     // ── 3. Owner re-resolved via the sealing provider (no interactive
-    //       passphrase) revokes the custodian + extracts — custodian OFFLINE.
+    //       secret) revokes the custodian + extracts — custodian OFFLINE.
     //       (We simply never touch firmDb / the custodian keyring here.)
     const latentOwnerDb = await openLatentOwner()
     const latentOwnerVault = await latentOwnerDb.openVault(VAULT)
@@ -172,18 +172,18 @@ describe('FR-6 Task 6 — vault.custody.* end-to-end acceptance walkthrough', ()
     // (non-destructive freeze) unilateral withdrawal over the `archive`
     // collection — this writes a `user-unilateral-withdrawal:...` entry into the
     // SAME `vault.ledger()` the liberation later appends to.
-    await ownerDb.grant(VAULT, { userId: 'op-01', displayName: 'Op', role: 'operator', passphrase: 'op-pass-long', permissions: { archive: 'rw' } })
+    await ownerDb.grant(VAULT, { userId: 'op-01', displayName: 'Op', role: 'operator', secret: 'op-pass-long', permissions: { archive: 'rw' } })
     const opDb = await createNoydb({ teamStrategy: withTeam(), cargoStrategy: withCargo(), store: adapter, user: 'op-01', secret: 'op-pass-long', historyStrategy: withHistory(), policy: POLICY, portabilityStrategy: withPortability() })
     const opVault = await opDb.openVault(VAULT)
     await opVault.user.unilateralWithdrawal({ legalBasis: 'partial-handover', disposition: 'freeze', scope: { collections: ['archive'] } })
 
     // Now mint the custodian + liberate via vault.custody.liberate.
-    await ownerVault.custody.grantCustodian({ userId: 'firm-01', displayName: 'Firm', passphrase: 'firm-pass-long' })
+    await ownerVault.custody.grantCustodian({ userId: 'firm-01', displayName: 'Firm', secret: 'firm-pass-long' })
     const firmDb = await createNoydb({ teamStrategy: withTeam(), cargoStrategy: withCargo(), store: adapter, user: 'firm-01', secret: 'firm-pass-long', historyStrategy: withHistory(), policy: POLICY, portabilityStrategy: withPortability(), custodyStrategy: withCustody() })
     const firmVault = await firmDb.openVault(VAULT)
 
     const result = await firmVault.custody.liberate({
-      newOwnerId: 'firm-owner-01', newOwnerPassphrase: 'firm-owner-pass-long', legalBasis: 'contractual-handover',
+      newOwnerId: 'firm-owner-01', newOwnerSecret: 'firm-owner-pass-long', legalBasis: 'contractual-handover',
     })
     expect(result.snapshot.sha256).toMatch(/^[0-9a-f]{64}$/)
 
@@ -206,11 +206,11 @@ describe('FR-6 Task 6 — vault.custody.* end-to-end acceptance walkthrough', ()
 
   it('vault.custody.grantCustodian is owner-only (an admin caller is denied)', async () => {
     const ownerDb = await provisionDeed()
-    await ownerDb.grant(VAULT, { userId: 'admin-01', displayName: 'Admin', role: 'admin', passphrase: 'admin-pass-long' })
+    await ownerDb.grant(VAULT, { userId: 'admin-01', displayName: 'Admin', role: 'admin', secret: 'admin-pass-long' })
     const adminDb = await createNoydb({ teamStrategy: withTeam(), cargoStrategy: withCargo(), store: adapter, user: 'admin-01', secret: 'admin-pass-long', policy: POLICY, custodyStrategy: withCustody() })
     const adminVault = await adminDb.openVault(VAULT)
     await expect(
-      adminVault.custody.grantCustodian({ userId: 'firm-99', displayName: 'Firm', passphrase: 'firm-pass-long' }),
+      adminVault.custody.grantCustodian({ userId: 'firm-99', displayName: 'Firm', secret: 'firm-pass-long' }),
     ).rejects.toThrow(PermissionDeniedError)
   })
 
@@ -218,7 +218,7 @@ describe('FR-6 Task 6 — vault.custody.* end-to-end acceptance walkthrough', ()
     const ownerDb = await provisionDeed()
     const ownerVault = await ownerDb.openVault(VAULT)
     await expect(
-      ownerVault.custody.liberate({ newOwnerId: 'x', newOwnerPassphrase: 'x-pass-long', legalBasis: 'nope' }),
+      ownerVault.custody.liberate({ newOwnerId: 'x', newOwnerSecret: 'x-pass-long', legalBasis: 'nope' }),
     ).rejects.toThrow(PermissionDeniedError)
   })
 })

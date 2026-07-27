@@ -52,7 +52,7 @@ describe('immutableGuard — factory validation', () => {
 
 async function vaultWith(...guards: GuardStrategyHandle<Invoice>[]) {
   const db = await createNoydb({
-    store: memory(), user: 'alice', secret: 'immutable-guard-passphrase-2026-pilot3',
+    store: memory(), user: 'alice', secret: 'immutable-guard-secret-2026-pilot3',
     guardStrategies: guards, txStrategy: withTransactions(),
   })
   const vault = await db.openVault('books')

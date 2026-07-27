@@ -60,7 +60,7 @@ describe('ReadOnlyVaultFacade', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-readonly-facade-passphrase-2026',
+      secret: 'guards-readonly-facade-secret-2026',
     })
     const vault = await db.openVault('demo')
     await vault.collection('widgets').put('w1', { name: 'red' })
@@ -81,7 +81,7 @@ describe('ReadOnlyVaultFacade', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-readonly-facade-query-passphrase-2026',
+      secret: 'guards-readonly-facade-query-secret-2026',
       aggregateStrategy: withAggregate(),
     })
     const vault = await db.openVault('demo')
@@ -132,7 +132,7 @@ describe('ReadOnlyVaultFacade', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-readonly-facade-aggregate-passphrase-2026',
+      secret: 'guards-readonly-facade-aggregate-secret-2026',
       guardStrategies: [allocationGuard],
       aggregateStrategy: withAggregate(),
     })

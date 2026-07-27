@@ -1,9 +1,9 @@
 /**
  * **@noy-db/at-aws-kms** — AWS KMS sealing key provider for noy-db
- * managed-passphrase mode.
+ * managed-secret mode.
  *
  * An `at-*` provider that seals and unseals the hub-generated random
- * passphrase via AWS KMS Encrypt / Decrypt. Every seal and unseal is an
+ * secret via AWS KMS Encrypt / Decrypt. Every seal and unseal is an
  * authenticated KMS API call, giving you a CloudTrail-backed access log of
  * every time a user's vault is opened — no additional instrumentation
  * required.
@@ -38,7 +38,7 @@
  * const db = await createNoydb({
  *   store,
  *   user: 'alice',
- *   passphraseMode: 'managed',
+ *   secretMode: 'managed',
  *   sealingKey: awsKmsSealingProvider({ keyId: 'arn:aws:kms:us-east-1:123:key/abc' }),
  *   shamirRecovery: shamirRecoveryProvider(),
  * })
@@ -83,9 +83,9 @@ export function awsKmsSealingProvider(opts: AwsKmsSealingProviderOptions): Seali
   return {
     id: `aws-kms:${opts.keyId}`,
 
-    async seal(passphrase) {
+    async seal(secret) {
       const out: EncryptCommandOutput = await client.send(
-        new EncryptCommand({ KeyId: opts.keyId, Plaintext: passphrase }),
+        new EncryptCommand({ KeyId: opts.keyId, Plaintext: secret }),
       )
       const blob = out.CiphertextBlob
       if (!blob) throw new Error('@noy-db/at-aws-kms: KMS Encrypt returned no CiphertextBlob')
@@ -146,7 +146,7 @@ function derSpkiToPem(der: Uint8Array): string {
  * asymmetric keys do not support an encryption context, so none is used.
  *
  * Separate from {@link awsKmsSealingProvider} (symmetric self-seal for the
- * managed passphrase) — this factory targets an asymmetric key.
+ * managed secret) — this factory targets an asymmetric key.
  *
  * @throws Error from `publishRecipientHint` when the key is not an RSA
  * `ENCRYPT_DECRYPT` key, or `GetPublicKey` returns no public key.

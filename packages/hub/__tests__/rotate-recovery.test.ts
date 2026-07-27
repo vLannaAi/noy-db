@@ -2,7 +2,7 @@
  * #121 — `db.team.rotateRecovery(vault, options, factors?)`.
  *
  * Deliberate paper-recovery-code regeneration. The user remembers their
- * passphrase but wants a fresh sheet (lost the printout, suspect compromise
+ * secret but wants a fresh sheet (lost the printout, suspect compromise
  * of the off-site copy). Symmetric to the other tier-1-modifying actions:
  * gated, audit-trackable, ergonomic.
  *
@@ -10,7 +10,7 @@
  *   1. Returns `newCodes` of length matching the existing sheet by default.
  *   2. `count` override produces exactly that many codes.
  *   3. Replaces the sheet (not appends) — old codes invalidated.
- *   4. Newly minted codes round-trip through `db.recoverPassphrase`.
+ *   4. Newly minted codes round-trip through `db.recoverSecret`.
  *   5. `codeGenerator` hook overrides the default ULID format.
  *   6. The new `rotate-recovery` gate is enforced — PERSONAL allows
  *      minTier: 1; STRICT requires an off-device factor.
@@ -97,15 +97,15 @@ describe('db.rotateRecovery (#121)', () => {
     const result = await db.team.rotateRecovery('acme', { profile: 'paper' })
     // Old codes no longer match any persisted entry — recovery with one should fail.
     await expect(
-      db.team.recoverPassphrase('acme', {
-        newPassphrase: 'fresh passphrase after rotation today morning glass tower',
+      db.team.recoverSecret('acme', {
+        newSecret: 'fresh secret after rotation today morning glass tower',
         recoveryProof: { profile: 'paper', payload: { code: oldCodes[0]! } },
       }),
     ).rejects.toThrow()
 
     // A new code DOES recover.
-    const recovered = await db.team.recoverPassphrase('acme', {
-      newPassphrase: 'fresh passphrase after rotation today morning glass tower',
+    const recovered = await db.team.recoverSecret('acme', {
+      newSecret: 'fresh secret after rotation today morning glass tower',
       recoveryProof: { profile: 'paper', payload: { code: result.newCodes![0]! } },
     })
     expect(recovered).toBeDefined()

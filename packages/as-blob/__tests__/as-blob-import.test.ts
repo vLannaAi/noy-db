@@ -29,7 +29,7 @@ async function setup() {
   await init.openVault('demo')
   await init.grant('demo', {
     userId: 'alice', displayName: 'Alice', role: 'owner',
-    passphrase: 'pw-2026',
+    secret: 'pw-2026',
     importCapability: { plaintext: ['blob'] },
     exportCapability: { plaintext: ['blob'] },  // round-trip needs export too
   })

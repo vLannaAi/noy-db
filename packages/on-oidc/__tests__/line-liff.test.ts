@@ -14,7 +14,7 @@
  * - Token lifecycle: expiry surfaces as OidcTokenError BEFORE any network
  *   call; an unlocked session SURVIVES token expiry
  * - Invite-seeded enrollment: an invite-sourced UnlockedKeyring (no
- *   passphrase anywhere, `kek: null`) enrolls and round-trips fine
+ *   secret anywhere, `kek: null`) enrolls and round-trips fine
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -82,7 +82,7 @@ async function makeDek(): Promise<CryptoKey> {
   )
 }
 
-/** A passphrase-unlocked keyring (owner session). */
+/** A secret-unlocked keyring (owner session). */
 async function makeKeyring(): Promise<UnlockedKeyring> {
   const dek = await makeDek()
   return {
@@ -100,8 +100,8 @@ async function makeKeyring(): Promise<UnlockedKeyring> {
 /**
  * The shape an INVITE-SEEDED unlocked keyring has: minted by the firm via
  * `@noy-db/on-magic-link`'s `issueInvite` → recipient's `acceptInvite`.
- * The portal client NEVER had a passphrase — and the keyring carries no
- * passphrase-derived KEK (`kek: null`). Only DEKs/salt/identity matter to
+ * The portal client NEVER had a secret — and the keyring carries no
+ * secret-derived KEK (`kek: null`). Only DEKs/salt/identity matter to
  * enrollment.
  */
 async function makeInviteSourcedKeyring(): Promise<UnlockedKeyring> {
@@ -251,7 +251,7 @@ describe('token lifecycle (LIFF ~1h expiry, no silent refresh)', () => {
   })
 })
 
-// ─── Invite-seeded enrollment (portal client has NO passphrase) ──────────────
+// ─── Invite-seeded enrollment (portal client has NO secret) ──────────────
 
 describe('invite-seeded enrollment', () => {
   it('an invite-sourced UnlockedKeyring (kek: null) enrolls and round-trips', async () => {
@@ -261,7 +261,7 @@ describe('invite-seeded enrollment', () => {
 
     // The KEK material arrived via the firm's magic-link invite
     // (acceptInvite → UnlockedKeyring) — enrollOidc binds the LINE sub to
-    // it without ever seeing a passphrase.
+    // it without ever seeing a secret.
     const enrollment = await enrollOidc(keyring, 'company-a', LINE_CONFIG, token)
     expect(enrollment.sub).toBe(LINE_SUB)
 

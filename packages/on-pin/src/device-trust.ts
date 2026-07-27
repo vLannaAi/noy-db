@@ -18,7 +18,7 @@
  * - **The OS lock screen IS the factor.** Anyone holding the unlocked
  *   device opens the vault. This is a deliberate, opt-in trade for
  *   mobile/embedded contexts (LIFF → detached PWA, kiosk, personal
- *   phone) where a repeated passphrase/PIN prompt kills the offline UX
+ *   phone) where a repeated secret/PIN prompt kills the offline UX
  *   and the device lock is accepted as the effective user factor.
  * - **The key material cannot be exfiltrated.** The wrapping key is
  *   generated with `extractable: false` and persisted as a CryptoKey
@@ -28,7 +28,7 @@
  * - **Storage eviction silently disables the mode** (browser data
  *   clear, iOS ITP 7-day eviction). Resume then fails CLOSED with the
  *   typed {@link DeviceTrustNotFoundError} — the caller falls back to a
- *   real-factor unlock (passphrase, invite, OIDC) and may re-enroll.
+ *   real-factor unlock (secret, invite, OIDC) and may re-enroll.
  *   Never a lockout: the real factor always remains.
  * - **Enrollment requires an already-unlocked session** (session-resume
  *   family law). Device-trust is NEVER a first-unlock factor — a cold
@@ -46,12 +46,12 @@
  *   `checkGate` engine when the caller passes the vault policy. The
  *   vault owner/admin forbids the mode by configuring
  *   `gates: { 'app:device-trust': { enabled: false, minTier: 3 } }`, or
- *   bounds it (e.g. `minTier: 1` = only a full-passphrase session may
+ *   bounds it (e.g. `minTier: 1` = only a full-secret session may
  *   enroll, `factors: [...]` = require a fresh proof at enrollment).
  *   Unconfigured, the gate allows — matching the mode's opt-in design.
  * - A device-trust resume yields a **capped session tier**
  *   ({@link DeviceTrustState.resumeTier}) — default tier 3, the floor,
- *   same as a PIN resume and always below the passphrase tier 1. Pass
+ *   same as a PIN resume and always below the secret tier 1. Pass
  *   it as `activeTier` to `checkGate` so sensitive gated operations
  *   still require a real factor.
  *
@@ -86,7 +86,7 @@ import {
 export const DEVICE_TRUST_GATE: GateName = 'app:device-trust'
 
 /**
- * Session tier a device-trust resume may claim. Tier 1 (passphrase) is
+ * Session tier a device-trust resume may claim. Tier 1 (secret) is
  * deliberately unrepresentable — a no-factor resume can never claim the
  * full-unlock tier.
  */
@@ -94,7 +94,7 @@ export type DeviceTrustResumeTier = 2 | 3
 
 /**
  * Default resume tier: 3, the floor — same tier as a PIN quick-resume
- * and below the passphrase tier (1), so policy-gated sensitive
+ * and below the secret tier (1), so policy-gated sensitive
  * operations still require a real factor.
  */
 export const DEVICE_TRUST_DEFAULT_RESUME_TIER: DeviceTrustResumeTier = 3
@@ -113,7 +113,7 @@ const OBJECT_STORE = 'records'
  * stored in IndexedDB on the enrolling device — they never leave it.
  * This error means storage was evicted (browser data clear, iOS ITP
  * eviction, private browsing) or the mode was never enrolled / was
- * cleared. Fail closed into a real-factor unlock (passphrase, invite,
+ * cleared. Fail closed into a real-factor unlock (secret, invite,
  * OIDC), then re-enroll this device via `enrollDeviceTrust` — the real
  * factor always remains, so this is never a lockout.
  */
@@ -124,7 +124,7 @@ export class DeviceTrustNotFoundError extends Error {
       `No device-trust record found for vault "${vault}". ` +
       'The device key and wrapped DEKs are created at enrollment and stored in browser storage; ' +
       'they were evicted, cleared, or never enrolled on this device. ' +
-      'Unlock with a real factor (passphrase, invite, OIDC) and re-enroll via enrollDeviceTrust().',
+      'Unlock with a real factor (secret, invite, OIDC) and re-enroll via enrollDeviceTrust().',
     )
     this.name = 'DeviceTrustNotFoundError'
   }
@@ -150,7 +150,7 @@ export class DeviceTrustInvalidError extends Error {
     super(
       `Device-trust record for vault "${vault}" exists but could not be unwrapped ` +
       '(corrupt or mismatched key/blob). ' +
-      'Unlock with a real factor (passphrase, invite, OIDC) and re-enroll via enrollDeviceTrust().',
+      'Unlock with a real factor (secret, invite, OIDC) and re-enroll via enrollDeviceTrust().',
     )
     this.name = 'DeviceTrustInvalidError'
   }
@@ -270,7 +270,7 @@ export async function enrollDeviceTrust(
   const resumeTier = options.resumeTier ?? DEVICE_TRUST_DEFAULT_RESUME_TIER
   if (resumeTier !== 2 && resumeTier !== 3) {
     throw new DeviceTrustEnrollmentError(
-      `Invalid resumeTier ${String(resumeTier)} — a device-trust resume may only claim tier 2 or 3, never the passphrase tier.`,
+      `Invalid resumeTier ${String(resumeTier)} — a device-trust resume may only claim tier 2 or 3, never the secret tier.`,
     )
   }
   if (keyring.deks.size === 0) {

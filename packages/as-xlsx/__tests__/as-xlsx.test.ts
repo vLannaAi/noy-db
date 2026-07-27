@@ -36,7 +36,7 @@ async function grantXlsx(adapter: ReturnType<typeof memory>) {
   const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
   await db.grant('acme', {
     userId: 'owner-01', displayName: 'Owner', role: 'owner',
-    passphrase: 'owner-pass',
+    secret: 'owner-pass',
     exportCapability: { plaintext: ['xlsx'] },
   })
   await db.close()

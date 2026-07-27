@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/on-magic-link",
   "version": "0.4.0-pre.4",
-  "description": "Magic-link unlock for noy-db — one-time URL that opens a vault in a viewer-scoped session without a passphrase. Part of the @noy-db/on-* authentication family.",
+  "description": "Magic-link unlock for noy-db — one-time URL that opens a vault in a viewer-scoped session without a secret. Part of the @noy-db/on-* authentication family.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/on-magic-link#readme",

@@ -58,7 +58,7 @@ async function setup() {
   await init.openVault('demo')
   await init.grant('demo', {
     userId: 'alice', displayName: 'Alice', role: 'owner',
-    passphrase: 'pw-2026',
+    secret: 'pw-2026',
     importCapability: { plaintext: ['json'] },
   })
   init.close()
@@ -176,7 +176,7 @@ describe('as-json fromString — apply stamps `reason: "import:json"` on every l
     await init.openVault('demo')
     await init.grant('demo', {
       userId: 'alice', displayName: 'Alice', role: 'owner',
-      passphrase: 'pw-2026',
+      secret: 'pw-2026',
       importCapability: { plaintext: ['json'] },
     })
     init.close()

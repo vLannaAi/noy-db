@@ -155,7 +155,7 @@ describe('grant() persistence — exportCapability round-trips via keyring file'
       userId: 'op@test',
       displayName: 'Operator',
       role: 'operator',
-      passphrase: 'op-pass',
+      secret: 'op-pass',
       permissions: { invoices: 'rw' },
       exportCapability: { plaintext: ['xlsx', 'csv'], bundle: true },
     })
@@ -182,7 +182,7 @@ describe('grant() persistence — exportCapability round-trips via keyring file'
       userId: 'op@test',
       displayName: 'Operator',
       role: 'operator',
-      passphrase: 'op-pass',
+      secret: 'op-pass',
       permissions: { invoices: 'rw' },
     })
     await ownerDb.close()
@@ -236,7 +236,7 @@ describe('vault.assertCanExport / canExport', () => {
     await ownerDb.openVault('acme')
     await ownerDb.grant('acme', {
       userId: 'op@test', displayName: 'Operator', role: 'operator',
-      passphrase: 'op-pass',
+      secret: 'op-pass',
       permissions: { invoices: 'rw' },
       exportCapability: { plaintext: ['xlsx'] },
     })

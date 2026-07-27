@@ -34,7 +34,7 @@
  * The dump JSON inside the body still contains the original
  * metadata, but that's only readable by someone who already has the
  * file bytes — the same person who could read the encrypted records
- * with the right passphrase.
+ * with the right secret.
  *
  * **Why minimum disclosure** in the header? Because consumers will
  * inevitably store these in services where the filename, file size,
@@ -136,7 +136,7 @@ export interface NoydbPodHeader {
   /**
    * Auto-unlock material indicator. When present, the bundle
    * body wraps the dump JSON in a structure carrying per-user
-   * passphrases — either plaintext (`'unsealed'`, public-by-design)
+   * secrets — either plaintext (`'unsealed'`, public-by-design)
    * or sealed under a `SealingKeyProvider` (`'sealed'`, requires
    * matching provider on the recipient side).
    *

@@ -62,7 +62,7 @@ describe('MV declaredDeterministicPredicates (#153)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-predicates-basic-passphrase-2026',
+      secret: 'mv-predicates-basic-secret-2026',
       materializedViewStrategies: [mv],
     })
     const vault = await db.openVault('demo')
@@ -95,12 +95,12 @@ describe('MV declaredDeterministicPredicates (#153)', () => {
     // Two separate vaults to isolate, then compare _materializedFrom queryHash
     const dbA = await createNoydb({
       store: memory(), user: 'alice',
-      secret: 'mv-predicates-hash-A-passphrase-2026',
+      secret: 'mv-predicates-hash-A-secret-2026',
       materializedViewStrategies: [v1],
     })
     const dbB = await createNoydb({
       store: memory(), user: 'alice',
-      secret: 'mv-predicates-hash-B-passphrase-2026',
+      secret: 'mv-predicates-hash-B-secret-2026',
       materializedViewStrategies: [v2],
     })
     const vA = await dbA.openVault('demo')
@@ -130,12 +130,12 @@ describe('MV declaredDeterministicPredicates (#153)', () => {
     })
     const dbA = await createNoydb({
       store: memory(), user: 'alice',
-      secret: 'mv-predicates-ctxA-passphrase-2026',
+      secret: 'mv-predicates-ctxA-secret-2026',
       materializedViewStrategies: [mvA],
     })
     const dbB = await createNoydb({
       store: memory(), user: 'alice',
-      secret: 'mv-predicates-ctxB-passphrase-2026',
+      secret: 'mv-predicates-ctxB-secret-2026',
       materializedViewStrategies: [mvB],
     })
     const vA = await dbA.openVault('demo')
@@ -165,7 +165,7 @@ describe('MV declaredDeterministicPredicates (#153)', () => {
     // A bare Query (outside an MV) shouldn't support .wherePredicate().
     const db = await createNoydb({
       store: memory(), user: 'alice',
-      secret: 'mv-predicates-bare-passphrase-2026',
+      secret: 'mv-predicates-bare-secret-2026',
     })
     const vault = await db.openVault('demo')
     await vault.collection<Invoice>('inv').put('a', { id: 'a', status: 'open', amount: 1, dueDate: '2026-01-01' })
@@ -186,7 +186,7 @@ describe('MV declaredDeterministicPredicates (#153)', () => {
       const db = await createNoydb({
         store: memory(),
         user: 'alice',
-        secret: 'mv-predicates-unknown-passphrase-2026',
+        secret: 'mv-predicates-unknown-secret-2026',
         materializedViewStrategies: [mv],
       })
       await db.openVault('demo')
@@ -227,7 +227,7 @@ describe('MV declaredDeterministicPredicates (#153)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-predicates-chained-passphrase-2026',
+      secret: 'mv-predicates-chained-secret-2026',
       materializedViewStrategies: [mv],
     })
     const vault = await db.openVault('demo')

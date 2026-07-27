@@ -26,7 +26,7 @@ describe('broker seed lifecycle', () => {
   it('V2b: enroll() by a non-owner/admin role throws PermissionDeniedError', async () => {
     const store = memoryStore()
     const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
-    await grant(store, VAULT, owner, { userId: 'viewer1', displayName: 'Viewer', role: 'viewer', passphrase: 'viewer-pw' })
+    await grant(store, VAULT, owner, { userId: 'viewer1', displayName: 'Viewer', role: 'viewer', secret: 'viewer-pw' })
     const viewer = await loadKeyring(store, VAULT, 'viewer1', 'viewer-pw')
 
     const host = makeTestHost()
@@ -128,7 +128,7 @@ describe('broker seed lifecycle', () => {
     expect(creds).toMatchObject({ kind: 'aws' })
   })
 
-  it('V7: fetch bodies carry no seed, DEK, or passphrase — only vaultId/brokerId/proofKey/challenge/proof/profile', async () => {
+  it('V7: fetch bodies carry no seed, DEK, or secret — only vaultId/brokerId/proofKey/challenge/proof/profile', async () => {
     const store = memoryStore()
     const owner = await createOwnerKeyring(store, VAULT, 'owner', 'owner-pw')
     const host = makeTestHost({ requireAttestation: true })

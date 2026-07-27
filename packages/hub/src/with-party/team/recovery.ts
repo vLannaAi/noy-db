@@ -40,7 +40,7 @@ import type { ShamirRecoveryProvider } from './shamir-recovery-provider.js'
  * we wrap a serialized DEK set: the entry holds the AES-GCM
  * ciphertext of `{ deks: { collection: rawDekBase64 } }`. Recovery
  * deserializes the DEK set, then mints a fresh KEK from the new
- * passphrase and rewraps the DEKs under it.
+ * secret and rewraps the DEKs under it.
  *
  * This is the same pattern `@noy-db/on-pin` uses for tier-3 quick
  * resume — the cryptographic guarantee is identical (AES-GCM with a
@@ -128,8 +128,8 @@ export async function hasRecoveryEnrolled(
 /**
  * Whether at least one **strong** recovery profile is enrolled.
  *
- * "Strong" excludes paper-alone — under managed-passphrase mode the
- * user has no memorized passphrase, so a stolen/lost paper sheet
+ * "Strong" excludes paper-alone — under managed-secret mode the
+ * user has no memorized secret, so a stolen/lost paper sheet
  * would be a single point of total loss. Strong profiles today:
  *
  *   - `shamir` (k-of-n threshold; survives loss of up to n-k shares)
@@ -319,7 +319,7 @@ function bytesToBase64(b: Uint8Array): string {
  *
  * Returns the serializable entry (persisted via
  * {@link savePaperRecoveryEntries}). The recovery flow unwraps the
- * DEK set, then mints a fresh KEK from the user's new passphrase.
+ * DEK set, then mints a fresh KEK from the user's new secret.
  *
  * Thin wrapper over {@link mintWrappedDeksBlob} — the crypto
  * lives in the shared primitive; this function just adds paper-
@@ -346,7 +346,7 @@ export async function mintPaperRecoveryEntry(
 
 /**
  * Decrypt a recovery entry to recover the raw DEK set. Used by the
- * `recoverPassphrase` flow after the user's code has been parsed.
+ * `recoverSecret` flow after the user's code has been parsed.
  *
  * Thin wrapper over {@link unwrapDeksFromBlob}.
  *

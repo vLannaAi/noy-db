@@ -77,7 +77,7 @@ function readOnlyFtindexDelete(store: NoydbStore): NoydbStore {
   }
 }
 
-const SECRET = 'search-compensation-residue-passphrase-764'
+const SECRET = 'search-compensation-residue-secret-764'
 
 describe('#764 (a) a stuck compensation is a distinguishable typed error', () => {
   it('flushIndex() throws PersistedIndexCompensationError — not the raw adapter error — once the compensation is permanently stuck; the cause is the original error', async () => {

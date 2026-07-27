@@ -9,7 +9,7 @@ import { withTeam } from '@noy-db/hub/team'
 
 interface Doc { id: string; title: string }
 
-const SECRET = 'export-blobs-to-directory-test-passphrase-2026'
+const SECRET = 'export-blobs-to-directory-test-secret-2026'
 
 let workDir: string
 let exportDir: string
@@ -32,7 +32,7 @@ async function makeFixture(): Promise<void> {
     userId: 'alice',
     displayName: 'Alice',
     role: 'owner',
-    passphrase: SECRET,
+    secret: SECRET,
     exportCapability: { plaintext: ['blob'] },
   })
   await bootstrap.close()

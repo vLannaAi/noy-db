@@ -109,7 +109,7 @@ async function seedAdapterAndReopen(n: number): Promise<{
   const seeder = await createNoydb({
     store: adapter,
     user: 'owner',
-    secret: 'lazy-test-passphrase-2026',
+    secret: 'lazy-test-secret-2026',
   })
   const seederComp = await seeder.openVault('TEST')
   const seederColl = seederComp.collection<Invoice>('invoices')
@@ -129,7 +129,7 @@ async function seedAdapterAndReopen(n: number): Promise<{
   const db = await createNoydb({
     store: adapter,
     user: 'owner',
-    secret: 'lazy-test-passphrase-2026',
+    secret: 'lazy-test-secret-2026',
   })
   const comp = await db.openVault('TEST')
 
@@ -146,7 +146,7 @@ describe('Collection — lazy mode construction', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'lazy-test-passphrase-2026',
+      secret: 'lazy-test-secret-2026',
     })
     comp = await db.openVault('TEST')
   })
@@ -195,7 +195,7 @@ describe('lazy mode with indexes declared (v0.22)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'lazy-test-passphrase-2026',
+      secret: 'lazy-test-secret-2026',
     })
     const vault = await db.openVault('c')
     expect(() => vault.collection('disbursements', {

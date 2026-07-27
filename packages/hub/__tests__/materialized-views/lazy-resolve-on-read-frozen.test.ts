@@ -61,7 +61,7 @@ describe('lazy-MV resolve-on-read respects the frozen-output rule (#641)', () =>
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-resolve-on-read-frozen-passphrase-2026',
+      secret: 'mv-resolve-on-read-frozen-secret-2026',
       materializedViewStrategies: [lazyMV],
       periodsStrategy: withPeriods(),
     })
@@ -116,7 +116,7 @@ describe('lazy-MV resolve-on-read respects the frozen-output rule (#641)', () =>
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-resolve-on-read-frozen-list-passphrase-2026',
+      secret: 'mv-resolve-on-read-frozen-list-secret-2026',
       materializedViewStrategies: [lazyMV],
       periodsStrategy: withPeriods(),
     })

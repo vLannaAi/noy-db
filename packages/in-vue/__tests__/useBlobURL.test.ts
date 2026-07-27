@@ -77,7 +77,7 @@ async function makeFixture(): Promise<{ db: Noydb; col: Awaited<ReturnType<Noydb
   const db = await createNoydb({
     store: memory(),
     user: 'alice',
-    secret: 'use-blob-url-test-passphrase-2026',
+    secret: 'use-blob-url-test-secret-2026',
     blobStrategy: withBlobs(),
   })
   const vault = await db.openVault('V1')

@@ -54,7 +54,7 @@ async function openTestVault() {
   const db = await createNoydb({
     store: memory(),
     user: 'alice',
-    secret: 'lazy-engines-553-test-passphrase',
+    secret: 'lazy-engines-553-test-secret',
     aggregateStrategy: withAggregate(),
   })
   return db.openVault('main')

@@ -4,18 +4,18 @@
  * Three independent, opt-in mechanisms (all of which are pure logic —
  * the caller coordinates persistence and keyring actions):
  *
- *   1. **{@link LockoutPolicy}** — N wrong passphrases within
+ *   1. **{@link LockoutPolicy}** — N wrong secrets within
  *      a window trigger lockout, cooldown, or wipe. Pure state
  *      machine; caller persists the `LockoutState` between attempts.
  *
  *   2. **{@link checkDuress}** — compare an entered
- *      passphrase against a stored `duressDigest` to trigger
+ *      secret against a stored `duressDigest` to trigger
  *      data-destruct mode. The action itself (DEK purge + keyring
  *      delete) is delegated to a caller-supplied `onDuress` handler;
  *      this package only detects the match.
  *
  *   3. **{@link checkHoneypot}** — alternate duress
- *      passphrase that surfaces a decoy vault instead of wiping.
+ *      secret that surfaces a decoy vault instead of wiping.
  *      Same detection pattern as `checkDuress`, but the caller's
  *      handler routes to the pre-seeded honeypot vault.
  *
@@ -147,37 +147,37 @@ export function isLocked(state: LockoutState, now: Date = new Date()): boolean {
   return now.getTime() < new Date(state.lockedUntil).getTime()
 }
 
-// ─── Duress passphrase (data destruct) ────────────────────────────
+// ─── Duress secret (data destruct) ────────────────────────────
 
 /**
- * Enroll a duress passphrase. Returns a `{ digest, salt }` pair to
+ * Enroll a duress secret. Returns a `{ digest, salt }` pair to
  * persist alongside the keyring. On every unlock attempt the caller
  * runs `checkDuress(input, digest, salt)` BEFORE the normal PBKDF2
  * unlock — a match means the user entered the duress phrase, and the
  * caller should invoke the wipe handler.
  *
- * **Why hash-compare rather than wrap-attempt?** The duress passphrase
- * is intentionally a distinct secret from the real unlock passphrase —
+ * **Why hash-compare rather than wrap-attempt?** The duress secret
+ * is intentionally a distinct secret from the real unlock secret —
  * wrapping a key against both would require storing a decoy DEK, which
  * defeats the "destroy on match" semantics. Hashing with a dedicated
- * salt lets us detect the duress passphrase without revealing anything
+ * salt lets us detect the duress secret without revealing anything
  * about the real one.
  */
-export async function enrollDuress(passphrase: string): Promise<{ digest: string; salt: string }> {
-  return hashWithFreshSalt(passphrase)
+export async function enrollDuress(secret: string): Promise<{ digest: string; salt: string }> {
+  return hashWithFreshSalt(secret)
 }
 
-/** Returns true when `input` matches the enrolled duress passphrase. */
+/** Returns true when `input` matches the enrolled duress secret. */
 export async function checkDuress(input: string, digest: string, salt: string): Promise<boolean> {
   const computed = await hashWithSalt(input, salt)
   return constantTimeEqual(computed, digest)
 }
 
-// ─── Duress passphrase (honeypot) ─────────────────────────────────
+// ─── Duress secret (honeypot) ─────────────────────────────────
 
 /**
  * Same enroll shape as `enrollDuress` — the caller keeps a separate
- * `{ digest, salt }` pair for the honeypot passphrase and routes
+ * `{ digest, salt }` pair for the honeypot secret and routes
  * matches to a pre-seeded decoy vault instead of a wipe action.
  *
  * In practice a consumer configures either the destruct path OR the
@@ -190,19 +190,19 @@ export const checkHoneypot = checkDuress
 
 // ─── internals ─────────────────────────────────────────────────────────
 
-async function hashWithFreshSalt(passphrase: string): Promise<{ digest: string; salt: string }> {
+async function hashWithFreshSalt(secret: string): Promise<{ digest: string; salt: string }> {
   const saltBytes = globalThis.crypto.getRandomValues(new Uint8Array(16))
   const salt = toHex(saltBytes)
-  const digest = await hashWithSalt(passphrase, salt)
+  const digest = await hashWithSalt(secret, salt)
   return { digest, salt }
 }
 
-async function hashWithSalt(passphrase: string, saltHex: string): Promise<string> {
+async function hashWithSalt(secret: string, saltHex: string): Promise<string> {
   const enc = new TextEncoder()
-  const passBytes = enc.encode(passphrase)
+  const passBytes = enc.encode(secret)
   const saltBytes = fromHex(saltHex)
   // PBKDF2-SHA256 with 200k iterations — same ballpark as noy-db's 600k
-  // for KEK derivation but this hash is just for passphrase comparison,
+  // for KEK derivation but this hash is just for secret comparison,
   // not key material. 200k keeps the UI snappy on low-end devices.
   const keyMaterial = await globalThis.crypto.subtle.importKey(
     'raw',

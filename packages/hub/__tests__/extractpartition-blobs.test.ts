@@ -108,7 +108,7 @@ describe('extractPartition blob carriage — round-trip', () => {
       const dest = memory()
       await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
       await createOwnerOnAdoptedPartition(dest, 'fresh', {
-        userId: 'belle', passphrase: 'belle-pass-phrase-2026', transferKey,
+        userId: 'belle', secret: 'belle-pass-phrase-2026', transferKey,
       })
 
       const recipientDb = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-pass-phrase-2026', blobStrategy: withBlobs() })
@@ -201,7 +201,7 @@ describe('extractPartition blob carriage — selective carriage', () => {
     const dest = memory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
     await createOwnerOnAdoptedPartition(dest, 'fresh', {
-      userId: 'belle', passphrase: 'belle-pass-phrase-2026', transferKey,
+      userId: 'belle', secret: 'belle-pass-phrase-2026', transferKey,
     })
 
     const recipientDb = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-pass-phrase-2026', blobStrategy: withBlobs() })
@@ -233,7 +233,7 @@ describe('extractPartition blob carriage — selective carriage', () => {
     const dest = memory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
     await createOwnerOnAdoptedPartition(dest, 'fresh', {
-      userId: 'belle', passphrase: 'belle-pass-phrase-2026', transferKey,
+      userId: 'belle', secret: 'belle-pass-phrase-2026', transferKey,
     })
 
     const recipientDb = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-pass-phrase-2026', blobStrategy: withBlobs() })
@@ -307,7 +307,7 @@ describe('extractPartition blob carriage — refCount + no-blob', () => {
     const dest = memory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
     await createOwnerOnAdoptedPartition(dest, 'fresh', {
-      userId: 'belle', passphrase: 'belle-pass-phrase-2026', transferKey,
+      userId: 'belle', secret: 'belle-pass-phrase-2026', transferKey,
     })
     const recipientDb = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-pass-phrase-2026', blobStrategy: withBlobs() })
     const vault = await recipientDb.openVault('fresh')
@@ -352,7 +352,7 @@ describe('extractPartition blob carriage — #767: carries in-flight `_blob_inte
     expect(await dest.get('fresh', BLOB_INTENT_COLLECTION, 'docs::d1')).not.toBeNull()
 
     await createOwnerOnAdoptedPartition(dest, 'fresh', {
-      userId: 'belle', passphrase: 'belle-pass-phrase-2026', transferKey,
+      userId: 'belle', secret: 'belle-pass-phrase-2026', transferKey,
     })
     const recipientDb = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-pass-phrase-2026', blobStrategy: withBlobs() })
     const recipientVault = await recipientDb.openVault('fresh')
@@ -422,7 +422,7 @@ describe('extractPartition blob carriage — #769: strips `pendingRelease` (back
     const dest = memory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
     await createOwnerOnAdoptedPartition(dest, 'fresh', {
-      userId: 'belle', passphrase: 'belle-pass-phrase-2026', transferKey,
+      userId: 'belle', secret: 'belle-pass-phrase-2026', transferKey,
     })
     const recipientDb = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-pass-phrase-2026', blobStrategy: withBlobs() })
     const recipientVault = await recipientDb.openVault('fresh')

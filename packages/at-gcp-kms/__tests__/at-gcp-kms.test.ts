@@ -18,7 +18,7 @@ function fakeKms() {
 }
 
 describe('gcpKmsSealingProvider', () => {
-  it('round-trips a passphrase via injected client', async () => {
+  it('round-trips a secret via injected client', async () => {
     const keyName = 'projects/my-project/locations/global/keyRings/ring/cryptoKeys/key'
     const p = gcpKmsSealingProvider({ keyName, client: fakeKms() as any })
     const phrase = new TextEncoder().encode('hunter2-master')
@@ -77,7 +77,7 @@ describe('gcpKmsSealingProvider', () => {
   })
 })
 
-describe('@noy-db/at-gcp-kms — integration with @noy-db/hub managed-passphrase mode', () => {
+describe('@noy-db/at-gcp-kms — integration with @noy-db/hub managed-secret mode', () => {
   it('round-trips a managed-mode vault end-to-end using fake KMS client', async () => {
     const { createNoydb } = await import('@noy-db/hub')
     const { memory } = await import('@noy-db/to-memory')
@@ -93,7 +93,7 @@ describe('@noy-db/at-gcp-kms — integration with @noy-db/hub managed-passphrase
     // atomically enrolls the strong recovery required for managed-mode vaults.
     const db1 = await createNoydb({
       store, user: 'alice',
-      passphraseMode: 'managed',
+      secretMode: 'managed',
       sealingKey: gcpKmsSealingProvider({ keyName, client: sharedFake as any }),
       shamirRecovery: shamirRecoveryProvider(),
     })
@@ -106,10 +106,10 @@ describe('@noy-db/at-gcp-kms — integration with @noy-db/hub managed-passphrase
     db1.close()
 
     // Second open — fresh db instance, SAME fake client, SAME store.
-    // unseal must reconstruct the passphrase so the vault decrypts correctly.
+    // unseal must reconstruct the secret so the vault decrypts correctly.
     const db2 = await createNoydb({
       store, user: 'alice',
-      passphraseMode: 'managed',
+      secretMode: 'managed',
       sealingKey: gcpKmsSealingProvider({ keyName, client: sharedFake as any }),
       shamirRecovery: shamirRecoveryProvider(),
     })

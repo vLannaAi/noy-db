@@ -124,7 +124,7 @@ describe('Query.join() — v0.6 eager single-FK joins', () => {
     db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'join-test-passphrase-2026',
+      secret: 'join-test-secret-2026',
     })
     resetJoinWarnings()
   })

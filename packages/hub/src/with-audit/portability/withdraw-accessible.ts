@@ -41,8 +41,8 @@ export interface FrozenSnapshotRef {
 export interface WithdrawAccessibleOptions {
   /** Legal/contractual basis recorded in the audit (e.g. 'gdpr-art-17'). */
   readonly legalBasis: string
-  /** Re-key the exported bundle to a new owner passphrase. */
-  readonly reKey?: { readonly passphrase: string }
+  /** Re-key the exported bundle to a new owner secret. */
+  readonly reKey?: { readonly secret: string }
   /** Source disposition. Default 'delete'. */
   readonly disposition?: 'delete' | 'freeze'
   readonly scope?: { readonly collections?: readonly string[] }

@@ -14,7 +14,7 @@ pnpm add @noy-db/hub @noy-db/in-devtools
 
 ## What it is
 
-`createInspector(db, { meter? })` turns a live `Noydb` instance into serializable, read-only views for a CLI, a browser panel, or the terminal TUI ([`@noy-db/in-devtools-tui`](https://www.npmjs.com/package/@noy-db/in-devtools-tui)). It is a pure consumer of public hub APIs — read-only and zero-knowledge-respecting: it never holds passphrases and shows only what the caller's unlocked session can already read.
+`createInspector(db, { meter? })` turns a live `Noydb` instance into serializable, read-only views for a CLI, a browser panel, or the terminal TUI ([`@noy-db/in-devtools-tui`](https://www.npmjs.com/package/@noy-db/in-devtools-tui)). It is a pure consumer of public hub APIs — read-only and zero-knowledge-respecting: it never holds secrets and shows only what the caller's unlocked session can already read.
 
 ```ts
 import { createInspector } from '@noy-db/in-devtools'

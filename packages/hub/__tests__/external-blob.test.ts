@@ -40,7 +40,7 @@ describe('#412 P3 — external blob fields route to the ObjectProjection', () =>
   it('stores bytes in the projection (not _blob_chunks); record/slot is the catalog', async () => {
     const store = makeStore()
     const objects = memoryObjectProjection({ baseUrl: 'https://cdn.example.com' })
-    const db = await createNoydb({ store, user: 'op', secret: 'passphrase-1234-long-enough', objectStore: objects, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, user: 'op', secret: 'secret-1234-long-enough', objectStore: objects, blobStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs', {
       blobFields: { video: { external: true, public: true }, thumb: {} },
@@ -71,7 +71,7 @@ describe('#412 P3 — external blob fields route to the ObjectProjection', () =>
 
   it('non-external fields still use the encrypted-chunk path', async () => {
     const store = makeStore()
-    const db = await createNoydb({ store, user: 'op', secret: 'passphrase-1234-long-enough', objectStore: memoryObjectProjection(), blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, user: 'op', secret: 'secret-1234-long-enough', objectStore: memoryObjectProjection(), blobStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs', { blobFields: { video: { external: true } } })
     await docs.put('d1', { id: 'd1' })
@@ -82,7 +82,7 @@ describe('#412 P3 — external blob fields route to the ObjectProjection', () =>
   it('delete hard-removes the external object', async () => {
     const store = makeStore()
     const objects = memoryObjectProjection()
-    const db = await createNoydb({ store, user: 'op', secret: 'passphrase-1234-long-enough', objectStore: objects, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, user: 'op', secret: 'secret-1234-long-enough', objectStore: objects, blobStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs', { blobFields: { video: { external: true } } })
     await docs.put('d1', { id: 'd1' })
@@ -97,7 +97,7 @@ describe('#412 P3 — external blob fields route to the ObjectProjection', () =>
 
   it('stamps an opaque-token backlink (default) onto the object + records it on the slot', async () => {
     const objects = memoryObjectProjection()
-    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'passphrase-1234-long-enough', objectStore: objects, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'secret-1234-long-enough', objectStore: objects, blobStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs', { blobFields: { video: { external: true } } })
     await docs.put('d1', { id: 'd1' })
@@ -114,7 +114,7 @@ describe('#412 P3 — external blob fields route to the ObjectProjection', () =>
 
   it('plain backlink stamps the structure (leaky, opt-in)', async () => {
     const objects = memoryObjectProjection()
-    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'passphrase-1234-long-enough', objectStore: objects, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'secret-1234-long-enough', objectStore: objects, blobStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs', { blobFields: { video: { external: true, backlink: 'plain' } } })
     await docs.put('d1', { id: 'd1' })
@@ -124,7 +124,7 @@ describe('#412 P3 — external blob fields route to the ObjectProjection', () =>
   })
 
   it('setExternalMeta / externalMeta round-trip the secondary metadata store', async () => {
-    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'passphrase-1234-long-enough', objectStore: memoryObjectProjection(), blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'secret-1234-long-enough', objectStore: memoryObjectProjection(), blobStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs', { blobFields: { video: { external: true } } })
     await docs.put('d1', { id: 'd1' })
@@ -142,7 +142,7 @@ describe('#412 P3 — external blob fields route to the ObjectProjection', () =>
     await objects.putObject('docs/r2/scan', payload(150), { contentType: 'image/png' })
     await objects.putObject('other/x', payload(10), { contentType: 'text/plain' }) // excluded by the 'docs/' prefix filter
 
-    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'passphrase-1234-long-enough', objectStore: objects, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'secret-1234-long-enough', objectStore: objects, blobStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs', { blobFields: { scan: { external: true } } })
 
@@ -162,7 +162,7 @@ describe('#412 P3 — external blob fields route to the ObjectProjection', () =>
 
   it('url() throws for a non-external slot', async () => {
     const store = makeStore()
-    const db = await createNoydb({ store, user: 'op', secret: 'passphrase-1234-long-enough', objectStore: memoryObjectProjection(), blobStrategy: withBlobs() })
+    const db = await createNoydb({ store, user: 'op', secret: 'secret-1234-long-enough', objectStore: memoryObjectProjection(), blobStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs', { blobFields: { thumb: {} } })
     await docs.put('d1', { id: 'd1' })
@@ -173,7 +173,7 @@ describe('#412 P3 — external blob fields route to the ObjectProjection', () =>
 
 describe('#748 — adoptExternal()/setExternalMeta() require a declared external slot', () => {
   it('adoptExternal() throws when the slot is not declared blobFields[slot].external', async () => {
-    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'passphrase-1234-long-enough', objectStore: memoryObjectProjection(), blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'secret-1234-long-enough', objectStore: memoryObjectProjection(), blobStrategy: withBlobs() })
     const vault = await db.openVault('t')
     // 'scan' is entirely undeclared — no blobFields at all.
     const docs = vault.collection<{ id: string }>('docs', {})
@@ -184,7 +184,7 @@ describe('#748 — adoptExternal()/setExternalMeta() require a declared external
   })
 
   it('adoptExternal() throws when the slot is declared but not external (internal blob field)', async () => {
-    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'passphrase-1234-long-enough', objectStore: memoryObjectProjection(), blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'secret-1234-long-enough', objectStore: memoryObjectProjection(), blobStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs', { blobFields: { thumb: {} } })
     await docs.put('d1', { id: 'd1' })
@@ -196,7 +196,7 @@ describe('#748 — adoptExternal()/setExternalMeta() require a declared external
   it('adoptExternal() succeeds when the slot IS declared external (positive lock)', async () => {
     const objects = memoryObjectProjection()
     await objects.putObject('docs/r1/scan', payload(100), { contentType: 'image/png' })
-    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'passphrase-1234-long-enough', objectStore: objects, blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'secret-1234-long-enough', objectStore: objects, blobStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs', { blobFields: { scan: { external: true } } })
     await docs.put('r1', { id: 'r1' })
@@ -205,7 +205,7 @@ describe('#748 — adoptExternal()/setExternalMeta() require a declared external
   })
 
   it('setExternalMeta() throws when the slot is not declared blobFields[slot].external', async () => {
-    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'passphrase-1234-long-enough', objectStore: memoryObjectProjection(), blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'secret-1234-long-enough', objectStore: memoryObjectProjection(), blobStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs', {})
     await docs.put('d1', { id: 'd1' })
@@ -215,7 +215,7 @@ describe('#748 — adoptExternal()/setExternalMeta() require a declared external
   })
 
   it('setExternalMeta() succeeds when the slot IS declared external (positive lock)', async () => {
-    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'passphrase-1234-long-enough', objectStore: memoryObjectProjection(), blobStrategy: withBlobs() })
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: 'secret-1234-long-enough', objectStore: memoryObjectProjection(), blobStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs', { blobFields: { video: { external: true } } })
     await docs.put('d1', { id: 'd1' })

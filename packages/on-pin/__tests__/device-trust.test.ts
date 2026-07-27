@@ -6,7 +6,7 @@
  *   - non-extractable invariant (key.extractable === false, export
  *     refused, structured-clone persistence path preserves both)
  *   - resume yields the capped session tier (default 3, below
- *     passphrase; hub checkGate denies tier-1 gates under it)
+ *     secret; hub checkGate denies tier-1 gates under it)
  *   - enrollment refuses a keyring with no DEKs (no unlocked session)
  *   - revocation: local clear kills it; keyring-side DEK rotation
  *     invalidates the cached DEKs (stale DEK fails AES-GCM auth)
@@ -179,7 +179,7 @@ describe('non-extractable invariant', () => {
 })
 
 describe('tier cap', () => {
-  it('resume yields the default capped tier — 3, below the passphrase tier', async () => {
+  it('resume yields the default capped tier — 3, below the secret tier', async () => {
     const store = memoryStore()
     const keyring = await makeTestKeyring()
     const state = await enrollDeviceTrust(keyring, { vault: 'main', store })
@@ -196,10 +196,10 @@ describe('tier cap', () => {
     await enrollDeviceTrust(keyring, { vault: 'main', store })
     const { resumeTier } = await resumeDeviceTrust('main', { store })
 
-    // A tier-1-floor gate (e.g. rotate-passphrase) denies a device-trust session.
-    const policy: VaultPolicy = { gates: { 'rotate-passphrase': { minTier: 1 } } }
+    // A tier-1-floor gate (e.g. rotate-secret) denies a device-trust session.
+    const policy: VaultPolicy = { gates: { 'rotate-secret': { minTier: 1 } } }
     await expect(
-      checkGate(policy, 'rotate-passphrase', { activeTier: resumeTier }),
+      checkGate(policy, 'rotate-secret', { activeTier: resumeTier }),
     ).rejects.toBeInstanceOf(PolicyDeniedError)
   })
 
@@ -211,7 +211,7 @@ describe('tier cap', () => {
     expect(resumeTier).toBe(2)
   })
 
-  it('refuses to claim the passphrase tier', async () => {
+  it('refuses to claim the secret tier', async () => {
     const store = memoryStore()
     const keyring = await makeTestKeyring()
     await expect(
@@ -350,7 +350,7 @@ describe('policy gate — app:device-trust', () => {
   it('owner tier-bounds enrollment → a weaker session cannot enroll', async () => {
     const store = memoryStore()
     const keyring = await makeTestKeyring()
-    // Only a full-passphrase (tier-1) session may enroll device-trust.
+    // Only a full-secret (tier-1) session may enroll device-trust.
     const policy: VaultPolicy = {
       gates: { [DEVICE_TRUST_GATE]: { minTier: 1 } },
     }

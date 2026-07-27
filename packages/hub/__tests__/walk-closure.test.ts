@@ -78,7 +78,7 @@ describe('walkClosure', () => {
     db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
   })
 
@@ -193,7 +193,7 @@ describe('walkClosure', () => {
 
   it('#759: excludes a tier-elevated outbound parent instead of admitting it, and records a dangling-ref notice', async () => {
     const tieredDb = await createNoydb({
-      store: memory(), user: 'alice', secret: 'test-passphrase-1234', tiersStrategy: withTiers(),
+      store: memory(), user: 'alice', secret: 'test-secret-1234', tiersStrategy: withTiers(),
     })
     const company = await tieredDb.openVault('demo-co')
     const clients = company.collection<Client>('clients', { tiers: [0, 1] })

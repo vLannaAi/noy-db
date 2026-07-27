@@ -47,7 +47,7 @@ describe('Vault.derivationRegistry wiring', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-vault-wiring-passphrase-2026',
+      secret: 'derivation-vault-wiring-secret-2026',
       derivationStrategies: [handle],
     })
     const vault = await db.openVault('demo')
@@ -60,7 +60,7 @@ describe('Vault.derivationRegistry wiring', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-vault-wiring-empty-passphrase-2026',
+      secret: 'derivation-vault-wiring-empty-secret-2026',
     })
     const vault = await db.openVault('demo')
     // After #130: vaults that never register a derivationStrategy keep
@@ -92,7 +92,7 @@ describe('Vault.derivationRegistry wiring', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'derivation-vault-wiring-cycle-passphrase-2026',
+      secret: 'derivation-vault-wiring-cycle-secret-2026',
       derivationStrategies: [a, b],
     })
     await expect(db.openVault('demo')).rejects.toBeInstanceOf(DerivationCycleError)

@@ -3,7 +3,7 @@
  *
  * End-to-end tests for the three Shamir-flavored APIs:
  *   - db.team.enrollRecovery({ profile: 'shamir', k, n })
- *   - db.team.recoverPassphrase({ profile: 'shamir', shares })
+ *   - db.team.recoverSecret({ profile: 'shamir', shares })
  *   - db.team.rotateRecovery({ profile: 'shamir', k, n })
  *
  * The architectural pattern mirrors paper-recovery (mint a wrapped
@@ -107,7 +107,7 @@ describe('Shamir recovery enrollment (#196 slice 1)', () => {
   })
 })
 
-describe('Shamir recovery — recoverPassphrase round-trip', () => {
+describe('Shamir recovery — recoverSecret round-trip', () => {
   let db: Noydb
   let shares: string[]
   let entryId: string
@@ -120,22 +120,22 @@ describe('Shamir recovery — recoverPassphrase round-trip', () => {
   })
 
   it('recovers with shares 1+2 (any K of N)', async () => {
-    await db.team.recoverPassphrase('acme', {
-      newPassphrase: STRONG_NEW,
+    await db.team.recoverSecret('acme', {
+      newSecret: STRONG_NEW,
       recoveryProof: {
         profile: 'shamir',
         payload: { shares: [shares[0]!, shares[1]!] },
       },
     })
-    // Verify the new passphrase actually unlocks the vault.
+    // Verify the new secret actually unlocks the vault.
     const db2 = await createNoydb({ store: (db as any).options.store, user: 'alice', secret: STRONG_NEW })
     const keyring = await db2.team.getKeyring('acme')
     expect(keyring.userId).toBe('alice')
   })
 
   it('recovers with shares 1+3 (different combination)', async () => {
-    await db.team.recoverPassphrase('acme', {
-      newPassphrase: STRONG_NEW,
+    await db.team.recoverSecret('acme', {
+      newSecret: STRONG_NEW,
       recoveryProof: {
         profile: 'shamir',
         payload: { shares: [shares[0]!, shares[2]!] },
@@ -147,8 +147,8 @@ describe('Shamir recovery — recoverPassphrase round-trip', () => {
   })
 
   it('recovers with shares 2+3', async () => {
-    await db.team.recoverPassphrase('acme', {
-      newPassphrase: STRONG_NEW,
+    await db.team.recoverSecret('acme', {
+      newSecret: STRONG_NEW,
       recoveryProof: {
         profile: 'shamir',
         payload: { shares: [shares[1]!, shares[2]!] },
@@ -160,8 +160,8 @@ describe('Shamir recovery — recoverPassphrase round-trip', () => {
   })
 
   it('recovers with all 3 shares (above threshold is fine)', async () => {
-    await db.team.recoverPassphrase('acme', {
-      newPassphrase: STRONG_NEW,
+    await db.team.recoverSecret('acme', {
+      newSecret: STRONG_NEW,
       recoveryProof: {
         profile: 'shamir',
         payload: { shares },
@@ -173,8 +173,8 @@ describe('Shamir recovery — recoverPassphrase round-trip', () => {
 
   it('rejects below-threshold (1 share for 2-of-3)', async () => {
     await expect(
-      db.team.recoverPassphrase('acme', {
-        newPassphrase: STRONG_NEW,
+      db.team.recoverSecret('acme', {
+        newSecret: STRONG_NEW,
         recoveryProof: {
           profile: 'shamir',
           payload: { shares: [shares[0]!] },
@@ -185,8 +185,8 @@ describe('Shamir recovery — recoverPassphrase round-trip', () => {
 
   it('rejects empty shares array', async () => {
     await expect(
-      db.team.recoverPassphrase('acme', {
-        newPassphrase: STRONG_NEW,
+      db.team.recoverSecret('acme', {
+        newSecret: STRONG_NEW,
         recoveryProof: { profile: 'shamir', payload: { shares: [] } },
       }),
     ).rejects.toThrow()
@@ -194,8 +194,8 @@ describe('Shamir recovery — recoverPassphrase round-trip', () => {
 
   it('rejects malformed share strings (non-base32 garbage)', async () => {
     await expect(
-      db.team.recoverPassphrase('acme', {
-        newPassphrase: STRONG_NEW,
+      db.team.recoverSecret('acme', {
+        newSecret: STRONG_NEW,
         recoveryProof: {
           profile: 'shamir',
           payload: { shares: ['!!!not-a-share!!!', '@@@nope@@@'] },
@@ -206,19 +206,19 @@ describe('Shamir recovery — recoverPassphrase round-trip', () => {
 
   it('does NOT burn shares — same shares unlock again after a future enrollment', async () => {
     // First recovery succeeds with the original shares.
-    await db.team.recoverPassphrase('acme', {
-      newPassphrase: STRONG_NEW,
+    await db.team.recoverSecret('acme', {
+      newSecret: STRONG_NEW,
       recoveryProof: {
         profile: 'shamir',
         payload: { shares: [shares[0]!, shares[1]!] },
       },
     })
     // The Shamir entry is preserved (unlike paper-burn). Re-open
-    // under the new passphrase, then the same shares can recover again.
+    // under the new secret, then the same shares can recover again.
     const db2 = await createNoydb({ store: (db as any).options.store, user: 'alice', secret: STRONG_NEW, shamirRecovery: shamirRecoveryProvider() })
     await db2.openVault('acme')
-    await db2.team.recoverPassphrase('acme', {
-      newPassphrase: STRONG_NEW_2,
+    await db2.team.recoverSecret('acme', {
+      newSecret: STRONG_NEW_2,
       recoveryProof: {
         profile: 'shamir',
         payload: { shares: [shares[0]!, shares[2]!] },
@@ -254,8 +254,8 @@ describe('Shamir recovery — multiple coexisting entries', () => {
     const a = await db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: 'board' })
     await db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 2, entryId: 'spouse' })
 
-    await db.team.recoverPassphrase('acme', {
-      newPassphrase: STRONG_NEW,
+    await db.team.recoverSecret('acme', {
+      newSecret: STRONG_NEW,
       recoveryProof: {
         profile: 'shamir',
         payload: { entryId: 'board', shares: [a.shares![0]!, a.shares![1]!] },
@@ -270,8 +270,8 @@ describe('Shamir recovery — multiple coexisting entries', () => {
     await db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 2, entryId: 'spouse' })
 
     // Provide board's shares; no entryId. Should find the board entry by trial.
-    await db.team.recoverPassphrase('acme', {
-      newPassphrase: STRONG_NEW,
+    await db.team.recoverSecret('acme', {
+      newSecret: STRONG_NEW,
       recoveryProof: {
         profile: 'shamir',
         payload: { shares: [a.shares![0]!, a.shares![1]!] },
@@ -284,8 +284,8 @@ describe('Shamir recovery — multiple coexisting entries', () => {
   it('rejects when entryId points at non-existent entry', async () => {
     const a = await db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3, entryId: 'board' })
     await expect(
-      db.team.recoverPassphrase('acme', {
-        newPassphrase: STRONG_NEW,
+      db.team.recoverSecret('acme', {
+        newSecret: STRONG_NEW,
         recoveryProof: {
           // entryId pointing at something that doesn't exist; shares
           // are real (well-formed) so the failure must come from the
@@ -305,8 +305,8 @@ describe('Shamir recovery — multiple coexisting entries', () => {
     // Mixed bag: one share from entry A + one share from entry B, no entryId.
     // AES-GCM auth-tag will reject for every candidate entry — fails closed.
     await expect(
-      db.team.recoverPassphrase('acme', {
-        newPassphrase: STRONG_NEW,
+      db.team.recoverSecret('acme', {
+        newSecret: STRONG_NEW,
         recoveryProof: {
           profile: 'shamir',
           payload: { shares: [a.shares![0]!, b.shares![0]!] },
@@ -316,8 +316,8 @@ describe('Shamir recovery — multiple coexisting entries', () => {
 
     // Supplying a same-entry pair for entry A (no entryId) DOES recover —
     // the contract is "group shares per entry," not "shamir is broken."
-    await db.team.recoverPassphrase('acme', {
-      newPassphrase: STRONG_NEW,
+    await db.team.recoverSecret('acme', {
+      newSecret: STRONG_NEW,
       recoveryProof: {
         profile: 'shamir',
         payload: { shares: [a.shares![0]!, a.shares![1]!] },
@@ -349,15 +349,15 @@ describe('Shamir recovery — rotateRecovery', () => {
 
     // Old shares no longer recover (they wrap a different recovery secret).
     await expect(
-      db.team.recoverPassphrase('acme', {
-        newPassphrase: STRONG_NEW,
+      db.team.recoverSecret('acme', {
+        newSecret: STRONG_NEW,
         recoveryProof: { profile: 'shamir', payload: { shares: [oldShares[0]!, oldShares[1]!] } },
       }),
     ).rejects.toThrow()
 
     // New shares do recover.
-    await db.team.recoverPassphrase('acme', {
-      newPassphrase: STRONG_NEW,
+    await db.team.recoverSecret('acme', {
+      newSecret: STRONG_NEW,
       recoveryProof: {
         profile: 'shamir',
         payload: { shares: [rotated.newShares![0]!, rotated.newShares![1]!] },

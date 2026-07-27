@@ -51,15 +51,15 @@ describe('custody opt-in gate (S4)', () => {
     await db.openVault(VAULT)
     // db-level primitive
     await expect(
-      db.grantCustodian(VAULT, { userId: 'firm-01', displayName: 'Firm', passphrase: 'firm-pass-long' }),
+      db.grantCustodian(VAULT, { userId: 'firm-01', displayName: 'Firm', secret: 'firm-pass-long' }),
     ).rejects.toThrow(CustodyNotEnabledError)
     // vault.custody.* facade routes through the same gate
     const vault = await db.openVault(VAULT)
     await expect(
-      vault.custody.grantCustodian({ userId: 'firm-01', displayName: 'Firm', passphrase: 'firm-pass-long' }),
+      vault.custody.grantCustodian({ userId: 'firm-01', displayName: 'Firm', secret: 'firm-pass-long' }),
     ).rejects.toThrow(CustodyNotEnabledError)
     await expect(
-      vault.custody.liberate({ newOwnerId: 'x', newOwnerPassphrase: 'x-pass-long', legalBasis: 'nope' }),
+      vault.custody.liberate({ newOwnerId: 'x', newOwnerSecret: 'x-pass-long', legalBasis: 'nope' }),
     ).rejects.toThrow(CustodyNotEnabledError)
   })
 
@@ -68,7 +68,7 @@ describe('custody opt-in gate (S4)', () => {
     const db = await createNoydb({ store: adapter, user: 'owner-01', secret: 'owner-pass', policy: POLICY, custodyStrategy: withCustody() })
     await db.openVault(VAULT)
     await expect(
-      db.grantCustodian(VAULT, { userId: 'firm-01', displayName: 'Firm', passphrase: 'firm-pass-long' }),
+      db.grantCustodian(VAULT, { userId: 'firm-01', displayName: 'Firm', secret: 'firm-pass-long' }),
     ).resolves.not.toThrow()
     // the minted custodian can open the vault
     const firmDb = await createNoydb({ store: adapter, user: 'firm-01', secret: 'firm-pass-long' })

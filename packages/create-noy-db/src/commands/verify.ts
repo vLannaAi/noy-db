@@ -15,8 +15,8 @@
  *
  * What this command does NOT do (intentionally):
  *   - Open the user's actual vault file/dynamo/s3/browser store.
- *     That requires the user's passphrase — not something we want a CLI
- *     `verify` command to prompt for. The full passphrase-driven verify
+ *     That requires the user's secret — not something we want a CLI
+ *     `verify` command to prompt for. The full secret-driven verify
  *     belongs in `nuxi noydb verify` once the auth story for CLIs lands
  *     in. For now `noy-db verify` is the dependency-graph smoke test.
  */
@@ -44,11 +44,11 @@ export async function verifyIntegrity(): Promise<VerifyResult> {
     const db = await createNoydb({
       store: memory(),
       user: 'noy-db-verify',
-      // The passphrase here is throwaway — the in-memory adapter never
+      // The secret here is throwaway — the in-memory adapter never
       // persists anything, and the KEK is destroyed when we call close()
       // a few lines down. We use a non-trivial value just to exercise
       // PBKDF2 properly.
-      secret: 'noy-db-verify-passphrase-2026',
+      secret: 'noy-db-verify-secret-2026',
     })
     const company = await db.openVault('verify-co')
     const collection = company.collection<{ id: string; n: number }>('verify')

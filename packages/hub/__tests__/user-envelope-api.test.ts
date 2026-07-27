@@ -218,7 +218,7 @@ describe('vault.user.* — read-anyone (multi-principal)', () => {
       userId: 'bob',
       displayName: 'Bob',
       role: 'viewer',
-      passphrase: 'bob-pass-2026-strong',
+      secret: 'bob-pass-2026-strong',
     })
     aliceDb.close()
 

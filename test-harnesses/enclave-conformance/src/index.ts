@@ -7,7 +7,7 @@ import {
   VECTOR_2_PER_RECORD_KEY,
   VECTOR_3_SEALED,
   VECTOR_3_SEALED_FIELD,
-  VECTOR_PASSPHRASE,
+  VECTOR_SECRET,
   VECTOR_SALT_BASE64,
 } from './vectors.js'
 
@@ -33,7 +33,7 @@ export interface EnclaveModule<K = unknown> {
   encrypt(plaintext: string, dek: K): Promise<{ iv: string; data: string }>
   decrypt(iv: string, data: string, dek: K): Promise<string>
   generateDEK(): Promise<K>
-  deriveKey(passphrase: string, salt: Uint8Array): Promise<K>
+  deriveKey(secret: string, salt: Uint8Array): Promise<K>
   wrapKey(dek: K, kek: K): Promise<string>
   unwrapKey(wrapped: string, kek: K): Promise<K>
 
@@ -251,7 +251,7 @@ export function runEnclaveConformance<K>(enclave: EnclaveModule<K>, opts: Enclav
 
     describe('key lifecycle', () => {
       it('deriveKey -> wrapKey -> unwrapKey round trip recovers a usable DEK', async () => {
-        const kek = await enclave.deriveKey('a fixed passphrase', new Uint8Array(32).fill(7))
+        const kek = await enclave.deriveKey('a fixed secret', new Uint8Array(32).fill(7))
         const dek = await enclave.generateDEK()
         const wrapped = await enclave.wrapKey(dek, kek)
         const recovered = await enclave.unwrapKey(wrapped, kek)
@@ -385,7 +385,7 @@ export function runEnclaveConformance<K>(enclave: EnclaveModule<K>, opts: Enclav
     describe('known-answer vectors (structure + decryptability, no leaks)', () => {
       it('every vector envelope decrypts to its known plaintext under the re-derived DEK', async () => {
         const salt = Uint8Array.from(atob(VECTOR_SALT_BASE64), (c) => c.charCodeAt(0))
-        const kek = await enclave.deriveKey(VECTOR_PASSPHRASE, salt)
+        const kek = await enclave.deriveKey(VECTOR_SECRET, salt)
 
         for (const vector of ALL_VECTORS) {
           const dek = await enclave.unwrapKey(vector.wrappedDek, kek)
@@ -404,7 +404,7 @@ export function runEnclaveConformance<K>(enclave: EnclaveModule<K>, opts: Enclav
       if (opts.supports.sealing) {
         it('the sealed-shaped vector\'s `_sealed` slot decrypts under deriveSealedFieldKey', async () => {
           const salt = Uint8Array.from(atob(VECTOR_SALT_BASE64), (c) => c.charCodeAt(0))
-          const kek = await enclave.deriveKey(VECTOR_PASSPHRASE, salt)
+          const kek = await enclave.deriveKey(VECTOR_SECRET, salt)
           const dek = await enclave.unwrapKey(VECTOR_3_SEALED.wrappedDek, kek)
           const fieldKey = await enclave.deriveSealedFieldKey(
             dek,

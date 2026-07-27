@@ -23,7 +23,7 @@ interface Item extends Record<string, unknown> {
 const itemSchema = z.object({ id: z.string(), amount: z.union([z.number(), z.string()]) })
 
 const USER = 'alice'
-const PASS = 'money-index-canonical-passphrase-2026'
+const PASS = 'money-index-canonical-secret-2026'
 const VAULT = 'books'
 const COLL = 'items'
 

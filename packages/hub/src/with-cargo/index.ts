@@ -25,7 +25,7 @@ export { liberateVault } from '../with-party/custody/liberate.js'
 export type { LiberateOptions, LiberateResult } from '../with-party/custody/liberate.js'
 export { createDeedOwner, loadDeedMarker, isDeedVault } from '../with-party/team/deed.js'
 export type { DeedMarker } from '../with-party/team/deed.js'
-export type { SealingKeyProvider } from '../with-party/team/managed-passphrase.js'
+export type { SealingKeyProvider } from '../with-party/team/managed-secret.js'
 
 // Interchange & addressing.
 export { diffVault } from './vault-diff.js'

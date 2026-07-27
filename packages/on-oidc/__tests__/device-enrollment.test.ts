@@ -68,7 +68,7 @@ async function makeInviteKeyring(userId: string): Promise<UnlockedKeyring> {
     role: 'member',
     permissions: { invoices: 'ro' },
     deks: new Map([['invoices', dek]]),
-    kek: null, // invite-seeded session — the portal client has no passphrase
+    kek: null, // invite-seeded session — the portal client has no secret
     salt: new Uint8Array(32).fill(7),
     authenticators: [],
   } as unknown as UnlockedKeyring
@@ -312,7 +312,7 @@ describe('no self-propagation (firm re-invite is the ONLY new-device path)', () 
     expect(mockFetch.mock.calls.length).toBe(callsAfterEnroll)
   })
 
-  it('the public API surface has no handoff/mint primitive — enrollment REQUIRES an UnlockedKeyring, which only invite/passphrase paths produce', () => {
+  it('the public API surface has no handoff/mint primitive — enrollment REQUIRES an UnlockedKeyring, which only invite/secret paths produce', () => {
     // Frozen value-export list. Everything that creates a NEW device entry
     // (enrollOidc / enrollOidcFromInvite) takes an UnlockedKeyring parameter;
     // the only function RETURNING an UnlockedKeyring is unlockOidc, which

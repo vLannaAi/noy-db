@@ -3,7 +3,7 @@
  *
  * Coverage:
  *   1. **Enumeration** — owner with N compartments sees all N; minRole
- *      filter narrows correctly; wrong-passphrase compartments are
+ *      filter narrows correctly; wrong-secret compartments are
  *      silently dropped (existence-leak guarantee); compartments where
  *      the user has no keyring are silently dropped.
  *   2. **StoreCapabilityError** — adapters that don't implement
@@ -113,7 +113,7 @@ describe('cross-vault queries.', () => {
       const ownerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'bob', secret: 'bob-pass' })
       await ownerDb.openVault('T-shared')
       await ownerDb.grant('T-shared', {
-        userId: 'alice', displayName: 'Alice', role: 'viewer', passphrase: 'alice-pass',
+        userId: 'alice', displayName: 'Alice', role: 'viewer', secret: 'alice-pass',
       })
 
       const ownerOnly = await aliceDb.listAccessibleVaults({ minRole: 'admin' })
@@ -137,11 +137,11 @@ describe('cross-vault queries.', () => {
       expect(accessible.find((c) => c.id === 'bob-private')).toBeUndefined()
     })
 
-    it('does not leak via wrong-passphrase probe — InvalidKeyError is silently caught', async () => {
+    it('does not leak via wrong-secret probe — InvalidKeyError is silently caught', async () => {
       // Create a vault owned by bob, write a real record so bob's
       // keyring has at least one DEK to wrap (without this, the grant
       // produces a keyring file with `deks: {}` and loadKeyring trivially
-      // succeeds with any passphrase because there's nothing to validate
+      // succeeds with any secret because there's nothing to validate
       // — that empty-vault edge case is a separate v0.4 hardening
       // item, documented in the listAccessibleVaults JSDoc).
       const bobDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'bob', secret: 'bob-pass' })
@@ -152,10 +152,10 @@ describe('cross-vault queries.', () => {
         userId: 'alice',
         displayName: 'Alice',
         role: 'admin',
-        passphrase: 'a-totally-different-passphrase',
+        secret: 'a-totally-different-secret',
       })
 
-      // alice's session passphrase is 'alice-pass' — that won't unwrap
+      // alice's session secret is 'alice-pass' — that won't unwrap
       // the wrapped DEKs in her T-mismatched keyring file, so the
       // InvalidKeyError gets swallowed and the vault is not in
       // the result.

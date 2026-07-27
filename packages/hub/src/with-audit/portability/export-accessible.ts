@@ -7,7 +7,7 @@
  * Reuses the existing bundle machinery: the access boundary is the caller's DEK
  * set (operator/client → `keyring.permissions`; owner/admin/viewer → all), so a
  * record outside the caller's keys can never enter the bundle. Re-keying to a
- * new owner reuses `writePod`'s `exportPassphrase` shorthand.
+ * new owner reuses `writePod`'s `exportSecret` shorthand.
  */
 import type { Vault } from '../../kernel/vault.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
@@ -41,23 +41,23 @@ export function resolveAccessibleCollections(
 export async function buildAccessibleBundle(
   vault: Vault,
   collections: string[] | undefined,
-  reKey: { passphrase: string } | undefined,
+  reKey: { secret: string } | undefined,
   compression: 'auto' | 'brotli' | 'gzip' | 'none' = 'auto',
 ): Promise<Uint8Array> {
   return writePod(vault, {
     compression,
     ...(collections !== undefined ? { collections } : {}),
-    ...(reKey ? { exportPassphrase: reKey.passphrase } : {}),
+    ...(reKey ? { exportSecret: reKey.secret } : {}),
   })
 }
 
 export interface ExportAccessibleOptions {
   /**
    * Re-key the bundle so it is independently openable by a new owner with this
-   * passphrase (the receiving firm / the client themselves). Omit to inherit
+   * secret (the receiving firm / the client themselves). Omit to inherit
    * the source keyring (personal backup).
    */
-  readonly reKey?: { readonly passphrase: string }
+  readonly reKey?: { readonly secret: string }
   /** Narrow the export to a subset of the caller's accessible collections. */
   readonly scope?: { readonly collections?: readonly string[] }
   readonly compression?: 'auto' | 'brotli' | 'gzip' | 'none'

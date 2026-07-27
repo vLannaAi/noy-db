@@ -73,7 +73,7 @@ interface Client extends Record<string, unknown> {
 describe('record provenance — _source/_sourceTs envelope fields (FR-5 Task 1)', () => {
   it('stamps _source and _sourceTs on the envelope when provenance:true and source is supplied', async () => {
     const store = memory()
-    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-secret-1234' })
     const vault = await db.openVault('prov-vault')
     const clients = vault.collection<Client>('clients', { provenance: true })
 
@@ -89,7 +89,7 @@ describe('record provenance — _source/_sourceTs envelope fields (FR-5 Task 1)'
 
   it('does NOT stamp _source on a default (non-provenance) collection even when source is passed', async () => {
     const store = memory()
-    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-secret-1234' })
     const vault = await db.openVault('prov-vault')
     const plain = vault.collection<Client>('plain') // no provenance option
 
@@ -103,7 +103,7 @@ describe('record provenance — _source/_sourceTs envelope fields (FR-5 Task 1)'
 
   it('does NOT stamp _source when provenance:true but no source is supplied', async () => {
     const store = memory()
-    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-secret-1234' })
     const vault = await db.openVault('prov-vault')
     const clients = vault.collection<Client>('clients', { provenance: true })
 
@@ -117,7 +117,7 @@ describe('record provenance — _source/_sourceTs envelope fields (FR-5 Task 1)'
 
   it('stamps _source on update (2nd put) independently — new source overwrites, absent source leaves no field', async () => {
     const store = memory()
-    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-secret-1234' })
     const vault = await db.openVault('prov-vault')
     const clients = vault.collection<Client>('clients', { provenance: true })
 
@@ -139,7 +139,7 @@ describe('record provenance — _source/_sourceTs envelope fields (FR-5 Task 1)'
     const db = await createNoydb({ cargoStrategy: withCargo(),
       store,
       user: 'alice',
-      secret: 'provenance-test-passphrase-1234',
+      secret: 'provenance-test-secret-1234',
       historyStrategy: withHistory(),
     })
     const vault = await db.openVault('prov-vault')
@@ -170,7 +170,7 @@ describe('record provenance — _source/_sourceTs envelope fields (FR-5 Task 1)'
     const db = await createNoydb({ cargoStrategy: withCargo(),
       store,
       user: 'alice',
-      secret: 'provenance-test-passphrase-1234',
+      secret: 'provenance-test-secret-1234',
       historyStrategy: withHistory(),
     })
     const vault = await db.openVault('prov-vault')
@@ -195,7 +195,7 @@ import { diffVault } from '../src/with-cargo/vault-diff.js'
 describe('record provenance — getMetadata (FR-5 Task 2a)', () => {
   it('returns version + timestamp + source + sourceTs for a provenance record', async () => {
     const store = memory()
-    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-secret-1234' })
     const vault = await db.openVault('prov-vault')
     const clients = vault.collection<Client>('clients', { provenance: true })
 
@@ -212,7 +212,7 @@ describe('record provenance — getMetadata (FR-5 Task 2a)', () => {
 
   it('returns null for a missing id', async () => {
     const store = memory()
-    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-secret-1234' })
     const vault = await db.openVault('prov-vault')
     const clients = vault.collection<Client>('clients', { provenance: true })
 
@@ -222,7 +222,7 @@ describe('record provenance — getMetadata (FR-5 Task 2a)', () => {
 
   it('returns metadata without source when provenance is off', async () => {
     const store = memory()
-    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-secret-1234' })
     const vault = await db.openVault('prov-vault')
     const plain = vault.collection<Client>('plain') // no provenance
 
@@ -237,7 +237,7 @@ describe('record provenance — getMetadata (FR-5 Task 2a)', () => {
 
   it('increments version on update and reflects updated source', async () => {
     const store = memory()
-    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-secret-1234' })
     const vault = await db.openVault('prov-vault')
     const clients = vault.collection<Client>('clients', { provenance: true })
 
@@ -253,7 +253,7 @@ describe('record provenance — getMetadata (FR-5 Task 2a)', () => {
 describe('record provenance — diffVault includeMetadata (FR-5 Task 2b)', () => {
   it('modified entries carry metadata.source for the receiver record when includeMetadata:true', async () => {
     const store = memory()
-    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-secret-1234' })
     const receiverVault = await db.openVault('receiver')
     const receiverClients = receiverVault.collection<Client>('clients', { provenance: true })
 
@@ -281,7 +281,7 @@ describe('record provenance — diffVault includeMetadata (FR-5 Task 2b)', () =>
 
   it('deleted entries carry metadata when includeMetadata:true', async () => {
     const store = memory()
-    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-secret-1234' })
     const receiverVault = await db.openVault('receiver')
     const receiverClients = receiverVault.collection<Client>('clients', { provenance: true })
 
@@ -298,7 +298,7 @@ describe('record provenance — diffVault includeMetadata (FR-5 Task 2b)', () =>
 
   it('WITHOUT includeMetadata, metadata is undefined (zero cost — no behavior change)', async () => {
     const store = memory()
-    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-secret-1234' })
     const receiverVault = await db.openVault('receiver')
     const receiverClients = receiverVault.collection<Client>('clients', { provenance: true })
 
@@ -330,7 +330,7 @@ describe('record provenance — derived-write synthetic source (FR-5 Task 3a)', 
     const db = await createNoydb({ cargoStrategy: withCargo(),
       store,
       user: 'alice',
-      secret: 'provenance-derived-passphrase-2026',
+      secret: 'provenance-derived-secret-2026',
       derivationStrategies: [strategy],
     })
     const vault = await db.openVault('prov-vault')
@@ -362,7 +362,7 @@ describe('record provenance — derived-write synthetic source (FR-5 Task 3a)', 
     const db = await createNoydb({ cargoStrategy: withCargo(),
       store,
       user: 'alice',
-      secret: 'provenance-derived-noprov-passphrase-2026',
+      secret: 'provenance-derived-noprov-secret-2026',
       derivationStrategies: [strategy],
     })
     const vault = await db.openVault('prov-vault')
@@ -383,7 +383,7 @@ describe('record provenance — derived-write synthetic source (FR-5 Task 3a)', 
 describe('record provenance — sourceTs override (FR-4 Task 1)', () => {
   it('put({source, sourceTs}) preserves the supplied origin sourceTs', async () => {
     const store = memory()
-    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-secret-1234' })
     const vault = await db.openVault('prov-vault')
     const c = vault.collection<Client>('clients', { provenance: true })
     const origin = '2020-01-02T03:04:05.000Z'
@@ -395,7 +395,7 @@ describe('record provenance — sourceTs override (FR-4 Task 1)', () => {
 
   it('put({source}) without sourceTs still stamps current time', async () => {
     const store = memory()
-    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'provenance-test-secret-1234' })
     const vault = await db.openVault('prov-vault')
     const c = vault.collection<Client>('clients', { provenance: true })
     await c.put('c1', { id: 'c1', name: 'A' }, { source: 'firm-A' })

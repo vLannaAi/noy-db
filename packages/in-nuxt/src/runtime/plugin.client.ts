@@ -10,7 +10,7 @@
  *      and stash it on the Nuxt app context for later access via the
  *      auto-imported `useRuntimeConfig()` composable.
  *
- *   2. NOT auto-instantiate Noydb. The library requires a passphrase
+ *   2. NOT auto-instantiate Noydb. The library requires a secret
  *      callback to derive keys, and that callback can't be serialized
  *      through runtime config. Users call `setActiveNoydb(instance)`
  *      themselves from their app's setup file (the README documents

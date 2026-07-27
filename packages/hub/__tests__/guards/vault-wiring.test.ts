@@ -45,7 +45,7 @@ describe('Vault.guardRegistry wiring', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-vault-wiring-passphrase-2026',
+      secret: 'guards-vault-wiring-secret-2026',
       guardStrategies: [handle],
     })
     const vault = await db.openVault('demo')
@@ -58,7 +58,7 @@ describe('Vault.guardRegistry wiring', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'guards-vault-wiring-empty-passphrase-2026',
+      secret: 'guards-vault-wiring-empty-secret-2026',
     })
     const vault = await db.openVault('demo')
     // After #130: vaults that never register a guardStrategy keep

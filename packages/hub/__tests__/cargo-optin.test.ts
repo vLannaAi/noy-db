@@ -58,7 +58,7 @@ function memory(): NoydbStore {
 
 describe('cargo opt-in gate (S4)', () => {
   it('throws CargoNotEnabledError for extractPartition when not opted in', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-secret-1234' })
     const v = await db.openVault('co')
     const clients = v.collection<Client>('clients')
     await clients.put('c-1', { id: 'c-1', name: 'Acme' })
@@ -67,7 +67,7 @@ describe('cargo opt-in gate (S4)', () => {
   })
 
   it('diffVault works WITHOUT opt-in (shared import/merge infra, not a gated cargo capability)', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-secret-1234' })
     const v = await db.openVault('co')
     const clients = v.collection<Client>('clients')
     await clients.put('c-1', { id: 'c-1', name: 'Acme' })
@@ -78,7 +78,7 @@ describe('cargo opt-in gate (S4)', () => {
   })
 
   it('extractPartition works when opted in via withCargo()', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-passphrase-1234', cargoStrategy: withCargo() })
+    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-secret-1234', cargoStrategy: withCargo() })
     const v = await db.openVault('co')
     const clients = v.collection<Client>('clients')
     await clients.put('c-1', { id: 'c-1', name: 'Acme' })

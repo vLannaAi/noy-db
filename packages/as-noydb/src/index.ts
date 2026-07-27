@@ -24,7 +24,7 @@
  * **No `acknowledgeRisks: true` on `write()`.** Writing a `.noydb` to
  * disk is a legitimate encrypted-tier destination — the bytes are
  * ciphertext. The applicable risk is "don't also store the
- * passphrase on the same disk", not "don't write the bytes". The risk
+ * secret on the same disk", not "don't write the bytes". The risk
  * is therefore documented rather than gated.
  *
  * @packageDocumentation
@@ -70,7 +70,7 @@ export async function download(vault: Vault, options: AsNoydbDownloadOptions = {
 /**
  * Node file-write. No `acknowledgeRisks` gate — the bytes are
  * ciphertext; persisting them to disk is a legitimate encrypted-tier
- * destination. Store the passphrase separately.
+ * destination. Store the secret separately.
  */
 export async function write(
   vault: Vault,

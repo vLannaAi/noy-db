@@ -65,7 +65,7 @@ describe('#739 — tiers + crdt + derivation/rollup source is refused at constru
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-crdt-rollup-from-passphrase-2026',
+      secret: 'tiers-crdt-rollup-from-secret-2026',
       tiersStrategy: withTiers(),
       crdtStrategy: withCrdt(),
       derivationStrategies: [totalSpentRollup],
@@ -85,7 +85,7 @@ describe('#739 — tiers + crdt + derivation/rollup source is refused at constru
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-crdt-rollup-into-passphrase-2026',
+      secret: 'tiers-crdt-rollup-into-secret-2026',
       tiersStrategy: withTiers(),
       crdtStrategy: withCrdt(),
       derivationStrategies: [totalSpentRollup],
@@ -110,7 +110,7 @@ describe('#739 — tiers + crdt + derivation/rollup source is refused at constru
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-crdt-derivation-passphrase-2026',
+      secret: 'tiers-crdt-derivation-secret-2026',
       tiersStrategy: withTiers(),
       crdtStrategy: withCrdt(),
       derivationStrategies: [strategy],
@@ -126,7 +126,7 @@ describe('#739 — tiers + crdt + derivation/rollup source is refused at constru
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-crdt-only-passphrase-2026',
+      secret: 'tiers-crdt-only-secret-2026',
       tiersStrategy: withTiers(),
       crdtStrategy: withCrdt(),
     })
@@ -145,7 +145,7 @@ describe('#739 — tiers + crdt + derivation/rollup source is refused at constru
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'crdt-rollup-no-tiers-passphrase-2026',
+      secret: 'crdt-rollup-no-tiers-secret-2026',
       crdtStrategy: withCrdt(),
       derivationStrategies: [totalSpentRollup],
     })
@@ -162,7 +162,7 @@ describe('#739 — tiers + crdt + derivation/rollup source is refused at constru
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-rollup-no-crdt-passphrase-2026',
+      secret: 'tiers-rollup-no-crdt-secret-2026',
       tiersStrategy: withTiers(),
       derivationStrategies: [totalSpentRollup],
     })

@@ -70,7 +70,7 @@ describe('Collection.query() — integration with crypto + adapter', () => {
     db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'integration-test-passphrase-2026',
+      secret: 'integration-test-secret-2026',
     })
     const c = await db.openVault('TEST')
     const invoices = c.collection<Invoice>('invoices')

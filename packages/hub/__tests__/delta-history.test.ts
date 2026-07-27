@@ -85,7 +85,7 @@ describe('delta history.', () => {
     db = await createNoydb({
       store: adapter,
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
   })
 

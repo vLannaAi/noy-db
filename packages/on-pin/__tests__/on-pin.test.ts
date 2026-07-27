@@ -167,7 +167,7 @@ describe('wrong-PIN handling', () => {
     expect(state.attempts).toBe(2)
 
     // Third attempt — even with the RIGHT pin — refuses, because the state
-    // is dead. User must re-enter the full passphrase.
+    // is dead. User must re-enter the full secret.
     await expect(resumePin(state, { pin: '1234' })).rejects.toBeInstanceOf(
       PinAttemptsExceededError,
     )

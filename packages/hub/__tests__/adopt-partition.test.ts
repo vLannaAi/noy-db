@@ -71,7 +71,7 @@ function memory(): NoydbStore {
 interface Client { id: string; name: string; operatorUserId: string }
 
 async function makeExtractedBundle() {
-  const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+  const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-secret-1234' })
   const company = await db.openVault('demo-co')
   const clients = company.collection<Client>('clients')
   const bills = company.collection<{ id: string; clientId: string }>('bills', { refs: { clientId: ref('clients') } })
@@ -137,7 +137,7 @@ describe('adoptPartition rejections', () => {
   })
 
   it('throws ValidationError for a non-extracted (ordinary) bundle', async () => {
-    const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-secret-1234' })
     const company = await db.openVault('demo-co')
     await company.collection<Client>('clients').put('c-1', { id: 'c-1', name: 'A', operatorUserId: 'belle' })
     const ordinary = await writeNoydbBundle(company)
@@ -161,7 +161,7 @@ describe('adoptPartition rejections', () => {
     // adapters that's DELETE WHERE vault=? and wipes the existing keyring,
     // making the downstream other-owners check meaningless.
     const dest = memory()
-    const aliceDb = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'alice', secret: 'alice-passphrase-2026' })
+    const aliceDb = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'alice', secret: 'alice-secret-2026' })
     await (await aliceDb.openVault('taken')).collection<Client>('clients').put('a-1', { id: 'a-1', name: 'A', operatorUserId: 'alice' })
     expect(await dest.list('taken', '_keyring')).toEqual(['alice'])
 

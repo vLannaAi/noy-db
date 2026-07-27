@@ -67,7 +67,7 @@ async function setupSourceVault() {
 async function restoreAs(
   bundleBytes: Uint8Array,
   recipientUserId: string,
-  recipientPassphrase: string,
+  recipientSecret: string,
 ): Promise<{ db: Awaited<ReturnType<typeof createNoydb>> }> {
   const { dumpJson } = await readNoydbBundle(bundleBytes)
   const dump = JSON.parse(dumpJson) as {
@@ -99,7 +99,7 @@ async function restoreAs(
   }
 
   const db = await createNoydb({
-    store: targetStore, user: recipientUserId, secret: recipientPassphrase,
+    store: targetStore, user: recipientUserId, secret: recipientSecret,
     historyStrategy: withHistory(),
   })
   return { db }
@@ -110,7 +110,7 @@ describe('writeNoydbBundle — recipient expiresAt', () => {
     const { db: src, vault } = await setupSourceVault()
     const yesterday = new Date(Date.now() - 86400_000).toISOString()
     const recipients: readonly BundleRecipient[] = [
-      { id: 'auditor', passphrase: 'aud-pw', role: 'viewer', expiresAt: yesterday },
+      { id: 'auditor', secret: 'aud-pw', role: 'viewer', expiresAt: yesterday },
     ]
     const bytes = await writeNoydbBundle(vault, { recipients })
     src.close()
@@ -124,7 +124,7 @@ describe('writeNoydbBundle — recipient expiresAt', () => {
     const { db: src, vault } = await setupSourceVault()
     const tomorrow = new Date(Date.now() + 86400_000).toISOString()
     const recipients: readonly BundleRecipient[] = [
-      { id: 'auditor', passphrase: 'aud-pw', role: 'viewer', expiresAt: tomorrow },
+      { id: 'auditor', secret: 'aud-pw', role: 'viewer', expiresAt: tomorrow },
     ]
     const bytes = await writeNoydbBundle(vault, { recipients })
     src.close()
@@ -138,7 +138,7 @@ describe('writeNoydbBundle — recipient expiresAt', () => {
   it('omitted expiresAt = no cutoff (existing behavior unchanged)', async () => {
     const { db: src, vault } = await setupSourceVault()
     const recipients: readonly BundleRecipient[] = [
-      { id: 'auditor', passphrase: 'aud-pw', role: 'viewer' },
+      { id: 'auditor', secret: 'aud-pw', role: 'viewer' },
     ]
     const bytes = await writeNoydbBundle(vault, { recipients })
     src.close()
@@ -153,7 +153,7 @@ describe('writeNoydbBundle — recipient expiresAt', () => {
     const { db: src, vault } = await setupSourceVault()
     const yesterday = new Date(Date.now() - 86400_000).toISOString()
     const recipients: readonly BundleRecipient[] = [
-      { id: 'auditor', passphrase: 'aud-pw', role: 'viewer', expiresAt: yesterday },
+      { id: 'auditor', secret: 'aud-pw', role: 'viewer', expiresAt: yesterday },
     ]
     const bytes = await writeNoydbBundle(vault, { recipients })
     src.close()

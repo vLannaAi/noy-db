@@ -56,12 +56,12 @@ function inlineMemory(): NoydbStore {
 }
 
 describe('policy presets', () => {
-  it('PERSONAL_POLICY enables recover-passphrase by default', () => {
-    expect(PERSONAL_POLICY.gates['recover-passphrase']?.enabled).toBe(true)
+  it('PERSONAL_POLICY enables recover-secret by default', () => {
+    expect(PERSONAL_POLICY.gates['recover-secret']?.enabled).toBe(true)
   })
 
   it('STRICT_POLICY raises minWords to 8', () => {
-    expect(STRICT_POLICY.passphrase?.minWords).toBe(8)
+    expect(STRICT_POLICY.secret?.minWords).toBe(8)
   })
 
   it('STRICT_POLICY demands TWO factors for export-plaintext', () => {
@@ -73,7 +73,7 @@ describe('policy presets', () => {
 describe('checkGate', () => {
   it('allows under PERSONAL_POLICY when factors are presented', async () => {
     await expect(
-      checkGate(PERSONAL_POLICY, 'rotate-passphrase', {
+      checkGate(PERSONAL_POLICY, 'rotate-secret', {
         activeTier: 1,
         factors: [{ kind: 'totp' }],
       }),
@@ -82,7 +82,7 @@ describe('checkGate', () => {
 
   it('denies (missing-factor) when no factor is presented', async () => {
     try {
-      await checkGate(PERSONAL_POLICY, 'rotate-passphrase', {
+      await checkGate(PERSONAL_POLICY, 'rotate-secret', {
         activeTier: 1,
         factors: [],
       })
@@ -91,7 +91,7 @@ describe('checkGate', () => {
       expect(err).toBeInstanceOf(PolicyDeniedError)
       if (err instanceof PolicyDeniedError) {
         expect(err.reason).toBe('missing-factor')
-        expect(err.gate).toBe('rotate-passphrase')
+        expect(err.gate).toBe('rotate-secret')
       }
     }
   })
@@ -122,7 +122,7 @@ describe('checkGate', () => {
 
   it('denies (insufficient-tier) when tier is below minTier', async () => {
     try {
-      await checkGate(PERSONAL_POLICY, 'rotate-passphrase', {
+      await checkGate(PERSONAL_POLICY, 'rotate-secret', {
         activeTier: 3,
         factors: [{ kind: 'totp' }],
       })
@@ -209,7 +209,7 @@ describe('describeGate', () => {
   })
 
   it('returns ok: false on denial without throwing', async () => {
-    const verdict = await describeGate(PERSONAL_POLICY, 'rotate-passphrase', {
+    const verdict = await describeGate(PERSONAL_POLICY, 'rotate-secret', {
       activeTier: 1,
       factors: [],
     })
@@ -225,20 +225,20 @@ describe('mergePolicy', () => {
   it('preserves unrelated gates when overriding one', () => {
     const merged = mergePolicy(PERSONAL_POLICY, {
       gates: {
-        'rotate-passphrase': { minTier: 1, factors: [{ anyOf: ['totp'] }] },
+        'rotate-secret': { minTier: 1, factors: [{ anyOf: ['totp'] }] },
       },
     })
     // Override took effect
-    expect(merged.gates['rotate-passphrase']?.factors?.[0]?.anyOf).toEqual(['totp'])
+    expect(merged.gates['rotate-secret']?.factors?.[0]?.anyOf).toEqual(['totp'])
     // Other gates intact
     expect(merged.gates['export-plaintext']).toEqual(PERSONAL_POLICY.gates['export-plaintext'])
   })
 
-  it('passes through the passphrase block', () => {
+  it('passes through the secret block', () => {
     const merged = mergePolicy(PERSONAL_POLICY, {
-      passphrase: { minWords: 10 },
+      secret: { minWords: 10 },
     })
-    expect(merged.passphrase?.minWords).toBe(10)
+    expect(merged.secret?.minWords).toBe(10)
   })
 })
 

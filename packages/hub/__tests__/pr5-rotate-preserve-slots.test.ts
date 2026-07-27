@@ -1,5 +1,5 @@
 /**
- * PR5 — preserve tier-2 slots across rotatePassphrase (#29).
+ * PR5 — preserve tier-2 slots across rotateSecret (#29).
  *
  * Without `slotCeremonies`, rotation drops every slot (pre-pre.8
  * behavior). With ceremonies supplied, slots whose id appears in the
@@ -24,7 +24,7 @@
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, KeyringAuthenticator } from '../src/kernel/types.js'
 import { createOwnerKeyring, loadKeyring, persistKeyring } from '../src/with-party/team/keyring.js'
-import { rotatePassphrase, type SlotRewrapCeremony } from '../src/with-party/team/rotate-recover.js'
+import { rotateSecret, type SlotRewrapCeremony } from '../src/with-party/team/rotate-recover.js'
 import { generateDEK } from '../src/kernel/enclave/index.js'
 import { ValidationError } from '../src/kernel/errors.js'
 import type { EnrollAuthenticatorOptions } from '../src/with-party/team/authenticators.js'
@@ -77,7 +77,7 @@ async function setupVaultWithSlots(slots: KeyringAuthenticator[]): Promise<Noydb
   return store
 }
 
-describe('rotatePassphrase slot preservation (#29)', () => {
+describe('rotateSecret slot preservation (#29)', () => {
   it('without slotCeremonies, drops all slots (regression test for pre-#29 behavior)', async () => {
     const store = await setupVaultWithSlots([
       {
@@ -90,9 +90,9 @@ describe('rotatePassphrase slot preservation (#29)', () => {
       },
     ])
 
-    await rotatePassphrase(store, 'acme', 'alice', {
-      oldPassphrase: OLD_PHRASE,
-      newPassphrase: NEW_PHRASE,
+    await rotateSecret(store, 'acme', 'alice', {
+      oldSecret: OLD_PHRASE,
+      newSecret: NEW_PHRASE,
     })
 
     const reloaded = await loadKeyring(store, 'acme', 'alice', NEW_PHRASE)
@@ -128,9 +128,9 @@ describe('rotatePassphrase slot preservation (#29)', () => {
       } satisfies EnrollAuthenticatorOptions
     }
 
-    await rotatePassphrase(store, 'acme', 'alice', {
-      oldPassphrase: OLD_PHRASE,
-      newPassphrase: NEW_PHRASE,
+    await rotateSecret(store, 'acme', 'alice', {
+      oldSecret: OLD_PHRASE,
+      newSecret: NEW_PHRASE,
       slotCeremonies: { 'password': passwordCeremony },
     })
 
@@ -174,9 +174,9 @@ describe('rotatePassphrase slot preservation (#29)', () => {
       } satisfies EnrollAuthenticatorOptions
     }
 
-    await rotatePassphrase(store, 'acme', 'alice', {
-      oldPassphrase: OLD_PHRASE,
-      newPassphrase: NEW_PHRASE,
+    await rotateSecret(store, 'acme', 'alice', {
+      oldSecret: OLD_PHRASE,
+      newSecret: NEW_PHRASE,
       slotCeremonies: { 'webauthn-touchid': webauthnCeremony },
     })
 
@@ -233,9 +233,9 @@ describe('rotatePassphrase slot preservation (#29)', () => {
       meta: { credentialId: 'cred-yubikey' },
     })
 
-    await rotatePassphrase(store, 'acme', 'alice', {
-      oldPassphrase: OLD_PHRASE,
-      newPassphrase: NEW_PHRASE,
+    await rotateSecret(store, 'acme', 'alice', {
+      oldSecret: OLD_PHRASE,
+      newSecret: NEW_PHRASE,
       slotCeremonies: { 'webauthn-yubikey': webauthnCeremony },
     })
 
@@ -264,9 +264,9 @@ describe('rotatePassphrase slot preservation (#29)', () => {
     })
 
     await expect(
-      rotatePassphrase(store, 'acme', 'alice', {
-        oldPassphrase: OLD_PHRASE,
-        newPassphrase: NEW_PHRASE,
+      rotateSecret(store, 'acme', 'alice', {
+        oldSecret: OLD_PHRASE,
+        newSecret: NEW_PHRASE,
         slotCeremonies: { 'webauthn-original': swapCeremony },
       }),
     ).rejects.toBeInstanceOf(ValidationError)
@@ -294,9 +294,9 @@ describe('rotatePassphrase slot preservation (#29)', () => {
     })
 
     await expect(
-      rotatePassphrase(store, 'acme', 'alice', {
-        oldPassphrase: OLD_PHRASE,
-        newPassphrase: NEW_PHRASE,
+      rotateSecret(store, 'acme', 'alice', {
+        oldSecret: OLD_PHRASE,
+        newSecret: NEW_PHRASE,
         slotCeremonies: { 'webauthn-original': methodSwapCeremony },
       }),
     ).rejects.toBeInstanceOf(ValidationError)
@@ -329,9 +329,9 @@ describe('rotatePassphrase slot preservation (#29)', () => {
     })
 
     await expect(
-      rotatePassphrase(store, 'acme', 'alice', {
-        oldPassphrase: OLD_PHRASE,
-        newPassphrase: NEW_PHRASE,
+      rotateSecret(store, 'acme', 'alice', {
+        oldSecret: OLD_PHRASE,
+        newSecret: NEW_PHRASE,
         slotCeremonies: { 'webauthn-touchid': downgradeCeremony },
       }),
     ).rejects.toBeInstanceOf(ValidationError)
@@ -363,9 +363,9 @@ describe('rotatePassphrase slot preservation (#29)', () => {
     })
 
     await expect(
-      rotatePassphrase(store, 'acme', 'alice', {
-        oldPassphrase: OLD_PHRASE,
-        newPassphrase: NEW_PHRASE,
+      rotateSecret(store, 'acme', 'alice', {
+        oldSecret: OLD_PHRASE,
+        newSecret: NEW_PHRASE,
         slotCeremonies: { 'password-daily': upgradeCeremony },
       }),
     ).rejects.toBeInstanceOf(ValidationError)
@@ -391,9 +391,9 @@ describe('rotatePassphrase slot preservation (#29)', () => {
       meta: { credentialId: 'cred' },
     })
 
-    await rotatePassphrase(store, 'acme', 'alice', {
-      oldPassphrase: OLD_PHRASE,
-      newPassphrase: NEW_PHRASE,
+    await rotateSecret(store, 'acme', 'alice', {
+      oldSecret: OLD_PHRASE,
+      newSecret: NEW_PHRASE,
       slotCeremonies: { 'webauthn-touchid': ceremony },
     })
 
@@ -418,9 +418,9 @@ describe('rotatePassphrase slot preservation (#29)', () => {
     }
 
     await expect(
-      rotatePassphrase(store, 'acme', 'alice', {
-        oldPassphrase: OLD_PHRASE,
-        newPassphrase: NEW_PHRASE,
+      rotateSecret(store, 'acme', 'alice', {
+        oldSecret: OLD_PHRASE,
+        newSecret: NEW_PHRASE,
         slotCeremonies: { 'webauthn-touchid': failingCeremony },
       }),
     ).rejects.toThrow(/user cancelled/)

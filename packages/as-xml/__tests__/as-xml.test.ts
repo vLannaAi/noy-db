@@ -51,7 +51,7 @@ async function seed(grant: readonly ('xml' | 'csv')[] = ['xml']) {
   await v.collection<Invoice>('invoices').put('i2', { id: 'i2', client: 'Bob <the builder>', amount: 200 })
   await db.grant('acme', {
     userId: 'owner', displayName: 'Owner', role: 'owner',
-    passphrase: 'pw',
+    secret: 'pw',
     exportCapability: { plaintext: grant },
   })
   await db.close()

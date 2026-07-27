@@ -22,7 +22,7 @@ describe('collection.put(_, _, { reason }) — ledger entry carries `reason` (#1
     db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'reason-test-passphrase-1234',
+      secret: 'reason-test-secret-1234',
       historyStrategy: withHistory(),
     })
   })

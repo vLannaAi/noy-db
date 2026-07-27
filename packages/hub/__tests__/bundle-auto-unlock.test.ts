@@ -1,6 +1,6 @@
 /**
- * Sealed bundle delivery (#197 slice 1) — `autoPassphrases` +
- * `sealedPassphrases` round-trip coverage.
+ * Sealed bundle delivery (#197 slice 1) — `autoSecrets` +
+ * `sealedSecrets` round-trip coverage.
  *
  * Covers the contract documented in
  * docs/superpowers/specs/2026-05-23-sealed-bundle-delivery.md.
@@ -77,11 +77,11 @@ async function freshVault() {
   return { db, vault }
 }
 
-describe('#197 — autoPassphrases (unsealed, public-by-design)', () => {
-  it('writes the header autoUnlock flag and round-trips plaintext passphrases', async () => {
+describe('#197 — autoSecrets (unsealed, public-by-design)', () => {
+  it('writes the header autoUnlock flag and round-trips plaintext secrets', async () => {
     const { vault } = await freshVault()
     const bytes = await writeNoydbBundle(vault, {
-      autoPassphrases: {
+      autoSecrets: {
         policy: 'public-by-design',
         perUser: { 'demo-customer': 'demo-pass-1', 'demo-prospect': 'demo-pass-2' },
       },
@@ -94,15 +94,15 @@ describe('#197 — autoPassphrases (unsealed, public-by-design)', () => {
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('unsealed')
     expect(result.autoUnlock!.perUser).toEqual({
-      'demo-customer': { kind: 'passphrase', value: 'demo-pass-1' },
-      'demo-prospect': { kind: 'passphrase', value: 'demo-pass-2' },
+      'demo-customer': { kind: 'secret', value: 'demo-pass-1' },
+      'demo-prospect': { kind: 'secret', value: 'demo-pass-2' },
     })
   })
 
   it('dumpJson is still parseable / usable after auto-unlock unwrap', async () => {
     const { vault } = await freshVault()
     const bytes = await writeNoydbBundle(vault, {
-      autoPassphrases: {
+      autoSecrets: {
         policy: 'public-by-design',
         perUser: { 'alice': 'demo' },
       },
@@ -115,12 +115,12 @@ describe('#197 — autoPassphrases (unsealed, public-by-design)', () => {
     expect(typeof parsed).toBe('object')
   })
 
-  it('rejects autoPassphrases without policy marker', async () => {
+  it('rejects autoSecrets without policy marker', async () => {
     const { vault } = await freshVault()
     await expect(
       writeNoydbBundle(vault, {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        autoPassphrases: { perUser: { x: 'y' } } as any,
+        autoSecrets: { perUser: { x: 'y' } } as any,
       }),
     ).rejects.toBeInstanceOf(ValidationError)
   })
@@ -129,7 +129,7 @@ describe('#197 — autoPassphrases (unsealed, public-by-design)', () => {
     const { vault } = await freshVault()
     await expect(
       writeNoydbBundle(vault, {
-        autoPassphrases: { policy: 'public-by-design', perUser: {} },
+        autoSecrets: { policy: 'public-by-design', perUser: {} },
       }),
     ).rejects.toBeInstanceOf(ValidationError)
   })
@@ -139,23 +139,23 @@ describe('#197 — autoPassphrases (unsealed, public-by-design)', () => {
     const provider = new MemorySealingKeyProvider({ id: 'test' })
     await expect(
       writeNoydbBundle(vault, {
-        autoPassphrases: { policy: 'public-by-design', perUser: { a: 'b' } },
-        sealedPassphrases: { mode: 'self-target', provider, perUser: { c: 'd' } },
+        autoSecrets: { policy: 'public-by-design', perUser: { a: 'b' } },
+        sealedSecrets: { mode: 'self-target', provider, perUser: { c: 'd' } },
       }),
     ).rejects.toBeInstanceOf(ValidationError)
   })
 })
 
-describe('#197 — sealedPassphrases (self-target)', () => {
+describe('#197 — sealedSecrets (self-target)', () => {
   it('seals + round-trips with the same provider', async () => {
     const { vault } = await freshVault()
     const provider = new MemorySealingKeyProvider({ id: 'macos-keychain:com.acme/alice' })
 
     const bytes = await writeNoydbBundle(vault, {
-      sealedPassphrases: {
+      sealedSecrets: {
         mode: 'self-target',
         provider,
-        perUser: { alice: 'alice-passphrase-here' },
+        perUser: { alice: 'alice-secret-here' },
       },
     })
 
@@ -173,7 +173,7 @@ describe('#197 — sealedPassphrases (self-target)', () => {
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('sealed')
     expect(result.autoUnlock!.perUser).toEqual({
-      alice: { kind: 'passphrase', value: 'alice-passphrase-here' },
+      alice: { kind: 'secret', value: 'alice-secret-here' },
     })
   })
 
@@ -182,7 +182,7 @@ describe('#197 — sealedPassphrases (self-target)', () => {
     const provider = new MemorySealingKeyProvider({ id: 'test-pid' })
 
     const bytes = await writeNoydbBundle(vault, {
-      sealedPassphrases: {
+      sealedSecrets: {
         mode: 'self-target',
         provider,
         perUser: { alice: 'a-pass' },
@@ -203,7 +203,7 @@ describe('#197 — sealedPassphrases (self-target)', () => {
     const otherProvider = new MemorySealingKeyProvider({ id: 'macos-keychain:com.other/bob' })
 
     const bytes = await writeNoydbBundle(vault, {
-      sealedPassphrases: {
+      sealedSecrets: {
         mode: 'self-target',
         provider: senderProvider,
         perUser: { alice: 'a-pass' },
@@ -221,7 +221,7 @@ describe('#197 — sealedPassphrases (self-target)', () => {
     const otherProvider = new MemorySealingKeyProvider({ id: 'wrong-pid' })
 
     const bytes = await writeNoydbBundle(vault, {
-      sealedPassphrases: {
+      sealedSecrets: {
         mode: 'self-target',
         provider: senderProvider,
         perUser: { alice: 'a-pass' },
@@ -255,7 +255,7 @@ describe('#197 — sealedPassphrases (self-target)', () => {
     const otherProvider2 = new MemorySealingKeyProvider({ id: 'wrong-pid-2' })
 
     const bytes = await writeNoydbBundle(vault, {
-      sealedPassphrases: {
+      sealedSecrets: {
         mode: 'self-target',
         provider: senderProvider,
         perUser: { alice: 'a-pass' },
@@ -277,7 +277,7 @@ describe('#197 — sealedPassphrases (self-target)', () => {
     const provider = new MemorySealingKeyProvider({ id: 'test' })
     await expect(
       writeNoydbBundle(vault, {
-        sealedPassphrases: {
+        sealedSecrets: {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           mode: 'recipient-target' as any,
           provider,
@@ -309,7 +309,7 @@ describe('#197 — back-compat', () => {
     // succeed because we look only at the header.
     const { vault } = await freshVault()
     const bytes = await writeNoydbBundle(vault, {
-      autoPassphrases: { policy: 'public-by-design', perUser: { a: 'b' } },
+      autoSecrets: { policy: 'public-by-design', perUser: { a: 'b' } },
     })
     const header = await readNoydbBundleHeader(bytes)
     expect(header.autoUnlock).toBe('unsealed')
@@ -325,7 +325,7 @@ describe('#197 — composes with publicEnvelope', () => {
     // doesn't interfere with the existing envelope path.
     const { vault } = await freshVault()
     const bytes = await writeNoydbBundle(vault, {
-      autoPassphrases: { policy: 'public-by-design', perUser: { a: 'b' } },
+      autoSecrets: { policy: 'public-by-design', perUser: { a: 'b' } },
     })
     const header = await readNoydbBundleHeader(bytes)
     expect(header.autoUnlock).toBe('unsealed')
@@ -374,20 +374,20 @@ describe('#215 — autoCredentials, pin kind (unsealed)', () => {
   })
 })
 
-describe('#215 — autoCredentials, passphrase kind (unsealed)', () => {
-  it('round-trips passphrase credential via autoCredentials same as sugar path', async () => {
+describe('#215 — autoCredentials, secret kind (unsealed)', () => {
+  it('round-trips secret credential via autoCredentials same as sugar path', async () => {
     const { vault } = await freshVault()
     const bytes = await writeNoydbBundle(vault, {
       autoCredentials: {
         policy: 'public-by-design',
-        perUser: { eve: { kind: 'passphrase', value: 'correct-horse' } },
+        perUser: { eve: { kind: 'secret', value: 'correct-horse' } },
       },
     })
 
     const result = await readNoydbBundle(bytes)
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('unsealed')
-    expect(result.autoUnlock!.perUser['eve']).toEqual({ kind: 'passphrase', value: 'correct-horse' })
+    expect(result.autoUnlock!.perUser['eve']).toEqual({ kind: 'secret', value: 'correct-horse' })
   })
 })
 
@@ -442,10 +442,10 @@ describe('#215 — sealedCredentials, password kind (sealed)', () => {
 })
 
 describe('#215 — sugar back-compat', () => {
-  it('autoPassphrases sugar round-trips as { kind:"passphrase", value }', async () => {
+  it('autoSecrets sugar round-trips as { kind:"secret", value }', async () => {
     const { vault } = await freshVault()
     const bytes = await writeNoydbBundle(vault, {
-      autoPassphrases: {
+      autoSecrets: {
         policy: 'public-by-design',
         perUser: { 'legacy-user': 'legacy-pass' },
       },
@@ -455,18 +455,18 @@ describe('#215 — sugar back-compat', () => {
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('unsealed')
     expect(result.autoUnlock!.perUser['legacy-user']).toEqual({
-      kind: 'passphrase',
+      kind: 'secret',
       value: 'legacy-pass',
     })
   })
 
-  it('sealedPassphrases sugar unseals as { kind:"passphrase", value }', async () => {
+  it('sealedSecrets sugar unseals as { kind:"secret", value }', async () => {
     const { vault } = await freshVault()
     const pid = 'macos-keychain:com.acme/legacy'
     const senderProvider = new MemorySealingKeyProvider({ id: pid })
 
     const bytes = await writeNoydbBundle(vault, {
-      sealedPassphrases: {
+      sealedSecrets: {
         mode: 'self-target',
         provider: senderProvider,
         perUser: { 'legacy-user': 'legacy-pass' },
@@ -479,7 +479,7 @@ describe('#215 — sugar back-compat', () => {
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('sealed')
     expect(result.autoUnlock!.perUser['legacy-user']).toEqual({
-      kind: 'passphrase',
+      kind: 'secret',
       value: 'legacy-pass',
     })
   })
@@ -491,7 +491,7 @@ describe('#215 — sugar back-compat', () => {
    * decompression, then surgically patching the perUser entry to a bare
    * string and recomputing the header hash).
    */
-  it('pre-0.2 bare-string entry in unsealed body coerces to { kind:"passphrase", value }', async () => {
+  it('pre-0.2 bare-string entry in unsealed body coerces to { kind:"secret", value }', async () => {
     const { vault } = await freshVault()
 
     // Write an uncompressed unsealed bundle so the body bytes are raw UTF-8 JSON.
@@ -499,7 +499,7 @@ describe('#215 — sugar back-compat', () => {
       compression: 'none',
       autoCredentials: {
         policy: 'public-by-design',
-        perUser: { bob: { kind: 'passphrase', value: 'old-secret' } },
+        perUser: { bob: { kind: 'secret', value: 'old-secret' } },
       },
     })
 
@@ -555,20 +555,20 @@ describe('#215 — sugar back-compat', () => {
     const result = await readNoydbBundle(patchedBundle)
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('unsealed')
-    expect(result.autoUnlock!.perUser['bob']).toEqual({ kind: 'passphrase', value: 'old-secret' })
+    expect(result.autoUnlock!.perUser['bob']).toEqual({ kind: 'secret', value: 'old-secret' })
   })
 })
 
 describe('#215 — mutual exclusion (mixing rejected)', () => {
-  it('autoCredentials + autoPassphrases together throw ValidationError matching /only one of/', async () => {
+  it('autoCredentials + autoSecrets together throw ValidationError matching /only one of/', async () => {
     const { vault } = await freshVault()
     await expect(
       writeNoydbBundle(vault, {
         autoCredentials: {
           policy: 'public-by-design',
-          perUser: { alice: { kind: 'passphrase', value: 'a' } },
+          perUser: { alice: { kind: 'secret', value: 'a' } },
         },
-        autoPassphrases: {
+        autoSecrets: {
           policy: 'public-by-design',
           perUser: { bob: 'b' },
         },
@@ -585,7 +585,7 @@ describe('#215 — mutual exclusion (mixing rejected)', () => {
       writeNoydbBundle(vault, {
         autoCredentials: {
           policy: 'public-by-design',
-          perUser: { alice: { kind: 'passphrase', value: 'a' } },
+          perUser: { alice: { kind: 'secret', value: 'a' } },
         },
         sealedCredentials: {
           mode: 'self-target',
@@ -613,8 +613,8 @@ describe('#215 — unsupported credential kind rejected', () => {
     ).rejects.toSatisfy((err: unknown) => {
       if (!(err instanceof ValidationError)) return false
       const msg = (err as Error).message
-      // Error must name the bad kind and at minimum mention passphrase/password/pin
-      return /webauthn/i.test(msg) && /passphrase/i.test(msg)
+      // Error must name the bad kind and at minimum mention secret/password/pin
+      return /webauthn/i.test(msg) && /secret/i.test(msg)
     })
   })
 
@@ -649,7 +649,7 @@ describe('recipient-target sealedCredentials — validation', () => {
           mode: 'recipient-target',
           provider: recipient,
           // @ts-expect-error — intentionally missing hint to test runtime guard
-          perUser: { alice: { credential: { kind: 'passphrase', value: 'p' } } },
+          perUser: { alice: { credential: { kind: 'secret', value: 'p' } } },
         },
       }),
     ).rejects.toThrow(/hint/)
@@ -668,7 +668,7 @@ describe('recipient-target sealedCredentials — validation', () => {
         sealedCredentials: {
           mode: 'recipient-target',
           provider: recipient,
-          perUser: { alice: { credential: { kind: 'passphrase', value: 'p' }, hint: badHint } },
+          perUser: { alice: { credential: { kind: 'secret', value: 'p' }, hint: badHint } },
         },
       }),
     ).rejects.toThrow(/rsa-oaep-sha256/)
@@ -685,7 +685,7 @@ describe('recipient-target sealedCredentials — validation', () => {
           mode: 'recipient-target',
           // @ts-expect-error — runtime guard for JS callers; TS rejects this at compile time
           provider: selfOnly,
-          perUser: { alice: { credential: { kind: 'passphrase', value: 'p' }, hint: someHint } },
+          perUser: { alice: { credential: { kind: 'secret', value: 'p' }, hint: someHint } },
         },
       }),
     ).rejects.toThrow(/RecipientSealer/)
@@ -701,7 +701,7 @@ describe('recipient-target sealedCredentials — validation', () => {
         sealedCredentials: {
           mode: 'recipient-target',
           provider: recipient,
-          perUser: { alice: { credential: { kind: 'passphrase', value: 'p' }, hint: emptyPidHint } },
+          perUser: { alice: { credential: { kind: 'secret', value: 'p' }, hint: emptyPidHint } },
         },
       }),
     ).rejects.toThrow(/pid/)
@@ -726,8 +726,8 @@ describe('recipient-target sealedCredentials — round-trip', () => {
         mode: 'recipient-target',
         provider: sender,
         perUser: {
-          alice: { credential: { kind: 'passphrase', value: 'alice-pass-bundled' }, hint: aliceHint },
-          bob:   { credential: { kind: 'passphrase', value: 'bob-pass-bundled' },   hint: bobHint },
+          alice: { credential: { kind: 'secret', value: 'alice-pass-bundled' }, hint: aliceHint },
+          bob:   { credential: { kind: 'secret', value: 'bob-pass-bundled' },   hint: bobHint },
         },
       },
     })
@@ -735,10 +735,10 @@ describe('recipient-target sealedCredentials — round-trip', () => {
     // Recipient side — alice unseals with her provider.
     const aliceRead = await readNoydbBundle(bytes, { sealingProviders: [aliceRs] })
     expect(aliceRead.autoUnlock?.kind).toBe('sealed')
-    expect(aliceRead.autoUnlock?.perUser.alice).toMatchObject({ kind: 'passphrase', value: 'alice-pass-bundled' })
+    expect(aliceRead.autoUnlock?.perUser.alice).toMatchObject({ kind: 'secret', value: 'alice-pass-bundled' })
 
     const bobRead = await readNoydbBundle(bytes, { sealingProviders: [bobRs] })
-    expect(bobRead.autoUnlock?.perUser.bob).toMatchObject({ kind: 'passphrase', value: 'bob-pass-bundled' })
+    expect(bobRead.autoUnlock?.perUser.bob).toMatchObject({ kind: 'secret', value: 'bob-pass-bundled' })
   })
 
   it('a third-party recipient (different keypair) cannot unseal someone else\'s entry', async () => {
@@ -752,7 +752,7 @@ describe('recipient-target sealedCredentials — round-trip', () => {
       sealedCredentials: {
         mode: 'recipient-target',
         provider: sender,
-        perUser: { alice: { credential: { kind: 'passphrase', value: 'p' }, hint: aliceHint } },
+        perUser: { alice: { credential: { kind: 'secret', value: 'p' }, hint: aliceHint } },
       },
     })
 
@@ -769,13 +769,13 @@ describe('recipient-target sealedCredentials — round-trip', () => {
       sealedCredentials: {
         mode: 'self-target',
         provider: selfProvider,
-        perUser: { alice: { kind: 'passphrase', value: 'alice-pass-bundled' } },
+        perUser: { alice: { kind: 'secret', value: 'alice-pass-bundled' } },
       },
     })
     const recipientProvider = new MemorySealingKeyProvider({ id: 'shared-keychain' })
     const read = await readNoydbBundle(bytes, { sealingProviders: [recipientProvider] })
     expect(read.autoUnlock?.kind).toBe('sealed')
-    expect(read.autoUnlock?.perUser.alice).toMatchObject({ kind: 'passphrase', value: 'alice-pass-bundled' })
+    expect(read.autoUnlock?.perUser.alice).toMatchObject({ kind: 'secret', value: 'alice-pass-bundled' })
     // Self-target entries omit the hint field
     expect((read.autoUnlock?.perUser.alice as unknown as Record<string, unknown>).hint).toBeUndefined()
   })

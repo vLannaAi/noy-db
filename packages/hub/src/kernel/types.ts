@@ -56,11 +56,11 @@ import type { SyncStrategy } from '../with-party/team/sync-strategy.js'
 import type { GuardStrategyHandleAny } from '../with-audit/guards/types.js'
 import type { DerivationStrategyHandle } from '../with-formula/derivations/types.js'
 import type { UnlockedKeyring } from '../with-party/team/keyring.js'
-import type { PassphrasePolicy } from './validation.js'
+import type { SecretPolicy } from './validation.js'
 import type { CoverSchema } from '../with-party/directory/cover/types.js'
 import type { MaterializedViewStrategyHandle } from '../with-formula/materialized-views/types.js'
 import type { OverlayedViewStrategyHandle } from '../with-formula/overlay-views/types.js'
-import type { SealingKeyProvider, RecipientHint } from '../with-party/team/managed-passphrase.js'
+import type { SealingKeyProvider, RecipientHint } from '../with-party/team/managed-secret.js'
 import type { ShamirRecoveryProvider } from '../with-party/team/shamir-recovery-provider.js'
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { CoordinationProvider } from '../port/by/types.js'
@@ -854,7 +854,7 @@ export type VaultPolicyOnDisk = Record<string, unknown>
  * - `paper` — `on-recovery` codes (the standard end-to-end profile).
  * - `shamir` / `multi-channel` / `admin-mediated` — API surface ships;
  *   per-profile dispatch lands in follow-up issues. Calling
- *   `db.recoverPassphrase` against these throws
+ *   `db.recoverSecret` against these throws
  *   {@link RecoveryProfileNotImplementedError}.
  */
 export type RecoveryEnrollment =
@@ -943,7 +943,7 @@ export interface KeyringAuthenticatorWrappingKEK extends KeyringAuthenticatorBas
  *
  * Trade-off: a slot of this kind reconstructs `UnlockedKeyring` with
  * `kek: null` after unlock. That is semantically correct for tier-2
- * (sensitive ops like `enrollAuthenticator` / `rotatePassphrase`
+ * (sensitive ops like `enrollAuthenticator` / `rotateSecret`
  * require a tier-1 unlock anyway) and matches how `@noy-db/on-pin`
  * already behaves at tier 3.
  *
@@ -987,12 +987,12 @@ export interface KeyringFile {
   readonly created_at: string
   readonly granted_by: string
   /**
-   * Passphrase canary — base64 AES-KW-wrapped form of a known constant
+   * Secret canary — base64 AES-KW-wrapped form of a known constant
    * 256-bit value, wrapped under the keyring's KEK.
    *
    * Optional: older keyrings load with no canary and fall back to
    * the multi-DEK corruption heuristic. Newer keyrings
-   * carry one and let `loadKeyring` distinguish wrong-passphrase
+   * carry one and let `loadKeyring` distinguish wrong-secret
    * from corruption even when ALL DEKs (including a single-DEK keyring's
    * sole DEK) are corrupted.
    *
@@ -1521,7 +1521,7 @@ export interface GrantOptions {
   readonly userId: string
   readonly displayName: string
   readonly role: Role
-  readonly passphrase: string
+  readonly secret: string
   readonly permissions?: Permissions
   /**
    * Optional `@noy-db/as-*` export capability. Omit or
@@ -1538,9 +1538,9 @@ export interface GrantOptions {
   /**
    * Skip phrase-format strength validation (issue #7). Defaults to
    * false — `grant()` rejects phrases that don't meet the configured
-   * `PassphrasePolicy`. Test fixtures and CLI scripts pass `true`.
+   * `SecretPolicy`. Test fixtures and CLI scripts pass `true`.
    */
-  readonly allowWeakPassphrase?: boolean
+  readonly allowWeakSecret?: boolean
   /**
    * Initial user-envelope payload for the new principal. Sealed under
    * the same vault DEK (the reserved `_users` collection's DEK) and
@@ -1750,7 +1750,7 @@ export interface SessionPolicy {
 
   /**
    * Operations that require the user to re-authenticate (re-enter their
-   * passphrase or perform a fresh WebAuthn assertion) before proceeding,
+   * secret or perform a fresh WebAuthn assertion) before proceeding,
    * even if the session is still alive.
    *
    * Common pattern: `requireReAuthFor: ['export', 'grant']` — allow
@@ -2587,7 +2587,7 @@ export interface NoydbOptions {
    * throw `TeamNotEnabledError` and the keyring grant/revoke/rotate engines
    * are reached only via opt-in — the always-on floor is single-user.
    * Single-user primitives (owner keyring, unlock, `listUsers`,
-   * `updateUser`, passphrase rotate/recover) stay ungated, as does the
+   * `updateUser`, secret rotate/recover) stay ungated, as does the
    * `createDeedOwner` free function (no createNoydb instance to gate
    * against).
    */
@@ -2671,12 +2671,12 @@ export interface NoydbOptions {
   readonly sync?: NoydbStore | SyncTarget | SyncTarget[]
   /** User identifier. */
   readonly user: string
-  /** Passphrase for key derivation. Required unless encrypt is false or `getKeyring` is provided. */
+  /** Secret for key derivation. Required unless encrypt is false or `getKeyring` is provided. */
   readonly secret?: string
   /**
    * Optional callback that returns an unlocked keyring for a given vault.
    * Use this to plug in WebAuthn / OIDC / Shamir / any unlock path that
-   * produces an `UnlockedKeyring` outside the passphrase model.
+   * produces an `UnlockedKeyring` outside the secret model.
    *
    * When set, `secret` MUST NOT also be set — `createNoydb` throws if both
    * are supplied. When neither is set (and `encrypt !== false`), `createNoydb`
@@ -2704,32 +2704,32 @@ export interface NoydbOptions {
    * ```
    *
    * Note: this callback is responsible for both the "open existing vault"
-   * and the "create new vault" cases. Unlike the passphrase path, there is
+   * and the "create new vault" cases. Unlike the secret path, there is
    * no automatic `NoAccessError` → `createOwnerKeyring` fallback, because
    * the callback owner has the UI context to decide which path to run.
-   * For first-time bootstrap, use a passphrase or recovery code, enroll
+   * For first-time bootstrap, use a secret or recovery code, enroll
    * WebAuthn from the unlocked keyring, then swap to `getKeyring` on
    * subsequent sessions.
    */
   readonly getKeyring?: (vault: string) => Promise<UnlockedKeyring>
   /**
-   * Passphrase mode. Default `'standard'`.
+   * Secret mode. Default `'standard'`.
    *
    *   - `'standard'` — the legacy flow. `secret` supplies the
-   *     plaintext passphrase, the user knows it, and the policy gate
-   *     `rotate-passphrase` is enabled.
+   *     plaintext secret, the user knows it, and the policy gate
+   *     `rotate-secret` is enabled.
    *   - `'managed'` — rubber-hose-resistant mode. Hub generates a
-   *     256-bit random passphrase at first open and seals it under
+   *     256-bit random secret at first open and seals it under
    *     the provided `sealingKey`. The user never sees or types the
-   *     passphrase, defeating the $5-wrench attack. Mutually
+   *     secret, defeating the $5-wrench attack. Mutually
    *     exclusive with `secret` and `getKeyring`.
    *
-   * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/session-tiers.md → Managed-passphrase mode
+   * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/session-tiers.md → Managed-secret mode
    */
-  readonly passphraseMode?: 'standard' | 'managed'
+  readonly secretMode?: 'standard' | 'managed'
   /**
    * Provider that seals/unseals the auto-generated managed-mode
-   * passphrase. Required when `passphraseMode === 'managed'`; ignored
+   * secret. Required when `secretMode === 'managed'`; ignored
    * otherwise. Implementations live in per-platform packages
    * (`@noy-db/seal-macos-keychain`, `@noy-db/seal-wincred`,
    * `@noy-db/seal-libsecret`, `@noy-db/seal-aws-kms`, …).
@@ -2778,17 +2778,17 @@ export interface NoydbOptions {
    */
   readonly sessionPolicy?: SessionPolicy
   /**
-   * Validate passphrase strength against the phrase format
+   * Validate secret strength against the phrase format
    * on first-time keyring creation. When
-   * `true`, weak phrases throw {@link WeakPassphraseError} from
-   * `createNoydb()` / `db.team.rotatePassphrase()`. Default: `false` for
+   * `true`, weak phrases throw {@link WeakSecretError} from
+   * `createNoydb()` / `db.team.rotateSecret()`. Default: `false` for
    * back-compat; planned to flip to `true` in a future major release.
    */
-  readonly validatePassphrase?: boolean
+  readonly validateSecret?: boolean
   /**
    * Vault-level policy gate document. When present, the hub
    * persists the merged policy at `_meta/policy` on first-time vault
-   * creation and gates sensitive operations (`db.rotatePassphrase`,
+   * creation and gates sensitive operations (`db.rotateSecret`,
    * `db.export*`, …) against it. Omitted ⇒ the engine uses
    * {@link PERSONAL_POLICY}. Use {@link STRICT_POLICY} for regulated
    * deployments.
@@ -2803,11 +2803,11 @@ export interface NoydbOptions {
   readonly policy?: VaultPolicy
   /**
    * Mandatory recovery profile enrollment. Vaults with
-   * `recover-passphrase` enabled MUST register at least one profile
+   * `recover-secret` enabled MUST register at least one profile
    * before being production-ready, otherwise `createNoydb()` throws
    * {@link RecoveryNotEnrolledError}. Set
-   * `policy.gates['recover-passphrase'].enabled = false` to
-   * deliberately opt out of recovery (passphrase loss = data loss).
+   * `policy.gates['recover-secret'].enabled = false` to
+   * deliberately opt out of recovery (secret loss = data loss).
    *
    * The `'paper'` profile is supported end-to-end. Other
    * profiles ship the API shape and throw
@@ -2834,7 +2834,7 @@ export interface NoydbOptions {
    *   data records but not the keyring row, or a WebAuthn credential was rotated).
    *   **All previously encrypted data is unrecoverable after a reset.**
    *
-   * Only applies to the passphrase (`secret`) path. When `getKeyring` is used,
+   * Only applies to the secret (`secret`) path. When `getKeyring` is used,
    * the callback is responsible for handling stale-keyring detection itself.
    */
   readonly onInvalidKey?: 'error' | 'reset'
@@ -3225,7 +3225,7 @@ export type UserApiFactory = (deps: UserApiDeps) => VaultUserApi
 
 // ─── Policy gates (VaultPolicy contract) ───────────────────────────────
 //
-// Sensitive operations (rotate the passphrase, enroll an authenticator,
+// Sensitive operations (rotate the secret, enroll an authenticator,
 // export plaintext, grant a user, …) are gated by a typed policy
 // object. The developer supplies a {@link VaultPolicy} at vault
 // creation; the hub merges it onto a built-in preset and persists the
@@ -3302,7 +3302,7 @@ export interface WarningRules {
 
 /**
  * Policy applied to one named gate. `enabled: false` disables the
- * action entirely (useful in managed-passphrase mode where rotation is
+ * action entirely (useful in managed-secret mode where rotation is
  * impossible by construction).
  */
 export interface GatePolicy {
@@ -3320,14 +3320,14 @@ export interface GatePolicy {
  * configured policy as "no gate" (no-op).
  */
 export type BuiltInGateName =
-  | 'rotate-passphrase'
-  | 'recover-passphrase'
+  | 'rotate-secret'
+  | 'recover-secret'
   | 'enroll-authenticator'
   | 'remove-authenticator'
   /**
    * Authorize a deliberate paper-recovery-code regeneration —
-   * `db.rotateRecovery`. Symmetric to `rotate-passphrase` for
-   * the case where the user remembers their passphrase but wants a
+   * `db.rotateRecovery`. Symmetric to `rotate-secret` for
+   * the case where the user remembers their secret but wants a
    * fresh sheet (lost the printout, suspect compromise of the off-site
    * copy). PERSONAL allows tier-1; STRICT requires an off-device
    * factor so a stolen unlocked laptop cannot silently mint a new
@@ -3356,7 +3356,7 @@ export type BuiltInGateName =
   /**
    * Authorize an atomic peer-recovery — `db.recoverUser`.
    * Distinct from `revoke-user` because peer-recovery is intentional
-   * re-issuance of someone's keyring under a temp passphrase, NOT
+   * re-issuance of someone's keyring under a temp secret, NOT
    * removal. Allows owner→owner natively (matches the threat model:
    * a co-owner explicitly recovering another co-owner). Ships with a
    * factor-proof default in `STRICT_POLICY` so the issuer must
@@ -3417,12 +3417,12 @@ export type GateName = BuiltInGateName | `app:${string}`
 
 /**
  * Top-level policy object. Persisted at `_meta/policy` once at vault
- * creation. The `passphrase` block configures the strength rules
- * applied at every passphrase ingress; `gates` configures
+ * creation. The `secret` block configures the strength rules
+ * applied at every secret ingress; `gates` configures
  * the action-level requirements.
  */
 export interface VaultPolicy {
-  readonly passphrase?: PassphrasePolicy
+  readonly secret?: SecretPolicy
   readonly gates: Partial<Record<GateName, GatePolicy>>
 }
 
@@ -3440,7 +3440,7 @@ export interface FactorProof {
  * Noydb method. Used as the optional last parameter of every method
  * that runs through `checkGate`: `db.grant`, `db.revoke`, `db.updateUser`,
  * `db.enrollAuthenticator`, `db.removeAuthenticator`, `db.updateAuthenticator`,
- * `db.enrollWebAuthn`, `db.rotatePassphrase`, `db.recoverPassphrase`,
+ * `db.enrollWebAuthn`, `db.rotateSecret`, `db.recoverSecret`,
  * `db.recoverUser`, `db.enrollUnlock`, `db.describeUserAuth`,
  * `db.describeAllUsersAuth`.
  *

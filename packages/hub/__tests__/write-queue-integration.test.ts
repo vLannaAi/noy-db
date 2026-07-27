@@ -70,7 +70,7 @@ async function setup(store: NoydbStore): Promise<Noydb> {
   return createNoydb({
     store,
     user: 'alice',
-    secret: 'write-queue-test-passphrase-1234',
+    secret: 'write-queue-test-secret-1234',
   })
 }
 

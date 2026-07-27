@@ -2,7 +2,7 @@
  * **@noy-db/on-shamir** — k-of-n Shamir Secret Sharing of the vault KEK.
  *
  * Any K of N enrolled shares recombines the original KEK; fewer than
- * K leaks zero bits. Unlike naive multi-passphrase schemes, each
+ * K leaks zero bits. Unlike naive multi-secret schemes, each
  * share can be protected by ANY other `@noy-db/on-*` method — share
  * 1 under a WebAuthn passkey, share 2 under an OIDC login, share 3
  * on paper in a safe. This composability is the defining feature.
@@ -38,7 +38,7 @@
  *   decodeShareBase32,
  * } from '@noy-db/on-shamir'
  *
- * // ENROLL — user has unlocked the vault with passphrase; now create a 2-of-3 split
+ * // ENROLL — user has unlocked the vault with secret; now create a 2-of-3 split
  * const shares = await splitKEK(currentKEK, { k: 2, n: 3 })
  * const shareStrings = shares.map(encodeShareBase32)
  * // Distribute each shareString to a different holder via any on-* method

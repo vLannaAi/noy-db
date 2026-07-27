@@ -89,7 +89,7 @@ describe('DictionaryHandle — CRUD', () => {
     db = await createNoydb({ teamStrategy: withTeam(),
       store: memory(),
       user: 'alice', i18nStrategy: withI18n(),
-      secret: 'test-passphrase-dict-1234',
+      secret: 'test-secret-dict-1234',
     })
   })
 
@@ -206,7 +206,7 @@ describe('DictionaryHandle.rename()', () => {
     db = await createNoydb({ teamStrategy: withTeam(),
       store: memory(),
       user: 'alice', i18nStrategy: withI18n(),
-      secret: 'test-passphrase-dict-1234',
+      secret: 'test-secret-dict-1234',
     })
   })
 
@@ -258,7 +258,7 @@ describe('Reserved _dict_* name policy', () => {
     db = await createNoydb({ teamStrategy: withTeam(),
       store: memory(),
       user: 'alice', i18nStrategy: withI18n(),
-      secret: 'test-passphrase-dict-1234',
+      secret: 'test-secret-dict-1234',
     })
   })
 
@@ -286,7 +286,7 @@ describe('dictKey — per-call locale reads', () => {
     db = await createNoydb({ teamStrategy: withTeam(),
       store: memory(),
       user: 'alice', i18nStrategy: withI18n(),
-      secret: 'test-passphrase-dict-1234',
+      secret: 'test-secret-dict-1234',
     })
   })
 
@@ -415,7 +415,7 @@ describe('dictKey ACL — write permissions', () => {
     const ownerDb = await createNoydb({ teamStrategy: withTeam(),
       store: adp,
       user: 'owner', i18nStrategy: withI18n(),
-      secret: 'test-passphrase-dict-1234',
+      secret: 'test-secret-dict-1234',
     })
 
     const ownerCo = await ownerDb.openVault('company')
@@ -427,14 +427,14 @@ describe('dictKey ACL — write permissions', () => {
       userId: 'client',
       displayName: 'Client User',
       role: 'client',
-      passphrase: 'client-passphrase-dict-1234',
+      secret: 'client-secret-dict-1234',
     })
 
     // Client opens the same vault
     const clientDb = await createNoydb({ teamStrategy: withTeam(),
       store: adp,
       user: 'client', i18nStrategy: withI18n(),
-      secret: 'client-passphrase-dict-1234',
+      secret: 'client-secret-dict-1234',
     })
     const clientCo = await clientDb.openVault('company')
     const clientDict = clientCo.dictionary('status')
@@ -449,7 +449,7 @@ describe('dictKey ACL — write permissions', () => {
     const ownerDb = await createNoydb({ teamStrategy: withTeam(),
       store: adp,
       user: 'owner', i18nStrategy: withI18n(),
-      secret: 'test-passphrase-dict-1234',
+      secret: 'test-secret-dict-1234',
     })
 
     const ownerCo = await ownerDb.openVault('company')
@@ -459,14 +459,14 @@ describe('dictKey ACL — write permissions', () => {
       userId: 'op',
       displayName: 'Operator',
       role: 'operator',
-      passphrase: 'op-passphrase-dict-1234',
+      secret: 'op-secret-dict-1234',
       permissions: { '*': 'rw' },
     })
 
     const opDb = await createNoydb({ teamStrategy: withTeam(),
       store: adp,
       user: 'op', i18nStrategy: withI18n(),
-      secret: 'op-passphrase-dict-1234',
+      secret: 'op-secret-dict-1234',
     })
     const opCo = await opDb.openVault('company')
     const opDict = opCo.dictionary('status', { writableBy: 'operator' })
@@ -490,7 +490,7 @@ describe('staticDict — code-provided dictionary (#291)', () => {
   it('resolves <field>Label locale-less via displayLocale', async () => {
     const db = await createNoydb({ teamStrategy: withTeam(),
       store: memory(), user: 'alice', i18nStrategy: withI18n(),
-      secret: 'test-passphrase-static-1',
+      secret: 'test-secret-static-1',
     })
     // No locale on the vault — the hybrid hinge.
     const vault = await db.openVault('co1')
@@ -507,7 +507,7 @@ describe('staticDict — code-provided dictionary (#291)', () => {
   it('WITHOUT displayLocale does NOT resolve locale-less (dictKey parity)', async () => {
     const db = await createNoydb({ teamStrategy: withTeam(),
       store: memory(), user: 'alice', i18nStrategy: withI18n(),
-      secret: 'test-passphrase-static-2',
+      secret: 'test-secret-static-2',
     })
     const vault = await db.openVault('co1')
     const workers = vault.collection<Worker>('workers', {
@@ -525,7 +525,7 @@ describe('staticDict — code-provided dictionary (#291)', () => {
   it('locale-active read resolves via the in-code table', async () => {
     const db = await createNoydb({ teamStrategy: withTeam(),
       store: memory(), user: 'alice', i18nStrategy: withI18n(),
-      secret: 'test-passphrase-static-3',
+      secret: 'test-secret-static-3',
     })
     const vault = await db.openVault('co1', { locale: 'en' })
     const workers = vault.collection<Worker>('workers', {
@@ -540,7 +540,7 @@ describe('staticDict — code-provided dictionary (#291)', () => {
   it('vault.dictionary(staticName) throws StaticDictReadonlyError', async () => {
     const db = await createNoydb({ teamStrategy: withTeam(),
       store: memory(), user: 'alice', i18nStrategy: withI18n(),
-      secret: 'test-passphrase-static-4',
+      secret: 'test-secret-static-4',
     })
     const vault = await db.openVault('co1')
     vault.collection<Worker>('workers', {
@@ -552,7 +552,7 @@ describe('staticDict — code-provided dictionary (#291)', () => {
   it('put() with an unknown code throws UnknownDictCodeError', async () => {
     const db = await createNoydb({ teamStrategy: withTeam(),
       store: memory(), user: 'alice', i18nStrategy: withI18n(),
-      secret: 'test-passphrase-static-5',
+      secret: 'test-secret-static-5',
     })
     const vault = await db.openVault('co1')
     const workers = vault.collection<Worker>('workers', {
@@ -566,7 +566,7 @@ describe('staticDict — code-provided dictionary (#291)', () => {
   it('validateCodes:false allows an open code', async () => {
     const db = await createNoydb({ teamStrategy: withTeam(),
       store: memory(), user: 'alice', i18nStrategy: withI18n(),
-      secret: 'test-passphrase-static-6',
+      secret: 'test-secret-static-6',
     })
     const vault = await db.openVault('co1')
     const workers = vault.collection<Worker>('workers', {
@@ -585,7 +585,7 @@ describe('staticDict — code-provided dictionary (#291)', () => {
     const db = await createNoydb({ teamStrategy: withTeam(),
       store: memory(), user: 'alice',
       i18nStrategy: withI18n(), aggregateStrategy: withAggregate(),
-      secret: 'test-passphrase-static-7',
+      secret: 'test-secret-static-7',
     })
     const vault = await db.openVault('co1')
     const workers = vault.collection<Worker>('workers', {

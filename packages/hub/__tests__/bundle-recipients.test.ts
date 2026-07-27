@@ -1,19 +1,19 @@
 /**
  * Re-keyed multi-recipient bundle coverage.
  *
- * Verifies the new `exportPassphrase` and `recipients` options on
+ * Verifies the new `exportSecret` and `recipients` options on
  * writeNoydbBundle:
  *
  *   - Single-recipient shorthand round-trips with a different
- *     passphrase, reading back the original records under the new
+ *     secret, reading back the original records under the new
  *     unlock secret.
  *   - Multi-recipient: every supplied recipient becomes a keyring
  *     entry that unlocks independently. The source keyring is gone
- *     from the bundle — the source passphrase no longer works.
+ *     from the bundle — the source secret no longer works.
  *   - Per-recipient permission scoping: a slot with
  *     `{ invoices: 'ro' }` carries the invoices DEK only, so other
  *     collections stay opaque even though the ciphertext is shipped.
- *   - Mutual exclusion of exportPassphrase + recipients.
+ *   - Mutual exclusion of exportSecret + recipients.
  */
 
 import { describe, it, expect } from 'vitest'
@@ -78,19 +78,19 @@ async function setupSourceVault() {
 
 /**
  * Restore a bundle into a fresh adapter and unlock with the given
- * passphrase. The bundle's keyrings are sealed under recipient
- * passphrases, not under whatever passphrase a `vault.load()` call
+ * secret. The bundle's keyrings are sealed under recipient
+ * secrets, not under whatever secret a `vault.load()` call
  * would use to re-derive them — so we bypass `load()` and write the
  * bundle's keyrings + collections directly to the adapter, then open
  * a noy-db instance as the recipient. The recipient's `openVault()`
  * reads the keyring file straight from the adapter and unwraps it
- * with the supplied passphrase, exactly the way a real recipient on
+ * with the supplied secret, exactly the way a real recipient on
  * a different device would.
  */
 async function restoreAs(
   bundleBytes: Uint8Array,
   recipientUserId: string,
-  recipientPassphrase: string,
+  recipientSecret: string,
 ): Promise<{ db: Awaited<ReturnType<typeof createNoydb>> }> {
   const { dumpJson } = await readNoydbBundle(bundleBytes)
   const dump = JSON.parse(dumpJson) as {
@@ -123,16 +123,16 @@ async function restoreAs(
   }
 
   const db = await createNoydb({
-    store: targetStore, user: recipientUserId, secret: recipientPassphrase,
+    store: targetStore, user: recipientUserId, secret: recipientSecret,
     historyStrategy: withHistory(),
   })
   return { db }
 }
 
-describe('writeNoydbBundle — exportPassphrase shorthand', () => {
-  it('single-recipient bundle unlocks with the new passphrase', async () => {
+describe('writeNoydbBundle — exportSecret shorthand', () => {
+  it('single-recipient bundle unlocks with the new secret', async () => {
     const { db: src, vault } = await setupSourceVault()
-    const bytes = await writeNoydbBundle(vault, { exportPassphrase: 'recipient-pw-2026' })
+    const bytes = await writeNoydbBundle(vault, { exportSecret: 'recipient-pw-2026' })
     src.close()
 
     const { db } = await restoreAs(bytes, 'alice', 'recipient-pw-2026')
@@ -142,14 +142,14 @@ describe('writeNoydbBundle — exportPassphrase shorthand', () => {
     db.close()
   })
 
-  it('source passphrase no longer unlocks the re-keyed bundle', async () => {
+  it('source secret no longer unlocks the re-keyed bundle', async () => {
     const { db: src, vault } = await setupSourceVault()
-    const bytes = await writeNoydbBundle(vault, { exportPassphrase: 'recipient-pw-2026' })
+    const bytes = await writeNoydbBundle(vault, { exportSecret: 'recipient-pw-2026' })
     src.close()
 
-    // Try opening with the SOURCE passphrase via restoreAs — must
+    // Try opening with the SOURCE secret via restoreAs — must
     // fail at openVault time because the bundle's keyring is sealed
-    // for the recipient passphrase, not the source one.
+    // for the recipient secret, not the source one.
     await expect(
       restoreAs(bytes, 'alice', 'source-pw-2026').then(r => r.db.openVault('demo')),
     ).rejects.toThrow()
@@ -157,11 +157,11 @@ describe('writeNoydbBundle — exportPassphrase shorthand', () => {
 })
 
 describe('writeNoydbBundle — multi-recipient', () => {
-  it('every recipient unlocks independently with their own passphrase', async () => {
+  it('every recipient unlocks independently with their own secret', async () => {
     const { db: src, vault } = await setupSourceVault()
     const recipients: readonly BundleRecipient[] = [
-      { id: 'alice-r', passphrase: 'alice-pw', role: 'viewer' },
-      { id: 'bob-r',   passphrase: 'bob-pw',   role: 'viewer' },
+      { id: 'alice-r', secret: 'alice-pw', role: 'viewer' },
+      { id: 'bob-r',   secret: 'bob-pw',   role: 'viewer' },
     ]
     const bytes = await writeNoydbBundle(vault, { recipients })
     src.close()
@@ -183,7 +183,7 @@ describe('writeNoydbBundle — multi-recipient', () => {
     const { db: src, vault } = await setupSourceVault()
     const recipients: readonly BundleRecipient[] = [
       // 'restricted' gets only invoices — payments DEK must NOT be wrapped.
-      { id: 'restricted', passphrase: 'r-pw', role: 'operator',
+      { id: 'restricted', secret: 'r-pw', role: 'operator',
         permissions: { invoices: 'ro' } },
     ]
     const bytes = await writeNoydbBundle(vault, { recipients })
@@ -204,14 +204,14 @@ describe('writeNoydbBundle — multi-recipient', () => {
     r.db.close()
   })
 
-  it('rejects mutual exclusion of exportPassphrase + recipients', async () => {
+  it('rejects mutual exclusion of exportSecret + recipients', async () => {
     const { db: src, vault } = await setupSourceVault()
     await expect(
       writeNoydbBundle(vault, {
-        exportPassphrase: 'pw',
-        recipients: [{ id: 'r', passphrase: 'r-pw' }],
+        exportSecret: 'pw',
+        recipients: [{ id: 'r', secret: 'r-pw' }],
       }),
-    ).rejects.toThrow(/either exportPassphrase or recipients, not both/)
+    ).rejects.toThrow(/either exportSecret or recipients, not both/)
     src.close()
   })
 
@@ -220,8 +220,8 @@ describe('writeNoydbBundle — multi-recipient', () => {
     await expect(
       writeNoydbBundle(vault, {
         recipients: [
-          { id: 'same', passphrase: 'pw1' },
-          { id: 'same', passphrase: 'pw2' },
+          { id: 'same', secret: 'pw1' },
+          { id: 'same', secret: 'pw2' },
         ],
       }),
     ).rejects.toThrow(/duplicate recipient id/)
@@ -245,7 +245,7 @@ describe('writeNoydbBundle — recipients compose with slice', () => {
     // since filter while still proving the two pipelines compose.
     const bytes = await writeNoydbBundle(vault, {
       since: '2000-01-01T00:00:00Z',
-      recipients: [{ id: 'r', passphrase: 'r-pw' }],
+      recipients: [{ id: 'r', secret: 'r-pw' }],
     })
     src.close()
 

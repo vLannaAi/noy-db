@@ -99,7 +99,7 @@ describe('UNION MV — basic 2-source (#165)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-union-basic-passphrase-2026',
+      secret: 'mv-union-basic-secret-2026',
       materializedViewStrategies: [monthlyVat],
       aggregateStrategy: withAggregate(),
     })
@@ -147,7 +147,7 @@ describe('UNION MV — basic 2-source (#165)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-union-arms-independent-passphrase-2026',
+      secret: 'mv-union-arms-independent-secret-2026',
       materializedViewStrategies: [totals],
       aggregateStrategy: withAggregate(),
     })
@@ -226,7 +226,7 @@ describe('UNION MV — combined with multi-key groupBy (#165 + #166)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-union-multikey-niwat-passphrase-2026',
+      secret: 'mv-union-multikey-niwat-secret-2026',
       materializedViewStrategies: [monthlyOutputVat],
       aggregateStrategy: withAggregate(),
     })
@@ -300,7 +300,7 @@ describe('UNION MV — edges (#165)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-union-three-source-passphrase-2026',
+      secret: 'mv-union-three-source-secret-2026',
       materializedViewStrategies: [totals],
       aggregateStrategy: withAggregate(),
     })
@@ -357,7 +357,7 @@ describe('UNION MV — edges (#165)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-union-onempty-auto-tombstone-passphrase-2026',
+      secret: 'mv-union-onempty-auto-tombstone-secret-2026',
       materializedViewStrategies: [totals],
       aggregateStrategy: withAggregate(),
     })
@@ -409,7 +409,7 @@ describe('UNION MV — edges (#165)', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'mv-union-onempty-tombstone-passphrase-2026',
+      secret: 'mv-union-onempty-tombstone-secret-2026',
       materializedViewStrategies: [totals],
       aggregateStrategy: withAggregate(),
     })

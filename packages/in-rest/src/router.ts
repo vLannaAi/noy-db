@@ -35,22 +35,22 @@ export function buildRouter(store: NoydbStore, user: string, sessions: SessionSt
 
     // ── Session routes (no auth required) ─────────────────────────
 
-    if (method === 'POST' && path === '/sessions/unlock/passphrase') {
+    if (method === 'POST' && path === '/sessions/unlock/secret') {
       let body: unknown
       try { body = await req.json() } catch { return json(400, { error: 'invalid_json' }) }
-      const passphrase = (body as Record<string, unknown>)?.passphrase
-      if (typeof passphrase !== 'string' || !passphrase) {
-        return json(400, { error: 'passphrase_required' })
+      const secret = (body as Record<string, unknown>)?.secret
+      if (typeof secret !== 'string' || !secret) {
+        return json(400, { error: 'secret_required' })
       }
       try {
-        const db = await createNoydb({ store, user, secret: passphrase })
+        const db = await createNoydb({ store, user, secret: secret })
         const token = sessions.create(db)
         return json(200, { token })
       } catch (err) {
         if (err instanceof ValidationError) {
-          return json(400, { error: 'weak_passphrase', message: err.message })
+          return json(400, { error: 'weak_secret', message: err.message })
         }
-        return json(401, { error: 'invalid_passphrase' })
+        return json(401, { error: 'invalid_secret' })
       }
     }
 

@@ -56,7 +56,7 @@ const totalSpentRollup = () =>
 describe('frozen-output rule (#637) — local-write dispatch', () => {
   it('rollup target in a closed period: SOURCE write survives, event fires, aggregate unchanged, audit entry recorded', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'frozen-output-local-passphrase-2026',
+      store: memory(), user: 'alice', secret: 'frozen-output-local-secret-2026',
       derivationStrategies: [totalSpentRollup()],
       periodsStrategy: withPeriods(),
       historyStrategy: withHistory(),
@@ -98,7 +98,7 @@ describe('frozen-output rule (#637) — local-write dispatch', () => {
 
   it('no with-history strategy active: skip + event still work, no audit entry (strategy-gated, not hard-required)', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'frozen-output-no-audit-passphrase-2026',
+      store: memory(), user: 'alice', secret: 'frozen-output-no-audit-secret-2026',
       derivationStrategies: [totalSpentRollup()],
       periodsStrategy: withPeriods(),
       // No historyStrategy — the with-audit ledger is inactive.
@@ -120,7 +120,7 @@ interface Meta extends Record<string, unknown> { len: number; asOf: string }
 describe('frozen-output rule (#637) — vault.deriveAll()', () => {
   it('one frozen output row is skipped; the rest still process; deriveAll does not abort', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'frozen-deriveall-passphrase-2026',
+      store: memory(), user: 'alice', secret: 'frozen-deriveall-secret-2026',
       derivationStrategies: [withDerivation({
         source: 'pdfs',
         deterministic: true,
@@ -163,7 +163,7 @@ describe('frozen-output rule (#637) — vault.deriveAll()', () => {
 
   it('counts a frozen-skip separately from a written output — `derived` does not count the skip (Task 5 review Finding 1)', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'frozen-deriveall-counters-passphrase-2026',
+      store: memory(), user: 'alice', secret: 'frozen-deriveall-counters-secret-2026',
       derivationStrategies: [withDerivation({
         source: 'pdfs',
         deterministic: true,
@@ -202,7 +202,7 @@ describe('frozen-output rule (#637) — vault.refreshView()', () => {
       refresh: 'manual',
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'frozen-refreshview-passphrase-2026',
+      store: memory(), user: 'alice', secret: 'frozen-refreshview-secret-2026',
       materializedViewStrategies: [mv],
       periodsStrategy: withPeriods(),
     })

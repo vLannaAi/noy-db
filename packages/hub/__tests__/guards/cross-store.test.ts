@@ -90,7 +90,7 @@ describe('Guards work over a persistent file-backed store', () => {
     const open = () => createNoydb({
       store: fileStore(dir),
       user: 'alice',
-      secret: 'guards-cross-store-passphrase-2026',
+      secret: 'guards-cross-store-secret-2026',
       guardStrategies: [guard],
     })
 

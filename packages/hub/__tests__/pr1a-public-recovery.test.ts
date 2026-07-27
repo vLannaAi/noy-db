@@ -7,7 +7,7 @@
  *     expect — .deks Map, .kek CryptoKey, .role).
  *   - issue #39: mintPaperRecoveryEntry + unwrapDeksFromPaperEntry are
  *     re-exported from @noy-db/hub and produce entries that survive
- *     the full db.enrollRecovery → db.recoverPassphrase round-trip.
+ *     the full db.enrollRecovery → db.recoverSecret round-trip.
  *
  * The test imports from '../src/index.js' (the barrel) — not from
  * 'team/recovery.js' — so it pins the public-surface contract that
@@ -109,10 +109,10 @@ describe('PR1a public surface', () => {
       }
     })
 
-    it('round-trips through db.enrollRecovery + db.recoverPassphrase', async () => {
+    it('round-trips through db.enrollRecovery + db.recoverSecret', async () => {
       const keyring = await db.team.getKeyring('acme')
       // Codes must be already-normalized (uppercase, no separators) so they
-      // round-trip through recoverPassphrase's normalizePaperCode step.
+      // round-trip through recoverSecret's normalizePaperCode step.
       const codes = ['CODEAAA001', 'CODEBBB002', 'CODECCC003']
       const entries: PaperRecoveryEntry[] = await Promise.all(
         codes.map((c, i) => mintPaperRecoveryEntry(keyring.deks, c, `code-${i}`)),
@@ -121,8 +121,8 @@ describe('PR1a public surface', () => {
       await db.team.enrollRecovery('acme', { profile: 'paper', entries })
 
       // Use one code to recover under a new phrase.
-      await db.team.recoverPassphrase('acme', {
-        newPassphrase: STRONG_NEW,
+      await db.team.recoverSecret('acme', {
+        newSecret: STRONG_NEW,
         recoveryProof: { profile: 'paper', payload: { code: codes[0]! } },
       })
 

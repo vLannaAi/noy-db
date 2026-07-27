@@ -1,8 +1,8 @@
 # @noy-db/at-aws-kms
 
-**AWS KMS sealing key provider for noy-db [managed-passphrase mode](https://github.com/vLannaAi/noy-db/issues/14).**
+**AWS KMS sealing key provider for noy-db [managed-secret mode](https://github.com/vLannaAi/noy-db/issues/14).**
 
-An `at-*` provider that seals and unseals the hub-generated random passphrase via AWS KMS Encrypt / Decrypt. Every seal and unseal is an authenticated KMS API call — giving you a CloudTrail-backed access log of every time a user's vault is opened, with no additional instrumentation required.
+An `at-*` provider that seals and unseals the hub-generated random secret via AWS KMS Encrypt / Decrypt. Every seal and unseal is an authenticated KMS API call — giving you a CloudTrail-backed access log of every time a user's vault is opened, with no additional instrumentation required.
 
 Like all `at-*` providers, this is a *trusted host* provider: the host you deploy it on CAN decrypt what it unseals. The security boundary is your AWS IAM policy — access is controlled by which roles hold `kms:Decrypt` on the KMS key, not by a secret the host keeps in memory.
 
@@ -34,14 +34,14 @@ import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 const db = await createNoydb({
   store,
   user: 'alice',
-  passphraseMode: 'managed',
+  secretMode: 'managed',
   sealingKey: awsKmsSealingProvider({ keyId: 'arn:aws:kms:us-east-1:123456789012:key/abc' }),
   shamirRecovery: shamirRecoveryProvider(),
 })
 
 const vault = await db.openVault('acme')
 // Hub generated a 256-bit random on first open, sealed it via KMS Encrypt,
-// and persisted to _meta/sealed-passphrase. The user never sees a passphrase.
+// and persisted to _meta/sealed-secret. The user never sees a secret.
 // On reopen, at-aws-kms calls KMS Decrypt transparently.
 // CloudTrail logs every Encrypt/Decrypt call with caller identity + key ARN.
 ```
@@ -59,7 +59,7 @@ const vault = await db.openVault('acme')
 
 ## Key rotation
 
-KMS supports automatic key rotation for symmetric keys. Enable it on the CMK and KMS handles the rest — your `keyId` stays the same, no app changes needed. Cross-key migration (moving sealed passphrases to a different CMK) requires manual re-sealing with `unseal` + `seal` under the new key.
+KMS supports automatic key rotation for symmetric keys. Enable it on the CMK and KMS handles the rest — your `keyId` stays the same, no app changes needed. Cross-key migration (moving sealed secrets to a different CMK) requires manual re-sealing with `unseal` + `seal` under the new key.
 
 ## API
 
@@ -72,7 +72,7 @@ function awsKmsSealingProvider(opts: {
 
 Never pass raw AWS credentials in the options — inject a pre-configured `KMSClient` for non-default auth. The default `new KMSClient({})` resolves credentials via the SDK's ambient chain.
 
-Returns a [`SealingKeyProvider`](../hub/src/team/managed-passphrase.ts) — the contract `@noy-db/hub`'s managed-passphrase mode consumes.
+Returns a [`SealingKeyProvider`](../hub/src/team/managed-secret.ts) — the contract `@noy-db/hub`'s managed-secret mode consumes.
 
 ## License
 

@@ -35,15 +35,15 @@ pnpm preview     # preview the production build
 pnpm verify      # run the noy-db integrity check
 ```
 
-First time the page loads it will prompt for a **passphrase** — that
-passphrase derives the master key. Lose it and the data is
+First time the page loads it will prompt for a **secret** — that
+secret derives the master key. Lose it and the data is
 unrecoverable (by design: the library cannot help you).
 
 ## What's in `src/main.ts`
 
 The starter walks through the full lifecycle:
 
-1. `createNoydb({ store: browserIdbStore(), secret: passphrase })` —
+1. `createNoydb({ store: browserIdbStore(), secret: secret })` —
    open the encrypted store.
 2. `await db.openVault('demo')` — create or open a vault (tenant).
 3. `vault.collection<Invoice>('invoices')` — typed collection.

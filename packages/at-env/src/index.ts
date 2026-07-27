@@ -1,10 +1,10 @@
 /**
  * **@noy-db/at-env** — env-var sealing key provider for noy-db
- * managed-passphrase mode.
+ * managed-secret mode.
  *
  * The smallest production-shape provider in the `at-*` family. Reads a
  * 32-byte AES-256-GCM key from an environment variable (base64-encoded)
- * and uses it to seal / unseal the hub-generated random passphrase.
+ * and uses it to seal / unseal the hub-generated random secret.
  *
  * ## When to use
  *
@@ -40,7 +40,7 @@
  * const db = await createNoydb({
  *   store,
  *   user: 'alice',
- *   passphraseMode: 'managed',
+ *   secretMode: 'managed',
  *   sealingKey: envSealingProvider(),  // reads NOYDB_SEALING_KEY by default
  * })
  * ```
@@ -116,13 +116,13 @@ export function envSealingProvider(
   return {
     id: `env:${envVar}`,
 
-    async seal(passphrase: Uint8Array): Promise<Uint8Array> {
+    async seal(secret: Uint8Array): Promise<Uint8Array> {
       const key = await getKey()
       const iv = globalThis.crypto.getRandomValues(new Uint8Array(12))
       const ciphertext = await globalThis.crypto.subtle.encrypt(
         { name: 'AES-GCM', iv: iv as BufferSource },
         key,
-        passphrase as unknown as BufferSource,
+        secret as unknown as BufferSource,
       )
       // Output format: [12-byte IV][ciphertext + 16-byte GCM tag]
       const out = new Uint8Array(12 + ciphertext.byteLength)

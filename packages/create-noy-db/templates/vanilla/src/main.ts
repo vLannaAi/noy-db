@@ -4,7 +4,7 @@
  * A minimal, no-framework integration of noy-db. Everything this file
  * needs to do:
  *
- *   1. Prompt for a passphrase (derives the encryption key).
+ *   1. Prompt for a secret (derives the encryption key).
  *   2. Open an encrypted vault backed by IndexedDB.
  *   3. Render a table of invoices.
  *   4. Let the user add, refresh, and lock.
@@ -49,13 +49,13 @@ let invoices: Collection<Invoice> | null = null
 async function unlock() {
   // In a real app you would build a proper modal. For the starter we
   // use the browser prompt — it blocks, it's ugly, and it gets the
-  // passphrase in two lines.
-  const passphrase = prompt(
-    'Enter passphrase for {{PROJECT_NAME}}\n\n' +
-      'This derives the master encryption key. Same passphrase every time.\n' +
+  // secret in two lines.
+  const secret = prompt(
+    'Enter secret for {{PROJECT_NAME}}\n\n' +
+      'This derives the master encryption key. Same secret every time.\n' +
       'Lose it and the data is unrecoverable (by design).',
   )
-  if (!passphrase) {
+  if (!secret) {
     showStatus('Cancelled — reload to try again.')
     return
   }
@@ -65,7 +65,7 @@ async function unlock() {
   db = await createNoydb({
     store: browserIdbStore({ prefix: '{{PROJECT_NAME}}' }),
     user: 'owner',
-    secret: passphrase,
+    secret: secret,
   })
   vault = await db.openVault('demo')
   invoices = vault.collection<Invoice>('invoices')

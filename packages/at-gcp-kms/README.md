@@ -1,8 +1,8 @@
 # @noy-db/at-gcp-kms
 
-**Google Cloud KMS sealing key provider for noy-db [managed-passphrase mode](https://github.com/vLannaAi/noy-db/issues/14).**
+**Google Cloud KMS sealing key provider for noy-db [managed-secret mode](https://github.com/vLannaAi/noy-db/issues/14).**
 
-An `at-*` provider that seals and unseals the hub-generated random passphrase via Google Cloud KMS Encrypt / Decrypt. Every seal and unseal is an authenticated KMS API call — giving you a Cloud Audit Logs-backed access log of every time a user's vault is opened, with no additional instrumentation required.
+An `at-*` provider that seals and unseals the hub-generated random secret via Google Cloud KMS Encrypt / Decrypt. Every seal and unseal is an authenticated KMS API call — giving you a Cloud Audit Logs-backed access log of every time a user's vault is opened, with no additional instrumentation required.
 
 Like all `at-*` providers, this is a *trusted host* provider: the host you deploy it on CAN decrypt what it unseals. The security boundary is your GCP IAM policy — access is controlled by which service accounts hold `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the KMS key, not by a secret the host keeps in memory.
 
@@ -45,7 +45,7 @@ import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 const db = await createNoydb({
   store,
   user: 'alice',
-  passphraseMode: 'managed',
+  secretMode: 'managed',
   sealingKey: gcpKmsSealingProvider({
     keyName: 'projects/my-project/locations/global/keyRings/noy-db-ring/cryptoKeys/noy-db-sealing',
   }),
@@ -54,7 +54,7 @@ const db = await createNoydb({
 
 const vault = await db.openVault('acme')
 // Hub generated a 256-bit random on first open, sealed it via KMS Encrypt,
-// and persisted to _meta/sealed-passphrase. The user never sees a passphrase.
+// and persisted to _meta/sealed-secret. The user never sees a secret.
 // On reopen, at-gcp-kms calls KMS Decrypt transparently.
 // Cloud Audit Logs record every Encrypt/Decrypt call with caller identity + key resource name.
 ```
@@ -72,7 +72,7 @@ const vault = await db.openVault('acme')
 
 ## Key rotation
 
-Cloud KMS supports automatic key version rotation for symmetric keys. Enable it on the crypto key and KMS handles the rest — your `keyName` stays the same, no app changes needed. Cross-key migration (moving sealed passphrases to a different key) requires manual re-sealing with `unseal` + `seal` under the new key.
+Cloud KMS supports automatic key version rotation for symmetric keys. Enable it on the crypto key and KMS handles the rest — your `keyName` stays the same, no app changes needed. Cross-key migration (moving sealed secrets to a different key) requires manual re-sealing with `unseal` + `seal` under the new key.
 
 ## API
 
@@ -85,7 +85,7 @@ function gcpKmsSealingProvider(opts: {
 
 Never pass raw GCP credentials in the options — inject a pre-configured `KeyManagementServiceClient` for non-default auth. The default `new KeyManagementServiceClient()` resolves credentials via Application Default Credentials.
 
-Returns a [`SealingKeyProvider`](../hub/src/team/managed-passphrase.ts) — the contract `@noy-db/hub`'s managed-passphrase mode consumes.
+Returns a [`SealingKeyProvider`](../hub/src/team/managed-secret.ts) — the contract `@noy-db/hub`'s managed-secret mode consumes.
 
 ## License
 

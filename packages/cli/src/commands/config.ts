@@ -85,10 +85,10 @@ export function validateOptions(opts: unknown): ValidationReport {
       message: '`user` identifier is recommended — audit entries default to "anonymous" without it' })
   }
 
-  // passphrase-or-encryption check
-  if (opts.secret === undefined && opts.passphrase === undefined && opts.encrypt !== false) {
+  // secret-or-encryption check
+  if (opts.secret === undefined && opts.secret === undefined && opts.encrypt !== false) {
     issues.push({ severity: 'warn', code: 'no-secret', path: 'secret',
-      message: '`secret` / `passphrase` missing and `encrypt` not explicitly false — vault open will fail' })
+      message: '`secret` / `secret` missing and `encrypt` not explicitly false — vault open will fail' })
   }
 
   const hasError = issues.some((i) => i.severity === 'error')
@@ -334,7 +334,7 @@ export function scaffold(profile: Profile): ScaffoldResult {
       env: `NOYDB_USER=\nNOYDB_SECRET=\nNOYDB_REGION=ap-southeast-1\n`,
     }
     case 'J': return {
-      profile, notes: 'Authentication bridge (passphrase-less unlock via OIDC or WebAuthn).',
+      profile, notes: 'Authentication bridge (secret-less unlock via OIDC or WebAuthn).',
       code: [
         `import { createNoydb } from '@noy-db/hub'`,
         `import { browserIdbStore } from '@noy-db/to-browser-idb'`,

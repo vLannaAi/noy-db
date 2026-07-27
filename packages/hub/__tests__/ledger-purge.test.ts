@@ -87,7 +87,7 @@ describe('LedgerStore.purgeRecordDeltas (#729)', () => {
     db = await createNoydb({
       store: adapter,
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
   })
 
@@ -187,7 +187,7 @@ async function openTieredLedger() {
   const db = await createNoydb({
     store: adapter,
     user: 'owner', historyStrategy: withHistory(), tiersStrategy: withTiers(),
-    secret: 'test-passphrase-1234',
+    secret: 'test-secret-1234',
   })
   const company = await db.openVault('demo-co')
   const docs = company.collection<TieredDoc>('docs', { tiers: [0, 1] })

@@ -1,7 +1,7 @@
 /**
  * Session tokens —
  *
- * After a vault is unlocked (via passphrase, WebAuthn, OIDC, or magic-
+ * After a vault is unlocked (via secret, WebAuthn, OIDC, or magic-
  * link), the caller can call `createSession()` to get a session token that
  * allows re-establishing the KEK for the session lifetime without re-running
  * PBKDF2 or any interactive auth challenge.
@@ -95,7 +95,7 @@ export interface CreateSessionOptions {
 /**
  * Create a session for an already-unlocked keyring.
  *
- * Call this after any successful unlock (passphrase, WebAuthn, OIDC,
+ * Call this after any successful unlock (secret, WebAuthn, OIDC,
  * magic-link). The returned `sessionId` is the handle for later
  * `resolveSession()` and `revokeSession()` calls.
  *

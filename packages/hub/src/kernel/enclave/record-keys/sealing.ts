@@ -109,7 +109,7 @@ export async function sealRecordToHost(
     _v: (prior?._v ?? 0) + 1,
     _ts: new Date().toISOString(),
     // AES-GCM bypassed — the sealing layer is the security boundary, exactly
-    // like the managed-passphrase `_meta/sealed-passphrase` envelope.
+    // like the managed-secret `_meta/sealed-secret` envelope.
     _iv: '',
     _data: JSON.stringify(delivery),
     ...(ctx.actor ? { _by: ctx.actor } : {}),

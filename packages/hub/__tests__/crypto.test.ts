@@ -16,10 +16,10 @@ describe('crypto', () => {
   // ─── Key Derivation ────────────────────────────────────────────────
 
   describe('deriveKey', () => {
-    it('produces deterministic output for same passphrase + salt', async () => {
+    it('produces deterministic output for same secret + salt', async () => {
       const salt = generateSalt()
-      const kek1 = await deriveKey('test-passphrase', salt)
-      const kek2 = await deriveKey('test-passphrase', salt)
+      const kek1 = await deriveKey('test-secret', salt)
+      const kek2 = await deriveKey('test-secret', salt)
 
       // KEK is not extractable, so verify both can unwrap the same wrapped key
       const dek = await generateDEK()
@@ -28,11 +28,11 @@ describe('crypto', () => {
       expect(unwrapped).toBeDefined()
     })
 
-    it('produces different output for different passphrases', async () => {
+    it('produces different output for different secrets', async () => {
       const salt = generateSalt()
       const dek = await generateDEK()
-      const kek1 = await deriveKey('passphrase-a', salt)
-      const kek2 = await deriveKey('passphrase-b', salt)
+      const kek1 = await deriveKey('secret-a', salt)
+      const kek2 = await deriveKey('secret-b', salt)
 
       const wrapped = await wrapKey(dek, kek1)
       await expect(unwrapKey(wrapped, kek2)).rejects.toThrow(InvalidKeyError)
@@ -42,8 +42,8 @@ describe('crypto', () => {
       const salt1 = generateSalt()
       const salt2 = generateSalt()
       const dek = await generateDEK()
-      const kek1 = await deriveKey('same-passphrase', salt1)
-      const kek2 = await deriveKey('same-passphrase', salt2)
+      const kek1 = await deriveKey('same-secret', salt1)
+      const kek2 = await deriveKey('same-secret', salt2)
 
       const wrapped = await wrapKey(dek, kek1)
       await expect(unwrapKey(wrapped, kek2)).rejects.toThrow(InvalidKeyError)
@@ -65,7 +65,7 @@ describe('crypto', () => {
   describe('wrapKey / unwrapKey', () => {
     it('round-trips a DEK', async () => {
       const salt = generateSalt()
-      const kek = await deriveKey('my-passphrase', salt)
+      const kek = await deriveKey('my-secret', salt)
       const dek = await generateDEK()
 
       const wrapped = await wrapKey(dek, kek)
@@ -82,8 +82,8 @@ describe('crypto', () => {
     })
 
     it('unwrapKey with wrong KEK throws InvalidKeyError', async () => {
-      const kek1 = await deriveKey('passphrase-1', generateSalt())
-      const kek2 = await deriveKey('passphrase-2', generateSalt())
+      const kek1 = await deriveKey('secret-1', generateSalt())
+      const kek2 = await deriveKey('secret-2', generateSalt())
       const dek = await generateDEK()
 
       const wrapped = await wrapKey(dek, kek1)

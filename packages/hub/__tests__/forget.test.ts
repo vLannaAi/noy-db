@@ -89,7 +89,7 @@ function memory(): NoydbStore & {
 
 interface Invoice { id: string; buyerId: string; amount: number; memo?: string }
 
-const SECRET = 'forget-test-passphrase-1234'
+const SECRET = 'forget-test-secret-1234'
 
 describe('forget — group 1: tombstones live + history of matching records', () => {
   it('shreds the subject and all its history, leaves other subjects intact', async () => {

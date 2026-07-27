@@ -56,10 +56,10 @@ describe('describeAuthConfig', () => {
     await saveVaultPolicy(store, 'acme', PERSONAL_POLICY)
     const summary = await describeAuthConfig(store, 'acme')
     expect(summary).toContain('Vault "acme"')
-    expect(summary).toContain('Tier 1 — Passphrase')
+    expect(summary).toContain('Tier 1 — Secret')
     expect(summary).toContain('Tier 2 — Authenticate')
     expect(summary).toContain('Tier 3 — Unlock')
-    expect(summary).toContain('rotate-passphrase')
+    expect(summary).toContain('rotate-secret')
     expect(summary).toContain('Recovery profiles enrolled: none')
   })
 
@@ -67,7 +67,7 @@ describe('describeAuthConfig', () => {
     const store = inlineMemory()
     const summary = await describeAuthConfig(store, 'acme')
     expect(summary).toContain('Vault "acme"')
-    expect(summary).toContain('Tier 1 — Passphrase')
+    expect(summary).toContain('Tier 1 — Secret')
   })
 })
 
@@ -81,7 +81,7 @@ describe('diagramAuthConfig', () => {
     expect(mmd).toContain('tier1')
     expect(mmd).toContain('tier2')
     expect(mmd).toContain('tier3')
-    expect(mmd).toContain('rotate_passphrase')
+    expect(mmd).toContain('rotate_secret')
   })
 })
 

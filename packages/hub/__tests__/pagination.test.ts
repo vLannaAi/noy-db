@@ -103,7 +103,7 @@ describe('Collection.listPage() — pagination', () => {
     db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'pagination-test-passphrase-2026',
+      secret: 'pagination-test-secret-2026',
     })
   })
 
@@ -189,7 +189,7 @@ describe('Collection.scan() — async iterator', () => {
     db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'pagination-test-passphrase-2026',
+      secret: 'pagination-test-secret-2026',
     })
   })
 
@@ -277,7 +277,7 @@ describe('Collection.listPage() — synthetic fallback path', () => {
     db = await createNoydb({
       store: memoryNoListPage(),
       user: 'owner',
-      secret: 'fallback-test-passphrase-2026',
+      secret: 'fallback-test-secret-2026',
     })
   })
 

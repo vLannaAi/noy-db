@@ -78,7 +78,7 @@ describe('destination lifecycle ledger entries (#226)', () => {
 
     const dest = memory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'acme' })
-    await createOwnerOnAdoptedPartition(dest, 'acme', { userId: 'belle', passphrase: 'belle-2026', transferKey })
+    await createOwnerOnAdoptedPartition(dest, 'acme', { userId: 'belle', secret: 'belle-2026', transferKey })
 
     const db = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-2026', historyStrategy: withHistory() })
     const vault = await db.openVault('acme')
@@ -114,12 +114,12 @@ describe('destination lifecycle ledger entries (#226)', () => {
     await adoptPartition(bundleBytes, { transferKey, destinationStore: flakyDest, vaultName: 'acme' })
     armed = true
     await expect(
-      createOwnerOnAdoptedPartition(flakyDest, 'acme', { userId: 'belle', passphrase: 'belle-2026', transferKey }),
+      createOwnerOnAdoptedPartition(flakyDest, 'acme', { userId: 'belle', secret: 'belle-2026', transferKey }),
     ).rejects.toThrow(/injected ledger outage/)
 
     // Retry against the clean adapter — Stage B must not re-append the first entry.
     armed = false
-    await createOwnerOnAdoptedPartition(flakyDest, 'acme', { userId: 'belle', passphrase: 'belle-2026', transferKey })
+    await createOwnerOnAdoptedPartition(flakyDest, 'acme', { userId: 'belle', secret: 'belle-2026', transferKey })
 
     const db = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-2026', historyStrategy: withHistory() })
     const vault = await db.openVault('acme')
@@ -136,7 +136,7 @@ describe('destination lifecycle ledger entries (#226)', () => {
     const { bundleBytes, transferKey } = await extractPartition(company, { seeds: { clients: () => true } })
     const dest = memory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'acme' })
-    await createOwnerOnAdoptedPartition(dest, 'acme', { userId: 'belle', passphrase: 'belle-2026', transferKey })
+    await createOwnerOnAdoptedPartition(dest, 'acme', { userId: 'belle', secret: 'belle-2026', transferKey })
     expect(await dest.list('acme', '_ledger')).toEqual([])
   })
 })

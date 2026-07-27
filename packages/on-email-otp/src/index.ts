@@ -17,7 +17,7 @@
  * ```ts
  * import { issue, verify } from '@noy-db/on-email-otp'
  *
- * // Challenge issue (server side, post-passphrase)
+ * // Challenge issue (server side, post-secret)
  * const challenge = await issue({
  *   email: 'alice@example.com',
  *   ttlSeconds: 300,

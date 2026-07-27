@@ -80,7 +80,7 @@ const enc = (dim: number, model = 'stub') => ({
 
 interface Doc { id: string; text: string; ownerId: string }
 
-const SECRET = 'forget-vec-test-passphrase-5678'
+const SECRET = 'forget-vec-test-secret-5678'
 
 // ── Case 1: _vec sidecar deleted + excluded from semantic retrieve ────────────
 

@@ -20,7 +20,7 @@
  *
  * ```ts
  * await db.grant('firm', {
- *   userId: 'accountant', role: 'viewer', passphrase: '…',
+ *   userId: 'accountant', role: 'viewer', secret: '…',
  *   exportCapability: { plaintext: ['xlsx'] },
  * })
  * ```

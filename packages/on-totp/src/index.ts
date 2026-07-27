@@ -15,14 +15,14 @@
  * one can validate codes), so a compromised verifier leaks the secret.
  * In noy-db the typical pattern is:
  *
- *   1. User sets a passphrase (primary factor). KEK derives via PBKDF2.
+ *   1. User sets a secret (primary factor). KEK derives via PBKDF2.
  *   2. On enroll, a TOTP secret is generated and stored **encrypted
  *      under the KEK** in the user's keyring.
- *   3. On unlock, the user enters passphrase → unwraps the secret →
+ *   3. On unlock, the user enters secret → unwraps the secret →
  *      validates the entered code → proceeds only on match.
  *
  * This adds "something you have" on top of "something you know" but
- * does not defend against a passphrase-KEK compromise. For real
+ * does not defend against a secret-KEK compromise. For real
  * hardware-backed second factor, use `@noy-db/on-webauthn`.
  *
  * ## API

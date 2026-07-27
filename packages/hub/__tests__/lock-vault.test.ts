@@ -8,7 +8,7 @@
  *  - quickUnlock state preserved (PIN-resume contract).
  *  - policyCache preserved (on-disk policy survives lock).
  *  - Idempotent: locking a vault that isn't open is a no-op.
- *  - Re-unlock paths (tier-1 passphrase via openVault) work after lock.
+ *  - Re-unlock paths (tier-1 secret via openVault) work after lock.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
@@ -108,14 +108,14 @@ describe('db.lockVault() (#17)', () => {
     expect(() => db.lockVault('demo')).not.toThrow()
   })
 
-  it('allows re-unlock via openVault (tier-1 passphrase) after lock', async () => {
+  it('allows re-unlock via openVault (tier-1 secret) after lock', async () => {
     const vault1 = await db.openVault('demo')
     await vault1.user.updateMe<TestProfile>({ profile: { displayName: 'Alice' } })
 
     db.lockVault('demo')
     expect(internals(db).keyringCache.has('demo')).toBe(false)
 
-    // Re-open with the same passphrase the Noydb instance was constructed
+    // Re-open with the same secret the Noydb instance was constructed
     // with. The keyring re-loads from disk; the user envelope is intact.
     const vault2 = await db.openVault('demo')
     expect(internals(db).keyringCache.has('demo')).toBe(true)

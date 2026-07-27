@@ -222,7 +222,7 @@ describe('vault.at(ts) — encrypted mode round-trip', () => {
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner', historyStrategy: withHistory(),
-      secret: 'test-passphrase-12345678',
+      secret: 'test-secret-12345678',
       history: { enabled: true },
     })
     const vault = await db.openVault('acme')

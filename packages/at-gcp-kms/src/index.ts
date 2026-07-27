@@ -1,9 +1,9 @@
 /**
  * **@noy-db/at-gcp-kms** — Google Cloud KMS sealing key provider for noy-db
- * managed-passphrase mode.
+ * managed-secret mode.
  *
  * An `at-*` provider that seals and unseals the hub-generated random
- * passphrase via Google Cloud KMS Encrypt / Decrypt. Every seal and unseal is
+ * secret via Google Cloud KMS Encrypt / Decrypt. Every seal and unseal is
  * an authenticated KMS API call, giving you a Cloud Audit Logs-backed access
  * log of every time a user's vault is opened — no additional instrumentation
  * required.
@@ -48,7 +48,7 @@
  * const db = await createNoydb({
  *   store,
  *   user: 'alice',
- *   passphraseMode: 'managed',
+ *   secretMode: 'managed',
  *   sealingKey: gcpKmsSealingProvider({
  *     keyName: 'projects/my-project/locations/global/keyRings/noy-db-ring/cryptoKeys/noy-db-sealing',
  *   }),
@@ -109,8 +109,8 @@ export function gcpKmsSealingProvider(opts: GcpKmsSealingProviderOptions): Seali
   return {
     id: `gcp-kms:${opts.keyName}`,
 
-    async seal(passphrase) {
-      const [resp] = await client.encrypt({ name: opts.keyName, plaintext: passphrase })
+    async seal(secret) {
+      const [resp] = await client.encrypt({ name: opts.keyName, plaintext: secret })
       const blob = toUint8Array(resp?.ciphertext)
       if (!blob) throw new Error('@noy-db/at-gcp-kms: KMS encrypt returned no ciphertext')
       return blob

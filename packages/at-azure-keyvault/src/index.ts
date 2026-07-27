@@ -1,9 +1,9 @@
 /**
  * **@noy-db/at-azure-keyvault** — Azure Key Vault sealing key provider for noy-db
- * managed-passphrase mode.
+ * managed-secret mode.
  *
  * An `at-*` provider that seals and unseals the hub-generated random
- * passphrase via Azure Key Vault Encrypt / Decrypt. Every seal and unseal is
+ * secret via Azure Key Vault Encrypt / Decrypt. Every seal and unseal is
  * an authenticated Key Vault API call, giving you an Azure Monitor / Key Vault
  * audit-log-backed access record of every time a user's vault is opened —
  * no additional instrumentation required.
@@ -45,7 +45,7 @@
  * const db = await createNoydb({
  *   store,
  *   user: 'alice',
- *   passphraseMode: 'managed',
+ *   secretMode: 'managed',
  *   sealingKey: azureKeyVaultSealingProvider({
  *     keyId: 'https://my-noydb-vault.vault.azure.net/keys/noydb-sealing/<version>',
  *   }),
@@ -81,7 +81,7 @@ export interface AzureKeyVaultSealingProviderOptions {
    * Azure RSA decrypt is version-bound: the `CryptographyClient` resolves the
    * key version at construction time and every decrypt call is pinned to it.
    * A versionless URL (`.../keys/<name>`) resolves to "latest" — if the key
-   * auto-rotates, all passphrases sealed under the previous version become
+   * auto-rotates, all secrets sealed under the previous version become
    * **permanently undecryptable**. Always pin to an explicit version.
    */
   readonly keyId: string
@@ -116,8 +116,8 @@ export function azureKeyVaultSealingProvider(opts: AzureKeyVaultSealingProviderO
   return {
     id: `azure-kv:${opts.keyId}`,
 
-    async seal(passphrase) {
-      const res = await client.encrypt({ algorithm, plaintext: passphrase })
+    async seal(secret) {
+      const res = await client.encrypt({ algorithm, plaintext: secret })
       const c = res?.result
       if (!c) throw new Error('@noy-db/at-azure-keyvault: Key Vault encrypt returned no result')
       return c instanceof Uint8Array ? c : new Uint8Array(c)

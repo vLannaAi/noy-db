@@ -68,7 +68,7 @@ describe('lockout policy', () => {
   })
 })
 
-describe('duress passphrase', () => {
+describe('duress secret', () => {
   it('enroll returns distinct digest + salt', async () => {
     const a = await enrollDuress('help!')
     const b = await enrollDuress('help!')
@@ -78,12 +78,12 @@ describe('duress passphrase', () => {
     expect(a.salt).toHaveLength(32)
   })
 
-  it('check returns true for the enrolled passphrase', async () => {
+  it('check returns true for the enrolled secret', async () => {
     const { digest, salt } = await enrollDuress('help me please')
     expect(await checkDuress('help me please', digest, salt)).toBe(true)
   })
 
-  it('check returns false for a different passphrase', async () => {
+  it('check returns false for a different secret', async () => {
     const { digest, salt } = await enrollDuress('help me please')
     expect(await checkDuress('wrong', digest, salt)).toBe(false)
   })
@@ -94,13 +94,13 @@ describe('duress passphrase', () => {
   })
 })
 
-describe('honeypot passphrase', () => {
+describe('honeypot secret', () => {
   it('shares the same detection primitives as duress', async () => {
     expect(enrollHoneypot).toBe(enrollDuress)
     expect(checkHoneypot).toBe(checkDuress)
   })
 
-  it('detects the honeypot passphrase correctly', async () => {
+  it('detects the honeypot secret correctly', async () => {
     const { digest, salt } = await enrollHoneypot('the decoy key')
     expect(await checkHoneypot('the decoy key', digest, salt)).toBe(true)
     expect(await checkHoneypot('something else', digest, salt)).toBe(false)

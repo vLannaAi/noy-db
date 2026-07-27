@@ -39,8 +39,8 @@ const { db, unlock, locked } = useNoydb()
 const { items, put, remove } = useCollection<Invoice>('C101', 'invoices')
 const { push, pull, status } = useSync()
 
-async function login(passphrase: string) {
-  await unlock(passphrase)
+async function login(secret: string) {
+  await unlock(secret)
 }
 </script>
 
@@ -57,9 +57,9 @@ async function login(passphrase: string) {
 ```ts
 import { enrollBiometric, unlockWithBiometric } from '@noy-db/in-vue'
 
-await enrollBiometric('alice', passphrase)
+await enrollBiometric('alice', secret)
 // …later, on another session:
-const passphrase = await unlockWithBiometric('alice')
+const secret = await unlockWithBiometric('alice')
 ```
 
 ## License

@@ -35,7 +35,7 @@ export interface ReadZipEntry {
 }
 
 export interface ReadZipOptions {
-  /** WinZip-AES-256 passphrase. Required for encrypted archives. */
+  /** WinZip-AES-256 secret. Required for encrypted archives. */
   readonly password?: string
 }
 

@@ -19,10 +19,10 @@ export async function loadOptionsFromFile(filePath: string): Promise<unknown> {
   return typeof value === 'function' ? await (value as () => Promise<unknown>)() : value
 }
 
-/** Resolve the passphrase from `--passphrase=…` or `NOYDB_PASSPHRASE`; undefined → caller prompts. */
-export function resolvePassphrase(argv: readonly string[], env: NodeJS.ProcessEnv): string | undefined {
-  const flag = argv.find((a) => a.startsWith('--passphrase='))
-  if (flag) return flag.slice('--passphrase='.length)
-  if (env.NOYDB_PASSPHRASE) return env.NOYDB_PASSPHRASE
+/** Resolve the secret from `--secret=…` or `NOYDB_SECRET`; undefined → caller prompts. */
+export function resolveSecret(argv: readonly string[], env: NodeJS.ProcessEnv): string | undefined {
+  const flag = argv.find((a) => a.startsWith('--secret='))
+  if (flag) return flag.slice('--secret='.length)
+  if (env.NOYDB_SECRET) return env.NOYDB_SECRET
   return undefined
 }

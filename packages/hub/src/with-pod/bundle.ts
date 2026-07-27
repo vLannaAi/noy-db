@@ -26,8 +26,8 @@
  * **Why split read/load?** `readPod` returns the
  * *unwrapped JSON string*, not a Vault object. The caller
  * is responsible for piping that JSON into
- * `vault.load(json, passphrase)`. Splitting the layers
- * keeps the bundle module free of any crypto/passphrase
+ * `vault.load(json, secret)`. Splitting the layers
+ * keeps the bundle module free of any crypto/secret
  * concerns — it's purely a format layer. The same `readPod`
  * call can also feed verification tools, format inspectors, or
  * archive utilities that don't care about decryption.
@@ -56,7 +56,7 @@ import type { Vault } from '../kernel/vault.js'
 import type { BundleRecipient } from '../with-party/team/keyring.js'
 import { pickLocale } from '../with-party/directory/cover/storage.js'
 import type { Cover } from '../with-party/directory/cover/types.js'
-import type { SealingKeyProvider, RecipientSealer, RecipientHint } from '../with-party/team/managed-passphrase.js'
+import type { SealingKeyProvider, RecipientSealer, RecipientHint } from '../with-party/team/managed-secret.js'
 
 // ─── Auto-credential types ────────────────────────────────────────────────────
 
@@ -65,13 +65,13 @@ import type { SealingKeyProvider, RecipientSealer, RecipientHint } from '../with
  * WebAuthn is intentionally excluded — it is hardware-bound and
  * cannot be embedded as a portable credential.
  */
-export type AutoCredentialKind = 'passphrase' | 'password' | 'pin'
+export type AutoCredentialKind = 'secret' | 'password' | 'pin'
 
 /**
  * A typed credential for auto-unlock. Carries the credential `kind`
  * alongside the plaintext `value`, so consumers can dispatch the
  * correct login/prefill path rather than treating all credentials
- * as passphrases.
+ * as secrets.
  *
  * `bundle.ts` is a pure format layer — it carries the credential
  * without interpreting it. The consumer is responsible for
@@ -137,17 +137,17 @@ export interface WritePodOptions {
   /**
    * Single-recipient re-keying shorthand. When set, the
    * bundle's keyring is replaced with one freshly-derived entry sealed
-   * with this passphrase. The recipient inherits the source keyring's
+   * with this secret. The recipient inherits the source keyring's
    * userId, role, and permissions. Mutually exclusive with `recipients`.
    */
-  readonly exportPassphrase?: string
+  readonly exportSecret?: string
   /**
    * Multi-recipient re-keying. Replaces the bundle's keyring
    * map with one slot per recipient, each sealed with its own
-   * passphrase. DEKs are unwrapped from the source keyring once and
+   * secret. DEKs are unwrapped from the source keyring once and
    * re-wrapped per recipient — record ciphertext is unchanged.
    *
-   * Mutually exclusive with `exportPassphrase`. When neither is set,
+   * Mutually exclusive with `exportSecret`. When neither is set,
    * the bundle inherits the source keyring as-is (today's behaviour,
    * suited to personal backup-and-restore).
    */
@@ -155,8 +155,8 @@ export interface WritePodOptions {
   /**
    * Auto-unlock — unsealed per-user credentials.
    *
-   * Generalises `autoPassphrases` to support any bundleable credential
-   * kind (`passphrase` | `password` | `pin`).
+   * Generalises `autoSecrets` to support any bundleable credential
+   * kind (`secret` | `password` | `pin`).
    *
    * Public-by-design: anyone holding the bundle bytes can read these
    * plaintext credentials. Use for demo data, sample vaults,
@@ -166,8 +166,8 @@ export interface WritePodOptions {
    * bare `{ perUser }` without it is rejected at write time — the
    * safety net against a careless call against a production vault.
    *
-   * Mutually exclusive with `sealedCredentials`, `autoPassphrases`,
-   * and `sealedPassphrases`.
+   * Mutually exclusive with `sealedCredentials`, `autoSecrets`,
+   * and `sealedSecrets`.
    */
   readonly autoCredentials?: {
     readonly policy: 'public-by-design'
@@ -177,8 +177,8 @@ export interface WritePodOptions {
    * Auto-unlock — per-user credentials sealed under a
    * {@link SealingKeyProvider}.
    *
-   * Generalises `sealedPassphrases` to support any bundleable
-   * credential kind (`passphrase` | `password` | `pin`).
+   * Generalises `sealedSecrets` to support any bundleable
+   * credential kind (`secret` | `password` | `pin`).
    *
    * The hub seals each user's plaintext credential under `provider`
    * and embeds the resulting sealed envelopes in the bundle. The
@@ -195,8 +195,8 @@ export interface WritePodOptions {
    * The bundle can only be unsealed by the holder of the matching
    * private key.
    *
-   * Mutually exclusive with `autoCredentials`, `autoPassphrases`,
-   * and `sealedPassphrases`.
+   * Mutually exclusive with `autoCredentials`, `autoSecrets`,
+   * and `sealedSecrets`.
    */
   readonly sealedCredentials?:
     | {
@@ -212,7 +212,7 @@ export interface WritePodOptions {
   /**
    * @deprecated Use `autoCredentials` instead.
    *
-   * Auto-unlock — unsealed per-user passphrases.
+   * Auto-unlock — unsealed per-user secrets.
    *
    * Public-by-design: anyone holding the bundle bytes can read these
    * plaintext credentials. Use for demo data, sample vaults,
@@ -223,33 +223,33 @@ export interface WritePodOptions {
    * safety net against a careless call against a production vault.
    *
    * Mutually exclusive with `autoCredentials`, `sealedCredentials`,
-   * and `sealedPassphrases`.
+   * and `sealedSecrets`.
    */
-  readonly autoPassphrases?: {
+  readonly autoSecrets?: {
     readonly policy: 'public-by-design'
     readonly perUser: Record<string, string>
   }
   /**
    * @deprecated Use `sealedCredentials` instead.
    *
-   * Auto-unlock — per-user passphrases sealed under a
+   * Auto-unlock — per-user secrets sealed under a
    * {@link SealingKeyProvider} (self-target only).
    *
-   * The hub seals each user's plaintext passphrase under `provider`
+   * The hub seals each user's plaintext secret under `provider`
    * and embeds the resulting sealed envelopes in the bundle. The
    * recipient must hold a provider with a matching `pid` (i.e.,
    * `provider.id`) to auto-unseal on import.
    *
-   * `mode: 'self-target'` is the only mode for `sealedPassphrases` — sender
+   * `mode: 'self-target'` is the only mode for `sealedSecrets` — sender
    * and recipient share the same provider identity (same iCloud Keychain
    * entry, same MDM-provisioned bundle id, same KMS account, etc.).
    * For recipient-target sealing via the `RecipientSealer` interface,
    * use `sealedCredentials` with `mode: 'recipient-target'` (§11.4).
    *
    * Mutually exclusive with `autoCredentials`, `sealedCredentials`,
-   * and `autoPassphrases`.
+   * and `autoSecrets`.
    */
-  readonly sealedPassphrases?: {
+  readonly sealedSecrets?: {
     readonly mode: 'self-target'
     readonly provider: SealingKeyProvider
     readonly perUser: Record<string, string>
@@ -261,7 +261,7 @@ export type WriteNoydbBundleOptions = WritePodOptions
 
 /**
  * Result returned by `readPod`. The caller is expected to
- * pass `dumpJson` into `vault.load(json, passphrase)` to
+ * pass `dumpJson` into `vault.load(json, secret)` to
  * actually restore a vault. Splitting the layers keeps the
  * bundle module free of crypto concerns — see file-level docs.
  */
@@ -277,7 +277,7 @@ export interface NoydbBundleReadResult {
    *
    * Consumers dispatch on `cred.kind` to choose the correct login /
    * prefill path. Pre-0.2 bundles (bare string entries) are coerced
-   * to `{ kind: 'passphrase', value }` on read for back-compat.
+   * to `{ kind: 'secret', value }` on read for back-compat.
    *
    * For `kind: 'sealed'` bundles read without `sealingProviders`, the
    * `value` field is the raw base64 sealed bytes — opaque to the
@@ -292,7 +292,7 @@ export interface NoydbBundleReadResult {
 /**
  * Sealed credential entry as it appears in the bundle body's
  * `_autoUnlock.perUser` map when the bundle was written with
- * `sealedCredentials` (or the deprecated `sealedPassphrases`).
+ * `sealedCredentials` (or the deprecated `sealedSecrets`).
  * Provider's sealed output is base64-encoded; the `pid` is the
  * dispatch key matched against recipient-supplied
  * `SealingKeyProvider.id`. The `kind` carries the plaintext-tier
@@ -300,7 +300,7 @@ export interface NoydbBundleReadResult {
  * unsealing first.
  *
  * Back-compat: `kind` is absent in older bundles — readers must
- * default to `'passphrase'` when not present.
+ * default to `'secret'` when not present.
  */
 interface SealedAutoUnlockEntry {
   readonly pid: string
@@ -323,7 +323,7 @@ interface SealedAutoUnlockEntry {
  *
  * Back-compat: older bundles carry bare `string` values in the
  * unsealed `perUser` map. Readers must coerce those to
- * `{ kind: 'passphrase', value }`.
+ * `{ kind: 'secret', value }`.
  */
 interface AutoUnlockBody {
   readonly _noydb_bundle_body: 1
@@ -341,7 +341,7 @@ interface AutoUnlockBody {
 export interface ReadNoydbBundleOptions {
   /**
    * Recipient-side sealing providers used to unseal entries from
-   * `sealedPassphrases`. The reader picks the one whose `.id`
+   * `sealedSecrets`. The reader picks the one whose `.id`
    * matches each entry's `pid`. Multiple providers may be supplied
    * (different users may seal under different identities).
    *
@@ -364,7 +364,7 @@ export interface ReadNoydbBundleOptions {
 /**
  * Internal normalized form of the auto-unlock options, computed once
  * from the four public-facing fields (autoCredentials, sealedCredentials,
- * autoPassphrases, sealedPassphrases). Callers work against this shape
+ * autoSecrets, sealedSecrets). Callers work against this shape
  * so the build + validate paths share a single normalizer.
  */
 interface NormalizedAutoUnlock {
@@ -376,14 +376,14 @@ interface NormalizedAutoUnlock {
 }
 
 /**
- * Coerce a `Record<string, string>` (legacy passphrase-only map) into
+ * Coerce a `Record<string, string>` (legacy secret-only map) into
  * a `Record<string, AutoCredential>` by tagging each entry as
- * `kind: 'passphrase'`. Used by the normalizer to promote the deprecated
- * `autoPassphrases`/`sealedPassphrases` sugar.
+ * `kind: 'secret'`. Used by the normalizer to promote the deprecated
+ * `autoSecrets`/`sealedSecrets` sugar.
  */
 function toAutoCredentials(m: Record<string, string>): Record<string, AutoCredential> {
   return Object.fromEntries(
-    Object.entries(m).map(([u, value]) => [u, { kind: 'passphrase' as const, value }]),
+    Object.entries(m).map(([u, value]) => [u, { kind: 'secret' as const, value }]),
   )
 }
 
@@ -401,21 +401,21 @@ function normalizeAutoUnlock(opts: WritePodOptions): NormalizedAutoUnlock | null
   const set = [
     opts.autoCredentials,
     opts.sealedCredentials,
-    opts.autoPassphrases,
-    opts.sealedPassphrases,
+    opts.autoSecrets,
+    opts.sealedSecrets,
   ].filter(v => v !== undefined).length
   if (set === 0) return null
   if (set > 1) {
     throw new ValidationError(
       'writePod: only one of autoCredentials / sealedCredentials / '
-      + 'autoPassphrases / sealedPassphrases may be set.',
+      + 'autoSecrets / sealedSecrets may be set.',
     )
   }
   if (opts.autoCredentials !== undefined) {
     return { mode: 'unsealed', perUser: opts.autoCredentials.perUser }
   }
-  if (opts.autoPassphrases !== undefined) {
-    return { mode: 'unsealed', perUser: toAutoCredentials(opts.autoPassphrases.perUser) }
+  if (opts.autoSecrets !== undefined) {
+    return { mode: 'unsealed', perUser: toAutoCredentials(opts.autoSecrets.perUser) }
   }
   if (opts.sealedCredentials !== undefined) {
     if (opts.sealedCredentials.mode === 'recipient-target') {
@@ -429,11 +429,11 @@ function normalizeAutoUnlock(opts: WritePodOptions): NormalizedAutoUnlock | null
     }
     return { mode: 'sealed-self', provider: opts.sealedCredentials.provider, perUser: opts.sealedCredentials.perUser }
   }
-  // sealedPassphrases — only remaining option
+  // sealedSecrets — only remaining option
   return {
     mode: 'sealed-self',
-    provider: opts.sealedPassphrases!.provider,
-    perUser: toAutoCredentials(opts.sealedPassphrases!.perUser),
+    provider: opts.sealedSecrets!.provider,
+    perUser: toAutoCredentials(opts.sealedSecrets!.perUser),
   }
 }
 
@@ -450,7 +450,7 @@ function normalizeAutoUnlock(opts: WritePodOptions): NormalizedAutoUnlock | null
  *   - unsealed path: `policy: 'public-by-design'` marker required
  *   - non-empty `perUser` maps
  *   - sealed path: provider present; both `mode: 'self-target'` and `mode: 'recipient-target'` accepted; recipient-target requires a `RecipientSealer` provider and per-user `hint` (§11.4)
- *   - every AutoCredential.kind ∈ {passphrase, password, pin}
+ *   - every AutoCredential.kind ∈ {secret, password, pin}
  *     (WebAuthn is hardware-bound and cannot be bundled)
  *
  * Throws {@link ValidationError} on any violation.
@@ -461,14 +461,14 @@ function validateAutoUnlockOptions(
 ): 'unsealed' | 'sealed' | null {
   if (normalized === null) return null
 
-  const VALID_KINDS: ReadonlySet<string> = new Set(['passphrase', 'password', 'pin'])
+  const VALID_KINDS: ReadonlySet<string> = new Set(['secret', 'password', 'pin'])
 
   // Validate every credential kind before any further checks.
   for (const [userId, cred] of Object.entries(normalized.perUser)) {
     if (!VALID_KINDS.has(cred.kind)) {
       throw new ValidationError(
         `writePod: credential for user '${userId}' has unsupported kind '${cred.kind}'. `
-        + 'auto-unlock supports passphrase/password/pin only; WebAuthn is hardware-bound '
+        + 'auto-unlock supports secret/password/pin only; WebAuthn is hardware-bound '
         + 'and cannot be bundled.',
       )
     }
@@ -476,10 +476,10 @@ function validateAutoUnlockOptions(
 
   if (normalized.mode === 'unsealed') {
     // Read the policy marker from whichever active option carries it.
-    const policy = opts.autoCredentials?.policy ?? opts.autoPassphrases?.policy
+    const policy = opts.autoCredentials?.policy ?? opts.autoSecrets?.policy
     if (policy !== 'public-by-design') {
       throw new ValidationError(
-        'writePod: `autoCredentials` (or `autoPassphrases`) requires '
+        'writePod: `autoCredentials` (or `autoSecrets`) requires '
         + '`policy: "public-by-design"`. '
         + 'This is an explicit opt-in marker — bundling plaintext credentials is '
         + 'safe only when those credentials are intended to be public (demo data, '
@@ -489,7 +489,7 @@ function validateAutoUnlockOptions(
     const userCount = Object.keys(normalized.perUser).length
     if (userCount === 0) {
       throw new ValidationError(
-        'writePod: `autoCredentials.perUser` (or `autoPassphrases.perUser`) '
+        'writePod: `autoCredentials.perUser` (or `autoSecrets.perUser`) '
         + 'must have at least one entry.',
       )
     }
@@ -547,23 +547,23 @@ function validateAutoUnlockOptions(
   }
 
   // mode === 'sealed-self'
-  const selfTargetMode = opts.sealedCredentials?.mode ?? opts.sealedPassphrases?.mode
+  const selfTargetMode = opts.sealedCredentials?.mode ?? opts.sealedSecrets?.mode
   if (selfTargetMode !== 'self-target') {
     throw new ValidationError(
-      `writePod: \`sealedCredentials.mode\` (or \`sealedPassphrases.mode\`) must be `
+      `writePod: \`sealedCredentials.mode\` (or \`sealedSecrets.mode\`) must be `
       + `'self-target' or 'recipient-target' (got '${String(selfTargetMode)}').`,
     )
   }
   if (normalized.provider === undefined) {
     throw new ValidationError(
-      'writePod: `sealedCredentials.provider` (or `sealedPassphrases.provider`) '
+      'writePod: `sealedCredentials.provider` (or `sealedSecrets.provider`) '
       + 'is required (a `SealingKeyProvider`).',
     )
   }
   const userCount = Object.keys(normalized.perUser).length
   if (userCount === 0) {
     throw new ValidationError(
-      'writePod: `sealedCredentials.perUser` (or `sealedPassphrases.perUser`) '
+      'writePod: `sealedCredentials.perUser` (or `sealedSecrets.perUser`) '
       + 'must have at least one entry.',
     )
   }
@@ -753,7 +753,7 @@ export function parseExtractedPartitionBody(
  * store bare strings; newer bundles store `{ kind, value }` objects.
  */
 function coerceUnsealed(entry: AutoCredential | string): AutoCredential {
-  if (typeof entry === 'string') return { kind: 'passphrase', value: entry }
+  if (typeof entry === 'string') return { kind: 'secret', value: entry }
   return entry
 }
 
@@ -761,7 +761,7 @@ function coerceUnsealed(entry: AutoCredential | string): AutoCredential {
  * Resolve the `_autoUnlock` blob into a typed per-user credential map.
  *
  * - For `kind: 'unsealed'`: pass through, coercing pre-0.2 bare strings
- *   to `{ kind: 'passphrase', value }`.
+ *   to `{ kind: 'secret', value }`.
  * - For `kind: 'sealed'`: pick a `SealingKeyProvider` from
  *   `opts.sealingProviders` whose `.id` matches each entry's `pid`;
  *   unseal to `AutoCredential`. When no provider matches AND strict mode
@@ -777,7 +777,7 @@ function coerceUnsealed(entry: AutoCredential | string): AutoCredential {
  *   pass through the SEALED entries as `{ kind, value: base64sealed }` —
  *   the caller can inspect or unseal elsewhere.
  *
- * Pre-0.2 sealed entries missing `kind` default to `'passphrase'`.
+ * Pre-0.2 sealed entries missing `kind` default to `'secret'`.
  */
 async function resolveAutoUnlock(
   blob: AutoUnlockBody['_autoUnlock'],
@@ -797,7 +797,7 @@ async function resolveAutoUnlock(
     // The caller is signalled by `kind: 'sealed'` on the outer result.
     const passthrough: Record<string, AutoCredential> = {}
     for (const [userId, entry] of Object.entries(blob.perUser)) {
-      passthrough[userId] = { kind: entry.kind ?? 'passphrase', value: entry.sealed }
+      passthrough[userId] = { kind: entry.kind ?? 'secret', value: entry.sealed }
     }
     return { kind: 'sealed', perUser: passthrough }
   }
@@ -808,7 +808,7 @@ async function resolveAutoUnlock(
   const unsealedMap: Record<string, AutoCredential> = {}
 
   for (const [userId, entry] of Object.entries(blob.perUser)) {
-    const credKind: AutoCredentialKind = entry.kind ?? 'passphrase'
+    const credKind: AutoCredentialKind = entry.kind ?? 'secret'
     const provider = providersByPid.get(entry.pid)
     if (provider === undefined) {
       if (opts.attemptUnsealAcrossProviders === true) {
@@ -1000,12 +1000,12 @@ function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
 
 /**
  * Replace the bundle's keyrings with freshly built recipient slots,
- * one per supplied recipient. No-op when neither `exportPassphrase`
+ * one per supplied recipient. No-op when neither `exportSecret`
  * nor `recipients` is set — the source keyring is inherited as-is.
  *
- * The single-passphrase shorthand creates a one-recipient list whose
+ * The single-secret shorthand creates a one-recipient list whose
  * id, role, and permissions inherit from the source vault — useful
- * for "back up to a different passphrase" without changing role
+ * for "back up to a different secret" without changing role
  * semantics. The multi-recipient form wraps each slot independently
  * with its declared role + permissions.
  *
@@ -1016,7 +1016,7 @@ async function applyRecipientRewrap(
   dumpJson: string,
   opts: WritePodOptions,
 ): Promise<string> {
-  if (opts.exportPassphrase === undefined && opts.recipients === undefined) {
+  if (opts.exportSecret === undefined && opts.recipients === undefined) {
     return dumpJson
   }
 
@@ -1024,7 +1024,7 @@ async function applyRecipientRewrap(
     opts.recipients ?? [
       {
         id: vault.userId,
-        passphrase: opts.exportPassphrase as string,
+        secret: opts.exportSecret as string,
         role: vault.role,
       },
     ]
@@ -1283,9 +1283,9 @@ export async function writePod(
   vault: Vault,
   opts: WritePodOptions = {},
 ): Promise<Uint8Array> {
-  if (opts.exportPassphrase !== undefined && opts.recipients !== undefined) {
+  if (opts.exportSecret !== undefined && opts.recipients !== undefined) {
     throw new Error(
-      'writePod: pass either exportPassphrase or recipients, not both',
+      'writePod: pass either exportSecret or recipients, not both',
     )
   }
 
@@ -1451,9 +1451,9 @@ export function readPodCover(
  * format error so consumers can pattern-match in catch blocks
  * (corrupted-in-transit vs malformed-by-producer).
  *
- * Note: this function does NOT take a passphrase. The dump JSON
+ * Note: this function does NOT take a secret. The dump JSON
  * inside the body still contains encrypted records — restoring
- * the vault requires `vault.load(dumpJson, passphrase)`
+ * the vault requires `vault.load(dumpJson, secret)`
  * after this call. Splitting the layers keeps the bundle module
  * free of crypto concerns and lets the same code feed format
  * inspectors that never decrypt anything.

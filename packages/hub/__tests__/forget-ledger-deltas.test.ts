@@ -76,7 +76,7 @@ describe('vault.forget() purges _ledger_deltas (#734)', () => {
       store: adapter,
       user: 'alice', historyStrategy: withHistory(),
       forgetStrategy: withForgetCascade({ subjects: { docs: 'buyerId' } }),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
     const company = await db.openVault('demo-co')
     const docs = company.collection<Doc>('docs')
@@ -115,7 +115,7 @@ describe('vault.forget() purges _ledger_deltas (#734)', () => {
       store: adapter,
       user: 'alice',
       forgetStrategy: withForgetCascade({ subjects: { docs: 'buyerId' } }),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
     const company = await db.openVault('demo-co')
     const docs = company.collection<Doc>('docs')

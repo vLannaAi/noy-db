@@ -50,7 +50,7 @@ async function seed(grantFormats: readonly ('json' | 'ndjson' | 'csv')[] = ['ndj
   await v1.collection<{ id: string; invoiceId: string }>('payments').put('p1', { id: 'p1', invoiceId: 'i1' })
   await db.grant('acme', {
     userId: 'owner', displayName: 'Owner', role: 'owner',
-    passphrase: 'pw',
+    secret: 'pw',
     exportCapability: { plaintext: grantFormats },
   })
   await db.close()

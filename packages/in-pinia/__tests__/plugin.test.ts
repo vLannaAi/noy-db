@@ -71,7 +71,7 @@ interface ClientsState {
  * setActivePinia() is called. Without the app context, plugins are silently
  * skipped, which is the most common gotcha when testing Pinia plugins.
  */
-function makePinia(adapter: NoydbStore = memory(), secret: () => string = () => 'plugin-test-passphrase-2026'): Pinia {
+function makePinia(adapter: NoydbStore = memory(), secret: () => string = () => 'plugin-test-secret-2026'): Pinia {
   const pinia = createPinia()
   pinia.use(createNoydbPiniaPlugin({ adapter, user: 'owner',
     secret,

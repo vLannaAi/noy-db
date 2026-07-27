@@ -87,7 +87,7 @@ describe('verifiable backups.', () => {
     db = await createNoydb({
       store: memory(),
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
   })
 
@@ -116,7 +116,7 @@ describe('verifiable backups.', () => {
     const sourceDb = await createNoydb({
       store: adapter1,
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
     const sourceCompany = await sourceDb.openVault('demo-co')
     const sourceInvoices = sourceCompany.collection<Invoice>('invoices')
@@ -128,13 +128,13 @@ describe('verifiable backups.', () => {
     const backup = await sourceCompany.dump()
 
     // Restore into a fresh adapter via a fresh Noydb. The same
-    // passphrase is required so the keyring DEKs unwrap correctly
+    // secret is required so the keyring DEKs unwrap correctly
     // — verifiable-backup integrity is orthogonal to encryption.
     const adapter2 = memory()
     const targetDb = await createNoydb({
       store: adapter2,
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
     const targetCompany = await targetDb.openVault('demo-co')
     await targetCompany.load(backup)
@@ -174,7 +174,7 @@ describe('verifiable backups.', () => {
     const targetDb = await createNoydb({
       store: adapter2,
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
     const targetCompany = await targetDb.openVault('demo-co')
 
@@ -197,7 +197,7 @@ describe('verifiable backups.', () => {
     const targetDb = await createNoydb({
       store: adapter2,
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
     const targetCompany = await targetDb.openVault('demo-co')
 
@@ -224,7 +224,7 @@ describe('verifiable backups.', () => {
     const targetDb = await createNoydb({
       store: adapter2,
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
     const targetCompany = await targetDb.openVault('demo-co')
 
@@ -251,7 +251,7 @@ describe('verifiable backups.', () => {
     const targetDb = await createNoydb({
       store: adapter2,
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
     const targetCompany = await targetDb.openVault('demo-co')
 
@@ -307,7 +307,7 @@ describe('verifiable backups.', () => {
     const localDb = await createNoydb({
       store: adapter,
       user: 'alice', historyStrategy: withHistory(),
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
     const company = await localDb.openVault('demo-co')
     const invoices = company.collection<Invoice>('invoices')

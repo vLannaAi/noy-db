@@ -1,6 +1,6 @@
 /**
  * **@noy-db/at-macos-keychain** — macOS Keychain sealing key provider
- * for noy-db [managed-passphrase mode](https://github.com/vLannaAi/noy-db/issues/14).
+ * for noy-db [managed-secret mode](https://github.com/vLannaAi/noy-db/issues/14).
  *
  * Desktop-app provider in the `at-*` family. Binds the sealing key to
  * the user's macOS login Keychain — accessible only to processes
@@ -38,7 +38,7 @@
  * const db = await createNoydb({
  *   store,
  *   user: 'alice',
- *   passphraseMode: 'managed',
+ *   secretMode: 'managed',
  *   sealingKey: macosKeychainSealingProvider({
  *     service: 'com.acme.app',         // your bundle id / app namespace
  *     account: 'alice@acme.example',   // per-user keychain item
@@ -48,7 +48,7 @@
  *
  * First call generates a fresh 32-byte AES-256 key, stores it in the
  * Keychain under `(service, account)`, and uses it to seal the
- * hub-generated managed passphrase. Subsequent process launches
+ * hub-generated managed secret. Subsequent process launches
  * retrieve the same key and unseal transparently.
  *
  * ## Threat model
@@ -265,13 +265,13 @@ export function macosKeychainSealingProvider(
   return {
     id: `macos-keychain:${opts.service}/${opts.account}`,
 
-    async seal(passphrase: Uint8Array): Promise<Uint8Array> {
+    async seal(secret: Uint8Array): Promise<Uint8Array> {
       const key = await getKey()
       const iv = globalThis.crypto.getRandomValues(new Uint8Array(12))
       const ciphertext = await globalThis.crypto.subtle.encrypt(
         { name: 'AES-GCM', iv: iv as BufferSource },
         key,
-        passphrase as unknown as BufferSource,
+        secret as unknown as BufferSource,
       )
       // Output format: [12-byte IV][ciphertext + 16-byte GCM tag]
       // Identical wire layout to at-env, by design — the hub envelope

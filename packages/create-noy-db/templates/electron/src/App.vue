@@ -66,8 +66,8 @@ async function onRemove(id: string) {
 
     <footer>
       <p>
-        AES-256-GCM at rest. Key derived from your passphrase via
-        PBKDF2-SHA256 (600 000 iterations). Lose the passphrase and
+        AES-256-GCM at rest. Key derived from your secret via
+        PBKDF2-SHA256 (600 000 iterations). Lose the secret and
         the data is unrecoverable — by design.
       </p>
     </footer>

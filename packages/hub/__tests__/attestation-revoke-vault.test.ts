@@ -29,7 +29,7 @@ const attestation: AttestationFieldSchema = {
 }
 
 async function ownerVault() {
-  const db = await createNoydb({ store: memory(), user: 'firm', secret: 'firm-passphrase-2026', attestationStrategy: withAttestation() })
+  const db = await createNoydb({ store: memory(), user: 'firm', secret: 'firm-secret-2026', attestationStrategy: withAttestation() })
   const vault = await db.openVault('books')
   await vault.collection<Invoice>('invoices', { attestation }).put('inv-1', { id: 'inv-1', invoiceNo: 'INV-1', total: 1234.5, issueDate: '2026-05-29' })
   return vault

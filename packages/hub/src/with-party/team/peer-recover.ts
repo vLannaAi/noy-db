@@ -22,7 +22,7 @@
  *      gate `peer-recover-user` carries the freshness requirement.
  *   5. **Tier-2 slots dropped.** The slots wrap the OLD KEK under
  *      method-derived keys; after recovery the KEK is re-derived
- *      from the new temp passphrase. Match `rotatePassphrase`'s
+ *      from the new temp secret. Match `rotateSecret`'s
  *      precedent — the recovered user re-enrols slots after picking
  *      their own phrase.
  *
@@ -37,7 +37,7 @@ import type { NoydbStore, KeyringFile, Role } from '../../kernel/types.js'
 import { NOYDB_KEYRING_VERSION } from '../../kernel/types.js'
 import { deriveKey, generateSalt, wrapKey, bufferToBase64 } from '../../kernel/enclave/index.js'
 import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError } from '../../kernel/errors.js'
-import { assertStrongPassphrase, type PassphrasePolicy } from '../../kernel/validation.js'
+import { assertStrongSecret, type SecretPolicy } from '../../kernel/validation.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { mintKeyringCanary } from './keyring.js'
 
@@ -71,41 +71,41 @@ export interface RecoverUserOptions {
   /** Target user id whose keyring is being recovered. */
   readonly userId: string
   /**
-   * Temporary passphrase under which the new keyring is wrapped.
-   * The recipient should call `db.rotatePassphrase` immediately on
+   * Temporary secret under which the new keyring is wrapped.
+   * The recipient should call `db.rotateSecret` immediately on
    * acceptance to choose their own phrase — this temp acts as a
    * single-use bridge in invite / peer-recovery flows.
    */
-  readonly passphrase: string
+  readonly secret: string
   /** Override the target's role. Defaults to the existing target's role. */
   readonly role?: Role
   /** Override the target's display name. Defaults to existing. */
   readonly displayName?: string
   /** Validate phrase strength against the configured policy. */
-  readonly validatePassphrase?: boolean
+  readonly validateSecret?: boolean
   /**
-   * Skip phrase strength validation even when `validatePassphrase` is
+   * Skip phrase strength validation even when `validateSecret` is
    * set. The escape hatch matches `grant`'s shape — used when the
    * temp phrase is a high-entropy one-shot string that doesn't need
    * to satisfy the human-typeable rules.
    */
-  readonly allowWeakPassphrase?: boolean
+  readonly allowWeakSecret?: boolean
   /**
    * Optional explicit phrase policy override (passed through to
-   * `assertStrongPassphrase`). Mirrors how `grant` accepts a custom
-   * `PassphrasePolicy` for app-specific tightening.
+   * `assertStrongSecret`). Mirrors how `grant` accepts a custom
+   * `SecretPolicy` for app-specific tightening.
    */
-  readonly passphrasePolicy?: PassphrasePolicy
+  readonly secretPolicy?: SecretPolicy
 }
 
 /**
  * Atomically rewrap the target user's keyring under a fresh temp
- * passphrase. Single store write; no revoke step; no key rotation.
+ * secret. Single store write; no revoke step; no key rotation.
  *
  * Caller's responsibilities (NOT enforced here):
  *   - Run the `peer-recover-user` policy gate first via
  *     `Noydb.checkGate` to enforce the freshness factor proof.
- *   - Communicate the temp passphrase to the recipient via a secure
+ *   - Communicate the temp secret to the recipient via a secure
  *     channel (URL fragment, in-person, etc.) — the hub does not
  *     transport secrets.
  */
@@ -151,14 +151,14 @@ export async function recoverUser(
   }
 
   // 4. Optional phrase strength validation (mirrors `grant` opt-in).
-  if (options.validatePassphrase && !options.allowWeakPassphrase) {
-    assertStrongPassphrase(options.passphrase, options.passphrasePolicy)
+  if (options.validateSecret && !options.allowWeakSecret) {
+    assertStrongSecret(options.secret, options.secretPolicy)
   }
 
-  // 5. Mint a fresh salt + KEK from the temp passphrase. The DEKs
+  // 5. Mint a fresh salt + KEK from the temp secret. The DEKs
   //    themselves are unchanged — only the wrapping is replaced.
   const newSalt = generateSalt()
-  const newKek = await deriveKey(options.passphrase, newSalt)
+  const newKek = await deriveKey(options.secret, newSalt)
 
   const wrappedDeks: Record<string, string> = {}
   for (const coll of Object.keys(target.deks)) {
@@ -176,7 +176,7 @@ export async function recoverUser(
   // 6. Build the recovered keyring file. Identity preserved; wrapping
   //    refreshed; tier-2 slots dropped (they wrap the OLD KEK and
   //    can't survive a tier-1 phrase change — same precedent as
-  //    rotatePassphrase). Mint a fresh canary under newKek; the
+  //    rotateSecret). Mint a fresh canary under newKek; the
   //    OLD canary on the spread `...target` would fail to verify against
   //    the new KEK and trip KeyringCorruptError on next load.
   const canary = await mintKeyringCanary(newKek)

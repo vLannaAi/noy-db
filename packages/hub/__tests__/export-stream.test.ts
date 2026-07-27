@@ -208,7 +208,7 @@ describe('exportStream() + exportJSON().', () => {
         userId: 'op-01',
         displayName: 'Op',
         role: 'operator',
-        passphrase: 'op-pass',
+        secret: 'op-pass',
         permissions: { invoices: 'rw' },
       })
       const opDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'op-01', historyStrategy: withHistory(), secret: 'op-pass' })
@@ -225,7 +225,7 @@ describe('exportStream() + exportJSON().', () => {
         userId: 'viewer-01',
         displayName: 'Viewer',
         role: 'viewer',
-        passphrase: 'v-pass',
+        secret: 'v-pass',
       })
       const viewerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'viewer-01', historyStrategy: withHistory(), secret: 'v-pass' })
       const comp = await viewerDb.openVault(COMP)
@@ -241,7 +241,7 @@ describe('exportStream() + exportJSON().', () => {
         userId: 'client-01',
         displayName: 'Client',
         role: 'client',
-        passphrase: 'c-pass',
+        secret: 'c-pass',
         permissions: { invoices: 'ro' },
       })
       const clientDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'client-01', historyStrategy: withHistory(), secret: 'c-pass' })
@@ -298,7 +298,7 @@ describe('exportStream() + exportJSON().', () => {
         userId: 'op-02',
         displayName: 'Op',
         role: 'operator',
-        passphrase: 'op-pass',
+        secret: 'op-pass',
         permissions: { payments: 'ro' },
       })
       const opDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'op-02', historyStrategy: withHistory(), secret: 'op-pass' })

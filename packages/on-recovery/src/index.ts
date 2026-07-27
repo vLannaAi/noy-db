@@ -37,11 +37,11 @@
  * showCodesToUser(codes)
  * await db.team.enrollRecovery('acme', { profile: 'paper', entries })
  *
- * // RECOVER — user types one back later (handled by db.recoverPassphrase)
+ * // RECOVER — user types one back later (handled by db.recoverSecret)
  * const parsed = parseRecoveryCode(userInput)
  * if (parsed.status !== 'valid') return handleInvalid(parsed.status)
- * await db.team.recoverPassphrase('acme', {
- *   newPassphrase,
+ * await db.team.recoverSecret('acme', {
+ *   newSecret,
  *   recoveryProof: { profile: 'paper', payload: { code: parsed.code } },
  * })
  * ```
@@ -94,7 +94,7 @@ export type ParseResult =
  *
  * Internally calls the hub's `mintPaperRecoveryEntry` once per code.
  * The hub's wrap-DEKs format is preserved end-to-end — `db.enrollRecovery`
- * stores the entries verbatim and `db.recoverPassphrase` consumes them
+ * stores the entries verbatim and `db.recoverSecret` consumes them
  * via `unwrapDeksFromPaperEntry`.
  */
 export async function generateRecoveryCodeSet(
@@ -112,7 +112,7 @@ export async function generateRecoveryCodeSet(
     const raw = generateRawCode()
     const formatted = formatCodeForDisplay(raw)
     // The hub stores entries keyed on the NORMALIZED code (raw, no
-    // hyphens). Mint with the normalized form so `db.recoverPassphrase`'s
+    // hyphens). Mint with the normalized form so `db.recoverSecret`'s
     // `normalizePaperCode(input)` matches at unlock time.
     const entry = await mintPaperRecoveryEntry(opts.deks, raw, generateULID())
     codes.push(formatted)

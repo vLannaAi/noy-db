@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/at-aws-kms",
   "version": "0.4.0-pre.4",
-  "description": "AWS KMS sealing key provider for noy-db managed-passphrase mode — seal/unseal via KMS Encrypt/Decrypt, with KMS access logs.",
+  "description": "AWS KMS sealing key provider for noy-db managed-secret mode — seal/unseal via KMS Encrypt/Decrypt, with KMS access logs.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/at-aws-kms#readme",
@@ -54,7 +54,7 @@
     "aws-kms",
     "kms",
     "sealing-key-provider",
-    "managed-passphrase",
+    "managed-secret",
     "encryption",
     "zero-knowledge"
   ],

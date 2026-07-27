@@ -27,7 +27,7 @@ import {
 } from '../src/kernel/enclave/index.js'
 import { NOYDB_FORMAT_VERSION } from '../src/kernel/types.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
-import { MemoryRecipientSealer } from '../src/with-party/team/managed-passphrase.js'
+import { MemoryRecipientSealer } from '../src/with-party/team/managed-secret.js'
 import { openSealedRecord, withSealedRecord } from '../src/with-audit/sealed-record/index.js'
 import type { SealedCekDeliveryEnvelope } from '../src/with-audit/sealed-record/types.js'
 import { withHistory } from '../src/with-commit/history/index.js'
@@ -86,7 +86,7 @@ function memory(): NoydbStore & { raw(c: string, col: string, id: string): Encry
 
 interface Person { id: string; subjectId: string; name: string; ssn: string }
 
-const SECRET = 'forget-sealed-erasure-passphrase-2026'
+const SECRET = 'forget-sealed-erasure-secret-2026'
 const HOUR = 60 * 60 * 1000
 
 function readDelivery(

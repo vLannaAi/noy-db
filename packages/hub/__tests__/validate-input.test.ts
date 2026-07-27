@@ -77,7 +77,7 @@ describe('Collection.validateInput', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
     const vault = await db.openVault('test-co')
     const c = vault.collection<Item>('items', { schema: ItemSchema })
@@ -89,7 +89,7 @@ describe('Collection.validateInput', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
     const vault = await db.openVault('test-co')
     const c = vault.collection<Item>('items', { schema: ItemSchema })
@@ -103,7 +103,7 @@ describe('Collection.validateInput', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'test-passphrase-1234',
+      secret: 'test-secret-1234',
     })
     const vault = await db.openVault('test-co')
     const c = vault.collection('items')

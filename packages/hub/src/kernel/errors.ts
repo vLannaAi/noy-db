@@ -10,7 +10,7 @@
  *       ├─ Crypto errors
  *       │    ├─ DecryptionError        — AES-GCM tag failure
  *       │    ├─ TamperedError          — ciphertext modified after write
- *       │    └─ InvalidKeyError        — wrong passphrase / corrupt keyring
+ *       │    └─ InvalidKeyError        — wrong secret / corrupt keyring
  *       ├─ Access errors
  *       │    ├─ NoAccessError          — no DEK for this collection
  *       │    ├─ ReadOnlyError          — ro permission, write attempted
@@ -78,9 +78,9 @@
  * import { NoydbError, InvalidKeyError, ConflictError } from '@noy-db/hub'
  *
  * try {
- *   await vault.unlock(passphrase)
+ *   await vault.unlock(secret)
  * } catch (e) {
- *   if (e instanceof InvalidKeyError) { showBadPassphraseUI(); return }
+ *   if (e instanceof InvalidKeyError) { showBadSecretUI(); return }
  *   if (e instanceof NoydbError) { logToSentry(e.code, e); return }
  *   throw e  // unexpected — re-throw
  * }
@@ -149,8 +149,8 @@ export class DebugReservedFieldError extends NoydbError {
 /**
  * Thrown when AES-GCM decryption fails.
  *
- * The most common cause is a wrong passphrase or a corrupted ciphertext.
- * A `DecryptionError` at the wrong passphrase level is caught internally
+ * The most common cause is a wrong secret or a corrupted ciphertext.
+ * A `DecryptionError` at the wrong secret level is caught internally
  * and re-thrown as `InvalidKeyError` — so in practice this surfaces for
  * per-record corruption rather than authentication failures.
  */
@@ -178,16 +178,16 @@ export class TamperedError extends NoydbError {
 }
 
 /**
- * Thrown when key unwrapping fails, typically because the passphrase is wrong
+ * Thrown when key unwrapping fails, typically because the secret is wrong
  * or the keyring file is corrupted.
  *
  * NOYDB uses AES-KW (RFC 3394) to wrap DEKs with the KEK. If AES-KW
  * unwrapping fails, it means either the KEK was derived from the wrong
- * passphrase (PBKDF2 with 600K iterations) or the keyring bytes are
+ * secret (PBKDF2 with 600K iterations) or the keyring bytes are
  * corrupted. This is the error shown to the user on a failed unlock attempt.
  */
 export class InvalidKeyError extends NoydbError {
-  constructor(message = 'Invalid key — wrong passphrase or corrupted keyring') {
+  constructor(message = 'Invalid key — wrong secret or corrupted keyring') {
     super('INVALID_KEY', message)
     this.name = 'InvalidKeyError'
   }
@@ -196,7 +196,7 @@ export class InvalidKeyError extends NoydbError {
 /**
  * Thrown when a keyring's wrapped-DEK set unwraps partially — at least
  * one DEK succeeds (proving the KEK is correct) but at least one fails.
- * The passphrase is right; the failed entries are corrupted.
+ * The secret is right; the failed entries are corrupted.
  *
  * This is distinct from {@link InvalidKeyError} so that
  * `NoydbOptions.onInvalidKey: 'reset'` does NOT fire — resetting on
@@ -213,7 +213,7 @@ export class KeyringCorruptError extends NoydbError {
       opts.message ??
         `Keyring has ${opts.failedCollections.length} corrupted wrapped DEK(s) ` +
           `(${opts.failedCollections.join(', ')}); ${opts.intactCount} other DEK(s) ` +
-          `unwrapped successfully — the passphrase is correct, the entries are damaged. ` +
+          `unwrapped successfully — the secret is correct, the entries are damaged. ` +
           `Do NOT use onInvalidKey: 'reset' here — that would destroy the intact DEKs.`,
     )
     this.name = 'KeyringCorruptError'
@@ -359,7 +359,7 @@ export class ExportCapabilityError extends NoydbError {
  * Thrown when a keyring file's `expires_at` cutoff has passed.
  * Surfaced by `loadKeyring` before any DEK unwrap is attempted —
  * past the cutoff the slot refuses to open even with the right
- * passphrase. Distinct from PBKDF2 / unwrap errors so consumer code
+ * secret. Distinct from PBKDF2 / unwrap errors so consumer code
  * can show a precise "this bundle slot has expired" message instead
  * of the generic decryption-failure UX.
  *
@@ -1428,14 +1428,14 @@ export class BundleIntegrityError extends NoydbError {
 
 /**
  * Thrown by `readPod` when the bundle carries
- * sealed per-user passphrases but no supplied `SealingKeyProvider`
+ * sealed per-user secrets but no supplied `SealingKeyProvider`
  * has a `.id` (= `pid`) matching the sealed entry's `pid`.
  *
  * Carries the failing pid + the user id so the recipient can
  * surface an actionable prompt:
  *
  * ```
- * BundleSealMismatchError: bundle carries sealed passphrase for user "alice"
+ * BundleSealMismatchError: bundle carries sealed secret for user "alice"
  *   under provider "macos-keychain:com.acme.app/alice@acme.example",
  *   but no registered provider matches that pid.
  * ```
@@ -1454,7 +1454,7 @@ export class BundleSealMismatchError extends NoydbError {
   constructor(userId: string, pid: string) {
     super(
       'BUNDLE_SEAL_MISMATCH',
-      `bundle carries sealed passphrase for user "${userId}" under provider `
+      `bundle carries sealed secret for user "${userId}" under provider `
       + `"${pid}", but no registered provider matches that pid.\n\n`
       + 'Resolutions:\n'
       + '  1. Configure a provider matching the pid and retry import.\n'
@@ -2013,7 +2013,7 @@ export class CustodyNotEnabledError extends NoydbError {
  * (#267 keyring-grant → team split): enable multi-user grant/revoke/rotate
  * with `teamStrategy: withTeam()` from "@noy-db/hub/team" in createNoydb().
  * Single-user primitives (owner keyring, unlock, `listUsers`, `updateUser`,
- * passphrase rotate/recover) stay ungated.
+ * secret rotate/recover) stay ungated.
  */
 export class TeamNotEnabledError extends NoydbError {
   constructor(
@@ -2162,7 +2162,7 @@ export class SessionNotFoundError extends NoydbError {
  *
  * The `operation` field names the specific operation that was blocked
  * (e.g. `'export'`, `'grant'`, `'rotate'`) so the caller can surface
- * a targeted prompt ("Please re-enter your passphrase to export data").
+ * a targeted prompt ("Please re-enter your secret to export data").
  */
 export class SessionPolicyError extends NoydbError {
   readonly operation: string
@@ -2956,7 +2956,7 @@ export class PolicyDeniedError extends NoydbError {
 
 /**
  * Raised by `createNoydb({ ... })` when the developer omits a recovery
- * profile and `recover-passphrase` is not explicitly disabled. Vaults
+ * profile and `recover-secret` is not explicitly disabled. Vaults
  * MUST have at least one recovery path enrolled before being
  * production-ready (paper, shamir, multi-channel, or admin-mediated).
  *
@@ -2966,8 +2966,8 @@ export class RecoveryNotEnrolledError extends NoydbError {
   constructor(
     message =
       'Recovery profile not enrolled. Pass `recovery: [{ profile: "paper", codes: 10 }]` ' +
-      'to `createNoydb()`, or set `policy.gates["recover-passphrase"].enabled = false` to ' +
-      'opt out of recovery (passphrase loss = data loss). See https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/session-tiers.md.',
+      'to `createNoydb()`, or set `policy.gates["recover-secret"].enabled = false` to ' +
+      'opt out of recovery (secret loss = data loss). See https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/session-tiers.md.',
   ) {
     super('RECOVERY_NOT_ENROLLED', message)
     this.name = 'RecoveryNotEnrolledError'
@@ -2975,10 +2975,10 @@ export class RecoveryNotEnrolledError extends NoydbError {
 }
 
 /**
- * Raised by `openVault` when a managed-passphrase-mode vault has no
+ * Raised by `openVault` when a managed-secret-mode vault has no
  * STRONG recovery profile enrolled.
  *
- * Managed mode means the user never types a passphrase — the unlock
+ * Managed mode means the user never types a secret — the unlock
  * material lives in a `SealingKeyProvider` (`at-*` package). If that
  * provider's key is lost AND no strong recovery is enrolled, the
  * vault is irrecoverable. To prevent that footgun, managed-mode vaults
@@ -2986,7 +2986,7 @@ export class RecoveryNotEnrolledError extends NoydbError {
  * multi-channel / admin-mediated when those ship).
  *
  * Paper recovery alone is NOT strong under managed mode: the user has
- * no memorized passphrase to fall back on, so losing the paper sheet =
+ * no memorized secret to fall back on, so losing the paper sheet =
  * losing every record permanently.
  *
  * Bootstrap with `db.team.openVaultAndEnrollRecovery(vault, { recovery: [{ profile: "shamir", k, n }] })`
@@ -3012,7 +3012,7 @@ export class ManagedRecoveryNotEnrolledError extends NoydbError {
 }
 
 /**
- * Raised by `db.recoverPassphrase` / `db.enrollRecovery` /
+ * Raised by `db.recoverSecret` / `db.enrollRecovery` /
  * `db.rotateRecovery` when the developer requests a recovery profile
  * not yet wired in this hub release.
  *

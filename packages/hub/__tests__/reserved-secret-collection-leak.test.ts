@@ -58,9 +58,9 @@ function inlineMemory(): NoydbStore {
 }
 
 const COMP = 'acme'
-const OWNER_SECRET = 'owner passphrase long enough to be safe'
-const OP_SECRET = 'operator passphrase long enough to be safe'
-const ADMIN_SECRET = 'admin passphrase long enough to be safe'
+const OWNER_SECRET = 'owner secret long enough to be safe'
+const OP_SECRET = 'operator secret long enough to be safe'
+const ADMIN_SECRET = 'admin secret long enough to be safe'
 
 const GDRIVE = {
   adapterId: 'google-drive',
@@ -106,7 +106,7 @@ describe('reserved secret-collections — Layer 2: grant DEK propagation', () =>
       userId: 'op1',
       displayName: 'Operator',
       role: 'operator',
-      passphrase: OP_SECRET,
+      secret: OP_SECRET,
       permissions: { invoices: 'rw' },
     })
     const op = await loadKeyring(store, COMP, 'op1', OP_SECRET)
@@ -119,7 +119,7 @@ describe('reserved secret-collections — Layer 2: grant DEK propagation', () =>
     await putCredential(store, COMP, owner, GDRIVE)
 
     await grant(store, COMP, owner, {
-      userId: 'v1', displayName: 'Viewer', role: 'viewer', passphrase: OP_SECRET,
+      userId: 'v1', displayName: 'Viewer', role: 'viewer', secret: OP_SECRET,
     })
     const viewer = await loadKeyring(store, COMP, 'v1', OP_SECRET)
     expect(viewer.deks.has(SYNC_CREDENTIALS_COLLECTION)).toBe(false)
@@ -131,7 +131,7 @@ describe('reserved secret-collections — Layer 2: grant DEK propagation', () =>
     await putCredential(store, COMP, owner, GDRIVE)
 
     await grant(store, COMP, owner, {
-      userId: 'op1', displayName: 'Operator', role: 'operator', passphrase: OP_SECRET,
+      userId: 'op1', displayName: 'Operator', role: 'operator', secret: OP_SECRET,
       // Deliberate escalation attempt: name the reserved secret collection.
       permissions: { invoices: 'rw', [SYNC_CREDENTIALS_COLLECTION]: 'rw' },
     })
@@ -148,7 +148,7 @@ describe('reserved secret-collections — Layer 2: grant DEK propagation', () =>
     expect(owner.deks.has(LEDGER_COLLECTION)).toBe(true)
 
     await grant(store, COMP, owner, {
-      userId: 'op1', displayName: 'Operator', role: 'operator', passphrase: OP_SECRET,
+      userId: 'op1', displayName: 'Operator', role: 'operator', secret: OP_SECRET,
       permissions: { invoices: 'rw' },
     })
     const op = await loadKeyring(store, COMP, 'op1', OP_SECRET)
@@ -161,7 +161,7 @@ describe('reserved secret-collections — Layer 2: grant DEK propagation', () =>
     await putCredential(store, COMP, owner, GDRIVE)
 
     await grant(store, COMP, owner, {
-      userId: 'admin1', displayName: 'Admin', role: 'admin', passphrase: ADMIN_SECRET,
+      userId: 'admin1', displayName: 'Admin', role: 'admin', secret: ADMIN_SECRET,
     })
     const admin = await loadKeyring(store, COMP, 'admin1', ADMIN_SECRET)
     expect(admin.deks.has(SYNC_CREDENTIALS_COLLECTION)).toBe(true)
@@ -186,7 +186,7 @@ describe('reserved secret-collections — end-to-end exploit is closed', () => {
     const ownerDb2 = await createNoydb({ teamStrategy: withTeam(), store, user: 'owner', secret: OWNER_SECRET })
     await ownerDb2.openVault(COMP)
     await ownerDb2.grant(COMP, {
-      userId: 'op1', displayName: 'Operator', role: 'operator', passphrase: OP_SECRET,
+      userId: 'op1', displayName: 'Operator', role: 'operator', secret: OP_SECRET,
       permissions: { invoices: 'rw' },
     })
 

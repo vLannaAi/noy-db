@@ -22,7 +22,7 @@
  * ## Key lifecycle
  *
  * ```
- * passphrase + salt
+ * secret + salt
  *   └─► deriveKey()       → KEK (CryptoKey, extractable: false)
  *         └─► wrapKey()   → wrapped DEK bytes  [stored in keyring]
  *         └─► unwrapKey() → DEK (CryptoKey)    [memory only during session]
@@ -59,14 +59,14 @@ const subtle = globalThis.crypto.subtle
 
 // ─── Key Derivation ────────────────────────────────────────────────────
 
-/** Derive a KEK from a passphrase and salt using PBKDF2-SHA256. */
+/** Derive a KEK from a secret and salt using PBKDF2-SHA256. */
 export async function deriveKey(
-  passphrase: string,
+  secret: string,
   salt: Uint8Array,
 ): Promise<CryptoKey> {
   const keyMaterial = await subtle.importKey(
     'raw',
-    new TextEncoder().encode(passphrase),
+    new TextEncoder().encode(secret),
     'PBKDF2',
     false,
     ['deriveKey'],
@@ -87,29 +87,29 @@ export async function deriveKey(
 }
 
 /**
- * Which AES algorithm/usage a {@link derivePassphraseKey} result is for:
+ * Which AES algorithm/usage a {@link deriveSecretKey} result is for:
  * `'aes-kw'` mints a key-wrapping key (`wrapKey`/`unwrapKey`, e.g. for
  * KEK derivation); `'aes-gcm'` mints a direct encrypt/decrypt key (e.g.
  * for the wrap-DEKs primitive in `with-party/team/wrapped-deks.ts`).
  */
-export type PassphraseKeyUsage = 'aes-kw' | 'aes-gcm'
+export type SecretKeyUsage = 'aes-kw' | 'aes-gcm'
 
 /**
- * Derive a non-extractable AES key from a passphrase/credential and salt
+ * Derive a non-extractable AES key from a secret/credential and salt
  * via PBKDF2-SHA256, generalizing {@link deriveKey}'s AES-KW derivation to
  * also cover AES-GCM-usage keys. Callers pin their own `iterations` and
  * `keyUsage` so an existing call site's exact parameters (and thus its
  * derived-key bytes) are preserved verbatim when migrated onto this
  * shared primitive — this is call-site consolidation, not a KDF change.
  */
-export async function derivePassphraseKey(
-  passphrase: string,
+export async function deriveSecretKey(
+  secret: string,
   salt: Uint8Array,
-  params: { iterations: number; keyUsage: PassphraseKeyUsage },
+  params: { iterations: number; keyUsage: SecretKeyUsage },
 ): Promise<CryptoKey> {
   const keyMaterial = await subtle.importKey(
     'raw',
-    new TextEncoder().encode(passphrase),
+    new TextEncoder().encode(secret),
     'PBKDF2',
     false,
     ['deriveKey'],

@@ -45,7 +45,7 @@ function memory(): NoydbStore {
 interface Product extends Record<string, unknown> { id: string; category: Record<string, string> }
 interface CatCount extends Record<string, unknown> { category: unknown; n: number }
 const CATEGORY = i18nText({ languages: ['en', 'th'], required: 'all' })
-const SECRET = 'mv-i18n-layer-slice-passphrase-2026'
+const SECRET = 'mv-i18n-layer-slice-secret-2026'
 
 describe('MV i18n — §2 compute (i18nLocale resolves group keys at the mv layer)', () => {
   it('groups by the resolved i18n label when i18nLocale + i18nFields are declared', async () => {

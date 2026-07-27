@@ -64,7 +64,7 @@ function memory(): NoydbStore {
 interface Client { id: string; name: string; operatorUserId: string }
 
 async function makeExtractedBundle() {
-  const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-passphrase-1234' })
+  const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-secret-1234' })
   const company = await db.openVault('demo-co')
   const clients = company.collection<Client>('clients')
   const bills = company.collection<{ id: string; clientId: string }>('bills', { refs: { clientId: ref('clients') } })
@@ -85,7 +85,7 @@ describe('createOwnerOnAdoptedPartition', () => {
     const { dest, transferKey } = await extractAndAdopt()
 
     const result = await createOwnerOnAdoptedPartition(dest, 'acme', {
-      userId: 'belle', passphrase: 'belle-hotel-dept-2026', transferKey,
+      userId: 'belle', secret: 'belle-hotel-dept-2026', transferKey,
     })
     expect(result).toEqual({ vaultName: 'acme', userId: 'belle' })
 
@@ -104,16 +104,16 @@ describe('createOwnerOnAdoptedPartition state guards', () => {
     const store = memory()
     await expect(
       createOwnerOnAdoptedPartition(store, 'nope', {
-        userId: 'belle', passphrase: 'p', transferKey: crypto.getRandomValues(new Uint8Array(32)),
+        userId: 'belle', secret: 'p', transferKey: crypto.getRandomValues(new Uint8Array(32)),
       }),
     ).rejects.toThrow(AdoptionStateError)
   })
 
   it('rejects a second owner-create after the seal is consumed', async () => {
     const { dest, transferKey } = await extractAndAdopt()
-    await createOwnerOnAdoptedPartition(dest, 'acme', { userId: 'belle', passphrase: 'p1', transferKey })
+    await createOwnerOnAdoptedPartition(dest, 'acme', { userId: 'belle', secret: 'p1', transferKey })
     await expect(
-      createOwnerOnAdoptedPartition(dest, 'acme', { userId: 'belle', passphrase: 'p2', transferKey }),
+      createOwnerOnAdoptedPartition(dest, 'acme', { userId: 'belle', secret: 'p2', transferKey }),
     ).rejects.toThrow(AdoptionStateError)
   })
 
@@ -121,17 +121,17 @@ describe('createOwnerOnAdoptedPartition state guards', () => {
     const { dest } = await extractAndAdopt()
     const wrong = crypto.getRandomValues(new Uint8Array(32))
     await expect(
-      createOwnerOnAdoptedPartition(dest, 'acme', { userId: 'belle', passphrase: 'p', transferKey: wrong }),
+      createOwnerOnAdoptedPartition(dest, 'acme', { userId: 'belle', secret: 'p', transferKey: wrong }),
     ).rejects.toThrow()
     expect(await dest.list('acme', '_keyring')).toEqual([])
   })
 })
 
 describe('full ceremony end-to-end', () => {
-  it('recipient opens the adopted+owned vault with their passphrase and reads a re-keyed record', async () => {
+  it('recipient opens the adopted+owned vault with their secret and reads a re-keyed record', async () => {
     const { dest, transferKey } = await extractAndAdopt()
     await createOwnerOnAdoptedPartition(dest, 'acme', {
-      userId: 'belle', passphrase: 'belle-hotel-dept-2026', transferKey,
+      userId: 'belle', secret: 'belle-hotel-dept-2026', transferKey,
     })
 
     const recipientDb = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'belle', secret: 'belle-hotel-dept-2026' })

@@ -3,8 +3,8 @@
  *
  * A sealing-key provider (`at-env`, `at-aws-kms`, `at-gcp-kms`, …) binds
  * ONLY to this subpath: the `SealingKeyProvider` contract concrete
- * providers implement to seal/unseal a hub-generated random passphrase for
- * managed-passphrase mode. This test freezes its export list against a
+ * providers implement to seal/unseal a hub-generated random secret for
+ * managed-secret mode. This test freezes its export list against a
  * checked-in baseline (`at-surface.golden.json`) so drift fails CI — adding
  * requires a visible baseline update, removing / renaming fails loudly.
  *

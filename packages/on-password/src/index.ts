@@ -27,7 +27,7 @@
  *
  * Trade-off: an `UnlockedKeyring` produced via password-slot unlock
  * has `kek: null`. Sensitive operations (`enrollAuthenticator`,
- * `rotatePassphrase`) require a tier-1 unlock anyway — re-enter the
+ * `rotateSecret`) require a tier-1 unlock anyway — re-enter the
  * master phrase.
  *
  * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/session-tiers.md → Tier 2 — `on-password`
@@ -293,7 +293,7 @@ export interface VerifyPasswordSlotOptions {
 /**
  * `SlotRewrapCeremony` factory for password slots — the password parallel
  * to `webAuthnSlotRewrapCeremony`. Used by hub's
- * `rotatePassphrase({ slotCeremonies: { [slotId]: passwordSlotRewrapCeremony(pwd) } })`
+ * `rotateSecret({ slotCeremonies: { [slotId]: passwordSlotRewrapCeremony(pwd) } })`
  * to preserve a tier-2 password enrollment across a tier-1 phrase
  * rotation without forcing the user to re-enroll the password.
  *
@@ -304,9 +304,9 @@ export interface VerifyPasswordSlotOptions {
  * ```ts
  * import { passwordSlotRewrapCeremony } from '@noy-db/on-password'
  *
- * await db.team.rotatePassphrase('acme', {
- *   oldPassphrase: oldPhrase,
- *   newPassphrase: newPhrase,
+ * await db.team.rotateSecret('acme', {
+ *   oldSecret: oldPhrase,
+ *   newSecret: newPhrase,
  *   slotCeremonies: {
  *     'password': passwordSlotRewrapCeremony('strong-password-2026'),
  *   },
@@ -316,7 +316,7 @@ export interface VerifyPasswordSlotOptions {
  * The password itself is unaffected by phrase rotation — what needs to
  * change is the **wrapped DEK set**: the encrypted blob the slot's
  * `wrapped_deks` field holds. After rotation, the old blob still has
- * the old DEKs (now stale because rotatePassphrase rewrapped them
+ * the old DEKs (now stale because rotateSecret rewrapped them
  * under a fresh KEK); the new blob must hold the freshly rewrapped
  * `ctx.newDeks`.
  *

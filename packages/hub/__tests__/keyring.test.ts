@@ -60,7 +60,7 @@ describe('keyring', () => {
       expect(loaded.userId).toBe('owner-01')
     })
 
-    it('loadKeyring with wrong passphrase throws', async () => {
+    it('loadKeyring with wrong secret throws', async () => {
       await createOwnerKeyring(adapter, COMP, 'owner-01', 'correct')
       // Loading with wrong pass should throw (if there are DEKs to unwrap)
       // With no DEKs, it'll succeed since there's nothing to unwrap
@@ -86,7 +86,7 @@ describe('keyring', () => {
         userId: 'op-somchai',
         displayName: 'สมชาย',
         role: 'operator',
-        passphrase: 'op-pass',
+        secret: 'op-pass',
         permissions: { invoices: 'rw', payments: 'rw' },
       })
 
@@ -107,7 +107,7 @@ describe('keyring', () => {
         userId: 'viewer-audit',
         displayName: 'Auditor',
         role: 'viewer',
-        passphrase: 'viewer-pass',
+        secret: 'viewer-pass',
       })
 
       const viewerKr = await loadKeyring(adapter, COMP, 'viewer-audit', 'viewer-pass')
@@ -127,7 +127,7 @@ describe('keyring', () => {
         userId: 'client-abc',
         displayName: 'ABC Corp',
         role: 'client',
-        passphrase: 'client-pass',
+        secret: 'client-pass',
         permissions: { invoices: 'ro' },
       })
 
@@ -147,7 +147,7 @@ describe('keyring', () => {
         userId: 'admin-noi',
         displayName: 'Noi',
         role: 'admin',
-        passphrase: 'admin-pass',
+        secret: 'admin-pass',
       })
 
       const adminKr = await loadKeyring(adapter, COMP, 'admin-noi', 'admin-pass')
@@ -158,7 +158,7 @@ describe('keyring', () => {
           userId: 'op-new',
           displayName: 'New Op',
           role: 'operator',
-          passphrase: 'op-pass',
+          secret: 'op-pass',
           permissions: { invoices: 'rw' },
         }),
       ).resolves.not.toThrow()
@@ -169,7 +169,7 @@ describe('keyring', () => {
           userId: 'owner-fake',
           displayName: 'Fake',
           role: 'owner',
-          passphrase: 'fake-pass',
+          secret: 'fake-pass',
         }),
       ).rejects.toThrow('cannot grant')
     })
@@ -183,7 +183,7 @@ describe('keyring', () => {
         userId: 'op-01',
         displayName: 'Op',
         role: 'operator',
-        passphrase: 'op-pass',
+        secret: 'op-pass',
         permissions: { invoices: 'rw' },
       })
 
@@ -194,7 +194,7 @@ describe('keyring', () => {
           userId: 'someone',
           displayName: 'Someone',
           role: 'viewer',
-          passphrase: 'pass',
+          secret: 'pass',
         }),
       ).rejects.toThrow('cannot grant')
     })
@@ -214,7 +214,7 @@ describe('keyring', () => {
           userId: 'mallory',
           displayName: 'Mallory',
           role: 'admin',
-          passphrase: 'attacker-pass',
+          secret: 'attacker-pass',
         }),
       ).rejects.toThrow(ValidationError)
     })
@@ -230,7 +230,7 @@ describe('keyring', () => {
         userId: 'op-01',
         displayName: 'Op',
         role: 'operator',
-        passphrase: 'op-pass',
+        secret: 'op-pass',
         permissions: { invoices: 'rw' },
       })
 
@@ -253,7 +253,7 @@ describe('keyring', () => {
         userId: 'admin-01',
         displayName: 'Admin',
         role: 'admin',
-        passphrase: 'admin-pass',
+        secret: 'admin-pass',
       })
 
       const adminKr = await loadKeyring(adapter, COMP, 'admin-01', 'admin-pass')
@@ -279,7 +279,7 @@ describe('keyring', () => {
         userId: 'op-01',
         displayName: 'Op',
         role: 'operator',
-        passphrase: 'op-pass',
+        secret: 'op-pass',
         permissions: { invoices: 'rw' },
       })
 
@@ -302,7 +302,7 @@ describe('keyring', () => {
   })
 
   describe('changeSecret', () => {
-    it('re-wraps DEKs with new passphrase', async () => {
+    it('re-wraps DEKs with new secret', async () => {
       const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'old-pass')
       const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
       const dek = await getDEK('invoices')
@@ -310,15 +310,15 @@ describe('keyring', () => {
       // Encrypt something
       const { iv, data } = await encrypt('test-data', dek)
 
-      // Change passphrase (test exercises rewrap, not strength validation)
-      const updated = await changeSecret(adapter, COMP, owner, 'new-pass', { allowWeakPassphrase: true })
+      // Change secret (test exercises rewrap, not strength validation)
+      const updated = await changeSecret(adapter, COMP, owner, 'new-pass', { allowWeakSecret: true })
 
-      // Old passphrase should fail to load (DEKs present, wrong KEK)
+      // Old secret should fail to load (DEKs present, wrong KEK)
       await expect(
         loadKeyring(adapter, COMP, 'owner-01', 'old-pass'),
       ).rejects.toThrow()
 
-      // New passphrase should work
+      // New secret should work
       const loaded = await loadKeyring(adapter, COMP, 'owner-01', 'new-pass')
       expect(loaded.role).toBe('owner')
 
@@ -328,7 +328,7 @@ describe('keyring', () => {
       expect(decrypted).toBe('test-data')
     })
 
-    it('rejects a weak new passphrase by default', async () => {
+    it('rejects a weak new secret by default', async () => {
       const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'correct horse battery staple printer toaster')
       const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
       await getDEK('invoices')
@@ -338,13 +338,13 @@ describe('keyring', () => {
       ).rejects.toThrow()
     })
 
-    it('accepts a weak new passphrase when allowWeakPassphrase: true', async () => {
+    it('accepts a weak new secret when allowWeakSecret: true', async () => {
       const owner = await createOwnerKeyring(adapter, COMP, 'owner-01', 'correct horse battery staple printer toaster')
       const getDEK = await ensureCollectionDEK(adapter, COMP, owner)
       await getDEK('invoices')
 
       await expect(
-        changeSecret(adapter, COMP, owner, 'weak', { allowWeakPassphrase: true }),
+        changeSecret(adapter, COMP, owner, 'weak', { allowWeakSecret: true }),
       ).resolves.toBeDefined()
     })
   })
@@ -357,11 +357,11 @@ describe('keyring', () => {
 
       await grant(adapter, COMP, owner, {
         userId: 'op-01', displayName: 'Op 1', role: 'operator',
-        passphrase: 'p1', permissions: { invoices: 'rw' },
+        secret: 'p1', permissions: { invoices: 'rw' },
       })
       await grant(adapter, COMP, owner, {
         userId: 'viewer-01', displayName: 'Viewer', role: 'viewer',
-        passphrase: 'p2',
+        secret: 'p2',
       })
 
       const users = await listUsers(adapter, COMP)
@@ -391,7 +391,7 @@ describe('keyring', () => {
           id: 'recipient-01',
           displayName: 'Recipient',
           role: 'admin',
-          passphrase: 'a strong recipient passphrase here',
+          secret: 'a strong recipient secret here',
         }),
       ).rejects.toThrow(ValidationError)
     })
@@ -405,7 +405,7 @@ describe('keyring', () => {
         id: 'recipient-01',
         displayName: 'Recipient',
         role: 'viewer',
-        passphrase: 'a strong recipient passphrase here',
+        secret: 'a strong recipient secret here',
       })
 
       expect(file.user_id).toBe('recipient-01')

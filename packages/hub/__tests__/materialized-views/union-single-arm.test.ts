@@ -79,7 +79,7 @@ async function openWithMv() {
   const db = await createNoydb({
     store: memory(),
     user: 'alice',
-    secret: 'mv-union-single-arm-passphrase-2026',
+    secret: 'mv-union-single-arm-secret-2026',
     materializedViewStrategies: [whtByMonth()],
     aggregateStrategy: withAggregate(),
   })

@@ -68,7 +68,7 @@ describe('FR-6 Task 4 — grantCustodian / revokeCustodian (owner-only custody A
 
   it('owner grants a custodian who opens + reads/writes ALL collections', async () => {
     await expect(
-      ownerDb.grantCustodian(COMP, { userId: 'firm-01', displayName: 'Firm', passphrase: 'firm-pass-long' }),
+      ownerDb.grantCustodian(COMP, { userId: 'firm-01', displayName: 'Firm', secret: 'firm-pass-long' }),
     ).resolves.not.toThrow()
 
     const firmDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'firm-01', secret: 'firm-pass-long' })
@@ -94,21 +94,21 @@ describe('FR-6 Task 4 — grantCustodian / revokeCustodian (owner-only custody A
     const comp = await noGateDb.openVault(NO_GATE_COMP)
     await comp.collection<Invoice>('invoices').put('inv-001', { amount: 1, status: 'x' })
     await expect(
-      noGateDb.grantCustodian(NO_GATE_COMP, { userId: 'firm-02', displayName: 'Firm', passphrase: 'firm-pass-long' }),
+      noGateDb.grantCustodian(NO_GATE_COMP, { userId: 'firm-02', displayName: 'Firm', secret: 'firm-pass-long' }),
     ).rejects.toThrow()
   })
 
   it('(b) grantCustodian FAILS when the caller is NOT the owner (admin tries)', async () => {
-    await ownerDb.grant(COMP, { userId: 'admin-01', displayName: 'Admin', role: 'admin', passphrase: 'admin-pass' })
+    await ownerDb.grant(COMP, { userId: 'admin-01', displayName: 'Admin', role: 'admin', secret: 'admin-pass' })
     const adminDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'admin-01', secret: 'admin-pass', policy: POLICY, custodyStrategy: withCustody() })
     await adminDb.openVault(COMP)
     await expect(
-      adminDb.grantCustodian(COMP, { userId: 'firm-03', displayName: 'Firm', passphrase: 'firm-pass-long' }),
+      adminDb.grantCustodian(COMP, { userId: 'firm-03', displayName: 'Firm', secret: 'firm-pass-long' }),
     ).rejects.toThrow(PermissionDeniedError)
   })
 
   it('(c) revokeCustodian (as owner) removes the custodian', async () => {
-    await ownerDb.grantCustodian(COMP, { userId: 'firm-01', displayName: 'Firm', passphrase: 'firm-pass-long' })
+    await ownerDb.grantCustodian(COMP, { userId: 'firm-01', displayName: 'Firm', secret: 'firm-pass-long' })
     // sanity: the custodian can open before revocation
     const firmDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'firm-01', secret: 'firm-pass-long' })
     await expect(firmDb.openVault(COMP)).resolves.toBeTruthy()
@@ -123,8 +123,8 @@ describe('FR-6 Task 4 — grantCustodian / revokeCustodian (owner-only custody A
   })
 
   it('revokeCustodian FAILS when the caller is NOT the owner (admin tries)', async () => {
-    await ownerDb.grantCustodian(COMP, { userId: 'firm-01', displayName: 'Firm', passphrase: 'firm-pass-long' })
-    await ownerDb.grant(COMP, { userId: 'admin-01', displayName: 'Admin', role: 'admin', passphrase: 'admin-pass' })
+    await ownerDb.grantCustodian(COMP, { userId: 'firm-01', displayName: 'Firm', secret: 'firm-pass-long' })
+    await ownerDb.grant(COMP, { userId: 'admin-01', displayName: 'Admin', role: 'admin', secret: 'admin-pass' })
     const adminDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'admin-01', secret: 'admin-pass', policy: POLICY, custodyStrategy: withCustody() })
     await adminDb.openVault(COMP)
     await expect(

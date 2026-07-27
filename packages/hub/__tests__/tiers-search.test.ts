@@ -64,7 +64,7 @@ const enc = (dim: number, model = 'stub') => ({
 })
 const ENCODER = enc(8)
 
-const SECRET = 'tiers-search-passphrase-721'
+const SECRET = 'tiers-search-secret-721'
 
 /**
  * A search+tiers harness: `open()` opens a fresh session against the SAME

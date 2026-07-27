@@ -179,7 +179,7 @@ describe('Collection.scan().join() > strict mode (default)', () => {
     db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'scan-join-test-passphrase-2026',
+      secret: 'scan-join-test-secret-2026',
     })
   })
 
@@ -274,7 +274,7 @@ describe('Collection.scan().join() > ref-mode dispatch on dangling refs', () => 
     db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'scan-join-test-passphrase-2026',
+      secret: 'scan-join-test-secret-2026',
     })
   })
 
@@ -369,7 +369,7 @@ describe('Collection.scan().join().join() > multi-FK chaining', () => {
     db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'scan-join-test-passphrase-2026',
+      secret: 'scan-join-test-secret-2026',
     })
   })
 
@@ -422,7 +422,7 @@ describe('Collection.scan().join().aggregate() > joined streaming aggregation', 
     db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'scan-join-test-passphrase-2026',
+      secret: 'scan-join-test-secret-2026',
     })
   })
 
@@ -468,7 +468,7 @@ describe('Collection.scan() > backward compatibility unchanged', () => {
     db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'scan-join-test-passphrase-2026',
+      secret: 'scan-join-test-secret-2026',
     })
   })
 

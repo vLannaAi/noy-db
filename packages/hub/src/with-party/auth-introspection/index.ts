@@ -32,8 +32,8 @@ export async function describeAuthConfig(
   const lines: string[] = []
   lines.push(`Vault "${vault}" — three-tier authentication`)
   lines.push('')
-  lines.push('Tier 1 — Passphrase (master)')
-  lines.push(`  Phrase format: ${policy.passphrase?.minWords ?? 6}+ words, lowercase letters, ≥${policy.passphrase?.minWordLength ?? 3} chars/word`)
+  lines.push('Tier 1 — Secret (master)')
+  lines.push(`  Phrase format: ${policy.secret?.minWords ?? 6}+ words, lowercase letters, ≥${policy.secret?.minWordLength ?? 3} chars/word`)
   lines.push('  Strength validator: enforced (override available for tests only)')
   lines.push('')
   lines.push('Tier 2 — Authenticate (routine login)')
@@ -44,7 +44,7 @@ export async function describeAuthConfig(
   lines.push('  Method: PIN (per-app configurable)')
   lines.push('')
   lines.push(`Recovery profiles enrolled: ${recoveryProfiles.length === 0 ? 'none' : recoveryProfiles.join(', ')}`)
-  lines.push('Managed-passphrase mode: off (post-1.0)')
+  lines.push('Managed-secret mode: off (post-1.0)')
   lines.push('')
   lines.push('Sensitive-action gates:')
   for (const [gate, gp] of Object.entries(policy.gates) as Array<[string, GatePolicy]>) {
@@ -65,7 +65,7 @@ export async function diagramAuthConfig(
   const lines: string[] = []
   lines.push('flowchart TB')
   lines.push(`  vault["Vault: ${escapeMermaid(vault)}"]`)
-  lines.push('  tier1["Tier 1<br/>Passphrase"]')
+  lines.push('  tier1["Tier 1<br/>Secret"]')
   lines.push('  tier2["Tier 2<br/>Multi-slot Authenticate"]')
   lines.push('  tier3["Tier 3<br/>PIN / Quick-resume"]')
   lines.push('  vault --> tier1')
@@ -171,7 +171,7 @@ function describeGatePolicy(gp: GatePolicy): string {
 
 function defaultPolicySnapshot(): VaultPolicy {
   return {
-    passphrase: { minWords: 6, minWordLength: 3, rejectRepeatedAdjacent: true },
+    secret: { minWords: 6, minWordLength: 3, rejectRepeatedAdjacent: true },
     gates: {},
   }
 }

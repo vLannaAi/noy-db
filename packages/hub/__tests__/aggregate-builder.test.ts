@@ -45,7 +45,7 @@ async function ordersWith3() {
   const db = await createNoydb({
     store: memory(),
     user: 'alice',
-    secret: 'aggregate-builder-passphrase-2026-test-x1',
+    secret: 'aggregate-builder-secret-2026-test-x1',
     aggregateStrategy: withAggregate(),
   })
   const vault = await db.openVault('shop')

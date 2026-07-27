@@ -53,14 +53,14 @@ export default defineNuxtPlugin(async () => {
   const db = await createNoydb({
     adapter: browser({ prefix: 'my-app' }),
     user: 'owner',
-    secret: () => promptUserForPassphrase(),
+    secret: () => promptUserForSecret(),
   })
 
   setActiveNoydb(db)
 })
 ```
 
-The reason it's not automatic: `createNoydb` requires a passphrase callback that can't be serialized through Nuxt's runtime config. Eager auto-instantiation is a future enhancement, gated on a real consumer signing off on the bootstrap UX.
+The reason it's not automatic: `createNoydb` requires a secret callback that can't be serialized through Nuxt's runtime config. Eager auto-instantiation is a future enhancement, gated on a real consumer signing off on the bootstrap UX.
 
 ## Use it in a component
 
@@ -115,7 +115,7 @@ A planned CI bundle assertion will verify this property automatically by greppin
 | `adapter`    | `'browser' \| 'memory' \| 'file' \| 'dynamo' \| 's3'` | —             | Hint for which built-in adapter to use. Just metadata — your bootstrap code constructs the actual adapter. |
 | `pinia`      | `boolean`                                           | `true`        | Auto-import the `@noy-db/in-pinia` helpers. Set to `false` if you don't use Pinia. |
 | `sync`       | `{ adapter, table, region, bucket, mode }`          | —             | Optional sync configuration metadata, exposed via `runtimeConfig.public.noydb.sync`. |
-| `auth`       | `{ mode, sessionTimeout }`                          | —             | Optional auth metadata. The actual passphrase callback lives in your bootstrap code. |
+| `auth`       | `{ mode, sessionTimeout }`                          | —             | Optional auth metadata. The actual secret callback lives in your bootstrap code. |
 | `devtools`   | `boolean`                                           | `true`        | Enable the (planned) devtools tab. Currently a passthrough — the tab itself is a future enhancement. |
 
 Every field is fully typed. Open `nuxt.config.ts` in your IDE and you'll get autocomplete on `noydb:`.

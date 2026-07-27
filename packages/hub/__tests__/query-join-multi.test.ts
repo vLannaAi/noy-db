@@ -92,7 +92,7 @@ describe('Query.join() multi-FK chaining — v0.6', () => {
     db = await createNoydb({
       store: memory(),
       user: 'owner',
-      secret: 'multi-join-test-passphrase-2026',
+      secret: 'multi-join-test-secret-2026',
     })
     resetJoinWarnings()
   })

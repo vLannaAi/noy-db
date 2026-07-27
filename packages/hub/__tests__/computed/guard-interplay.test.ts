@@ -73,7 +73,7 @@ describe('frozenFields × computed — no false-positive FieldFrozenError', () =
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'computed-frozen-interplay-passphrase-2026',
+      secret: 'computed-frozen-interplay-secret-2026',
       guardStrategies: [guard],
     })
     const vault = await db.openVault('shop')
@@ -109,7 +109,7 @@ describe('frozenFields × computed — no false-positive FieldFrozenError', () =
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'computed-frozen-non-computed-passphrase-2026',
+      secret: 'computed-frozen-non-computed-secret-2026',
       guardStrategies: [guard],
     })
     const vault = await db.openVault('shop')
@@ -139,7 +139,7 @@ describe('frozenFields × computed — no false-positive FieldFrozenError', () =
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'frozen-noydb-error-passphrase-2026',
+      secret: 'frozen-noydb-error-secret-2026',
       guardStrategies: [guard],
     })
     const vault = await db.openVault('shop')
@@ -162,7 +162,7 @@ describe('computed re-eval on update — fields reflect NEW inputs', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'computed-reeval-passphrase-2026',
+      secret: 'computed-reeval-secret-2026',
     })
     const vault = await db.openVault('shop')
     vault.collection<Order>('orders', {
@@ -188,7 +188,7 @@ describe('computed × immutableGuard — WORM semantics preserved', () => {
     const db = await createNoydb({
       store: memory(),
       user: 'alice',
-      secret: 'computed-immutable-guard-passphrase-2026',
+      secret: 'computed-immutable-guard-secret-2026',
       guardStrategies: [
         immutableGuard<Order>({
           collection: 'orders',

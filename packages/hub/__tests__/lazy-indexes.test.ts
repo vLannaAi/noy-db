@@ -50,7 +50,7 @@ interface Disbursement {
 }
 
 const LAZY = { prefetch: false as const, cache: { maxRecords: 100 } }
-const SECRET = 'lazy-indexes-passphrase-2026'
+const SECRET = 'lazy-indexes-secret-2026'
 
 async function openLazy(indexes: string[] = ['clientId', 'period']) {
   const adapter = memory()

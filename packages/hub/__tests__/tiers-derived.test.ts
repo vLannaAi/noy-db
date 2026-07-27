@@ -71,7 +71,7 @@ describe('#722 elevate removes the source from derived outputs', () => {
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-derived-mv-passphrase-2026',
+      secret: 'tiers-derived-mv-secret-2026',
       tiersStrategy: withTiers(),
       materializedViewStrategies: [openInvoicesMV],
     })
@@ -118,7 +118,7 @@ describe('#722 elevate removes the source from derived outputs', () => {
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-derived-aggregate-passphrase-2026',
+      secret: 'tiers-derived-aggregate-secret-2026',
       tiersStrategy: withTiers(),
       aggregateStrategy: withAggregate(),
       materializedViewStrategies: [mv],
@@ -148,7 +148,7 @@ describe('#722 elevate removes the source from derived outputs', () => {
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-derived-rollup-passphrase-2026',
+      secret: 'tiers-derived-rollup-secret-2026',
       tiersStrategy: withTiers(),
       derivationStrategies: [totalSpentRollup],
     })
@@ -187,7 +187,7 @@ describe('#722 elevate removes the source from derived outputs', () => {
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-derived-array-passphrase-2026',
+      secret: 'tiers-derived-array-secret-2026',
       tiersStrategy: withTiers(),
       derivationStrategies: [strategy],
     })
@@ -213,7 +213,7 @@ describe('#722 elevate removes the source from derived outputs', () => {
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-derived-sibling-passphrase-2026',
+      secret: 'tiers-derived-sibling-secret-2026',
       tiersStrategy: withTiers(),
       derivationStrategies: [totalSpentRollup],
     })
@@ -237,7 +237,7 @@ describe('#722 elevate removes the source from derived outputs', () => {
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-derived-noop-passphrase-2026',
+      secret: 'tiers-derived-noop-secret-2026',
       tiersStrategy: withTiers(),
     })
     const vault = await db.openVault('demo')
@@ -270,7 +270,7 @@ describe('#722 demote restores the source to derived outputs (reversible)', () =
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-derived-mv-demote-passphrase-2026',
+      secret: 'tiers-derived-mv-demote-secret-2026',
       tiersStrategy: withTiers(),
       materializedViewStrategies: [openInvoicesMV],
     })
@@ -308,7 +308,7 @@ describe('#722 demote restores the source to derived outputs (reversible)', () =
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-derived-aggregate-demote-passphrase-2026',
+      secret: 'tiers-derived-aggregate-demote-secret-2026',
       tiersStrategy: withTiers(),
       aggregateStrategy: withAggregate(),
       materializedViewStrategies: [mv],
@@ -337,7 +337,7 @@ describe('#722 demote restores the source to derived outputs (reversible)', () =
     const rollupDb = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-derived-rollup-demote-passphrase-2026',
+      secret: 'tiers-derived-rollup-demote-secret-2026',
       tiersStrategy: withTiers(),
       derivationStrategies: [totalSpentRollup],
     })
@@ -375,7 +375,7 @@ describe('#722 demote restores the source to derived outputs (reversible)', () =
     const derivationDb = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-derived-array-demote-passphrase-2026',
+      secret: 'tiers-derived-array-demote-secret-2026',
       tiersStrategy: withTiers(),
       derivationStrategies: [derivationStrategy],
     })
@@ -402,7 +402,7 @@ describe('#722 demote restores the source to derived outputs (reversible)', () =
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-derived-putattier0-passphrase-2026',
+      secret: 'tiers-derived-putattier0-secret-2026',
       tiersStrategy: withTiers(),
       derivationStrategies: [totalSpentRollup],
     })
@@ -433,7 +433,7 @@ describe('#722 demote restores the source to derived outputs (reversible)', () =
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-derived-roundtrip-passphrase-2026',
+      secret: 'tiers-derived-roundtrip-secret-2026',
       tiersStrategy: withTiers(),
       materializedViewStrategies: [openInvoicesMV],
     })
@@ -484,7 +484,7 @@ describe('#722 review fix: syncDerived pre-move decode is gated by hasDerivedOut
     const plainDb = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-derived-decode-guard-plain-passphrase-2026',
+      secret: 'tiers-derived-decode-guard-plain-secret-2026',
       tiersStrategy: withTiers(),
     })
     const plainVault = await plainDb.openVault('demo')
@@ -497,7 +497,7 @@ describe('#722 review fix: syncDerived pre-move decode is gated by hasDerivedOut
     const derivedDb = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-derived-decode-guard-derived-passphrase-2026',
+      secret: 'tiers-derived-decode-guard-derived-secret-2026',
       tiersStrategy: withTiers(),
       derivationStrategies: [totalSpentRollup],
     })
@@ -563,7 +563,7 @@ describe('#722 whole-branch review: pre-move decode must be tier-aware (not just
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-review-putattier-elevate-passphrase-2026',
+      secret: 'tiers-review-putattier-elevate-secret-2026',
       tiersStrategy: withTiers(),
       derivationStrategies: [totalSpentRollup],
     })
@@ -595,7 +595,7 @@ describe('#722 whole-branch review: pre-move decode must be tier-aware (not just
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-review-nonperrecord-elevate-passphrase-2026',
+      secret: 'tiers-review-nonperrecord-elevate-secret-2026',
       tiersStrategy: withTiers(),
       derivationStrategies: [totalSpentRollup],
     })
@@ -625,7 +625,7 @@ describe('#722 whole-branch review: pre-move decode must be tier-aware (not just
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-review-putattier-over-existing-passphrase-2026',
+      secret: 'tiers-review-putattier-over-existing-secret-2026',
       tiersStrategy: withTiers(),
       derivationStrategies: [totalSpentRollup],
     })
@@ -656,7 +656,7 @@ describe('#722 whole-branch review: pre-move decode must be tier-aware (not just
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
-      secret: 'tiers-review-demote-intermediate-passphrase-2026',
+      secret: 'tiers-review-demote-intermediate-secret-2026',
       tiersStrategy: withTiers(),
       derivationStrategies: [totalSpentRollup],
     })
@@ -720,7 +720,7 @@ describe('#737 hasDerivedOutputs is source-grained', () => {
     const db = await createNoydb({
       store,
       user: 'owner',
-      secret: 'source-grained-derived-outputs-passphrase-2026',
+      secret: 'source-grained-derived-outputs-secret-2026',
       tiersStrategy: withTiers(),
       // The rollup's `spec.source` (parent) is 'buyers' and its
       // `spec.rollup.from` (child/trigger) is 'sales' — 'docs' below is

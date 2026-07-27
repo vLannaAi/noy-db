@@ -25,7 +25,7 @@ pnpm add @noy-db/as-xlsx @noy-db/as-zip @noy-db/hub
 await db.grant('firm', {
   userId: 'accountant',
   role: 'viewer',
-  passphrase: '…',
+  secret: '…',
   exportCapability: { plaintext: ['xlsx'] }, // or ['*']
 })
 ```

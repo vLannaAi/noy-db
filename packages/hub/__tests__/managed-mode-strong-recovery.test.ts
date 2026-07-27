@@ -3,7 +3,7 @@
  *
  * Three behaviors under test:
  *
- *   1. `passphraseMode: 'managed'` requires at least one STRONG
+ *   1. `secretMode: 'managed'` requires at least one STRONG
  *      recovery profile enrolled (Shamir today). Otherwise openVault
  *      throws ManagedRecoveryNotEnrolledError. Paper alone is not
  *      strong under managed mode.
@@ -13,8 +13,8 @@
  *      atomically. Returns the vault handle plus show-once
  *      enrollment results (Shamir shares).
  *
- *   3. `db.team.recoverManagedPassphrase(vault, { recoveryProof })` mints
- *      a fresh sealed passphrase, replaces _meta/sealed-passphrase,
+ *   3. `db.team.recoverManagedSecret(vault, { recoveryProof })` mints
+ *      a fresh sealed secret, replaces _meta/sealed-secret,
  *      and rewraps DEKs under the new KEK.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
@@ -22,7 +22,7 @@ import type { NoydbStore, EncryptedEnvelope, SealingKeyProvider } from '../src/i
 import {
   createNoydb,
   MemorySealingKeyProvider,
-  loadSealedPassphrase,
+  loadSealedSecret,
 } from '../src/index.js'
 import { ConflictError, ValidationError } from '../src/kernel/errors.js'
 import { ManagedRecoveryNotEnrolledError } from '../src/kernel/errors.js'
@@ -61,7 +61,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       const db = await createNoydb({
         store: inlineMemory(),
         user: ALICE,
-        passphraseMode: 'managed',
+        secretMode: 'managed',
         sealingKey: freshProvider('test-1'),
       })
       await expect(db.openVault('acme')).rejects.toBeInstanceOf(ManagedRecoveryNotEnrolledError)
@@ -71,7 +71,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       const db = await createNoydb({
         store: inlineMemory(),
         user: ALICE,
-        passphraseMode: 'managed',
+        secretMode: 'managed',
         sealingKey: freshProvider('test-2'),
       })
       try {
@@ -102,7 +102,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       const db = await createNoydb({
         store: inlineMemory(),
         user: ALICE,
-        passphraseMode: 'managed',
+        secretMode: 'managed',
         sealingKey: freshProvider('test-3'),
         shamirRecovery: shamirRecoveryProvider(),
       })
@@ -123,7 +123,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
 
       const db1 = await createNoydb({
         store, user: ALICE,
-        passphraseMode: 'managed', sealingKey: provider,
+        secretMode: 'managed', sealingKey: provider,
         shamirRecovery: shamirRecoveryProvider(),
       })
       await db1.team.openVaultAndEnrollRecovery('acme', {
@@ -134,7 +134,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       // strong-recovery check without invoking the bootstrap path.
       const db2 = await createNoydb({
         store, user: ALICE,
-        passphraseMode: 'managed', sealingKey: provider,
+        secretMode: 'managed', sealingKey: provider,
       })
       await expect(db2.openVault('acme')).resolves.toBeDefined()
     })
@@ -143,7 +143,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       const db = await createNoydb({
         store: inlineMemory(),
         user: ALICE,
-        passphraseMode: 'managed',
+        secretMode: 'managed',
         sealingKey: freshProvider('test-5'),
       })
       await expect(
@@ -155,7 +155,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       const db = await createNoydb({
         store: inlineMemory(),
         user: ALICE,
-        passphraseMode: 'managed',
+        secretMode: 'managed',
         sealingKey: freshProvider('test-6'),
       })
       await expect(
@@ -169,7 +169,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       const db = await createNoydb({
         store: inlineMemory(),
         user: ALICE,
-        passphraseMode: 'managed',
+        secretMode: 'managed',
         sealingKey: freshProvider('test-7'),
         shamirRecovery: shamirRecoveryProvider(),
       })
@@ -189,7 +189,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       const db = await createNoydb({
         store: inlineMemory(),
         user: ALICE,
-        passphraseMode: 'managed',
+        secretMode: 'managed',
         sealingKey: freshProvider('test-8'),
         shamirRecovery: shamirRecoveryProvider(),
       })
@@ -204,7 +204,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
     })
   })
 
-  describe('recoverManagedPassphrase', () => {
+  describe('recoverManagedSecret', () => {
     it('rejects when not in managed mode', async () => {
       const db = await createNoydb({
         store: inlineMemory(),
@@ -213,18 +213,18 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       })
       await db.openVault('acme')
       await expect(
-        db.team.recoverManagedPassphrase('acme', {
+        db.team.recoverManagedSecret('acme', {
           recoveryProof: { profile: 'shamir', payload: { shares: [] } },
         }),
       ).rejects.toBeInstanceOf(ValidationError)
     })
 
-    it('mints fresh sealed passphrase and overwrites _meta/sealed-passphrase', async () => {
+    it('mints fresh sealed secret and overwrites _meta/sealed-secret', async () => {
       const store = inlineMemory()
       const provider = freshProvider('test-9')
       const db = await createNoydb({
         store, user: ALICE,
-        passphraseMode: 'managed', sealingKey: provider,
+        secretMode: 'managed', sealingKey: provider,
         shamirRecovery: shamirRecoveryProvider(),
       })
       const enroll = await db.team.openVaultAndEnrollRecovery('acme', {
@@ -233,11 +233,11 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       const shares = enroll.recoveryEnrollments[0]!.shares!
 
       // Snapshot the pre-recovery sealed envelope.
-      const beforeEnvelope = await loadSealedPassphrase(store, 'acme')
+      const beforeEnvelope = await loadSealedSecret(store, 'acme')
       expect(beforeEnvelope).toBeDefined()
 
       // Run managed recovery using the Shamir shares.
-      await db.team.recoverManagedPassphrase('acme', {
+      await db.team.recoverManagedSecret('acme', {
         recoveryProof: {
           profile: 'shamir',
           payload: { shares: [shares[0]!, shares[1]!] },
@@ -245,7 +245,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       })
 
       // The sealed envelope should be different — fresh random sealed.
-      const afterEnvelope = await loadSealedPassphrase(store, 'acme')
+      const afterEnvelope = await loadSealedSecret(store, 'acme')
       expect(afterEnvelope).toBeDefined()
       expect(afterEnvelope!.providerId).toBe(provider.id)
       expect(Array.from(afterEnvelope!.sealed)).not.toEqual(Array.from(beforeEnvelope!.sealed))
@@ -258,7 +258,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       // on collections whose DEKs weren't yet minted at enrollment
       // would be unreadable. This is an architectural limitation
       // shared with paper recovery; tracked separately. This test
-      // validates the round-trip MECHANICS (sealed-passphrase
+      // validates the round-trip MECHANICS (sealed-secret
       // replacement + keyring rewrap + openVault under fresh
       // envelope), not data-survival across collection-creation
       // boundaries.
@@ -267,7 +267,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
 
       const db = await createNoydb({
         store, user: ALICE,
-        passphraseMode: 'managed', sealingKey: provider,
+        secretMode: 'managed', sealingKey: provider,
         shamirRecovery: shamirRecoveryProvider(),
       })
       const enroll = await db.team.openVaultAndEnrollRecovery('acme', {
@@ -279,17 +279,17 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       // Reopen, run recovery.
       const db2 = await createNoydb({
         store, user: ALICE,
-        passphraseMode: 'managed', sealingKey: provider,
+        secretMode: 'managed', sealingKey: provider,
         shamirRecovery: shamirRecoveryProvider(),
       })
-      await db2.team.recoverManagedPassphrase('acme', {
+      await db2.team.recoverManagedSecret('acme', {
         recoveryProof: {
           profile: 'shamir',
           payload: { shares: [shares[0]!, shares[1]!] },
         },
       })
 
-      // Reopen vault under fresh sealed-passphrase, write and read
+      // Reopen vault under fresh sealed-secret, write and read
       // back — confirms the new KEK + DEK stack is fully functional.
       const v2 = await db2.openVault('acme')
       await v2.collection<{ id: string; note: string }>('notes').put('post', {
@@ -305,7 +305,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
 
       const db = await createNoydb({
         store, user: ALICE,
-        passphraseMode: 'managed', sealingKey: provider,
+        secretMode: 'managed', sealingKey: provider,
         shamirRecovery: shamirRecoveryProvider(),
       })
       const enroll = await db.team.openVaultAndEnrollRecovery('acme', {
@@ -314,7 +314,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       const shares = enroll.recoveryEnrollments[0]!.shares!
 
       // Recover once.
-      await db.team.recoverManagedPassphrase('acme', {
+      await db.team.recoverManagedSecret('acme', {
         recoveryProof: {
           profile: 'shamir',
           payload: { shares: [shares[0]!, shares[1]!] },
@@ -324,7 +324,7 @@ describe('#195 — managed-mode strong-recovery enforcement', () => {
       // The Shamir entry should still exist on disk — shares are
       // reusable for future recoveries (per #196 spec §3.3).
       // Recovery a second time with a different K-of-N combination.
-      await db.team.recoverManagedPassphrase('acme', {
+      await db.team.recoverManagedSecret('acme', {
         recoveryProof: {
           profile: 'shamir',
           payload: { shares: [shares[0]!, shares[2]!] },
