@@ -61,7 +61,7 @@ describe('Sealed<V> access gate — public reads return handles', () => {
     const store = memoryStore()
     const db = await createNoydb({ store, secret: 'pw', user: 'owner' })
     const v = await db.openVault('v1')
-    const people = v.collection<Person, 'ssn'>('people', { sensitive: ['ssn'] })
+    const people = v.collection<Person, { sensitive: 'ssn' }>('people', { sensitive: ['ssn'] })
 
     await people.put('p1', { id: 'p1', name: 'Alice', ssn: SSN })
 
@@ -144,7 +144,7 @@ describe('Sealed<V> access gate — public reads return handles', () => {
     const store = memoryStore()
     const db = await createNoydb({ store, secret: 'pw', user: 'owner' })
     const v = await db.openVault('v1')
-    const people = v.collection<Person, 'ssn' | 'dob'>('people', { sensitive: ['ssn', 'dob'] })
+    const people = v.collection<Person, { sensitive: 'ssn' | 'dob' }>('people', { sensitive: ['ssn', 'dob'] })
 
     await people.put('p1', { id: 'p1', name: 'Alice', ssn: SSN, dob: '1990-01-01' })
     const r = await people.get('p1')
@@ -193,7 +193,7 @@ describe('Sealed<V> gate — lazy cache + sealed field + rollup derivation (regr
     })
     const v = await db.openVault('v1')
     // Parent is LAZY (prefetch:false + bounded cache) AND seals `ssn`.
-    const buyers = v.collection<Buyer, 'ssn'>('buyers', {
+    const buyers = v.collection<Buyer, { sensitive: 'ssn' }>('buyers', {
       sensitive: ['ssn'], prefetch: false, cache: { maxRecords: 16 },
     })
     const sales = v.collection<Sale>('sales')

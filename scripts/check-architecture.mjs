@@ -1037,7 +1037,12 @@ const KERNEL_SURFACE_BUDGET = {
   // CompactionContext gains ONE thin `dropLocalCache` closure line so the
   // budget pass can drop device-local external cache copies; all the
   // pin/budget machinery itself lives in with-shape/blobs/ behind withBlobs().
-  'packages/hub/src/kernel/vault.ts': 3759,
+  // #839 raises this by 2 from the 3759 that #841 ratcheted it to. The named
+  // `CollectionShape` signature costs four lines where the positional one cost
+  // one, offset by folding its type import into the existing `./types.js` block
+  // and compacting the three body aliases onto a line. A public-API ergonomics
+  // fix, not capability growth — and still 148 under the 3908 it started at.
+  'packages/hub/src/kernel/vault.ts': 3761,
   // Bumped 3960→3962 (#822 period-summary push symmetry, 2026-07-26): two lines wiring
   // the vault's existing `onDirty` into VaultPeriods so `closePeriod` marks the `_periods`
   // summary dirty and push carries it. The decision (which reserved collections push and

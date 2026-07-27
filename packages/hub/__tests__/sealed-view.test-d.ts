@@ -47,7 +47,7 @@ describe('SealedView<T, S> mapping', () => {
 describe('get() handle typing — the surface #504 added but never compile-checked', () => {
   it('types a sensitive field as Sealed<V> when opted in via the 2nd generic', async () => {
     const vault = await typedVault()
-    const people = vault.collection<Person, 'ssn'>('people', { sensitive: ['ssn'] })
+    const people = vault.collection<Person, { sensitive: 'ssn' }>('people', { sensitive: ['ssn'] })
     const r = await people.get('id')
     // r is SealedView<Person,'ssn'> | null
     expectTypeOf<NonNullable<typeof r>['ssn']>().toEqualTypeOf<Sealed<string>>()

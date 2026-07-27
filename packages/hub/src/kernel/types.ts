@@ -3572,3 +3572,40 @@ export interface NoydbPolicyDeps {
  * synchronously — mirrors {@link UserApiFactory}.
  */
 export type NoydbPolicyFactory = (deps: NoydbPolicyDeps) => NoydbPolicyApi
+
+/**
+ * Named field-set declarations for a collection's type-level shape (#839).
+ *
+ * Replaces the positional `Collection<T, S, Q, M>` tail at every surface a
+ * consumer touches. The positional form was unreadable and unsafe: `Q` and `M`
+ * are both `keyof T & string`, so swapping them type-checked silently, and
+ * reaching `M` meant writing placeholders —
+ * `collection<Sale, never, never, 'amount' | 'tax'>`.
+ *
+ * ```ts
+ * vault.collection<Sale, { money: 'amount' | 'tax' }>('sales')
+ * vault.collection<Invoice, { sensitive: 'ssn'; indexed: 'clientId' }>('invoices')
+ * ```
+ *
+ * Every member is optional; omitting one keeps that axis permissive, which is
+ * what the `[X] extends [never]` guards in {@link QueryField} /
+ * {@link IndexFieldName} encode. Those guards are NOT removable — they are the
+ * difference between "no indexes declared, so `where()` accepts any field" and
+ * "indexes declared, so `where()` is restricted to them" — so they are
+ * re-expressed against this shape rather than dropped.
+ */
+export interface CollectionShape<T> {
+  /** Fields sealed at rest; reads return {@link Sealed} handles. */
+  readonly sensitive?: keyof T & string
+  /** Fields carrying a declared secondary index; narrows `where()` / `orderBy()`. */
+  readonly indexed?: keyof T & string
+  /** Fields carrying a money descriptor. */
+  readonly money?: keyof T & string
+}
+
+/** The `sensitive` field set of a {@link CollectionShape}, or `never` if unset. */
+export type SensitiveOf<T, O> = O extends { sensitive: infer S } ? (S & keyof T & string) : never
+/** The `indexed` field set of a {@link CollectionShape}, or `never` if unset. */
+export type IndexedOf<T, O> = O extends { indexed: infer Q } ? (Q & keyof T & string) : never
+/** The `money` field set of a {@link CollectionShape}, or `never` if unset. */
+export type MoneyOf<T, O> = O extends { money: infer M } ? (M & keyof T & string) : never

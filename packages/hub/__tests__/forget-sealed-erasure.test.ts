@@ -109,7 +109,7 @@ async function setup() {
     sealedRecordStrategy: withSealedRecord(),
   })
   const vault = await db.openVault('v')
-  const people = vault.collection<Person, 'ssn'>('people', { perRecordKeys: true, sensitive: ['ssn'] })
+  const people = vault.collection<Person, { sensitive: 'ssn' }>('people', { perRecordKeys: true, sensitive: ['ssn'] })
   return { store, db, vault, people }
 }
 

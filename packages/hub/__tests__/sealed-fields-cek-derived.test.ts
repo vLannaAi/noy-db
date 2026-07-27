@@ -85,7 +85,7 @@ describe('#306 Slice B — sealed fields keyed off the per-record CEK', () => {
   it('Test 1 — round-trips a sealed field; non-sealed field stays plain', async () => {
     const db = await createNoydb({ store: memoryStore(), user: 'alice', secret: SECRET })
     const vault = await db.openVault('v')
-    const people = vault.collection<Person, 'ssn'>('people', { perRecordKeys: true, sensitive: ['ssn'] })
+    const people = vault.collection<Person, { sensitive: 'ssn' }>('people', { perRecordKeys: true, sensitive: ['ssn'] })
     await people.put('p1', { id: 'p1', name: 'Ada', ssn: '123-45-6789' })
 
     const rec = await people.get('p1')
@@ -98,7 +98,7 @@ describe('#306 Slice B — sealed fields keyed off the per-record CEK', () => {
     const store = memoryStore()
     const db = await createNoydb({ store, user: 'alice', secret: SECRET })
     const vault = await db.openVault('v')
-    const people = vault.collection<Person, 'ssn'>('people', { perRecordKeys: true, sensitive: ['ssn'] })
+    const people = vault.collection<Person, { sensitive: 'ssn' }>('people', { perRecordKeys: true, sensitive: ['ssn'] })
     await people.put('p1', { id: 'p1', name: 'Ada', ssn: '123-45-6789' })
 
     const env = store._data.get('v')!.get('people')!.get('p1')!
@@ -128,7 +128,7 @@ describe('#306 Slice B — sealed fields keyed off the per-record CEK', () => {
     const store = memoryStore()
     const db = await createNoydb({ store, user: 'alice', secret: SECRET })
     const vault = await db.openVault('v')
-    const people = vault.collection<Person, 'ssn'>('people', { perRecordKeys: true, sensitive: ['ssn'] })
+    const people = vault.collection<Person, { sensitive: 'ssn' }>('people', { perRecordKeys: true, sensitive: ['ssn'] })
 
     // Reach the REAL collection DEK white-box.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -158,7 +158,7 @@ describe('#306 Slice B — sealed fields keyed off the per-record CEK', () => {
     // Fresh db/vault/collection on the SAME store to defeat any decrypt cache.
     const db2 = await createNoydb({ store, user: 'alice', secret: SECRET })
     const vault2 = await db2.openVault('v')
-    const people2 = vault2.collection<Person, 'ssn'>('people', { perRecordKeys: true, sensitive: ['ssn'] })
+    const people2 = vault2.collection<Person, { sensitive: 'ssn' }>('people', { perRecordKeys: true, sensitive: ['ssn'] })
     const rec = await people2.get('p1')
     expect(rec).not.toBeNull()
     expect(rec!.name).toBe('Ada')
@@ -176,7 +176,7 @@ describe('#306 Slice B — sealed fields keyed off the per-record CEK', () => {
     })
     const vault = await db.openVault('v')
     interface Subj { id: string; subjectId: string; name: string; ssn: string }
-    const people = vault.collection<Subj, 'ssn'>('people', { perRecordKeys: true, sensitive: ['ssn'] })
+    const people = vault.collection<Subj, { sensitive: 'ssn' }>('people', { perRecordKeys: true, sensitive: ['ssn'] })
     await people.put('p1', { id: 'p1', subjectId: 'data-subject-1', name: 'Ada', ssn: '123-45-6789' })
 
     // Capture the live sealed blob BEFORE forget.
@@ -207,7 +207,7 @@ describe('#306 Slice B — sealed fields keyed off the per-record CEK', () => {
     const store = memoryStore()
     const db = await createNoydb({ store, user: 'alice', secret: SECRET, sealedRecordStrategy: withSealedRecord() })
     const vault = await db.openVault('v')
-    const people = vault.collection<Person, 'ssn'>('people', { perRecordKeys: true, sensitive: ['ssn'] })
+    const people = vault.collection<Person, { sensitive: 'ssn' }>('people', { perRecordKeys: true, sensitive: ['ssn'] })
     await people.put('p1', { id: 'p1', name: 'Ada', ssn: '123-45-6789' })
 
     const before = store._data.get('v')!.get('people')!.get('p1')!
@@ -242,7 +242,7 @@ describe('#306 Slice B — sealed fields keyed off the per-record CEK', () => {
     try {
       const db = await createNoydb({ store: memoryStore(), user: 'alice', secret: SECRET })
       const vault = await db.openVault('v')
-      vault.collection<Person, 'ssn'>('people', { perRecordKeys: true, sensitive: ['ssn'] })
+      vault.collection<Person, { sensitive: 'ssn' }>('people', { perRecordKeys: true, sensitive: ['ssn'] })
       const fired = warn.mock.calls.some((call) =>
         call.some((arg) => typeof arg === 'string' &&
           (arg.includes('record-scoped sealing (#306)') || arg.includes('leaves its sealed fields recoverable'))),

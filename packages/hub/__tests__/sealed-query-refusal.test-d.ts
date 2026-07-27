@@ -16,7 +16,7 @@ async function typedVault() {
 describe('Query sensitive-field refusal (real vault.collection API)', () => {
   it('refuses where()/orderBy() on a sensitive field when opted in via the 2nd generic', async () => {
     const vault = await typedVault()
-    const people = vault.collection<Person, 'ssn'>('people', { sensitive: ['ssn'] })
+    const people = vault.collection<Person, { sensitive: 'ssn' }>('people', { sensitive: ['ssn'] })
     const q = people.query()
     // @ts-expect-error — 'ssn' is sealed; refused at compile time
     q.where('ssn', '==', 'x')
@@ -36,7 +36,7 @@ describe('Query sensitive-field refusal (real vault.collection API)', () => {
   it('ties the runtime sensitive array to the 2nd generic (no drift)', async () => {
     const vault = await typedVault()
     // @ts-expect-error — declared sensitive 'ssn' but runtime array lists a different field
-    vault.collection<Person, 'ssn'>('people', { sensitive: ['name'] })
+    vault.collection<Person, { sensitive: 'ssn' }>('people', { sensitive: ['name'] })
   })
 
   it('plain collection (no sensitive) keeps where() permissive', async () => {
@@ -50,7 +50,7 @@ describe('Query sensitive-field refusal (real vault.collection API)', () => {
 describe('ScanBuilder sensitive-field refusal', () => {
   it('refuses scan().where() on a sensitive field', async () => {
     const vault = await typedVault()
-    const people = vault.collection<Person, 'ssn'>('people', { sensitive: ['ssn'] })
+    const people = vault.collection<Person, { sensitive: 'ssn' }>('people', { sensitive: ['ssn'] })
     const s = people.scan()
     // @ts-expect-error — sealed field refused in scan
     s.where('ssn', '==', 'x')
@@ -68,7 +68,7 @@ describe('LazyQuery sensitive-field refusal', () => {
   it('refuses lazyQuery().where()/orderBy() on a sensitive field', async () => {
     const vault = await typedVault()
     // lazyQuery requires lazy mode (prefetch: false)
-    const people = vault.collection<Person, 'ssn'>('people', { sensitive: ['ssn'], prefetch: false })
+    const people = vault.collection<Person, { sensitive: 'ssn' }>('people', { sensitive: ['ssn'], prefetch: false })
     const lq = people.lazyQuery()
     // @ts-expect-error — sealed field refused in lazy where
     lq.where('ssn', '==', 'x')
@@ -81,28 +81,28 @@ describe('LazyQuery sensitive-field refusal', () => {
 describe('index-declaration sensitive-field refusal', () => {
   it('refuses indexing / det-encrypting / text-indexing a sensitive field', async () => {
     const vault = await typedVault()
-    vault.collection<Person, 'ssn'>('a', {
+    vault.collection<Person, { sensitive: 'ssn' }>('a', {
       sensitive: ['ssn'],
       // @ts-expect-error — cannot put a sealed field in a plaintext index
       indexes: ['ssn'],
     })
-    vault.collection<Person, 'ssn'>('b', {
+    vault.collection<Person, { sensitive: 'ssn' }>('b', {
       sensitive: ['ssn'],
       // @ts-expect-error — cannot put a sealed field in a composite index
       indexes: [{ fields: ['name', 'ssn'] }],
     })
-    vault.collection<Person, 'ssn'>('c', {
+    vault.collection<Person, { sensitive: 'ssn' }>('c', {
       sensitive: ['ssn'],
       // @ts-expect-error — sealed field cannot be deterministically encrypted here
       deterministicFields: ['ssn'],
     })
-    vault.collection<Person, 'ssn'>('ct', {
+    vault.collection<Person, { sensitive: 'ssn' }>('ct', {
       sensitive: ['ssn'],
       // @ts-expect-error — sealed field cannot be lexically (text-)indexed here
       textIndexes: ['ssn'],
     })
     // Non-sensitive fields index fine on the same collection:
-    vault.collection<Person, 'ssn'>('d', { sensitive: ['ssn'], indexes: ['name', 'age'] })
+    vault.collection<Person, { sensitive: 'ssn' }>('d', { sensitive: ['ssn'], indexes: ['name', 'age'] })
   })
 
   it('keeps index options permissive without sensitive fields', async () => {
@@ -114,7 +114,7 @@ describe('index-declaration sensitive-field refusal', () => {
 describe('groupBy sensitive-field refusal', () => {
   it('refuses groupBy on a sensitive field; allows non-sensitive', async () => {
     const vault = await typedVault()
-    const people = vault.collection<Person, 'ssn'>('people', { sensitive: ['ssn'] })
+    const people = vault.collection<Person, { sensitive: 'ssn' }>('people', { sensitive: ['ssn'] })
     const q = people.query()
     // @ts-expect-error — grouping BY a sealed field leaks its values as group keys
     q.groupBy('ssn')
@@ -136,7 +136,7 @@ describe('Q = indexed-only where() refusal (opt-in 3rd generic)', () => {
   interface Rec { id: string; name: string; ssn: string; status: string }
   it('restricts where() to indexed fields; orderBy stays free', async () => {
     const vault = await typedVault()
-    const c = vault.collection<Rec, never, 'status'>('c', { indexes: ['status'] })
+    const c = vault.collection<Rec, { indexed: 'status' }>('c', { indexes: ['status'] })
     c.query().where('status', '==', 'x')          // ok — indexed
     // @ts-expect-error — 'name' is not indexed; use .scan()
     c.query().where('name', '==', 'x')
@@ -149,7 +149,7 @@ describe('Q = indexed-only where() refusal (opt-in 3rd generic)', () => {
   })
   it('Q composes with S: where = indexed minus sensitive', async () => {
     const vault = await typedVault()
-    const c = vault.collection<Rec, 'ssn', 'status' | 'ssn'>('c3', { sensitive: ['ssn'], indexes: ['status'] })
+    const c = vault.collection<Rec, { sensitive: 'ssn'; indexed: 'status' | 'ssn' }>('c3', { sensitive: ['ssn'], indexes: ['status'] })
     c.query().where('status', '==', 'x')           // ok
     // @ts-expect-error — ssn is indexed-declared but sensitive -> still refused
     c.query().where('ssn', '==', 'x')
@@ -157,14 +157,14 @@ describe('Q = indexed-only where() refusal (opt-in 3rd generic)', () => {
   it('ties the indexes array to Q (no drift)', async () => {
     const vault = await typedVault()
     // @ts-expect-error — 'region' not in declared Q 'status'
-    vault.collection<Rec, never, 'status'>('c4', { indexes: ['region'] })
+    vault.collection<Rec, { indexed: 'status' }>('c4', { indexes: ['region'] })
   })
 })
 
 describe('aggregate() builder-form sensitive refusal', () => {
   it('refuses a sensitive field in the builder form; bare-spec form unchanged', async () => {
     const vault = await typedVault()
-    const people = vault.collection<Person, 'ssn'>('people', { sensitive: ['ssn'] })
+    const people = vault.collection<Person, { sensitive: 'ssn' }>('people', { sensitive: ['ssn'] })
     const q = people.query()
     q.aggregate(b => ({ total: b.sum('age'), n: b.count() }))   // ok
     // @ts-expect-error — sensitive field refused in the typed builder form
@@ -177,7 +177,7 @@ describe('aggregate() builder-form sensitive refusal', () => {
 describe('scan().aggregate() builder-form sensitive refusal', () => {
   it('refuses a sensitive field in the scan builder form; bare-spec unchanged', async () => {
     const vault = await typedVault()
-    const people = vault.collection<Person, 'ssn'>('people', { sensitive: ['ssn'] })
+    const people = vault.collection<Person, { sensitive: 'ssn' }>('people', { sensitive: ['ssn'] })
     const s = people.scan()
     s.aggregate(b => ({ total: b.sum('age'), n: b.count() }))   // ok
     // @ts-expect-error — sensitive field refused in the typed scan builder form
@@ -189,7 +189,7 @@ describe('scan().aggregate() builder-form sensitive refusal', () => {
 describe('groupBy().aggregate() builder-form sensitive refusal', () => {
   it('refuses a sensitive reducer field in a grouped aggregate', async () => {
     const vault = await typedVault()
-    const people = vault.collection<Person, 'ssn'>('people', { sensitive: ['ssn'] })
+    const people = vault.collection<Person, { sensitive: 'ssn' }>('people', { sensitive: ['ssn'] })
     const g = people.query().groupBy('name')          // group field already S-refused (#512)
     g.aggregate(b => ({ total: b.sum('age'), n: b.count() }))   // ok
     // @ts-expect-error — sensitive reducer field refused in the grouped builder form
@@ -202,7 +202,7 @@ describe('Q = indexed-only lazyQuery().where() refusal', () => {
   interface LRec { id: string; name: string; status: string }
   it('restricts lazyQuery().where() to indexed fields; orderBy stays free', async () => {
     const vault = await typedVault()
-    const c = vault.collection<LRec, never, 'status'>('lc', { indexes: ['status'], prefetch: false })
+    const c = vault.collection<LRec, { indexed: 'status' }>('lc', { indexes: ['status'], prefetch: false })
     const lq = c.lazyQuery()
     lq.where('status', '==', 'x')           // ok — indexed
     // @ts-expect-error — 'name' not indexed; lazy where requires an index
@@ -220,7 +220,7 @@ describe('money-field generic M — aggregate builder auto-types money fields', 
   interface Sale { id: string; amount: number; tax: number; qty: number }
   it('b.sum on a money field is MoneyString; non-money is number; opt-in via 4th generic', async () => {
     const vault = await typedVault()
-    const sales = vault.collection<Sale, never, never, 'amount' | 'tax'>('sales', {
+    const sales = vault.collection<Sale, { money: 'amount' | 'tax' }>('sales', {
       moneyFields: { amount: money({ currency: 'EUR', scale: 2 }), tax: money({ currency: 'EUR', scale: 2 }) },
     })
     const q = sales.query()
@@ -249,7 +249,7 @@ describe('money-field generic M — scan() & groupBy() aggregate builders auto-t
 
   it('scan().aggregate(b => …): money field → MoneyString, non-money → number', async () => {
     const vault = await typedVault()
-    const sales = vault.collection<Sale, never, never, 'amount' | 'tax'>('sales-scan', {
+    const sales = vault.collection<Sale, { money: 'amount' | 'tax' }>('sales-scan', {
       moneyFields: { amount: money({ currency: 'EUR', scale: 2 }), tax: money({ currency: 'EUR', scale: 2 }) },
     })
     // ScanBuilder.aggregate is async → Promise<AggregateResult<Spec>>; Awaited unwraps it.
@@ -261,7 +261,7 @@ describe('money-field generic M — scan() & groupBy() aggregate builders auto-t
 
   it('groupBy().aggregate(b => …): money field → MoneyString, non-money → number', async () => {
     const vault = await typedVault()
-    const sales = vault.collection<Sale, never, never, 'amount' | 'tax'>('sales-grp', {
+    const sales = vault.collection<Sale, { money: 'amount' | 'tax' }>('sales-grp', {
       moneyFields: { amount: money({ currency: 'EUR', scale: 2 }), tax: money({ currency: 'EUR', scale: 2 }) },
     })
     // groupBy by a non-money key; the aggregate fields are intersected onto each
