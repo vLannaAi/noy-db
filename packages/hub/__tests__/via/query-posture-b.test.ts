@@ -14,9 +14,10 @@
  * directly, mirroring `via/classified-binding.test.ts` / `via/blob-binding.test.ts`.
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb, count, sum, FieldNotQueryableError } from '../../src/index.js'
+import { createNoydb, FieldNotQueryableError } from '../../src/index.js'
+import { count, sum } from '../../src/with-lookup/reduce/index.js'
 import { classified, withClassified } from '../../src/via/classified/index.js'
-import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
+import { withReduce } from '../../src/with-lookup/reduce/index.js'
 import { moneyBinding } from '../../src/via/money/binding.js'
 import { i18nBinding } from '../../src/via/i18n/binding.js'
 import { classifiedBinding } from '../../src/via/classified/binding.js'
@@ -119,7 +120,7 @@ describe('PARITY: classified fields in the query DSL (unchanged by the Task 8 fl
   it('aggregate() count() over a classified-field collection does not throw', async () => {
     const db = await createNoydb({
       store: inlineMemory(), user: 'a', secret: 'pw-parity-1b',
-      classifiedStrategy: withClassified(), aggregateStrategy: withAggregate(),
+      classifiedStrategy: withClassified(), reduceStrategy: withReduce(),
     })
     const v = await db.openVault('v1')
     const c = v.collection<{ id: string; pan: string; name: string }>('cards', {
@@ -132,7 +133,7 @@ describe('PARITY: classified fields in the query DSL (unchanged by the Task 8 fl
   it('aggregate() sum() bare-spec over a recoverable classified field does not throw (silently sums to 0 — known pre-existing gap, not this task\'s scope)', async () => {
     const db = await createNoydb({
       store: inlineMemory(), user: 'a', secret: 'pw-parity-1c',
-      classifiedStrategy: withClassified(), aggregateStrategy: withAggregate(),
+      classifiedStrategy: withClassified(), reduceStrategy: withReduce(),
     })
     const v = await db.openVault('v1')
     const c = v.collection<{ id: string; pan: string; name: string }>('cards', {
@@ -237,7 +238,7 @@ describe('TDD (#629 Task 8): blobFields refuse .where()/.orderBy()/.aggregate() 
   interface Doc { id: string; title: string; receipt: string }
 
   async function docsVault() {
-    const db = await createNoydb({ store: inlineMemory(), user: 'a', secret: 'pw-blob-1', aggregateStrategy: withAggregate() })
+    const db = await createNoydb({ store: inlineMemory(), user: 'a', secret: 'pw-blob-1', reduceStrategy: withReduce() })
     const v = await db.openVault('v1')
     const c = v.collection<Doc>('docs', { blobFields: { receipt: {} } })
     await c.put('d1', { id: 'd1', title: 'x', receipt: 'unused-placeholder' })

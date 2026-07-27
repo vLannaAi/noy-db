@@ -1,31 +1,31 @@
 /**
- * Active aggregate strategy factory. Calling `withAggregate()` returns
- * an `AggregateStrategy` whose methods construct real `Aggregation` /
+ * Active aggregate strategy factory. Calling `withReduce()` returns
+ * an `ReduceStrategy` whose methods construct real `Reduction` /
  * `GroupedQuery` instances and run the streaming reducer protocol.
  *
- * This module is only reachable through the `@noy-db/hub/aggregate`
+ * This module is only reachable through the `@noy-db/hub/reduce`
  * subpath — a consumer that never imports the subpath ships none of
  * this (ESM tree-shaking + hub's `"sideEffects": false`).
  */
 
-import { Aggregation, reduceRecords } from './aggregation.js'
-import type { AggregateSpec, AggregateResult } from './aggregation.js'
+import { Reduction, reduceRecords } from './reduction.js'
+import type { ReduceSpec, ReduceResult } from './reduction.js'
 import { GroupedQuery, GroupedQueryN } from './groupby.js'
-import type { AggregateStrategy } from './strategy.js'
+import type { ReduceStrategy } from './strategy.js'
 
 /**
  * Build the default aggregate strategy. Pass into
- * `createNoydb({ aggregateStrategy: withAggregate() })` to light up
+ * `createNoydb({ reduceStrategy: withReduce() })` to light up
  * `.aggregate()` and `.groupBy()` on `Query` and `ScanBuilder`.
  *
  * @example
  * ```ts
  * import { createNoydb } from '@noy-db/hub'
- * import { withAggregate, sum, count } from '@noy-db/hub/aggregate'
+ * import { withReduce, sum, count } from '@noy-db/hub/reduce'
  *
  * const db = await createNoydb({
  *   store, user, secret,
- *   aggregateStrategy: withAggregate(),
+ *   reduceStrategy: withReduce(),
  * })
  *
  * const totals = invoices.query()
@@ -35,10 +35,10 @@ import type { AggregateStrategy } from './strategy.js'
  *   .run()
  * ```
  */
-export function withAggregate(): AggregateStrategy {
+export function withReduce(): ReduceStrategy {
   return {
     aggregate(executeRecords, spec, upstreams) {
-      return new Aggregation(executeRecords, spec as unknown as AggregateSpec, upstreams) as unknown as Aggregation<AggregateResult<typeof spec>>
+      return new Reduction(executeRecords, spec as unknown as ReduceSpec, upstreams) as unknown as Reduction<ReduceResult<typeof spec>>
     },
     groupBy(executeRecords, field, upstreams, dictLabelResolver, via) {
       return new GroupedQuery(executeRecords, field, upstreams, dictLabelResolver, via)
@@ -49,7 +49,7 @@ export function withAggregate(): AggregateStrategy {
     async scanAggregate(iter, spec) {
       const collected: unknown[] = []
       for await (const record of iter) collected.push(record)
-      return reduceRecords(collected, spec as unknown as AggregateSpec) as unknown as AggregateResult<typeof spec>
+      return reduceRecords(collected, spec as unknown as ReduceSpec) as unknown as ReduceResult<typeof spec>
     },
   }
 }

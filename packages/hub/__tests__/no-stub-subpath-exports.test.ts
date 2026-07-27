@@ -33,7 +33,7 @@ const OWNED: ReadonlyArray<readonly [string, string]> = [
   ['NO_SNAPSHOTS', './snapshots'],
   ['NO_SYNC', './sync'],
   ['NO_INDEXING', './indexing'],
-  ['NO_AGGREGATE', './aggregate'],
+  ['NO_REDUCE', './reduce'],
   ['NO_CONSENT', './consent'],
   ['NO_PERIODS', './periods'],
 ]

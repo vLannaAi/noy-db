@@ -7,21 +7,10 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import {
-  Query,
-  count,
-  sum,
-  avg,
-  min,
-  max,
-  groupAndReduce,
-  resetGroupByWarnings,
-  GROUPBY_WARN_CARDINALITY,
-  GROUPBY_MAX_CARDINALITY,
-  type QuerySource,
-} from '../src/kernel/query/index.js'
-import { withAggregate } from '../src/with-lookup/aggregate/index.js'
-const AGG = withAggregate()
+import { Query, type QuerySource } from '../src/kernel/query/index.js'
+import { count, sum, avg, min, max, groupAndReduce, resetGroupByWarnings, GROUPBY_WARN_CARDINALITY, GROUPBY_MAX_CARDINALITY } from '../src/with-lookup/reduce/index.js'
+import { withReduce } from '../src/with-lookup/reduce/index.js'
+const AGG = withReduce()
 import { GroupCardinalityError } from '../src/kernel/errors.js'
 
 interface Invoice {

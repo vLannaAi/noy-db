@@ -14,7 +14,7 @@ import { validateMoneyFieldPaths } from './paths.js'
 import { moneyFieldClause, evaluateMoneyClause, moneyIndexProbe, type MoneyWhereOperand } from './where.js'
 import { wrapMoneyReducers } from './money-reducer.js'
 import type { Operator } from '../../kernel/query/predicate.js'
-import type { AggregateSpec } from '../../with-lookup/aggregate/aggregation.js'
+import type { ReduceSpec } from '../../with-lookup/reduce/reduction.js'
 
 /** #669 — the money binder's config bag. `virtualMoneyFields` is the money∩virtual-mode-
  *  computed field-name intersection (`kernel/collection-config.ts#resolveVirtualMoneyFields`);
@@ -68,7 +68,7 @@ export function moneyBinding(moneyFields: Record<string, MoneyDescriptor>, virtu
       if (bv === null) return -1
       return av < bv ? -1 : av > bv ? 1 : 0
     },
-    wrapReducers: (spec) => wrapMoneyReducers(spec as AggregateSpec, moneyFields),
+    wrapReducers: (spec) => wrapMoneyReducers(spec as ReduceSpec, moneyFields),
   }
 }
 

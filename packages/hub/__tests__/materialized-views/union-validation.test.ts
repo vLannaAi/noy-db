@@ -1,9 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import {
-  withMaterializedView,
-  sum,
-  MaterializedViewConfigError,
-} from '../../src/index.js'
+import { withMaterializedView, MaterializedViewConfigError } from '../../src/index.js'
+import { sum } from '../../src/with-lookup/reduce/index.js'
 import type { Query } from '../../src/kernel/query/builder.js'
 
 const dummyQuery = (): Query<Record<string, unknown>> =>

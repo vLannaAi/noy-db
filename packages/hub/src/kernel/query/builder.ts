@@ -14,11 +14,11 @@ import { applyJoins } from './join.js'
 import { CrossJoinTooLargeError, CrossJoinSourceUnknownError, FieldNotQueryableError } from '../errors.js'
 import type { LiveQuery, LiveUpstream } from './live.js'
 import { buildLiveQuery } from './live.js'
-import type { AggregateSpec, AggregateResult, AggregationUpstream, Aggregation } from '../../with-lookup/aggregate/aggregation.js'
-import type { ReducerBuilder } from '../../with-lookup/aggregate/reducers.js'
-import { reducerBuilder } from '../../with-lookup/aggregate/reducers.js'
-import type { GroupedQuery, GroupedQueryN } from '../../with-lookup/aggregate/groupby.js'
-import { NO_AGGREGATE, type AggregateStrategy } from '../../with-lookup/aggregate/strategy.js'
+import type { ReduceSpec, ReduceResult, ReductionUpstream, Reduction } from '../../with-lookup/reduce/reduction.js'
+import type { ReducerBuilder } from '../../with-lookup/reduce/reducers.js'
+import { reducerBuilder } from '../../with-lookup/reduce/reducers.js'
+import type { GroupedQuery, GroupedQueryN } from '../../with-lookup/reduce/groupby.js'
+import { NO_REDUCE, type ReduceStrategy } from '../../with-lookup/reduce/strategy.js'
 import type { ViaPipeline } from '../via/pipeline.js'
 
 export interface OrderBy {
@@ -140,20 +140,20 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
   private readonly source: InternalSource
   private readonly plan: QueryPlan
   private readonly joinContext: JoinContext | undefined
-  private readonly aggregateStrategy: AggregateStrategy
+  private readonly reduceStrategy: ReduceStrategy
   private readonly predicates: ReadonlyMap<string, DeclaredPredicate> | undefined
 
   constructor(
     source: QuerySource<T>,
     plan: QueryPlan = EMPTY_PLAN,
     joinContext?: JoinContext,
-    aggregateStrategy: AggregateStrategy = NO_AGGREGATE,
+    reduceStrategy: ReduceStrategy = NO_REDUCE,
     predicates?: ReadonlyMap<string, DeclaredPredicate>,
   ) {
     this.source = source as InternalSource
     this.plan = plan
     this.joinContext = joinContext
-    this.aggregateStrategy = aggregateStrategy
+    this.reduceStrategy = reduceStrategy
     this.predicates = predicates
   }
 
@@ -186,7 +186,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       this.source as QuerySource<T>,
       this.plan,
       this.joinContext,
-      this.aggregateStrategy,
+      this.reduceStrategy,
       predicates,
     )
   }
@@ -264,7 +264,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
       this.joinContext,
-      this.aggregateStrategy,
+      this.reduceStrategy,
       this.predicates,
     )
   }
@@ -306,7 +306,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
       this.joinContext,
-      this.aggregateStrategy,
+      this.reduceStrategy,
       this.predicates,
     )
   }
@@ -318,7 +318,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    */
   or(builder: (q: Query<T, S, Q, M>) => Query<T, S, Q, M>): Query<T, S, Q, M> {
     const sub = builder(
-      new Query<T, S, Q, M>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.aggregateStrategy, this.predicates),
+      new Query<T, S, Q, M>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.reduceStrategy, this.predicates),
     )
     const group: GroupClause = {
       type: 'group',
@@ -329,7 +329,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, group] },
       this.joinContext,
-      this.aggregateStrategy,
+      this.reduceStrategy,
       this.predicates,
     )
   }
@@ -340,7 +340,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    */
   and(builder: (q: Query<T, S, Q, M>) => Query<T, S, Q, M>): Query<T, S, Q, M> {
     const sub = builder(
-      new Query<T, S, Q, M>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.aggregateStrategy, this.predicates),
+      new Query<T, S, Q, M>(this.source as QuerySource<T>, EMPTY_PLAN, this.joinContext, this.reduceStrategy, this.predicates),
     )
     const group: GroupClause = {
       type: 'group',
@@ -351,7 +351,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, group] },
       this.joinContext,
-      this.aggregateStrategy,
+      this.reduceStrategy,
       this.predicates,
     )
   }
@@ -366,7 +366,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
       this.joinContext,
-      this.aggregateStrategy,
+      this.reduceStrategy,
       this.predicates,
     )
   }
@@ -387,7 +387,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       this.source as QuerySource<T>,
       { ...this.plan, orderBy: [...this.plan.orderBy, entry] },
       this.joinContext,
-      this.aggregateStrategy,
+      this.reduceStrategy,
       this.predicates,
     )
   }
@@ -398,7 +398,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       this.source as QuerySource<T>,
       { ...this.plan, limit: n },
       this.joinContext,
-      this.aggregateStrategy,
+      this.reduceStrategy,
       this.predicates,
     )
   }
@@ -409,7 +409,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       this.source as QuerySource<T>,
       { ...this.plan, offset: n },
       this.joinContext,
-      this.aggregateStrategy,
+      this.reduceStrategy,
       this.predicates,
     )
   }
@@ -521,7 +521,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       this.source as unknown as QuerySource<T & Record<As, R | null>>,
       { ...this.plan, joins: [...this.plan.joins, leg] },
       this.joinContext,
-      this.aggregateStrategy,
+      this.reduceStrategy,
       this.predicates,
     )
   }
@@ -617,7 +617,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       this.source as unknown as QuerySource<T & { [K in As]: TTarget }>,
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
       this.joinContext,
-      this.aggregateStrategy,
+      this.reduceStrategy,
       this.predicates,
     )
   }
@@ -721,9 +721,9 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    *   .run()
    * ```
    *
-   * Returns an `Aggregation<R>` wrapper with two terminals:
+   * Returns an `Reduction<R>` wrapper with two terminals:
    *   - `.run(): R` — synchronous one-shot reduction
-   *   - `.live(): LiveAggregation<R>` — reactive primitive that
+   *   - `.live(): LiveReduction<R>` — reactive primitive that
    *     re-runs the reduction whenever the source notifies of a
    *     change. Always call `live.stop()` when finished.
    *
@@ -759,11 +759,11 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * aggregates over a collection with sensitive fields.
    *
    */
-  aggregate<Spec extends AggregateSpec>(spec: Spec): Aggregation<AggregateResult<Spec>>
-  aggregate<Spec extends AggregateSpec>(build: (b: ReducerBuilder<T, S, M>) => Spec): Aggregation<AggregateResult<Spec>>
-  aggregate<Spec extends AggregateSpec>(
+  aggregate<Spec extends ReduceSpec>(spec: Spec): Reduction<ReduceResult<Spec>>
+  aggregate<Spec extends ReduceSpec>(build: (b: ReducerBuilder<T, S, M>) => Spec): Reduction<ReduceResult<Spec>>
+  aggregate<Spec extends ReduceSpec>(
     specOrBuild: Spec | ((b: ReducerBuilder<T, S, M>) => Spec),
-  ): Aggregation<AggregateResult<Spec>> {
+  ): Reduction<ReduceResult<Spec>> {
     let spec = typeof specOrBuild === 'function'
       ? (specOrBuild as (b: ReducerBuilder<T, S, M>) => Spec)((reducerBuilder as unknown) as ReducerBuilder<T, S, M>)
       : specOrBuild
@@ -794,13 +794,13 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     // Upstream for live mode — only the left source subscribes.
     // Joined aggregations are out of scope for (see above), so
     // there are no right-side change streams to merge in.
-    const upstreams: AggregationUpstream[] = []
+    const upstreams: ReductionUpstream[] = []
     if (source.subscribe) {
       const subscribe = source.subscribe.bind(source)
       upstreams.push({ subscribe: (cb: () => void) => subscribe(cb) })
     }
 
-    return this.aggregateStrategy.aggregate<Spec>(executeRecords, spec, upstreams)
+    return this.reduceStrategy.aggregate<Spec>(executeRecords, spec, upstreams)
   }
 
   /**
@@ -879,7 +879,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
         : filterRecords(candidates, remainingClauses, fnViewDecoder(source))
     }
 
-    const upstreams: AggregationUpstream[] = []
+    const upstreams: ReductionUpstream[] = []
     if (source.subscribe) {
       const subscribe = source.subscribe.bind(source)
       upstreams.push({ subscribe: (cb: () => void) => subscribe(cb) })
@@ -890,7 +890,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     if (fields.length === 1) {
       const field = fields[0]!
       const dictLabelResolver = buildDictLabelResolver(this.joinContext, field)
-      return this.aggregateStrategy.groupBy<T, string, S, M>(
+      return this.reduceStrategy.groupBy<T, string, S, M>(
         executeRecords,
         field,
         upstreams,
@@ -898,7 +898,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
         this.source.via,
       )
     }
-    return this.aggregateStrategy.groupByN<T, readonly string[], S, M>(
+    return this.reduceStrategy.groupByN<T, readonly string[], S, M>(
       executeRecords,
       fields,
       upstreams,

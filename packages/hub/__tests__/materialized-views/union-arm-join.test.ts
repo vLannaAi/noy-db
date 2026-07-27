@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withMaterializedView, ref } from '../../src/index.js'
-import { sum } from '../../src/with-lookup/aggregate/reducers.js'
-import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
+import { sum } from '../../src/with-lookup/reduce/reducers.js'
+import { withReduce } from '../../src/with-lookup/reduce/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 function memory(): NoydbStore {
@@ -63,7 +63,7 @@ describe('UNION MV — per-arm join (#347 / AU+031)', () => {
       user: 'alice',
       secret: 'mv-union-armjoin-basic-secret-2026',
       materializedViewStrategies: [byRegion],
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('books')
     vault.collection<Client>('clients')
@@ -109,7 +109,7 @@ describe('UNION MV — per-arm join (#347 / AU+031)', () => {
       user: 'alice',
       secret: 'mv-union-armjoin-rhs-refresh-secret-2026',
       materializedViewStrategies: [byRegion],
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('books')
     vault.collection<Client>('clients')
@@ -157,7 +157,7 @@ describe('UNION MV — per-arm join (#347 / AU+031)', () => {
       user: 'alice',
       secret: 'mv-union-armjoin-dangling-secret-2026',
       materializedViewStrategies: [byRegion],
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('books')
     vault.collection<Client>('clients')
@@ -231,7 +231,7 @@ describe('UNION MV — per-arm join (#347 / AU+031)', () => {
       user: 'alice',
       secret: 'mv-union-armjoin-mixed-secret-2026',
       materializedViewStrategies: [byRegion],
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('books')
     vault.collection<Client>('clients')

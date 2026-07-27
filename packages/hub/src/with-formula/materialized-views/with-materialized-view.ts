@@ -217,7 +217,7 @@ export function withMaterializedView<TRow extends Record<string, unknown>>(
   }
   // i18nLocale + i18nFields drive compute-time i18n resolution of group-key
   // i18nText fields before bucketing — UNION mode (resolved on the unified rows)
-  // AND query mode (resolved in GroupedAggregation.run before groupAndReduce).
+  // AND query mode (resolved in GroupedReduction.run before groupAndReduce).
   // i18nLocale without i18nFields cannot resolve anything, so reject it early.
   if (spec.i18nLocale !== undefined && spec.i18nFields === undefined) {
     throw new MaterializedViewConfigError(

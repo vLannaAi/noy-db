@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { createNoydb, withMaterializedView, sum } from '../../src/index.js'
-import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
+import { createNoydb, withMaterializedView } from '../../src/index.js'
+import { sum } from '../../src/with-lookup/reduce/index.js'
+import { withReduce } from '../../src/with-lookup/reduce/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 function memory(): NoydbStore {
@@ -101,7 +102,7 @@ describe('UNION MV — basic 2-source (#165)', () => {
       user: 'alice',
       secret: 'mv-union-basic-secret-2026',
       materializedViewStrategies: [monthlyVat],
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('demo')
 
@@ -149,7 +150,7 @@ describe('UNION MV — basic 2-source (#165)', () => {
       user: 'alice',
       secret: 'mv-union-arms-independent-secret-2026',
       materializedViewStrategies: [totals],
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('demo')
 
@@ -228,7 +229,7 @@ describe('UNION MV — combined with multi-key groupBy (#165 + #166)', () => {
       user: 'alice',
       secret: 'mv-union-multikey-niwat-secret-2026',
       materializedViewStrategies: [monthlyOutputVat],
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('demo')
 
@@ -302,7 +303,7 @@ describe('UNION MV — edges (#165)', () => {
       user: 'alice',
       secret: 'mv-union-three-source-secret-2026',
       materializedViewStrategies: [totals],
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('demo')
 
@@ -359,7 +360,7 @@ describe('UNION MV — edges (#165)', () => {
       user: 'alice',
       secret: 'mv-union-onempty-auto-tombstone-secret-2026',
       materializedViewStrategies: [totals],
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('demo')
     const a = vault.collection<ArmRowA>('a')
@@ -411,7 +412,7 @@ describe('UNION MV — edges (#165)', () => {
       user: 'alice',
       secret: 'mv-union-onempty-tombstone-secret-2026',
       materializedViewStrategies: [totals],
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('demo')
 

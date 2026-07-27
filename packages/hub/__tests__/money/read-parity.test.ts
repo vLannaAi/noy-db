@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../../src/index.js'
-import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
-import { sum } from '../../src/with-lookup/aggregate/reducers.js'
+import { withReduce } from '../../src/with-lookup/reduce/index.js'
+import { sum } from '../../src/with-lookup/reduce/reducers.js'
 import { money } from '../../src/via/money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
@@ -42,7 +42,7 @@ function memory(): NoydbStore {
 interface Sale extends Record<string, unknown> { id: string; total: number | string }
 
 async function salesVault(defaultLocale?: string) {
-  const db = await createNoydb({ store: memory(), user: 'op', secret: 'pilot3-money-parity-2026-exact', aggregateStrategy: withAggregate() })
+  const db = await createNoydb({ store: memory(), user: 'op', secret: 'pilot3-money-parity-2026-exact', reduceStrategy: withReduce() })
   const v = await db.openVault('books')
   v.collection<Sale>('sales', {
     schema: z.object({ id: z.string(), total: z.union([z.number(), z.string()]) }),

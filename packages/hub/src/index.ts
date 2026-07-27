@@ -1101,23 +1101,6 @@ export {
   DEFAULT_JOIN_MAX_ROWS,
   DEFAULT_CROSS_JOIN_MAX_ROWS,
   buildLiveQuery,
-  count,
-  sum,
-  avg,
-  min,
-  max,
-  moneySum,
-  moneyMin,
-  moneyMax,
-  reducerBuilder,
-  Aggregation,
-  reduceRecords,
-  GroupedQuery,
-  GroupedQueryN,
-  GroupedAggregation,
-  groupAndReduce,
-  GROUPBY_WARN_CARDINALITY,
-  GROUPBY_MAX_CARDINALITY,
   ScanBuilder,
 } from './kernel/query/index.js'
 export type {
@@ -1137,15 +1120,6 @@ export type {
   JoinStrategy,
   LiveQuery,
   LiveUpstream,
-  Reducer,
-  ReducerOptions,
-  ReducerBuilder,
-  AggregateSpec,
-  AggregateResult,
-  AggregationUpstream,
-  LiveAggregation,
-  GroupedRow,
-  GroupedRowN,
   ScanPageProvider,
 } from './kernel/query/index.js'
 
@@ -1178,6 +1152,5 @@ export { PersistedIndexCompensationError } from './kernel/errors.js'
 // type-reachability guard now fails the build when a new one appears.
 export type { EnclaveKey, EncryptResult } from './kernel/enclave/index.js'
 export type { LookupBacking } from './via/lookup/descriptor.js'
-export type { MinMaxState } from './with-lookup/aggregate/reducers.js'
 export type { PolicyEnforcerOptions } from './with-party/session/session-policy.js'
 export type { TransformFn } from './with-shape/schema-update/types.js'

@@ -3,8 +3,8 @@ import { createNoydb, withGuard, InvariantError } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 import { ConflictError } from '../../src/kernel/errors.js'
 import { ReadOnlyVaultFacade } from '../../src/with-audit/guards/read-only-facade.js'
-import { sum } from '../../src/with-lookup/aggregate/reducers.js'
-import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
+import { sum } from '../../src/with-lookup/reduce/reducers.js'
+import { withReduce } from '../../src/with-lookup/reduce/index.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -82,7 +82,7 @@ describe('ReadOnlyVaultFacade', () => {
       store: memory(),
       user: 'alice',
       secret: 'guards-readonly-facade-query-secret-2026',
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('demo')
     const widgets = vault.collection<{ name: string; price: number }>('widgets')
@@ -134,7 +134,7 @@ describe('ReadOnlyVaultFacade', () => {
       user: 'alice',
       secret: 'guards-readonly-facade-aggregate-secret-2026',
       guardStrategies: [allocationGuard],
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('demo')
     const payments = vault.collection<Payment>('payments')

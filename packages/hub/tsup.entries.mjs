@@ -17,7 +17,7 @@ export const ENTRIES = {
   'blobs/index': 'src/via/blob/index.ts',
   'indexing/index': 'src/with-lookup/indexing/index.ts',
   'lazy/index': 'src/with-store/lazy/index.ts',
-  'aggregate/index': 'src/with-lookup/aggregate/index.ts',
+  'reduce/index': 'src/with-lookup/reduce/index.ts',
   'crdt/index': 'src/with-commit/crdt/index.ts',
   'pod/index': 'src/with-pod/index.ts',
   'consent/index': 'src/with-audit/consent/index.ts',

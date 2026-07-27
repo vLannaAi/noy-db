@@ -1,12 +1,12 @@
 /**
- * Aggregation reducers for the query DSL.
+ * Reduction reducers for the query DSL.
  *
  * the reducer protocol plus five built-in factories
  * (`count`, `sum`, `avg`, `min`, `max`) consumed by `Query.aggregate()`
  * and, in the future, `Scan.aggregate()`. Every factory accepts
  * an optional `{ seed }` parameter that is plumbed through the
  * protocol but unused by the executor — that's the load-bearing
- * half of  constraint #2. When partition-aware aggregation
+ * half of  constraint #2. When partition-aware reduction
  * lands, the seed carries the previous partition's running total into
  * the next partition without requiring a protocol change.
  *
@@ -19,7 +19,7 @@
  * Reducers are pure data — `init` / `step` / `finalize` / optional
  * `remove` are stateless functions that receive and return `S`. This
  * is the shape that admits O(1) incremental maintenance in a future
- * optimization (delta-aware `LiveAggregation` applies `step` or
+ * optimization (delta-aware `LiveReduction` applies `step` or
  * `remove` per delta), without blocking the simpler "full re-run on
  * source change" that ships.
  */
@@ -33,19 +33,19 @@ import type { QueryField } from '../../kernel/types.js'
  * `.aggregate()` spec.
  *
  * Type parameters:
- *   - `R` — user-visible result type (what the aggregation returns
+ *   - `R` — user-visible result type (what the reduction returns
  *     for this slot, e.g. `number` for `sum()`)
  *   - `S` — internal state type, defaults to `R` for simple reducers
  *     that don't need compound bookkeeping
  *
  * A reducer is stateless: every method is pure over `S`. `init()` is
- * called once per aggregation run to build the initial state; `step()`
+ * called once per reduction run to build the initial state; `step()`
  * folds a record into the state; `remove()` (optional) un-folds a
  * record, enabling incremental live maintenance; `finalize()` reads
  * the final answer out of the state at the end of the run.
  */
 export interface Reducer<R, S = R> {
-  /** Build the initial state for a fresh aggregation run. */
+  /** Build the initial state for a fresh reduction run. */
   init(): S
   /** Fold a record into the state. Returns the new state. */
   step(state: S, record: unknown): S
@@ -66,7 +66,7 @@ export interface Reducer<R, S = R> {
    * Combine two independent partial states into one (then `finalize` once).
    * Optional. MUST be associative + commutative with `init()` as identity.
    * Never merge finalized results — only states. Enables parallel /
-   * hierarchical aggregation (e.g. cross-shard or advisor→firm rollup).
+   * hierarchical reduction (e.g. cross-shard or advisor→firm rollup).
    */
   merge?(a: S, b: S): S
   /**
@@ -98,10 +98,10 @@ export interface Reducer<R, S = R> {
  *
  * `seed` — optional initial value for the internal state. **Unused by
  * the executor**, plumbed through the protocol for  constraint
- * #2 (partition-aware aggregation seam). In, partitioned
- * aggregations will pass the previous partition's carry as `seed` so
+ * #2 (partition-aware reduction seam). In, partitioned
+ * reductions will pass the previous partition's carry as `seed` so
  * a long time series can be rolled forward one partition at a time
- * without re-aggregating closed partitions.
+ * without re-reducing closed partitions.
  *
  * always uses `init()` with the factory's zero value, regardless
  * of whether `seed` was passed. Do not remove the parameter — that's

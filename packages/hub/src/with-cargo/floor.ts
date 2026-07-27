@@ -12,8 +12,8 @@
 
 // ─── runtime helpers ──────────────────────────────────────────────
 export { readPath } from '../kernel/query/predicate.js'
-export { reduceRecords } from '../with-lookup/aggregate/aggregation.js'
-export { groupAndReduce } from '../with-lookup/aggregate/groupby.js'
+export { reduceRecords } from '../with-lookup/reduce/reduction.js'
+export { groupAndReduce } from '../with-lookup/reduce/groupby.js'
 export { generateULID } from '../with-pod/ulid.js'
 export { sha256Hex } from '../kernel/enclave/index.js'
 // Coordination port — the stable drain-barrier seam an outward
@@ -53,10 +53,10 @@ export type { Query } from '../kernel/query/builder.js'
 export type { JoinStrategy } from '../kernel/query/join.js'
 export type { LiveQuery } from '../kernel/query/live.js'
 export type {
-  AggregateResult,
-  AggregateSpec,
-  LiveAggregation,
-} from '../with-lookup/aggregate/aggregation.js'
+  ReduceResult,
+  ReduceSpec,
+  LiveReduction,
+} from '../with-lookup/reduce/reduction.js'
 export type { IndexDef } from '../with-lookup/indexing/eager-indexes.js'
 // Rank-fusion types
 export type { FuseOptions } from '../with-lookup/search/fuse.js'

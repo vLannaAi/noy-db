@@ -61,12 +61,12 @@
 
 import { readPath } from '../../kernel/query/predicate.js'
 import type {
-  AggregateSpec,
-  AggregateResult,
-  AggregationUpstream,
-  LiveAggregation,
-} from './aggregation.js'
-import { buildLiveAggregation } from './aggregation.js'
+  ReduceSpec,
+  ReduceResult,
+  ReductionUpstream,
+  LiveReduction,
+} from './reduction.js'
+import { buildLiveReduction } from './reduction.js'
 import type { ReducerBuilder } from './reducers.js'
 import { reducerBuilder } from './reducers.js'
 import { canonicalGroupKey } from './canonical-key.js'
@@ -119,7 +119,7 @@ export function resetGroupByWarnings(): void {
 }
 
 /**
- * Result row shape for a grouped aggregation. Each row carries the
+ * Result row shape for a grouped reduction. Each row carries the
  * group key value under the grouping field name plus every reducer
  * output from the spec.
  *
@@ -166,7 +166,7 @@ abstract class GroupedQueryBase {
   constructor(
     protected readonly executeRecords: () => readonly unknown[],
     fieldOrFields: string | readonly string[],
-    protected readonly upstreams: readonly AggregationUpstream[],
+    protected readonly upstreams: readonly ReductionUpstream[],
     /**
      * Optional dict label resolver attached by the query builder when
      * the grouping field is a dictKey. Variadic groupings always pass
@@ -190,24 +190,24 @@ abstract class GroupedQueryBase {
   }
 
   /** Apply Via-aware reducer rewriting (e.g. money) when the source declares one. */
-  protected wrapSpec<Spec extends AggregateSpec>(spec: Spec): Spec {
+  protected wrapSpec<Spec extends ReduceSpec>(spec: Spec): Spec {
     return this.via ? this.via.wrapReducers(spec) : spec
   }
 }
 
 /**
  * Chainable wrapper returned by `Query.groupBy(field)`. Terminates
- * with `.aggregate(spec)` which returns a `GroupedAggregation`.
+ * with `.aggregate(spec)` which returns a `GroupedReduction`.
  *
  * Kept minimal — the only operation on a grouped query is
- * aggregation. Ordering, limiting, and further filtering belong on
+ * reduction. Ordering, limiting, and further filtering belong on
  * the underlying `Query` before `.groupBy()` is called; applying
  * them post-group would be a different operation (`having` /
  * `groupOrderBy`), out of scope for.
  */
 export class GroupedQuery<T, F extends string, S extends keyof T = never, M extends keyof T & string = never> extends GroupedQueryBase {
   /**
-   * Build a grouped aggregation. Returns a `GroupedAggregation`
+   * Build a grouped reduction. Returns a `GroupedReduction`
    * with `.run()`, `.runAsync()`, and `.live()` terminals — same shape
    * as the non-grouped `.aggregate()` wrapper, just with an array
    * result (one row per bucket) instead of a single reduced object.
@@ -219,18 +219,18 @@ export class GroupedQuery<T, F extends string, S extends keyof T = never, M exte
    * declared `moneyFields` (`M`) member return a `MoneyString`. The
    * bare-spec overload is preserved for backward compatibility.
    */
-  aggregate<Spec extends AggregateSpec>(spec: Spec): GroupedAggregation<GroupedRow<F, AggregateResult<Spec>>>
-  aggregate<Spec extends AggregateSpec>(build: (b: ReducerBuilder<T, S, M>) => Spec): GroupedAggregation<GroupedRow<F, AggregateResult<Spec>>>
-  aggregate<Spec extends AggregateSpec>(
+  aggregate<Spec extends ReduceSpec>(spec: Spec): GroupedReduction<GroupedRow<F, ReduceResult<Spec>>>
+  aggregate<Spec extends ReduceSpec>(build: (b: ReducerBuilder<T, S, M>) => Spec): GroupedReduction<GroupedRow<F, ReduceResult<Spec>>>
+  aggregate<Spec extends ReduceSpec>(
     specOrBuild: Spec | ((b: ReducerBuilder<T, S, M>) => Spec),
-  ): GroupedAggregation<GroupedRow<F, AggregateResult<Spec>>> {
+  ): GroupedReduction<GroupedRow<F, ReduceResult<Spec>>> {
     const spec: Spec = typeof specOrBuild === 'function'
       ? (specOrBuild as (b: ReducerBuilder<T, S, M>) => Spec)(reducerBuilder as unknown as ReducerBuilder<T, S, M>)
       : specOrBuild
     // T is phantom on the wrapper so consumers can still see the
     // source row type on hover. Reference it to keep lint quiet.
     void undefined as T | undefined
-    return new GroupedAggregation<GroupedRow<F, AggregateResult<Spec>>>(
+    return new GroupedReduction<GroupedRow<F, ReduceResult<Spec>>>(
       this.executeRecords,
       this.fields,
       this.wrapSpec(spec),
@@ -246,16 +246,16 @@ export class GroupedQuery<T, F extends string, S extends keyof T = never, M exte
  * identical — only the type-level result-row narrowing differs.
  */
 export class GroupedQueryN<T, F extends readonly string[], S extends keyof T = never, M extends keyof T & string = never> extends GroupedQueryBase {
-  aggregate<Spec extends AggregateSpec>(spec: Spec): GroupedAggregation<GroupedRowN<F, AggregateResult<Spec>>>
-  aggregate<Spec extends AggregateSpec>(build: (b: ReducerBuilder<T, S, M>) => Spec): GroupedAggregation<GroupedRowN<F, AggregateResult<Spec>>>
-  aggregate<Spec extends AggregateSpec>(
+  aggregate<Spec extends ReduceSpec>(spec: Spec): GroupedReduction<GroupedRowN<F, ReduceResult<Spec>>>
+  aggregate<Spec extends ReduceSpec>(build: (b: ReducerBuilder<T, S, M>) => Spec): GroupedReduction<GroupedRowN<F, ReduceResult<Spec>>>
+  aggregate<Spec extends ReduceSpec>(
     specOrBuild: Spec | ((b: ReducerBuilder<T, S, M>) => Spec),
-  ): GroupedAggregation<GroupedRowN<F, AggregateResult<Spec>>> {
+  ): GroupedReduction<GroupedRowN<F, ReduceResult<Spec>>> {
     const spec: Spec = typeof specOrBuild === 'function'
       ? (specOrBuild as (b: ReducerBuilder<T, S, M>) => Spec)(reducerBuilder as unknown as ReducerBuilder<T, S, M>)
       : specOrBuild
     void undefined as T | undefined
-    return new GroupedAggregation<GroupedRowN<F, AggregateResult<Spec>>>(
+    return new GroupedReduction<GroupedRowN<F, ReduceResult<Spec>>>(
       this.executeRecords,
       this.fields,
       this.wrapSpec(spec),
@@ -267,7 +267,7 @@ export class GroupedQueryN<T, F extends readonly string[], S extends keyof T = n
 
 /**
  * Execute the group-and-reduce pipeline. Pure function over a
- * record array and a spec — shared by `GroupedAggregation.run()`
+ * record array and a spec — shared by `GroupedReduction.run()`
  * and the live-mode refresh path. Exported for tests and for any
  * future `scan().groupBy().aggregate()` reuse.
  *
@@ -279,7 +279,7 @@ export class GroupedQueryN<T, F extends readonly string[], S extends keyof T = n
 export function groupAndReduce<R>(
   records: readonly unknown[],
   fieldOrFields: string | readonly string[],
-  spec: AggregateSpec,
+  spec: ReduceSpec,
   moneyFields?: Record<string, MoneyDescriptor>,
 ): R[] {
   const fields: readonly string[] =
@@ -288,7 +288,7 @@ export function groupAndReduce<R>(
     throw new Error('.groupBy() requires at least one field')
   }
 
-  // Money-aware aggregation: when the caller declares money descriptors
+  // Money-aware reduction: when the caller declares money descriptors
   // for output/intermediate fields, rewrite any `sum`/`min`/`max` over
   // them into exact BigInt reducers before bucketing. Omitted → spec
   // passes through unchanged (backward compatible). The chainable
@@ -298,7 +298,7 @@ export function groupAndReduce<R>(
   // kernel's Via port rather than a Query-attached pipeline — `moneyFields`
   // here is the MV spec's OWN descriptor map, not a collection's.
   if (moneyFields) {
-    spec = viaBinder('money')({ moneyFields }).wrapReducers!(spec) as AggregateSpec
+    spec = viaBinder('money')({ moneyFields }).wrapReducers!(spec) as ReduceSpec
   }
 
   // Bucket value is { keyValues, records } so the output row can stamp
@@ -371,8 +371,8 @@ export function groupAndReduce<R>(
 }
 
 /**
- * Grouped aggregation wrapper — the `.groupBy(field).aggregate(spec)`
- * terminal. Shape mirrors `Aggregation<R>` from aggregate.ts: two
+ * Grouped reduction wrapper — the `.groupBy(field).aggregate(spec)`
+ * terminal. Shape mirrors `Reduction<R>` from aggregate.ts: two
  * terminals (`.run()` and `.live()`), spec bound at construction
  * time, upstreams collected for live mode.
  *
@@ -380,14 +380,14 @@ export function groupAndReduce<R>(
  * grouped row), and the terminals return `R[]` — one row per
  * bucket.
  */
-export class GroupedAggregation<R> {
+export class GroupedReduction<R> {
   private readonly fields: readonly string[]
 
   constructor(
     private readonly executeRecords: () => readonly unknown[],
     fields: string | readonly string[],
-    private readonly spec: AggregateSpec,
-    private readonly upstreams: readonly AggregationUpstream[],
+    private readonly spec: ReduceSpec,
+    private readonly upstreams: readonly ReductionUpstream[],
     /**
      * Optional dict label resolver for `<field>Label` projection
      *. Present when the grouping field is a dictKey.
@@ -463,10 +463,10 @@ export class GroupedAggregation<R> {
   }
 
   /**
-   * Build a reactive `LiveAggregation<R[]>` that re-runs the full
+   * Build a reactive `LiveReduction<R[]>` that re-runs the full
    * group-and-reduce pipeline whenever any upstream source notifies
    * of a change. Same error-isolation and idempotent-stop contract
-   * as `Aggregation.live()` — the implementation delegates to the
+   * as `Reduction.live()` — the implementation delegates to the
    * same `LiveAggregationImpl` class by threading a fresh
    * recompute closure through the existing constructor.
    *
@@ -478,9 +478,9 @@ export class GroupedAggregation<R> {
    *
    * Always call `live.stop()` when finished.
    */
-  live(): LiveAggregation<R[]> {
+  live(): LiveReduction<R[]> {
     const recompute = (): R[] =>
       groupAndReduce<R>(this.executeRecords(), this.fields, this.spec)
-    return buildLiveAggregation<R[]>(recompute, this.upstreams)
+    return buildLiveReduction<R[]>(recompute, this.upstreams)
   }
 }

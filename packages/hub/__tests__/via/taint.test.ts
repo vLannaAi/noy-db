@@ -25,10 +25,11 @@
  * `presentRedactFields`.
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb, count, sum, FieldNotQueryableError } from '../../src/index.js'
+import { createNoydb, FieldNotQueryableError } from '../../src/index.js'
+import { count, sum } from '../../src/with-lookup/reduce/index.js'
 import { withClassified } from '../../src/via/classified/index.js'
 import type { ClassifiedFieldSpec } from '../../src/via/classified/index.js'
-import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
+import { withReduce } from '../../src/with-lookup/reduce/index.js'
 import { SealedHandle } from '../../src/index.js'
 import { money } from '../../src/via/money/descriptor.js'
 import { inlineMemory } from '../classified/harness.js'
@@ -53,7 +54,7 @@ async function leakVault(secret: string) {
   const store = inlineMemory()
   const db = await createNoydb({
     store, user: 'a', secret,
-    classifiedStrategy: withClassified(), aggregateStrategy: withAggregate(),
+    classifiedStrategy: withClassified(), reduceStrategy: withReduce(),
   })
   const v = await db.openVault('v1')
   const c = v.collection<Person>('people', {

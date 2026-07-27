@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { createNoydb, withMaterializedView, sum, count } from '../../src/index.js'
-import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
+import { createNoydb, withMaterializedView } from '../../src/index.js'
+import { sum, count } from '../../src/with-lookup/reduce/index.js'
+import { withReduce } from '../../src/with-lookup/reduce/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 // #331 — single-arm union: map→group→aggregate over ONE collection with a
@@ -81,7 +82,7 @@ async function openWithMv() {
     user: 'alice',
     secret: 'mv-union-single-arm-secret-2026',
     materializedViewStrategies: [whtByMonth()],
-    aggregateStrategy: withAggregate(),
+    reduceStrategy: withReduce(),
   })
   const vault = await db.openVault('demo')
   return { db, vault, receipts: vault.collection<Receipt>('receipts') }

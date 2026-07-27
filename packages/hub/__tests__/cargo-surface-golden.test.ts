@@ -24,13 +24,13 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import * as cargo from '../src/with-cargo/index.js'
 import type {
-  AccessibleVault, AggregateResult, AggregateSpec, ChangeEvent, Collection,
+  AccessibleVault, ReduceResult, ReduceSpec, ChangeEvent, Collection,
   AdoptPartitionOptions, AdoptPartitionResult, ClosureResult, CollectionMeta,
   CoordinationProvider, CreateOwnerManagedOptions, CreateOwnerOptions, CreateOwnerResult,
   CreateOwnerStandardOptions, DanglingRefNotice, DecryptedRecord, DeedMarker, DrainBarrierOptions,
   ExtractPartitionOptions, ExtractPartitionResult, TransferSealPayload, WalkClosureOptions,
   ExtractionPreview, FenceState, FuseOptions, GrantCustodianOptions, IndexDef, JoinStrategy,
-  LiberateOptions, LiberateResult, LiveAggregation, LiveQuery, Noydb, Operator,
+  LiberateOptions, LiberateResult, LiveReduction, LiveQuery, Noydb, Operator,
   Query, RetrieveHit, RetrieveOptions, SealingKeyProvider, Unsubscribe, Vault,
   VaultMeta, WriteConflict, WriteHook, WriteQueue, WriterPresence,
 } from '../src/with-cargo/index.js'
@@ -96,7 +96,7 @@ describe('@noy-db/hub/cargo — golden export surface', () => {
 // Compile-time exhaustiveness: every baselined type must still be exported.
 // A removal/rename breaks `typecheck` here in addition to the source-parse test.
 type _FrozenTypes = [
-  AccessibleVault, AggregateResult<AggregateSpec>, AggregateSpec, ChangeEvent,
+  AccessibleVault, ReduceResult<ReduceSpec>, ReduceSpec, ChangeEvent,
   Collection<Record<string, unknown>>, CollectionMeta, CoordinationProvider,
   AdoptPartitionOptions, AdoptPartitionResult, ClosureResult,
   CreateOwnerManagedOptions, CreateOwnerOptions, CreateOwnerResult, CreateOwnerStandardOptions,
@@ -104,7 +104,7 @@ type _FrozenTypes = [
   ExtractPartitionResult, ExtractionPreview, TransferSealPayload, WalkClosureOptions,
   FenceState, FuseOptions, GrantCustodianOptions,
   IndexDef, JoinStrategy, LiberateOptions, LiberateResult,
-  LiveAggregation<Record<string, unknown>>, LiveQuery<Record<string, unknown>>,
+  LiveReduction<Record<string, unknown>>, LiveQuery<Record<string, unknown>>,
   Noydb, Operator, Query<Record<string, unknown>>, RetrieveHit<Record<string, unknown>>,
   RetrieveOptions, SealingKeyProvider, Unsubscribe, Vault, VaultMeta,
   WriteConflict, WriteHook, WriteQueue, WriterPresence,

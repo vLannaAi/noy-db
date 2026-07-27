@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { createNoydb, withMaterializedView, sum, GroupedAggregation } from '../../src/index.js'
-import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
+import { createNoydb, withMaterializedView } from '../../src/index.js'
+import { sum, GroupedReduction } from '../../src/with-lookup/reduce/index.js'
+import { withReduce } from '../../src/with-lookup/reduce/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 function memory(): NoydbStore {
@@ -51,7 +52,7 @@ interface Pnd1Row extends Record<string, unknown> {
 
 describe('withMaterializedView — multi-key groupBy inside query() (#166)', () => {
   it('refreshes a per-(clientId, period) MV when source rows are added', async () => {
-    // Aggregate-shape MV — query() returns a GroupedAggregation. The
+    // Aggregate-shape MV — query() returns a GroupedReduction. The
     // dependency analyzer cannot walk through groupBy().aggregate()
     // back to the source, so `sources` is declared explicitly per the
     // CLAUDE.md note.
@@ -61,7 +62,7 @@ describe('withMaterializedView — multi-key groupBy inside query() (#166)', () 
         db.collection<Compensation>('compensations')
           .query()
           .groupBy('clientId', 'period')
-          .aggregate({ total: sum('taxAmount') }) as GroupedAggregation<Pnd1Row>,
+          .aggregate({ total: sum('taxAmount') }) as GroupedReduction<Pnd1Row>,
       sources: ['compensations'],
       rowKey: row => `${row.clientId}|${row.period}`,
       refresh: 'eager',
@@ -72,7 +73,7 @@ describe('withMaterializedView — multi-key groupBy inside query() (#166)', () 
       user: 'alice',
       secret: 'mv-multikey-groupby-secret-2026',
       materializedViewStrategies: [pnd1Auto],
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('demo')
 

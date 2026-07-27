@@ -27,8 +27,8 @@ import { formatScaledInt, parseToScaledInt } from './fixed-point.js'
 import { scaleForCurrency } from './iso4217.js'
 import { MoneyUnsupportedError } from './descriptor.js'
 import type { MoneyDescriptor } from './descriptor.js'
-import type { Reducer } from '../../with-lookup/aggregate/reducers.js'
-import type { AggregateSpec } from '../../with-lookup/aggregate/aggregation.js'
+import type { Reducer } from '../../with-lookup/reduce/reducers.js'
+import type { ReduceSpec } from '../../with-lookup/reduce/reduction.js'
 
 export type FxRates = Record<string, number | string>
 
@@ -255,9 +255,9 @@ function moneyMinMaxReducer(
  * spec; the input is not mutated.
  */
 export function wrapMoneyReducers(
-  spec: AggregateSpec,
+  spec: ReduceSpec,
   moneyFields: Record<string, MoneyDescriptor>,
-): AggregateSpec {
+): ReduceSpec {
   let changed = false
   const out: Record<string, Reducer<unknown, unknown>> = {}
   for (const [key, reducer] of Object.entries(spec)) {

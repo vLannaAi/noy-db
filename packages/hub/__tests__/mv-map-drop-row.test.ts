@@ -10,8 +10,9 @@
  * omitted and only genuinely mapped rows flow into the aggregate.
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb, withMaterializedView, sum } from '../src/index.js'
-import { withAggregate } from '../src/with-lookup/aggregate/index.js'
+import { createNoydb, withMaterializedView } from '../src/index.js'
+import { sum } from '../src/with-lookup/reduce/index.js'
+import { withReduce } from '../src/with-lookup/reduce/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 
 function memory(): NoydbStore {
@@ -97,7 +98,7 @@ describe('UNION MV map drop-row (#297)', () => {
       user: 'alice',
       secret: 'mv-map-drop-row-secret-2026',
       materializedViewStrategies: [invoiceTotals],
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('demo')
 
@@ -166,7 +167,7 @@ describe('UNION MV map drop-row (#297)', () => {
       user: 'alice',
       secret: 'mv-map-drop-row-undef-secret-2026',
       materializedViewStrategies: [totals],
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('demo')
 

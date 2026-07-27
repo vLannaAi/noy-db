@@ -6,8 +6,9 @@
  *   2. Money-typed builder methods (`b.moneySum`) return a decimal string.
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb, sum, count, moneySum } from '../src/index.js'
-import { withAggregate } from '../src/with-lookup/aggregate/index.js'
+import { createNoydb } from '../src/index.js'
+import { sum, count, moneySum } from '../src/with-lookup/reduce/index.js'
+import { withReduce } from '../src/with-lookup/reduce/index.js'
 import { money } from '../src/via/money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 
@@ -46,7 +47,7 @@ async function ordersWith3() {
     store: memory(),
     user: 'alice',
     secret: 'aggregate-builder-secret-2026-test-x1',
-    aggregateStrategy: withAggregate(),
+    reduceStrategy: withReduce(),
   })
   const vault = await db.openVault('shop')
   const orders = vault.collection<Order>('orders', {

@@ -1,13 +1,13 @@
 /**
  * Aggregate execution — the runtime behind `Query.aggregate()`.
  *
- * takes an `AggregateSpec` (a record of named reducers
+ * takes an `ReduceSpec` (a record of named reducers
  * built from `reducers.ts`) and runs every reducer over the records
  * produced by the underlying query. Two terminal surfaces:
  *
  *   - `.run(): R` — synchronous one-shot reduction. Matches the
  *     existing `Query.toArray()` / `.first()` / `.count()` style.
- *   - `.live(): LiveAggregation<R>` — reactive primitive that
+ *   - `.live(): LiveReduction<R>` — reactive primitive that
  *     re-runs the reduction whenever the query's source notifies of
  *     a change. uses naive full re-run; incremental delta
  *     maintenance is admitted by the reducer protocol (`remove()`)
@@ -15,7 +15,7 @@
  *     can switch from full re-run to delta-based without breaking
  *     the public API. Consumers get correct, reactive values today.
  *
- * The `Aggregation<R>` wrapper is deliberately tiny — it exists so
+ * The `Reduction<R>` wrapper is deliberately tiny — it exists so
  * `.aggregate(spec)` can be chained with either `.run()` or `.live()`
  * without the builder needing two separate terminal methods. It
  * holds the closure over the query execution (produces the current
@@ -41,10 +41,10 @@ import type { Reducer } from './reducers.js'
  * }
  * ```
  */
-export type AggregateSpec = Readonly<Record<string, Reducer<unknown, unknown>>>
+export type ReduceSpec = Readonly<Record<string, Reducer<unknown, unknown>>>
 
 /**
- * Map an `AggregateSpec` to its reduced result shape — each key
+ * Map an `ReduceSpec` to its reduced result shape — each key
  * carries the finalized result type from its reducer. A spec built
  * from `{ total: sum('amount'), n: count() }` yields a result of
  * `{ total: number, n: number }`.
@@ -53,7 +53,7 @@ export type AggregateSpec = Readonly<Record<string, Reducer<unknown, unknown>>>
  * each `Reducer<R, _>`. The `infer` captures the user-visible result
  * type, discarding the internal state type `S`.
  */
-export type AggregateResult<Spec extends AggregateSpec> = {
+export type ReduceResult<Spec extends ReduceSpec> = {
   [K in keyof Spec]: Spec[K] extends Reducer<infer R, unknown> ? R : never
 }
 
@@ -61,15 +61,15 @@ export type AggregateResult<Spec extends AggregateSpec> = {
  * Pure reduction over a record array. Runs every reducer's
  * `init → step* → finalize` pipeline exactly once over the records.
  *
- * Called by `Aggregation.run()` and by the live-mode refresh path.
+ * Called by `Reduction.run()` and by the live-mode refresh path.
  * Exported for tests and for future `scan().aggregate()` reuse
  * — the streaming path will call the same reducer protocol with a
  * per-page loop instead of a single array.
  */
-export function reduceRecords<Spec extends AggregateSpec>(
+export function reduceRecords<Spec extends ReduceSpec>(
   records: readonly unknown[],
   spec: Spec,
-): AggregateResult<Spec> {
+): ReduceResult<Spec> {
   // Per-slot state, keyed by the spec's output field name.
   const state: Record<string, unknown> = {}
   for (const key of Object.keys(spec)) {
@@ -84,16 +84,16 @@ export function reduceRecords<Spec extends AggregateSpec>(
   for (const key of Object.keys(spec)) {
     result[key] = spec[key]!.finalize(state[key])
   }
-  return result as AggregateResult<Spec>
+  return result as ReduceResult<Spec>
 }
 
 /**
- * A minimal reactive primitive for aggregation results.
+ * A minimal reactive primitive for reduction results.
  *
  * Same spirit as the `LiveQuery` in : frame-agnostic, a plain
  * object with `value` / `error` fields and a `subscribe(cb)`
  * notification channel that Vue / React / Solid adapters wrap in
- * their own primitive. Intentionally NOT a Promise — aggregations
+ * their own primitive. Intentionally NOT a Promise — reductions
  * have a well-defined "current value" at every instant, and the
  * reactive consumer wants to read that value synchronously.
  *
@@ -110,7 +110,7 @@ export function reduceRecords<Spec extends AggregateSpec>(
  * Always call `stop()` when done; Vue's `onUnmounted` is the
  * canonical place. Raw consumers must do it themselves.
  */
-export interface LiveAggregation<R> {
+export interface LiveReduction<R> {
   /** Current reduced value. Undefined only if the first compute threw. */
   readonly value: R | undefined
   /** Last execution error, if any. Cleared on the next successful run. */
@@ -122,19 +122,19 @@ export interface LiveAggregation<R> {
 }
 
 /**
- * Upstream change-notification hook for live aggregation.
+ * Upstream change-notification hook for live reduction.
  *
  * Matches the shape that `QuerySource.subscribe` already uses — a
  * single method that accepts a callback and returns an unsubscribe
- * function. The `Aggregation` wrapper collects upstreams from the
+ * function. The `Reduction` wrapper collects upstreams from the
  * query's source and wires them into a single re-run trigger.
  */
-export interface AggregationUpstream {
+export interface ReductionUpstream {
   subscribe(cb: () => void): () => void
 }
 
 /**
- * Internal implementation of `LiveAggregation`. Not exported —
+ * Internal implementation of `LiveReduction`. Not exported —
  * consumers get the interface only. The class wraps a `recompute`
  * closure (which runs the full reduction and returns the new value)
  * and a list of upstreams (sources whose changes should trigger a
@@ -143,9 +143,9 @@ export interface AggregationUpstream {
  * Error isolation: if an individual listener callback throws, the
  * other listeners still fire and the error is logged to the warn
  * channel. This matches `LiveQuery` from  and keeps one misbehaving
- * consumer from tearing down the whole live aggregation.
+ * consumer from tearing down the whole live reduction.
  */
-class LiveAggregationImpl<R> implements LiveAggregation<R> {
+class LiveAggregationImpl<R> implements LiveReduction<R> {
   public value: R | undefined
   public error: unknown
   private readonly listeners = new Set<() => void>()
@@ -154,11 +154,11 @@ class LiveAggregationImpl<R> implements LiveAggregation<R> {
 
   constructor(
     private readonly recompute: () => R,
-    upstreams: readonly AggregationUpstream[],
+    upstreams: readonly ReductionUpstream[],
   ) {
     // Initial computation — surface any error through the `error`
     // field rather than letting the constructor throw, so consumers
-    // can always construct a LiveAggregation and check its state
+    // can always construct a LiveReduction and check its state
     // afterwards. Throwing from a constructor would force every
     // caller to wrap in try/catch, which is the opposite of the
     // "reactive value with error state" ergonomics we want.
@@ -194,8 +194,8 @@ class LiveAggregationImpl<R> implements LiveAggregation<R> {
         listener()
       } catch (err) {
         // Isolate listener errors so one bad consumer can't tear
-        // down every other subscriber on the same aggregation.
-        console.warn('[noy-db] LiveAggregation listener threw:', err)
+        // down every other subscriber on the same reduction.
+        console.warn('[noy-db] LiveReduction listener threw:', err)
       }
     }
   }
@@ -219,7 +219,7 @@ class LiveAggregationImpl<R> implements LiveAggregation<R> {
       try {
         unsub()
       } catch (err) {
-        console.warn('[noy-db] LiveAggregation upstream unsubscribe threw:', err)
+        console.warn('[noy-db] LiveReduction upstream unsubscribe threw:', err)
       }
     }
     this.unsubscribes.length = 0
@@ -240,14 +240,14 @@ class LiveAggregationImpl<R> implements LiveAggregation<R> {
  * `.aggregate(spec).live()`. Wrapping lets the spec be named once
  * and reused for either terminal, and keeps the `Query` class
  * from growing a pair of near-duplicate method overloads
- * (`aggregateRun` / `aggregateLive`) that would be harder to
+ * (`reduceRun` / `reduceLive`) that would be harder to
  * discover.
  */
-export class Aggregation<R> {
+export class Reduction<R> {
   constructor(
     private readonly executeRecords: () => readonly unknown[],
-    private readonly spec: AggregateSpec,
-    private readonly upstreams: readonly AggregationUpstream[],
+    private readonly spec: ReduceSpec,
+    private readonly upstreams: readonly ReductionUpstream[],
   ) {}
 
   /**
@@ -261,7 +261,7 @@ export class Aggregation<R> {
   }
 
   /**
-   * Build a reactive `LiveAggregation<R>` that re-runs the reduction
+   * Build a reactive `LiveReduction<R>` that re-runs the reduction
    * whenever any upstream source notifies of a change. The initial
    * value is computed eagerly in the constructor, so consumers can
    * read `live.value` immediately after calling `.live()`.
@@ -278,7 +278,7 @@ export class Aggregation<R> {
    * correct, reactive values today; future PRs can switch to
    * delta-based maintenance without changing this API.
    */
-  live(): LiveAggregation<R> {
+  live(): LiveReduction<R> {
     const recompute = (): R =>
       reduceRecords(this.executeRecords(), this.spec) as unknown as R
     return new LiveAggregationImpl<R>(recompute, this.upstreams)
@@ -286,16 +286,16 @@ export class Aggregation<R> {
 }
 
 /**
- * Build a `LiveAggregation<V>` from a recompute closure and a list
+ * Build a `LiveReduction<V>` from a recompute closure and a list
  * of upstreams. Exposed so sibling files in the query DSL
  * (currently `groupby.ts`) can reuse the reactive primitive
  * without reaching into `LiveAggregationImpl` directly. This keeps
  * the implementation class private while still allowing planned
  * composition with `.groupBy().aggregate().live()`.
  */
-export function buildLiveAggregation<V>(
+export function buildLiveReduction<V>(
   recompute: () => V,
-  upstreams: readonly AggregationUpstream[],
-): LiveAggregation<V> {
+  upstreams: readonly ReductionUpstream[],
+): LiveReduction<V> {
   return new LiveAggregationImpl<V>(recompute, upstreams)
 }

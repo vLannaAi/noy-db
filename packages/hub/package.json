@@ -64,10 +64,6 @@
       "types": "./dist/with-store/lazy/index.d.ts",
       "default": "./dist/lazy/index.js"
     },
-    "./aggregate": {
-      "types": "./dist/with-lookup/aggregate/index.d.ts",
-      "default": "./dist/aggregate/index.js"
-    },
     "./crdt": {
       "types": "./dist/with-commit/crdt/index.d.ts",
       "default": "./dist/crdt/index.js"
@@ -151,6 +147,10 @@
     "./to": {
       "types": "./dist/port/to/index.d.ts",
       "default": "./dist/to/index.js"
+    },
+    "./reduce": {
+      "types": "./dist/with-lookup/reduce/index.d.ts",
+      "default": "./dist/reduce/index.js"
     }
   },
   "module": "./dist/index.js",
