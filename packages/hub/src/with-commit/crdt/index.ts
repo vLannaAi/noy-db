@@ -27,3 +27,6 @@ export type {
   RgaState,
   YjsState,
 } from './crdt.js'
+
+/** The un-opted-in stub for this service — exported so callers can compare against it (#844). */
+export { NO_CRDT } from './strategy.js'
