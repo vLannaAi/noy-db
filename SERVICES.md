@@ -27,7 +27,7 @@ const db = await createNoydb({
 
 When a service is not opted into, its real implementation is replaced by a NO-OP stub (or a throwing stub on opt-in surfaces) and the heavy code is fully tree-shaken from the bundle.
 
-This document lists the always-on core and the service catalog (27 services). It is the table of contents for the rest of the documentation.
+This document lists the always-on core and the service catalog. It is the table of contents for the rest of the documentation. The catalog groups **27 capabilities** for teaching; `package.json` ships **33 subpaths plus the root barrel**, and the two do not map one-to-one — [Subpath inventory](#subpath-inventory) reconciles them and is authoritative.
 
 ---
 
@@ -55,24 +55,28 @@ Separate from services, the **Via port** is a unified field-feature declaration 
 
 ## The service catalog
 
-Each service has its own subpath export under `@noy-db/hub/<name>`, a `with<Name>()` factory, and a doc page at [`noy-db-docs/content/docs/services/<name>.md`](https://github.com/vLannaAi/noy-db-docs/tree/main/content/docs/services). The "LOC saved" column is the bundle weight a consumer avoids by **not** opting in.
+Most services have their own subpath export under `@noy-db/hub/<name>`, a `with<Name>()` factory, and a doc page at [`noy-db-docs/content/docs/services/<name>.md`](https://github.com/vLannaAi/noy-db-docs/tree/main/content/docs/services). The "LOC saved" column is the bundle weight a consumer avoids by **not** opting in.
+
+> **This table is the catalog, not the export list.** It groups capabilities for teaching; some rows are always-core rather than opt-in subpaths, and `package.json`'s `exports` carries entries this table does not (see [Subpath inventory](#subpath-inventory) for the authoritative two-way reconciliation). Two markers appear below:
+> **†** the subpath name does not match the `with<Name>()` factory — a known violation of the [naming contract](#the-naming-contract-844), tracked in #843.
+> **‡** shipped, but reachable only from the root barrel — it has no subpath of its own.
 
 ### Cluster A — Read & Query
 
 | # | Subpath | Headline | LOC saved | Pairs with |
 |---|---|---|---:|---|
 | 1 | `@noy-db/hub/indexing` | Eager + lazy persisted indexes (equality + orderBy dispatch) | 886 | `joins`, `lazy` |
-| 2 | `@noy-db/hub/joins` | Multi-FK eager joins (indexed nested-loop / hash strategy) | ~470 | `indexing`, `live` |
-| 3 | `@noy-db/hub/aggregate` | `count` / `sum` / `avg` / `min` / `max` + `groupBy` | 886 | `joins` |
-| 4 | `@noy-db/hub/live` | Reactive subscriptions (`.live()`, `.subscribe()`) | ~210 | `joins`, `crdt`, `sync` |
-| 22 | *(always-core)* | Cartesian + lateral cross-join — `.crossJoin(target, { as })` with 50K-row cost ceiling (Dim 11 v3) | — | `joins`, `aggregate` |
+| 2 | *(always-core — via `@noy-db/hub/query`)* | Multi-FK eager joins (indexed nested-loop / hash strategy) | ~470 | `indexing`, `live` |
+| 3 | `@noy-db/hub/reduce` | `count` / `sum` / `avg` / `min` / `max` + `groupBy` | 886 | `joins` |
+| 4 | *(always-core)* | Reactive subscriptions (`.live()`, `.subscribe()`) | ~210 | `joins`, `crdt`, `sync` |
+| 22 | *(always-core)* | Cartesian + lateral cross-join — `.crossJoin(target, { as })` with 50K-row cost ceiling (Dim 11 v3) | — | `joins`, `reduce` |
 
 ### Cluster B — Write & Mutate
 
 | # | Subpath | Headline | LOC saved | Pairs with |
 |---|---|---|---:|---|
 | 5 | `@noy-db/hub/history` | Versioning, diff, revert, time-machine, audit ledger (hash-chained) | 1,880 | `periods`, `consent`, `shadow`, `guards` |
-| 6 | `@noy-db/hub/transactions` | Multi-record atomic writes (`db.transaction(fn)`) | 280 | `history`, `sync`, `derivations`, `guards` |
+| 6 | `@noy-db/hub/tx` † | Multi-record atomic writes (`db.transaction(fn)`) | 280 | `history`, `sync`, `derivations`, `guards` |
 | 7 | `@noy-db/hub/crdt` | LWW-Map / RGA / Yjs interop | 221 | `live`, `sync` |
 
 ### Cluster C — Derived data
@@ -125,11 +129,42 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 
 | # | Subpath | Headline | LOC saved | Pairs with |
 |---|---|---|---:|---|
-| 17 | `@noy-db/hub/routing` | Multi-store routing + middleware + sync-policy | ~1,800 | `indexing`, `pod`, `lazy` |
+| 17 | *(no subpath — root barrel)* ‡ | Multi-store routing + middleware + sync-policy | ~1,800 | `indexing`, `pod`, `lazy` |
 | 26 | `@noy-db/hub/lazy` | Lazy mode — `prefetch: false` on-demand per-id reads over a bounded LRU working set (`withLazy()`; promoted out of `routing`, #267) | ~185 | `indexing` (persisted mirrors), `routing` |
 | 24 | *(preview)* | Multi-vault partition federation — `db.openVaultGroup()` transparent shard routing + `vault-registry` source-of-truth + `minVersion` fan-out guard (MVP, milestone 16) | — | `queryAcross`, `permissions` |
 
 **Totals:** ~17,440 LOC across all 27 services are tree-shake-able. A consumer using only the core ships ~6,500 LOC. A consumer opting into all 27 ships ~32,490 LOC.
+
+---
+
+<a id="subpath-inventory"></a>
+
+## Subpath inventory — the authoritative list
+
+`package.json`'s `exports` is the source of truth: **33 subpaths plus the root barrel**. The catalog above groups capabilities for teaching and does not map one-to-one onto it. This section reconciles the two, and is the list to check against when adding or removing an entry.
+
+### Shipped subpaths not represented as rows above
+
+`./attestation` · `./cargo` · `./forget` · `./i18n` · `./portability` · `./query` · `./reduce` · `./satellites` · `./sealed-record` · `./share-link` · `./tiers` · `./to` · `./tx` · `./util`
+
+Several are contract seams rather than services — `./cargo` (frozen orchestration seam for klum-db), `./to` (the store contract satellites bind), `./pod`, `./satellites`, `./util`, `./share-link`, `./query`. They are exports, not opt-in capabilities, and deliberately have no `with<Name>()` factory.
+
+### Shipped capabilities with **no** subpath
+
+Each is reachable only from the root barrel. Listed so the omission is a recorded decision rather than drift:
+
+| Capability | Seam | Why no subpath (yet) |
+|---|---|---|
+| `withSearch` | `strategy.ts` + `active.ts` + `NO_SEARCH` | A complete service seam. **Qualifies for one** — no reason on record. |
+| `withSequence` | `strategy.ts` + `active.ts` + `NO_SEQUENCE` | A complete service seam. **Qualifies for one** — no reason on record. |
+| `withCustody` | `strategy.ts` + `active.ts` + `NO_CUSTODY` | A complete service seam. **Qualifies for one** — no reason on record. |
+| `withArchive` | factory + `ArchiveStrategy`, **no `NO_*` stub** | Held as `ArchiveStrategy \| null` rather than a stub, so it does not yet match the service shape. Decide the stub first. |
+| `withLookup` | `active.ts`, no stub | **Deliberate** — `via/lookup/index.ts` records that its declaration surface (`lookup`/`enumOf`/`dict`) is re-exported from the root barrel instead. Note this makes it the only Via feature without one (`i18n`, `classified`, `blobs` each have theirs). |
+| routing / middleware | `with-store/` | 26 symbols on the root barrel (`routeStore`, `wrapStore`, the six `StoreMiddleware` factories). A `./store` subpath is the obvious home. |
+
+### Documented previously but never shipped
+
+`/joins` and `/live` are **always-core**, not subpaths — joins lives in `kernel/query/join.ts` and is reachable via `./query`. `/aggregate` was renamed `./reduce` in #843(a). `/transactions` has never existed; the export is `./tx`. `/metrics`, `/migrations`, `/partitioning`, and `/validation` remain under [Reserved future services](#reserved-future-services).
 
 ---
 
@@ -385,14 +420,16 @@ These three invariants make the catalog **load-bearing** rather than aspirationa
 
 **The subpath is canonical.** Every other name for a service derives from it mechanically:
 
-| Position | Rule | Example (`@noy-db/hub/transactions`) |
+| Position | Rule | Example (`@noy-db/hub/snapshots`) |
 |---|---|---|
-| Subpath | `@noy-db/hub/<name>` | `@noy-db/hub/transactions` |
-| Factory | `with<Name>()` | `withTransactions()` |
-| Return type | `<Name>Strategy` | `TransactionsStrategy` |
-| `createNoydb` option | `<name>Strategy` | `transactionsStrategy` |
-| Bag key | `strategies.<name>` | `strategies.transactions` |
-| Un-opted-in stub | `NO_<NAME>` | `NO_TRANSACTIONS` |
+| Subpath | `@noy-db/hub/<name>` | `@noy-db/hub/snapshots` |
+| Factory | `with<Name>()` | `withSnapshots()` |
+| Return type | `<Name>Strategy` | `SnapshotsStrategy` |
+| `createNoydb` option | `<name>Strategy` | `snapshotsStrategy` |
+| Bag key | `strategies.<name>` | `strategies.snapshots` |
+| Un-opted-in stub | `NO_<NAME>` | `NO_SNAPSHOTS` |
+
+**One service does not satisfy this yet.** `withTransactions()` returns `TransactionsStrategy` and is passed as `transactionsStrategy`, but its subpath is **`./tx`** — so the factory, type, and option agree with each other and not with the export. #844 named the types from the subpath this document *claimed* (`/transactions`), which had never shipped. Renaming `./tx` → `./transactions` closes it; tracked in #843.
 
 Three further rules:
 
