@@ -1,5 +1,147 @@
 # Changelog — hub
 
+## 0.4.0-pre.7
+
+### Minor Changes
+
+- Close the last service-subpath naming gaps and enforce the contract mechanically (#843).
+
+  **Breaking: `@noy-db/hub/tx` is now `@noy-db/hub/transactions`.**
+
+  ```diff
+  - import { withTransactions } from '@noy-db/hub/tx'
+  + import { withTransactions } from '@noy-db/hub/transactions'
+  ```
+
+  Nothing else about transactions changes — `withTransactions()`, `TransactionsStrategy`, and the
+  `transactionsStrategy` option are unchanged. This was the one service where the naming contract
+  did not hold: #844 named the types from the subpath `SERVICES.md` documented (`/transactions`),
+  which had never actually shipped.
+
+  **New subpaths** for three capabilities that already had a complete
+  `strategy.ts` + `active.ts` + `NO_*` seam but shipped reachable only from the root barrel. Their
+  exports are unchanged — they are simply importable from a themed subpath now, and tree-shake
+  accordingly:
+
+  - `@noy-db/hub/search` — `withSearch()`, `NO_SEARCH`, `SearchStrategy`
+  - `@noy-db/hub/sequence` — `withSequence()`, `NO_SEQUENCE`, `SequenceStrategy`
+  - `@noy-db/hub/custody` — `withCustody()`, `NO_CUSTODY`, `CustodyStrategy`
+
+  `withArchive` and `withLookup` deliberately keep no subpath; the reasons are recorded in
+  `SERVICES.md`.
+
+  **New guard:** `pnpm check:architecture` gains `service-subpath-naming`, which fails both when a
+  `with<Name>()` factory has no matching subpath and when a subpath has no factory producing it.
+
+- Remove 30 hub-internal team symbols from the public root barrel (#843 C2).
+
+  The team module exported 42 symbols reachable from no entry other than `@noy-db/hub` itself —
+  crypto, recovery, delegation and tier plumbing that was never meant to be public API.
+
+  **Removed** (no consumer outside the hub): `keyringRecoverSecret`, `DEED_RECORD_ID`,
+  `hasRecoveryEnrolled`, the four `*ShamirRecoveryEntr*` helpers, `PaperRecoveryDoc`,
+  `ShamirRecoveryEntry`, `ShamirRecoveryDoc`, `EnrollRecoveryResult`, `RotateRecoveryOptions`,
+  `RotateRecoveryResult`, `SealedSecret`, `SealedEnvelope`, `loadSealedSecret`, `saveSealedSecret`,
+  `parseSealedEnvelope`, `SEALED_SECRET_RECORD_ID`, `dekKey`, `effectiveClearance`,
+  `assertTierAccess`, the whole delegation surface (`DelegationToken`, `IssueDelegationOptions`,
+  `DELEGATIONS_COLLECTION`, `issueDelegation`, `loadActiveDelegations`, `revokeDelegation`),
+  `MAGIC_LINK_CONTENT_INFO_PREFIX` and `MAGIC_LINK_KEK_INFO_PREFIX`.
+
+  **Explicitly retained** — these are the `at-*`/`on-*` SPI, not internals, and are now identified
+  as contract rather than sitting on the barrel by default: `sealRsaOaepTlv`, `parseRsaOaepTlv`,
+  `aesGcmOpen`, `RecipientHint`, `RecipientSealer`, `SealingKeyProvider`, `MemorySealingKeyProvider`,
+  `MemoryRecipientSealer`, `ShamirRecoveryProvider`, `keyringRotateSecret`, `MagicLinkGrantPayload`,
+  `MagicLinkGrantRecord`, `IssueMagicLinkGrantOptions`, `MAGIC_LINK_GRANTS_COLLECTION`.
+
+  If you were importing one of the removed symbols, it was hub-internal plumbing — please open an
+  issue describing the use case so it can be given a supported home.
+
+  Root barrel: **874 → 844** symbols.
+
+- Four more themed subpaths, completing #843(c):
+
+  - **`@noy-db/hub/cover`** — vault cover record: schema, storage, validation
+  - **`@noy-db/hub/schema-update`** — `SchemaDelta` plus the `blindUpdate` / `additiveOnly` / `lockSchema` strategies
+  - **`@noy-db/hub/policy`** — gate policy presets, engine and storage
+  - **`@noy-db/hub/directory`** — directory config, user visibility, and the user-envelope surface
+
+  `@noy-db/hub/introspection` (added in the previous release) gains the eight symbols it was missing:
+  `SchemaIntrospection`, `FieldMeta`, `SemanticType`, `CollectionDescription`, `DescribedField`,
+  `DescribeOptions`, `applyListProjection`, `ListProjectionOptions`.
+
+  `@noy-db/hub/team` gains the auth-config introspection functions `describeAuthConfig`,
+  `diagramAuthConfig`, `describeUserAuth` and `describeAllUsersAuth` — they are part of the
+  `db.team.*` facade.
+
+  **Nothing is removed.** Every symbol remains available from `@noy-db/hub`; the subpaths exist so
+  the surface is navigable and tree-shakeable.
+
+- Three new subpaths for symbols that previously had no home but the root barrel (#843 C3a):
+
+  - **`@noy-db/hub/store`** — `routeStore`, `wrapStore`, and the six `StoreMiddleware` factories
+    (`withRetry`, `withLogging`, `withMetrics`, `withCircuitBreaker`, `withCache`, `withHealthCheck`)
+  - **`@noy-db/hub/introspection`** — `dumpVaultSchema` plus the describe/meta descriptor types
+  - **`@noy-db/hub/money`** — the `money()` field descriptor and its arithmetic helpers
+
+  **Nothing is removed.** Each symbol is still re-exported from `@noy-db/hub`, matching how
+  `@noy-db/hub/classified` and `@noy-db/hub/i18n` have always been dual-homed. The subpaths exist so
+  the surface is navigable and tree-shakeable — importing from one lets a bundler drop the rest.
+
+  ```ts
+  import { money } from "@noy-db/hub/money"; // new, tree-shakeable
+  import { money } from "@noy-db/hub"; // still works
+  ```
+
+- Conform the `with*()` service catalog to one naming contract (#844, #846b), and write that
+  contract into `SERVICES.md` as a governance rule so it stops drifting.
+
+  **The rule: the subpath is canonical.** `@noy-db/hub/<name>` → `with<Name>()` → `<Name>Strategy`
+  → `<name>Strategy:` option → `strategies.<name>` → `NO_<NAME>`.
+
+  **Breaking — `createNoydb` option keys** (rename the key; the factory call is unchanged):
+
+  | Before             | After                  |
+  | ------------------ | ---------------------- |
+  | `blobStrategy`     | `blobsStrategy`        |
+  | `indexStrategy`    | `indexingStrategy`     |
+  | `snapshotStrategy` | `snapshotsStrategy`    |
+  | `txStrategy`       | `transactionsStrategy` |
+
+  **Breaking — exported type names:** `BlobStrategy` → `BlobsStrategy`, `IndexStrategy` →
+  `IndexingStrategy`, `SnapshotStrategy` → `SnapshotsStrategy`, `TxStrategy` →
+  `TransactionsStrategy`, `TransactionStrategyOptions` → `WithTransactionsOptions`, `NO_TX` →
+  `NO_TRANSACTIONS`. `BlobsService` is gone — `withBlobs()` now returns `BlobsStrategy`, which
+  absorbed `cacheStats()`, so the service has exactly one name (`NO_BLOBS` answers with zeros).
+
+  **Breaking — `withForgetCascade` is now `withForget`**, matching its `/forget` subpath.
+
+  **Breaking — `Strategy` no longer means two opposite things.** For the four services you
+  _declare_ rather than merely enable, the argument type is now `<Name>Spec` and the result is
+  `<Name>Strategy` (was `<Name>Strategy` and `<Name>StrategyHandle` respectively):
+  `GuardSpec`/`GuardStrategy`, `DerivationSpec`/`DerivationStrategy`,
+  `MaterializedViewSpec`/`MaterializedViewStrategy`, `OverlayedViewSpec`/`OverlayedViewStrategy`.
+
+  **Breaking — `@noy-db/hub/team` credential functions** take one trailing options object, and the
+  first parameter is `store` everywhere (it was `adapter` in `keyring.ts` only):
+
+  ```ts
+  loadKeyring(store, vault, { userId, secret });
+  createOwnerKeyring(store, vault, { userId, secret, validate });
+  changeSecret(store, vault, keyring, { newSecret, allowWeakSecret });
+  rotateKeys(store, vault, callerKeyring, { collections });
+  ```
+
+  The two same-typed positional strings on `loadKeyring`/`createOwnerKeyring` were a live
+  transposition hazard the compiler could not catch; the options object removes it.
+
+  **New:** `WithRollupOptions` and `WithDeferredNumberingOptions` — `withRollup` and
+  `withDeferredNumbering` took inline object literals, so their argument types were unnameable.
+
+  Non-breaking: `withBroker(config: BrokerConfig)` is unchanged and now recorded in `SERVICES.md`
+  as a sanctioned exception — the argument is retained live configuration, not a factory bag.
+  `with-store`'s middleware (`withRetry`, `withCache`, …) is likewise exempt: it returns
+  `StoreMiddleware`, not a strategy.
+
 ## 0.4.0-pre.6
 
 ### Minor Changes
