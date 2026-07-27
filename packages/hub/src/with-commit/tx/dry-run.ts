@@ -8,7 +8,11 @@
  */
 import type { Noydb } from '../../kernel/noydb.js'
 import { TxContext, type StagedOp } from './transaction.js'
-import type { GuardExecutor as GuardExecutorType } from '../../with-audit/guards/executor.js'
+
+import { lazy } from '../../kernel/lazy.js'
+
+/** #846c — one memoized binding instead of a cast at the call site. */
+const loadGuardExecutor = lazy(() => import('../../with-audit/guards/executor.js'))
 
 export interface AffectedDocument {
   readonly vault: string
@@ -80,7 +84,7 @@ export async function runDryRun(
     const gctx = { existing: before as Record<string, unknown> | null, vault: facade, userId: v.userId, role: v.role }
     try {
       await registry.runChecks(op.collectionName, after as Record<string, unknown>, gctx)
-      const { GuardExecutor } = (await import('../../with-audit/guards/executor.js')) as { GuardExecutor: typeof GuardExecutorType }
+      const { GuardExecutor } = await loadGuardExecutor()
       for (const g of guards) {
         await GuardExecutor.checkFrozenFields(g, op.id, before as Record<string, unknown> | null, after as Record<string, unknown>)
       }

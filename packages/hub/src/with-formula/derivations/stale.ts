@@ -1,12 +1,17 @@
 import type { Collection } from '../../kernel/collection.js'
+import type { DerivationExecutor as DerivationExecutorType } from './executor.js'
 import type { ReadOnlyVaultFacade } from '../../with-audit/guards/types.js'
 import type { TxContext } from '../../with-commit/tx/transaction.js'
 import type { DerivationRegistry } from './registry.js'
 // Type-only — runtime class loaded via dynamic import in
 // `resolveStaleOnRead` only when a stale flag actually fires. Keeps
 // the executor chunk out of the floor bundle.
-import type { DerivationExecutor as DerivationExecutorType } from './executor.js'
 import type { DerivationStrategy } from './types.js'
+
+import { lazy } from '../../kernel/lazy.js'
+
+/** #846c — one memoized binding instead of a cast at the call site. */
+const loadDerivationExecutor = lazy(() => import('./executor.js'))
 
 /**
  * Accessor shape passed through from the owning Vault. Provides the
@@ -119,9 +124,7 @@ export async function resolveStaleOnRead(
     // sourceVersion: not tracked in v1 stale map; pass 0 — matches the
     // forthcoming v0 semantics, `_derivedFrom.sourceVersion` is
     // informational, not load-bearing for correctness.
-    if (DerivationExecutor === null) {
-      ({ DerivationExecutor } = (await import('./executor.js')) as { DerivationExecutor: typeof DerivationExecutorType })
-    }
+    DerivationExecutor ??= (await loadDerivationExecutor()).DerivationExecutor
     const ctx = { vault: accessor.getReadOnlyFacade() }
     const result = await DerivationExecutor.run(spec, sourceWithId, 0, strategyHash, ctx)
     for (const key of Object.keys(spec.outputs)) {
