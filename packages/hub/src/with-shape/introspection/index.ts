@@ -26,3 +26,10 @@ export { dumpVaultSchema } from './walk.js'
 // must be able to name it too.
 export type { VaultIntrospectState } from './walk.js'
 export { jsonSchemaToFields } from './fields.js'
+// #843 C3b — the rest of the introspection cluster; C3a's barrel covered only
+// `dumpVaultSchema`'s own types.
+export type { SchemaIntrospection } from './types.js'
+export type { FieldMeta, SemanticType } from './field-meta.js'
+export type { CollectionDescription, DescribedField, DescribeOptions } from './describe.js'
+export { applyListProjection } from './projection.js'
+export type { ListProjectionOptions } from './projection.js'

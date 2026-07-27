@@ -45,4 +45,8 @@ export const ENTRIES = {
   'store/index': 'src/with-store/index.ts',
   'introspection/index': 'src/with-shape/introspection/index.ts',
   'money/index': 'src/via/money/index.ts',
+  'cover/index': 'src/with-party/directory/cover/index.ts',
+  'schema-update/index': 'src/with-shape/schema-update/index.ts',
+  'policy/index': 'src/with-party/policy/index.ts',
+  'directory/index': 'src/with-party/directory/index.ts',
 }

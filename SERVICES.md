@@ -27,7 +27,7 @@ const db = await createNoydb({
 
 When a service is not opted into, its real implementation is replaced by a NO-OP stub (or a throwing stub on opt-in surfaces) and the heavy code is fully tree-shaken from the bundle.
 
-This document lists the always-on core and the service catalog. It is the table of contents for the rest of the documentation. The catalog groups **27 capabilities** for teaching; `package.json` ships **39 subpaths plus the root barrel**, and the two do not map one-to-one — [Subpath inventory](#subpath-inventory) reconciles them and is authoritative.
+This document lists the always-on core and the service catalog. It is the table of contents for the rest of the documentation. The catalog groups **27 capabilities** for teaching; `package.json` ships **43 subpaths plus the root barrel**, and the two do not map one-to-one — [Subpath inventory](#subpath-inventory) reconciles them and is authoritative.
 
 ---
 
@@ -143,11 +143,13 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 
 ## Subpath inventory — the authoritative list
 
-`package.json`'s `exports` is the source of truth: **39 subpaths plus the root barrel**. It is enforced by the `service-subpath-naming` check in `scripts/check-architecture.mjs`, which fails in both directions — a factory with no subpath, and a subpath with no factory. The catalog above groups capabilities for teaching and does not map one-to-one onto it. This section reconciles the two, and is the list to check against when adding or removing an entry.
+`package.json`'s `exports` is the source of truth: **43 subpaths plus the root barrel**. It is enforced by the `service-subpath-naming` check in `scripts/check-architecture.mjs`, which fails in both directions — a factory with no subpath, and a subpath with no factory. The catalog above groups capabilities for teaching and does not map one-to-one onto it. This section reconciles the two, and is the list to check against when adding or removing an entry.
 
 ### Themed homes (#843 C3a)
 
-`./store`, `./introspection` and `./money` group symbols that previously had no home but the root barrel. They are **additive** — each is also still re-exported from `.`, matching how the Via features are dual-homed (`./classified` and `./i18n` have always been reachable both ways). The subpath exists so the surface is navigable and tree-shakeable, not to force a migration. None has a `with<Name>()` factory, so each is allowlisted in the `service-subpath-naming` guard as a themed grouping rather than a service.
+`./store`, `./introspection`, `./money`, `./cover`, `./schema-update`, `./policy` and `./directory` group symbols that previously had no home but the root barrel. They are **additive** — each is also still re-exported from `.`, matching how the Via features are dual-homed (`./classified` and `./i18n` have always been reachable both ways). The subpath exists so the surface is navigable and tree-shakeable, not to force a migration. None has a `with<Name>()` factory, so each is allowlisted in the `service-subpath-naming` guard as a themed grouping rather than a service.
+
+**Where this stopped, and why.** #843(c) began with **467 symbols reachable from no entry but `.`**; it now stands at **278**. Of those, **185 are declared in `kernel`** — `createNoydb`, `Vault`, `Collection`, the store contract, the error types — and belong on the root barrel by design, and a further **12** are the `at-*`/`on-*` sealing SPI that satellites import from `.` (see #843 C2). That leaves ~81 spread across ~19 modules at nine or fewer each. Those are deliberately left on the root barrel: a subpath for nine symbols mints permanent public API and a guard allowlist entry to satisfy a count, which is worse than the drift it removes. Revisit only if one of those modules grows a real, separable capability.
 
 ### Shipped subpaths not represented as rows above
 
