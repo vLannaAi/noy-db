@@ -22,8 +22,9 @@ import type { NoydbStore, EncryptedEnvelope, SealingKeyProvider } from '../src/i
 import {
   createNoydb,
   MemorySealingKeyProvider,
-  loadSealedSecret,
 } from '../src/index.js'
+// #843 C2: hub-internal, no longer on the public barrel.
+import { loadSealedSecret } from '../src/with-party/team/managed-secret.js'
 import { ConflictError, ValidationError } from '../src/kernel/errors.js'
 import { ManagedRecoveryNotEnrolledError } from '../src/kernel/errors.js'
 import { shamirRecoveryProvider } from '@noy-db/on-shamir'

@@ -4,7 +4,9 @@
  * owning record's _tier before returning bytes, exactly as get() does.
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb, ConflictError, dekKey, UnsupportedTierCompositionError, TierNotGrantedError, TamperedError } from '../src/index.js'
+import { createNoydb, ConflictError, UnsupportedTierCompositionError, TierNotGrantedError, TamperedError } from '../src/index.js'
+// #843 C2: hub-internal, no longer on the public barrel.
+import { dekKey } from '../src/with-party/team/tiers.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withBlobs } from '../src/via/blob/index.js'
 import { withForget } from '../src/with-audit/forget/index.js'

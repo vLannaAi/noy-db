@@ -542,10 +542,7 @@ export { QuickUnlockStore } from './with-party/session/unlock-state.js'
 export type { QuickUnlockState } from './with-party/session/unlock-state.js'
 
 // Tier-1 change flows
-export {
-  rotateSecret as keyringRotateSecret,
-  recoverSecret as keyringRecoverSecret,
-} from './with-party/team/rotate-recover.js'
+export { rotateSecret as keyringRotateSecret } from './with-party/team/rotate-recover.js'
 export type {
   RotateSecretInput,
   RecoverSecretInput,
@@ -611,7 +608,7 @@ export type { LiberateOptions, LiberateResult } from './with-party/custody/liber
 export { withCustody, NO_CUSTODY } from './with-party/custody/index.js'
 export type { CustodyStrategy, CustodyHost } from './with-party/custody/index.js'
 export { CustodyNotEnabledError } from './kernel/errors.js'
-export { createDeedOwner, loadDeedMarker, isDeedVault, DEED_RECORD_ID } from './with-party/team/deed.js'
+export { createDeedOwner, loadDeedMarker, isDeedVault } from './with-party/team/deed.js'
 export type { DeedMarker } from './with-party/team/deed.js'
 
 // #267 keyring-grant → team split — multi-user grant/revoke/rotate opt-in.
@@ -637,30 +634,16 @@ export {
   loadPaperRecoveryEntries,
   savePaperRecoveryEntries,
   burnPaperRecoveryEntry,
-  hasRecoveryEnrolled,
   mintPaperRecoveryEntry,
   unwrapDeksFromPaperEntry,
-  loadShamirRecoveryEntries,
-  saveShamirRecoveryEntries,
-  mintShamirRecoveryEntry,
-  unwrapDeksFromShamirEntry,
 } from './with-party/team/recovery.js'
-export type {
-  PaperRecoveryEntry,
-  PaperRecoveryDoc,
-  ShamirRecoveryEntry,
-  ShamirRecoveryDoc,
-} from './with-party/team/recovery.js'
+export type { PaperRecoveryEntry } from './with-party/team/recovery.js'
 
 // Recovery dispatch types — discriminated
 // unions for the polymorphic enroll/rotate paths. (RecoveryProof /
 // RecoverSecretInput / RecoverSecretResult are already
 // exported above.)
-export type {
-  EnrollRecoveryResult,
-  RotateRecoveryOptions,
-  RotateRecoveryResult,
-} from './with-party/team/rotate-recover.js'
+
 
 // Canonical wrap-DEKs primitive — shared crypto for tier-0
 // (paper recovery), tier-2 wrap-DEKs (password), tier-3 (on-pin).
@@ -674,7 +657,7 @@ export type { WrappedDeksBlob } from './with-party/team/wrapped-deks.js'
 // SealingKeyProvider. The interface lives here; concrete providers
 // (macOS Keychain, Windows Credential Manager, libsecret, AWS KMS)
 // ship as separate packages.
-export type { SealingKeyProvider, SealedSecret, SealedEnvelope, RecipientHint, RecipientSealer } from './with-party/team/managed-secret.js'
+export type { SealingKeyProvider, RecipientHint, RecipientSealer } from './with-party/team/managed-secret.js'
 export type { ShamirRecoveryProvider } from './with-party/team/shamir-recovery-provider.js'
 export {
   MemorySealingKeyProvider,
@@ -682,10 +665,6 @@ export {
   sealRsaOaepTlv,
   parseRsaOaepTlv,
   aesGcmOpen,
-  loadSealedSecret,
-  saveSealedSecret,
-  parseSealedEnvelope,
-  SEALED_SECRET_RECORD_ID,
 } from './with-party/team/managed-secret.js'
 
 // Peer-recovery — atomic db.recoverUser primitive.
@@ -1002,20 +981,17 @@ export { UniqueConstraintError, UnsupportedIndexOptionError } from './kernel/err
 // embeddings / semantic-retrieval (L2)
 export { EmbeddingDimMismatchError, EmbeddingModelMismatchError } from './kernel/errors.js'
 export type { EmbeddingDescriptor } from './with-lookup/embeddings/index.js'
-export { dekKey, effectiveClearance, assertTierAccess } from './with-party/team/tiers.js'
-export type { DelegationToken, IssueDelegationOptions } from './with-party/team/delegation.js'
-export { DELEGATIONS_COLLECTION, issueDelegation, loadActiveDelegations, revokeDelegation } from './with-party/team/delegation.js'
 
 // magic-link-bridged cross-user KEK delegation
 export type {
   MagicLinkGrantPayload,
+  // Retained on the barrel (#843 C2): `writeMagicLinkGrant` is public and
+  // returns it, so dropping it would leave callers unable to name the result.
   MagicLinkGrantRecord,
   IssueMagicLinkGrantOptions,
 } from './with-party/team/magic-link-grant.js'
 export {
   MAGIC_LINK_GRANTS_COLLECTION,
-  MAGIC_LINK_CONTENT_INFO_PREFIX,
-  MAGIC_LINK_KEK_INFO_PREFIX,
   deriveMagicLinkContentKey,
   writeMagicLinkGrant,
   readMagicLinkGrantRecord,
