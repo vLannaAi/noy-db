@@ -172,6 +172,22 @@
       "types": "./dist/via/money/index.d.ts",
       "default": "./dist/money/index.js"
     },
+    "./cover": {
+      "types": "./dist/with-party/directory/cover/index.d.ts",
+      "default": "./dist/cover/index.js"
+    },
+    "./schema-update": {
+      "types": "./dist/with-shape/schema-update/index.d.ts",
+      "default": "./dist/schema-update/index.js"
+    },
+    "./policy": {
+      "types": "./dist/with-party/policy/index.d.ts",
+      "default": "./dist/policy/index.js"
+    },
+    "./directory": {
+      "types": "./dist/with-party/directory/index.d.ts",
+      "default": "./dist/directory/index.js"
+    },
     "./reduce": {
       "types": "./dist/with-lookup/reduce/index.d.ts",
       "default": "./dist/reduce/index.js"

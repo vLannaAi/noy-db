@@ -7,6 +7,15 @@
  * @module
  */
 export type { DirectoryConfig, UserVisibility } from './types.js'
+// #843 C3b — the user-envelope sub-cluster lives under this directory and had no
+// home but the root barrel.
+export {
+  loadUserEnvelope,
+  saveUserEnvelope,
+  deleteUserEnvelope,
+  listUserEnvelopeIds,
+} from './user-envelope/storage.js'
+export { UserApi } from './user-envelope/api.js'
 export {
   readDirectoryConfig,
   persistDirectoryConfig,

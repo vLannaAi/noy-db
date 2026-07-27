@@ -540,6 +540,11 @@ const NOT_SERVICE_SUBPATHS = new Set([
   'store',          // routeStore + wrapStore + the six StoreMiddleware factories
   'introspection',  // dumpVaultSchema + the describe/meta descriptor types
   'money',          // the via-money field feature (declared per-field, not per-vault)
+  // #843 C3b — the last four clusters worth a home.
+  'cover',          // vault cover record: schema, storage, validation
+  'schema-update',  // SchemaDelta + the blindUpdate/additiveOnly/lockSchema strategies
+  'policy',         // gate policy presets, engine and storage
+  'directory',      // directory config, user visibility, the user-envelope surface
 ])
 const NO_SUBPATH_FACTORIES = new Set([
   // Complete seams that qualify for a subpath — no reason on record yet.

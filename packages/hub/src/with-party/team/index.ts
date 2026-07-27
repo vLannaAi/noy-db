@@ -137,3 +137,13 @@ export {
   SYNC_CREDENTIALS_COLLECTION,
 } from './sync-credentials.js'
 export type { SyncCredential } from './sync-credentials.js'
+
+// #843 C3b — auth-config introspection. These are the `db.team.describeAuthConfig()` /
+// `diagramAuthConfig()` / `describeUserAuth()` / `describeAllUsersAuth()` facade surface
+// (#846a), so `./team` is their home; they had none but the root barrel.
+export {
+  describeAuthConfig,
+  diagramAuthConfig,
+  describeUserAuth,
+  describeAllUsersAuth,
+} from '../auth-introspection/index.js'

@@ -20,6 +20,9 @@ export {
   resolveSchema,
 } from './types.js'
 
+// #843 C3b — the root barrel publishes this as `resolveCoverSchema`; alias it so
+// `@noy-db/hub/cover` can name the same symbol.
+export { resolveSchema as resolveCoverSchema } from './types.js'
 export type { SetCoverInput } from './schema.js'
 export { validateCoverInput, isCover } from './schema.js'
 
