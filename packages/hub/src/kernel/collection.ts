@@ -2229,6 +2229,25 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /** @internal — ctx for `putDerivedOutput`'s frozen-period skip+audit (#638 Task 5). */
+  /**
+   * What `with-formula/derivations/dispatch.ts` needs from this collection (#842).
+   *
+   * The return type is inferred, not annotated: importing `DerivationDeleteCtx`
+   * would be a STATIC spine→service import, which `port-layering` rejects even
+   * when it is type-only — the guard scans import statements, not their
+   * erasure. The dynamic `import()` at the call site still types the argument.
+   */
+  #derivationDeleteCtx(derivationSource: NonNullable<Collection<T, S, Q, M>['derivationSource']>) {
+    return {
+      derivationSource,
+      collectionName: this.name,
+      adapter: this.adapter,
+      vault: this.vault,
+      getDEK: this.getDEK,
+      storeCiphertext: this.storeCiphertext,
+    }
+  }
+
   #dispatchCtx(source: { readonly collection: string; readonly id: string }) {
     return { emit: (e: string, p: unknown) => (this.emitter.emit as (ev: string, pl: unknown) => void)(e, p), source, audit: ledgerAuditHook(this.ledger, this.keyring.userId) }
   }
@@ -2857,42 +2876,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   async dispatchArrayDerivationsOnDelete(id: string, eraseRecordShapeToo = false): Promise<number> {
     if (this.derivationSource === undefined) return 0
-    const registry = this.derivationSource.registry()
-    const strategies = registry.strategiesForSource(this.name)
-    if (strategies.length === 0) return 0
-    // Dynamic-import the sidecar helpers — keeps the derivation chunk out of the
-    // floor bundle for consumers that don't use array-shape derivations.
-    let helpers: {
-      loadFanoutSidecar: typeof LoadFanoutSidecarType
-      deleteFanoutSidecar: typeof DeleteFanoutSidecarType
-      saveFanoutSidecar: typeof SaveFanoutSidecarType
-    } | null = null
-    const txCtx = this.derivationSource.getActiveTxContext()
-    let erased = 0 // #622 review: rows ACTUALLY deleted, not edges visited
-    for (const { spec } of strategies) {
-      for (const [outputKey, outSpec] of Object.entries(spec.outputs)) {
-        if (outSpec.shape === 'record') {
-          // Same-id erasure only for a standard source-triggered strategy into a DIFFERENT
-          // collection — never the self-denorm case (would re-delete the record just
-          // tombstoned) nor triggerBy/sibling (derived id isn't `id`).
-          if (eraseRecordShapeToo && spec.source === this.name && outSpec.collection !== this.name) {
-            if (await this.derivationSource.getCollection(outSpec.collection)._internalDelete(id, txCtx)) erased += 1
-          }
-          continue
-        }
-        if (helpers === null) {
-          helpers = await import('../with-formula/derivations/fanout-sidecar.js')
-        }
-        const sidecar = await helpers.loadFanoutSidecar(this.adapter, this.vault, spec.source, id, outputKey, this.getDEK, this.storeCiphertext)
-        if (!sidecar) continue
-        const outputCollection = this.derivationSource.getCollection(outSpec.collection)
-        for (const derivedId of sidecar.keys) {
-          if (await outputCollection._internalDelete(derivedId, txCtx)) erased += 1
-        }
-        await helpers.deleteFanoutSidecar(this.adapter, this.vault, spec.source, id, outputKey)
-      }
-    }
-    return erased
+    // S4 gate: the spine may not statically import a with-* service, and this
+    // keeps the derivation chunk out of the floor bundle (#842).
+    const { dispatchArrayDerivationsOnDelete } = await import('../with-formula/derivations/dispatch.js')
+    return dispatchArrayDerivationsOnDelete(this.#derivationDeleteCtx(this.derivationSource), id, eraseRecordShapeToo)
   }
 
   /**
