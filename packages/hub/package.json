@@ -160,6 +160,18 @@
       "types": "./dist/port/to/index.d.ts",
       "default": "./dist/to/index.js"
     },
+    "./store": {
+      "types": "./dist/with-store/index.d.ts",
+      "default": "./dist/store/index.js"
+    },
+    "./introspection": {
+      "types": "./dist/with-shape/introspection/index.d.ts",
+      "default": "./dist/introspection/index.js"
+    },
+    "./money": {
+      "types": "./dist/via/money/index.d.ts",
+      "default": "./dist/money/index.js"
+    },
     "./reduce": {
       "types": "./dist/with-lookup/reduce/index.d.ts",
       "default": "./dist/reduce/index.js"

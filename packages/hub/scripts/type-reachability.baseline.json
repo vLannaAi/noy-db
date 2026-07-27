@@ -43,6 +43,7 @@
     "./session :: loadDevUnlock mentions UnlockedKeyring",
     "./session :: resolveSession mentions UnlockedKeyring",
     "./session :: validateSessionPolicy mentions SessionPolicy",
+    "./store :: wrapStore mentions NoydbStore",
     "./team :: buildRecipientKeyringFile mentions KeyringFile",
     "./team :: burnPaperRecoveryEntry mentions NoydbStore",
     "./team :: changeSecret mentions NoydbStore",

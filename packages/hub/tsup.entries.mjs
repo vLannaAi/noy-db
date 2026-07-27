@@ -42,4 +42,7 @@ export const ENTRIES = {
   'portability/index': 'src/with-audit/portability/index.ts',
   'cargo/index': 'src/with-cargo/index.ts',
   'to/index': 'src/port/to/index.ts',
+  'store/index': 'src/with-store/index.ts',
+  'introspection/index': 'src/with-shape/introspection/index.ts',
+  'money/index': 'src/via/money/index.ts',
 }

@@ -22,4 +22,7 @@ export type {
   InternalCollectionStats,
 } from './types.js'
 export { dumpVaultSchema } from './walk.js'
+// #843 C3a — `dumpVaultSchema`'s vault parameter names it, so `@noy-db/hub/introspection`
+// must be able to name it too.
+export type { VaultIntrospectState } from './walk.js'
 export { jsonSchemaToFields } from './fields.js'
