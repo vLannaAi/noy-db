@@ -59,14 +59,14 @@
  */
 
 import type { QueryField } from '../types.js'
-import type { ReducerBuilder } from '../../with-lookup/aggregate/reducers.js'
-import { reducerBuilder } from '../../with-lookup/aggregate/reducers.js'
+import type { ReducerBuilder } from '../../with-lookup/reduce/reducers.js'
+import { reducerBuilder } from '../../with-lookup/reduce/reducers.js'
 import type { Clause, FieldClause, Operator } from './predicate.js'
 import { evaluateClause, hasFnClause, readPath } from './predicate.js'
 import type {
-  AggregateSpec,
-  AggregateResult,
-} from '../../with-lookup/aggregate/aggregation.js'
+  ReduceSpec,
+  ReduceResult,
+} from '../../with-lookup/reduce/reduction.js'
 import type { JoinContext, JoinLeg, JoinableSource } from './join.js'
 import { DanglingReferenceError, FieldNotQueryableError } from '../errors.js'
 import type { ViaPipeline } from '../via/pipeline.js'
@@ -607,11 +607,11 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
    * method has never run and must not start running as a side effect of
    * this gate).
    */
-  async aggregate<Spec extends AggregateSpec>(spec: Spec): Promise<AggregateResult<Spec>>
-  async aggregate<Spec extends AggregateSpec>(build: (b: ReducerBuilder<T, S, M>) => Spec): Promise<AggregateResult<Spec>>
-  async aggregate<Spec extends AggregateSpec>(
+  async aggregate<Spec extends ReduceSpec>(spec: Spec): Promise<ReduceResult<Spec>>
+  async aggregate<Spec extends ReduceSpec>(build: (b: ReducerBuilder<T, S, M>) => Spec): Promise<ReduceResult<Spec>>
+  async aggregate<Spec extends ReduceSpec>(
     specOrBuild: Spec | ((b: ReducerBuilder<T, S, M>) => Spec),
-  ): Promise<AggregateResult<Spec>> {
+  ): Promise<ReduceResult<Spec>> {
     // Opt-in builder form `aggregate(b => spec)`: `b`'s field args are
     // `QueryField<T, S>`, refusing sensitive fields (the standalone-spec form
     // stays unrefused for back-compat), and `sum`/`min`/`max` over a declared
@@ -642,7 +642,7 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
     for (const key of keys) {
       result[key] = spec[key]!.finalize(state[key])
     }
-    return result as AggregateResult<Spec>
+    return result as ReduceResult<Spec>
   }
 
   /**

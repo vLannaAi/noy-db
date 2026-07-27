@@ -17,15 +17,8 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, ListPageResult } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
-import {
-  ScanBuilder,
-  count,
-  sum,
-  avg,
-  min,
-  max,
-  type ScanPageProvider,
-} from '../src/kernel/query/index.js'
+import { ScanBuilder, type ScanPageProvider } from '../src/kernel/query/index.js'
+import { count, sum, avg, min, max } from '../src/with-lookup/reduce/index.js'
 
 /** Inline memory adapter — same pattern as the other integration tests. */
 function memory(): NoydbStore {

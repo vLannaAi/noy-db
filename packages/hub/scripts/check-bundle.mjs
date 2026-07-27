@@ -70,8 +70,8 @@ const SCENARIOS = [
       // (below) — the bare symbol appearing in the entry's top-level
       // `import { ... } from "./chunk-…"` prologue.
       'class LedgerStore',     // history (re-added post.)
-      'class Aggregation',     // aggregate
-      'class GroupedQuery',    // aggregate
+      'class Reduction',       // reduce
+      'class GroupedQuery',    // reduce
       'class BlobSet',         // blobs
       'class DictionaryHandle',// i18n
       'class SyncEngine',      // sync
@@ -223,12 +223,12 @@ const SCENARIOS = [
   },
   {
     name: 'analytics',
-    description: 'createNoydb + withIndexing + withAggregate',
+    description: 'createNoydb + withIndexing + withReduce',
     code: `
       import { createNoydb } from '@noy-db/hub'
       import { withIndexing } from '@noy-db/hub/indexing'
-      import { withAggregate } from '@noy-db/hub/aggregate'
-      export { createNoydb, withIndexing, withAggregate }
+      import { withReduce } from '@noy-db/hub/reduce'
+      export { createNoydb, withIndexing, withReduce }
     `,
     leakCanaries: [],
     // The aggregate service must not drag the money engine in -- money
@@ -252,7 +252,7 @@ const SCENARIOS = [
       import { withSync } from '@noy-db/hub/sync'
       import { withBlobs } from '@noy-db/hub/blobs'
       import { withIndexing } from '@noy-db/hub/indexing'
-      import { withAggregate } from '@noy-db/hub/aggregate'
+      import { withReduce } from '@noy-db/hub/reduce'
       import { withCrdt } from '@noy-db/hub/crdt'
       import { withConsent } from '@noy-db/hub/consent'
       import { withPeriods } from '@noy-db/hub/periods'
@@ -261,7 +261,7 @@ const SCENARIOS = [
       export {
         createNoydb,
         withHistory, withI18n, withSession, withSync,
-        withBlobs, withIndexing, withAggregate, withCrdt,
+        withBlobs, withIndexing, withReduce, withCrdt,
         withConsent, withPeriods, withShadow, withTransactions,
       }
     `,
@@ -307,7 +307,7 @@ async function buildScenario(scenario) {
       '@noy-db/hub/sync': join(HUB_DIR, 'dist', 'sync', 'index.js'),
       '@noy-db/hub/blobs': join(HUB_DIR, 'dist', 'blobs', 'index.js'),
       '@noy-db/hub/indexing': join(HUB_DIR, 'dist', 'indexing', 'index.js'),
-      '@noy-db/hub/aggregate': join(HUB_DIR, 'dist', 'aggregate', 'index.js'),
+      '@noy-db/hub/reduce': join(HUB_DIR, 'dist', 'reduce', 'index.js'),
       '@noy-db/hub/crdt': join(HUB_DIR, 'dist', 'crdt', 'index.js'),
       '@noy-db/hub/consent': join(HUB_DIR, 'dist', 'consent', 'index.js'),
       '@noy-db/hub/periods': join(HUB_DIR, 'dist', 'periods', 'index.js'),
@@ -352,7 +352,7 @@ async function buildScenario(scenario) {
       '@noy-db/hub/sync': join(HUB_DIR, 'dist', 'sync', 'index.js'),
       '@noy-db/hub/blobs': join(HUB_DIR, 'dist', 'blobs', 'index.js'),
       '@noy-db/hub/indexing': join(HUB_DIR, 'dist', 'indexing', 'index.js'),
-      '@noy-db/hub/aggregate': join(HUB_DIR, 'dist', 'aggregate', 'index.js'),
+      '@noy-db/hub/reduce': join(HUB_DIR, 'dist', 'reduce', 'index.js'),
       '@noy-db/hub/crdt': join(HUB_DIR, 'dist', 'crdt', 'index.js'),
       '@noy-db/hub/consent': join(HUB_DIR, 'dist', 'consent', 'index.js'),
       '@noy-db/hub/periods': join(HUB_DIR, 'dist', 'periods', 'index.js'),

@@ -129,7 +129,7 @@ export interface I18nTextOptions {
    * the lenient `'substitute'`). The `mv` layer fires for materialized views
    * that declare `{ i18nLocale, i18nFields }` — UNION (group-key i18n fields
    * resolve before the unified-row bucketing) and query-form (resolved in
-   * `GroupedAggregation.run` before `groupAndReduce`); grouping a raw i18n field
+   * `GroupedReduction.run` before `groupAndReduce`); grouping a raw i18n field
    * without a locale throws. The `join` layer resolves a joined right-side i18n
    * field to the query locale (`toArray({ locale })` or the vault default; raw
    * when locale-less). The `export` layer fires for

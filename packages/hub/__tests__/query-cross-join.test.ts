@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { evaluateClause, type Clause, type CrossJoinClause } from '../src/kernel/query/predicate.js'
-import { Query, executePlan, type QueryPlan, count } from '../src/kernel/query/index.js'
+import { Query, executePlan, type QueryPlan } from '../src/kernel/query/index.js'
+import { count } from '../src/with-lookup/reduce/index.js'
 import { CrossJoinTooLargeError, CrossJoinSourceUnknownError } from '../src/kernel/errors.js'
 import type { QuerySource, JoinContext, JoinableSource } from '../src/kernel/query/index.js'
-import { withAggregate } from '../src/with-lookup/aggregate/index.js'
+import { withReduce } from '../src/with-lookup/reduce/index.js'
 import { analyzeDependencies, summarizeQueryPlan } from '../src/with-formula/materialized-views/index.js'
 
-const AGG = withAggregate()
+const AGG = withReduce()
 
 function staticSource<T>(records: T[]): QuerySource<T> {
   return { snapshot: () => records }
@@ -462,8 +463,8 @@ describe('summarizeQueryPlan > cross-join in queryHash', () => {
     const predicates = new Map([['isActive', { hash: 'isActive-v1', fn: (_rec: unknown) => true }]])
     const jc = mockJoinContext('periods', { workers: WORKERS })
 
-    // Need aggregateStrategy for _withPredicates to work in tests
-    // Actually _withPredicates only attaches a predicates map — it doesn't need aggregateStrategy
+    // Need reduceStrategy for _withPredicates to work in tests
+    // Actually _withPredicates only attaches a predicates map — it doesn't need reduceStrategy
     // Use the same pattern as query-predicate tests: get a Query with predicates via _withPredicates
     const base = new Query(
       staticSource(PERIODS),

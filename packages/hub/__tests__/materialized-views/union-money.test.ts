@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { createNoydb, withMaterializedView } from '../../src/index.js'
-import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
-import { sum, min, max } from '../../src/with-lookup/aggregate/reducers.js'
+import { withReduce } from '../../src/with-lookup/reduce/index.js'
+import { sum, min, max } from '../../src/with-lookup/reduce/reducers.js'
 import { money } from '../../src/via/money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
@@ -73,7 +73,7 @@ describe('UNION MV — money-aware aggregation (#350)', () => {
       user: 'alice',
       secret: 'mv-union-money-fixed-passthrough-secret-2026',
       materializedViewStrategies: [rollup],
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('books')
     vault.collection<MoneyLine>('receipts', {
@@ -120,7 +120,7 @@ describe('UNION MV — money-aware aggregation (#350)', () => {
       user: 'alice',
       secret: 'mv-union-money-drift-secret-2026',
       materializedViewStrategies: [rollup],
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('books')
     vault.collection<MoneyLine>('lines', {
@@ -167,7 +167,7 @@ describe('UNION MV — money-aware aggregation (#350)', () => {
       user: 'alice',
       secret: 'mv-union-money-minmax-secret-2026',
       materializedViewStrategies: [mv],
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('books')
     vault.collection<MoneyLine>('lines', {
@@ -219,7 +219,7 @@ describe('UNION MV — money-aware aggregation (#350)', () => {
       user: 'alice',
       secret: 'mv-union-money-multi-secret-2026',
       materializedViewStrategies: [mv],
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('books')
     vault.collection<MultiLine>('lines', {
@@ -271,7 +271,7 @@ describe('UNION MV — money-aware aggregation (#350)', () => {
       user: 'alice',
       secret: 'mv-union-money-single-arm-secret-2026',
       materializedViewStrategies: [mv],
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('books')
     vault.collection<DatedLine>('invoices', {
@@ -307,7 +307,7 @@ describe('UNION MV — money-aware aggregation (#350)', () => {
       user: 'alice',
       secret: 'mv-union-plain-numeric-secret-2026',
       materializedViewStrategies: [mv],
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('books')
     const a = vault.collection<{ id: string; period: string; n: number }>('a')

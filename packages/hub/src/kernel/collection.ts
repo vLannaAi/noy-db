@@ -3034,7 +3034,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
             : {}),
         }
       : undefined
-    return new Query<T, S, Q, M>(source, undefined, joinContext, this.strategies.aggregate)
+    return new Query<T, S, Q, M>(source, undefined, joinContext, this.strategies.reduce)
   }
 
   /**

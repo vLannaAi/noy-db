@@ -11,9 +11,9 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withI18n } from '../src/via/i18n/index.js'
-import { withAggregate } from '../src/with-lookup/aggregate/index.js'
+import { withReduce } from '../src/with-lookup/reduce/index.js'
 import { dictKey } from '../src/via/i18n/dictionary.js'
-import { sum, count } from '../src/kernel/query/index.js'
+import { sum, count } from '../src/with-lookup/reduce/index.js'
 
 function memory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -54,7 +54,7 @@ interface Invoice {
 
 async function setup() {
   const adapter = memory()
-  const db = await createNoydb({ store: adapter, user: 'alice', i18nStrategy: withI18n(), encrypt: false, aggregateStrategy: withAggregate() })
+  const db = await createNoydb({ store: adapter, user: 'alice', i18nStrategy: withI18n(), encrypt: false, reduceStrategy: withReduce() })
   const company = await db.openVault('company')
 
   const statusDict = company.dictionary('status')

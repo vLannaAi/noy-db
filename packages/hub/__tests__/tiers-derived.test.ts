@@ -7,10 +7,11 @@
  * cache so it drops the now-invisible source.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { createNoydb, withMaterializedView, withRollup, withDerivation, ConflictError, type GroupedAggregation } from '../src/index.js'
+import { createNoydb, withMaterializedView, withRollup, withDerivation, ConflictError } from '../src/index.js'
+import { type GroupedReduction } from '../src/with-lookup/reduce/index.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
-import { withAggregate } from '../src/with-lookup/aggregate/index.js'
-import { sum } from '../src/with-lookup/aggregate/reducers.js'
+import { withReduce } from '../src/with-lookup/reduce/index.js'
+import { sum } from '../src/with-lookup/reduce/reducers.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
 
 function memoryStore(): NoydbStore {
@@ -110,7 +111,7 @@ describe('#722 elevate removes the source from derived outputs', () => {
         return db.collection<Compensation>('compensations')
           .query()
           .groupBy('clientId')
-          .aggregate({ taxTotal: sum('taxAmount') }) as GroupedAggregation<ClientTotalRow>
+          .aggregate({ taxTotal: sum('taxAmount') }) as GroupedReduction<ClientTotalRow>
       },
       rowKey: (r) => r.clientId,
       refresh: 'eager',
@@ -120,7 +121,7 @@ describe('#722 elevate removes the source from derived outputs', () => {
       user: 'owner',
       secret: 'tiers-derived-aggregate-secret-2026',
       tiersStrategy: withTiers(),
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
       materializedViewStrategies: [mv],
     })
     const vault = await db.openVault('demo')
@@ -300,7 +301,7 @@ describe('#722 demote restores the source to derived outputs (reversible)', () =
         return db.collection<Compensation>('compensations')
           .query()
           .groupBy('clientId')
-          .aggregate({ taxTotal: sum('taxAmount') }) as GroupedAggregation<ClientTotalRow>
+          .aggregate({ taxTotal: sum('taxAmount') }) as GroupedReduction<ClientTotalRow>
       },
       rowKey: (r) => r.clientId,
       refresh: 'eager',
@@ -310,7 +311,7 @@ describe('#722 demote restores the source to derived outputs (reversible)', () =
       user: 'owner',
       secret: 'tiers-derived-aggregate-demote-secret-2026',
       tiersStrategy: withTiers(),
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
       materializedViewStrategies: [mv],
     })
     const vault = await db.openVault('demo')

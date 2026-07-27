@@ -13,18 +13,10 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import {
-  Query,
-  count,
-  sum,
-  avg,
-  min,
-  max,
-  reduceRecords,
-  type QuerySource,
-} from '../src/kernel/query/index.js'
-import { withAggregate } from '../src/with-lookup/aggregate/index.js'
-const AGG = withAggregate()
+import { Query, type QuerySource } from '../src/kernel/query/index.js'
+import { count, sum, avg, min, max, reduceRecords } from '../src/with-lookup/reduce/index.js'
+import { withReduce } from '../src/with-lookup/reduce/index.js'
+const AGG = withReduce()
 
 interface Invoice {
   id: string
@@ -219,7 +211,7 @@ describe('aggregate > combined spec', () => {
 
   it('preserves the shape of the spec at the type level', () => {
     // Compile-time check — if this assigns, the mapped type
-    // AggregateResult<Spec> is extracting R correctly from each
+    // ReduceResult<Spec> is extracting R correctly from each
     // Reducer<R, _> in the spec.
     const result = new Query<Invoice>(staticSource(SAMPLE), undefined, undefined, AGG)
       .aggregate({
@@ -458,7 +450,7 @@ describe('aggregate > .live() subscribe / stop semantics', () => {
 })
 
 describe('aggregate > .live() without subscribe support', () => {
-  it('builds a LiveAggregation with an initial value over a static source', () => {
+  it('builds a LiveReduction with an initial value over a static source', () => {
     // Sources without subscribe (e.g. plain arrays) still get a
     // one-shot initial computation. Calling .live() on them is
     // equivalent to .run() — no re-fires, but the reactive shape is

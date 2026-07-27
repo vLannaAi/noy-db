@@ -29,7 +29,7 @@ import type { SyncPolicy } from './sync-policy.js'
 import type { BlobStrategy } from '../port/with/blob-strategy.js'
 import type { ArchiveStrategy } from '../with-fork/archive/index.js'
 import type { IndexStrategy } from '../with-lookup/indexing/strategy.js'
-import type { AggregateStrategy } from '../with-lookup/aggregate/strategy.js'
+import type { ReduceStrategy } from '../with-lookup/reduce/strategy.js'
 import type { ConsentStrategy } from '../with-audit/consent/strategy.js'
 import type { PeriodsStrategy } from '../with-audit/periods/strategy.js'
 import type { ShadowStrategy } from '../with-fork/shadow/strategy.js'
@@ -2387,16 +2387,16 @@ export interface NoydbOptions {
   readonly indexStrategy?: IndexStrategy
   /**
    * tree-shake seam — optional aggregate strategy. Pass
-   * `withAggregate()` from `@noy-db/hub/aggregate` to enable
+   * `withReduce()` from `@noy-db/hub/reduce` to enable
    * `.aggregate()` and `.groupBy()` on Query. When omitted, those
    * methods throw with a pointer at the subpath; the ~886 LOC of
-   * Aggregation + GroupedQuery machinery never reaches the bundle.
+   * Reduction + GroupedQuery machinery never reaches the bundle.
    * Streaming `scan().aggregate()` works independently of this
-   * strategy — it doesn't use the `Aggregation` class.
+   * strategy — it doesn't use the `Reduction` class.
    *
    * @internal
    */
-  readonly aggregateStrategy?: AggregateStrategy
+  readonly reduceStrategy?: ReduceStrategy
   /**
    * tree-shake seam — optional CRDT strategy. Required when
    * any collection is declared with `crdt: 'lww-map' | 'rga' | 'yjs'`;

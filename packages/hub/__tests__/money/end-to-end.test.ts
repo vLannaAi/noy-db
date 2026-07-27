@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../../src/index.js'
-import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
-import { sum, count } from '../../src/with-lookup/aggregate/reducers.js'
+import { withReduce } from '../../src/with-lookup/reduce/index.js'
+import { sum, count } from '../../src/with-lookup/reduce/reducers.js'
 import { money } from '../../src/via/money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
@@ -47,7 +47,7 @@ describe('money — invoice-shaped end-to-end', () => {
       store: memory(),
       user: 'alice',
       secret: 'money-e2e-secret-2026-pilot3-invoices',
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('books')
     vault.collection<SaleLine>('lines', {

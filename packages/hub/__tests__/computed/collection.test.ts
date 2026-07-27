@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../../src/index.js'
 import { ComputedFieldError } from '../../src/with-formula/computed/index.js'
-import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
-import { sum } from '../../src/with-lookup/aggregate/reducers.js'
+import { withReduce } from '../../src/with-lookup/reduce/index.js'
+import { sum } from '../../src/with-lookup/reduce/reducers.js'
 import { money } from '../../src/via/money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
@@ -43,7 +43,7 @@ interface Line extends Record<string, unknown> {
 async function vault(extra?: { aggregate?: boolean }) {
   const db = await createNoydb({
     store: memory(), user: 'alice', secret: 'computed-fields-secret-2026-pilot3',
-    ...(extra?.aggregate ? { aggregateStrategy: withAggregate() } : {}),
+    ...(extra?.aggregate ? { reduceStrategy: withReduce() } : {}),
   })
   return db.openVault('books')
 }

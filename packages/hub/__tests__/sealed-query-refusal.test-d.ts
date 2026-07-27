@@ -3,7 +3,8 @@
  * Validated by `pnpm --filter @noy-db/hub typecheck:types` (tsc only; never executed).
  */
 import { describe, it, expectTypeOf } from 'vitest'
-import { createNoydb, sum, money } from '../src/index.js'
+import { createNoydb, money } from '../src/index.js'
+import { sum } from '../src/with-lookup/reduce/index.js'
 import { memoryStore } from '../src/kernel/memory-store.js'
 
 interface Person { id: string; name: string; ssn: string; age: number }
@@ -224,7 +225,7 @@ describe('money-field generic M — aggregate builder auto-types money fields', 
       moneyFields: { amount: money({ currency: 'EUR', scale: 2 }), tax: money({ currency: 'EUR', scale: 2 }) },
     })
     const q = sales.query()
-    // AggregateResult maps Reducer<R> → R, so run() exposes the narrowed types.
+    // ReduceResult maps Reducer<R> → R, so run() exposes the narrowed types.
     const moneyAgg = q.aggregate(b => ({ paid: b.sum('amount') }))
     const nonMoneyAgg = q.aggregate(b => ({ qty: b.sum('qty') }))
     type MoneyResult = ReturnType<typeof moneyAgg.run>
@@ -252,7 +253,7 @@ describe('money-field generic M — scan() & groupBy() aggregate builders auto-t
     const sales = vault.collection<Sale, { money: 'amount' | 'tax' }>('sales-scan', {
       moneyFields: { amount: money({ currency: 'EUR', scale: 2 }), tax: money({ currency: 'EUR', scale: 2 }) },
     })
-    // ScanBuilder.aggregate is async → Promise<AggregateResult<Spec>>; Awaited unwraps it.
+    // ScanBuilder.aggregate is async → Promise<ReduceResult<Spec>>; Awaited unwraps it.
     const moneyAgg = sales.scan().aggregate(b => ({ paid: b.sum('amount') }))
     const nonMoneyAgg = sales.scan().aggregate(b => ({ qty: b.sum('qty') }))
     expectTypeOf<Awaited<typeof moneyAgg>['paid']>().toMatchTypeOf<string>()   // MoneyString (branded string)

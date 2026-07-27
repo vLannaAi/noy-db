@@ -1,7 +1,7 @@
 import type { Query } from '../../kernel/query/builder.js'
 import type { Collection } from '../../kernel/collection.js'
-import type { AggregateSpec, Aggregation } from '../../with-lookup/aggregate/aggregation.js'
-import type { GroupedAggregation } from '../../with-lookup/aggregate/groupby.js'
+import type { ReduceSpec, Reduction } from '../../with-lookup/reduce/reduction.js'
+import type { GroupedReduction } from '../../with-lookup/reduce/groupby.js'
 import type { JoinStrategy } from '../../kernel/query/join.js'
 import type { MoneyDescriptor } from '../../via/money/descriptor.js'
 import type { I18nTextDescriptor } from '../../via/i18n/core.js'
@@ -215,7 +215,7 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
    * (multi-source UNION). Registration throws
    * `MaterializedViewConfigError` if both are set or neither is set.
    */
-  query?: (db: MVQueryContext) => Query<TRow> | Aggregation<TRow> | GroupedAggregation<TRow>
+  query?: (db: MVQueryContext) => Query<TRow> | Reduction<TRow> | GroupedReduction<TRow>
   /**
    * UNION-form sources: an explicit list of sibling collections
    * that contribute rows to a single MV. Each arm's `map` projects a
@@ -269,14 +269,14 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
    */
   groupBy?: string | ReadonlyArray<string>
   /**
-   * Aggregation spec for UNION mode. Applied per-group after
+   * Reduction spec for UNION mode. Applied per-group after
    * {@link groupBy} buckets the concatenated mapped-row stream from
-   * {@link unionSources}. Same shape as the `AggregateSpec` passed to
+   * {@link unionSources}. Same shape as the `ReduceSpec` passed to
    * `Query.aggregate()`.
    *
    * UNION-mode only. Ignored if {@link query} is set.
    */
-  aggregate?: AggregateSpec
+  aggregate?: ReduceSpec
   /**
    * Money descriptors for the UNION-mode aggregate, keyed by the
    * OUTPUT/intermediate field name as it appears in the mapped row and
@@ -333,7 +333,7 @@ export interface MaterializedViewStrategy<TRow extends Record<string, unknown>> 
   rowKey: (row: TRow) => string
   /**
    * Explicit source collections. Required when `query()` returns
-   * an `Aggregation` or `GroupedAggregation` rather than a `Query<T>`
+   * an `Reduction` or `GroupedReduction` rather than a `Query<T>`
    * — the dependency analyzer can't introspect through `groupBy().aggregate()`
    * back to the source. Optional for plain `Query<T>` results — the
    * analyzer extracts dependencies automatically from the query plan.

@@ -53,7 +53,7 @@
 
 import type { NoydbOptions } from '../../kernel/types.js'
 
-import { NO_AGGREGATE, type AggregateStrategy } from '../../with-lookup/aggregate/strategy.js'
+import { NO_REDUCE, type ReduceStrategy } from '../../with-lookup/reduce/strategy.js'
 import { NO_ATTESTATION, type AttestationStrategy } from '../../with-audit/attestation/strategy.js'
 import { NO_BLOBS, type BlobStrategy } from './blob-strategy.js'
 import { NO_BROKER, type BrokerStrategy } from './broker-strategy.js'
@@ -90,7 +90,7 @@ import type { ArchiveStrategy } from '../../with-fork/archive/index.js'
  * completeness assertion below pins that correspondence.
  */
 export interface StrategyBag {
-  readonly aggregate: AggregateStrategy
+  readonly reduce: ReduceStrategy
   readonly archive: ArchiveStrategy
   readonly attestation: AttestationStrategy
   readonly blob: BlobStrategy
@@ -128,7 +128,7 @@ export type StrategyKey = keyof StrategyBag
  * row a compile error.
  */
 export const STRATEGY_DEFAULTS: StrategyBag = {
-  aggregate: NO_AGGREGATE,
+  reduce: NO_REDUCE,
   archive: NO_ARCHIVE,
   attestation: NO_ATTESTATION,
   blob: NO_BLOBS,

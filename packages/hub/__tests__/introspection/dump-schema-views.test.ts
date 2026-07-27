@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 import { ConflictError } from '../../src/kernel/errors.js'
-import { createNoydb, withMaterializedView, sum, GroupedAggregation } from '../../src/index.js'
-import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
+import { createNoydb, withMaterializedView } from '../../src/index.js'
+import { sum, GroupedReduction } from '../../src/with-lookup/reduce/index.js'
+import { withReduce } from '../../src/with-lookup/reduce/index.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -47,7 +48,7 @@ describe('vault.dumpSchema() — materialized views', () => {
       name: 'invoice-totals',
       sources: ['invoices'],
       query: (db) => db.collection<Invoice>('invoices').query()
-        .groupBy('client_id').aggregate({ total: sum('amount') }) as GroupedAggregation<{ client_id: string; total: number }>,
+        .groupBy('client_id').aggregate({ total: sum('amount') }) as GroupedReduction<{ client_id: string; total: number }>,
       rowKey: (r) => r.client_id,
       refresh: 'eager',
     })
@@ -56,7 +57,7 @@ describe('vault.dumpSchema() — materialized views', () => {
       store: inlineMemory(),
       user: 'alice',
       secret: 'pw',
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
       materializedViewStrategies: [totals],
     })
     const vault = await db.openVault('acme')
@@ -91,7 +92,7 @@ describe('vault.dumpSchema() — materialized views', () => {
       store: inlineMemory(),
       user: 'alice',
       secret: 'pw',
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
       materializedViewStrategies: [monthlyVat],
     })
     const vault = await db.openVault('acme')

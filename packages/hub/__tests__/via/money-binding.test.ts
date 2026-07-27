@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { moneyBinding } from '../../src/via/money/binding.js'
 import { money } from '../../src/via/money/descriptor.js'
-import { sum } from '../../src/with-lookup/aggregate/reducers.js'
+import { sum } from '../../src/with-lookup/reduce/reducers.js'
 import { ValidationError } from '../../src/kernel/errors.js'
 
 const moneyFields = { total: money({ currency: 'EUR', scale: 2 }) }

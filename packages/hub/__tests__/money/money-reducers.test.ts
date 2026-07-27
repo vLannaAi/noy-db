@@ -5,9 +5,10 @@
  * result is the point — see `moneySum`'s doc).
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb, moneySum, moneyMin, moneyMax } from '../../src/index.js'
+import { createNoydb } from '../../src/index.js'
+import { moneySum, moneyMin, moneyMax } from '../../src/with-lookup/reduce/index.js'
 import { z } from 'zod'
-import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
+import { withReduce } from '../../src/with-lookup/reduce/index.js'
 import { money } from '../../src/via/money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
@@ -46,7 +47,7 @@ async function linesWith3() {
     store: memory(),
     user: 'alice',
     secret: 'money-reducers-secret-2026-pilot3-exact',
-    aggregateStrategy: withAggregate(),
+    reduceStrategy: withReduce(),
   })
   const vault = await db.openVault('books')
   const lines = vault.collection<Line>('lines', {
@@ -82,7 +83,7 @@ describe('money reducer constructors — runtime', () => {
       store: memory(),
       user: 'alice',
       secret: 'money-reducers-secret-2026-pilot3-exact',
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
     })
     const vault = await db.openVault('books')
     const lines = vault.collection<Line>('lines', {

@@ -26,7 +26,7 @@ import {
   UnknownDictCodeError,
 } from '../src/kernel/errors.js'
 import { dictKey, staticDict } from '../src/via/i18n/dictionary.js'
-import { withAggregate, count } from '../src/with-lookup/aggregate/index.js'
+import { withReduce, count } from '../src/with-lookup/reduce/index.js'
 import { withTeam } from '../src/with-party/team/index.js'
 
 // ─── Inline memory adapter ─────────────────────────────────────────────
@@ -584,7 +584,7 @@ describe('staticDict — code-provided dictionary (#291)', () => {
   it('groupBy(field) buckets by the stable code', async () => {
     const db = await createNoydb({ teamStrategy: withTeam(),
       store: memory(), user: 'alice',
-      i18nStrategy: withI18n(), aggregateStrategy: withAggregate(),
+      i18nStrategy: withI18n(), reduceStrategy: withReduce(),
       secret: 'test-secret-static-7',
     })
     const vault = await db.openVault('co1')

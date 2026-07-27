@@ -6,8 +6,8 @@ import { DEFAULT_JOIN_MAX_ROWS } from '../../kernel/query/join.js'
 import type { MaterializedFromMeta, MVQueryContext, MaterializedViewStrategy } from './types.js'
 import type { RegisteredMV } from './registry.js'
 import { wrapDbWithPredicates } from './registry.js'
-import { groupAndReduce } from '../../with-lookup/aggregate/groupby.js'
-import { canonicalGroupKey } from '../../with-lookup/aggregate/canonical-key.js'
+import { groupAndReduce } from '../../with-lookup/reduce/groupby.js'
+import { canonicalGroupKey } from '../../with-lookup/reduce/canonical-key.js'
 import { applyI18nLocale, type I18nTextDescriptor } from '../../via/i18n/core.js'
 import { putDerivedOutput, type PutDerivedOutputCtx } from '../../kernel/via/dispatch.js'
 
@@ -62,8 +62,8 @@ const DEFAULT_MAX_ROWS = 100_000
 
 /**
  * Materialize a query terminal that may be a `Query<T>` (call
- * `.toArray()`), an `Aggregation<R>` (call `.run()` returning a
- * single object — wrap as a one-row array), or a `GroupedAggregation<R>`
+ * `.toArray()`), an `Reduction<R>` (call `.run()` returning a
+ * single object — wrap as a one-row array), or a `GroupedReduction<R>`
  * (call `.run()` returning an array of grouped rows). Branches on
  * available terminal at runtime — no type-discrimination at registration.
  */
@@ -79,13 +79,13 @@ async function materializeQueryResult(
     return await q.toArray()
   }
   if (typeof q?.run === 'function') {
-    // Aggregation<R> or GroupedAggregation<R>. `.run()` is synchronous
-    // and returns either a single object (Aggregation) or an array of
-    // rows (GroupedAggregation). Promise.resolve() normalizes both
+    // Reduction<R> or GroupedReduction<R>. `.run()` is synchronous
+    // and returns either a single object (Reduction) or an array of
+    // rows (GroupedReduction). Promise.resolve() normalizes both
     // sync and async (future) variants.
     // Query-form MV grouping: when the MV declares i18nLocale, pass it +
-    // i18nFields so a GroupedAggregation resolves i18n group keys before
-    // bucketing (the Aggregation path ignores the extra arg).
+    // i18nFields so a GroupedReduction resolves i18n group keys before
+    // bucketing (the Reduction path ignores the extra arg).
     const runOpts = i18nLocale !== undefined ? { locale: i18nLocale, i18nFields } : undefined
     const result: unknown = await Promise.resolve(q.run(runOpts))
     if (Array.isArray(result)) {
@@ -97,7 +97,7 @@ async function materializeQueryResult(
     return [result as Record<string, unknown>]
   }
   throw new Error(
-    `MV "${mvName}": query() must return a Query<T>, Aggregation, or GroupedAggregation. ` +
+    `MV "${mvName}": query() must return a Query<T>, Reduction, or GroupedReduction. ` +
       `Got something without a .toArray() or .run() terminal.`,
   )
 }

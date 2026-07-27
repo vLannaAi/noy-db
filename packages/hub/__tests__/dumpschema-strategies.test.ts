@@ -9,15 +9,9 @@
 
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
-import {
-  createNoydb,
-  withDerivation,
-  withMaterializedView,
-  withOverlayedView,
-  sum,
-  count,
-} from '../src/index.js'
-import { withAggregate } from '../src/with-lookup/aggregate/index.js'
+import { createNoydb, withDerivation, withMaterializedView, withOverlayedView } from '../src/index.js'
+import { sum, count } from '../src/with-lookup/reduce/index.js'
+import { withReduce } from '../src/with-lookup/reduce/index.js'
 
 function memory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
@@ -237,7 +231,7 @@ describe('dumpSchema() — MV aggregate ops (Gap 3)', () => {
       store: memory(),
       user: 'alice',
       secret: 'dumpschema-aggregate-secret-2026',
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
       materializedViewStrategies: [mv],
     })
     const vault = await db.openVault('acme')
@@ -279,7 +273,7 @@ describe('dumpSchema() — MV aggregate ops (Gap 3)', () => {
       store: memory(),
       user: 'alice',
       secret: 'dumpschema-count-secret-2026',
-      aggregateStrategy: withAggregate(),
+      reduceStrategy: withReduce(),
       materializedViewStrategies: [mv],
     })
     const vault = await db.openVault('acme')

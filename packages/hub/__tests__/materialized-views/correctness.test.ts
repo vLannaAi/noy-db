@@ -1,15 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import {
-  createNoydb,
-  withMaterializedView,
-  MaterializedViewCycleError,
-  MaterializedViewTooLargeError,
-  withGuard,
-  RecordLockedError,
-  GroupedAggregation,
-} from '../../src/index.js'
-import { withAggregate } from '../../src/with-lookup/aggregate/index.js'
-import { sum, count } from '../../src/with-lookup/aggregate/reducers.js'
+import { createNoydb, withMaterializedView, MaterializedViewCycleError, MaterializedViewTooLargeError, withGuard, RecordLockedError } from '../../src/index.js'
+import { GroupedReduction } from '../../src/with-lookup/reduce/index.js'
+import { withReduce } from '../../src/with-lookup/reduce/index.js'
+import { sum, count } from '../../src/with-lookup/reduce/reducers.js'
 import { withTransactions } from '../../src/with-commit/tx/index.js'
 import { withTiers } from '../../src/with-audit/tiers/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
@@ -522,7 +515,7 @@ describe('MV correctness (#152)', () => {
         query: (db) => db.collection<Compensation>('compensations')
           .query()
           .groupBy('clientId')
-          .aggregate({ taxTotal: sum('taxAmount') }) as GroupedAggregation<ClientTotalRow>,
+          .aggregate({ taxTotal: sum('taxAmount') }) as GroupedReduction<ClientTotalRow>,
         rowKey: (r) => r.clientId,
         refresh: 'eager',
       })
@@ -530,7 +523,7 @@ describe('MV correctness (#152)', () => {
         store: memory(),
         user: 'alice',
         secret: 'mv-correctness-aggregate-secret-2026',
-        aggregateStrategy: withAggregate(),
+        reduceStrategy: withReduce(),
         materializedViewStrategies: [mv],
       })
       const vault = await db.openVault('demo')
@@ -562,7 +555,7 @@ describe('MV correctness (#152)', () => {
         store: memory(),
         user: 'alice',
         secret: 'mv-correctness-single-agg-secret-2026',
-        aggregateStrategy: withAggregate(),
+        reduceStrategy: withReduce(),
         materializedViewStrategies: [mv],
       })
       const vault = await db.openVault('demo')

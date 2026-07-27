@@ -99,7 +99,7 @@ export class MaterializedViewRegistry {
 
     // Invoke the query callback once to inspect its plan / dependencies.
     // For Query<T> shapes the analyzer extracts deps + plan summary
-    // automatically. Aggregation / GroupedAggregation shapes don't
+    // automatically. Reduction / GroupedReduction shapes don't
     // expose the underlying Query, so the spec must declare `sources`
     // explicitly. `partitionClauses` are only populated for Query<T>
     // since same-collection-partition is a non-aggregate concern.
@@ -166,7 +166,7 @@ export class MaterializedViewRegistry {
         if (!spec.sources || spec.sources.length === 0) {
           throw new Error(
             `withMaterializedView "${spec.name}": query() returned an aggregate ` +
-              `(Aggregation or GroupedAggregation) but no \`sources\` field is declared. ` +
+              `(Reduction or GroupedReduction) but no \`sources\` field is declared. ` +
               `The dependency analyzer cannot walk through groupBy().aggregate() ` +
               `back to the source — declare sources: [...] explicitly.`,
           )
