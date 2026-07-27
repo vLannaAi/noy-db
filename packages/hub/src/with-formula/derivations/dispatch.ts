@@ -25,8 +25,22 @@
 import type { NoydbStore } from '../../kernel/types.js'
 import type { TxContext } from '../../with-commit/tx/transaction.js'
 import type { DerivationRegistry } from './registry.js'
+import type { ReadOnlyVaultFacade } from '../../with-audit/guards/types.js'
 import type { Collection } from '../../kernel/collection.js'
 import type { EnclaveKey } from '../../kernel/enclave/index.js'
+import type { EncryptedEnvelope } from '../../kernel/types.js'
+import type { ledgerAuditHook, WaveContext } from '../../kernel/via/dispatch.js'
+import { putDerivedOutput, selfWriteFieldEqual } from '../../kernel/via/dispatch.js'
+import { DerivationCapExceededError } from '../../kernel/errors.js'
+import { markStale } from './stale.js'
+import type { DerivationExecutor } from './executor.js'
+
+/** The per-write dispatch context threaded into `putDerivedOutput`. */
+interface DispatchCtx {
+  emit: (e: string, p: unknown) => void
+  source: { readonly collection: string; readonly id: string }
+  audit: ReturnType<typeof ledgerAuditHook>
+}
 
 /**
  * What the dispatchers need from the collection that owns them. Passing this
@@ -37,6 +51,7 @@ export interface DerivationDeleteCtx {
     registry(): DerivationRegistry
     getCollection(name: string): Collection<Record<string, unknown>>
     getActiveTxContext(): TxContext | null
+    getReadOnlyFacade(): ReadOnlyVaultFacade
   }
   /** The collection the delete happened in. */
   readonly collectionName: string
@@ -91,4 +106,240 @@ export async function dispatchArrayDerivationsOnDelete(
   }
 
   return erased
+}
+
+/** Adds what the on-write derivation dispatch needs beyond the delete path. */
+export interface DerivationDispatchCtx extends DerivationDeleteCtx {
+  /** Via pipeline, for decoding the stored form back to canonical money shape. */
+  readonly via: { canonicalizeStored(r: Record<string, unknown>): Record<string, unknown> } | undefined
+  /** Recompute a rollup aggregate onto a parent. Stays on the spine — it walks collections. */
+  readonly recomputeRollup: (
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    spec: any,
+    parentId: string,
+    source: { readonly collection: string; readonly id: string },
+    wave?: WaveContext,
+  ) => Promise<unknown>
+  /** Builds the per-write dispatch context threaded into `putDerivedOutput`. */
+  readonly dispatchCtx: (source: { readonly collection: string; readonly id: string }) => DispatchCtx
+  /** Registers a write on the active transaction for rollback. */
+  readonly trackPut: (txCtx: TxContext, collectionName: string, id: string, priorEnvelope: EncryptedEnvelope | null) => void
+}
+
+/**
+ * Fire registered derivation strategies for this source collection.
+ *
+ * Eager mode runs `derive` inline and writes each output; lazy mode records a
+ * stale mark for cold-session recompute. Rollups are handled here rather than
+ * by the executor — a write to the child recomputes the parent aggregate, and
+ * a write to the parent recomputes its own.
+ */
+export async function dispatchDerivations(
+  ctx: DerivationDispatchCtx,
+  id: string,
+  record: Record<string, unknown>,
+  version: number,
+  wave?: WaveContext,
+): Promise<void> {
+  const {
+    derivationSource, collectionName, adapter, vault, getDEK, storeCiphertext,
+    via, recomputeRollup, dispatchCtx, trackPut,
+  } = ctx
+
+  // `record` is the stored form here (post-quantize) — decode so
+  // derive(source, ctx) sees the canonical money shape.
+  const incoming = (via ? via.canonicalizeStored(record) : record)
+  if (incoming && typeof incoming === 'object' && '_derivedFrom' in incoming) return
+  const registry = derivationSource.registry()
+  const strategies = registry.strategiesForSource(collectionName)
+  if (strategies.length === 0) return
+  // Dynamic-import the executor only on the first eager-mode
+  // dispatch. Lazy-mode dispatches use `markStale` (a pure helper)
+  // which doesn't reach into the executor at all. Keeps the
+  // derivation executor chunk out of the floor bundle for any
+  // consumer that doesn't fire an eager derivation.
+  let executorClass: typeof DerivationExecutor | null = null
+  for (const { spec, strategyHash } of strategies) {
+    const mode = typeof spec.lifecycle === 'string' ? spec.lifecycle : spec.lifecycle.mode
+
+    // Rollup: a write to the child `from` recomputes the
+    // parent at id child[key]; a write to the parent (source = into)
+    // recomputes its own aggregate. Handled here (the executor is not run).
+    if (spec.rollup) {
+      if (mode !== 'eager') continue
+      let parentId: string | null
+      if (collectionName === spec.rollup.from) {
+        const kv = incoming[spec.rollup.key]
+        parentId = (typeof kv === 'string' || typeof kv === 'number') ? String(kv) : null
+      } else {
+        parentId = id // a write to the parent recomputes its own aggregate
+      }
+      if (parentId !== null) await recomputeRollup(spec, parentId, { collection: collectionName, id }, wave)
+      continue
+    }
+
+    // Determine how `collectionName` triggers this strategy, and build the list
+    // of source records to (re-)derive:
+    //   • source     — re-derive the written record itself (same-id).
+    //   • sources[]  — re-derive the PRIMARY source at the same id.
+    //   • triggerBy  — FK fan-out: re-derive every source record
+    //                  whose `on` field equals the written parent's id.
+    // `input` is passed to derive(); `base` is the raw stored source record
+    // used as the patch base for a self-write reverse-denorm output.
+    const isSource = spec.source === collectionName
+    const isSibling = !isSource && (spec.sources?.includes(collectionName) ?? false)
+    const trigger = !isSource && !isSibling
+      ? spec.triggerBy?.find(t => t.collection === collectionName)
+      : undefined
+
+    const runs: Array<{
+      input: Record<string, unknown> & { id: string }
+      base: Record<string, unknown>
+      runId: string
+      version: number
+    }> = []
+
+    if (isSource) {
+      runs.push({ input: { ...incoming, id }, base: incoming, runId: id, version })
+    } else if (isSibling) {
+      const p = await derivationSource.getCollection(spec.source).get(id)
+      if (p !== null && p !== undefined) {
+        // Raw base for a (rare) sibling self-write; falls back to the
+        // resolved primary if the raw read misses.
+        const raw = await derivationSource.getCollection(spec.source)._getStoredRecord(id)
+        runs.push({ input: { ...p, id }, base: raw ?? p, runId: id, version: 0 })
+      }
+    } else if (trigger) {
+      const srcColl = derivationSource.getCollection(spec.source)
+      const ids = await srcColl._findMatchingIds(trigger.on, id)
+      if (trigger.maxFanout !== undefined && ids.length > trigger.maxFanout) {
+        throw new DerivationCapExceededError(`triggerBy ${collectionName}→${spec.source}`, ids.length, trigger.maxFanout)
+      }
+      for (const sid of ids) {
+        const raw = await srcColl._getStoredRecord(sid)
+        if (raw === null) continue
+        runs.push({ input: { ...raw, id: sid }, base: raw, runId: sid, version: 0 })
+      }
+    }
+
+    if (runs.length === 0) continue
+
+    if (mode !== 'eager') {
+      for (const run of runs) await markStale(registry, spec, run.runId)
+      continue
+    }
+
+    if (executorClass === null) {
+      ;({ DerivationExecutor: executorClass } = await import('./executor.js'))
+    }
+
+    for (const run of runs) {
+      const ctx = { vault: derivationSource.getReadOnlyFacade() }
+      const outCtx = dispatchCtx({ collection: spec.source, id: run.runId })
+      const result = await executorClass.run(spec, run.input, run.version, strategyHash, ctx)
+      for (const key of Object.keys(spec.outputs)) {
+        const out = result.outputs[key]
+        if (!out) continue
+        if (out.kind === 'failed') {
+          const err = out.error
+          if (spec.strict) throw err
+          console.warn(`[derivation] output "${key}" for source "${spec.source}" id="${run.runId}" failed:`, err)
+          continue
+        }
+        const outSpec = spec.outputs[key]
+        if (!outSpec) continue
+        const outputCollection = derivationSource.getCollection(outSpec.collection)
+        // If we're inside a multi-record transaction, register
+        // derived writes as side-effect ops on the active ctx
+        // BEFORE they fire. `revertExecuted` walks `_executed` in
+        // reverse on rollback, so capturing the pre-write envelope
+        // here lets a later mid-batch failure restore this output's
+        // prior state alongside the source op. Outside a transaction
+        // the context is null and tracking is skipped.
+        const txCtx = derivationSource.getActiveTxContext()
+
+        // ── Array-shape branch ─────────────────────────────────
+        if (out.kind === 'array') {
+          // Load the prior key set from the fanout sidecar.
+          const { loadFanoutSidecar, saveFanoutSidecar } = await import('./fanout-sidecar.js')
+          const prior = await loadFanoutSidecar(adapter, vault, spec.source, run.runId, key, getDEK, storeCiphertext)
+          const prevKeys = new Set<string>(prior?.keys ?? [])
+          const newKeysList = out.entries.map(e => e.key)
+          const newKeysSet = new Set<string>(newKeysList)
+
+          // Diff — delete keys that were in prev but not in new.
+          for (const k of prevKeys) {
+            if (newKeysSet.has(k)) continue
+            await outputCollection._internalDelete(k, txCtx)
+          }
+
+          // Upsert every entry in the new set. (Slice 1: no
+          // identity-skip optimisation; write every row, idempotent
+          // at the (collection, id) level.)
+          for (const entry of out.entries) {
+            if (txCtx !== null) {
+              trackPut(txCtx, outSpec.collection, entry.key, await adapter.get(vault, outSpec.collection, entry.key))
+            }
+            await putDerivedOutput(outputCollection, entry.key, entry.value, outCtx, { source: 'derived' })
+          }
+
+          // Persist the new key set last, for failure-mode symmetry.
+          await saveFanoutSidecar(adapter, vault, {
+            source: spec.source,
+            sourceId: run.runId,
+            outputKey: key,
+            outputCollection: outSpec.collection,
+            keys: newKeysList,
+          }, getDEK, storeCiphertext)
+          continue
+        }
+
+        // ── Record-shape branch ────────────────────────────────
+        if (out.skipped === true) {
+          // Optional output returned null. Delete the
+          // previously-emitted output at this id, if any. Routed
+          // through `_internalDelete` so a user-registered
+          // `onDelete` on the output collection does NOT
+          // fire — this is a system-internal tombstone, not a
+          // user-initiated delete. The txCtx hookup captures the
+          // prior envelope inside `_internalDelete` for rollback
+          // symmetry; delete-of-absent is a silent no-op.
+          await outputCollection._internalDelete(run.runId, txCtx)
+          continue
+        }
+
+        // ── Self-write reverse-denorm ───────────────────────────
+        // An output back to its own source: patch ONLY the declared
+        // `denorm` fields onto the raw stored record, never the whole
+        // value (which would clobber user fields / i18n maps and carries
+        // the executor's `_derivedFrom` tag). If the patch changes
+        // nothing, skip the write — that value-equality is the cycle
+        // guard: the self-write re-fires the source-path derivation,
+        // which recomputes identical fields and terminates here.
+        if (outSpec.shape === 'record' && outSpec.denorm !== undefined && outSpec.collection === spec.source) {
+          const value = out.value
+          const patched: Record<string, unknown> = { ...run.base }
+          let changed = false
+          for (const f of outSpec.denorm) {
+            if (!selfWriteFieldEqual(run.base[f], value[f])) {
+              patched[f] = value[f]
+              changed = true
+            }
+          }
+          if (!changed) continue // cycle guard — nothing to write
+          if (txCtx !== null) {
+            trackPut(txCtx, outSpec.collection, run.runId, await adapter.get(vault, outSpec.collection, run.runId))
+          }
+          await putDerivedOutput(outputCollection, run.runId, patched, outCtx, { source: 'derived' })
+          continue
+        }
+
+        // ── Normal record output (separate output collection) ──
+        if (txCtx !== null) {
+          trackPut(txCtx, outSpec.collection, run.runId, await adapter.get(vault, outSpec.collection, run.runId))
+        }
+        await putDerivedOutput(outputCollection, run.runId, out.value, outCtx, { source: 'derived' })
+      }
+    }
+  }
 }

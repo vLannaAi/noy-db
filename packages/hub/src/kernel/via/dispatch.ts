@@ -429,3 +429,19 @@ async function applyLookupRefsFanout(
   }
   return { cascaded, nullified, residue }
 }
+
+/**
+ * Value-equality for a single self-write reverse-denorm field. Scalars
+ * compare by identity; objects by canonical JSON (denorm values should be
+ * deterministically shaped). Used as the cycle guard — when every denorm
+ * field already matches, no write is issued and the self-write recursion ends.
+ */
+export function selfWriteFieldEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false
+  try {
+    return JSON.stringify(a) === JSON.stringify(b)
+  } catch {
+    return false
+  }
+}
