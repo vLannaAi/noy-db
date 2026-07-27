@@ -19,7 +19,7 @@ describe('rotateRecordCek preserves sealed fields (#306 data-loss fix)', () => {
     const db = await createNoydb({ store: memoryStore(), user: 'alice', secret: 'rotate-sealed-passphrase-2026-pilot', sealedRecordStrategy: withSealedRecord() })
     const vault = await db.openVault('v')
     // 2nd generic types `ssn` as a Sealed<string> handle on reads.
-    const people = vault.collection<Person, 'ssn'>('people', { perRecordKeys: true, sensitive: ['ssn'] })
+    const people = vault.collection<Person, { sensitive: 'ssn' }>('people', { perRecordKeys: true, sensitive: ['ssn'] })
     await people.put('p1', { id: 'p1', name: 'Ada', ssn: '123-45-6789' })
 
     // Sanity: the sealed field reveals before rotation.
