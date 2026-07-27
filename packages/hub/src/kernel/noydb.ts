@@ -35,23 +35,7 @@ import {
   persistDirectoryConfig,
 } from '../with-party/directory/storage.js'
 import type { PassphrasePolicy } from './validation.js'
-import {
-  type RotatePassphraseInput,
-  type RecoverPassphraseInput,
-  type RecoverPassphraseResult,
-  type RotateRecoveryOptions,
-  type RotateRecoveryResult,
-  type EnrollRecoveryResult,
-  type RecoveryEnrollmentInput,
-  type RecoveryProof,
-} from '../with-party/team/rotate-recover.js'
-import type { RecoverUserOptions } from '../with-party/team/peer-recover.js'
-import {
-  hasRecoveryEnrolled,
-  hasStrongRecoveryEnrolled,
-  type PaperRecoveryEntry,
-  type ShamirRecoveryEntry,
-} from '../with-party/team/recovery.js'
+import { hasRecoveryEnrolled, hasStrongRecoveryEnrolled } from '../with-party/team/recovery.js'
 import { resolveManagedSecret } from '../with-party/team/managed-passphrase.js'
 import { generateULID } from '../with-pod/ulid.js'
 import { createDefaultCoordinationProvider, type CoordinationProvider } from '../port/by/default-provider.js'
@@ -74,12 +58,7 @@ import {
   updateKeyringIdentity,
 } from '../with-party/team/keyring.js'
 import type { UnlockedKeyring } from '../with-party/team/keyring.js'
-import {
-  type EnrollAuthenticatorOptions,
-  type UpdateAuthenticatorOptions,
-} from '../with-party/team/authenticators.js'
-import { QuickUnlockStore, type QuickUnlockState } from '../with-party/session/unlock-state.js'
-import type { KeyringAuthenticator } from './types.js'
+import { QuickUnlockStore } from '../with-party/session/unlock-state.js'
 import type { SyncEngine } from '../with-party/team/sync.js'
 import type { SyncTransaction } from '../with-party/team/sync-transaction.js'
 import { type SnapshotMeta } from '../with-fork/snapshots/strategy.js'
@@ -213,7 +192,24 @@ export class Noydb {
   private readonly policyManager: NoydbPolicyApi
   /** Pre-resolved policy-gate engine function (mirrors `coordinationProvider`/`userApiFactory` above). */
   private readonly policyCheckGate: PolicyCheckGateFn
-  private readonly team: TeamFacade
+  /**
+   * Credential and multi-user operations — enrolment, passphrase rotation,
+   * recovery, quick-unlock (#846).
+   *
+   * Public because 23 methods on this class did nothing but restate a
+   * TeamFacade signature and forward to it, so every signature had to be
+   * hand-kept in sync with its counterpart. `db.team.rotatePassphrase(…)`
+   * reads the same and has one source of truth.
+   *
+   * A getter, not a field, so it appears in the prototype-based kernel API
+   * manifest — an instance field is invisible to it (the same reason
+   * `custodyStrategy` became one in #838).
+   */
+  get team(): TeamFacade {
+    return this.#team
+  }
+
+  readonly #team: TeamFacade
   /**
    * Currently-running multi-record transaction, set by
    * `runTransaction` at the start of Phase 2 (commit) and cleared in
@@ -285,7 +281,7 @@ export class Noydb {
         this.vaultCache.delete(vault)
       },
     })
-    this.team = new TeamFacade({
+    this.#team = new TeamFacade({
       options: this.options,
       keyringCache: this.keyringCache,
       activeTier: this.activeTier,
@@ -1856,65 +1852,12 @@ export class Noydb {
   }
 
   // ─── Tier-2 enroll / remove ─────────────────────────────────────
-  /** Add a tier-2 authenticator slot — see {@link TeamFacade.enrollAuthenticator}. */
-  async enrollAuthenticator(
-    vault: string,
-    options: EnrollAuthenticatorOptions,
-    factors?: FactorProofBundle,
-  ): Promise<void> {
-    return this.team.enrollAuthenticator(vault, options, factors)
-  }
 
-  /** Remove a tier-2 authenticator slot — see {@link TeamFacade.removeAuthenticator}. */
-  async removeAuthenticator(
-    vault: string,
-    slotId: string,
-    factors?: FactorProofBundle,
-  ): Promise<void> {
-    return this.team.removeAuthenticator(vault, slotId, factors)
-  }
 
-  /** Read the slot list for a vault — see {@link TeamFacade.listAuthenticators}. */
-  async listAuthenticators(vault: string): Promise<ReadonlyArray<KeyringAuthenticator>> {
-    return this.team.listAuthenticators(vault)
-  }
 
-  /** Mutate an authenticator slot's `meta` — see {@link TeamFacade.updateAuthenticator}. */
-  async updateAuthenticator(
-    vault: string,
-    slotId: string,
-    options: UpdateAuthenticatorOptions,
-    factors?: FactorProofBundle,
-  ): Promise<void> {
-    return this.team.updateAuthenticator(vault, slotId, options, factors)
-  }
 
-  /** Native WebAuthn enrollment — see {@link TeamFacade.enrollWebAuthn}. */
-  async enrollWebAuthn(
-    vault: string,
-    ceremony: (keyring: UnlockedKeyring) => Promise<EnrollAuthenticatorOptions>,
-    factors?: FactorProofBundle,
-  ): Promise<{ credentialId: string }> {
-    return this.team.enrollWebAuthn(vault, ceremony, factors)
-  }
 
-  /** List webauthn-method slots — see {@link TeamFacade.listWebAuthnSlots}. */
-  async listWebAuthnSlots(vault: string): Promise<ReadonlyArray<{
-    id: string
-    enrolledAt: string
-    credentialId: string
-  }>> {
-    return this.team.listWebAuthnSlots(vault)
-  }
 
-  /** Unlock via a tier-2 authenticator slot — see {@link TeamFacade.unlockViaAuthenticator}. */
-  async unlockViaAuthenticator(
-    vault: string,
-    slotId: string,
-    verify: (slot: KeyringAuthenticator) => Promise<UnlockedKeyring>,
-  ): Promise<UnlockedKeyring> {
-    return this.team.unlockViaAuthenticator(vault, slotId, verify)
-  }
 
   // ─── Cover (https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md) ──────
   /**
@@ -1988,140 +1931,23 @@ export class Noydb {
   }
 
   // ─── Auth introspection ─────────────────────────────────────────
-  /** English summary of the configured auth model — see {@link TeamFacade.describeAuthConfig}. */
-  async describeAuthConfig(vault: string): Promise<string> {
-    return this.team.describeAuthConfig(vault)
-  }
 
-  /** Mermaid `flowchart TB` source for the auth graph — see {@link TeamFacade.diagramAuthConfig}. */
-  async diagramAuthConfig(vault: string): Promise<string> {
-    return this.team.diagramAuthConfig(vault)
-  }
 
-  /** Per-user enrollment summary — see {@link TeamFacade.describeUserAuth}. */
-  async describeUserAuth(
-    vault: string,
-    userId: string,
-    factors?: FactorProofBundle,
-  ): Promise<string> {
-    return this.team.describeUserAuth(vault, userId, factors)
-  }
 
-  /** Bulk per-user enrollment summary — see {@link TeamFacade.describeAllUsersAuth}. */
-  async describeAllUsersAuth(
-    vault: string,
-    factors?: FactorProofBundle,
-  ): Promise<Array<{ userId: string; description: string }>> {
-    return this.team.describeAllUsersAuth(vault, factors)
-  }
 
   // ─── Tier-1 change flows ────────────────────────────────────────
-  /** Rotate the user's passphrase (user remembers old) — see {@link TeamFacade.rotatePassphrase}. */
-  async rotatePassphrase(
-    vault: string,
-    input: RotatePassphraseInput,
-    factors?: FactorProofBundle,
-  ): Promise<void> {
-    return this.team.rotatePassphrase(vault, input, factors)
-  }
 
-  /** Reset the passphrase using a recovery proof — see {@link TeamFacade.recoverPassphrase}. */
-  async recoverPassphrase(
-    vault: string,
-    input: RecoverPassphraseInput,
-    factors?: FactorProofBundle,
-  ): Promise<RecoverPassphraseResult> {
-    return this.team.recoverPassphrase(vault, input, factors)
-  }
 
-  /** Deliberate paper/Shamir recovery-code regeneration — see {@link TeamFacade.rotateRecovery}. */
-  async rotateRecovery(
-    vault: string,
-    options: RotateRecoveryOptions,
-    factors?: FactorProofBundle,
-  ): Promise<RotateRecoveryResult> {
-    return this.team.rotateRecovery(vault, options, factors)
-  }
 
-  /** Atomic create-and-enroll for managed-mode vaults — see {@link TeamFacade.openVaultAndEnrollRecovery}. */
-  async openVaultAndEnrollRecovery(
-    vault: string,
-    opts: {
-      readonly recovery: ReadonlyArray<RecoveryEnrollmentInput>
-      readonly locale?: string
-    },
-  ): Promise<{
-    readonly vault: Vault
-    readonly recoveryEnrollments: ReadonlyArray<EnrollRecoveryResult>
-  }> {
-    return this.team.openVaultAndEnrollRecovery(vault, opts)
-  }
 
-  /** Recovery flow under managed-passphrase mode — see {@link TeamFacade.recoverManagedPassphrase}. */
-  async recoverManagedPassphrase(
-    vault: string,
-    options: {
-      readonly recoveryProof: RecoveryProof
-      readonly passphrasePolicy?: PassphrasePolicy
-    },
-  ): Promise<void> {
-    return this.team.recoverManagedPassphrase(vault, options)
-  }
 
-  /** Atomic peer-recovery of an existing user's keyring — see {@link TeamFacade.recoverUser}. */
-  async recoverUser(
-    vault: string,
-    options: RecoverUserOptions,
-    factors?: FactorProofBundle,
-  ): Promise<void> {
-    return this.team.recoverUser(vault, options, factors)
-  }
 
-  /** Persist a recovery enrollment (paper or Shamir) — see {@link TeamFacade.enrollRecovery}. */
-  async enrollRecovery(
-    vault: string,
-    enrollment: RecoveryEnrollmentInput,
-  ): Promise<EnrollRecoveryResult> {
-    return this.team.enrollRecovery(vault, enrollment)
-  }
 
-  /** Read the persisted recovery entries (paper + Shamir) — see {@link TeamFacade.listRecoveryEntries}. */
-  async listRecoveryEntries(
-    vault: string,
-  ): Promise<{
-    paper: ReadonlyArray<PaperRecoveryEntry>
-    shamir: ReadonlyArray<ShamirRecoveryEntry>
-  }> {
-    return this.team.listRecoveryEntries(vault)
-  }
 
   // ─── Tier-3 enroll / unlock ─────────────────────────────────────
-  /** Register a tier-3 quick-unlock state — see {@link TeamFacade.enrollUnlock}. */
-  async enrollUnlock(
-    vault: string,
-    state: QuickUnlockState,
-    factors?: FactorProofBundle,
-  ): Promise<void> {
-    return this.team.enrollUnlock(vault, state, factors)
-  }
 
-  /** Resume a session via the registered tier-3 state — see {@link TeamFacade.unlockViaPin}. */
-  async unlockViaPin(
-    vault: string,
-    resume: (state: QuickUnlockState) => Promise<UnlockedKeyring>,
-  ): Promise<UnlockedKeyring | undefined> {
-    return this.team.unlockViaPin(vault, resume)
-  }
 
-  /** Drop the tier-3 state for a vault — see {@link TeamFacade.clearQuickUnlock}. */
-  clearQuickUnlock(vault: string): void {
-    this.team.clearQuickUnlock(vault)
-  }
 
-  /** Public defensive-copy accessor for the unlocked keyring — see {@link TeamFacade.getKeyring}. */
-  async getKeyring(vault: string): Promise<UnlockedKeyring> {
-    return this.team.getKeyring(vault)
-  }
 
   /**
    * Live-reference variant used by the hub's own code paths. Internal

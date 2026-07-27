@@ -122,7 +122,7 @@ describe('@noy-db/at-env — integration with @noy-db/hub managed-passphrase mod
       sealingKey: provider,
       shamirRecovery: shamirRecoveryProvider(),
     })
-    const { vault: vault1 } = await db1.openVaultAndEnrollRecovery('demo', {
+    const { vault: vault1 } = await db1.team.openVaultAndEnrollRecovery('demo', {
       recovery: [{ profile: 'shamir', k: 2, n: 3 }],
     })
     await vault1.collection<{ id: string; note: string }>('notes').put('n1', {

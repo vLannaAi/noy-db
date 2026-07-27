@@ -2989,8 +2989,8 @@ export class RecoveryNotEnrolledError extends NoydbError {
  * no memorized passphrase to fall back on, so losing the paper sheet =
  * losing every record permanently.
  *
- * Bootstrap with `db.openVaultAndEnrollRecovery(vault, { recovery: [{ profile: "shamir", k, n }] })`
- * to atomically create-and-enroll, or call `db.enrollRecovery(vault, { profile: "shamir", ... })`
+ * Bootstrap with `db.team.openVaultAndEnrollRecovery(vault, { recovery: [{ profile: "shamir", k, n }] })`
+ * to atomically create-and-enroll, or call `db.team.enrollRecovery(vault, { profile: "shamir", ... })`
  * separately before re-attempting `openVault`.
  */
 export class ManagedRecoveryNotEnrolledError extends NoydbError {
@@ -3002,8 +3002,8 @@ export class ManagedRecoveryNotEnrolledError extends NoydbError {
       + '(Shamir today; multi-channel / admin-mediated when they ship). Paper alone is '
       + 'NOT strong under managed mode — losing the paper sheet would mean losing every '
       + 'record permanently. '
-      + `Bootstrap with \`db.openVaultAndEnrollRecovery("${vault}", { recovery: [{ profile: "shamir", k: 2, n: 3 }] })\`, `
-      + 'or call `db.enrollRecovery(vault, { profile: "shamir", k, n })` separately, '
+      + `Bootstrap with \`db.team.openVaultAndEnrollRecovery("${vault}", { recovery: [{ profile: "shamir", k: 2, n: 3 }] })\`, `
+      + 'or call `db.team.enrollRecovery(vault, { profile: "shamir", k, n })` separately, '
       + 'then re-attempt `openVault`.',
     )
     this.name = 'ManagedRecoveryNotEnrolledError'

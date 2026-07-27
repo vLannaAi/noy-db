@@ -41,7 +41,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-pas
       }),
       shamirRecovery: shamirRecoveryProvider(),
     })
-    const { vault: vault1 } = await db1.openVaultAndEnrollRecovery('demo', {
+    const { vault: vault1 } = await db1.team.openVaultAndEnrollRecovery('demo', {
       recovery: [{ profile: 'shamir', k: 2, n: 3 }],
     })
     await vault1.collection<{ id: string; note: string }>('notes').put('n1', {
@@ -85,7 +85,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-pas
       }),
       shamirRecovery: shamirRecoveryProvider(),
     })
-    const { vault: vault1 } = await db1.openVaultAndEnrollRecovery('demo', {
+    const { vault: vault1 } = await db1.team.openVaultAndEnrollRecovery('demo', {
       recovery: [{ profile: 'shamir', k: 2, n: 3 }],
     })
     await vault1.collection<{ id: string; note: string }>('notes').put('n1', {
@@ -126,7 +126,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-pas
       }),
       shamirRecovery: shamirRecoveryProvider(),
     })
-    const { vault: v1 } = await db1.openVaultAndEnrollRecovery('persist', {
+    const { vault: v1 } = await db1.team.openVaultAndEnrollRecovery('persist', {
       recovery: [{ profile: 'shamir', k: 2, n: 3 }],
     })
     await v1.collection<{ id: string; v: number }>('items').put('i1', { id: 'i1', v: 42 })

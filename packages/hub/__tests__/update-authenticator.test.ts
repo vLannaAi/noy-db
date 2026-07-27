@@ -1,5 +1,5 @@
 /**
- * #55 — db.updateAuthenticator(slotId, { meta }) for slot nickname rename.
+ * #55 — db.team.updateAuthenticator(slotId, { meta }) for slot nickname rename.
  *
  * Pinned behaviors:
  *   1. Round-trip — meta keys merged, wrap material preserved.
@@ -226,11 +226,11 @@ describe('Noydb.updateAuthenticator (hub-level wiring, #55)', () => {
     const alice = await createNoydb({ store, user: 'alice', secret: PHRASE })
     await alice.openVault('acme')
 
-    await alice.updateAuthenticator('acme', 'webauthn-test', {
+    await alice.team.updateAuthenticator('acme', 'webauthn-test', {
       meta: { nickname: 'Test slot' },
     })
 
-    const slots = await alice.listAuthenticators('acme')
+    const slots = await alice.team.listAuthenticators('acme')
     expect(slots).toHaveLength(1)
     expect(slots[0]!.meta.nickname).toBe('Test slot')
     expect(slots[0]!.meta.credentialId).toBe('cred-webauthn-test')
@@ -249,7 +249,7 @@ describe('Noydb.updateAuthenticator (hub-level wiring, #55)', () => {
     await alice.openVault('acme')
 
     await expect(
-      alice.updateAuthenticator('acme', 'webauthn-strict', { meta: { nickname: 'X' } }),
+      alice.team.updateAuthenticator('acme', 'webauthn-strict', { meta: { nickname: 'X' } }),
     ).rejects.toBeInstanceOf(PolicyDeniedError)
   }, 120_000)
 })

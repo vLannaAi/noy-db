@@ -323,11 +323,11 @@ describe('db.recoverUser (#33 + #34 hub-level integration)', () => {
 
     // Without a factor proof, the gate denies.
     await expect(
-      db.recoverUser('acme', { userId: 'bob', passphrase: TEMP_PHRASE }),
+      db.team.recoverUser('acme', { userId: 'bob', passphrase: TEMP_PHRASE }),
     ).rejects.toBeInstanceOf(PolicyDeniedError)
 
     // With a recovery factor proof, recovery succeeds.
-    await db.recoverUser(
+    await db.team.recoverUser(
       'acme',
       { userId: 'bob', passphrase: TEMP_PHRASE },
       { factors: [{ kind: 'recovery', mintedAt: new Date().toISOString() }] },

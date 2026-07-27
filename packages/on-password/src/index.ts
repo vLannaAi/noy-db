@@ -102,7 +102,7 @@ export interface EnrollPasswordOptions {
 /**
  * Build the keyring slot for a tier-2 password authenticator. Returns
  * an `EnrollAuthenticatorOptions` value the caller hands to
- * `db.enrollAuthenticator(vault, slot)` — separating the cryptographic
+ * `db.team.enrollAuthenticator(vault, slot)` — separating the cryptographic
  * step (this function) from the persistence step (the hub) keeps the
  * package small and lets the hub's policy gate run between the two.
  *
@@ -116,12 +116,12 @@ export interface EnrollPasswordOptions {
  * ```ts
  * import { enrollPasswordAuthenticator } from '@noy-db/on-password'
  *
- * const keyring = await db.getKeyring('acme')
+ * const keyring = await db.team.getKeyring('acme')
  * const slot = await enrollPasswordAuthenticator(keyring, {
  *   password: 'strong-password-2026',
  *   minLength: 14,
  * })
- * await db.enrollAuthenticator('acme', slot, {
+ * await db.team.enrollAuthenticator('acme', slot, {
  *   factors: [{ kind: 'totp' }],
  * })
  * ```
@@ -217,7 +217,7 @@ export async function unwrapDeksWithPassword(
  * ```ts
  * import { verifyPasswordSlot } from '@noy-db/on-password'
  *
- * const unlocked = await db.unlockViaAuthenticator('acme', 'password',
+ * const unlocked = await db.team.unlockViaAuthenticator('acme', 'password',
  *   (slot) => verifyPasswordSlot(slot, 'strong-password-2026',
  *     { store, vault: 'acme', userId: 'alice' }),
  * )
@@ -304,7 +304,7 @@ export interface VerifyPasswordSlotOptions {
  * ```ts
  * import { passwordSlotRewrapCeremony } from '@noy-db/on-password'
  *
- * await db.rotatePassphrase('acme', {
+ * await db.team.rotatePassphrase('acme', {
  *   oldPassphrase: oldPhrase,
  *   newPassphrase: newPhrase,
  *   slotCeremonies: {

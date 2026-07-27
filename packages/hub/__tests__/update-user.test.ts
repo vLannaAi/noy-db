@@ -432,7 +432,7 @@ describe('Noydb.updateUser (hub-level wiring, #54)', () => {
 
     const reopen = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: BOB_PHRASE })
     await reopen.openVault('acme')
-    const bob = await reopen.getKeyring('acme')
+    const bob = await reopen.team.getKeyring('acme')
     expect(bob.role).toBe('operator')
     expect(bob.displayName).toBe('Bob the Promoted')
   }, 120_000)
@@ -476,7 +476,7 @@ describe('Noydb.updateUser (hub-level wiring, #54)', () => {
       displayName: 'Alice the Updated',
     })
 
-    const krAfter = await alice.getKeyring('acme')
+    const krAfter = await alice.team.getKeyring('acme')
     expect(krAfter.displayName).toBe('Alice the Updated')
   }, 120_000)
 })

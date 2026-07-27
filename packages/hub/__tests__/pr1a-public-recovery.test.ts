@@ -2,7 +2,7 @@
  * PR1a — public-API exposure for paper recovery + db.getKeyring.
  *
  * Covers:
- *   - issue #28: db.getKeyring(vault) is reachable from outside the hub
+ *   - issue #28: db.team.getKeyring(vault) is reachable from outside the hub
  *     and returns the live UnlockedKeyring (same shape on-* packages
  *     expect — .deks Map, .kek CryptoKey, .role).
  *   - issue #39: mintPaperRecoveryEntry + unwrapDeksFromPaperEntry are
@@ -61,7 +61,7 @@ describe('PR1a public surface', () => {
 
   describe('db.getKeyring (#28)', () => {
     it('returns the live UnlockedKeyring with non-empty DEK map', async () => {
-      const keyring = await db.getKeyring('acme')
+      const keyring = await db.team.getKeyring('acme')
       expect(keyring.userId).toBe('alice')
       expect(keyring.role).toBe('owner')
       expect(keyring.deks.size).toBeGreaterThan(0)
@@ -70,13 +70,13 @@ describe('PR1a public surface', () => {
 
     it('returns equal-but-distinct snapshots on repeated calls (defensive copy, #88)', async () => {
       // Pre-#88 this test asserted Object.is identity (`a === b`). Post-#88
-      // the contract changed: db.getKeyring() returns a defensive copy so
+      // the contract changed: db.team.getKeyring() returns a defensive copy so
       // consumers can't corrupt the cache via .deks.set/.delete or
       // .permissions['k'] = ... mutations. Two calls now return distinct
       // outer objects with equal content; the underlying CryptoKey handles
       // are still shared (intentional — opaque references).
-      const a = await db.getKeyring('acme')
-      const b = await db.getKeyring('acme')
+      const a = await db.team.getKeyring('acme')
+      const b = await db.team.getKeyring('acme')
       expect(a).not.toBe(b)
       expect(a.deks).not.toBe(b.deks) // fresh Map per snapshot
       expect(a.userId).toBe(b.userId)
@@ -93,7 +93,7 @@ describe('PR1a public surface', () => {
 
   describe('mintPaperRecoveryEntry / unwrapDeksFromPaperEntry (#39)', () => {
     it('mints an entry whose DEKs round-trip via the public unwrap helper', async () => {
-      const keyring = await db.getKeyring('acme')
+      const keyring = await db.team.getKeyring('acme')
       const code = 'TESTCODE-PR1A-001'
 
       const entry = await mintPaperRecoveryEntry(keyring.deks, code, 'code-001')
@@ -110,7 +110,7 @@ describe('PR1a public surface', () => {
     })
 
     it('round-trips through db.enrollRecovery + db.recoverPassphrase', async () => {
-      const keyring = await db.getKeyring('acme')
+      const keyring = await db.team.getKeyring('acme')
       // Codes must be already-normalized (uppercase, no separators) so they
       // round-trip through recoverPassphrase's normalizePaperCode step.
       const codes = ['CODEAAA001', 'CODEBBB002', 'CODECCC003']
@@ -118,10 +118,10 @@ describe('PR1a public surface', () => {
         codes.map((c, i) => mintPaperRecoveryEntry(keyring.deks, c, `code-${i}`)),
       )
 
-      await db.enrollRecovery('acme', { profile: 'paper', entries })
+      await db.team.enrollRecovery('acme', { profile: 'paper', entries })
 
       // Use one code to recover under a new phrase.
-      await db.recoverPassphrase('acme', {
+      await db.team.recoverPassphrase('acme', {
         newPassphrase: STRONG_NEW,
         recoveryProof: { profile: 'paper', payload: { code: codes[0]! } },
       })
@@ -132,7 +132,7 @@ describe('PR1a public surface', () => {
         user: 'alice',
         secret: STRONG_NEW,
       })
-      const reopenKeyring = await reopen.getKeyring('acme')
+      const reopenKeyring = await reopen.team.getKeyring('acme')
       expect(reopenKeyring.userId).toBe('alice')
       expect(reopenKeyring.deks.size).toBe(keyring.deks.size)
     }, 60_000)

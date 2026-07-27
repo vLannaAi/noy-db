@@ -289,7 +289,7 @@ export async function issuePeerRecovery(
   const expiresAt = new Date(Date.now() + ttlMs).toISOString()
   const issuer = (db as unknown as { options: { user: string } }).options.user
 
-  await db.recoverUser(
+  await db.team.recoverUser(
     vault,
     {
       userId: options.userId,

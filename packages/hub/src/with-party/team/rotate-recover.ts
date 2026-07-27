@@ -479,7 +479,7 @@ async function recoverViaPaperCode(
   if (entries.length === 0) {
     throw new NoAccessError(
       `No paper-recovery entries enrolled for vault "${vault}". ` +
-        'Enroll via `db.enrollRecovery({ profile: "paper", entries })` before relying on recovery.',
+        'Enroll via `db.team.enrollRecovery({ profile: "paper", entries })` before relying on recovery.',
     )
   }
 
@@ -604,7 +604,7 @@ async function recoverViaShamir(
   if (allEntries.length === 0) {
     throw new NoAccessError(
       `No Shamir-recovery entries enrolled for vault "${vault}". `
-      + 'Enroll via `db.enrollRecovery({ profile: "shamir", k, n })` before relying on recovery.',
+      + 'Enroll via `db.team.enrollRecovery({ profile: "shamir", k, n })` before relying on recovery.',
     )
   }
 

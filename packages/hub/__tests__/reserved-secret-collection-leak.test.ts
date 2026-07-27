@@ -178,7 +178,7 @@ describe('reserved secret-collections — end-to-end exploit is closed', () => {
     // Owner enrols a credential.
     const ownerDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'owner', secret: OWNER_SECRET })
     await ownerDb.openVault(COMP)
-    const ownerKeyring = await ownerDb.getKeyring(COMP)
+    const ownerKeyring = await ownerDb.team.getKeyring(COMP)
     await putCredential(store, COMP, ownerKeyring, GDRIVE)
 
     // Re-open owner so the live keyring reloads the persisted _sync_credentials DEK,
@@ -198,7 +198,7 @@ describe('reserved secret-collections — end-to-end exploit is closed', () => {
     expect(() => opVault.collection(SYNC_CREDENTIALS_COLLECTION)).toThrow(ReservedCollectionNameError)
 
     // Layer 2: the DEK never reached the operator's keyring.
-    const opKeyring = await opDb.getKeyring(COMP)
+    const opKeyring = await opDb.team.getKeyring(COMP)
     expect(opKeyring.deks.has(SYNC_CREDENTIALS_COLLECTION)).toBe(false)
   })
 })

@@ -16,7 +16,7 @@
  * (`assertRecoveryEnrolled`), `openVault`, and the one-shot
  * managed-recovery skip flag stay kernel-resident and arrive as callbacks.
  *
- * Internal service — reached through `noydb.rotatePassphrase(...)` etc.
+ * Internal service — reached through `noydb.team.rotatePassphrase(...)` etc.
  */
 import type { NoydbOptions, NoydbStore, KeyringAuthenticator } from '../../kernel/types.js'
 import { ValidationError } from '../../kernel/errors.js'
@@ -284,7 +284,7 @@ export class TeamFacade {
    * ```ts
    * import { enrollWebAuthn } from '@noy-db/on-webauthn'
    *
-   * await db.enrollWebAuthn('demo', async (keyring) => {
+   * await db.team.enrollWebAuthn('demo', async (keyring) => {
    *   const e = await enrollWebAuthn(keyring, 'demo', { rp: {...} })
    *   return {
    *     id: `webauthn-${e.credentialId.slice(0, 8)}`,
@@ -318,7 +318,7 @@ export class TeamFacade {
     if (slotOptions.method !== 'webauthn') {
       throw new ValidationError(
         `enrollWebAuthn: ceremony returned method "${slotOptions.method}"; expected "webauthn". ` +
-          'Use db.enrollAuthenticator() for non-webauthn methods.',
+          'Use db.team.enrollAuthenticator() for non-webauthn methods.',
       )
     }
     const credentialId = (slotOptions.meta as { credentialId?: unknown }).credentialId
@@ -550,13 +550,13 @@ export class TeamFacade {
    *
    * @example Default count + show-once UI
    * ```ts
-   * const { newCodes } = await db.rotateRecovery('acme', { profile: 'paper' })
+   * const { newCodes } = await db.team.rotateRecovery('acme', { profile: 'paper' })
    * showCodesToUser(newCodes)
    * ```
    *
    * @example STRICT-policy site with TOTP factor proof
    * ```ts
-   * await db.rotateRecovery(
+   * await db.team.rotateRecovery(
    *   'acme',
    *   { profile: 'paper', count: 10 },
    *   { factors: [{ kind: 'totp', proof: '123456' }] },
@@ -592,7 +592,7 @@ export class TeamFacade {
     if (existing.length === 0) {
       throw new Error(
         `db.rotateRecovery: no recovery codes are enrolled for vault "${vault}". ` +
-        `Call db.enrollRecovery({ profile: 'paper', entries }) first; ` +
+        `Call db.team.enrollRecovery({ profile: 'paper', entries }) first; ` +
         `rotateRecovery replaces an existing sheet rather than minting one from scratch.`,
       )
     }
@@ -627,7 +627,7 @@ export class TeamFacade {
     if (existing.length === 0) {
       throw new Error(
         `db.rotateRecovery: no Shamir recovery entry is enrolled for vault "${vault}". ` +
-        `Call db.enrollRecovery({ profile: 'shamir', k, n }) first; ` +
+        `Call db.team.enrollRecovery({ profile: 'shamir', k, n }) first; ` +
         `rotateRecovery replaces an existing entry rather than minting one from scratch.`,
       )
     }
@@ -701,7 +701,7 @@ export class TeamFacade {
    *   sealingKey: macosKeychainSealingProvider({ ... }),
    * })
    *
-   * const { vault, recoveryEnrollments } = await db.openVaultAndEnrollRecovery('acme', {
+   * const { vault, recoveryEnrollments } = await db.team.openVaultAndEnrollRecovery('acme', {
    *   recovery: [{ profile: 'shamir', k: 2, n: 3 }],
    * })
    * for (const r of recoveryEnrollments) {
@@ -885,7 +885,7 @@ export class TeamFacade {
    * bridge.
    *
    * ```ts
-   * await db.recoverUser('acme', {
+   * await db.team.recoverUser('acme', {
    *   userId: 'bob',
    *   passphrase: 'temporary-correct-horse-battery-staple-printer',
    * }, { factors: [{ kind: 'recovery' }] })
@@ -925,17 +925,17 @@ export class TeamFacade {
    * The hub wraps the user's DEK set (not the KEK) under a code-derived
    * AES-GCM key — see `team/recovery.ts` for the rationale. The mint
    * helper {@link mintPaperRecoveryEntry} is the canonical primitive;
-   * pair it with `db.getKeyring(vault)` to obtain the live DEK set:
+   * pair it with `db.team.getKeyring(vault)` to obtain the live DEK set:
    *
    * ```ts
    * import { mintPaperRecoveryEntry } from '@noy-db/hub'
    *
-   * const keyring = await db.getKeyring('acme')
+   * const keyring = await db.team.getKeyring('acme')
    * const codes: string[] = ['CORRECT-HORSE-1', 'BATTERY-STAPLE-2', ...]
    * const entries = await Promise.all(
    *   codes.map((code, i) => mintPaperRecoveryEntry(keyring.deks, code, `code-${i}`)),
    * )
-   * await db.enrollRecovery('acme', { profile: 'paper', entries })
+   * await db.team.enrollRecovery('acme', { profile: 'paper', entries })
    * showCodesToUser(codes)
    * ```
    *
@@ -946,7 +946,7 @@ export class TeamFacade {
    * ```ts
    * import { generateRecoveryCodeSet } from '@noy-db/on-recovery'
    * const { codes, entries } = await generateRecoveryCodeSet({ deks: keyring.deks, count: 8 })
-   * await db.enrollRecovery('acme', { profile: 'paper', entries })
+   * await db.team.enrollRecovery('acme', { profile: 'paper', entries })
    * ```
    */
   async enrollRecovery(
@@ -1072,7 +1072,7 @@ export class TeamFacade {
    * and no `secret` / `getKeyring` is configured.
    *
    * ```ts
-   * const keyring = await db.getKeyring('acme')
+   * const keyring = await db.team.getKeyring('acme')
    * // keyring.deks: Map<collection, CryptoKey>
    * // keyring.kek:  CryptoKey | null   (null for tier-3 / wrap-DEKs sessions)
    * // keyring.role / .permissions / .authenticators

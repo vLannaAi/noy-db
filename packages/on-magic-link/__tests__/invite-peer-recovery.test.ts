@@ -83,7 +83,7 @@ describe('issueInvite + acceptInvite round-trip', () => {
     // Recipient is now logged in as bob with the new phrase. The
     // returned db handle is live.
     const bobDb = result.db
-    const reopenedKeyring = await bobDb.getKeyring('acme')
+    const reopenedKeyring = await bobDb.team.getKeyring('acme')
     expect(reopenedKeyring.userId).toBe('bob')
     expect(reopenedKeyring.role).toBe('admin')
 
@@ -95,7 +95,7 @@ describe('issueInvite + acceptInvite round-trip', () => {
     // newPhrase opens fresh sessions cleanly.
     const reopen = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: BOB_NEW_PHRASE })
     await reopen.openVault('acme')
-    const verify = await reopen.getKeyring('acme')
+    const verify = await reopen.team.getKeyring('acme')
     expect(verify.userId).toBe('bob')
   }, 120_000)
 })
@@ -120,7 +120,7 @@ describe('issuePeerRecovery + acceptInvite round-trip', () => {
     // Bob accepts. The temp phrase is in the URL fragment; he supplies
     // his new phrase.
     const { db: bobDb } = await acceptInvite(encoded, { store, newPhrase: BOB_NEW_PHRASE })
-    const bobKeyring = await bobDb.getKeyring('acme')
+    const bobKeyring = await bobDb.team.getKeyring('acme')
     expect(bobKeyring.userId).toBe('bob')
     expect(bobKeyring.role).toBe('admin')
     // DEK count preserved — peer-recovery doesn't rotate keys, so bob
@@ -148,7 +148,7 @@ describe('issuePeerRecovery + acceptInvite round-trip', () => {
     // recovers her — the case the original db.revoke blocked.
     const { encoded } = await issuePeerRecovery(alice, 'acme', { userId: 'mrs-niwat' })
     const { db: recoveredDb } = await acceptInvite(encoded, { store, newPhrase: BOB_NEW_PHRASE })
-    const kr = await recoveredDb.getKeyring('acme')
+    const kr = await recoveredDb.team.getKeyring('acme')
     expect(kr.role).toBe('owner')
   }, 180_000)
 })
@@ -325,7 +325,7 @@ describe('audit doc + payload encoding', () => {
       policy: { passphrase, gates: {} },
     })
     await reopen.openVault('acme')
-    const verify = await reopen.getKeyring('acme')
+    const verify = await reopen.team.getKeyring('acme')
     expect(verify.userId).toBe('bob')
   }, 180_000)
 
