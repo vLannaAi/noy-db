@@ -1694,6 +1694,155 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /** @internal Untracked put body — call {@link put}, not this. */
+  /**
+   * Decode a prior envelope's CRDT state, or `undefined` when there is no
+   * usable prior: no envelope, a shredded body decrypting to `null`, or a
+   * payload that is not a CRDT state. The `lww-map` and `rga` branches each
+   * carried a copy, byte-identical apart from the cast (#842).
+   */
+  async #decodePriorCrdtState<S>(envelope: EncryptedEnvelope | null): Promise<S | undefined> {
+    if (!envelope) return undefined
+
+    const prevJson = await this.codec.decryptJsonString(envelope)
+    if (prevJson === null) return undefined
+
+    const prevParsed = JSON.parse(prevJson) as unknown
+    if (prevParsed === null || typeof prevParsed !== 'object' || !('_crdt' in prevParsed)) {
+      return undefined
+    }
+    return prevParsed as S
+  }
+
+  /**
+   * Record a write on the active transaction so a mid-batch failure rolls it
+   * back. Four sites in the derivation/MV dispatch hand-built this literal (#842).
+   */
+  #trackPut(txCtx: TxContext, collectionName: string, id: string, priorEnvelope: EncryptedEnvelope | null): void {
+    txCtx._executed.push({
+      op: { type: 'put', vaultName: this.vault, collectionName, id },
+      priorEnvelope,
+    })
+  }
+
+  /**
+   * Snapshot the PRIOR version into history, emit, and prune.
+   *
+   * Deliberately does NOT carry `source` from the current write — a history
+   * entry describes the version being replaced, not the one replacing it.
+   *
+   * Kept OUT of {@link #commitWriteTail} because the two paths call it at
+   * different points: the normal path snapshots BEFORE `adapter.put` (so a
+   * history failure leaves no write behind), while the CRDT path must merge
+   * and persist first to resolve the prior record at all. Folding it into the
+   * tail would silently reorder one of them (#842).
+   */
+  async #savePriorHistory(
+    id: string,
+    prior: { record: T; version: number },
+    cek: EnclaveKey | undefined,
+    vdigCtx: { id: string; prev: EncryptedEnvelope | null } | undefined,
+  ): Promise<void> {
+    if (this.historyConfig.enabled === false) return
+
+    await this.strategies.history.saveHistory(
+      this.adapter, this.vault, this.name, id,
+      await this.codec.encryptRecord(prior.record, prior.version, cek, undefined, undefined, vdigCtx, id),
+    )
+    this.emitter.emit('history:save', { vault: this.vault, collection: this.name, id, version: prior.version })
+
+    if (this.historyConfig.maxVersions) {
+      await this.strategies.history.pruneHistory(this.adapter, this.vault, this.name, id, { keepVersions: this.historyConfig.maxVersions })
+    }
+  }
+
+  /**
+   * Everything both write paths do once the envelope is on the adapter:
+   * classified marker, embedding sidecar, ledger append, cache/index
+   * maintenance, and the mutation event that drives derivation dispatch.
+   *
+   * The CRDT branch used to re-implement all of it, and in doing so skipped
+   * `_ensureClassifiedMarker`, the unique-constraint upsert and
+   * `_toCacheableRecord` (#835). All three were unreachable — each blocked by
+   * a config-time refusal on CRDT collections — but only by accident of what
+   * that copy happened to omit. One tail makes the divergence unrepresentable
+   * rather than merely unreachable; on a CRDT collection the extra steps are
+   * provably no-ops (classified/unique + crdt are refused at construction, and
+   * a CRDT body never produces a `_sealed` slot, so `_toCacheableRecord` is
+   * the identity).
+   */
+  async #commitWriteTail(args: {
+    readonly id: string
+    readonly envelope: EncryptedEnvelope
+    readonly version: number
+    /** The record as it should appear in caches, indexes and the ledger delta. */
+    readonly indexed: T
+    /** The record reported to `_onRecordMutated` — what derivations observe. */
+    readonly event: T
+    readonly prior: { record: T; version: number } | undefined
+    readonly reason: string | undefined
+  }): Promise<void> {
+    const { id, envelope, version, indexed, event, prior, reason } = args
+
+    // C-A/R10: persist the x-classified marker on the first classified write
+    // (cross-session drift signal). Memoized; no-op for non-classified handles.
+    await this._ensureClassifiedMarker()
+
+    // Derive the embedding vector at write (encode → encrypted _vec sidecar).
+    // The _vec envelope _v is not OCC-checked. Gated behind
+    // `searchStrategy: withSearch()`: a collection declaring `embeddings`
+    // but not opting into search hits NO_SEARCH's throw here.
+    if (this.embeddings) {
+      await this.strategies.search.embedOnWrite(this.searchContext(), id, indexed, version)
+    }
+
+    // Ledger append — AFTER the adapter write succeeds so a failed write never
+    // orphans an entry. `payloadHash` is taken from the envelope just written,
+    // i.e. the exact bytes the adapter holds; the entry records only metadata,
+    // never the record, encrypted under the compartment's ledger DEK.
+    //
+    // `delta` is a REVERSE patch — how to turn the NEW record back into the
+    // previous one. That lets `ledger.reconstruct()` walk backward from current
+    // state without a forward-walking base snapshot, which would double the
+    // scheme's storage cost. Genesis puts carry no `deltaHash`.
+    if (this.ledger) {
+      const appendInput: Parameters<typeof this.ledger.append>[0] = {
+        op: 'put',
+        collection: this.name,
+        id,
+        version,
+        actor: this.keyring.userId,
+        payloadHash: await this.strategies.history.envelopePayloadHash(envelope),
+      }
+      if (prior) appendInput.delta = this.strategies.history.computePatch(indexed, prior.record)
+      if (reason !== undefined) appendInput.reason = reason
+      await this.ledger.append(appendInput)
+    }
+
+    // Cache the handle-form (sealed fields → Sealed handles) so plaintext for
+    // sensitive fields is never resident in the working set.
+    const cacheable = await this._toCacheableRecord(indexed, envelope, id)
+
+    if (this.lazy && this.lru) {
+      this.lru.set(id, { record: cacheable, version }, estimateRecordBytes(indexed))
+      // Persisted-index side-cars. Lazy mode is the only place
+      // `persistedIndexes` is populated; eager mode uses `CollectionIndexes`.
+      await this.maintainPersistedIndexesOnPut(id, indexed, prior ? prior.record : null, version)
+    } else {
+      this.cache.set(id, { record: cacheable, version })
+      // Incremental secondary-index update — no-op when none are declared.
+      // The previous record cleans up old buckets before the new value lands.
+      this.indexes?.upsert(id, indexed, prior ? prior.record : null)
+      this.uniqueConstraints?.upsert(id, indexed, prior?.record)
+    }
+
+    // Derivation dispatch (inside `_onRecordMutated`) runs AFTER store +
+    // ledger + cache commit, so a failed source-write never produces orphan
+    // derived outputs. The recursive `put` into output collections re-enters
+    // this pipeline intentionally; cycle detection at vault open is the
+    // primary defense against infinite recursion.
+    await this._onRecordMutated(id, 'put', 'local-write', { record: event, version })
+  }
+
   private async _putInternal(id: string, record: T, options?: { readonly reason?: string; readonly source?: string; readonly sourceTs?: string }): Promise<void> {
     if (!hasWritePermission(this.keyring, this.name)) {
       throw new ReadOnlyError()
@@ -1791,28 +1940,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       let crdtState: CrdtState
 
       if (this.crdtMode === 'lww-map') {
-        let existingState: LwwMapState | undefined
-        if (existingEnvelope) {
-          const prevJson = await this.codec.decryptJsonString(existingEnvelope)
-          if (prevJson !== null) {
-            const prevParsed = JSON.parse(prevJson) as unknown
-            if (prevParsed !== null && typeof prevParsed === 'object' && '_crdt' in prevParsed) {
-              existingState = prevParsed as LwwMapState
-            }
-          }
-        }
+        const existingState = await this.#decodePriorCrdtState<LwwMapState>(existingEnvelope)
         crdtState = this.strategies.crdt.buildLwwMapState(record as Record<string, unknown>, existingState, now)
       } else if (this.crdtMode === 'rga') {
-        let existingState: RgaState | undefined
-        if (existingEnvelope) {
-          const prevJson = await this.codec.decryptJsonString(existingEnvelope)
-          if (prevJson !== null) {
-            const prevParsed = JSON.parse(prevJson) as unknown
-            if (prevParsed !== null && typeof prevParsed === 'object' && '_crdt' in prevParsed) {
-              existingState = prevParsed as RgaState
-            }
-          }
-        }
+        const existingState = await this.#decodePriorCrdtState<RgaState>(existingEnvelope)
         crdtState = this.strategies.crdt.buildRgaState(Array.isArray(record) ? record : [record], existingState, generateULID)
       } else {
         // yjs: record is the base64 update string (produced by @noy-db/yjs)
@@ -1837,39 +1968,19 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         ? { record: existingResolvedRecord, version: existingVersion }
         : undefined
 
-      if (existingResolved && this.historyConfig.enabled !== false) {
-        // History snapshot of the PRIOR version — does NOT carry source from the new write
-        await this.strategies.history.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord(existingResolved.record, existingResolved.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: existingEnvelope } : undefined, id))
-        this.emitter.emit('history:save', { vault: this.vault, collection: this.name, id, version: existingResolved.version })
-        if (this.historyConfig.maxVersions) {
-          await this.strategies.history.pruneHistory(this.adapter, this.vault, this.name, id, { keepVersions: this.historyConfig.maxVersions })
-        }
+      if (existingResolved) {
+        await this.#savePriorHistory(id, existingResolved, cek, this.vdigFields !== null ? { id, prev: existingEnvelope } : undefined)
       }
 
-      if (this.ledger) {
-        const appendInput: Parameters<typeof this.ledger.append>[0] = {
-          op: 'put', collection: this.name, id, version, actor: this.keyring.userId,
-          payloadHash: await this.strategies.history.envelopePayloadHash(envelope),
-        }
-        if (existingResolved) appendInput.delta = this.strategies.history.computePatch(resolvedRecord, existingResolved.record)
-        if (options?.reason !== undefined) appendInput.reason = options.reason
-        await this.ledger.append(appendInput)
-      }
-
-      if (this.lazy && this.lru) {
-        this.lru.set(id, { record: resolvedRecord, version }, estimateRecordBytes(resolvedRecord))
-        await this.maintainPersistedIndexesOnPut(
-          id,
-          resolvedRecord,
-          existingResolved ? existingResolved.record : null,
-          version,
-        )
-      } else {
-        this.cache.set(id, { record: resolvedRecord, version })
-        this.indexes?.upsert(id, resolvedRecord, existingResolved ? existingResolved.record : null)
-      }
-
-      await this._onRecordMutated(id, 'put', 'local-write', { record, version })
+      // Caches and indexes see the resolved snapshot of the merged state;
+      // the mutation event reports the record the caller passed.
+      await this.#commitWriteTail({
+        id, envelope, version,
+        indexed: resolvedRecord,
+        event: record,
+        prior: existingResolved,
+        reason: options?.reason,
+      })
       return
     }
     // ─── End CRDT mode ──────────────────────────────────────────────────
@@ -1950,99 +2061,19 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // Save history snapshot of the PREVIOUS version before overwriting.
     // CRITICAL: the history snapshot is a record of the PRIOR version — it must
     // NOT carry the source from the current write (source belongs to the new write only).
-    if (existing && this.historyConfig.enabled !== false) {
-      await this.strategies.history.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, vdigCtx, id))
-
-      this.emitter.emit('history:save', {
-        vault: this.vault,
-        collection: this.name,
-        id,
-        version: existing.version,
-      })
-
-      // Auto-prune if maxVersions configured
-      if (this.historyConfig.maxVersions) await this.strategies.history.pruneHistory(this.adapter, this.vault, this.name, id, { keepVersions: this.historyConfig.maxVersions })
-    }
+    if (existing) await this.#savePriorHistory(id, existing, cek, vdigCtx)
 
     const envelope = await this.codec.encryptRecord(record, version, cek, options?.source, options?.sourceTs, vdigCtx, id)
     await this.adapter.put(this.vault, this.name, id, envelope)
     this.markerIds.delete(id) // #606: the live body just overwrote any marker prior — no-op if `id` wasn't one
 
-    // C-A/R10: persist the x-classified marker on the first classified write
-    // (cross-session drift signal). Memoized; no-op for non-classified handles.
-    await this._ensureClassifiedMarker()
-
-    // Derive the embedding vector at write (encode → encrypted _vec sidecar).
-    // Placed AFTER the main adapter.put so `version` (computed above) is in scope and
-    // the record write is committed first. The _vec envelope _v is not OCC-checked.
-    // Gated behind `searchStrategy: withSearch()`: a collection declaring
-    // `embeddings` but not opting into search hits NO_SEARCH's throw here.
-    if (this.embeddings) {
-      await this.strategies.search.embedOnWrite(this.searchContext(), id, record, version)
-    }
-
-    // Ledger append — AFTER the adapter write succeeds so a failed
-    // write never produces an orphan ledger entry. Computing the
-    // payloadHash here uses the envelope we just wrote, which is the
-    // exact bytes the adapter now holds. The ledger entry records
-    // only metadata (collection, id, version, hash) — NOT the record
-    // itself — and is then encrypted with the compartment's ledger
-    // DEK, preserving zero-knowledge. See `LedgerStore.append`.
-    //
-    // **Delta history**: if there was a previous version, we
-    // compute a JSON Patch from it to the new record and pass it
-    // through `append.delta`. The LedgerStore stores the patch in
-    // the sibling `_ledger_deltas/` collection and records its hash
-    // in the entry's `deltaHash` field. Genesis puts (no existing
-    // record) leave `delta` undefined — there's nothing to diff
-    // against — and the ledger entry has no `deltaHash`.
-    if (this.ledger) {
-      const appendInput: Parameters<typeof this.ledger.append>[0] = {
-        op: 'put',
-        collection: this.name,
-        id,
-        version,
-        actor: this.keyring.userId,
-        payloadHash: await this.strategies.history.envelopePayloadHash(envelope),
-      }
-      if (existing) {
-        // REVERSE patch: describes how to undo this put — i.e., how
-        // to transform the NEW record back into the PREVIOUS one.
-        // Storing reverse patches lets `ledger.reconstruct()` walk
-        // backward from the current state (readily available in the
-        // data collection) without needing a forward-walking base
-        // snapshot, which would double the storage cost of the
-        // delta scheme. See `LedgerStore.reconstruct` for the walk.
-        appendInput.delta = this.strategies.history.computePatch(record, existing.record)
-      }
-      if (options?.reason !== undefined) appendInput.reason = options.reason
-      await this.ledger.append(appendInput)
-    }
-
-    if (this.lazy && this.lru) {
-      // Cache the handle-form (sealed fields → Sealed handles) so plaintext
-      // for sensitive fields is never resident in the working set.
-      this.lru.set(id, { record: await this._toCacheableRecord(record, envelope, id), version }, estimateRecordBytes(record))
-      // Maintain persisted-index side-cars. Lazy mode is the
-      // only place `persistedIndexes` is populated; eager mode uses the
-      // in-memory `CollectionIndexes` above.
-      await this.maintainPersistedIndexesOnPut(id, record, existing ? existing.record : null, version)
-    } else {
-      this.cache.set(id, { record: await this._toCacheableRecord(record, envelope, id), version })
-      // Update secondary indexes incrementally — no-op if no indexes are
-      // declared. Pass the previous record (if any) so old buckets are cleaned up before the new value is added.
-      this.indexes?.upsert(id, record, existing ? existing.record : null)
-      // Update unique-constraint maps to reflect the successful write.
-      this.uniqueConstraints?.upsert(id, record, existing?.record)
-    }
-
-    // Derivation dispatch (inside `_onRecordMutated`) runs AFTER store +
-    // ledger + emitter commit so a failed source-write never produces
-    // orphan derived outputs. The recursive `put` into output collections
-    // re-enters this pipeline (encrypt + ledger + emit) intentionally;
-    // cycle detection at vault open is the primary defense against
-    // infinite recursion.
-    await this._onRecordMutated(id, 'put', 'local-write', { record, version })
+    await this.#commitWriteTail({
+      id, envelope, version,
+      indexed: record,
+      event: record,
+      prior: existing,
+      reason: options?.reason,
+    })
   }
 
   /**
@@ -2230,11 +2261,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const patched = { ...base, [field]: newValue }
     const txCtx = this.derivationSource.getActiveTxContext()
     if (txCtx !== null) {
-      const prior = await this.adapter.get(this.vault, into, parentId)
-      txCtx._executed.push({
-        op: { type: 'put', vaultName: this.vault, collectionName: into, id: parentId },
-        priorEnvelope: prior,
-      })
+      this.#trackPut(txCtx, into, parentId, await this.adapter.get(this.vault, into, parentId))
     }
     return putDerivedOutput(intoColl, parentId, patched, this.#dispatchCtx(source))
   }
@@ -2403,16 +2430,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
             // at the (collection, id) level.)
             for (const entry of out.entries) {
               if (txCtx !== null) {
-                const priorEnvelope = await this.adapter.get(this.vault, outSpec.collection, entry.key)
-                txCtx._executed.push({
-                  op: {
-                    type: 'put',
-                    vaultName: this.vault,
-                    collectionName: outSpec.collection,
-                    id: entry.key,
-                  },
-                  priorEnvelope,
-                })
+                this.#trackPut(txCtx, outSpec.collection, entry.key, await this.adapter.get(this.vault, outSpec.collection, entry.key))
               }
               await putDerivedOutput(outputCollection, entry.key, entry.value, outCtx, { source: 'derived' })
             }
@@ -2462,11 +2480,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
             }
             if (!changed) continue // cycle guard — nothing to write
             if (txCtx !== null) {
-              const prior = await this.adapter.get(this.vault, outSpec.collection, run.runId)
-              txCtx._executed.push({
-                op: { type: 'put', vaultName: this.vault, collectionName: outSpec.collection, id: run.runId },
-                priorEnvelope: prior,
-              })
+              this.#trackPut(txCtx, outSpec.collection, run.runId, await this.adapter.get(this.vault, outSpec.collection, run.runId))
             }
             await putDerivedOutput(outputCollection, run.runId, patched, outCtx, { source: 'derived' })
             continue
@@ -2474,16 +2488,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
           // ── Normal record output (separate output collection) ──
           if (txCtx !== null) {
-            const prior = await this.adapter.get(this.vault, outSpec.collection, run.runId)
-            txCtx._executed.push({
-              op: {
-                type: 'put',
-                vaultName: this.vault,
-                collectionName: outSpec.collection,
-                id: run.runId,
-              },
-              priorEnvelope: prior,
-            })
+            this.#trackPut(txCtx, outSpec.collection, run.runId, await this.adapter.get(this.vault, outSpec.collection, run.runId))
           }
           await putDerivedOutput(outputCollection, run.runId, out.value, outCtx, { source: 'derived' })
         }
