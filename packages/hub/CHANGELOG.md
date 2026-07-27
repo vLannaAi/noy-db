@@ -1,5 +1,103 @@
 # Changelog — hub
 
+## 0.4.0-pre.5
+
+### Minor Changes
+
+- **BREAKING (type-level only): `vault.collection()` takes a named shape instead of positional generics (#839).**
+
+  ```ts
+  // before
+  vault.collection<Invoice, "ssn", "clientId">("invoices");
+  vault.collection<Sale, never, never, "amount" | "tax">("sales");
+
+  // after
+  vault.collection<Invoice, { sensitive: "ssn"; indexed: "clientId" }>(
+    "invoices"
+  );
+  vault.collection<Sale, { money: "amount" | "tax" }>("sales");
+  ```
+
+  The positional tail `<T, S, Q, M>` was both unreadable and unsafe. `Q` (indexed fields) and `M` (money fields) are both `keyof T & string`, so swapping them type-checked silently and produced a collection narrowed on the wrong axis; and reaching `M` meant writing `never` placeholders for the two arguments before it.
+
+  `CollectionShape<T>` names all three axes, every member optional. Omitting one keeps that axis permissive, exactly as passing `never` did.
+
+  Runtime behaviour is unchanged — this is entirely type-level. Migration is mechanical: `<T, 'a'>` becomes `<T, { sensitive: 'a' }>`, `<T, never, 'b'>` becomes `<T, { indexed: 'b' }>`, `<T, never, never, 'c'>` becomes `<T, { money: 'c' }>`.
+
+  `CollectionShape`, `SensitiveOf`, `IndexedOf` and `MoneyOf` are exported from the root barrel for callers who need to name the shape or extract an axis from it.
+
+- **BREAKING: credential operations move to `db.team.*` (#846).**
+
+  `Noydb` carried 23 methods that did nothing but restate a `TeamFacade` signature and forward to it. Every one had to be hand-kept in sync with its counterpart, and adding a credential operation meant editing two signatures for one capability. The facade is now exposed directly:
+
+  ```ts
+  // before
+  await db.rotatePassphrase(vault, userId, input);
+  await db.enrollRecovery(vault, enrollment);
+
+  // after
+  await db.team.rotatePassphrase(vault, userId, input);
+  await db.team.enrollRecovery(vault, enrollment);
+  ```
+
+  Affected: `enrollAuthenticator`, `removeAuthenticator`, `listAuthenticators`, `updateAuthenticator`, `enrollWebAuthn`, `listWebAuthnSlots`, `unlockViaAuthenticator`, `describeAuthConfig`, `diagramAuthConfig`, `describeUserAuth`, `describeAllUsersAuth`, `rotatePassphrase`, `recoverPassphrase`, `rotateRecovery`, `openVaultAndEnrollRecovery`, `recoverManagedPassphrase`, `recoverUser`, `enrollRecovery`, `listRecoveryEntries`, `enrollUnlock`, `unlockViaPin`, `clearQuickUnlock`, `getKeyring`.
+
+  Migration is a mechanical `db.X(` → `db.team.X(` for those names. Runtime behaviour is unchanged — the facade was already doing the work.
+
+- **`vault.collection()`'s options are now a named, exported type (#841).**
+
+  The option shape was a 122-line anonymous literal inlined into the method signature, so callers could not annotate a call and `describe()` could not reuse it. It is now `OpenCollectionOptions<T, S, Q, M>`, exported from the root barrel:
+
+  ```ts
+  import type { OpenCollectionOptions } from '@noy-db/hub'
+
+  const opts: OpenCollectionOptions<Invoice, 'ssn'> = { indexes: [...], sensitive: ['ssn'] }
+  const invoices = vault.collection<Invoice, 'ssn'>('invoices', opts)
+  ```
+
+  It is named `OpenCollectionOptions` rather than `CollectionOptions` to keep a clear gap from the existing `CollectionOpts`, which is the `Collection` constructor's input and is built from this one.
+
+  Internally, 28 hand-written `if (options?.X !== undefined) collOpts.X = options.X` lines collapse into a single key-list copy, so adding a pass-through option is one entry rather than a line buried in a 534-line method. Options that carry logic keep their explicit handling, and the forget-subject rule still overrides `perRecordKeys` exactly as before.
+
+  Purely additive — no behavioural change and no existing signature changed.
+
+- **BREAKING: the `passphrase-*` API family is renamed to `secret-*` (#862).**
+
+  The canonical name for the master credential has always been `secret` — it is the `createNoydb` option, and there was never a `passphrase` alias for it. But a family of public identifiers still said `passphrase`, so callers passed `secret` and then reached for `rotatePassphrase`, `passphraseMode` and `PassphrasePolicy` to manage that same value. The surface now reads consistently.
+
+  | Before                                                  | After                              |
+  | ------------------------------------------------------- | ---------------------------------- |
+  | `db.team.rotatePassphrase`                              | `db.team.rotateSecret`             |
+  | `db.team.recoverPassphrase`                             | `db.team.recoverSecret`            |
+  | `NoydbOptions.passphraseMode`                           | `NoydbOptions.secretMode`          |
+  | `PassphrasePolicy`                                      | `SecretPolicy`                     |
+  | `validatePassphrase`                                    | `validateSecret`                   |
+  | `allowWeakPassphrase`                                   | `allowWeakSecret`                  |
+  | `assertStrongPassphrase`                                | `assertStrongSecret`               |
+  | `WeakPassphraseError`                                   | `WeakSecretError`                  |
+  | `PassphraseValidationResult`                            | `SecretValidationResult`           |
+  | policy gates `rotate-passphrase` / `recover-passphrase` | `rotate-secret` / `recover-secret` |
+
+  No deprecation aliases — the name is gone entirely, which is the point.
+
+  **The managed-mode store path also moves**, from `_meta/sealed-passphrase` to `_meta/sealed-secret`. This is a wire change, not just a symbol rename: a vault created in managed mode by an earlier version will not find its sealed secret. There is no migration path and none is provided.
+
+  One deliberate exception, documented at its definition: the enclave conformance suite's fixed-secret constant keeps the literal value `enclave-conformance-fixed-passphrase-v1`. Those are known-answer vectors whose wrapped DEKs were computed under that exact string — renaming the value would re-derive a different KEK and invalidate every vector. Only the symbol changed.
+
+  `SecretPolicy` / `validateSecret` still govern the _phrase_ format of the secret (the "at least N lowercase words" rule); the name is now consistent with the option it validates, at the cost of being slightly less literal about what it measures.
+
+### Patch Changes
+
+- **Derivation and materialized-view dispatch moved out of the kernel spine (#842 part b).**
+
+  `Collection` carried four dispatchers — `dispatchDerivations`, `dispatchMaterializedViews`, and their two delete-path mirrors — totalling some 270 lines of logic that belongs to the derivation service rather than the always-on kernel. They now live in `with-formula/derivations/dispatch.ts` and `with-formula/materialized-views/dispatch.ts`, with thin delegators left behind on the class so the public surface is unchanged.
+
+  `collection.ts` drops from 4531 to 4263 lines and its kernel-surface ceiling ratchets down with it. Because the spine reaches the new modules through a dynamic `import()`, the dispatch code also leaves the floor bundle for consumers who never declare a derivation or a materialized view.
+
+  `selfWriteFieldEqual` moved from a module-private helper in `collection.ts` to `kernel/via/dispatch.ts`, beside `putDerivedOutput` — both the spine's rollup recompute and the lifted dispatch need it, and both already import from there.
+
+  No behavioural change and no public API change.
+
 ## 0.4.0-pre.4
 
 ### Minor Changes
