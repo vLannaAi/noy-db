@@ -2,12 +2,6 @@
   "gaps": [
     ". :: resolveClassifiedFields mentions ResolvedClassified",
     ". :: runTransaction mentions AmendmentTxOptions",
-    "./aggregate :: groupAndReduce mentions MoneyDescriptor",
-    "./aggregate :: max mentions MinMaxState",
-    "./aggregate :: min mentions MinMaxState",
-    "./aggregate :: moneyMax mentions MoneyString",
-    "./aggregate :: moneyMin mentions MoneyString",
-    "./aggregate :: moneySum mentions MoneyString",
     "./blobs :: createExportBlobsHandle mentions Collection",
     "./cargo :: createDeedOwner mentions NoydbStore",
     "./cargo :: createDeedOwner mentions UnlockedKeyring",
@@ -43,12 +37,6 @@
     "./pod :: createPodStore mentions NoydbPodStore",
     "./pod :: wrapPodStore mentions NoydbPodStore",
     "./pod :: writePod mentions Vault",
-    "./query :: groupAndReduce mentions MoneyDescriptor",
-    "./query :: max mentions MinMaxState",
-    "./query :: min mentions MinMaxState",
-    "./query :: moneyMax mentions MoneyString",
-    "./query :: moneyMin mentions MoneyString",
-    "./query :: moneySum mentions MoneyString",
     "./session :: createEnforcer mentions PolicyEnforcerOptions",
     "./session :: createSession mentions UnlockedKeyring",
     "./session :: enableDevUnlock mentions UnlockedKeyring",
@@ -58,9 +46,7 @@
     "./team :: buildRecipientKeyringFile mentions KeyringFile",
     "./team :: burnPaperRecoveryEntry mentions NoydbStore",
     "./team :: changeSecret mentions NoydbStore",
-    "./team :: changeSecret mentions SecretPolicy",
     "./team :: createOwnerKeyring mentions NoydbStore",
-    "./team :: createOwnerKeyring mentions SecretPolicy",
     "./team :: credentialStatus mentions NoydbStore",
     "./team :: deleteCredential mentions NoydbStore",
     "./team :: deriveMagicLinkContentKey mentions EnclaveKey",
@@ -123,6 +109,6 @@
     "./tiers :: assertTierComposition mentions BlobFieldsConfig",
     "./tiers :: classifySealedShred mentions EncryptedEnvelope",
     "./tiers :: getAtTier mentions GhostRecord",
-    "./tx :: runTransaction mentions Noydb"
+    "./transactions :: runTransaction mentions Noydb"
   ]
 }

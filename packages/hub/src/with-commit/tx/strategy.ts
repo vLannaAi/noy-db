@@ -1,7 +1,7 @@
 /**
  * Strategy seam for the optional multi-record transaction service.
  * `runTransaction` is only reachable through `withTransactions()`
- * exported from `@noy-db/hub/tx`. Consumers who don't use
+ * exported from `@noy-db/hub/transactions`. Consumers who don't use
  * `db.transaction(fn)` ship none of the ~288 LOC.
  *
  * @internal
@@ -27,7 +27,7 @@ export interface TransactionsStrategy {
 
 const NOT_ENABLED = new Error(
   'Multi-record transactions require the tx strategy. Import ' +
-  '`{ withTransactions }` from "@noy-db/hub/tx" and pass it to ' +
+  '`{ withTransactions }` from "@noy-db/hub/transactions" and pass it to ' +
   '`createNoydb({ transactionsStrategy: withTransactions() })`.',
 )
 

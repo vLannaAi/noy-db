@@ -2449,7 +2449,7 @@ export interface NoydbOptions {
   readonly shadowStrategy?: ShadowStrategy
   /**
    * tree-shake seam — optional multi-record transactions. Pass
-   * `withTransactions()` from `@noy-db/hub/tx` to enable
+   * `withTransactions()` from `@noy-db/hub/transactions` to enable
    * `db.transaction(fn)`. Without it, calling the method throws.
    *
    * @internal

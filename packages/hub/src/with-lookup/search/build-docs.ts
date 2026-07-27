@@ -10,7 +10,13 @@ import type { I18nTextDescriptor } from '../../via/i18n/core.js'
 import type { DictKeyDescriptor, StaticDictDescriptor } from '../../via/i18n/dictionary.js'
 import type { IndexDoc } from './inverted-index.js'
 
-type FieldEntry = IndexDoc['fields'][number]
+/**
+ * One entry in an {@link IndexDoc}'s `fields` array — the return shape of the
+ * `build*FieldEntries` helpers. Exported so `@noy-db/hub/search` can name the
+ * return type of its own public functions (#843 C1: the subpath's first
+ * type-reachability gap).
+ */
+export type FieldEntry = IndexDoc['fields'][number]
 
 export function buildStringFieldEntries(
   record: Record<string, unknown>,

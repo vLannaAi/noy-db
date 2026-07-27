@@ -11,7 +11,7 @@ export { segmentTokens, segmentTokenizer, type Token } from './segment.js'
 export { InvertedIndex, type IndexDoc, type IndexHit, type QueryOptions } from './inverted-index.js'
 export { extractSnippet } from './snippet.js'
 export { MemoryIndexStore, type IndexStore } from './index-store.js'
-export { buildStringFieldEntries } from './build-docs.js'
+export { buildStringFieldEntries, type FieldEntry } from './build-docs.js'
 export type { RetrieveOptions, RetrieveHit } from './retrieve-types.js'
 export { fuseRetrieval, type FuseOptions } from './fuse.js'
 

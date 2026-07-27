@@ -257,7 +257,7 @@ const SCENARIOS = [
       import { withConsent } from '@noy-db/hub/consent'
       import { withPeriods } from '@noy-db/hub/periods'
       import { withShadow } from '@noy-db/hub/shadow'
-      import { withTransactions } from '@noy-db/hub/tx'
+      import { withTransactions } from '@noy-db/hub/transactions'
       export {
         createNoydb,
         withHistory, withI18n, withSession, withSync,
@@ -312,7 +312,7 @@ async function buildScenario(scenario) {
       '@noy-db/hub/consent': join(HUB_DIR, 'dist', 'consent', 'index.js'),
       '@noy-db/hub/periods': join(HUB_DIR, 'dist', 'periods', 'index.js'),
       '@noy-db/hub/shadow': join(HUB_DIR, 'dist', 'shadow', 'index.js'),
-      '@noy-db/hub/tx': join(HUB_DIR, 'dist', 'tx', 'index.js'),
+      '@noy-db/hub/transactions': join(HUB_DIR, 'dist', 'transactions', 'index.js'),
       '@noy-db/hub/team': join(HUB_DIR, 'dist', 'team', 'index.js'),
       '@noy-db/hub/broker': join(HUB_DIR, 'dist', 'broker', 'index.js'),
       '@noy-db/hub/lazy': join(HUB_DIR, 'dist', 'lazy', 'index.js'),
@@ -357,7 +357,7 @@ async function buildScenario(scenario) {
       '@noy-db/hub/consent': join(HUB_DIR, 'dist', 'consent', 'index.js'),
       '@noy-db/hub/periods': join(HUB_DIR, 'dist', 'periods', 'index.js'),
       '@noy-db/hub/shadow': join(HUB_DIR, 'dist', 'shadow', 'index.js'),
-      '@noy-db/hub/tx': join(HUB_DIR, 'dist', 'tx', 'index.js'),
+      '@noy-db/hub/transactions': join(HUB_DIR, 'dist', 'transactions', 'index.js'),
       '@noy-db/hub/team': join(HUB_DIR, 'dist', 'team', 'index.js'),
       '@noy-db/hub/broker': join(HUB_DIR, 'dist', 'broker', 'index.js'),
       '@noy-db/hub/lazy': join(HUB_DIR, 'dist', 'lazy', 'index.js'),
