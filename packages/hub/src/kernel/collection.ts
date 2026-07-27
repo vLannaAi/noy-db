@@ -10,7 +10,7 @@ import type { LookupDescriptor } from '../port/with/lookup-strategy.js'
 import { ViaPipeline } from './via/pipeline.js'
 import { viaBinder, type ViaDescriptor, type ViaWriteCtx, type ViaEraseReport } from './via/index.js'
 import type { MutationOrigin } from './mutation.js'
-import { putDerivedOutput, ledgerAuditHook, resolveRollupDeleteIntents, findRollupSpecForIntent, type WaveContext, type RollupOutcome, type RollupDeleteIntent } from './via/dispatch.js'
+import { putDerivedOutput, ledgerAuditHook, selfWriteFieldEqual, resolveRollupDeleteIntents, findRollupSpecForIntent, type WaveContext, type RollupOutcome, type RollupDeleteIntent } from './via/dispatch.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import {
   isTombstone,
@@ -69,7 +69,6 @@ import type { SearchOptions, SearchResult } from '../with-lookup/search/index.js
 import { MemoryIndexStore, type IndexStore } from '../with-lookup/search/index-store.js'
 import { PersistedIndexStore } from '../with-lookup/search/persisted-index-store.js'
 import type { RetrieveOptions, RetrieveHit } from '../with-lookup/search/retrieve-types.js'
-import { DerivationCapExceededError } from './errors.js'
 import { encodeVecId, type VectorSet, type EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from '../with-lookup/indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
@@ -89,17 +88,11 @@ import { revertExecuted } from '../with-commit/tx/transaction.js'
 // Type-only — runtime class loaded via dynamic import in
 // `dispatchDerivations` when an eager-mode strategy fires. Keeps the
 // derivation executor chunk out of the floor bundle.
-import type { DerivationExecutor as DerivationExecutorType } from '../with-formula/derivations/executor.js'
 import type {
-  loadFanoutSidecar as LoadFanoutSidecarType,
-  deleteFanoutSidecar as DeleteFanoutSidecarType,
-  saveFanoutSidecar as SaveFanoutSidecarType,
 } from '../with-formula/derivations/fanout-sidecar.js'
-import { markStale, resolveStaleOnRead } from '../with-formula/derivations/stale.js'
+import { resolveStaleOnRead } from '../with-formula/derivations/stale.js'
 import type { MaterializedViewRegistry } from '../with-formula/materialized-views/registry.js'
 import type { MVQueryContext } from '../with-formula/materialized-views/types.js'
-import type { MaterializedViewExecutor as MVExecutorType } from '../with-formula/materialized-views/executor.js'
-import type * as MVStaleModule from '../with-formula/materialized-views/stale.js'
 import { resolveCollectionConfig, resolveVirtualMoneyFields, type CollectionOpts } from './collection-config.js'
 import { loadEvalComputedFields } from '../with-formula/computed/lazy.js'
 
@@ -111,21 +104,6 @@ import { loadEvalComputedFields } from '../with-formula/computed/lazy.js'
  */
 export type OnDirtyCallback = (collection: string, id: string, action: 'put' | 'delete' | 'revert', version: number) => Promise<void>
 
-/**
- * Value-equality for a single self-write reverse-denorm field. Scalars
- * compare by identity; objects by canonical JSON (denorm values should be
- * deterministically shaped). Used as the cycle guard — when every denorm
- * field already matches, no write is issued and the self-write recursion ends.
- */
-function selfWriteFieldEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true
-  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false
-  try {
-    return JSON.stringify(a) === JSON.stringify(b)
-  } catch {
-    return false
-  }
-}
 
 /**
  * Event delivered to a `collection.subscribe()` callback. Distinct
@@ -2091,41 +2069,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   async dispatchMaterializedViews(id: string, record: T, wave?: WaveContext): Promise<void> {
     if (this.materializedViewSource === undefined) return
-    const incoming = record as unknown as Record<string, unknown>
-    if (incoming && typeof incoming === 'object' && '_materializedFrom' in incoming) return
-    const registry = this.materializedViewSource.registry()
-    const mvs = registry.mvsForSource(this.name)
-    if (mvs.length === 0) return
-    // Dynamic-import the executor only on first eager-MV dispatch —
-    // keeps the MV executor chunk out of the floor bundle (mirrors the
-    // dynamic-import pattern used for derivations). Lazy mode
-    // uses the pure-helper `markMVStale` which lives in `stale.js` and
-    // is also dynamic-imported (only when at least one lazy MV depends
-    // on this source).
-    let executor: typeof MVExecutorType | null = null
-    let staleHelpers: typeof MVStaleModule | null = null
-    for (const reg of mvs) {
-      const mode = reg.spec.refresh
-      if (mode === 'eager') {
-        if (wave?.seen(`mv\0${reg.spec.name}`)) continue
-        if (executor === null) {
-          ;({ MaterializedViewExecutor: executor } = await import('../with-formula/materialized-views/executor.js'))
-        }
-        await executor.refresh(reg, {
-          getCollection: (name) => this.materializedViewSource!.getCollection(name),
-          getActiveTxContext: () => this.materializedViewSource!.getActiveTxContext(),
-          getQueryContext: () => this.materializedViewSource!.getQueryContext(),
-          dispatchCtx: this.#dispatchCtx({ collection: this.name, id }),
-        })
-      } else if (mode === 'lazy') {
-        if (staleHelpers === null) {
-          staleHelpers = await import('../with-formula/materialized-views/stale.js')
-        }
-        staleHelpers.markMVStale(registry, reg.spec.name)
-      }
-      // manual: no-op on source-write. `vault.refreshView(name)` is
-      // the only path that materializes a manual MV.
-    }
+    // S4 gate: dynamic import only — see #derivationDeleteCtx (#842).
+    const { dispatchMaterializedViews } = await import('../with-formula/materialized-views/dispatch.js')
+    return dispatchMaterializedViews(this.#mvDispatchCtx(this.materializedViewSource), id, record as unknown as Record<string, unknown>, wave)
   }
 
   /**
@@ -2229,6 +2175,34 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /** @internal — ctx for `putDerivedOutput`'s frozen-period skip+audit (#638 Task 5). */
+  /** What `with-formula/materialized-views/dispatch.ts` needs from this collection (#842). */
+  #mvDispatchCtx(materializedViewSource: NonNullable<Collection<T, S, Q, M>['materializedViewSource']>) {
+    return {
+      materializedViewSource,
+      collectionName: this.name,
+      dispatchCtx: (source: { readonly collection: string; readonly id: string }) => this.#dispatchCtx(source),
+    }
+  }
+
+  /**
+   * What `with-formula/derivations/dispatch.ts` needs from this collection (#842).
+   *
+   * The return type is inferred, not annotated: importing `DerivationDeleteCtx`
+   * would be a STATIC spine→service import, which `port-layering` rejects even
+   * when it is type-only — the guard scans import statements, not their
+   * erasure. The dynamic `import()` at the call site still types the argument.
+   */
+  #derivationDeleteCtx(derivationSource: NonNullable<Collection<T, S, Q, M>['derivationSource']>) {
+    return {
+      derivationSource,
+      collectionName: this.name,
+      adapter: this.adapter,
+      vault: this.vault,
+      getDEK: this.getDEK,
+      storeCiphertext: this.storeCiphertext,
+    }
+  }
+
   #dispatchCtx(source: { readonly collection: string; readonly id: string }) {
     return { emit: (e: string, p: unknown) => (this.emitter.emit as (ev: string, pl: unknown) => void)(e, p), source, audit: ledgerAuditHook(this.ledger, this.keyring.userId) }
   }
@@ -2298,202 +2272,15 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    *  dispatch wave's per-target dedup; `undefined` on the local-write path (byte-identical). */
   async dispatchDerivations(id: string, record: T, version: number, wave?: WaveContext): Promise<void> {
     if (this.derivationSource === undefined) return
-    // `record` is the stored form here (post-quantize) — decode so
-    // derive(source, ctx) sees the canonical money shape.
-    const incoming = (this.via ? this.via.canonicalizeStored(record as Record<string, unknown>) : record) as Record<string, unknown>
-    if (incoming && typeof incoming === 'object' && '_derivedFrom' in incoming) return
-    const registry = this.derivationSource.registry()
-    const strategies = registry.strategiesForSource(this.name)
-    if (strategies.length === 0) return
-    // Dynamic-import the executor only on the first eager-mode
-    // dispatch. Lazy-mode dispatches use `markStale` (a pure helper)
-    // which doesn't reach into the executor at all. Keeps the
-    // derivation executor chunk out of the floor bundle for any
-    // consumer that doesn't fire an eager derivation.
-    let DerivationExecutor: typeof DerivationExecutorType | null = null
-    for (const { spec, strategyHash } of strategies) {
-      const mode = typeof spec.lifecycle === 'string' ? spec.lifecycle : spec.lifecycle.mode
-
-      // Rollup: a write to the child `from` recomputes the
-      // parent at id child[key]; a write to the parent (source = into)
-      // recomputes its own aggregate. Handled here (the executor is not run).
-      if (spec.rollup) {
-        if (mode !== 'eager') continue
-        let parentId: string | null
-        if (this.name === spec.rollup.from) {
-          const kv = incoming[spec.rollup.key]
-          parentId = (typeof kv === 'string' || typeof kv === 'number') ? String(kv) : null
-        } else {
-          parentId = id // a write to the parent recomputes its own aggregate
-        }
-        if (parentId !== null) await this.recomputeRollup(spec, parentId, { collection: this.name, id }, wave)
-        continue
-      }
-
-      // Determine how `this.name` triggers this strategy, and build the list
-      // of source records to (re-)derive:
-      //   • source     — re-derive the written record itself (same-id).
-      //   • sources[]  — re-derive the PRIMARY source at the same id.
-      //   • triggerBy  — FK fan-out: re-derive every source record
-      //                  whose `on` field equals the written parent's id.
-      // `input` is passed to derive(); `base` is the raw stored source record
-      // used as the patch base for a self-write reverse-denorm output.
-      const isSource = spec.source === this.name
-      const isSibling = !isSource && (spec.sources?.includes(this.name) ?? false)
-      const trigger = !isSource && !isSibling
-        ? spec.triggerBy?.find(t => t.collection === this.name)
-        : undefined
-
-      const runs: Array<{
-        input: Record<string, unknown> & { id: string }
-        base: Record<string, unknown>
-        runId: string
-        version: number
-      }> = []
-
-      if (isSource) {
-        runs.push({ input: { ...incoming, id }, base: incoming, runId: id, version })
-      } else if (isSibling) {
-        const p = await this.derivationSource.getCollection(spec.source).get(id)
-        if (p !== null && p !== undefined) {
-          // Raw base for a (rare) sibling self-write; falls back to the
-          // resolved primary if the raw read misses.
-          const raw = await this.derivationSource.getCollection(spec.source)._getStoredRecord(id)
-          runs.push({ input: { ...p, id }, base: raw ?? p, runId: id, version: 0 })
-        }
-      } else if (trigger) {
-        const srcColl = this.derivationSource.getCollection(spec.source)
-        const ids = await srcColl._findMatchingIds(trigger.on, id)
-        if (trigger.maxFanout !== undefined && ids.length > trigger.maxFanout) {
-          throw new DerivationCapExceededError(`triggerBy ${this.name}→${spec.source}`, ids.length, trigger.maxFanout)
-        }
-        for (const sid of ids) {
-          const raw = await srcColl._getStoredRecord(sid)
-          if (raw === null) continue
-          runs.push({ input: { ...raw, id: sid }, base: raw, runId: sid, version: 0 })
-        }
-      }
-
-      if (runs.length === 0) continue
-
-      if (mode !== 'eager') {
-        for (const run of runs) await markStale(registry, spec, run.runId)
-        continue
-      }
-
-      if (DerivationExecutor === null) {
-        ({ DerivationExecutor } = (await import('../with-formula/derivations/executor.js')) as { DerivationExecutor: typeof DerivationExecutorType })
-      }
-
-      for (const run of runs) {
-        const ctx = { vault: this.derivationSource.getReadOnlyFacade() }
-        const outCtx = this.#dispatchCtx({ collection: spec.source, id: run.runId })
-        const result = await DerivationExecutor.run(spec, run.input, run.version, strategyHash, ctx)
-        for (const key of Object.keys(spec.outputs)) {
-          const out = result.outputs[key]
-          if (!out) continue
-          if (out.kind === 'failed') {
-            const err = out.error
-            if (spec.strict) throw err
-            console.warn(`[derivation] output "${key}" for source "${spec.source}" id="${run.runId}" failed:`, err)
-            continue
-          }
-          const outSpec = spec.outputs[key]
-          if (!outSpec) continue
-          const outputCollection = this.derivationSource.getCollection(outSpec.collection)
-          // If we're inside a multi-record transaction, register
-          // derived writes as side-effect ops on the active ctx
-          // BEFORE they fire. `revertExecuted` walks `_executed` in
-          // reverse on rollback, so capturing the pre-write envelope
-          // here lets a later mid-batch failure restore this output's
-          // prior state alongside the source op. Outside a transaction
-          // the context is null and tracking is skipped.
-          const txCtx = this.derivationSource.getActiveTxContext()
-
-          // ── Array-shape branch ─────────────────────────────────
-          if (out.kind === 'array') {
-            // Load the prior key set from the fanout sidecar.
-            const { loadFanoutSidecar, saveFanoutSidecar } = await import('../with-formula/derivations/fanout-sidecar.js')
-            const prior = await loadFanoutSidecar(this.adapter, this.vault, spec.source, run.runId, key, this.getDEK, this.storeCiphertext)
-            const prevKeys = new Set<string>(prior?.keys ?? [])
-            const newKeysList = out.entries.map(e => e.key)
-            const newKeysSet = new Set<string>(newKeysList)
-
-            // Diff — delete keys that were in prev but not in new.
-            for (const k of prevKeys) {
-              if (newKeysSet.has(k)) continue
-              await outputCollection._internalDelete(k, txCtx)
-            }
-
-            // Upsert every entry in the new set. (Slice 1: no
-            // identity-skip optimisation; write every row, idempotent
-            // at the (collection, id) level.)
-            for (const entry of out.entries) {
-              if (txCtx !== null) {
-                this.#trackPut(txCtx, outSpec.collection, entry.key, await this.adapter.get(this.vault, outSpec.collection, entry.key))
-              }
-              await putDerivedOutput(outputCollection, entry.key, entry.value, outCtx, { source: 'derived' })
-            }
-
-            // Persist the new key set last, for failure-mode symmetry.
-            await saveFanoutSidecar(this.adapter, this.vault, {
-              source: spec.source,
-              sourceId: run.runId,
-              outputKey: key,
-              outputCollection: outSpec.collection,
-              keys: newKeysList,
-            }, this.getDEK, this.storeCiphertext)
-            continue
-          }
-
-          // ── Record-shape branch ────────────────────────────────
-          if (out.skipped === true) {
-            // Optional output returned null. Delete the
-            // previously-emitted output at this id, if any. Routed
-            // through `_internalDelete` so a user-registered
-            // `onDelete` on the output collection does NOT
-            // fire — this is a system-internal tombstone, not a
-            // user-initiated delete. The txCtx hookup captures the
-            // prior envelope inside `_internalDelete` for rollback
-            // symmetry; delete-of-absent is a silent no-op.
-            await outputCollection._internalDelete(run.runId, txCtx)
-            continue
-          }
-
-          // ── Self-write reverse-denorm ───────────────────────────
-          // An output back to its own source: patch ONLY the declared
-          // `denorm` fields onto the raw stored record, never the whole
-          // value (which would clobber user fields / i18n maps and carries
-          // the executor's `_derivedFrom` tag). If the patch changes
-          // nothing, skip the write — that value-equality is the cycle
-          // guard: the self-write re-fires the source-path derivation,
-          // which recomputes identical fields and terminates here.
-          if (outSpec.shape === 'record' && outSpec.denorm !== undefined && outSpec.collection === spec.source) {
-            const value = out.value
-            const patched: Record<string, unknown> = { ...run.base }
-            let changed = false
-            for (const f of outSpec.denorm) {
-              if (!selfWriteFieldEqual(run.base[f], value[f])) {
-                patched[f] = value[f]
-                changed = true
-              }
-            }
-            if (!changed) continue // cycle guard — nothing to write
-            if (txCtx !== null) {
-              this.#trackPut(txCtx, outSpec.collection, run.runId, await this.adapter.get(this.vault, outSpec.collection, run.runId))
-            }
-            await putDerivedOutput(outputCollection, run.runId, patched, outCtx, { source: 'derived' })
-            continue
-          }
-
-          // ── Normal record output (separate output collection) ──
-          if (txCtx !== null) {
-            this.#trackPut(txCtx, outSpec.collection, run.runId, await this.adapter.get(this.vault, outSpec.collection, run.runId))
-          }
-          await putDerivedOutput(outputCollection, run.runId, out.value, outCtx, { source: 'derived' })
-        }
-      }
-    }
+    // S4 gate: dynamic import only — see #derivationDeleteCtx (#842).
+    const { dispatchDerivations } = await import('../with-formula/derivations/dispatch.js')
+    return dispatchDerivations({
+      ...this.#derivationDeleteCtx(this.derivationSource),
+      via: this.via,
+      recomputeRollup: (spec, parentId, source, w) => this.recomputeRollup(spec, parentId, source, w),
+      dispatchCtx: (source) => this.#dispatchCtx(source),
+      trackPut: (txCtx, collectionName, rid, prior) => this.#trackPut(txCtx, collectionName, rid, prior),
+    }, id, record as unknown as Record<string, unknown>, version, wave)
   }
 
   /**
@@ -2857,42 +2644,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   async dispatchArrayDerivationsOnDelete(id: string, eraseRecordShapeToo = false): Promise<number> {
     if (this.derivationSource === undefined) return 0
-    const registry = this.derivationSource.registry()
-    const strategies = registry.strategiesForSource(this.name)
-    if (strategies.length === 0) return 0
-    // Dynamic-import the sidecar helpers — keeps the derivation chunk out of the
-    // floor bundle for consumers that don't use array-shape derivations.
-    let helpers: {
-      loadFanoutSidecar: typeof LoadFanoutSidecarType
-      deleteFanoutSidecar: typeof DeleteFanoutSidecarType
-      saveFanoutSidecar: typeof SaveFanoutSidecarType
-    } | null = null
-    const txCtx = this.derivationSource.getActiveTxContext()
-    let erased = 0 // #622 review: rows ACTUALLY deleted, not edges visited
-    for (const { spec } of strategies) {
-      for (const [outputKey, outSpec] of Object.entries(spec.outputs)) {
-        if (outSpec.shape === 'record') {
-          // Same-id erasure only for a standard source-triggered strategy into a DIFFERENT
-          // collection — never the self-denorm case (would re-delete the record just
-          // tombstoned) nor triggerBy/sibling (derived id isn't `id`).
-          if (eraseRecordShapeToo && spec.source === this.name && outSpec.collection !== this.name) {
-            if (await this.derivationSource.getCollection(outSpec.collection)._internalDelete(id, txCtx)) erased += 1
-          }
-          continue
-        }
-        if (helpers === null) {
-          helpers = await import('../with-formula/derivations/fanout-sidecar.js')
-        }
-        const sidecar = await helpers.loadFanoutSidecar(this.adapter, this.vault, spec.source, id, outputKey, this.getDEK, this.storeCiphertext)
-        if (!sidecar) continue
-        const outputCollection = this.derivationSource.getCollection(outSpec.collection)
-        for (const derivedId of sidecar.keys) {
-          if (await outputCollection._internalDelete(derivedId, txCtx)) erased += 1
-        }
-        await helpers.deleteFanoutSidecar(this.adapter, this.vault, spec.source, id, outputKey)
-      }
-    }
-    return erased
+    // S4 gate: the spine may not statically import a with-* service, and this
+    // keeps the derivation chunk out of the floor bundle (#842).
+    const { dispatchArrayDerivationsOnDelete } = await import('../with-formula/derivations/dispatch.js')
+    return dispatchArrayDerivationsOnDelete(this.#derivationDeleteCtx(this.derivationSource), id, eraseRecordShapeToo)
   }
 
   /**
@@ -2906,32 +2661,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   async dispatchMaterializedViewsOnDelete(id: string): Promise<{ deleted: number; residueUndecodable: string[]; residueDeclined: string[] }> {
     if (this.materializedViewSource === undefined) return { deleted: 0, residueUndecodable: [], residueDeclined: [] }
-    const registry = this.materializedViewSource.registry()
-    const mvs = registry.mvsForSource(this.name)
-    if (mvs.length === 0) return { deleted: 0, residueUndecodable: [], residueDeclined: [] }
-    let executor: typeof MVExecutorType | null = null; let staleHelpers: typeof MVStaleModule | null = null
-    let deleted = 0; const residueUndecodable: string[] = []; const residueDeclined: string[] = []
-    for (const reg of mvs) {
-      const mode = reg.spec.refresh
-      if (mode === 'eager') {
-        if (executor === null) {
-          ;({ MaterializedViewExecutor: executor } = await import('../with-formula/materialized-views/executor.js'))
-        }
-        const rr = await executor.refresh(reg, {
-          getCollection: (name) => this.materializedViewSource!.getCollection(name),
-          getActiveTxContext: () => this.materializedViewSource!.getActiveTxContext(),
-          getQueryContext: () => this.materializedViewSource!.getQueryContext(),
-          dispatchCtx: this.#dispatchCtx({ collection: this.name, id }),
-        }); deleted += rr.deleted; residueUndecodable.push(...rr.residueUndecodable); residueDeclined.push(...rr.residueDeclined) // #782/#785 — eager leg now reports both channels
-      } else {
-        if (staleHelpers === null) {
-          staleHelpers = await import('../with-formula/materialized-views/stale.js')
-        }
-        const inv = await staleHelpers.invalidateMVAtRest(this.materializedViewSource, reg, mode)
-        deleted += inv.deleted; residueUndecodable.push(...inv.residueUndecodable.map((rid) => `${reg.outputCollection}:${rid}`)); residueDeclined.push(...inv.residueDeclined.map((rid) => `${reg.outputCollection}:${rid}`))
-      }
-    }
-    return { deleted, residueUndecodable, residueDeclined }
+    // S4 gate: dynamic import only — see #derivationDeleteCtx (#842).
+    const { dispatchMaterializedViewsOnDelete } = await import('../with-formula/materialized-views/dispatch.js')
+    return dispatchMaterializedViewsOnDelete(this.#mvDispatchCtx(this.materializedViewSource), id)
   }
 
   /**
