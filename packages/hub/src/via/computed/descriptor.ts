@@ -22,6 +22,7 @@
  * refuses it — closes the #636 opaque-function leak).
  */
 import type { ViaDescriptor } from '../../kernel/via/index.js'
+import { linkComputedVia } from './binding.js'
 
 export interface ComputedDescriptor extends ViaDescriptor {
   readonly _viaBrand: 'computed'
@@ -34,6 +35,21 @@ export function computed(
   fn: (record: Record<string, unknown>) => unknown,
   opts?: { readonly deps?: readonly string[]; readonly mode?: 'materialized' | 'virtual' },
 ): ComputedDescriptor {
+  // Self-link, exactly as `money()` and `lookup()` do (#813). Until this call
+  // existed, `computed` was the only via feature whose binder was installed by a
+  // DIFFERENT module — `port/with/computed-strategy.ts` — rather than by its own
+  // declaration factory. That works whenever the kernel spine and the consumer's
+  // `computed` import resolve to one module instance, and fails when they do not:
+  // under vitest's `server.deps.inline`, a consumer got the descriptor from one
+  // transformed instance while the binder registry consulted at bind time lived in
+  // another, producing `VIA_NOT_LINKED` for a descriptor `isComputedDescriptor()`
+  // accepted. money/i18n/lookup were immune precisely because they self-link.
+  //
+  // Constructing a descriptor is the binding's opt-in unit, so linking here makes
+  // the guarantee local: whatever instance produced the descriptor also has the
+  // binder. `installViaBinder` is idempotent + first-wins, so the eager call in
+  // `port/with/computed-strategy.ts` stays harmless.
+  linkComputedVia()
   return {
     _viaBrand: 'computed',
     fn,

@@ -109,6 +109,28 @@ section below for the value-shape reason money must keep its pre-#665 present po
 
 ## Composition — `via(computed(...), money(...))`: money formats materialized AND virtual (#669)
 
+> **If you reached here from `field "x" is declared via both a sugar key and viaFields`** (#813):
+> that error means the field appears in *both* `moneyFields` and `viaFields`. A money-typed
+> computed field is **one** `viaFields` entry composing both descriptors — do not also list it
+> under `moneyFields`. Argument order does not matter; `via()` groups by `_viaBrand`:
+>
+> ```ts
+> viaFields: {
+>   receiptAmount: via(
+>     money({ currency: 'THB' }),
+>     computed((r) => (r.kind === 'IV' ? r.paidTotal : r.amount), {
+>       mode: 'virtual',
+>       deps: ['kind', 'amount', 'paidTotal'],
+>     }),
+>   ),
+> }
+> // reads back: receiptAmount '42.50' · receiptAmountFormatted 'THB 42.50' · receiptAmountNumber 42.5
+> ```
+>
+> Worked end-to-end in `__tests__/via/computed-money-virtual.test.ts`. Note `Formatted` uses a
+> NON-BREAKING space (U+00A0) between currency code and number — normalise before asserting on it.
+
+
 `compileViaBindings` always runs `computed` **last** in the feature stack (money → i18n →
 classified → blob → computed), so a computed `fn`'s `deps` can read other fields' already-decoded
 presentation (a money-quantized amount, an i18n-resolved label). Composing computed **with**
