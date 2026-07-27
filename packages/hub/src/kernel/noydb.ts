@@ -1,4 +1,5 @@
 import { resolveStrategies, type StrategyBag } from '../port/with/strategies.js'
+import type { RotateResult } from '../with-party/team/keyring.js'
 import type {
   NoydbOptions,
   NoydbEventMap,
@@ -859,23 +860,33 @@ export class Noydb {
   /**
    * Rotate the DEKs for the given collections in a vault.
    *
-   * Generates fresh DEKs, re-encrypts every record in each collection,
-   * and re-wraps the new DEKs into every remaining user's keyring. The
-   * old DEKs become unreachable — useful as a defense-in-depth measure
-   * after a suspected key leak, or as the scheduled half of a
-   * key-rotation policy.
+   * Generates fresh DEKs and re-encrypts every record in each collection.
+   * The old DEKs become unreachable — useful as a defense-in-depth measure
+   * after a suspected key leak, or as the scheduled half of a key-rotation
+   * policy.
    *
-   * Unlike `revoke({ rotateKeys: true })`, this call does NOT remove
-   * any users — every current member keeps access, but with fresh
-   * keys. This is the "just rotate" path; the "revoke and rotate"
-   * path still lives in `revoke()`.
+   * ## Other members LOSE access to the rotated collections (#854)
+   *
+   * A member's DEKs are wrapped under that member's KEK, and a KEK derives
+   * only from that member's secret. The caller cannot derive anyone else's
+   * KEK, so re-wrapping a fresh DEK for them is impossible — that is the
+   * zero-knowledge property working as designed. Rotation therefore DROPS
+   * the rotated collections from every other member's keyring.
+   *
+   * The returned {@link RotateResult.needsRegrant} names each (member,
+   * collection) pair that was dropped. Re-run `grant()` for those pairs, or
+   * they stay locked out.
+   *
+   * Unlike `revoke({ rotateKeys: true })`, this call does not REMOVE any
+   * user from the vault — they keep membership and their other collections.
+   * This is the "just rotate" path; "revoke and rotate" lives in `revoke()`.
    *
    * Exposed on Noydb (rather than only on the lower-level keyring
    * module) so CLI and admin tooling can trigger rotation without
    * reaching into internals. See `noy-db rotate` for the CLI wrapper.
    * Opt-in (#267): throws {@link TeamNotEnabledError} without `withTeam()`.
    */
-  async rotate(vault: string, collections: string[]): Promise<void> {
+  async rotate(vault: string, collections: string[]): Promise<RotateResult> {
     return this.strategies.team.rotate(this.team, vault, collections)
   }
 

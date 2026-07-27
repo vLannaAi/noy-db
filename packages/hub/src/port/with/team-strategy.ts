@@ -22,13 +22,14 @@
  * @internal
  */
 import type { GrantOptions, RevokeOptions, FactorProofBundle } from '../../kernel/types.js'
+import type { RotateResult } from '../../with-party/team/keyring.js'
 import { TeamNotEnabledError } from '../../kernel/errors.js'
 import type { TeamFacade } from '../../with-party/team/noydb-facade.js'
 
 export interface TeamStrategy {
   grant(team: TeamFacade, vault: string, options: GrantOptions, factors?: FactorProofBundle): Promise<void>
   revoke(team: TeamFacade, vault: string, options: RevokeOptions, factors?: FactorProofBundle): Promise<void>
-  rotate(team: TeamFacade, vault: string, collections: string[]): Promise<void>
+  rotate(team: TeamFacade, vault: string, collections: string[]): Promise<RotateResult>
 }
 
 /**
