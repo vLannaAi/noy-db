@@ -1,4 +1,5 @@
 import type { OpenCollectionOptions } from '../port/with/collection-options.js'
+import { populateCollectionRegistries } from '../port/with/collection-registries.js'
 import { NO_BLOBS } from '../port/with/blob-strategy.js'
 import type { StrategyBag } from '../port/with/strategies.js'
 import type {
@@ -78,7 +79,7 @@ import {
   type RefViolation,
 } from './refs.js'
 import type { DictionaryHandle, DictionaryOptions, StaticDictDescriptor } from '../port/with/i18n-strategy.js'
-import { isDictCollectionName, isStaticDictDescriptor } from '../port/with/i18n-strategy.js'
+import { isDictCollectionName } from '../port/with/i18n-strategy.js'
 // #650 Task 1 (via-lookup extraction) — the pure dict-registry helpers now live in
 // via/lookup/registry.ts, reached only through this port seam (never via/lookup/*
 // directly — Check 14 via-layering). Aliased to avoid colliding with Vault's own same-named
@@ -89,7 +90,6 @@ import {
   resolveDictSource as resolveDictSourceHelper,
   updateReferencingRecords,
   resolveLabelFromMap,
-  collectLookupDictCompat,
   checkLookupMembership, buildLookupAltIndex,
   dictCollectionName, registerLookupRefEdges, // #650 Task 4/5
   buildLookupSnapshotRows, // #650 Task 6
@@ -636,6 +636,23 @@ export class Vault {
     }
   }
 
+  /** The registries `populateCollectionRegistries` writes into (#841). */
+  #registries() {
+    return {
+      refRegistry: this.refRegistry,
+      i18nFieldRegistry: this.i18nFieldRegistry,
+      blobFieldsRegistry: this.blobFieldsRegistry,
+      archiveRegistry: this.archiveRegistry,
+      attestation: this.attestation,
+      dictKeyFieldRegistry: this.dictKeyFieldRegistry,
+      staticDictNames: this.staticDictNames,
+      staticByName: this.staticByName,
+      staticDescriptorByField: this.staticDescriptorByField,
+      reservedLookupCollections: this.reservedLookupCollections,
+      schemaUpdateNames: this.#schemaUpdateNames,
+    }
+  }
+
   collection<T, O extends CollectionShape<T> = Record<never, never>>(
     collectionName: string,
     options?: OpenCollectionOptions<T, SensitiveOf<T, O>, IndexedOf<T, O>, MoneyOf<T, O>>,
@@ -712,77 +729,10 @@ export class Vault {
       })
     }
     if (!coll) {
-      // Register ref declarations (if any) with the vault-level
-      // registry BEFORE constructing the Collection. This way the
-      // first put() on the new collection already sees its refs via
-      // vault.enforceRefsOnPut.
-      if (options?.refs) {
-        this.refRegistry.register(collectionName, options.refs)
-      }
-
-      // Register i18nText fields
-      if (effectiveViaFields.i18nFields) {
-        this.i18nFieldRegistry.set(collectionName, effectiveViaFields.i18nFields)
-      }
-
-      // register blobFields retention/TTL policy
-      if (options?.blobFields) {
-        this.blobFieldsRegistry.set(collectionName, options.blobFields as BlobFieldsConfig<unknown>)
-      }
-
-      // register record archival policy
-      if (options?.archive) {
-        this.archiveRegistry.set(collectionName, options.archive as ArchivePolicy)
-      }
-
-      // register the per-collection attestation field-schema
-      if (options?.attestation !== undefined) {
-        this.attestation.register(collectionName, options.attestation)
-      }
-
-      // Register dictKey / staticDict fields. Plain dictKey fields go into
-      // the rename-tracking registry; staticDict fields skip it (no
-      // per-vault pointer rewrite) and instead populate the static
-      // registries that back the read-path resolver, the readonly guard, and
-      // put-time code validation. Native lookup()/dict() reserved/static
-      // fields fold into the SAME registries (#650 Task 2 — collectLookupDictCompat).
-      if (effectiveViaFields.dictKeyFields || effectiveViaFields.lookupFields) {
-        const dictFieldMap: Record<string, string> = {}
-        const staticFieldMap: Record<string, StaticDictDescriptor> = {}
-        for (const [field, desc] of Object.entries(effectiveViaFields.dictKeyFields ?? {})) {
-          if (isStaticDictDescriptor(desc)) {
-            staticFieldMap[field] = desc
-            this.staticDictNames.add(desc.name)
-            this.staticByName.set(desc.name, desc)
-          } else {
-            dictFieldMap[field] = desc.name
-          }
-        }
-        const lookupCompat = collectLookupDictCompat(effectiveViaFields.lookupFields)
-        Object.assign(dictFieldMap, lookupCompat.dictFieldMap)
-        for (const [field, desc] of lookupCompat.staticEntries) {
-          staticFieldMap[field] = desc
-          this.staticDictNames.add(desc.name)
-          this.staticByName.set(desc.name, desc)
-        }
-        if (Object.keys(dictFieldMap).length > 0) {
-          this.dictKeyFieldRegistry.set(collectionName, dictFieldMap)
-          // #650 Task 4 (#647) — declare these dimensions' _dict_* collections into the
-          // reserved-lookup sync registry NOW, at schema-declare time — before any local
-          // dictionary() call/write/read touches them this session.
-          for (const dictName of new Set(Object.values(dictFieldMap))) {
-            this.reservedLookupCollections.set(dictCollectionName(dictName), dictName)
-          }
-        }
-        if (Object.keys(staticFieldMap).length > 0) {
-          this.staticDescriptorByField.set(collectionName, staticFieldMap)
-        }
-      }
-
-      // Capture registered schema-update strategy names for introspection.
-      if ((options?.schemaUpdate?.length ?? 0) > 0) {
-        this.#schemaUpdateNames.set(collectionName, (options!.schemaUpdate ?? []).map((s) => s.name))
-      }
+      // Fan the declaration out into the vault's ten registries (#841).
+      // Runs BEFORE the Collection is constructed so the first put() already
+      // sees its refs through vault.enforceRefsOnPut.
+      populateCollectionRegistries(this.#registries(), collectionName, options, effectiveViaFields)
 
       // Schema-update gate. Built only when persistence + strategies
       // are on. Detection runs in the same work pushed to the drain; the
