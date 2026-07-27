@@ -8,10 +8,6 @@
     "./aggregate :: moneyMax mentions MoneyString",
     "./aggregate :: moneyMin mentions MoneyString",
     "./aggregate :: moneySum mentions MoneyString",
-    "./as :: diffVault mentions DiffCandidate",
-    "./as :: diffVault mentions DiffOptions",
-    "./as :: readPod mentions NoydbBundleReadResult",
-    "./as :: readPod mentions ReadNoydbBundleOptions",
     "./blobs :: createExportBlobsHandle mentions Collection",
     "./cargo :: createDeedOwner mentions NoydbStore",
     "./cargo :: createDeedOwner mentions UnlockedKeyring",
@@ -40,7 +36,6 @@
     "./history :: saveHistory mentions NoydbStore",
     "./materialized-views :: analyzeDependencies mentions Query",
     "./materialized-views :: summarizeQueryPlan mentions Query",
-    "./on :: mintPaperRecoveryEntry mentions EnclaveKey",
     "./periods :: appendPeriodLedgerEntry mentions EncryptedEnvelope",
     "./periods :: appendPeriodLedgerEntry mentions LedgerStore",
     "./periods :: loadPeriods mentions EncryptedEnvelope",
@@ -128,14 +123,6 @@
     "./tiers :: assertTierComposition mentions BlobFieldsConfig",
     "./tiers :: classifySealedShred mentions EncryptedEnvelope",
     "./tiers :: getAtTier mentions GhostRecord",
-    "./tx :: runTransaction mentions Noydb",
-    "./with :: assertCanExport mentions ExportFormat",
-    "./with :: assertCanExport mentions UnlockedKeyring",
-    "./with :: assertCanImport mentions ExportFormat",
-    "./with :: assertCanImport mentions UnlockedKeyring",
-    "./with :: canExport mentions ExportFormat",
-    "./with :: canExport mentions UnlockedKeyring",
-    "./with :: canImport mentions ExportFormat",
-    "./with :: canImport mentions UnlockedKeyring"
+    "./tx :: runTransaction mentions Noydb"
   ]
 }

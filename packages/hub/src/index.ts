@@ -201,7 +201,6 @@ export type {
   WrappedBundleNoydbStore,
   WrapBundleStoreOptions,
 } from './with-pod/pod-store.js'
-export { readPlaintextRecord } from './kernel/debug.js'
 
 // Observable write-queue
 export type { WriteQueue } from './kernel/write-queue.js'
@@ -356,7 +355,6 @@ export { STATE_VAULT_NAME } from './kernel/constants.js'
 export { UnknownShardError, ShardProvisioningError, VaultTemplateNotFoundError, ReservedVaultNameError, DataResidencyError } from './kernel/errors.js'
 export { ForgetStrategyNotConfiguredError } from './kernel/errors.js'
 export { SealedRecordExpiredError, SealedRecordMismatchError, RecordCekNotFoundError, SealedRecordNotEnabledError } from './kernel/errors.js'
-export { DebugPlaintextError, DebugReservedFieldError } from './kernel/errors.js'
 
 // Bundle format — `.noydb` container
 export {
@@ -366,7 +364,6 @@ export {
   writeNoydbBundle,
   readNoydbBundle,
   readNoydbBundleHeader,
-  resetBrotliSupportCache,
 } from './with-pod/bundle.js'
 export { exportAccessibleData } from './with-audit/portability/export-accessible.js'
 export type { ExportAccessibleOptions } from './with-audit/portability/export-accessible.js'
@@ -433,7 +430,6 @@ export type {
   MaterializedViewDescriptor,
   OverlayViewDescriptor,
   DerivationDescriptor,
-  InternalCollectionStats,
 } from './with-shape/introspection/index.js'
 
 // Persisted JSON Schema — opt-in per-collection encrypted snapshot
@@ -1104,7 +1100,6 @@ export {
   applyJoins,
   DEFAULT_JOIN_MAX_ROWS,
   DEFAULT_CROSS_JOIN_MAX_ROWS,
-  resetJoinWarnings,
   buildLiveQuery,
   count,
   sum,

@@ -21,7 +21,7 @@ import { i18nText } from '../src/via/i18n/core.js'
 import { ref } from '../src/kernel/refs.js'
 import { withI18n } from '../src/via/i18n/active.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
-import type { CollectionDescription } from '@noy-db/hub/ui'
+import type { CollectionDescription } from '../src/with-shape/introspection/describe.js'
 import { ConflictError } from '../src/kernel/errors.js'
 
 function inlineMemory(): NoydbStore {
