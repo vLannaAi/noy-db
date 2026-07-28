@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import { createNoydb, withDerivation, withRollup } from '../../src/index.js'
-import { withSync } from '../../src/with-party/sync/index.js'
+import { withSync } from '../../src/with-sync/index.js'
 import { lookup } from '../../src/via/lookup/descriptor.js'
 import { via } from '../../src/kernel/via/compose.js'
 import { computed } from '../../src/via/computed/descriptor.js'

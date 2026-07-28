@@ -19,7 +19,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
-import { withSync } from '../src/with-party/sync/index.js'
+import { withSync } from '../src/with-sync/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { withForget } from '../src/with-audit/forget/index.js'
 import { withSearch } from '../src/with-lookup/search/index.js'

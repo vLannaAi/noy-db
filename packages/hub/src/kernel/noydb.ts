@@ -48,8 +48,8 @@ import { NoydbEventEmitter } from './events.js'
 import { WriteQueueTracker, type WriteQueue } from './write-queue.js'
 import { WriteHookRegistry, type WriteHook, type Unsubscribe } from '../port/with/write-hooks.js'
 import { ServiceBus } from '../port/with/service-bus.js'
-import { TabCoordinator, defaultLockManager, defaultChannel, type TabCoordinationOptions, type TabRole, type TabPresence } from '../with-party/tab-coordination.js'
-import { CrossTabWriteRelay } from '../with-party/tab-write-relay.js'
+import { TabCoordinator, defaultLockManager, defaultChannel, type TabCoordinationOptions, type TabRole, type TabPresence } from '../with-sync/tab-coordination.js'
+import { CrossTabWriteRelay } from '../with-sync/tab-write-relay.js'
 import {
   loadKeyring,
   createOwnerKeyring,
@@ -60,8 +60,8 @@ import {
 } from '../with-party/team/keyring.js'
 import type { UnlockedKeyring } from '../with-party/team/keyring.js'
 import { QuickUnlockStore } from '../with-party/session/unlock-state.js'
-import type { SyncEngine } from '../with-party/team/sync.js'
-import type { SyncTransaction } from '../with-party/team/sync-transaction.js'
+import type { SyncEngine } from '../with-sync/engine.js'
+import type { SyncTransaction } from '../with-sync/transaction.js'
 import { type SnapshotMeta } from '../with-fork/snapshots/strategy.js'
 import { NoydbSnapshots } from '../with-fork/snapshots/noydb-facade.js'
 import type { AmendmentTxOptions } from '../with-commit/tx/transaction.js'
@@ -554,7 +554,12 @@ export class Noydb {
     if (targets.length > 0) {
       // Primary sync engine is the first sync-peer (or first target if none)
       const primary = targets.find(t => t.role === 'sync-peer') ?? targets[0]!
-      const effectivePolicy = this.options.syncPolicy ?? primary.policy ?? INDEXED_STORE_POLICY
+      // #897 — a policy is always RESOLVED (falling back to the store preset), but
+      // automation only starts when one was DECLARED. `push: 'on-change'` fires an
+      // unawaited push on every write; switching that on for anyone who merely
+      // passed `sync:` would make previously-deterministic behaviour racy.
+      const declaredPolicy = this.options.syncPolicy ?? primary.policy
+      const effectivePolicy = declaredPolicy ?? INDEXED_STORE_POLICY
       syncEngine = this.strategies.sync.buildSyncEngine({
         local: this.options.store,
         remote: primary.store,
@@ -566,6 +571,10 @@ export class Noydb {
         ...(primary.label !== undefined ? { label: primary.label } : {}),
       })
       this.syncEngines.set(name, syncEngine)
+      // #897 — nothing started the scheduler, so `notifyChange()` returned at its
+      // `if (!this.started)` guard on every write and no declared policy ever ran.
+      // This is the moment `startScheduler`'s own JSDoc describes: the vault is open.
+      if (declaredPolicy) syncEngine.startScheduler()
 
       // Additional targets get their own engines (backup/archive are push-only)
       for (const target of targets) {
@@ -583,6 +592,8 @@ export class Noydb {
         })
         const key = `${name}::${target.label ?? target.role}`
         this.syncEngines.set(key, engine)
+        // #897 — same for additional targets, on the same declared-policy condition.
+        if (target.policy ?? this.options.syncPolicy) engine.startScheduler()
       }
     }
 
@@ -1624,6 +1635,8 @@ export class Noydb {
   close(): void {
     this.closed = true
     this.snapshots.stop()
+    // #897 — stop every scheduler's timers alongside the other timer teardown below.
+    for (const engine of this.syncEngines.values()) engine.stopScheduler()
     if (this.sessionTimer) {
       clearTimeout(this.sessionTimer)
       this.sessionTimer = null

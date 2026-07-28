@@ -29,7 +29,7 @@ import {
   loadKeyring,
   ensureCollectionDEK,
 } from '../src/with-party/team/keyring.js'
-import { putCredential, getCredential } from '../src/with-party/team/sync-credentials.js'
+import { putCredential, getCredential } from '../src/with-sync/credentials.js'
 import {
   SYNC_CREDENTIALS_COLLECTION,
   BROKER_COLLECTION,

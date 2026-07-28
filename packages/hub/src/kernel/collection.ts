@@ -76,7 +76,7 @@ import { buildDescription, deriveZodFields, type CollectionDescription, type Des
 import type { CollectionConfig } from '../with-shape/introspection/types.js'
 import { estimateRecordBytes, type Lru, type LruStats } from './cache/index.js'
 import { generateULID } from '../with-pod/ulid.js'
-import type { PresenceHandle, PresenceHandleOpts } from '../with-party/team/presence.js'
+import type { PresenceHandle, PresenceHandleOpts } from '../with-sync/presence.js'
 import type { BlobSet } from '../with-shape/blobs/blob-set.js'
 import { NO_BLOBS } from '../port/with/blob-strategy.js'
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'

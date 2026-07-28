@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { TabCoordinator, type TabLockManager, type TabChannel } from '../src/with-party/tab-coordination.js'
+import { TabCoordinator, type TabLockManager, type TabChannel } from '../src/with-sync/tab-coordination.js'
 
 /** FIFO exclusive lock manager (mirrors by-peer's createMockLocks). */
 function mockLocks(): TabLockManager {

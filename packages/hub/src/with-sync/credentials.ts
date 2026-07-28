@@ -37,12 +37,12 @@
  * against the caller's keyring role at call time.
  */
 
-import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import type { UnlockedKeyring } from './keyring.js'
-import { encrypt, openEnvelopeJson } from '../../kernel/enclave/index.js'
-import { ensureCollectionDEK } from './keyring.js'
-import { PermissionDeniedError } from '../../kernel/errors.js'
+import type { NoydbStore, EncryptedEnvelope } from '../kernel/types.js'
+import { NOYDB_FORMAT_VERSION } from '../kernel/types.js'
+import type { UnlockedKeyring } from '../with-party/team/keyring.js'
+import { encrypt, openEnvelopeJson } from '../kernel/enclave/index.js'
+import { ensureCollectionDEK } from '../with-party/team/keyring.js'
+import { PermissionDeniedError } from '../kernel/errors.js'
 
 /**
  * The reserved collection name. Never collides with user collections.
@@ -50,8 +50,8 @@ import { PermissionDeniedError } from '../../kernel/errors.js'
  * the `vault.collection()` guard and grant DEK-propagation); re-exported here
  * for existing consumers.
  */
-export { SYNC_CREDENTIALS_COLLECTION } from './reserved-secret-collections.js'
-import { SYNC_CREDENTIALS_COLLECTION } from './reserved-secret-collections.js'
+export { SYNC_CREDENTIALS_COLLECTION } from '../with-party/team/reserved-secret-collections.js'
+import { SYNC_CREDENTIALS_COLLECTION } from '../with-party/team/reserved-secret-collections.js'
 
 // ─── Token types ──────────────────────────────────────────────────────
 

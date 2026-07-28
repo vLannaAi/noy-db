@@ -12,7 +12,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { createNoydb, withRollup, withDerivation, withMaterializedView } from '../../src/index.js'
 import { withPeriods } from '../../src/with-audit/periods/index.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
-import { withSync } from '../../src/with-party/sync/index.js'
+import { withSync } from '../../src/with-sync/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 import type { DerivationSkippedFrozen } from '../../src/kernel/via/dispatch.js'
 

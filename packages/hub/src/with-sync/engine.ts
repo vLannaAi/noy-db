@@ -13,20 +13,20 @@ import type {
   SyncMetadata,
   SyncTargetRole,
   ErasureEnforcement,
-} from '../../kernel/types.js'
-import { NOYDB_SYNC_VERSION } from '../../kernel/types.js'
-import { ConflictError, ValidationError } from '../../kernel/errors.js'
+} from '../kernel/types.js'
+import { NOYDB_SYNC_VERSION } from '../kernel/types.js'
+import { ConflictError, ValidationError } from '../kernel/errors.js'
 import {
   PERIOD_SUMMARY_COLLECTIONS,
   PERIODS_COLLECTION,
   buildPeriodScope,
   validatePeriodsOption,
   type PeriodPullSource,
-} from './sync-period-scope.js'
-import type { NoydbEventEmitter } from '../../kernel/events.js'
-import type { SyncPolicy } from '../../kernel/sync-policy.js'
-import { SyncScheduler } from '../../kernel/sync-policy.js'
-import { isTombstoneShape, isDeleteMarker, envelopeBodySize } from '../../kernel/enclave/index.js'
+} from './period-scope.js'
+import type { NoydbEventEmitter } from '../kernel/events.js'
+import type { SyncPolicy } from '../kernel/sync-policy.js'
+import { SyncScheduler } from '../kernel/sync-policy.js'
+import { isTombstoneShape, isDeleteMarker, envelopeBodySize } from '../kernel/enclave/index.js'
 
 /** #650 Task 4 (#647) — the declared reserved-lookup (`_dict_*`/`_lookup_*`) collection-name
  *  registry a `SyncEngine` enumerates on pull. Explicit, not a blanket underscore-glob — other
@@ -146,12 +146,21 @@ export class SyncEngine {
     this.role = opts.role ?? 'sync-peer'
     this.label = opts.label
 
-    // Create scheduler if a policy is provided
+    // Create a scheduler when the policy asks for ANY automatic behaviour.
+    // #897: this used to test `push.mode !== 'manual'` alone, so a policy of
+    // `{ push: manual, pull: interval }` silently got no scheduler and its pull
+    // mode was ignored.
     const policy = opts.syncPolicy
-    if (policy && policy.push.mode !== 'manual') {
+    if (policy && (policy.push.mode !== 'manual' || policy.pull.mode !== 'manual')) {
       this.scheduler = new SyncScheduler(policy, {
         push: () => this.push().then(() => {}),
-        pull: () => this.pull().then(() => {}),
+        // #618 — role-gate the SCHEDULER-INITIATED pull. The Noydb layer gates
+        // pull-from-sink for explicit calls, but the scheduler calls the engine
+        // directly and would bypass it: a backup/archive-only primary with an
+        // `interval`/`on-focus` pull policy would pull ungated, reintroducing
+        // #616. This guards the engine self-initiating on a timer; an explicit
+        // `engine.pull()` still pulls for every role.
+        pull: () => (this.role === 'sync-peer' ? this.pull().then(() => {}) : Promise.resolve()),
         getDirtyCount: () => this.dirty.length,
       })
     } else {
