@@ -1,5 +1,27 @@
 # Changelog — hub
 
+## 0.4.0-pre.8
+
+### Patch Changes
+
+- `computed()` now installs its own via binder (#813).
+
+  Every via declaration factory is the binding's opt-in unit: constructing a descriptor must leave
+  the binder installed in whatever module instance produced it. `money()` and `lookup()` always did
+  this. `computed()` did not — its binder was installed by a _different_ module
+  (`port/with/computed-strategy.ts`), which the kernel spine happens to import.
+
+  That holds whenever the consumer's `computed` import and the kernel spine resolve to one module
+  instance, and breaks when they do not. Running vitest with `server.deps.inline: [/@noy-db\/.*/]`
+  produced exactly that split: `isComputedDescriptor()` accepted the descriptor while the binder
+  registry consulted at bind time — a different transformed instance — had no `computed` entry,
+  failing with `via feature "computed" requires descriptors created via its declaration factory`.
+  `moneyFields` / `i18nFields` / `dictKeyFields` were immune under the same config purely because
+  they self-link.
+
+  No API change. `installViaBinder` is idempotent and first-wins, so the existing eager call is
+  unaffected.
+
 ## 0.4.0-pre.7
 
 ### Minor Changes
