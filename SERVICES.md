@@ -459,7 +459,20 @@ The hub is conformed; the satellite families are **not**, and were deliberately 
   Two `to-*` packages are **not** store factories and are exempt: `to-meter` is a metering **decorator** (wraps a store, returns one), and `to-probe` is a **diagnostic** (`runStoreProbe`/`probeTopology`, returns no store).
 
   A note on the apparent `memory()` / `memoryStore()` duplication: they are **not** duplicates. `memoryStore()` is the kernel's built-in zero-config default — the hub may never import a satellite (`peer-deps` guard), so it cannot use `@noy-db/to-memory` and must carry its own. It deliberately implements only the 6-method core + `listPage`, so `listAccessibleVaults()` fails loudly under the default rather than pretending. `toMemory()` is the fuller published store, adding `ping`/`listVaults`/`tx` and `clockUncertaintyMs`.
-- **`on-*` — the `enroll*`/`unlock*` pair holds for `on-webauthn` and `on-oidc` only.** Outliers: `on-password` (`enrollPasswordAuthenticator` + `unwrapDeksWithPassword`), `on-pin` (`enrollPin`/`resumePin` — defensible, it genuinely is a resume), `on-magic-link` (`issueInvite`/`acceptInvite`), `on-shamir` (`splitKEK`/`combineKEK`), `on-email-otp` and `on-totp` **have been fixed** (#845, 0.4.0-pre.8): their bare `issue`/`verify`/`generateSecret`/`generateCode`/`provisioningUri` are now `issueEmailOtp`/`verifyEmailOtp`/`verifyTotp`/`generateTotpSecret`/`generateTotpCode`/`totpProvisioningUri`.
+- **`on-*` — RESOLVED (#845, #885).** The rule is: **a package's entry points name their own family**, so an identifier read at a call site says which mechanism it belongs to. `on-webauthn` (`enrollWebAuthn`/`unlockWebAuthn`) and `on-oidc` (`enrollOidc`/`unlockOidc`) were already the model.
+
+  Fixed in 0.4.0-pre.8: `on-email-otp`'s bare `issue`/`verify` → `issueEmailOtp`/`verifyEmailOtp`, and `on-totp`'s bare `verify`/`generateSecret`/`generateCode`/`provisioningUri` → `verifyTotp`/`generateTotpSecret`/`generateTotpCode`/`totpProvisioningUri`. Those were the genuine defects — unnamespaced generic verbs at package top level, which collide with anything in the importing module.
+
+  **Sanctioned exceptions, each because the name is more accurate than the pattern:**
+
+  | Package | Entry points | Why it keeps them |
+  |---|---|---|
+  | `on-password` | `enrollPasswordAuthenticator` · `unwrapDeksWithPassword` | It enrols an *authenticator slot* (what tier-2 password auth is), and the partner **unwraps DEKs** — it does not unlock a vault the way `unlockWebAuthn` does. Conforming the pair to `enrollPassword`/`unlockPassword` would change what they claim to do, not just their spelling (#885). |
+  | `on-pin` | `enrollPin` · `resumePin` | It genuinely is a *resume*, not an unlock — tier-3 quick-unlock resumes a prior session. |
+  | `on-shamir` | `splitKEK` · `combineKEK` | Names the cryptographic operation, which is the domain vocabulary practitioners expect. |
+  | `on-magic-link` | `issueInvite` · `acceptInvite` | An invite lifecycle, not an enrol/unlock pair. |
+
+  The test for an exception is whether the conformant name would be *less* true. Where it would only be less uniform, conform.
 
 These are cross-package renames on separately-versioned satellites, so they need their own pass. Pre-1.0 still makes them free.
 
