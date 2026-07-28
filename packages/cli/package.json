@@ -43,13 +43,11 @@
   "peerDependencies": {
     "@noy-db/hub": "workspace:*",
     "@noy-db/to-meter": "workspace:*",
-    "@noy-db/to-probe": "workspace:*",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@noy-db/hub": "workspace:*",
     "@noy-db/to-meter": "workspace:*",
-    "@noy-db/to-probe": "workspace:*",
     "@types/node": "^22.0.0",
     "yaml": "^2.9.0",
     "zod": "^4.0.0",

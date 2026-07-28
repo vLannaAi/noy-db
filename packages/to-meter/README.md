@@ -14,7 +14,7 @@ pnpm add @noy-db/hub @noy-db/to-meter
 
 ## What it is
 
-Pass-through meter for @noy-db/to-* stores — wraps any NoydbStore and records per-method latency percentiles, error rates, and byte counts on real traffic. Optional synthetic liveness probe emits degraded / restored events. No synthetic benchmarks (see @noy-db/to-probe for that) — this measures what your app is actually doing.
+Pass-through meter for @noy-db/to-* stores — wraps any NoydbStore and records per-method latency percentiles, error rates, and byte counts on real traffic. Optional synthetic liveness probe emits degraded / restored events. No synthetic benchmarks — this measures what your app is actually doing.
 
 ## Status
 

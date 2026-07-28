@@ -39,7 +39,6 @@ pnpm add @noy-db/hub @noy-db/to-memory
 | [`to-icloud`](https://www.npmjs.com/package/@noy-db/to-icloud) | iCloud Drive (.icloud-aware) |
 | [`to-drive`](https://www.npmjs.com/package/@noy-db/to-drive) | Google Drive bundle |
 | [`to-meter`](https://www.npmjs.com/package/@noy-db/to-meter) | Wrap any store with metrics |
-| [`to-probe`](https://www.npmjs.com/package/@noy-db/to-probe) | Diagnostic suitability test |
 
 ### Optional ecosystem
 

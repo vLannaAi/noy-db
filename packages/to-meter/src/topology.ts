@@ -26,7 +26,7 @@ import type {
   TopologyProbeReport,
   TopologyRisk,
   TopologyTargetReport,
-} from './types.js'
+} from './probe-types.js'
 
 export async function probeTopology(
   options: TopologyProbeOptions,

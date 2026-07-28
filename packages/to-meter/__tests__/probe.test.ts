@@ -1,5 +1,5 @@
 /**
- * Tests for @noy-db/to-probe.
+ * Tests for the store-probe diagnostics in @noy-db/to-meter (absorbed from @noy-db/to-probe, #845).
  *
  * Covers:
  *   - runStoreProbe against to-memory: all five axes produce numbers

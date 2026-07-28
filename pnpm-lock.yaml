@@ -276,9 +276,6 @@ importers:
       '@noy-db/to-meter':
         specifier: workspace:*
         version: link:../to-meter
-      '@noy-db/to-probe':
-        specifier: workspace:*
-        version: link:../to-probe
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -688,15 +685,9 @@ importers:
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../hub
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.19.17
-
-  packages/to-probe:
-    devDependencies:
-      '@noy-db/hub':
+      '@noy-db/to-memory':
         specifier: workspace:*
-        version: link:../hub
+        version: link:../to-memory
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17

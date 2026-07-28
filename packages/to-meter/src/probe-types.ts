@@ -1,5 +1,5 @@
 /**
- * Shared types for `@noy-db/to-probe`.
+ * Shared types for the store-probe diagnostics (absorbed into `@noy-db/to-meter`, #845).
  *
  * Both `runStoreProbe()` and `probeTopology()` produce structured
  * reports with the same vocabulary: a fixed set of per-axis measurement
