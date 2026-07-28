@@ -41,24 +41,30 @@
  * stream (one callback per op); `toMeter` is the aggregator that
  * bucketises events into percentiles + a health verdict.
  *
- * ## Relation to `to-probe`
+ * ## Two modes, one package (#845)
  *
- * - `to-probe` runs **synthetic** benchmarks on an empty store —
- *   answers "should I adopt this store?".
- * - `to-meter` observes **real traffic** through the live store —
- *   answers "how is this store performing right now?".
+ * - `runStoreProbe()` / `probeTopology()` run **synthetic** benchmarks on an
+ *   empty store — they answer "should I adopt this store?". Absorbed here from
+ *   the retired `@noy-db/to-probe`, which exported no store and so never fitted
+ *   the `to<Backend>()` store-factory contract.
+ * - `toMeter()` observes **real traffic** through the live store — it answers
+ *   "how is this store performing right now?".
  *
- * Composable: `toMeter(probe-recommended-store)` after a probe pass
- * validates adoption.
+ * Composable: probe first to choose, then `toMeter(chosen)` to keep watching.
  *
  * @packageDocumentation
  */
 import type { NoydbStore } from '@noy-db/hub'
-import { ConflictError, wrapStore, withMetrics } from '@noy-db/hub'
+import { ConflictError, wrapStore, withMetrics, memoryStore } from '@noy-db/hub'
 
 // ── Types ───────────────────────────────────────────────────────────────
 
-export type MethodName = 'get' | 'put' | 'delete' | 'list' | 'loadAll' | 'saveAll'
+export type MethodName =
+  | 'get' | 'put' | 'delete' | 'list' | 'loadAll' | 'saveAll'
+  // #845 — the optional surface is where the time usually goes (`listPage`
+  // paginates, `tx` batches), so it is metered too. Absent on a given inner
+  // store simply means the counter stays at zero.
+  | 'listPage' | 'getStoreTime' | 'tx'
 
 export type MeterStatus = 'ok' | 'degraded' | 'unreachable'
 
@@ -138,14 +144,33 @@ export interface MeterHandle {
   close(): void
 }
 
-export interface ToMeterResult {
-  readonly store: NoydbStore
+/**
+ * What {@link toMeter} returns: a fully-conformant {@link NoydbStore} that also
+ * carries its own {@link MeterHandle}.
+ *
+ * Shaped after `RoutedNoydbStore` (hub's `routeStore`), which is likewise a
+ * store plus a control surface. Being a store rather than a `{ store, meter }`
+ * tuple is what lets a meter sit anywhere a store can — including nested inside
+ * `routeStore`, so each backend in a compound topology can be metered
+ * independently:
+ *
+ * ```ts
+ * const pg = toMeter(toPostgres({ … }))
+ * const s3 = toMeter(toAwsS3({ … }))
+ * const db = await createNoydb({ store: routeStore({ default: pg, blobs: s3 }) })
+ * pg.meter.snapshot()   // per-backend timings, no extra plumbing
+ * ```
+ */
+export interface MeteredNoydbStore extends NoydbStore {
   readonly meter: MeterHandle
 }
 
 // ── Implementation ──────────────────────────────────────────────────────
 
-const METHODS: readonly MethodName[] = ['get', 'put', 'delete', 'list', 'loadAll', 'saveAll']
+const METHODS: readonly MethodName[] = [
+  'get', 'put', 'delete', 'list', 'loadAll', 'saveAll',
+  'listPage', 'getStoreTime', 'tx',
+]
 
 /**
  * Wrap a store so every call is timed + counted. Returns the wrapped
@@ -156,18 +181,24 @@ const METHODS: readonly MethodName[] = ['get', 'put', 'delete', 'list', 'loadAll
  * meter adds zero semantic changes: errors still throw, conflicts
  * still surface as {@link ConflictError}.
  */
-export function toMeter(inner: NoydbStore, options: MeterOptions = {}): ToMeterResult {
+export function toMeter(inner?: NoydbStore, options: MeterOptions = {}): MeteredNoydbStore {
+  // Omitting `inner` yields a self-contained metered in-memory store — the
+  // test/debug case in one call, still composable for the real one.
+  const target: NoydbStore = inner ?? memoryStore()
   const sampleLimit = options.sampleLimit ?? 1024
   const degradedMs = options.degradedMs ?? 500
 
   const samples: Record<MethodName, number[]> = {
     get: [], put: [], delete: [], list: [], loadAll: [], saveAll: [],
+    listPage: [], getStoreTime: [], tx: [],
   }
   const counts: Record<MethodName, number> = {
     get: 0, put: 0, delete: 0, list: 0, loadAll: 0, saveAll: 0,
+    listPage: 0, getStoreTime: 0, tx: 0,
   }
   const errors: Record<MethodName, number> = {
     get: 0, put: 0, delete: 0, list: 0, loadAll: 0, saveAll: 0,
+    listPage: 0, getStoreTime: 0, tx: 0,
   }
   let casConflicts = 0
   let windowStart = Date.now()
@@ -215,7 +246,7 @@ export function toMeter(inner: NoydbStore, options: MeterOptions = {}): ToMeterR
   // Build the wrapped store via hub's withMetrics middleware (one event
   // per op, already includes success/error + duration).
   const metrics = wrapStore(
-    inner,
+    target,
     withMetrics({
       onOperation(op) {
         recordOp(op.method, op.durationMs, op.success, op.error)
@@ -225,7 +256,7 @@ export function toMeter(inner: NoydbStore, options: MeterOptions = {}): ToMeterR
 
   // Optional synthetic liveness timer
   const livenessTimer = options.liveness
-    ? startLiveness(inner, options.liveness, transition)
+    ? startLiveness(target, options.liveness, transition)
     : null
 
   const handle: MeterHandle = {
@@ -266,15 +297,55 @@ export function toMeter(inner: NoydbStore, options: MeterOptions = {}): ToMeterR
 
   // Preserve the store name so routing/logging continues to identify
   // the underlying backend.
-  const renamed: NoydbStore = {
+  return {
     ...metrics,
-    name: inner.name ? `meter(${inner.name})` : 'meter',
+    ...meteredOptional(target, recordOp),
+    // Preserve the inner name so routing/logging still identifies the backend.
+    name: target.name ? `meter(${target.name})` : 'meter',
+    meter: handle,
   }
-
-  return { store: renamed, meter: handle }
 }
 
 // ── Internals ───────────────────────────────────────────────────────────
+
+/**
+ * Time the OPTIONAL store methods. `withMetrics` covers only the 6-method core,
+ * so `listPage` / `getStoreTime` / `tx` previously passed through the wrap
+ * unmeasured — invisible to a tool whose whole job is finding where time goes.
+ *
+ * Each is wrapped only when the inner store actually implements it, so an inner
+ * store without `tx()` stays without `tx()` and its capability surface is
+ * unchanged (a store must never gain a method by being metered).
+ */
+function meteredOptional(
+  target: NoydbStore,
+  record: (m: MethodName, ms: number, ok: boolean, err?: Error) => void,
+): Partial<NoydbStore> {
+  const time = async <T>(m: MethodName, fn: () => Promise<T>): Promise<T> => {
+    const start = Date.now()
+    try {
+      const out = await fn()
+      record(m, Date.now() - start, true)
+      return out
+    } catch (err) {
+      record(m, Date.now() - start, false, err as Error)
+      throw err
+    }
+  }
+  const out: Record<string, unknown> = {}
+  if (typeof target.listPage === 'function') {
+    out.listPage = (v: string, c: string, cur?: string, lim?: number) =>
+      time('listPage', () => target.listPage!(v, c, cur, lim))
+  }
+  if (typeof target.getStoreTime === 'function') {
+    out.getStoreTime = () => time('getStoreTime', () => target.getStoreTime!())
+  }
+  if (typeof target.tx === 'function') {
+    out.tx = (ops: Parameters<NonNullable<NoydbStore['tx']>>[0]) =>
+      time('tx', () => target.tx!(ops))
+  }
+  return out as Partial<NoydbStore>
+}
 
 function computeMethodStats(sorted: number[], count: number, errorCount: number): MethodStats {
   if (count === 0) {
@@ -332,3 +403,32 @@ function startLiveness(
 
   return timer
 }
+
+// ── Store diagnostics (absorbed from @noy-db/to-probe, #845) ────────────
+//
+// `to-probe` exported no store — it was a diagnostic suite, so it never fit
+// the `to<Backend>()` store-factory contract. Both packages answer the same
+// question ("how is this store actually behaving?"), one live and one as a
+// one-shot report, so they now ship together. `@noy-db/to-probe` is retired.
+
+export { runStoreProbe } from './probe.js'
+export { probeTopology } from './topology.js'
+
+export type {
+  ProbeOptions,
+  ProbeRisk,
+  ProbeRiskCode,
+  ProbeRole,
+  StoreProbeReport,
+  SuitabilityScore,
+  LatencyStats,
+  WriteAxis,
+  CasAxis,
+  HydrationAxis,
+  SyncAxis,
+  NetworkAxis,
+  TopologyProbeOptions,
+  TopologyProbeReport,
+  TopologyRisk,
+  TopologyTargetReport,
+} from './probe-types.js'

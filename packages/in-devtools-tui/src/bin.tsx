@@ -36,8 +36,9 @@ async function main(): Promise<void> {
 
   let meter
   if (argv.includes('--meter') && baseOptions.store) {
+    // #845 — toMeter returns the store itself, with the handle attached.
     const metered = toMeter(baseOptions.store)
-    baseOptions = { ...baseOptions, store: metered.store }
+    baseOptions = { ...baseOptions, store: metered }
     meter = metered.meter
   }
 

@@ -37,7 +37,7 @@ import type {
   SuitabilityScore,
   SyncAxis,
   WriteAxis,
-} from './types.js'
+} from './probe-types.js'
 
 const PROBE_VAULT = 'probe-vault'
 const PROBE_COLLECTION = 'probe-benchmark'

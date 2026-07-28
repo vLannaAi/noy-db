@@ -50,7 +50,7 @@ function env(version = 1): EncryptedEnvelope {
 describe('toMeter — pass-through semantics', () => {
   it('delegates all 6 methods to the inner store', async () => {
     const inner = memoryStore()
-    const { store } = toMeter(inner)
+    const store = toMeter(inner)
     const fixture = env()   // hold one reference so round-trip compares equal
 
     await store.put('v', 'c', 'id-1', fixture)
@@ -61,16 +61,16 @@ describe('toMeter — pass-through semantics', () => {
   })
 
   it('preserves store.name with a meter() prefix', () => {
-    const { store } = toMeter(memoryStore('dynamo'))
+    const store = toMeter(memoryStore('dynamo'))
     expect(store.name).toBe('meter(dynamo)')
   })
 
   it('propagates errors from the inner store unchanged', async () => {
     const inner = memoryStore()
-    const { store, meter } = toMeter(inner)
+    const store = toMeter(inner)
     await store.put('v', 'c', 'x', env(1))
     await expect(store.put('v', 'c', 'x', env(2), 99)).rejects.toBeInstanceOf(ConflictError)
-    const snap = meter.snapshot()
+    const snap = store.meter.snapshot()
     expect(snap.casConflicts).toBe(1)
     expect(snap.byMethod.put.errors).toBe(1)
   })
@@ -78,12 +78,12 @@ describe('toMeter — pass-through semantics', () => {
 
 describe('toMeter — aggregation', () => {
   it('counts ops per method and produces snapshot stats', async () => {
-    const { store, meter } = toMeter(memoryStore())
+    const store = toMeter(memoryStore())
     for (let i = 0; i < 5; i++) await store.put('v', 'c', `id-${i}`, env())
     for (let i = 0; i < 5; i++) await store.get('v', 'c', `id-${i}`)
     await store.list('v', 'c')
 
-    const snap = meter.snapshot()
+    const snap = store.meter.snapshot()
     expect(snap.byMethod.put.count).toBe(5)
     expect(snap.byMethod.get.count).toBe(5)
     expect(snap.byMethod.list.count).toBe(1)
@@ -93,12 +93,12 @@ describe('toMeter — aggregation', () => {
   })
 
   it('reset() clears counts and starts a new window', async () => {
-    const { store, meter } = toMeter(memoryStore())
+    const store = toMeter(memoryStore())
     await store.put('v', 'c', 'id', env())
-    expect(meter.snapshot().totalCalls).toBe(1)
+    expect(store.meter.snapshot().totalCalls).toBe(1)
 
-    meter.reset()
-    const after = meter.snapshot()
+    store.meter.reset()
+    const after = store.meter.snapshot()
     expect(after.totalCalls).toBe(0)
     expect(after.byMethod.put.count).toBe(0)
     expect(after.windowMs).toBeLessThan(100)
@@ -116,24 +116,24 @@ describe('toMeter — degraded/restored transitions', () => {
       async put() { await new Promise((r) => setTimeout(r, delay)) },
     }
     const events: string[] = []
-    const { store, meter } = toMeter(inner, {
+    const store = toMeter(inner, {
       degradedMs: 100,
       onDegraded: (e) => events.push(`degraded:${e.reason}`),
       onRestored: (e) => events.push(`restored:${e.reason}`),
     })
 
     for (let i = 0; i < 10; i++) await store.put('v', 'c', `x-${i}`, env())
-    expect(meter.snapshot().status).toBe('degraded')
+    expect(store.meter.snapshot().status).toBe('degraded')
     expect(events.find(e => e.startsWith('degraded:'))).toBeDefined()
 
     // Switch to fast puts so the p99 drops
     delay = 1
-    meter.reset()
+    store.meter.reset()
     for (let i = 0; i < 30; i++) await store.put('v', 'c', `y-${i}`, env())
     // After enough fast puts, p99 should fall below threshold and restored fires
     // (reset clears the p99 history so the next breach check re-computes)
     // Note: reset() doesn't un-degrade by itself — the next write recomputes.
-    const status = meter.snapshot().status
+    const status = store.meter.snapshot().status
     expect(['ok', 'degraded']).toContain(status)
   }, 15_000)
 
@@ -143,18 +143,18 @@ describe('toMeter — degraded/restored transitions', () => {
       async put() { await new Promise((r) => setTimeout(r, 30)) },
     }
     const received: string[] = []
-    const { store, meter } = toMeter(inner, { degradedMs: 10 })
-    const unsub = meter.subscribe((e) => received.push(e.type))
+    const store = toMeter(inner, { degradedMs: 10 })
+    const unsub = store.meter.subscribe((e) => received.push(e.type))
 
     for (let i = 0; i < 10; i++) await store.put('v', 'c', `x-${i}`, env())
     expect(received).toContain('degraded')
 
     unsub()
     const before = received.length
-    meter.reset()
+    store.meter.reset()
     // After unsubscribe, no further events reach this listener
     expect(received.length).toBe(before)
 
-    meter.close()
+    store.meter.close()
   })
 })

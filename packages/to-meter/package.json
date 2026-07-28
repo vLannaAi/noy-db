@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/to-meter",
   "version": "0.4.0-pre.7",
-  "description": "Pass-through meter for @noy-db/to-* stores — wraps any NoydbStore and records per-method latency percentiles, error rates, and byte counts on real traffic. Optional synthetic liveness probe emits degraded / restored events. No synthetic benchmarks (see @noy-db/to-probe for that) — this measures what your app is actually doing.",
+  "description": "Store observability for noy-db — a metered pass-through store that records per-method latency percentiles, error rates and liveness on real traffic, plus one-shot synthetic probes (runStoreProbe / probeTopology) for suitability reports.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/to-meter#readme",
@@ -42,7 +42,8 @@
   },
   "devDependencies": {
     "@noy-db/hub": "workspace:*",
-    "@types/node": "^22.0.0"
+    "@types/node": "^22.0.0",
+    "@noy-db/to-memory": "workspace:*"
   },
   "keywords": [
     "noy-db",

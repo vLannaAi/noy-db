@@ -50,7 +50,8 @@ export async function runMonitor(argv: readonly string[]): Promise<number> {
     return 1
   }
 
-  const { store: metered, meter } = toMeter(innerStore as never, {
+  // #845 — toMeter now returns the store itself, with the handle attached.
+  const metered = toMeter(innerStore as never, {
     degradedMs: 500,
     onDegraded: (e) => process.stderr.write(`DEGRADED: ${e.reason}\n`),
     onRestored: (e) => process.stderr.write(`RESTORED: ${e.reason}\n`),
@@ -67,17 +68,17 @@ export async function runMonitor(argv: readonly string[]): Promise<number> {
 
   process.stdout.write(`monitoring ${file} — interval ${intervalMs}ms — Ctrl-C to stop\n\n`)
 
-  const stop = installSigintHandler(meter)
+  const stop = installSigintHandler(metered.meter)
 
   return new Promise<number>((resolveP) => {
     const timer = setInterval(() => {
       if (stop.signalled) {
         clearInterval(timer)
-        meter.close()
+        metered.meter.close()
         resolveP(0)
         return
       }
-      const snap = meter.snapshot()
+      const snap = metered.meter.snapshot()
       process.stdout.write(formatSnapshot(snap) + '\n')
     }, intervalMs)
   })
