@@ -1,5 +1,31 @@
 # Changelog — hub
 
+## 0.4.0-pre.9
+
+### Minor Changes
+
+- **`@noy-db/hub` — the transaction revert pass is now atomic when the store supports it (#886).**
+
+  `runTransaction`'s rollback previously unwound leg by leg, best-effort, so a crash mid-revert could
+  leave a vault half-unwound. When the store declares `capabilities.txAtomic` and implements `tx()`,
+  the whole revert is now submitted as one storage-layer operation instead.
+
+  This works because the revert legs already carry **raw prior envelopes** captured before the write —
+  exactly the shape `tx()` wants, with none of the Collection-layer machinery that makes delegating
+  the _forward_ write path a much larger job (still tracked in #886).
+
+  Failure stays best-effort: a rejected batch falls back to the per-leg loop rather than surfacing a
+  revert-path error, because a revert failure must never mask the original error that triggered it.
+  An **undeclared** `tx()` is never used, matching the implemented ⇒ declared rule the conformance
+  harness enforces.
+
+  **`@noy-db/to-meter` — `listVaults()` and `ping()` are now metered (#889).**
+
+  Both previously passed through the wrap untimed. `listVaults` is a full enumeration on a remote
+  store, and `ping` isolates round-trip time from work — arguably the most useful latency signal on a
+  network-backed store. The synthetic `liveness` poller still calls the inner store directly, so the
+  counters stay "what the app did".
+
 ## 0.4.0-pre.8
 
 ### Patch Changes
