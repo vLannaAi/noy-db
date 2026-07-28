@@ -146,12 +146,21 @@ export class SyncEngine {
     this.role = opts.role ?? 'sync-peer'
     this.label = opts.label
 
-    // Create scheduler if a policy is provided
+    // Create a scheduler when the policy asks for ANY automatic behaviour.
+    // #897: this used to test `push.mode !== 'manual'` alone, so a policy of
+    // `{ push: manual, pull: interval }` silently got no scheduler and its pull
+    // mode was ignored.
     const policy = opts.syncPolicy
-    if (policy && policy.push.mode !== 'manual') {
+    if (policy && (policy.push.mode !== 'manual' || policy.pull.mode !== 'manual')) {
       this.scheduler = new SyncScheduler(policy, {
         push: () => this.push().then(() => {}),
-        pull: () => this.pull().then(() => {}),
+        // #618 — role-gate the SCHEDULER-INITIATED pull. The Noydb layer gates
+        // pull-from-sink for explicit calls, but the scheduler calls the engine
+        // directly and would bypass it: a backup/archive-only primary with an
+        // `interval`/`on-focus` pull policy would pull ungated, reintroducing
+        // #616. This guards the engine self-initiating on a timer; an explicit
+        // `engine.pull()` still pulls for every role.
+        pull: () => (this.role === 'sync-peer' ? this.pull().then(() => {}) : Promise.resolve()),
         getDirtyCount: () => this.dirty.length,
       })
     } else {
