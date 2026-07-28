@@ -10,7 +10,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withRollup, withMaterializedView, withDerivation } from '../../src/index.js'
-import { withSync } from '../../src/with-party/sync/index.js'
+import { withSync } from '../../src/with-sync/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 function toMemory(): NoydbStore {

@@ -13,20 +13,20 @@ import type {
   SyncMetadata,
   SyncTargetRole,
   ErasureEnforcement,
-} from '../../kernel/types.js'
-import { NOYDB_SYNC_VERSION } from '../../kernel/types.js'
-import { ConflictError, ValidationError } from '../../kernel/errors.js'
+} from '../kernel/types.js'
+import { NOYDB_SYNC_VERSION } from '../kernel/types.js'
+import { ConflictError, ValidationError } from '../kernel/errors.js'
 import {
   PERIOD_SUMMARY_COLLECTIONS,
   PERIODS_COLLECTION,
   buildPeriodScope,
   validatePeriodsOption,
   type PeriodPullSource,
-} from './sync-period-scope.js'
-import type { NoydbEventEmitter } from '../../kernel/events.js'
-import type { SyncPolicy } from '../../kernel/sync-policy.js'
-import { SyncScheduler } from '../../kernel/sync-policy.js'
-import { isTombstoneShape, isDeleteMarker, envelopeBodySize } from '../../kernel/enclave/index.js'
+} from './period-scope.js'
+import type { NoydbEventEmitter } from '../kernel/events.js'
+import type { SyncPolicy } from '../kernel/sync-policy.js'
+import { SyncScheduler } from '../kernel/sync-policy.js'
+import { isTombstoneShape, isDeleteMarker, envelopeBodySize } from '../kernel/enclave/index.js'
 
 /** #650 Task 4 (#647) — the declared reserved-lookup (`_dict_*`/`_lookup_*`) collection-name
  *  registry a `SyncEngine` enumerates on pull. Explicit, not a blanket underscore-glob — other

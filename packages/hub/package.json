@@ -117,7 +117,7 @@
       "default": "./dist/overlay-views/index.js"
     },
     "./sync": {
-      "types": "./dist/with-party/sync/index.d.ts",
+      "types": "./dist/with-sync/index.d.ts",
       "default": "./dist/sync/index.js"
     },
     "./util": {

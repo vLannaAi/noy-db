@@ -1,6 +1,6 @@
 /**
  * `_broker` reserved-collection seed lifecycle (#479, credential-broker
- * spec §2/§3). Modeled on `with-party/team/sync-credentials.ts`: a
+ * spec §2/§3). Modeled on `with-sync/credentials.ts`: a
  * `_`-prefixed reserved collection, record id = `brokerId`, encrypted under
  * the collection's own DEK, `requireAdminAccess` role gate (owner/admin
  * only — custodian intentionally excluded, same rationale as

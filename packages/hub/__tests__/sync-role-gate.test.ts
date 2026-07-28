@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
-import { withSync } from '../src/with-party/sync/index.js'
+import { withSync } from '../src/with-sync/index.js'
 
 // Plaintext memory store — copied from sync-conflict-policy.test.ts's inlineMemory().
 function inlineMemory(): NoydbStore {

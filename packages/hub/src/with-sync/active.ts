@@ -30,11 +30,11 @@
  * @public
  */
 
-import type { SyncStrategy, BuildSyncEngineOptions } from './sync-strategy.js'
+import type { SyncStrategy, BuildSyncEngineOptions } from './strategy.js'
 import type { PresenceHandleOpts } from './presence.js'
-import type { Vault } from '../../kernel/vault.js'
-import { SyncEngine } from './sync.js'
-import { SyncTransaction } from './sync-transaction.js'
+import type { Vault } from '../kernel/vault.js'
+import { SyncEngine } from './engine.js'
+import { SyncTransaction } from './transaction.js'
 import { PresenceHandle } from './presence.js'
 
 export function withSync(): SyncStrategy {

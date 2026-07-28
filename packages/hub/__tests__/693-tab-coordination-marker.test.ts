@@ -16,10 +16,10 @@
  */
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
-import type { TabChannel } from '../src/with-party/tab-coordination.js'
+import type { TabChannel } from '../src/with-sync/tab-coordination.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
-import { withSync } from '../src/with-party/sync/index.js'
+import { withSync } from '../src/with-sync/index.js'
 import { isDeleteMarker, buildDeleteMarker } from '../src/kernel/enclave/record-keys/tombstone.js'
 
 /**

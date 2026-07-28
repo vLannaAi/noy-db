@@ -74,7 +74,7 @@ import { NO_SEQUENCE, type SequenceStrategy } from '../../with-commit/sequence/s
 import { NO_SESSION, type SessionStrategy } from '../../with-party/session/strategy.js'
 import { NO_SHADOW, type ShadowStrategy } from '../../with-fork/shadow/strategy.js'
 import { NO_SNAPSHOTS, type SnapshotsStrategy } from '../../with-fork/snapshots/strategy.js'
-import { NO_SYNC, type SyncStrategy } from '../../with-party/team/sync-strategy.js'
+import { NO_SYNC, type SyncStrategy } from '../../with-sync/strategy.js'
 import { NO_TEAM, type TeamStrategy } from './team-strategy.js'
 import { NO_TIERS, type TiersStrategy } from '../../with-audit/tiers/strategy.js'
 import { NO_TRANSACTIONS, type TransactionsStrategy } from '../../with-commit/tx/strategy.js'

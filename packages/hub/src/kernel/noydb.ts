@@ -48,8 +48,8 @@ import { NoydbEventEmitter } from './events.js'
 import { WriteQueueTracker, type WriteQueue } from './write-queue.js'
 import { WriteHookRegistry, type WriteHook, type Unsubscribe } from '../port/with/write-hooks.js'
 import { ServiceBus } from '../port/with/service-bus.js'
-import { TabCoordinator, defaultLockManager, defaultChannel, type TabCoordinationOptions, type TabRole, type TabPresence } from '../with-party/tab-coordination.js'
-import { CrossTabWriteRelay } from '../with-party/tab-write-relay.js'
+import { TabCoordinator, defaultLockManager, defaultChannel, type TabCoordinationOptions, type TabRole, type TabPresence } from '../with-sync/tab-coordination.js'
+import { CrossTabWriteRelay } from '../with-sync/tab-write-relay.js'
 import {
   loadKeyring,
   createOwnerKeyring,
@@ -60,8 +60,8 @@ import {
 } from '../with-party/team/keyring.js'
 import type { UnlockedKeyring } from '../with-party/team/keyring.js'
 import { QuickUnlockStore } from '../with-party/session/unlock-state.js'
-import type { SyncEngine } from '../with-party/team/sync.js'
-import type { SyncTransaction } from '../with-party/team/sync-transaction.js'
+import type { SyncEngine } from '../with-sync/engine.js'
+import type { SyncTransaction } from '../with-sync/transaction.js'
 import { type SnapshotMeta } from '../with-fork/snapshots/strategy.js'
 import { NoydbSnapshots } from '../with-fork/snapshots/noydb-facade.js'
 import type { AmendmentTxOptions } from '../with-commit/tx/transaction.js'

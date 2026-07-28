@@ -28,8 +28,8 @@
  * directly. This subpath is the clean LTS factory entry point.
  */
 
-export { withSync } from '../team/sync-active.js'
-export type { SyncStrategy } from '../team/sync-strategy.js'
+export { withSync } from './active.js'
+export type { SyncStrategy } from './strategy.js'
 
 /** The un-opted-in stub for this service — exported so callers can compare against it (#844). */
-export { NO_SYNC } from '../team/sync-strategy.js'
+export { NO_SYNC } from './strategy.js'

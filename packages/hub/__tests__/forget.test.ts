@@ -33,7 +33,7 @@ import { withForget } from '../src/with-audit/forget/index.js'
 import { withBlobs } from '../src/via/blob/index.js'
 import { withIndexing } from '../src/with-lookup/indexing/index.js'
 import { withCrdt } from '../src/with-commit/crdt/index.js'
-import { withSync } from '../src/with-party/sync/index.js'
+import { withSync } from '../src/with-sync/index.js'
 import { sha256Hex } from '../src/with-commit/history/ledger/entry.js'
 
 /** In-memory store exposing raw envelopes + a list helper for reserved cols. */
