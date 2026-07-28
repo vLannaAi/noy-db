@@ -1,5 +1,15 @@
 # Changelog — create-noy-db
 
+## 0.3.1-pre.8
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.4.0-pre.8
+  - @noy-db/to-file@0.4.0-pre.8
+  - @noy-db/to-memory@0.4.0-pre.8
+
 ## 0.3.1-pre.7
 
 ### Patch Changes

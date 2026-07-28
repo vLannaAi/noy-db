@@ -1,5 +1,54 @@
 # @noy-db/cli
 
+## 0.4.0-pre.8
+
+### Patch Changes
+
+- `toMeter()` now returns a store, and absorbs `@noy-db/to-probe` (#845).
+
+  **Breaking: `toMeter` returns `MeteredNoydbStore`, not `{ store, meter }`.**
+
+  ```diff
+  - const { store, meter } = toMeter(inner)
+  - createNoydb({ store })
+  - meter.snapshot()
+  + const metered = toMeter(inner)
+  + createNoydb({ store: metered })
+  + metered.meter.snapshot()
+  ```
+
+  Being a real `NoydbStore` (shaped after hub's `RoutedNoydbStore`, which is likewise a store plus a
+  control surface) means a meter can sit anywhere a store can — including nested inside `routeStore`,
+  so each backend in a compound topology is metered independently:
+
+  ```ts
+  const pg = toMeter(toPostgres({ … }))
+  const s3 = toMeter(toAwsS3({ … }))
+  const db = await createNoydb({ store: routeStore({ default: pg, blobs: s3 }) })
+  pg.meter.snapshot()   // per-backend timings, no extra plumbing
+  ```
+
+  **`inner` is now optional.** `toMeter()` alone is a self-contained metered in-memory store.
+
+  **The optional surface is metered too.** `listPage`, `getStoreTime` and `tx` previously passed
+  through the wrap unmeasured — invisible to a tool whose job is finding where time goes. They are
+  wrapped only when the inner store implements them, so a metered store never gains a method its
+  inner store lacks.
+
+  **`@noy-db/to-probe` is retired**; `runStoreProbe` and `probeTopology` now ship from
+  `@noy-db/to-meter`. It exported no store, so it never fitted the `to<Backend>()` contract, and both
+  packages answer the same question — one live, one as a one-shot report.
+
+  ```diff
+  - import { runStoreProbe } from '@noy-db/to-probe'
+  + import { runStoreProbe } from '@noy-db/to-meter'
+  ```
+
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.4.0-pre.8
+  - @noy-db/to-meter@0.4.0-pre.8
+
 ## 0.4.0-pre.7
 
 ### Patch Changes
