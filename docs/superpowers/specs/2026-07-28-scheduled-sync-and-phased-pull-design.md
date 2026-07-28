@@ -1,7 +1,7 @@
 # Scheduled sync and phased pull — design
 
-**Issues:** #809 (progressive bootstrap), #618 (role-gate auto-sync) · **Milestone:** 37 (Sync
-bootstrap modes [api]) · **Date:** 2026-07-28
+**Issues:** #809 (progressive bootstrap), #618 (role-gate auto-sync — **shipped**) · **Milestone:** 37
+(Sync bootstrap modes [api]) · **Date:** 2026-07-28
 
 Composes with #807 (period-scoped pull, shipped) and #808 (blob pinning, shipped). First consumer is
 the LINE/LIFF client portal (milestone 36); the capability is portal-independent.
@@ -10,15 +10,15 @@ the LINE/LIFF client portal (milestone 36); the capability is portal-independent
 
 ## Summary
 
-Progressive bootstrap is not a new mechanism — it is **a sync policy**. The scheduler that should
-run it already exists, the store-shaped policy presets already exist, and `pull()` already accepts
-the filters a phase needs. What is missing is that **the scheduler is never started**, it would be
-**unsafe if it were**, it cannot express **an ordered sequence**, and its **status never reaches the
-app**.
+Progressive bootstrap is not a new mechanism — it is **a sync policy**. The scheduler that runs it
+already exists, the store-shaped policy presets already exist, and `pull()` already accepts the
+filters a phase needs.
 
-Four gaps, one capability: *a scheduler that runs, is safe, can be sequenced, and reports progress.*
+The original draft named four gaps. **Two are now closed** (PR #898): the scheduler was never
+started, and it would have been unsafe if it were. Two remain: the policy cannot express **an
+ordered sequence**, and its **status never reaches the app**.
 
-Each stage below is independently shippable and independently useful.
+Two stages, each independently shippable and independently useful.
 
 ---
 
@@ -28,118 +28,110 @@ Each stage below is independently shippable and independently useful.
 |---|---|
 | `db.pull(vault, { collections, periods, modifiedSince })` | ✅ works — #807 |
 | `db.push(vault, { collections })` | ✅ works |
-| `db.sync(vault)` = pull then push | ✅ works — `sync.ts:664` |
+| `db.sync(vault)` = pull then push | ✅ works |
 | `createNoydb({ syncPolicy })` with store-shaped presets | ✅ `INDEXED_STORE_POLICY`, `POD_STORE_POLICY` |
-| `SyncScheduler` with push/pull callbacks and timers | ✅ built — `kernel/sync-policy.ts` |
-| Constructed when a non-manual policy is passed | ✅ `sync.ts:152` |
-| `notifyChange()` fired on every write | ✅ `sync.ts:236` |
-| **`startScheduler()`** — *"Called after vault is fully opened"* | ❌ **zero callers** |
-| **`startAutoSync()`** — online/offline + interval | ❌ **zero callers** |
-| Pull sequencing (ordered collection/period phases) | ❌ absent |
-| Per-collection readiness | ❌ absent |
-| `SyncSchedulerStatus` reachable from an app | ❌ **no accessor** |
+| `SyncScheduler` with push/pull callbacks and timers | ✅ `kernel/sync-policy.ts` |
+| **Scheduler started on vault open, stopped on close** | ✅ **#897 — PR #898** |
+| **Scheduler-initiated pull role-gated to `sync-peer`** | ✅ **#618 — PR #898** |
+| Pull sequencing (ordered collection phases) | ❌ absent — Stage 1 below |
+| Per-collection readiness | ❌ absent — Stage 2 below |
+| `SyncSchedulerStatus` reachable from an app | ❌ **no accessor** — Stage 2 below |
 
 `db.syncStatus(vault)` returns a *different, thinner* type — `{ dirty, lastPush, lastPull, online }`.
 The scheduler's richer status is documented as *"safe to expose in a reactive UI status indicator"*
-and is unreachable.
+and is still unreachable.
 
-**Every pull today is an explicit app call.** `createNoydb()` and `openVault()` never pull.
+**Every pull is still an explicit app call unless a policy asks otherwise.** `createNoydb()` and
+`openVault()` never pull on their own.
+
+---
+
+## Already shipped (was Stages 1–2)
+
+Recorded here because the decision taken while shipping them constrains everything below.
+
+`startScheduler()` had **zero callers**, and `SyncScheduler.notifyChange()` opens with
+`if (!this.started) return` — so **no automatic sync existed at any policy**. A declared
+`syncPolicy` was silently inert. `Noydb` now starts each engine's scheduler after
+`this.syncEngines.set(...)`, stops every scheduler in `close()`, builds one when **either** push or
+pull is non-manual, and role-gates the scheduler-initiated pull to `sync-peer` (#618 — otherwise a
+backup/archive target with an `interval` pull policy pulls ungated and reintroduces #616).
+
+### The decision: automation starts on a *declared* policy, never a resolved one
+
+A policy is **always resolved** — `noydb.ts` falls back to the store preset, and
+`INDEXED_STORE_POLICY` is `push: 'on-change'`. Starting the scheduler on that resolved value was
+tried first and the existing suite rejected it: **36 failures across 11 sync test files**, including
+a conflict-resolution *outcome* flip, because `push: 'on-change'` fires `void executePush()`
+**unawaited** — a caller that writes locally and then touches the remote directly races it.
+
+So resolving a policy is not consent. Passing `sync:` alone still never syncs by itself; declaring a
+policy is the opt-in. The escape hatch for anyone who declared a policy expecting it to stay inert:
+
+```ts
+syncPolicy: { push: { mode: 'manual' }, pull: { mode: 'manual' } }
+```
+
+**This is load-bearing for Stage 1.** `mode: 'phased'` is by definition declared, so a phased policy
+starts without any further wiring — and nobody who did not ask for phasing can be given it by a
+default.
 
 ---
 
 ## The governing constraint
 
 **The kernel must not grow for a feature most consumers will never enable.** `collection.ts` sits at
-4263 lines against a 4264 ceiling.
+**4263** lines against a **4264** ceiling; `noydb.ts` at **2158** against **2161**.
 
 This design satisfies it by construction:
 
 - Policy **types** live in `kernel/sync-policy.ts` and **erase at runtime**.
-- The policy **constants** are plain objects (`noydb.ts:73` imports `INDEXED_STORE_POLICY`) — bytes.
+- The policy **constants** are plain objects — bytes.
 - `SyncScheduler` is **verified absent from the floor entry chunk**: building `createNoydb` alone
   yields 1578 bytes with no `SyncScheduler` reference. It ships only when sync is used.
-- No change to `Collection`, `Vault`, or `Noydb`'s hot paths.
+- No change to `Collection`, `Vault`, or `Noydb`'s hot paths. Stage 2's accessor is the only new
+  `Noydb` member, and it is a one-line delegation.
 
 A new bundle-gate assertion locks this in rather than assuming it.
 
 ---
 
-## Stage 1 — start the scheduler
+## Granularity: db, vault, collection
 
-**Problem.** `startScheduler()` exists, is constructed when a policy is passed, has its pull/push
-callbacks wired, and receives `notifyChange()` on every write — but nothing ever starts it. An app
-that passes `syncPolicy` today gets a scheduler that silently never runs.
+Deliberately **three levels, not four**. `collection@period` phasing is **deferred to a future
+`partitions` context** — see *Rejected alternatives*.
 
-**Change.** The engine's owner starts it. Sync engines are created and held by **`Noydb`**, not
-`Vault` — `noydb.ts:568` sets the primary engine and `:585` the additional targets, keyed
-`vault` and `vault::label`. So:
+| Level | Where it is expressed |
+|---|---|
+| **db** | `createNoydb({ syncPolicy })` — governs every vault the instance opens |
+| **vault** | a per-target `policy` on a `withSync({ sync: [...] })` entry |
+| **collection** | the ordered `sequence` introduced in Stage 1 |
 
-- **start** — immediately after `this.syncEngines.set(...)` at `noydb.ts:568` and `:585`, once the
-  engine's policy is known. This is the moment the method's own JSDoc describes
-  (*"Called after vault is fully opened"*).
-- **stop** — in `Noydb.close()` (`noydb.ts:1624`), alongside the existing teardown of
-  `policyEnforcers` and `sessionTimer`, which already cancel timers and listeners there.
-
-Both additions are inside `noydb.ts`, whose kernel-surface budget is **2161** — check the ratchet
-before committing, and shrink first if the additions exceed it rather than bumping.
-
-**Not changed.** `startAutoSync(intervalMs)` stays app-called. It is a coarser, older API — global
-`online`/`offline` listeners plus a bare interval — that overlaps the policy model. Wiring both
-would give two competing timers. It is left as an explicit opt-in and marked as such.
-
-**Default behaviour is unchanged.** `INDEXED_STORE_POLICY` is `pull: { mode: 'manual' }`, and the
-scheduler is only constructed when `push.mode !== 'manual'`. Apps that pass no policy are unaffected.
+A sync engine is per-vault, so a `sequence` runs **once per engine**, naming collections within that
+engine's vault. A db-level policy therefore replays the same collection order in each vault it
+governs, which is the intended behaviour: the ordering expresses *which collections the app needs
+first*, and that is a property of the app, not of the tenant.
 
 ---
 
-## Stage 2 — role-gate it (#618)
-
-**Problem.** #618 is not the wiring; it is the safety belt that must land *with* it. Once the
-scheduler runs, its pull callback (`() => this.pull()`) bypasses the Noydb-level gate that #616
-added, because that gate lives at the orchestration layer while the scheduler calls the engine
-directly.
-
-**Failure scenario, verbatim from #618:** *"a backup/archive-only primary with an
-`interval`/`on-focus` pull policy would pull ungated, silently reintroducing #616."*
-
-**Change.** A role guard in the engine's scheduler-initiated pull path:
-
-```ts
-pull: () => (this.role === 'sync-peer' ? this.pull().then(() => {}) : Promise.resolve()),
-```
-
-This is the engine self-initiating sync on a timer, so role-gating it does not violate the rule that
-*an explicit `engine.pull()` still pulls* — #618 says exactly this.
-
-**This stage must not ship separately from Stage 1.** Alone it guards nothing; after Stage 1 without
-it, a backup target silently pulls.
-
----
-
-## Stage 3 — a phased pull policy (#809)
+## Stage 1 — a phased pull policy (#809)
 
 **Problem.** `PullPolicy` can say *when* to pull, never *in what order*. A thin client wants its
-navigation index and current period first, bulk history last.
+navigation-critical collections first and bulk history last.
 
 **Change.** One new mode and one new field:
 
 ```ts
 export type PullMode = 'manual' | 'interval' | 'on-focus' | 'phased'
 
-/** One phase: a collection, optionally narrowed to periods. */
-export type PullScope =
-  | string                                    // 'invoices' — every period
-  | {
-      readonly collection: string
-      /** Same shape as `PullOptions.periods` — no new vocabulary. */
-      readonly periods: PullOptions['periods']
-    }
-
 export interface PullPolicy {
   readonly mode: PullMode
   readonly intervalMs?: number
-  /** Required when `mode: 'phased'`, rejected otherwise. Pulled in order. */
-  readonly sequence?: readonly PullScope[]
+  /**
+   * Required when `mode: 'phased'`, rejected otherwise. Collections are pulled
+   * in this order, one at a time. Entries must be unique and non-empty.
+   */
+  readonly sequence?: readonly string[]
 }
 ```
 
@@ -150,42 +142,36 @@ const db = await createNoydb({
   store: toBrowserIdb(),
   sync:  toAwsS3({ bucket, client }),
   user, secret,
-  syncStrategy:    withSync(),
-  periodsStrategy: withPeriods(),
+  syncStrategy: withSync(),
   syncPolicy: {
     push: { mode: 'on-change', minIntervalMs: 0, onUnload: true },
-    pull: {
-      mode: 'phased',
-      sequence: [
-        { collection: 'invoices', periods: { current: true } },
-        { collection: 'clients',  periods: { current: true } },
-        { collection: 'invoices', periods: ['2026-Q1', '2025-Q4'] },
-      ],
-    },
+    pull: { mode: 'phased', sequence: ['clients', 'invoices', 'attachments'] },
   },
 })
 ```
 
 **Execution.** On start, the scheduler walks the sequence in order, calling the existing
-`pull({ collections: [scope.collection], periods: scope.periods })` once per entry. Each entry is an
-ordinary pull; phasing is sequencing, not new pull capability.
+`pull({ collections: [name] })` once per entry. Each entry is an ordinary pull; phasing is
+sequencing, not new pull capability.
 
 **After the sequence completes**, the scheduler settles into steady state — `intervalMs` if given,
-otherwise idle until `notifyChange()`. Bootstrap and steady-state are one flow, not two APIs.
+otherwise idle until `notifyChange()`. Bootstrap and steady state are one flow, not two APIs.
 
 **Sequential by construction.** Running phases in parallel would defeat prioritisation, which is the
 entire point.
 
-**Validation** happens where the policy is accepted, at `createNoydb` — `sequence` non-empty and
-present iff `mode === 'phased'`, every entry naming a non-empty collection. An invalid policy throws
-before any I/O.
+**Validation** happens where the policy is accepted, at `createNoydb`: `sequence` present iff
+`mode === 'phased'`, non-empty, every entry a non-empty string, **no duplicates**. An invalid policy
+throws before any I/O. Duplicates are rejected rather than merged because without period narrowing a
+repeated collection can only be a mistake — and rejecting it keeps Stage 2's readiness rules a
+simple one-entry-per-collection mapping.
 
 **Push is not sequenced.** *"Push is never period-filtered"* is an existing documented law, and the
 dirty queue is not reorderable — you push what changed. `PushOptions` keeps `collections` only.
 
 ---
 
-## Stage 4 — readiness in the status surface (#809)
+## Stage 2 — readiness in the status surface (#809)
 
 **Problem.** A UI cannot tell whether a collection is complete, mid-pull, or untouched — so a `null`
 from `get()` is ambiguous during bootstrap, and apps must either show false empty states or block.
@@ -232,9 +218,9 @@ else if (inv === null)                                    showNotFound()
 **A collection the sequence never names is absent from the map**, and a caller reading `undefined`
 must treat it as *"no claim made"* — never as a reason to gate a UI. Documented on the field.
 
-**`'live'` requires every entry naming a collection to complete** — not the first. A collection at
-positions 1 and 3 stays `'pulling'` until 3 finishes. `'live'` asserts a miss is a real absence, so
-it must not be claimed early.
+**`'live'` means that collection's phase completed cleanly.** Sequence entries are unique
+(Stage 1), so this is one transition per collection with no "wait for a later repeat" rule to get
+wrong. `'live'` asserts a miss is a real absence, so it must not be claimed early.
 
 **`'pulling'` is never terminal.** On error it returns to `'cold'`. A stuck `'pulling'` leaves a
 permanent skeleton — the worst available outcome.
@@ -255,7 +241,7 @@ nothing can disagree with the store or leak across devices.
 | Invalid policy | throws at `createNoydb`, before any I/O |
 | A phase's `pull()` reports errors | recorded; that collection stays `'cold'`; **later phases still run** |
 | A phase's `pull()` throws | scheduler enters `'error'` with `lastError`; no collection left `'pulling'` |
-| Backup/archive role | scheduler-initiated pulls are skipped (Stage 2); explicit `db.pull()` still works |
+| Backup/archive role | scheduler-initiated pulls are skipped (shipped); explicit `db.pull()` still works |
 | Vault closed mid-sequence | `stopScheduler()`; in-memory state discarded |
 | No `withSync()` | unchanged — `pull()` throws its existing actionable error |
 
@@ -263,39 +249,30 @@ nothing can disagree with the store or leak across devices.
 
 ## Testing
 
-**Stage 1** — scheduler starts on vault open when a non-manual policy is passed; does not start
-without one; stops on close; a `pull: manual` policy never auto-pulls.
+**Stage 1** — phases execute in declared order, phase *n+1* never starting before *n* resolves; each
+phase calls `pull()` with exactly that collection; the sequence runs once, then steady state;
+`sequence` with a non-`phased` mode is rejected; `phased` without `sequence` is rejected; a
+duplicate entry is rejected; an empty `sequence` is rejected.
 
-**Stage 2** — a `backup`-role engine does **not** pull on a scheduler tick; a `sync-peer` does; an
-explicit `engine.pull()` still pulls for both. This is the #616 regression test at the engine level.
-
-**Stage 3** — phases execute in declared order, phase *n+1* never starting before *n* resolves; each
-phase calls `pull()` with exactly that scope's collection and periods; the sequence runs once, then
-steady state; `sequence` with a non-`phased` mode is rejected; `phased` without `sequence` is
-rejected.
-
-**Stage 4** — transitions `cold → pulling → live`; a collection at two positions stays `'pulling'`
-until the last; an unnamed collection is absent from the map; a phase with errors leaves its
-collection `'cold'`, explicitly not stuck `'pulling'`; a throwing pull leaves nothing `'pulling'`;
-`schedulerStatus()` returns `null` when no scheduler exists.
+**Stage 2** — transitions `cold → pulling → live`; an unnamed collection is absent from the map; a
+phase with errors leaves its collection `'cold'`, explicitly not stuck `'pulling'`; a throwing pull
+leaves nothing `'pulling'`; `schedulerStatus()` returns `null` when no scheduler exists.
 
 **Cross-cutting** — a bundle-gate scenario asserting `SyncScheduler` stays out of the floor entry
 chunk, so the kernel-cost claim is enforced rather than asserted.
 
-The **role-gate**, **errors-leave-it-cold** and **floor-bundle** tests are the ones to write first:
-each guards a property whose loss is silent.
+The **errors-leave-it-cold** and **floor-bundle** tests are the ones to write first: each guards a
+property whose loss is silent. (The **role-gate** test of that trio already landed with PR #898.)
 
 ---
 
 ## Out of scope
 
+- **Period-scoped phases** — deferred to `partitions`; see below.
 - **Blobs** — #808 owns their lifecycle; on-demand by construction.
 - **Push sequencing** — the dirty queue is not reorderable, and period-filtered push is a documented
   non-goal.
-- **Per-record priorities** beyond collection+period granularity.
-- **`'invoices@2026-Q1'` string shorthand** for `PullScope`. Deferred: the object form carries the
-  same information with no parsing ambiguity, and `@` has no precedent as a separator in this
-  codebase. Add later as sugar if the ergonomics justify it.
+- **Per-record priorities** beyond collection granularity.
 - **Framework bindings** — an `in-*` example follows once the status surface exists.
 - **Docs** — thin-client bootstrap section and the showcase step (noy-db-docs#120) follow.
 
@@ -303,14 +280,28 @@ each guards a property whose loss is silent.
 
 ## Rejected alternatives
 
-**A standalone orchestrator subpath (`@noy-db/hub/bootstrap`, `progressiveBootstrap()`)** — the
-previous draft of this spec. It worked and cost zero kernel lines, but it put pull sequencing in a
-second place: apps would configure cadence via `syncPolicy` and sequencing via a separate handle,
-with no relationship between them. Sequencing *is* a scheduling concern, so it belongs in the policy
-that already schedules. It also could not hand off to steady-state sync, leaving bootstrap and
-ongoing sync as two disconnected APIs.
+**Period-scoped phases (`collection@period`) — deferred, not rejected.** The earlier draft gave
+`PullScope` an object form carrying `periods`, so a phase could be *"invoices, current quarter"* and
+readiness could be per collection×period. That is the real portal UX goal: render the current
+quarter while older periods stream in. It is **deferred to a future `partitions` context**, which
+will decide the vocabulary once rather than minting a phasing-only dialect here. Deferring it also
+removes the compound-key question from readiness (*"ready for which period?"*) and the
+`'invoices@2026-Q1'` string-shorthand question, where `@` has no precedent as a separator in this
+codebase. `phase.index` gives a partial progress answer meanwhile, and `db.pull(vault, { periods })`
+remains available explicitly.
 
-**Readiness on `Collection`, `progressive` on `PullOptions`** — the first draft. Grew the kernel for
+**Starting the scheduler from the resolved default policy.** Shipped-and-reverted during PR #898 —
+36 test failures including a conflict-resolution outcome change, because `on-change` push is
+unawaited and races direct remote access. Recorded because *"a default already exists, so acting on
+it is free"* is a specifically attractive mistake here.
+
+**A standalone orchestrator subpath (`@noy-db/hub/bootstrap`, `progressiveBootstrap()`).** Worked
+and cost zero kernel lines, but put pull sequencing in a second place: apps would configure cadence
+via `syncPolicy` and sequencing via a separate handle, with no relationship between them. Sequencing
+*is* a scheduling concern, so it belongs in the policy that already schedules. It also could not
+hand off to steady-state sync, leaving bootstrap and ongoing sync as two disconnected APIs.
+
+**Readiness on `Collection`, `progressive` on `PullOptions`.** The first draft. Grew the kernel for
 a feature most consumers never enable, in a file with one line of ceiling headroom, and forced a
 breaking reshape of `PullResult.phases` plus a `'live'`-by-default rule invented only to stop
 non-adopters' UIs freezing. Recorded because the pull toward *"it's only a getter"* is exactly what
@@ -318,10 +309,6 @@ the ceiling exists to resist.
 
 **A tri-state or wrapper return from `get()`.** Impossible to forget, but makes the return type
 mode-dependent, splits every call site, and puts cost on the kernel's hottest path.
-
-**Per collection×period readiness.** Would let the portal render the current quarter while older
-periods stream in — the real UX goal. Deferred: it turns *"is `invoices` ready?"* into *"ready for
-which period?"*, needing a compound key. `phase.index` gives a partial answer meanwhile.
 
 **Persisting readiness.** Instant render after restart, but mints state that can disagree with the
 store and needs a never-sync guarantee enforced rather than documented.
@@ -331,4 +318,5 @@ but a partially-pulled collection reads `'live'` — reintroducing the false-con
 exists to remove.
 
 **Wiring `startAutoSync()` alongside the scheduler.** Two competing timers for one job. It stays an
-explicit opt-in.
+explicit opt-in; it is a coarser, older API (global `online`/`offline` listeners plus a bare
+interval) that overlaps the policy model.
