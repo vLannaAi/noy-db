@@ -252,7 +252,7 @@ export interface RoutedNoydbStore extends NoydbStore {
    * - `hydrate: ['invoices', 'clients']` — copies only named collections.
    *
    * Use cases:
-   * - Shared device: `await store.override('default', memory(), { hydrate: true })`
+   * - Shared device: `await store.override('default', toMemory(), { hydrate: true })`
    * - Restricted network: `store.override('blobs', localFile(...))`
    */
   override(route: OverrideTarget, store: NoydbStore, opts?: OverrideOptions): void | Promise<void>

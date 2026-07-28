@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { createNoydb, withGuard, RecordLockedError } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 
-// Minimal file-backed store — same shape as @noy-db/to-file's `jsonFile()`.
+// Minimal file-backed store — same shape as @noy-db/to-file's `toFile()`.
 // Inlined here because hub tests don't depend on sibling @noy-db/to-* packages.
 // Layout: {dir}/{vault}/{collection}/{id}.json
 function fileStore(dir: string): NoydbStore {

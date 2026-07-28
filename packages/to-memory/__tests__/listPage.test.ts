@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { memory } from '../src/index.js'
+import { toMemory } from '../src/index.js'
 import type { EncryptedEnvelope } from '@noy-db/hub'
 
 function makeEnvelope(v: number): EncryptedEnvelope {
@@ -8,24 +8,24 @@ function makeEnvelope(v: number): EncryptedEnvelope {
 
 describe('@noy-db/memory — listPage', () => {
   it('1. has a name field', () => {
-    const a = memory()
+    const a = toMemory()
     expect(a.name).toBe('memory')
   })
 
   it('2. exposes listPage as an optional method', () => {
-    const a = memory()
+    const a = toMemory()
     expect(typeof a.listPage).toBe('function')
   })
 
   it('3. returns empty page for empty collection', async () => {
-    const a = memory()
+    const a = toMemory()
     const page = await a.listPage!('C1', 'invoices')
     expect(page.items).toEqual([])
     expect(page.nextCursor).toBeNull()
   })
 
   it('4. returns sorted items across pages', async () => {
-    const a = memory()
+    const a = toMemory()
     for (let i = 9; i >= 0; i--) {
       // Insert in REVERSE order to verify sorting in listPage
       await a.put('C1', 'invoices', `inv-${i}`, makeEnvelope(1))
@@ -47,7 +47,7 @@ describe('@noy-db/memory — listPage', () => {
   })
 
   it('5. final page returns nextCursor: null', async () => {
-    const a = memory()
+    const a = toMemory()
     for (let i = 0; i < 5; i++) {
       await a.put('C1', 'invoices', `id-${i}`, makeEnvelope(1))
     }
@@ -57,7 +57,7 @@ describe('@noy-db/memory — listPage', () => {
   })
 
   it('6. cursor at exact boundary returns empty next page', async () => {
-    const a = memory()
+    const a = toMemory()
     for (let i = 0; i < 10; i++) {
       await a.put('C1', 'invoices', `id-${i}`, makeEnvelope(1))
     }

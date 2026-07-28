@@ -13,7 +13,7 @@
 import { describe, expect, it } from 'vitest'
 import { ExportCapabilityError, createNoydb } from '@noy-db/hub'
 import { withBlobs } from '@noy-db/hub/blobs'
-import { memory } from '@noy-db/to-memory'
+import { toMemory } from '@noy-db/to-memory'
 import { toBytes, write, type ArchiveManifest } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
 
@@ -23,7 +23,7 @@ const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x0a
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
 async function seedVault() {
-  const adapter = memory()
+  const adapter = toMemory()
   const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass', blobsStrategy: withBlobs() })
   const vault = await db.openVault('acme')
   const invoices = vault.collection<Invoice>('invoices')
@@ -36,7 +36,7 @@ async function seedVault() {
   return { db, adapter }
 }
 
-async function grantExport(adapter: ReturnType<typeof memory>) {
+async function grantExport(adapter: ReturnType<typeof toMemory>) {
   const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass', blobsStrategy: withBlobs() })
   await db.grant('acme', {
     userId: 'owner-01', displayName: 'Owner', role: 'owner',
@@ -46,7 +46,7 @@ async function grantExport(adapter: ReturnType<typeof memory>) {
   await db.close()
 }
 
-function openExporter(adapter: ReturnType<typeof memory>) {
+function openExporter(adapter: ReturnType<typeof toMemory>) {
   return createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass', blobsStrategy: withBlobs() })
 }
 

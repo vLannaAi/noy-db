@@ -4,7 +4,7 @@ import { sum } from '../../src/with-lookup/reduce/reducers.js'
 import { withReduce } from '../../src/with-lookup/reduce/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -59,7 +59,7 @@ describe('UNION MV — per-arm join (#347 / AU+031)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-union-armjoin-basic-secret-2026',
       materializedViewStrategies: [byRegion],
@@ -105,7 +105,7 @@ describe('UNION MV — per-arm join (#347 / AU+031)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-union-armjoin-rhs-refresh-secret-2026',
       materializedViewStrategies: [byRegion],
@@ -153,7 +153,7 @@ describe('UNION MV — per-arm join (#347 / AU+031)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-union-armjoin-dangling-secret-2026',
       materializedViewStrategies: [byRegion],
@@ -227,7 +227,7 @@ describe('UNION MV — per-arm join (#347 / AU+031)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-union-armjoin-mixed-secret-2026',
       materializedViewStrategies: [byRegion],

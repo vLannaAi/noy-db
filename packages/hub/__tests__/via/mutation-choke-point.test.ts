@@ -6,7 +6,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 // from `__tests__/derivations/derive-all.test.ts` (record-shape, eager,
 // deterministic) — per task-10-brief instruction to reuse an existing
 // derivation fixture rather than invent a new one.
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -66,7 +66,7 @@ function makeDerivation() {
 describe('mutation-choke-point origin parity (#623 task 10, #621)', () => {
   it('local-write: fires change and dispatches derivations', async () => {
     const { handle, calls } = makeDerivation()
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: SECRET, derivationStrategies: [handle] })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: SECRET, derivationStrategies: [handle] })
     const vault = await db.openVault('demo')
     const pdfs = vault.collection<Pdf>('pdfs')
     const meta = vault.collection<{ len: number } & Record<string, unknown>>('pdf-meta')
@@ -84,7 +84,7 @@ describe('mutation-choke-point origin parity (#623 task 10, #621)', () => {
 
   it('local-delete: fires change but does NOT dispatch derivations', async () => {
     const { handle, calls } = makeDerivation()
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: SECRET, derivationStrategies: [handle] })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: SECRET, derivationStrategies: [handle] })
     const vault = await db.openVault('demo')
     const pdfs = vault.collection<Pdf>('pdfs')
     await pdfs.put('doc1', { id: 'doc1', body: 'hello' }) // seed — fires 1 derivation call
@@ -102,7 +102,7 @@ describe('mutation-choke-point origin parity (#623 task 10, #621)', () => {
 
   it('tab-mirror (_applyRemoteChange via _applyRemoteWrite): fires change but does NOT dispatch derivations', async () => {
     const { handle, calls } = makeDerivation()
-    const store = memory()
+    const store = toMemory()
     const db1 = await createNoydb({ store, user: 'alice', secret: SECRET, derivationStrategies: [handle] })
     const v1 = await db1.openVault('demo')
     const c1 = v1.collection<Pdf>('pdfs')
@@ -131,7 +131,7 @@ describe('mutation-choke-point origin parity (#623 task 10, #621)', () => {
 
   it('sync-apply (_invalidateSyncApplied), inside a graph-dispatch batch: invalidates cache AND dispatches derivations (#621)', async () => {
     const { handle, calls } = makeDerivation()
-    const store = memory()
+    const store = toMemory()
     const db1 = await createNoydb({ store, user: 'alice', secret: SECRET, derivationStrategies: [handle] })
     const v1 = await db1.openVault('demo')
     const c1 = v1.collection<Pdf>('pdfs')
@@ -172,7 +172,7 @@ describe('mutation-choke-point origin parity (#623 task 10, #621)', () => {
       rowKey: (r) => r.id,
       refresh: 'eager',
     })
-    const store = memory()
+    const store = toMemory()
     // db1 does NOT register the MV strategy — it's a plain writer, so whatever `open-invoices`
     // row db2 ends up with can only have come from db2's OWN wave-driven recompute (#646
     // db2-only-registration mandate — mirrors sync-delete-rollup.test.ts's fixture discipline).
@@ -196,7 +196,7 @@ describe('mutation-choke-point origin parity (#623 task 10, #621)', () => {
   })
 
   it('cutover (_applyCutoverTransform): emits nothing', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: SECRET })
     const vault = await db.openVault('demo')
     const pdfs = vault.collection<Pdf>('pdfs')
     await pdfs.put('doc1', { id: 'doc1', body: 'hello' })

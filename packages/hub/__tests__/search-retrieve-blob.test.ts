@@ -13,7 +13,7 @@ import { ConflictError } from '../src/kernel/errors.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -61,7 +61,7 @@ describe('retrieve() indexes blob filenames (#308 L1)', () => {
   let db: Noydb
 
   beforeEach(async () => {
-    db = await createNoydb({ store: memory(), user: 'a', secret: 'pw-search-blob-long-enough', blobsStrategy: withBlobs(), searchStrategy: withSearch() })
+    db = await createNoydb({ store: toMemory(), user: 'a', secret: 'pw-search-blob-long-enough', blobsStrategy: withBlobs(), searchStrategy: withSearch() })
   })
 
   it('finds a record by its attached blob filename', async () => {

@@ -32,7 +32,7 @@ import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 
 /** In-memory store exposing raw stored envelopes for white-box assertions. */
-function memory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
+function toMemory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -66,7 +66,7 @@ const SECRET = 'delete-marker-read-filter-test-1234'
 
 describe('delete marker reads as absent (#589)', () => {
   async function seedMarker(lazy: boolean) {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({ store, user: 'u', secret: SECRET })
     const vault = await db.openVault(V)
     const notes = vault.collection<Note>('notes', lazy ? { prefetch: false, cache: { maxRecords: 100 } } : {})

@@ -4,7 +4,7 @@ import { ConflictError, ExportCapabilityError, createNoydb } from '@noy-db/hub'
 import { toString, stream, pipe } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (c: string, col: string): Map<string, EncryptedEnvelope> => {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -42,7 +42,7 @@ function memory(): NoydbStore {
 }
 
 async function seed(grantFormats: readonly ('json' | 'ndjson' | 'csv')[] = ['ndjson']) {
-  const adapter = memory()
+  const adapter = toMemory()
   const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner', secret: 'pw' })
   const v1 = await db.openVault('acme')
   await v1.collection<{ id: string; amount: number }>('invoices').put('i1', { id: 'i1', amount: 100 })

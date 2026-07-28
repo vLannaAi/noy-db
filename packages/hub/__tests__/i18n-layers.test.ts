@@ -20,7 +20,7 @@ import { withI18n } from '../src/via/i18n/index.js'
 import { i18nText } from '../src/via/i18n/core.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -77,7 +77,7 @@ describe('per-layer onMissing — guard layer (#285)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'i18n-layers-guard-secret-2026',
       i18nStrategy: withI18n(),
@@ -96,7 +96,7 @@ describe('per-layer onMissing — guard layer (#285)', () => {
 
   it("the same field still throws on an ordinary get() (read layer)", async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'i18n-layers-read-secret-2026',
       i18nStrategy: withI18n(),
@@ -118,7 +118,7 @@ describe('per-layer onMissing — guard layer (#285)', () => {
       },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'i18n-layers-guard-default-secret-2026',
       i18nStrategy: withI18n(),
@@ -158,7 +158,7 @@ describe('per-layer onMissing — derivation layer (#285)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'i18n-layers-derivation-secret-2026',
       i18nStrategy: withI18n(),

@@ -9,7 +9,7 @@ import { defineNoydbStore, setActiveNoydb, useNoydbI18n } from '../src/index.js'
 const tick = (ms = 0): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 /** Inline memory adapter — same pattern as @noy-db/core integration tests. */
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -67,7 +67,7 @@ interface Invoice {
 
 async function makeNoydb(): Promise<Noydb> {
   return createNoydb({
-    store: memory(),
+    store: toMemory(),
     user: 'owner',
     secret: 'pinia-test-secret-2026',
     attestationStrategy: withAttestation(),
@@ -491,7 +491,7 @@ describe('defineNoydbStore — i18nFields / dictKeyFields forwarding', () => {
   beforeEach(async () => {
     setActivePinia(createPinia())
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       i18nStrategy: withI18n(),
       secret: 'pinia-i18n-test-secret',

@@ -3,12 +3,12 @@ import { describe, expect, it } from 'vitest'
 import { createNoydb, type Noydb } from '../src/kernel/noydb.js'
 import type { WriteEvent } from '../src/index.js'
 import { withTransactions } from '../src/with-commit/tx/index.js'
-import { memory } from '../../to-memory/src/index.js'
+import { toMemory } from '../../to-memory/src/index.js'
 
 interface Inv extends Record<string, unknown> { id: string; amount: number }
 
 async function setup(): Promise<Noydb> {
-  return createNoydb({ store: memory(), user: 'alice', secret: 'write-hooks-pass-1234', transactionsStrategy: withTransactions() })
+  return createNoydb({ store: toMemory(), user: 'alice', secret: 'write-hooks-pass-1234', transactionsStrategy: withTransactions() })
 }
 
 describe('write lifecycle hooks (#230)', () => {

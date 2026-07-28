@@ -15,14 +15,14 @@
  */
 import { describe, expect, it } from 'vitest'
 import { ExportCapabilityError, createNoydb } from '@noy-db/hub'
-import { memory } from '@noy-db/to-memory'
+import { toMemory } from '@noy-db/to-memory'
 import { toBytes, write, colLetter, writeXlsx } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
 
 interface Invoice { id: string; client: string; amount: number; paid: boolean; date: string }
 
 async function seedVault() {
-  const adapter = memory()
+  const adapter = toMemory()
   const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
   const vault = await db.openVault('acme')
   const invoices = vault.collection<Invoice>('invoices')
@@ -32,7 +32,7 @@ async function seedVault() {
   return { db, adapter }
 }
 
-async function grantXlsx(adapter: ReturnType<typeof memory>) {
+async function grantXlsx(adapter: ReturnType<typeof toMemory>) {
   const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
   await db.grant('acme', {
     userId: 'owner-01', displayName: 'Owner', role: 'owner',

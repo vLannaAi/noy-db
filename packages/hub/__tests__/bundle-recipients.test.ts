@@ -25,7 +25,7 @@ import {
 } from '../src/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string) => {
     let comp = store.get(v); if (!comp) { comp = new Map(); store.set(v, comp) }
@@ -66,7 +66,7 @@ interface Payment { id: string; amount: number }
 
 async function setupSourceVault() {
   const db = await createNoydb({
-    store: memory(), user: 'alice', secret: 'source-pw-2026',
+    store: toMemory(), user: 'alice', secret: 'source-pw-2026',
     historyStrategy: withHistory(),
   })
   const vault = await db.openVault('demo')
@@ -101,7 +101,7 @@ async function restoreAs(
   }
   const compartment = dump._compartment
 
-  const targetStore = memory()
+  const targetStore = toMemory()
 
   for (const [userId, kf] of Object.entries(dump.keyrings)) {
     await targetStore.put(compartment, '_keyring', userId, {

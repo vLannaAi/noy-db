@@ -67,14 +67,14 @@ console.log(await invoices.get('inv-001'))   // { id: 'inv-001', amount: 1200 }
 await db.close()                               // clears keys from memory
 ```
 
-`createNoydb()` needs no `store` — it uses a **built-in in-memory store** by default (non-persistent). For tests wanting the fuller in-memory backend (adds `listVaults`/`tx`/`listPage`), add **[`@noy-db/to-memory`](https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/packages/to-stores.md)** and pass `store: memory()`.
+`createNoydb()` needs no `store` — it uses a **built-in in-memory store** by default (non-persistent). For tests wanting the fuller in-memory backend (adds `listVaults`/`tx`/`listPage`), add **[`@noy-db/to-memory`](https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/packages/to-stores.md)** and pass `store: toMemory()`.
 
 **Swap storage with one line** — keep the rest identical:
 
 ```ts
 // Persist to disk
-import { jsonFile } from '@noy-db/to-file'
-store: jsonFile({ dir: './data' })
+import { toFile } from '@noy-db/to-file'
+store: toFile({ dir: './data' })
 
 // Browser (IndexedDB)
 import { idbStore } from '@noy-db/to-browser-idb'

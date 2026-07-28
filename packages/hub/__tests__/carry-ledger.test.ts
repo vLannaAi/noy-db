@@ -21,7 +21,7 @@ import { reKeyLedger, reKeyClosure, extractPartition } from '../src/with-cargo/e
 import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/with-cargo/adopt-partition.js'
 import { readNoydbBundle, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -73,7 +73,7 @@ function memory(): NoydbStore {
 interface Client { id: string; name: string; operatorUserId: string }
 
 async function srcVault() {
-  const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'pw-1234', historyStrategy: withHistory() })
+  const db = await createNoydb({ cargoStrategy: withCargo(), store: toMemory(), user: 'alice', secret: 'pw-1234', historyStrategy: withHistory() })
   const c = await db.openVault('demo-co')
   const clients = c.collection<Client>('clients')
   const bills = c.collection<{ id: string; clientId: string }>('bills', { refs: { clientId: ref('clients') } })
@@ -122,7 +122,7 @@ describe('reKeyLedger', () => {
   })
 
   it('recomputes payloadHash ONLY for the latest put (option a): intermediate puts keep source hash', async () => {
-    const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'pw-1234', historyStrategy: withHistory() })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: toMemory(), user: 'alice', secret: 'pw-1234', historyStrategy: withHistory() })
     const company = await db.openVault('demo-co')
     const clients = company.collection<Client>('clients')
     await clients.put('c-1', { id: 'c-1', name: 'Hotel', operatorUserId: 'belle' })       // v1
@@ -152,7 +152,7 @@ describe('extractPartition carryLedger — non-destructive on the source', () =>
     // Source vault opened WITHOUT withHistory(): keyring has no _ledger DEK.
     // carryLedger: true on such a vault must not auto-mint and persist one
     // (contradicts the "non-destructive on the source" module-level claim).
-    const sourceStore = memory()
+    const sourceStore = toMemory()
     const db = await createNoydb({ cargoStrategy: withCargo(), store: sourceStore, user: 'alice', secret: 'pw-1234' })
     const vault = await db.openVault('demo-co')
     await vault.collection<Client>('clients').put('c-1', { id: 'c-1', name: 'Hotel', operatorUserId: 'belle' })
@@ -195,7 +195,7 @@ describe('carryLedger full ceremony — verifyBackupIntegrity', () => {
       seeds: { clients: (c) => c.operatorUserId === 'belle' }, carryLedger: true,
     })
 
-    const dest = memory()
+    const dest = toMemory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'acme' })
     await createOwnerOnAdoptedPartition(dest, 'acme', { userId: 'belle', secret: 'belle-2026', transferKey })
 

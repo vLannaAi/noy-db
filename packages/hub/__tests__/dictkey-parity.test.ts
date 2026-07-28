@@ -10,7 +10,7 @@ import { ConflictError } from '../src/kernel/errors.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -49,7 +49,7 @@ function memory(): NoydbStore {
 }
 
 async function setup() {
-  const db: Noydb = await createNoydb({ store: memory(), user: 'a', secret: 'pw-dictkey', i18nStrategy: withI18n() })
+  const db: Noydb = await createNoydb({ store: toMemory(), user: 'a', secret: 'pw-dictkey', i18nStrategy: withI18n() })
   const vault = await db.openVault('v', { locale: 'th' })
   // honorific dictionary: mr/ms both → คุณ in Thai
   const dict = vault.dictionary('contactTitle')

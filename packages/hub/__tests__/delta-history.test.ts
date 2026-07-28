@@ -19,7 +19,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { ConflictError } from '../src/kernel/errors.js'
 
 // Inline memory adapter (same as other test files).
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -81,7 +81,7 @@ describe('delta history.', () => {
   let adapter: NoydbStore
 
   beforeEach(async () => {
-    adapter = memory()
+    adapter = toMemory()
     db = await createNoydb({
       store: adapter,
       user: 'alice', historyStrategy: withHistory(),

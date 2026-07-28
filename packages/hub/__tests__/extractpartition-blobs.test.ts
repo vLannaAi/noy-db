@@ -28,7 +28,7 @@ import {
 } from '../src/with-cargo/adopt-partition.js'
 import { readNoydbBundle, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -93,7 +93,7 @@ async function sealedDeks(bundleBytes: Uint8Array, transferKey: Uint8Array) {
 describe('extractPartition blob carriage — round-trip', () => {
   for (const erasable of [true, false] as const) {
     it(`cover survives extract → adopt → own, byte-identical (${erasable ? 'erasable' : 'legacy'})`, async () => {
-      const src = memory()
+      const src = toMemory()
       const db = await createNoydb({ cargoStrategy: withCargo(), store: src, user: 'alice', secret: SECRET, blobsStrategy: withBlobs() })
       const company = await db.openVault('demo-co')
       const docs = company.collection<Doc>('docs', erasable ? { perRecordKeys: true } : {})
@@ -105,7 +105,7 @@ describe('extractPartition blob carriage — round-trip', () => {
         seeds: { docs: (r) => r['id'] === 'd1' },
       })
 
-      const dest = memory()
+      const dest = toMemory()
       await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
       await createOwnerOnAdoptedPartition(dest, 'fresh', {
         userId: 'belle', secret: 'belle-pass-phrase-2026', transferKey,
@@ -124,7 +124,7 @@ describe('extractPartition blob carriage — round-trip', () => {
 
 describe('extractPartition blob carriage — HARDENED isolation property', () => {
   it('the sealed transfer `_blob` DEK decrypts ONLY the carried slice, NOT a source blob outside the slice', async () => {
-    const src = memory()
+    const src = toMemory()
     const db = await createNoydb({ cargoStrategy: withCargo(), store: src, user: 'alice', secret: SECRET, blobsStrategy: withBlobs() })
     const company = await db.openVault('demo-co')
     const docs = company.collection<Doc>('docs', { perRecordKeys: true })
@@ -145,7 +145,7 @@ describe('extractPartition blob carriage — HARDENED isolation property', () =>
     const transferBlobDek = deks.get('_blob')
     expect(transferBlobDek).toBeDefined()
 
-    const dest = memory()
+    const dest = toMemory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
 
     // The SOURCE vault's blob DEK — proves the out-of-slice ciphertext below is
@@ -184,7 +184,7 @@ describe('extractPartition blob carriage — HARDENED isolation property', () =>
 
 describe('extractPartition blob carriage — selective carriage', () => {
   it('fieldProjection drops a projected-out blob field (its blob does not travel)', async () => {
-    const src = memory()
+    const src = toMemory()
     const db = await createNoydb({ cargoStrategy: withCargo(), store: src, user: 'alice', secret: SECRET, blobsStrategy: withBlobs() })
     const company = await db.openVault('demo-co')
     const docs = company.collection<Doc>('docs', { perRecordKeys: true })
@@ -198,7 +198,7 @@ describe('extractPartition blob carriage — selective carriage', () => {
       fieldProjection: { docs: ['title', 'cover'] },
     })
 
-    const dest = memory()
+    const dest = toMemory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
     await createOwnerOnAdoptedPartition(dest, 'fresh', {
       userId: 'belle', secret: 'belle-pass-phrase-2026', transferKey,
@@ -216,7 +216,7 @@ describe('extractPartition blob carriage — selective carriage', () => {
   })
 
   it('a blob referenced only by an out-of-closure record does not travel', async () => {
-    const src = memory()
+    const src = toMemory()
     const db = await createNoydb({ cargoStrategy: withCargo(), store: src, user: 'alice', secret: SECRET, blobsStrategy: withBlobs() })
     const company = await db.openVault('demo-co')
     const docs = company.collection<Doc>('docs', { perRecordKeys: true })
@@ -230,7 +230,7 @@ describe('extractPartition blob carriage — selective carriage', () => {
       seeds: { docs: (r) => r['id'] === 'd1' },
     })
 
-    const dest = memory()
+    const dest = toMemory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
     await createOwnerOnAdoptedPartition(dest, 'fresh', {
       userId: 'belle', secret: 'belle-pass-phrase-2026', transferKey,
@@ -251,7 +251,7 @@ describe('extractPartition blob carriage — selective carriage', () => {
 
 describe('extractPartition blob carriage — refCount + no-blob', () => {
   it('the carried BlobObject refCount reflects carried references only', async () => {
-    const src = memory()
+    const src = toMemory()
     const db = await createNoydb({ cargoStrategy: withCargo(), store: src, user: 'alice', secret: SECRET, blobsStrategy: withBlobs() })
     const company = await db.openVault('demo-co')
     const docs = company.collection<Doc>('docs', { perRecordKeys: true })
@@ -269,7 +269,7 @@ describe('extractPartition blob carriage — refCount + no-blob', () => {
     })
 
     const deks = await sealedDeks(bundleBytes, transferKey)
-    const dest = memory()
+    const dest = toMemory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
     const carriedIdx = await dest.get('fresh', BLOB_INDEX_COLLECTION, eTag)
     const carried = JSON.parse(await decrypt(carriedIdx!._iv, carriedIdx!._data, deks.get('_blob')!)) as { refCount: number }
@@ -278,7 +278,7 @@ describe('extractPartition blob carriage — refCount + no-blob', () => {
   })
 
   it('a no-blob partition extracts/adopts cleanly and mints no `_blob` DEK (source keyring untouched)', async () => {
-    const src = memory()
+    const src = toMemory()
     const db = await createNoydb({ cargoStrategy: withCargo(), store: src, user: 'alice', secret: SECRET, blobsStrategy: withBlobs() })
     const company = await db.openVault('demo-co')
     const docs = company.collection<Doc>('docs')
@@ -304,7 +304,7 @@ describe('extractPartition blob carriage — refCount + no-blob', () => {
     expect(deksAfter.sort()).toEqual(deksBefore.sort())
 
     // Round-trips: records adopt + own, and blob.get is simply null.
-    const dest = memory()
+    const dest = toMemory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
     await createOwnerOnAdoptedPartition(dest, 'fresh', {
       userId: 'belle', secret: 'belle-pass-phrase-2026', transferKey,
@@ -328,7 +328,7 @@ describe('extractPartition blob carriage — refCount + no-blob', () => {
  */
 describe('extractPartition blob carriage — #767: carries in-flight `_blob_intent` markers', () => {
   it('an in-flight `_blob_intent` marker for a carried record travels, re-keyed under the destination DEK', async () => {
-    const src = memory()
+    const src = toMemory()
     const db = await createNoydb({ cargoStrategy: withCargo(), store: src, user: 'alice', secret: SECRET, blobsStrategy: withBlobs() })
     const company = await db.openVault('demo-co')
     const docs = company.collection<Doc>('docs', { perRecordKeys: true })
@@ -346,7 +346,7 @@ describe('extractPartition blob carriage — #767: carries in-flight `_blob_inte
       seeds: { docs: (r) => r['id'] === 'd1' },
     })
 
-    const dest = memory()
+    const dest = toMemory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
     // The marker travelled at its stable `{collection}::{recordId}` key.
     expect(await dest.get('fresh', BLOB_INTENT_COLLECTION, 'docs::d1')).not.toBeNull()
@@ -367,7 +367,7 @@ describe('extractPartition blob carriage — #767: carries in-flight `_blob_inte
   })
 
   it('no in-flight marker → nothing carried (the normal case)', async () => {
-    const src = memory()
+    const src = toMemory()
     const db = await createNoydb({ cargoStrategy: withCargo(), store: src, user: 'alice', secret: SECRET, blobsStrategy: withBlobs() })
     const company = await db.openVault('demo-co')
     const docs = company.collection<Doc>('docs', { perRecordKeys: true })
@@ -378,7 +378,7 @@ describe('extractPartition blob carriage — #767: carries in-flight `_blob_inte
       seeds: { docs: (r) => r['id'] === 'd1' },
     })
 
-    const dest = memory()
+    const dest = toMemory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
     expect(await dest.get('fresh', BLOB_INTENT_COLLECTION, 'docs::d1')).toBeNull()
     db.close()
@@ -396,7 +396,7 @@ describe('extractPartition blob carriage — #767: carries in-flight `_blob_inte
  */
 describe('extractPartition blob carriage — #769: strips `pendingRelease` (backup retains it)', () => {
   it('extract-partition strips SlotRecord.pendingRelease; a full-vault backup of the same vault retains it', async () => {
-    const src = memory()
+    const src = toMemory()
     const db = await createNoydb({ cargoStrategy: withCargo(), store: src, user: 'alice', secret: SECRET, blobsStrategy: withBlobs() })
     const company = await db.openVault('demo-co')
     const docs = company.collection<Doc>('docs', { perRecordKeys: true })
@@ -419,7 +419,7 @@ describe('extractPartition blob carriage — #769: strips `pendingRelease` (back
     const { bundleBytes, transferKey } = await extractPartition(company, {
       seeds: { docs: (r) => r['id'] === 'd1' },
     })
-    const dest = memory()
+    const dest = toMemory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
     await createOwnerOnAdoptedPartition(dest, 'fresh', {
       userId: 'belle', secret: 'belle-pass-phrase-2026', transferKey,

@@ -25,7 +25,7 @@ import type { Noydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError, BackupLedgerError, BackupCorruptedError } from '../src/kernel/errors.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -85,7 +85,7 @@ describe('verifiable backups.', () => {
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice', historyStrategy: withHistory(),
       secret: 'test-secret-1234',
     })
@@ -112,7 +112,7 @@ describe('verifiable backups.', () => {
   })
 
   it('round-trips a clean backup with no errors', async () => {
-    const adapter1 = memory()
+    const adapter1 = toMemory()
     const sourceDb = await createNoydb({
       store: adapter1,
       user: 'alice', historyStrategy: withHistory(),
@@ -130,7 +130,7 @@ describe('verifiable backups.', () => {
     // Restore into a fresh adapter via a fresh Noydb. The same
     // secret is required so the keyring DEKs unwrap correctly
     // — verifiable-backup integrity is orthogonal to encryption.
-    const adapter2 = memory()
+    const adapter2 = toMemory()
     const targetDb = await createNoydb({
       store: adapter2,
       user: 'alice', historyStrategy: withHistory(),
@@ -170,7 +170,7 @@ describe('verifiable backups.', () => {
     backup.ledgerHead.hash = backup.ledgerHead.hash.split('').reverse().join('')
     const tamperedJson = JSON.stringify(backup)
 
-    const adapter2 = memory()
+    const adapter2 = toMemory()
     const targetDb = await createNoydb({
       store: adapter2,
       user: 'alice', historyStrategy: withHistory(),
@@ -193,7 +193,7 @@ describe('verifiable backups.', () => {
     env._data = env._data.split('').reverse().join('')
     const tamperedJson = JSON.stringify(backup)
 
-    const adapter2 = memory()
+    const adapter2 = toMemory()
     const targetDb = await createNoydb({
       store: adapter2,
       user: 'alice', historyStrategy: withHistory(),
@@ -220,7 +220,7 @@ describe('verifiable backups.', () => {
     env._data = env._data.split('').reverse().join('')
     const tamperedJson = JSON.stringify(backup)
 
-    const adapter2 = memory()
+    const adapter2 = toMemory()
     const targetDb = await createNoydb({
       store: adapter2,
       user: 'alice', historyStrategy: withHistory(),
@@ -247,7 +247,7 @@ describe('verifiable backups.', () => {
     delete backup._internal
     const legacyJson = JSON.stringify(backup)
 
-    const adapter2 = memory()
+    const adapter2 = toMemory()
     const targetDb = await createNoydb({
       store: adapter2,
       user: 'alice', historyStrategy: withHistory(),
@@ -303,7 +303,7 @@ describe('verifiable backups.', () => {
     // Reach into the adapter and modify a record bytewise. The
     // ledger still has the OLD payloadHash; the new hash won't
     // match, and verifyBackupIntegrity returns kind: 'data'.
-    const adapter = memory()
+    const adapter = toMemory()
     const localDb = await createNoydb({
       store: adapter,
       user: 'alice', historyStrategy: withHistory(),
@@ -348,7 +348,7 @@ describe('verifiable backups.', () => {
   describe('dictionary path', () => {
     it('vault.dictionary().putAll() entries pass verifyBackupIntegrity', async () => {
       const dictDb = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'pass',
         historyStrategy: withHistory(),
@@ -368,7 +368,7 @@ describe('verifiable backups.', () => {
 
     it('rename() preserves verifyBackupIntegrity', async () => {
       const dictDb = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'pass',
         historyStrategy: withHistory(),

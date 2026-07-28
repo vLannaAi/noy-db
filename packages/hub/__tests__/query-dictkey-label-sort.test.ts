@@ -10,7 +10,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { withI18n } from '../src/via/i18n/index.js'
 import { staticDict } from '../src/via/i18n/dictionary.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -48,7 +48,7 @@ const CAT = staticDict('cat', {
 const SECRET = 'dictkey-label-sort-pass-2026'
 
 async function seed() {
-  const db = await createNoydb({ store: memory(), user: 'a', secret: SECRET, i18nStrategy: withI18n() })
+  const db = await createNoydb({ store: toMemory(), user: 'a', secret: SECRET, i18nStrategy: withI18n() })
   const vault = await db.openVault('v')
   const rows = vault.collection<Row>('rows', { dictKeyFields: { cat: CAT } })
   await rows.put('r-a', { id: 'r-a', cat: 'a1' })

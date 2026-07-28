@@ -4,7 +4,7 @@ import { withDerivation } from '../../src/with-formula/derivations/index.js'
 import { withTransactions } from '../../src/with-commit/tx/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -66,7 +66,7 @@ describe('Strict-mode derivation multi-output orphan (#133)', () => {
       lifecycle: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-orphan-133-secret-2026',
       derivationStrategies: [stratGood, stratBad],
@@ -107,7 +107,7 @@ describe('Strict-mode derivation multi-output orphan (#133)', () => {
       lifecycle: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-orphan-133-nonstrict-secret-2026',
       derivationStrategies: [stratGood, stratBad],
@@ -150,7 +150,7 @@ describe('Strict-mode derivation multi-output orphan (#133)', () => {
       lifecycle: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-orphan-133-putmany-secret-2026',
       derivationStrategies: [stratGood, stratBad],

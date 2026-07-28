@@ -23,7 +23,7 @@ import type { Noydb } from '../../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 
 // Same in-memory store shape as lookup-direct-read-key.test.ts / lookup-ref-semantics.test.ts.
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -52,7 +52,7 @@ function memory(): NoydbStore {
 }
 
 async function freshDb(name: string): Promise<Noydb> {
-  return createNoydb({ store: memory(), user: 'a', secret: `lookup-restrict-unresolvable-${name}-2026` })
+  return createNoydb({ store: toMemory(), user: 'a', secret: `lookup-restrict-unresolvable-${name}-2026` })
 }
 
 interface CountryRow extends Record<string, unknown> { id: string; iso2?: string; subjectId?: string; name: string }
@@ -87,7 +87,7 @@ describe('restrict direction: unresolvable compare-key fails closed (#654)', () 
 
   it('forget() of a corrupt backing row (missing iso2) REFUSES with RestrictRefUnresolvableError before any shred', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'a', secret: 'lookup-restrict-unresolvable-forget-2026',
+      store: toMemory(), user: 'a', secret: 'lookup-restrict-unresolvable-forget-2026',
       forgetStrategy: withForget({ subjects: { countries: 'subjectId' } }),
       historyStrategy: withHistory(),
     })

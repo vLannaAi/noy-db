@@ -11,7 +11,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 // an internal representation and must never leak; all read paths must return
 // the same canonical decimal, matching get() / sum().
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -42,7 +42,7 @@ function memory(): NoydbStore {
 interface Sale extends Record<string, unknown> { id: string; total: number | string }
 
 async function salesVault(defaultLocale?: string) {
-  const db = await createNoydb({ store: memory(), user: 'op', secret: 'pilot3-money-parity-2026-exact', reduceStrategy: withReduce() })
+  const db = await createNoydb({ store: toMemory(), user: 'op', secret: 'pilot3-money-parity-2026-exact', reduceStrategy: withReduce() })
   const v = await db.openVault('books')
   v.collection<Sale>('sales', {
     schema: z.object({ id: z.string(), total: z.union([z.number(), z.string()]) }),

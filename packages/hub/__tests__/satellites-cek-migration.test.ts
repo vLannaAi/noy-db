@@ -27,7 +27,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withForget } from '../src/with-audit/forget/index.js'
-import { memory } from '../../to-memory/src/index.js'
+import { toMemory } from '../../to-memory/src/index.js'
 import { SatelliteConfigError } from '../src/kernel/errors.js'
 import type { NoydbStore } from '../src/kernel/types.js'
 
@@ -95,7 +95,7 @@ async function reopenV2(store: NoydbStore) {
 
 describe('satellite per-record-CEK migration (#599)', () => {
   it('R-S7 pre-state: retro-coverage refuses the satellite redeclare with no way forward', async () => {
-    const rawStore = memory()
+    const rawStore = toMemory()
     const vault1 = await declareV1(rawStore)
     await vault1.joined('msgs_full').put('x', { from: 'alice@x', subject: 's', body: 'B' })
 
@@ -106,7 +106,7 @@ describe('satellite per-record-CEK migration (#599)', () => {
   })
 
   it('migrates every prior satellite record onto a distinct per-record CEK, then declares cleanly', async () => {
-    const rawStore = memory()
+    const rawStore = toMemory()
     const vault1 = await declareV1(rawStore)
     await vault1.joined('msgs_full').put('x', { from: 'alice@x', subject: 's1', body: 'B1' })
     await vault1.joined('msgs_full').put('y', { from: 'alice@x', subject: 's2', body: 'B2' })
@@ -143,7 +143,7 @@ describe('satellite per-record-CEK migration (#599)', () => {
   })
 
   it('mode-assertion: refuses to migrate a satellite already opened this session without perRecordKeys (review Important 1)', async () => {
-    const rawStore = memory()
+    const rawStore = toMemory()
     const vault1 = await declareV1(rawStore)
     await vault1.joined('msgs_full').put('x', { from: 'alice@x', subject: 's1', body: 'B1' })
     await vault1.joined('msgs_full').put('y', { from: 'alice@x', subject: 's2', body: 'B2' })
@@ -179,7 +179,7 @@ describe('satellite per-record-CEK migration (#599)', () => {
   })
 
   it('R-S7 still refuses a normal declare that never ran the migration (gate unaffected)', async () => {
-    const rawStore = memory()
+    const rawStore = toMemory()
     const vault1 = await declareV1(rawStore)
     await vault1.joined('msgs_full').put('x', { from: 'alice@x', subject: 's', body: 'B' })
 
@@ -191,7 +191,7 @@ describe('satellite per-record-CEK migration (#599)', () => {
   })
 
   it('resumability: an interrupted migration resumes to completion without re-minting an already-migrated CEK', async () => {
-    const rawStore = memory()
+    const rawStore = toMemory()
     const { store, failOnNthPutFor } = spyStore(rawStore)
     const vault1 = await declareV1(store)
     await vault1.joined('msgs_full').put('a', { from: 'alice@x', subject: 's', body: 'B' })

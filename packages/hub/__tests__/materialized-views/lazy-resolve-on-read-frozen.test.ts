@@ -15,7 +15,7 @@ import { withPeriods } from '../../src/with-audit/periods/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 import type { DerivationSkippedFrozen } from '../../src/kernel/via/dispatch.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -59,7 +59,7 @@ describe('lazy-MV resolve-on-read respects the frozen-output rule (#641)', () =>
       strict: true,
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-resolve-on-read-frozen-secret-2026',
       materializedViewStrategies: [lazyMV],
@@ -114,7 +114,7 @@ describe('lazy-MV resolve-on-read respects the frozen-output rule (#641)', () =>
       strict: true,
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-resolve-on-read-frozen-list-secret-2026',
       materializedViewStrategies: [lazyMV],

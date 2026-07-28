@@ -12,7 +12,7 @@
  *   - Overload preserves the existing `transaction(vault)` SyncTransaction path
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import { memory } from '../../to-memory/src/index.js'
+import { toMemory } from '../../to-memory/src/index.js'
 import type { ChangeEvent } from '../src/kernel/types.js'
 import { ConflictError, createNoydb, SyncTransaction } from '../src/index.js'
 import { withSync } from '../src/with-party/sync/index.js'
@@ -27,7 +27,7 @@ describe('db.transaction(fn) — multi-record atomic writes', () => {
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner', syncStrategy: withSync(),
       encrypt: false,
       transactionsStrategy: withTransactions(),
@@ -185,8 +185,8 @@ describe('db.transaction(fn) — multi-record atomic writes', () => {
   it('preserves the overload: transaction(vaultName) still returns a SyncTransaction', async () => {
     // Need sync configured for the legacy path. Use a pass-through memory peer.
     const db2 = await createNoydb({
-      store: memory(),
-      sync: memory(),
+      store: toMemory(),
+      sync: toMemory(),
       user: 'owner', syncStrategy: withSync(),
       encrypt: false,
       transactionsStrategy: withTransactions(),

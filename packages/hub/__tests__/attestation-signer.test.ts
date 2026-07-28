@@ -6,7 +6,7 @@ import { NOYDB_FORMAT_VERSION } from '../src/kernel/types.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string) => {
     let comp = store.get(v); if (!comp) { comp = new Map(); store.set(v, comp) }
@@ -26,7 +26,7 @@ function memory(): NoydbStore {
 
 describe('loadOrCreateSigner', () => {
   it('mints + persists a signer on first call, reuses it on the second (same keyId)', async () => {
-    const store = memory()
+    const store = toMemory()
     const dek = await generateDEK()
     const getDEK = async () => dek
 
@@ -41,7 +41,7 @@ describe('loadOrCreateSigner', () => {
   })
 
   it('the persisted _signer record is encrypted (non-empty _iv) and round-trips a real signature', async () => {
-    const store = memory()
+    const store = toMemory()
     const dek = await generateDEK()
     const getDEK = async () => dek
     const signer = await loadOrCreateSigner(store, 'v1', getDEK)
@@ -116,7 +116,7 @@ describe('loadOrCreateSigner — concurrent first-mint (lost race)', () => {
 
 describe('loadSigner — pure read (never mints)', () => {
   it('returns null when no signer exists and writes nothing', async () => {
-    const store = memory()
+    const store = toMemory()
     const dek = await generateDEK()
     const getDEK = async () => dek
 
@@ -127,7 +127,7 @@ describe('loadSigner — pure read (never mints)', () => {
   })
 
   it('returns the persisted signer when one exists', async () => {
-    const store = memory()
+    const store = toMemory()
     const dek = await generateDEK()
     const getDEK = async () => dek
     const minted = await loadOrCreateSigner(store, 'v1', getDEK)

@@ -22,7 +22,7 @@ import { withReduce } from '../src/with-lookup/reduce/index.js'
 import { sum } from '../src/with-lookup/reduce/reducers.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -52,7 +52,7 @@ function memory(): NoydbStore {
 
 async function openTestVault() {
   const db = await createNoydb({
-    store: memory(),
+    store: toMemory(),
     user: 'alice',
     secret: 'lazy-engines-553-test-secret',
     reduceStrategy: withReduce(),

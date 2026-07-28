@@ -12,7 +12,7 @@ import { withReduce } from '../src/with-lookup/reduce/index.js'
 import { money } from '../src/via/money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -44,7 +44,7 @@ interface Order extends Record<string, unknown> { id: string; amount: number; to
 
 async function ordersWith3() {
   const db = await createNoydb({
-    store: memory(),
+    store: toMemory(),
     user: 'alice',
     secret: 'aggregate-builder-secret-2026-test-x1',
     reduceStrategy: withReduce(),

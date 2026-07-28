@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb, withRollup, ValidationError, DerivationCycleError } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -63,7 +63,7 @@ describe('withRollup — factory validation (#376)', () => {
 describe('withRollup — aggregate maintenance (#376)', () => {
   async function setup(indexed = false) {
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'rollup-secret-2026',
+      store: toMemory(), user: 'alice', secret: 'rollup-secret-2026',
       derivationStrategies: [totalSpentRollup()],
     })
     const v = await db.openVault('firm')
@@ -139,7 +139,7 @@ describe('withRollup — aggregate maintenance (#376)', () => {
 
   it('supports an object aggregate (group-by-style) value', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'rollup-obj-secret-2026',
+      store: toMemory(), user: 'alice', secret: 'rollup-obj-secret-2026',
       derivationStrategies: [
         withRollup<Sale & { year: number }, Buyer>({
           from: 'sales', key: 'buyerId', into: 'buyers', field: 'byYear',
@@ -169,7 +169,7 @@ describe('withRollup — mutual/rotating cycle refusal at declare time (#639)', 
     const bRollsUpA = withRollup({ from: 'a', key: 'aId', into: 'b', field: 'x', compute: () => 0 })
     const aRollsUpB = withRollup({ from: 'b', key: 'bId', into: 'a', field: 'y', compute: () => 0 })
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'rollup-mutual-cycle-secret-2026',
+      store: toMemory(), user: 'alice', secret: 'rollup-mutual-cycle-secret-2026',
       derivationStrategies: [bRollsUpA, aRollsUpB],
     })
     await expect(db.openVault('demo')).rejects.toBeInstanceOf(DerivationCycleError)
@@ -180,7 +180,7 @@ describe('withRollup — mutual/rotating cycle refusal at declare time (#639)', 
     const cRollsUpB = withRollup({ from: 'b', key: 'bId', into: 'c', field: 'y', compute: () => 0 })
     const aRollsUpC = withRollup({ from: 'c', key: 'cId', into: 'a', field: 'z', compute: () => 0 })
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'rollup-rotation-cycle-secret-2026',
+      store: toMemory(), user: 'alice', secret: 'rollup-rotation-cycle-secret-2026',
       derivationStrategies: [bRollsUpA, cRollsUpB, aRollsUpC],
     })
     await expect(db.openVault('demo')).rejects.toBeInstanceOf(DerivationCycleError)
@@ -190,7 +190,7 @@ describe('withRollup — mutual/rotating cycle refusal at declare time (#639)', 
     const bRollsUpA = withRollup({ from: 'a', key: 'aId', into: 'b', field: 'x', compute: () => 0 })
     const cRollsUpB = withRollup({ from: 'b', key: 'bId', into: 'c', field: 'z', compute: () => 0 })
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'rollup-acyclic-chain-secret-2026',
+      store: toMemory(), user: 'alice', secret: 'rollup-acyclic-chain-secret-2026',
       derivationStrategies: [bRollsUpA, cRollsUpB],
     })
     await expect(db.openVault('demo')).resolves.toBeDefined()

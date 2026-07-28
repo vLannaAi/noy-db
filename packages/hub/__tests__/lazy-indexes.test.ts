@@ -4,7 +4,7 @@ import { withIndexing } from '../src/with-lookup/indexing/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { IndexRequiredError } from '../src/kernel/errors.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function col(c: string, n: string): Map<string, EncryptedEnvelope> {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -53,7 +53,7 @@ const LAZY = { prefetch: false as const, cache: { maxRecords: 100 } }
 const SECRET = 'lazy-indexes-secret-2026'
 
 async function openLazy(indexes: string[] = ['clientId', 'period']) {
-  const adapter = memory()
+  const adapter = toMemory()
   const db = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexingStrategy: withIndexing() })
   const vault = await db.openVault('ACME')
   const coll = vault.collection<Disbursement>('disbursements', {
@@ -210,7 +210,7 @@ describe('lazy-mode indexes — bulk-load from pre-existing side-cars', () => {
     // open a second Noydb pointed at the SAME adapter. The second
     // collection has no prior mirror state — it must bulk-load from
     // `_idx/*` on first query.
-    const adapter = memory()
+    const adapter = toMemory()
     const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexingStrategy: withIndexing() })
     const v1 = await db1.openVault('ACME')
     const c1 = v1.collection<Disbursement>('disbursements', { ...LAZY, indexes: ['clientId'] })
@@ -229,7 +229,7 @@ describe('lazy-mode indexes — bulk-load from pre-existing side-cars', () => {
 
 describe('lazy-mode indexes — rebuildIndexes + reconcileIndex', () => {
   it('rebuildIndexes() backfills side-cars when a new field is added after records exist', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
 
     // Phase 1: write records with only clientId declared.
     const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexingStrategy: withIndexing() })
@@ -295,7 +295,7 @@ describe('lazy-mode indexes — rebuildIndexes + reconcileIndex', () => {
   })
 
   it('reconcileIndex() rejects eager-mode collections with a helpful error', async () => {
-    const db = await createNoydb({ store: memory(), user: 'owner', secret: SECRET, indexingStrategy: withIndexing() })
+    const db = await createNoydb({ store: toMemory(), user: 'owner', secret: SECRET, indexingStrategy: withIndexing() })
     const vault = await db.openVault('ACME')
     const eager = vault.collection<Disbursement>('disbursements', { indexes: ['clientId'] })
     await expect(eager.reconcileIndex('clientId')).rejects.toThrow(/only meaningful in lazy mode/)

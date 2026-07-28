@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb, withDerivation, DerivationCycleError } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -45,7 +45,7 @@ describe('Vault.derivationRegistry wiring', () => {
       lifecycle: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-vault-wiring-secret-2026',
       derivationStrategies: [handle],
@@ -58,7 +58,7 @@ describe('Vault.derivationRegistry wiring', () => {
 
   it('createNoydb works without derivationStrategies (null registry)', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-vault-wiring-empty-secret-2026',
     })
@@ -90,7 +90,7 @@ describe('Vault.derivationRegistry wiring', () => {
       lifecycle: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-vault-wiring-cycle-secret-2026',
       derivationStrategies: [a, b],

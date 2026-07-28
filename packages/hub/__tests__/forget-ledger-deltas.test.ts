@@ -18,7 +18,7 @@ import { paddedIndex } from '../src/with-commit/history/ledger/entry.js'
 import { withForget } from '../src/with-audit/forget/index.js'
 
 // Inline memory adapter (same shape as other ledger test files).
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -71,7 +71,7 @@ interface Doc { id: string; body: string; buyerId: string }
 
 describe('vault.forget() purges _ledger_deltas (#734)', () => {
   it('deletes the forgotten record’s delta rows, keeps verify() ok, leaves siblings intact', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     const db = await createNoydb({
       store: adapter,
       user: 'alice', historyStrategy: withHistory(),
@@ -110,7 +110,7 @@ describe('vault.forget() purges _ledger_deltas (#734)', () => {
   })
 
   it('fails FAST without a history strategy — nothing shredded', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     const db = await createNoydb({
       store: adapter,
       user: 'alice',

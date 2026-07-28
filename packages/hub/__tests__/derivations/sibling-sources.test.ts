@@ -3,7 +3,7 @@ import { createNoydb, withDerivation, DerivationCycleError } from '../../src/ind
 import { ValidationError } from '../../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -59,7 +59,7 @@ describe('Derivation — declared sibling sources[] (#344)', () => {
       lifecycle: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-sibling-rerun-secret-2026',
       derivationStrategies: [strategy],
@@ -89,7 +89,7 @@ describe('Derivation — declared sibling sources[] (#344)', () => {
       lifecycle: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-sibling-primary-secret-2026',
       derivationStrategies: [strategy],
@@ -117,7 +117,7 @@ describe('Derivation — declared sibling sources[] (#344)', () => {
       lifecycle: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-sibling-noprimary-secret-2026',
       derivationStrategies: [strategy],
@@ -145,7 +145,7 @@ describe('Derivation — declared sibling sources[] (#344)', () => {
       lifecycle: 'lazy',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-sibling-lazy-secret-2026',
       derivationStrategies: [strategy],
@@ -178,7 +178,7 @@ describe('Derivation — declared sibling sources[] (#344)', () => {
       lifecycle: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-sibling-multi-secret-2026',
       derivationStrategies: [strategy],
@@ -230,7 +230,7 @@ describe('Derivation — declared sibling sources[] (#344)', () => {
       lifecycle: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-sibling-cycle-secret-2026',
       derivationStrategies: [cyclic],

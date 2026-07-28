@@ -10,7 +10,7 @@
  * into `PeriodRecord`s on read only (`getPeriod` / `listPeriods`).
  *
  * Harness mirrors delete-tombstone-convergence.test.ts's white-box
- * `memory()` store (exposes `.raw()`) wired with `withSync()` so
+ * `toMemory()` store (exposes `.raw()`) wired with `withSync()` so
  * `delete()` leaves a marker instead of a physical removal.
  */
 import { describe, it, expect } from 'vitest'
@@ -23,7 +23,7 @@ import { withHistory } from '../src/with-commit/history/index.js'
 import { isDeleteMarker } from '../src/kernel/enclave/record-keys/tombstone.js'
 
 /** In-memory store exposing raw stored envelopes for white-box assertions. */
-function memory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
+function toMemory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -55,7 +55,7 @@ interface Row { amount: number; date: string }
 const V = 'V1'
 
 async function makeVault() {
-  const local = memory(); const remote = memory()
+  const local = toMemory(); const remote = toMemory()
   const db = await createNoydb({
     store: local,
     sync: remote,

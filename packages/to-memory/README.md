@@ -17,7 +17,7 @@ import { createNoydb } from '@noy-db/hub'
 import { memory } from '@noy-db/to-memory'
 
 const db = await createNoydb({
-  adapter: memory(),
+  adapter: toMemory(),
   userId: 'alice',
   secret: 'correct horse battery staple',
 })

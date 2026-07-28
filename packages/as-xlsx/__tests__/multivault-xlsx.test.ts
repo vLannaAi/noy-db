@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { ExportCapabilityError, createNoydb } from '@noy-db/hub'
-import { memory } from '@noy-db/to-memory'
+import { toMemory } from '@noy-db/to-memory'
 import { toBytesMultiVault, type MultiVaultDenormColumn } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
 
@@ -60,7 +60,7 @@ function readZipFile(bytes: Uint8Array, path: string): string | null {
 // ── test harness ───────────────────────────────────────────────────
 
 async function seedTwoVaults() {
-  const adapter = memory()
+  const adapter = toMemory()
 
   // First open as owner to set up vaults + data
   const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
@@ -80,7 +80,7 @@ async function seedTwoVaults() {
   return { db, adapter }
 }
 
-async function grantXlsxBothVaults(adapter: ReturnType<typeof memory>) {
+async function grantXlsxBothVaults(adapter: ReturnType<typeof toMemory>) {
   const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
   await db.grant('primary', {
     userId: 'owner-01', displayName: 'Owner', role: 'owner',
@@ -355,7 +355,7 @@ describe('toBytesMultiVault — denormalized columns', () => {
   })
 
   it('yields empty cell for unresolved FK (entity id not in closure/index)', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
 
     const primaryVault = await db.openVault('primary')

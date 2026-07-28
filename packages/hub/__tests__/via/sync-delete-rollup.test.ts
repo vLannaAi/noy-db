@@ -13,7 +13,7 @@ import { withSync } from '../../src/with-party/sync/index.js'
 import { isDeleteMarker, isTombstoneShape } from '../../src/kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -49,12 +49,12 @@ const orderCountRollup = () =>
 
 describe('sync-applied deletes reach the rollup dispatch wave (#640)', () => {
   it('db2-only registration (#646): pulled deletes recompute the parent — dedup, ordering, freshness', async () => {
-    const remote = memory()
+    const remote = toMemory()
     // db1 is a plain writer — it never registers the rollup, so any `orderCount` db2 ends up
     // with can only have come from db2's OWN wave-driven recompute (#646 mandate).
-    const db1 = await createNoydb({ store: memory(), sync: remote, user: 'user-1', syncStrategy: withSync(), encrypt: false })
+    const db1 = await createNoydb({ store: toMemory(), sync: remote, user: 'user-1', syncStrategy: withSync(), encrypt: false })
     const db2 = await createNoydb({
-      store: memory(), sync: remote, user: 'user-2', syncStrategy: withSync(), encrypt: false,
+      store: toMemory(), sync: remote, user: 'user-2', syncStrategy: withSync(), encrypt: false,
       derivationStrategies: [orderCountRollup()],
     })
 
@@ -102,16 +102,16 @@ describe('sync-applied deletes reach the rollup dispatch wave (#640)', () => {
   })
 
   it('#644 item 3: a wave recompute error on the DELETE path emits derivation:wave-error additively to console.warn', async () => {
-    const remote = memory()
+    const remote = toMemory()
     const boom = new Error('rollup compute exploded')
     const throwingRollup = () =>
       withRollup<Order, Customer>({
         from: 'orders', key: 'customerId', into: 'customers', field: 'orderCount',
         compute: () => { throw boom },
       })
-    const db1 = await createNoydb({ store: memory(), sync: remote, user: 'user-1', syncStrategy: withSync(), encrypt: false })
+    const db1 = await createNoydb({ store: toMemory(), sync: remote, user: 'user-1', syncStrategy: withSync(), encrypt: false })
     const db2 = await createNoydb({
-      store: memory(), sync: remote, user: 'user-2', syncStrategy: withSync(), encrypt: false,
+      store: toMemory(), sync: remote, user: 'user-2', syncStrategy: withSync(), encrypt: false,
       derivationStrategies: [throwingRollup()],
     })
 

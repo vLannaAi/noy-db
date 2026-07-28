@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createNoydb, classified } from '@noy-db/hub'
-import { memory } from '@noy-db/to-memory'
+import { toMemory } from '@noy-db/to-memory'
 import { toBytes, toBytesMultiVault, readXlsx } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
 
@@ -19,7 +19,7 @@ import { withTeam } from '@noy-db/hub/team'
  * is visible on the session).
  */
 async function makeVault() {
-  const adapter = memory()
+  const adapter = toMemory()
   const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
   await db.openVault('acme')
   await db.grant('acme', {

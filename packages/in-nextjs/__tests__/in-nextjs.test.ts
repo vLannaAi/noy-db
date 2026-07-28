@@ -16,7 +16,7 @@ import {
   type NoydbFactory,
 } from '../src/index.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string): Map<string, EncryptedEnvelope> => {
     let vm = store.get(v); if (!vm) { vm = new Map(); store.set(v, vm) }
@@ -67,7 +67,7 @@ function mockJar(): NextCookieJar & { store: Map<string, string> } {
 // ─── Test fixtures ─────────────────────────────────────────────────────
 
 async function setup(): Promise<{ factory: NoydbFactory; jar: ReturnType<typeof mockJar> }> {
-  const adapter = memory()
+  const adapter = toMemory()
   const jar = mockJar()
   const factory: NoydbFactory = async () => {
     return createNoydb({ store: adapter, user: 'owner', secret: 'pw' })
@@ -128,7 +128,7 @@ describe('configureNoydb / getNoydb', () => {
   it('factory receives the current session', async () => {
     const { jar } = await setup()
     let sessionSeen: { userId: string; sessionToken: string } | null = null
-    const adapter = memory()
+    const adapter = toMemory()
     const factory: NoydbFactory = async (s) => {
       sessionSeen = s
       return createNoydb({ store: adapter, user: 'owner', secret: 'pw' })

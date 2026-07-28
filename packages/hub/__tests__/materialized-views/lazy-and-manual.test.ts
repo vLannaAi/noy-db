@@ -3,7 +3,7 @@ import { createNoydb, withMaterializedView } from '../../src/index.js'
 import { isMVStale } from '../../src/with-formula/materialized-views/stale.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -47,7 +47,7 @@ describe('MV lazy lifecycle + vault.refreshView (#151)', () => {
       refresh: 'lazy',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-lazy-secret-2026',
       materializedViewStrategies: [lazyMV],
@@ -79,7 +79,7 @@ describe('MV lazy lifecycle + vault.refreshView (#151)', () => {
       refresh: 'lazy',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-lazy-restale-secret-2026',
       materializedViewStrategies: [lazyMV],
@@ -115,7 +115,7 @@ describe('MV lazy lifecycle + vault.refreshView (#151)', () => {
       refresh: 'manual',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-manual-secret-2026',
       materializedViewStrategies: [manualMV],
@@ -151,7 +151,7 @@ describe('MV lazy lifecycle + vault.refreshView (#151)', () => {
       refresh: 'lazy',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-refresh-clears-stale-secret-2026',
       materializedViewStrategies: [lazyMV],
@@ -170,7 +170,7 @@ describe('MV lazy lifecycle + vault.refreshView (#151)', () => {
 
   it('refreshView throws on unknown MV name', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-refresh-unknown-secret-2026',
     })
@@ -186,7 +186,7 @@ describe('MV lazy lifecycle + vault.refreshView (#151)', () => {
       refresh: 'manual',
     })
     const db2 = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-refresh-unknown-2-secret-2026',
       materializedViewStrategies: [mv],
@@ -203,7 +203,7 @@ describe('MV lazy lifecycle + vault.refreshView (#151)', () => {
       refresh: 'lazy',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-list-resolves-lazy-secret-2026',
       materializedViewStrategies: [lazyMV],
@@ -233,7 +233,7 @@ describe('MV lazy lifecycle + vault.refreshView (#151)', () => {
       refresh: 'manual',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-refresh-deleted-count-secret-2026',
       materializedViewStrategies: [mv],

@@ -19,7 +19,7 @@ import { adoptPartition, unsealDeks } from '../src/with-cargo/adopt-partition.js
 import { extractPartition, sealDeks } from '../src/with-cargo/extract-partition.js'
 import { writeNoydbBundle, readNoydbBundle, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -71,7 +71,7 @@ function memory(): NoydbStore {
 interface Client { id: string; name: string; operatorUserId: string }
 
 async function makeExtractedBundle() {
-  const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-secret-1234' })
+  const db = await createNoydb({ cargoStrategy: withCargo(), store: toMemory(), user: 'alice', secret: 'test-secret-1234' })
   const company = await db.openVault('demo-co')
   const clients = company.collection<Client>('clients')
   const bills = company.collection<{ id: string; clientId: string }>('bills', { refs: { clientId: ref('clients') } })
@@ -108,7 +108,7 @@ describe('unsealDeks', () => {
 describe('adoptPartition', () => {
   it('imports re-keyed collections + writes _meta/adoption, leaving the vault unowned', async () => {
     const { bundleBytes, transferKey, sealId } = await makeExtractedBundle()
-    const dest = memory()
+    const dest = toMemory()
 
     const result = await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'acme-hotel' })
 
@@ -132,23 +132,23 @@ describe('adoptPartition rejections', () => {
     const { bundleBytes } = await makeExtractedBundle()
     const wrong = crypto.getRandomValues(new Uint8Array(32))
     await expect(
-      adoptPartition(bundleBytes, { transferKey: wrong, destinationStore: memory(), vaultName: 'v' }),
+      adoptPartition(bundleBytes, { transferKey: wrong, destinationStore: toMemory(), vaultName: 'v' }),
     ).rejects.toThrow(TransferSealError)
   })
 
   it('throws ValidationError for a non-extracted (ordinary) bundle', async () => {
-    const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-secret-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: toMemory(), user: 'alice', secret: 'test-secret-1234' })
     const company = await db.openVault('demo-co')
     await company.collection<Client>('clients').put('c-1', { id: 'c-1', name: 'A', operatorUserId: 'belle' })
     const ordinary = await writeNoydbBundle(company)
     await expect(
-      adoptPartition(ordinary, { transferKey: crypto.getRandomValues(new Uint8Array(32)), destinationStore: memory(), vaultName: 'v' }),
+      adoptPartition(ordinary, { transferKey: crypto.getRandomValues(new Uint8Array(32)), destinationStore: toMemory(), vaultName: 'v' }),
     ).rejects.toThrow(/extracted-partition/)
   })
 
   it('rejects double adoption of the same partition into the same store', async () => {
     const { bundleBytes, transferKey } = await makeExtractedBundle()
-    const dest = memory()
+    const dest = toMemory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'acme' })
     await expect(
       adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'acme' }),
@@ -160,7 +160,7 @@ describe('adoptPartition rejections', () => {
     // marker-only guard would let adoptPartition's saveAll clobber it — on SQL
     // adapters that's DELETE WHERE vault=? and wipes the existing keyring,
     // making the downstream other-owners check meaningless.
-    const dest = memory()
+    const dest = toMemory()
     const aliceDb = await createNoydb({ cargoStrategy: withCargo(), store: dest, user: 'alice', secret: 'alice-secret-2026' })
     await (await aliceDb.openVault('taken')).collection<Client>('clients').put('a-1', { id: 'a-1', name: 'A', operatorUserId: 'alice' })
     expect(await dest.list('taken', '_keyring')).toEqual(['alice'])
@@ -178,7 +178,7 @@ describe('adoptPartition rejections', () => {
   it('refuses to adopt a DIFFERENT partition into a vault that already holds one (no clobber)', async () => {
     const a = await makeExtractedBundle()
     const b = await makeExtractedBundle() // fresh seal + transfer key → different sealId
-    const dest = memory()
+    const dest = toMemory()
     await adoptPartition(a.bundleBytes, { transferKey: a.transferKey, destinationStore: dest, vaultName: 'acme' })
 
     await expect(
@@ -193,8 +193,8 @@ describe('adoptPartition rejections', () => {
 
   it('allows adopting the same partition into a DIFFERENT store (bundle is unchanged)', async () => {
     const { bundleBytes, transferKey, sealId } = await makeExtractedBundle()
-    await adoptPartition(bundleBytes, { transferKey, destinationStore: memory(), vaultName: 'a' })
-    const second = await adoptPartition(bundleBytes, { transferKey, destinationStore: memory(), vaultName: 'b' })
+    await adoptPartition(bundleBytes, { transferKey, destinationStore: toMemory(), vaultName: 'a' })
+    const second = await adoptPartition(bundleBytes, { transferKey, destinationStore: toMemory(), vaultName: 'b' })
     expect(second.sealId).toBe(sealId)
   })
 })
@@ -202,7 +202,7 @@ describe('adoptPartition rejections', () => {
 describe('adoptPartition end-to-end', () => {
   it('adopted records decrypt under the DEKs recovered from the transfer seal', async () => {
     const { bundleBytes, transferKey } = await makeExtractedBundle()
-    const dest = memory()
+    const dest = toMemory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'acme' })
 
     const { seal } = parseExtractedPartitionBody((await readNoydbBundle(bundleBytes)).dumpJson)

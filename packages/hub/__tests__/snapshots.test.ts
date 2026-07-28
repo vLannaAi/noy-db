@@ -3,7 +3,7 @@ import { NO_SNAPSHOTS } from '../src/with-fork/snapshots/strategy.js'
 import type { SnapshotMeta, RetentionPolicy, SnapshotIndex } from '../src/with-fork/snapshots/strategy.js'
 import { SnapshotNotFoundError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
-import { memory } from '../../to-memory/src/index.js'
+import { toMemory } from '../../to-memory/src/index.js'
 import { SnapshotEngine } from '../src/with-fork/snapshots/engine.js'
 import { withSnapshots } from '../src/with-fork/snapshots/active.js'
 import type { NoydbBundleStore } from '../src/kernel/types.js'
@@ -78,29 +78,29 @@ describe('SnapshotNotFoundError', () => {
 
 describe('Noydb.snapshot / listSnapshots / restoreSnapshot without snapshotsStrategy', () => {
   it('snapshot() throws when strategy not configured', async () => {
-    const db = await createNoydb({ store: memory(), user: 'u1', secret: 'pass' })
+    const db = await createNoydb({ store: toMemory(), user: 'u1', secret: 'pass' })
     await db.openVault('v1')
     await expect(db.snapshot('v1')).rejects.toThrow('withSnapshots')
   })
 
   it('listSnapshots() throws when strategy not configured', async () => {
-    const db = await createNoydb({ store: memory(), user: 'u1', secret: 'pass' })
+    const db = await createNoydb({ store: toMemory(), user: 'u1', secret: 'pass' })
     await expect(db.listSnapshots('v1')).rejects.toThrow('withSnapshots')
   })
 
   it('restoreSnapshot() throws when strategy not configured', async () => {
-    const db = await createNoydb({ store: memory(), user: 'u1', secret: 'pass' })
+    const db = await createNoydb({ store: toMemory(), user: 'u1', secret: 'pass' })
     await db.openVault('v1')
     await expect(db.restoreSnapshot('v1', 'v1__snap_000001')).rejects.toThrow('withSnapshots')
   })
 
   it('snapshot() throws ValidationError when vault not open', async () => {
-    const db = await createNoydb({ store: memory(), user: 'u1', secret: 'pass' })
+    const db = await createNoydb({ store: toMemory(), user: 'u1', secret: 'pass' })
     await expect(db.snapshot('not-open')).rejects.toThrow('not open')
   })
 
   it('restoreSnapshot() throws ValidationError when vault not open', async () => {
-    const db = await createNoydb({ store: memory(), user: 'u1', secret: 'pass' })
+    const db = await createNoydb({ store: toMemory(), user: 'u1', secret: 'pass' })
     await expect(db.restoreSnapshot('not-open', 'v1__snap_000001')).rejects.toThrow('not open')
   })
 })
@@ -431,7 +431,7 @@ describe('withSnapshots — policy passthrough', () => {
 describe('Noydb auto-cadence wiring', () => {
   it('manual default wires no auto-snapshot on writes', async () => {
     const store = makeMockStore()
-    const db = await createNoydb({ store: memory(), user: 'u', secret: 'pw', snapshotsStrategy: withSnapshots({ store }) })
+    const db = await createNoydb({ store: toMemory(), user: 'u', secret: 'pw', snapshotsStrategy: withSnapshots({ store }) })
     const v = await db.openVault('cad1')
     const c = v.collection<{ id: string; n: number }>('items')
     await c.put('a', { id: 'a', n: 1 })
@@ -444,7 +444,7 @@ describe('Noydb auto-cadence wiring', () => {
   it('debounce policy auto-snapshots after a write and is restorable', async () => {
     const store = makeMockStore()
     const db = await createNoydb({
-      store: memory(), user: 'u', secret: 'pw',
+      store: toMemory(), user: 'u', secret: 'pw',
       snapshotsStrategy: withSnapshots({ store, snapshotPolicy: { mode: 'debounce', debounceMs: 10, onUnload: false } }),
     })
     const v = await db.openVault('cad2')
@@ -474,7 +474,7 @@ describe('Noydb auto-cadence wiring', () => {
       policy: { mode: 'interval' as const, intervalMs: 15, onUnload: false },
     }
     const db = await createNoydb({
-      store: memory(), user: 'u', secret: 'pw',
+      store: toMemory(), user: 'u', secret: 'pw',
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       snapshotsStrategy: failingStrategy as any,
     })
@@ -490,7 +490,7 @@ describe('Noydb auto-cadence wiring', () => {
   it('close() stops the scheduler (no auto-snapshot after close)', async () => {
     const store = makeMockStore()
     const db = await createNoydb({
-      store: memory(), user: 'u', secret: 'pw',
+      store: toMemory(), user: 'u', secret: 'pw',
       snapshotsStrategy: withSnapshots({ store, snapshotPolicy: { mode: 'debounce', debounceMs: 50, onUnload: false } }),
     })
     const v = await db.openVault('cad3')

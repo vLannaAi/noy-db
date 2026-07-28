@@ -10,14 +10,14 @@
  *      still rejects via the gate path.
  */
 import { describe, it, expect } from 'vitest'
-import { memory } from '../../to-memory/src/index.js'
+import { toMemory } from '../../to-memory/src/index.js'
 import { PeriodClosedError, createNoydb } from '../src/index.js'
 import { withPeriods } from '../src/with-audit/periods/index.js'
 
 describe('periods gate migration (Track A slice 3a)', () => {
   it('plain Noydb has no gate handlers for beforePut or beforeDelete', async () => {
     const plain = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       encrypt: false,
     })
@@ -28,7 +28,7 @@ describe('periods gate migration (Track A slice 3a)', () => {
 
   it('Noydb with periodsStrategy registers gate handlers for beforePut and beforeDelete', async () => {
     const withP = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       encrypt: false,
       periodsStrategy: withPeriods(),
@@ -40,7 +40,7 @@ describe('periods gate migration (Track A slice 3a)', () => {
 
   it('closed-period rejection still works after gate registration', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       encrypt: false,
       periodsStrategy: withPeriods(),

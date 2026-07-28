@@ -15,7 +15,7 @@
  *   - openPeriod materialises opening balances via time-machine view
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import { memory } from '../../to-memory/src/index.js'
+import { toMemory } from '../../to-memory/src/index.js'
 import { ValidationError, PeriodClosedError, createNoydb } from '../src/index.js'
 import { withPeriods, periodExclusiveUpperBound } from '../src/with-audit/periods/index.js'
 import type { Noydb } from '../src/index.js'
@@ -27,7 +27,7 @@ describe('vault.closePeriod() + openPeriod() — v0.17 / ', () => {
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       encrypt: false,
       periodsStrategy: withPeriods(),
@@ -186,7 +186,7 @@ describe('vault.closePeriod() + openPeriod() — v0.17 / ', () => {
     })
 
     it('period cache reloads from adapter in a fresh Vault instance', async () => {
-      const store = memory()
+      const store = toMemory()
       const db1 = await createNoydb({ store, user: 'owner', encrypt: false, periodsStrategy: withPeriods() })
       const v1 = await db1.openVault('acme')
       await v1.collection<Invoice>('invoices').put('inv-1', { amount: 100, status: 'draft', date: '2026-01-15' })

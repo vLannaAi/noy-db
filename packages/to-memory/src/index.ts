@@ -35,14 +35,17 @@ import { ConflictError } from '@noy-db/hub/to'
  * No persistence — data is lost when the process exits.
  * Intended for testing and development.
  */
-export function memory(opts: { clockUncertainty?: number } = {}): NoydbStore {
+export function toMemory(opts: { clockUncertaintyMs?: number } = {}): NoydbStore {
   // vault -> collection -> id -> envelope
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
 
-  // Monotonic store clock — a single-process counter is perfectly ordered.
-  // `clockUncertainty` (ε) widens the returned interval to exercise the
-  // commit-wait path in deferred numbering; default 0 (exact).
-  const epsilon = opts.clockUncertainty ?? 0
+  // Monotonic store clock in MILLISECONDS. `Math.max(clock + 1, Date.now())`
+  // keeps it strictly increasing even when two calls land inside the same
+  // millisecond, so ordering is exact while the unit stays real wall-clock ms
+  // — which is what makes `clockUncertaintyMs` an honest name (#845). ε widens
+  // the returned interval to exercise the commit-wait path in deferred
+  // numbering; default 0 (exact).
+  const epsilon = opts.clockUncertaintyMs ?? 0
   let clock = 0
 
   function getCollection(vault: string, collection: string): Map<string, EncryptedEnvelope> {
@@ -69,13 +72,18 @@ export function memory(opts: { clockUncertainty?: number } = {}): NoydbStore {
     capabilities: {
       casAtomic: true,
       serverWriteTime: true,
+      // #845 — tx() below is implemented, so the bit MUST be declared or the
+      // hub will skip it the day `transaction.ts` starts delegating. The
+      // JSDoc claimed `txAtomic: true` while the object never set it — the
+      // same shape as the casAtomic bug recorded above.
+      txAtomic: true,
       auth: { kind: 'none', required: false, flow: 'static' },
     },
 
     // #322-sibling — authoritative store clock for deferred numbering. A
     // single-process counter is perfectly monotonic; ε widens the interval.
     async getStoreTime() {
-      const now = ++clock
+      const now = (clock = Math.max(clock + 1, Date.now()))
       return { earliest: now - epsilon, latest: now + epsilon }
     },
 

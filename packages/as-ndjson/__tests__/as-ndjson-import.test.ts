@@ -5,7 +5,7 @@ import { withTransactions } from '@noy-db/hub/transactions'
 import { fromString } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string) => {
     let comp = store.get(v); if (!comp) { comp = new Map(); store.set(v, comp) }
@@ -44,7 +44,7 @@ function memory(): NoydbStore {
 interface Note { id: string; text: string }
 
 async function setup() {
-  const adapter = memory()
+  const adapter = toMemory()
   const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
   await init.openVault('demo')
   await init.grant('demo', {

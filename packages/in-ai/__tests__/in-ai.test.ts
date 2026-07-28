@@ -12,7 +12,7 @@ import {
   type AnthropicTool,
 } from '../src/index.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string): Map<string, EncryptedEnvelope> => {
     let vm = store.get(v); if (!vm) { vm = new Map(); store.set(v, vm) }
@@ -51,7 +51,7 @@ function memory(): NoydbStore {
 interface Invoice { id: string; amt: number }
 
 async function setup() {
-  const db = await createNoydb({ store: memory(), user: 'owner', secret: 'pw' })
+  const db = await createNoydb({ store: toMemory(), user: 'owner', secret: 'pw' })
   const vault = await db.openVault('acme')
   const invoices = vault.collection<Invoice>('invoices')
   const payments = vault.collection<{ id: string; amt: number }>('payments')

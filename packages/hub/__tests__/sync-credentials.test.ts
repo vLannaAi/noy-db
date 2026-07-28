@@ -19,7 +19,7 @@ import { ConflictError } from '../src/kernel/errors.js'
 
 // ─── Inline memory adapter ─────────────────────────────────────────────────
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -66,7 +66,7 @@ let adapter: NoydbStore
 let ownerKeyring: UnlockedKeyring
 
 beforeEach(async () => {
-  adapter = memory()
+  adapter = toMemory()
   ownerKeyring = await createOwnerKeyring(adapter, COMPARTMENT, { userId: 'owner', secret: 'secret-owner-pw' })
 })
 

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb, withMaterializedView, MaterializedViewCycleError } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -55,7 +55,7 @@ describe('MV foundation (#150) — end-to-end', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-foundation-eager-secret-2026',
       materializedViewStrategies: [openInvoicesMV],
@@ -93,7 +93,7 @@ describe('MV foundation (#150) — end-to-end', () => {
       // No output.collection → writes to 'big-items'
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-foundation-default-output-secret-2026',
       materializedViewStrategies: [mv],
@@ -119,7 +119,7 @@ describe('MV foundation (#150) — end-to-end', () => {
     await expect(
       (async () => {
         const db = await createNoydb({
-          store: memory(),
+          store: toMemory(),
           user: 'alice',
           secret: 'mv-foundation-cycle-secret-2026',
           materializedViewStrategies: [cyclic],
@@ -139,7 +139,7 @@ describe('MV foundation (#150) — end-to-end', () => {
       output: { collection: 'red-items' },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-foundation-explicit-output-secret-2026',
       materializedViewStrategies: [mv],
@@ -164,7 +164,7 @@ describe('MV foundation (#150) — end-to-end', () => {
       refresh: 'manual',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-foundation-manual-secret-2026',
       materializedViewStrategies: [manualMV],

@@ -15,7 +15,7 @@ import { withReduce } from '../src/with-lookup/reduce/index.js'
 import { dictKey } from '../src/via/i18n/dictionary.js'
 import { sum, count } from '../src/with-lookup/reduce/index.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -53,7 +53,7 @@ interface Invoice {
 }
 
 async function setup() {
-  const adapter = memory()
+  const adapter = toMemory()
   const db = await createNoydb({ store: adapter, user: 'alice', i18nStrategy: withI18n(), encrypt: false, reduceStrategy: withReduce() })
   const company = await db.openVault('company')
 

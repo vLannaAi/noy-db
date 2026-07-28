@@ -6,7 +6,7 @@ import { sum, min, max, count, avg } from '../../src/with-lookup/reduce/reducers
 import { money, MoneyUnsupportedError } from '../../src/via/money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -38,7 +38,7 @@ interface Line extends Record<string, unknown> { id: string; total: number | str
 
 async function vaultWith(moneyField: ReturnType<typeof money>) {
   const db = await createNoydb({
-    store: memory(),
+    store: toMemory(),
     user: 'alice',
     secret: 'money-aggregate-secret-2026-pilot3-exact',
     reduceStrategy: withReduce(),
@@ -163,7 +163,7 @@ describe('money aggregation — exact', () => {
   it('grouped sum over a money field is exact per bucket', async () => {
     interface Sale extends Record<string, unknown> { id: string; buyer: string; total: number | string }
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'money-grouped-secret-2026-pilot3',
       reduceStrategy: withReduce(),

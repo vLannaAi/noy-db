@@ -7,7 +7,7 @@ import { sum } from '../../src/with-lookup/reduce/reducers.js'
 import { money } from '../../src/via/money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -42,7 +42,7 @@ interface Line extends Record<string, unknown> {
 
 async function vault(extra?: { aggregate?: boolean }) {
   const db = await createNoydb({
-    store: memory(), user: 'alice', secret: 'computed-fields-secret-2026-pilot3',
+    store: toMemory(), user: 'alice', secret: 'computed-fields-secret-2026-pilot3',
     ...(extra?.aggregate ? { reduceStrategy: withReduce() } : {}),
   })
   return db.openVault('books')

@@ -11,7 +11,7 @@ import { withSearch } from '../src/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -61,7 +61,7 @@ describe('hybrid retrieve leakage (#308 L3 privacy invariant)', () => {
   it('hybrid retrieve with within writes no new store keys', async () => {
     // Wrap the memory store to record every put as "${col}/${id}"
     const writes = new Set<string>()
-    const base = memory()
+    const base = toMemory()
     const wrapped: NoydbStore = {
       ...base,
       async put(c, col, id, env, ev) {
@@ -92,7 +92,7 @@ describe('hybrid retrieve leakage (#308 L3 privacy invariant)', () => {
 
   it('lexical retrieve with within also writes no new store keys', async () => {
     const writes = new Set<string>()
-    const base = memory()
+    const base = toMemory()
     const wrapped: NoydbStore = {
       ...base,
       async put(c, col, id, env, ev) {
@@ -119,7 +119,7 @@ describe('hybrid retrieve leakage (#308 L3 privacy invariant)', () => {
 
   it('semantic retrieve with within also writes no new store keys', async () => {
     const writes = new Set<string>()
-    const base = memory()
+    const base = toMemory()
     const wrapped: NoydbStore = {
       ...base,
       async put(c, col, id, env, ev) {

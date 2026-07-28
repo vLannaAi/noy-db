@@ -21,7 +21,7 @@ import type { Noydb } from '../../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 
 // Same in-memory store shape as lookup-vocabulary.test.ts / lookup-altkeys.test.ts.
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -60,7 +60,7 @@ function memory(): NoydbStore {
 }
 
 async function freshDb(): Promise<Noydb> {
-  return createNoydb({ store: memory(), user: 'a', secret: 'lookup-ref-semantics-pass-2026', i18nStrategy: withI18n() })
+  return createNoydb({ store: toMemory(), user: 'a', secret: 'lookup-ref-semantics-pass-2026', i18nStrategy: withI18n() })
 }
 
 interface Order extends Record<string, unknown> { id: string; status: string }

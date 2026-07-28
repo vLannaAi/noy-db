@@ -10,7 +10,7 @@ import {
 } from '@noy-db/hub'
 import { useMigrationState } from '../src/useMigrationState.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function bucket(v: string, c: string) {
     let comp = store.get(v); if (!comp) { comp = new Map(); store.set(v, comp) }
@@ -60,7 +60,7 @@ async function open(store: NoydbStore): Promise<Noydb> {
 
 describe('useMigrationState', () => {
   it('seeds from the live fence on mount (including a non-normal state)', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await open(store)
     await db.openVault('demo')
     await seedFence(store, 'demo', 2, 'draining')
@@ -74,7 +74,7 @@ describe('useMigrationState', () => {
   })
 
   it('updates the refs when schema:fence-changed fires', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await open(store)
     const vault = await db.openVault('demo')
     await seedFence(store, 'demo', 2, 'draining')
@@ -92,7 +92,7 @@ describe('useMigrationState', () => {
   })
 
   it('ignores events for a different vault', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await open(store)
     const vault = await db.openVault('demo')
     const scope = effectScope()
@@ -105,7 +105,7 @@ describe('useMigrationState', () => {
   })
 
   it('unsubscribes on scope dispose (no update after stop)', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await open(store)
     const vault = await db.openVault('demo')
     await seedFence(store, 'demo', 3, 'draining')

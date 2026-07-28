@@ -7,7 +7,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 // value, not lexically by the stored scaled-int string ('9882' vs '10004'
 // → '9' > '1' was wrong). Consistent with where (#336) and sum.
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -39,7 +39,7 @@ interface Invoice extends Record<string, unknown> { id: string; total: number | 
 const schema = z.object({ id: z.string(), total: z.union([z.number(), z.string()]) })
 
 async function seed(values: Array<[string, number | string]>) {
-  const db = await createNoydb({ store: memory(), user: 'a', secret: 'money-orderby-2026' })
+  const db = await createNoydb({ store: toMemory(), user: 'a', secret: 'money-orderby-2026' })
   const vault = await db.openVault('books')
   const col = vault.collection<Invoice>('invoices', { schema, moneyFields: { total: money({ currency: 'EUR', scale: 2 }) } })
   for (const [id, total] of values) await col.put(id, { id, total })

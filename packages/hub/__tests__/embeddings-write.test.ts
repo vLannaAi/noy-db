@@ -8,7 +8,7 @@ import type { Noydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError, EmbeddingDimMismatchError } from '../src/kernel/errors.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -55,7 +55,7 @@ const enc = (dim: number, model = 'stub') => ({
 
 describe('embeddings write derivation (#308 L2)', () => {
   it('put derives an ENCRYPTED _vec sidecar (no plaintext vector), not hydrated as a record', async () => {
-    const store = memory()
+    const store = toMemory()
     const puts: string[] = []
     const wrapped: NoydbStore = { ...store, async put(c, col, id, e, ev) { puts.push(`${col}/${id}`); return store.put(c, col, id, e, ev) } }
     const db = await createNoydb({ store: wrapped, user: 'a', secret: 'pw-emb', searchStrategy: withSearch() })
@@ -69,14 +69,14 @@ describe('embeddings write derivation (#308 L2)', () => {
   })
 
   it('dim mismatch → EmbeddingDimMismatchError', async () => {
-    const db = await createNoydb({ store: memory(), user: 'a', secret: 'pw', searchStrategy: withSearch() })
+    const db = await createNoydb({ store: toMemory(), user: 'a', secret: 'pw', searchStrategy: withSearch() })
     const v = await db.openVault('v')
     const c = v.collection<Doc>('d', { embeddings: { ...enc(8), encode: async () => new Float32Array(4) } })
     await expect(c.put('x', { id: 'x', text: 'hi' })).rejects.toThrow(EmbeddingDimMismatchError)
   })
 
   it('CRDT + embeddings → throws at construction (guard)', async () => {
-    const db = await createNoydb({ store: memory(), user: 'a', secret: 'pw', searchStrategy: withSearch() })
+    const db = await createNoydb({ store: toMemory(), user: 'a', secret: 'pw', searchStrategy: withSearch() })
     const v = await db.openVault('v')
     expect(() =>
       v.collection<Doc>('d', { embeddings: enc(8), crdt: 'lww-map' }),

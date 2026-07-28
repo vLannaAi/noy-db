@@ -4,7 +4,7 @@ import { withTransactions } from '../../src/with-commit/tx/index.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -65,7 +65,7 @@ describe('withDerivation — optional outputs (#144)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-optional-outputs-secret-2026',
       derivationStrategies: [strategy],
@@ -101,7 +101,7 @@ describe('withDerivation — optional outputs (#144)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-optional-delete-secret-2026',
       derivationStrategies: [strategy],
@@ -134,7 +134,7 @@ describe('withDerivation — optional outputs (#144)', () => {
       strict: true,
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-required-null-rejects-secret-2026',
       derivationStrategies: [strategy],
@@ -173,7 +173,7 @@ describe('withDerivation — optional outputs (#144)', () => {
       },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-tombstone-bypasses-ondelete-secret-2026',
       derivationStrategies: [allocationDerivation],
@@ -229,7 +229,7 @@ describe('withDerivation — optional outputs (#144)', () => {
       },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-tombstone-lazy-bypasses-ondelete-secret-2026',
       derivationStrategies: [allocationDerivation],
@@ -281,7 +281,7 @@ describe('withDerivation — optional outputs (#144)', () => {
       lifecycle: 'lazy',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-tombstone-lazy-tx-wiring-secret-2026',
       derivationStrategies: [allocationDerivation],
@@ -328,7 +328,7 @@ describe('withDerivation — optional outputs (#144)', () => {
       lifecycle: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-deriveAll-idempotency-secret-2026',
       derivationStrategies: [strategy],
@@ -395,7 +395,7 @@ describe('withDerivation — optional outputs (#144)', () => {
       },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-tombstone-in-amendment-secret-2026',
       derivationStrategies: [allocationDerivation],
@@ -443,7 +443,7 @@ describe('withDerivation — optional outputs (#144)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-optional-lazy-secret-2026',
       derivationStrategies: [strategy],

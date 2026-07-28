@@ -4,7 +4,7 @@ import { withIndexing } from '../src/with-lookup/indexing/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { IndexRequiredError } from '../src/kernel/errors.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function col(c: string, n: string): Map<string, EncryptedEnvelope> {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -54,7 +54,7 @@ const LAZY = { prefetch: false as const, cache: { maxRecords: 100 } }
 const SECRET = 'lazy-range-composite-2026'
 
 async function openLazy(indexes: (string | readonly string[] | { fields: readonly string[] })[]) {
-  const adapter = memory()
+  const adapter = toMemory()
   const db = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexingStrategy: withIndexing() })
   const vault = await db.openVault('ACME')
   const coll = vault.collection<Row>('records', { ...LAZY, indexes })

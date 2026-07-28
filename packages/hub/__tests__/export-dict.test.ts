@@ -13,7 +13,7 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import { withI18n } from '../src/via/i18n/index.js'
 import { dictKey } from '../src/via/i18n/dictionary.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -51,7 +51,7 @@ interface Invoice {
 }
 
 async function setup() {
-  const adapter = memory()
+  const adapter = toMemory()
   const db = await createNoydb({ store: adapter, user: 'alice', i18nStrategy: withI18n(), encrypt: false })
   const company = await db.openVault('company')
 
@@ -153,7 +153,7 @@ describe('exportStream() dictionary snapshot (v0.8)', () => {
   })
 
   it('exportJSON with no dict collections produces no _dictionaries key', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     const db = await createNoydb({ store: adapter, user: 'alice', i18nStrategy: withI18n(), encrypt: false })
     const co = await db.openVault('empty')
     const plain = co.collection<{ id: string; name: string }>('plain')

@@ -17,7 +17,7 @@ import { withTransactions } from '../../src/with-commit/tx/index.js'
 import type { TransactionInvariant } from '../../src/with-commit/tx/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -71,7 +71,7 @@ const assertR1: TransactionInvariant = {
 describe('withTransactions({ invariants }) — commit-time changeset invariants', () => {
   it('commits when the invariant passes', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'tx-invariants-pass-secret-2026',
       transactionsStrategy: withTransactions({ invariants: [assertR1] }),
@@ -87,7 +87,7 @@ describe('withTransactions({ invariants }) — commit-time changeset invariants'
 
   it('throws InvariantError and rolls back ALL writes when the invariant fails', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'tx-invariants-fail-secret-2026',
       transactionsStrategy: withTransactions({ invariants: [assertR1] }),
@@ -122,7 +122,7 @@ describe('withTransactions({ invariants }) — commit-time changeset invariants'
       },
     }
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'tx-invariants-beforeafter-secret-2026',
       transactionsStrategy: withTransactions({ invariants: [captureInv] }),
@@ -153,7 +153,7 @@ describe('withTransactions({ invariants }) — commit-time changeset invariants'
       check: () => { called = true },
     }
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'tx-invariants-unrelated-secret-2026',
       transactionsStrategy: withTransactions({ invariants: [assertR1, unrelated] }),
@@ -179,7 +179,7 @@ describe('withTransactions({ invariants }) — commit-time changeset invariants'
       },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'tx-invariants-amendment-secret-2026',
       guardStrategies: [guard],

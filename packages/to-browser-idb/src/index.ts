@@ -35,7 +35,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub/t
 import { ConflictError } from '@noy-db/hub/to'
 
 /**
- * Options for `browserIdbStore()`.
+ * Options for `toBrowserIdb()`.
  *
  * All NOYDB data is stored in a single IndexedDB database named
  * `{prefix}_noydb`, using composite string keys of the form
@@ -61,7 +61,7 @@ export interface BrowserIdbOptions {
  *   casAtomic: true  — CAS check + write happen inside a single readwrite IDB transaction
  *   auth: { kind: 'browser-origin', flow: 'implicit', required: false }
  */
-export function browserIdbStore(options: BrowserIdbOptions = {}): NoydbStore {
+export function toBrowserIdb(options: BrowserIdbOptions = {}): NoydbStore {
   const prefix = options.prefix ?? 'noydb'
   const obfuscate = options.obfuscate ?? false
   const obfKey = obfuscate ? makeObfKey(prefix) : ''

@@ -13,7 +13,7 @@
  */
 
 import { createNoydb, type Noydb, type Vault, type Collection } from '@noy-db/hub'
-import { browserIdbStore } from '@noy-db/to-browser-idb'
+import { toBrowserIdb } from '@noy-db/to-browser-idb'
 import './style.css'
 
 // ─── Domain type ────────────────────────────────────────────────────
@@ -63,7 +63,7 @@ async function unlock() {
   showStatus('Unlocking vault…')
 
   db = await createNoydb({
-    store: browserIdbStore({ prefix: '{{PROJECT_NAME}}' }),
+    store: toBrowserIdb({ prefix: '{{PROJECT_NAME}}' }),
     user: 'owner',
     secret: secret,
   })

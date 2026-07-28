@@ -107,10 +107,10 @@ describe('@noy-db/at-env — integration with @noy-db/hub managed-secret mode', 
   // near the 5s vitest default when parallel suites compete for CPU.
   it('round-trips a managed-mode vault end-to-end (no user secret typed)', async () => {
     const { createNoydb } = await import('@noy-db/hub')
-    const { memory } = await import('@noy-db/to-memory')
+    const { toMemory } = await import('@noy-db/to-memory')
     const { shamirRecoveryProvider } = await import('@noy-db/on-shamir')
 
-    const store = memory()
+    const store = toMemory()
     const provider = envSealingProvider({ envVar: TEST_ENV })
 
     // First open — hub mints + seals via at-env, derives KEK, and

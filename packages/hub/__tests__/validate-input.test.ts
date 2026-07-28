@@ -12,7 +12,7 @@ import { ConflictError } from '../src/kernel/errors.js'
 
 // ─── Inline memory adapter (mirrored from schema.test.ts) ─────────────
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -75,7 +75,7 @@ type Item = z.infer<typeof ItemSchema>
 describe('Collection.validateInput', () => {
   it('returns the record when it matches the schema', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'test-secret-1234',
     })
@@ -87,7 +87,7 @@ describe('Collection.validateInput', () => {
 
   it('throws when the record violates the schema (without writing)', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'test-secret-1234',
     })
@@ -101,7 +101,7 @@ describe('Collection.validateInput', () => {
 
   it('passes any record through when the collection has no schema', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'test-secret-1234',
     })

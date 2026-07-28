@@ -18,7 +18,7 @@ import { withTransactions } from '@noy-db/hub/transactions'
 import { fromString, toString } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (c: string, col: string): Map<string, EncryptedEnvelope> => {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -58,7 +58,7 @@ function memory(): NoydbStore {
 interface Invoice { id: string; client: string; amount: number }
 
 async function setup() {
-  const adapter = memory()
+  const adapter = toMemory()
   const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
   await init.openVault('demo')
   await init.grant('demo', {
@@ -80,7 +80,7 @@ async function setup() {
 
 describe('as-xml fromString — capability gate', () => {
   it('throws ImportCapabilityError without the grant', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
     const vault = await db.openVault('demo')
     await expect(
@@ -218,7 +218,7 @@ describe('as-xml fromString — round-trip', () => {
 
 describe('as-xml fromString — apply() requires withTransactions()', () => {
   it('throws a clear error when the tx strategy is missing', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
     await init.openVault('demo')
     await init.grant('demo', {

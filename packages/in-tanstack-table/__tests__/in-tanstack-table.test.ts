@@ -4,7 +4,7 @@ import { ConflictError, createNoydb } from '@noy-db/hub'
 import type { Collection } from '@noy-db/hub'
 import { buildQueryFromTableState, resetTableState } from '../src/index.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string): Map<string, EncryptedEnvelope> => {
     let vm = store.get(v); if (!vm) { vm = new Map(); store.set(v, vm) }
@@ -43,7 +43,7 @@ function memory(): NoydbStore {
 interface Invoice { id: string; amt: number; status: string }
 
 async function seed(): Promise<Collection<Invoice>> {
-  const db = await createNoydb({ store: memory(), user: 'owner', secret: 'pw' })
+  const db = await createNoydb({ store: toMemory(), user: 'owner', secret: 'pw' })
   const vault = await db.openVault('acme')
   const coll = vault.collection<Invoice>('invoices')
   await coll.put('i1', { id: 'i1', amt: 100, status: 'draft' })

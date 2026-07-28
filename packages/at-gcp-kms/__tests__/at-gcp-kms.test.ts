@@ -80,10 +80,10 @@ describe('gcpKmsSealingProvider', () => {
 describe('@noy-db/at-gcp-kms — integration with @noy-db/hub managed-secret mode', () => {
   it('round-trips a managed-mode vault end-to-end using fake KMS client', async () => {
     const { createNoydb } = await import('@noy-db/hub')
-    const { memory } = await import('@noy-db/to-memory')
+    const { toMemory } = await import('@noy-db/to-memory')
     const { shamirRecoveryProvider } = await import('@noy-db/on-shamir')
 
-    const store = memory()
+    const store = toMemory()
     const keyName = 'projects/my-project/locations/global/keyRings/ring/cryptoKeys/key'
     // One shared fake client — deterministic prefix-tag cipher is stateless,
     // so the same instance can seal in db1 and unseal in db2.

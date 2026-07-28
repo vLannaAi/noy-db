@@ -12,7 +12,7 @@ import { withI18n } from '../src/via/i18n/index.js'
 import { dictKey } from '../src/via/i18n/dictionary.js'
 import { i18nText } from '../src/via/i18n/core.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -43,7 +43,7 @@ function memory(): NoydbStore {
 interface Item extends Record<string, unknown> { id: string; description: Record<string, string>; status: string }
 
 async function setup() {
-  const db = await createNoydb({ store: memory(), user: 'a', secret: 'export-i18n-pass-2026', i18nStrategy: withI18n() })
+  const db = await createNoydb({ store: toMemory(), user: 'a', secret: 'export-i18n-pass-2026', i18nStrategy: withI18n() })
   const vault = await db.openVault('v')
   await vault.dictionary('status').putAll({
     draft: { en: 'Draft', th: 'ฉบับร่าง' },

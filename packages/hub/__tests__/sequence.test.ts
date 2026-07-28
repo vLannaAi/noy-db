@@ -7,7 +7,7 @@ import { withHistory } from '../src/with-commit/history/index.js'
 import { withSequence } from '../src/with-commit/sequence/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
 
-function memory(casAtomic = true): NoydbStore {
+function toMemory(casAtomic = true): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string): Map<string, EncryptedEnvelope> => {
     let vm = store.get(v); if (!vm) { vm = new Map(); store.set(v, vm) }
@@ -101,7 +101,7 @@ async function vault(store: NoydbStore) {
 
 describe('#303 vault.sequence', () => {
   it('allocates gap-free 1,2,3,…', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     const seq = v.sequence('invoice-2026')
     expect(await seq.next()).toBe(1)
     expect(await seq.next()).toBe(2)
@@ -109,7 +109,7 @@ describe('#303 vault.sequence', () => {
   })
 
   it('peek reads the current value without allocating', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     const seq = v.sequence('ddt')
     expect(await seq.peek()).toBe(0)
     await seq.next()
@@ -119,7 +119,7 @@ describe('#303 vault.sequence', () => {
   })
 
   it('independent per-name sequences', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     expect(await v.sequence('a').next()).toBe(1)
     expect(await v.sequence('b').next()).toBe(1)
     expect(await v.sequence('a').next()).toBe(2)
@@ -127,7 +127,7 @@ describe('#303 vault.sequence', () => {
   })
 
   it('exactly-once + gap-free under concurrency (no duplicates, no gaps)', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     const seq = v.sequence('concurrent')
     const N = 12 // moderate concurrency; extreme bursts surface SequenceContentionError
     const results = await Promise.all(Array.from({ length: N }, () => seq.next()))
@@ -136,7 +136,7 @@ describe('#303 vault.sequence', () => {
   })
 
   it('online-only: throws SequenceOfflineError on a non-CAS store', async () => {
-    const v = await vault(memory(false))
+    const v = await vault(toMemory(false))
     await expect(v.sequence('x').next()).rejects.toBeInstanceOf(SequenceOfflineError)
   })
 
@@ -173,7 +173,7 @@ describe('#303 vault.sequence', () => {
   it('throws SequenceContentionError when the store always conflicts on _sequences', async () => {
     // Use a normal CAS adapter for vault setup, then wrap its `put` to throw
     // ConflictError for any write targeting the _sequences collection.
-    const base = memory()
+    const base = toMemory()
     const conflicting: NoydbStore = {
       ...base,
       async put(v, c, id, env, ev) {
@@ -188,7 +188,7 @@ describe('#303 vault.sequence', () => {
 
   // ── Name guard: collection('_sequences') must be blocked ──────────────────────
   it('collection("_sequences") throws ReservedCollectionNameError', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     expect(() => v.collection('_sequences')).toThrow(ReservedCollectionNameError)
   })
 })
@@ -196,7 +196,7 @@ describe('#303 vault.sequence', () => {
 describe('#345 vault.sequence — partition + seedTo', () => {
   // ── Partitioning ──────────────────────────────────────────────────────────────
   it('a partitioned sequence is independent from the unpartitioned series', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     expect(await v.sequence('invoice').next()).toBe(1)
     expect(await v.sequence('invoice').next()).toBe(2)
     // Partitioned counter starts fresh — disjoint key.
@@ -207,7 +207,7 @@ describe('#345 vault.sequence — partition + seedTo', () => {
   })
 
   it('two partition values are independent of each other', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     expect(await v.sequence('invoice', { partition: ['EU'] }).next()).toBe(1)
     expect(await v.sequence('invoice', { partition: ['US'] }).next()).toBe(1)
     expect(await v.sequence('invoice', { partition: ['EU'] }).next()).toBe(2)
@@ -216,7 +216,7 @@ describe('#345 vault.sequence — partition + seedTo', () => {
   })
 
   it('two partition components compose into one independent counter', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     const eu2026 = () => v.sequence('invoice', { partition: [2026, 'EU'] })
     const us2026 = () => v.sequence('invoice', { partition: [2026, 'US'] })
     expect(await eu2026().next()).toBe(1)
@@ -227,7 +227,7 @@ describe('#345 vault.sequence — partition + seedTo', () => {
   })
 
   it('a numeric partition component coerces to the same key as its string form', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     expect(await v.sequence('invoice', { partition: [2026] }).next()).toBe(1)
     // String '2026' must resolve to the SAME counter as numeric 2026.
     expect(await v.sequence('invoice', { partition: ['2026'] }).next()).toBe(2)
@@ -235,7 +235,7 @@ describe('#345 vault.sequence — partition + seedTo', () => {
   })
 
   it("a '/'-containing value is URI-encoded distinct from a 2-element partition", async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     // Single component 'a/b' encodes to 'a%2Fb'; a 2-element ['a','b'] joins to 'a/b'.
     // The two keys must NOT collide.
     expect(await v.sequence('s', { partition: ['a/b'] }).next()).toBe(1)
@@ -247,12 +247,12 @@ describe('#345 vault.sequence — partition + seedTo', () => {
   it('a series name containing a null byte throws ValidationError', async () => {
     // NOTE: enforced in vault.sequence() (integration); this case may not pass
     // until the vault.ts guard lands. Written here for completeness.
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     expect(() => v.sequence('bad\x00series')).toThrow(ValidationError)
   })
 
   it('peek works on a partitioned sequence', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     const seq = () => v.sequence('invoice', { partition: [2026, 'EU'] })
     expect(await seq().peek()).toBe(0)
     await seq().next()
@@ -264,7 +264,7 @@ describe('#345 vault.sequence — partition + seedTo', () => {
 
   // ── seedTo (set-if-greater) ───────────────────────────────────────────────────
   it('seedTo advances the counter so next() continues above n', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     const seq = v.sequence('invoice')
     await seq.seedTo(50)
     expect(await seq.peek()).toBe(50)
@@ -273,7 +273,7 @@ describe('#345 vault.sequence — partition + seedTo', () => {
   })
 
   it('seedTo is a no-op when the counter is already higher (set-if-greater)', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     const seq = v.sequence('invoice')
     await seq.next() // 1
     await seq.next() // 2
@@ -284,7 +284,7 @@ describe('#345 vault.sequence — partition + seedTo', () => {
   })
 
   it('seedTo(0) is a no-op', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     const seq = v.sequence('invoice')
     await seq.seedTo(0)
     expect(await seq.peek()).toBe(0)
@@ -292,7 +292,7 @@ describe('#345 vault.sequence — partition + seedTo', () => {
   })
 
   it('seedTo is idempotent', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     const seq = v.sequence('invoice')
     await seq.seedTo(50)
     await seq.seedTo(50)
@@ -302,7 +302,7 @@ describe('#345 vault.sequence — partition + seedTo', () => {
   })
 
   it('seedTo works on a partitioned sequence', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     const seq = v.sequence('invoice', { partition: [2026, 'EU'] })
     await seq.seedTo(100)
     expect(await seq.peek()).toBe(100)
@@ -312,13 +312,13 @@ describe('#345 vault.sequence — partition + seedTo', () => {
   })
 
   it('seedTo on a non-CAS store throws SequenceOfflineError', async () => {
-    const v = await vault(memory(false))
+    const v = await vault(toMemory(false))
     await expect(v.sequence('x').seedTo(50)).rejects.toBeInstanceOf(SequenceOfflineError)
   })
 
   // ── Regression: bundle import must not restart serials at 0 ───────────────────
   it('bundle-import "restart at 0" regression: seedTo(50) then next()==51', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     const seq = v.sequence('invoice')
     // Fresh sequence after an import — counter is at 0 but records up to 50 exist.
     expect(await seq.peek()).toBe(0)
@@ -330,14 +330,14 @@ describe('#345 vault.sequence — partition + seedTo', () => {
 
 describe('#375 vault.sequence — format', () => {
   it('next() returns { serial, formatted } when format is set', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     const seq = v.sequence('fatture', { partition: [2026], format: '{partition.0}/{seq:04}' })
     expect(await seq.next()).toEqual({ serial: 1, formatted: '2026/0001' })
     expect(await seq.next()).toEqual({ serial: 2, formatted: '2026/0002' })
   })
 
   it('per-partition reset is inherent — a new partition starts at 0001', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     const y2026 = v.sequence('fatture', { partition: [2026], format: '{partition.0}/{seq:04}' })
     const y2027 = v.sequence('fatture', { partition: [2027], format: '{partition.0}/{seq:04}' })
     expect((await y2026.next()).formatted).toBe('2026/0001')
@@ -347,7 +347,7 @@ describe('#375 vault.sequence — format', () => {
   })
 
   it('renders {seq} unpadded and {seq:0N} zero-padded', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     const bare = v.sequence('a', { format: 'INV-{seq}' })
     expect((await bare.next()).formatted).toBe('INV-1')
     const padded = v.sequence('b', { format: 'INV-{seq:03}' })
@@ -355,13 +355,13 @@ describe('#375 vault.sequence — format', () => {
   })
 
   it('renders multiple partition components', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     const seq = v.sequence('inv', { partition: [2026, 'EU'], format: '{partition.1}-{partition.0}-{seq:05}' })
     expect((await seq.next()).formatted).toBe('EU-2026-00001')
   })
 
   it('peek() and seedTo() still operate on the underlying integer', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     const seq = v.sequence('fatture', { partition: [2026], format: '{partition.0}/{seq:04}' })
     expect(await seq.peek()).toBe(0)
     await seq.seedTo(41)
@@ -370,19 +370,19 @@ describe('#375 vault.sequence — format', () => {
   })
 
   it('throws ValidationError at construction on an unknown token', () => {
-    return vault(memory()).then((v) => {
+    return vault(toMemory()).then((v) => {
       expect(() => v.sequence('x', { format: '{year}/{seq}' })).toThrow(ValidationError)
     })
   })
 
   it('throws ValidationError at construction when {partition.i} exceeds the partition', () => {
-    return vault(memory()).then((v) => {
+    return vault(toMemory()).then((v) => {
       expect(() => v.sequence('x', { partition: [2026], format: '{partition.2}/{seq}' })).toThrow(ValidationError)
     })
   })
 
   it('unformatted sequences still return a bare number (back-compat)', async () => {
-    const v = await vault(memory())
+    const v = await vault(toMemory())
     const seq = v.sequence('plain')
     const n = await seq.next()
     expect(typeof n).toBe('number')
@@ -392,7 +392,7 @@ describe('#375 vault.sequence — format', () => {
   it('rejects format on a deferred-numbering series', async () => {
     const { withDeferredNumbering } = await import('../src/with-commit/numbering/descriptor.js')
     const db = await createNoydb({
-      store: memory(), user: 'owner', secret: 'pw',
+      store: toMemory(), user: 'owner', secret: 'pw',
       numbering: [withDeferredNumbering({ series: 'def', collection: 'docs', field: 'serial' })],
     })
     const v = await db.openVault('books')

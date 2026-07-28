@@ -9,7 +9,7 @@ import type { Noydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -51,7 +51,7 @@ interface Inv { id: string; description: string }
 
 describe('persisted lexical index (#308 L1.5)', () => {
   it('cold-loads a persisted index without re-tokenizing, and keeps the store zero-knowledge', async () => {
-    const store = memory()
+    const store = toMemory()
     const puts: string[] = []
     const wrapped: NoydbStore = { ...store, async put(c, col, id, e, ev) { puts.push(`${col}/${id}`); return store.put(c, col, id, e, ev) } }
 
@@ -75,7 +75,7 @@ describe('persisted lexical index (#308 L1.5)', () => {
   })
 
   it('the index blob is NOT hydrated as a record', async () => {
-    const db = await createNoydb({ store: memory(), user: 'a', secret: 'pw', i18nStrategy: withI18n(), searchStrategy: withSearch() })
+    const db = await createNoydb({ store: toMemory(), user: 'a', secret: 'pw', i18nStrategy: withI18n(), searchStrategy: withSearch() })
     const v = await db.openVault('v')
     const c = v.collection<Inv>('inv', { textIndexes: ['description'], textIndexPersist: true })
     await c.put('a', { id: 'a', description: 'invoice' })
@@ -84,7 +84,7 @@ describe('persisted lexical index (#308 L1.5)', () => {
   })
 
   it('cold-load session-2 retrieve does not write any new _ftindex blobs (fingerprint matched, loaded not rebuilt)', async () => {
-    const store = memory()
+    const store = toMemory()
     const puts: string[] = []
     const wrapped: NoydbStore = {
       ...store,
@@ -116,7 +116,7 @@ describe('persisted lexical index (#308 L1.5)', () => {
   })
 
   it('zero _ftindex I/O when textIndexPersist is not set (MemoryIndexStore path)', async () => {
-    const store = memory()
+    const store = toMemory()
     const ftindexOps: string[] = []
     const wrapped: NoydbStore = {
       ...store,

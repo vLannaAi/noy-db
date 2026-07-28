@@ -17,7 +17,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.
 import { ConflictError, createNoydb, writeNoydbBundle, readNoydbBundle } from '../src/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string) => {
     let comp = store.get(v); if (!comp) { comp = new Map(); store.set(v, comp) }
@@ -57,7 +57,7 @@ interface Invoice { id: string; amount: number; status: string }
 
 async function setup() {
   const db = await createNoydb({
-    store: memory(), user: 'alice', secret: 'pw-2026',
+    store: toMemory(), user: 'alice', secret: 'pw-2026',
     historyStrategy: withHistory(),
   })
   const vault = await db.openVault('demo')

@@ -17,7 +17,7 @@ import {
   type CapabilityGrantRecord,
 } from '../src/index.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -69,7 +69,7 @@ let db: Noydb
 
 async function freshDb(): Promise<Noydb> {
   return createNoydb({ teamStrategy: withTeam(),
-    store: memory(),
+    store: toMemory(),
     user: 'admin-user',
     secret: SECRET,
   })
@@ -200,7 +200,7 @@ describe('useCapabilityGrant', () => {
   it('5. approve rejects when the caller role does not match approver', async () => {
     // Set up a non-owner session: re-grant the active user as operator.
     // Owner can always approve; operator on an admin-required grant cannot.
-    const adapter = memory()
+    const adapter = toMemory()
     const ownerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner', secret: SECRET })
     await ownerDb.openVault('V1')
     await ownerDb.grant('V1', {

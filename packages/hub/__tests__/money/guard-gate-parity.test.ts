@@ -11,7 +11,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 // so every freeze-style guard flagged every money field as changed on
 // every update — even pure telemetry updates ({...record, sentAt}).
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -63,7 +63,7 @@ describe('money + guards — gate context encoding parity (#332)', () => {
       },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'money-guard-parity-secret-2026',
       guardStrategies: [guard],
@@ -94,7 +94,7 @@ describe('money + guards — gate context encoding parity (#332)', () => {
       check: (incoming) => { seen.push(incoming.totalPaid) },
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       secret: 'money-guard-number-secret-2026',
       guardStrategies: [guard],
     })
@@ -115,7 +115,7 @@ describe('money + guards — gate context encoding parity (#332)', () => {
       },
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       secret: 'money-guard-frozen-secret-2026',
       guardStrategies: [guard],
     })
@@ -144,7 +144,7 @@ describe('money + guards — gate context encoding parity (#332)', () => {
       },
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       secret: 'money-guard-frozen-num-secret-2026',
       guardStrategies: [guard],
     })
@@ -172,7 +172,7 @@ describe('money + guards — gate context encoding parity (#332)', () => {
       },
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       secret: 'money-guard-multi-secret-2026',
       guardStrategies: [guard],
     })
@@ -197,7 +197,7 @@ describe('money + guards — gate context encoding parity (#332)', () => {
       onDelete: (existing) => { seenExisting = existing.totalPaid },
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       secret: 'money-guard-delete-secret-2026',
       guardStrategies: [guard],
     })
@@ -217,7 +217,7 @@ describe('money + guards — gate context encoding parity (#332)', () => {
       check: (incoming) => { gateSaw = incoming.totalPaid },
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       secret: 'money-guard-invalid-secret-2026',
       guardStrategies: [guard],
     })
@@ -250,7 +250,7 @@ describe('money + guards — gate context encoding parity (#332)', () => {
       },
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       secret: 'money-guard-amendment-secret-2026',
       guardStrategies: [guard],
       transactionsStrategy: withTransactions(),

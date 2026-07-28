@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { runStoreConformanceTests } from '@noy-db/test-adapter-conformance'
 import { IDBFactory } from 'fake-indexeddb'
-import { browserIdbStore } from '../src/index.js'
+import { toBrowserIdb } from '../src/index.js'
 
 let counter = 0
 
@@ -11,7 +11,7 @@ runStoreConformanceTests(
   'store-browser-idb (obfuscate)',
   async () => {
     ;(globalThis as unknown as Record<string, unknown>).indexedDB = new IDBFactory()
-    return browserIdbStore({ prefix: `obf-${++counter}`, obfuscate: true })
+    return toBrowserIdb({ prefix: `obf-${++counter}`, obfuscate: true })
   },
   async () => {
     ;(globalThis as unknown as Record<string, unknown>).indexedDB = new IDBFactory()
@@ -23,7 +23,7 @@ runStoreConformanceTests(
 describe('obfuscation: round-trip', () => {
   it('list() returns original IDs despite obfuscated keys', async () => {
     ;(globalThis as unknown as Record<string, unknown>).indexedDB = new IDBFactory()
-    const adapter = browserIdbStore({ prefix: `obf-rt-${++counter}`, obfuscate: true })
+    const adapter = toBrowserIdb({ prefix: `obf-rt-${++counter}`, obfuscate: true })
 
     await adapter.put('C1', 'coll', 'id-alpha', { _noydb: 1, _v: 1, _ts: '', _iv: '', _data: 'a' })
     await adapter.put('C1', 'coll', 'id-beta', { _noydb: 1, _v: 1, _ts: '', _iv: '', _data: 'b' })
@@ -34,7 +34,7 @@ describe('obfuscation: round-trip', () => {
 
   it('loadAll() returns original collection and ID names', async () => {
     ;(globalThis as unknown as Record<string, unknown>).indexedDB = new IDBFactory()
-    const adapter = browserIdbStore({ prefix: `obf-la-${++counter}`, obfuscate: true })
+    const adapter = toBrowserIdb({ prefix: `obf-la-${++counter}`, obfuscate: true })
 
     await adapter.put('C1', 'invoices', 'inv-1', { _noydb: 1, _v: 1, _ts: '', _iv: '', _data: 'x' })
     await adapter.put('C1', 'payments', 'pay-1', { _noydb: 1, _v: 1, _ts: '', _iv: '', _data: 'y' })
@@ -47,7 +47,7 @@ describe('obfuscation: round-trip', () => {
 
   it('loadAll excludes _keyring collections', async () => {
     ;(globalThis as unknown as Record<string, unknown>).indexedDB = new IDBFactory()
-    const adapter = browserIdbStore({ prefix: `obf-kr-${++counter}`, obfuscate: true })
+    const adapter = toBrowserIdb({ prefix: `obf-kr-${++counter}`, obfuscate: true })
 
     await adapter.put('C1', 'invoices', 'inv-1', { _noydb: 1, _v: 1, _ts: '', _iv: 'iv', _data: 'data' })
     await adapter.put('C1', '_keyring', 'user-01', { _noydb: 1, _v: 1, _ts: '', _iv: '', _data: '{}' })

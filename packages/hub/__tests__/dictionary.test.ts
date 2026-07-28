@@ -31,7 +31,7 @@ import { withTeam } from '../src/with-party/team/index.js'
 
 // ─── Inline memory adapter ─────────────────────────────────────────────
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -87,7 +87,7 @@ describe('DictionaryHandle — CRUD', () => {
 
   beforeEach(async () => {
     db = await createNoydb({ teamStrategy: withTeam(),
-      store: memory(),
+      store: toMemory(),
       user: 'alice', i18nStrategy: withI18n(),
       secret: 'test-secret-dict-1234',
     })
@@ -204,7 +204,7 @@ describe('DictionaryHandle.rename()', () => {
 
   beforeEach(async () => {
     db = await createNoydb({ teamStrategy: withTeam(),
-      store: memory(),
+      store: toMemory(),
       user: 'alice', i18nStrategy: withI18n(),
       secret: 'test-secret-dict-1234',
     })
@@ -256,7 +256,7 @@ describe('Reserved _dict_* name policy', () => {
 
   beforeEach(async () => {
     db = await createNoydb({ teamStrategy: withTeam(),
-      store: memory(),
+      store: toMemory(),
       user: 'alice', i18nStrategy: withI18n(),
       secret: 'test-secret-dict-1234',
     })
@@ -284,7 +284,7 @@ describe('dictKey — per-call locale reads', () => {
 
   beforeEach(async () => {
     db = await createNoydb({ teamStrategy: withTeam(),
-      store: memory(),
+      store: toMemory(),
       user: 'alice', i18nStrategy: withI18n(),
       secret: 'test-secret-dict-1234',
     })
@@ -411,7 +411,7 @@ describe('dictKey — per-call locale reads', () => {
 describe('dictKey ACL — write permissions', () => {
   it('throws PermissionDeniedError when client tries to write a default admin-only dict', async () => {
     // Set up owner, then grant client access
-    const adp = memory()
+    const adp = toMemory()
     const ownerDb = await createNoydb({ teamStrategy: withTeam(),
       store: adp,
       user: 'owner', i18nStrategy: withI18n(),
@@ -445,7 +445,7 @@ describe('dictKey ACL — write permissions', () => {
   })
 
   it('allows operator write when writableBy is set to operator', async () => {
-    const adp = memory()
+    const adp = toMemory()
     const ownerDb = await createNoydb({ teamStrategy: withTeam(),
       store: adp,
       user: 'owner', i18nStrategy: withI18n(),
@@ -489,7 +489,7 @@ interface Worker { id: string; civilStatus: string }
 describe('staticDict — code-provided dictionary (#291)', () => {
   it('resolves <field>Label locale-less via displayLocale', async () => {
     const db = await createNoydb({ teamStrategy: withTeam(),
-      store: memory(), user: 'alice', i18nStrategy: withI18n(),
+      store: toMemory(), user: 'alice', i18nStrategy: withI18n(),
       secret: 'test-secret-static-1',
     })
     // No locale on the vault — the hybrid hinge.
@@ -506,7 +506,7 @@ describe('staticDict — code-provided dictionary (#291)', () => {
 
   it('WITHOUT displayLocale does NOT resolve locale-less (dictKey parity)', async () => {
     const db = await createNoydb({ teamStrategy: withTeam(),
-      store: memory(), user: 'alice', i18nStrategy: withI18n(),
+      store: toMemory(), user: 'alice', i18nStrategy: withI18n(),
       secret: 'test-secret-static-2',
     })
     const vault = await db.openVault('co1')
@@ -524,7 +524,7 @@ describe('staticDict — code-provided dictionary (#291)', () => {
 
   it('locale-active read resolves via the in-code table', async () => {
     const db = await createNoydb({ teamStrategy: withTeam(),
-      store: memory(), user: 'alice', i18nStrategy: withI18n(),
+      store: toMemory(), user: 'alice', i18nStrategy: withI18n(),
       secret: 'test-secret-static-3',
     })
     const vault = await db.openVault('co1', { locale: 'en' })
@@ -539,7 +539,7 @@ describe('staticDict — code-provided dictionary (#291)', () => {
 
   it('vault.dictionary(staticName) throws StaticDictReadonlyError', async () => {
     const db = await createNoydb({ teamStrategy: withTeam(),
-      store: memory(), user: 'alice', i18nStrategy: withI18n(),
+      store: toMemory(), user: 'alice', i18nStrategy: withI18n(),
       secret: 'test-secret-static-4',
     })
     const vault = await db.openVault('co1')
@@ -551,7 +551,7 @@ describe('staticDict — code-provided dictionary (#291)', () => {
 
   it('put() with an unknown code throws UnknownDictCodeError', async () => {
     const db = await createNoydb({ teamStrategy: withTeam(),
-      store: memory(), user: 'alice', i18nStrategy: withI18n(),
+      store: toMemory(), user: 'alice', i18nStrategy: withI18n(),
       secret: 'test-secret-static-5',
     })
     const vault = await db.openVault('co1')
@@ -565,7 +565,7 @@ describe('staticDict — code-provided dictionary (#291)', () => {
 
   it('validateCodes:false allows an open code', async () => {
     const db = await createNoydb({ teamStrategy: withTeam(),
-      store: memory(), user: 'alice', i18nStrategy: withI18n(),
+      store: toMemory(), user: 'alice', i18nStrategy: withI18n(),
       secret: 'test-secret-static-6',
     })
     const vault = await db.openVault('co1')
@@ -583,7 +583,7 @@ describe('staticDict — code-provided dictionary (#291)', () => {
 
   it('groupBy(field) buckets by the stable code', async () => {
     const db = await createNoydb({ teamStrategy: withTeam(),
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       i18nStrategy: withI18n(), reduceStrategy: withReduce(),
       secret: 'test-secret-static-7',
     })

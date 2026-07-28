@@ -10,7 +10,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 // from a date) gets computed. The executor was always arm-count-agnostic —
 // only registration validation gated this shape.
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -78,7 +78,7 @@ function whtByMonth() {
 
 async function openWithMv() {
   const db = await createNoydb({
-    store: memory(),
+    store: toMemory(),
     user: 'alice',
     secret: 'mv-union-single-arm-secret-2026',
     materializedViewStrategies: [whtByMonth()],

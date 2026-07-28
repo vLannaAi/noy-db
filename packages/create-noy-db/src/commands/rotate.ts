@@ -37,7 +37,7 @@
 
 import { withTeam } from '@noy-db/hub/team'
 import { createNoydb, type Noydb, type NoydbStore } from '@noy-db/hub'
-import { jsonFile } from '@noy-db/to-file'
+import { toFile } from '@noy-db/to-file'
 import type { ReadSecret } from './shared.js'
 import { defaultReadSecret } from './shared.js'
 
@@ -64,7 +64,7 @@ export interface RotateOptions {
   createDb?: typeof createNoydb
   /**
    * Injected adapter factory. Production code leaves this undefined
-   * and gets `jsonFile`; tests pass one that returns the shared
+   * and gets `toFile`; tests pass one that returns the shared
    * in-memory adapter their fixture used.
    */
   buildAdapter?: (dir: string) => NoydbStore
@@ -87,7 +87,7 @@ export interface RotateResult {
  */
 export async function rotate(options: RotateOptions): Promise<RotateResult> {
   const readSecret = options.readSecret ?? defaultReadSecret
-  const buildAdapter = options.buildAdapter ?? ((dir) => jsonFile({ dir }))
+  const buildAdapter = options.buildAdapter ?? ((dir) => toFile({ dir }))
   const createDb = options.createDb ?? createNoydb
 
   // Read the secret BEFORE opening the database. This way a

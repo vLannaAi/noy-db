@@ -29,7 +29,7 @@ import {
   writeUint32BE,
 } from '../src/with-pod/format.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string) => {
     let comp = store.get(v); if (!comp) { comp = new Map(); store.set(v, comp) }
@@ -69,7 +69,7 @@ const STRONG = 'correct horse battery staple printer toaster'
 
 async function freshVault() {
   const db = await createNoydb({
-    store: memory(),
+    store: toMemory(),
     user: 'alice',
     secret: STRONG,
   })

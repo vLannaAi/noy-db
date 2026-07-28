@@ -11,7 +11,7 @@ import { immutableGuard } from '../../src/with-audit/guards/immutable-guard.js'
 import { withTransactions } from '../../src/with-commit/tx/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -71,7 +71,7 @@ describe('frozenFields × computed — no false-positive FieldFrozenError', () =
       },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'computed-frozen-interplay-secret-2026',
       guardStrategies: [guard],
@@ -107,7 +107,7 @@ describe('frozenFields × computed — no false-positive FieldFrozenError', () =
       },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'computed-frozen-non-computed-secret-2026',
       guardStrategies: [guard],
@@ -137,7 +137,7 @@ describe('frozenFields × computed — no false-positive FieldFrozenError', () =
       },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'frozen-noydb-error-secret-2026',
       guardStrategies: [guard],
@@ -160,7 +160,7 @@ describe('frozenFields × computed — no false-positive FieldFrozenError', () =
 describe('computed re-eval on update — fields reflect NEW inputs', () => {
   it('puts twice with different raw inputs → computed fields reflect the new inputs', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'computed-reeval-secret-2026',
     })
@@ -186,7 +186,7 @@ describe('computed re-eval on update — fields reflect NEW inputs', () => {
 describe('computed × immutableGuard — WORM semantics preserved', () => {
   it('create fires computed; WORM allows; transition to immutable; update attempt blocked', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'computed-immutable-guard-secret-2026',
       guardStrategies: [

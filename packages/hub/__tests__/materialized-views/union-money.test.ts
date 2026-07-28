@@ -6,7 +6,7 @@ import { sum, min, max } from '../../src/with-lookup/reduce/reducers.js'
 import { money } from '../../src/via/money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -69,7 +69,7 @@ describe('UNION MV — money-aware aggregation (#350)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-union-money-fixed-passthrough-secret-2026',
       materializedViewStrategies: [rollup],
@@ -116,7 +116,7 @@ describe('UNION MV — money-aware aggregation (#350)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-union-money-drift-secret-2026',
       materializedViewStrategies: [rollup],
@@ -163,7 +163,7 @@ describe('UNION MV — money-aware aggregation (#350)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-union-money-minmax-secret-2026',
       materializedViewStrategies: [mv],
@@ -215,7 +215,7 @@ describe('UNION MV — money-aware aggregation (#350)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-union-money-multi-secret-2026',
       materializedViewStrategies: [mv],
@@ -267,7 +267,7 @@ describe('UNION MV — money-aware aggregation (#350)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-union-money-single-arm-secret-2026',
       materializedViewStrategies: [mv],
@@ -303,7 +303,7 @@ describe('UNION MV — money-aware aggregation (#350)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-union-plain-numeric-secret-2026',
       materializedViewStrategies: [mv],

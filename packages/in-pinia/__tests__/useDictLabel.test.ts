@@ -9,7 +9,7 @@ import { setActiveNoydb } from '../src/context.js'
 import { useDictLabel } from '../src/useDictLabel.js'
 import { useNoydbI18n } from '../src/useNoydbI18n.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string): Map<string, EncryptedEnvelope> => {
     let vm = store.get(v); if (!vm) { vm = new Map(); store.set(v, vm) }
@@ -46,7 +46,7 @@ function memory(): NoydbStore {
 
 async function setup(): Promise<{ db: Noydb; vault: Vault }> {
   const db = await createNoydb({
-    store: memory(),
+    store: toMemory(),
     user: 'owner',
     secret: 'pw',
     i18nStrategy: withI18n(),
@@ -140,7 +140,7 @@ describe('useDictLabel', () => {
   })
 
   it('throws a helpful error when no vault is open and none is supplied', async () => {
-    const db = await createNoydb({ store: memory(), user: 'owner', secret: 'pw' })
+    const db = await createNoydb({ store: toMemory(), user: 'owner', secret: 'pw' })
     setActiveNoydb(db)
     expect(() => useDictLabel('anything')).toThrow(/no open vault/)
   })

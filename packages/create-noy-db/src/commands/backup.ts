@@ -40,7 +40,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { createNoydb, type Noydb, type NoydbStore } from '@noy-db/hub'
 import { withHistory } from '@noy-db/hub/history'
-import { jsonFile } from '@noy-db/to-file'
+import { toFile } from '@noy-db/to-file'
 import type { ReadSecret } from './shared.js'
 import { defaultReadSecret } from './shared.js'
 
@@ -97,7 +97,7 @@ export function resolveBackupTarget(target: string, cwd: string = process.cwd())
 
 export async function backup(options: BackupOptions): Promise<BackupResult> {
   const readSecret = options.readSecret ?? defaultReadSecret
-  const buildAdapter = options.buildAdapter ?? ((dir) => jsonFile({ dir }))
+  const buildAdapter = options.buildAdapter ?? ((dir) => toFile({ dir }))
   const createDb = options.createDb ?? createNoydb
 
   // Resolve the target FIRST so a bad URI fails before any

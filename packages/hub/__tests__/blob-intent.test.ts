@@ -37,8 +37,8 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 
 const VAULT = 'v'
 
-/** Minimal in-memory NoydbStore — mirrors `history-at-rest.test.ts`'s `memory()`. */
-function memory(): NoydbStore {
+/** Minimal in-memory NoydbStore — mirrors `history-at-rest.test.ts`'s `toMemory()`. */
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(v: string, col: string) {
     let vm = store.get(v)
@@ -93,7 +93,7 @@ const sampleIntent: BlobIntent = {
 
 describe('createIntent — CAS create-if-absent (#753 spec §7 C8)', () => {
   it('a second createIntent on the same {collection}::{recordId} throws BlobIntentPendingError', async () => {
-    const store = memory()
+    const store = toMemory()
     const dek = await generateDEK()
     const getDEK = async () => dek
 
@@ -109,7 +109,7 @@ describe('createIntent — CAS create-if-absent (#753 spec §7 C8)', () => {
   })
 
   it('createIntent for a DIFFERENT record does not collide', async () => {
-    const store = memory()
+    const store = toMemory()
     const dek = await generateDEK()
     const getDEK = async () => dek
 
@@ -120,7 +120,7 @@ describe('createIntent — CAS create-if-absent (#753 spec §7 C8)', () => {
   })
 
   it('deleteIntent clears the marker so a subsequent createIntent succeeds', async () => {
-    const store = memory()
+    const store = toMemory()
     const dek = await generateDEK()
     const getDEK = async () => dek
 
@@ -137,7 +137,7 @@ describe('createIntent — CAS create-if-absent (#753 spec §7 C8)', () => {
 
 describe('codec round-trip — encrypt under getDEK(collection), decrypt back (spec §4)', () => {
   it('a BlobIntent with holds (incl. chunkCount) survives encrypt → decrypt byte-identical', async () => {
-    const store = memory()
+    const store = toMemory()
     const dek = await generateDEK()
     const getDEK = async () => dek
 
@@ -154,7 +154,7 @@ describe('codec round-trip — encrypt under getDEK(collection), decrypt back (s
   })
 
   it('a rehome-shaped intent (fromTier/toTier/policy, no holds) round-trips too', async () => {
-    const store = memory()
+    const store = toMemory()
     const dek = await generateDEK()
     const getDEK = async () => dek
 
@@ -164,7 +164,7 @@ describe('codec round-trip — encrypt under getDEK(collection), decrypt back (s
   })
 
   it('the wrong DEK cannot decrypt the marker', async () => {
-    const store = memory()
+    const store = toMemory()
     const dek = await generateDEK()
     const wrongDek: EnclaveKey = await generateDEK()
 
@@ -175,7 +175,7 @@ describe('codec round-trip — encrypt under getDEK(collection), decrypt back (s
 
 describe('sweepBlobIntents — lists + resumes every pending marker', () => {
   it('resumes every persisted marker exactly once, with the parsed collection/recordId + decoded intent', async () => {
-    const store = memory()
+    const store = toMemory()
     const dek = await generateDEK()
     const getDEK = async () => dek
 
@@ -195,7 +195,7 @@ describe('sweepBlobIntents — lists + resumes every pending marker', () => {
   })
 
   it('an empty _blob_intent collection resumes nothing (the zero-cost normal path)', async () => {
-    const store = memory()
+    const store = toMemory()
     const dek = await generateDEK()
     let calls = 0
     await sweepBlobIntents(store, VAULT, async () => dek, async () => { calls++ })
@@ -207,7 +207,7 @@ describe('backup allowlist — _blob_intent travels in the bundle (#753 spec §7
   const SECRET = 'correct-horse-battery-staple-long-enough'
 
   it('a pending marker is present in vault.dump()\'s _internal section', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({ store, user: 'alice', secret: SECRET, blobsStrategy: withBlobs(), historyStrategy: withHistory() })
     const vault = await db.openVault('demo-co')
     const docs = vault.collection<{ title: string }>('docs')
@@ -230,7 +230,7 @@ describe('backup allowlist — _blob_intent travels in the bundle (#753 spec §7
   })
 
   it('a vault with no pending markers omits _blob_intent from the bundle', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({ store, user: 'alice', secret: SECRET, blobsStrategy: withBlobs(), historyStrategy: withHistory() })
     const vault = await db.openVault('demo-co')
     const docs = vault.collection<{ title: string }>('docs')

@@ -30,7 +30,7 @@
 
 import { withTeam } from '@noy-db/hub/team'
 import { createNoydb, type Noydb, type NoydbStore, type Role } from '@noy-db/hub'
-import { jsonFile } from '@noy-db/to-file'
+import { toFile } from '@noy-db/to-file'
 import type { ReadSecret } from './shared.js'
 import { defaultReadSecret } from './shared.js'
 
@@ -79,7 +79,7 @@ export interface AddUserResult {
  */
 export async function addUser(options: AddUserOptions): Promise<AddUserResult> {
   const readSecret = options.readSecret ?? defaultReadSecret
-  const buildAdapter = options.buildAdapter ?? ((dir) => jsonFile({ dir }))
+  const buildAdapter = options.buildAdapter ?? ((dir) => toFile({ dir }))
   const createDb = options.createDb ?? createNoydb
 
   // Operator/client roles NEED explicit permissions. Reject here

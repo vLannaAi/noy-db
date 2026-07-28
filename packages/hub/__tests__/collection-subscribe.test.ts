@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, CollectionChangeEvent } from '../src/index.js'
 import { ConflictError, createNoydb } from '../src/index.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (c: string, col: string) => {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -62,7 +62,7 @@ async function flushMicrotasks() {
 
 describe('collection.subscribe', () => {
   it('fires on put with hydrated record', async () => {
-    const db = await createNoydb({ store: memory(), user: 'o', secret: 'p' })
+    const db = await createNoydb({ store: toMemory(), user: 'o', secret: 'p' })
     const vault = await db.openVault('acme')
     const invoices = vault.collection<Invoice>('invoices')
 
@@ -82,7 +82,7 @@ describe('collection.subscribe', () => {
   })
 
   it('fires on delete with record: null', async () => {
-    const db = await createNoydb({ store: memory(), user: 'o', secret: 'p' })
+    const db = await createNoydb({ store: toMemory(), user: 'o', secret: 'p' })
     const vault = await db.openVault('acme')
     const invoices = vault.collection<Invoice>('invoices')
     await invoices.put('inv-1', { id: 'inv-1', client: 'Globex', amount: 1500 })
@@ -103,7 +103,7 @@ describe('collection.subscribe', () => {
   })
 
   it('filters to the subscribing collection — other collections do not fire', async () => {
-    const db = await createNoydb({ store: memory(), user: 'o', secret: 'p' })
+    const db = await createNoydb({ store: toMemory(), user: 'o', secret: 'p' })
     const vault = await db.openVault('acme')
     const invoices = vault.collection<Invoice>('invoices')
     const payments = vault.collection<{ id: string; amount: number }>('payments')
@@ -127,7 +127,7 @@ describe('collection.subscribe', () => {
   })
 
   it('unsubscribe() detaches the listener', async () => {
-    const db = await createNoydb({ store: memory(), user: 'o', secret: 'p' })
+    const db = await createNoydb({ store: toMemory(), user: 'o', secret: 'p' })
     const vault = await db.openVault('acme')
     const invoices = vault.collection<Invoice>('invoices')
 
@@ -148,7 +148,7 @@ describe('collection.subscribe', () => {
   })
 
   it('multiple subscribers on the same collection all fire', async () => {
-    const db = await createNoydb({ store: memory(), user: 'o', secret: 'p' })
+    const db = await createNoydb({ store: toMemory(), user: 'o', secret: 'p' })
     const vault = await db.openVault('acme')
     const invoices = vault.collection<Invoice>('invoices')
 
@@ -171,7 +171,7 @@ describe('collection.subscribe', () => {
   })
 
   it('fires for put + update + delete in order', async () => {
-    const db = await createNoydb({ store: memory(), user: 'o', secret: 'p' })
+    const db = await createNoydb({ store: toMemory(), user: 'o', secret: 'p' })
     const vault = await db.openVault('acme')
     const invoices = vault.collection<Invoice>('invoices')
 
@@ -196,7 +196,7 @@ describe('collection.subscribe', () => {
   })
 
   it('cross-vault isolation — subscribing on vault A does not receive vault B events', async () => {
-    const db = await createNoydb({ store: memory(), user: 'o', secret: 'p' })
+    const db = await createNoydb({ store: toMemory(), user: 'o', secret: 'p' })
     const vaultA = await db.openVault('acme')
     const vaultB = await db.openVault('stark')
     const invoicesA = vaultA.collection<Invoice>('invoices')

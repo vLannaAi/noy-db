@@ -3,7 +3,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
 import { ConflictError } from '@noy-db/hub'
 import { createRestHandler, type RestRequest } from '../src/index.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string): Map<string, EncryptedEnvelope> => {
     let vm = store.get(v); if (!vm) { vm = new Map(); store.set(v, vm) }
@@ -64,7 +64,7 @@ function reqSearch(method: string, path: string, search: string, token: string):
 
 describe('in-rest base handler', () => {
   let store: NoydbStore
-  beforeEach(() => { store = memory() })
+  beforeEach(() => { store = toMemory() })
 
   it('POST /sessions/unlock/secret → 200 with token', async () => {
     const handler = createRestHandler({ store, user: 'owner' })

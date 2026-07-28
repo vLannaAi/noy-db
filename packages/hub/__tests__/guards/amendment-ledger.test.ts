@@ -25,7 +25,7 @@ import type {
   VaultSnapshot,
 } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -92,7 +92,7 @@ describe('LedgerEntry amendment op', () => {
 
   it('verifyBackupIntegrity() ignores amendment entries (no false data failure)', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'pass',
       historyStrategy: withHistory(),

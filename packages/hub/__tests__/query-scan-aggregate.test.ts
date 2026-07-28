@@ -21,7 +21,7 @@ import { ScanBuilder, type ScanPageProvider } from '../src/kernel/query/index.js
 import { count, sum, avg, min, max } from '../src/with-lookup/reduce/index.js'
 
 /** Inline memory adapter — same pattern as the other integration tests. */
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string): Map<string, EncryptedEnvelope> {
     let comp = store.get(c)
@@ -266,7 +266,7 @@ describe('Collection.scan() > backward-compatible for-await iteration', () => {
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'scan-agg-test-secret-2026',
     })
@@ -287,7 +287,7 @@ describe('Collection.scan().aggregate() > real collection over memory adapter', 
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'scan-agg-test-secret-2026',
     })

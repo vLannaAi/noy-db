@@ -14,7 +14,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 // from declaring it through the feature's own sugar key (`moneyFields`/
 // `i18nFields`), and a field declared in both must be rejected.
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -61,7 +61,7 @@ describe('via() composer (#623 Task 9)', () => {
   })
 
   it('sugar equivalence — via(money(...)) writes the same stored envelope and describe() as moneyFields', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({ store, user: 'alice', secret: 'via-compose-money-equivalence-2026' })
     const sugarVault = await db.openVault('sugar')
     const viaVault = await db.openVault('via')
@@ -99,7 +99,7 @@ describe('via() composer (#623 Task 9)', () => {
   })
 
   it('sugar equivalence — plaintext store: via(money(...)) writes a byte-identical `_data` body', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({ store, user: 'alice', secret: 'via-compose-money-plaintext-2026', encrypt: false })
     const sugarVault = await db.openVault('sugar')
     const viaVault = await db.openVault('via')
@@ -127,7 +127,7 @@ describe('via() composer (#623 Task 9)', () => {
   })
 
   it('sugar equivalence — via(i18nText(...)) fills the same missing slot and reads the same locale as i18nFields', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({
       store, user: 'alice', secret: 'via-compose-i18n-equivalence-2026',
       i18nStrategy: withI18n(),
@@ -162,7 +162,7 @@ describe('via() composer (#623 Task 9)', () => {
   })
 
   it('sugar equivalence — via(dictKey(...)) resolves the same <field>Label read as dictKeyFields', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({
       store, user: 'alice', secret: 'via-compose-dictkey-equivalence-2026',
       i18nStrategy: withI18n(),
@@ -191,7 +191,7 @@ describe('via() composer (#623 Task 9)', () => {
   })
 
   it('collision: a field declared in both a sugar key and viaFields throws ValidationError naming the field', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'via-compose-collision-2026' })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'via-compose-collision-2026' })
     const vault = await db.openVault('v')
 
     expect(() => vault.collection<Invoice>('invoices', {
@@ -206,7 +206,7 @@ describe('via() composer (#623 Task 9)', () => {
   })
 
   it('mergeViaFields throws ValidationError naming the field and brand for an unrecognized _viaBrand', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'via-compose-unknown-brand-2026' })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'via-compose-unknown-brand-2026' })
     const vault = await db.openVault('v')
 
     expect(() => vault.collection<Invoice>('invoices', {
@@ -224,7 +224,7 @@ describe('via() composer (#623 Task 9)', () => {
 
   it('stacks money + i18n on different fields in one viaFields map', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'via-compose-stack-2026',
+      store: toMemory(), user: 'alice', secret: 'via-compose-stack-2026',
       i18nStrategy: withI18n(),
     })
     const vault = await db.openVault('v', { locale: 'en' })

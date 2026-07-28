@@ -26,7 +26,7 @@ async function sha256HexUtf8(input: string): Promise<string> {
   return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
-function memory(): NoydbStore & {
+function toMemory(): NoydbStore & {
   raw(c: string, col: string, id: string): EncryptedEnvelope | undefined
   rawList(c: string, col: string): string[]
 } {
@@ -87,7 +87,7 @@ async function buildDb(store: NoydbStore) {
 
 describe('M-2 — subject index keyed id + bucketed ref list', () => {
   it('the stored index id is NOT sha256Hex(subjectId)', async () => {
-    const store = memory()
+    const store = toMemory()
     const { vault } = await buildDb(store)
     const invoices = vault.collection<Invoice>('invoices')
     await invoices.put('i-1', { id: 'i-1', buyerId: 'buyer-1', amount: 100 })
@@ -99,7 +99,7 @@ describe('M-2 — subject index keyed id + bucketed ref list', () => {
   })
 
   it('two subjects with different small ref counts produce equal-length _data (bucketed)', async () => {
-    const store = memory()
+    const store = toMemory()
     const { vault } = await buildDb(store)
     const invoices = vault.collection<Invoice>('invoices')
     await invoices.put('i-1', { id: 'i-1', buyerId: 'buyer-A', amount: 1 })   // A: 1 ref
@@ -113,7 +113,7 @@ describe('M-2 — subject index keyed id + bucketed ref list', () => {
   })
 
   it('forget() still erases a record indexed under the LEGACY sha256 key form', async () => {
-    const store = memory()
+    const store = toMemory()
     const { vault } = await buildDb(store)
     const invoices = vault.collection<Invoice>('invoices')
     await invoices.put('i-1', { id: 'i-1', buyerId: 'buyer-1', amount: 100 })
@@ -135,7 +135,7 @@ describe('M-2 — subject index keyed id + bucketed ref list', () => {
   })
 
   it('unit: dual-lookup finds + removes a legacy bare-array entry', async () => {
-    const store = memory()
+    const store = toMemory()
     const dek = await generateDEK()
     const getDEK = async () => dek
     // Hand-write a legacy entry: sha256 key + bare-array body encrypted under DEK.
@@ -155,7 +155,7 @@ describe('M-2 — subject index keyed id + bucketed ref list', () => {
   })
 
   it('unit: a new write lands under the keyed id, not sha256', async () => {
-    const store = memory()
+    const store = toMemory()
     const dek = await generateDEK()
     const getDEK = async () => dek
     await addSubjectRef(store, 'v', getDEK, true, 'buyer-N', { collection: 'invoices', id: 'i-N' })

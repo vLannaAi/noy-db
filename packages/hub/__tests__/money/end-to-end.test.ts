@@ -6,7 +6,7 @@ import { sum, count } from '../../src/with-lookup/reduce/reducers.js'
 import { money } from '../../src/via/money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -44,7 +44,7 @@ interface SaleLine extends Record<string, unknown> {
 describe('money — invoice-shaped end-to-end', () => {
   it('multiple money fields, negative credit, null excluded from sum, rounding write', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'money-e2e-secret-2026-pilot3-invoices',
       reduceStrategy: withReduce(),

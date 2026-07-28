@@ -44,7 +44,7 @@ The module exposes your typed config through `useRuntimeConfig().public.noydb` b
 ```ts
 // plugins/noydb.client.ts
 import { createNoydb } from '@noy-db/hub'
-import { browserIdbStore } from '@noy-db/to-browser-idb'
+import { toBrowserIdb } from '@noy-db/to-browser-idb'
 import { setActiveNoydb } from '@noy-db/in-pinia'
 
 export default defineNuxtPlugin(async () => {

@@ -21,7 +21,7 @@ import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withForget } from '../src/with-audit/forget/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { SearchNotEnabledError } from '../src/kernel/errors.js'
-import { memory } from '../../to-memory/src/index.js'
+import { toMemory } from '../../to-memory/src/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
 
 interface Doc {
@@ -210,7 +210,7 @@ describe('#788 Collection.rebuildEmbeddings()', () => {
   })
 
   it('resumability: a store put-failure mid-walk leaves earlier records rebuilt; a re-run completes', async () => {
-    const rawStore = memory()
+    const rawStore = toMemory()
 
     const db1 = await createNoydb({ store: rawStore, user: 'owner', secret: SECRET })
     const vault1 = await db1.openVault('v1')

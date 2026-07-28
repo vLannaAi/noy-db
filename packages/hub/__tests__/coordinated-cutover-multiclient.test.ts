@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../src/kernel/noydb.js'
-import { memory } from '../../to-memory/src/index.js'
+import { toMemory } from '../../to-memory/src/index.js'
 import { coordinatedCutover } from '../src/with-shape/schema-update/index.js'
 import type { NoydbStore } from '../src/kernel/types.js'
 
@@ -29,7 +29,7 @@ async function openNew(store: NoydbStore) {
 
 describe('coordinatedCutover multi-client (#232 3b)', () => {
   it('migrator waits for a second active client to quiesce before transforming', async () => {
-    const store = memory()
+    const store = toMemory()
     // seed gen-0 old data
     const seed = await createNoydb({ store, user: USER, secret: SECRET })
     const sv = await seed.openVault('demo')

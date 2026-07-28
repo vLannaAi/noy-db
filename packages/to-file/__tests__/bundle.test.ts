@@ -14,7 +14,7 @@ import { mkdtemp, rm, readFile, writeFile, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createNoydb, type Noydb, BundleIntegrityError, hasNoydbBundleMagic } from '@noy-db/hub'
-import { jsonFile, saveBundle, loadBundle } from '../src/index.js'
+import { toFile, saveBundle, loadBundle } from '../src/index.js'
 
 let testDir: string
 
@@ -34,7 +34,7 @@ interface Invoice {
 
 async function makeDb(dataDir?: string): Promise<Noydb> {
   return createNoydb({
-    store: jsonFile({ dir: dataDir ?? join(testDir, 'data') }),
+    store: toFile({ dir: dataDir ?? join(testDir, 'data') }),
     user: 'owner',
     secret: 'bundle-file-test-secret-2026',
   })

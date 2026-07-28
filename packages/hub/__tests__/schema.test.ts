@@ -34,7 +34,7 @@ import type { StandardSchemaV1, InferOutput } from '../src/kernel/schema.js'
 
 // ─── Inline memory adapter (same pattern as other test files) ─────────
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -109,7 +109,7 @@ describe('schema validation.', () => {
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice', historyStrategy: withHistory(),
       secret: 'test-secret-1234',
     })
@@ -281,7 +281,7 @@ describe('schema validation.', () => {
     // instance. Relying on the same process but a separate Noydb ensures
     // we're not accidentally reading from an in-memory collection cache
     // that bypasses decryptRecord.
-    const sharedAdapter = memory()
+    const sharedAdapter = toMemory()
     const looseDb = await createNoydb({
       store: sharedAdapter,
       user: 'alice', historyStrategy: withHistory(),

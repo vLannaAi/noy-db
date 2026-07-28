@@ -15,7 +15,7 @@ import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/with-cargo
 import { readNoydbBundle, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
 import { loadPersistedSchema } from '../src/with-shape/persisted-schemas/storage.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -69,7 +69,7 @@ const ClientSchema = z.object({ id: z.string(), name: z.string(), operatorUserId
 
 /** A vault with a schema-persisting `clients` collection holding one record. */
 async function vaultWithSchema() {
-  const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-secret-1234' })
+  const db = await createNoydb({ cargoStrategy: withCargo(), store: toMemory(), user: 'alice', secret: 'test-secret-1234' })
   const c = await db.openVault('demo-co')
   c.collection<Client>('clients', { schema: ClientSchema, persistJsonSchema: true })
   await c.collection<Client>('clients').put('c-1', { id: 'c-1', name: 'Hotel', operatorUserId: 'belle' })
@@ -91,7 +91,7 @@ async function bundleBody(bytes: Uint8Array) {
  * Models the race that production stores (network, SQL) hit naturally.
  */
 function delayedSchemaMemory(): NoydbStore {
-  const inner = memory()
+  const inner = toMemory()
   return {
     ...inner,
     async put(c, col, id, env, ev) {
@@ -128,7 +128,7 @@ describe('reKeySchemas', () => {
   })
 
   it('returns an empty map when no closure collection has a persisted schema', async () => {
-    const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-secret-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: toMemory(), user: 'alice', secret: 'test-secret-1234' })
     const company = await db.openVault('demo-co')
     await company.collection<Client>('clients').put('c-1', { id: 'c-1', name: 'A', operatorUserId: 'belle' })
     const schemas = await reKeySchemas(company, new Map([['clients', new Set(['c-1'])]]), new Map([['clients', await generateDEK()]]))
@@ -156,7 +156,7 @@ describe('adoptPartition imports carried schemas', () => {
   it('writes _schemas/<collection> into the destination store', async () => {
     const company = await vaultWithSchema()
     const { bundleBytes, transferKey } = await extractPartition(company, { seeds: { clients: () => true }, carrySchemas: true })
-    const dest = memory()
+    const dest = toMemory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'acme' })
     expect(await dest.get('acme', '_schemas', 'clients')).toBeTruthy()
   })
@@ -164,7 +164,7 @@ describe('adoptPartition imports carried schemas', () => {
   it('imports nothing extra when the bundle has no _internal (default)', async () => {
     const company = await vaultWithSchema()
     const { bundleBytes, transferKey } = await extractPartition(company, { seeds: { clients: () => true } })
-    const dest = memory()
+    const dest = toMemory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'acme' })
     expect(await dest.get('acme', '_schemas', 'clients')).toBeNull()
   })
@@ -175,7 +175,7 @@ describe('carrySchemas full ceremony', () => {
     const company = await vaultWithSchema()
     const { bundleBytes, transferKey } = await extractPartition(company, { seeds: { clients: () => true }, carrySchemas: true })
 
-    const dest = memory()
+    const dest = toMemory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'acme' })
     await createOwnerOnAdoptedPartition(dest, 'acme', { userId: 'belle', secret: 'belle-2026', transferKey })
 

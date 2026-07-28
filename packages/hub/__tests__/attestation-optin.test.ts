@@ -5,7 +5,7 @@ import { AttestationNotEnabledError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string) => { let comp = store.get(v); if (!comp) { comp = new Map(); store.set(v, comp) } let coll = comp.get(c); if (!coll) { coll = new Map(); comp.set(c, coll) } return coll }
   return {
@@ -28,14 +28,14 @@ const attestation = { fields: [
 
 describe('attestation capability gate (withAttestation)', () => {
   it('throws AttestationNotEnabledError when not opted in', async () => {
-    const db = await createNoydb({ store: memory(), user: 'firm', secret: 'pw-123456' })
+    const db = await createNoydb({ store: toMemory(), user: 'firm', secret: 'pw-123456' })
     const v = await db.openVault('books')
     await v.collection<Invoice>('invoices', { attestation }).put('x', { id: 'x', invoiceNo: 'A', total: 1, issueDate: '2026-05-29' })
     await expect(v.issueAttestation('invoices', 'x')).rejects.toThrow(AttestationNotEnabledError)
   })
 
   it('gates all six capability methods when not opted in', async () => {
-    const db = await createNoydb({ store: memory(), user: 'firm', secret: 'pw-123456' })
+    const db = await createNoydb({ store: toMemory(), user: 'firm', secret: 'pw-123456' })
     const v = await db.openVault('books')
     await v.collection<Invoice>('invoices', { attestation }).put('x', { id: 'x', invoiceNo: 'A', total: 1, issueDate: '2026-05-29' })
     await expect(v.issueAttestation('invoices', 'x')).rejects.toThrow(AttestationNotEnabledError)
@@ -47,7 +47,7 @@ describe('attestation capability gate (withAttestation)', () => {
   })
 
   it('works when opted in via withAttestation()', async () => {
-    const db = await createNoydb({ store: memory(), user: 'firm', secret: 'pw-123456', attestationStrategy: withAttestation() })
+    const db = await createNoydb({ store: toMemory(), user: 'firm', secret: 'pw-123456', attestationStrategy: withAttestation() })
     const v = await db.openVault('books')
     await v.collection<Invoice>('invoices', { attestation }).put('x', { id: 'x', invoiceNo: 'A', total: 1, issueDate: '2026-05-29' })
     const r = await v.issueAttestation('invoices', 'x')

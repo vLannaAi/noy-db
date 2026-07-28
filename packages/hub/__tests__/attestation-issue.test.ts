@@ -6,7 +6,7 @@ import { generateDEK, decrypt } from '../src/kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string) => { let comp = store.get(v); if (!comp) { comp = new Map(); store.set(v, comp) } let coll = comp.get(c); if (!coll) { coll = new Map(); comp.set(c, coll) } return coll }
   return {
@@ -30,7 +30,7 @@ const schema: AttestationFieldSchema = {
 const record = { invoiceNo: 'INV-1001', total: 1234.5, issueDate: '2026-05-29' }
 
 async function makeCtx(over: Partial<{ role: string; readRecord: (c: string, id: string) => Promise<{ record: Record<string, unknown>; version: number } | null> }> = {}) {
-  const store = memory()
+  const store = toMemory()
   const dek = await generateDEK()
   return {
     store, dek,

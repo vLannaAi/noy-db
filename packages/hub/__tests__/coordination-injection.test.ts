@@ -11,7 +11,7 @@
 import { describe, expect, it, expectTypeOf } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../src/kernel/noydb.js'
-import { memory } from '../../to-memory/src/index.js'
+import { toMemory } from '../../to-memory/src/index.js'
 import { coordinatedCutover, additiveOnly } from '../src/with-shape/schema-update/index.js'
 import {
   type CoordinationProvider,
@@ -80,7 +80,7 @@ class SpyProvider implements CoordinationProvider {
 
 describe('coordination injection (#469)', () => {
   it('drives the INJECTED provider through a coordinatedCutover', async () => {
-    const store = memory()
+    const store = toMemory()
 
     // gen 0: seed old-shape data (fresh client, default fence — irrelevant here).
     const seedDb = await createNoydb({ store, user: 'a', secret: 'inject-e2e-pass-1234' })
@@ -133,7 +133,7 @@ describe('coordination injection (#469)', () => {
   })
 
   it('exposes the injected instance via db.coordination (identity)', async () => {
-    const store = memory()
+    const store = toMemory()
     const spy = new SpyProvider(store)
     const db = await createNoydb({ store, user: 'a', secret: 'inject-identity-pass-1234', coordinationStrategy: spy })
     expect(db.coordination).toBe(spy)
@@ -141,7 +141,7 @@ describe('coordination injection (#469)', () => {
   })
 
   it('defaults to StoreCoordinationProvider when none is injected', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({ store, user: 'a', secret: 'inject-default-pass-1234' })
     expect(db.coordination).toBeInstanceOf(StoreCoordinationProvider)
     await db.close()

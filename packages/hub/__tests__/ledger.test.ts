@@ -40,7 +40,7 @@ import {
 
 // ─── Inline memory adapter (unchanged from other test files) ─────────
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -179,7 +179,7 @@ describe('LedgerStore via Vault.ledger().', () => {
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice', historyStrategy: withHistory(),
       secret: 'test-secret-1234',
     })
@@ -293,7 +293,7 @@ describe('LedgerStore via Vault.ledger().', () => {
   })
 
   it('detects mid-chain tampering via verify()', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     const tamperDb = await createNoydb({
       store: adapter,
       user: 'alice', historyStrategy: withHistory(),
@@ -355,7 +355,7 @@ describe('LedgerStore via Vault.ledger().', () => {
     // Even if the attacker happens to use a valid envelope structure,
     // the AES-GCM decrypt will fail because they don't have the
     // ledger DEK.
-    const adapter = memory()
+    const adapter = toMemory()
     const tamperDb = await createNoydb({
       store: adapter,
       user: 'alice', historyStrategy: withHistory(),
@@ -415,7 +415,7 @@ describe('LedgerStore via Vault.ledger().', () => {
     // Single-writer assumption holds, but we still want to verify that
     // a brand-new LedgerStore can rehydrate from the adapter and pick
     // up the correct head. This is the "process restart" scenario.
-    const adapter = memory()
+    const adapter = toMemory()
     const db1 = await createNoydb({
       store: adapter,
       user: 'alice', historyStrategy: withHistory(),

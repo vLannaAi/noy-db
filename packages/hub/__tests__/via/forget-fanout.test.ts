@@ -14,7 +14,7 @@ import { withPeriods } from '../../src/with-audit/periods/index.js'
 import { withTiers } from '../../src/with-audit/tiers/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -54,7 +54,7 @@ const totalSpentRollup = () =>
 describe('forget() fanout to derived residue (#622)', () => {
   it('forget × rollup: the parent aggregate is recomputed without the forgotten child (open period)', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'forget-fanout-rollup-secret-2026',
+      store: toMemory(), user: 'alice', secret: 'forget-fanout-rollup-secret-2026',
       derivationStrategies: [totalSpentRollup()],
       historyStrategy: withHistory(),
       forgetStrategy: withForget({ subjects: { sales: 'subjectId' } }),
@@ -87,7 +87,7 @@ describe('forget() fanout to derived residue (#622)', () => {
       refresh: 'eager',
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'forget-fanout-mv-secret-2026',
+      store: toMemory(), user: 'alice', secret: 'forget-fanout-mv-secret-2026',
       materializedViewStrategies: [mv],
       historyStrategy: withHistory(),
       forgetStrategy: withForget({ subjects: { people: 'subjectId' } }),
@@ -116,7 +116,7 @@ describe('forget() fanout to derived residue (#622)', () => {
       refresh: 'lazy',
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'forget-fanout-lazy-mv-count-secret-2026',
+      store: toMemory(), user: 'alice', secret: 'forget-fanout-lazy-mv-count-secret-2026',
       materializedViewStrategies: [mv],
       historyStrategy: withHistory(),
       forgetStrategy: withForget({ subjects: { people: 'subjectId' } }),
@@ -159,7 +159,7 @@ describe('forget() fanout to derived residue (#622)', () => {
       output: { collection: 'disbursements', partition: { field: 'type', value: 'pp30' } },
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'forget-fanout-same-collection-mv-secret-2026',
+      store: toMemory(), user: 'alice', secret: 'forget-fanout-same-collection-mv-secret-2026',
       materializedViewStrategies: [mv],
       historyStrategy: withHistory(),
       forgetStrategy: withForget({ subjects: { disbursements: 'subjectId' } }),
@@ -203,7 +203,7 @@ describe('forget() fanout to derived residue (#622)', () => {
       lifecycle: 'eager',
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'forget-fanout-optional-skip-secret-2026',
+      store: toMemory(), user: 'alice', secret: 'forget-fanout-optional-skip-secret-2026',
       derivationStrategies: [strategy],
       historyStrategy: withHistory(),
       forgetStrategy: withForget({ subjects: { allocations: 'subjectId' } }),
@@ -220,7 +220,7 @@ describe('forget() fanout to derived residue (#622)', () => {
 
   it('forget × frozen aggregate: recompute skipped, residue reported + audited, subject still fully shredded', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'forget-fanout-frozen-secret-2026',
+      store: toMemory(), user: 'alice', secret: 'forget-fanout-frozen-secret-2026',
       derivationStrategies: [totalSpentRollup()],
       periodsStrategy: withPeriods(),
       historyStrategy: withHistory(),
@@ -257,7 +257,7 @@ describe('forget() fanout to derived residue (#622)', () => {
   it('forget with no derived consumers: existing report fields are byte-unchanged, new fields default to zero/empty', async () => {
     interface Person extends Record<string, unknown> { id: string; subjectId: string; name: string }
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'forget-fanout-plain-secret-2026',
+      store: toMemory(), user: 'alice', secret: 'forget-fanout-plain-secret-2026',
       historyStrategy: withHistory(),
       forgetStrategy: withForget({ subjects: { people: 'subjectId' } }),
     })
@@ -316,7 +316,7 @@ describe('forget() fanout to derived residue (#622)', () => {
       rowKey: (r) => r.id,
       refresh: 'lazy',
     })
-    const store = memory()
+    const store = toMemory()
     const open = async () => {
       const db = await createNoydb({
         store, user: 'alice', secret: 'forget-fanout-776a-secret-2026',
@@ -357,7 +357,7 @@ describe('forget() fanout to derived residue (#622)', () => {
       rowKey: (r) => r.id,
       refresh: 'eager',
     })
-    const store = memory()
+    const store = toMemory()
     const open = async () => {
       const db = await createNoydb({
         store, user: 'alice', secret: 'forget-fanout-782a-secret-2026',
@@ -400,7 +400,7 @@ describe('forget() fanout to derived residue (#622)', () => {
       refresh: 'lazy',
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'forget-fanout-782b-lazy-secret-2026',
+      store: toMemory(), user: 'alice', secret: 'forget-fanout-782b-lazy-secret-2026',
       materializedViewStrategies: [mv],
       historyStrategy: withHistory(),
       forgetStrategy: withForget({ subjects: { people: 'subjectId' } }),
@@ -437,7 +437,7 @@ describe('forget() fanout to derived residue (#622)', () => {
       refresh: 'eager',
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'forget-fanout-782b-eager-secret-2026',
+      store: toMemory(), user: 'alice', secret: 'forget-fanout-782b-eager-secret-2026',
       materializedViewStrategies: [mv],
       historyStrategy: withHistory(),
       forgetStrategy: withForget({ subjects: { people: 'subjectId' } }),
@@ -473,7 +473,7 @@ describe('forget() fanout to derived residue (#622)', () => {
       rowKey: (r) => r.id,
       refresh: 'lazy',
     })
-    const store = memory()
+    const store = toMemory()
     const open = async () => {
       const db = await createNoydb({
         store, user: 'alice', secret: 'forget-fanout-785-secret-2026',

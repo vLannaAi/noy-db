@@ -34,7 +34,7 @@ import { withHistory } from '../src/with-commit/history/index.js'
 import { withForget } from '../src/with-audit/forget/index.js'
 
 /** In-memory store exposing raw stored envelopes for white-box assertions. */
-function memory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
+function toMemory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -90,7 +90,7 @@ const SECRET = 'forget-sealed-erasure-secret-2026'
 const HOUR = 60 * 60 * 1000
 
 function readDelivery(
-  store: ReturnType<typeof memory>,
+  store: ReturnType<typeof toMemory>,
   vault: string,
   collection: string,
   id: string,
@@ -101,7 +101,7 @@ function readDelivery(
 }
 
 async function setup() {
-  const store = memory()
+  const store = toMemory()
   const db = await createNoydb({
     store, user: 'alice', secret: SECRET,
     historyStrategy: withHistory(),
@@ -214,7 +214,7 @@ describe('forget() — M-1: classifies sealed slots (CEK-shreddable vs DEK-resid
 
 describe('forget() — regression: non-sealed, non-host-sealed erasure', () => {
   it('a plain perRecordKeys record forgets cleanly; new counts are all zero', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),

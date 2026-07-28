@@ -19,7 +19,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { walkClosure } from '../src/with-cargo/walk-closure.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -76,7 +76,7 @@ describe('walkClosure', () => {
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'test-secret-1234',
     })
@@ -193,7 +193,7 @@ describe('walkClosure', () => {
 
   it('#759: excludes a tier-elevated outbound parent instead of admitting it, and records a dangling-ref notice', async () => {
     const tieredDb = await createNoydb({
-      store: memory(), user: 'alice', secret: 'test-secret-1234', tiersStrategy: withTiers(),
+      store: toMemory(), user: 'alice', secret: 'test-secret-1234', tiersStrategy: withTiers(),
     })
     const company = await tieredDb.openVault('demo-co')
     const clients = company.collection<Client>('clients', { tiers: [0, 1] })

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb, withMaterializedView } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -60,7 +60,7 @@ describe('MV declaredDeterministicPredicates (#153)', () => {
       refresh: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-predicates-basic-secret-2026',
       materializedViewStrategies: [mv],
@@ -94,12 +94,12 @@ describe('MV declaredDeterministicPredicates (#153)', () => {
     })
     // Two separate vaults to isolate, then compare _materializedFrom queryHash
     const dbA = await createNoydb({
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       secret: 'mv-predicates-hash-A-secret-2026',
       materializedViewStrategies: [v1],
     })
     const dbB = await createNoydb({
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       secret: 'mv-predicates-hash-B-secret-2026',
       materializedViewStrategies: [v2],
     })
@@ -129,12 +129,12 @@ describe('MV declaredDeterministicPredicates (#153)', () => {
       refresh: 'eager',
     })
     const dbA = await createNoydb({
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       secret: 'mv-predicates-ctxA-secret-2026',
       materializedViewStrategies: [mvA],
     })
     const dbB = await createNoydb({
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       secret: 'mv-predicates-ctxB-secret-2026',
       materializedViewStrategies: [mvB],
     })
@@ -164,7 +164,7 @@ describe('MV declaredDeterministicPredicates (#153)', () => {
   it('throws helpful error when .wherePredicate is called on a Query without predicates', async () => {
     // A bare Query (outside an MV) shouldn't support .wherePredicate().
     const db = await createNoydb({
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       secret: 'mv-predicates-bare-secret-2026',
     })
     const vault = await db.openVault('demo')
@@ -184,7 +184,7 @@ describe('MV declaredDeterministicPredicates (#153)', () => {
     })
     await expect((async () => {
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'mv-predicates-unknown-secret-2026',
         materializedViewStrategies: [mv],
@@ -225,7 +225,7 @@ describe('MV declaredDeterministicPredicates (#153)', () => {
       refresh: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-predicates-chained-secret-2026',
       materializedViewStrategies: [mv],

@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { memory } from '../../../to-memory/src/index.js'
+import { toMemory } from '../../../to-memory/src/index.js'
 import { SchemaFenceController } from '../../src/with-shape/schema-update/fence-controller.js'
 import { loadFence, saveFence } from '../../src/with-shape/schema-update/fence.js'
 import { writeClientDoc } from '../../src/with-shape/schema-update/client-registry.js'
 import { StoreCoordinationProvider } from '../../src/with-shape/schema-update/store-coordination-provider.js'
 import { QuiesceTimeoutError } from '../../src/kernel/errors.js'
 
-function mkCtrl(store = memory(), quiesceTimeoutMs = 10_000) {
+function mkCtrl(store = toMemory(), quiesceTimeoutMs = 10_000) {
   let t = 1000
   // Default coordination = StoreCoordinationProvider over the same store; the
   // ack-barrier behavior (and these store-level assertions) is unchanged.
@@ -48,7 +48,7 @@ describe('SchemaFenceController barrier', () => {
   })
 
   it('runCutover throws QuiesceTimeoutError when an active client never acks', async () => {
-    const { store, c, advance, now } = mkCtrl(memory(), 10_000)
+    const { store, c, advance, now } = mkCtrl(toMemory(), 10_000)
     await c.init()
     c.registerPendingCutover('invoices', (d) => d)
     await writeClientDoc(store, 'v', 'holdout', { lastSeen: now(), quiescedAtVersion: null })

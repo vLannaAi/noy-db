@@ -16,7 +16,7 @@ interface Doc { id: string; name: string }
 const SECRET = 'test-secret-1234'
 const HOUR = 60 * 60 * 1000
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const coll = (c: string, col: string) => {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -56,7 +56,7 @@ function memory(): NoydbStore {
 
 describe('sealed-record opt-in gate (S4)', () => {
   it('throws SealedRecordNotEnabledError when not opted in', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: SECRET })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: SECRET })
     const vault = await db.openVault('v')
     const docs = vault.collection<Doc>('docs', { perRecordKeys: true })
     await docs.put('d-1', { id: 'd-1', name: 'secret' })
@@ -69,7 +69,7 @@ describe('sealed-record opt-in gate (S4)', () => {
   })
 
   it('works when opted in via withSealedRecord()', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: SECRET, sealedRecordStrategy: withSealedRecord() })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: SECRET, sealedRecordStrategy: withSealedRecord() })
     const vault = await db.openVault('v')
     const docs = vault.collection<Doc>('docs', { perRecordKeys: true })
     await docs.put('d-1', { id: 'd-1', name: 'secret' })

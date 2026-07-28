@@ -4,7 +4,7 @@ import { sum } from '../../src/with-lookup/reduce/index.js'
 import { withReduce } from '../../src/with-lookup/reduce/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -98,7 +98,7 @@ describe('UNION MV — basic 2-source (#165)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-union-basic-secret-2026',
       materializedViewStrategies: [monthlyVat],
@@ -146,7 +146,7 @@ describe('UNION MV — basic 2-source (#165)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-union-arms-independent-secret-2026',
       materializedViewStrategies: [totals],
@@ -225,7 +225,7 @@ describe('UNION MV — combined with multi-key groupBy (#165 + #166)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-union-multikey-niwat-secret-2026',
       materializedViewStrategies: [monthlyOutputVat],
@@ -299,7 +299,7 @@ describe('UNION MV — edges (#165)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-union-three-source-secret-2026',
       materializedViewStrategies: [totals],
@@ -356,7 +356,7 @@ describe('UNION MV — edges (#165)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-union-onempty-auto-tombstone-secret-2026',
       materializedViewStrategies: [totals],
@@ -408,7 +408,7 @@ describe('UNION MV — edges (#165)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-union-onempty-tombstone-secret-2026',
       materializedViewStrategies: [totals],

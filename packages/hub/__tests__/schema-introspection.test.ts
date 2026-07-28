@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../src/kernel/noydb.js'
 import type { NoydbStore } from '../src/kernel/types.js'
-import { memory } from '../../to-memory/src/index.js'
+import { toMemory } from '../../to-memory/src/index.js'
 import { withGuard } from '../src/with-audit/guards/with-guard.js'
 import { additiveOnly, coordinatedCutover } from '../src/with-shape/schema-update/index.js'
 
@@ -10,7 +10,7 @@ interface Inv extends Record<string, unknown> { id: string; amount: number }
 
 describe('vault.introspect() (#229)', () => {
   it('reports collections with counts, guards, schemaUpdate, and grants', async () => {
-    const store: NoydbStore = memory()
+    const store: NoydbStore = toMemory()
     const db = await createNoydb({
       store, user: 'alice', secret: 'introspect-pass-1234',
       guardStrategies: [withGuard<Inv>({ collection: 'invoices', check: () => {} })],
@@ -39,7 +39,7 @@ describe('vault.introspect() (#229)', () => {
   })
 
   it('a services-off vault yields empty guard/MV/schemaUpdate arrays without error', async () => {
-    const db = await createNoydb({ store: memory(), user: 'a', secret: 'introspect-pass-1234' })
+    const db = await createNoydb({ store: toMemory(), user: 'a', secret: 'introspect-pass-1234' })
     const v = await db.openVault('demo')
     v.collection('plain')
     const snap = await v.introspect()

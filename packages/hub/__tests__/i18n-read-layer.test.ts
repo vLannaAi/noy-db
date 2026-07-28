@@ -13,7 +13,7 @@ import { ConflictError } from '../src/kernel/errors.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -66,7 +66,7 @@ interface Person { id: string; firstName: Record<string, string> }
 
 async function freshDb(): Promise<Noydb> {
   return createNoydb({
-    store: memory(),
+    store: toMemory(),
     user: 'alice',
     secret: 'test-secret-read-layer',
     i18nStrategy: withI18n(),

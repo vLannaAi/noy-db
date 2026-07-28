@@ -15,7 +15,7 @@
 import { describe, expect, it } from 'vitest'
 import { ExportCapabilityError, createNoydb } from '@noy-db/hub'
 import { withBlobs } from '@noy-db/hub/blobs'
-import { memory } from '@noy-db/to-memory'
+import { toMemory } from '@noy-db/to-memory'
 import { toBytes, download, write, AsBlobNotFoundError } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
 
@@ -25,7 +25,7 @@ const PDF_BYTES = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34
 const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
 async function seedVault() {
-  const adapter = memory()
+  const adapter = toMemory()
   const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass', blobsStrategy: withBlobs() })
   const vault = await db.openVault('acme')
   const invoices = vault.collection<Invoice>('invoices')

@@ -35,7 +35,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/ker
 
 // ─── Inline memory adapter (list() does NOT skip `_`-prefixed names; loadAll() does — the store
 // contract the whole task rests on, mirrored from dictionary.test.ts / sync-dispatch.test.ts). ───
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(v: string, c: string) {
     let vm = store.get(v); if (!vm) { vm = new Map(); store.set(v, vm) }
@@ -75,9 +75,9 @@ interface Order extends Record<string, unknown> { id: string; status: string; st
 
 describe('reserved-lookup sync (#647, #650 Task 4)', () => {
   it('a vocabulary edit AND a rename on A propagate to B via push/pull; the dependent order re-dresses correctly', async () => {
-    const remote = memory()
-    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
-    const dbB = await createNoydb({ store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+    const remote = toMemory()
+    const dbA = await createNoydb({ store: toMemory(), sync: remote, user: 'user-a', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+    const dbB = await createNoydb({ store: toMemory(), sync: remote, user: 'user-b', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
 
     const vA = await dbA.openVault('demo')
     vA.collection<Order>('orders', { lookupFields: { status: dict('status') } })
@@ -120,13 +120,13 @@ describe('reserved-lookup sync (#647, #650 Task 4)', () => {
 
   it('a vault with no reserved-lookup collections declared: pull() never calls remote.list() — zero behavior change (byte-parity)', async () => {
     let listCalls = 0
-    const remoteBase = memory()
+    const remoteBase = toMemory()
     const remote: NoydbStore = {
       ...remoteBase,
       async list(v, c) { listCalls++; return remoteBase.list(v, c) },
     }
-    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), encrypt: false })
-    const dbB = await createNoydb({ store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), encrypt: false })
+    const dbA = await createNoydb({ store: toMemory(), sync: remote, user: 'user-a', syncStrategy: withSync(), encrypt: false })
+    const dbB = await createNoydb({ store: toMemory(), sync: remote, user: 'user-b', syncStrategy: withSync(), encrypt: false })
 
     const vA = await dbA.openVault('plain')
     await vA.collection<Order>('orders').put('o1', { id: 'o1', status: 'paid' })
@@ -142,9 +142,9 @@ describe('reserved-lookup sync (#647, #650 Task 4)', () => {
   })
 
   it('snapshot invalidation: a pulled reserved-lookup row refreshes an already-warmed LookupHandle — no stale membership verdicts', async () => {
-    const remote = memory()
-    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
-    const dbB = await createNoydb({ store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+    const remote = toMemory()
+    const dbA = await createNoydb({ store: toMemory(), sync: remote, user: 'user-a', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+    const dbB = await createNoydb({ store: toMemory(), sync: remote, user: 'user-b', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
 
     const vA = await dbA.openVault('demo')
     await vA.dictionary('status').put('paid', { en: 'Paid' })
@@ -168,8 +168,8 @@ describe('reserved-lookup sync (#647, #650 Task 4)', () => {
   })
 
   it('ordering pin: reserved-lookup rows are applied to the local store BEFORE the graph-dispatch wave flushes', async () => {
-    const local = memory()
-    const remote = memory()
+    const local = toMemory()
+    const remote = toMemory()
     const seedEnvelope: EncryptedEnvelope = {
       _noydb: 1, _v: 1, _ts: new Date().toISOString(), _iv: '', _data: JSON.stringify({ key: 'settled', labels: { en: 'Settled' } }),
     }
@@ -204,9 +204,9 @@ describe('reserved-lookup sync (#647, #650 Task 4)', () => {
   // ─── #647 fix wave 1 — reserved delete/rename-removal propagation (delete-markers) ───────────
 
   it('a key deleted on A propagates to B on pull: get is null, closed-vocabulary membership refuses it, snapshot excludes it', async () => {
-    const remote = memory()
-    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
-    const dbB = await createNoydb({ store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+    const remote = toMemory()
+    const dbA = await createNoydb({ store: toMemory(), sync: remote, user: 'user-a', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+    const dbB = await createNoydb({ store: toMemory(), sync: remote, user: 'user-b', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
 
     const vA = await dbA.openVault('demo')
     await vA.dictionary('status').put('paid', { en: 'Paid' })
@@ -238,9 +238,9 @@ describe('reserved-lookup sync (#647, #650 Task 4)', () => {
   })
 
   it('phantom-rename: A renames paid->settled and pushes; B pulls and has settled AND NOT paid', async () => {
-    const remote = memory()
-    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
-    const dbB = await createNoydb({ store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+    const remote = toMemory()
+    const dbA = await createNoydb({ store: toMemory(), sync: remote, user: 'user-a', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+    const dbB = await createNoydb({ store: toMemory(), sync: remote, user: 'user-b', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
 
     const vA = await dbA.openVault('demo')
     await vA.dictionary('status').put('paid', { en: 'Paid' })
@@ -272,9 +272,9 @@ describe('reserved-lookup sync (#647, #650 Task 4)', () => {
   })
 
   it('resurrection-prevention: a concurrent local edit on B does not resurrect a key A deleted at a converging version', async () => {
-    const remote = memory()
-    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
-    const dbB = await createNoydb({ store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+    const remote = toMemory()
+    const dbA = await createNoydb({ store: toMemory(), sync: remote, user: 'user-a', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+    const dbB = await createNoydb({ store: toMemory(), sync: remote, user: 'user-b', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
 
     const vA = await dbA.openVault('demo')
     await vA.dictionary('status').put('paid', { en: 'Paid' })
@@ -302,7 +302,7 @@ describe('reserved-lookup sync (#647, #650 Task 4)', () => {
     expect(push2.errors).toHaveLength(0)
 
     // Converged: a THIRD, fresh instance pulling from the same remote never sees 'paid' resurrected.
-    const dbC = await createNoydb({ store: memory(), sync: remote, user: 'user-c', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+    const dbC = await createNoydb({ store: toMemory(), sync: remote, user: 'user-c', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
     const vC = await dbC.openVault('demo')
     vC.dictionary('status') // declare BEFORE pull — same registration requirement as B above
     await dbC.pull('demo')
@@ -314,9 +314,9 @@ describe('reserved-lookup sync (#647, #650 Task 4)', () => {
   // ─── #653 — partial sync must auto-include the reserved dicts a named collection depends on ───
 
   it('#653: partial pull([\'orders\']) still resolves the reserved dict orders depends on (literal filter would drop _dict_status)', async () => {
-    const remote = memory()
-    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
-    const dbB = await createNoydb({ store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+    const remote = toMemory()
+    const dbA = await createNoydb({ store: toMemory(), sync: remote, user: 'user-a', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+    const dbB = await createNoydb({ store: toMemory(), sync: remote, user: 'user-b', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
 
     const vA = await dbA.openVault('demo')
     vA.collection<Order>('orders', { lookupFields: { status: dict('status') } })
@@ -342,9 +342,9 @@ describe('reserved-lookup sync (#647, #650 Task 4)', () => {
 
   it('#653: partial pull of a collection with NO lookup fields does not over-pull an unrelated dict', async () => {
     interface Payment extends Record<string, unknown> { id: string; amount: number }
-    const remote = memory()
-    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
-    const dbB = await createNoydb({ store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+    const remote = toMemory()
+    const dbA = await createNoydb({ store: toMemory(), sync: remote, user: 'user-a', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
+    const dbB = await createNoydb({ store: toMemory(), sync: remote, user: 'user-b', syncStrategy: withSync(), i18nStrategy: withI18n(), encrypt: false })
 
     const vA = await dbA.openVault('demo')
     vA.collection<Order>('orders', { lookupFields: { status: dict('status') } })

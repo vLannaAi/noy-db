@@ -28,7 +28,7 @@ import { count, sum } from '../src/with-lookup/reduce/index.js'
 import { ref } from '../src/kernel/refs.js'
 
 /** Inline memory adapter — same shape as the existing integration tests. */
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string): Map<string, EncryptedEnvelope> {
     let comp = store.get(c)
@@ -178,7 +178,7 @@ describe('Collection.scan().join() > strict mode (default)', () => {
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'scan-join-test-secret-2026',
     })
@@ -273,7 +273,7 @@ describe('Collection.scan().join() > ref-mode dispatch on dangling refs', () => 
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'scan-join-test-secret-2026',
     })
@@ -368,7 +368,7 @@ describe('Collection.scan().join().join() > multi-FK chaining', () => {
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'scan-join-test-secret-2026',
     })
@@ -421,7 +421,7 @@ describe('Collection.scan().join().aggregate() > joined streaming aggregation', 
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'scan-join-test-secret-2026',
     })
@@ -467,7 +467,7 @@ describe('Collection.scan() > backward compatibility unchanged', () => {
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'scan-join-test-secret-2026',
     })

@@ -16,7 +16,7 @@ import { LookupHandle } from '../../src/via/lookup/handle.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, ChangeEvent } from '../../src/kernel/types.js'
 import { ConflictError } from '../../src/kernel/errors.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string): Map<string, EncryptedEnvelope> => {
     let vm = store.get(v); if (!vm) { vm = new Map(); store.set(v, vm) }
@@ -53,7 +53,7 @@ function memory(): NoydbStore {
 
 describe('#650 Task 1 — LookupHandle importable from its new home', () => {
   it('vault.dictionary() returns a LookupHandle instance', async () => {
-    const db = await createNoydb({ store: memory(), user: 'owner', i18nStrategy: withI18n(), secret: 'pw' })
+    const db = await createNoydb({ store: toMemory(), user: 'owner', i18nStrategy: withI18n(), secret: 'pw' })
     const vault = await db.openVault('acme')
     const handle = vault.dictionary('status')
     expect(handle).toBeInstanceOf(LookupHandle)
@@ -62,7 +62,7 @@ describe('#650 Task 1 — LookupHandle importable from its new home', () => {
 
 describe('#650 Task 1 — vault.dictionary() round-trip parity', () => {
   it('put/get/list/rename/delete still round-trip after the extraction', async () => {
-    const db = await createNoydb({ store: memory(), user: 'owner', i18nStrategy: withI18n(), secret: 'pw' })
+    const db = await createNoydb({ store: toMemory(), user: 'owner', i18nStrategy: withI18n(), secret: 'pw' })
     const vault = await db.openVault('acme')
     const dict = vault.dictionary('status')
 
@@ -84,7 +84,7 @@ describe('#650 Task 1 — vault.dictionary() round-trip parity', () => {
   })
 
   it('emits the dict-emitter.test.ts event shape { vault, collection, id, action }', async () => {
-    const db = await createNoydb({ store: memory(), user: 'owner', i18nStrategy: withI18n(), secret: 'pw' })
+    const db = await createNoydb({ store: toMemory(), user: 'owner', i18nStrategy: withI18n(), secret: 'pw' })
     const vault = await db.openVault('acme')
     const events: ChangeEvent[] = []
     db.on('change', (e) => events.push(e))

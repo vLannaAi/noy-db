@@ -3,7 +3,7 @@ import { createNoydb, withGuard, RecordLockedError } from '../src/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 
 // Minimal in-test memory store — follows the hub convention (see __tests__/guards/*.test.ts)
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -41,7 +41,7 @@ interface Invoice extends Record<string, unknown> { id: string; status: 'draft' 
 describe('guards-gate-migration — gate handler registration', () => {
   it('plain Noydb (no guardStrategies, no periods) registers no beforePut gate handlers', async () => {
     const plain = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-gate-plain-secret-2026',
     })
@@ -54,7 +54,7 @@ describe('guards-gate-migration — gate handler registration', () => {
       check: async () => { /* no-op */ },
     })
     const g = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-gate-registered-secret-2026',
       guardStrategies: [guard],
@@ -68,7 +68,7 @@ describe('guards-gate-migration — gate handler registration', () => {
       onDelete: async () => { /* no-op */ },
     })
     const g = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-gate-delete-registered-secret-2026',
       guardStrategies: [guard],
@@ -91,7 +91,7 @@ describe('guards-gate-migration — enforcement via gate', () => {
       },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-gate-enforcement-secret-2026',
       guardStrategies: [invoiceGuard],

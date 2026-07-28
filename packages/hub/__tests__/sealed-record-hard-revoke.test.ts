@@ -12,7 +12,7 @@ import { MemoryRecipientSealer } from '../src/with-party/team/managed-secret.js'
 import { openSealedRecord, withSealedRecord } from '../src/with-audit/sealed-record/index.js'
 import type { SealedCekDeliveryEnvelope } from '../src/with-audit/sealed-record/types.js'
 
-function memory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
+function toMemory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -59,7 +59,7 @@ const SECRET = 'test-secret-1234'
 const HOUR = 60 * 60 * 1000
 
 async function setup() {
-  const store = memory()
+  const store = toMemory()
   const db = await createNoydb({ store, user: 'alice', secret: SECRET, sealedRecordStrategy: withSealedRecord() })
   const vault = await db.openVault('v')
   const docs = vault.collection<Doc>('docs', { perRecordKeys: true })

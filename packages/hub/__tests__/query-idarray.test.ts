@@ -29,7 +29,7 @@ function mockJoinContext(sources: Record<string, unknown[]>): JoinContext {
   }
 }
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -69,7 +69,7 @@ function memory(): NoydbStore {
 
 describe('Query._idArray()', () => {
   it('returns the ids of records matching the plan', async () => {
-    const db = await createNoydb({ store: memory(), user: 'u', secret: 'pw-idarray-1' })
+    const db = await createNoydb({ store: toMemory(), user: 'u', secret: 'pw-idarray-1' })
     const v = await db.openVault('v')
     const c = await v.collection<{ status: string; amount: number }>('orders')
     await c.put('o1', { status: 'open', amount: 10 })
@@ -80,7 +80,7 @@ describe('Query._idArray()', () => {
   })
 
   it('recovers ids even when a money field forces decoded copies in toArray', async () => {
-    const db = await createNoydb({ store: memory(), user: 'u', secret: 'pw-idarray-1' })
+    const db = await createNoydb({ store: toMemory(), user: 'u', secret: 'pw-idarray-1' })
     const v = await db.openVault('v')
     const c = await v.collection<{ status: string; price: string }>('inv', {
       moneyFields: { price: money({ currency: 'USD' }) },

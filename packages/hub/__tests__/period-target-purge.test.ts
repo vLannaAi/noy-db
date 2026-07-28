@@ -6,7 +6,7 @@ import { withHistory } from '../src/with-commit/history/index.js'
 import { withSync } from '../src/with-party/sync/index.js'
 import { isDeleteMarker } from '../src/kernel/enclave/index.js'
 
-function memory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
+function toMemory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (c: string, col: string) => {
     let a = store.get(c); if (!a) { a = new Map(); store.set(c, a) }
@@ -28,7 +28,7 @@ const V = 'V1'
 
 // Build a vault with the given sync targets; returns the stores for white-box assertions.
 async function makeVault(targets: { store: NoydbStore; role: 'backup' | 'archive' | 'sync-peer'; label?: string }[]) {
-  const local = memory()
+  const local = toMemory()
   const db = await createNoydb({
     store: local,
     ...(targets.length > 0 ? { sync: targets } : {}),   // omit sync when empty (withSync still enables _del markers)
@@ -43,7 +43,7 @@ async function makeVault(targets: { store: NoydbStore; role: 'backup' | 'archive
 }
 
 // Produce a real encrypted delete marker for (col,id) by deleting locally, then return it.
-async function realMarker(vault: any, local: ReturnType<typeof memory>, col: string, id: string): Promise<EncryptedEnvelope> {
+async function realMarker(vault: any, local: ReturnType<typeof toMemory>, col: string, id: string): Promise<EncryptedEnvelope> {
   const t = vault.collection(col)
   await t.put(id, { amount: 1, date: '2026-02-01' })
   await t.delete(id)                 // under withSync, delete writes a _del marker (not a physical delete)
@@ -54,7 +54,7 @@ async function realMarker(vault: any, local: ReturnType<typeof memory>, col: str
 
 describe('purgePeriodTargets (#615)', () => {
   it('sweeps in-window markers off a backup target; local unaffected; count recorded', async () => {
-    const backup = memory()
+    const backup = toMemory()
     const { local, db, vault } = await makeVault([{ store: backup, role: 'backup', label: 'bkp' }])
     const marker = await realMarker(vault, local, 'txns', 'a')
     // seed the same real marker onto the backup with an in-window _ts (white-box, mimics a pushed marker)
@@ -70,7 +70,7 @@ describe('purgePeriodTargets (#615)', () => {
   })
 
   it('skips sync-peer targets (their markers survive)', async () => {
-    const backup = memory(), peer = memory()
+    const backup = toMemory(), peer = toMemory()
     const { local, db, vault } = await makeVault([
       { store: backup, role: 'backup', label: 'bkp' },
       { store: peer, role: 'sync-peer', label: 'peer' },
@@ -90,7 +90,7 @@ describe('purgePeriodTargets (#615)', () => {
   })
 
   it('leaves out-of-window markers on the backup', async () => {
-    const backup = memory()
+    const backup = toMemory()
     const { local, db, vault } = await makeVault([{ store: backup, role: 'backup', label: 'bkp' }])
     const marker = await realMarker(vault, local, 'txns', 'late')
     await backup.put(V, 'txns', 'late', { ...marker, _ts: '2026-09-01T00:00:00.000Z' })  // after endDate
@@ -103,7 +103,7 @@ describe('purgePeriodTargets (#615)', () => {
   })
 
   it('requires the period be frozen first', async () => {
-    const backup = memory()
+    const backup = toMemory()
     const { db, vault } = await makeVault([{ store: backup, role: 'backup' }])
     await vault.closePeriod({ name: 'FY26-Q1', endDate: '2026-03-31' })   // not frozen
     await expect(vault.purgePeriodTargets('FY26-Q1')).rejects.toThrow(/frozen first|frozen/i)
@@ -121,7 +121,7 @@ describe('purgePeriodTargets (#615)', () => {
   })
 
   it('records the sweep to _period_target_purges (verifyBackupIntegrity stays ok)', async () => {
-    const backup = memory()
+    const backup = toMemory()
     const { local, db, vault } = await makeVault([{ store: backup, role: 'backup', label: 'bkp' }])
     const marker = await realMarker(vault, local, 'txns', 'a')
     await backup.put(V, 'txns', 'a', { ...marker, _ts: '2026-02-15T00:00:00.000Z' })

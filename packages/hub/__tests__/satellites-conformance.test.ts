@@ -23,7 +23,7 @@ import { withSync } from '../src/with-party/sync/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { withForget } from '../src/with-audit/forget/index.js'
 import { withSearch } from '../src/with-lookup/search/index.js'
-import { memory } from '../../to-memory/src/index.js'
+import { toMemory } from '../../to-memory/src/index.js'
 import { ConflictError, SatelliteConfigError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 
@@ -172,7 +172,7 @@ describe('spec conformance — cross-cutting vectors (#591, Task 13)', () => {
   // ---------------------------------------------------------------------------
   describe('offline resurrection containment: a lingering satellite is unreachable via every surface once the base is gone', () => {
     async function openContainmentPair() {
-      const rawStore = memory()
+      const rawStore = toMemory()
       const db = await createNoydb({ store: rawStore, user: 'alice', secret: SECRET, searchStrategy: withSearch() })
       const vault = await db.openVault('v1')
       vault.collection<Msg>('msgs')
@@ -216,7 +216,7 @@ describe('spec conformance — cross-cutting vectors (#591, Task 13)', () => {
   describe('post-forget late-arriving satellite put stays unreachable (observational containment — resurrection PREVENTION is #590, not asserted here)', () => {
     it('a raw-store put of a valid satellite envelope onto a tombstoned base id is unreachable through every enumerated surface', async () => {
       // spec: Conformance — post-forget late-arriving satellite put
-      const store = memory()
+      const store = toMemory()
       const opts = {
         store, user: 'alice', secret: SECRET, searchStrategy: withSearch(),
         historyStrategy: withHistory(),
@@ -351,7 +351,7 @@ describe('spec conformance — cross-cutting vectors (#591, Task 13)', () => {
   describe('R-S7 retro clause: adding forget coverage over a base whose existing satellite lacks perRecordKeys is refused', () => {
     it('reopening with newly-added forget coverage refuses to redeclare the pre-existing non-perRecordKeys satellite', async () => {
       // spec: Conformance — R-S7 retro clause
-      const store = memory()
+      const store = toMemory()
       // Session 1: no forget coverage — satellite declared WITHOUT perRecordKeys.
       const db1 = await createNoydb({ store, user: 'alice', secret: SECRET })
       const vault1 = await db1.openVault('v1')
@@ -389,7 +389,7 @@ describe('spec conformance — cross-cutting vectors (#591, Task 13)', () => {
   describe('satellite history tombstoning under forget: every displaced version, not just the live envelope', () => {
     it('tombstones all displaced satellite history versions when the subject is forgotten', async () => {
       // spec: Conformance — satellite history tombstoning under forget
-      const rawStore = memory()
+      const rawStore = toMemory()
       const db = await createNoydb({
         store: rawStore, user: 'alice', secret: SECRET,
         historyStrategy: withHistory(),
@@ -440,7 +440,7 @@ describe('spec conformance — cross-cutting vectors (#591, Task 13)', () => {
 
     it('similarTo() drops a satellite hit whose base was raw-deleted (existence post-filter)', async () => {
       // spec: Conformance — similarTo/embeddings existence filter
-      const rawStore = memory()
+      const rawStore = toMemory()
       const encoder = enc(8)
       const db = await createNoydb({ store: rawStore, user: 'alice', secret: SECRET, searchStrategy: withSearch() })
       const vault = await db.openVault('v1')

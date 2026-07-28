@@ -4,7 +4,7 @@ import { withDerivation } from '../../src/with-formula/derivations/index.js'
 import { withTransactions } from '../../src/with-commit/tx/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -50,7 +50,7 @@ describe('Derivation strict mode + withTransactions', () => {
       strict: true,
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-strict-secret-2026',
       derivationStrategies: [strategy],
@@ -76,7 +76,7 @@ describe('Derivation strict mode + withTransactions', () => {
       // strict: false (default)
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-nonstrict-secret-2026',
       derivationStrategies: [strategy],

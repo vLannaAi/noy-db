@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../../src/kernel/noydb.js'
-import { memory } from '../../../to-memory/src/index.js'
+import { toMemory } from '../../../to-memory/src/index.js'
 
 interface Inv extends Record<string, unknown> { id: string; total?: number | undefined; amount?: { gross: number } | undefined }
 
 describe('Collection._applyCutoverTransform', () => {
   it('rewrites every record through the transform, bumping _v', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({ store, user: 'a', secret: 'apply-cutover-pass-1234' })
     const vault = await db.openVault('demo')
     const invoices = vault.collection<Inv>('invoices', {

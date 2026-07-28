@@ -39,7 +39,7 @@ import type { ReadSecret } from '../src/commands/shared.js'
 
 // ─── Shared in-memory adapter (same shape as other test files) ──────
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -116,7 +116,7 @@ function scripted(...answers: string[]): ReadSecret {
  * createNoydb call and the test's setup code see the same storage.
  */
 function sharedAdapter() {
-  const adapter = memory()
+  const adapter = toMemory()
   return {
     adapter,
     build: (_dir: string) => adapter,

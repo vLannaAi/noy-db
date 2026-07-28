@@ -14,7 +14,7 @@ import { via } from '../../src/kernel/via/compose.js'
 import { computed } from '../../src/via/computed/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -54,12 +54,12 @@ describe('sync dispatch wave — per-target dedup (#621, #638 Task 4)', () => {
       from: 'sales', key: 'buyerId', into: 'buyers', field: 'totalSpent',
       compute: (sales) => { computeCalls++; return sales.reduce((t, s) => t + s.total, 0) },
     })
-    const remote = memory()
+    const remote = toMemory()
     // dbA does NOT register the rollup — it's a plain writer, so whatever `buyers.totalSpent`
     // dbB ends up with can only have come from dbB's OWN recompute, isolating the assertion below
     // from any pre-computed value merely riding along on the synced parent envelope.
-    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), encrypt: false })
-    const dbB = await createNoydb({ store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), encrypt: false, derivationStrategies: [rollup] })
+    const dbA = await createNoydb({ store: toMemory(), sync: remote, user: 'user-a', syncStrategy: withSync(), encrypt: false })
+    const dbB = await createNoydb({ store: toMemory(), sync: remote, user: 'user-b', syncStrategy: withSync(), encrypt: false, derivationStrategies: [rollup] })
 
     const vA = await dbA.openVault('demo')
     await vA.collection<Buyer>('buyers').put('b1', { id: 'b1' })
@@ -105,7 +105,7 @@ describe('sync dispatch wave — cutover + restore origins (#621, #638 Task 4)',
 
   it('cutover (_applyCutoverTransform), inside a graph-dispatch batch: dispatches derivations', async () => {
     const { handle, calls } = makeDerivation()
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: SECRET, derivationStrategies: [handle] })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: SECRET, derivationStrategies: [handle] })
     const vault = await db.openVault('demo')
     const pdfs = vault.collection<Pdf>('pdfs')
     await pdfs.put('doc1', { id: 'doc1', body: 'hello' })
@@ -122,7 +122,7 @@ describe('sync dispatch wave — cutover + restore origins (#621, #638 Task 4)',
 
   it('restore origin, inside a graph-dispatch batch: dispatches derivations', async () => {
     const { handle, calls } = makeDerivation()
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: SECRET, derivationStrategies: [handle] })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: SECRET, derivationStrategies: [handle] })
     const vault = await db.openVault('demo')
     const pdfs = vault.collection<Pdf>('pdfs')
     await pdfs.put('doc1', { id: 'doc1', body: 'hello' })
@@ -150,7 +150,7 @@ describe('sync dispatch wave — id-threaded decrypt for a per-record-keyed sour
       derive: (s: Doc) => { seen = s.secret; return { meta: { len: s.secret.length } } },
       lifecycle: 'eager',
     })
-    const store = memory()
+    const store = toMemory()
     // db1 does NOT register the derivation — it's a plain writer, so `seen`/`doc-meta` can only
     // have come from db2's OWN wave-driven decrypt+derive (#646 db2-only-registration mandate —
     // mirrors sync-delete-rollup.test.ts's fixture discipline).
@@ -180,14 +180,14 @@ describe('sync dispatch wave — virtual computed fields never ride the sync pay
   interface Item extends Record<string, unknown> { id: string; amount: number; doubled?: number }
 
   it('pull(): a virtual computed field is absent from the pushed envelope AND independently recomputed by the puller, never transmitted', async () => {
-    const remote = memory()
+    const remote = toMemory()
     // Both sides declare the SAME `mode: 'virtual'` field — unlike the derivation/rollup/MV
     // pins above, a virtual field never writes a side effect into the store (it's excluded
     // from `_data` by construction — `computed/virtual.test.ts` test (b)'s local pin), so
     // there is no shared-write channel for a db2-only-registration split to guard against
     // here; the guarantee under test is the ABSENCE itself, structurally, end-to-end over a
     // real push()/pull() cycle (previously only proven for a single local writer).
-    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), encrypt: false })
+    const dbA = await createNoydb({ store: toMemory(), sync: remote, user: 'user-a', syncStrategy: withSync(), encrypt: false })
     const vA = await dbA.openVault('demo')
     const itemsA = vA.collection<Item>('items', {
       viaFields: { doubled: via(computed((r) => (r.amount as number) * 2, { deps: ['amount'], mode: 'virtual' })) },
@@ -202,7 +202,7 @@ describe('sync dispatch wave — virtual computed fields never ride the sync pay
     expect(rawEnv).not.toBeNull()
     expect(rawEnv!._data).not.toContain('doubled')
 
-    const dbB = await createNoydb({ store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), encrypt: false })
+    const dbB = await createNoydb({ store: toMemory(), sync: remote, user: 'user-b', syncStrategy: withSync(), encrypt: false })
     const vB = await dbB.openVault('demo')
     const itemsB = vB.collection<Item>('items', {
       viaFields: { doubled: via(computed((r) => (r.amount as number) * 2, { deps: ['amount'], mode: 'virtual' })) },
@@ -224,9 +224,9 @@ describe('sync dispatch wave — ref edges excluded from dependentsOf (#650 Task
   interface Traveler extends Record<string, unknown> { id: string; country: string }
 
   it('pull(): a write to a referenced-only backing collection (a `ref` edge, no derivations) skips the wave — no decrypt', async () => {
-    const remote = memory()
-    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), encrypt: false })
-    const dbB = await createNoydb({ store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), encrypt: false })
+    const remote = toMemory()
+    const dbA = await createNoydb({ store: toMemory(), sync: remote, user: 'user-a', syncStrategy: withSync(), encrypt: false })
+    const dbB = await createNoydb({ store: toMemory(), sync: remote, user: 'user-b', syncStrategy: withSync(), encrypt: false })
 
     const vA = await dbA.openVault('demo')
     await vA.collection<Country>('countries').put('US', { id: 'US', name: 'United States' })

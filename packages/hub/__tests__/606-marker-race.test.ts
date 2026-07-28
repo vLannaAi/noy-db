@@ -17,7 +17,7 @@ import { isDeleteMarker } from '../src/kernel/enclave/record-keys/tombstone.js'
 const V = 'v1'
 interface Note { body: string }
 
-function memory(): NoydbStore & {
+function toMemory(): NoydbStore & {
   raw(c: string, col: string, id: string): EncryptedEnvelope | undefined
   stallNextGetFor(col: string, id: string): { release: () => void; hit: Promise<void> }
 } {
@@ -67,7 +67,7 @@ function memory(): NoydbStore & {
 
 describe('#606 adversarial: marker lands mid-hydration', () => {
   it('re-create over a pull-applied marker that landed mid-hydration resets to _v=1 (divergence)', async () => {
-    const localA = memory(); const localB = memory(); const remote = memory()
+    const localA = toMemory(); const localB = toMemory(); const remote = toMemory()
 
     // Peer A creates + deletes 'ghost' → marker _v=2 pushed to remote. Also a
     // live 'anchor' record so B's hydration loop has an id to stall on.

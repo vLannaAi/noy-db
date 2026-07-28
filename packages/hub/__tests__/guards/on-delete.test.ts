@@ -3,7 +3,7 @@ import { createNoydb, withGuard, RecordLockedError, InvariantError } from '../..
 import { withTransactions } from '../../src/with-commit/tx/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -58,7 +58,7 @@ describe('withGuard.onDelete (#145)', () => {
       },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-ondelete-bill-delete-secret-2026',
       guardStrategies: [guard],
@@ -87,7 +87,7 @@ describe('withGuard.onDelete (#145)', () => {
       onDelete: () => { onDeleteCalls++ },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-ondelete-absent-secret-2026',
       guardStrategies: [guard],
@@ -114,7 +114,7 @@ describe('withGuard.onDelete (#145)', () => {
       },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-ondelete-cross-collection-secret-2026',
       guardStrategies: [guard],
@@ -139,7 +139,7 @@ describe('withGuard.onDelete (#145)', () => {
       },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-ondelete-amendment-secret-2026',
       guardStrategies: [guard],
@@ -198,7 +198,7 @@ describe('withGuard.onDelete (#145)', () => {
       },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-ondelete-unconditional-secret-2026',
       guardStrategies: [guard],

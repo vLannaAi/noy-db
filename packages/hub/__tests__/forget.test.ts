@@ -37,7 +37,7 @@ import { withSync } from '../src/with-party/sync/index.js'
 import { sha256Hex } from '../src/with-commit/history/ledger/entry.js'
 
 /** In-memory store exposing raw envelopes + a list helper for reserved cols. */
-function memory(): NoydbStore & {
+function toMemory(): NoydbStore & {
   raw(c: string, col: string, id: string): EncryptedEnvelope | undefined
   rawList(c: string, col: string): string[]
 } {
@@ -93,7 +93,7 @@ const SECRET = 'forget-test-secret-1234'
 
 describe('forget — group 1: tombstones live + history of matching records', () => {
   it('shreds the subject and all its history, leaves other subjects intact', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
@@ -145,7 +145,7 @@ describe('forget — group 1: tombstones live + history of matching records', ()
 
 describe('forget — group 2: ledger verify + head op + payloadHash', () => {
   it('ledger.verify() passes after shred; head is op:forget with subject hash', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
@@ -174,7 +174,7 @@ describe('forget — group 2: ledger verify + head op + payloadHash', () => {
 
 describe('forget — group 3: _det stripped, findByDet returns null (no TamperedError)', () => {
   it('a deterministic field no longer matches a shredded record', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
@@ -201,7 +201,7 @@ describe('forget — group 3: _det stripped, findByDet returns null (no Tampered
 
 describe('forget — group 4: un-migrated record reported + still tombstoned', () => {
   it('reports a perRecordKeys:false legacy record in unmigratedRecords', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
@@ -233,7 +233,7 @@ describe('forget — group 4: un-migrated record reported + still tombstoned', (
 
 describe('forget — group 5: blob residue reported', () => {
   it('reports a collection whose shredded record still has a blob slot', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
@@ -253,7 +253,7 @@ describe('forget — group 5: blob residue reported', () => {
   })
 
   it('#750: reports residue for a published blob version that outlives its deleted slot, blob service off', async () => {
-    const store = memory()
+    const store = toMemory()
     // Session 1: blob service ON — publish a version, then delete the slot.
     // The version keeps an independent refCount hold (see blob-set.test.ts
     // #750) and its row survives under `_blob_versions_invoices`.
@@ -287,7 +287,7 @@ describe('forget — group 5: blob residue reported', () => {
 
 describe('forget — group 6: idempotent', () => {
   it('a second forget shreds nothing and does not throw', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
@@ -310,7 +310,7 @@ describe('forget — group 6: idempotent', () => {
 
 describe('forget — group 7: rebuildSubjectIndex recovers', () => {
   it('rebuilds the subject index from canonical records', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
@@ -339,7 +339,7 @@ describe('forget — group 7: rebuildSubjectIndex recovers', () => {
 
 describe('forget — group 8: ForgetStrategyNotConfiguredError', () => {
   it('throws when no forget strategy is configured', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
@@ -353,7 +353,7 @@ interface CrdtDoc { id: string; buyerId: string; tags: Record<string, string> }
 
 describe('forget — group 9: CRDT-mode tombstone + list() skip do not throw', () => {
   it('a tombstone in a CRDT collection reads as null and list() skips it', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
@@ -383,7 +383,7 @@ describe('forget — group 9: CRDT-mode tombstone + list() skip do not throw', (
 
 describe('forget — group 10: persisted _idx side-cars are purged (#401)', () => {
   it('forget() deletes the _idx side-cars of shredded records, leaving no DEK-decryptable index residue', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),

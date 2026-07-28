@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import type { NoydbStore } from '../src/kernel/types.js'
-import { memory } from '../../to-memory/src/index.js'
+import { toMemory } from '../../to-memory/src/index.js'
 import { RAW_TARGET, makeSatelliteProxy } from '../src/with-shape/satellites/proxy.js'
 import { SatelliteConfigError } from '../src/kernel/errors.js'
 
@@ -22,7 +22,7 @@ interface Msg extends Record<string, unknown> {
 }
 
 async function openPair() {
-  const store: NoydbStore = memory()
+  const store: NoydbStore = toMemory()
   const gets: Array<[string, string]> = []
   const rawGet = store.get.bind(store)
   store.get = (async (v: string, c: string, id: string) => {

@@ -4,7 +4,7 @@ import { VaultPeriods } from '../src/with-audit/periods/vault-facade.js'
 import { withPeriods } from '../src/with-audit/periods/index.js'
 import { PERIOD_TARGET_PURGES_COLLECTION } from '../src/with-audit/periods/periods.js'
 
-function memory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
+function toMemory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (c: string, col: string) => {
     let a = store.get(c); if (!a) { a = new Map(); store.set(c, a) }
@@ -23,7 +23,7 @@ function memory(): NoydbStore & { raw(c: string, col: string, id: string): Encry
 }
 
 function makeFacade(purgeTargetsImpl: (before: string) => Promise<readonly { label?: string; role: 'backup' | 'archive'; purgedCount: number }[]>) {
-  const adapter = memory()
+  const adapter = toMemory()
   let purgeCalls = 0
   const deps = {
     strategy: withPeriods(),

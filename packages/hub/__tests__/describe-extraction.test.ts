@@ -17,7 +17,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { describeExtraction } from '../src/with-cargo/describe-extraction.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -73,7 +73,7 @@ describe('describeExtraction', () => {
   let db: Noydb
 
   beforeEach(async () => {
-    db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-secret-1234' })
+    db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'test-secret-1234' })
   })
 
   it('reports record counts per collection and total from the closure', async () => {
@@ -155,7 +155,7 @@ describe('describeExtraction', () => {
    */
   it('#772: surfaces danglingRefs for a tier-elevated outbound FK parent excluded from the preview', async () => {
     const tieredDb = await createNoydb({
-      store: memory(), user: 'alice', secret: 'test-secret-1234', tiersStrategy: withTiers(),
+      store: toMemory(), user: 'alice', secret: 'test-secret-1234', tiersStrategy: withTiers(),
     })
     const company = await tieredDb.openVault('demo-co')
     const clients = company.collection<Client>('clients', { tiers: [0, 1] })

@@ -24,7 +24,7 @@ import { extractPartition } from '../src/with-cargo/extract-partition.js'
 import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/with-cargo/adopt-partition.js'
 
 /** In-memory store that also exposes the raw stored envelopes for assertions. */
-function memory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
+function toMemory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -78,7 +78,7 @@ interface Doc { id: string; name: string; note?: string }
 
 describe('per-record CEK — slice 1: round-trip + flag + cache', () => {
   it('round-trips a perRecordKeys record and stamps _cek on the envelope', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'test-secret-1234' })
     const vault = await db.openVault('v')
     const cek = vault.collection<Doc>('cek', { perRecordKeys: true })
@@ -93,7 +93,7 @@ describe('per-record CEK — slice 1: round-trip + flag + cache', () => {
   })
 
   it('a CEK record body differs from a legacy record body for the same plaintext', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'test-secret-1234' })
     const vault = await db.openVault('v')
     const legacy = vault.collection<Doc>('legacy')
@@ -113,7 +113,7 @@ describe('per-record CEK — slice 1: round-trip + flag + cache', () => {
 
 describe('per-record CEK — legacy dual-read', () => {
   it('a non-perRecordKeys collection is byte-identical to legacy (no _cek)', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'test-secret-1234' })
     const vault = await db.openVault('v')
     const legacy = vault.collection<Doc>('legacy')
@@ -125,7 +125,7 @@ describe('per-record CEK — legacy dual-read', () => {
   })
 
   it('a mixed vault reads both legacy and CEK records', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'test-secret-1234' })
     const vault = await db.openVault('v')
     const legacy = vault.collection<Doc>('legacy')
@@ -150,7 +150,7 @@ describe('per-record CEK — legacy dual-read', () => {
 
 describe('per-record CEK — slice 1/2: update reuses CEK + history', () => {
   it('an update reuses the same CEK (identical wrapped _cek) and history decrypts', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'test-secret-1234', historyStrategy: withHistory() })
     const vault = await db.openVault('v')
     const cek = vault.collection<Doc>('cek', { perRecordKeys: true })
@@ -177,7 +177,7 @@ describe('per-record CEK — slice 1/2: update reuses CEK + history', () => {
   })
 
   it('all history versions of a CEK record decrypt under the shared CEK', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'test-secret-1234', historyStrategy: withHistory() })
     const vault = await db.openVault('v')
     const cek = vault.collection<Doc>('cek', { perRecordKeys: true })
@@ -200,7 +200,7 @@ describe('per-record CEK — slice 1/2: update reuses CEK + history', () => {
 
 describe('per-record CEK — slice 4: tiers', () => {
   it('elevate then demote a CEK record preserves decryptability at each tier', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'test-secret-1234', tiersStrategy: withTiers() })
     const vault = await db.openVault('v')
     const cek = vault.collection<Doc>('cek', { perRecordKeys: true, tiers: [1] })
@@ -225,7 +225,7 @@ describe('per-record CEK — slice 4: tiers', () => {
 
 describe('per-record CEK — slice 5: extract/adopt round-trip', () => {
   it('extractPartition → adopt → recipient decrypts every CEK record', async () => {
-    const srcStore = memory()
+    const srcStore = toMemory()
     const db = await createNoydb({ cargoStrategy: withCargo(), store: srcStore, user: 'alice', secret: 'test-secret-1234' })
     const company = await db.openVault('demo-co')
     const cek = company.collection<Doc>('cek', { perRecordKeys: true })
@@ -236,7 +236,7 @@ describe('per-record CEK — slice 5: extract/adopt round-trip', () => {
 
     const { bundleBytes, transferKey } = await extractPartition(company, { seeds: { cek: () => true } })
 
-    const dest = memory()
+    const dest = toMemory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'acme' })
     await createOwnerOnAdoptedPartition(dest, 'acme', {
       userId: 'belle', secret: 'belle-hotel-dept-2026', transferKey,
@@ -256,7 +256,7 @@ describe('per-record CEK — slice 5: extract/adopt round-trip', () => {
 
 describe('per-record CEK — slice 1: tombstone tolerance', () => {
   it('get() on a body-less / CEK-less envelope returns null and does not throw', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'test-secret-1234' })
     const vault = await db.openVault('v')
     const cek = vault.collection<Doc>('cek', { perRecordKeys: true, prefetch: false, cache: { maxRecords: 100 } })
@@ -281,7 +281,7 @@ describe('per-record CEK — slice 1: tombstone tolerance', () => {
   })
 
   it('eager-mode hydration skips tombstones rather than throwing TamperedError', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({ cargoStrategy: withCargo(), store, user: 'alice', secret: 'test-secret-1234' })
     const vault = await db.openVault('v')
     const cek = vault.collection<Doc>('cek', { perRecordKeys: true })

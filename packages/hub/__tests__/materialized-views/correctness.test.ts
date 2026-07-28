@@ -7,7 +7,7 @@ import { withTransactions } from '../../src/with-commit/tx/index.js'
 import { withTiers } from '../../src/with-audit/tiers/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -65,7 +65,7 @@ describe('MV correctness (#152)', () => {
         maxRows: 3, // tight ceiling
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'mv-correctness-ceiling-secret-2026',
         materializedViewStrategies: [mv],
@@ -90,7 +90,7 @@ describe('MV correctness (#152)', () => {
         refresh: 'eager',
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'mv-correctness-default-cap-secret-2026',
         materializedViewStrategies: [mv],
@@ -110,7 +110,7 @@ describe('MV correctness (#152)', () => {
         refresh: 'eager',
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'mv-correctness-tombstone-secret-2026',
         materializedViewStrategies: [mv],
@@ -147,7 +147,7 @@ describe('MV correctness (#152)', () => {
         refresh: 'eager',
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'mv-correctness-bypass-secret-2026',
         guardStrategies: [guard],
@@ -181,7 +181,7 @@ describe('MV correctness (#152)', () => {
         onEmpty: 'keep',
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'mv-correctness-keep-secret-2026',
         materializedViewStrategies: [mv],
@@ -205,7 +205,7 @@ describe('MV correctness (#152)', () => {
         refresh: 'manual',
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'mv-correctness-refresh-deleted-secret-2026',
         materializedViewStrategies: [mv],
@@ -237,7 +237,7 @@ describe('MV correctness (#152)', () => {
         output: { collection: 'red-items-out' },
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'mv-correctness-776b-eager-count-secret-2026',
         tiersStrategy: withTiers(),
@@ -284,7 +284,7 @@ describe('MV correctness (#152)', () => {
       })
       // Registration succeeds — the input filter excludes the partition value.
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'mv-correctness-partition-ok-secret-2026',
         materializedViewStrategies: [mv],
@@ -310,7 +310,7 @@ describe('MV correctness (#152)', () => {
       await expect(
         (async () => {
           const db = await createNoydb({
-            store: memory(),
+            store: toMemory(),
             user: 'alice',
             secret: 'mv-correctness-partition-bad-secret-2026',
             materializedViewStrategies: [mv],
@@ -329,7 +329,7 @@ describe('MV correctness (#152)', () => {
         output: { collection: 'disbursements', partition: { field: 'type', value: 'pp30' } },
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'mv-correctness-eq-partition-secret-2026',
         materializedViewStrategies: [mv],
@@ -347,7 +347,7 @@ describe('MV correctness (#152)', () => {
         output: { collection: 'disbursements', partition: { field: 'type', value: 'pp30' } },
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'mv-correctness-ne-partition-secret-2026',
         materializedViewStrategies: [mv],
@@ -366,7 +366,7 @@ describe('MV correctness (#152)', () => {
         output: { collection: 'disbursements', partition: { field: 'type', value: 'pp30' } },
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'mv-correctness-762-tombstone-secret-2026',
         materializedViewStrategies: [mv],
@@ -406,7 +406,7 @@ describe('MV correctness (#152)', () => {
         output: { collection: 'disbursements', partition: { field: 'type', value: 'pp30' } },
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'mv-correctness-777-self-perpetuation-secret-2026',
         materializedViewStrategies: [mv],
@@ -441,7 +441,7 @@ describe('MV correctness (#152)', () => {
         output: { collection: 'reports' },
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'mv-correctness-sibling-secret-2026',
         materializedViewStrategies: [mvA, mvB],
@@ -479,7 +479,7 @@ describe('MV correctness (#152)', () => {
         strict: true,
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'mv-correctness-strict-secret-2026',
         materializedViewStrategies: [mv],
@@ -520,7 +520,7 @@ describe('MV correctness (#152)', () => {
         refresh: 'eager',
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'mv-correctness-aggregate-secret-2026',
         reduceStrategy: withReduce(),
@@ -552,7 +552,7 @@ describe('MV correctness (#152)', () => {
         refresh: 'eager',
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'mv-correctness-single-agg-secret-2026',
         reduceStrategy: withReduce(),

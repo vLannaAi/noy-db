@@ -33,12 +33,12 @@ export const useInvoices = defineNoydbStore<Invoice>('invoices', {
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import { createNoydb } from '@noy-db/hub';
-import { jsonFile } from '@noy-db/to-file';
+import { toFile } from '@noy-db/to-file';
 import { setActiveNoydb } from '@noy-db/in-pinia';
 import App from './App.vue';
 
 const db = await createNoydb({
-  adapter: jsonFile({ dir: './data' }),
+  adapter: toFile({ dir: './data' }),
   user: 'owner',
   secret: () => prompt('Secret')!,
 });

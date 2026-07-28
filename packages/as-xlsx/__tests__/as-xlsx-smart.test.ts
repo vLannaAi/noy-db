@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { createNoydb, ref } from '@noy-db/hub'
 import { withI18n, i18nText, dictKey } from '@noy-db/hub/i18n'
 import { withTransactions } from '@noy-db/hub/transactions'
-import { memory } from '@noy-db/to-memory'
+import { toMemory } from '@noy-db/to-memory'
 import { readZip } from '@noy-db/as-zip'
 import { toBytes, readXlsx, formula, fromBytes, writeXlsx, inferSchema, zodSourceFor } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
@@ -18,7 +18,7 @@ interface Client { id: string; name: string }
 interface Invoice { id: string; clientId: string; amount: number }
 
 async function setup() {
-  const adapter = memory()
+  const adapter = toMemory()
   const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
   await init.openVault('firm')
   await init.grant('firm', {
@@ -102,7 +102,7 @@ describe('#414 P1 — smart export', () => {
   })
 
   it('P2: global LANG cell + i18n locale columns with a live display formula', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-i18n' })
     await init.openVault('shop')
     await init.grant('shop', {
@@ -136,7 +136,7 @@ describe('#414 P1 — smart export', () => {
   })
 
   it('P2 dict: a _Lookups sheet + a LANG-driven VLOOKUP label column', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-dict' })
     await init.openVault('co')
     await init.grant('co', {
@@ -172,7 +172,7 @@ describe('#414 P1 — smart export', () => {
   })
 
   it('P3: groupBy summary sheet with live SUMIFS/COUNTIFS + cached values', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-sum' })
     await init.openVault('firm')
     await init.grant('firm', {
@@ -212,7 +212,7 @@ describe('#414 P1 — smart export', () => {
   })
 
   it('P4 smart import: reverses the smart layout — rebuilds i18n maps, drops derived columns', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-rt' })
     await init.openVault('shop')
     await init.grant('shop', {
