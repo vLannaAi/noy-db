@@ -92,7 +92,7 @@ Version-only lockstep bump; no source changes since pre.2.
 - Updated dependencies
   - @noy-db/hub@0.1.0
 
-## 1.0.0
+## 0.1.0-pre.6
 
 ### Patch Changes
 

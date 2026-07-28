@@ -111,7 +111,7 @@
   - @noy-db/in-devtools@1.0.0-pre.1
   - @noy-db/to-meter@1.0.0-pre.1
 
-## 1.0.0-pre.0
+## 0.4.0-pre.0
 
 ### Patch Changes
 
@@ -122,7 +122,7 @@
   - @noy-db/in-devtools@1.0.0-pre.0
   - @noy-db/to-meter@1.0.0-pre.0
 
-## 1.0.0
+## 0.3.0
 
 ### Patch Changes
 
@@ -207,7 +207,7 @@
   - @noy-db/in-devtools@1.0.0
   - @noy-db/to-meter@1.0.0
 
-## 0.4.0-pre.13
+## 0.3.0-pre.13
 
 ### Patch Changes
 
@@ -248,7 +248,7 @@
   - @noy-db/in-devtools@1.0.0-pre.13
   - @noy-db/to-meter@1.0.0-pre.13
 
-## 0.4.0-pre.12
+## 0.3.0-pre.12
 
 ### Patch Changes
 
@@ -260,7 +260,7 @@
   - @noy-db/in-devtools@1.0.0-pre.12
   - @noy-db/to-meter@1.0.0-pre.12
 
-## 0.4.0-pre.11
+## 0.3.0-pre.11
 
 ### Patch Changes
 
@@ -271,7 +271,7 @@
   - @noy-db/in-devtools@1.0.0-pre.11
   - @noy-db/to-meter@1.0.0-pre.11
 
-## 0.4.0-pre.10
+## 0.3.0-pre.10
 
 ### Patch Changes
 
@@ -285,7 +285,7 @@
   - @noy-db/in-devtools@1.0.0-pre.10
   - @noy-db/to-meter@1.0.0-pre.10
 
-## 1.0.0-pre.9
+## 0.3.0-pre.9
 
 ### Patch Changes
 
@@ -297,7 +297,7 @@
   - @noy-db/in-devtools@1.0.0-pre.9
   - @noy-db/to-meter@1.0.0-pre.9
 
-## 1.0.0-pre.8
+## 0.3.0-pre.8
 
 ### Patch Changes
 
@@ -309,7 +309,7 @@
   - @noy-db/in-devtools@1.0.0-pre.8
   - @noy-db/to-meter@1.0.0-pre.8
 
-## 0.4.0-pre.7
+## 0.3.0-pre.7
 
 ### Patch Changes
 
@@ -319,7 +319,7 @@
   - @noy-db/in-devtools@1.0.0-pre.7
   - @noy-db/to-meter@1.0.0-pre.7
 
-## 0.4.0-pre.6
+## 0.3.0-pre.6
 
 ### Patch Changes
 

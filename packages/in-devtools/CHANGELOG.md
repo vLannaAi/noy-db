@@ -70,7 +70,7 @@
 - Updated dependencies
   - @noy-db/hub@0.4.0-pre.1
 
-## 1.0.0-pre.0
+## 0.4.0-pre.0
 
 ### Patch Changes
 
@@ -79,7 +79,7 @@
 - Updated dependencies
   - @noy-db/hub@0.4.0-pre.0
 
-## 1.0.0
+## 0.3.0
 
 ### Patch Changes
 
@@ -161,7 +161,7 @@
 - Updated dependencies
   - @noy-db/hub@0.3.0
 
-## 0.4.0-pre.13
+## 0.3.0-pre.13
 
 ### Patch Changes
 
@@ -200,7 +200,7 @@
 - Updated dependencies
   - @noy-db/hub@0.3.0-pre.13
 
-## 0.4.0-pre.12
+## 0.3.0-pre.12
 
 ### Patch Changes
 
@@ -210,7 +210,7 @@
 - Updated dependencies
   - @noy-db/hub@0.3.0-pre.12
 
-## 0.4.0-pre.11
+## 0.3.0-pre.11
 
 ### Patch Changes
 
@@ -219,7 +219,7 @@
 - Updated dependencies
   - @noy-db/hub@0.3.0-pre.11
 
-## 0.4.0-pre.10
+## 0.3.0-pre.10
 
 ### Patch Changes
 
@@ -231,7 +231,7 @@
 - Updated dependencies
   - @noy-db/hub@0.3.0-pre.10
 
-## 1.0.0-pre.9
+## 0.3.0-pre.9
 
 ### Patch Changes
 
@@ -241,7 +241,7 @@
 - Updated dependencies
   - @noy-db/hub@0.3.0-pre.9
 
-## 1.0.0-pre.8
+## 0.3.0-pre.8
 
 ### Patch Changes
 
@@ -251,7 +251,7 @@
 - Updated dependencies
   - @noy-db/hub@0.3.0-pre.8
 
-## 0.4.0-pre.7
+## 0.3.0-pre.7
 
 ### Patch Changes
 
@@ -259,7 +259,7 @@
 - Updated dependencies
   - @noy-db/hub@0.3.0-pre.7
 
-## 0.4.0-pre.6
+## 0.3.0-pre.6
 
 ### Patch Changes
 
