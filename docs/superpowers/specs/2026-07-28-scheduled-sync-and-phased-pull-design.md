@@ -33,7 +33,7 @@ Two stages, each independently shippable and independently useful.
 | `SyncScheduler` with push/pull callbacks and timers | ✅ `kernel/sync-policy.ts` |
 | **Scheduler started on vault open, stopped on close** | ✅ **#897 — PR #898** |
 | **Scheduler-initiated pull role-gated to `sync-peer`** | ✅ **#618 — PR #898** |
-| Pull sequencing (ordered collection phases) | ❌ absent — Stage 1 below |
+| Pull sequencing (ordered collection phases) | ✅ **Stage 1 below — shipped** |
 | Per-collection readiness | ❌ absent — Stage 2 below |
 | `SyncSchedulerStatus` reachable from an app | ❌ **no accessor** — Stage 2 below |
 
@@ -160,11 +160,18 @@ otherwise idle until `notifyChange()`. Bootstrap and steady state are one flow, 
 **Sequential by construction.** Running phases in parallel would defeat prioritisation, which is the
 entire point.
 
-**Validation** happens where the policy is accepted, at `createNoydb`: `sequence` present iff
-`mode === 'phased'`, non-empty, every entry a non-empty string, **no duplicates**. An invalid policy
-throws before any I/O. Duplicates are rejected rather than merged because without period narrowing a
-repeated collection can only be a mistake — and rejecting it keeps Stage 2's readiness rules a
-simple one-entry-per-collection mapping.
+**Validation** rejects `sequence` present without `mode === 'phased'`, an absent or empty `sequence`
+under `'phased'`, an empty entry, and **duplicates**. Duplicates are rejected rather than merged
+because without period narrowing a repeated collection can only be a mistake — and rejecting it
+keeps Stage 2's readiness rules a simple one-entry-per-collection mapping.
+
+It runs in the **`SyncScheduler` constructor**, not at `createNoydb` as an earlier draft of this
+spec said. The scheduler is the single choke point every policy that can actually schedule must
+pass through — primary and per-target alike — so validating there needs **no new public surface**
+and costs the kernel floor **nothing**, in a file with three lines of ceiling headroom. The
+trade is that an invalid policy throws at vault open rather than at `createNoydb`; both are
+before any sync I/O, and the validator stays module-private instead of becoming an exported
+`validateSyncPolicy` that every call site must remember to invoke.
 
 **Push is not sequenced.** *"Push is never period-filtered"* is an existing documented law, and the
 dirty queue is not reorderable — you push what changed. `PushOptions` keeps `collections` only.
@@ -228,6 +235,13 @@ permanent skeleton — the worst available outcome.
 **A phase whose pull reported errors leaves its collection `'cold'`.** `PullResult.errors`
 accumulates without throwing; if anything failed we cannot claim completeness.
 
+**Readiness must not be derived from `lastError`.** Confirmed while building Stage 1 and pinned by
+a test: the scheduler has **one** error slot and `executePull` nulls it on success, so after a
+sequence `lastError` reflects only the *last* phase — a mid-sequence failure is erased by the
+phases behind it. Per-collection state is the only thing that can answer *"is this collection
+trustworthy?"*, which is precisely why Stage 2 exists rather than an app reading the existing
+status.
+
 **State is in-memory**, dying with the scheduler. A restart re-runs the sequence, which is cheap —
 `pull()` is idempotent and `modifiedSince` makes settled phases near-free. Nothing is persisted, so
 nothing can disagree with the store or leak across devices.
@@ -238,7 +252,7 @@ nothing can disagree with the store or leak across devices.
 
 | Situation | Behaviour |
 |---|---|
-| Invalid policy | throws at `createNoydb`, before any I/O |
+| Invalid policy | throws at `SyncScheduler` construction (vault open), before any sync I/O |
 | A phase's `pull()` reports errors | recorded; that collection stays `'cold'`; **later phases still run** |
 | A phase's `pull()` throws | scheduler enters `'error'` with `lastError`; no collection left `'pulling'` |
 | Backup/archive role | scheduler-initiated pulls are skipped (shipped); explicit `db.pull()` still works |
