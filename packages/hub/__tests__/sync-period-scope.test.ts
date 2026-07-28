@@ -19,9 +19,9 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, PullOptions } from '
 import { ConflictError, ValidationError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { NoydbEventEmitter } from '../src/kernel/events.js'
-import { withSync } from '../src/with-party/sync/index.js'
+import { withSync } from '../src/with-sync/index.js'
 import { withPeriods } from '../src/with-audit/periods/index.js'
-import { SyncEngine } from '../src/with-party/team/sync.js'
+import { SyncEngine } from '../src/with-sync/engine.js'
 
 // ─── Inline memory adapter (mirrors sync-partial.test.ts harness) ──────────
 

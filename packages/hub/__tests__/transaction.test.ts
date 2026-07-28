@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { toMemory } from '../../to-memory/src/index.js'
 import type { ChangeEvent } from '../src/kernel/types.js'
 import { ConflictError, createNoydb, SyncTransaction } from '../src/index.js'
-import { withSync } from '../src/with-party/sync/index.js'
+import { withSync } from '../src/with-sync/index.js'
 import { withTransactions } from '../src/with-commit/tx/index.js'
 import type { Noydb } from '../src/index.js'
 

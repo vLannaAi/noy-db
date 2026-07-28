@@ -4,7 +4,7 @@
  * target-purge (#615) and the period-scoped sync pull (#807).
  *
  * Deliberately dependency-light (kernel errors only): the sync engine
- * (`with-party/team/sync-period-scope.ts`) imports THIS module, not
+ * (`with-sync/period-scope.ts`) imports THIS module, not
  * `periods.ts`, so a period-scoped pull never drags the ledger hash-chain
  * machinery (`sha256Hex`/`canonicalJson`) into a bundle that opted out of
  * the periods service.

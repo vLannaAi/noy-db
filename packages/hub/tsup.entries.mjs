@@ -32,7 +32,7 @@ export const ENTRIES = {
   'derivations/index': 'src/with-formula/derivations/index.ts',
   'materialized-views/index': 'src/with-formula/materialized-views/index.ts',
   'overlay-views/index': 'src/with-formula/overlay-views/index.ts',
-  'sync/index': 'src/with-party/sync/index.ts',
+  'sync/index': 'src/with-sync/index.ts',
   'util/index': 'src/kernel/util/index.ts',
   'share-link/index': 'src/share-link/index.ts',
   'attestation/index': 'src/with-audit/attestation/index.ts',

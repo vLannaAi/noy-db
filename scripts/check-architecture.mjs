@@ -432,7 +432,7 @@ function scanFileForStrategyOptIn(file, content) {
 //       with-pod                       writeNoydbBundle/vault.dump — internal backup primitive used by snapshots/portability/cargo/backup
 //   sub-parts of an already-gated service (covered by another withX):
 //       with-lookup/embeddings         vector compute folded into withSearch()
-//       with-party/sync                sync impl behind team's withSync()
+//       with-sync                sync impl behind team's withSync()
 //       with-party/auth-introspection  read-only describe/diagram surface (no instance to gate)
 //
 // NOTE — the ungated host-side free-function carve-outs (openSealedRecord,
@@ -455,11 +455,11 @@ const SCHEMA_DECLARED_OR_INFRA_EXEMPT = new Set([
   'with-party/policy',
   'with-pod',
   'with-lookup/embeddings',
-  'with-party/sync',
+  'with-sync',
   'with-party/auth-introspection',
   // #629 Task 7 — withBlobs() gate moved to via/blob; this folder is the
   // gated service's content-crypto machinery (BlobSet/compaction/export), same
-  // bucket as with-party/sync behind team's withSync().
+  // bucket as with-sync behind team's withSync().
   'with-shape/blobs',
   // #638 Task 7 — computed() is a declaration factory (money()/i18nText() precedent,
   // same ③ schema-feature bucket as via/money/with-formula/computed above), not
@@ -815,7 +815,7 @@ const KERNEL_SURFACE_BUDGET = {
   // logic in with-shape/satellites): documented actual post-implementation line count.
   // Bumped 4662→4664 (2026-07-09, +2: #590 forget→sync-dirty-log hook): _writeTombstone
   // enters the sync dirty log via the existing onDirty seam so the shred propagates on
-  // push; one comment + one call, the sync engine itself stays in with-party/team/sync.ts.
+  // push; one comment + one call, the sync engine itself stays in with-sync/engine.ts.
   // Bumped 4664→4678 (2026-07-09, +14: #589 _doDelete writes a delete marker under
   // sync via buildDeleteMarker; converges deletes on pull. Marker helpers live in enclave.
   // Bumped 4678→4693 (2026-07-09, +15: #589 re-create version continuity): a put
@@ -1442,7 +1442,7 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-lookup/indexing/strategy.js',
     '../with-lookup/search/strategy.js',
     '../with-party/team/keyring.js',
-    '../with-party/team/sync-strategy.js',
+    '../with-sync/strategy.js',
     '../with-shape/blobs/blob-compaction.js',
     '../with-shape/blobs/object-projection.js',
     // classified stage 2 Task 13 (2026-07-04) — refusal matrix R1-R5 guard at
@@ -1491,8 +1491,8 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-lookup/search/retrieve-types.js',
     '../with-lookup/search/strategy.js',
     '../with-party/team/keyring.js',
-    '../with-party/team/presence.js',
-    '../with-party/team/sync-strategy.js',
+    '../with-sync/presence.js',
+    '../with-sync/strategy.js',
     '../with-pod/ulid.js',
     '../with-shape/blobs/blob-compaction.js',
     '../with-shape/blobs/blob-set.js',
@@ -1528,8 +1528,8 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-party/session/session-policy.js',
     '../with-party/session/strategy.js',
     '../with-party/session/unlock-state.js',
-    '../with-party/tab-coordination.js',
-    '../with-party/tab-write-relay.js',
+    '../with-sync/tab-coordination.js',
+    '../with-sync/tab-write-relay.js',
     '../with-party/team/authenticators.js',
     '../with-party/team/keyring.js',
     '../with-party/team/managed-secret.js',
@@ -1537,9 +1537,9 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-party/team/peer-recover.js',
     '../with-party/team/recovery.js',
     '../with-party/team/rotate-recover.js',
-    '../with-party/team/sync-strategy.js',
-    '../with-party/team/sync-transaction.js',
-    '../with-party/team/sync.js',
+    '../with-sync/strategy.js',
+    '../with-sync/transaction.js',
+    '../with-sync/engine.js',
     '../with-pod/ulid.js',
     '../with-shape/introspection/meta.js',
     '../port/by/default-provider.js',
@@ -1575,7 +1575,7 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-party/team/keyring.js',
     '../with-party/team/managed-secret.js',
     '../with-party/team/shamir-recovery-provider.js',
-    '../with-party/team/sync-strategy.js',
+    '../with-sync/strategy.js',
     '../with-shape/blobs/object-projection.js',
     '../port/by/types.js',
   ]],
@@ -1632,7 +1632,7 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-party/team/reserved-secret-collections.js',
     '../with-party/team/magic-link-grant.js',
     '../with-party/team/managed-secret.js',
-    '../with-party/team/sync-strategy.js',
+    '../with-sync/strategy.js',
     '../with-shape/blobs/blob-compaction.js',
     '../with-shape/blobs/export-blobs.js',
     '../with-shape/blobs/object-projection.js',
@@ -1938,11 +1938,11 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-party/team/magic-link-grant.ts', 2],
   ['packages/hub/src/with-party/team/managed-secret.ts', 3],
   ['packages/hub/src/with-party/team/peer-recover.ts', 3],
-  ['packages/hub/src/with-party/team/presence.ts', 3],
+  ['packages/hub/src/with-sync/presence.ts', 3],
   ['packages/hub/src/with-party/team/recovery.ts', 6],
   ['packages/hub/src/with-party/team/rotate-recover.ts', 5],
-  ['packages/hub/src/with-party/team/sync-credentials.ts', 2],
-  ['packages/hub/src/with-party/team/sync.ts', 3],
+  ['packages/hub/src/with-sync/credentials.ts', 2],
+  ['packages/hub/src/with-sync/engine.ts', 3],
   ['packages/hub/src/with-pod/backup.ts', 3],
   ['packages/hub/src/with-pod/bundle.ts', 2],
   ['packages/hub/src/with-shape/blobs/blob-compaction.ts', 4],

@@ -35,16 +35,16 @@
  * Push is NEVER period-filtered — `PushOptions` has no `periods` member at
  * all; a thin client's writes always flow up in full.
  */
-import type { EncryptedEnvelope } from '../../kernel/types.js'
-import { ValidationError } from '../../kernel/errors.js'
-import { isTombstoneShape, isDeleteMarker } from '../../kernel/enclave/index.js'
+import type { EncryptedEnvelope } from '../kernel/types.js'
+import { ValidationError } from '../kernel/errors.js'
+import { isTombstoneShape, isDeleteMarker } from '../kernel/enclave/index.js'
 import {
   PERIODS_COLLECTION,
   PERIOD_FREEZES_COLLECTION,
   PERIOD_ARCHIVES_COLLECTION,
   PERIOD_TARGET_PURGES_COLLECTION,
   periodExclusiveUpperBound,
-} from '../../with-audit/periods/window.js'
+} from '../with-audit/periods/window.js'
 
 export { PERIODS_COLLECTION }
 

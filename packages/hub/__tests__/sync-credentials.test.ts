@@ -10,7 +10,7 @@ import {
   listCredentials,
   credentialStatus,
   SYNC_CREDENTIALS_COLLECTION,
-} from '../src/with-party/team/sync-credentials.js'
+} from '../src/with-sync/credentials.js'
 import { PermissionDeniedError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import type { UnlockedKeyring } from '../src/with-party/team/keyring.js'

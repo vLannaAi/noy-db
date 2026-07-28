@@ -118,25 +118,19 @@ export {
   evaluateImportCapability,
 } from './keyring.js'
 
-// ─── Sync engine ────────────────────────────────────────────
-export { SyncEngine } from './sync.js'
-
-// ─── Sync transactions ──────────────────────────────────
-export { SyncTransaction } from './sync-transaction.js'
-
-// ─── Presence / live cursors ────────────────────────────
-export { PresenceHandle } from './presence.js'
-
-// ─── _sync_credentials reserved collection ──────────────
-export {
-  putCredential,
-  getCredential,
-  deleteCredential,
-  listCredentials,
-  credentialStatus,
-  SYNC_CREDENTIALS_COLLECTION,
-} from './sync-credentials.js'
-export type { SyncCredential } from './sync-credentials.js'
+// ─── Sync moved out (#895) ──────────────────────────────
+//
+// `SyncEngine`, `SyncTransaction`, `PresenceHandle` and the
+// `_sync_credentials` helpers used to be re-exported here for advanced
+// consumers that construct them directly. Sync is not a `party` concern —
+// it replicates state between stores and contexts rather than describing
+// principals — so it now lives in `with-sync/` and ships from its own
+// long-standing subpath:
+//
+//   import { SyncEngine } from '@noy-db/hub/sync'
+//
+// Re-exporting them from here as well would leave two homes for one thing,
+// which is what #895 set out to remove.
 
 // #843 C3b — auth-config introspection. These are the `db.team.describeAuthConfig()` /
 // `diagramAuthConfig()` / `describeUserAuth()` / `describeAllUsersAuth()` facade surface

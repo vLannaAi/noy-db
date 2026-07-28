@@ -225,7 +225,7 @@ export { applyListProjection, type ListProjectionOptions } from './with-shape/in
 export type { DryRunResult, AffectedDocument, GuardViolation } from './with-commit/tx/dry-run.js'
 
 // Multi-tab coordination
-export type { TabRole, TabPresence, TabCoordinationOptions, TabLockManager, TabChannel } from './with-party/tab-coordination.js'
+export type { TabRole, TabPresence, TabCoordinationOptions, TabLockManager, TabChannel } from './with-sync/tab-coordination.js'
 // Cross-tab write conflict
 export type { WriteConflict } from './kernel/types.js'
 
@@ -715,11 +715,11 @@ export type { CrdtMode, CrdtState, LwwMapState, RgaState, YjsState } from './wit
 export { resolveCrdtSnapshot, mergeCrdtStates } from './with-commit/crdt/crdt.js'
 
 // Presence
-export { PresenceHandle } from './with-party/team/presence.js'
+export { PresenceHandle } from './with-sync/presence.js'
 export type { PresencePeer } from './kernel/types.js'
 export { derivePresenceKey } from './kernel/enclave/index.js'
-export { SyncEngine } from './with-party/team/sync.js'
-export { SyncTransaction } from './with-party/team/sync-transaction.js'
+export { SyncEngine } from './with-sync/engine.js'
+export { SyncTransaction } from './with-sync/transaction.js'
 
 // Multi-record transactions
 export { TxContext, TxVault, TxCollection, runTransaction } from './with-commit/tx/transaction.js'
@@ -922,8 +922,8 @@ export {
   listCredentials,
   credentialStatus,
   SYNC_CREDENTIALS_COLLECTION,
-} from './with-party/team/sync-credentials.js'
-export type { SyncCredential } from './with-party/team/sync-credentials.js'
+} from './with-sync/credentials.js'
+export type { SyncCredential } from './with-sync/credentials.js'
 
 // Magic-link unlock — `@noy-db/on-magic-link` provides the high-level
 // invite / peer-recovery flows. The lower-level `MagicLinkGrant*`
