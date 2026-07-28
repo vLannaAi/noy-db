@@ -30,7 +30,7 @@
  *
  * @internal — implementation-sharing only, not part of the public surface.
  */
-import type { EncryptedEnvelope } from './types.js'
+import type { EncryptedEnvelope, StoreCapabilities, TxOp } from './types.js'
 
 /** One already-executed write a revert pass needs to unwind. */
 export interface BestEffortRevertLeg {
@@ -45,6 +45,14 @@ export interface BestEffortRevertLeg {
 export interface BestEffortRevertAdapter {
   put(vaultName: string, collectionName: string, id: string, envelope: EncryptedEnvelope): Promise<void>
   delete(vaultName: string, collectionName: string, id: string): Promise<void>
+  /**
+   * Optional storage-layer transaction (#886). When the store declares
+   * `txAtomic`, the whole revert is submitted as ONE operation instead of a
+   * per-leg loop, so a crash mid-revert can no longer leave the vault
+   * half-unwound.
+   */
+  tx?(ops: readonly TxOp[]): Promise<void>
+  readonly capabilities?: StoreCapabilities
 }
 
 /**
@@ -57,7 +65,32 @@ export async function bestEffortRevert<T extends BestEffortRevertLeg>(
   adapter: BestEffortRevertAdapter,
   compensate?: (leg: T) => Promise<void> | void,
 ): Promise<void> {
-  for (const leg of [...executed].reverse()) {
+  const legs = [...executed].reverse()
+
+  // #886 — atomic revert when the store can do it. The legs already carry RAW
+  // prior envelopes (captured pre-write), which is exactly the shape `tx()`
+  // wants, so this needs none of the Collection-layer machinery that makes
+  // delegating the FORWARD write path a much larger job.
+  //
+  // Failure stays best-effort: if the store rejects the batch we fall through
+  // to the per-leg loop rather than surfacing a revert-path error, because a
+  // revert failure must never mask the original error that triggered it.
+  if (adapter.capabilities?.txAtomic === true && typeof adapter.tx === 'function') {
+    const ops: TxOp[] = legs.map(leg =>
+      leg.prior !== null
+        ? { type: 'put', vault: leg.vaultName, collection: leg.collectionName, id: leg.id, envelope: leg.prior }
+        : { type: 'delete', vault: leg.vaultName, collection: leg.collectionName, id: leg.id },
+    )
+    try {
+      await adapter.tx(ops)
+      if (compensate) for (const leg of legs) { try { await compensate(leg) } catch { /* best-effort */ } }
+      return
+    } catch {
+      // fall through to the per-leg path below
+    }
+  }
+
+  for (const leg of legs) {
     try {
       if (leg.prior !== null) {
         await adapter.put(leg.vaultName, leg.collectionName, leg.id, leg.prior)

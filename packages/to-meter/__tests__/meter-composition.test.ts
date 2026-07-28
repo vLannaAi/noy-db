@@ -81,6 +81,16 @@ describe('#845 — toMeter composes as a store', () => {
     expect(snap.byMethod.getStoreTime.count).toBe(1)
   })
 
+  it('meters listVaults and ping when the inner store has them (#889)', async () => {
+    const metered = toMeter(toMemory())
+    await metered.listVaults!()
+    await metered.ping!()
+
+    const snap = metered.meter.snapshot()
+    expect(snap.byMethod.listVaults.count).toBe(1)
+    expect(snap.byMethod.ping.count).toBe(1)
+  })
+
   it('preserves the inner store name for routing and logging', () => {
     expect(toMeter(toMemory()).name).toBe('meter(memory)')
   })

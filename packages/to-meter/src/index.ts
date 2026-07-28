@@ -65,6 +65,9 @@ export type MethodName =
   // paginates, `tx` batches), so it is metered too. Absent on a given inner
   // store simply means the counter stays at zero.
   | 'listPage' | 'getStoreTime' | 'tx'
+  // #889 — `listVaults` is a full enumeration on a remote store, and `ping`
+  // isolates round-trip time from work, so both are worth timing.
+  | 'listVaults' | 'ping'
 
 export type MeterStatus = 'ok' | 'degraded' | 'unreachable'
 
@@ -169,7 +172,7 @@ export interface MeteredNoydbStore extends NoydbStore {
 
 const METHODS: readonly MethodName[] = [
   'get', 'put', 'delete', 'list', 'loadAll', 'saveAll',
-  'listPage', 'getStoreTime', 'tx',
+  'listPage', 'getStoreTime', 'tx', 'listVaults', 'ping',
 ]
 
 /**
@@ -190,15 +193,15 @@ export function toMeter(inner?: NoydbStore, options: MeterOptions = {}): Metered
 
   const samples: Record<MethodName, number[]> = {
     get: [], put: [], delete: [], list: [], loadAll: [], saveAll: [],
-    listPage: [], getStoreTime: [], tx: [],
+    listPage: [], getStoreTime: [], tx: [], listVaults: [], ping: [],
   }
   const counts: Record<MethodName, number> = {
     get: 0, put: 0, delete: 0, list: 0, loadAll: 0, saveAll: 0,
-    listPage: 0, getStoreTime: 0, tx: 0,
+    listPage: 0, getStoreTime: 0, tx: 0, listVaults: 0, ping: 0,
   }
   const errors: Record<MethodName, number> = {
     get: 0, put: 0, delete: 0, list: 0, loadAll: 0, saveAll: 0,
-    listPage: 0, getStoreTime: 0, tx: 0,
+    listPage: 0, getStoreTime: 0, tx: 0, listVaults: 0, ping: 0,
   }
   let casConflicts = 0
   let windowStart = Date.now()
@@ -343,6 +346,15 @@ function meteredOptional(
   if (typeof target.tx === 'function') {
     out.tx = (ops: Parameters<NonNullable<NoydbStore['tx']>>[0]) =>
       time('tx', () => target.tx!(ops))
+  }
+  if (typeof target.listVaults === 'function') {
+    out.listVaults = () => time('listVaults', () => target.listVaults!())
+  }
+  if (typeof target.ping === 'function') {
+    // NOTE: the synthetic `liveness` poller calls the INNER store directly
+    // (see startLiveness), so these counters stay "what the app did" rather
+    // than being inflated by our own health checks.
+    out.ping = () => time('ping', () => target.ping!())
   }
   return out as Partial<NoydbStore>
 }
