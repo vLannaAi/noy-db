@@ -276,5 +276,80 @@ export function runStoreConformanceTests(
         expect(deleted).toBeNull()
       })
     })
+
+    // ─── Optional capability surface (#845) ────────────────────────
+    //
+    // The six-method core is mandatory; `ping` / `listVaults` / `tx` /
+    // `listPage` / `getStoreTime` are not. Stores diverge exactly here, and
+    // until now the harness never looked — which is how `@noy-db/to-memory`
+    // shipped a working `tx()` whose `txAtomic` capability was never declared,
+    // while its JSDoc claimed otherwise. The hub reads that bit to decide
+    // whether to delegate, so the implementation would simply have been
+    // skipped.
+    //
+    // Each block runs only when the store implements the method, so this adds
+    // no requirement. The load-bearing rule is the pairing assertion:
+    // IMPLEMENTED ⇒ DECLARED. That is what catches this whole class of drift,
+    // for every store present and future.
+
+    describe('optional capabilities', () => {
+      it('declares txAtomic if and only if tx() is implemented', async () => {
+        const implemented = typeof adapter.tx === 'function'
+        const declared = adapter.capabilities?.txAtomic === true
+        expect(
+          declared,
+          implemented
+            ? 'store implements tx() but does not declare capabilities.txAtomic — ' +
+              'the hub gates delegation on that bit, so the implementation would be skipped'
+            : 'store declares capabilities.txAtomic but has no tx() to delegate to',
+        ).toBe(implemented)
+      })
+
+      it('ping() resolves without throwing, when implemented', async () => {
+        if (typeof adapter.ping !== 'function') return
+        await expect(adapter.ping()).resolves.not.toThrow()
+      })
+
+      it('listVaults() reports a vault that has been written to, when implemented', async () => {
+        if (typeof adapter.listVaults !== 'function') return
+        await adapter.put('comp-lv', 'coll1', 'id1', makeEnvelope(1))
+        const vaults = await adapter.listVaults()
+        expect(vaults).toContain('comp-lv')
+      })
+
+      it('tx() applies every op, when implemented', async () => {
+        if (typeof adapter.tx !== 'function') return
+        await adapter.tx([
+          { type: 'put', vault: 'comp-tx', collection: 'coll1', id: 'a', envelope: makeEnvelope(1, 'a') },
+          { type: 'put', vault: 'comp-tx', collection: 'coll1', id: 'b', envelope: makeEnvelope(1, 'b') },
+        ])
+        expect(await adapter.get('comp-tx', 'coll1', 'a')).not.toBeNull()
+        expect(await adapter.get('comp-tx', 'coll1', 'b')).not.toBeNull()
+      })
+
+      it('getStoreTime() returns a non-decreasing interval, when implemented', async () => {
+        if (typeof adapter.getStoreTime !== 'function') return
+        const a = await adapter.getStoreTime()
+        const b = await adapter.getStoreTime()
+        expect(a.earliest).toBeLessThanOrEqual(a.latest)
+        expect(b.earliest).toBeGreaterThanOrEqual(a.earliest)
+      })
+
+      it('listPage() paginates and terminates, when implemented', async () => {
+        if (typeof adapter.listPage !== 'function') return
+        for (let i = 0; i < 3; i++) {
+          await adapter.put('comp-lp', 'coll1', `id${i}`, makeEnvelope(1))
+        }
+        const first = await adapter.listPage('comp-lp', 'coll1', undefined, 2)
+        expect(first.items.length).toBeLessThanOrEqual(2)
+        // A cursor must eventually run out — no infinite paging.
+        let cursor = first.nextCursor
+        let guard = 0
+        while (cursor && guard++ < 10) {
+          cursor = (await adapter.listPage('comp-lp', 'coll1', cursor, 2)).nextCursor
+        }
+        expect(cursor).toBeFalsy()
+      })
+    })
   })
 }
