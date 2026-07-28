@@ -160,7 +160,11 @@ export class SyncEngine {
         // `interval`/`on-focus` pull policy would pull ungated, reintroducing
         // #616. This guards the engine self-initiating on a timer; an explicit
         // `engine.pull()` still pulls for every role.
-        pull: () => (this.role === 'sync-peer' ? this.pull().then(() => {}) : Promise.resolve()),
+        // `collections` is set by a 'phased' sequence — one collection per phase.
+        pull: (collections) =>
+          this.role === 'sync-peer'
+            ? this.pull(collections ? { collections: [...collections] } : undefined).then(() => {})
+            : Promise.resolve(),
         getDirtyCount: () => this.dirty.length,
       })
     } else {

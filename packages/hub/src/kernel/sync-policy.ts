@@ -57,8 +57,11 @@ export type PushMode = 'manual' | 'on-change' | 'debounce' | 'interval'
  * - `'manual'` — only on explicit `sync.pull()` calls.
  * - `'interval'` — on a fixed `intervalMs` timer.
  * - `'on-focus'` — when the browser tab regains visibility.
+ * - `'phased'` — pull the collections named in `sequence`, in order, one at a
+ *   time, then settle into steady state. For thin clients that need their
+ *   navigation-critical collections before bulk history.
  */
-export type PullMode = 'manual' | 'interval' | 'on-focus'
+export type PullMode = 'manual' | 'interval' | 'on-focus' | 'phased'
 
 /**
  * Push half of a sync policy. Controls the trigger mode and timing guards
@@ -90,8 +93,22 @@ export interface PushPolicy {
 export interface PullPolicy {
   /** Pull trigger mode. */
   readonly mode: PullMode
-  /** Interval in ms between automatic pulls. Used by `'interval'` mode. Default: 60_000. */
+  /**
+   * Interval in ms between automatic pulls. Used by `'interval'` mode. Default: 60_000.
+   * Under `'phased'` it is the steady-state cadence adopted *after* the sequence
+   * completes; omit it to go idle instead.
+   */
   readonly intervalMs?: number
+  /**
+   * Collection names to pull in order, one at a time. Required when
+   * `mode: 'phased'` and rejected otherwise. Entries must be non-empty and
+   * unique — without period narrowing a repeated collection can only be a
+   * mistake, so it is rejected rather than silently merged.
+   *
+   * Period-scoped phases (`collection@period`) are deferred to `partitions`;
+   * use `db.pull(vault, { periods })` explicitly meanwhile.
+   */
+  readonly sequence?: readonly string[]
 }
 
 /**
@@ -156,8 +173,52 @@ export interface SyncSchedulerStatus {
  */
 export interface SyncSchedulerCallbacks {
   push(): Promise<void>
-  pull(): Promise<void>
+  /**
+   * @param collections - Narrow the pull to these collections. Passed by a
+   * `'phased'` sequence, one collection per phase; omitted for a whole-vault pull.
+   */
+  pull(collections?: readonly string[]): Promise<void>
   getDirtyCount(): number
+}
+
+/**
+ * Reject a policy that cannot mean anything, at construction rather than on
+ * the first tick. Module-private: `SyncScheduler` is the choke point every
+ * policy that can actually schedule must pass through — primary and per-target
+ * alike — so validating here needs no new public surface and costs the kernel
+ * floor nothing.
+ */
+function validatePullPolicy(pull: PullPolicy): void {
+  if (pull.mode !== 'phased') {
+    if (pull.sequence !== undefined) {
+      throw new Error(
+        `syncPolicy.pull.sequence is only meaningful with mode: 'phased' (got '${pull.mode}'). ` +
+          `Set mode: 'phased' to run the sequence, or drop the field.`,
+      )
+    }
+    return
+  }
+
+  const { sequence } = pull
+  if (!sequence || sequence.length === 0) {
+    throw new Error(
+      `syncPolicy.pull.mode: 'phased' requires a non-empty 'sequence' of collection names.`,
+    )
+  }
+  for (const name of sequence) {
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(
+        `syncPolicy.pull.sequence entries must be non-empty collection names (got ${JSON.stringify(name)}).`,
+      )
+    }
+  }
+  const duplicate = sequence.find((name, i) => sequence.indexOf(name) !== i)
+  if (duplicate !== undefined) {
+    throw new Error(
+      `syncPolicy.pull.sequence lists "${duplicate}" more than once. ` +
+        `Each collection is pulled whole, so a repeat does no additional work.`,
+    )
+  }
 }
 
 /**
@@ -189,6 +250,7 @@ export class SyncScheduler {
   private started = false
 
   constructor(policy: SyncPolicy, callbacks: SyncSchedulerCallbacks) {
+    validatePullPolicy(policy.pull)
     this.policy = policy
     this.callbacks = callbacks
 
@@ -224,10 +286,15 @@ export class SyncScheduler {
     }
 
     // Pull: interval mode
-    if (this.policy.pull.mode === 'interval' && this.policy.pull.intervalMs) {
-      this.pullIntervalTimer = setInterval(() => {
-        void this.executePull()
-      }, this.policy.pull.intervalMs)
+    if (this.policy.pull.mode === 'interval') {
+      this.startPullInterval()
+    }
+
+    // Pull: phased mode — walk the sequence in order, then settle into steady
+    // state. Unawaited by design: start() is synchronous and the caller
+    // (vault open) must not block on a bootstrap pull.
+    if (this.policy.pull.mode === 'phased') {
+      void this.runSequence(this.policy.pull.sequence ?? [])
     }
 
     // Pull: on-focus mode
@@ -312,6 +379,35 @@ export class SyncScheduler {
 
   // ─── Internal ─────────────────────────────────────────────────────
 
+  /**
+   * Arm the steady-state pull timer, if the policy specifies a cadence.
+   * Shared by `'interval'` mode and by `'phased'` once its sequence drains.
+   */
+  private startPullInterval(): void {
+    if (this.pullIntervalTimer || !this.policy.pull.intervalMs) return
+    this.pullIntervalTimer = setInterval(() => {
+      void this.executePull()
+    }, this.policy.pull.intervalMs)
+  }
+
+  /**
+   * Pull each collection in turn, then hand over to steady state.
+   *
+   * Strictly sequential — running phases concurrently would defeat the
+   * prioritisation that is the entire point of a sequence. Each phase is an
+   * ordinary scoped pull, so a phase that reports errors does not abort the
+   * ones behind it; `executePull` records the failure and the walk continues.
+   * `started` is re-checked between phases so `stop()` cuts a sequence short
+   * instead of letting it run on against a closed vault.
+   */
+  private async runSequence(sequence: readonly string[]): Promise<void> {
+    for (const collection of sequence) {
+      if (!this.started) return
+      await this.executePull([collection])
+    }
+    if (this.started) this.startPullInterval()
+  }
+
   private async executePush(): Promise<void> {
     if (this._state === 'pushing') return // already in progress
 
@@ -347,13 +443,13 @@ export class SyncScheduler {
     }
   }
 
-  private async executePull(): Promise<void> {
+  private async executePull(collections?: readonly string[]): Promise<void> {
     if (this._state === 'pulling') return
 
     const previousState = this._state
     this._state = 'pulling'
     try {
-      await this.callbacks.pull()
+      await this.callbacks.pull(collections)
       this._lastPullAt = new Date().toISOString()
       this._lastError = null
       this._state = previousState === 'pending' ? 'pending' : 'idle'

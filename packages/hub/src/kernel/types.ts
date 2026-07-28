@@ -1409,7 +1409,11 @@ export interface SyncTarget {
   readonly store: NoydbStore
   /** Role determines sync direction and conflict handling. */
   readonly role: SyncTargetRole
-  /** Per-target sync policy. Inherits store-category default when absent. */
+  /**
+   * Per-target sync policy. Inherits the store-category default when absent —
+   * but only a *declared* policy starts automation (#897), so a target with no
+   * `policy` and no instance-level `syncPolicy` syncs on explicit calls only.
+   */
   readonly policy?: SyncPolicy
   /** Human-readable label for DevTools and audit logs. */
   readonly label?: string
