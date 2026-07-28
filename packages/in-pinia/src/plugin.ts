@@ -10,11 +10,11 @@
  * ```ts
  * import { createPinia } from 'pinia';
  * import { createNoydbPiniaPlugin } from '@noy-db/in-pinia';
- * import { jsonFile } from '@noy-db/to-file';
+ * import { toFile } from '@noy-db/to-file';
  *
  * const pinia = createPinia();
  * pinia.use(createNoydbPiniaPlugin({
- *   adapter: jsonFile({ dir: './data' }),
+ *   adapter: toFile({ dir: './data' }),
  *   user: 'owner-01',
  *   secret: () => promptSecret(),
  * }));

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { jsonFile } from '../src/index.js'
+import { toFile } from '../src/index.js'
 import type { EncryptedEnvelope } from '@noy-db/hub'
 
 function makeEnvelope(v: number): EncryptedEnvelope {
@@ -21,24 +21,24 @@ describe('@noy-db/file — listPage', () => {
   })
 
   it('1. has a name field', () => {
-    const a = jsonFile({ dir })
+    const a = toFile({ dir })
     expect(a.name).toBe('file')
   })
 
   it('2. exposes listPage as an optional method', () => {
-    const a = jsonFile({ dir })
+    const a = toFile({ dir })
     expect(typeof a.listPage).toBe('function')
   })
 
   it('3. returns empty page when collection directory does not exist', async () => {
-    const a = jsonFile({ dir })
+    const a = toFile({ dir })
     const page = await a.listPage!('C1', 'invoices')
     expect(page.items).toEqual([])
     expect(page.nextCursor).toBeNull()
   })
 
   it('4. paginates over .json files in sorted order', async () => {
-    const a = jsonFile({ dir })
+    const a = toFile({ dir })
     // Insert in scrambled order to verify sorted output.
     for (const i of [3, 0, 1, 2, 4]) {
       await a.put('C1', 'invoices', `inv-${i}`, makeEnvelope(1))
@@ -56,7 +56,7 @@ describe('@noy-db/file — listPage', () => {
   })
 
   it('5. each page item carries a parsed envelope', async () => {
-    const a = jsonFile({ dir })
+    const a = toFile({ dir })
     await a.put('C1', 'invoices', 'inv-001', makeEnvelope(7))
 
     const page = await a.listPage!('C1', 'invoices')
@@ -68,7 +68,7 @@ describe('@noy-db/file — listPage', () => {
   })
 
   it('6. final page returns nextCursor: null', async () => {
-    const a = jsonFile({ dir })
+    const a = toFile({ dir })
     for (let i = 0; i < 3; i++) {
       await a.put('C1', 'invoices', `id-${i}`, makeEnvelope(1))
     }
@@ -78,7 +78,7 @@ describe('@noy-db/file — listPage', () => {
   })
 
   it('7. survives a 100-record collection across multiple pages', async () => {
-    const a = jsonFile({ dir })
+    const a = toFile({ dir })
     for (let i = 0; i < 100; i++) {
       await a.put('C1', 'invoices', `id-${String(i).padStart(3, '0')}`, makeEnvelope(1))
     }

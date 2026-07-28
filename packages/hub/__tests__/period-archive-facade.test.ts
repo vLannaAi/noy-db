@@ -4,7 +4,7 @@ import { VaultPeriods } from '../src/with-audit/periods/vault-facade.js'
 import { withPeriods } from '../src/with-audit/periods/index.js'
 import { PERIOD_ARCHIVES_COLLECTION } from '../src/with-audit/periods/periods.js'
 
-function memory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
+function toMemory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (c: string, col: string) => {
     let a = store.get(c); if (!a) { a = new Map(); store.set(c, a) }
@@ -23,7 +23,7 @@ function memory(): NoydbStore & { raw(c: string, col: string, id: string): Encry
 }
 
 function makeFacade() {
-  const adapter = memory()
+  const adapter = toMemory()
   let archiveArg: string | undefined
   const deps = {
     strategy: withPeriods(),
@@ -74,7 +74,7 @@ describe('VaultPeriods.archivePeriod (#613)', () => {
   })
 
   it('is idempotent: archiveRecords is called exactly once across two archivePeriod calls, proving the early return happens before the seam + ledger append (#613 whole-branch M3)', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     let archiveCalls = 0
     const deps = {
       strategy: withPeriods(),

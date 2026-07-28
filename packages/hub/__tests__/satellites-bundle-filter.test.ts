@@ -28,7 +28,7 @@ interface Invoice extends Record<string, unknown> {
   amount: number
 }
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string): Map<string, EncryptedEnvelope> => {
     let comp = data.get(v); if (!comp) { comp = new Map(); data.set(v, comp) }
@@ -57,7 +57,7 @@ function memory(): NoydbStore {
 }
 
 async function openPair() {
-  const rawStore = memory()
+  const rawStore = toMemory()
   const db = await createNoydb({ store: rawStore, user: 'alice', secret: SECRET, historyStrategy: withHistory() })
   const vault = await db.openVault('v1')
   vault.collection<Msg>('msgs')

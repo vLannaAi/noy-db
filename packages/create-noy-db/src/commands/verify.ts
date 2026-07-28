@@ -22,7 +22,7 @@
  */
 
 import { createNoydb } from '@noy-db/hub'
-import { memory } from '@noy-db/to-memory'
+import { toMemory } from '@noy-db/to-memory'
 
 export interface VerifyResult {
   /** `true` if the round-trip succeeded; `false` if anything diverged. */
@@ -42,7 +42,7 @@ export async function verifyIntegrity(): Promise<VerifyResult> {
   const start = performance.now()
   try {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'noy-db-verify',
       // The secret here is throwaway — the in-memory adapter never
       // persists anything, and the KEK is destroyed when we call close()

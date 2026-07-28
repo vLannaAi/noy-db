@@ -3,7 +3,7 @@ import type { PeerChannel } from '@noy-db/by-peer'
 import { isQuorum, runDrainBarrier } from '@noy-db/hub/cargo'
 import type { WriterPresence } from '@noy-db/hub/cargo'
 import { createNoydb } from '@noy-db/hub'
-import { memory } from '@noy-db/to-memory'
+import { toMemory } from '@noy-db/to-memory'
 import { tabsCoordination } from '../src/coordination.js'
 
 /**
@@ -266,7 +266,7 @@ describe('tabsCoordination — drain barrier (real quorum)', () => {
 
 describe('tabsCoordination — e2e through createNoydb', () => {
   it('is accepted as createNoydb({ coordinationStrategy }) and is the live instance', async () => {
-    const store = memory()
+    const store = toMemory()
     const [chA, chB] = pair()
     const coA = tabsCoordination(chA)
 

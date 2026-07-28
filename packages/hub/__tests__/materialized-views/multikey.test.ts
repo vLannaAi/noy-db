@@ -4,7 +4,7 @@ import { sum, GroupedReduction } from '../../src/with-lookup/reduce/index.js'
 import { withReduce } from '../../src/with-lookup/reduce/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -69,7 +69,7 @@ describe('withMaterializedView — multi-key groupBy inside query() (#166)', () 
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-multikey-groupby-secret-2026',
       materializedViewStrategies: [pnd1Auto],

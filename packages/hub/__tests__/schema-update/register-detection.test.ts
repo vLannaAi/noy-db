@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { z } from 'zod'
 import { generateDEK } from '../../src/kernel/enclave/index.js'
-import { memory } from '../../../to-memory/src/index.js'
+import { toMemory } from '../../../to-memory/src/index.js'
 import { persistSchemaIfNeeded } from '../../src/with-shape/persisted-schemas/register.js'
 import { SCHEMAS_COLLECTION } from '../../src/with-shape/persisted-schemas/storage.js'
 import { additiveOnly } from '../../src/with-shape/schema-update/strategies.js'
@@ -15,7 +15,7 @@ describe('persistSchemaIfNeeded + update strategies', () => {
   let store: NoydbStore
   let dek: CryptoKey
   beforeEach(async () => {
-    store = memory()
+    store = toMemory()
     dek = await generateDEK()
   })
 

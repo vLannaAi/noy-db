@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb, withDerivation } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -76,7 +76,7 @@ describe('Derivation — ctx.vault facade (#147)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-ctx-vault-secret-2026',
       derivationStrategies: [strategy],
@@ -113,7 +113,7 @@ describe('Derivation — ctx.vault facade (#147)', () => {
       lifecycle: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-ctx-no-writes-secret-2026',
       derivationStrategies: [strategy],
@@ -154,7 +154,7 @@ describe('Derivation — ctx.vault facade (#147)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-ctx-vault-lazy-secret-2026',
       derivationStrategies: [strategy],

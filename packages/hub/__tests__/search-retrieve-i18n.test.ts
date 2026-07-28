@@ -8,7 +8,7 @@ import type { Noydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -47,7 +47,7 @@ function memory(): NoydbStore {
 }
 
 interface Person { id: string; name: Record<string, string> }
-async function db(): Promise<Noydb> { return createNoydb({ store: memory(), user: 'a', secret: 'pw-i18n-r', i18nStrategy: withI18n(), searchStrategy: withSearch() }) }
+async function db(): Promise<Noydb> { return createNoydb({ store: toMemory(), user: 'a', secret: 'pw-i18n-r', i18nStrategy: withI18n(), searchStrategy: withSearch() }) }
 
 describe('retrieve() over i18nText (all locales) (#308 L1)', () => {
   let n: Noydb

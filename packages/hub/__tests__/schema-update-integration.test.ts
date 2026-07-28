@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../src/kernel/noydb.js'
-import { memory } from '../../to-memory/src/index.js'
+import { toMemory } from '../../to-memory/src/index.js'
 import { additiveOnly, lockSchema } from '../src/with-shape/schema-update/index.js'
 import { NonAdditiveSchemaChangeError, SchemaLockedError } from '../src/kernel/errors.js'
 import type { NoydbStore } from '../src/kernel/types.js'
@@ -20,7 +20,7 @@ async function reopen(store: NoydbStore) {
 
 describe('schema-update framework (#245)', () => {
   it('additive change → write succeeds', async () => {
-    const store = memory()
+    const store = toMemory()
     let v = await reopen(store)
     v.collection<Invoice>('invoices', { schema: z.object({ id: z.string() }), persistJsonSchema: true, schemaUpdate: [additiveOnly()] })
     await v._drainPendingSchemaWrites()
@@ -35,7 +35,7 @@ describe('schema-update framework (#245)', () => {
   })
 
   it('non-additive change → next put throws NonAdditiveSchemaChangeError', async () => {
-    const store = memory()
+    const store = toMemory()
     let v = await reopen(store)
     v.collection<Invoice>('invoices', { schema: z.object({ id: z.string(), amount: z.number() }), persistJsonSchema: true, schemaUpdate: [additiveOnly()] })
     await v._drainPendingSchemaWrites()
@@ -50,7 +50,7 @@ describe('schema-update framework (#245)', () => {
   })
 
   it('lockSchema first → SchemaLockedError wins over additiveOnly', async () => {
-    const store = memory()
+    const store = toMemory()
     let v = await reopen(store)
     v.collection<Invoice>('invoices', { schema: z.object({ id: z.string() }), persistJsonSchema: true, schemaUpdate: [lockSchema(), additiveOnly()] })
     await v._drainPendingSchemaWrites()
@@ -65,7 +65,7 @@ describe('schema-update framework (#245)', () => {
   })
 
   it('no schemaUpdate strategy → non-additive change is accepted (blind, back-compat)', async () => {
-    const store = memory()
+    const store = toMemory()
     let v = await reopen(store)
     v.collection<Invoice>('invoices', { schema: z.object({ id: z.string(), amount: z.number() }), persistJsonSchema: true })
     await v._drainPendingSchemaWrites()

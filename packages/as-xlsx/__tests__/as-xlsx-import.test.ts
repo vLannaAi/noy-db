@@ -14,14 +14,14 @@ import { describe, expect, it } from 'vitest'
 import { ImportCapabilityError, createNoydb } from '@noy-db/hub'
 import { withTransactions } from '@noy-db/hub/transactions'
 import { withI18n } from '@noy-db/hub/i18n'
-import { memory } from '@noy-db/to-memory'
+import { toMemory } from '@noy-db/to-memory'
 import { fromBytes, toBytes, writeXlsx, XlsxDictAmbiguityError } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
 
 interface Invoice { id: string; client: string; amount: number; paid: boolean }
 
 async function setup() {
-  const adapter = memory()
+  const adapter = toMemory()
   const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
   await init.openVault('demo')
   await init.grant('demo', {
@@ -44,7 +44,7 @@ async function setup() {
 
 describe('as-xlsx fromBytes — capability gate', () => {
   it('throws ImportCapabilityError without the grant', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
     const vault = await db.openVault('demo')
     const xlsx = await writeXlsx([{ name: 'invoices', header: ['id'], rows: [['a']] }])
@@ -200,7 +200,7 @@ describe('as-xlsx fromBytes — policies', () => {
 
 describe('as-xlsx fromBytes — apply() requires withTransactions()', () => {
   it('throws a clear error when the tx strategy is missing', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
     await init.openVault('demo')
     await init.grant('demo', {
@@ -286,7 +286,7 @@ describe('as-xlsx fromBytes — dict inversion (explicit dicts)', () => {
 
 describe('as-xlsx fromBytes — dict inversion (vault fallback)', () => {
   async function setupWithDict() {
-    const adapter = memory()
+    const adapter = toMemory()
     const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
     await init.openVault('demo')
     await init.grant('demo', {

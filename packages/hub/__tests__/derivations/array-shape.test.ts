@@ -14,7 +14,7 @@ import {
 } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -103,7 +103,7 @@ async function buildDb() {
   })
 
   const db = await createNoydb({
-    store: memory(),
+    store: toMemory(),
     user: 'alice',
     secret: 'correct horse battery staple printer toaster',
     derivationStrategies: [strategy],
@@ -288,7 +288,7 @@ describe('shape: array — runtime errors', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'correct horse battery staple printer toaster',
       derivationStrategies: [strategy],
@@ -326,7 +326,7 @@ describe('shape: array — runtime errors', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'correct horse battery staple printer toaster',
       derivationStrategies: [strategy],
@@ -359,7 +359,7 @@ describe('shape: array — runtime errors', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'correct horse battery staple printer toaster',
       derivationStrategies: [strategy],

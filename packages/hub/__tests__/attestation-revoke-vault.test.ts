@@ -5,7 +5,7 @@ import { withAttestation } from '../src/with-audit/attestation/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string) => { let comp = store.get(v); if (!comp) { comp = new Map(); store.set(v, comp) } let coll = comp.get(c); if (!coll) { coll = new Map(); comp.set(c, coll) } return coll }
   return {
@@ -29,7 +29,7 @@ const attestation: AttestationFieldSchema = {
 }
 
 async function ownerVault() {
-  const db = await createNoydb({ store: memory(), user: 'firm', secret: 'firm-secret-2026', attestationStrategy: withAttestation() })
+  const db = await createNoydb({ store: toMemory(), user: 'firm', secret: 'firm-secret-2026', attestationStrategy: withAttestation() })
   const vault = await db.openVault('books')
   await vault.collection<Invoice>('invoices', { attestation }).put('inv-1', { id: 'inv-1', invoiceNo: 'INV-1', total: 1234.5, issueDate: '2026-05-29' })
   return vault

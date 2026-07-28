@@ -12,7 +12,7 @@ import { evalComputedFields } from '../../src/with-formula/computed/index.js'
 import { money } from '../../src/via/money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -96,7 +96,7 @@ describe('computed money field — rounding policy (#378)', () => {
   it('FAILS LOUD when a computed money value has sub-scale precision and no rounding mode', async () => {
     // Fiscal-safety default: an ambiguous rounding is an error, not a silent
     // truncation. VAT = 1.07 * 0.07 = 0.0749 → exceeds scale 2 → throws.
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'computed-hardening-a-2026' })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'computed-hardening-a-2026' })
     const v = await db.openVault('books')
     v.collection<Line>('lines', {
       schema: z.object({ id: z.string(), net: z.number(), vat: z.union([z.number(), z.string()]).optional() }),
@@ -108,7 +108,7 @@ describe('computed money field — rounding policy (#378)', () => {
   })
 
   it('quantizes deterministically once a rounding mode is configured', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'computed-hardening-b-2026' })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'computed-hardening-b-2026' })
     const v = await db.openVault('books')
     v.collection<Line>('lines', {
       schema: z.object({ id: z.string(), net: z.number(), vat: z.union([z.number(), z.string()]).optional() }),

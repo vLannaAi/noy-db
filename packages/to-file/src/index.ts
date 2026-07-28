@@ -54,7 +54,7 @@ import type {
 import { writeNoydbBundle, readNoydbBundle } from '@noy-db/hub'
 
 /**
- * Options for `jsonFile()`.
+ * Options for `toFile()`.
  *
  * Files are laid out as `{dir}/{vault}/{collection}/{id}.json`.
  * Internal collections (`_keyring`, `_sync`) follow the same pattern
@@ -78,7 +78,7 @@ export interface JsonFileOptions {
  * {dir}/{vault}/_keyring/{userId}.json
  * ```
  */
-export function jsonFile(options: JsonFileOptions): NoydbStore {
+export function toFile(options: JsonFileOptions): NoydbStore {
   const { dir, pretty = true } = options
 
   function recordPath(vault: string, collection: string, id: string): string {

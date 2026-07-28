@@ -33,7 +33,7 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import { withTeam } from '../src/with-party/team/index.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -76,7 +76,7 @@ function memory(): NoydbStore {
 
 /** Memory adapter without listVaults — for the StoreCapabilityError test. */
 function memoryWithoutEnumeration(): NoydbStore {
-  const adapter = memory()
+  const adapter = toMemory()
   delete (adapter as { listVaults?: unknown }).listVaults
   return adapter
 }
@@ -88,7 +88,7 @@ describe('cross-vault queries.', () => {
   let aliceDb: Noydb
 
   beforeEach(async () => {
-    adapter = memory()
+    adapter = toMemory()
     aliceDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'alice-pass' })
 
     // alice owns three compartments: T1, T2, T7. Each has an `invoices`

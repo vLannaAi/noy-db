@@ -15,7 +15,7 @@ import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -61,7 +61,7 @@ describe('vault.dumpSchema() — discriminated union fields (#294)', () => {
   let db: Noydb
 
   beforeEach(async () => {
-    db = await createNoydb({ store: memory(), user: 'owner-01', secret: 'pass' })
+    db = await createNoydb({ store: toMemory(), user: 'owner-01', secret: 'pass' })
   })
 
   it('surfaces fields for a bare discriminated union (persistJsonSchema)', async () => {

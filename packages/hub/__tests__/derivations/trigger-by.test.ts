@@ -10,7 +10,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb, withDerivation, ValidationError, DerivationCapExceededError } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -97,7 +97,7 @@ describe('triggerBy — factory validation (#376)', () => {
 describe('triggerBy — reverse-denormalization fan-out (#376)', () => {
   async function setup(indexed = false) {
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'trigger-by-secret-2026',
+      store: toMemory(), user: 'alice', secret: 'trigger-by-secret-2026',
       derivationStrategies: [buyerNameDenorm()],
     })
     const v = await db.openVault('firm')
@@ -160,7 +160,7 @@ describe('triggerBy — reverse-denormalization fan-out (#376)', () => {
 
   it('enforces maxFanout', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'trigger-by-cap-secret-2026',
+      store: toMemory(), user: 'alice', secret: 'trigger-by-cap-secret-2026',
       derivationStrategies: [
         withDerivation<Sale, { self: Sale }>({
           source: 'sales',

@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { memory } from '../src/index.js'
+import { toMemory } from '../src/index.js'
 import type { EncryptedEnvelope } from '@noy-db/hub'
 
 function envelope(v = 1): EncryptedEnvelope {
@@ -23,23 +23,23 @@ function envelope(v = 1): EncryptedEnvelope {
 
 describe('@noy-db/memory — listVaults', () => {
   it('exposes listVaults as an optional method', () => {
-    const a = memory()
+    const a = toMemory()
     expect(typeof a.listVaults).toBe('function')
   })
 
   it('returns an empty array on a fresh adapter', async () => {
-    const a = memory()
+    const a = toMemory()
     expect(await a.listVaults!()).toEqual([])
   })
 
   it('returns one vault after a single put', async () => {
-    const a = memory()
+    const a = toMemory()
     await a.put('T1', 'invoices', 'inv-1', envelope())
     expect(await a.listVaults!()).toEqual(['T1'])
   })
 
   it('returns every distinct vault after writes to multiple', async () => {
-    const a = memory()
+    const a = toMemory()
     await a.put('T1', 'invoices', 'inv-1', envelope())
     await a.put('T2', 'invoices', 'inv-2', envelope())
     await a.put('T7', 'payments', 'pay-1', envelope())
@@ -47,7 +47,7 @@ describe('@noy-db/memory — listVaults', () => {
   })
 
   it('counts each vault once regardless of how many collections / records it has', async () => {
-    const a = memory()
+    const a = toMemory()
     await a.put('T1', 'invoices', 'inv-1', envelope())
     await a.put('T1', 'invoices', 'inv-2', envelope())
     await a.put('T1', 'invoices', 'inv-3', envelope())
@@ -60,7 +60,7 @@ describe('@noy-db/memory — listVaults', () => {
     // Sanity check: it's compartments, not collections. The shape
     // is `Map<vault, Map<collection, ...>>`, so iterating the
     // outer map gives compartments only.
-    const a = memory()
+    const a = toMemory()
     await a.put('only-comp', 'a', 'x', envelope())
     await a.put('only-comp', 'b', 'x', envelope())
     await a.put('only-comp', 'c', 'x', envelope())

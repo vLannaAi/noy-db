@@ -6,7 +6,7 @@ import { ReadOnlyVaultFacade } from '../../src/with-audit/guards/read-only-facad
 import { sum } from '../../src/with-lookup/reduce/reducers.js'
 import { withReduce } from '../../src/with-lookup/reduce/index.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -58,7 +58,7 @@ function memory(): NoydbStore {
 describe('ReadOnlyVaultFacade', () => {
   it('exposes get and list, denies writes', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-readonly-facade-secret-2026',
     })
@@ -79,7 +79,7 @@ describe('ReadOnlyVaultFacade', () => {
 
   it('exposes query() returning a chainable Query builder', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-readonly-facade-query-secret-2026',
       reduceStrategy: withReduce(),
@@ -130,7 +130,7 @@ describe('ReadOnlyVaultFacade', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-readonly-facade-aggregate-secret-2026',
       guardStrategies: [allocationGuard],

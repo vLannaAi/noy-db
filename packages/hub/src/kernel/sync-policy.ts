@@ -20,7 +20,7 @@
  *
  * ```ts
  * const db = await createNoydb({
- *   store: jsonFile({ dir: './data' }),
+ *   store: toFile({ dir: './data' }),
  *   syncPolicy: {
  *     push: { mode: 'debounce', debounceMs: 5_000 },
  *     pull: { mode: 'on-focus' },

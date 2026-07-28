@@ -15,7 +15,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { extractPartition } from '../src/with-cargo/extract-partition.js'
 import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/with-cargo/adopt-partition.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -67,12 +67,12 @@ function memory(): NoydbStore {
 interface Client { id: string; name: string; operatorUserId: string }
 
 async function extractAndAdopt() {
-  const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'alice-2026' })
+  const db = await createNoydb({ cargoStrategy: withCargo(), store: toMemory(), user: 'alice', secret: 'alice-2026' })
   const company = await db.openVault('demo-co')
   await company.collection<Client>('clients').put('c-1', { id: 'c-1', name: 'Hotel', operatorUserId: 'belle' })
   const { bundleBytes, transferKey } = await extractPartition(company, { seeds: { clients: () => true } })
 
-  const dest = memory()
+  const dest = toMemory()
   await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'acme' })
   return { dest, transferKey }
 }

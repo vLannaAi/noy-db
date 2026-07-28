@@ -25,7 +25,7 @@ const neverSpec = (): ClassifiedFieldSpec => ({
   list: { kind: 'omit' }, sensitivity: 'secret',
 })
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -83,7 +83,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'graph-edges-fixture-secret-2026',
       derivationStrategies: [pdfDerivation, rollup],
@@ -130,7 +130,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
       derive: () => ({ o: {} }), lifecycle: 'eager',
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'graph-edges-cycle-derivation-2026',
+      store: toMemory(), user: 'alice', secret: 'graph-edges-cycle-derivation-2026',
       derivationStrategies: [a, b],
     })
     await expect(db.openVault('demo')).rejects.toBeInstanceOf(DerivationCycleError)
@@ -145,14 +145,14 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
       refresh: 'eager',
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'graph-edges-cycle-mv-2026',
+      store: toMemory(), user: 'alice', secret: 'graph-edges-cycle-mv-2026',
       materializedViewStrategies: [cyclic],
     })
     await expect(db.openVault('demo')).rejects.toBeInstanceOf(MaterializedViewCycleError)
   })
 
   it('a computed field\'s deps may reference a PLAIN field with no via feature at all (#638 Task 7 — no schema-introspection API to validate against; harmless, contributes no taint)', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'graph-edges-baddeps-2026' })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'graph-edges-baddeps-2026' })
     const vault = await db.openVault('demo')
     expect(() =>
       vault.collection('bad-deps', {
@@ -167,7 +167,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
   })
 
   it('a depsless computed entry on a collection that also declares classified fields throws (closes the #636 opaque-function hole)', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'graph-edges-leak-2026' })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'graph-edges-leak-2026' })
     const vault = await db.openVault('demo')
     expect(() =>
       vault.collection('leaky', {
@@ -178,7 +178,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
   })
 
   it('a computed entry with a MISTYPED dep on a collection that also declares classified fields throws (Task 7 review CRITICAL fix — closes the typo reopening of #636: construction used to silently fold the derived field to DEFAULT_POSTURE)', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'graph-edges-typo-fresh-2026' })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'graph-edges-typo-fresh-2026' })
     const vault = await db.openVault('demo')
     expect(() =>
       vault.collection('typo-leaky', {
@@ -190,7 +190,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
   })
 
   it('a depsless computed entry on a NON-classified collection is fine (no in-edges → no taint)', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'graph-edges-plain-2026' })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'graph-edges-plain-2026' })
     const vault = await db.openVault('demo')
     expect(() =>
       vault.collection('plain', { computed: { doubled: (r: Record<string, unknown>) => Number(r.n) * 2 } }),
@@ -198,7 +198,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
   })
 
   it('a rider-computed classified companion (domain) is NOT subject to the depsless guard (sanctioned channel, #629 precedent)', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'graph-edges-rider-2026' })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'graph-edges-rider-2026' })
     const vault = await db.openVault('demo')
     // classified.email() auto-derives a `domain` riderComputed companion —
     // this must NOT trip the depsless-on-classified guard (which only
@@ -217,7 +217,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
       refresh: 'eager',
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'graph-edges-reconcile-leak-2026',
+      store: toMemory(), user: 'alice', secret: 'graph-edges-reconcile-leak-2026',
       materializedViewStrategies: [mv],
     })
     const vault = await db.openVault('demo')
@@ -240,7 +240,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
       refresh: 'eager',
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'graph-edges-reconcile-valid-2026',
+      store: toMemory(), user: 'alice', secret: 'graph-edges-reconcile-valid-2026',
       materializedViewStrategies: [mv],
     })
     const vault = await db.openVault('demo')
@@ -263,7 +263,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
       refresh: 'eager',
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'graph-edges-reconcile-typo-2026',
+      store: toMemory(), user: 'alice', secret: 'graph-edges-reconcile-typo-2026',
       materializedViewStrategies: [mv],
     })
     const vault = await db.openVault('demo')
@@ -279,7 +279,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
   })
 
   it('a two-call reconcile assembly (depsless computed first, classifiedFields second) still throws (fix wave 2, Finding I1)', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'graph-edges-order-a-2026' })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'graph-edges-order-a-2026' })
     const vault = await db.openVault('demo')
     // Call 1: fresh construction — legal, no classified fields exist yet.
     vault.collection('leaky2', {
@@ -296,7 +296,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
   })
 
   it('a repeated identical vault.collection() call is a no-op — no duplicate edges, no spurious i18n knownFields throw (fix wave 2, Finding I2)', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'graph-edges-repeat-2026' })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'graph-edges-repeat-2026' })
     const vault = await db.openVault('demo')
     const options = {
       i18nFields: { note: i18nText({ languages: ['en'], required: 'any' }) },
@@ -309,7 +309,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
   })
 
   it('a rejected reconcile call (classified storage-form transition refused) leaves no partial graph state (fix wave 2, Finding M2)', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'graph-edges-partial-2026' })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'graph-edges-partial-2026' })
     const vault = await db.openVault('demo')
     vault.collection('partial', { classifiedFields: { ssn: neverSpec() } }) // storage: 'never'
     expect(() =>
@@ -333,7 +333,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
       refresh: 'eager',
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'graph-edges-m1-2026',
+      store: toMemory(), user: 'alice', secret: 'graph-edges-m1-2026',
       materializedViewStrategies: [mv],
     })
     const vault = await db.openVault('demo')
@@ -349,7 +349,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
   })
 
   it('3-call pin (cm7): fresh depsless computed → never-attach → recoverable-with-rider attach is a safe no-error outcome — the dangerous state never forms (#638 Task 3)', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'graph-edges-3call-2026' })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'graph-edges-3call-2026' })
     const vault = await db.openVault('demo')
     // Call 1: fresh — a depsless computed field named 'email_domain', matching
     // classified.email()'s auto-derived rider companion name
@@ -376,7 +376,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
   })
 
   it('#645 — a reconcile-attached computed field may reference a classified field declared in an EARLIER, separate call, without re-declaring it', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'graph-edges-645-cross-call-2026' })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'graph-edges-645-cross-call-2026' })
     const vault = await db.openVault('demo')
     // Call 1: fresh construction — declares the classified field only.
     vault.collection('cross-call-deps', { classifiedFields: { ssn: classified.email() } })
@@ -397,7 +397,7 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
   })
 
   it('#645 CONTROL: a reconcile-attached computed field with a genuinely UNKNOWN/mistyped dep still throws — the graph-memory union only adds ACTUALLY-registered fields', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'graph-edges-645-control-2026' })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'graph-edges-645-control-2026' })
     const vault = await db.openVault('demo')
     vault.collection('cross-call-typo', { classifiedFields: { ssn: classified.email() } })
     expect(() =>

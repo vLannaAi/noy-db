@@ -7,7 +7,7 @@ import { withSearch } from '../src/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -54,7 +54,7 @@ const enc = (dim: number, model = 'stub') => ({
 interface Doc { id: string; text: string }
 
 async function seed() {
-  const db = await createNoydb({ store: memory(), user: 'a', secret: 'pw-hybrid', searchStrategy: withSearch() })
+  const db = await createNoydb({ store: toMemory(), user: 'a', secret: 'pw-hybrid', searchStrategy: withSearch() })
   const v = await db.openVault('v')
   const c = v.collection<Doc>('docs', {
     textIndexes: ['text'],
@@ -89,7 +89,7 @@ describe("retrieve({ mode: 'hybrid' })", () => {
   })
 
   it('throws when the collection has no embeddings', async () => {
-    const db = await createNoydb({ store: memory(), user: 'a', secret: 'pw-hybrid-no-emb', searchStrategy: withSearch() })
+    const db = await createNoydb({ store: toMemory(), user: 'a', secret: 'pw-hybrid-no-emb', searchStrategy: withSearch() })
     const v = await db.openVault('v')
     const c = v.collection<Doc>('docs', { textIndexes: ['text'] })
     await c.put('d1', { id: 'd1', text: 'revenue' })

@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import { ImportCapabilityError, createNoydb } from '@noy-db/hub'
 import { withBlobs } from '@noy-db/hub/blobs'
-import { memory } from '@noy-db/to-memory'
+import { toMemory } from '@noy-db/to-memory'
 import { fromBytes, toBytes } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
 
@@ -21,7 +21,7 @@ const ORIGINAL = new Uint8Array([0x01, 0x02, 0x03, 0x04])
 const REPLACEMENT = new Uint8Array([0xaa, 0xbb, 0xcc, 0xdd])
 
 async function setup() {
-  const adapter = memory()
+  const adapter = toMemory()
   const init = await createNoydb({ teamStrategy: withTeam(),
     store: adapter, user: 'alice', secret: 'pw-2026',
     blobsStrategy: withBlobs(),
@@ -46,7 +46,7 @@ async function setup() {
 
 describe('as-blob fromBytes — capability gate', () => {
   it('throws ImportCapabilityError when the keyring lacks the grant', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026', blobsStrategy: withBlobs() })
     const vault = await db.openVault('demo')
     await vault.collection<Doc>('docs').put('d-1', { title: 'first' })

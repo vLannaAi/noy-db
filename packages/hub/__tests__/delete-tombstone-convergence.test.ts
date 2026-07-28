@@ -23,7 +23,7 @@ import { isDeleteMarker, buildDeleteMarker } from '../src/kernel/enclave/record-
  * store reads (the schema-fence check on every write, the sync engine's
  * one-time `_sync/meta` load) that must not be mistaken for the #606 gate.
  */
-function memory(): NoydbStore & {
+function toMemory(): NoydbStore & {
   raw(c: string, col: string, id: string): EncryptedEnvelope | undefined
   _getCalls: number
   _getCallsFor(col: string, id: string): number
@@ -68,7 +68,7 @@ const V = 'V1'
 
 describe('delete() writes a marker under sync (#589)', () => {
   it('synced delete leaves a version-bumped _del marker, not a physical removal', async () => {
-    const local = memory(); const remote = memory()
+    const local = toMemory(); const remote = toMemory()
     const db = await createNoydb({ store: local, sync: remote, user: 'alice', syncStrategy: withSync(), encrypt: false })
     const vault = await db.openVault(V)
     const notes = vault.collection<Note>('notes')
@@ -84,7 +84,7 @@ describe('delete() writes a marker under sync (#589)', () => {
   })
 
   it('non-synced delete stays physical (no marker, zero regression)', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({ store, user: 'u', encrypt: false })   // no sync target
     const vault = await db.openVault(V)
     const notes = vault.collection<Note>('notes')
@@ -95,7 +95,7 @@ describe('delete() writes a marker under sync (#589)', () => {
   })
 
   it('delete of an already-deleted (marked) record is a no-op', async () => {
-    const local = memory(); const remote = memory()
+    const local = toMemory(); const remote = toMemory()
     const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
     const notes = (await db.openVault(V)).collection<Note>('notes')
     await notes.put('n1', { body: 'v1' })
@@ -109,7 +109,7 @@ describe('delete() writes a marker under sync (#589)', () => {
 
 describe('re-create version continuity (#589)', () => {
   it('a put after a synced delete continues from the marker version (not reset to 1)', async () => {
-    const local = memory(); const remote = memory()
+    const local = toMemory(); const remote = toMemory()
     const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
     const notes = (await db.openVault(V)).collection<Note>('notes')
     await notes.put('n1', { body: 'v1' })        // _v=1
@@ -131,7 +131,7 @@ describe('re-create version continuity (#589)', () => {
   })
 
   it('#606 perf: a genuinely-new insert into a synced eager collection never reads the store', async () => {
-    const local = memory(); const remote = memory()
+    const local = toMemory(); const remote = toMemory()
     const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
     const notes = (await db.openVault(V)).collection<Note>('notes')
 
@@ -148,7 +148,7 @@ describe('re-create version continuity (#589)', () => {
   })
 
   it('#606: hydration from a store with a pre-existing marker seeds the marker-id set — a re-create on a fresh instance still continues the version', async () => {
-    const local = memory(); const remote = memory()
+    const local = toMemory(); const remote = toMemory()
     // Seed the raw store directly with a delete marker BEFORE any Collection
     // ever opens it — simulates a cold session / process restart where the
     // marker landed on disk in a previous run (or via another peer's sync
@@ -176,7 +176,7 @@ describe('re-create version continuity (#589)', () => {
   })
 
   it('#606: a second put to the same id right after a re-create does not consult-then-read again', async () => {
-    const local = memory(); const remote = memory()
+    const local = toMemory(); const remote = toMemory()
     const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
     const notes = (await db.openVault(V)).collection<Note>('notes')
     await notes.put('n1', { body: 'v1' })
@@ -192,7 +192,7 @@ describe('re-create version continuity (#589)', () => {
 
 describe('delete convergence on pull (#589)', () => {
   async function twoPeers(conflict?: 'local-wins') {
-    const localA = memory(); const localB = memory(); const remote = memory()
+    const localA = toMemory(); const localB = toMemory(); const remote = toMemory()
     const dbA = await createNoydb({ store: localA, sync: remote, user: 'a', syncStrategy: withSync(), encrypt: false, ...(conflict ? { conflict } : {}) })
     const dbB = await createNoydb({ store: localB, sync: remote, user: 'b', syncStrategy: withSync(), encrypt: false, ...(conflict ? { conflict } : {}) })
     return { localA, localB, remote, dbA, dbB }
@@ -244,7 +244,7 @@ describe('delete convergence on pull (#589)', () => {
     // never even invoked when one side is a marker. `'manual'` is the one policy that hands the
     // resolver the raw envelopes untouched (via the `sync:conflict` event's `resolve` callback),
     // so it's the real way to register "keep the edit over the marker".
-    const localA = memory(); const localB = memory(); const remote = memory()
+    const localA = toMemory(); const localB = toMemory(); const remote = toMemory()
     const dbA = await createNoydb({ store: localA, sync: remote, user: 'a', syncStrategy: withSync(), encrypt: false })
     const dbB = await createNoydb({ store: localB, sync: remote, user: 'b', syncStrategy: withSync(), encrypt: false })
     const a = (await dbA.openVault(V)).collection<Note>('notes')
@@ -320,7 +320,7 @@ describe('delete convergence on pull (#589)', () => {
 
   it('a delete marker never overrides a forget tombstone (forget outranks delete)', async () => {
     // local forget tombstone vs incoming delete marker → forget stays
-    const local = memory(); const remote = memory()
+    const local = toMemory(); const remote = toMemory()
     const db = await createNoydb({ store: local, sync: remote, user: 'u', secret: 'hunter2', syncStrategy: withSync(),
       historyStrategy: (await import('../src/with-commit/history/index.js')).withHistory(),
       forgetStrategy: (await import('../src/with-audit/forget/index.js')).withForget({ subjects: { notes: 'subjectId' } }) })
@@ -337,7 +337,7 @@ describe('delete convergence on pull (#589)', () => {
 
 describe('_purgeDeleteMarkers seam (#589 → #604)', () => {
   it('physically removes only delete markers older than the cutoff; leaves live + newer', async () => {
-    const local = memory(); const remote = memory()
+    const local = toMemory(); const remote = toMemory()
     const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
     const vault = await db.openVault(V)
     const notes = vault.collection<Note>('notes')

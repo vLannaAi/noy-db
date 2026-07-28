@@ -13,7 +13,7 @@ import { ConflictError, createNoydb, classified } from '@noy-db/hub'
 import { toObject as jsonToObject } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (c: string, col: string) => {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -57,7 +57,7 @@ function memory(): NoydbStore {
  * capability is visible on the session).
  */
 async function makeVault() {
-  const adapter = memory()
+  const adapter = toMemory()
   const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
   await db.openVault('acme')
   await db.grant('acme', {

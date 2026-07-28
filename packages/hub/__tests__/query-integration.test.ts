@@ -6,7 +6,7 @@ import { ConflictError } from '../src/kernel/errors.js'
 import { Query } from '../src/kernel/query/index.js'
 
 /** Inline memory adapter — same pattern as integration.test.ts. */
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -68,7 +68,7 @@ describe('Collection.query() — integration with crypto + adapter', () => {
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'integration-test-secret-2026',
     })

@@ -11,7 +11,7 @@ import { ConflictError } from '../src/kernel/errors.js'
  * @noy-db/core. Augmented with `_putCalls` so tests can spy on what the
  * adapter receives.
  */
-function memory(): NoydbStore & { _putCalls: Array<{ collection: string; id: string; envelope: EncryptedEnvelope }> } {
+function toMemory(): NoydbStore & { _putCalls: Array<{ collection: string; id: string; envelope: EncryptedEnvelope }> } {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const calls: Array<{ collection: string; id: string; envelope: EncryptedEnvelope }> = []
   function getCollection(c: string, col: string): Map<string, EncryptedEnvelope> {
@@ -196,13 +196,13 @@ describe('CollectionIndexes — unit', () => {
 
 describe('Collection.query() — index-aware execution', () => {
   let db: Noydb
-  const adapter = memory()
+  const adapter = toMemory()
 
   beforeEach(async () => {
     // Reset adapter state.
     adapter._putCalls.length = 0
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'index-test-secret-2026',
       indexingStrategy: withIndexing(),
@@ -314,7 +314,7 @@ describe('Collection.query() — index-aware execution', () => {
     // in random base64 by chance ~1 in 16M; long markers cannot).
     const STATUS_MARKER = 'unique_status_marker_xyz9876_no_collision'
     const CLIENT_MARKER = 'unique_client_marker_abc1234_no_collision'
-    const localAdapter = memory()
+    const localAdapter = toMemory()
     const localDb = await createNoydb({
       store: localAdapter,
       user: 'owner',
@@ -356,7 +356,7 @@ describe('Collection.query() — index-aware execution', () => {
 
   it('22. indexed query is materially faster than a linear scan on 10K records (DoD)', { retry: 2, timeout: 60_000 }, async () => {
     const localDb = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'bench-secret-2026',
       history: { enabled: false }, // skip history snapshots for the bench

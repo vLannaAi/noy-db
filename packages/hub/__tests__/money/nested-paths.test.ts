@@ -11,7 +11,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 // mismatch (an un-quantized amount must never reach storage); the read
 // walk is lenient (legacy data stays readable).
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -134,7 +134,7 @@ describe('nested money paths — pure quantize/decode (#334)', () => {
 describe('nested money paths — registration validation (#334)', () => {
   async function open() {
     const db = await createNoydb({
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       secret: 'money-nested-registration-secret-2026',
     })
     return db.openVault('books')
@@ -171,7 +171,7 @@ describe('nested money paths — registration validation (#334)', () => {
 describe('nested money paths — end-to-end through encryption (#334)', () => {
   it('round-trips a bill with nested money through put/get', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       secret: 'money-nested-e2e-secret-2026',
     })
     const vault = await db.openVault('books')

@@ -45,7 +45,7 @@ const bytes = (s: string) => new TextEncoder().encode(s)
 
 // ─── Store ──────────────────────────────────────────────────────────────
 
-function memory(): NoydbStore & {
+function toMemory(): NoydbStore & {
   raw(v: string, col: string, id: string): EncryptedEnvelope | undefined
 } {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -151,7 +151,7 @@ interface BlobSetInternals {
 
 describe('rehomeForTier — slot re-put destination +1 is row-scoped stamped (#746 spec C3)', () => {
   it('crash after the destination +1 lands, before the slot CAS → resume does not over-count; old object released exactly once', async () => {
-    const store = memory()
+    const store = toMemory()
     const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
@@ -229,7 +229,7 @@ describe('rehomeForTier — slot re-put destination +1 is row-scoped stamped (#7
 
 describe('rehomeForTier — fresh-object CREATE also seeds the stamp (#746 C3 review)', () => {
   it('crash after the fresh-create lands, before the slot CAS → resume does not spuriously double the destination refCount', async () => {
-    const store = memory()
+    const store = toMemory()
     const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
@@ -302,7 +302,7 @@ describe('rehomeForTier — fresh-object CREATE also seeds the stamp (#746 C3 re
 
 describe('rehomeForTier — version re-put destination +1 is row-scoped stamped (#746 spec C3)', () => {
   it('crash after the destination +1 lands (version fallback re-put), before the old object\'s deletion completes → resume does not over-count', async () => {
-    const store = memory()
+    const store = toMemory()
     const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
@@ -387,7 +387,7 @@ describe('rehomeForTier — version re-put destination +1 is row-scoped stamped 
 
 describe('rehomeForTier — unstamped (no opId) call is byte-identical to today', () => {
   it('a direct call with no opId increments refCount normally and leaves no lastOps stamp', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
@@ -423,7 +423,7 @@ describe('rehomeForTier — unstamped (no opId) call is byte-identical to today'
 
 describe('syncBlobs mints a rehome marker with a FRESH opId per move (#746 spec §7 §2d)', () => {
   it('elevate() leaves a stamp on the destination and no dangling marker; two records elevated in sequence get DIFFERENT opIds', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
@@ -481,7 +481,7 @@ describe('syncBlobs mints a rehome marker with a FRESH opId per move (#746 spec 
 
 describe('mid per-eTag loop crash → resume via a subsequent elevate() attempt (#746 spec §7 §2d)', () => {
   it('two-slot record: one eTag fully moved, one crashed mid-move → resume completes both (mixed alsoTryTier from-then-to open), releases every intermediate object once, marker gone; demote reversal round-trips', async () => {
-    const store = memory()
+    const store = toMemory()
     const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1, 2], perRecordKeys: true })
@@ -546,7 +546,7 @@ describe('mid per-eTag loop crash → resume via a subsequent elevate() attempt 
 
 describe('crash after the slot map fully moves → resume skips the move and completes the version pass (#746 spec §7 §2d)', () => {
   it('a shared-eTag version (finding (a): the already-rehomed fast path, now reachable) and a unique-content version both resolve correctly on resume', async () => {
-    const store = memory()
+    const store = toMemory()
     const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
@@ -609,7 +609,7 @@ describe('crash after the slot map fully moves → resume skips the move and com
 
 describe('the slot-CAS→deferred-release gap is closed by the pendingRelease breadcrumb (#746 review, carried finding (b))', () => {
   it('crash exactly after the slot CAS lands (slot already points at the new eTag) but before the old-object release even starts → resume finds the old eTag via the breadcrumb, not the (now-overwritten) slot map — no stranded hold', async () => {
-    const store = memory()
+    const store = toMemory()
     const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1, 2], perRecordKeys: true })
@@ -678,7 +678,7 @@ describe('the slot-CAS→deferred-release gap is closed by the pendingRelease br
 
 describe('#746 review Critical 2 — the "already moved" reconstruction is tier-aware (DEK-mismatch fix)', () => {
   it('a shared (refCount>1) dedup-policy slot resumes cleanly: reconstruction leaves the still-flat object alone instead of unwrapping it under the wrong DEK', async () => {
-    const store = memory()
+    const store = toMemory()
     const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1, 2], perRecordKeys: true, blobTierPolicy: 'dedup' })
@@ -751,7 +751,7 @@ describe('#746 review Critical 2 — the "already moved" reconstruction is tier-
 
 describe('elevate() resumes a pending SHRED marker first — nothing left to rehome (#746/#753 spec Q1)', () => {
   it('a stranded shred marker (a previous forget() crashed right after minting it) is resumed by the next elevate(): the blob is erased, not moved, and elevate() still completes the record\'s own tier move', async () => {
-    const store = memory()
+    const store = toMemory()
     const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
@@ -794,7 +794,7 @@ describe('elevate() resumes a pending SHRED marker first — nothing left to reh
 
 describe('a pending REHOME marker is never overwritten by a fresh SHRED marker (#746/#753 spec Q1/C8, single-marker-per-record)', () => {
   it('mintShredIntent() discovering a stranded rehome marker returns without minting — a later write resumes the REHOME (content preserved), never a spurious shred (content destroyed)', async () => {
-    const store = memory()
+    const store = toMemory()
     const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
@@ -856,7 +856,7 @@ describe('a pending REHOME marker is never overwritten by a fresh SHRED marker (
 
 describe('#746 whole-branch review — CONCURRENT rehomes converging on one destination (the confirmed over-count)', () => {
   it('8 unrelated records dedup-converge on one destination while a 9th is stuck mid-move → resume does not double-count the stuck row', async () => {
-    const store = memory()
+    const store = toMemory()
     const shared = bytes('concurrent-fanout content')
 
     const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
@@ -917,7 +917,7 @@ describe('#746 whole-branch review — CONCURRENT rehomes converging on one dest
 
 describe('#746 whole-branch review — SINGLE-RECORD fan-out (≥9 rows of identical content)', () => {
   it('1 slot + 8 published versions of the same bytes, crash mid-move, resume → refCount is exactly correct, and full demote(→0) crypto-shreds once every holder drops', async () => {
-    const store = memory()
+    const store = toMemory()
     const shared = bytes('single-record fan-out content')
 
     const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
@@ -977,7 +977,7 @@ describe('#746 whole-branch review — SINGLE-RECORD fan-out (≥9 rows of ident
 
 describe('#746 whole-branch review Hardening 1 — syncTierMove skips the marker for a blob-less record', () => {
   it('elevate() on a record with no slots and no published versions mints no `_blob_intent` row', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault = await db.openVault(VAULT)
     const docs = vault.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })
@@ -996,7 +996,7 @@ describe('#746 whole-branch review Hardening 1 — syncTierMove skips the marker
 
 describe('#746 whole-branch review Hardening 2 — post-resume shred mint uses the resumed rehome\'s own toTier', () => {
   it('shredAllForRecord(staleTier) after resuming a pending rehome collects holds at the rehome\'s toTier, not the caller\'s stale argument', async () => {
-    const store = memory()
+    const store = toMemory()
     const db0 = await createNoydb({ store, secret: SECRET, user: 'owner', tiersStrategy: withTiers(), blobsStrategy: withBlobs() })
     const vault0 = await db0.openVault(VAULT)
     const docs0 = vault0.collection<Doc>('docs', { tiers: [0, 1], perRecordKeys: true })

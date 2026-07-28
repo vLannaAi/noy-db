@@ -5,7 +5,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, ListPageResult } fro
 import { ConflictError } from '../src/kernel/errors.js'
 
 /** Inline memory adapter — same pattern as the other integration tests. */
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string): Map<string, EncryptedEnvelope> {
     let comp = store.get(c)
@@ -74,7 +74,7 @@ function memory(): NoydbStore {
 
 /** Memory adapter WITHOUT listPage — exercises the synthetic fallback path. */
 function memoryNoListPage(): NoydbStore {
-  const adapter = memory()
+  const adapter = toMemory()
   // Strip the optional method to simulate an adapter that hasn't opted in yet.
   delete adapter.listPage
   return adapter
@@ -101,7 +101,7 @@ describe('Collection.listPage() — pagination', () => {
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'pagination-test-secret-2026',
     })
@@ -187,7 +187,7 @@ describe('Collection.scan() — async iterator', () => {
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'pagination-test-secret-2026',
     })

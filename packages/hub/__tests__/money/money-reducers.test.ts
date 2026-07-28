@@ -12,7 +12,7 @@ import { withReduce } from '../../src/with-lookup/reduce/index.js'
 import { money } from '../../src/via/money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -44,7 +44,7 @@ interface Line extends Record<string, unknown> { id: string; total: number | str
 
 async function linesWith3() {
   const db = await createNoydb({
-    store: memory(),
+    store: toMemory(),
     user: 'alice',
     secret: 'money-reducers-secret-2026-pilot3-exact',
     reduceStrategy: withReduce(),
@@ -80,7 +80,7 @@ describe('money reducer constructors — runtime', () => {
 
   it('moneyMin / moneyMax are null on an empty result set', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'money-reducers-secret-2026-pilot3-exact',
       reduceStrategy: withReduce(),

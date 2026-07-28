@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb, withDerivation, DerivationCycleError, ValidationError } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -68,7 +68,7 @@ describe('Derivation cycle detection at vault open', () => {
       lifecycle: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-cycle-ab-secret-2026',
       derivationStrategies: [a, b],
@@ -85,7 +85,7 @@ describe('Derivation cycle detection at vault open', () => {
       lifecycle: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-cycle-abc-secret-2026',
       derivationStrategies: [make('a', 'b'), make('b', 'c'), make('c', 'a')],
@@ -102,7 +102,7 @@ describe('Derivation cycle detection at vault open', () => {
       lifecycle: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-cycle-acyclic-secret-2026',
       derivationStrategies: [make('a', 'b'), make('b', 'c')],
@@ -119,7 +119,7 @@ describe('Derivation cycle detection at vault open', () => {
       lifecycle: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'derivation-cycle-path-secret-2026',
       derivationStrategies: [make('a', 'b'), make('b', 'a')],

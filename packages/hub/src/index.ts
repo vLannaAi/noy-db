@@ -22,9 +22,9 @@
  *
  * ```ts
  * import { createNoydb } from '@noy-db/hub'
- * import { jsonFile } from '@noy-db/to-file'
+ * import { toFile } from '@noy-db/to-file'
  *
- * const db = await createNoydb({ store: jsonFile({ dir: './data' }) })
+ * const db = await createNoydb({ store: toFile({ dir: './data' }) })
  * const acme = await db.openVault('acme', { secret: 'hunter2' })
  * const invoices = acme.collection<Invoice>('invoices')
  *

@@ -28,7 +28,7 @@ import { isDeleteMarker, buildDeleteMarker } from '../src/kernel/enclave/record-
  * from delete-tombstone-convergence.test.ts / lazy-hydration.test.ts) so the
  * #606 perf win can be proven by call count, not just by behavior.
  */
-function memory(): NoydbStore & {
+function toMemory(): NoydbStore & {
   raw(c: string, col: string, id: string): EncryptedEnvelope | undefined
   _getCalls: number
   _getCallsFor(col: string, id: string): number
@@ -83,7 +83,7 @@ const V = 'V1'
 
 describe('#693: re-create gate falls back to a store read under multi-tab coordination', () => {
   it('a marker written out-of-band by a peer tab (not yet relayed) is not lost on re-create', async () => {
-    const local = memory(); const remote = memory()
+    const local = toMemory(); const remote = toMemory()
     const db = await createNoydb({ store: local, sync: remote, user: 'a', syncStrategy: withSync(), encrypt: false })
     const notes = (await db.openVault(V)).collection<Note>('notes')
 
@@ -115,7 +115,7 @@ describe('#693: re-create gate falls back to a store read under multi-tab coordi
 
 describe('#693 scoping: the fallback only applies while tab-coordination is active', () => {
   it('tab coordination ENABLED: a genuinely-new insert into a synced-eager collection DOES read the store', async () => {
-    const local = memory(); const remote = memory()
+    const local = toMemory(); const remote = toMemory()
     const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
     const notes = (await db.openVault(V)).collection<Note>('notes')
     db.enableTabCoordination({ writeChannel: mockChannel(), tabId: 'A' })
@@ -129,7 +129,7 @@ describe('#693 scoping: the fallback only applies while tab-coordination is acti
   })
 
   it('tab coordination DISABLED: a genuinely-new insert into a synced-eager collection never reads the store (#606 win preserved)', async () => {
-    const local = memory(); const remote = memory()
+    const local = toMemory(); const remote = toMemory()
     const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
     const notes = (await db.openVault(V)).collection<Note>('notes')
     // Tab coordination never enabled — `writeRelay` stays undefined.
@@ -143,7 +143,7 @@ describe('#693 scoping: the fallback only applies while tab-coordination is acti
 
 describe('#693: presence-only coordination (propagateWrites: false) also triggers the fallback', () => {
   it('a marker written out-of-band by a peer tab is not lost on re-create even with write-propagation disabled', async () => {
-    const local = memory(); const remote = memory()
+    const local = toMemory(); const remote = toMemory()
     const db = await createNoydb({ store: local, sync: remote, user: 'a', syncStrategy: withSync(), encrypt: false })
     const notes = (await db.openVault(V)).collection<Note>('notes')
 

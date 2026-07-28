@@ -10,7 +10,7 @@ import {
 } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -72,7 +72,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
         shadowValue: 'override',
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'overlay-merge-secret-2026',
         materializedViewStrategies: [baseMV],
@@ -156,7 +156,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
         shadowValue: 'override',
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'overlay-write-secret-2026',
         materializedViewStrategies: [baseMV],
@@ -192,7 +192,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
         shadowValue: 'override',
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'overlay-id-mismatch-secret-2026',
         materializedViewStrategies: [baseMV],
@@ -221,7 +221,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
         shadowValue: 'override',
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'overlay-delete-secret-2026',
         materializedViewStrategies: [baseMV],
@@ -261,7 +261,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
         shadowValue: 'override',
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'overlay-stub-secret-2026',
         materializedViewStrategies: [baseMV],
@@ -323,7 +323,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
       })
       await expect((async () => {
         const db = await createNoydb({
-          store: memory(),
+          store: toMemory(),
           user: 'alice',
           secret: 'overlay-collide-secret-2026',
           materializedViewStrategies: [mv],
@@ -350,7 +350,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
       })
       await expect((async () => {
         const db = await createNoydb({
-          store: memory(),
+          store: toMemory(),
           user: 'alice',
           secret: 'overlay-virtual-base-secret-2026',
           overlayedViewStrategies: [ov1, ov2],
@@ -375,7 +375,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
       })
       await expect((async () => {
         const db = await createNoydb({
-          store: memory(),
+          store: toMemory(),
           user: 'alice',
           secret: 'overlay-mv-as-overlay-secret-2026',
           materializedViewStrategies: [mv],
@@ -421,7 +421,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
         },
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'overlay-field-merge-secret-2026',
         materializedViewStrategies: [baseMV],
@@ -544,7 +544,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
         },
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'overlay-rule-order-secret-2026',
         materializedViewStrategies: [baseMV],
@@ -580,7 +580,7 @@ describe('withOverlayedView read-shadow primitive (#154)', () => {
         // no mergeMode
       })
       const db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'alice',
         secret: 'overlay-no-mergemode-secret-2026',
         materializedViewStrategies: [baseMV],

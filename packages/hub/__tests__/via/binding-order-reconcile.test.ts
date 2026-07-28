@@ -25,7 +25,7 @@ import { money } from '../../src/via/money/descriptor.js'
 import { via } from '../../src/kernel/via/compose.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -62,7 +62,7 @@ interface Invoice extends Record<string, unknown> {
 describe('_applyMoneyFields reconcile order (#623 Task 8, controller pin 3)', () => {
   it('prepends money onto a collection whose first declaration already compiled an i18n binding', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'binding-order-reconcile-2026-pilot3',
       i18nStrategy: withI18n(),
@@ -98,7 +98,7 @@ describe('_applyMoneyFields reconcile order (#623 Task 8, controller pin 3)', ()
 
   it('#627: reconciles via(money(...)) declared through viaFields onto an already-constructed collection, same as moneyFields', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'binding-order-reconcile-2026-pilot3-via',
       i18nStrategy: withI18n(),
@@ -134,7 +134,7 @@ describe('_applyMoneyFields reconcile order (#623 Task 8, controller pin 3)', ()
   })
 
   it('#627 parity: viaFields-style late-attach and moneyFields-style late-attach produce identical describe()/read output', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({ store, user: 'alice', secret: 'binding-order-reconcile-2026-pilot3-parity' })
     const sugarVault = await db.openVault('sugar')
     const viaVault = await db.openVault('via')

@@ -3,7 +3,7 @@ import { createNoydb, withGuard } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 // Minimal in-test memory store — follows the hub convention (see __tests__/refs.test.ts etc.)
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -43,7 +43,7 @@ describe('Vault.guardRegistry wiring', () => {
       check: async () => { throw new Error('always blocks') },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-vault-wiring-secret-2026',
       guardStrategies: [handle],
@@ -56,7 +56,7 @@ describe('Vault.guardRegistry wiring', () => {
 
   it('createNoydb works without guardStrategies (null registry)', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-vault-wiring-empty-secret-2026',
     })

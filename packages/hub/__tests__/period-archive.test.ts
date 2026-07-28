@@ -5,7 +5,7 @@ import { withPeriods } from '../src/with-audit/periods/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { routeStore } from '../src/with-store/route-store.js'
 
-function memory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
+function toMemory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (c: string, col: string) => {
     let a = store.get(c); if (!a) { a = new Map(); store.set(c, a) }
@@ -27,7 +27,7 @@ interface Row { amount: number; date: string }
 const V = 'V1'
 
 async function makeVault() {
-  const hot = memory(), cold = memory()
+  const hot = toMemory(), cold = toMemory()
   const db = await createNoydb({
     store: routeStore({ default: hot, age: { cold } }),
     user: 'alice',
@@ -69,7 +69,7 @@ describe('archivePeriod (#613)', () => {
   })
 
   it('throws when the store is not a cold-capable routeStore', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', periodsStrategy: withPeriods(), secret: 'hunter2' })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', periodsStrategy: withPeriods(), secret: 'hunter2' })
     const vault = await db.openVault(V)
     await vault.closePeriod({ name: 'FY26-Q1', endDate: '2026-03-31' })
     await expect(vault.archivePeriod('FY26-Q1')).rejects.toThrow(/cold archival requires a routeStore/i)

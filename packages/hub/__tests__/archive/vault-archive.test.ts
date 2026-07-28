@@ -7,7 +7,7 @@ import { withTransactions } from '../../src/with-commit/tx/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/index.js'
 import { ConflictError } from '../../src/index.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string): Map<string, EncryptedEnvelope> => {
     let vm = store.get(v); if (!vm) { vm = new Map(); store.set(v, vm) }
@@ -46,8 +46,8 @@ interface Invoice extends Record<string, unknown> { id: string; year: number; st
 
 describe('#307 record cold-storage archival', () => {
   it('archives eligible records to the cold store and removes them from primary; restore brings them back', async () => {
-    const cold = memory()
-    const db = await createNoydb({ store: memory(), user: 'owner', secret: 'pw', archiveStrategy: withArchive({ store: cold }) })
+    const cold = toMemory()
+    const db = await createNoydb({ store: toMemory(), user: 'owner', secret: 'pw', archiveStrategy: withArchive({ store: cold }) })
     const vault = await db.openVault('books')
     const inv = vault.collection<Invoice>('invoices', { archive: { archiveWhen: (r) => r.year <= 2022 } })
 
@@ -69,8 +69,8 @@ describe('#307 record cold-storage archival', () => {
   })
 
   it('legalHold blocks archival', async () => {
-    const cold = memory()
-    const db = await createNoydb({ store: memory(), user: 'owner', secret: 'pw', archiveStrategy: withArchive({ store: cold }) })
+    const cold = toMemory()
+    const db = await createNoydb({ store: toMemory(), user: 'owner', secret: 'pw', archiveStrategy: withArchive({ store: cold }) })
     const vault = await db.openVault('books')
     const inv = vault.collection<Invoice>('invoices', {
       archive: { archiveWhen: () => true, legalHold: (r) => r.hold === true },
@@ -86,9 +86,9 @@ describe('#307 record cold-storage archival', () => {
   })
 
   it('archives a guard-locked record — relocation bypasses guards', async () => {
-    const cold = memory()
+    const cold = toMemory()
     const db = await createNoydb({
-      store: memory(), user: 'owner', secret: 'pw',
+      store: toMemory(), user: 'owner', secret: 'pw',
       archiveStrategy: withArchive({ store: cold }),
       // a guard that makes issued invoices un-deletable (WORM)
       guardStrategies: [withGuard<Invoice>({
@@ -111,7 +111,7 @@ describe('#307 record cold-storage archival', () => {
   })
 
   it('throws if no archiveStrategy is configured', async () => {
-    const db = await createNoydb({ store: memory(), user: 'owner', secret: 'pw' })
+    const db = await createNoydb({ store: toMemory(), user: 'owner', secret: 'pw' })
     const vault = await db.openVault('books')
     vault.collection<Invoice>('invoices', { archive: { archiveWhen: () => true } })
     await expect(vault.archive()).rejects.toThrow(/archiveStrategy/)

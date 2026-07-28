@@ -4,7 +4,7 @@ import { transitionGuard } from '../../src/with-audit/guards/transition-guard.js
 import { withTransactions } from '../../src/with-commit/tx/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -73,7 +73,7 @@ describe('transitionGuard — factory validation', () => {
 
 async function vaultWith(...guards: ReturnType<typeof saleGuard>[]) {
   const db = await createNoydb({
-    store: memory(), user: 'alice', secret: 'transition-guard-secret-2026-pilot2',
+    store: toMemory(), user: 'alice', secret: 'transition-guard-secret-2026-pilot2',
     guardStrategies: guards, transactionsStrategy: withTransactions(),
   })
   const vault = await db.openVault('books')

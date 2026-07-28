@@ -1,6 +1,6 @@
 import { runStoreConformanceTests } from '@noy-db/test-adapter-conformance'
 import { IDBFactory } from 'fake-indexeddb'
-import { browserIdbStore } from '../src/index.js'
+import { toBrowserIdb } from '../src/index.js'
 
 let counter = 0
 
@@ -13,7 +13,7 @@ runStoreConformanceTests(
     // Replace the global with a fresh factory so the adapter's dbPromise
     // caches don't bleed between test runs.
     ;(globalThis as unknown as Record<string, unknown>).indexedDB = new IDBFactory()
-    return browserIdbStore({ prefix: `test-${++counter}` })
+    return toBrowserIdb({ prefix: `test-${++counter}` })
   },
   async () => {
     // Reset to a fresh factory so the next factory call starts clean

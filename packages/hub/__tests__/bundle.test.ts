@@ -44,7 +44,7 @@ import {
 import { validateBundleHeader, decodeBundleHeader, encodeBundleHeader } from '../src/with-pod/format.js'
 
 /** Inline memory adapter — same shape as other integration tests. */
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string): Map<string, EncryptedEnvelope> {
     let comp = store.get(c)
@@ -256,7 +256,7 @@ describe('bundle > round-trip with real compartment', () => {
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'bundle-test-secret-2026',
       // Bundle round-trip exercises vault.dump(); the history strategy
@@ -406,7 +406,7 @@ describe('bundle > readNoydbBundleHeader (no decompression)', () => {
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'bundle-test-secret-2026',
     })
@@ -444,7 +444,7 @@ describe('bundle > integrity tampering', () => {
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'bundle-test-secret-2026',
     })
@@ -502,7 +502,7 @@ describe('bundle > handle stability across re-exports', () => {
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'bundle-test-secret-2026',
     })
@@ -537,7 +537,7 @@ describe('bundle > handle stability across re-exports', () => {
     // Both compartments share the same adapter via the noydb
     // instance, so the persisted _meta/handle envelope is visible
     // to both.
-    const adapter = memory()
+    const adapter = toMemory()
     const db1 = await createNoydb({
       store: adapter,
       user: 'owner',

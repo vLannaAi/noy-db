@@ -25,7 +25,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 // Realistic in-memory store: `loadAll` filters out underscore-prefixed
 // (internal) collections, exactly like the real adapters — so dump()'s
 // explicit enumeration of `_history` is what makes it travel.
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -81,7 +81,7 @@ interface Item { id: string; name: string; qty: number }
 describe('bundle includes history (dump → load round-trip)', () => {
   it('history(), getVersion() and diff() survive dump → fresh-vault load', async () => {
     const sourceDb = await createNoydb({
-      store: memory(), user: 'owner', secret: SECRET, historyStrategy: withHistory(),
+      store: toMemory(), user: 'owner', secret: SECRET, historyStrategy: withHistory(),
     })
     const sourceVault = await sourceDb.openVault('demo-co')
     const col = sourceVault.collection<Item>('items')
@@ -96,7 +96,7 @@ describe('bundle includes history (dump → load round-trip)', () => {
     expect(JSON.parse(backupJson)._internal?._history).toBeDefined()
 
     const targetDb = await createNoydb({
-      store: memory(), user: 'owner', secret: SECRET, historyStrategy: withHistory(),
+      store: toMemory(), user: 'owner', secret: SECRET, historyStrategy: withHistory(),
     })
     const targetVault = await targetDb.openVault('demo-co')
     await targetVault.load(backupJson)

@@ -35,7 +35,7 @@ import { classified } from '../../src/via/classified/presets.js'
 /** In-memory store exposing raw stored envelopes + a `list()` call log for
  *  white-box assertions (the blob arm's "no scan for undeclared" pin needs
  *  to see that `_blob_slots_<undeclared>` was never listed). */
-function memory(): NoydbStore & {
+function toMemory(): NoydbStore & {
   raw(c: string, col: string, id: string): EncryptedEnvelope | undefined
   listCalls: { vault: string; collection: string }[]
 } {
@@ -100,7 +100,7 @@ const bytes = (s: string) => new TextEncoder().encode(s)
 
 describe('forget() scopedPurge — (a) DEFAULT parity (unconditional, pins today)', () => {
   it('a bare-sensitive+sealRecordToHost collection still gets its _sealed_cek envelope purged', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
@@ -127,7 +127,7 @@ describe('forget() scopedPurge — (a) DEFAULT parity (unconditional, pins today
 
 describe('forget() scopedPurge — (b) SCOPED mode: sealed-CEK arm', () => {
   async function setup() {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       historyStrategy: withHistory(),
@@ -178,7 +178,7 @@ describe('forget() scopedPurge — (b) SCOPED mode: sealed-CEK arm', () => {
 
 describe('forget() scopedPurge — (c) SCOPED mode: blob arm', () => {
   async function setup() {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({
       store, user: 'a', secret: SECRET,
       blobsStrategy: withBlobs(),
@@ -221,7 +221,7 @@ describe('forget() scopedPurge — (c) SCOPED mode: blob arm', () => {
 describe('forget() scopedPurge — (d) per-instance independence', () => {
   it('a scoped vault and an unscoped vault behave independently off the same recipe', async () => {
     async function buildVault(scopedPurge: boolean | undefined) {
-      const store = memory()
+      const store = toMemory()
       const db = await createNoydb({
         store, user: 'alice', secret: SECRET,
         historyStrategy: withHistory(),

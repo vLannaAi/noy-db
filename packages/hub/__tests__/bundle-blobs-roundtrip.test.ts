@@ -36,7 +36,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 // (internal) collections, exactly like the real adapters — so dump()'s
 // explicit enumeration of the blob collections is what makes them
 // travel. `saveAll` preserves any existing internal collections.
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -96,7 +96,7 @@ function cover(n: number): Uint8Array {
 
 describe('bundle includes blobs (dump → load round-trip).', () => {
   it('blob covers travel inside the bundle and restore byte-identical', async () => {
-    const sourceStore = memory()
+    const sourceStore = toMemory()
     const sourceDb = await createNoydb({
       store: sourceStore,
       user: 'alice',
@@ -130,7 +130,7 @@ describe('bundle includes blobs (dump → load round-trip).', () => {
 
     // Restore into a FRESH vault (new store + new Noydb, same secret so
     // the dumped keyring DEKs — including the blob DEK — unwrap).
-    const targetStore = memory()
+    const targetStore = toMemory()
     const targetDb = await createNoydb({
       store: targetStore,
       user: 'alice',
@@ -162,7 +162,7 @@ describe('bundle includes blobs (dump → load round-trip).', () => {
   })
 
   it('a vault with no blobs still dumps and loads cleanly', async () => {
-    const sourceStore = memory()
+    const sourceStore = toMemory()
     const sourceDb = await createNoydb({
       store: sourceStore,
       user: 'alice',
@@ -183,7 +183,7 @@ describe('bundle includes blobs (dump → load round-trip).', () => {
     expect(backup._internal[BLOB_CHUNKS_COLLECTION]).toBeUndefined()
     expect(backup._internal[`${BLOB_SLOTS_PREFIX}notes`]).toBeUndefined()
 
-    const targetStore = memory()
+    const targetStore = toMemory()
     const targetDb = await createNoydb({
       store: targetStore,
       user: 'alice',
@@ -202,7 +202,7 @@ describe('bundle includes blobs (dump → load round-trip).', () => {
   })
 
   it('dump() works when the blobs service is not opted in', async () => {
-    const sourceStore = memory()
+    const sourceStore = toMemory()
     const sourceDb = await createNoydb({
       store: sourceStore,
       user: 'alice',

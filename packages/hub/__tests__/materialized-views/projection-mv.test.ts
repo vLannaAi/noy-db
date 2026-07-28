@@ -10,7 +10,7 @@ import {
 import { isMVStale } from '../../src/with-formula/materialized-views/stale.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -103,7 +103,7 @@ function billRowsMV(refresh: 'eager' | 'lazy' | 'manual' = 'eager') {
 /** Open a vault with the niwat-shaped collections + refs declared. */
 async function openBillsVault(mv = billRowsMV(), secret = 'mv-projection-niwat-secret-2026') {
   const db = await createNoydb({
-    store: memory(),
+    store: toMemory(),
     user: 'alice',
     secret,
     materializedViewStrategies: [mv],
@@ -272,7 +272,7 @@ describe('projection MV (#810) — collect ceilings + ref requirement', () => {
       refresh: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-projection-ceiling-secret-2026',
       materializedViewStrategies: [mv],
@@ -302,7 +302,7 @@ describe('projection MV (#810) — collect ceilings + ref requirement', () => {
       refresh: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-projection-noref-secret-2026',
       materializedViewStrategies: [mv],
@@ -328,7 +328,7 @@ describe('projection MV (#810) — collect ceilings + ref requirement', () => {
       refresh: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'mv-projection-wrongref-secret-2026',
       materializedViewStrategies: [mv],
@@ -472,7 +472,7 @@ describe('projection MV (#810) — cycle refusal', () => {
     await expect(
       (async () => {
         const db = await createNoydb({
-          store: memory(),
+          store: toMemory(),
           user: 'alice',
           secret: 'mv-projection-cycle-secret-2026',
           materializedViewStrategies: [proj, loop],
@@ -485,7 +485,7 @@ describe('projection MV (#810) — cycle refusal', () => {
 
 describe('projection MV (#810) — queryHash', () => {
   it('is stable across re-open with an identical strategy', async () => {
-    const store = memory()
+    const store = toMemory()
     const hashes: string[] = []
     for (let i = 0; i < 2; i++) {
       const db = await createNoydb({

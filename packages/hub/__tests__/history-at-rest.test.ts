@@ -28,7 +28,7 @@ const HISTORY_COLLECTION = '_history'
 const VAULT = 'v'
 
 /** Minimal in-memory NoydbStore — enough surface for rewrapHistory (get/put/list). */
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -98,7 +98,7 @@ async function buildLegacyEnvelope(plaintext: string, dek: EnclaveKey, version =
 
 describe('NO_HISTORY.rewrapHistory', () => {
   it('no-ops — does not throw, touches nothing', async () => {
-    const store = memory()
+    const store = toMemory()
     const dekA = await generateDEK()
     const dekB = await generateDEK()
     await expect(NO_HISTORY.rewrapHistory(store, VAULT, 'docs', 'd1', dekA, dekB)).resolves.toBeUndefined()
@@ -108,7 +108,7 @@ describe('NO_HISTORY.rewrapHistory', () => {
 
 describe('rewrapHistory — primitive', () => {
   it('rewraps a perRecordKeys history snapshot from fromDek to toDek, preserving content', async () => {
-    const store = memory()
+    const store = toMemory()
     const fromDek = await generateDEK()
     const toDek = await generateDEK()
     const id = historyId('docs', 'd1', 1)
@@ -132,7 +132,7 @@ describe('rewrapHistory — primitive', () => {
   })
 
   it('rewraps a legacy (no _cek) history snapshot directly under the new DEK', async () => {
-    const store = memory()
+    const store = toMemory()
     const fromDek = await generateDEK()
     const toDek = await generateDEK()
     const id = historyId('legacy', 'd1', 1)
@@ -147,7 +147,7 @@ describe('rewrapHistory — primitive', () => {
   })
 
   it('rewraps every matching version for the record, leaves other records untouched', async () => {
-    const store = memory()
+    const store = toMemory()
     const fromDek = await generateDEK()
     const toDek = await generateDEK()
     const idV1 = historyId('docs', 'd1', 1)
@@ -171,7 +171,7 @@ describe('rewrapHistory — primitive', () => {
   })
 
   it('skips tombstone-shaped entries (blanked _data, no _cek) — nothing to rewrap', async () => {
-    const store = memory()
+    const store = toMemory()
     const fromDek = await generateDEK()
     const toDek = await generateDEK()
     const id = historyId('docs', 'd1', 1)
@@ -191,7 +191,7 @@ describe('rewrapHistory — primitive', () => {
   })
 
   it('legacy fallback: retries under tier0Dek when fromDek fails to unwrap, output always wrapped under toDek', async () => {
-    const store = memory()
+    const store = toMemory()
     const tier0Dek = await generateDEK()
     const tierNDek = await generateDEK() // the record's current tier — NOT what the snapshot is wrapped under
     const toDek = await generateDEK()
@@ -210,7 +210,7 @@ describe('rewrapHistory — primitive', () => {
   })
 
   it('without a tier0Dek fallback, a rewrap that fails under fromDek re-throws', async () => {
-    const store = memory()
+    const store = toMemory()
     const tier0Dek = await generateDEK()
     const tierNDek = await generateDEK()
     const toDek = await generateDEK()
@@ -222,7 +222,7 @@ describe('rewrapHistory — primitive', () => {
   })
 
   it('a rewrap that fails under BOTH fromDek and tier0Dek re-throws (real corruption, not a tier mismatch)', async () => {
-    const store = memory()
+    const store = toMemory()
     const wrongDek1 = await generateDEK()
     const wrongDek2 = await generateDEK()
     const actualDek = await generateDEK()
@@ -234,7 +234,7 @@ describe('rewrapHistory — primitive', () => {
   })
 
   it('idempotent: calling rewrapHistory twice with the same from/to is a no-op the second time — entries stay unchanged (#712 whole-branch fix-3)', async () => {
-    const store = memory()
+    const store = toMemory()
     const fromDek = await generateDEK()
     const toDek = await generateDEK()
     const id = historyId('docs', 'd1', 1)
@@ -256,7 +256,7 @@ describe('rewrapHistory — primitive', () => {
   })
 
   it('skips entries already wrapped under toDek — a crash-recovery retry does not re-touch already-migrated entries (#712 whole-branch fix-3)', async () => {
-    const store = memory()
+    const store = toMemory()
     const fromDek = await generateDEK()
     const toDek = await generateDEK()
     const idV1 = historyId('docs', 'd1', 1)

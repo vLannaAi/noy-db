@@ -13,7 +13,7 @@ import { createNoydb, withDerivation, withMaterializedView, withOverlayedView } 
 import { sum, count } from '../src/with-lookup/reduce/index.js'
 import { withReduce } from '../src/with-lookup/reduce/index.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -71,7 +71,7 @@ describe('dumpSchema() — derivations (Gap 1)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'dumpschema-derivations-secret-2026',
       derivationStrategies: [handle],
@@ -115,7 +115,7 @@ describe('dumpSchema() — overlay views (Gap 2)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'dumpschema-overlay-secret-2026',
       materializedViewStrategies: [baseMV],
@@ -172,7 +172,7 @@ describe('dumpSchema() — co-sourced derivations (#295 regression)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'dumpschema-cosourced-secret-2026',
       derivationStrategies: [summaryHandle, statusHandle],
@@ -228,7 +228,7 @@ describe('dumpSchema() — MV aggregate ops (Gap 3)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'dumpschema-aggregate-secret-2026',
       reduceStrategy: withReduce(),
@@ -270,7 +270,7 @@ describe('dumpSchema() — MV aggregate ops (Gap 3)', () => {
     })
 
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'dumpschema-count-secret-2026',
       reduceStrategy: withReduce(),

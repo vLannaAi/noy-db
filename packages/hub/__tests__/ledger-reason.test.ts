@@ -8,7 +8,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createNoydb, type Noydb } from '../src/kernel/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
-import { memory } from '../../to-memory/src/index.js'
+import { toMemory } from '../../to-memory/src/index.js'
 
 interface Invoice extends Record<string, unknown> {
   id: string
@@ -20,7 +20,7 @@ describe('collection.put(_, _, { reason }) — ledger entry carries `reason` (#1
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'reason-test-secret-1234',
       historyStrategy: withHistory(),

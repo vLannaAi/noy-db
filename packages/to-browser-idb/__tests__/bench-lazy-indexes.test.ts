@@ -23,7 +23,7 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { createNoydb } from '@noy-db/hub'
 import { withIndexing } from '@noy-db/hub/indexing'
-import { browserIdbStore } from '../src/index.js'
+import { toBrowserIdb } from '../src/index.js'
 
 /**
  * Opt-in gate. Enabled via `NOYDB_BENCH=1` env var.
@@ -82,7 +82,7 @@ describeBench('acceptance bench — 50K lazy indexes on to-browser-idb', () => {
     // leak in.
     ;(globalThis as unknown as Record<string, unknown>).indexedDB = new IDBFactory()
 
-    const store = browserIdbStore({ prefix: 'bench' })
+    const store = toBrowserIdb({ prefix: 'bench' })
     const db = await createNoydb({
       store,
       user: 'owner',

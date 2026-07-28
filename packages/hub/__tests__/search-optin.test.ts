@@ -16,7 +16,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.
 
 interface Doc { id: string; title: string; text: string }
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (c: string, col: string): Map<string, EncryptedEnvelope> => {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -60,7 +60,7 @@ const enc = (dim: number, model = 'stub') => ({
 
 describe('search opt-in gate (S4)', () => {
   it('throws SearchNotEnabledError for search/retrieve/similarTo/warmIndex/flushIndex when not opted in', async () => {
-    const db = await createNoydb({ store: memory(), user: 'a', secret: 'pw-search' })
+    const db = await createNoydb({ store: toMemory(), user: 'a', secret: 'pw-search' })
     const v = await db.openVault('v')
     const c = v.collection<Doc>('docs', { textIndexes: ['title'] })
     await expect(c.search('title', 'invoice')).rejects.toThrow(SearchNotEnabledError)
@@ -71,7 +71,7 @@ describe('search opt-in gate (S4)', () => {
   })
 
   it('throws SearchNotEnabledError at put() for an embeddings collection when not opted in', async () => {
-    const db = await createNoydb({ store: memory(), user: 'a', secret: 'pw-search' })
+    const db = await createNoydb({ store: toMemory(), user: 'a', secret: 'pw-search' })
     const v = await db.openVault('v')
     const c = v.collection<Doc>('docs', { embeddings: enc(8) })
     await expect(c.put('x', { id: 'x', title: 'A', text: 'overdue invoice' }))
@@ -79,7 +79,7 @@ describe('search opt-in gate (S4)', () => {
   })
 
   it('works when opted in via withSearch(): search + embedding-backed similarTo', async () => {
-    const db = await createNoydb({ store: memory(), user: 'a', secret: 'pw-search', searchStrategy: withSearch() })
+    const db = await createNoydb({ store: toMemory(), user: 'a', secret: 'pw-search', searchStrategy: withSearch() })
     const v = await db.openVault('v')
     const c = v.collection<Doc>('docs', { textIndexes: ['title'], embeddings: enc(8) })
     await c.put('x', { id: 'x', title: 'invoice paid', text: 'overdue invoice' })

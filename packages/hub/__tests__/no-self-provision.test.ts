@@ -22,7 +22,7 @@ import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 import { withTeam } from '../src/with-party/team/index.js'
 
 // Inline memory adapter (same shape as cross-vault.test.ts)
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -66,7 +66,7 @@ function memory(): NoydbStore {
  * "nothing was written after mark X".
  */
 function trackingMemory() {
-  const base = memory()
+  const base = toMemory()
   const writes: string[] = []
   return {
     adapter: {

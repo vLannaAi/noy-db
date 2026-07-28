@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../../src/kernel/noydb.js'
-import { memory } from '../../../to-memory/src/index.js'
+import { toMemory } from '../../../to-memory/src/index.js'
 import { coordinatedCutover } from '../../src/with-shape/schema-update/index.js'
 import type { NoydbStore } from '../../src/kernel/types.js'
 
@@ -16,12 +16,12 @@ async function open(store: NoydbStore) {
 
 describe('vault.schemaFenceState()', () => {
   it('reports normal generation 0 on a fresh vault', async () => {
-    const { vault } = await open(memory())
+    const { vault } = await open(toMemory())
     expect(await vault.schemaFenceState()).toEqual({ currentSchemaVersion: 0, fenceState: 'normal' })
   })
 
   it('reflects the bumped generation after a completed cutover', async () => {
-    const store = memory()
+    const store = toMemory()
     let v = (await open(store)).vault
     const o = v.collection('invoices', { schema: oldS, persistJsonSchema: true })
     await v._drainPendingSchemaWrites()

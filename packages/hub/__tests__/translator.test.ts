@@ -14,7 +14,7 @@ import { withI18n } from '../src/via/i18n/index.js'
 import { i18nText } from '../src/via/i18n/core.js'
 import { TranslatorNotConfiguredError } from '../src/kernel/errors.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -52,7 +52,7 @@ interface LineItem {
 }
 
 async function makeDb(translator?: (ctx: { text: string; from: string; to: string; field: string; collection: string }) => Promise<string>, translatorName?: string) {
-  const adapter = memory()
+  const adapter = toMemory()
   return createNoydb({
     store: adapter,
     user: 'alice', i18nStrategy: withI18n(),

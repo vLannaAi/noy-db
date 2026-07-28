@@ -17,7 +17,7 @@ import { withHistory } from '../src/with-commit/history/index.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -64,7 +64,7 @@ describe('per-collection history scoping (#361)', () => {
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner-01',
       historyStrategy: withHistory(),
       encrypt: false,

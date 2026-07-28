@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '@noy-db/hub'
-import { memory } from '@noy-db/to-memory'
+import { toMemory } from '@noy-db/to-memory'
 import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 import type { KeychainEntry } from '../src/index.js'
 import { macosKeychainSealingProvider } from '../src/index.js'
@@ -27,7 +27,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-sec
   it('round-trips a managed-mode vault end-to-end (no user secret typed)', async () => {
     // Shared "Keychain" entry persists across simulated process restarts.
     const sharedEntry = memoryEntry()
-    const store = memory()
+    const store = toMemory()
 
     // First open — hub mints + seals via at-macos-keychain, derives KEK.
     const db1 = await createNoydb({
@@ -71,7 +71,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-sec
   }, 30_000)
 
   it('a different (service, account) creates an isolated vault that cannot read the first', async () => {
-    const store = memory()
+    const store = toMemory()
 
     // Vault sealed under (com.acme.app, alice) — independent Keychain entry.
     const db1 = await createNoydb({
@@ -113,7 +113,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-sec
 
   it('persists across simulated restarts — the vault opens with a brand new provider instance', async () => {
     const sharedEntry = memoryEntry()
-    const store = memory()
+    const store = toMemory()
 
     const db1 = await createNoydb({
       store,

@@ -34,7 +34,7 @@ function inlineMemory(): NoydbStore {
   } as unknown as NoydbStore
 }
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   return inlineMemory()
 }
 
@@ -48,7 +48,7 @@ describe('user-envelope storage primitive', () => {
   let dek: CryptoKey
 
   beforeEach(async () => {
-    store = memory()
+    store = toMemory()
     dek = await generateDEK()
   })
 

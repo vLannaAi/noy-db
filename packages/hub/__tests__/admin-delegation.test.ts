@@ -35,7 +35,7 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import { withTeam } from '../src/with-party/team/index.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -80,7 +80,7 @@ describe('admin-grants-admin (bounded delegation).', () => {
   let ownerDb: Noydb
 
   beforeEach(async () => {
-    adapter = memory()
+    adapter = toMemory()
     ownerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const comp = await ownerDb.openVault(COMP)
     await comp.collection<Invoice>('invoices').put('inv-1', { amount: 100, client: 'Globex' })

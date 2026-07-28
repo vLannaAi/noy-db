@@ -58,7 +58,7 @@ import { memory } from '@noy-db/to-memory'
 type Invoice = { id: string; amount: number; customer: string }
 
 const db = await createNoydb({
-  store: memory(),
+  store: toMemory(),
   userId: 'alice',
   secret: 'correct horse battery staple',
 })

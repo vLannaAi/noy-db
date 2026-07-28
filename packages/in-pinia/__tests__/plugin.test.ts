@@ -9,7 +9,7 @@ import { type NoydbStore, type EncryptedEnvelope, type VaultSnapshot, ConflictEr
  * @noy-db/core. Kept here so the pinia package has zero workspace
  * dependency on @noy-db/memory at test time.
  */
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string): Map<string, EncryptedEnvelope> {
     let comp = store.get(c)
@@ -71,7 +71,7 @@ interface ClientsState {
  * setActivePinia() is called. Without the app context, plugins are silently
  * skipped, which is the most common gotcha when testing Pinia plugins.
  */
-function makePinia(adapter: NoydbStore = memory(), secret: () => string = () => 'plugin-test-secret-2026'): Pinia {
+function makePinia(adapter: NoydbStore = toMemory(), secret: () => string = () => 'plugin-test-secret-2026'): Pinia {
   const pinia = createPinia()
   pinia.use(createNoydbPiniaPlugin({ adapter, user: 'owner',
     secret,
@@ -115,7 +115,7 @@ describe('createNoydbPiniaPlugin — augmentation path', () => {
   })
 
   it('4. persists state changes encrypted via the adapter', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     makePinia(adapter)
     const useClients = defineStore('clients', {
       state: (): ClientsState => ({ list: [], selectedId: null, total: 0 }),
@@ -138,7 +138,7 @@ describe('createNoydbPiniaPlugin — augmentation path', () => {
   })
 
   it('5. rehydrates persisted state on a fresh store instance', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
 
     // First Pinia instance: write some state.
     makePinia(adapter)
@@ -167,7 +167,7 @@ describe('createNoydbPiniaPlugin — augmentation path', () => {
   })
 
   it('6. `persist: string` only mirrors that single key', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     makePinia(adapter)
     const useClients = defineStore('clients', {
       state: (): ClientsState => ({ list: [], selectedId: null, total: 0 }),
@@ -193,7 +193,7 @@ describe('createNoydbPiniaPlugin — augmentation path', () => {
   })
 
   it('7. `persist: string[]` mirrors multiple keys', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     makePinia(adapter)
     const useClients = defineStore('clients', {
       state: (): ClientsState => ({ list: [], selectedId: null, total: 0 }),
@@ -226,7 +226,7 @@ describe('createNoydbPiniaPlugin — augmentation path', () => {
   })
 
   it('8. `persist: "*"` mirrors the entire state object', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     makePinia(adapter)
     const useClients = defineStore('clients', {
       state: (): ClientsState => ({ list: [], selectedId: null, total: 0 }),
@@ -251,7 +251,7 @@ describe('createNoydbPiniaPlugin — augmentation path', () => {
   })
 
   it('9. secret function is called only once across multiple stores', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     let secretCalls = 0
     const pinia = createPinia()
     pinia.use(createNoydbPiniaPlugin({ adapter, user: 'owner',
@@ -281,7 +281,7 @@ describe('createNoydbPiniaPlugin — augmentation path', () => {
   })
 
   it('10. two stores in two compartments do not bleed', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     makePinia(adapter)
     const useA = defineStore('a', {
       state: () => ({ list: [] as string[] }),
@@ -312,7 +312,7 @@ describe('createNoydbPiniaPlugin — augmentation path', () => {
   })
 
   it('11. defaults to persisting the entire state when persist is omitted', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     makePinia(adapter)
     const useStore = defineStore('full', {
       state: (): ClientsState => ({ list: [], selectedId: null, total: 0 }),
@@ -337,7 +337,7 @@ describe('createNoydbPiniaPlugin — augmentation path', () => {
   })
 
   it('12. schema validation rejects invalid persisted documents', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
 
     // First write something valid via the plugin.
     makePinia(adapter)
@@ -384,7 +384,7 @@ describe('createNoydbPiniaPlugin — augmentation path', () => {
     let secretCalls = 0
     const pinia = createPinia()
     pinia.use(createNoydbPiniaPlugin({
-      adapter: memory(),
+      adapter: toMemory(),
       user: 'owner',
       secret: () => {
         secretCalls++
@@ -405,7 +405,7 @@ describe('createNoydbPiniaPlugin — augmentation path', () => {
   it('14. surfaces hydration errors via $noydbError without throwing', async () => {
     // Adapter that throws on get() to simulate corrupted storage.
     const brokenAdapter: NoydbStore = {
-      ...memory(),
+      ...toMemory(),
       name: 'broken',
       async get() {
         throw new Error('simulated read failure')
@@ -424,7 +424,7 @@ describe('createNoydbPiniaPlugin — augmentation path', () => {
   })
 
   it('15. supports complex nested state shapes via persist: "*"', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     interface Complex {
       tree: { branches: Array<{ id: number; label: string }> }
       meta: { version: number }

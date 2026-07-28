@@ -10,7 +10,7 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import { createNoydb } from '@noy-db/hub'
-import { jsonFile } from '@noy-db/to-file'
+import { toFile } from '@noy-db/to-file'
 import { setActiveNoydb } from '@noy-db/in-pinia'
 import path from 'node:path'
 import App from './App.vue'
@@ -36,7 +36,7 @@ async function bootstrap(): Promise<void> {
   }
 
   const db = await createNoydb({
-    store: jsonFile({ dir: baseDir }),
+    store: toFile({ dir: baseDir }),
     user: 'owner',
     secret: secret,
   })

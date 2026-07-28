@@ -27,7 +27,7 @@ import { i18nText, applyI18nLocale, resolveI18nText, validateI18nTextValue } fro
 
 // ─── Inline memory adapter ─────────────────────────────────────────────
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -183,7 +183,7 @@ describe('i18nText — Collection integration', () => {
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice', i18nStrategy: withI18n(),
       secret: 'test-secret-i18n-1234',
     })
@@ -468,7 +468,7 @@ describe('i18nText — nested field paths (Collection integration)', () => {
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       i18nStrategy: withI18n(),
       secret: 'test-secret-nested-i18n',

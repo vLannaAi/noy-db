@@ -29,7 +29,7 @@ import type { Noydb } from '../src/kernel/noydb.js'
 import { ref } from '../src/kernel/refs.js'
 import { withTeam } from '../src/with-party/team/index.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -76,7 +76,7 @@ describe('exportStream() + exportJSON().', () => {
   let ownerDb: Noydb
 
   beforeEach(async () => {
-    adapter = memory()
+    adapter = toMemory()
     ownerDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', historyStrategy: withHistory(), secret: 'owner-pass' })
 
     // Seed three collections so we can assert ACL scoping later.
@@ -90,7 +90,7 @@ describe('exportStream() + exportJSON().', () => {
 
   describe('empty compartment', () => {
     it('yields zero chunks', async () => {
-      const db = await createNoydb({ teamStrategy: withTeam(), store: memory(), user: 'owner-01', historyStrategy: withHistory(), secret: 'p' })
+      const db = await createNoydb({ teamStrategy: withTeam(), store: toMemory(), user: 'owner-01', historyStrategy: withHistory(), secret: 'p' })
       const empty = await db.openVault('empty-co')
       const chunks: ExportChunk[] = []
       for await (const chunk of empty.exportStream()) chunks.push(chunk)

@@ -21,7 +21,7 @@ import { withTransactions } from '../../src/with-commit/tx/index.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -79,7 +79,7 @@ const buildGuard = () => withGuard<Line>({
 describe('withTransactions amendment mode', () => {
   it('owner amendment with preserved total commits both writes atomically', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-amendment-ok-secret-2026',
       guardStrategies: [buildGuard()],
@@ -104,7 +104,7 @@ describe('withTransactions amendment mode', () => {
 
   it('invariant failure rolls back the whole transaction', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-amendment-fail-secret-2026',
       guardStrategies: [buildGuard()],
@@ -125,7 +125,7 @@ describe('withTransactions amendment mode', () => {
 
   it('amendment: true on vault with no guardStrategies throws ValidationError', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-amendment-no-strategies-secret-2026',
       transactionsStrategy: withTransactions(),
@@ -140,7 +140,7 @@ describe('withTransactions amendment mode', () => {
 
   it('amendment: true without reason throws ValidationError at open', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-amendment-no-reason-secret-2026',
       guardStrategies: [buildGuard()],
@@ -183,7 +183,7 @@ describe('withTransactions amendment mode', () => {
       },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-amendment-xread-secret-2026',
       guardStrategies: [lineGuard],
@@ -215,7 +215,7 @@ describe('withTransactions amendment mode', () => {
 
   it('writes an AmendmentLedgerEntry on commit (op: amendment, role, reason)', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-amendment-audit-secret-2026',
       guardStrategies: [buildGuard()],

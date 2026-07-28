@@ -3,7 +3,7 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import { withIndexing } from '../src/with-lookup/indexing/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function col(c: string, n: string): Map<string, EncryptedEnvelope> {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -47,7 +47,7 @@ const SECRET = 'lazy-auto-reconcile-2026'
 
 describe('reconcileOnOpen: auto', () => {
   it('repairs a missing side-car automatically on first query', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
 
     // Phase 1: seed via a first Noydb with no auto-reconcile.
     const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexingStrategy: withIndexing() })
@@ -94,7 +94,7 @@ describe('reconcileOnOpen: auto', () => {
   })
 
   it('dry-run reports drift without writing anything', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
 
     const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexingStrategy: withIndexing() })
     const v1 = await db1.openVault('ACME')
@@ -134,7 +134,7 @@ describe('reconcileOnOpen: auto', () => {
   })
 
   it('off (default) does nothing on open', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexingStrategy: withIndexing() })
     const v1 = await db1.openVault('ACME')
     const c1 = v1.collection<Row>('rows', {
@@ -160,7 +160,7 @@ describe('reconcileOnOpen: auto', () => {
   })
 
   it('runs once per session, not on every subsequent query', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     const db1 = await createNoydb({ store: adapter, user: 'owner', secret: SECRET, indexingStrategy: withIndexing() })
     const v1 = await db1.openVault('ACME')
     const c1 = v1.collection<Row>('rows', {

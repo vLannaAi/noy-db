@@ -14,7 +14,7 @@ import { withHistory } from '@noy-db/hub/history'
 import { fromString, fromObject } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string) => {
     let comp = store.get(v); if (!comp) { comp = new Map(); store.set(v, comp) }
@@ -53,7 +53,7 @@ function memory(): NoydbStore {
 interface Invoice { id: string; amount: number; status: string }
 
 async function setup() {
-  const adapter = memory()
+  const adapter = toMemory()
   const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
   await init.openVault('demo')
   await init.grant('demo', {
@@ -170,7 +170,7 @@ describe('as-json fromObject — direct-object input', () => {
 
 describe('as-json fromString — apply stamps `reason: "import:json"` on every ledger entry (#1)', () => {
   it('imported rows are filterable from manual edits via ledger.reason', async () => {
-    const adapter = memory()
+    const adapter = toMemory()
     // Init: grant + seed an existing record manually (no reason — counts as manual edit).
     const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026', historyStrategy: withHistory() })
     await init.openVault('demo')

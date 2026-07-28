@@ -11,7 +11,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 // observe the identical canonical decimal string. The stored scaled-int
 // ('1000000') never escapes storage.
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -94,7 +94,7 @@ describe('money encoding conformance — every extension point sees the same can
     })
 
     const db = await createNoydb({
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       secret: 'money-conformance-secret-2026',
       guardStrategies: [guard],
       materializedViewStrategies: [mv],
@@ -168,7 +168,7 @@ describe('money encoding conformance — every extension point sees the same can
       shadowValue: 'override',
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       secret: 'money-conformance-overlay-secret-2026',
       overlayedViewStrategies: [overlay],
     })
@@ -198,7 +198,7 @@ describe('money encoding conformance — every extension point sees the same can
 
   it('where() + filter() compose: field clause in scaled space, callback sees decoded', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       secret: 'money-conformance-compose-secret-2026',
     })
     const vault = await db.openVault('books')

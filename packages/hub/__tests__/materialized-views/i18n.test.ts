@@ -16,7 +16,7 @@ import { withI18n } from '../../src/via/i18n/index.js'
 import { LocaleNotSpecifiedError, MaterializedViewConfigError } from '../../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -59,7 +59,7 @@ describe('MV i18n — §2 compute (i18nLocale resolves group keys at the mv laye
       rowKey: (row) => String(row.category),
       refresh: 'manual',
     })
-    const db = await createNoydb({ store: memory(), user: 'a', secret: SECRET, materializedViewStrategies: [mv], reduceStrategy: withReduce(), i18nStrategy: withI18n() })
+    const db = await createNoydb({ store: toMemory(), user: 'a', secret: SECRET, materializedViewStrategies: [mv], reduceStrategy: withReduce(), i18nStrategy: withI18n() })
     const vault = await db.openVault('v')
     const products = vault.collection<Product>('products', { i18nFields: { category: CATEGORY } })
     await products.put('p1', { id: 'p1', category: { en: 'Food', th: 'อาหาร' } })
@@ -85,7 +85,7 @@ describe('MV i18n — query-form grouping (#285)', () => {
       rowKey: (row) => String(row.category),
       refresh: 'manual',
     })
-    const db = await createNoydb({ store: memory(), user: 'a', secret: SECRET, materializedViewStrategies: [mv], reduceStrategy: withReduce(), i18nStrategy: withI18n() })
+    const db = await createNoydb({ store: toMemory(), user: 'a', secret: SECRET, materializedViewStrategies: [mv], reduceStrategy: withReduce(), i18nStrategy: withI18n() })
     const vault = await db.openVault('v')
     const products = vault.collection<Product>('products', { i18nFields: { category: CATEGORY } })
     await products.put('p1', { id: 'p1', category: { en: 'Food', th: 'อาหาร' } })
@@ -110,7 +110,7 @@ describe('MV i18n — guard (grouping a raw i18n field without a locale)', () =>
       rowKey: (row) => String(row.category),
       refresh: 'manual',
     })
-    const db = await createNoydb({ store: memory(), user: 'a', secret: SECRET, materializedViewStrategies: [mv], reduceStrategy: withReduce(), i18nStrategy: withI18n() })
+    const db = await createNoydb({ store: toMemory(), user: 'a', secret: SECRET, materializedViewStrategies: [mv], reduceStrategy: withReduce(), i18nStrategy: withI18n() })
     const vault = await db.openVault('v')
     const products = vault.collection<Product>('products', { i18nFields: { category: CATEGORY } })
     await products.put('p1', { id: 'p1', category: { en: 'Food', th: 'อาหาร' } })
@@ -128,7 +128,7 @@ describe('MV i18n — §1 display (resolve-at-output)', () => {
       rowKey: (row) => row.id,
       refresh: 'manual',
     })
-    const db = await createNoydb({ store: memory(), user: 'a', secret: SECRET, materializedViewStrategies: [mv], reduceStrategy: withReduce(), i18nStrategy: withI18n() })
+    const db = await createNoydb({ store: toMemory(), user: 'a', secret: SECRET, materializedViewStrategies: [mv], reduceStrategy: withReduce(), i18nStrategy: withI18n() })
     const vault = await db.openVault('v')
     const products = vault.collection<Product>('products', { i18nFields: { category: CATEGORY } })
     // Declare the i18n field on the OUTPUT collection → read-time resolution.

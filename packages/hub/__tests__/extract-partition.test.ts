@@ -23,7 +23,7 @@ import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withBlobs } from '../src/via/blob/index.js'
 import { BLOB_SLOTS_PREFIX, BLOB_INDEX_COLLECTION } from '../src/with-shape/blobs/blob-set.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -77,7 +77,7 @@ interface Client { id: string; name: string; operatorUserId: string }
 describe('reKeyClosure', () => {
   let db: Noydb
   beforeEach(async () => {
-    db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-secret-1234' })
+    db = await createNoydb({ cargoStrategy: withCargo(), store: toMemory(), user: 'alice', secret: 'test-secret-1234' })
   })
 
   it('re-encrypts each closure record under a fresh DEK that decrypts to the same plaintext', async () => {
@@ -117,7 +117,7 @@ describe('sealDeks', () => {
 describe('extractPartition', () => {
   let db: Noydb
   beforeEach(async () => {
-    db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-secret-1234' })
+    db = await createNoydb({ cargoStrategy: withCargo(), store: toMemory(), user: 'alice', secret: 'test-secret-1234' })
   })
 
   it('produces an extracted-partition bundle with bundleKind + transferSeal header', async () => {
@@ -158,7 +158,7 @@ describe('extractPartition', () => {
 
 describe('extractPartition end-to-end', () => {
   it('round-trips: unseal DEKs with the transfer key, decrypt a re-keyed record', async () => {
-    const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-secret-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: toMemory(), user: 'alice', secret: 'test-secret-1234' })
     const company = await db.openVault('demo-co')
     const clients = company.collection<Client>('clients')
     await clients.put('c-1', { id: 'c-1', name: 'Hotel', operatorUserId: 'belle' })
@@ -206,7 +206,7 @@ describe('extractPartition — #748: elevated records are structurally excluded'
   interface Invoice { id: string; clientId: string }
 
   it('an elevated blob-bearing parent (and its blob) is silently absent from the closure and bundle', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({
       cargoStrategy: withCargo(),
       store,
@@ -260,7 +260,7 @@ describe('extractPartition — #748: elevated records are structurally excluded'
 
     // End-to-end: the recipient never even learns c-1 existed, and c-2's
     // blob round-trips untouched.
-    const dest = memory()
+    const dest = toMemory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
     await createOwnerOnAdoptedPartition(dest, 'fresh', {
       userId: 'belle', secret: 'belle-pass-phrase-2026', transferKey,
@@ -298,7 +298,7 @@ describe('extractPartition — #759: elevated FK parent is excluded with a dangl
   interface Invoice { id: string; clientId: string }
 
   it('does NOT crash on an elevated FK parent; excludes it and reports the dangling ref', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({
       cargoStrategy: withCargo(),
       store,
@@ -334,7 +334,7 @@ describe('extractPartition — #759: elevated FK parent is excluded with a dangl
     expect(Object.keys(backup.collections['invoices'] ?? {})).toEqual(['inv-1'])
 
     // Round-trips cleanly: adoption doesn't choke on the dangling FK either.
-    const dest = memory()
+    const dest = toMemory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
     await createOwnerOnAdoptedPartition(dest, 'fresh', {
       userId: 'belle', secret: 'belle-pass-phrase-2026', transferKey,

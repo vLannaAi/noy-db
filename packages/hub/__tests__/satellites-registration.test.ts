@@ -10,7 +10,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../src/kernel/noydb.js'
 import type { NoydbStore } from '../src/kernel/types.js'
-import { memory } from '../../to-memory/src/index.js'
+import { toMemory } from '../../to-memory/src/index.js'
 import { withForget } from '../src/with-audit/forget/index.js'
 import type { ForgetStrategy } from '../src/with-audit/forget/strategy.js'
 import { SatelliteConfigError } from '../src/kernel/errors.js'
@@ -25,7 +25,7 @@ interface Msg extends Record<string, unknown> {
 }
 
 async function openTestVault(opts: { forgetStrategy?: ForgetStrategy } = {}) {
-  const store: NoydbStore = memory()
+  const store: NoydbStore = toMemory()
   const db = await createNoydb({ store, user: 'alice', secret: SECRET, ...opts })
   const vault = await db.openVault('v1')
   return { vault, store }

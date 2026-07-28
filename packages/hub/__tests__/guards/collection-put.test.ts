@@ -3,7 +3,7 @@ import { createNoydb, withGuard, RecordLockedError, FieldFrozenError } from '../
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 // In-test memory store (matches the hub test convention — see other __tests__/guards/*.test.ts)
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -51,7 +51,7 @@ describe('Collection.put — guard hook integration', () => {
       },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-cross-collection-secret-2026',
       guardStrategies: [lineGuard],
@@ -69,7 +69,7 @@ describe('Collection.put — guard hook integration', () => {
       frozenFields: { when: r => r.status === 'issued', fields: ['total'] },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-frozenfields-secret-2026',
       guardStrategies: [invoiceGuard],
@@ -92,7 +92,7 @@ describe('Collection.put — guard hook integration', () => {
       check: async () => {/* no-op */},
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-permits-secret-2026',
       guardStrategies: [guard],
@@ -111,7 +111,7 @@ describe('Collection.put — guard hook integration', () => {
       },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-delete-secret-2026',
       guardStrategies: [guard],
@@ -128,7 +128,7 @@ describe('Collection.put — guard hook integration', () => {
       check: () => { checkCalls++ },
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'guards-check-put-only-secret-2026',
       guardStrategies: [guard],

@@ -6,7 +6,7 @@ import { moneySum } from '../../src/with-lookup/reduce/reducers.js'
 import { money } from '../../src/via/money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -48,7 +48,7 @@ describe('money in materialized views + live aggregation (the saleRollups scenar
       refresh: 'eager',
     })
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'money-mv-secret-2026-pilot3-rollups',
       reduceStrategy: withReduce(),
@@ -77,7 +77,7 @@ describe('money in materialized views + live aggregation (the saleRollups scenar
 
   it('.live() over a money sum: exact value, updates on put and delete', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'alice',
       secret: 'money-live-secret-2026-pilot3',
       reduceStrategy: withReduce(),

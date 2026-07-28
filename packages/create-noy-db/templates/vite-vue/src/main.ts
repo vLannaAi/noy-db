@@ -3,7 +3,7 @@
  *
  * Bootstrap order:
  *   1. Install Pinia (required by `@noy-db/in-pinia`).
- *   2. Open the encrypted vault via `createNoydb` + `browserIdbStore`.
+ *   2. Open the encrypted vault via `createNoydb` + `toBrowserIdb`.
  *   3. Register the active instance with `setActiveNoydb` so any
  *      `defineNoydbStore` call can find it without manual wiring.
  *   4. Mount the Vue app.
@@ -15,7 +15,7 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import { createNoydb } from '@noy-db/hub'
-import { browserIdbStore } from '@noy-db/to-browser-idb'
+import { toBrowserIdb } from '@noy-db/to-browser-idb'
 import { setActiveNoydb } from '@noy-db/in-pinia'
 import App from './App.vue'
 import './style.css'
@@ -38,7 +38,7 @@ async function bootstrap(): Promise<void> {
   //    only ciphertext (open DevTools → Application → IndexedDB to
   //    verify).
   const db = await createNoydb({
-    store: browserIdbStore({ prefix: '{{PROJECT_NAME}}' }),
+    store: toBrowserIdb({ prefix: '{{PROJECT_NAME}}' }),
     user: 'owner',
     secret: secret,
   })

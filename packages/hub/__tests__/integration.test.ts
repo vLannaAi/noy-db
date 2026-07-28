@@ -6,7 +6,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { ConflictError } from '../src/kernel/errors.js'
 
 /** Inline memory adapter to avoid circular workspace dependency. */
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -48,7 +48,7 @@ describe('integration: full lifecycle', () => {
   describe('encrypted mode', () => {
     beforeEach(async () => {
       db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'owner-01',
         secret: 'test-secret-12345',
         // Tests in this block exercise vault.dump() / load() round-trips;
@@ -165,7 +165,7 @@ describe('integration: full lifecycle', () => {
     })
 
     it('dump and load round-trips in unencrypted mode', async () => {
-      const plainDb = await createNoydb({ store: memory(), user: 'dev', encrypt: false, historyStrategy: withHistory() })
+      const plainDb = await createNoydb({ store: toMemory(), user: 'dev', encrypt: false, historyStrategy: withHistory() })
       const comp = await plainDb.openVault('TEST')
       const invoices = comp.collection<Invoice>('invoices')
 
@@ -175,7 +175,7 @@ describe('integration: full lifecycle', () => {
       const backup = await comp.dump()
 
       // Restore into a new vault on a fresh instance
-      const plainDb2 = await createNoydb({ store: memory(), user: 'dev', encrypt: false, historyStrategy: withHistory() })
+      const plainDb2 = await createNoydb({ store: toMemory(), user: 'dev', encrypt: false, historyStrategy: withHistory() })
       const comp2 = await plainDb2.openVault('TEST')
       await comp2.load(backup)
 
@@ -194,7 +194,7 @@ describe('integration: full lifecycle', () => {
   describe('unencrypted mode', () => {
     beforeEach(async () => {
       db = await createNoydb({
-        store: memory(),
+        store: toMemory(),
         user: 'dev',
         encrypt: false,
         historyStrategy: withHistory(),

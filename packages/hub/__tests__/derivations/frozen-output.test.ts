@@ -16,7 +16,7 @@ import { withSync } from '../../src/with-party/sync/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 import type { DerivationSkippedFrozen } from '../../src/kernel/via/dispatch.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -56,7 +56,7 @@ const totalSpentRollup = () =>
 describe('frozen-output rule (#637) — local-write dispatch', () => {
   it('rollup target in a closed period: SOURCE write survives, event fires, aggregate unchanged, audit entry recorded', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'frozen-output-local-secret-2026',
+      store: toMemory(), user: 'alice', secret: 'frozen-output-local-secret-2026',
       derivationStrategies: [totalSpentRollup()],
       periodsStrategy: withPeriods(),
       historyStrategy: withHistory(),
@@ -98,7 +98,7 @@ describe('frozen-output rule (#637) — local-write dispatch', () => {
 
   it('no with-history strategy active: skip + event still work, no audit entry (strategy-gated, not hard-required)', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'frozen-output-no-audit-secret-2026',
+      store: toMemory(), user: 'alice', secret: 'frozen-output-no-audit-secret-2026',
       derivationStrategies: [totalSpentRollup()],
       periodsStrategy: withPeriods(),
       // No historyStrategy — the with-audit ledger is inactive.
@@ -120,7 +120,7 @@ interface Meta extends Record<string, unknown> { len: number; asOf: string }
 describe('frozen-output rule (#637) — vault.deriveAll()', () => {
   it('one frozen output row is skipped; the rest still process; deriveAll does not abort', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'frozen-deriveall-secret-2026',
+      store: toMemory(), user: 'alice', secret: 'frozen-deriveall-secret-2026',
       derivationStrategies: [withDerivation({
         source: 'pdfs',
         deterministic: true,
@@ -163,7 +163,7 @@ describe('frozen-output rule (#637) — vault.deriveAll()', () => {
 
   it('counts a frozen-skip separately from a written output — `derived` does not count the skip (Task 5 review Finding 1)', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'frozen-deriveall-counters-secret-2026',
+      store: toMemory(), user: 'alice', secret: 'frozen-deriveall-counters-secret-2026',
       derivationStrategies: [withDerivation({
         source: 'pdfs',
         deterministic: true,
@@ -202,7 +202,7 @@ describe('frozen-output rule (#637) — vault.refreshView()', () => {
       refresh: 'manual',
     })
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'frozen-refreshview-secret-2026',
+      store: toMemory(), user: 'alice', secret: 'frozen-refreshview-secret-2026',
       materializedViewStrategies: [mv],
       periodsStrategy: withPeriods(),
     })
@@ -239,10 +239,10 @@ describe('frozen-output rule (#637) — the sync dispatch wave (#638 Task 5 revi
       derive: (s: Pdf) => ({ meta: { len: s.body.length } }),
       lifecycle: 'eager',
     })
-    const remote = memory()
-    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), encrypt: false })
+    const remote = toMemory()
+    const dbA = await createNoydb({ store: toMemory(), sync: remote, user: 'user-a', syncStrategy: withSync(), encrypt: false })
     const dbB = await createNoydb({
-      store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), encrypt: false,
+      store: toMemory(), sync: remote, user: 'user-b', syncStrategy: withSync(), encrypt: false,
       derivationStrategies: [totalSpentRollup(), derivation],
       periodsStrategy: withPeriods(),
     })
@@ -292,10 +292,10 @@ describe('frozen-output rule (#637) — the sync dispatch wave (#638 Task 5 revi
       lifecycle: 'eager',
       strict: true, // makes the failure propagate OUT of dispatchDerivations instead of being logged-and-skipped internally
     })
-    const remote = memory()
-    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), encrypt: false })
+    const remote = toMemory()
+    const dbA = await createNoydb({ store: toMemory(), sync: remote, user: 'user-a', syncStrategy: withSync(), encrypt: false })
     const dbB = await createNoydb({
-      store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), encrypt: false,
+      store: toMemory(), sync: remote, user: 'user-b', syncStrategy: withSync(), encrypt: false,
       derivationStrategies: [flaky],
     })
 
@@ -327,10 +327,10 @@ describe('frozen-output rule (#637) — the sync dispatch wave (#638 Task 5 revi
       derive: (s: Pdf) => ({ meta: { len: s.body.length } }),
       lifecycle: 'eager',
     })
-    const remote = memory()
-    const dbA = await createNoydb({ store: memory(), sync: remote, user: 'user-a', syncStrategy: withSync(), encrypt: false })
+    const remote = toMemory()
+    const dbA = await createNoydb({ store: toMemory(), sync: remote, user: 'user-a', syncStrategy: withSync(), encrypt: false })
     const dbB = await createNoydb({
-      store: memory(), sync: remote, user: 'user-b', syncStrategy: withSync(), encrypt: false,
+      store: toMemory(), sync: remote, user: 'user-b', syncStrategy: withSync(), encrypt: false,
       derivationStrategies: [derivation],
     })
 

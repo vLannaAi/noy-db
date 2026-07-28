@@ -18,7 +18,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.
 
 interface Client { id: string; name: string }
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (c: string, col: string): Map<string, EncryptedEnvelope> => {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -58,7 +58,7 @@ function memory(): NoydbStore {
 
 describe('cargo opt-in gate (S4)', () => {
   it('throws CargoNotEnabledError for extractPartition when not opted in', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-secret-1234' })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'test-secret-1234' })
     const v = await db.openVault('co')
     const clients = v.collection<Client>('clients')
     await clients.put('c-1', { id: 'c-1', name: 'Acme' })
@@ -67,7 +67,7 @@ describe('cargo opt-in gate (S4)', () => {
   })
 
   it('diffVault works WITHOUT opt-in (shared import/merge infra, not a gated cargo capability)', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-secret-1234' })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'test-secret-1234' })
     const v = await db.openVault('co')
     const clients = v.collection<Client>('clients')
     await clients.put('c-1', { id: 'c-1', name: 'Acme' })
@@ -78,7 +78,7 @@ describe('cargo opt-in gate (S4)', () => {
   })
 
   it('extractPartition works when opted in via withCargo()', async () => {
-    const db = await createNoydb({ store: memory(), user: 'alice', secret: 'test-secret-1234', cargoStrategy: withCargo() })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'test-secret-1234', cargoStrategy: withCargo() })
     const v = await db.openVault('co')
     const clients = v.collection<Client>('clients')
     await clients.put('c-1', { id: 'c-1', name: 'Acme' })

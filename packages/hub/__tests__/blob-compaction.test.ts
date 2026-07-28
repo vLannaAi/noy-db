@@ -8,7 +8,7 @@ import { withBlobs } from '../src/via/blob/index.js'
 import type { Noydb, Vault } from '../src/index.js'
 import { BLOB_EVICTION_AUDIT_COLLECTION } from '../src/with-shape/blobs/blob-compaction.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string): Map<string, EncryptedEnvelope> => {
     let vm = store.get(v); if (!vm) { vm = new Map(); store.set(v, vm) }
@@ -46,7 +46,7 @@ function memory(): NoydbStore {
 interface InvoiceScan { id: string; status: string }
 
 async function setup(): Promise<{ db: Noydb; vault: Vault }> {
-  const db = await createNoydb({ store: memory(), user: 'owner', secret: 'pw' , blobsStrategy: withBlobs() })
+  const db = await createNoydb({ store: toMemory(), user: 'owner', secret: 'pw' , blobsStrategy: withBlobs() })
   const vault = await db.openVault('acme')
   return { db, vault }
 }

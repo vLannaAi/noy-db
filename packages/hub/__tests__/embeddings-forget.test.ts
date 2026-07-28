@@ -22,7 +22,7 @@ import { withForget } from '../src/with-audit/forget/index.js'
 
 // ── in-memory store with raw-envelope inspection (from forget.test.ts) ──────
 
-function memory(): NoydbStore & {
+function toMemory(): NoydbStore & {
   raw(c: string, col: string, id: string): EncryptedEnvelope | undefined
 } {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -86,7 +86,7 @@ const SECRET = 'forget-vec-test-secret-5678'
 
 describe('embeddings forget — case 1: _vec purged + excluded from retrieve', () => {
   it('forget deletes the _vec sidecar and excludes the forgotten record from semantic retrieve', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       searchStrategy: withSearch(),
@@ -135,7 +135,7 @@ describe('embeddings forget — case 1: _vec purged + excluded from retrieve', (
 
 describe('embeddings forget — case 2: resilience (delete throws for _vec)', () => {
   it('forget resolves when _vec delete throws, surfaces residue in ForgetResult', async () => {
-    const base = memory()
+    const base = toMemory()
     // Wrap the store so delete() throws for the _vec collection.
     const faultyStore: NoydbStore = {
       ...base,
@@ -169,7 +169,7 @@ describe('embeddings forget — case 2: resilience (delete throws for _vec)', ()
 
 describe('embeddings forget — case 3: idempotent second forget', () => {
   it('second forget on same subject shreds 0 records and leaves no _vec', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({
       store, user: 'alice', secret: SECRET,
       searchStrategy: withSearch(),

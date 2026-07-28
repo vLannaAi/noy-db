@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { createNoydb } from '../src/kernel/noydb.js'
-import { memory } from '../../to-memory/src/index.js'
+import { toMemory } from '../../to-memory/src/index.js'
 import { coordinatedCutover, additiveOnly } from '../src/with-shape/schema-update/index.js'
 import { SchemaFenceError, MigrationRequiredError } from '../src/kernel/errors.js'
 import type { NoydbStore } from '../src/kernel/types.js'
@@ -21,7 +21,7 @@ async function open(store: NoydbStore) {
 
 describe('coordinatedCutover E2E (#232 3a)', () => {
   it('pending cutover blocks writes; runSchemaCutover migrates + unblocks', async () => {
-    const store = memory()
+    const store = toMemory()
     // gen 0: seed old-shape data
     let v = await open(store)
     const invoicesOld = v.collection<InvOld>('invoices', { schema: oldSchema, persistJsonSchema: true })
@@ -45,7 +45,7 @@ describe('coordinatedCutover E2E (#232 3a)', () => {
   })
 
   it('a still-open stale client hits MigrationRequiredError after a cutover bumps the generation', async () => {
-    const store = memory()
+    const store = toMemory()
     let v = await open(store)
     v.collection<InvOld>('invoices', { schema: oldSchema, persistJsonSchema: true })
     await v._drainPendingSchemaWrites()
@@ -66,7 +66,7 @@ describe('coordinatedCutover E2E (#232 3a)', () => {
   })
 
   it('additive change alongside coordinatedCutover just passes', async () => {
-    const store = memory()
+    const store = toMemory()
     let v = await open(store)
     v.collection('logs', { schema: z.object({ id: z.string() }), persistJsonSchema: true })
     await v._drainPendingSchemaWrites()

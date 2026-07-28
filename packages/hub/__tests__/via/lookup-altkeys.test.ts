@@ -20,7 +20,7 @@ import { ValidationError, ConflictError, UnknownLookupKeyError } from '../../src
 import type { Noydb } from '../../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -59,7 +59,7 @@ function memory(): NoydbStore {
 }
 
 async function freshDb(): Promise<Noydb> {
-  return createNoydb({ store: memory(), user: 'a', secret: 'lookup-altkeys-pass-2026', i18nStrategy: withI18n() })
+  return createNoydb({ store: toMemory(), user: 'a', secret: 'lookup-altkeys-pass-2026', i18nStrategy: withI18n() })
 }
 
 describe('materializeBackingTable (#650 Task 3) — pure registry function', () => {

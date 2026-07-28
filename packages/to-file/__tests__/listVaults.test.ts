@@ -17,7 +17,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { jsonFile } from '../src/index.js'
+import { toFile } from '../src/index.js'
 import type { EncryptedEnvelope } from '@noy-db/hub'
 
 function envelope(v = 1): EncryptedEnvelope {
@@ -36,28 +36,28 @@ describe('@noy-db/file — listVaults', () => {
   })
 
   it('exposes listVaults as an optional method', () => {
-    const a = jsonFile({ dir })
+    const a = toFile({ dir })
     expect(typeof a.listVaults).toBe('function')
   })
 
   it('returns an empty array on a fresh directory', async () => {
-    const a = jsonFile({ dir })
+    const a = toFile({ dir })
     expect(await a.listVaults!()).toEqual([])
   })
 
   it('returns an empty array if the base directory does not exist', async () => {
-    const a = jsonFile({ dir: join(dir, 'never-created') })
+    const a = toFile({ dir: join(dir, 'never-created') })
     expect(await a.listVaults!()).toEqual([])
   })
 
   it('returns one vault after a single put creates the directory tree', async () => {
-    const a = jsonFile({ dir })
+    const a = toFile({ dir })
     await a.put('T1', 'invoices', 'inv-1', envelope())
     expect(await a.listVaults!()).toEqual(['T1'])
   })
 
   it('returns every distinct vault after writes to multiple', async () => {
-    const a = jsonFile({ dir })
+    const a = toFile({ dir })
     await a.put('T1', 'invoices', 'inv-1', envelope())
     await a.put('T2', 'invoices', 'inv-2', envelope())
     await a.put('T7', 'payments', 'pay-1', envelope())
@@ -65,7 +65,7 @@ describe('@noy-db/file — listVaults', () => {
   })
 
   it('skips top-level files (e.g. README, .DS_Store) — only directories count as compartments', async () => {
-    const a = jsonFile({ dir })
+    const a = toFile({ dir })
     await a.put('T1', 'invoices', 'inv-1', envelope())
     // Drop a couple of bystander files at the same level as the
     // T1 directory. These are not compartments and must not appear

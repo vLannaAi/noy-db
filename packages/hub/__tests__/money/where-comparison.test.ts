@@ -11,7 +11,7 @@ import { CollectionIndexes } from '../../src/with-lookup/indexing/eager-indexes.
 // so `where('total', '>', 10000)` was excluded by isComparable
 // (string vs number) and equality never matched.
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -53,7 +53,7 @@ const invoiceSchema = z.object({
 
 async function seedFixed() {
   const db = await createNoydb({
-    store: memory(), user: 'alice',
+    store: toMemory(), user: 'alice',
     secret: 'money-where-fixed-secret-2026',
   })
   const vault = await db.openVault('books')
@@ -138,7 +138,7 @@ describe('money where() — multi-currency mode (#336)', () => {
 
   async function seedMulti() {
     const db = await createNoydb({
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       secret: 'money-where-multi-secret-2026',
     })
     const vault = await db.openVault('books')
@@ -194,7 +194,7 @@ describe('money where() — indexed fast path agrees with the scan (#336, harden
   // path actually ran.
   async function seedIndexedFixed() {
     const db = await createNoydb({
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       secret: 'money-where-indexed-secret-2026',
       indexingStrategy: withIndexing(),
     })
@@ -244,7 +244,7 @@ describe('money where() — indexed fast path agrees with the scan (#336, harden
 
   it('multi-currency money never probes the index — always scans, results still correct', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       secret: 'money-where-indexed-multi-secret-2026',
       indexingStrategy: withIndexing(),
     })
@@ -284,7 +284,7 @@ describe('money where() — indexed fast path agrees with the scan (#336, harden
 
   it('a non-money indexed field keeps hitting the fast path unchanged (behavior lock)', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice',
+      store: toMemory(), user: 'alice',
       secret: 'money-where-indexed-status-secret-2026',
       indexingStrategy: withIndexing(),
     })

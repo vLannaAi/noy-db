@@ -13,7 +13,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { extractPartition } from '../src/with-cargo/extract-partition.js'
 import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/with-cargo/adopt-partition.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -65,7 +65,7 @@ function memory(): NoydbStore {
 interface Client { id: string; name: string; operatorUserId: string }
 
 async function srcVault() {
-  const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'pw-1234', historyStrategy: withHistory() })
+  const db = await createNoydb({ cargoStrategy: withCargo(), store: toMemory(), user: 'alice', secret: 'pw-1234', historyStrategy: withHistory() })
   const c = await db.openVault('demo-co')
   await c.collection<Client>('clients').put('c-1', { id: 'c-1', name: 'Hotel', operatorUserId: 'belle' })
   return c
@@ -76,7 +76,7 @@ describe('destination lifecycle ledger entries (#226)', () => {
     const company = await srcVault()
     const { bundleBytes, transferKey, sealId } = await extractPartition(company, { seeds: { clients: () => true }, carryLedger: true })
 
-    const dest = memory()
+    const dest = toMemory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'acme' })
     await createOwnerOnAdoptedPartition(dest, 'acme', { userId: 'belle', secret: 'belle-2026', transferKey })
 
@@ -97,7 +97,7 @@ describe('destination lifecycle ledger entries (#226)', () => {
     // once, simulating a crash strictly between the two adjacent puts. We arm
     // the fault only after adoptPartition has imported its carried ledger so
     // the injection lands on the actual Stage-B boundary, not on imports.
-    const dest = memory()
+    const dest = toMemory()
     let stageBAppendCount = 0
     let armed = false
     const flakyDest: NoydbStore = {
@@ -134,7 +134,7 @@ describe('destination lifecycle ledger entries (#226)', () => {
   it('is a no-op when the partition carried no ledger (carryLedger off)', async () => {
     const company = await srcVault()
     const { bundleBytes, transferKey } = await extractPartition(company, { seeds: { clients: () => true } })
-    const dest = memory()
+    const dest = toMemory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'acme' })
     await createOwnerOnAdoptedPartition(dest, 'acme', { userId: 'belle', secret: 'belle-2026', transferKey })
     expect(await dest.list('acme', '_ledger')).toEqual([])

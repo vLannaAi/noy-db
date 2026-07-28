@@ -30,7 +30,7 @@ type _AssertNarrow = _ViaWriteCtxKeys extends 'id' | 'vault' | 'prior' | 'emit' 
 const _viaWriteCtxUnchanged: _AssertNarrow = true
 void _viaWriteCtxUnchanged
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -69,7 +69,7 @@ function memory(): NoydbStore {
 }
 
 async function freshDb(): Promise<Noydb> {
-  return createNoydb({ store: memory(), user: 'a', secret: 'lookup-vocab-pass-2026', i18nStrategy: withI18n() })
+  return createNoydb({ store: toMemory(), user: 'a', secret: 'lookup-vocab-pass-2026', i18nStrategy: withI18n() })
 }
 
 describe('lookup vocabulary governance (#650 Task 3, closes #649)', () => {

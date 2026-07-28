@@ -10,7 +10,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { NOYDB_FORMAT_VERSION } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string) => { let comp = store.get(v); if (!comp) { comp = new Map(); store.set(v, comp) } let coll = comp.get(c); if (!coll) { coll = new Map(); comp.set(c, coll) } return coll }
   return {
@@ -30,7 +30,7 @@ async function seedIssued(store: NoydbStore, vault: string, docId: string) {
 }
 
 async function makeCtx(role = 'owner') {
-  const store = memory()
+  const store = toMemory()
   const dek = await generateDEK()
   const ctx: RevokeContext = { store, vault: 'v1', role, getDEK: async () => dek }
   return { store, dek, ctx }

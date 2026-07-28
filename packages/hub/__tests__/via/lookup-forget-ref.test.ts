@@ -26,7 +26,7 @@ import { classified } from '../../src/via/classified/presets.js'
 import { DictKeyInUseError } from '../../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
   const k = (v: string, c: string, i: string) => `${v}/${c}/${i}`
   return {
@@ -60,7 +60,7 @@ interface Traveler extends Record<string, unknown> { id: string; country: string
 describe('forget() × lookup ref semantics (#650 Task 5, fixes #648)', () => {
   it('(a) restrict: forget() of a referenced backing row is REFUSED before any shred', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'lookup-forget-ref-restrict-2026',
+      store: toMemory(), user: 'alice', secret: 'lookup-forget-ref-restrict-2026',
       historyStrategy: withHistory(),
       forgetStrategy: withForget({ subjects: { countries: 'subjectId' } }),
     })
@@ -81,7 +81,7 @@ describe('forget() × lookup ref semantics (#650 Task 5, fixes #648)', () => {
 
   it('(b) cascade: the fanout reports lookupReferencesCascaded === 1; the order is tombstoned; the subject is fully shredded', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'lookup-forget-ref-cascade-2026',
+      store: toMemory(), user: 'alice', secret: 'lookup-forget-ref-cascade-2026',
       historyStrategy: withHistory(),
       forgetStrategy: withForget({ subjects: { countries: 'subjectId' } }),
     })
@@ -105,7 +105,7 @@ describe('forget() × lookup ref semantics (#650 Task 5, fixes #648)', () => {
   it('(b2) cascade with a non-default descriptor.key: the fanout resolves the PRE-tombstone row[key], not the PUT-id (the row is already shredded by the time the fanout runs)', async () => {
     interface CountryKeyed extends Record<string, unknown> { id: string; subjectId: string; iso2: string }
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'lookup-forget-ref-cascade-keyfield-2026',
+      store: toMemory(), user: 'alice', secret: 'lookup-forget-ref-cascade-keyfield-2026',
       historyStrategy: withHistory(),
       forgetStrategy: withForget({ subjects: { countries: 'subjectId' } }),
     })
@@ -128,7 +128,7 @@ describe('forget() × lookup ref semantics (#650 Task 5, fixes #648)', () => {
   it('(b3) cascade with a non-default descriptor.key: propagation still happens even when the PRE-tombstone envelope DECODE fails — the compare-key is resolved from the LIVE row BEFORE the shred, not from a post-shred decode (#650 Task 5 review, Important fix)', async () => {
     interface CountryKeyed extends Record<string, unknown> { id: string; subjectId: string; iso2: string }
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'lookup-forget-ref-cascade-decodefail-2026',
+      store: toMemory(), user: 'alice', secret: 'lookup-forget-ref-cascade-decodefail-2026',
       historyStrategy: withHistory(),
       forgetStrategy: withForget({ subjects: { countries: 'subjectId' } }),
     })
@@ -156,7 +156,7 @@ describe('forget() × lookup ref semantics (#650 Task 5, fixes #648)', () => {
   it('(b4) cascade with a non-default descriptor.key: when the LIVE pre-shred resolve ALSO fails (row unreadable), propagation is skipped but reported via lookupReferencesResidue — never silently (#650 Task 5 review, Important fix)', async () => {
     interface CountryKeyed extends Record<string, unknown> { id: string; subjectId: string; iso2: string }
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'lookup-forget-ref-cascade-doublefail-2026',
+      store: toMemory(), user: 'alice', secret: 'lookup-forget-ref-cascade-doublefail-2026',
       historyStrategy: withHistory(),
       forgetStrategy: withForget({ subjects: { countries: 'subjectId' } }),
     })
@@ -180,7 +180,7 @@ describe('forget() × lookup ref semantics (#650 Task 5, fixes #648)', () => {
 
   it('(c) nullify: the fanout reports lookupReferencesNullified === 1; the referencing field is cleared; the subject is fully shredded', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'lookup-forget-ref-nullify-2026',
+      store: toMemory(), user: 'alice', secret: 'lookup-forget-ref-nullify-2026',
       historyStrategy: withHistory(),
       forgetStrategy: withForget({ subjects: { countries: 'subjectId' } }),
     })
@@ -204,7 +204,7 @@ describe('forget() × lookup ref semantics (#650 Task 5, fixes #648)', () => {
   it('(d) existing ForgetResult keys are byte-unchanged; the two new fields are additive and default to zero', async () => {
     interface Person extends Record<string, unknown> { id: string; subjectId: string; name: string }
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'lookup-forget-ref-plain-2026',
+      store: toMemory(), user: 'alice', secret: 'lookup-forget-ref-plain-2026',
       historyStrategy: withHistory(),
       forgetStrategy: withForget({ subjects: { people: 'subjectId' } }),
     })
@@ -233,7 +233,7 @@ describe('forget() × lookup ref semantics (#650 Task 5, fixes #648)', () => {
 
   it('(e) taint: a lookup into a classified-field source seals the derived presentation; a lookup into a plain collection does not', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'lookup-forget-ref-taint-2026',
+      store: toMemory(), user: 'alice', secret: 'lookup-forget-ref-taint-2026',
       classifiedStrategy: withClassified(),
     })
     const vault = await db.openVault('demo')

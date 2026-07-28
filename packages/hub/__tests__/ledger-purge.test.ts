@@ -24,7 +24,7 @@ import { ConflictError } from '../src/kernel/errors.js'
 import { paddedIndex } from '../src/with-commit/history/ledger/entry.js'
 
 // Inline memory adapter (same shape as other ledger test files).
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -83,7 +83,7 @@ describe('LedgerStore.purgeRecordDeltas (#729)', () => {
   let db: Noydb
 
   beforeEach(async () => {
-    adapter = memory()
+    adapter = toMemory()
     db = await createNoydb({
       store: adapter,
       user: 'alice', historyStrategy: withHistory(),
@@ -183,7 +183,7 @@ interface TieredDoc {
 /** withHistory() (⇒ ledger) + withTiers([0,1]) — the fixture for the
  * elevate/putAtTier integration tests below. */
 async function openTieredLedger() {
-  const adapter = memory()
+  const adapter = toMemory()
   const db = await createNoydb({
     store: adapter,
     user: 'owner', historyStrategy: withHistory(), tiersStrategy: withTiers(),

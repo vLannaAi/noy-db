@@ -14,7 +14,7 @@ import { ConflictError } from '../src/kernel/errors.js'
 import { resetJoinWarnings } from '../src/kernel/query/index.js'
 import { ref } from '../src/kernel/refs.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string): Map<string, EncryptedEnvelope> {
     let comp = store.get(c)
@@ -81,7 +81,7 @@ describe('Query.live() with .join() — v0.6', () => {
 
   beforeEach(async () => {
     db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'live-join-test-secret-2026',
     })

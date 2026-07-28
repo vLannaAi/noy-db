@@ -3,7 +3,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.
 import { ConflictError, createNoydb, diffVault } from '../src/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string) => {
     let comp = store.get(v); if (!comp) { comp = new Map(); store.set(v, comp) }
@@ -46,7 +46,7 @@ async function setup() {
   // vault.dump(); the architecture-invariants checker requires the
   // strategy when any dump()-using test lives in this file.
   const db = await createNoydb({
-    store: memory(), user: 'alice', secret: 'pw-2026',
+    store: toMemory(), user: 'alice', secret: 'pw-2026',
     historyStrategy: withHistory(),
   })
   const vault = await db.openVault('demo')
@@ -125,7 +125,7 @@ describe('diffVault — Vault-vs-Vault candidate', () => {
 describe('diffVault — collections filter', () => {
   it('restricts diff to the requested collections only', async () => {
     const db = await createNoydb({
-      store: memory(), user: 'alice', secret: 'pw-2026',
+      store: toMemory(), user: 'alice', secret: 'pw-2026',
       historyStrategy: withHistory(),
     })
     const vault = await db.openVault('demo')

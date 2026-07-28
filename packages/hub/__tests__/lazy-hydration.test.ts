@@ -9,7 +9,7 @@ import { ConflictError } from '../src/kernel/errors.js'
  * but with a `_getCalls` counter so tests can prove that lazy mode hits
  * the adapter on cache miss instead of using a preloaded snapshot.
  */
-function memory(): NoydbStore & { _getCalls: number; _resetCounters(): void } {
+function toMemory(): NoydbStore & { _getCalls: number; _resetCounters(): void } {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   let getCalls = 0
   function getCollection(c: string, col: string): Map<string, EncryptedEnvelope> {
@@ -100,10 +100,10 @@ interface Invoice {
  */
 async function seedAdapterAndReopen(n: number): Promise<{
   db: Noydb
-  adapter: ReturnType<typeof memory>
+  adapter: ReturnType<typeof toMemory>
   comp: Awaited<ReturnType<Noydb['openVault']>>
 }> {
-  const adapter = memory()
+  const adapter = toMemory()
 
   // Phase 1: write N records via an EAGER collection.
   const seeder = await createNoydb({
@@ -144,7 +144,7 @@ describe('Collection — lazy mode construction', () => {
 
   beforeEach(async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'lazy-test-secret-2026',
     })
@@ -193,7 +193,7 @@ describe('Collection — lazy mode construction', () => {
 describe('lazy mode with indexes declared (v0.22)', () => {
   it('accepts prefetch: false + indexes without throwing', async () => {
     const db = await createNoydb({
-      store: memory(),
+      store: toMemory(),
       user: 'owner',
       secret: 'lazy-test-secret-2026',
     })

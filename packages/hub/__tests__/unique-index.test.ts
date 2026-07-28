@@ -22,7 +22,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { ConflictError, UniqueConstraintError, UnsupportedIndexOptionError } from '../src/kernel/errors.js'
 
 // ── inline memory adapter ────────────────────────────────────────────────────
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string): Map<string, EncryptedEnvelope> {
     let comp = store.get(c)
@@ -65,7 +65,7 @@ function memory(): NoydbStore {
 let db: Noydb
 
 beforeEach(async () => {
-  db = await createNoydb({ store: memory(), indexingStrategy: withIndexing(), secret: 'unique-index-test-pass', user: 'owner' })
+  db = await createNoydb({ store: toMemory(), indexingStrategy: withIndexing(), secret: 'unique-index-test-pass', user: 'owner' })
 })
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -294,7 +294,7 @@ describe('unique index queryable', () => {
 describe('hydration rebuild (two-session path)', () => {
   it('enforces unique constraint against records written in a prior session', async () => {
     // One shared store so both instances see the same persisted data.
-    const sharedStore = memory()
+    const sharedStore = toMemory()
 
     // Session 1: write a record.
     const db1 = await createNoydb({

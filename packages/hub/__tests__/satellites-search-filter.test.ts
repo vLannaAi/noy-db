@@ -17,7 +17,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withSearch } from '../src/with-lookup/search/index.js'
-import { memory } from '../../to-memory/src/index.js'
+import { toMemory } from '../../to-memory/src/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 
 const SECRET = 'satellites-search-filter-test-1234'
@@ -29,7 +29,7 @@ interface Msg extends Record<string, unknown> {
 }
 
 async function openPair() {
-  const rawStore = memory()
+  const rawStore = toMemory()
   const db = await createNoydb({
     store: rawStore,
     user: 'alice',
@@ -108,7 +108,7 @@ describe('satellite search/retrieve existence post-filter (#591, Task 9)', () =>
 
 describe('satellite deterministic-lookup existence filter (#591, Task 9 review fix)', () => {
   async function openDetPair() {
-    const rawStore = memory()
+    const rawStore = toMemory()
     const db = await createNoydb({ store: rawStore, user: 'alice', secret: SECRET })
     const vault = await db.openVault('v1')
     vault.collection<Msg>('msgs')

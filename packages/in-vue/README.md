@@ -16,12 +16,12 @@ pnpm add @noy-db/hub @noy-db/to-browser-idb @noy-db/in-vue
 // main.ts
 import { createApp } from 'vue'
 import { NoydbPlugin } from '@noy-db/in-vue'
-import { browserIdbStore } from '@noy-db/to-browser-idb'
+import { toBrowserIdb } from '@noy-db/to-browser-idb'
 import App from './App.vue'
 
 createApp(App)
   .use(NoydbPlugin, {
-    adapter: browserIdbStore({ obfuscate: true }),
+    adapter: toBrowserIdb({ obfuscate: true }),
     userId: 'alice',
   })
   .mount('#app')

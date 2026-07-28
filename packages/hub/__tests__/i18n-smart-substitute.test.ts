@@ -35,7 +35,7 @@ describe('#285 smart-substitute — resolveI18nText logic', () => {
   })
 })
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -67,7 +67,7 @@ interface Doc extends Record<string, unknown> { id: string; title: Record<string
 
 describe('#285 smart-substitute — on a collection read', () => {
   it('threads descriptor.smartSubstitute through get() at a missing locale', async () => {
-    const db = await createNoydb({ store: memory(), user: 'a', secret: 'smart-sub-pass-2026', i18nStrategy: withI18n() })
+    const db = await createNoydb({ store: toMemory(), user: 'a', secret: 'smart-sub-pass-2026', i18nStrategy: withI18n() })
     const vault = await db.openVault('v')
     const docs = vault.collection<Doc>('docs', {
       i18nFields: { title: i18nText({ languages: ['th', 'en', 'ar', 'fa'], required: 'any', onMissing: 'substitute', smartSubstitute: true }) },

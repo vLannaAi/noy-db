@@ -18,7 +18,7 @@ import { withI18n } from '../src/via/i18n/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 
 /** In-memory store exposing raw envelopes + a get helper for reserved cols. */
-function memory(): NoydbStore & {
+function toMemory(): NoydbStore & {
   raw(c: string, col: string, id: string): EncryptedEnvelope | undefined
 } {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -78,7 +78,7 @@ const SECRET = 'search-forget-secret-5678'
 function memoryWithFtindexDeleteFailure(): NoydbStore & {
   raw(c: string, col: string, id: string): EncryptedEnvelope | undefined
 } {
-  const base = memory()
+  const base = toMemory()
   return {
     ...base,
     async delete(c, col, id) {
@@ -125,7 +125,7 @@ describe('forget — _ftindex purge failure is resilient (#308 L1.5)', () => {
 
 describe('forget — persisted _ftindex blob is purged (#308 L1.5)', () => {
   it('forget() deletes the _ftindex blob and retrieve() rebuilds without the forgotten record', async () => {
-    const store = memory()
+    const store = toMemory()
     const db = await createNoydb({
       store,
       user: 'alice',

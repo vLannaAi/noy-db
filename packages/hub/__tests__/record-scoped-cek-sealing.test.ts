@@ -22,7 +22,7 @@ import { openSealedRecord, withSealedRecord } from '../src/with-audit/sealed-rec
 import type { SealedCekDeliveryEnvelope } from '../src/with-audit/sealed-record/types.js'
 
 /** In-memory store exposing raw stored envelopes for assertions. */
-function memory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
+function toMemory(): NoydbStore & { raw(c: string, col: string, id: string): EncryptedEnvelope | undefined } {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -78,7 +78,7 @@ const SECRET = 'test-secret-1234'
 const HOUR = 60 * 60 * 1000
 
 function readDelivery(
-  store: ReturnType<typeof memory>,
+  store: ReturnType<typeof toMemory>,
   vault: string,
   collection: string,
   id: string,
@@ -89,7 +89,7 @@ function readDelivery(
 }
 
 async function setup() {
-  const store = memory()
+  const store = toMemory()
   const db = await createNoydb({ store, user: 'alice', secret: SECRET, sealedRecordStrategy: withSealedRecord() })
   const vault = await db.openVault('v')
   const docs = vault.collection<Doc>('docs', { perRecordKeys: true })

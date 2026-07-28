@@ -24,7 +24,7 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { withForget } from '../src/with-audit/forget/index.js'
 import { withIndexing } from '../src/with-lookup/indexing/index.js'
-import { memory } from '../../to-memory/src/index.js'
+import { toMemory } from '../../to-memory/src/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 
 const SECRET = 'satellites-forget-test-1234'
@@ -52,7 +52,7 @@ function spyStore(raw: NoydbStore): { store: NoydbStore; failNextPutFor: (coll: 
 }
 
 async function openForgetPair(opts: { indexed?: boolean } = {}) {
-  const rawStore = memory()
+  const rawStore = toMemory()
   const { store, failNextPutFor } = spyStore(rawStore)
   const db = await createNoydb({
     store,

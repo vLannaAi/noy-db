@@ -5,7 +5,7 @@ import { withTransactions } from '@noy-db/hub/transactions'
 import { fromString } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string) => {
     let comp = store.get(v); if (!comp) { comp = new Map(); store.set(v, comp) }
@@ -44,7 +44,7 @@ function memory(): NoydbStore {
 interface Invoice { id: string; client: string; amount: number }
 
 async function setup() {
-  const adapter = memory()
+  const adapter = toMemory()
   const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
   await init.openVault('demo')
   await init.grant('demo', {
@@ -124,7 +124,7 @@ describe('as-csv fromString', () => {
     const csv = await toString(reVault, { collection: 'invoices' })
 
     // Empty fresh vault — every CSV row is "added".
-    const dstAdapter = memory()
+    const dstAdapter = toMemory()
     const dstInit = await createNoydb({ teamStrategy: withTeam(), store: dstAdapter, user: 'alice', secret: 'pw-2026' })
     await dstInit.openVault('demo')
     await dstInit.grant('demo', {
@@ -156,7 +156,7 @@ describe('as-csv fromString — apply() requires withTransactions()', () => {
     // setup() above grants importCapability; here we recreate the vault
     // explicitly WITHOUT withTransactions() so apply() hits the strategy
     // gate before any record write reaches the store.
-    const adapter = memory()
+    const adapter = toMemory()
     const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
     await init.openVault('demo')
     await init.grant('demo', {

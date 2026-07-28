@@ -11,7 +11,7 @@ import { ref } from '../src/kernel/refs.js'
 import { i18nText } from '../src/via/i18n/core.js'
 import { withI18n } from '../src/via/i18n/index.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -45,7 +45,7 @@ const NAME = i18nText({ languages: ['en', 'th'], required: 'all' })
 const SECRET = 'join-i18n-layer-secret-2026'
 
 async function seed(vaultLocale?: string) {
-  const db = await createNoydb({ store: memory(), user: 'a', secret: SECRET, i18nStrategy: withI18n() })
+  const db = await createNoydb({ store: toMemory(), user: 'a', secret: SECRET, i18nStrategy: withI18n() })
   const vault = await db.openVault('v', vaultLocale ? { locale: vaultLocale } : {})
   const categories = vault.collection<Category>('categories', { i18nFields: { name: NAME } })
   const products = vault.collection<Product>('products', { refs: { categoryId: ref('categories') } })

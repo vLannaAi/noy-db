@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { createNoydb, type Noydb } from '../src/kernel/noydb.js'
 import { withTransactions } from '../src/with-commit/tx/index.js'
 import { withGuard } from '../src/with-audit/guards/with-guard.js'
-import { memory } from '../../to-memory/src/index.js'
+import { toMemory } from '../../to-memory/src/index.js'
 
 interface Inv extends Record<string, unknown> { id: string; amount: number }
 
 async function setup(extra: Record<string, unknown> = {}): Promise<Noydb> {
-  return createNoydb({ store: memory(), user: 'owner', secret: 'dryrun-pass-1234', encrypt: false, transactionsStrategy: withTransactions(), ...extra })
+  return createNoydb({ store: toMemory(), user: 'owner', secret: 'dryrun-pass-1234', encrypt: false, transactionsStrategy: withTransactions(), ...extra })
 }
 
 describe('db.transaction({ dryRun: true }) (#231)', () => {

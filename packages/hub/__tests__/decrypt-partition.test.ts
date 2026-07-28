@@ -19,7 +19,7 @@ import { ConflictError } from '../src/kernel/errors.js'
 import { extractPartition } from '../src/with-cargo/extract-partition.js'
 import { decryptExtractedPartition } from '../src/with-cargo/decrypt-partition.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function getCollection(c: string, col: string) {
     let comp = store.get(c)
@@ -78,7 +78,7 @@ describe('decryptExtractedPartition', () => {
   let transferKey: Uint8Array
 
   beforeEach(async () => {
-    db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-secret-1234' })
+    db = await createNoydb({ cargoStrategy: withCargo(), store: toMemory(), user: 'alice', secret: 'test-secret-1234' })
     const company = await db.openVault('demo-co')
 
     const clients = company.collection<Client>('clients')
@@ -148,7 +148,7 @@ describe('decryptExtractedPartition — per-record CEK branch', () => {
    * body — this test proves the full round-trip.
    */
   it('decrypts a per-record-CEK record alongside a normal record', async () => {
-    const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-secret-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: toMemory(), user: 'alice', secret: 'test-secret-1234' })
     const company = await db.openVault('demo-co')
 
     // CEK collection: each record stores a wrapped _cek in its envelope.
@@ -193,7 +193,7 @@ describe('decryptExtractedPartition — per-record CEK branch', () => {
 
 describe('decryptExtractedPartition — provenance source surfacing (FR-5 Task 3b)', () => {
   it('DecryptedRecord carries source/sourceTs when the source record was put with a source', async () => {
-    const db = await createNoydb({ cargoStrategy: withCargo(), store: memory(), user: 'alice', secret: 'test-secret-1234' })
+    const db = await createNoydb({ cargoStrategy: withCargo(), store: toMemory(), user: 'alice', secret: 'test-secret-1234' })
     const company = await db.openVault('demo-co')
 
     const clients = company.collection<Client>('clients', { provenance: true })

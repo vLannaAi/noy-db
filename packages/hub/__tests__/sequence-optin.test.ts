@@ -9,7 +9,7 @@ import { createNoydb, ConflictError, SequenceNotEnabledError } from '../src/inde
 import { withSequence } from '../src/with-commit/sequence/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
 
-function memory(casAtomic = true): NoydbStore {
+function toMemory(casAtomic = true): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   const gc = (v: string, c: string): Map<string, EncryptedEnvelope> => {
     let vm = store.get(v); if (!vm) { vm = new Map(); store.set(v, vm) }
@@ -50,13 +50,13 @@ function memory(casAtomic = true): NoydbStore {
 
 describe('sequence opt-in gate (S4)', () => {
   it('throws SequenceNotEnabledError when not opted in', async () => {
-    const db = await createNoydb({ store: memory(), user: 'owner', secret: 'pw' })
+    const db = await createNoydb({ store: toMemory(), user: 'owner', secret: 'pw' })
     const v = await db.openVault('books')
     expect(() => v.sequence('invoice-2026')).toThrow(SequenceNotEnabledError)
   })
 
   it('works when opted in via withSequence()', async () => {
-    const db = await createNoydb({ store: memory(), user: 'owner', secret: 'pw', sequenceStrategy: withSequence() })
+    const db = await createNoydb({ store: toMemory(), user: 'owner', secret: 'pw', sequenceStrategy: withSequence() })
     const v = await db.openVault('books')
     const seq = v.sequence('invoice-2026')
     expect(await seq.next()).toBe(1)

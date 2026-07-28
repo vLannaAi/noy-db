@@ -7,7 +7,7 @@ import { withSearch } from '../src/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError, EmbeddingModelMismatchError } from '../src/kernel/errors.js'
 
-function memory(): NoydbStore {
+function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   function gc(c: string, col: string) {
     let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
@@ -59,7 +59,7 @@ describe('semantic retrieval (#308 L2)', () => {
 
   // Test A: retrieve(mode:'semantic') returns the matching doc as rank-1 with rank+score
   it('A: retrieve(mode:semantic) returns nearest doc as rank-1, hits carry rank and score', async () => {
-    const db = await createNoydb({ store: memory(), user: 'a', secret: 'pw-sem-a', searchStrategy: withSearch() })
+    const db = await createNoydb({ store: toMemory(), user: 'a', secret: 'pw-sem-a', searchStrategy: withSearch() })
     const v = await db.openVault('v')
     const encoder = enc(8)
     const c = v.collection<Doc>('docs', { embeddings: encoder })
@@ -82,7 +82,7 @@ describe('semantic retrieval (#308 L2)', () => {
 
   // Test B: collection.similarTo() with raw vector returns matching doc
   it('B: similarTo(vector, { k:1 }) returns the doc whose encoding is closest', async () => {
-    const db = await createNoydb({ store: memory(), user: 'a', secret: 'pw-sem-b', searchStrategy: withSearch() })
+    const db = await createNoydb({ store: toMemory(), user: 'a', secret: 'pw-sem-b', searchStrategy: withSearch() })
     const v = await db.openVault('v')
     const encoder = enc(8)
     const c = v.collection<Doc>('docs', { embeddings: encoder })
@@ -97,7 +97,7 @@ describe('semantic retrieval (#308 L2)', () => {
 
   // Test C: minScore filters out far docs
   it('C: minScore filters out docs below the threshold', async () => {
-    const db = await createNoydb({ store: memory(), user: 'a', secret: 'pw-sem-c', searchStrategy: withSearch() })
+    const db = await createNoydb({ store: toMemory(), user: 'a', secret: 'pw-sem-c', searchStrategy: withSearch() })
     const v = await db.openVault('v')
     const encoder = enc(8)
     const c = v.collection<Doc>('docs', { embeddings: encoder })
@@ -117,7 +117,7 @@ describe('semantic retrieval (#308 L2)', () => {
 
   // Test D: model guard — open with different model → throws EmbeddingModelMismatchError
   it('D: model guard — stored vec under model "stub" + descriptor model "stub2" → EmbeddingModelMismatchError', async () => {
-    const store = memory()
+    const store = toMemory()
     // Write with model 'stub'
     const db1 = await createNoydb({ store, user: 'a', secret: 'pw-sem-d', searchStrategy: withSearch() })
     const v1 = await db1.openVault('v')
@@ -133,7 +133,7 @@ describe('semantic retrieval (#308 L2)', () => {
 
   // Test E: leakage — retrieve(mode:'semantic') only reads _vec (get), never writes; _vec env body has no plaintext source term
   it('E: leakage — semantic retrieve reads _vec but writes nothing new; _vec env body has no plaintext source text', async () => {
-    const store = memory()
+    const store = toMemory()
     const gets: string[] = []
     const puts: string[] = []
     const wrapped: NoydbStore = {
