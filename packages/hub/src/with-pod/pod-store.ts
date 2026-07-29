@@ -85,22 +85,42 @@ export function wrapPodStore(
   // Batch mode: when > 0, suppress auto-flush
   let batchDepth = 0
 
+  // #908 — in-flight loads, keyed by vault. Without this, every concurrent
+  // caller issued its own `readBundle` and then REPLACED `snapshots` with a
+  // freshly parsed object — orphaning the mutations earlier callers had
+  // already made to the object they were handed. 100 racing puts kept 1.
+  const loading = new Map<string, Promise<VaultSnapshot>>()
+
   async function load(vault: string): Promise<VaultSnapshot> {
     if (loaded.has(vault)) return snapshots.get(vault)!
 
-    const result = await bundle.readBundle(vault)
-    if (result) {
-      const text = new TextDecoder().decode(result.bytes)
-      const format = JSON.parse(text) as BundleStoreData
-      snapshots.set(vault, format.data)
-      versions.set(vault, result.version)
-    } else {
-      snapshots.set(vault, {})
-      versions.set(vault, null)
-    }
+    const inFlight = loading.get(vault)
+    if (inFlight) return inFlight
 
-    loaded.add(vault)
-    return snapshots.get(vault)!
+    const pending = (async () => {
+      const result = await bundle.readBundle(vault)
+      if (result) {
+        const text = new TextDecoder().decode(result.bytes)
+        const format = JSON.parse(text) as BundleStoreData
+        snapshots.set(vault, format.data)
+        versions.set(vault, result.version)
+      } else {
+        snapshots.set(vault, {})
+        versions.set(vault, null)
+      }
+
+      loaded.add(vault)
+      return snapshots.get(vault)!
+    })()
+
+    loading.set(vault, pending)
+    try {
+      return await pending
+    } finally {
+      // Clear on failure too, so a transient read error does not poison
+      // every later load of this vault with a rejected promise.
+      loading.delete(vault)
+    }
   }
 
   async function flush(vault: string): Promise<void> {
@@ -139,9 +159,26 @@ export function wrapPodStore(
     }
   }
 
+  // #908 — one flush at a time per vault. `flush` reads and writes the vault's
+  // version token, so concurrent flushes race: each sends the same
+  // `expectedVersion`, the losers take the conflict/merge path, and with enough
+  // of them the retry budget is exhausted and the error surfaces to a caller
+  // whose write was perfectly valid. Serialising makes every flush see the
+  // token its predecessor produced.
+  const flushChain = new Map<string, Promise<void>>()
+
+  function serialFlush(vault: string): Promise<void> {
+    const prev = flushChain.get(vault) ?? Promise.resolve()
+    // Chain past a rejection as well — one failed flush must not wedge every
+    // subsequent write to this vault.
+    const next = prev.then(() => flush(vault), () => flush(vault))
+    flushChain.set(vault, next)
+    return next
+  }
+
   async function maybeFlush(vault: string): Promise<void> {
     if (autoFlush && batchDepth === 0) {
-      await flush(vault)
+      await serialFlush(vault)
     }
   }
 
@@ -149,7 +186,7 @@ export function wrapPodStore(
     name: bundle.name ?? 'bundle',
 
     async flush(vaultId: string): Promise<void> {
-      await flush(vaultId)
+      await serialFlush(vaultId)
     },
 
     async batch(vaultId: string, fn: () => Promise<void>): Promise<void> {
@@ -160,7 +197,7 @@ export function wrapPodStore(
       } finally {
         batchDepth--
       }
-      await flush(vaultId)
+      await serialFlush(vaultId)
     },
 
     async get(vault: string, collection: string, id: string): Promise<EncryptedEnvelope | null> {
@@ -207,13 +244,27 @@ export function wrapPodStore(
     },
 
     async loadAll(vault: string): Promise<VaultSnapshot> {
-      return await load(vault)
+      const snap = await load(vault)
+      // #908 — two contract fixes in one place:
+      //  1. internal collections (`_keyring`, `_sync`) are the vault's own
+      //     bookkeeping and must not appear in a snapshot — `@noy-db/to-file`
+      //     sets the reference behaviour with this same `_`-prefix rule;
+      //  2. copy rather than hand out the live cache, which let a caller
+      //     mutating the result silently rewrite the wrapper's own state.
+      // `get()`/`list()` still serve internal collections; this is about what
+      // a *snapshot* claims, not about hiding data.
+      const out: VaultSnapshot = {}
+      for (const [collection, records] of Object.entries(snap)) {
+        if (collection.startsWith('_')) continue
+        out[collection] = { ...records }
+      }
+      return out
     },
 
     async saveAll(vault: string, data: VaultSnapshot): Promise<void> {
       snapshots.set(vault, data)
       loaded.add(vault)
-      await flush(vault)
+      await serialFlush(vault)
     },
   }
 
