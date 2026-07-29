@@ -14,11 +14,11 @@ Progressive bootstrap is not a new mechanism — it is **a sync policy**. The sc
 already exists, the store-shaped policy presets already exist, and `pull()` already accepts the
 filters a phase needs.
 
-The original draft named four gaps. **Two are now closed** (PR #898): the scheduler was never
-started, and it would have been unsafe if it were. Two remain: the policy cannot express **an
-ordered sequence**, and its **status never reaches the app**.
+The original draft named four gaps, and **all four are now closed**: the scheduler was never
+started and would have been unsafe if it were (PR #898); the policy could not express **an ordered
+sequence** (Stage 1); and its **status never reached the app** (Stage 2).
 
-Two stages, each independently shippable and independently useful.
+Each stage shipped independently and was independently useful.
 
 ---
 
@@ -34,12 +34,13 @@ Two stages, each independently shippable and independently useful.
 | **Scheduler started on vault open, stopped on close** | ✅ **#897 — PR #898** |
 | **Scheduler-initiated pull role-gated to `sync-peer`** | ✅ **#618 — PR #898** |
 | Pull sequencing (ordered collection phases) | ✅ **Stage 1 below — shipped** |
-| Per-collection readiness | ❌ absent — Stage 2 below |
-| `SyncSchedulerStatus` reachable from an app | ❌ **no accessor** — Stage 2 below |
+| Per-collection readiness | ✅ **Stage 2 below — shipped** |
+| Readiness reachable from an app | ✅ **on `db.syncStatus(vault)` — shipped** |
 
-`db.syncStatus(vault)` returns a *different, thinner* type — `{ dirty, lastPush, lastPull, online }`.
-The scheduler's richer status is documented as *"safe to expose in a reactive UI status indicator"*
-and is still unreachable.
+`db.syncStatus(vault)` was a *thinner* type — `{ dirty, lastPush, lastPull, online }` — while the
+scheduler's richer status, documented as *"safe to expose in a reactive UI status indicator"*, was
+unreachable. Stage 2 closes that by widening `SyncStatus` itself rather than adding a second
+accessor.
 
 **Every pull is still an explicit app call unless a policy asks otherwise.** `createNoydb()` and
 `openVault()` never pull on their own.
@@ -89,8 +90,9 @@ This design satisfies it by construction:
 - The policy **constants** are plain objects — bytes.
 - `SyncScheduler` is **verified absent from the floor entry chunk**: building `createNoydb` alone
   yields 1578 bytes with no `SyncScheduler` reference. It ships only when sync is used.
-- No change to `Collection`, `Vault`, or `Noydb`'s hot paths. Stage 2's accessor is the only new
-  `Noydb` member, and it is a one-line delegation.
+- No change to `Collection`, `Vault`, or `Noydb` **at all** — both stages landed with the
+  kernel-surface files byte-identical (`collection.ts` 4263, `vault.ts` 3710, `noydb.ts` 2158).
+  Stage 2 needed no new `Noydb` member: `syncStatus()` already delegates to the engine.
 
 A new bundle-gate assertion locks this in rather than assuming it.
 
@@ -183,7 +185,9 @@ dirty queue is not reorderable — you push what changed. `PushOptions` keeps `c
 **Problem.** A UI cannot tell whether a collection is complete, mid-pull, or untouched — so a `null`
 from `get()` is ambiguous during bootstrap, and apps must either show false empty states or block.
 
-**Change.** Extend the status the scheduler already publishes, and give it a public accessor.
+**Change.** Extend the status the scheduler already publishes, and surface it through
+**`db.syncStatus(vault)` — the status call that already exists** — rather than the separate
+`schedulerStatus()` accessor an earlier draft proposed. See *Where readiness surfaces* below.
 
 ```ts
 export type ReadinessState = 'cold' | 'pulling' | 'live'
@@ -200,27 +204,58 @@ export interface SyncSchedulerStatus {
   readonly phase: { readonly index: number; readonly total: number } | null
 }
 
-// on Noydb — the accessor that does not exist today
-schedulerStatus(vault: string): SyncSchedulerStatus | null
+// …and the SAME two fields, optional, on the existing SyncStatus
+export interface SyncStatus {
+  readonly dirty: number
+  readonly lastPush: string | null
+  readonly lastPull: string | null
+  readonly online: boolean
+  readonly readiness?: ReadonlyMap<string, ReadinessState>
+  readonly phase?: { readonly index: number; readonly total: number } | null
+}
 ```
 
 Reactive UIs already receive `sync:pull` on each phase completion, so no new event is required; a
-listener reads `schedulerStatus()` when it fires.
+listener reads `db.syncStatus()` when it fires.
 
 **Interpreting a miss:**
 
 ```ts
 const inv = await invoices.get('inv-1')
-const { readiness } = db.schedulerStatus('acme')!
-if (inv === null && readiness.get('invoices') !== 'live') showSkeleton()
-else if (inv === null)                                    showNotFound()
+const { readiness } = db.syncStatus('acme')
+if (inv === null && readiness?.get('invoices') !== 'live') showSkeleton()
+else if (inv === null)                                     showNotFound()
 ```
 
 `get()` is untouched — no per-read cost, no mode-dependent return type.
 
+### Where readiness surfaces
+
+`Noydb.syncStatus()` already delegates to `SyncEngine.status()`, so widening **that** result puts
+readiness on the app's existing status call and needs **zero lines in `noydb.ts`** — which had two
+lines of ceiling headroom and could not have afforded a second accessor without a ratchet bump. The
+scheduler owns the state, the engine copies it out, the kernel orchestration file is untouched.
+
+It is also the better surface independent of the ceiling: one question — *"how is sync going for
+this vault?"* — with one answer, instead of a status call that omits the part you need and a second
+accessor that omits the rest. `SyncSchedulerStatus` stays the scheduler's internal snapshot.
+
+The fields are **optional** on `SyncStatus`, so the no-engine branch and every non-phased policy are
+unchanged and a reader can tell *"no claim made"* from *"not ready"*.
+
 ### Readiness rules
 
-**Default `'cold'`** for every collection the sequence names, from scheduler start.
+**Default `'cold'`** for every collection the sequence names, seeded **synchronously** by
+`start()` — so a reader racing the sequence sees *"not ready"* rather than a missing entry, which is
+the distinction the map exists to make. (Phase 1 is already `'pulling'` by the time `start()`
+returns: `start()` is synchronous but runs the first phase up to its first `await`.)
+
+**A role-gated skip counts as incomplete.** A backup/archive target skips its scheduler-initiated
+pulls, so nothing was fetched and the collection stays `'cold'`. Marking it `'live'` would be a
+lie told by a target that never reads.
+
+**`stop()` resets any in-flight `'pulling'` to `'cold'`.** A sequence cut mid-phase must not leave a
+skeleton that outlives the vault.
 
 **A collection the sequence never names is absent from the map**, and a caller reading `undefined`
 must treat it as *"no claim made"* — never as a reason to gate a UI. Documented on the field.
@@ -268,9 +303,12 @@ phase calls `pull()` with exactly that collection; the sequence runs once, then 
 `sequence` with a non-`phased` mode is rejected; `phased` without `sequence` is rejected; a
 duplicate entry is rejected; an empty `sequence` is rejected.
 
-**Stage 2** — transitions `cold → pulling → live`; an unnamed collection is absent from the map; a
-phase with errors leaves its collection `'cold'`, explicitly not stuck `'pulling'`; a throwing pull
-leaves nothing `'pulling'`; `schedulerStatus()` returns `null` when no scheduler exists.
+**Stage 2** — transitions `cold → pulling → live`; every named collection is seeded the moment
+`start()` returns; an unnamed collection is absent from the map; a phase with errors leaves its
+collection `'cold'`, explicitly not stuck `'pulling'`; a throwing pull leaves nothing `'pulling'`;
+`stop()` mid-phase resets `'pulling'` to `'cold'`; the status snapshot is a copy that does not
+mutate under its reader; `db.syncStatus()` omits `readiness` entirely for non-phased and
+no-policy instances.
 
 **Cross-cutting** — a bundle-gate scenario asserting `SyncScheduler` stays out of the floor entry
 chunk, so the kernel-cost claim is enforced rather than asserted.

@@ -161,10 +161,15 @@ export class SyncEngine {
         // #616. This guards the engine self-initiating on a timer; an explicit
         // `engine.pull()` still pulls for every role.
         // `collections` is set by a 'phased' sequence — one collection per phase.
+        // A role-gated skip reports 'incomplete': nothing was pulled, so the
+        // phase must not mark its collection ready.
         pull: (collections) =>
           this.role === 'sync-peer'
-            ? this.pull(collections ? { collections: [...collections] } : undefined).then(() => {})
-            : Promise.resolve(),
+            ? this.pull(collections ? { collections: [...collections] } : undefined)
+                // PullResult.errors accumulates WITHOUT throwing, so a partial
+                // failure is only visible here — not via a rejected promise.
+                .then(r => (r.errors.length === 0 ? 'complete' : 'incomplete'))
+            : Promise.resolve('incomplete'),
         getDirtyCount: () => this.dirty.length,
       })
     } else {
@@ -807,11 +812,18 @@ export class SyncEngine {
 
   /** Get current sync status. */
   status(): SyncStatus {
+    // #809 — readiness rides the status surface that already exists rather than
+    // a second accessor, so an app asks one question to learn everything about
+    // this vault's sync. Absent entirely unless a phased policy is running.
+    const scheduled = this.scheduler?.status
     return {
       dirty: this.dirty.length,
       lastPush: this.lastPush,
       lastPull: this.lastPull,
       online: this.isOnline,
+      ...(scheduled && scheduled.readiness.size > 0
+        ? { readiness: scheduled.readiness, phase: scheduled.phase }
+        : {}),
     }
   }
 
