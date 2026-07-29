@@ -154,6 +154,27 @@ export const BUNDLE_STORE_POLICY = POD_STORE_POLICY
 export type SyncSchedulerState = 'idle' | 'pending' | 'pushing' | 'pulling' | 'error'
 
 /**
+ * How much of a collection a caller may rely on, under a `'phased'` pull.
+ *
+ * - `'cold'` — not pulled yet, or its phase did not complete cleanly. A miss
+ *   from `get()` proves nothing.
+ * - `'pulling'` — its phase is in flight. Never terminal: a phase always ends
+ *   in `'live'` or back in `'cold'`, because a stuck `'pulling'` would leave a
+ *   permanent skeleton in the UI.
+ * - `'live'` — its phase completed cleanly, so a miss is a real absence.
+ */
+export type ReadinessState = 'cold' | 'pulling' | 'live'
+
+/**
+ * What a scheduler-initiated pull achieved, as reported by the callback.
+ *
+ * `'incomplete'` covers both a pull that reported errors (`PullResult.errors`
+ * accumulates without throwing) and one that was skipped — e.g. role-gated on a
+ * backup target. Either way nothing may be claimed about completeness.
+ */
+export type PullPhaseOutcome = 'complete' | 'incomplete'
+
+/**
  * Snapshot of the sync scheduler's state, returned by `SyncScheduler.status`.
  * Safe to expose in a reactive UI status indicator.
  */
@@ -163,6 +184,15 @@ export interface SyncSchedulerStatus {
   readonly lastPullAt: string | null
   readonly lastError: Error | null
   readonly pendingWrites: number
+  /**
+   * Per-collection readiness. Empty unless `pull.mode === 'phased'`.
+   *
+   * A collection the sequence never names is **absent** from the map, and
+   * `undefined` means *"no claim made"* — never a reason to gate a UI.
+   */
+  readonly readiness: ReadonlyMap<string, ReadinessState>
+  /** 1-based position in the sequence, or `null` outside a phased run. */
+  readonly phase: { readonly index: number; readonly total: number } | null
 }
 
 /**
@@ -176,8 +206,10 @@ export interface SyncSchedulerCallbacks {
   /**
    * @param collections - Narrow the pull to these collections. Passed by a
    * `'phased'` sequence, one collection per phase; omitted for a whole-vault pull.
+   * @returns Whether the pull may be treated as complete. Returning `void` reads
+   * as `'complete'`, so callers with nothing to report need not opt in.
    */
-  pull(collections?: readonly string[]): Promise<void>
+  pull(collections?: readonly string[]): Promise<PullPhaseOutcome | void>
   getDirtyCount(): number
 }
 
@@ -237,6 +269,11 @@ export class SyncScheduler {
   private _lastError: Error | null = null
   private _lastPushTime = 0 // monotonic ms for minIntervalMs enforcement
 
+  // Phased-pull progress. Empty for every other mode, so non-adopters carry
+  // an empty Map and a null — no per-read cost, nothing to interpret.
+  private readonly _readiness = new Map<string, ReadinessState>()
+  private _phase: { readonly index: number; readonly total: number } | null = null
+
   // Timers
   private debounceTimer: ReturnType<typeof setTimeout> | null = null
   private pushIntervalTimer: ReturnType<typeof setInterval> | null = null
@@ -270,6 +307,9 @@ export class SyncScheduler {
       lastPullAt: this._lastPullAt,
       lastError: this._lastError,
       pendingWrites: this.callbacks.getDirtyCount(),
+      // Copied, not aliased — a status snapshot must not mutate under its reader.
+      readiness: new Map(this._readiness),
+      phase: this._phase,
     }
   }
 
@@ -294,7 +334,11 @@ export class SyncScheduler {
     // state. Unawaited by design: start() is synchronous and the caller
     // (vault open) must not block on a bootstrap pull.
     if (this.policy.pull.mode === 'phased') {
-      void this.runSequence(this.policy.pull.sequence ?? [])
+      const sequence = this.policy.pull.sequence ?? []
+      // Every named collection is 'cold' from the moment we start, so a reader
+      // that races the first phase sees "not ready", never a missing entry.
+      for (const collection of sequence) this._readiness.set(collection, 'cold')
+      void this.runSequence(sequence)
     }
 
     // Pull: on-focus mode
@@ -320,6 +364,13 @@ export class SyncScheduler {
   stop(): void {
     if (!this.started) return
     this.started = false
+
+    // A sequence cut mid-phase must not leave that collection 'pulling' —
+    // a reader would show a skeleton that never resolves.
+    for (const [collection, state] of this._readiness) {
+      if (state === 'pulling') this._readiness.set(collection, 'cold')
+    }
+    this._phase = null
 
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer)
@@ -401,10 +452,19 @@ export class SyncScheduler {
    * instead of letting it run on against a closed vault.
    */
   private async runSequence(sequence: readonly string[]): Promise<void> {
-    for (const collection of sequence) {
+    for (const [i, collection] of sequence.entries()) {
       if (!this.started) return
-      await this.executePull([collection])
+      this._readiness.set(collection, 'pulling')
+      this._phase = { index: i + 1, total: sequence.length }
+
+      const outcome = await this.executePull([collection])
+
+      // 'live' only on a clean phase. Anything else — reported errors, a
+      // role-gated skip, a throw — goes back to 'cold', because 'live' is a
+      // promise that a miss from get() is a real absence.
+      this._readiness.set(collection, outcome === 'complete' ? 'live' : 'cold')
     }
+    this._phase = null
     if (this.started) this.startPullInterval()
   }
 
@@ -443,19 +503,21 @@ export class SyncScheduler {
     }
   }
 
-  private async executePull(collections?: readonly string[]): Promise<void> {
-    if (this._state === 'pulling') return
+  private async executePull(collections?: readonly string[]): Promise<PullPhaseOutcome> {
+    if (this._state === 'pulling') return 'incomplete'
 
     const previousState = this._state
     this._state = 'pulling'
     try {
-      await this.callbacks.pull(collections)
+      const outcome = await this.callbacks.pull(collections)
       this._lastPullAt = new Date().toISOString()
       this._lastError = null
       this._state = previousState === 'pending' ? 'pending' : 'idle'
+      return outcome ?? 'complete'
     } catch (err) {
       this._lastError = err instanceof Error ? err : new Error(String(err))
       this._state = 'error'
+      return 'incomplete'
     }
   }
 

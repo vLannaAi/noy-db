@@ -25,7 +25,7 @@
 
 import type { StandardSchemaV1 } from './schema.js'
 import type { DeferredNumberingConfig } from '../with-commit/numbering/descriptor.js'
-import type { SyncPolicy } from './sync-policy.js'
+import type { SyncPolicy, ReadinessState } from './sync-policy.js'
 import type { BlobsStrategy } from '../port/with/blob-strategy.js'
 import type { ArchiveStrategy } from '../with-fork/archive/index.js'
 import type { IndexingStrategy } from '../with-lookup/indexing/strategy.js'
@@ -1389,6 +1389,15 @@ export interface SyncStatus {
   readonly lastPush: string | null
   readonly lastPull: string | null
   readonly online: boolean
+  /**
+   * Per-collection readiness under a `'phased'` pull policy (#809). **Absent**
+   * for every other policy, and a collection the sequence never names is absent
+   * from the map — `undefined` means *"no claim made"*, never a reason to gate
+   * a UI. Only `'live'` asserts that a miss from `get()` is a real absence.
+   */
+  readonly readiness?: ReadonlyMap<string, ReadinessState>
+  /** 1-based position in the phased sequence; `null` once it has drained. */
+  readonly phase?: { readonly index: number; readonly total: number } | null
 }
 
 // ─── Sync Target ─────────────────────────────────────────
