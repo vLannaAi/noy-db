@@ -1,5 +1,148 @@
 # Changelog — hub
 
+## 0.4.0-pre.10
+
+### Minor Changes
+
+- Sync: a declared `syncPolicy` now actually runs (#897), and its scheduled pull is role-gated (#618)
+
+  **The bug.** `SyncScheduler` was constructed but never started. `startScheduler()` had no
+  callers anywhere in the codebase, and `SyncScheduler.notifyChange()` opens with
+  `if (!this.started) return` — so every write hit that guard and returned. The result: no
+  automatic sync existed at any policy. Declaring `syncPolicy: { push: { mode: 'on-change' } }`
+  was silently equivalent to declaring nothing; you had to call `db.push()` / `db.pull()`
+  yourself regardless.
+
+  **What changes.** Opening a vault now starts the scheduler when a policy was **declared** —
+  either `createNoydb({ syncPolicy })` or a per-target `policy`. `close()` stops every
+  scheduler's timers alongside the other teardown.
+
+  If you declared a policy expecting it to be inert, it is now live. To keep the old behaviour
+  explicitly:
+
+  ```ts
+  syncPolicy: { push: { mode: 'manual' }, pull: { mode: 'manual' } }
+  ```
+
+  **Passing `sync:` alone still does not sync on its own.** A policy is always _resolved_
+  (falling back to the store preset, e.g. `INDEXED_STORE_POLICY`), but resolving one is not
+  consent: `push: 'on-change'` fires an **unawaited** push on every write, so enabling it for
+  everyone who merely supplied a remote would turn on unattended background writes and make
+  write ordering racy against anything else touching that remote. Automation is opt-in; declare
+  a policy to get it.
+
+  Two further fixes:
+
+  - The scheduler is now built when **either** push or pull is non-manual. The construction
+    test was `push.mode !== 'manual'` alone, so `{ push: manual, pull: interval }` silently got
+    no scheduler and its pull mode was ignored entirely.
+  - **#618** — the scheduler-initiated pull is role-gated to `sync-peer`. `Noydb` gates
+    pull-from-sink for explicit calls, but the scheduler calls the engine directly and bypassed
+    it, so a backup/archive target with an `interval` or `on-focus` pull policy would pull
+    ungated and reintroduce #616. An explicit `engine.pull()` is unaffected and still pulls for
+    every role.
+
+- Sync: per-collection readiness for phased pull (#809)
+
+  Under a phased pull, a `null` from `get()` is ambiguous — is the record absent, or has its
+  collection not arrived yet? Apps had to choose between showing a false empty state and blocking on
+  the whole bootstrap.
+
+  `db.syncStatus(vault)` now reports readiness per collection while a `'phased'` policy runs:
+
+  ```ts
+  const inv = await invoices.get("inv-1");
+  const { readiness, phase } = db.syncStatus("acme");
+
+  if (inv === null && readiness?.get("invoices") !== "live") showSkeleton();
+  else if (inv === null) showNotFound();
+
+  // phase: { index: 2, total: 3 } while the sequence runs, null once it drains
+  ```
+
+  - `'cold'` — not pulled yet, or its phase did not complete cleanly. A miss proves nothing.
+  - `'pulling'` — its phase is in flight. **Never terminal**: a phase always ends `'live'` or back in
+    `'cold'`, because a stuck `'pulling'` would leave a permanent skeleton.
+  - `'live'` — its phase completed cleanly, so a miss **is** a real absence.
+
+  Only a clean phase reaches `'live'`. A pull that reports errors (`PullResult.errors` accumulates
+  without throwing), one that throws, and one skipped by the role gate on a backup/archive target all
+  leave the collection `'cold'` — completeness is never claimed on a target that never read. `stop()`
+  resets any in-flight `'pulling'`, so no skeleton outlives the vault.
+
+  A collection the sequence never names is **absent** from the map: `undefined` means _"no claim
+  made"_, never a reason to gate a UI.
+
+  Additive and opt-in. `readiness` and `phase` are optional on `SyncStatus` and absent for every
+  non-phased policy, `get()` is untouched — no per-read cost, no mode-dependent return type — and the
+  kernel orchestration files are byte-identical, since `syncStatus()` already delegated to the sync
+  engine. `ReadinessState` is exported from the root barrel.
+
+- Sync: `pull.mode: 'phased'` — pull collections in a declared order (#809)
+
+  `PullPolicy` could say _when_ to pull, never _in what order_. A thin client that wants its
+  navigation-critical collections before bulk history had to orchestrate that itself, outside the
+  policy that already does the scheduling.
+
+  ```ts
+  const db = await createNoydb({
+    store: toBrowserIdb(),
+    sync: toAwsS3({ bucket, client }),
+    user,
+    secret,
+    syncStrategy: withSync(),
+    syncPolicy: {
+      push: { mode: "on-change", minIntervalMs: 0, onUnload: true },
+      pull: {
+        mode: "phased",
+        sequence: ["clients", "invoices", "attachments"],
+      },
+    },
+  });
+  ```
+
+  The scheduler walks `sequence` **one collection at a time, in order**, each phase an ordinary
+  `pull({ collections: [name] })` — phasing is sequencing, not new pull capability. Phases are
+  strictly sequential; running them concurrently would defeat the prioritisation that is the point.
+  A phase that fails does not abort the ones behind it.
+
+  When the sequence drains, the scheduler **settles into steady state**: `pull.intervalMs` if you
+  gave one, otherwise idle. Bootstrap and steady-state sync are one flow, not two APIs.
+
+  `sequence` entries must be unique and non-empty, and `sequence` is rejected unless
+  `mode === 'phased'`. An unusable policy throws when the scheduler is constructed, before any sync
+  I/O, rather than failing silently on the first tick.
+
+  Additive: `'phased'` is a new `PullMode` and `sequence` a new optional field. Existing policies are
+  untouched, and a phased policy is by definition _declared_, so it starts under the
+  declared-policy rule from #897 with no further wiring.
+
+  **Period-scoped phases (`collection@period`) are deferred**, not rejected — the granularity here is
+  db / vault / collection. `db.pull(vault, { periods })` remains available explicitly.
+
+- Sync now lives in its own `with-sync/` layer rather than under `with-party/` (#895).
+
+  `with-party/` describes **principals** — who you are, what you may do, how you prove it. Sync
+  replicates state between **stores and contexts**, which is a different concern. Roughly 2,261 lines
+  were filed under the wrong one, including `tab-coordination` and `tab-write-relay`, which coordinate
+  browser tabs of the _same_ user and are not about principals at all.
+
+  **Breaking, but narrow:** `@noy-db/hub/team` no longer re-exports `SyncEngine`, `SyncTransaction`,
+  `PresenceHandle`, or the `_sync_credentials` helpers (`putCredential`, `getCredential`,
+  `deleteCredential`, `listCredentials`, `credentialStatus`, `SYNC_CREDENTIALS_COLLECTION`,
+  `SyncCredential`). They ship from the long-standing `@noy-db/hub/sync` subpath, which is unchanged:
+
+  ```diff
+  - import { SyncEngine } from '@noy-db/hub/team'
+  + import { SyncEngine } from '@noy-db/hub/sync'
+  ```
+
+  `@noy-db/hub/sync` itself, `withSync()`, `NO_SYNC`, and every root-barrel export are unchanged. No
+  behaviour changes.
+
+  Removing the duplicate home also closed 5 type-reachability gaps that existed only because those
+  helpers were reachable two ways.
+
 ## 0.4.0-pre.9
 
 ### Minor Changes
