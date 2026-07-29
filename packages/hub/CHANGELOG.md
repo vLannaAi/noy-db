@@ -1,5 +1,37 @@
 # Changelog — hub
 
+## 0.4.0-pre.11
+
+### Patch Changes
+
+- Fix `wrapPodStore`: concurrent writes were lost, and `loadAll` leaked internal collections (#908)
+
+  `wrapPodStore()` is the single choke point through which every pod-shaped backend
+  (`@noy-db/to-drive`, `@noy-db/to-icloud`) enters the six-method store contract. It failed that
+  contract on two counts, both reproducible against any `NoydbPodStore` — neither was store-specific.
+
+  **Concurrent `put()`s lost writes.** 100 racing puts kept **one** record. `load()` had no in-flight
+  deduplication, so every concurrent caller issued its own `readBundle` and then _replaced_ the shared
+  snapshot with a freshly parsed object — orphaning the mutations earlier callers had already made to
+  the object they were handed. `flush()` then serialised the surviving object, not theirs.
+
+  Loads are now deduplicated per vault, and flushes are serialised through a per-vault chain so each
+  one sees the version token its predecessor produced. Previously, concurrent flushes all sent the
+  same `expectedVersion`; the losers took the conflict/merge path, and with enough of them the
+  3-attempt retry budget was exhausted and the error surfaced to a caller whose write was valid.
+
+  **`loadAll()` leaked internal collections** — `_keyring` and `_sync` appeared in vault snapshots.
+  The store contract requires excluding `_`-prefixed collections, with `@noy-db/to-file` as the
+  reference. `get()` and `list()` still serve them: this is about what a _snapshot_ claims, not about
+  hiding data.
+
+  `loadAll()` also returned the wrapper's **live internal object**, so a caller mutating the result
+  silently rewrote the wrapper's cache. It now returns a copy.
+
+  Found by wiring the extended stores into the adapter-conformance harness
+  ([noy-db-to#26](https://github.com/vLannaAi/noy-db-to/issues/26)) — the wrapper is where
+  `to-drive` and `to-icloud` were failing the shared suite.
+
 ## 0.4.0-pre.10
 
 ### Minor Changes
