@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/cli",
-  "version": "0.4.0-pre.10",
+  "version": "0.4.0-pre.11",
   "description": "Command-line tool for noy-db — inspect .noydb bundles without decrypting, verify integrity, validate config objects, scaffold topology profiles, and monitor a live vault's store metrics.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
