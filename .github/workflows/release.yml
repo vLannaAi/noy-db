@@ -347,56 +347,12 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      # ── Re-point `latest` for packages that have no stable release ────────
-      #
-      # npm sets `latest` on a package's FIRST publish regardless of `--tag`,
-      # and every later `--tag next` publish leaves it alone. A package born
-      # inside a pre-release line therefore has `latest` pinned to its debut
-      # version forever, drifting further behind on every release while nothing
-      # complains. `@noy-db/in-liff` and `@noy-db/in-pwa` (earliest version
-      # 0.4.0-pre.2, no 0.3.x at all) sat 8 releases stale before anyone noticed,
-      # so `npm i @noy-db/in-liff` resolved a build predating the pre.7 renames.
-      #
-      # For those packages `latest` cannot be "correct" — there is no stable
-      # release to point at — so the choice is between CURRENT and STALE, and
-      # stale is strictly worse. Re-point them after a prerelease publish.
-      #
-      # This list must SHRINK to empty at the 0.4.0 stable cut, when every
-      # package gets a real `latest` and this step becomes a no-op. If you are
-      # adding a name here, first ask whether the package should simply be held
-      # back until the stable release instead.
+      # Re-point `latest` for packages with no stable release. The rationale,
+      # the safety guard, and the list live in the script — one definition,
+      # shared with the manual `dist-tags.yml` repair path.
       - name: Re-point latest for pre-only packages
         if: steps.dist_tag.outputs.tag != 'latest'
-        run: |
-          set -euo pipefail
-          PRE_ONLY="@noy-db/in-liff @noy-db/in-pwa"
-          VERSION=$(node -p "require('./packages/hub/package.json').version")
-          echo "### Pre-only \`latest\` re-point" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          for PKG in $PRE_ONLY; do
-            # Only ever move a tag that is ALREADY on a prerelease. If it points
-            # at a stable version the package has graduated and this step must
-            # not drag it backwards onto a pre-release.
-            CURRENT=$(npm view "$PKG" dist-tags.latest 2>/dev/null || echo "")
-            if [ -z "$CURRENT" ]; then
-              echo "- \`$PKG\` — skipped, not on npm" >> "$GITHUB_STEP_SUMMARY"
-              continue
-            fi
-            case "$CURRENT" in
-              *-*) ;; # contains a hyphen → prerelease → safe to move
-              *)
-                echo "- \`$PKG\` — **skipped**, \`latest\` is stable ($CURRENT); remove it from PRE_ONLY" >> "$GITHUB_STEP_SUMMARY"
-                continue
-                ;;
-            esac
-            if npm dist-tag add "$PKG@$VERSION" latest; then
-              echo "- \`$PKG\` — \`latest\`: $CURRENT → $VERSION" >> "$GITHUB_STEP_SUMMARY"
-            else
-              # Never fail the release over a dist-tag: the publish already
-              # succeeded, and a wedged tag is recoverable by hand.
-              echo "- \`$PKG\` — ⚠️ re-point FAILED (was $CURRENT); fix with \`npm dist-tag add $PKG@$VERSION latest\`" >> "$GITHUB_STEP_SUMMARY"
-            fi
-          done
+        run: node scripts/repoint-pre-only-latest.mjs
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

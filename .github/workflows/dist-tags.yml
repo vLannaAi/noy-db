@@ -1,0 +1,79 @@
+name: Fix dist-tags
+
+# Manual repair path for the npm `latest` tag on packages that have no stable
+# release — see scripts/repoint-pre-only-latest.mjs for why they need one.
+#
+# `release.yml` already does this automatically after every prerelease publish.
+# This workflow exists for the gap that automation cannot close: a release that
+# shipped BEFORE the automation landed, or a re-point that failed and needs
+# retrying without cutting a new release.
+#
+# It cannot be reached by re-running release.yml, because that workflow's
+# publish step fails on already-published versions and exits before the
+# re-point step runs.
+#
+# Why CI rather than a workstation: the NPM_TOKEN here is an automation token,
+# which bypasses 2FA. A local `npm dist-tag add` needs an interactive OTP.
+#
+# Deliberately manual-only — no push/release trigger. Moving a dist-tag changes
+# what `npm install` resolves for every consumer, so it takes an explicit human
+# action with a typed confirmation.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type MOVE to confirm you intend to change what `npm install` resolves'
+        required: true
+        default: ''
+      version:
+        description: 'Version to point `latest` at. Blank = the version in packages/hub/package.json'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Report what would change without touching npm'
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  repoint:
+    name: Re-point latest for pre-only packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Guard — explicit confirmation
+        run: |
+          if [ "${{ inputs.confirm }}" != "MOVE" ]; then
+            echo "Refusing to run: type MOVE in the confirm input." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Re-point
+        run: |
+          ARGS=""
+          [ -n "${{ inputs.version }}" ] && ARGS="$ARGS --version=${{ inputs.version }}"
+          [ "${{ inputs.dry_run }}" = "true" ] && ARGS="$ARGS --dry-run"
+          echo "running: node scripts/repoint-pre-only-latest.mjs$ARGS"
+          node scripts/repoint-pre-only-latest.mjs $ARGS
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Verify against npm
+        if: inputs.dry_run != true
+        run: |
+          echo "### Resulting dist-tags" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          for PKG in @noy-db/in-liff @noy-db/in-pwa; do
+            TAGS=$(npm view "$PKG" dist-tags --json 2>/dev/null | tr -d '\n ' || echo '{}')
+            echo "- \`$PKG\` — $TAGS" >> "$GITHUB_STEP_SUMMARY"
+          done
