@@ -21,6 +21,7 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "test:ci": "turbo run test -- --coverage",
+  "test:scripts": "vitest run --project scripts",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "docs": "typedoc",

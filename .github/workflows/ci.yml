@@ -125,6 +125,11 @@ jobs:
       - name: Type reachability (hub subpaths)
         run: pnpm --filter @noy-db/hub check:types
 
+      # #913 — release tooling (scripts/) is not a package, so turbo never
+      # reaches it. Without this step the docs-bridge tests are dead code.
+      - name: Release tooling tests (scripts/)
+        run: pnpm test:scripts
+
   # ── Test (dev CI) ────────────────────────────────────────────────────
   # Single flake-free runtime (node 24) for fast PR feedback. The full
   # node 22 + 24 matrix AND the cross-OS interop run pre-publish in
