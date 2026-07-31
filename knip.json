@@ -2,7 +2,12 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "workspaces": {
     ".": {
-      "entry": ["scripts/*.mjs"]
+      "entry": [
+        "scripts/*.mjs",
+        "scripts/docs-bridge/*.mjs",
+        "scripts/__tests__/**/*.test.ts"
+      ],
+      "ignore": ["scripts/docs-bridge/*.d.mts"]
     },
     "packages/create-noy-db": {
       "ignore": ["templates/**"]
