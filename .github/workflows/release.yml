@@ -483,8 +483,17 @@ jobs:
       - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile
 
-      # No `pnpm build` needed: the capability dump runs under vitest, which
-      # resolves the stores' .js → .ts source imports directly.
+      # Hub's dist IS required, despite the dump running under vitest. vitest
+      # resolves the stores' own `.js → .ts` source imports, but the stores
+      # import the workspace hub through its exports map
+      # (`@noy-db/hub/to` → `packages/hub/dist/to/index.js`), so a fresh runner
+      # with only `pnpm install` fails with ERR_MODULE_NOT_FOUND. This is the
+      # fresh-runner gotcha noy-db-to's spec warns about — it does not apply
+      # there, because those stores bind the PUBLISHED hub. Hub alone is
+      # enough; the four stores need nothing else built.
+      - name: Build hub (the stores import its subpaths)
+        run: pnpm turbo build --filter @noy-db/hub
+
       - name: Build payload
         run: |
           set -euo pipefail
