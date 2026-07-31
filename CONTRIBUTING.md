@@ -166,35 +166,45 @@ The release workflow used to also have a changesets-action-driven path (push to 
 
 ### 7a. The non-negotiable pre-publish smoke test
 
-**Every release since has been bitten by a bug that only shows up when you install the packed tarballs in a fresh directory.** The workspace's symlinked `node_modules` hides three different classes of bug:
+**Releases have repeatedly been bitten by bugs that only show up when you install the packed tarballs in a fresh directory.** The workspace's symlinked `node_modules` hides several classes of bug:
 
-1. **Runtime deps declared as `devDependencies`.** Workspace symlinks make them resolve anyway; a real `npm install` can't find them. (→ patch.)
-2. **`workspace:*` in `peerDependencies` publishes as a pinned version string**, not a caret range, so adapter packages refuse to install alongside a newer `@noy-db/core`. (→ patch.)
-3. **Missing files in the `files` list.** The workspace sees the source tree; the published tarball doesn't.
+1. **Runtime deps declared as `devDependencies`.** Workspace symlinks make them resolve anyway; a real `npm install` can't find them.
+2. **Missing files in the `files` list.** The workspace sees the source tree; the published tarball doesn't.
+3. **A new subpath that resolves in-repo but not from the tarball** — an `exports` entry pointing at a path the `files` list never ships, or a build entry that was never added. The workspace resolves it through source; a consumer gets `ERR_PACKAGE_PATH_NOT_EXPORTED`.
+
+> Note: satellites publishing an **exact** peer pin on `@noy-db/hub` is *intended* under lockstep, not one of these bugs — read **7b** below before "fixing" it.
 
 The only defense that works is to reproduce the consumer's perspective before publishing. Before merging any release PR:
 
 ```bash
-# 1. Pack every package that's bumping version
-for pkg in packages/core packages/memory packages/pinia; do
-  (cd $pkg && pnpm pack)
+# 0. Build first — pnpm pack ships dist/, not src/.
+pnpm turbo build
+
+# 1. Pack the packages under test. ALWAYS include `attestation`: hub depends
+#    on it via `workspace:*`, which publishes as an exact version, so a
+#    pre-publish install fails with ETARGET (that version isn't on npm yet)
+#    unless you hand npm the tarball too.
+mkdir -p /tmp/release-smoke/tgz
+for pkg in hub attestation to-memory to-file; do
+  (cd packages/$pkg && pnpm pack --pack-destination /tmp/release-smoke/tgz)
 done
 
-# 2. Install them together in a fresh directory
-mkdir /tmp/release-smoke && cd /tmp/release-smoke
-npm init -y
-npm install /path/to/noy-db-core-X.Y.Z.tgz \
-            /path/to/noy-db-memory-X.Y.Z.tgz \
-            /path/to/noy-db-pinia-X.Y.Z.tgz
+# 2. Install them together in a fresh directory, with npm — not pnpm, and not
+#    the workspace. This is the whole point: reproduce a consumer's resolver.
+cd /tmp/release-smoke && npm init -y
+npm install ./tgz/*.tgz
 
-# 3. Run a minimal end-to-end smoke test
+# 3. Run an end-to-end smoke test. Exercise whatever this release actually
+#    changed — a new subpath especially, since the exports map + `files` list
+#    are exactly what the workspace hides.
 cat > smoke.mjs <<'EOF'
-import { createNoydb, ref, LedgerStore } from '@noy-db/core'
-import { memory } from '@noy-db/memory'
-const db = await createNoydb({ adapter: memory(), user: 'smoke', secret: 'abc12345' })
-const c = await db.openCompartment('demo')
-await c.collection('x').put('1', { id: '1', v: 1 })
-console.log('verify:', (await c.ledger().verify()).ok)
+import { createNoydb } from '@noy-db/hub'
+import { toMemory } from '@noy-db/to-memory'
+
+const db = await createNoydb({ store: toMemory(), user: 'smoke', secret: 'smoke-pw-long-enough' })
+const v = await db.openVault('demo')
+await v.collection('x').put('1', { id: '1', total: 120 })
+console.log('round-trip:', (await v.collection('x').get('1'))?.total === 120)
 db.close()
 EOF
 node smoke.mjs
@@ -202,17 +212,33 @@ node smoke.mjs
 
 If the install fails, if an import is missing, if a symbol is `undefined`, or if a feature throws on first use — **fix it and re-pack before merging the release PR**. Every past release that skipped this step needed a patch release within hours.
 
-### 7b. `workspace:*` vs `workspace:^`
+### 7b. `workspace:*` vs `workspace:^` — and why this repo uses `workspace:*`
 
-Critical distinction for monorepo peer deps:
+How each spec expands when pnpm publishes:
 
-| Spec | Expands on publish to | Use for |
-|---|---|---|
-| `workspace:*` | The **exact** current version (`"0.4.1"`) | `dependencies` only |
-| `workspace:^` | A caret range (`"^0.4.1"`) | `peerDependencies` — **always** |
-| `workspace:~` | A tilde range (`"~0.4.1"`) | Rare |
+| Spec | Expands on publish to |
+|---|---|
+| `workspace:*` | The **exact** current version (`"0.4.1"`) |
+| `workspace:^` | A caret range (`"^0.4.1"`) |
+| `workspace:~` | A tilde range (`"~0.4.1"`) |
 
-`workspace:*` in `peerDependencies` pins the consumer to the exact version the workspace was built against. Any consumer that installs a newer compatible version hits `ERESOLVE`. This is the bug that produced →. Use `workspace:^` for peer deps **unconditionally**.
+**The rule here: every satellite declares `peerDependencies['@noy-db/hub'] = "workspace:*"` — never `workspace:^`, and never in `dependencies`.** This is not a style preference; `scripts/check-architecture.mjs`'s `peer-deps` check fails the build on anything else, so a "fix" to `workspace:^` will not merge.
+
+**Why, given the general advice says the opposite.** In a typical monorepo `workspace:^` is right for peer deps, because an exact pin stops a consumer from taking a newer compatible version. That advice assumes a repo whose packages version independently. This one does not:
+
+- **`workspace:^` trips the changesets pre-1.0 dep-propagation heuristic**, forcing unintended major bumps on every dependent (the reason recorded on the guard itself). Changesets misbehaves on `0.x` lines here in more than one way — `scripts/release.mjs` exists to undo a sibling symptom, where a normal `changeset version` run tries to jump all 51 packages to `1.0.0`.
+- **Releases are lockstep.** All 51 `@noy-db/*` packages ship at one version, together, from one release. There is no supported install that mixes `@noy-db/to-memory@0.4.0-pre.12` with a different hub version, so a range would advertise flexibility the release line does not actually offer.
+
+**The consequence, stated plainly.** Satellites publish an exact pin. Verified on `0.4.0-pre.12`:
+
+```jsonc
+// node_modules/@noy-db/to-memory/package.json, installed from npm
+"peerDependencies": { "@noy-db/hub": "0.4.0-pre.12" }
+```
+
+So a consumer who bumps `@noy-db/hub` without bumping its satellites hits `ERESOLVE`. **That is the intended signal, not a defect** — under lockstep, a hub upgrade *is* a whole-family upgrade. Upgrade them together.
+
+**When to revisit:** at `1.0`, where the changesets pre-1.0 heuristic no longer applies. If the family ever moves off lockstep to independent version lines, `workspace:^` becomes correct and the guard should change with it. Until then, the guard and this section agree, and both override the generic advice.
 
 ### 8. Starting a new release epic
 
