@@ -6,6 +6,19 @@
 import type { EncryptedEnvelope } from './types.js'
 
 /**
+ * The option's two failure modes, re-exported here so a consumer can `catch`
+ * them by identity (#914). Both are thrown from the kernel — `createNoydb`
+ * raises `DebugPlaintextError` when `debugPlaintext` is combined with
+ * encryption, and the record codec raises `DebugReservedFieldError` for a
+ * field colliding with the `_`-prefixed metadata. This entry is the only one
+ * that publishes them.
+ */
+export { DebugPlaintextError, DebugReservedFieldError } from './errors.js'
+
+/** Re-exported so `readPlaintextRecord`'s parameter is nameable from this entry. */
+export type { EncryptedEnvelope } from './types.js'
+
+/**
  * Extract the record from a plaintext stored envelope, handling both layouts:
  *
  *   - **classic plaintext** (`encrypt: false`): the record is JSON in `_data`.
