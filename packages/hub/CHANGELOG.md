@@ -1,5 +1,15 @@
 # Changelog — hub
 
+## 0.4.0-pre.12
+
+### Minor Changes
+
+- Add the `@noy-db/hub/debug` subpath so the `debugPlaintext` inspection cluster is reachable again (#914).
+
+  `#843(c)` pruned `readPlaintextRecord`, `DebugPlaintextError` and `DebugReservedFieldError` off the root barrel on a "zero barrel imports" signal. That signal holds inside the monorepo, where every caller reaches the source module directly, but not for an npm consumer, who has only the exports map. The effect was a supported `createNoydb` option whose two documented errors could not be caught by identity, and a helper whose own `@example` could not be run.
+
+  The three symbols (plus `EncryptedEnvelope`, so the helper's parameter is nameable from the same entry) now ship from `@noy-db/hub/debug`. The root barrel is unchanged — `#843(c)`'s reduction stands.
+
 ## 0.4.0-pre.11
 
 ### Patch Changes
