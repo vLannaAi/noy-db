@@ -1,6 +1,6 @@
 export interface CapEntry {
   factory: string
-  /** "record" — a backend exposing capabilities; "wrapper" — wraps another store. */
+  /** "record" — per-record store; "vault" — pod/bundle store (noy-db-to only). */
   shape: string
   capabilities: Record<string, unknown> | null
   optionDependent: boolean

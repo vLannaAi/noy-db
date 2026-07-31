@@ -9,7 +9,7 @@ let root: string
 const caps = {
   'to-alpha': { factory: 'toAlpha', shape: 'record', capabilities: { casAtomic: true }, optionDependent: false },
   'to-beta': { factory: 'toBeta', shape: 'record', capabilities: { casAtomic: false }, optionDependent: false },
-  'to-gamma': { factory: 'toGamma', shape: 'wrapper', capabilities: null, optionDependent: false },
+  'to-gamma': { factory: 'toGamma', shape: 'record', capabilities: { casAtomic: true }, optionDependent: true },
 }
 
 beforeAll(() => {
@@ -66,13 +66,15 @@ describe('buildPayload', () => {
     expect(alpha.changelog).toBe('### Fix: x\n\n- fixed x')
   })
 
-  it('carries a wrapper store with null capabilities', () => {
-    // to-meter wraps another store rather than being a backend, so it has no
-    // capability surface of its own. The docs matrix must not read it as a
-    // backend that merely declares everything false.
+  it('carries optionDependent through, so a varying capability is not read as fixed', () => {
+    // to-meter INHERITS the wrapped store's capabilities (it is built with
+    // hub's `wrapStore`), so its recorded value describes the representative
+    // configuration only. Dropping the flag would present one arbitrary
+    // wrapping as the store's fixed capability surface.
     const gamma = build().packages.find(x => x.dir === 'to-gamma')!
-    expect(gamma.shape).toBe('wrapper')
-    expect(gamma.capabilities).toBeNull()
+    expect(gamma.shape).toBe('record')
+    expect(gamma.optionDependent).toBe(true)
+    expect(gamma.capabilities).toEqual({ casAtomic: true })
   })
 
   it('classifies changeType: added wins over changelog presence', () => {

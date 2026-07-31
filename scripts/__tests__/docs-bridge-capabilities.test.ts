@@ -27,28 +27,28 @@ import { toMeter } from '../../packages/to-meter/src/index.js'
 // real reads and writes; this dump does not.
 
 /**
- * `shape` vocabulary:
- *   - `record` — a storage backend exposing a real `capabilities` object.
- *   - `wrapper` — wraps another store and has no capability surface of its
- *     own (`to-meter`). Recorded as null rather than all-false: "no opinion"
- *     and "declares nothing atomic" are different claims, and a storage matrix
- *     that conflates them misinforms.
+ * All four are `record` stores — noy-db-to additionally emits `vault` for pod
+ * stores, and none of the essential four is one.
  *
- * noy-db-to additionally emits `vault` for pod stores; none of the essential
- * four is one. The docs consumer reads capabilities only when
- * `shape === 'record'`, so an unfamiliar value degrades to "no capabilities"
- * rather than breaking the sync.
+ * `to-meter` is `optionDependent: true`. It is a real store (#883), but it is
+ * built with hub's `wrapStore`, so it **inherits** the wrapped store's
+ * capabilities: bare `toMeter()` reports the in-memory defaults
+ * (`casAtomic: true`, `txAtomic: true`), while `toMeter(toFile(…))` reports
+ * `casAtomic: false`. The recorded value is therefore the representative
+ * configuration — the bare default — and the flag says so, exactly as
+ * noy-db-to marks `to-turso`. Recording it as fixed would present one
+ * arbitrary wrapping as the store's capability surface.
  */
 const WIRING: Record<string, {
   factory: string
-  shape: 'record' | 'wrapper'
+  shape: 'record'
   optionDependent: boolean
   make: () => unknown
 }> = {
   'to-browser-idb': { factory: 'toBrowserIdb', shape: 'record', optionDependent: false, make: () => toBrowserIdb({ prefix: 'docs-bridge-dump' }) },
   'to-file': { factory: 'toFile', shape: 'record', optionDependent: false, make: () => toFile({ dir: mkdtempSync(join(tmpdir(), 'docs-bridge-file-')) }) },
   'to-memory': { factory: 'toMemory', shape: 'record', optionDependent: false, make: () => toMemory() },
-  'to-meter': { factory: 'toMeter', shape: 'wrapper', optionDependent: false, make: () => toMeter() },
+  'to-meter': { factory: 'toMeter', shape: 'record', optionDependent: true, make: () => toMeter() },
 }
 
 describe('docs-bridge capability dump', () => {
