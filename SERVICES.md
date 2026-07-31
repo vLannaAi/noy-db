@@ -143,13 +143,19 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 
 ## Subpath inventory — the authoritative list
 
-`package.json`'s `exports` is the source of truth: **43 subpaths plus the root barrel**. It is enforced by the `service-subpath-naming` check in `scripts/check-architecture.mjs`, which fails in both directions — a factory with no subpath, and a subpath with no factory. The catalog above groups capabilities for teaching and does not map one-to-one onto it. This section reconciles the two, and is the list to check against when adding or removing an entry.
+`package.json`'s `exports` is the source of truth: **44 subpaths plus the root barrel**. It is enforced by the `service-subpath-naming` check in `scripts/check-architecture.mjs`, which fails in both directions — a factory with no subpath, and a subpath with no factory. The catalog above groups capabilities for teaching and does not map one-to-one onto it. This section reconciles the two, and is the list to check against when adding or removing an entry.
 
 ### Themed homes (#843 C3a)
 
 `./store`, `./introspection`, `./money`, `./cover`, `./schema-update`, `./policy` and `./directory` group symbols that previously had no home but the root barrel. They are **additive** — each is also still re-exported from `.`, matching how the Via features are dual-homed (`./classified` and `./i18n` have always been reachable both ways). The subpath exists so the surface is navigable and tree-shakeable, not to force a migration. None has a `with<Name>()` factory, so each is allowlisted in the `service-subpath-naming` guard as a themed grouping rather than a service.
 
 **Where this stopped, and why.** #843(c) began with **467 symbols reachable from no entry but `.`**; it now stands at **278**. Of those, **185 are declared in `kernel`** — `createNoydb`, `Vault`, `Collection`, the store contract, the error types — and belong on the root barrel by design, and a further **12** are the `at-*`/`on-*` sealing SPI that satellites import from `.` (see #843 C2). That leaves ~81 spread across ~19 modules at nine or fewer each. Those are deliberately left on the root barrel: a subpath for nine symbols mints permanent public API and a guard allowlist entry to satisfy a count, which is worse than the drift it removes. Revisit only if one of those modules grows a real, separable capability.
+
+### `./debug` — a themed home that is the *sole* home (#914)
+
+`./debug` groups the `debugPlaintext` inspection cluster: `readPlaintextRecord` (the reader for the layout the option produces) plus `DebugPlaintextError` and `DebugReservedFieldError` (the two failures it raises at the caller). Like the C3a homes it has no `with<Name>()` factory — `debugPlaintext` is a `createNoydb` **option**, not an opt-in service — so it is allowlisted in the `service-subpath-naming` guard the same way.
+
+It differs from them in one respect worth stating plainly: it is **not additive**. #843(c) pruned all three symbols off the root barrel, correctly reading them as internal-looking, on the evidence that no in-repo caller imported them from the barrel. That evidence does not transfer to npm consumers, who have only the exports map — so the prune left a supported option whose documented error could not be caught and a helper whose own `@example` could not be run. This subpath restores reachability without re-growing `.`, which is the outcome #843(c) was after. Reachability is held by `__tests__/debug-subpath-reachable.test.ts`, which asserts against the **built** bundles rather than source, since source-internal reachability is exactly what diverged.
 
 ### Shipped subpaths not represented as rows above
 
