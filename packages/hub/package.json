@@ -52,6 +52,10 @@
       "types": "./dist/kernel/query/index.d.ts",
       "default": "./dist/query/index.js"
     },
+    "./debug": {
+      "types": "./dist/kernel/debug.d.ts",
+      "default": "./dist/debug/index.js"
+    },
     "./blobs": {
       "types": "./dist/via/blob/index.d.ts",
       "default": "./dist/blobs/index.js"

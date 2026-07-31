@@ -545,6 +545,10 @@ const NOT_SERVICE_SUBPATHS = new Set([
   'schema-update',  // SchemaDelta + the blindUpdate/additiveOnly/lockSchema strategies
   'policy',         // gate policy presets, engine and storage
   'directory',      // directory config, user visibility, the user-envelope surface
+  // #914 — themed home for the `debugPlaintext` inspection cluster: the reader
+  // for the layout the option produces, plus the two errors it throws at the
+  // caller. An option, not an opt-in service, so there is no `withDebug()`.
+  'debug',
 ])
 const NO_SUBPATH_FACTORIES = new Set([
   // Complete seams that qualify for a subpath — no reason on record yet.
