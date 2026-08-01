@@ -357,7 +357,10 @@ export class SyncEngine {
                   )
                   conflicts.push(conflict)
                   if (handled === 'local') {
-                    await this.remote.put(this.vault, entry.collection, entry.id, conflict.local)
+                    // #936: supersede, don't overwrite in place — see advancePastRemote.
+                    const winner = this.advancePastRemote(conflict.local, remoteEnvelope)
+                    await this.remote.put(this.vault, entry.collection, entry.id, winner)
+                    if (winner !== conflict.local) await this.applyRemote(entry.collection, entry.id, winner)
                     completed.push(i)
                     pushed++
                   } else if (handled === 'remote') {
@@ -773,7 +776,10 @@ export class SyncEngine {
                   )
                   conflicts.push(conflict)
                   if (handled === 'local') {
-                    await this.remote.put(this.vault, entry.collection, entry.id, conflict.local)
+                    // #936: supersede, don't overwrite in place — see advancePastRemote.
+                    const winner = this.advancePastRemote(conflict.local, remoteEnvelope)
+                    await this.remote.put(this.vault, entry.collection, entry.id, winner)
+                    if (winner !== conflict.local) await this.applyRemote(entry.collection, entry.id, winner)
                     completed.push(i)
                     pushed++
                   } else if (handled === 'remote') {
@@ -877,6 +883,22 @@ export class SyncEngine {
    *  ordinary put. `isTombstoneShape` covers a forgotten-elsewhere record arriving as a shred;
    *  `isDeleteMarker` covers an ordinary (#589) delete — both route to the SAME 'delete' action
    *  (sync delete ≠ forget: freshness only, no shred/residue channel on the receiving side). */
+  /**
+   * #936 — a local-wins resolution write must SUPERSEDE the remote, never
+   * overwrite it in place: when the winner's `_v` does not already exceed
+   * the remote's (the same-`_v` push tie), re-stamp it at `remote._v + 1`.
+   * Without this the loser's next pull sees no delta (`_v`-based
+   * detection) and the peers stay silently diverged at the same version.
+   * `_v` is envelope metadata — AEAD-unbound, and `_vdig` is deliberately
+   * `_v`-independent — so the engine may restamp ciphertext. Callers must
+   * mirror the advanced envelope locally (`applyRemote`) so both sides
+   * agree. The 'merged' branch needs none of this: resolver output is
+   * already stamped `max(local, remote) + 1`.
+   */
+  private advancePastRemote(winner: EncryptedEnvelope, remote: EncryptedEnvelope): EncryptedEnvelope {
+    return winner._v > remote._v ? winner : { ...winner, _v: remote._v + 1 }
+  }
+
   private async applyRemote(collection: string, id: string, envelope: EncryptedEnvelope): Promise<void> {
     await this.local.put(this.vault, collection, id, envelope)
     if (this.pullByteSink !== null) {
