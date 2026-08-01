@@ -16,26 +16,28 @@
  * interleaving per op the way the OCC loop does.
  */
 import { describe, it, expect, vi } from 'vitest'
+import { z } from 'zod'
 import { toMemory } from '../../../to-memory/src/index.js'
-import { ConflictError, InvariantError, createNoydb, withDerivation } from '../../src/index.js'
+import { ConflictError, InvariantError, MigrationRequiredError, SchemaFenceError, createNoydb, withDerivation } from '../../src/index.js'
+import { coordinatedCutover } from '../../src/with-shape/schema-update/index.js'
 import { withTransactions } from '../../src/with-commit/tx/index.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
 import { withSync } from '../../src/with-sync/index.js'
 import type { Noydb } from '../../src/index.js'
+import type { Collection } from '../../src/kernel/collection.js'
 import type { ChangeEvent, NoydbStore, TxOp } from '../../src/kernel/types.js'
 
-// The mixed put/delete test below forces the gate open — see its comment.
-const forced = vi.hoisted(() => ({ eligible: false }))
-vi.mock('../../src/with-commit/tx/atomic-eligibility.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/with-commit/tx/atomic-eligibility.js')>()
-  return {
-    ...actual,
-    canCommitAtomically: (...args: Parameters<typeof actual.canCommitAtomically>) =>
-      forced.eligible || actual.canCommitAtomically(...args),
-  }
-})
-
 const SECRET = 'atomic-commit-test-secret-2026'
+
+/**
+ * Force ONLY the delete branch of one collection's `_txAtomicSafe` open, so a
+ * delete-inclusive batch reaches the atomic path. The rest of the gate (store
+ * capability, amendment, duplicate ids, the put branch) stays live.
+ */
+function allowAtomicDeletes(coll: Collection<unknown>): void {
+  const real = coll._txAtomicSafe.bind(coll)
+  vi.spyOn(coll, '_txAtomicSafe').mockImplementation((op) => (op === 'delete' ? true : real(op)))
+}
 
 interface Invoice extends Record<string, unknown> { amount: number; status: string }
 
@@ -328,7 +330,7 @@ describe('#906 — db.transaction commits through store.tx() on txAtomic stores'
       scope: 'invoices',
       check: () => { throw new Error('R1: no paid invoices today') },
     }
-    const { store } = instrument()
+    const { store, calls } = instrument()
     const db = await open(store, { transactionsStrategy: withTransactions({ invariants: [failing] }) })
     const inv = db.vault('acme').collection<Invoice>('invoices')
     await inv.put('inv-1', { amount: 50, status: 'draft' })
@@ -343,6 +345,94 @@ describe('#906 — db.transaction commits through store.tx() on txAtomic stores'
 
     expect(await inv.get('inv-1')).toEqual({ amount: 50, status: 'draft' })
     expect(await inv.get('inv-2')).toBeNull()
+    // …and it really was the atomic path that got reverted: one tx() for the
+    // commit, then a second for the revert itself (#886 sends the whole revert
+    // as one batch on a txAtomic store).
+    expect(calls.filter(c => c.startsWith('tx:'))).toEqual(['tx:2', 'tx:2'])
+  })
+})
+
+/**
+ * Fix round 1 — the schema write gates.
+ *
+ * `Collection.put()` / `.delete()` assert `schemaUpdateGate.assertWritable()`
+ * and `schemaFence.assertWritable(name)` before anything else; neither lives in
+ * the prepare halves the atomic path calls, and the fence is wired on EVERY
+ * collection. Without an explicit assertion the atomic path would write straight
+ * through a paused vault. Driven with the real fence (the pending-cutover state
+ * from `coordinated-cutover-integration.test.ts`) rather than a stub — that
+ * idiom is only a few lines and proves the production wiring, not a mock.
+ */
+describe('#906 — the atomic path honours the schema write gates', () => {
+  const oldSchema = z.object({ id: z.string(), total: z.number() })
+  const newSchema = z.object({ id: z.string(), amount: z.object({ gross: z.number() }) })
+
+  it('a pending cutover refuses an atomic batch with the same error as put(), applying nothing', async () => {
+    const { store, calls } = instrument()
+    // gen 0: seed the old shape.
+    const seed = await createNoydb({ store, user: 'owner', secret: SECRET, transactionsStrategy: withTransactions() })
+    const v0 = await seed.openVault('acme')
+    v0.collection('invoices', { schema: oldSchema, persistJsonSchema: true })
+    await v0._drainPendingSchemaWrites()
+
+    // Reopen with a NON-additive schema + coordinatedCutover ⇒ cutover-pending.
+    const db = await createNoydb({ store, user: 'owner', secret: SECRET, transactionsStrategy: withTransactions() })
+    const v = await db.openVault('acme')
+    const invoices = v.collection('invoices', {
+      schema: newSchema, persistJsonSchema: true,
+      schemaUpdate: [coordinatedCutover({ transform: (d) => ({ id: d['id'], amount: { gross: d['total'] } }) })],
+    })
+    await v._drainPendingSchemaWrites()
+
+    // The direct write refuses…
+    await expect(invoices.put('i1', { id: 'i1', amount: { gross: 5 } })).rejects.toBeInstanceOf(SchemaFenceError)
+    const before = await dump(store, ['invoices', 'payments'])
+    calls.length = 0
+
+    // …and so does an otherwise-eligible atomic batch, with the SAME error.
+    await expect(
+      db.transaction((tx) => {
+        tx.vault('acme').collection('invoices').put('i1', { id: 'i1', amount: { gross: 5 } })
+        tx.vault('acme').collection<Invoice>('payments').put('pay-1', { amount: 5, status: 'paid' })
+      }),
+    ).rejects.toBeInstanceOf(SchemaFenceError)
+
+    expect(calls.filter(c => c.startsWith('tx:'))).toEqual([]) // refused before the batch
+    expect(bodyWrites(calls)).toEqual([])
+    expect(await dump(store, ['invoices', 'payments'])).toBe(before)
+  })
+
+  it('a stale-generation client refuses an atomic batch with MigrationRequiredError', async () => {
+    const { store, calls } = instrument()
+    const seed = await createNoydb({ store, user: 'owner', secret: SECRET })
+    const v0 = await seed.openVault('acme')
+    v0.collection('invoices', { schema: oldSchema, persistJsonSchema: true })
+    await v0._drainPendingSchemaWrites()
+
+    // A client that opened at generation 0…
+    const stale = await createNoydb({ store, user: 'owner', secret: SECRET, transactionsStrategy: withTransactions() })
+    const staleVault = await stale.openVault('acme')
+    staleVault.collection('invoices', { schema: oldSchema, persistJsonSchema: true })
+    await staleVault._drainPendingSchemaWrites()
+
+    // …while another client cuts over and bumps the generation.
+    const mig = await createNoydb({ store, user: 'owner', secret: SECRET })
+    const migVault = await mig.openVault('acme')
+    migVault.collection('invoices', {
+      schema: newSchema, persistJsonSchema: true,
+      schemaUpdate: [coordinatedCutover({ transform: (d) => ({ id: d['id'], amount: { gross: d['total'] } }) })],
+    })
+    await migVault._drainPendingSchemaWrites()
+    await migVault.runSchemaCutover()
+    calls.length = 0
+
+    await expect(
+      stale.transaction((tx) => {
+        tx.vault('acme').collection('invoices').put('i9', { id: 'i9', total: 1 })
+      }),
+    ).rejects.toBeInstanceOf(MigrationRequiredError)
+
+    expect(calls.filter(c => c.startsWith('tx:'))).toEqual([])
   })
 })
 
@@ -354,8 +444,10 @@ describe('#906 — db.transaction commits through store.tx() on txAtomic stores'
  * (kernel/vault.ts) — so no real vault can produce a delete-inclusive batch
  * the production gate admits (asserted below, and by the tripwire test in
  * `atomic-eligibility.test.ts`). The delete leg is therefore exercised with
- * the gate forced open, which is honest about what it covers: the leg SHAPE
- * `runTransaction` builds and hands to `store.tx()`, not the gate's verdict.
+ * ONLY that collection's delete branch forced open (`allowAtomicDeletes` spies
+ * on `_txAtomicSafe`; every other condition of the real gate stays live), which
+ * is honest about what it covers: the leg SHAPE `runTransaction` builds and
+ * hands to `store.tx()`, not the gate's verdict.
  */
 describe('#906 — the delete leg of a mixed batch', () => {
   it('the production gate refuses a delete-inclusive batch today', async () => {
@@ -379,16 +471,12 @@ describe('#906 — the delete leg of a mixed batch', () => {
     await db.vault('acme').collection<Invoice>('invoices').put('inv-1', { amount: 50, status: 'draft' })
     calls.length = 0
 
-    forced.eligible = true
-    try {
-      await db.transaction((tx) => {
-        const inv = tx.vault('acme').collection<Invoice>('invoices')
-        inv.put('inv-2', { amount: 200, status: 'paid' })
-        inv.delete('inv-1')
-      })
-    } finally {
-      forced.eligible = false
-    }
+    allowAtomicDeletes(db.vault('acme').collection('invoices'))
+    await db.transaction((tx) => {
+      const inv = tx.vault('acme').collection<Invoice>('invoices')
+      inv.put('inv-2', { amount: 200, status: 'paid' })
+      inv.delete('inv-1')
+    })
 
     expect(batches[0]!.map(o => `${o.type}:${o.id}@${o.expectedVersion}`)).toEqual([
       'put:inv-2@0',
@@ -406,16 +494,12 @@ describe('#906 — the delete leg of a mixed batch', () => {
     await db.vault('acme').collection<Invoice>('invoices').put('inv-1', { amount: 50, status: 'draft' })
     calls.length = 0
 
-    forced.eligible = true
-    try {
-      await db.transaction((tx) => {
-        const inv = tx.vault('acme').collection<Invoice>('invoices')
-        inv.put('inv-2', { amount: 200, status: 'paid' })
-        inv.delete('inv-1')
-      })
-    } finally {
-      forced.eligible = false
-    }
+    allowAtomicDeletes(db.vault('acme').collection('invoices'))
+    await db.transaction((tx) => {
+      const inv = tx.vault('acme').collection<Invoice>('invoices')
+      inv.put('inv-2', { amount: 200, status: 'paid' })
+      inv.delete('inv-1')
+    })
 
     const legs = batches[0]!
     expect(legs.map(o => `${o.type}:${o.id}@${o.expectedVersion}`)).toEqual([

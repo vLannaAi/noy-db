@@ -654,6 +654,10 @@ async function commitAtomicBatch(
   // it (same record-before-the-call convention as the OCC loop).
   for (const op of ctx._ops) {
     const coll = db.vault(op.vaultName).collection(op.collectionName)
+    // The two refusals `Collection.put()` / `.delete()` assert before anything
+    // else — schema-update gate + schema fence. They live in those wrappers,
+    // not in the prepare halves this path calls, so assert them here, per op.
+    await coll._assertWriteGates()
     const prior = priorEnvelopes.get(keyOf(op)) ?? null
     // Every leg carries CAS against the Phase-1 snapshot, so a writer landing
     // between the body returning and the batch reaching the store loses.

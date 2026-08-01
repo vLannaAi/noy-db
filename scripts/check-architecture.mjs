@@ -936,7 +936,20 @@ const KERNEL_SURFACE_BUDGET = {
   // file exactly AT ceiling), so this single line has nowhere left to fold
   // into; the method itself is already collapsed to one line matching the
   // `_via*`/`_onViaErase` one-liner cluster it sits beside.
-  'packages/hub/src/kernel/collection.ts': 4371,
+  // Bumped 4371→4372 (2026-08-01, #906 review fix round 1): one new terse
+  // one-liner, `Collection._assertWriteGates()` — the schema-update gate +
+  // schema fence refusals that `put()`/`delete()` assert before anything else.
+  // They live in those public wrappers, NOT in the prepare halves, and #906's
+  // atomic commit path calls the prepare halves directly — without this
+  // accessor `db.transaction(fn)` would write straight through a fenced or
+  // mid-cutover vault (MigrationRequiredError / SchemaFenceError bypassed).
+  // Cannot move onto the SubsystemBus: both gates are per-collection write-path
+  // refusals owned by Collection, and the alternative (asserting inside the
+  // prepare halves) would double-assert on the OCC path — the fence does a
+  // fresh store read per call. Collapsed to one line in the `_via*` one-liner
+  // cluster; the file was again exactly AT ceiling, so there was nothing to
+  // fold into.
+  'packages/hub/src/kernel/collection.ts': 4372,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
