@@ -9,9 +9,9 @@
  *  1. convergence — A writes + pushes, B pulls and reads the records;
  *  2. bidirectional — B writes back + pushes, A pulls; both sides see
  *     both records;
- *  3. concurrent same-record edit — the pinned-by-observation outcome
- *     of the DEFAULT (`'version'`) conflict strategy, see the comment
- *     in the test.
+ *  3. concurrent same-record edit — the DEFAULT (`'version'`) strategy's
+ *     tie resolves to the later pusher at an ADVANCED version (#936), so
+ *     the earlier pusher converges on its next pull; see the test.
  *
  * Keyring note: the sync engine replicates data envelopes, NOT
  * `_keyring` — device B is provisioned by copying the wrapped-keyring
@@ -91,18 +91,17 @@ describe('simulation: two devices, own local stores, one shared remote', () => {
     expect(await deviceB.vault(VAULT).collection<Doc>('docs').get('doc-a')).toEqual({ editor: 'A', note: 'from-a' })
   })
 
-  it('concurrent same-record edit: the later push wins the remote via the version-tie rule; the earlier pusher cannot see it', async () => {
-    // ── Pinned by observation (default `conflict: 'version'` strategy) ──
+  it('concurrent same-record edit: the later push wins the tie at an ADVANCED version, and the earlier pusher converges (#936)', async () => {
+    // ── Default `conflict: 'version'` strategy ──
     // Both devices edit the same v1 record, producing two DIFFERENT v2
     // envelopes. A pushes first (remote ← A@v2). B's push hits the CAS,
     // reports ONE conflict {localVersion: 2, remoteVersion: 2}, and the
-    // 'version' tie-break (local >= remote → local) force-puts B's
-    // envelope — the LAST PUSHER'S edit wins the remote. A's subsequent
-    // pull then reports 0 pulled: remote._v equals A's local._v, so the
-    // version-based change detection cannot see that the remote CONTENT
-    // changed, and A keeps its own edit. The devices stay diverged at
-    // the same _v until a later write bumps one of them past the other.
-    // This is what the engine actually does — asserted, not endorsed.
+    // 'version' tie-break (local >= remote → local) resolves to B — the
+    // LAST PUSHER'S edit wins the remote. #936: the winning write is
+    // re-stamped at remote._v + 1 and mirrored into B's local store, so
+    // A's subsequent pull SEES the advance and adopts B's edit. (The
+    // pre-#936 behavior — force-put at the tied _v, A's pull reports 0,
+    // devices silently diverged at the same _v — is gone.)
     await deviceA.vault(VAULT).collection<Doc>('docs').put('doc', { editor: 'seed', note: 'v1' })
     await deviceA.push(VAULT)
     const deviceB = await provisionDeviceB()
@@ -119,19 +118,19 @@ describe('simulation: two devices, own local stores, one shared remote', () => {
     expect(pushB.errors).toHaveLength(0)
     expect(pushB.conflicts).toHaveLength(1)
     expect(pushB.conflicts[0]).toMatchObject({ collection: 'docs', id: 'doc', localVersion: 2, remoteVersion: 2 })
-    expect(pushB.pushed).toBe(1) // tie resolved to local → B's envelope force-put
+    expect(pushB.pushed).toBe(1) // tie resolved to local → B's envelope, advanced
 
-    // The remote now holds B's envelope byte-for-byte.
+    // The remote holds B's bytes at the ADVANCED version, mirrored locally.
     const remoteEnv = (await remote.get(VAULT, 'docs', 'doc'))!
     const localBEnv = (await localB.get(VAULT, 'docs', 'doc'))!
-    expect(remoteEnv._v).toBe(2)
+    expect(remoteEnv._v).toBe(3)
+    expect(localBEnv._v).toBe(3)
     expect(remoteEnv._data).toBe(localBEnv._data)
 
-    // A pulls — and detects nothing: same _v, different content.
+    // A pulls — sees v3 over its v2 and adopts the winner. Converged.
     const pullA = await deviceA.pull(VAULT)
-    expect(pullA.pulled).toBe(0)
-    expect(pullA.conflicts).toHaveLength(0)
-    expect(await deviceA.vault(VAULT).collection<Doc>('docs').get('doc')).toEqual({ editor: 'A', note: 'from-A' })
+    expect(pullA.pulled).toBe(1)
+    expect(await deviceA.vault(VAULT).collection<Doc>('docs').get('doc')).toEqual({ editor: 'B', note: 'from-B' })
     expect(await deviceB.vault(VAULT).collection<Doc>('docs').get('doc')).toEqual({ editor: 'B', note: 'from-B' })
   })
 })
