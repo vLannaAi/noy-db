@@ -885,7 +885,71 @@ const KERNEL_SURFACE_BUDGET = {
   // `indexing/collection-facade.js` named-import block from one name per line to three
   // per line (byte-preserving — same 9 imported names, only the line breaks moved), a
   // −6 net. Net zero versus pre-#788: the file lands back at the exact same line count.
-  'packages/hub/src/kernel/collection.ts': 4264,
+  // Bumped 4264→4311 (2026-08-01, #904/#893: `_putInternal` split into
+  // prepare/commit halves so a batch can encrypt every op, submit ONE
+  // `store.tx()`, then run each op's commit tail). The pipeline is unchanged —
+  // the same stages in the same order — but the seam costs four signatures and
+  // their doc comments: `#prepareWriteRecord` (the pre-envelope stages both the
+  // CRDT and ordinary paths share), `_preparePut` (side-effect-free, ends
+  // holding the envelope), `_commitPut(prepared, persist)` and the
+  // `_finalizePut` delegate (commit minus the `adapter.put`, for the atomic
+  // path). Partially funded IN PLACE by three separate savings (the arithmetic
+  // this comment first reported was wrong — corrected here by #905's toucher):
+  // the `enclave/index.js` named-import block reflowed from one name per line
+  // to four (byte-preserving — same 11 names, only the line breaks moved) is
+  // −8 on its own; the `#commitWriteTail` call site collapsed from an 8-line
+  // argument object to one line is a further −7; and the returned `PreparedPut`
+  // literal is kept to a single line rather than one field per line. The
+  // `PreparedPut` type itself lives in the new (unceilinged, type-only)
+  // `src/kernel/prepared-write.ts`.
+  // Bumped 4311→4358 (2026-08-01, #905/#893: the sibling split of `_doDelete`
+  // into `_prepareDelete` / `_commitDelete` / `_finalizeDelete`). Deliberately
+  // NOT shared with the put split (#842c) — delete differs in hydration, in the
+  // history-read gate and in the #589 marker rules — so it pays for its own
+  // three signatures and their doc comments, the destructure of the prepared
+  // delete, the `_doDelete` prepare→commit delegate, and the marker branch
+  // rewritten to mint-then-write. Same stages in the same order, with one
+  // consequence of the seam: the `null` early-outs (no live record / tombstone
+  // / existing marker) now precede the history snapshot instead of following
+  // it, so a delete that does nothing also writes no history — prepare commits
+  // nothing by construction. Partially funded IN PLACE: the `ledger.append`
+  // argument object one-lined (−7) and the physical-delete `else if` branch
+  // debraced (−2). `PreparedDelete` lives beside `PreparedPut` in the type-only
+  // `src/kernel/prepared-write.ts`.
+  // Bumped 4358→4370 (2026-08-01, #905 review round 1, two findings): (a) the
+  // history snapshot's key material is now resolved in `_prepareDelete` and
+  // carried on `PreparedDelete` (`cek`, `vdigCtx`) instead of being re-read in
+  // the commit half — under `_finalizeDelete` the store already holds the
+  // marker, which carries no `_cek` (so `resolveStableCek` would mint a FRESH
+  // key and the snapshot would leave the record's key chain) and no `_vdig`
+  // (so the digest would chain off the marker); the vdig read is folded onto
+  // the existing `previousEnvelope` read, so this costs no extra `adapter.get`.
+  // (b) `_prepareDelete`'s doc now states the one sanctioned exception to its
+  // no-write guarantee — a `cascade` inbound ref makes prepare non-abortable,
+  // so the atomic path's eligibility gate must exclude refs-bearing
+  // collections. Funded in part by folding the new block's comment into the
+  // `PreparedDelete` field docs rather than repeating it here (−2).
+  // Bumped 4370→4371 (2026-08-01, #893/#906-prep Task 4): one new terse
+  // one-liner, `Collection._txAtomicSafe(opType)` — the per-collection half
+  // of the atomic-commit eligibility gate `with-commit/tx/atomic-eligibility.ts`
+  // consults. Landed at zero slack (the #905 review-round bump above left the
+  // file exactly AT ceiling), so this single line has nowhere left to fold
+  // into; the method itself is already collapsed to one line matching the
+  // `_via*`/`_onViaErase` one-liner cluster it sits beside.
+  // Bumped 4371→4372 (2026-08-01, #906 review fix round 1): one new terse
+  // one-liner, `Collection._assertWriteGates()` — the schema-update gate +
+  // schema fence refusals that `put()`/`delete()` assert before anything else.
+  // They live in those public wrappers, NOT in the prepare halves, and #906's
+  // atomic commit path calls the prepare halves directly — without this
+  // accessor `db.transaction(fn)` would write straight through a fenced or
+  // mid-cutover vault (MigrationRequiredError / SchemaFenceError bypassed).
+  // Cannot move onto the SubsystemBus: both gates are per-collection write-path
+  // refusals owned by Collection, and the alternative (asserting inside the
+  // prepare halves) would double-assert on the OCC path — the fence does a
+  // fresh store read per call. Collapsed to one line in the `_via*` one-liner
+  // cluster; the file was again exactly AT ceiling, so there was nothing to
+  // fold into.
+  'packages/hub/src/kernel/collection.ts': 4372,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The

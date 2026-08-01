@@ -32,15 +32,26 @@
  *    ledger is NOT rewritten — audit history preserves the partial
  *    commit and the revert.
  *
- * **Crash window.** Steps 2–3 are not a storage-layer transaction —
- * if the process dies between two executed ops, the on-disk state is
- * partial. True all-or-nothing atomicity requires a store that
- * implements `NoydbStore.tx()` (DynamoDB `TransactWriteItems`,
- * IndexedDB `readwrite` transaction, …). This executor declares
- * that future integration point via the `tx?()` method + the
- * `StoreCapabilities.txAtomic` bit, but does not yet delegate
- * to it — the cascade into `Fork · Stores` tracks the per-adapter
- * wire-up.
+ * **Atomic delegation (#906).** Steps 1–3 above describe the OCC
+ * fallback. When the store declares `StoreCapabilities.txAtomic` AND
+ * implements `tx()`, AND the staged batch is statically safe
+ * (`canCommitAtomically` — see `atomic-eligibility.ts`), the commit
+ * instead: prepares every op through `Collection._preparePut` /
+ * `_prepareDelete` (encrypt, resolve the prior version, mint the #589
+ * marker — no observable side effect), submits the whole write set as
+ * ONE `store.tx(ops)` call with a per-leg `expectedVersion`, then
+ * finalizes each op in staged order. The visible difference: history
+ * snapshots, ledger entries and change events all fire AFTER the bytes
+ * are durable, instead of interleaving per op.
+ *
+ * **Crash window.** On the OCC fallback, steps 2–3 are not a
+ * storage-layer transaction — if the process dies between two executed
+ * ops, the on-disk state is partial. The atomic path above closes that
+ * window for the write set itself (`to-memory` and the SQL stores in
+ * `noy-db-to` implement `tx()`); a crash between the batch landing and
+ * the finalize loop finishing still leaves per-op side effects (history,
+ * ledger, cache) incomplete. Stores that cannot commit a batch
+ * atomically (file, S3) omit `tx()` and keep the fallback.
  *
  * ## Not covered
  *
@@ -60,7 +71,9 @@
 import type { Noydb } from '../../kernel/noydb.js'
 import type { Vault } from '../../kernel/vault.js'
 import type { Collection } from '../../kernel/collection.js'
-import type { EncryptedEnvelope } from '../../kernel/types.js'
+import type { EncryptedEnvelope, TxOp } from '../../kernel/types.js'
+import type { PreparedPut, PreparedDelete } from '../../kernel/prepared-write.js'
+import { canCommitAtomically } from './atomic-eligibility.js'
 import {
   AmendmentForbiddenError,
   ConflictError,
@@ -388,40 +401,49 @@ export async function runTransaction<T>(
   // amendment commit phase runs.
   db._setActiveTxContext(ctx)
   try {
-    try {
-      for (const op of ctx._ops) {
-        const coll = db.vault(op.vaultName).collection(op.collectionName)
-        const key = keyOf(op)
-        const prior = priorEnvelopes.get(key) ?? null
-        // Record the revert plan BEFORE the call so a mid-`coll.put` throw
-        // (e.g. strict-mode derivation failure firing after `store.put`
-        // has already committed the envelope) still has its source write
-        // reverted. `revertExecuted` is best-effort: putting prior back is
-        // idempotent when the failing op never actually wrote, and
-        // `_invalidateCacheEntry` is a no-op when the collection isn't
-        // hydrated.
-        ctx._executed.push({ op, priorEnvelope: prior })
-        if (op.type === 'put') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await coll.put(op.id, op.record as any, op.reason !== undefined ? { reason: op.reason } : undefined)
-        } else {
-          await coll.delete(op.id)
-        }
-      }
-    } catch (err) {
-      // Phase 3 — best-effort revert. See helper docstring.
-      await revertExecuted(ctx._executed, store, db)
-      // Drain amendment windows so the next transaction starts clean.
-      if (ctx._amendment) {
-        for (const v of ctx._amendmentVaults.values()) {
-          const reg = v._getGuardRegistry()
-          if (reg !== null) {
-            reg.consumeChanges()
-            reg.consumeMeta()
+    if (canCommitAtomically(db, ctx)) {
+      // #906 — the whole batch goes to the store as ONE `tx()` write set.
+      // Tracked here because the atomic path bypasses `Collection.put()`,
+      // which is where an ordinary write enters the queue: without this,
+      // `hub.writeQueue.pending` would read false for the entire commit.
+      // One tracked unit, not one per op — the batch IS one logical write.
+      await db._writeQueueTracker.track(() => commitAtomicBatch(db, ctx, priorEnvelopes))
+    } else {
+      try {
+        for (const op of ctx._ops) {
+          const coll = db.vault(op.vaultName).collection(op.collectionName)
+          const key = keyOf(op)
+          const prior = priorEnvelopes.get(key) ?? null
+          // Record the revert plan BEFORE the call so a mid-`coll.put` throw
+          // (e.g. strict-mode derivation failure firing after `store.put`
+          // has already committed the envelope) still has its source write
+          // reverted. `revertExecuted` is best-effort: putting prior back is
+          // idempotent when the failing op never actually wrote, and
+          // `_invalidateCacheEntry` is a no-op when the collection isn't
+          // hydrated.
+          ctx._executed.push({ op, priorEnvelope: prior })
+          if (op.type === 'put') {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            await coll.put(op.id, op.record as any, op.reason !== undefined ? { reason: op.reason } : undefined)
+          } else {
+            await coll.delete(op.id)
           }
         }
+      } catch (err) {
+        // Phase 3 — best-effort revert. See helper docstring.
+        await revertExecuted(ctx._executed, store, db)
+        // Drain amendment windows so the next transaction starts clean.
+        if (ctx._amendment) {
+          for (const v of ctx._amendmentVaults.values()) {
+            const reg = v._getGuardRegistry()
+            if (reg !== null) {
+              reg.consumeChanges()
+              reg.consumeMeta()
+            }
+          }
+        }
+        throw err
       }
-      throw err
     }
   } finally {
     db._clearActiveTxContext(ctx)
@@ -593,6 +615,107 @@ export async function runTransaction<T>(
 }
 
 /**
+ * One prepared leg of an atomic batch: the `store.tx()` op to submit plus the
+ * carrier its finalize half needs.
+ * @internal
+ */
+interface AtomicLeg {
+  readonly op: StagedOp
+  readonly coll: Collection<unknown>
+  readonly txOp: TxOp
+  readonly prepared: PreparedPut<unknown> | PreparedDelete<unknown>
+}
+
+/**
+ * #906 — the atomic commit path: prepare every staged op, submit the whole
+ * write set as ONE `store.tx()` call, then finalize each op in staged order.
+ *
+ * Only ever reached through `canCommitAtomically` (`atomic-eligibility.ts`),
+ * whose exclusions are what make this safe — no CRDT, no refs, no
+ * derivation/MV source, no unique constraints, no amendment, no id touched
+ * twice. Do not call it without that blessing.
+ *
+ * @internal
+ */
+async function commitAtomicBatch(
+  db: Noydb,
+  ctx: TxContext,
+  priorEnvelopes: ReadonlyMap<string, EncryptedEnvelope | null>,
+): Promise<void> {
+  const store = db._store
+  const legs: AtomicLeg[] = []
+
+  // ─── Prepare ───────────────────────────────────────────────────
+  // Encrypt, resolve the prior version, mint the #589 marker — with zero
+  // observable side effects on the collections the gate admits. A throw here
+  // therefore needs no unwind: nothing has been written yet, and the caller
+  // sees the refusal exactly as it would from `Collection.put()`. The revert
+  // plan is recorded all the same, because a FINALIZE failure below does need
+  // it (same record-before-the-call convention as the OCC loop).
+  for (const op of ctx._ops) {
+    const coll = db.vault(op.vaultName).collection(op.collectionName)
+    // The two refusals `Collection.put()` / `.delete()` assert before anything
+    // else — schema-update gate + schema fence. They live in those wrappers,
+    // not in the prepare halves this path calls, so assert them here, per op.
+    await coll._assertWriteGates()
+    const prior = priorEnvelopes.get(keyOf(op)) ?? null
+    // Every leg carries CAS against the Phase-1 snapshot, so a writer landing
+    // between the body returning and the batch reaching the store loses.
+    const base = { vault: op.vaultName, collection: op.collectionName, id: op.id, expectedVersion: prior?._v ?? 0 }
+    ctx._executed.push({ op, priorEnvelope: prior })
+    if (op.type === 'put') {
+      const prepared = await coll._preparePut(op.id, op.record, op.reason !== undefined ? { reason: op.reason } : undefined)
+      legs.push({ op, coll, prepared, txOp: { type: 'put', ...base, envelope: prepared.envelope } })
+    } else {
+      const prepared = await coll._prepareDelete(op.id, false)
+      if (prepared === null) {
+        // Nothing to delete (no live record / already a marker / shredded) —
+        // the case `_doDelete` answers with `false`. Drop the op and its
+        // revert entry rather than sending a leg for it.
+        ctx._executed.pop()
+        continue
+      }
+      legs.push({
+        op, coll, prepared,
+        // Under sync the delete is a marker PUT at `live._v + 1` (#589);
+        // without sync it is a physical removal.
+        txOp: prepared.marker ? { type: 'put', ...base, envelope: prepared.marker } : { type: 'delete', ...base },
+      })
+    }
+  }
+
+  // Every op turned out to be a no-op delete — same as the OCC loop, which
+  // would have written nothing either. Don't hand the store an empty batch.
+  if (legs.length === 0) return
+
+  // ─── The batch ─────────────────────────────────────────────────
+  // Deliberately NOT inside a revert-guarded try: a rejection means the store
+  // applied nothing (all-or-nothing is the capability we gated on), so there
+  // is nothing to unwind and a revert pass would write over records this
+  // transaction never touched. No ledger entry, history snapshot or change
+  // event has fired either — every one of those lives in finalize below. The
+  // error (a `ConflictError` when a leg lost its CAS) surfaces unwrapped.
+  await store.tx!(legs.map(l => l.txOp))
+
+  // ─── Finalize ──────────────────────────────────────────────────
+  // History snapshot, ledger entry, cache/index update, change event — per op,
+  // in staged order, all AFTER the bytes are durable (where the OCC loop
+  // interleaves them per op).
+  try {
+    for (const leg of legs) {
+      if (leg.op.type === 'put') await leg.coll._finalizePut(leg.prepared as PreparedPut<unknown>)
+      else await leg.coll._finalizeDelete(leg.prepared as PreparedDelete<unknown>)
+    }
+  } catch (err) {
+    // The bytes ARE durable now, so this is today's best-effort unwind over
+    // the plan recorded above. No amendment window to drain — the gate
+    // excludes amendment transactions.
+    await revertExecuted(ctx._executed, store, db)
+    throw err
+  }
+}
+
+/**
  * Phase 3 helper — restore captured prior envelopes via the raw store
  * to avoid re-firing Collection-level side effects (we don't want a
  * cascade of change events undoing themselves). The ledger is left
@@ -642,6 +765,7 @@ export async function revertExecuted(
   )
 }
 
-function keyOf(op: StagedOp): string {
+/** @internal — shared (vault, collection, id) key shape; also used by `atomic-eligibility.ts`'s duplicate-key scan. */
+export function keyOf(op: StagedOp): string {
   return `${op.vaultName}\x00${op.collectionName}\x00${op.id}`
 }

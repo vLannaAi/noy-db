@@ -1,5 +1,6 @@
 import type { StrategyBag } from '../port/with/strategies.js'
 import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult, SealedView, VdigFieldPolicy, ClassifiedVerdict } from './types.js'
+import type { PreparedPut, PreparedDelete } from './prepared-write.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
 import { resolveClassifiedFields, guardClassifiedCompat, type ClassifiedEntry, type ClassifiedFieldSpec, type ResolvedClassified, type ClassifiedGuardCtx, type ClassifiedVerifyCtx } from '../port/with/classified-strategy.js'
@@ -13,17 +14,9 @@ import type { MutationOrigin } from './mutation.js'
 import { putDerivedOutput, ledgerAuditHook, selfWriteFieldEqual, resolveRollupDeleteIntents, findRollupSpecForIntent, type WaveContext, type RollupOutcome, type RollupDeleteIntent } from './via/dispatch.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import {
-  isTombstone,
-  isDeleteMarker,
-  buildTombstone,
-  buildDeleteMarker,
-  resolveStableCek,
-  findByDet,
-  queryByDet,
-  RecordCodec,
-  type DeterministicContext,
-  type EnclaveKey,
-  type SealedShredSlot,
+  isTombstone, isDeleteMarker, buildTombstone, buildDeleteMarker,
+  resolveStableCek, findByDet, queryByDet, RecordCodec,
+  type DeterministicContext, type EnclaveKey, type SealedShredSlot,
 } from './enclave/index.js'
 import { countLiveEnvelopes } from './lazy-count.js'
 import { liveRecordIsElevated, assertTierWritable, assertCutoverTierSafe } from './tier-visibility.js'
@@ -211,7 +204,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * re-create version-continuity gate in `_putInternal` read the store ONLY
    * for a known marker prior, instead of unconditionally on every insert.
    * Populated on hydration (`ensureHydrated`/`hydrateFromSnapshot`), local
-   * delete (`_doDelete`), and the sync/tab/cutover choke point
+   * delete (`_commitDelete`), and the sync/tab/cutover choke point
    * (`_invalidateCacheEntry`). Accepted drift: `vault._purgeDeleteMarkers`/
    * `_purgeMarkersOn` remove markers directly on the raw store, bypassing
    * Collection, so this set can hold stale ids after a purge on an
@@ -1520,11 +1513,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // Refuse the write if an update strategy rejected the schema
     // change. Awaited OUTSIDE track() so a rejected write never counts
     // toward writeQueue.depth.
+    // BYPASS HAZARD: any refusal or side-effect added to this wrapper must ALSO be covered on the atomic tx path — extend _assertWriteGates or _txAtomicSafe (see commitAtomicBatch in with-commit/tx/transaction.ts); two m44 holes (write-hooks, schema gates) came from exactly this bypass.
     await this.schemaUpdateGate?.assertWritable()
     await this.schemaFence?.assertWritable(this.name)
-    // TODO: putManyAtomic / tx-execute / CRDT /
-    // blob write paths are not yet tracked by writeQueue nor fired through
-    // the write hooks.
+    // TODO: putManyAtomic / CRDT / blob write paths are not yet tracked by writeQueue nor fired through the write hooks (tx-execute now asserts the schema gates directly — see _assertWriteGates).
     // User write-hooks AND the observe bus both need the
     // WriteEvent. Build it if EITHER consumer is active so the bus is not
     // coupled to write-hooks being present.
@@ -1821,7 +1813,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     await this._onRecordMutated(id, 'put', 'local-write', { record: event, version })
   }
 
-  private async _putInternal(id: string, record: T, options?: { readonly reason?: string; readonly source?: string; readonly sourceTs?: string }): Promise<void> {
+  /**
+   * The pre-envelope stages both write paths share (#904): permission + tier
+   * refusal, Via ingest, the beforePut gate bus, Via enforceWrite, computed
+   * fields, schema validation, Via encodeWrite and ref enforcement. Reads and
+   * throws; commits nothing. Returns the record in the shape that gets stored.
+   */
+  async #prepareWriteRecord(id: string, record: T): Promise<T> {
     if (!hasWritePermission(this.keyring, this.name)) {
       throw new ReadOnlyError()
     }
@@ -1906,11 +1904,18 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       await this.refEnforcer.enforceRefsOnPut(this.name, record)
     }
 
+    return record
+  }
+
+  private async _putInternal(id: string, record: T, options?: { readonly reason?: string; readonly source?: string; readonly sourceTs?: string }): Promise<void> {
     // ─── CRDT mode ─────────────────────────────────────────
     // In CRDT mode we always read the raw envelope from the adapter to get
     // the existing CRDT state, merge the incoming record into it, then
     // encrypt the merged CRDT state — bypassing the normal version path.
+    // Stays inline: merge-then-persist doesn't decompose into prepare/commit,
+    // and CRDT collections never take the atomic path (#904).
     if (this.crdtMode) {
+      record = await this.#prepareWriteRecord(id, record)
       const existingEnvelope = await this.adapter.get(this.vault, this.name, id)
       const existingVersion = existingEnvelope?._v ?? 0
       const now = new Date().toISOString()
@@ -1963,6 +1968,25 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     }
     // ─── End CRDT mode ──────────────────────────────────────────────────
 
+    await this._commitPut(await this._preparePut(id, record, options))
+  }
+
+  /**
+   * Prepare half of the ordinary (non-CRDT) write (#893/#904): run every
+   * pre-envelope stage, resolve the prior version, and produce the encrypted
+   * envelope — with ZERO observable side effects. No store write, no cache or
+   * index mutation, no history entry, no ledger append, no event. It may READ
+   * the store (gate prior, lazy prior, vdig prior) and it may THROW; refusing
+   * a write before anything commits is precisely its job.
+   *
+   * Pairs with {@link _commitPut}. Split out so a batch can prepare every op,
+   * submit ONE `store.tx()`, then finalize each op.
+   *
+   * @internal
+   */
+  async _preparePut(id: string, record: T, options?: { readonly reason?: string; readonly source?: string; readonly sourceTs?: string }): Promise<PreparedPut<T>> {
+    record = await this.#prepareWriteRecord(id, record)
+
     // Resolve the previous record. In eager mode this comes from the
     // in-memory map (no I/O); in lazy mode we have to ask the adapter
     // because the record may have been evicted (or never loaded).
@@ -1985,8 +2009,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       }
     } else {
       await this.ensureHydrated()
-      // Real values, not cache handles — the prior record is re-encrypted into
-      // a history snapshot below; a handle would seal the `'[sealed]'` marker.
+      // Real values, not cache handles — `_commitPut` re-encrypts the prior
+      // record into a history snapshot; a handle would seal `'[sealed]'`.
       existing = await this.resolvePriorValues(id)
     }
 
@@ -2036,22 +2060,44 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       ? { id, prev: await this.adapter.get(this.vault, this.name, id) }
       : undefined
 
-    // Save history snapshot of the PREVIOUS version before overwriting.
+    const envelope = await this.codec.encryptRecord(record, version, cek, options?.source, options?.sourceTs, vdigCtx, id)
+
+    return { id, envelope, version, indexed: record, event: record, prior: existing, cek, vdigCtx, reason: options?.reason }
+  }
+
+  /**
+   * Commit half (#893/#904): the only place an ordinary put becomes
+   * observable — history snapshot of the prior version, store write, marker
+   * clear, then the shared write tail.
+   *
+   * History still runs BEFORE the store write, so a history failure leaves no
+   * write behind. It now runs AFTER `encryptRecord` rather than before it —
+   * the split's one sanctioned reorder, which also stops an encrypt failure
+   * from leaving an orphan snapshot behind.
+   *
+   * @internal `persist: false` skips the `adapter.put` — see {@link _finalizePut}.
+   */
+  async _commitPut(prepared: PreparedPut<T>, persist = true): Promise<void> {
+    const { id, envelope, version, indexed, event, prior, cek, vdigCtx, reason } = prepared
+
     // CRITICAL: the history snapshot is a record of the PRIOR version — it must
     // NOT carry the source from the current write (source belongs to the new write only).
-    if (existing) await this.#savePriorHistory(id, existing, cek, vdigCtx)
+    if (prior) await this.#savePriorHistory(id, prior, cek, vdigCtx)
 
-    const envelope = await this.codec.encryptRecord(record, version, cek, options?.source, options?.sourceTs, vdigCtx, id)
-    await this.adapter.put(this.vault, this.name, id, envelope)
+    if (persist) await this.adapter.put(this.vault, this.name, id, envelope)
     this.markerIds.delete(id) // #606: the live body just overwrote any marker prior — no-op if `id` wasn't one
 
-    await this.#commitWriteTail({
-      id, envelope, version,
-      indexed: record,
-      event: record,
-      prior: existing,
-      reason: options?.reason,
-    })
+    await this.#commitWriteTail({ id, envelope, version, indexed, event, prior, reason })
+  }
+
+  /**
+   * {@link _commitPut} minus the `adapter.put`: the store already holds this
+   * envelope because it was written as one leg of a `store.tx()` batch.
+   *
+   * @internal
+   */
+  _finalizePut(prepared: PreparedPut<T>): Promise<void> {
+    return this._commitPut(prepared, false)
   }
 
   /**
@@ -2288,6 +2334,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * so `hub.writeQueue.pending` reflects this write.
    */
   async delete(id: string): Promise<void> {
+    // BYPASS HAZARD: any refusal or side-effect added to this wrapper must ALSO be covered on the atomic tx path — extend _assertWriteGates or _txAtomicSafe (see commitAtomicBatch in with-commit/tx/transaction.ts); two m44 holes (write-hooks, schema gates) came from exactly this bypass.
     await this.schemaUpdateGate?.assertWritable()
     await this.schemaFence?.assertWritable(this.name)
     // User write-hooks AND the Track A observe bus both need the
@@ -2417,12 +2464,42 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   private async _doDelete(id: string, internal: boolean): Promise<boolean> {
+    const prepared = await this._prepareDelete(id, internal)
+    return prepared === null ? false : await this._commitDelete(prepared)
+  }
+
+  /**
+   * Prepare half of the delete (#893/#905): every refusal (write permission,
+   * tier, the beforeDelete gate bus, foreign-key refs), the prior-version
+   * resolution, the pre-delete payload hash, and the #589 marker DECISION —
+   * the marker is minted here but NOT written.
+   *
+   * Commits nothing of its own: no store write, no history entry, no ledger
+   * append, no cache/index mutation, no event, no `markerIds` entry. It READS
+   * the store and it may THROW — refusing a delete before anything commits is
+   * precisely its job. `null` is the "nothing to delete" answer that the early
+   * `return false` paths gave: no live record, an already-shredded tombstone,
+   * an existing marker, or the #718 elevated-internal skip.
+   *
+   * ONE exception to that guarantee: on a collection with `cascade` inbound
+   * refs, prepare itself deletes the referencing children (via
+   * `enforceRefsOnDelete`, as it always has) — prepare is NOT abortable there.
+   * The transaction atomic path must never call this on such a collection; its
+   * eligibility gate excludes refs-bearing collections.
+   *
+   * Pairs with {@link _commitDelete}. A deliberately separate split from the
+   * put pair (#842c) — delete differs in hydration, in the history-read gate
+   * and in the marker rules.
+   *
+   * @internal
+   */
+  async _prepareDelete(id: string, internal: boolean): Promise<PreparedDelete<T> | null> {
     if (!hasWritePermission(this.keyring, this.name)) {
       throw new ReadOnlyError()
     }
     // #716: public deletes only — see assertTierWritable's doc + Step 5 investigation for `internal`.
     await assertTierWritable(this.adapter, this.vault, this.name, id, !internal && this.tiers !== null)
-    if (internal && this.tiers !== null && await liveRecordIsElevated(this.adapter, this.vault, this.name, id)) return false // #718: internal cleanup treats an elevated record as nonexistent, same as tier-0 reads — skip, no marker, not counted as erased (#761 item 8)
+    if (internal && this.tiers !== null && await liveRecordIsElevated(this.adapter, this.vault, this.name, id)) return null // #718: internal cleanup treats an elevated record as nonexistent, same as tier-0 reads — skip, no marker, not counted as erased (#761 item 8)
 
     // Gate bus (Track A) — fires for ALL deletes (carrying `internal`), so a
     // gate handler can collect amendment changes on system-internal deletes
@@ -2474,15 +2551,6 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       existing = await this.resolvePriorValues(id)
     }
 
-    // Save history snapshot before deleting. On a CEK collection the
-    // snapshot reuses the record's stable CEK so the displaced version
-    // stays in the same key chain as the rest of its history.
-    if (existing && this.historyConfig.enabled !== false) {
-      const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
-      const prevForVdig = this.vdigFields !== null ? await this.adapter.get(this.vault, this.name, id) : null
-      await this.strategies.history.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: prevForVdig } : undefined, id))
-    }
-
     // Capture the previous envelope's payloadHash BEFORE delete so we
     // have a stable reference for the ledger entry. The hash is of
     // whatever was last visible to readers — for a `delete` of a
@@ -2491,39 +2559,67 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const previousEnvelope = await this.adapter.get(this.vault, this.name, id)
     const previousPayloadHash = await this.strategies.history.envelopePayloadHash(previousEnvelope)
 
-    // #589 (review): the version the marker is minted at (live._v + 1) — captured
-    // here so `onDirty` below reports the SAME version, not `existing?.version`
-    // (which can be stale/absent in lazy mode with the record uncached and history
-    // disabled, desyncing the dirty entry's version from the marker and breaking
-    // push's CAS). `live` reuses `previousEnvelope` above — same read, nothing
-    // between them writes to the adapter, so no need for a second `adapter.get`.
-    let markerVersion: number | undefined
+    // #589 (review): the marker is minted at `live._v + 1` and carried on the
+    // prepared delete, so `onDirty` reports the SAME version, not
+    // `existing?.version` (which can be stale/absent in lazy mode with the
+    // record uncached and history disabled, desyncing the dirty entry's version
+    // from the marker and breaking push's CAS). `live` reuses `previousEnvelope`
+    // above — same read, nothing between them writes to the adapter.
+    let marker: EncryptedEnvelope | undefined
     if (this.onDirty) {
       // #589: under sync, delete leaves a version-ordered marker so the deletion
       // converges on pull (a bare adapter.delete is invisible to other pullers).
       // No-op if there is no live record to delete (already marked / shredded).
       const live = previousEnvelope
-      if (!live || isTombstone(live, this.storeCiphertext) || isDeleteMarker(live)) return false
-      markerVersion = live._v + 1
-      await this.adapter.put(this.vault, this.name, id, buildDeleteMarker(markerVersion, this.keyring.userId))
-      this.markerIds.add(id) // #606: this id now carries a marker — the #589 continuity gate should consult it on re-create
-    } else {
-      await this.adapter.delete(this.vault, this.name, id)
+      if (!live || isTombstone(live, this.storeCiphertext) || isDeleteMarker(live)) return null
+      marker = buildDeleteMarker(live._v + 1, this.keyring.userId)
     }
+
+    // History-snapshot key material, resolved HERE off the live envelope —
+    // re-resolving it in the commit half would read the already-written marker
+    // (see {@link PreparedDelete.cek}). `previousEnvelope` is that same
+    // pre-write read, so the vdig context costs no extra `adapter.get`.
+    const snapshots = existing !== undefined && this.historyConfig.enabled !== false
+    const cek = snapshots && this.perRecordCek ? await this.resolveRecordCek(id) : undefined
+    const vdigCtx = snapshots && this.vdigFields !== null ? { id, prev: previousEnvelope } : undefined
+
+    return { id, internal, existing, previousPayloadHash, marker, cek, vdigCtx }
+  }
+
+  /**
+   * Commit half (#893/#905): the only place a delete becomes observable —
+   * history snapshot of the deleted version, the store write (the #589 marker
+   * put, or the physical removal when sync is off), then the ledger entry,
+   * cache/index teardown, the mutation event, and the user-initiated
+   * derivation dispatch.
+   *
+   * History still runs BEFORE the store write, exactly as today, so a history
+   * failure leaves no delete behind.
+   *
+   * @internal `persist: false` skips the store write — see {@link _finalizeDelete}.
+   */
+  async _commitDelete(prepared: PreparedDelete<T>, persist = true): Promise<boolean> {
+    const { id, internal, existing, previousPayloadHash, marker, cek, vdigCtx } = prepared
+
+    // Save history snapshot before deleting. On a CEK collection the
+    // snapshot reuses the record's stable CEK (resolved in prepare, off the
+    // live envelope) so the displaced version stays in the same key chain as
+    // the rest of its history.
+    if (existing && this.historyConfig.enabled !== false) {
+      await this.strategies.history.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, vdigCtx, id))
+    }
+
+    if (marker) {
+      if (persist) await this.adapter.put(this.vault, this.name, id, marker)
+      this.markerIds.add(id) // #606: this id now carries a marker — the #589 continuity gate should consult it on re-create
+    } else if (persist) await this.adapter.delete(this.vault, this.name, id)
 
     // Ledger append — same after-write timing as put(). The recorded
     // version is the version that WAS deleted (existing?.version), not
     // a successor. A delete of a missing record still appends an
     // entry with version 0 so the chain captures the intent.
     if (this.ledger) {
-      await this.ledger.append({
-        op: 'delete',
-        collection: this.name,
-        id,
-        version: existing?.version ?? 0,
-        actor: this.keyring.userId,
-        payloadHash: previousPayloadHash,
-      })
+      await this.ledger.append({ op: 'delete', collection: this.name, id, version: existing?.version ?? 0, actor: this.keyring.userId, payloadHash: previousPayloadHash })
     }
 
     if (this.lazy && this.lru) {
@@ -2548,11 +2644,11 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // #589: under sync the marker rides the push channel as an ordinary CAS put at
     // its own version (live._v + 1); the dirty version must match the marker so
     // push's expectedVersion = marker._v - 1 = live._v matches the remote's live copy.
-    // #589 (review): use `markerVersion` (the version the marker was actually minted
-    // at above), not `existing?.version` — the fallback below is unreachable in
-    // practice (onDirty undefined ⇒ markerVersion undefined ⇒ the `?.` short-circuits
+    // #589 (review): use the marker's own `_v` (the version it was actually minted
+    // at), not `existing?.version` — the fallback below is unreachable in
+    // practice (onDirty undefined ⇒ no marker ⇒ the `?.` short-circuits
     // before this argument matters) but keeps the expression well-typed.
-    await this._onRecordMutated(id, 'delete', 'local-delete', { version: markerVersion ?? (existing?.version ?? 0) + 1 })
+    await this._onRecordMutated(id, 'delete', 'local-delete', { version: marker?._v ?? (existing?.version ?? 0) + 1 })
 
     // Symmetric to put: user-initiated deletes must fire MV
     // refresh so `onEmpty: 'delete'` MVs tombstone their now-orphan
@@ -2577,6 +2673,16 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       if (existing) await this.dispatchRollupsOnDelete(id, existing.record)
     }
     return true
+  }
+
+  /**
+   * {@link _commitDelete} minus the store write: the marker (or the removal)
+   * already landed as one leg of a `store.tx()` batch.
+   *
+   * @internal
+   */
+  _finalizeDelete(prepared: PreparedDelete<T>): Promise<boolean> {
+    return this._commitDelete(prepared, false)
   }
 
   /**
@@ -4195,6 +4301,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   get _via(): ViaPipeline | undefined { return this.via } // @internal exportRedact()'s typed reach-in accessor (fixes #634)
   _setVia(pipeline: ViaPipeline | undefined): void { this.via = pipeline; this.codec.setVia(this.via) } // @internal applyTaintOverlay()'s typed writer seam — assigns `via` + resyncs the codec (fixes #666)
   get _viaFieldsSnapshot(): { i18nFields: Record<string, I18nTextDescriptor> | undefined; lookupFields: Record<string, LookupDescriptor> | undefined } { return { i18nFields: this.i18nFields, lookupFields: this.lookupFields } } // @internal reconcile.ts's presentForJoin-rebuild union reader (#671 item 3)
+  async _assertWriteGates(): Promise<void> { await this.schemaUpdateGate?.assertWritable(); await this.schemaFence?.assertWritable(this.name) } // @internal #906 — the two refusals `put()`/`delete()` assert BEFORE anything else: the schema-update gate (an opt-in but persistent `reject` decision) and the schema fence (stale generation → MigrationRequiredError; draining/migrating vault or pending per-collection cutover → SchemaFenceError). Neither lives in the prepare halves, and the atomic commit path calls those directly — so it asserts here, per op, mirroring put()/delete() exactly (the fence does a fresh store read per call, so per-op matches today's cost model). Deliberately NOT moved into the prepare halves: that would double-assert on the OCC path.
+  _txAtomicSafe(opType: 'put' | 'delete'): boolean { if ((this.materializedViewSource !== undefined && this.materializedViewSource.registry().mvsForSource(this.name).length > 0) || (this.derivationSource !== undefined && this.derivationSource.registry().strategiesForSource(this.name).length > 0) || this.crdtMode !== undefined || this.uniqueConstraints !== null || this.#hooksActive() || (this.subsystemBus?.hasHandlers(opType === 'put' ? 'afterPut' : 'afterDelete') ?? false)) return false; return opType === 'put' ? Object.keys(this._refs).length === 0 : this.refEnforcer === undefined } // @internal #893/#906-prep atomic-commit eligibility gate (Task 4) — false on any derivation/MV source (any lifecycle), CRDT mode, unique constraints, or refs on this write direction. Put uses precise outbound `_refs`; delete deliberately uses blanket `refEnforcer` presence, NOT `refRegistry.getInbound()` — `enforceRefsOnDelete` (with-shape/links/vault-facade.ts) cascades from THREE sources (lookup-ref edges, classic inbound refs, managed links), and only the blanket check is >= as strict as all three. #906: also false while user write-hooks or an `afterPut`/`afterDelete` bus handler are live — note both signals are db-GLOBAL (one `onAfterWrite` anywhere, including the auto-registered cross-tab write relay, keeps every collection on the OCC path) — both fire in `put()`/`delete()`, which the atomic path bypasses (a `beforeWrite` hook can REFUSE a write, so silently skipping them would be a policy hole). See atomic-eligibility.ts.
   _reconcileReadState(patch: { dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor>; i18nFields?: Record<string, I18nTextDescriptor>; lookupFields?: Record<string, LookupDescriptor>; getDictionary?: (name: string) => Promise<DictionaryHandle>; presentForJoin?: (record: unknown, locale: string) => unknown }): void { // @internal reconcile.ts's ONE late-attach writer for #671 items 1-3 — descriptor maps merge (construction wins on collision), getDictionary/presentForJoin assign (getDictionary never clobbers a live closure)
     if (patch.dictKeyFields) this.dictKeyFields = { ...patch.dictKeyFields, ...this.dictKeyFields }
     if (patch.i18nFields) this.i18nFields = { ...patch.i18nFields, ...this.i18nFields }
