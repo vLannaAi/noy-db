@@ -1,5 +1,728 @@
 # Changelog — hub
 
+## 0.4.0
+
+### Minor Changes
+
+- `db.transaction(fn)` now commits through ONE `store.tx()` batch on `txAtomic` stores (#906, design #893).
+
+  When the store declares `capabilities.txAtomic` AND implements `tx()`, and the staged
+  batch is statically safe (`canCommitAtomically`), `runTransaction`'s Phase 2 prepares
+  every op through `Collection._preparePut` / `_prepareDelete` (encrypt, resolve the
+  prior version, mint the #589 delete marker — no observable side effect), submits the
+  whole write set as a single `store.tx(ops)` call with a per-leg `expectedVersion`
+  taken from the Phase-1 snapshot, then finalizes each op in staged order. That closes
+  the crash window between two executed ops for the write set itself: `to-memory` and
+  the SQL-backed stores in `noy-db-to` (postgres, mysql, sqlite, turso, supabase,
+  cloudflare-d1) commit the batch all-or-nothing. Caveat: `turso` and `cloudflare-d1`
+  currently IGNORE the per-leg `expectedVersion` (noy-db-to#36, noy-db-to#37), so the
+  concurrent-writer guarantee below does not yet hold for those two stores — only the
+  all-or-nothing durability does.
+
+  Everything else is unchanged: any store without `tx()`, an amendment, an id touched
+  twice in one batch, or a collection with derivations / materialized views / CRDT mode
+  / unique constraints / refs / live write-hooks keeps today's per-op OCC path
+  (pre-flight CAS → sequential `Collection.put`/`delete` → best-effort unwind), byte for
+  byte. `db.transaction(fn)`'s signature and semantics do not change.
+
+  Two behavioural notes on the atomic path:
+
+  - **Side-effect ordering.** History snapshots, ledger entries, cache/index updates and
+    change events all fire AFTER the bytes are durable, per op in staged order, where
+    the OCC loop interleaves them per op. A `tx()` rejection therefore leaves no ledger
+    entry and fires no change event, and the error (a `ConflictError` when a leg loses
+    its CAS) surfaces unwrapped with nothing applied and no compensating writes.
+  - **Delete-marker timestamp.** A delete's `#589` marker is stamped with `_ts` at
+    prepare time rather than at the store write — an in-process gap of microseconds,
+    and the marker's `_v` (what convergence orders on) is unaffected.
+
+  Every write-path refusal `collection.put()` / `.delete()` performs still applies on
+  the atomic path: the schema-update gate and the schema fence are asserted per op
+  before the batch is prepared, so a stale-generation client, a draining/migrating vault
+  or a pending per-collection cutover refuses a transaction exactly as it refuses a
+  direct write (`MigrationRequiredError` / `SchemaFenceError`, nothing written). Live
+  user write-hooks and `afterPut`/`afterDelete` bus handlers keep the batch on the OCC
+  path instead, so a `beforeWrite` hook can still refuse a transactional write.
+
+  `hub.writeQueue.pending` stays truthful on the atomic path: the batch is tracked at
+  the transaction layer as the one logical write it is, since it bypasses
+  `Collection.put()`'s own tracker.
+
+- Blobs: offline pinning + mobile cache budget (#808).
+
+  - `collection.blob(id).pin(slot)` / `unpin(slot)` / `isPinned(slot)`: pin a blob slot for
+    offline availability on THIS device. Pinning downloads eagerly (call while online) and
+    exempts the slot from `vault.compact()` eviction — both the `blobFields` policy pass
+    (reported via the new `CompactionResult.pinned` counter) and the new cache-budget pass.
+    Pin state is device-local and never synced: it lives in the `withBlobs()` pin registry
+    (`withBlobs({ pinStore })`, a pluggable 4-method `BlobPinStore`; in-memory default —
+    supply an IndexedDB/SQLite-backed store for durable pins).
+  - `vault.compact({ cacheBudget: { maxBytes } })`: LRU budget for locally-cached UNPINNED
+    blob bytes, run as a dedicated pass inside the existing compaction machinery. Internal
+    slots evict through the standard eviction writer (with a new `'budget'` audit reason);
+    `external` slots only drop their device-local cached copy (the object-store copy is
+    untouched). Pinned and `legalHold`/`retainUntil`-held slots are exempt. New
+    `CompactionResult.budgetEvicted` / `budgetBytesFreed`; LRU order from the device-local
+    `SlotInfo.lastAccessAt` stamp (fallback `uploadedAt`).
+  - Offline read taxonomy: new typed `BlobOfflineError` (`code: 'BLOB_OFFLINE'`) — an
+    `external` slot with no local copy while the object store is unreachable, or an internal
+    blob whose chunk envelopes are absent from the local store. BREAKING-ish detail (pre-1.0):
+    the internal missing-chunk case previously threw `NotFoundError`; it now throws
+    `BlobOfflineError`, since the content exists but is not locally available. External reads
+    now auto-populate the device-local encrypted side-cache, so a repeat read is served
+    locally (and offline).
+  - External pins are encrypted at rest locally: the object-store copy of an `external: true`
+    slot is outside the ZK envelope by design, but the local pinned/cached copy is
+    AES-256-GCM-encrypted under the vault's `_blob` DEK via the existing enclave path
+    (AAD-bound), so plaintext never rests in the pin registry.
+  - KPI counters for the 4G-budget demo: `withBlobs().cacheStats()` →
+    `{ hits, misses, bytesDownloaded }` (local reads hit; object-store fetches miss + count
+    bytes). `BlobSet.list()` now annotates `SlotInfo` with the device-local `pinned` /
+    `lastAccessAt` / `cachedBytes` view.
+
+- `/cargo` gains the partition-transfer helpers klum-db's interchange binds — `extractPartition` (withCargo()-gated), `walkClosure`, `describeExtraction`, `decryptExtractedPartition` + types `ExtractionPreview`, `DecryptedRecord` — promoted from the transitional `/bundle` subpath (#812 step 1). `/bundle` remains published until the orchestrator migrates; its retirement (and `src/legacy/`'s deletion) follows.
+- Complete the `/bundle` promotion (#812): the partition-transfer ops promoted onto `/cargo` in 0.4.0-pre.1 now ship with their own option/result types (`WalkClosureOptions`, `ClosureResult`, `DanglingRefNotice`, `ExtractPartitionResult`) — previously a caller could invoke `walkClosure()` from `/cargo` but could not name its options type. The **adopt half** of the transfer ceremony joins them (`adoptPartition`, `unsealDeks`, `createOwnerOnAdoptedPartition` + 6 option/result types): extraction without adoption was half the story. Transfer errors (`TransferSealError`, `AdoptionStateError`, `PartitionExtractionError`) land on `/cargo`, and the artifact/backup errors (`BundleIntegrityError`, `BundleSealMismatchError`, `PodVersionConflictError`, `BundleVersionConflictError`, `BackupLedgerError`, `BackupCorruptedError`) on `/pod`, so `instanceof` works from the subpath instead of the root barrel. Purely additive — `/bundle` still resolves everything it did, and its retirement follows in a later release. Also promotes `hasNoydbBundleMagic` onto `/pod` (#820) — it sat beside `NOYDB_BUNDLE_MAGIC` everywhere except the subpath, forcing klum's multi-bundle reader to keep a root-barrel import alive for one predicate.
+- **BREAKING (type-level only): `vault.collection()` takes a named shape instead of positional generics (#839).**
+
+  ```ts
+  // before
+  vault.collection<Invoice, "ssn", "clientId">("invoices");
+  vault.collection<Sale, never, never, "amount" | "tax">("sales");
+
+  // after
+  vault.collection<Invoice, { sensitive: "ssn"; indexed: "clientId" }>(
+    "invoices"
+  );
+  vault.collection<Sale, { money: "amount" | "tax" }>("sales");
+  ```
+
+  The positional tail `<T, S, Q, M>` was both unreadable and unsafe. `Q` (indexed fields) and `M` (money fields) are both `keyof T & string`, so swapping them type-checked silently and produced a collection narrowed on the wrong axis; and reaching `M` meant writing `never` placeholders for the two arguments before it.
+
+  `CollectionShape<T>` names all three axes, every member optional. Omitting one keeps that axis permissive, exactly as passing `never` did.
+
+  Runtime behaviour is unchanged — this is entirely type-level. Migration is mechanical: `<T, 'a'>` becomes `<T, { sensitive: 'a' }>`, `<T, never, 'b'>` becomes `<T, { indexed: 'b' }>`, `<T, never, never, 'c'>` becomes `<T, { money: 'c' }>`.
+
+  `CollectionShape`, `SensitiveOf`, `IndexedOf` and `MoneyOf` are exported from the root barrel for callers who need to name the shape or extract an axis from it.
+
+- Cover: namespaced `custom` extension slot + total-size caps (#800).
+
+  - `Cover.custom` / `SetCoverInput.custom` — a sanctioned, namespaced slot (`{ 'noydb.viewer': {...} }`) for integrator data that travels with the vault/pod, readable pre-unlock. Keys must be reverse-DNS / package-style (`/^[a-z0-9]+([.-][a-z0-9]+)+$/i`); values must be JSON-serializable (new `JsonValue` type) within an 8-level depth cap. Plaintext, public, unauthenticated — hints, never authority.
+  - **Opt-in**: `'custom'` joins `COVER_FIELDS` but is excluded from `DEFAULT_COVER_SCHEMA.fields` — `cover: true` shorthand does NOT enable it; list it explicitly in `schema.fields`.
+  - **Namespace-level patch semantics**: `setCover({ custom })` replaces provided namespaces, preserves absent ones, and deletes on explicit `null` (which never persists), so coexisting frameworks never read-modify-write each other's data.
+  - **Size caps** (post-merge, on the would-be-persisted document): `maxCustomBytes` (default 8 KB) on the serialized `custom` object, and `maxCoverBytes` (default 300 KB) on the entire serialized cover — the latter also closes the previously unbounded locale-map key-count hole for `name` / `description`.
+  - **Wire: purely additive** — no format-version bump; `isCover` and the pod-header validator already tolerate the new key, and `readPodCover` / `resolveLocale` carry `custom` through untouched.
+
+- Rename the public-envelope feature to **cover** across the developer surface (#799). New canonical names: `Cover`/`CoverText`/`CoverSchema`/`ResolvedCoverSchema`/`CoverField`/`COVER_FIELDS`/`DEFAULT_COVER_SCHEMA`/`SetCoverInput`, `validateCoverInput`/`isCover`, `loadCover`/`saveCover`/`readCover`, `resolveCoverSchema`, `COVER_RECORD_ID`, `Noydb.setCover`/`Noydb.getCover`, `Vault.getCover`, `NoydbOptions.cover`, and `readPodCover`. Every old name remains as an `@deprecated` alias for one pre-release window (including the `NoydbOptions.publicEnvelope` option key — accepted alongside `cover`; `cover` wins when both are set). The wire format is byte-for-byte unchanged: the `_meta/public-envelope` record id, the `_noydb_public: 1` discriminator, and the pod-header JSON key `publicEnvelope` are frozen — existing vaults and bundles need zero migration. `readPodCover` and the `Cover` type are promoted to the frozen `@noy-db/hub/pod` subpath surface.
+- Add the `@noy-db/hub/debug` subpath so the `debugPlaintext` inspection cluster is reachable again (#914).
+
+  `#843(c)` pruned `readPlaintextRecord`, `DebugPlaintextError` and `DebugReservedFieldError` off the root barrel on a "zero barrel imports" signal. That signal holds inside the monorepo, where every caller reaches the source module directly, but not for an npm consumer, who has only the exports map. The effect was a supported `createNoydb` option whose two documented errors could not be caught by identity, and a helper whose own `@example` could not be run.
+
+  The three symbols (plus `EncryptedEnvelope`, so the helper's parameter is nameable from the same entry) now ship from `@noy-db/hub/debug`. The root barrel is unchanged — `#843(c)`'s reduction stands.
+
+- Sync: a declared `syncPolicy` now actually runs (#897), and its scheduled pull is role-gated (#618)
+
+  **The bug.** `SyncScheduler` was constructed but never started. `startScheduler()` had no
+  callers anywhere in the codebase, and `SyncScheduler.notifyChange()` opens with
+  `if (!this.started) return` — so every write hit that guard and returned. The result: no
+  automatic sync existed at any policy. Declaring `syncPolicy: { push: { mode: 'on-change' } }`
+  was silently equivalent to declaring nothing; you had to call `db.push()` / `db.pull()`
+  yourself regardless.
+
+  **What changes.** Opening a vault now starts the scheduler when a policy was **declared** —
+  either `createNoydb({ syncPolicy })` or a per-target `policy`. `close()` stops every
+  scheduler's timers alongside the other teardown.
+
+  If you declared a policy expecting it to be inert, it is now live. To keep the old behaviour
+  explicitly:
+
+  ```ts
+  syncPolicy: { push: { mode: 'manual' }, pull: { mode: 'manual' } }
+  ```
+
+  **Passing `sync:` alone still does not sync on its own.** A policy is always _resolved_
+  (falling back to the store preset, e.g. `INDEXED_STORE_POLICY`), but resolving one is not
+  consent: `push: 'on-change'` fires an **unawaited** push on every write, so enabling it for
+  everyone who merely supplied a remote would turn on unattended background writes and make
+  write ordering racy against anything else touching that remote. Automation is opt-in; declare
+  a policy to get it.
+
+  Two further fixes:
+
+  - The scheduler is now built when **either** push or pull is non-manual. The construction
+    test was `push.mode !== 'manual'` alone, so `{ push: manual, pull: interval }` silently got
+    no scheduler and its pull mode was ignored entirely.
+  - **#618** — the scheduler-initiated pull is role-gated to `sync-peer`. `Noydb` gates
+    pull-from-sink for explicit calls, but the scheduler calls the engine directly and bypassed
+    it, so a backup/archive target with an `interval` or `on-focus` pull policy would pull
+    ungated and reintroduce #616. An explicit `engine.pull()` is unaffected and still pulls for
+    every role.
+
+- **`@noy-db/hub` — the transaction revert pass is now atomic when the store supports it (#886).**
+
+  `runTransaction`'s rollback previously unwound leg by leg, best-effort, so a crash mid-revert could
+  leave a vault half-unwound. When the store declares `capabilities.txAtomic` and implements `tx()`,
+  the whole revert is now submitted as one storage-layer operation instead.
+
+  This works because the revert legs already carry **raw prior envelopes** captured before the write —
+  exactly the shape `tx()` wants, with none of the Collection-layer machinery that makes delegating
+  the _forward_ write path a much larger job (still tracked in #886).
+
+  Failure stays best-effort: a rejected batch falls back to the per-leg loop rather than surfacing a
+  revert-path error, because a revert failure must never mask the original error that triggered it.
+  An **undeclared** `tx()` is never used, matching the implemented ⇒ declared rule the conformance
+  harness enforces.
+
+  **`@noy-db/to-meter` — `listVaults()` and `ping()` are now metered (#889).**
+
+  Both previously passed through the wrap untimed. `listVaults` is a full enumeration on a remote
+  store, and `ping` isolates round-trip time from work — arguably the most useful latency signal on a
+  network-backed store. The synthetic `liveness` poller still calls the inner store directly, so the
+  counters stay "what the app did".
+
+- **Every service's `NO_*` stub is now importable from that service's own subpath (#844).**
+
+  The stubs are how you ask whether a service is actually enabled — the check is an identity comparison, exactly as `vault.forget()` does internally with `strategies.blob !== NO_BLOBS`. Several subpath docblocks recommend precisely that, but twelve of the stubs were exported from no entry a consumer could import, so the advice could not be followed:
+
+  ```ts
+  import { NO_SYNC } from "@noy-db/hub/sync"; // ← previously unresolvable
+
+  if (db.strategies.sync !== NO_SYNC) {
+    /* sync is really on */
+  }
+  ```
+
+  Now exported from the subpath that owns each service: `NO_BLOBS` (`/blobs`), `NO_I18N` (`/i18n`), `NO_SESSION` (`/session`), `NO_HISTORY` (`/history`), `NO_CRDT` (`/crdt`), `NO_SHADOW` (`/shadow`), `NO_SNAPSHOTS` (`/snapshots`), `NO_SYNC` (`/sync`), `NO_INDEXING` (`/indexing`), `NO_AGGREGATE` (`/aggregate`), `NO_CONSENT` (`/consent`), `NO_PERIODS` (`/periods`).
+
+  Purely additive. A test now walks the built declarations to keep it that way.
+
+- **BREAKING: credential operations move to `db.team.*` (#846).**
+
+  `Noydb` carried 23 methods that did nothing but restate a `TeamFacade` signature and forward to it. Every one had to be hand-kept in sync with its counterpart, and adding a credential operation meant editing two signatures for one capability. The facade is now exposed directly:
+
+  ```ts
+  // before
+  await db.rotatePassphrase(vault, userId, input);
+  await db.enrollRecovery(vault, enrollment);
+
+  // after
+  await db.team.rotatePassphrase(vault, userId, input);
+  await db.team.enrollRecovery(vault, enrollment);
+  ```
+
+  Affected: `enrollAuthenticator`, `removeAuthenticator`, `listAuthenticators`, `updateAuthenticator`, `enrollWebAuthn`, `listWebAuthnSlots`, `unlockViaAuthenticator`, `describeAuthConfig`, `diagramAuthConfig`, `describeUserAuth`, `describeAllUsersAuth`, `rotatePassphrase`, `recoverPassphrase`, `rotateRecovery`, `openVaultAndEnrollRecovery`, `recoverManagedPassphrase`, `recoverUser`, `enrollRecovery`, `listRecoveryEntries`, `enrollUnlock`, `unlockViaPin`, `clearQuickUnlock`, `getKeyring`.
+
+  Migration is a mechanical `db.X(` → `db.team.X(` for those names. Runtime behaviour is unchanged — the facade was already doing the work.
+
+- **`vault.collection()`'s options are now a named, exported type (#841).**
+
+  The option shape was a 122-line anonymous literal inlined into the method signature, so callers could not annotate a call and `describe()` could not reuse it. It is now `OpenCollectionOptions<T, S, Q, M>`, exported from the root barrel:
+
+  ```ts
+  import type { OpenCollectionOptions } from '@noy-db/hub'
+
+  const opts: OpenCollectionOptions<Invoice, 'ssn'> = { indexes: [...], sensitive: ['ssn'] }
+  const invoices = vault.collection<Invoice, 'ssn'>('invoices', opts)
+  ```
+
+  It is named `OpenCollectionOptions` rather than `CollectionOptions` to keep a clear gap from the existing `CollectionOpts`, which is the `Collection` constructor's input and is built from this one.
+
+  Internally, 28 hand-written `if (options?.X !== undefined) collOpts.X = options.X` lines collapse into a single key-list copy, so adding a pass-through option is one entry rather than a line buried in a 534-line method. Options that carry logic keep their explicit handling, and the forget-subject rule still overrides `perRecordKeys` exactly as before.
+
+  Purely additive — no behavioural change and no existing signature changed.
+
+- Period-scoped sync pull — thin-client bootstrap (#807).
+
+  - `PullOptions.periods?: string[] | { current: true }` — `{ current: true }` bounds a fresh device's first sync to records at-or-after the latest closed period's boundary; an array of closed-period names backfills exactly those periods on demand (idempotent — a deep link into an old period just calls `pull({ periods: ['FY2026-Q1'] })` again). Membership is by envelope write-time `_ts` against the closed periods' exclusive upper bounds — the same store-tier law freeze/archive use (the engine never sees business dates).
+  - **Period summaries always sync**: a period-scoped pull first fetches `_periods` + the freeze/archive/target-purge companions in full — the navigation index — exempt from every filter, then resolves its windows from that freshly synced index (new `SyncEngine.setPeriodPullSource` injection seam, wired from `Vault.listPeriods()`; `listPeriods()` now always re-reads from the store so pulled closures are immediately visible and seal writes).
+  - **Never period-filtered**: delete markers and tombstones (the #589/#590 convergence law — a device that never pulled period P backfills P later without resurrecting its deleted records, and tolerates a remote whose P-markers were already frozen away) and reserved lookup collections. `collections` ∧ `periods` = intersection; `modifiedSince` ANDs on top. **Push is never period-filtered** — `PushOptions` has no `periods` member; client writes always flow up in full.
+  - **KPI hook**: period-scoped `PullResult` gains `phases` — `{ summaries: { records, bytes }, records: { records, bytes } }` (bytes ≈ ciphertext payload via the new sanctioned `envelopeBodySize` enclave helper) — for demonstrating a bounded first-sync download budget.
+  - Validation: malformed shapes, unknown or opened-kind period names, and a period-scoped pull whose `_periods` records are unreadable (periods service not enabled — pass `periodsStrategy: withPeriods()`) throw `ValidationError` loudly.
+
+- Sync: per-collection readiness for phased pull (#809)
+
+  Under a phased pull, a `null` from `get()` is ambiguous — is the record absent, or has its
+  collection not arrived yet? Apps had to choose between showing a false empty state and blocking on
+  the whole bootstrap.
+
+  `db.syncStatus(vault)` now reports readiness per collection while a `'phased'` policy runs:
+
+  ```ts
+  const inv = await invoices.get("inv-1");
+  const { readiness, phase } = db.syncStatus("acme");
+
+  if (inv === null && readiness?.get("invoices") !== "live") showSkeleton();
+  else if (inv === null) showNotFound();
+
+  // phase: { index: 2, total: 3 } while the sequence runs, null once it drains
+  ```
+
+  - `'cold'` — not pulled yet, or its phase did not complete cleanly. A miss proves nothing.
+  - `'pulling'` — its phase is in flight. **Never terminal**: a phase always ends `'live'` or back in
+    `'cold'`, because a stuck `'pulling'` would leave a permanent skeleton.
+  - `'live'` — its phase completed cleanly, so a miss **is** a real absence.
+
+  Only a clean phase reaches `'live'`. A pull that reports errors (`PullResult.errors` accumulates
+  without throwing), one that throws, and one skipped by the role gate on a backup/archive target all
+  leave the collection `'cold'` — completeness is never claimed on a target that never read. `stop()`
+  resets any in-flight `'pulling'`, so no skeleton outlives the vault.
+
+  A collection the sequence never names is **absent** from the map: `undefined` means _"no claim
+  made"_, never a reason to gate a UI.
+
+  Additive and opt-in. `readiness` and `phase` are optional on `SyncStatus` and absent for every
+  non-phased policy, `get()` is untouched — no per-read cost, no mode-dependent return type — and the
+  kernel orchestration files are byte-identical, since `syncStatus()` already delegated to the sync
+  engine. `ReadinessState` is exported from the root barrel.
+
+- Sync: `pull.mode: 'phased'` — pull collections in a declared order (#809)
+
+  `PullPolicy` could say _when_ to pull, never _in what order_. A thin client that wants its
+  navigation-critical collections before bulk history had to orchestrate that itself, outside the
+  policy that already does the scheduling.
+
+  ```ts
+  const db = await createNoydb({
+    store: toBrowserIdb(),
+    sync: toAwsS3({ bucket, client }),
+    user,
+    secret,
+    syncStrategy: withSync(),
+    syncPolicy: {
+      push: { mode: "on-change", minIntervalMs: 0, onUnload: true },
+      pull: {
+        mode: "phased",
+        sequence: ["clients", "invoices", "attachments"],
+      },
+    },
+  });
+  ```
+
+  The scheduler walks `sequence` **one collection at a time, in order**, each phase an ordinary
+  `pull({ collections: [name] })` — phasing is sequencing, not new pull capability. Phases are
+  strictly sequential; running them concurrently would defeat the prioritisation that is the point.
+  A phase that fails does not abort the ones behind it.
+
+  When the sequence drains, the scheduler **settles into steady state**: `pull.intervalMs` if you
+  gave one, otherwise idle. Bootstrap and steady-state sync are one flow, not two APIs.
+
+  `sequence` entries must be unique and non-empty, and `sequence` is rejected unless
+  `mode === 'phased'`. An unusable policy throws when the scheduler is constructed, before any sync
+  I/O, rather than failing silently on the first tick.
+
+  Additive: `'phased'` is a new `PullMode` and `sequence` a new optional field. Existing policies are
+  untouched, and a phased policy is by definition _declared_, so it starts under the
+  declared-policy rule from #897 with no further wiring.
+
+  **Period-scoped phases (`collection@period`) are deferred**, not rejected — the granularity here is
+  db / vault / collection. `db.pull(vault, { periods })` remains available explicitly.
+
+- Join/projection materialized view (#810) — a third `withMaterializedView` strategy form, `projection`, mutually exclusive with `query` / `unionSources`. One output row per record of a primary `source` collection, enriched BEFORE `map` runs by forward FK legs (`{ field, as }` — same `ref()`/`.join()` machinery as UNION arms) and NEW reverse one-to-many "collect" legs (`{ collect, on, as }` — every row of `collect` whose `on` field references the primary record's id, attached as a possibly-empty array; `on` must carry a `ref()` targeting the source, checked at first materialization; per-primary-row `maxRows` fan-out ceiling throws `JoinTooLargeError`). Filtering lives in `map` (return `null`/`undefined` to omit); post-map `groupBy` + `aggregate` run through the same shared pipeline as UNION. Dependencies are all auto — `{source} ∪ forward ref() targets ∪ collect collections` (explicit `sources` still additive) — so a write to ANY referenced collection drives eager refresh / lazy stale-marking; forward targets fold in on the first dispatch after their refs are declared. New exported types: `ProjectionSpec`, `ProjectionJoinLeg`.
+- **BREAKING: the `aggregate` service is now `reduce`, and its symbols have exactly one home (#843).**
+
+  ```ts
+  // before
+  import { withAggregate, count, sum } from "@noy-db/hub"; // …or /query, or /aggregate
+  createNoydb({ aggregateStrategy: withAggregate() });
+
+  // after
+  import { withReduce, count, sum } from "@noy-db/hub/reduce";
+  createNoydb({ reduceStrategy: withReduce() });
+  ```
+
+  `./aggregate` becomes `./reduce`. Renamed with it: `withAggregate` → `withReduce`, `AggregateStrategy` → `ReduceStrategy`, `NO_AGGREGATE` → `NO_REDUCE`, `aggregateStrategy` → `reduceStrategy`, `Aggregation` → `Reduction`, `GroupedAggregation` → `GroupedReduction`, `AggregateSpec` → `ReduceSpec`, `AggregateResult` → `ReduceResult`, `buildLiveAggregation` → `buildLiveReduction`.
+
+  "reduce" matches the vocabulary the service already used — `reduceRecords`, `reducerBuilder`, `groupAndReduce`.
+
+  **The root barrel and `/query` no longer re-export any of it.** `count`, `sum`, `avg`, `min`, `max`, `moneySum`, `groupAndReduce`, `GroupedQuery` and the rest were reachable from three entries at once; they now have exactly one. Those re-exports were a backward-compatibility window left open after an earlier relocation, which the service's own documentation already described as superseded.
+
+  `MinMaxState`, `MoneyString` and `MoneyDescriptor` are now exported from `/reduce` too — they appear in its signatures, so a caller needs them to annotate a result.
+
+  Unaffected: derivation **rollup** aggregates. `ForgetResult.derivedAggregatesRecomputed` and the rollup vocabulary in `withRollup` are a different concept and keep their names.
+
+- **Fixes a silent security downgrade (#850).** Declaring `sensitive: [...]` (structural group-encryption) on a CRDT collection is now refused at construction. It used to be accepted and silently ignored: the CRDT branch of `_putInternal` persists through `encryptJsonString` and returns before any sealing runs, so the listed fields were stored in the ordinary encrypted body — no `_sealed` slot, no HKDF-derived per-field key, no error. Verified empirically: an identical declaration on a non-CRDT collection produced `_sealed: { … }` while the CRDT one produced nothing.
+
+  Not a plaintext leak — the CRDT body remains AES-GCM-encrypted under the collection DEK — but the caller received materially less protection than they asked for, silently. The refusal matches what `embeddings`, `unique` indexes and classified digest-only fields (guard R2) already do for the same underlying reason: the CRDT write path bypasses the pipeline those options are enforced by.
+
+  Also adds guard tests pinning the three combinations that keep the CRDT write-tail divergences unreachable (#835), so relaxing any of those refusals fails loudly and points at the tail that would then need fixing.
+
+- **BREAKING (no migration shim).** Removes every deprecated `publicEnvelope` alias left by the cover rename (#799): the 6 type aliases, 10 value re-exports, `Noydb.setPublicEnvelope`/`getPublicEnvelope`, `Vault.getPublicEnvelope`, the `NoydbOptions.publicEnvelope` option key, and `readNoydbBundlePublicEnvelope`. Use `Cover`, `setCover`/`getCover`, `NoydbOptions.cover`, `readPodCover`. The deprecation window's only purpose was the klum-db migration, which shipped in klum-db 0.4.0-pre.1. **The wire format is unchanged and stays frozen**: the `_meta/public-envelope` record id, the `_noydb_public: 1` discriminator, and the pod-header `publicEnvelope` JSON key are untouched — existing vaults and bundles need no migration.
+- **BREAKING (no migration shim).** Removes three `NoydbOptions` fields that were declared but never read anywhere in the codebase, so setting them silently did nothing: `auth` (`'passphrase' | 'biometric'` — its JSDoc claimed a default that no code implemented; the real mechanisms are the `getKeyring` callback and the authenticator slots), `autoSync`, and `syncInterval` (both documented as superseded by `syncPolicy`, but no reader ever honored the stated precedence). Verified zero readers across every package before removal.
+- **BREAKING (no migration shim).** The `@noy-db/hub/bundle` subpath is removed, and with it the entire `src/legacy/` folder. Its surface has permanent homes: `.noydb` artifact ops on `@noy-db/hub/pod`, partition-transfer ops (extract **and** adopt) plus their option/result types and errors on `@noy-db/hub/cargo`. Nothing is orphaned — the promotion completed in #812/#820 before this cut. `/cargo`'s internal re-export floor moved from `src/legacy/kernel.ts` to `src/with-cargo/floor.ts` (unpublished either way). Consumers still on `/bundle`: import from `/pod` or `/cargo`; the symbol names are unchanged.
+- **Fixes a silent access-loss contract bug: `rotate()` now reports what it dropped (#854).**
+
+  `Noydb.rotate(vault, collections)` documented that fresh DEKs are "re-wrapped into every remaining user's keyring" and that "every current member keeps access, but with fresh keys". The engine does the opposite — it deletes the rotated collections' DEK entries and permissions from every other member's keyring. An admin running the "just rotate, nobody is removed" path after a suspected leak locked their entire team out of those collections, with nothing in the API to indicate it.
+
+  The engine is right and the documentation was wrong. A member's DEKs are wrapped under that member's KEK, and a KEK derives only from that member's own secret, so the caller cannot re-wrap a fresh DEK for anyone else. That is the zero-knowledge property working as intended; honouring the old wording would require a re-grant handshake against member public keys, which do not exist.
+
+  **`rotate()` now returns `RotateResult`** instead of `void`:
+
+  ```ts
+  const { needsRegrant } = await db.rotate("acme", ["invoices"]);
+  // needsRegrant → [{ userId: 'bob', collection: 'invoices' }]
+
+  for (const { userId, collection } of needsRegrant) {
+    // re-grant, or that member stays locked out
+  }
+  ```
+
+  Members who never held a rotated collection are not reported. The caller is never reported — their own keyring is re-wrapped in place. `rotate()` still does not remove anyone from the vault; that remains `revoke()`.
+
+  This is breaking only for callers who assigned the `void` return; ignoring it continues to work.
+
+- **BREAKING: the `passphrase-*` API family is renamed to `secret-*` (#862).**
+
+  The canonical name for the master credential has always been `secret` — it is the `createNoydb` option, and there was never a `passphrase` alias for it. But a family of public identifiers still said `passphrase`, so callers passed `secret` and then reached for `rotatePassphrase`, `passphraseMode` and `PassphrasePolicy` to manage that same value. The surface now reads consistently.
+
+  | Before                                                  | After                              |
+  | ------------------------------------------------------- | ---------------------------------- |
+  | `db.team.rotatePassphrase`                              | `db.team.rotateSecret`             |
+  | `db.team.recoverPassphrase`                             | `db.team.recoverSecret`            |
+  | `NoydbOptions.passphraseMode`                           | `NoydbOptions.secretMode`          |
+  | `PassphrasePolicy`                                      | `SecretPolicy`                     |
+  | `validatePassphrase`                                    | `validateSecret`                   |
+  | `allowWeakPassphrase`                                   | `allowWeakSecret`                  |
+  | `assertStrongPassphrase`                                | `assertStrongSecret`               |
+  | `WeakPassphraseError`                                   | `WeakSecretError`                  |
+  | `PassphraseValidationResult`                            | `SecretValidationResult`           |
+  | policy gates `rotate-passphrase` / `recover-passphrase` | `rotate-secret` / `recover-secret` |
+
+  No deprecation aliases — the name is gone entirely, which is the point.
+
+  **The managed-mode store path also moves**, from `_meta/sealed-passphrase` to `_meta/sealed-secret`. This is a wire change, not just a symbol rename: a vault created in managed mode by an earlier version will not find its sealed secret. There is no migration path and none is provided.
+
+  One deliberate exception, documented at its definition: the enclave conformance suite's fixed-secret constant keeps the literal value `enclave-conformance-fixed-passphrase-v1`. Those are known-answer vectors whose wrapped DEKs were computed under that exact string — renaming the value would re-derive a different KEK and invalidate every vector. Only the symbol changed.
+
+  `SecretPolicy` / `validateSecret` still govern the _phrase_ format of the secret (the "at least N lowercase words" rule); the name is now consistent with the option it validates, at the cost of being slightly less literal about what it measures.
+
+- Close the last service-subpath naming gaps and enforce the contract mechanically (#843).
+
+  **Breaking: `@noy-db/hub/tx` is now `@noy-db/hub/transactions`.**
+
+  ```diff
+  - import { withTransactions } from '@noy-db/hub/tx'
+  + import { withTransactions } from '@noy-db/hub/transactions'
+  ```
+
+  Nothing else about transactions changes — `withTransactions()`, `TransactionsStrategy`, and the
+  `transactionsStrategy` option are unchanged. This was the one service where the naming contract
+  did not hold: #844 named the types from the subpath `SERVICES.md` documented (`/transactions`),
+  which had never actually shipped.
+
+  **New subpaths** for three capabilities that already had a complete
+  `strategy.ts` + `active.ts` + `NO_*` seam but shipped reachable only from the root barrel. Their
+  exports are unchanged — they are simply importable from a themed subpath now, and tree-shake
+  accordingly:
+
+  - `@noy-db/hub/search` — `withSearch()`, `NO_SEARCH`, `SearchStrategy`
+  - `@noy-db/hub/sequence` — `withSequence()`, `NO_SEQUENCE`, `SequenceStrategy`
+  - `@noy-db/hub/custody` — `withCustody()`, `NO_CUSTODY`, `CustodyStrategy`
+
+  `withArchive` and `withLookup` deliberately keep no subpath; the reasons are recorded in
+  `SERVICES.md`.
+
+  **New guard:** `pnpm check:architecture` gains `service-subpath-naming`, which fails both when a
+  `with<Name>()` factory has no matching subpath and when a subpath has no factory producing it.
+
+- New `@noy-db/hub/share-link` subpath (#806): the canonical portal share-link grammar plus `buildShareLink`/`parseShareLink`. One link shape — `/r/{vaultHandle}/{collection}/{recordId}` with optional `?period=`/`?v=` and an optional single-use grant token carried ONLY in the URL fragment (`#g=`, the on-magic-link transport rule) — addresses vault/period/collection/record identically across the LIFF permalink, installed-PWA, and vendor-console surfaces. Strict-canonical `encodeURIComponent` segment encoding, LIFF permalink-prefix tolerance on parse, and fail-closed typed `ShareLinkParseError`s (never a default-vault fallback). Pure string/URL code with no dependency on the hub floor; export surface frozen by a golden test.
+- Additive `kind: 'password'` variant on the `/to` seam's `StoreCredentials` union (#795): `{ kind: 'password'; username; password; domain?; expiresAt? }` for connection-auth stores — to-postgres/to-mysql user+password (omit `domain`), to-smb NTLM via `domain`; `expiresAt` covers password-shaped short-lived cloud IAM auth tokens. No breaking change — the export surface is unchanged and existing `'aws'`/`'token'` consumers are unaffected. Key-shaped auth (`kind: 'key'`) is deferred (to-ssh is keys-only by design and may refuse brokered keys entirely).
+- **One resolved strategy bag replaces the ~10-site-per-service spine plumbing (#838).**
+
+  Threading one opt-in service through the kernel used to cost about ten mechanical edits across four files and three layers — a field on `NoydbOptions`, a conditional spread at the `new Vault(` site, a field declaration plus constructor parameter plus assignment on `Vault`, a forwarding spread, a field and a re-applied `?? NO_*` default in the collection config, and a field plus assignment on `Collection`. None of it carried logic, and nothing verified that a new service had reached every layer. That missing check is what produced #834: a copy of the Vault option block had silently dropped six strategies, so a vault reached that way threw `*NotEnabledError` for services the caller had in fact configured.
+
+  `createNoydb` now resolves every service once into a `StrategyBag`, and `Noydb` → `Vault` → `Collection` share that one reference. The three layers can no longer disagree about which services are enabled. Twenty-one conditional spreads, twenty-one Vault fields with their constructor plumbing, eleven collection-config fields with nine duplicated `?? NO_*` defaults, and seven Collection fields are gone — 149 lines net, 87 of them out of the three ratcheted spine files, whose ceilings ratchet down accordingly.
+
+  Adding a service is now one row in `StrategyBag` and one row in `STRATEGY_DEFAULTS`, both in a single file; omitting either fails the build and names the key, via two compile-time assertions checked against `NoydbOptions`.
+
+  The table lives on the `/with` port rather than in the kernel, because the port-layering guard allows spine → `port/with/` but not spine → `with-*` — the same reason the existing `NO_*` stubs already lived there. Two services needed adjusting to fit "every key always resolves": `archive` gained a `NO_ARCHIVE` stub (it was the one service held as `undefined` behind a hand-rolled null gate), and `lazy` keeps `IMPLICIT_LAZY` as its floor because an un-opted-in collection still gets a working LRU. `coordinationStrategy` stays out of the bag — it is a `CoordinationProvider` with no `with*()` factory, resolved asynchronously from the store.
+
+  No public API changes. `Noydb.custodyStrategy` and `Vault.cargoStrategy` behave exactly as before but are now getters rather than instance fields, which means they finally appear in the prototype-based kernel API manifest — it could not see them at all previously.
+
+- **BREAKING: seven unused subpath entries removed, and six internals taken off the root barrel (#843).**
+
+  The `./on`, `./at`, `./as`, `./by`, `./in`, `./with` and `./ui` subpaths were published as "port contracts" for satellite authors and had **zero importers**. Across the monorepo, satellites import `@noy-db/hub` (252×), `@noy-db/hub/team` (29×) and `@noy-db/hub/to` (9×) — and these seven not once. `/to` stays, because stores genuinely bind a narrow ciphertext contract that `check-architecture` enforces; the other six families never needed an equivalent.
+
+  The exports map goes from 41 entries to 34. Anything that was reachable through one of the seven is still reachable from the root barrel.
+
+  Also removed from the root barrel, as internal machinery that was never meant to be public API: `InternalCollectionStats`, `resetJoinWarnings`, `resetBrotliSupportCache`, `DebugPlaintextError`, `DebugReservedFieldError`, `readPlaintextRecord`. Each is still exported from its own module for internal use; none had a single import through the barrel.
+
+  A side effect worth noting: the removed entries were exporting types that no entry made reachable, so this closes **13 type-reachability gaps** — the guard's baseline ratchets from 137 to 124.
+
+  The root barrel still carries 472 values and 427 types, most reachable from no other entry. Classifying those, and pruning `/cargo`'s non-cargo re-exports, remain open under #843.
+
+- Remove 30 hub-internal team symbols from the public root barrel (#843 C2).
+
+  The team module exported 42 symbols reachable from no entry other than `@noy-db/hub` itself —
+  crypto, recovery, delegation and tier plumbing that was never meant to be public API.
+
+  **Removed** (no consumer outside the hub): `keyringRecoverSecret`, `DEED_RECORD_ID`,
+  `hasRecoveryEnrolled`, the four `*ShamirRecoveryEntr*` helpers, `PaperRecoveryDoc`,
+  `ShamirRecoveryEntry`, `ShamirRecoveryDoc`, `EnrollRecoveryResult`, `RotateRecoveryOptions`,
+  `RotateRecoveryResult`, `SealedSecret`, `SealedEnvelope`, `loadSealedSecret`, `saveSealedSecret`,
+  `parseSealedEnvelope`, `SEALED_SECRET_RECORD_ID`, `dekKey`, `effectiveClearance`,
+  `assertTierAccess`, the whole delegation surface (`DelegationToken`, `IssueDelegationOptions`,
+  `DELEGATIONS_COLLECTION`, `issueDelegation`, `loadActiveDelegations`, `revokeDelegation`),
+  `MAGIC_LINK_CONTENT_INFO_PREFIX` and `MAGIC_LINK_KEK_INFO_PREFIX`.
+
+  **Explicitly retained** — these are the `at-*`/`on-*` SPI, not internals, and are now identified
+  as contract rather than sitting on the barrel by default: `sealRsaOaepTlv`, `parseRsaOaepTlv`,
+  `aesGcmOpen`, `RecipientHint`, `RecipientSealer`, `SealingKeyProvider`, `MemorySealingKeyProvider`,
+  `MemoryRecipientSealer`, `ShamirRecoveryProvider`, `keyringRotateSecret`, `MagicLinkGrantPayload`,
+  `MagicLinkGrantRecord`, `IssueMagicLinkGrantOptions`, `MAGIC_LINK_GRANTS_COLLECTION`.
+
+  If you were importing one of the removed symbols, it was hub-internal plumbing — please open an
+  issue describing the use case so it can be given a supported home.
+
+  Root barrel: **874 → 844** symbols.
+
+- Four more themed subpaths, completing #843(c):
+
+  - **`@noy-db/hub/cover`** — vault cover record: schema, storage, validation
+  - **`@noy-db/hub/schema-update`** — `SchemaDelta` plus the `blindUpdate` / `additiveOnly` / `lockSchema` strategies
+  - **`@noy-db/hub/policy`** — gate policy presets, engine and storage
+  - **`@noy-db/hub/directory`** — directory config, user visibility, and the user-envelope surface
+
+  `@noy-db/hub/introspection` (added in the previous release) gains the eight symbols it was missing:
+  `SchemaIntrospection`, `FieldMeta`, `SemanticType`, `CollectionDescription`, `DescribedField`,
+  `DescribeOptions`, `applyListProjection`, `ListProjectionOptions`.
+
+  `@noy-db/hub/team` gains the auth-config introspection functions `describeAuthConfig`,
+  `diagramAuthConfig`, `describeUserAuth` and `describeAllUsersAuth` — they are part of the
+  `db.team.*` facade.
+
+  **Nothing is removed.** Every symbol remains available from `@noy-db/hub`; the subpaths exist so
+  the surface is navigable and tree-shakeable.
+
+- Three new subpaths for symbols that previously had no home but the root barrel (#843 C3a):
+
+  - **`@noy-db/hub/store`** — `routeStore`, `wrapStore`, and the six `StoreMiddleware` factories
+    (`withRetry`, `withLogging`, `withMetrics`, `withCircuitBreaker`, `withCache`, `withHealthCheck`)
+  - **`@noy-db/hub/introspection`** — `dumpVaultSchema` plus the describe/meta descriptor types
+  - **`@noy-db/hub/money`** — the `money()` field descriptor and its arithmetic helpers
+
+  **Nothing is removed.** Each symbol is still re-exported from `@noy-db/hub`, matching how
+  `@noy-db/hub/classified` and `@noy-db/hub/i18n` have always been dual-homed. The subpaths exist so
+  the surface is navigable and tree-shakeable — importing from one lets a bundler drop the rest.
+
+  ```ts
+  import { money } from "@noy-db/hub/money"; // new, tree-shakeable
+  import { money } from "@noy-db/hub"; // still works
+  ```
+
+- **Every previously-unspellable public type is now nameable, and a CI guard keeps it that way (#837).**
+
+  Fourteen types appeared in public signatures but were exported from **no entry at all**, so a consumer could call the function and had no way to annotate the call: `EnclaveKey`, `EncryptResult`, `DerivationContext`, `RunResult`, `ExtractPartitionOptions`, `TransferSealPayload`, `IssuedChallenge`, `PutDerivedOutputCtx`, `SealedShredSlot`, `LookupBacking`, `MinMaxState`, `PolicyEnforcerOptions`, `TransformFn`, and one that only existed as a leaked local import alias. Each now ships from the entry whose signatures mention it (`EnclaveKey`/`EncryptResult`/`SealedShredSlot`/`IssuedChallenge` route through the enclave barrel, per the fork-swap contract).
+
+  New `pnpm --filter @noy-db/hub check:types`, wired into CI after the build: it walks every subpath's built `.d.ts`, resolves re-export aliases, and fails when a subpath exports a function whose signature names a type that subpath does not export. The 137 remaining gaps — types reachable from another entry, so merely a dual-import annoyance — are baselined and ratcheted; new ones fail the build. `--report` splits unspellable from merely-misplaced, and `--counts` prints per-entry export totals.
+
+- **Fixes a correctness bug (#834), breaking for one call pattern.** `db.vault(name)` no longer constructs a Vault — it returns the instance `openVault()` produced, or throws with an actionable message.
+
+  It previously carried two fallback constructors beside the real open path, and the encrypted one had **silently drifted**: it omitted `attestationStrategy`, `classifiedStrategy`, `portabilityStrategy`, `sealedRecordStrategy`, `sequenceStrategy` and `forgetStrategy`. A vault reached that way threw `*NotEnabledError` for services the caller _had_ configured — the error actively misled, naming a strategy you already passed. Both fallbacks also skipped the async registry init and schema-fence snapshot `openVault` performs, which a synchronous accessor cannot await, so the object they returned was structurally incomplete regardless.
+
+  Callers relying on the auto-open must `await db.openVault(name)` first (the thrown error says so). A test now asserts `noydb.ts` contains exactly **one** `new Vault(` site — that invariant, not review vigilance, is what keeps the drift from recurring.
+
+- Conform the `with*()` service catalog to one naming contract (#844, #846b), and write that
+  contract into `SERVICES.md` as a governance rule so it stops drifting.
+
+  **The rule: the subpath is canonical.** `@noy-db/hub/<name>` → `with<Name>()` → `<Name>Strategy`
+  → `<name>Strategy:` option → `strategies.<name>` → `NO_<NAME>`.
+
+  **Breaking — `createNoydb` option keys** (rename the key; the factory call is unchanged):
+
+  | Before             | After                  |
+  | ------------------ | ---------------------- |
+  | `blobStrategy`     | `blobsStrategy`        |
+  | `indexStrategy`    | `indexingStrategy`     |
+  | `snapshotStrategy` | `snapshotsStrategy`    |
+  | `txStrategy`       | `transactionsStrategy` |
+
+  **Breaking — exported type names:** `BlobStrategy` → `BlobsStrategy`, `IndexStrategy` →
+  `IndexingStrategy`, `SnapshotStrategy` → `SnapshotsStrategy`, `TxStrategy` →
+  `TransactionsStrategy`, `TransactionStrategyOptions` → `WithTransactionsOptions`, `NO_TX` →
+  `NO_TRANSACTIONS`. `BlobsService` is gone — `withBlobs()` now returns `BlobsStrategy`, which
+  absorbed `cacheStats()`, so the service has exactly one name (`NO_BLOBS` answers with zeros).
+
+  **Breaking — `withForgetCascade` is now `withForget`**, matching its `/forget` subpath.
+
+  **Breaking — `Strategy` no longer means two opposite things.** For the four services you
+  _declare_ rather than merely enable, the argument type is now `<Name>Spec` and the result is
+  `<Name>Strategy` (was `<Name>Strategy` and `<Name>StrategyHandle` respectively):
+  `GuardSpec`/`GuardStrategy`, `DerivationSpec`/`DerivationStrategy`,
+  `MaterializedViewSpec`/`MaterializedViewStrategy`, `OverlayedViewSpec`/`OverlayedViewStrategy`.
+
+  **Breaking — `@noy-db/hub/team` credential functions** take one trailing options object, and the
+  first parameter is `store` everywhere (it was `adapter` in `keyring.ts` only):
+
+  ```ts
+  loadKeyring(store, vault, { userId, secret });
+  createOwnerKeyring(store, vault, { userId, secret, validate });
+  changeSecret(store, vault, keyring, { newSecret, allowWeakSecret });
+  rotateKeys(store, vault, callerKeyring, { collections });
+  ```
+
+  The two same-typed positional strings on `loadKeyring`/`createOwnerKeyring` were a live
+  transposition hazard the compiler could not catch; the options object removes it.
+
+  **New:** `WithRollupOptions` and `WithDeferredNumberingOptions` — `withRollup` and
+  `withDeferredNumbering` took inline object literals, so their argument types were unnameable.
+
+  Non-breaking: `withBroker(config: BrokerConfig)` is unchanged and now recorded in `SERVICES.md`
+  as a sanctioned exception — the argument is retained live configuration, not a factory bag.
+  `with-store`'s middleware (`withRetry`, `withCache`, …) is likewise exempt: it returns
+  `StoreMiddleware`, not a strategy.
+
+- Sync now lives in its own `with-sync/` layer rather than under `with-party/` (#895).
+
+  `with-party/` describes **principals** — who you are, what you may do, how you prove it. Sync
+  replicates state between **stores and contexts**, which is a different concern. Roughly 2,261 lines
+  were filed under the wrong one, including `tab-coordination` and `tab-write-relay`, which coordinate
+  browser tabs of the _same_ user and are not about principals at all.
+
+  **Breaking, but narrow:** `@noy-db/hub/team` no longer re-exports `SyncEngine`, `SyncTransaction`,
+  `PresenceHandle`, or the `_sync_credentials` helpers (`putCredential`, `getCredential`,
+  `deleteCredential`, `listCredentials`, `credentialStatus`, `SYNC_CREDENTIALS_COLLECTION`,
+  `SyncCredential`). They ship from the long-standing `@noy-db/hub/sync` subpath, which is unchanged:
+
+  ```diff
+  - import { SyncEngine } from '@noy-db/hub/team'
+  + import { SyncEngine } from '@noy-db/hub/sync'
+  ```
+
+  `@noy-db/hub/sync` itself, `withSync()`, `NO_SYNC`, and every root-barrel export are unchanged. No
+  behaviour changes.
+
+  Removing the duplicate home also closed 5 type-reachability gaps that existed only because those
+  helpers were reachable two ways.
+
+### Patch Changes
+
+- Internal: atomic-commit eligibility gate for `db.transaction` (#906 prep, design #893).
+
+  `canCommitAtomically(db, ctx)` (`with-commit/tx/atomic-eligibility.ts`) is the pure
+  decision the not-yet-wired Phase 2 atomic path will consult before folding a whole
+  staged batch into ONE `store.tx(ops)` call instead of the per-op abortable path. All
+  four conditions must hold: (1) the store declares `capabilities.txAtomic === true`
+  AND implements `tx()` — mirrors the pairing rule `bestEffortRevert` already enforces;
+  (2) not an amendment transaction; (3) no `(vault, collection, id)` touched twice in
+  the batch; (4) every touched collection reports `_txAtomicSafe(opType)` — no
+  derivation/materialized-view source of any lifecycle, no CRDT mode, no unique
+  constraints, and no refs on the write direction (declared outbound refs block puts;
+  the presence of the ref enforcer — the same conservative signal `_prepareDelete`
+  already gates its cascade-during-prepare exception on — blocks deletes, since there
+  is no per-collection queryable "does anything reference me" surface without adding
+  new registry plumbing).
+
+  `Collection._txAtomicSafe(opType: 'put' | 'delete'): boolean` is a new terse
+  `@internal` predicate composed from the same registry lookups `describe()`'s
+  `hasDerivedOutputs` uses, plus `crdtMode`, `uniqueConstraints`, and the collection's
+  own declared refs / ref-enforcer presence.
+
+  No public API change — everything here is `@internal`, consumed only by the (future)
+  `runTransaction` Phase 2 delegation. `packages/hub/src/kernel/collection.ts`'s
+  kernel-surface ceiling raised 4370→4371 for the one-line addition (landed at zero
+  slack after the #905 review-round bump).
+
+- `computed()` now installs its own via binder (#813).
+
+  Every via declaration factory is the binding's opt-in unit: constructing a descriptor must leave
+  the binder installed in whatever module instance produced it. `money()` and `lookup()` always did
+  this. `computed()` did not — its binder was installed by a _different_ module
+  (`port/with/computed-strategy.ts`), which the kernel spine happens to import.
+
+  That holds whenever the consumer's `computed` import and the kernel spine resolve to one module
+  instance, and breaks when they do not. Running vitest with `server.deps.inline: [/@noy-db\/.*/]`
+  produced exactly that split: `isComputedDescriptor()` accepted the descriptor while the binder
+  registry consulted at bind time — a different transformed instance — had no `computed` entry,
+  failing with `via feature "computed" requires descriptors created via its declaration factory`.
+  `moneyFields` / `i18nFields` / `dictKeyFields` were immune under the same config purely because
+  they self-link.
+
+  No API change. `installViaBinder` is idempotent and first-wins, so the existing eager call is
+  unaffected.
+
+- **Derivation and materialized-view dispatch moved out of the kernel spine (#842 part b).**
+
+  `Collection` carried four dispatchers — `dispatchDerivations`, `dispatchMaterializedViews`, and their two delete-path mirrors — totalling some 270 lines of logic that belongs to the derivation service rather than the always-on kernel. They now live in `with-formula/derivations/dispatch.ts` and `with-formula/materialized-views/dispatch.ts`, with thin delegators left behind on the class so the public surface is unchanged.
+
+  `collection.ts` drops from 4531 to 4263 lines and its kernel-surface ceiling ratchets down with it. Because the spine reaches the new modules through a dynamic `import()`, the dispatch code also leaves the floor bundle for consumers who never declare a derivation or a materialized view.
+
+  `selfWriteFieldEqual` moved from a module-private helper in `collection.ts` to `kernel/via/dispatch.ts`, beside `putDerivedOutput` — both the spine's rollup recompute and the lifted dispatch need it, and both already import from there.
+
+  No behavioural change and no public API change.
+
+- `closePeriod` (and the other `_periods` summary writes) now mark the record dirty, so a closure made on a device with its own local store **pushes** to the shared store instead of staying put (#822). Period-scoped pull (#807) already treated `_periods` as always-sync — it is the navigation index a thin client needs first — so pull symmetry without push symmetry meant other devices could never see the closure. The other three reserved period collections stay device-local by design: freezes are marker-convergence state, archives record a per-deployment hot→cold relocation, and target-purges describe the very targets they would be pushed to.
+- Fix `wrapPodStore`: concurrent writes were lost, and `loadAll` leaked internal collections (#908)
+
+  `wrapPodStore()` is the single choke point through which every pod-shaped backend
+  (`@noy-db/to-drive`, `@noy-db/to-icloud`) enters the six-method store contract. It failed that
+  contract on two counts, both reproducible against any `NoydbPodStore` — neither was store-specific.
+
+  **Concurrent `put()`s lost writes.** 100 racing puts kept **one** record. `load()` had no in-flight
+  deduplication, so every concurrent caller issued its own `readBundle` and then _replaced_ the shared
+  snapshot with a freshly parsed object — orphaning the mutations earlier callers had already made to
+  the object they were handed. `flush()` then serialised the surviving object, not theirs.
+
+  Loads are now deduplicated per vault, and flushes are serialised through a per-vault chain so each
+  one sees the version token its predecessor produced. Previously, concurrent flushes all sent the
+  same `expectedVersion`; the losers took the conflict/merge path, and with enough of them the
+  3-attempt retry budget was exhausted and the error surfaced to a caller whose write was valid.
+
+  **`loadAll()` leaked internal collections** — `_keyring` and `_sync` appeared in vault snapshots.
+  The store contract requires excluding `_`-prefixed collections, with `@noy-db/to-file` as the
+  reference. `get()` and `list()` still serve them: this is about what a _snapshot_ claims, not about
+  hiding data.
+
+  `loadAll()` also returned the wrapper's **live internal object**, so a caller mutating the result
+  silently rewrote the wrapper's cache. It now returns a copy.
+
+  Found by wiring the extended stores into the adapter-conformance harness
+  ([noy-db-to#26](https://github.com/vLannaAi/noy-db-to/issues/26)) — the wrapper is where
+  `to-drive` and `to-icloud` were failing the shared suite.
+
+- Internal: `Collection._doDelete` split into prepare/commit halves (#905, design #893).
+
+  The delete path is now `_prepareDelete(id, internal)` — write-permission and tier refusal,
+  the `beforeDelete` gate bus, foreign-key ref enforcement, prior-version resolution, the
+  pre-delete payload hash, and the #589 delete-marker DECISION (the marker is minted at
+  `live._v + 1` but **not** written) — followed by `_commitDelete(prepared)` — history
+  snapshot, the marker put (or the physical `adapter.delete` when sync is off), `markerIds`
+  bookkeeping, ledger entry, cache/index teardown, mutation event, and the user-initiated
+  MV/array-derivation/rollup dispatch. `_finalizeDelete(prepared)` is commit minus the store
+  write, for a future atomic path that submits a whole batch through one `store.tx()`.
+  The history snapshot's key material (the record's stable CEK and the digest-only `_vdig`
+  context) is resolved in prepare, off the live envelope, and carried on the prepared delete —
+  by finalize time the store already holds the marker, which carries neither.
+  `_prepareDelete` returns `null` for every case that used to `return false` (no live record,
+  an already-shredded tombstone, an existing marker, the #718 elevated-internal skip), and
+  `_doDelete` is now just prepare → commit. `PreparedDelete<T>` joins `PreparedPut<T>` in the
+  type-only `src/kernel/prepared-write.ts`.
+
+  Deliberately a separate split from the put pair (#842c): delete differs in hydration, in
+  the history-read gate and in the marker rules. No public API change and no tombstone-
+  semantics change — every `delete-tombstone-*` / `sync-tombstone-*` suite passes untouched
+  — with one consequence of the seam: because prepare commits nothing by construction, the
+  "nothing to delete" early-outs now precede the history snapshot instead of following it, so
+  a delete that does nothing also writes no history snapshot for it.
+
+- Internal: `Collection._putInternal` split into prepare/commit halves (#904, design #893).
+
+  The ordinary (non-CRDT) write path is now `_preparePut(id, record, options)` — every
+  pre-envelope stage (gate bus, Via enforce/encode, computed fields, schema, ref
+  enforcement, prior/version resolution, unique pre-flight, CEK + vdig resolve,
+  `encryptRecord`) with **zero** observable side effects — followed by `_commitPut(prepared)`
+  — history snapshot of the prior version, store write, marker clear, write tail. A third
+  entry, `_finalizePut(prepared)`, is commit minus the `adapter.put`, for a future atomic
+  path that submits a whole batch of envelopes through one `store.tx()`. The CRDT branch
+  stays inline (merge-then-persist doesn't decompose the same way). `PreparedPut<T>` lives in
+  the new type-only `src/kernel/prepared-write.ts`.
+
+  No public API change and no behaviour change on the ordinary path, with one deliberate
+  micro-reorder: the prior-version history snapshot now runs _after_ `encryptRecord` instead
+  of before it. It still runs before the store write — the real invariant ("a history failure
+  leaves no write behind") is preserved — and the only observable difference is that a
+  failing `encryptRecord` no longer leaves an orphan history snapshot behind.
+
+  - @noy-db/attestation@0.4.0
+
 ## 0.4.0-pre.12
 
 ### Minor Changes

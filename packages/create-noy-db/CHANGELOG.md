@@ -1,5 +1,63 @@
 # Changelog — create-noy-db
 
+## 0.3.1
+
+### Patch Changes
+
+- README now matches the wizard it documents (#796). It claimed the wizard "asks at most 3 questions (project name, adapter, include sample data)" and writes "a complete Nuxt 4 + Pinia starter"; `runFreshMode` has in fact run five prompts since 0.3.0 — project name, adapter, sample data, **starter template**, **sync adapter** — and offers four templates (`nuxt-default`, `vite-vue`, `vanilla`, `electron`), all of which ship in the package. The four are now documented in a table with Nuxt marked as the default.
+
+  The "Deferred to a future release" section still listed "Non-Nuxt templates — no Vite/Vue standalone, no Electron, no vanilla" as an explicit non-goal. That shipped; the entry is removed.
+
+  Also states what fresh mode actually prints on exit (`cd <project>` / `pnpm install` / `pnpm dev`) — the `pnpm add …` line is augment mode's, and only augment mode's.
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.4.0
+  - @noy-db/to-file@1.0.0
+  - @noy-db/to-memory@1.0.0
+
 ## 0.3.1-pre.12
 
 ### Patch Changes

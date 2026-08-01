@@ -1,5 +1,124 @@
 # @noy-db/in-devtools-tui
 
+## 0.4.0
+
+### Minor Changes
+
+- **BREAKING: the `passphrase-*` API family is renamed to `secret-*` (#862).**
+
+  The canonical name for the master credential has always been `secret` — it is the `createNoydb` option, and there was never a `passphrase` alias for it. But a family of public identifiers still said `passphrase`, so callers passed `secret` and then reached for `rotatePassphrase`, `passphraseMode` and `PassphrasePolicy` to manage that same value. The surface now reads consistently.
+
+  | Before                                                  | After                              |
+  | ------------------------------------------------------- | ---------------------------------- |
+  | `db.team.rotatePassphrase`                              | `db.team.rotateSecret`             |
+  | `db.team.recoverPassphrase`                             | `db.team.recoverSecret`            |
+  | `NoydbOptions.passphraseMode`                           | `NoydbOptions.secretMode`          |
+  | `PassphrasePolicy`                                      | `SecretPolicy`                     |
+  | `validatePassphrase`                                    | `validateSecret`                   |
+  | `allowWeakPassphrase`                                   | `allowWeakSecret`                  |
+  | `assertStrongPassphrase`                                | `assertStrongSecret`               |
+  | `WeakPassphraseError`                                   | `WeakSecretError`                  |
+  | `PassphraseValidationResult`                            | `SecretValidationResult`           |
+  | policy gates `rotate-passphrase` / `recover-passphrase` | `rotate-secret` / `recover-secret` |
+
+  No deprecation aliases — the name is gone entirely, which is the point.
+
+  **The managed-mode store path also moves**, from `_meta/sealed-passphrase` to `_meta/sealed-secret`. This is a wire change, not just a symbol rename: a vault created in managed mode by an earlier version will not find its sealed secret. There is no migration path and none is provided.
+
+  One deliberate exception, documented at its definition: the enclave conformance suite's fixed-secret constant keeps the literal value `enclave-conformance-fixed-passphrase-v1`. Those are known-answer vectors whose wrapped DEKs were computed under that exact string — renaming the value would re-derive a different KEK and invalidate every vector. Only the symbol changed.
+
+  `SecretPolicy` / `validateSecret` still govern the _phrase_ format of the secret (the "at least N lowercase words" rule); the name is now consistent with the option it validates, at the cost of being slightly less literal about what it measures.
+
+### Patch Changes
+
+- `toMeter()` now returns a store, and absorbs `@noy-db/to-probe` (#845).
+
+  **Breaking: `toMeter` returns `MeteredNoydbStore`, not `{ store, meter }`.**
+
+  ```diff
+  - const { store, meter } = toMeter(inner)
+  - createNoydb({ store })
+  - meter.snapshot()
+  + const metered = toMeter(inner)
+  + createNoydb({ store: metered })
+  + metered.meter.snapshot()
+  ```
+
+  Being a real `NoydbStore` (shaped after hub's `RoutedNoydbStore`, which is likewise a store plus a
+  control surface) means a meter can sit anywhere a store can — including nested inside `routeStore`,
+  so each backend in a compound topology is metered independently:
+
+  ```ts
+  const pg = toMeter(toPostgres({ … }))
+  const s3 = toMeter(toAwsS3({ … }))
+  const db = await createNoydb({ store: routeStore({ default: pg, blobs: s3 }) })
+  pg.meter.snapshot()   // per-backend timings, no extra plumbing
+  ```
+
+  **`inner` is now optional.** `toMeter()` alone is a self-contained metered in-memory store.
+
+  **The optional surface is metered too.** `listPage`, `getStoreTime` and `tx` previously passed
+  through the wrap unmeasured — invisible to a tool whose job is finding where time goes. They are
+  wrapped only when the inner store implements them, so a metered store never gains a method its
+  inner store lacks.
+
+  **`@noy-db/to-probe` is retired**; `runStoreProbe` and `probeTopology` now ship from
+  `@noy-db/to-meter`. It exported no store, so it never fitted the `to<Backend>()` contract, and both
+  packages answer the same question — one live, one as a one-shot report.
+
+  ```diff
+  - import { runStoreProbe } from '@noy-db/to-probe'
+  + import { runStoreProbe } from '@noy-db/to-meter'
+  ```
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.4.0
+  - @noy-db/to-meter@1.0.0
+  - @noy-db/in-devtools@1.0.0
+
 ## 0.4.0-pre.12
 
 ### Patch Changes
