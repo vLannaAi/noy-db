@@ -327,6 +327,52 @@ export function runStoreConformanceTests(
         expect(await adapter.get('comp-tx', 'coll1', 'b')).not.toBeNull()
       })
 
+      it('tx() enforces expectedVersion atomically — mismatch throws ConflictError with nothing applied, when implemented (#920)', async () => {
+        if (typeof adapter.tx !== 'function') return
+        await adapter.put('comp-txv', 'coll1', 'a', makeEnvelope(2, 'committed'))
+        // A matching expectedVersion commits.
+        await adapter.tx([
+          { type: 'put', vault: 'comp-txv', collection: 'coll1', id: 'a', envelope: makeEnvelope(3, 'updated'), expectedVersion: 2 },
+        ])
+        expect((await adapter.get('comp-txv', 'coll1', 'a'))?._v).toBe(3)
+        // A mismatch throws ConflictError and applies NOTHING — including sibling ops.
+        await expect(
+          adapter.tx([
+            { type: 'put', vault: 'comp-txv', collection: 'coll1', id: 'b', envelope: makeEnvelope(1, 'sibling') },
+            { type: 'put', vault: 'comp-txv', collection: 'coll1', id: 'a', envelope: makeEnvelope(9, 'stale'), expectedVersion: 7 },
+          ]),
+        ).rejects.toThrow(ConflictError)
+        expect((await adapter.get('comp-txv', 'coll1', 'a'))?._v).toBe(3)
+        expect(await adapter.get('comp-txv', 'coll1', 'b')).toBeNull()
+      })
+
+      it('tx() rolls back every op when one leg fails — zero partial writes, when implemented (#920)', async () => {
+        if (typeof adapter.tx !== 'function') return
+        await adapter.put('comp-txr', 'coll1', 'seed', makeEnvelope(1, 'original'))
+        await adapter.put('comp-txr', 'coll1', 'blocker', makeEnvelope(1, 'blocker'))
+        await expect(
+          adapter.tx([
+            { type: 'put', vault: 'comp-txr', collection: 'coll1', id: 'fresh', envelope: makeEnvelope(1, 'fresh') },
+            { type: 'delete', vault: 'comp-txr', collection: 'coll1', id: 'seed' },
+            { type: 'put', vault: 'comp-txr', collection: 'coll1', id: 'blocker', envelope: makeEnvelope(9, 'clobber'), expectedVersion: 4 },
+          ]),
+        ).rejects.toThrow()
+        expect(await adapter.get('comp-txr', 'coll1', 'fresh')).toBeNull()
+        const seed = await adapter.get('comp-txr', 'coll1', 'seed')
+        expect(seed?._data).toBe(Buffer.from('original').toString('base64'))
+      })
+
+      it('tx() rejects a put op missing its envelope without partial application, when implemented (#920)', async () => {
+        if (typeof adapter.tx !== 'function') return
+        await expect(
+          adapter.tx([
+            { type: 'put', vault: 'comp-txe', collection: 'coll1', id: 'good', envelope: makeEnvelope(1, 'good') },
+            { type: 'put', vault: 'comp-txe', collection: 'coll1', id: 'bad' },
+          ]),
+        ).rejects.toThrow()
+        expect(await adapter.get('comp-txe', 'coll1', 'good')).toBeNull()
+      })
+
       it('getStoreTime() returns a non-decreasing interval, when implemented', async () => {
         if (typeof adapter.getStoreTime !== 'function') return
         const a = await adapter.getStoreTime()
