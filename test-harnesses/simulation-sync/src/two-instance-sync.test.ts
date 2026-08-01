@@ -19,21 +19,17 @@
  * snapshots the keyring at open; an empty local store would mint a
  * fresh, useless one).
  *
- * Store-identity shim: this harness imports hub from `src/`, while the
+ * Store-identity note: this harness imports hub from `src/`, while the
  * real `toMemory` binds the PUBLISHED `@noy-db/hub/to` seam (dist), so
- * the `ConflictError` a raw `toMemory` throws is a different class from
- * the one the src sync engine `instanceof`-checks. In production hub is
- * a singleton and the identities coincide; `srcIdentity()` restores
- * that topology by re-throwing the store's ConflictError with src
- * identity. Without it the engine misfiles CAS conflicts under
- * `result.errors` instead of resolving them — an artifact of running
- * src against a dist-bound store, not product behavior.
+ * the `ConflictError` a raw `toMemory` throws is a different class
+ * identity — the exact dual-copy topology #935 fixed. The engine now
+ * matches conflicts identity-safely (`isConflictError`), so the raw
+ * store is used directly; this suite is the end-to-end proof.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../../../packages/hub/src/index.js'
 import { withSync } from '../../../packages/hub/src/with-sync/index.js'
 import { toMemory } from '../../../packages/to-memory/src/index.js'
-import { ConflictError } from '../../../packages/hub/src/kernel/errors.js'
 import type { Noydb } from '../../../packages/hub/src/index.js'
 import type { NoydbStore } from '../../../packages/hub/src/kernel/types.js'
 
@@ -42,23 +38,6 @@ const VAULT = 'acme'
 const USER = 'owner'
 
 interface Doc extends Record<string, unknown> { editor: string; note: string }
-
-/** Re-throw the published-seam ConflictError with src class identity (see header). */
-function srcIdentity(store: NoydbStore): NoydbStore {
-  return {
-    ...store,
-    async put(vault, collection, id, envelope, expectedVersion) {
-      try {
-        return await store.put(vault, collection, id, envelope, expectedVersion)
-      } catch (err) {
-        if (err instanceof Error && err.constructor.name === 'ConflictError') {
-          throw new ConflictError((err as Error & { version: number }).version)
-        }
-        throw err
-      }
-    },
-  }
-}
 
 describe('simulation: two devices, own local stores, one shared remote', () => {
   let localA: NoydbStore
@@ -69,7 +48,7 @@ describe('simulation: two devices, own local stores, one shared remote', () => {
   beforeEach(async () => {
     localA = toMemory()
     localB = toMemory()
-    remote = srcIdentity(toMemory())
+    remote = toMemory()
     deviceA = await createNoydb({ store: localA, sync: remote, user: USER, secret: SECRET, syncStrategy: withSync() })
     await deviceA.openVault(VAULT)
   })

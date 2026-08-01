@@ -52,7 +52,7 @@ import type { EnclaveKey } from '../../kernel/enclave/index.js'
 import {
   PermissionDeniedError,
   ValidationError,
-  ConflictError,
+  isConflictError,
   NetworkError,
   BrokerEnrolmentError,
   BrokerProofError,
@@ -183,7 +183,7 @@ async function ensureSeedRecord(store: NoydbStore, vault: string, keyring: Unloc
     await persistRecord(store, vault, keyring, dek, record, 0)
     return { seedBytes, record, dek, version: 1 }
   } catch (err) {
-    if (!(err instanceof ConflictError)) throw err
+    if (!(isConflictError(err))) throw err
     const winner = await readRecord(store, vault, config.brokerId, dek)
     if (!winner) throw err
     return { seedBytes: base64ToBuffer(winner.record.seed), record: winner.record, dek, version: winner.envelope._v }
@@ -236,7 +236,7 @@ export async function enrollSeed(ctx: BrokerSeedCtx): Promise<void> {
   try {
     await persistRecord(store, vault, keyring, dek, { ...record, registered: true }, version)
   } catch (err) {
-    if (err instanceof ConflictError) {
+    if (isConflictError(err)) {
       const latest = await readRecord(store, vault, config.brokerId, dek)
       if (latest?.record.registered) return // a concurrent enrol already committed the same outcome
     }

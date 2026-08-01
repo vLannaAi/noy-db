@@ -6,7 +6,7 @@
 import type { NoydbStore, EncryptedEnvelope, StoreTime } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
-import { ConflictError, NumberingUncertaintyError } from '../../kernel/errors.js'
+import { isConflictError, NumberingUncertaintyError } from '../../kernel/errors.js'
 import type { DeferredNumberingConfig } from './descriptor.js'
 
 export const NUMBERING_HEAD_COLLECTION = '_numbering_head'
@@ -176,7 +176,7 @@ export class DeferredNumberingStore {
     try {
       await this.writeJson(NUMBERING_HEAD_COLLECTION, series, { series, lastSerial: serial, watermark: now.earliest }, headEnv?._v ?? 0)
     } catch (err) {
-      if (err instanceof ConflictError) return []
+      if (isConflictError(err)) return []
       throw err
     }
 

@@ -921,6 +921,24 @@ export class ConflictError extends NoydbError {
 }
 
 /**
+ * #935 — identity-safe ConflictError detection for store-boundary catches.
+ *
+ * A store may bind a DIFFERENT copy of `@noy-db/hub/to` than the caller
+ * (npm failing to dedupe hub within the peer range in production;
+ * src-vs-dist inside the workspace), so its ConflictError is a foreign
+ * class identity and a bare `instanceof` silently misses it — CAS retry
+ * loops rethrow instead of retrying, and the sync engine misfiles the
+ * conflict under `errors` with no resolution run. Every site that catches
+ * an error a STORE may have thrown must use this predicate; `instanceof`
+ * stays correct only for errors that never cross the store seam.
+ * The name check is the contract: every copy sets `name = 'ConflictError'`
+ * in its constructor, and the structural `version` field rides along.
+ */
+export function isConflictError(err: unknown): err is ConflictError {
+  return err instanceof ConflictError || (err instanceof Error && err.name === 'ConflictError')
+}
+
+/**
  * Thrown by `LedgerStore.append()` after exhausting its CAS retry
  * budget under multi-writer contention. Two browser tabs, a
  * web app + an offline mobile peer, or a server worker pool all

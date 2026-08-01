@@ -15,7 +15,7 @@ import type {
   ErasureEnforcement,
 } from '../kernel/types.js'
 import { NOYDB_SYNC_VERSION } from '../kernel/types.js'
-import { ConflictError, ValidationError } from '../kernel/errors.js'
+import { isConflictError, ValidationError } from '../kernel/errors.js'
 import {
   PERIOD_SUMMARY_COLLECTIONS,
   PERIODS_COLLECTION,
@@ -319,7 +319,7 @@ export class SyncEngine {
             completed.push(i)
             pushed++
           } catch (err) {
-            if (err instanceof ConflictError) {
+            if (isConflictError(err)) {
               const remoteEnvelope = await this.remote.get(this.vault, entry.collection, entry.id)
               if (remoteEnvelope) {
                 if (isTombstoneShape(remoteEnvelope)) {
@@ -735,7 +735,7 @@ export class SyncEngine {
             completed.push(i)
             pushed++
           } catch (err) {
-            if (err instanceof ConflictError) {
+            if (isConflictError(err)) {
               const remoteEnvelope = await this.remote.get(this.vault, entry.collection, entry.id)
               if (remoteEnvelope) {
                 if (isTombstoneShape(remoteEnvelope)) {

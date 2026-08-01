@@ -25,7 +25,7 @@ import {
   sha256Hex,
   type EnclaveKey,
 } from '../../kernel/enclave/index.js'
-import { BlobIntentPendingError, BlobOfflineError, ConflictError, NotFoundError, TamperedError, TierNotGrantedError, UnsupportedTierCompositionError, ValidationError } from '../../kernel/errors.js'
+import { BlobIntentPendingError, BlobOfflineError, ConflictError, isConflictError, NotFoundError, TamperedError, TierNotGrantedError, UnsupportedTierCompositionError, ValidationError } from '../../kernel/errors.js'
 import { blobPinKey, type BlobPinCache, type BlobPinEntry } from './blob-pinning.js'
 import { liveRecordIsElevated, liveRecordTier } from '../../kernel/tier-visibility.js'
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
@@ -565,7 +565,7 @@ export class BlobSet {
         await this.saveSlots(updated, version, tier)
         return
       } catch (err) {
-        if (err instanceof ConflictError && attempt < MAX_CAS_RETRIES - 1) continue
+        if (isConflictError(err) && attempt < MAX_CAS_RETRIES - 1) continue
         throw err
       }
     }
@@ -769,7 +769,7 @@ export class BlobSet {
         await this.writeBlobObject(updated, version, atTier)
         return updated.refCount
       } catch (err) {
-        if (err instanceof ConflictError && attempt < MAX_CAS_RETRIES - 1) continue
+        if (isConflictError(err) && attempt < MAX_CAS_RETRIES - 1) continue
         throw err
       }
     }
@@ -828,7 +828,7 @@ export class BlobSet {
         await this.writeBlobObject(updated, version, atTier)
         return { applied: true, refCount: updated.refCount }
       } catch (err) {
-        if (err instanceof ConflictError && attempt < MAX_CAS_RETRIES - 1) continue
+        if (isConflictError(err) && attempt < MAX_CAS_RETRIES - 1) continue
         throw err
       }
     }
@@ -1844,7 +1844,7 @@ export class BlobSet {
         await this.writeBlobObject(mutate(result.blob), result.version, 0)
         return
       } catch (err) {
-        if (err instanceof ConflictError && attempt < MAX_CAS_RETRIES - 1) continue
+        if (isConflictError(err) && attempt < MAX_CAS_RETRIES - 1) continue
         throw err
       }
     }
