@@ -34,7 +34,7 @@ import {
   reconcileIndex as reconcileIndexImpl, maintainPersistedIndexesOnPut as maintainPersistedIndexesOnPutImpl, maintainPersistedIndexesOnDelete as maintainPersistedIndexesOnDeleteImpl,
   purgePersistedIndexes as purgePersistedIndexesImpl, syncTierIndexes as syncTierIndexesImpl, type IndexingContext,
 } from '../with-lookup/indexing/collection-facade.js'
-import { ConflictError, ReadOnlyError, ClassifiedConfigError, ClassifiedRevealError, ClassifiedVerifyError } from './errors.js'
+import { ReadOnlyError, ClassifiedConfigError, ClassifiedRevealError, ClassifiedVerifyError } from './errors.js'
 import type { GhostRecord, TierMode, CrossTierAccessEvent } from './types.js'
 import type { UnlockedKeyring } from '../with-party/team/keyring.js'
 import { hasWritePermission } from '../with-party/team/keyring.js'
@@ -76,8 +76,8 @@ import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { BlobFieldsConfig } from '../with-shape/blobs/blob-compaction.js'
 import type { ReadOnlyVaultFacade } from '../with-audit/guards/types.js'
 import type { DerivationRegistry } from '../with-formula/derivations/registry.js'
-import type { TxContext, ExecutedOp } from '../with-commit/tx/transaction.js'
-import { revertExecuted } from '../with-commit/tx/transaction.js'
+import type { TxContext } from '../with-commit/tx/transaction.js'
+import { runPutManyAtomic } from './put-many-atomic.js'
 // Type-only — runtime class loaded via dynamic import in
 // `dispatchDerivations` when an eager-mode strategy fires. Keeps the
 // derivation executor chunk out of the floor bundle.
@@ -2896,8 +2896,11 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * **True tx-atomic putMany** — pass `{ atomic: true }` to switch
    * to the  transaction executor: pre-flight CAS against every
    * item's `expectedVersion`, then commit all ops with best-effort
-   * revert on mid-batch failure. Atomic mode throws on failure rather
-   * than returning a mixed-results object.
+   * revert on mid-batch failure. On a store that declares `txAtomic`
+   * the whole batch is instead submitted as ONE `store.tx()` call with
+   * per-leg CAS (#921) — genuinely all-or-nothing, with history/ledger/
+   * change events firing after the batch is durable. Atomic mode throws
+   * on failure rather than returning a mixed-results object.
    *
    * ## Change events
    *
@@ -2926,95 +2929,22 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
-   * Atomic-mode implementation of {@link putMany}. Pre-flights every
-   * `expectedVersion`, executes all puts in declaration order, and
-   * reverts executed ops via the raw adapter on mid-batch failure.
-   * See `runTransaction` for the shared semantics + crash-window caveat.
+   * Atomic-mode implementation of {@link putMany} — both branches live in
+   * `kernel/put-many-atomic.ts`: #921 delegates the batch through ONE
+   * `store.tx()` on a `txAtomic` store when the single-collection
+   * reduction of the #906 gate admits it (store bits + no duplicate ids +
+   * `_txAtomicSafe('put')`); anything else keeps the sequential pre-flight
+   * → execute → best-effort-revert loop.
    *
    * @internal
    */
-  private async putManyAtomic(
+  private putManyAtomic(
     entries: ReadonlyArray<readonly [id: string, record: T, opts?: PutManyItemOptions]>,
   ): Promise<PutManyResult> {
-    // Phase 1 — pre-flight CAS + prior-envelope snapshot for revert.
-    const priors = new Map<string, EncryptedEnvelope | null>()
-    for (const [id, , opts] of entries) {
-      if (!priors.has(id)) {
-        priors.set(id, await this.adapter.get(this.vault, this.name, id))
-      }
-      if (opts?.expectedVersion !== undefined) {
-        const env = priors.get(id) ?? null
-        const actual = env?._v ?? 0
-        if (actual !== opts.expectedVersion) {
-          throw new ConflictError(
-            actual,
-            `putMany atomic: ${this.vault}/${this.name}/${id} ` +
-              `expected v${opts.expectedVersion}, found v${actual}`,
-          )
-        }
-      }
-    }
-    // Phase 2 — execute; revert on failure.
-    //
-    // When a derivation registry is wired, publish a transient
-    // TxContext for the duration of this loop so `dispatchDerivations`
-    // can register recursive derived-output writes onto `ctx._executed`.
-    // The shared `revertExecuted` helper then unwinds the combined list
-    // (source ops + side-effect ops) in reverse, matching the
-    // `runTransaction` rollback semantics. When no derivation registry
-    // is configured, we still build a local `executed` list and revert
-    // it via `revertExecuted` — keeps a single code path.
-    const txCtx = this.derivationSource?.createTxContext() ?? null
-    if (txCtx !== null && this.derivationSource) {
-      this.derivationSource.setActiveTxContext(txCtx)
-    }
-    const localExecuted: ExecutedOp[] = []
-    try {
-      for (const [id, record] of entries) {
-        // Record the revert plan BEFORE the call so a mid-`put` throw
-        // (e.g. strict derivation failure firing after `store.put`
-        // already committed the source envelope) still has the source
-        // write reverted. Mirrors `runTransaction`'s Phase 2 pattern.
-        const entry: ExecutedOp = {
-          op: { type: 'put', vaultName: this.vault, collectionName: this.name, id },
-          priorEnvelope: priors.get(id) ?? null,
-        }
-        if (txCtx !== null) txCtx._executed.push(entry)
-        else localExecuted.push(entry)
-        await this.put(id, record)
-      }
-      return { ok: true, success: entries.map(([id]) => id), failures: [] }
-    } catch (err) {
-      const executedForRevert = txCtx !== null ? txCtx._executed : localExecuted
-      // Restore prior envelopes via the raw store. Same helper as
-      // `runTransaction` for symmetric semantics — walks in reverse,
-      // best-effort on each restore.
-      await revertExecuted(executedForRevert, this.adapter)
-      // Cache desync guard. `revertExecuted` only invalidates caches
-      // when given a `Noydb` reference (which we don't have here
-      // without widening the constructor surface). Walk the executed
-      // ops and invalidate caches via the source collection (this)
-      // for entries that target this collection, and via
-      // `derivationSource.getCollection(name)` for nested derived
-      // outputs that live in sibling collections — otherwise an eager
-      // cache on a derived-output collection still serves the
-      // rolled-back record.
-      for (const { op } of [...executedForRevert].reverse()) {
-        if (op.vaultName !== this.vault) continue
-        try {
-          if (op.collectionName === this.name) {
-            await this._invalidateCacheEntry(op.id)
-          } else if (this.derivationSource) {
-            await this.derivationSource.getCollection(op.collectionName)._invalidateCacheEntry(op.id)
-          }
-        } catch { /* best-effort */ }
-      }
-      throw err
-    } finally {
-      if (txCtx !== null && this.derivationSource) {
-        this.derivationSource.clearActiveTxContext(txCtx)
-      }
-    }
+    return runPutManyAtomic(
+      { host: this, store: this.adapter, vault: this.vault, name: this.name, derivationSource: this.derivationSource },
+      entries,
+    )
   }
 
   /**

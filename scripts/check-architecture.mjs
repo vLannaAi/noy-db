@@ -949,7 +949,11 @@ const KERNEL_SURFACE_BUDGET = {
   // fresh store read per call. Collapsed to one line in the `_via*` one-liner
   // cluster; the file was again exactly AT ceiling, so there was nothing to
   // fold into.
-  'packages/hub/src/kernel/collection.ts': 4372,
+  // Lowered 4372→4302 (#921 putMany atomic delegation, 2026-08-01): the whole
+  // `putManyAtomic` implementation (sequential branch verbatim + the new
+  // store.tx() delegating branch) moved to kernel/put-many-atomic.ts; the
+  // method body in collection.ts is now a thin context-passing delegator.
+  'packages/hub/src/kernel/collection.ts': 4302,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
