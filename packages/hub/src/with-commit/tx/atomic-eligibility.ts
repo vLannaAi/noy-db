@@ -26,12 +26,20 @@
  *     write set can't express "this key changes twice in sequence."
  *  4. Every touched collection reports `_txAtomicSafe(op.type)` — see that
  *     method's doc comment on `Collection` for what it excludes and why.
+ *     Delete in particular gates on `refEnforcer !== undefined` rather than
+ *     a `RefRegistry.getInbound()` lookup: `Vault.enforceRefsOnDelete`
+ *     cascades from THREE sources (lookup-ref edges, classic inbound refs,
+ *     managed-link `onDelete`), and only the blanket check is at least as
+ *     strict as all three — a `getInbound`-only check would be narrower
+ *     and wrongly admit unsafe atomic deletes (see `with-shape/links/
+ *     vault-facade.ts` `enforceRefsOnDelete`, lines ~180-263).
  *
  * @internal
  */
 
 import type { Noydb } from '../../kernel/noydb.js'
-import type { TxContext, StagedOp } from './transaction.js'
+import type { TxContext } from './transaction.js'
+import { keyOf } from './transaction.js'
 
 export function canCommitAtomically(db: Noydb, ctx: TxContext): boolean {
   const store = db._store
@@ -47,15 +55,8 @@ export function canCommitAtomically(db: Noydb, ctx: TxContext): boolean {
 
   for (const op of ctx._ops) {
     const coll = db.vault(op.vaultName).collection(op.collectionName)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (!(coll as any)._txAtomicSafe(op.type)) return false
+    if (!coll._txAtomicSafe(op.type)) return false
   }
 
   return true
-}
-
-// Same key shape as `transaction.ts`'s (unexported) `keyOf` — duplicated
-// rather than imported since the original isn't exported across the module.
-function keyOf(op: StagedOp): string {
-  return `${op.vaultName}\x00${op.collectionName}\x00${op.id}`
 }

@@ -155,4 +155,20 @@ describe('canCommitAtomically — #893/#906-prep gate', () => {
     ctx._ops.push({ type: 'delete', vaultName: 'v', collectionName: 'clients', id: 'c1' })
     expect(canCommitAtomically(db, ctx)).toBe(false)
   })
+
+  // Review finding 2: the test above uses a collection that IS an inbound-ref
+  // target, so it would stay green even under a future (unsafe) narrowing
+  // that only checks `refRegistry.getInbound()` — `enforceRefsOnDelete`
+  // also cascades via lookup-ref edges and managed links (see
+  // atomic-eligibility.ts's module doc), neither visible to `getInbound`.
+  // This is the tripwire: a PLAIN collection, no refs declared anywhere in
+  // either direction, must still be delete-ineligible under today's
+  // deliberately blanket `refEnforcer !== undefined` check.
+  it('false for a delete even on a collection with no refs in either direction', async () => {
+    const { db, vault } = await open()
+    vault.collection('plain')
+    const ctx = new TxContext(db)
+    ctx._ops.push({ type: 'delete', vaultName: 'v', collectionName: 'plain', id: '1' })
+    expect(canCommitAtomically(db, ctx)).toBe(false)
+  })
 })

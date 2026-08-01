@@ -642,6 +642,7 @@ export async function revertExecuted(
   )
 }
 
-function keyOf(op: StagedOp): string {
+/** @internal — shared (vault, collection, id) key shape; also used by `atomic-eligibility.ts`'s duplicate-key scan. */
+export function keyOf(op: StagedOp): string {
   return `${op.vaultName}\x00${op.collectionName}\x00${op.id}`
 }
