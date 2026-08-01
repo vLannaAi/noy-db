@@ -893,12 +893,30 @@ const KERNEL_SURFACE_BUDGET = {
   // CRDT and ordinary paths share), `_preparePut` (side-effect-free, ends
   // holding the envelope), `_commitPut(prepared, persist)` and the
   // `_finalizePut` delegate (commit minus the `adapter.put`, for the atomic
-  // path). Partially funded IN PLACE: the returned `PreparedPut` literal is one
-  // line, and the `enclave/index.js` named-import block was reflowed from one
-  // name per line to four (byte-preserving — same 11 names, only the line
-  // breaks moved), a −8 together. The `PreparedPut` type itself lives in the
-  // new (unceilinged, type-only) `src/kernel/prepared-write.ts`.
-  'packages/hub/src/kernel/collection.ts': 4311,
+  // path). Partially funded IN PLACE by three separate savings (the arithmetic
+  // this comment first reported was wrong — corrected here by #905's toucher):
+  // the `enclave/index.js` named-import block reflowed from one name per line
+  // to four (byte-preserving — same 11 names, only the line breaks moved) is
+  // −8 on its own; the `#commitWriteTail` call site collapsed from an 8-line
+  // argument object to one line is a further −7; and the returned `PreparedPut`
+  // literal is kept to a single line rather than one field per line. The
+  // `PreparedPut` type itself lives in the new (unceilinged, type-only)
+  // `src/kernel/prepared-write.ts`.
+  // Bumped 4311→4358 (2026-08-01, #905/#893: the sibling split of `_doDelete`
+  // into `_prepareDelete` / `_commitDelete` / `_finalizeDelete`). Deliberately
+  // NOT shared with the put split (#842c) — delete differs in hydration, in the
+  // history-read gate and in the #589 marker rules — so it pays for its own
+  // three signatures and their doc comments, the destructure of the prepared
+  // delete, the `_doDelete` prepare→commit delegate, and the marker branch
+  // rewritten to mint-then-write. Same stages in the same order, with one
+  // consequence of the seam: the `null` early-outs (no live record / tombstone
+  // / existing marker) now precede the history snapshot instead of following
+  // it, so a delete that does nothing also writes no history — prepare commits
+  // nothing by construction. Partially funded IN PLACE: the `ledger.append`
+  // argument object one-lined (−7) and the physical-delete `else if` branch
+  // debraced (−2). `PreparedDelete` lives beside `PreparedPut` in the type-only
+  // `src/kernel/prepared-write.ts`.
+  'packages/hub/src/kernel/collection.ts': 4358,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The

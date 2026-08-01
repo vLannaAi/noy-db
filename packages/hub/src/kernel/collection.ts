@@ -1,6 +1,6 @@
 import type { StrategyBag } from '../port/with/strategies.js'
 import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult, SealedView, VdigFieldPolicy, ClassifiedVerdict } from './types.js'
-import type { PreparedPut } from './prepared-write.js'
+import type { PreparedPut, PreparedDelete } from './prepared-write.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
 import { resolveClassifiedFields, guardClassifiedCompat, type ClassifiedEntry, type ClassifiedFieldSpec, type ResolvedClassified, type ClassifiedGuardCtx, type ClassifiedVerifyCtx } from '../port/with/classified-strategy.js'
@@ -2464,12 +2464,37 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   private async _doDelete(id: string, internal: boolean): Promise<boolean> {
+    const prepared = await this._prepareDelete(id, internal)
+    return prepared === null ? false : await this._commitDelete(prepared)
+  }
+
+  /**
+   * Prepare half of the delete (#893/#905): every refusal (write permission,
+   * tier, the beforeDelete gate bus, foreign-key refs), the prior-version
+   * resolution, the pre-delete payload hash, and the #589 marker DECISION —
+   * the marker is minted here but NOT written.
+   *
+   * Commits nothing of its own: no store write, no history entry, no ledger
+   * append, no cache/index mutation, no event, no `markerIds` entry. It READS
+   * the store and it may THROW — refusing a delete before anything commits is
+   * precisely its job (a `cascade` ref still deletes the referencing records
+   * here, as it always has). `null` is the "nothing to delete" answer that the
+   * early `return false` paths gave: no live record, an already-shredded
+   * tombstone, an existing marker, or the #718 elevated-internal skip.
+   *
+   * Pairs with {@link _commitDelete}. A deliberately separate split from the
+   * put pair (#842c) — delete differs in hydration, in the history-read gate
+   * and in the marker rules.
+   *
+   * @internal
+   */
+  async _prepareDelete(id: string, internal: boolean): Promise<PreparedDelete<T> | null> {
     if (!hasWritePermission(this.keyring, this.name)) {
       throw new ReadOnlyError()
     }
     // #716: public deletes only — see assertTierWritable's doc + Step 5 investigation for `internal`.
     await assertTierWritable(this.adapter, this.vault, this.name, id, !internal && this.tiers !== null)
-    if (internal && this.tiers !== null && await liveRecordIsElevated(this.adapter, this.vault, this.name, id)) return false // #718: internal cleanup treats an elevated record as nonexistent, same as tier-0 reads — skip, no marker, not counted as erased (#761 item 8)
+    if (internal && this.tiers !== null && await liveRecordIsElevated(this.adapter, this.vault, this.name, id)) return null // #718: internal cleanup treats an elevated record as nonexistent, same as tier-0 reads — skip, no marker, not counted as erased (#761 item 8)
 
     // Gate bus (Track A) — fires for ALL deletes (carrying `internal`), so a
     // gate handler can collect amendment changes on system-internal deletes
@@ -2521,6 +2546,48 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       existing = await this.resolvePriorValues(id)
     }
 
+    // Capture the previous envelope's payloadHash BEFORE delete so we
+    // have a stable reference for the ledger entry. The hash is of
+    // whatever was last visible to readers — for a `delete` of a
+    // never-existed record, we use the empty string (which the
+    // ledger entry's `payloadHash` field tolerates).
+    const previousEnvelope = await this.adapter.get(this.vault, this.name, id)
+    const previousPayloadHash = await this.strategies.history.envelopePayloadHash(previousEnvelope)
+
+    // #589 (review): the marker is minted at `live._v + 1` and carried on the
+    // prepared delete, so `onDirty` reports the SAME version, not
+    // `existing?.version` (which can be stale/absent in lazy mode with the
+    // record uncached and history disabled, desyncing the dirty entry's version
+    // from the marker and breaking push's CAS). `live` reuses `previousEnvelope`
+    // above — same read, nothing between them writes to the adapter.
+    let marker: EncryptedEnvelope | undefined
+    if (this.onDirty) {
+      // #589: under sync, delete leaves a version-ordered marker so the deletion
+      // converges on pull (a bare adapter.delete is invisible to other pullers).
+      // No-op if there is no live record to delete (already marked / shredded).
+      const live = previousEnvelope
+      if (!live || isTombstone(live, this.storeCiphertext) || isDeleteMarker(live)) return null
+      marker = buildDeleteMarker(live._v + 1, this.keyring.userId)
+    }
+
+    return { id, internal, existing, previousPayloadHash, marker }
+  }
+
+  /**
+   * Commit half (#893/#905): the only place a delete becomes observable —
+   * history snapshot of the deleted version, the store write (the #589 marker
+   * put, or the physical removal when sync is off), then the ledger entry,
+   * cache/index teardown, the mutation event, and the user-initiated
+   * derivation dispatch.
+   *
+   * History still runs BEFORE the store write, exactly as today, so a history
+   * failure leaves no delete behind.
+   *
+   * @internal `persist: false` skips the store write — see {@link _finalizeDelete}.
+   */
+  async _commitDelete(prepared: PreparedDelete<T>, persist = true): Promise<boolean> {
+    const { id, internal, existing, previousPayloadHash, marker } = prepared
+
     // Save history snapshot before deleting. On a CEK collection the
     // snapshot reuses the record's stable CEK so the displaced version
     // stays in the same key chain as the rest of its history.
@@ -2530,47 +2597,17 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       await this.strategies.history.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: prevForVdig } : undefined, id))
     }
 
-    // Capture the previous envelope's payloadHash BEFORE delete so we
-    // have a stable reference for the ledger entry. The hash is of
-    // whatever was last visible to readers — for a `delete` of a
-    // never-existed record, we use the empty string (which the
-    // ledger entry's `payloadHash` field tolerates).
-    const previousEnvelope = await this.adapter.get(this.vault, this.name, id)
-    const previousPayloadHash = await this.strategies.history.envelopePayloadHash(previousEnvelope)
-
-    // #589 (review): the version the marker is minted at (live._v + 1) — captured
-    // here so `onDirty` below reports the SAME version, not `existing?.version`
-    // (which can be stale/absent in lazy mode with the record uncached and history
-    // disabled, desyncing the dirty entry's version from the marker and breaking
-    // push's CAS). `live` reuses `previousEnvelope` above — same read, nothing
-    // between them writes to the adapter, so no need for a second `adapter.get`.
-    let markerVersion: number | undefined
-    if (this.onDirty) {
-      // #589: under sync, delete leaves a version-ordered marker so the deletion
-      // converges on pull (a bare adapter.delete is invisible to other pullers).
-      // No-op if there is no live record to delete (already marked / shredded).
-      const live = previousEnvelope
-      if (!live || isTombstone(live, this.storeCiphertext) || isDeleteMarker(live)) return false
-      markerVersion = live._v + 1
-      await this.adapter.put(this.vault, this.name, id, buildDeleteMarker(markerVersion, this.keyring.userId))
+    if (marker) {
+      if (persist) await this.adapter.put(this.vault, this.name, id, marker)
       this.markerIds.add(id) // #606: this id now carries a marker — the #589 continuity gate should consult it on re-create
-    } else {
-      await this.adapter.delete(this.vault, this.name, id)
-    }
+    } else if (persist) await this.adapter.delete(this.vault, this.name, id)
 
     // Ledger append — same after-write timing as put(). The recorded
     // version is the version that WAS deleted (existing?.version), not
     // a successor. A delete of a missing record still appends an
     // entry with version 0 so the chain captures the intent.
     if (this.ledger) {
-      await this.ledger.append({
-        op: 'delete',
-        collection: this.name,
-        id,
-        version: existing?.version ?? 0,
-        actor: this.keyring.userId,
-        payloadHash: previousPayloadHash,
-      })
+      await this.ledger.append({ op: 'delete', collection: this.name, id, version: existing?.version ?? 0, actor: this.keyring.userId, payloadHash: previousPayloadHash })
     }
 
     if (this.lazy && this.lru) {
@@ -2595,11 +2632,11 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // #589: under sync the marker rides the push channel as an ordinary CAS put at
     // its own version (live._v + 1); the dirty version must match the marker so
     // push's expectedVersion = marker._v - 1 = live._v matches the remote's live copy.
-    // #589 (review): use `markerVersion` (the version the marker was actually minted
-    // at above), not `existing?.version` — the fallback below is unreachable in
-    // practice (onDirty undefined ⇒ markerVersion undefined ⇒ the `?.` short-circuits
+    // #589 (review): use the marker's own `_v` (the version it was actually minted
+    // at), not `existing?.version` — the fallback below is unreachable in
+    // practice (onDirty undefined ⇒ no marker ⇒ the `?.` short-circuits
     // before this argument matters) but keeps the expression well-typed.
-    await this._onRecordMutated(id, 'delete', 'local-delete', { version: markerVersion ?? (existing?.version ?? 0) + 1 })
+    await this._onRecordMutated(id, 'delete', 'local-delete', { version: marker?._v ?? (existing?.version ?? 0) + 1 })
 
     // Symmetric to put: user-initiated deletes must fire MV
     // refresh so `onEmpty: 'delete'` MVs tombstone their now-orphan
@@ -2624,6 +2661,16 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       if (existing) await this.dispatchRollupsOnDelete(id, existing.record)
     }
     return true
+  }
+
+  /**
+   * {@link _commitDelete} minus the store write: the marker (or the removal)
+   * already landed as one leg of a `store.tx()` batch.
+   *
+   * @internal
+   */
+  _finalizeDelete(prepared: PreparedDelete<T>): Promise<boolean> {
+    return this._commitDelete(prepared, false)
   }
 
   /**
