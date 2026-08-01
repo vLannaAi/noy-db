@@ -175,11 +175,15 @@ export function toMemory(opts: { clockUncertaintyMs?: number } = {}): NoydbStore
      * no concurrent writer can interleave. Truly atomic.
      */
     async tx(ops: readonly TxOp[]) {
-      // Phase 1 — validate every expectedVersion against current state.
+      // Phase 1 — validate every op (caller contract + expectedVersion)
+      // against current state; nothing is written until all ops pass.
       // We read the state ONCE up front; subsequent ops that target the
       // same (vault, coll, id) see the same snapshot, matching the
       // atomicity guarantee callers expect from a storage-layer tx.
       for (const op of ops) {
+        if (op.type === 'put' && !op.envelope) {
+          throw new Error(`tx: put op for ${op.id} is missing envelope`)
+        }
         if (op.expectedVersion === undefined) continue
         const existing = store.get(op.vault)?.get(op.collection)?.get(op.id)
         const actual = existing?._v ?? 0
@@ -194,10 +198,7 @@ export function toMemory(opts: { clockUncertaintyMs?: number } = {}): NoydbStore
       // no interleave window.
       for (const op of ops) {
         if (op.type === 'put') {
-          if (!op.envelope) {
-            throw new Error(`tx: put op for ${op.id} is missing envelope`)
-          }
-          getCollection(op.vault, op.collection).set(op.id, op.envelope)
+          getCollection(op.vault, op.collection).set(op.id, op.envelope!)
         } else {
           store.get(op.vault)?.get(op.collection)?.delete(op.id)
         }
