@@ -5,9 +5,11 @@
   "description": "Network toggle and state transition tests",
   "type": "module",
   "scripts": {
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run"
   },
   "devDependencies": {
-    "@noy-db/hub": "workspace:*"
+    "@noy-db/hub": "workspace:*",
+    "@noy-db/to-memory": "workspace:*",
+    "vitest": "^3.0.0"
   }
 }
