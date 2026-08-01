@@ -741,12 +741,15 @@ export interface NoydbStore {
    * Stores that omit this fall through to the hub's per-record OCC
    * fallback: pre-flight CAS check, then sequential `put`/`delete`
    * with best-effort unwind on mid-batch failure (see
-   * `runTransaction` for the exact semantics and crash window).
+   * `runTransaction` for the exact semantics and crash window). The
+   * hub also falls back when the staged batch isn't statically safe
+   * to submit as one write set — see `canCommitAtomically`.
    *
-   * Native implementations: `to-memory` (single Map mutation),
-   * `to-dynamo` (`TransactWriteItems`), `to-browser-idb` (one
-   * `readwrite` transaction). File / S3 cannot implement this
-   * atomically and should omit the method.
+   * Native implementations today: `to-memory` (one synchronous burst of
+   * Map mutations) and the SQL-backed stores in the sibling `noy-db-to`
+   * repo. `to-dynamo` (`TransactWriteItems`) and `to-browser-idb` (one
+   * `readwrite` transaction) CAN implement it but do not yet. File / S3
+   * cannot implement it atomically and should omit the method.
    */
   tx?(ops: readonly TxOp[]): Promise<void>
 }

@@ -10,8 +10,10 @@
  * Pure decision logic: no side effects, no store reads. Every input is
  * already sitting on `db` / `ctx`.
  *
- * ALL of the following must hold (a fifth condition — commit-time changeset
- * invariants simply aren't run on the atomic path — needs no code here):
+ * ALL of the following must hold. (Commit-time changeset invariants are NOT a
+ * condition: that phase lives after Phase 2 in `runTransaction` and runs
+ * unchanged on either path — a failing invariant reverts the atomic batch
+ * through the same `ctx._executed` plan.)
  *
  *  1. The store declares `capabilities.txAtomic === true` AND implements
  *     `tx()`. Both — mirrors the pairing rule `bestEffortRevert` already
@@ -26,6 +28,10 @@
  *     write set can't express "this key changes twice in sequence."
  *  4. Every touched collection reports `_txAtomicSafe(op.type)` — see that
  *     method's doc comment on `Collection` for what it excludes and why.
+ *     Note it also excludes a collection with live user write-hooks or an
+ *     `afterPut`/`afterDelete` bus handler: both fire inside `Collection.put()`
+ *     / `.delete()`, the wrappers the atomic path bypasses, and a `beforeWrite`
+ *     hook may REFUSE a write (#906).
  *     Delete in particular gates on `refEnforcer !== undefined` rather than
  *     a `RefRegistry.getInbound()` lookup: `Vault.enforceRefsOnDelete`
  *     cascades from THREE sources (lookup-ref edges, classic inbound refs,
