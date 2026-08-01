@@ -30,7 +30,8 @@
     unit in the name is true. Ordering remains strictly monotonic.
   - **`txAtomic: true` is now declared.** `tx()` was implemented but the capability was never
     advertised, so the hub would have skipped it the day `transaction.ts` starts delegating. The
-    JSDoc claimed `txAtomic: true` while the object never set it.
+    JSDoc claimed `txAtomic: true` while the object never set it. _(That capability belongs to
+    `@noy-db/to-memory` only — `to-file` implements no `tx()` and declares no `txAtomic`.)_
 
   `memoryStore()` (the hub's built-in default) is unchanged and is **not** a duplicate of `toMemory()`
   — see `SERVICES.md` § Satellite family conventions.
@@ -143,7 +144,8 @@
     unit in the name is true. Ordering remains strictly monotonic.
   - **`txAtomic: true` is now declared.** `tx()` was implemented but the capability was never
     advertised, so the hub would have skipped it the day `transaction.ts` starts delegating. The
-    JSDoc claimed `txAtomic: true` while the object never set it.
+    JSDoc claimed `txAtomic: true` while the object never set it. _(That capability belongs to
+    `@noy-db/to-memory` only — `to-file` implements no `tx()` and declares no `txAtomic`.)_
 
   `memoryStore()` (the hub's built-in default) is unchanged and is **not** a duplicate of `toMemory()`
   — see `SERVICES.md` § Satellite family conventions.
