@@ -47,7 +47,8 @@
 import type { NoydbStore, EncryptedEnvelope } from '../../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../../kernel/types.js'
 import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../../kernel/enclave/index.js'
-import { ConflictError, LedgerContentionError } from '../../../kernel/errors.js'
+import type { ConflictError} from '../../../kernel/errors.js';
+import { isConflictError, LedgerContentionError } from '../../../kernel/errors.js'
 import {
   canonicalJson,
   hashEntry,
@@ -256,7 +257,7 @@ export class LedgerStore {
       try {
         return await this.appendOnce(input)
       } catch (err) {
-        if (err instanceof ConflictError) {
+        if (isConflictError(err)) {
           lastConflict = err
           if (attempt < MAX_APPEND_ATTEMPTS - 1) {
             await sleepBackoff(attempt)

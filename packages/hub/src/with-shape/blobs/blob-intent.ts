@@ -40,7 +40,7 @@
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { writeEnvelopeBody, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
-import { ConflictError, BlobIntentPendingError, ValidationError } from '../../kernel/errors.js'
+import { isConflictError, BlobIntentPendingError, ValidationError } from '../../kernel/errors.js'
 
 /** Reserved collection holding `_blob_intent` marker rows. */
 export const BLOB_INTENT_COLLECTION = '_blob_intent'
@@ -195,7 +195,7 @@ export async function createIntent(
   try {
     await adapter.put(vault, BLOB_INTENT_COLLECTION, key, envelope, 0)
   } catch (err) {
-    if (err instanceof ConflictError) {
+    if (isConflictError(err)) {
       throw new BlobIntentPendingError(collection, recordId)
     }
     throw err
@@ -251,7 +251,7 @@ export async function recordAppliedStamp(
       await adapter.put(vault, BLOB_INTENT_COLLECTION, key, newEnvelope, envelope._v)
       return
     } catch (err) {
-      if (err instanceof ConflictError && attempt < MAX_APPLIED_STAMP_RETRIES - 1) continue
+      if (isConflictError(err) && attempt < MAX_APPLIED_STAMP_RETRIES - 1) continue
       throw err
     }
   }

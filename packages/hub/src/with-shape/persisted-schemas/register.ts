@@ -18,7 +18,7 @@ import { derivePersistedSchema } from './derive.js'
 import { loadPersistedSchemaEntry, savePersistedSchema } from './storage.js'
 import { computeSchemaDelta } from '../schema-update/delta.js'
 import { evaluateStrategies } from '../schema-update/dispatch.js'
-import { ConflictError } from '../../kernel/errors.js'
+import { isConflictError } from '../../kernel/errors.js'
 import type { SchemaUpdateStrategy, UpdateDecision } from '../schema-update/types.js'
 import type { NoydbStore, ClassifiedMarker } from '../../kernel/types.js'
 import type { PersistedSchemaEnvelope } from './types.js'
@@ -100,7 +100,7 @@ export async function persistSchemaIfNeeded(opts: {
       await savePersistedSchema(opts.store, opts.vault, opts.collectionName, opts.dek, toSave, version)
       return { written: true, skipped: false, envelope: toSave, decision }
     } catch (err) {
-      if (err instanceof ConflictError && attempt < MAX_SCHEMA_CAS_RETRIES) continue
+      if (isConflictError(err) && attempt < MAX_SCHEMA_CAS_RETRIES) continue
       throw err
     }
   }
@@ -143,7 +143,7 @@ export async function persistClassifiedMarker(opts: {
       await savePersistedSchema(opts.store, opts.vault, opts.collectionName, opts.dek, payload, version)
       return
     } catch (err) {
-      if (err instanceof ConflictError && attempt < MAX_SCHEMA_CAS_RETRIES) continue
+      if (isConflictError(err) && attempt < MAX_SCHEMA_CAS_RETRIES) continue
       throw err
     }
   }
@@ -186,7 +186,7 @@ export async function persistSatelliteMarker(opts: {
       await savePersistedSchema(opts.store, opts.vault, opts.collectionName, opts.dek, payload, version)
       return
     } catch (err) {
-      if (err instanceof ConflictError && attempt < MAX_SCHEMA_CAS_RETRIES) continue
+      if (isConflictError(err) && attempt < MAX_SCHEMA_CAS_RETRIES) continue
       throw err
     }
   }

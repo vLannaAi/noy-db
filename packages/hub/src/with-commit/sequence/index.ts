@@ -22,7 +22,8 @@
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
-import { ConflictError, SequenceContentionError, SequenceOfflineError, ValidationError } from '../../kernel/errors.js'
+import type { ConflictError} from '../../kernel/errors.js';
+import { isConflictError, SequenceContentionError, SequenceOfflineError, ValidationError } from '../../kernel/errors.js'
 
 // Capability opt-in seam (S4): `vault.sequence()` builds its CAS store through
 // the sequenceStrategy, so it throws SequenceNotEnabledError unless opted in.
@@ -282,7 +283,7 @@ export class SequenceStore {
         await this.adapter.put(this.vault, SEQUENCE_COLLECTION, name, envelope, expectedVersion)
         return nextValue
       } catch (err) {
-        if (err instanceof ConflictError) {
+        if (isConflictError(err)) {
           lastConflict = err
           if (attempt < MAX_NEXT_ATTEMPTS - 1) await sleepBackoff(attempt)
           continue
@@ -307,7 +308,7 @@ export class SequenceStore {
         await this.adapter.put(this.vault, SEQUENCE_COLLECTION, name, envelope, expectedVersion)
         return
       } catch (err) {
-        if (err instanceof ConflictError) {
+        if (isConflictError(err)) {
           lastConflict = err
           if (attempt < MAX_NEXT_ATTEMPTS - 1) await sleepBackoff(attempt)
           continue
