@@ -1,5 +1,6 @@
 import type { StrategyBag } from '../port/with/strategies.js'
 import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult, SealedView, VdigFieldPolicy, ClassifiedVerdict } from './types.js'
+import type { PreparedPut } from './prepared-write.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
 import { resolveClassifiedFields, guardClassifiedCompat, type ClassifiedEntry, type ClassifiedFieldSpec, type ResolvedClassified, type ClassifiedGuardCtx, type ClassifiedVerifyCtx } from '../port/with/classified-strategy.js'
@@ -13,17 +14,9 @@ import type { MutationOrigin } from './mutation.js'
 import { putDerivedOutput, ledgerAuditHook, selfWriteFieldEqual, resolveRollupDeleteIntents, findRollupSpecForIntent, type WaveContext, type RollupOutcome, type RollupDeleteIntent } from './via/dispatch.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
 import {
-  isTombstone,
-  isDeleteMarker,
-  buildTombstone,
-  buildDeleteMarker,
-  resolveStableCek,
-  findByDet,
-  queryByDet,
-  RecordCodec,
-  type DeterministicContext,
-  type EnclaveKey,
-  type SealedShredSlot,
+  isTombstone, isDeleteMarker, buildTombstone, buildDeleteMarker,
+  resolveStableCek, findByDet, queryByDet, RecordCodec,
+  type DeterministicContext, type EnclaveKey, type SealedShredSlot,
 } from './enclave/index.js'
 import { countLiveEnvelopes } from './lazy-count.js'
 import { liveRecordIsElevated, assertTierWritable, assertCutoverTierSafe } from './tier-visibility.js'
@@ -1821,7 +1814,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     await this._onRecordMutated(id, 'put', 'local-write', { record: event, version })
   }
 
-  private async _putInternal(id: string, record: T, options?: { readonly reason?: string; readonly source?: string; readonly sourceTs?: string }): Promise<void> {
+  /**
+   * The pre-envelope stages both write paths share (#904): permission + tier
+   * refusal, Via ingest, the beforePut gate bus, Via enforceWrite, computed
+   * fields, schema validation, Via encodeWrite and ref enforcement. Reads and
+   * throws; commits nothing. Returns the record in the shape that gets stored.
+   */
+  async #prepareWriteRecord(id: string, record: T): Promise<T> {
     if (!hasWritePermission(this.keyring, this.name)) {
       throw new ReadOnlyError()
     }
@@ -1906,11 +1905,18 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       await this.refEnforcer.enforceRefsOnPut(this.name, record)
     }
 
+    return record
+  }
+
+  private async _putInternal(id: string, record: T, options?: { readonly reason?: string; readonly source?: string; readonly sourceTs?: string }): Promise<void> {
     // ─── CRDT mode ─────────────────────────────────────────
     // In CRDT mode we always read the raw envelope from the adapter to get
     // the existing CRDT state, merge the incoming record into it, then
     // encrypt the merged CRDT state — bypassing the normal version path.
+    // Stays inline: merge-then-persist doesn't decompose into prepare/commit,
+    // and CRDT collections never take the atomic path (#904).
     if (this.crdtMode) {
+      record = await this.#prepareWriteRecord(id, record)
       const existingEnvelope = await this.adapter.get(this.vault, this.name, id)
       const existingVersion = existingEnvelope?._v ?? 0
       const now = new Date().toISOString()
@@ -1963,6 +1969,25 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     }
     // ─── End CRDT mode ──────────────────────────────────────────────────
 
+    await this._commitPut(await this._preparePut(id, record, options))
+  }
+
+  /**
+   * Prepare half of the ordinary (non-CRDT) write (#893/#904): run every
+   * pre-envelope stage, resolve the prior version, and produce the encrypted
+   * envelope — with ZERO observable side effects. No store write, no cache or
+   * index mutation, no history entry, no ledger append, no event. It may READ
+   * the store (gate prior, lazy prior, vdig prior) and it may THROW; refusing
+   * a write before anything commits is precisely its job.
+   *
+   * Pairs with {@link _commitPut}. Split out so a batch can prepare every op,
+   * submit ONE `store.tx()`, then finalize each op.
+   *
+   * @internal
+   */
+  async _preparePut(id: string, record: T, options?: { readonly reason?: string; readonly source?: string; readonly sourceTs?: string }): Promise<PreparedPut<T>> {
+    record = await this.#prepareWriteRecord(id, record)
+
     // Resolve the previous record. In eager mode this comes from the
     // in-memory map (no I/O); in lazy mode we have to ask the adapter
     // because the record may have been evicted (or never loaded).
@@ -1985,8 +2010,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       }
     } else {
       await this.ensureHydrated()
-      // Real values, not cache handles — the prior record is re-encrypted into
-      // a history snapshot below; a handle would seal the `'[sealed]'` marker.
+      // Real values, not cache handles — `_commitPut` re-encrypts the prior
+      // record into a history snapshot; a handle would seal `'[sealed]'`.
       existing = await this.resolvePriorValues(id)
     }
 
@@ -2036,22 +2061,44 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       ? { id, prev: await this.adapter.get(this.vault, this.name, id) }
       : undefined
 
-    // Save history snapshot of the PREVIOUS version before overwriting.
+    const envelope = await this.codec.encryptRecord(record, version, cek, options?.source, options?.sourceTs, vdigCtx, id)
+
+    return { id, envelope, version, indexed: record, event: record, prior: existing, cek, vdigCtx, reason: options?.reason }
+  }
+
+  /**
+   * Commit half (#893/#904): the only place an ordinary put becomes
+   * observable — history snapshot of the prior version, store write, marker
+   * clear, then the shared write tail.
+   *
+   * History still runs BEFORE the store write, so a history failure leaves no
+   * write behind. It now runs AFTER `encryptRecord` rather than before it —
+   * the split's one sanctioned reorder, which also stops an encrypt failure
+   * from leaving an orphan snapshot behind.
+   *
+   * @internal `persist: false` skips the `adapter.put` — see {@link _finalizePut}.
+   */
+  async _commitPut(prepared: PreparedPut<T>, persist = true): Promise<void> {
+    const { id, envelope, version, indexed, event, prior, cek, vdigCtx, reason } = prepared
+
     // CRITICAL: the history snapshot is a record of the PRIOR version — it must
     // NOT carry the source from the current write (source belongs to the new write only).
-    if (existing) await this.#savePriorHistory(id, existing, cek, vdigCtx)
+    if (prior) await this.#savePriorHistory(id, prior, cek, vdigCtx)
 
-    const envelope = await this.codec.encryptRecord(record, version, cek, options?.source, options?.sourceTs, vdigCtx, id)
-    await this.adapter.put(this.vault, this.name, id, envelope)
+    if (persist) await this.adapter.put(this.vault, this.name, id, envelope)
     this.markerIds.delete(id) // #606: the live body just overwrote any marker prior — no-op if `id` wasn't one
 
-    await this.#commitWriteTail({
-      id, envelope, version,
-      indexed: record,
-      event: record,
-      prior: existing,
-      reason: options?.reason,
-    })
+    await this.#commitWriteTail({ id, envelope, version, indexed, event, prior, reason })
+  }
+
+  /**
+   * {@link _commitPut} minus the `adapter.put`: the store already holds this
+   * envelope because it was written as one leg of a `store.tx()` batch.
+   *
+   * @internal
+   */
+  _finalizePut(prepared: PreparedPut<T>): Promise<void> {
+    return this._commitPut(prepared, false)
   }
 
   /**

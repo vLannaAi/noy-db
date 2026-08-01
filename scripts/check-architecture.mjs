@@ -885,7 +885,20 @@ const KERNEL_SURFACE_BUDGET = {
   // `indexing/collection-facade.js` named-import block from one name per line to three
   // per line (byte-preserving — same 9 imported names, only the line breaks moved), a
   // −6 net. Net zero versus pre-#788: the file lands back at the exact same line count.
-  'packages/hub/src/kernel/collection.ts': 4264,
+  // Bumped 4264→4311 (2026-08-01, #904/#893: `_putInternal` split into
+  // prepare/commit halves so a batch can encrypt every op, submit ONE
+  // `store.tx()`, then run each op's commit tail). The pipeline is unchanged —
+  // the same stages in the same order — but the seam costs four signatures and
+  // their doc comments: `#prepareWriteRecord` (the pre-envelope stages both the
+  // CRDT and ordinary paths share), `_preparePut` (side-effect-free, ends
+  // holding the envelope), `_commitPut(prepared, persist)` and the
+  // `_finalizePut` delegate (commit minus the `adapter.put`, for the atomic
+  // path). Partially funded IN PLACE: the returned `PreparedPut` literal is one
+  // line, and the `enclave/index.js` named-import block was reflowed from one
+  // name per line to four (byte-preserving — same 11 names, only the line
+  // breaks moved), a −8 together. The `PreparedPut` type itself lives in the
+  // new (unceilinged, type-only) `src/kernel/prepared-write.ts`.
+  'packages/hub/src/kernel/collection.ts': 4311,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
