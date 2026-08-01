@@ -2477,10 +2477,15 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * Commits nothing of its own: no store write, no history entry, no ledger
    * append, no cache/index mutation, no event, no `markerIds` entry. It READS
    * the store and it may THROW — refusing a delete before anything commits is
-   * precisely its job (a `cascade` ref still deletes the referencing records
-   * here, as it always has). `null` is the "nothing to delete" answer that the
-   * early `return false` paths gave: no live record, an already-shredded
-   * tombstone, an existing marker, or the #718 elevated-internal skip.
+   * precisely its job. `null` is the "nothing to delete" answer that the early
+   * `return false` paths gave: no live record, an already-shredded tombstone,
+   * an existing marker, or the #718 elevated-internal skip.
+   *
+   * ONE exception to that guarantee: on a collection with `cascade` inbound
+   * refs, prepare itself deletes the referencing children (via
+   * `enforceRefsOnDelete`, as it always has) — prepare is NOT abortable there.
+   * The transaction atomic path must never call this on such a collection; its
+   * eligibility gate excludes refs-bearing collections.
    *
    * Pairs with {@link _commitDelete}. A deliberately separate split from the
    * put pair (#842c) — delete differs in hydration, in the history-read gate
@@ -2570,7 +2575,15 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       marker = buildDeleteMarker(live._v + 1, this.keyring.userId)
     }
 
-    return { id, internal, existing, previousPayloadHash, marker }
+    // History-snapshot key material, resolved HERE off the live envelope —
+    // re-resolving it in the commit half would read the already-written marker
+    // (see {@link PreparedDelete.cek}). `previousEnvelope` is that same
+    // pre-write read, so the vdig context costs no extra `adapter.get`.
+    const snapshots = existing !== undefined && this.historyConfig.enabled !== false
+    const cek = snapshots && this.perRecordCek ? await this.resolveRecordCek(id) : undefined
+    const vdigCtx = snapshots && this.vdigFields !== null ? { id, prev: previousEnvelope } : undefined
+
+    return { id, internal, existing, previousPayloadHash, marker, cek, vdigCtx }
   }
 
   /**
@@ -2586,15 +2599,14 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * @internal `persist: false` skips the store write — see {@link _finalizeDelete}.
    */
   async _commitDelete(prepared: PreparedDelete<T>, persist = true): Promise<boolean> {
-    const { id, internal, existing, previousPayloadHash, marker } = prepared
+    const { id, internal, existing, previousPayloadHash, marker, cek, vdigCtx } = prepared
 
     // Save history snapshot before deleting. On a CEK collection the
-    // snapshot reuses the record's stable CEK so the displaced version
-    // stays in the same key chain as the rest of its history.
+    // snapshot reuses the record's stable CEK (resolved in prepare, off the
+    // live envelope) so the displaced version stays in the same key chain as
+    // the rest of its history.
     if (existing && this.historyConfig.enabled !== false) {
-      const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
-      const prevForVdig = this.vdigFields !== null ? await this.adapter.get(this.vault, this.name, id) : null
-      await this.strategies.history.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: prevForVdig } : undefined, id))
+      await this.strategies.history.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, vdigCtx, id))
     }
 
     if (marker) {

@@ -19,6 +19,8 @@ import { toMemory } from '../../../to-memory/src/index.js'
 import { createNoydb } from '../../src/index.js'
 import { withSync } from '../../src/with-sync/index.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
+import { withClassified } from '../../src/via/classified/active.js'
+import { classified } from '../../src/via/classified/presets.js'
 import { isDeleteMarker } from '../../src/kernel/enclave/record-keys/tombstone.js'
 import type { Noydb } from '../../src/index.js'
 import type { Collection } from '../../src/kernel/collection.js'
@@ -140,8 +142,13 @@ describe('#905 — _prepareDelete / _commitDelete split (synced: marker path)', 
   it('prepare returns null for a missing record, matching todays early `return false`', async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(await (coll as any)._prepareDelete('ghost', false)).toBeNull()
+    // The public `delete()` returns void, so assert the signal that carries the
+    // contract: `_doDelete` maps the null prepare back to today's `false`…
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(await coll.delete('ghost')).toBeUndefined()
+    expect(await (coll as any)._doDelete('ghost', false)).toBe(false)
+    await coll.delete('ghost')
+    expect(puts).toEqual([])    // …and nothing reached the store either way
+    expect(deletes).toEqual([])
   })
 
   it('prepare returns null for an id that is already a delete marker', async () => {
@@ -149,6 +156,8 @@ describe('#905 — _prepareDelete / _commitDelete split (synced: marker path)', 
     await coll.delete('c')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(await (coll as any)._prepareDelete('c', false)).toBeNull()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(await (coll as any)._doDelete('c', false)).toBe(false)
   })
 
   it('a single delete() still goes through prepare + commit with unchanged semantics', async () => {
@@ -159,6 +168,67 @@ describe('#905 — _prepareDelete / _commitDelete split (synced: marker path)', 
     const env = await db._store.get('v', 'docs', 'd')
     expect(isDeleteMarker(env!)).toBe(true)
     expect(env?._v).toBe(2)
+  })
+})
+
+/**
+ * Review finding 1: the history snapshot's key material must be resolved from
+ * the LIVE envelope in prepare. `_finalizeDelete` runs once the marker already
+ * landed, and a marker carries no `_cek` (→ `resolveStableCek` would fall
+ * through to a fresh `generateDEK()`, so the snapshot would leave the record's
+ * key chain and survive a later shred) and no `_vdig` (→ the digest would chain
+ * off the marker instead of the displaced record).
+ */
+describe('#905 — _finalizeDelete snapshots under the ORIGINAL key material', () => {
+  it('perRecordKeys: the history snapshot keeps the live envelope`s _cek', async () => {
+    const t = tracked()
+    const db = await createNoydb({
+      store: t.store, sync: toMemory(), user: 'owner', secret: 'finalize-cek-secret-2026',
+      syncStrategy: withSync(), historyStrategy: withHistory(),
+    })
+    const coll = (await db.openVault('v')).collection<Doc>('docs', { perRecordKeys: true })
+    await coll.put('k', { n: 1 })
+    const liveCek = (await db._store.get('v', 'docs', 'k'))?._cek
+    expect(liveCek).toBeDefined()
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const prepared = await (coll as any)._prepareDelete('k', false)
+    // The commit half must not depend on a warm CEK cache for correctness: the
+    // cache is an LRU and `rotateRecordCek` evicts through this same entry
+    // point. With the entry cold, a commit that re-resolved the CEK would read
+    // the (already-written) marker, find no `_cek`, and mint a fresh key.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(coll as any)._invalidateCekCacheEntry('k')
+    await db._store.put('v', 'docs', 'k', prepared.marker) // the `store.tx()` leg
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(await (coll as any)._finalizeDelete(prepared)).toBe(true)
+
+    const snapshot = await db._store.get('v', '_history', 'docs:k:0000000001')
+    expect(snapshot).not.toBeNull()
+    expect(snapshot?._cek).toBe(liveCek) // same key chain — NOT a freshly minted one
+  })
+
+  it('digest-only classified field: the history snapshot carries the live _vdig forward', async () => {
+    const t = tracked()
+    const db = await createNoydb({
+      store: t.store, sync: toMemory(), user: 'owner', secret: 'finalize-vdig-secret-2026',
+      syncStrategy: withSync(), historyStrategy: withHistory(), classifiedStrategy: withClassified(),
+    })
+    const coll = (await db.openVault('v')).collection<Record<string, unknown>>('docs', {
+      perRecordKeys: true, classifiedFields: { password: classified.password() },
+    })
+    await coll.put('k', { n: 1, password: 'hunter2-correct-horse' })
+    const liveVdig = (await db._store.get('v', 'docs', 'k'))?._vdig
+    expect(liveVdig?.password).toBeTypeOf('string')
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const prepared = await (coll as any)._prepareDelete('k', false)
+    await db._store.put('v', 'docs', 'k', prepared.marker) // the `store.tx()` leg
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(await (coll as any)._finalizeDelete(prepared)).toBe(true)
+
+    const snapshot = await db._store.get('v', '_history', 'docs:k:0000000001')
+    expect(snapshot?._vdig).toEqual(liveVdig) // carried from the record, not the marker
   })
 })
 

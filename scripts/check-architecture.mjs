@@ -916,7 +916,20 @@ const KERNEL_SURFACE_BUDGET = {
   // argument object one-lined (−7) and the physical-delete `else if` branch
   // debraced (−2). `PreparedDelete` lives beside `PreparedPut` in the type-only
   // `src/kernel/prepared-write.ts`.
-  'packages/hub/src/kernel/collection.ts': 4358,
+  // Bumped 4358→4370 (2026-08-01, #905 review round 1, two findings): (a) the
+  // history snapshot's key material is now resolved in `_prepareDelete` and
+  // carried on `PreparedDelete` (`cek`, `vdigCtx`) instead of being re-read in
+  // the commit half — under `_finalizeDelete` the store already holds the
+  // marker, which carries no `_cek` (so `resolveStableCek` would mint a FRESH
+  // key and the snapshot would leave the record's key chain) and no `_vdig`
+  // (so the digest would chain off the marker); the vdig read is folded onto
+  // the existing `previousEnvelope` read, so this costs no extra `adapter.get`.
+  // (b) `_prepareDelete`'s doc now states the one sanctioned exception to its
+  // no-write guarantee — a `cascade` inbound ref makes prepare non-abortable,
+  // so the atomic path's eligibility gate must exclude refs-bearing
+  // collections. Funded in part by folding the new block's comment into the
+  // `PreparedDelete` field docs rather than repeating it here (−2).
+  'packages/hub/src/kernel/collection.ts': 4370,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The

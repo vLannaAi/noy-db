@@ -43,6 +43,15 @@ export interface PreparedDelete<T> {
   /** Payload hash of the pre-delete envelope, captured for the ledger entry. */
   readonly previousPayloadHash: string
   /**
+   * History-snapshot key material, resolved from the LIVE envelope before any
+   * write — `_finalizeDelete` runs once the marker/removal already landed, and
+   * a marker carries no `_cek` (re-resolving would mint a fresh key) and no
+   * `_vdig` (re-reading would chain the digest off the marker). Both are
+   * `undefined` when no snapshot will be written.
+   */
+  readonly cek: EnclaveKey | undefined
+  readonly vdigCtx: { id: string; prev: EncryptedEnvelope | null } | undefined
+  /**
    * #589 delete marker, minted at `live._v + 1` but NOT yet written. Present
    * only under sync (`onDirty`); `undefined` means the delete is a physical
    * `adapter.delete`.
