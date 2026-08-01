@@ -1,5 +1,88 @@
 # @noy-db/on-totp
 
+## 0.4.0
+
+### Minor Changes
+
+- Namespace the bare, generic exports these two packages published at top level (#845).
+
+  `import { verify } from '@noy-db/on-totp'` collided with anything else named `verify` in the
+  importing module — the identifiers said nothing about which family they belonged to.
+
+  **`@noy-db/on-email-otp`**
+
+  | Before         | After                  |
+  | -------------- | ---------------------- |
+  | `issue`        | `issueEmailOtp`        |
+  | `verify`       | `verifyEmailOtp`       |
+  | `IssueOptions` | `EmailOtpIssueOptions` |
+  | `IssueResult`  | `EmailOtpIssueResult`  |
+  | `VerifyResult` | `EmailOtpVerifyResult` |
+
+  **`@noy-db/on-totp`**
+
+  | Before                   | After                        |
+  | ------------------------ | ---------------------------- |
+  | `verify`                 | `verifyTotp`                 |
+  | `generateSecret`         | `generateTotpSecret`         |
+  | `generateCode`           | `generateTotpCode`           |
+  | `provisioningUri`        | `totpProvisioningUri`        |
+  | `VerifyOptions`          | `VerifyTotpOptions`          |
+  | `ProvisioningUriOptions` | `TotpProvisioningUriOptions` |
+
+  `encodeBase32` / `decodeBase32` are unchanged — they name a specific algorithm, not a generic verb.
+
+  The remaining `#845` items (the `to-*` factory-naming convention, `on-password`'s
+  `enrollPasswordAuthenticator`) are untouched: both need a decision recorded first, and the issue
+  itself leaves the `to-memory` `memory()` vs hub `memoryStore()` question open.
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.4.0
+
 ## 0.4.0-pre.12
 
 ### Patch Changes

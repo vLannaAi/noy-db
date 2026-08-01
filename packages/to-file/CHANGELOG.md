@@ -1,5 +1,87 @@
 # Changelog — to-file
 
+## 0.4.0
+
+### Minor Changes
+
+- Store factories are now named `to<Backend>()`, matching their package (#845).
+
+  | Package                  | Before            | After          |
+  | ------------------------ | ----------------- | -------------- |
+  | `@noy-db/to-file`        | `jsonFile`        | `toFile`       |
+  | `@noy-db/to-memory`      | `memory`          | `toMemory`     |
+  | `@noy-db/to-browser-idb` | `browserIdbStore` | `toBrowserIdb` |
+
+  ```diff
+  - import { jsonFile } from '@noy-db/to-file'
+  - const db = await createNoydb({ store: jsonFile({ dir: './data' }) })
+  + import { toFile } from '@noy-db/to-file'
+  + const db = await createNoydb({ store: toFile({ dir: './data' }) })
+  ```
+
+  The `to` prefix already means "data goes to a backend", so the factory needs no `Store` suffix, and
+  the uniform prefix makes the family greppable. The 16 extended stores in `noy-db-to` follow in their
+  own pass.
+
+  **Also in `@noy-db/to-memory`:**
+
+  - `clockUncertainty` → **`clockUncertaintyMs`**, and the store clock is now genuinely
+    millisecond-based (`Math.max(clock + 1, Date.now())`) rather than a bare tick counter — so the
+    unit in the name is true. Ordering remains strictly monotonic.
+  - **`txAtomic: true` is now declared.** `tx()` was implemented but the capability was never
+    advertised, so the hub would have skipped it the day `transaction.ts` starts delegating. The
+    JSDoc claimed `txAtomic: true` while the object never set it.
+
+  `memoryStore()` (the hub's built-in default) is unchanged and is **not** a duplicate of `toMemory()`
+  — see `SERVICES.md` § Satellite family conventions.
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.4.0
+
 ## 0.4.0-pre.12
 
 ### Patch Changes

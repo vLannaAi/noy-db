@@ -1,5 +1,118 @@
 # @noy-db/to-meter
 
+## 0.4.0
+
+### Minor Changes
+
+- **`@noy-db/hub` — the transaction revert pass is now atomic when the store supports it (#886).**
+
+  `runTransaction`'s rollback previously unwound leg by leg, best-effort, so a crash mid-revert could
+  leave a vault half-unwound. When the store declares `capabilities.txAtomic` and implements `tx()`,
+  the whole revert is now submitted as one storage-layer operation instead.
+
+  This works because the revert legs already carry **raw prior envelopes** captured before the write —
+  exactly the shape `tx()` wants, with none of the Collection-layer machinery that makes delegating
+  the _forward_ write path a much larger job (still tracked in #886).
+
+  Failure stays best-effort: a rejected batch falls back to the per-leg loop rather than surfacing a
+  revert-path error, because a revert failure must never mask the original error that triggered it.
+  An **undeclared** `tx()` is never used, matching the implemented ⇒ declared rule the conformance
+  harness enforces.
+
+  **`@noy-db/to-meter` — `listVaults()` and `ping()` are now metered (#889).**
+
+  Both previously passed through the wrap untimed. `listVaults` is a full enumeration on a remote
+  store, and `ping` isolates round-trip time from work — arguably the most useful latency signal on a
+  network-backed store. The synthetic `liveness` poller still calls the inner store directly, so the
+  counters stay "what the app did".
+
+- `toMeter()` now returns a store, and absorbs `@noy-db/to-probe` (#845).
+
+  **Breaking: `toMeter` returns `MeteredNoydbStore`, not `{ store, meter }`.**
+
+  ```diff
+  - const { store, meter } = toMeter(inner)
+  - createNoydb({ store })
+  - meter.snapshot()
+  + const metered = toMeter(inner)
+  + createNoydb({ store: metered })
+  + metered.meter.snapshot()
+  ```
+
+  Being a real `NoydbStore` (shaped after hub's `RoutedNoydbStore`, which is likewise a store plus a
+  control surface) means a meter can sit anywhere a store can — including nested inside `routeStore`,
+  so each backend in a compound topology is metered independently:
+
+  ```ts
+  const pg = toMeter(toPostgres({ … }))
+  const s3 = toMeter(toAwsS3({ … }))
+  const db = await createNoydb({ store: routeStore({ default: pg, blobs: s3 }) })
+  pg.meter.snapshot()   // per-backend timings, no extra plumbing
+  ```
+
+  **`inner` is now optional.** `toMeter()` alone is a self-contained metered in-memory store.
+
+  **The optional surface is metered too.** `listPage`, `getStoreTime` and `tx` previously passed
+  through the wrap unmeasured — invisible to a tool whose job is finding where time goes. They are
+  wrapped only when the inner store implements them, so a metered store never gains a method its
+  inner store lacks.
+
+  **`@noy-db/to-probe` is retired**; `runStoreProbe` and `probeTopology` now ship from
+  `@noy-db/to-meter`. It exported no store, so it never fitted the `to<Backend>()` contract, and both
+  packages answer the same question — one live, one as a one-shot report.
+
+  ```diff
+  - import { runStoreProbe } from '@noy-db/to-probe'
+  + import { runStoreProbe } from '@noy-db/to-meter'
+  ```
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.4.0
+
 ## 0.4.0-pre.12
 
 ### Patch Changes
