@@ -22,6 +22,7 @@ import { toMemory } from '../../../to-memory/src/index.js'
 import { createNoydb, withDerivation } from '../../src/index.js'
 import { withIndexing } from '../../src/with-lookup/indexing/index.js'
 import { ref } from '../../src/kernel/refs.js'
+import { lookup } from '../../src/via/lookup/descriptor.js'
 import { canCommitAtomically } from '../../src/with-commit/tx/atomic-eligibility.js'
 import { TxContext } from '../../src/with-commit/tx/transaction.js'
 import type { NoydbStore } from '../../src/kernel/types.js'
@@ -156,19 +157,40 @@ describe('canCommitAtomically — #893/#906-prep gate', () => {
     expect(canCommitAtomically(db, ctx)).toBe(false)
   })
 
-  // Review finding 2: the test above uses a collection that IS an inbound-ref
-  // target, so it would stay green even under a future (unsafe) narrowing
-  // that only checks `refRegistry.getInbound()` — `enforceRefsOnDelete`
-  // also cascades via lookup-ref edges and managed links (see
-  // atomic-eligibility.ts's module doc), neither visible to `getInbound`.
-  // This is the tripwire: a PLAIN collection, no refs declared anywhere in
-  // either direction, must still be delete-ineligible under today's
-  // deliberately blanket `refEnforcer !== undefined` check.
-  it('false for a delete even on a collection with no refs in either direction', async () => {
+  // #922 — the tripwire flipped, deliberately. The blanket
+  // `refEnforcer !== undefined` check is replaced by Vault's
+  // `_deleteCascadesPossible(name)`, which unions ALL THREE cascade
+  // sources `enforceRefsOnDelete` fires from (lookup-ref edges, classic
+  // inbound refs, managed links) — so a PLAIN collection, with none of the
+  // three anywhere near it, is now delete-eligible. The three tests after
+  // this one each pin one source refusing on its own, because a narrowing
+  // that misses any of them re-opens the prepare-is-not-abortable hazard.
+  it('true for a delete on a collection with no inbound refs, no lookup edges, no link endpoints (#922)', async () => {
     const { db, vault } = await open()
     vault.collection('plain')
     const ctx = new TxContext(db)
     ctx._ops.push({ type: 'delete', vaultName: 'v', collectionName: 'plain', id: '1' })
+    expect(canCommitAtomically(db, ctx)).toBe(true)
+  })
+
+  it('false for a delete on a lookup dimension with a referencing edge (#922)', async () => {
+    const { db, vault } = await open()
+    vault.collection('countries')
+    vault.collection('suppliers', {
+      lookupFields: { country: lookup('countries', { key: 'iso2', onDelete: 'restrict' }) },
+    })
+    const ctx = new TxContext(db)
+    ctx._ops.push({ type: 'delete', vaultName: 'v', collectionName: 'countries', id: 'th' })
+    expect(canCommitAtomically(db, ctx)).toBe(false)
+  })
+
+  it('false for a delete on a managed-link endpoint (#922)', async () => {
+    const { db, vault } = await open()
+    vault.collection('students')
+    vault.collection('courses')
+    vault.link('enrollment', { a: 'students', b: 'courses' })
+    const ctx = new TxContext(db)
+    ctx._ops.push({ type: 'delete', vaultName: 'v', collectionName: 'students', id: 's1' })
     expect(canCommitAtomically(db, ctx)).toBe(false)
   })
 })

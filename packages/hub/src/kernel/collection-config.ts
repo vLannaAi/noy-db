@@ -206,6 +206,8 @@ export interface CollectionOpts<T> {
     | {
         enforceRefsOnPut(collectionName: string, record: unknown): Promise<void>
         enforceRefsOnDelete(collectionName: string, id: string): Promise<void>
+        /** #922 — see `Vault._deleteCascadesPossible`; consulted by `_txAtomicSafe('delete')`. */
+        _deleteCascadesPossible(collectionName: string): boolean
       }
     | undefined
   /**
