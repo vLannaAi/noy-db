@@ -217,14 +217,14 @@ describe('#906 — db.transaction commits through store.tx() on txAtomic stores'
     expect(db.writeQueue.pending).toBe(false) // settled
   })
 
-  it('a live write-hook keeps the batch on the OCC path, and still fires per op', async () => {
-    // `onBeforeWrite`/`onAfterWrite` run inside `Collection.put()`, which the
-    // atomic path bypasses — and a before-hook may REFUSE a write, so the gate
-    // excludes hooked collections rather than skipping them silently.
+  it('an onBeforeWrite hook keeps the batch on the OCC path — refusal power gates (#931)', async () => {
+    // A before-hook may REFUSE a write (throw aborts it), and it runs inside
+    // `Collection.put()`, which the atomic path bypasses — so its presence
+    // still forces the per-op path, where it fires per op as ever.
     const { store, calls } = instrument()
     const db = await open(store)
     const seen: string[] = []
-    db.onAfterWrite((e) => { seen.push(e.docId) })
+    db.onBeforeWrite((e) => { seen.push(e.docId) })
     calls.length = 0
 
     await db.transaction((tx) => {
@@ -235,6 +235,36 @@ describe('#906 — db.transaction commits through store.tx() on txAtomic stores'
 
     expect(calls.filter(c => c.startsWith('tx:'))).toEqual([])
     expect(seen).toEqual(['inv-1', 'inv-2'])
+  })
+
+  it('an onAfterWrite hook no longer gates — the batch commits atomically, the hook fires per op AFTER the batch lands (#931)', async () => {
+    // After-hooks are observers: they cannot refuse a write, so instead of
+    // keeping every collection on the OCC path (the pre-#931 db-global
+    // blanket, which cost multi-tab and forget-subject apps the atomic path
+    // entirely), the atomic path fires them per op post-finalize, in staged
+    // order, with a faithful WriteEvent.
+    const log: string[] = []
+    const memory = toMemory()
+    const store: NoydbStore = {
+      ...memory,
+      async tx(ops) {
+        const out = await memory.tx!(ops)
+        log.push('tx') // recorded only once the batch has LANDED
+        return out
+      },
+    }
+    const db = await open(store)
+    await db.vault('acme').collection<Invoice>('invoices').put('inv-1', { amount: 50, status: 'draft' })
+    db.onAfterWrite((e) => { log.push(`after:${e.docId}:${e.op}@${e.baseVersion}->${e.version}`) })
+    log.length = 0
+
+    await db.transaction((tx) => {
+      const inv = tx.vault('acme').collection<Invoice>('invoices')
+      inv.put('inv-1', { amount: 100, status: 'paid' })
+      inv.put('inv-2', { amount: 200, status: 'paid' })
+    })
+
+    expect(log).toEqual(['tx', 'after:inv-1:update@1->2', 'after:inv-2:create@0->1'])
   })
 
   it('history, ledger and change events fire per op in staged order AFTER the batch lands', async () => {

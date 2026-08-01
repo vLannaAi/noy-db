@@ -700,11 +700,14 @@ async function commitAtomicBatch(
   // ─── Finalize ──────────────────────────────────────────────────
   // History snapshot, ledger entry, cache/index update, change event — per op,
   // in staged order, all AFTER the bytes are durable (where the OCC loop
-  // interleaves them per op).
+  // interleaves them per op). #931: then the after-write observers (user
+  // `onAfterWrite` hooks + the `afterPut`/`afterDelete` observe bus), which
+  // no longer gate eligibility — they cannot refuse a completed write.
   try {
     for (const leg of legs) {
       if (leg.op.type === 'put') await leg.coll._finalizePut(leg.prepared as PreparedPut<unknown>)
       else await leg.coll._finalizeDelete(leg.prepared as PreparedDelete<unknown>)
+      await leg.coll._fireAtomicAfterWrite(leg.op.type, leg.prepared)
     }
   } catch (err) {
     // The bytes ARE durable now, so this is today's best-effort unwind over

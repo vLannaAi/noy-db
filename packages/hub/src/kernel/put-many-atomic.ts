@@ -62,6 +62,7 @@ export interface PutManyAtomicHost<T> {
   put(id: string, record: T): Promise<void>
   _preparePut(id: string, record: T): Promise<PreparedPut<T>>
   _finalizePut(prepared: PreparedPut<T>): Promise<void>
+  _fireAtomicAfterWrite(opType: 'put', prepared: PreparedPut<T>): Promise<void>
   _assertWriteGates(): Promise<void>
   _txAtomicSafe(opType: 'put' | 'delete'): boolean
   _invalidateCacheEntry(id: string): Promise<void>
@@ -171,9 +172,13 @@ async function commitViaStoreTx<T>(
 
   // ─── Finalize ─── history snapshot, ledger entry, cache/index update,
   // change event — per record, in entry order, all AFTER the bytes are
-  // durable (where the sequential branch interleaves them per op).
+  // durable (where the sequential branch interleaves them per op). #931:
+  // then the after-write observers, which no longer gate eligibility.
   try {
-    for (const leg of legs) await host._finalizePut(leg.prepared)
+    for (const leg of legs) {
+      await host._finalizePut(leg.prepared)
+      await host._fireAtomicAfterWrite('put', leg.prepared)
+    }
   } catch (err) {
     // Bytes ARE durable now — best-effort unwind over the recorded plan,
     // plus the same cache-desync guard the sequential branch runs.

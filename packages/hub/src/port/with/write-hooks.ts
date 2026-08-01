@@ -32,6 +32,13 @@ export class WriteHookRegistry {
   /** True when any hook is registered (cheap gate for the write path). */
   get hasHandlers(): boolean { return this.#before.length > 0 || this.#after.length > 0 }
 
+  /**
+   * True when any BEFORE hook is registered — the refusal-capable kind. #931:
+   * the atomic-commit eligibility gate keys on this alone; after-hooks are
+   * observers and fire post-finalize on the atomic path instead of gating it.
+   */
+  get hasBeforeHandlers(): boolean { return this.#before.length > 0 }
+
   onBeforeWrite(handler: WriteHook): Unsubscribe {
     this.#before.push(handler)
     return () => { const i = this.#before.indexOf(handler); if (i >= 0) this.#before.splice(i, 1) }
