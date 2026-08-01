@@ -32,13 +32,13 @@
  *     `afterPut`/`afterDelete` bus handler: both fire inside `Collection.put()`
  *     / `.delete()`, the wrappers the atomic path bypasses, and a `beforeWrite`
  *     hook may REFUSE a write (#906).
- *     Delete in particular gates on `refEnforcer !== undefined` rather than
- *     a `RefRegistry.getInbound()` lookup: `Vault.enforceRefsOnDelete`
- *     cascades from THREE sources (lookup-ref edges, classic inbound refs,
- *     managed-link `onDelete`), and only the blanket check is at least as
- *     strict as all three — a `getInbound`-only check would be narrower
- *     and wrongly admit unsafe atomic deletes (see `with-shape/links/
- *     vault-facade.ts` `enforceRefsOnDelete`, lines ~180-263).
+ *     Delete gates on the enforcer's `_deleteCascadesPossible(name)` (#922):
+ *     `Vault.enforceRefsOnDelete` cascades from THREE sources (lookup-ref
+ *     edges, classic inbound refs, managed-link `onDelete`), and the Vault
+ *     predicate unions exactly those three — a `getInbound`-only check would
+ *     be narrower and wrongly admit unsafe atomic deletes, because
+ *     `_prepareDelete` runs the cascades DURING prepare (see
+ *     `with-shape/links/vault-facade.ts` `enforceRefsOnDelete`).
  *
  * @internal
  */

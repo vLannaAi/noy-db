@@ -1895,6 +1895,28 @@ export class Vault {
     return this.linksEnforcer.enforceRefsOnDelete(this.graph, collectionName, id)
   }
 
+  /**
+   * #922 — can a delete on `collectionName` trigger ANY cross-record work in
+   * `enforceRefsOnDelete` above? Unions ALL THREE of its cascade sources —
+   * lookup-ref edges (`graph.referencingEdgesOf`), classic inbound refs
+   * (`refRegistry.getInbound`), and managed link sets whose either endpoint
+   * is this collection. `Collection._txAtomicSafe('delete')` consults this
+   * instead of the pre-#922 blanket enforcer-presence check: `_prepareDelete`
+   * runs those cascades DURING prepare (not abortable), so a delete may take
+   * the atomic tx path only when all three sources are provably absent.
+   * Registry state only — no store reads, safe to call at commit time.
+   *
+   * @internal
+   */
+  _deleteCascadesPossible(collectionName: string): boolean {
+    if (this.graph.referencingEdgesOf(collectionName).length > 0) return true
+    if (this.refRegistry.getInbound(collectionName).length > 0) return true
+    for (const spec of this.linkRegistry.values()) {
+      if (spec.a === collectionName || spec.b === collectionName) return true
+    }
+    return false
+  }
+
   // ─── Join resolver) ────────────────────
 
   /**

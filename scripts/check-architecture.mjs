@@ -953,7 +953,10 @@ const KERNEL_SURFACE_BUDGET = {
   // `putManyAtomic` implementation (sequential branch verbatim + the new
   // store.tx() delegating branch) moved to kernel/put-many-atomic.ts; the
   // method body in collection.ts is now a thin context-passing delegator.
-  'packages/hub/src/kernel/collection.ts': 4302,
+  // Bumped 4302→4303 (#922 precise delete eligibility, 2026-08-01): one line —
+  // `_deleteCascadesPossible` joins the refEnforcer structural type; the
+  // predicate itself lives on Vault.
+  'packages/hub/src/kernel/collection.ts': 4303,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
@@ -1225,7 +1228,13 @@ const KERNEL_SURFACE_BUDGET = {
   // one, offset by folding its type import into the existing `./types.js` block
   // and compacting the three body aliases onto a line. A public-API ergonomics
   // fix, not capability growth — and still 148 under the 3908 it started at.
-  'packages/hub/src/kernel/vault.ts': 3712,
+  // Bumped 3712→3735 (#922 precise delete eligibility, 2026-08-01):
+  // `_deleteCascadesPossible(name)` — the per-collection predicate unioning
+  // the THREE `enforceRefsOnDelete` cascade sources (lookup-ref edges via
+  // graph.referencingEdgesOf, classic inbound via refRegistry.getInbound,
+  // managed-link endpoints via linkRegistry). Lives here because Vault is the
+  // only owner of all three registries; `_txAtomicSafe('delete')` consumes it.
+  'packages/hub/src/kernel/vault.ts': 3735,
   // Bumped 3960→3962 (#822 period-summary push symmetry, 2026-07-26): two lines wiring
   // the vault's existing `onDirty` into VaultPeriods so `closePeriod` marks the `_periods`
   // summary dirty and push carries it. The decision (which reserved collections push and

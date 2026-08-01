@@ -15,7 +15,7 @@
  * path EVERY side effect happens AFTER the bytes are durable, instead of
  * interleaving per op the way the OCC loop does.
  */
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { toMemory } from '../../../to-memory/src/index.js'
 import { ConflictError, InvariantError, MigrationRequiredError, SchemaFenceError, createNoydb, withDerivation } from '../../src/index.js'
@@ -23,21 +23,11 @@ import { coordinatedCutover } from '../../src/with-shape/schema-update/index.js'
 import { withTransactions } from '../../src/with-commit/tx/index.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
 import { withSync } from '../../src/with-sync/index.js'
+import { ref } from '../../src/kernel/refs.js'
 import type { Noydb } from '../../src/index.js'
-import type { Collection } from '../../src/kernel/collection.js'
 import type { ChangeEvent, NoydbStore, TxOp } from '../../src/kernel/types.js'
 
 const SECRET = 'atomic-commit-test-secret-2026'
-
-/**
- * Force ONLY the delete branch of one collection's `_txAtomicSafe` open, so a
- * delete-inclusive batch reaches the atomic path. The rest of the gate (store
- * capability, amendment, duplicate ids, the put branch) stays live.
- */
-function allowAtomicDeletes(coll: Collection<unknown>): void {
-  const real = coll._txAtomicSafe.bind(coll)
-  vi.spyOn(coll, '_txAtomicSafe').mockImplementation((op) => (op === 'delete' ? true : real(op)))
-}
 
 interface Invoice extends Record<string, unknown> { amount: number; status: string }
 
@@ -439,27 +429,29 @@ describe('#906 — the atomic path honours the schema write gates', () => {
 /**
  * The delete leg.
  *
- * `_txAtomicSafe('delete')` gates on `refEnforcer !== undefined`, and
- * `Vault` wires itself as the enforcer for EVERY collection it creates
- * (kernel/vault.ts) — so no real vault can produce a delete-inclusive batch
- * the production gate admits (asserted below, and by the tripwire test in
- * `atomic-eligibility.test.ts`). The delete leg is therefore exercised with
- * ONLY that collection's delete branch forced open (`allowAtomicDeletes` spies
- * on `_txAtomicSafe`; every other condition of the real gate stays live), which
- * is honest about what it covers: the leg SHAPE `runTransaction` builds and
- * hands to `store.tx()`, not the gate's verdict.
+ * #922 — `_txAtomicSafe('delete')` now consults the enforcer's
+ * `_deleteCascadesPossible(name)` (Vault unions the THREE cascade sources
+ * `enforceRefsOnDelete` fires from: lookup-ref edges, classic inbound refs,
+ * managed links), so a refs-free collection's delete-inclusive batch takes
+ * the atomic path on a REAL vault — no spy needed. A collection any source
+ * touches still refuses (asserted here per source in
+ * `atomic-eligibility.test.ts`), because `_prepareDelete` runs those
+ * cascades DURING prepare, which is not abortable.
  */
-describe('#906 — the delete leg of a mixed batch', () => {
-  it('the production gate refuses a delete-inclusive batch today', async () => {
+describe('#906/#922 — the delete leg of a mixed batch', () => {
+  it('a refs-bearing collection still refuses a delete-inclusive batch (OCC path)', async () => {
     const { store, calls } = instrument()
     const db = await open(store)
-    await db.vault('acme').collection<Invoice>('invoices').put('inv-1', { amount: 50, status: 'draft' })
+    const v = db.vault('acme')
+    v.collection('clients')
+    v.collection('invoices', { refs: { clientId: ref('clients') } })
+    await v.collection<Record<string, unknown>>('clients').put('c-1', { name: 'n' })
     calls.length = 0
 
     await db.transaction((tx) => {
-      const inv = tx.vault('acme').collection<Invoice>('invoices')
-      inv.put('inv-2', { amount: 200, status: 'paid' })
-      inv.delete('inv-1')
+      const clients = tx.vault('acme').collection<Record<string, unknown>>('clients')
+      clients.put('c-2', { name: 'm' })
+      clients.delete('c-1') // clients is an inbound-ref target
     })
 
     expect(calls.filter(c => c.startsWith('tx:'))).toEqual([]) // OCC path
@@ -471,7 +463,6 @@ describe('#906 — the delete leg of a mixed batch', () => {
     await db.vault('acme').collection<Invoice>('invoices').put('inv-1', { amount: 50, status: 'draft' })
     calls.length = 0
 
-    allowAtomicDeletes(db.vault('acme').collection('invoices'))
     await db.transaction((tx) => {
       const inv = tx.vault('acme').collection<Invoice>('invoices')
       inv.put('inv-2', { amount: 200, status: 'paid' })
@@ -494,7 +485,6 @@ describe('#906 — the delete leg of a mixed batch', () => {
     await db.vault('acme').collection<Invoice>('invoices').put('inv-1', { amount: 50, status: 'draft' })
     calls.length = 0
 
-    allowAtomicDeletes(db.vault('acme').collection('invoices'))
     await db.transaction((tx) => {
       const inv = tx.vault('acme').collection<Invoice>('invoices')
       inv.put('inv-2', { amount: 200, status: 'paid' })
