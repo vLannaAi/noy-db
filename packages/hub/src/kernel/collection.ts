@@ -204,7 +204,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * re-create version-continuity gate in `_putInternal` read the store ONLY
    * for a known marker prior, instead of unconditionally on every insert.
    * Populated on hydration (`ensureHydrated`/`hydrateFromSnapshot`), local
-   * delete (`_doDelete`), and the sync/tab/cutover choke point
+   * delete (`_commitDelete`), and the sync/tab/cutover choke point
    * (`_invalidateCacheEntry`). Accepted drift: `vault._purgeDeleteMarkers`/
    * `_purgeMarkersOn` remove markers directly on the raw store, bypassing
    * Collection, so this set can hold stale ids after a purge on an
@@ -1513,11 +1513,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // Refuse the write if an update strategy rejected the schema
     // change. Awaited OUTSIDE track() so a rejected write never counts
     // toward writeQueue.depth.
+    // BYPASS HAZARD: any refusal or side-effect added to this wrapper must ALSO be covered on the atomic tx path — extend _assertWriteGates or _txAtomicSafe (see commitAtomicBatch in with-commit/tx/transaction.ts); two m44 holes (write-hooks, schema gates) came from exactly this bypass.
     await this.schemaUpdateGate?.assertWritable()
     await this.schemaFence?.assertWritable(this.name)
-    // TODO: putManyAtomic / tx-execute / CRDT /
-    // blob write paths are not yet tracked by writeQueue nor fired through
-    // the write hooks.
+    // TODO: putManyAtomic / CRDT / blob write paths are not yet tracked by writeQueue nor fired through the write hooks (tx-execute now asserts the schema gates directly — see _assertWriteGates).
     // User write-hooks AND the observe bus both need the
     // WriteEvent. Build it if EITHER consumer is active so the bus is not
     // coupled to write-hooks being present.
@@ -2335,6 +2334,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * so `hub.writeQueue.pending` reflects this write.
    */
   async delete(id: string): Promise<void> {
+    // BYPASS HAZARD: any refusal or side-effect added to this wrapper must ALSO be covered on the atomic tx path — extend _assertWriteGates or _txAtomicSafe (see commitAtomicBatch in with-commit/tx/transaction.ts); two m44 holes (write-hooks, schema gates) came from exactly this bypass.
     await this.schemaUpdateGate?.assertWritable()
     await this.schemaFence?.assertWritable(this.name)
     // User write-hooks AND the Track A observe bus both need the
