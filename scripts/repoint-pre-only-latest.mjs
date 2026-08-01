@@ -38,12 +38,13 @@ import { readFileSync, appendFileSync } from 'node:fs'
  * Packages with no stable release, whose `latest` must track the current
  * prerelease.
  *
- * THIS LIST MUST SHRINK TO EMPTY at the 0.4.0 stable cut, when every package
- * gets a real `latest` and this script becomes a no-op. Before adding a name,
- * ask whether the package should simply be held back until the stable release
+ * EMPTIED at the 0.5.0 stable cut: `in-liff` and `in-pwa` graduated with the
+ * 0.4.0 stable (their `latest` is a real release now), so the script is a
+ * no-op until a NEW package debuts mid-pre-line. Before adding a name, ask
+ * whether the package should simply be held back until the stable release
  * instead — that is almost always the better answer.
  */
-const PRE_ONLY = ['@noy-db/in-liff', '@noy-db/in-pwa']
+const PRE_ONLY = []
 
 const args = process.argv.slice(2)
 const dryRun = args.includes('--dry-run')
