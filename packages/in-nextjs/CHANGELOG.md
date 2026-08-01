@@ -1,5 +1,17 @@
 # @noy-db/in-nextjs
 
+## 0.5.0
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.5.0
+  - @noy-db/in-react@1.0.0
+
 ## 0.4.0
 
 ### Patch Changes

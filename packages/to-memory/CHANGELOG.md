@@ -1,5 +1,17 @@
 # Changelog — to-memory
 
+## 0.5.0
+
+### Patch Changes
+
+- Fix `tx()` partial application on a caller-contract violation: a put op missing its `envelope` was only rejected in the apply phase, after earlier ops in the batch had already mutated the store. The missing-envelope check now runs in the phase-1 validation loop, so the whole batch fails before any write — restoring the all-or-nothing guarantee the `txAtomic` capability declares. Caught by the new behavioral tx() conformance tests (#920, authored in noy-db-to#40).
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.5.0
+
 ## 0.4.0
 
 ### Minor Changes

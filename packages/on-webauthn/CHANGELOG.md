@@ -1,5 +1,16 @@
 # Changelog — on-webauthn
 
+## 0.5.0
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.5.0
+
 ## 0.4.0
 
 ### Patch Changes
