@@ -956,7 +956,13 @@ const KERNEL_SURFACE_BUDGET = {
   // Bumped 4302→4303 (#922 precise delete eligibility, 2026-08-01): one line —
   // `_deleteCascadesPossible` joins the refEnforcer structural type; the
   // predicate itself lives on Vault.
-  'packages/hub/src/kernel/collection.ts': 4303,
+  // Bumped 4303→4329 (#931 hooks-gate narrowing, 2026-08-01):
+  // `_fireAtomicAfterWrite` — replays the wrapper-level after-write observers
+  // (user onAfterWrite hooks + afterPut/afterDelete observe bus) for one
+  // atomic-path leg post-finalize. Must live here: it needs writeHooks,
+  // subsystemBus, keyring and #txIdForHook, all private, and the WriteEvent
+  // must be built from the same prior basis the wrappers use.
+  'packages/hub/src/kernel/collection.ts': 4329,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The

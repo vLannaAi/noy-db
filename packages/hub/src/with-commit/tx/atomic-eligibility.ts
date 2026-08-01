@@ -28,10 +28,12 @@
  *     write set can't express "this key changes twice in sequence."
  *  4. Every touched collection reports `_txAtomicSafe(op.type)` — see that
  *     method's doc comment on `Collection` for what it excludes and why.
- *     Note it also excludes a collection with live user write-hooks or an
- *     `afterPut`/`afterDelete` bus handler: both fire inside `Collection.put()`
- *     / `.delete()`, the wrappers the atomic path bypasses, and a `beforeWrite`
- *     hook may REFUSE a write (#906).
+ *     #931: of the wrapper-level write signals, only a live `onBeforeWrite`
+ *     hook still excludes — it may REFUSE a write, which only
+ *     `Collection.put()`/`.delete()` honors. After-hooks and the
+ *     `afterPut`/`afterDelete` observe bus are refusal-free observers, so
+ *     the atomic path fires them itself per leg post-finalize
+ *     (`Collection._fireAtomicAfterWrite`) instead of forfeiting the batch.
  *     Delete gates on the enforcer's `_deleteCascadesPossible(name)` (#922):
  *     `Vault.enforceRefsOnDelete` cascades from THREE sources (lookup-ref
  *     edges, classic inbound refs, managed-link `onDelete`), and the Vault

@@ -269,12 +269,12 @@ describe('#921 — putMany atomic mode delegates through store.tx()', () => {
     expect(bodyWrites(calls)).toEqual(['put:invoices/inv-1', 'put:invoices/inv-2'])
   })
 
-  it('a live write-hook keeps the batch on the sequential path, and still fires per op', async () => {
+  it('an onBeforeWrite hook keeps the batch on the sequential path, and still fires per op (#931)', async () => {
     const { store, calls } = instrument()
     const db = await open(store)
     const invoices = db.vault('acme').collection<Invoice>('invoices')
     const seen: string[] = []
-    db.onAfterWrite((e) => { seen.push(e.docId) })
+    db.onBeforeWrite((e) => { seen.push(e.docId) })
     calls.length = 0
 
     await invoices.putMany(
@@ -287,5 +287,32 @@ describe('#921 — putMany atomic mode delegates through store.tx()', () => {
 
     expect(calls.filter(c => c.startsWith('tx:'))).toEqual([])
     expect(seen).toEqual(['inv-1', 'inv-2'])
+  })
+
+  it('an onAfterWrite hook no longer gates — the batch delegates and the hook fires per record after the batch lands (#931)', async () => {
+    const log: string[] = []
+    const memory = toMemory()
+    const store: NoydbStore = {
+      ...memory,
+      async tx(ops) {
+        const out = await memory.tx!(ops)
+        log.push('tx')
+        return out
+      },
+    }
+    const db = await open(store)
+    const invoices = db.vault('acme').collection<Invoice>('invoices')
+    db.onAfterWrite((e) => { log.push(`after:${e.docId}:${e.op}`) })
+    log.length = 0
+
+    await invoices.putMany(
+      [
+        ['inv-1', { amount: 100, status: 'draft' }],
+        ['inv-2', { amount: 200, status: 'draft' }],
+      ],
+      { atomic: true },
+    )
+
+    expect(log).toEqual(['tx', 'after:inv-1:create', 'after:inv-2:create'])
   })
 })
