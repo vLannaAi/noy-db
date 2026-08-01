@@ -50,6 +50,12 @@ export function buildPayload({ rootDir, caps, tag, channel, runUrl, isFirstPubli
       name: pkg.name, dir, version: pkg.version, description: pkg.description ?? null,
       factory: cap.factory, shape: cap.shape, capabilities: cap.capabilities,
       optionDependent: cap.optionDependent, changeType, changelog,
+      // #930 — WHICH bits vary with the wiring (store-level `optionDependent`
+      // only says "something varies"). Additive: omitted when the dump lists
+      // none, so pre-#930 consumers parse the payload unchanged.
+      ...(Array.isArray(cap.conditionalBits) && cap.conditionalBits.length > 0
+        ? { conditionalBits: cap.conditionalBits }
+        : {}),
     }
   })
 

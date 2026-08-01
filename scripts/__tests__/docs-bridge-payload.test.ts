@@ -9,7 +9,7 @@ let root: string
 const caps = {
   'to-alpha': { factory: 'toAlpha', shape: 'record', capabilities: { casAtomic: true }, optionDependent: false },
   'to-beta': { factory: 'toBeta', shape: 'record', capabilities: { casAtomic: false }, optionDependent: false },
-  'to-gamma': { factory: 'toGamma', shape: 'record', capabilities: { casAtomic: true }, optionDependent: true },
+  'to-gamma': { factory: 'toGamma', shape: 'record', capabilities: { casAtomic: true }, optionDependent: true, conditionalBits: ['casAtomic'] },
 }
 
 beforeAll(() => {
@@ -75,6 +75,16 @@ describe('buildPayload', () => {
     expect(gamma.shape).toBe('record')
     expect(gamma.optionDependent).toBe(true)
     expect(gamma.capabilities).toEqual({ casAtomic: true })
+  })
+
+  it('carries per-bit conditionalBits through, and omits the field when the dump has none (#930)', () => {
+    // The store-level flag says "something varies"; conditionalBits says WHICH
+    // bits — so a consumer can strict-compare every other bit instead of
+    // skipping the store wholesale.
+    const p = build()
+    expect(p.packages.find(x => x.dir === 'to-gamma')!.conditionalBits).toEqual(['casAtomic'])
+    expect(p.packages.find(x => x.dir === 'to-alpha')!).not.toHaveProperty('conditionalBits')
+    expect(p.packages.find(x => x.dir === 'to-beta')!).not.toHaveProperty('conditionalBits')
   })
 
   it('classifies changeType: added wins over changelog presence', () => {
