@@ -929,7 +929,14 @@ const KERNEL_SURFACE_BUDGET = {
   // so the atomic path's eligibility gate must exclude refs-bearing
   // collections. Funded in part by folding the new block's comment into the
   // `PreparedDelete` field docs rather than repeating it here (−2).
-  'packages/hub/src/kernel/collection.ts': 4370,
+  // Bumped 4370→4371 (2026-08-01, #893/#906-prep Task 4): one new terse
+  // one-liner, `Collection._txAtomicSafe(opType)` — the per-collection half
+  // of the atomic-commit eligibility gate `with-commit/tx/atomic-eligibility.ts`
+  // consults. Landed at zero slack (the #905 review-round bump above left the
+  // file exactly AT ceiling), so this single line has nowhere left to fold
+  // into; the method itself is already collapsed to one line matching the
+  // `_via*`/`_onViaErase` one-liner cluster it sits beside.
+  'packages/hub/src/kernel/collection.ts': 4371,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
