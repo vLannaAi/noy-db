@@ -40,6 +40,7 @@ import {
   FLAG_COMPRESSED,
   FLAG_HAS_INTEGRITY_HASH,
   NOYDB_BUNDLE_FORMAT_VERSION,
+  NOYDB_BUNDLE_FORMAT_VERSION_SIGNED,
   NOYDB_BUNDLE_MAGIC,
   NOYDB_BUNDLE_PREFIX_BYTES,
   decodeBundleHeader,
@@ -50,6 +51,8 @@ import {
   type CompressionAlgo,
   type NoydbPodHeader,
 } from './format.js'
+import { signRecord } from './signature.js'
+import type { DocSigner } from '../with-audit/attestation/signer.js'
 import { sha256Hex as sha256HexBytes } from '../kernel/enclave/index.js'
 import { BundleIntegrityError, BundleSealMismatchError, ValidationError } from '../kernel/errors.js'
 import type { Vault } from '../kernel/vault.js'
@@ -254,6 +257,22 @@ export interface WritePodOptions {
     readonly provider: SealingKeyProvider
     readonly perUser: Record<string, string>
   }
+  /**
+   * Pod-header signing control (#943).
+   *
+   *   - omitted (default) — sign the header iff the source vault has a
+   *     persisted document signer (`vault._loadPodSigner()` returns
+   *     non-null). A vault that never minted a signer produces an
+   *     unsigned `formatVersion: 1` header, exactly as before.
+   *   - `false` — never sign, even if a signer is persisted.
+   *   - an explicit {@link DocSigner} — sign with the supplied keypair
+   *     without touching the vault's persisted signer (test / advanced
+   *     injection). Does not mint or persist anything.
+   *
+   * Signing NEVER mints a signer as a side effect of export: an absent
+   * signer means an unsigned pod, not an on-the-fly key generation.
+   */
+  readonly sign?: false | DocSigner
 }
 
 /** @deprecated Use `WritePodOptions`. */
@@ -1250,6 +1269,13 @@ export async function assembleBundleContainer(opts: {
   compression: WritePodOptions['compression']
   /** Header fields beyond the always-present four. */
   headerExtras?: Partial<Pick<NoydbPodHeader, 'publicEnvelope' | 'autoUnlock' | 'bundleKind' | 'transferSeal'>>
+  /**
+   * When present, the assembled header is signed (#943): the header is
+   * bumped to `formatVersion: 2` and carries the sig/keyId/sigAlg tuple.
+   * Absent → an unsigned `formatVersion: 1` header (partitions, and pods
+   * from vaults without a signer, stay unsigned).
+   */
+  signer?: DocSigner
 }): Promise<Uint8Array> {
   const dumpBytes = new TextEncoder().encode(opts.bodyJsonStr)
   const { format, streamFormat } = selectCompression(opts.compression)
@@ -1268,7 +1294,21 @@ export async function assembleBundleContainer(opts: {
     ...(opts.headerExtras?.bundleKind !== undefined ? { bundleKind: opts.headerExtras.bundleKind } : {}),
     ...(opts.headerExtras?.transferSeal !== undefined ? { transferSeal: opts.headerExtras.transferSeal } : {}),
   }
-  const headerBytes = encodeBundleHeader(header)
+  // Header signing (#943): sign the header object as it will stand at
+  // formatVersion 2 WITH keyId + sigAlg but WITHOUT `sig`, then attach the
+  // resulting 3-tuple + bump the version. `signRecord`/`canonicalJson`
+  // throw on any `undefined`, so the signed payload is built with only the
+  // fields actually present (spread of the header carries no undefined
+  // keys). Only produce formatVersion 2 WHEN signing — an unsigned pod
+  // stays formatVersion 1 with no sig fields.
+  const signed: NoydbPodHeader = opts.signer === undefined
+    ? header
+    : await (async (s: DocSigner): Promise<NoydbPodHeader> => {
+        const toSign = { ...header, formatVersion: NOYDB_BUNDLE_FORMAT_VERSION_SIGNED, keyId: s.keyId, sigAlg: 'ed25519' as const }
+        const sig = await signRecord(s.privateKeyPkcs8B64, toSign)
+        return { ...toSign, sig }
+      })(opts.signer)
+  const headerBytes = encodeBundleHeader(signed)
 
   const prefix = new Uint8Array(NOYDB_BUNDLE_PREFIX_BYTES)
   prefix.set(NOYDB_BUNDLE_MAGIC, 0)
@@ -1327,6 +1367,16 @@ export async function writePod(
   // exactly like before, preserving back-compat.
   const cover = await vault.getCover()
 
+  // Resolve the header signer (#943): explicit `false` disables signing;
+  // an explicit DocSigner is used verbatim (no vault touch); otherwise fall
+  // back to the vault's persisted signer, which is `null` (unsigned) when
+  // none was ever minted — export never mints one.
+  const signer = opts.sign === false
+    ? undefined
+    : opts.sign !== undefined
+      ? opts.sign
+      : (await vault._loadPodSigner()) ?? undefined
+
   return assembleBundleContainer({
     handle,
     bodyJsonStr,
@@ -1336,6 +1386,7 @@ export async function writePod(
       ...(cover !== undefined ? { publicEnvelope: cover } : {}),
       ...(autoUnlockMode !== null ? { autoUnlock: autoUnlockMode } : {}),
     },
+    ...(signer !== undefined ? { signer } : {}),
   })
 }
 
