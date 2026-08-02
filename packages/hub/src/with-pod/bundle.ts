@@ -51,7 +51,7 @@ import {
   type CompressionAlgo,
   type NoydbPodHeader,
 } from './format.js'
-import { signRecord } from './signature.js'
+import { signRecord, verifyRecord } from './signature.js'
 import type { DocSigner } from '../with-audit/attestation/signer.js'
 import { sha256Hex as sha256HexBytes } from '../kernel/enclave/index.js'
 import { BundleIntegrityError, BundleSealMismatchError, ValidationError } from '../kernel/errors.js'
@@ -1462,6 +1462,69 @@ export function readPodHeader(bytes: Uint8Array): NoydbPodHeader {
 
 /** @deprecated Use `readPodHeader`. */
 export const readNoydbBundleHeader = readPodHeader
+
+/**
+ * Outcome of {@link verifyPodHeader}.
+ *
+ *   - `verified`  — the header carried a sig-tuple, its `keyId` is in
+ *     `trustedKeys`, and the signature checks out over the canonical
+ *     header bytes.
+ *   - `unsigned`  — the header carried no signature (a legacy v1 pod, or a
+ *     v2 pod written with `{ sign: false }`). Not an error; just unauthenticated.
+ *   - `untrusted` — the header is signed but its `keyId` is not one the
+ *     caller trusts. The signature was NOT checked.
+ *   - `tampered`  — the header is signed by a trusted key but the signature
+ *     does not verify: the signed bytes were altered, or the mapped public
+ *     key is not the one that actually signed.
+ */
+export interface PodVerifyResult {
+  readonly status: 'verified' | 'unsigned' | 'untrusted' | 'tampered'
+  /** The header's `keyId`, present whenever the header carried a sig-tuple. */
+  readonly keyId?: string
+}
+
+/**
+ * Authenticate a pod header (#943) — a pure, dependency-free, WebCrypto-only
+ * verifier. Given only the raw pod bytes and a `trustedKeys` map
+ * (`keyId → publicKeyB64` the caller already trusts), it reports whether the
+ * header was signed by a trusted document signer.
+ *
+ * Pairs with the signing half in `assembleBundleContainer`/`writePod`: the
+ * signed payload is the final wire header with `sig` removed, so verification
+ * reconstructs it by stripping EXACTLY the `sig` field — `keyId`, `sigAlg`,
+ * and every other header field stay in the verified payload.
+ *
+ * No store, enclave, or vault dependency — reachable from a static page with
+ * only the pod bytes, the trusted-key map, and `globalThis.crypto`. Standalone
+ * and additive: `readPod`'s bodySha256 integrity check is unchanged and
+ * untouched by this function. Integrity (`readPod`) and authenticity
+ * (`verifyPodHeader`) are separate concerns a caller composes as needed.
+ */
+export async function verifyPodHeader(
+  bytes: Uint8Array,
+  trustedKeys: Readonly<Record<string, string>>,
+): Promise<PodVerifyResult> {
+  const { header } = parsePrefixAndHeader(bytes)
+
+  // No signature tuple → unsigned, regardless of formatVersion. The format
+  // layer guarantees sig/keyId/sigAlg are all-or-nothing, so any one being
+  // absent means the header is unsigned.
+  if (header.sig === undefined || header.keyId === undefined || header.sigAlg === undefined) {
+    return { status: 'unsigned' }
+  }
+
+  const publicKeyB64 = trustedKeys[header.keyId]
+  if (publicKeyB64 === undefined) {
+    return { status: 'untrusted', keyId: header.keyId }
+  }
+
+  // Reconstruct the signed payload: the FINAL wire header minus EXACTLY `sig`.
+  const payload: Record<string, unknown> = { ...header }
+  delete payload['sig']
+
+  const ok = await verifyRecord(publicKeyB64, header.sig, payload)
+  return { status: ok ? 'verified' : 'tampered', keyId: header.keyId }
+}
 
 /**
  * Read just the bundle's cover (`https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md`)
