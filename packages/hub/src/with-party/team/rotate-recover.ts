@@ -16,16 +16,18 @@
  *
  * @module
  */
-import type { NoydbStore, KeyringFile } from '../../kernel/types.js'
+import type { NoydbStore, KeyringFile, KeyringEchoBlock } from '../../kernel/types.js'
 import { NOYDB_KEYRING_VERSION } from '../../kernel/types.js'
 import {
   deriveKey,
+  deriveEchoKey,
   generateSalt,
   wrapKey,
   unwrapKey,
   bufferToBase64,
   base64ToBuffer,
   type EnclaveKey,
+  type EchoSecretParts,
 } from '../../kernel/enclave/index.js'
 import { InvalidKeyError, NoAccessError, RecoveryProfileNotImplementedError } from '../../kernel/errors.js'
 import {
@@ -38,12 +40,83 @@ import {
   type ShamirRecoveryEntry,
 } from './recovery.js'
 import type { ShamirRecoveryProvider } from './shamir-recovery-provider.js'
-import { assertStrongSecret, type SecretPolicy } from '../../kernel/validation.js'
+import { assertStrongSecret, assertStrongEchoSecret, type SecretPolicy } from '../../kernel/validation.js'
 import type { UnlockedKeyring } from './keyring.js'
-import { mintKeyringCanary } from './keyring.js'
+import { mintKeyringCanary, deriveKekForKeyring } from './keyring.js'
+import { buildEchoBlock } from './echo-secret.js'
+import type { DeviceSealProvider } from './device-seal.js'
 import type { KeyringAuthenticator } from '../../kernel/types.js'
 import type { EnrollAuthenticatorOptions } from './authenticators.js'
 import { ValidationError } from '../../kernel/errors.js'
+
+/**
+ * Echo-enrollment knobs for a rotation whose NEW secret is 3-part (spec #940).
+ *
+ * Deliberately NOT exported: it is reachable structurally through
+ * {@link RotateSecretInput.echoOptions}, and exporting it would mean adding it
+ * to the team + root barrels for a type consumers never need to name.
+ */
+interface RotateEchoOptions {
+  /**
+   * Device-local sealer for the reveal blob. Present ⇒ `reveal: 'sealed'`;
+   * absent ⇒ `reveal: 'portable'`. Mirrors
+   * {@link CreateOwnerKeyringOptions.deviceSeal}.
+   */
+  readonly deviceSeal?: DeviceSealProvider
+  /** Optional display hint for the masked echo. */
+  readonly maskHint?: string
+}
+
+/**
+ * The `echo` field for the keyring file a tier-1 change is about to write.
+ *
+ * Every write site rebuilds the persisted file WITHOUT the old block (a
+ * `{ ...file }` spread would carry it) and then re-attaches whatever the NEW
+ * secret's shape demands:
+ *
+ * - parts ⇒ a FRESH block (the standard→echo upgrade, and the re-mint on an
+ *   echo→echo rotation — the old block's verifiers are bound to the old parts).
+ * - string ⇒ `{}`, i.e. no block at all (the echo→standard downgrade).
+ *
+ * Getting this wrong bricks the keyring: a stale block makes
+ * `deriveKekForKeyring` demand the echo ceremony and derive via the echo KDF,
+ * while the DEKs sit wrapped under a string-derived KEK — neither the old parts
+ * nor the new string can open it.
+ */
+async function echoFieldForNewSecret(
+  newSecret: string | EchoSecretParts,
+  echoOptions?: RotateEchoOptions,
+): Promise<{ echo?: KeyringEchoBlock }> {
+  if (typeof newSecret === 'string') return {}
+  return {
+    echo: await buildEchoBlock(
+      newSecret,
+      echoOptions?.deviceSeal
+        ? { kind: 'sealed', deviceSeal: echoOptions.deviceSeal }
+        : { kind: 'portable' },
+      echoOptions?.maskHint,
+    ),
+  }
+}
+
+/** Derive the KEK for a freshly-chosen tier-1 secret, dispatching on its shape. */
+async function deriveKekForNewSecret(
+  newSecret: string | EchoSecretParts,
+  salt: Uint8Array,
+): Promise<EnclaveKey> {
+  return typeof newSecret === 'string'
+    ? deriveKey(newSecret, salt)
+    : deriveEchoKey(newSecret, salt)
+}
+
+/** Strength gate for a freshly-chosen tier-1 secret, dispatching on its shape. */
+function assertStrongNewSecret(
+  newSecret: string | EchoSecretParts,
+  secretPolicy?: SecretPolicy,
+): void {
+  if (typeof newSecret === 'string') assertStrongSecret(newSecret, secretPolicy)
+  else assertStrongEchoSecret(newSecret)
+}
 
 /**
  * Context handed to a {@link SlotRewrapCeremony} when `rotateSecret`
@@ -90,10 +163,28 @@ export type SlotRewrapCeremony = (
 
 /** Caller payload for {@link rotateSecret}. */
 export interface RotateSecretInput {
-  readonly oldSecret: string
-  readonly newSecret: string
+  /**
+   * The secret currently opening the keyring — a string for a standard
+   * keyring, the 3-part {@link EchoSecretParts} for an echo one. The shape
+   * must MATCH the stored keyring: `deriveKekForKeyring` refuses a string on
+   * an echo keyring (`EchoCeremonyRequiredError`, AG-1) and parts on a
+   * standard one (`ValidationError`).
+   */
+  readonly oldSecret: string | EchoSecretParts
+  /**
+   * The secret to rotate TO. Its shape — independent of `oldSecret`'s —
+   * decides the keyring's mode after rotation: parts enroll an `echo` block
+   * (standard→echo upgrade, or a re-mint on echo→echo), a string removes any
+   * existing one (echo→standard downgrade).
+   */
+  readonly newSecret: string | EchoSecretParts
   readonly secretPolicy?: SecretPolicy
   readonly allowWeakSecret?: boolean
+  /**
+   * Echo-enrollment knobs for the block minted when `newSecret` is 3-part.
+   * Ignored for a string `newSecret` (no block is written).
+   */
+  readonly echoOptions?: RotateEchoOptions
   /**
    * Map of slot id → re-enrolment ceremony. Slots whose id appears
    * here are PRESERVED across rotation (the ceremony re-derives the
@@ -123,7 +214,13 @@ export interface RotateSecretInput {
  * the rewrapped slots atomically with the rotation. Slots whose id
  * isn't in the map are still dropped.
  *
+ * Either secret may be a string or 3-part {@link EchoSecretParts}; the two
+ * shapes are independent, so a rotation doubles as the standard↔echo
+ * upgrade/downgrade ceremony (spec #940).
+ *
  * @throws `InvalidKeyError` if `oldSecret` does not unwrap the keyring.
+ * @throws `EchoCeremonyRequiredError` if `oldSecret` is a string but the
+ *         keyring is an echo keyring.
  * @throws `WeakSecretError` if `newSecret` fails the strength rule.
  * @throws `ValidationError` if a ceremony's result mismatches the
  *         slot's id or method (anti-slot-swap guard).
@@ -135,7 +232,7 @@ export async function rotateSecret(
   input: RotateSecretInput,
 ): Promise<UnlockedKeyring> {
   if (!input.allowWeakSecret) {
-    assertStrongSecret(input.newSecret, input.secretPolicy)
+    assertStrongNewSecret(input.newSecret, input.secretPolicy)
   }
 
   const env = await store.get(vault, '_keyring', userId)
@@ -144,7 +241,9 @@ export async function rotateSecret(
   }
   const file = JSON.parse(env._data) as KeyringFile
   const oldSalt = base64ToBuffer(file.salt)
-  const oldKek = await deriveKey(input.oldSecret, oldSalt)
+  // Dispatches on the STORED keyring's mode, so a string presented to an echo
+  // keyring (or parts to a standard one) is refused before any unwrap.
+  const oldKek = await deriveKekForKeyring(file, input.oldSecret, oldSalt)
 
   // Unwrap every DEK with the OLD KEK first — this also validates the
   // secret (a bad KEK throws InvalidKeyError on the first unwrap).
@@ -154,7 +253,7 @@ export async function rotateSecret(
   }
 
   const newSalt = generateSalt()
-  const newKek = await deriveKey(input.newSecret, newSalt)
+  const newKek = await deriveKekForNewSecret(input.newSecret, newSalt)
 
   // Rewrap with the new KEK.
   const wrappedDeks: Record<string, string> = {}
@@ -238,13 +337,18 @@ export async function rotateSecret(
   }
 
   const canary = await mintKeyringCanary(newKek)
+  // Drop the OLD echo block explicitly — a `{ ...file }` spread would carry it
+  // across a downgrade and miss it on an upgrade. See echoFieldForNewSecret.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- excluded from ...carried
+  const { echo: _staleEcho, ...carried } = file
   const next: KeyringFile = {
-    ...file,
+    ...carried,
     _noydb_keyring: NOYDB_KEYRING_VERSION,
     deks: wrappedDeks,
     salt: bufferToBase64(newSalt),
     authenticators: newSlots,
     canary,
+    ...(await echoFieldForNewSecret(input.newSecret, input.echoOptions)),
   }
 
   await writeKeyringFile(store, vault, userId, next)
@@ -283,7 +387,18 @@ export type RecoveryProof =
     } }
 
 export interface RecoverSecretInput {
-  readonly newSecret: string
+  /**
+   * The secret to recover TO. As in {@link RotateSecretInput}, the shape
+   * decides the recovered keyring's mode: 3-part {@link EchoSecretParts}
+   * enroll a fresh (always PORTABLE) `echo` block, a string leaves the
+   * keyring standard and removes any block the old one carried.
+   *
+   * Recovery deliberately has no `echoOptions` counterpart — a device seal
+   * would bind the reveal blob to the device running the recovery, which is
+   * not necessarily the device the user will unlock from. Seal it afterwards
+   * with an explicit `rotateSecret`.
+   */
+  readonly newSecret: string | EchoSecretParts
   readonly recoveryProof: RecoveryProof
   readonly secretPolicy?: SecretPolicy
   readonly allowWeakSecret?: boolean
@@ -440,7 +555,7 @@ export async function recoverSecret(
   input: RecoverSecretInput,
 ): Promise<UnlockedKeyring> {
   if (!input.allowWeakSecret) {
-    assertStrongSecret(input.newSecret, input.secretPolicy)
+    assertStrongNewSecret(input.newSecret, input.secretPolicy)
   }
 
   // Runtime defense-in-depth: the type narrows to 'paper' | 'shamir',
@@ -505,20 +620,25 @@ async function recoverViaPaperCode(
 
   // Fresh salt + KEK from the new secret, rewrap.
   const newSalt = generateSalt()
-  const newKek = await deriveKey(input.newSecret, newSalt)
+  const newKek = await deriveKekForNewSecret(input.newSecret, newSalt)
   const wrappedDeks: Record<string, string> = {}
   for (const [coll, dek] of deks) {
     wrappedDeks[coll] = await wrapKey(dek, newKek)
   }
 
   const canary = await mintKeyringCanary(newKek)
+  // Explicit rebuild — the old echo block must not ride the spread. See
+  // echoFieldForNewSecret.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- excluded from ...carried
+  const { echo: _staleEcho, ...carried } = file
   const next: KeyringFile = {
-    ...file,
+    ...carried,
     _noydb_keyring: NOYDB_KEYRING_VERSION,
     deks: wrappedDeks,
     salt: bufferToBase64(newSalt),
     authenticators: [], // tier-2 slots wrap old KEK, drop them
     canary,
+    ...(await echoFieldForNewSecret(input.newSecret)),
   }
 
   // Burn first, then rewrite the keyring. The two writes are not
@@ -668,20 +788,25 @@ async function recoverViaShamir(
 
   // Mint fresh KEK from new secret, rewrap DEKs (mirrors paper).
   const newSalt = generateSalt()
-  const newKek = await deriveKey(input.newSecret, newSalt)
+  const newKek = await deriveKekForNewSecret(input.newSecret, newSalt)
   const wrappedDeks: Record<string, string> = {}
   for (const [coll, dek] of recoveredDeks) {
     wrappedDeks[coll] = await wrapKey(dek, newKek)
   }
 
   const canary = await mintKeyringCanary(newKek)
+  // Explicit rebuild — the old echo block must not ride the spread. See
+  // echoFieldForNewSecret.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- excluded from ...carried
+  const { echo: _staleEcho, ...carried } = file
   const next: KeyringFile = {
-    ...file,
+    ...carried,
     _noydb_keyring: NOYDB_KEYRING_VERSION,
     deks: wrappedDeks,
     salt: bufferToBase64(newSalt),
     authenticators: [], // tier-2 slots wrap old KEK, drop them on recovery
     canary,
+    ...(await echoFieldForNewSecret(input.newSecret)),
   }
 
   // No burn: Shamir entries persist across recoveries. Explicit
