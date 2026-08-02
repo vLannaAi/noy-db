@@ -80,7 +80,8 @@ OSINT-able biography — the example sentence above is deliberately what NOT to 
 3. **KEK derives from all three parts** via the AG-1 length-prefixed encoding,
    PBKDF2-SHA256 600K (`crypto.subtle` only), same iteration floor as standard.
 4. **Hybrid reveal policy, per slot** (see Format). Live/device keyrings:
-   `sealed`. Pod recipient slots: `portable` by default, per-recipient knob.
+   `sealed` when a `DeviceSealProvider` is supplied at `createNoydb`, else
+   `portable`. Pod recipient slots: `portable` by default, per-recipient knob.
 5. **`DeviceSealProvider`** interface defined in hub; implementations live in
    players / `in-*` bindings (IDB non-synced, file, OS keychain). Hub stays
    portable — no Node/browser storage in kernel. Distinct from managed mode's
@@ -149,7 +150,9 @@ terminal state is mandatory copy; no "skip verification" affordance.
 
 ## API surface (sketch — final names at implementation)
 
-- `createNoydb({ secretMode: 'echo', ... })`; enrollment collects three fields.
+- `createNoydb({ secretMode: 'echo', deviceSeal? })`; enrollment collects three
+  fields. `deviceSeal` absent ⇒ live keyrings enroll `reveal: 'portable'`;
+  present ⇒ `sealed`. No other echo-specific options.
 - `beginEchoUnlock(keyringFile, prompt)` → `EchoCeremony` handle exposing the
   state machine above; `ceremony.complete(key)` → `UnlockedKeyring`.
 - `EchoCeremonyRequiredError`, `WrongPromptError`, `WrongEchoError` error classes.
@@ -197,15 +200,29 @@ terminal state is mandatory copy; no "skip verification" affordance.
 - Simulation harnesses: add echo-mode cases to the multiuser/offline suites only
   if tier-1 unlock paths are exercised there (verify at implementation).
 
-## Open questions (resolve during implementation review, none block the spec)
+## Open questions — RESOLVED (2026-08-02, maintainer)
 
-1. `prompt_verifier` hardness: the verifier permits isolated offline brute-force
-   of the prompt by a file-holder (inherent — it gates the reveal). Iteration
-   budget; whether prompt gets its own `SecretPolicy` floor.
-2. `mask_hint` in format vs pure player concern (kept optional-in-format for now).
-3. `standard → echo` upgrade ceremony details via `rotateSecret`.
-4. `createNoydb` option shape: `secretMode` alone vs an `echoPolicy` bag.
-5. Per-part `validateSecret` rules (prompt/key entropy floors; echo free-form?).
+1. `prompt_verifier` hardness: **PBKDF2 600K, same iteration floor as the KEK.**
+   The prompt gets **its own dedicated `SecretPolicy` floor** (it is the
+   brute-forceable-in-isolation part — it must not be trivially guessable, since
+   a guessed prompt yields the echo and enables a perfect phish for the key).
+2. `mask_hint`: **stays optional in the format** (owner may set it at enrollment;
+   players honor it when present, otherwise masking is their UI call).
+3. `standard → echo` upgrade: **confirmed — rides `rotateSecret`** (old
+   single-string secret in, three parts out), with tier-2 slots surviving via the
+   `SlotRewrapCeremony` mechanism across the mode change.
+4. Option shape: **`secretMode: 'echo'` alone — no `echoPolicy` bag.** One
+   optional companion: `deviceSeal?: DeviceSealProvider`. When absent, live
+   keyrings enroll `reveal: 'portable'` (same as the pod default, grade-A
+   protection); supplying the provider is the explicit opt-in to `sealed`
+   (attacker-B resistance). Mirrors the managed-mode `sealingKey` precedent.
+5. Per-part validation: **the prompt gets the dedicated entropy floor** (per 1);
+   echo is free-form (never typed on the normal path; longer = better as a
+   recognition token). The existing whole-secret policy continues to apply to
+   the combined parts, so the key is not left unvalidated (note: key entropy
+   still matters against a file-holder who has brute-forced the prompt — the
+   combined-policy floor is what covers it). **Anti-autobiography guidance is
+   docs-only**, never a validator.
 
 ## References
 
