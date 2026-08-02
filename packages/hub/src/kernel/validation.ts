@@ -239,3 +239,40 @@ export function legacyAssertSecret(s: string): void {
     throw err
   }
 }
+
+/** Dedicated floors for the echo mode's three parts (spec resolved Q1/Q5). */
+export interface EchoSecretPolicy {
+  /** Floor for the typed prompt — the brute-forceable-in-isolation part. */
+  readonly prompt?: SecretPolicy
+  /** Policy for the combined parts (defaults to the standard whole-secret rules). */
+  readonly combined?: SecretPolicy
+}
+
+export const DEFAULT_ECHO_PROMPT_MIN_WORDS = 3
+
+/** Validate a 3-part echo secret. Never throws. */
+export function validateEchoSecret(
+  parts: { readonly prompt: string; readonly echo: string; readonly key: string },
+  opts?: EchoSecretPolicy,
+): SecretValidationResult {
+  for (const part of [parts.prompt, parts.echo, parts.key]) {
+    if (part.length === 0) return { ok: false, reason: 'empty' }
+  }
+  const promptResult = validateSecret(parts.prompt, {
+    minWords: DEFAULT_ECHO_PROMPT_MIN_WORDS,
+    ...opts?.prompt,
+  })
+  if (!promptResult.ok) return promptResult
+  return validateSecret(`${parts.prompt} ${parts.echo} ${parts.key}`, opts?.combined)
+}
+
+/** Throwing form of {@link validateEchoSecret}. */
+export function assertStrongEchoSecret(
+  parts: { readonly prompt: string; readonly echo: string; readonly key: string },
+  opts?: EchoSecretPolicy & { allowWeakSecret?: boolean },
+): void {
+  if (opts?.allowWeakSecret) return
+  const result = validateEchoSecret(parts, opts)
+  if (result.ok) return
+  throw new WeakSecretError(result.reason, SUGGESTIONS[result.reason])
+}

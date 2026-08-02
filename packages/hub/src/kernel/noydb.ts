@@ -1012,7 +1012,7 @@ export class Noydb {
       try {
         keyring = await loadKeyring(adapter, vault, {
           userId: this.options.user,
-          secret: this.options.secret,
+          secret: this.options.secret as string, // echo wiring: later task
         })
       } catch (err) {
         if (
@@ -2015,7 +2015,7 @@ export class Noydb {
         this.options.sealingKey!,
       )
     } else {
-      effectiveSecret = this.options.secret
+      effectiveSecret = this.options.secret as string // echo wiring: later task
     }
 
     if (!effectiveSecret) {

@@ -382,6 +382,39 @@ export class KeyringExpiredError extends NoydbError {
 }
 
 /**
+ * Thrown when a plain single-string secret is offered against an
+ * echo-mode keyring. Echo keyrings unlock ONLY via the stepwise
+ * ceremony (`beginEchoUnlock`) or a structured `EchoSecretParts`
+ * value — never a single field (spec AG-1, #940).
+ */
+export class EchoCeremonyRequiredError extends NoydbError {
+  constructor() {
+    super(
+      'ECHO_CEREMONY_REQUIRED',
+      'This keyring uses an echo secret (3-part ceremony). ' +
+        'A single-string secret can never unlock it — run the echo ceremony instead.',
+    )
+    this.name = 'EchoCeremonyRequiredError'
+  }
+}
+
+/** Echo ceremony: the typed prompt failed its verifier. */
+export class WrongPromptError extends NoydbError {
+  constructor() {
+    super('WRONG_PROMPT', 'Echo ceremony: the prompt does not match this keyring.')
+    this.name = 'WrongPromptError'
+  }
+}
+
+/** Echo ceremony (degraded path): the TYPED echo failed its verifier. */
+export class WrongEchoError extends NoydbError {
+  constructor() {
+    super('WRONG_ECHO', 'Echo ceremony: the typed echo does not match this keyring.')
+    this.name = 'WrongEchoError'
+  }
+}
+
+/**
  * Thrown when an `@noy-db/as-*` import is attempted but the invoking
  * keyring lacks the required import-capability bit.
  *

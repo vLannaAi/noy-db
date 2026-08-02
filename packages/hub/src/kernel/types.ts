@@ -66,7 +66,10 @@ import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { CoordinationProvider } from '../port/by/types.js'
 import type { ScriptWarning } from '../port/with/i18n-strategy.js'
 import type { ViaDescriptor } from './via/index.js'
-import type { EnclaveKey } from './enclave/index.js'
+import type { EnclaveKey, EchoSecretParts } from './enclave/index.js'
+import type { DeviceSealProvider } from '../port/with/device-seal-strategy.js'
+
+export type { EchoSecretParts }
 
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
@@ -979,6 +982,29 @@ export type KeyringAuthenticator =
   | KeyringAuthenticatorWrappingKEK
   | KeyringAuthenticatorWrappingDEKs
 
+/**
+ * Echo-secret (3-part ceremony) declaration on a keyring — spec
+ * docs/superpowers/specs/2026-08-02-echo-secret-design.md (#940).
+ * Optional / append-only: keyrings written before the extension (or
+ * using standard/managed modes) simply lack it.
+ */
+export interface KeyringEchoBlock {
+  readonly v: 1
+  /** Salt + AES-KW verifier gating the reveal on the typed prompt (600K PBKDF2). */
+  readonly prompt_salt: string
+  readonly prompt_verifier: string
+  /** Salt + AES-KW verifier for a TYPED echo (degraded path). */
+  readonly echo_salt: string
+  readonly echo_verifier: string
+  /** Hybrid reveal policy (spec decision 4). */
+  readonly reveal:
+    | { readonly kind: 'portable'; readonly blob: string; readonly iv: string; readonly salt: string }
+    | { readonly kind: 'sealed'; readonly blob: string; readonly provider_hint: string }
+    | { readonly kind: 'none' }
+  /** Optional display-masking hint — pure player-UI concern. */
+  readonly mask_hint?: string
+}
+
 export interface KeyringFile {
   readonly _noydb_keyring: typeof NOYDB_KEYRING_VERSION
   readonly user_id: string
@@ -1052,6 +1078,11 @@ export interface KeyringFile {
    * highest tier they have DEKs for at grant time.
    */
   readonly clearance?: number
+  /**
+   * Echo-secret (3-part ceremony) declaration. Absent for keyrings
+   * using standard/managed mode, or written before this extension.
+   */
+  readonly echo?: KeyringEchoBlock
 }
 
 // ─── Backup ────────────────────────────────────────────────────────────
@@ -2687,8 +2718,13 @@ export interface NoydbOptions {
   readonly sync?: NoydbStore | SyncTarget | SyncTarget[]
   /** User identifier. */
   readonly user: string
-  /** Secret for key derivation. Required unless encrypt is false or `getKeyring` is provided. */
-  readonly secret?: string
+  /**
+   * Secret for key derivation. Required unless encrypt is false or
+   * `getKeyring` is provided. A plain `string` for `'standard'` /
+   * `'managed'` mode; an {@link EchoSecretParts} 3-part struct for
+   * `'echo'` mode (spec docs/superpowers/specs/2026-08-02-echo-secret-design.md, #940).
+   */
+  readonly secret?: string | EchoSecretParts
   /**
    * Optional callback that returns an unlocked keyring for a given vault.
    * Use this to plug in WebAuthn / OIDC / Shamir / any unlock path that
@@ -2739,10 +2775,13 @@ export interface NoydbOptions {
    *     the provided `sealingKey`. The user never sees or types the
    *     secret, defeating the $5-wrench attack. Mutually
    *     exclusive with `secret` and `getKeyring`.
+   *   - `'echo'` — 3-part ceremony (prompt / echo / key). `secret`
+   *     takes an {@link EchoSecretParts} struct instead of a plain
+   *     string (spec docs/superpowers/specs/2026-08-02-echo-secret-design.md, #940).
    *
    * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/session-tiers.md → Managed-secret mode
    */
-  readonly secretMode?: 'standard' | 'managed'
+  readonly secretMode?: 'standard' | 'echo' | 'managed'
   /**
    * Provider that seals/unseals the auto-generated managed-mode
    * secret. Required when `secretMode === 'managed'`; ignored
@@ -2751,6 +2790,12 @@ export interface NoydbOptions {
    * `@noy-db/seal-libsecret`, `@noy-db/seal-aws-kms`, …).
    */
   readonly sealingKey?: SealingKeyProvider
+  /**
+   * Device-local sealer for the echo reveal-blob. Echo mode only.
+   * Absent ⇒ live keyrings enroll `reveal: 'portable'`; present ⇒
+   * `sealed` (attacker-B resistance). Spec resolved question 4.
+   */
+  readonly deviceSeal?: DeviceSealProvider
   /** Required to use `profile: 'shamir'` recovery. Pass
    *  `shamirRecoveryProvider()` from `@noy-db/on-shamir`. */
   readonly shamirRecovery?: ShamirRecoveryProvider
