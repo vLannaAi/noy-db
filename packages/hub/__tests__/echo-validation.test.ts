@@ -91,22 +91,30 @@ describe('MemoryDeviceSealProvider', () => {
   })
 })
 
-describe('secretMode: echo hard-fails before real wiring lands', () => {
-  // Regression guard for a Critical caught in review: `NoydbOptions.secret`
-  // is now `string | EchoSecretParts`, but until a later task rewires the
-  // load/create path, an `EchoSecretParts` object handed to `secretMode:
-  // 'echo'` must NEVER reach `TextEncoder` (which would silently coerce it
-  // to the string "[object Object]" and derive the same guessable KEK for
-  // every such vault). Opening a vault under echo mode must always throw
-  // `EchoCeremonyRequiredError`, never succeed.
-  it('openVault rejects with EchoCeremonyRequiredError instead of deriving a key', async () => {
+describe('secretMode: echo is wired through createNoydb', () => {
+  // Supersedes the temporary "echo hard-fails before real wiring lands"
+  // guard: the Critical it protected against was an `EchoSecretParts` object
+  // reaching `TextEncoder` (silently coerced to "[object Object]", deriving
+  // the same guessable KEK for every such vault). That is now structurally
+  // impossible — `deriveKekForKeyring` dispatches on the secret's shape and
+  // `createNoydb` rejects a shape/mode mismatch. Full coverage of the open →
+  // write → reopen path lives in __tests__/echo-e2e.test.ts.
+  it('openVault with echo parts succeeds and enrolls an echo keyring', async () => {
     const store = inlineMemory()
-    const db = await createNoydb({
-      store,
-      user: 'alice',
-      secretMode: 'echo',
-      secret: { prompt: 'a b c', echo: 'd', key: 'e' },
-    })
-    await expect(db.openVault('acme')).rejects.toThrow(EchoCeremonyRequiredError)
-  })
+    const db = await createNoydb({ store, user: 'alice', secretMode: 'echo', secret: GOOD })
+    await expect(db.openVault('acme')).resolves.toBeDefined()
+    const file = JSON.parse((await store.get('acme', '_keyring', 'alice'))!._data)
+    expect(file.echo).toBeDefined()
+    db.close()
+  }, 600_000)
+
+  it('a single string still cannot unlock that keyring (AG-1)', async () => {
+    const store = inlineMemory()
+    const db = await createNoydb({ store, user: 'alice', secretMode: 'echo', secret: GOOD })
+    await db.openVault('acme')
+    db.close()
+    const asString = await createNoydb({ store, user: 'alice', secret: `${GOOD.prompt} ${GOOD.echo} ${GOOD.key}` })
+    await expect(asString.openVault('acme')).rejects.toThrow(EchoCeremonyRequiredError)
+    asString.close()
+  }, 600_000)
 })

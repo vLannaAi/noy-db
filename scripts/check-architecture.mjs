@@ -2027,7 +2027,13 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   // identical raw-read idiom to this file's other 7 `JSON.parse(env._data)`
   // sites (keyring files are always plaintext JSON, never routed through
   // the encrypted-body barrel). 14→15.
-  ['packages/hub/src/with-party/team/keyring.ts', 15],
+  // #940 Task 5: `persistKeyring` reads the already-persisted keyring file
+  // the same way, to carry the `echo` block forward — it rebuilds the file
+  // from the `UnlockedKeyring`, which deliberately carries no echo info, so
+  // without this read the first DEK-provisioning write would drop the block
+  // and leave the vault unopenable by any secret shape. Same raw-read idiom
+  // as the 8 sites above. 15→16.
+  ['packages/hub/src/with-party/team/keyring.ts', 16],
   ['packages/hub/src/with-party/team/magic-link-grant.ts', 2],
   ['packages/hub/src/with-party/team/managed-secret.ts', 3],
   ['packages/hub/src/with-party/team/peer-recover.ts', 3],
