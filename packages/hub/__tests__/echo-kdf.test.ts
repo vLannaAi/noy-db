@@ -39,6 +39,20 @@ describe('encodeEchoParts (AG-1)', () => {
     expect(encodeEchoParts(uni)).toEqual(encodeEchoParts(uni))
     expect(encodeEchoParts(uni)).not.toEqual(encodeEchoParts(PARTS))
   })
+
+  it('length-prefixes use UTF-8 byte length, not UTF-16 code-unit length', () => {
+    // 'però' is 4 UTF-16 code units but 5 UTF-8 bytes (ò is 2 bytes) — an
+    // implementation that length-prefixed with `.length` instead of the
+    // encoded byte length would pass every other test here while breaking
+    // the self-delimiting frame (a decoder would read one byte short).
+    expect('però'.length).toBe(4)
+    const encoded = encodeEchoParts({ prompt: 'però', echo: 'echo text', key: 'key text' })
+    const domainContextLength = new TextEncoder().encode('noydb-echo-secret-v1').length
+    expect(domainContextLength).toBe(20)
+    const view = new DataView(encoded.buffer, encoded.byteOffset, encoded.byteLength)
+    const promptLength = view.getUint32(domainContextLength, false)
+    expect(promptLength).toBe(5)
+  })
 })
 
 describe('deriveEchoKey', () => {
