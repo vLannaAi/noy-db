@@ -51,6 +51,15 @@ function inlineMemory(): NoydbStore {
 const PARTS = { prompt: 'sono chiamato vicio', echo: 'quando ero piccolo tutti chiamavano', key: 'ciccio patata' }
 const T = 600_000
 
+// The product's canonical example (#952) — 2-letter Italian words ("mi",
+// "da") that only pass under echo validation's relaxed
+// DEFAULT_ECHO_MIN_WORD_LENGTH (1), not the standard floor (3).
+const CANONICAL_PARTS = {
+  prompt: 'mi chiamo vicio',
+  echo: 'ma da piccolo al santanna mi chiamavano',
+  key: 'ciccio',
+}
+
 interface Note { note: string }
 
 describe('echo mode end to end', () => {
@@ -135,6 +144,19 @@ describe('echo mode end to end', () => {
       validateSecret: true,
     })
     await expect(db.openVault('acme')).rejects.toThrow(WeakSecretError)
+  }, T)
+
+  it('the canonical Italian example succeeds under validateSecret: true (#952 Romance-friendly floor)', async () => {
+    const store = inlineMemory()
+    const db = await createNoydb({
+      store,
+      user: 'owner',
+      secretMode: 'echo',
+      secret: CANONICAL_PARTS,
+      validateSecret: true,
+    })
+    await expect(db.openVault('acme')).resolves.toBeDefined()
+    db.close()
   }, T)
 
   it('echoSecretPolicy tightens the prompt floor at createNoydb', async () => {
