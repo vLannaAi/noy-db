@@ -67,6 +67,18 @@ documented: shoulder-surf of the displayed echo (masking), autobiographical
 content (enrollment guidance: private memory or deliberately false fact, never
 OSINT-able biography — the example sentence above is deliberately what NOT to do).
 
+Inherent oracles a file-holder gets (state these in the threat-model docs; they
+are the price of the degraded typed-echo path and of gating the reveal):
+- `prompt_verifier` — offline brute-force oracle on the **prompt** (already
+  acknowledged; 600K PBKDF2 per guess, prompt gets its own policy floor).
+- `echo_verifier` — the same class of oracle on the **echo**, present even in
+  `sealed`/`none` mode. "Attacker-B resistance" for sealed blobs therefore
+  means: B cannot *read* the echo, but can still *grind candidate echoes*
+  offline at 600K PBKDF2 each. Echoes are free-form human phrases with no
+  entropy floor — the enrollment guidance (longer echo = better) carries this.
+- The sealed blob is unpadded — its length discloses the echo's UTF-8 byte
+  length.
+
 ## Design decisions (locked 2026-08-02)
 
 1. **Kernel placement.** `KeyringFile` format extension + enclave-area ceremony
