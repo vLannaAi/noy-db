@@ -239,3 +239,68 @@ export function legacyAssertSecret(s: string): void {
     throw err
   }
 }
+
+/** Dedicated floors for the echo mode's three parts (spec resolved Q1/Q5). */
+export interface EchoSecretPolicy {
+  /** Floor for the typed prompt — the brute-forceable-in-isolation part. */
+  readonly prompt?: SecretPolicy
+  /** Policy for the combined parts (defaults to the standard whole-secret rules). */
+  readonly combined?: SecretPolicy
+}
+
+export const DEFAULT_ECHO_PROMPT_MIN_WORDS = 3
+
+/** Validate a 3-part echo secret. Never throws. */
+export function validateEchoSecret(
+  parts: { readonly prompt: string; readonly echo: string; readonly key: string },
+  opts?: EchoSecretPolicy,
+): SecretValidationResult {
+  // Trimmed: a whitespace-only part carries no secret material, so it is
+  // 'empty' rather than a confusing spacing complaint.
+  for (const part of [parts.prompt, parts.echo, parts.key]) {
+    if (part.trim().length === 0) return { ok: false, reason: 'empty' }
+  }
+  const promptResult = validateSecret(parts.prompt, {
+    minWords: DEFAULT_ECHO_PROMPT_MIN_WORDS,
+    ...opts?.prompt,
+  })
+  if (!promptResult.ok) return promptResult
+  return validateSecret(`${parts.prompt} ${parts.echo} ${parts.key}`, opts?.combined)
+}
+
+/**
+ * Suggestion copy for a failure that came from the PROMPT's dedicated floor.
+ * The generic `SUGGESTIONS` copy quotes the 6-word whole-secret floor, which
+ * misdirects an owner whose prompt only has to clear 3 words.
+ */
+function promptSuggestion(reason: WeakSecretReason, minWords: number): string {
+  if (reason === 'too-few-words') {
+    return `The prompt (the part you type first) must be at least ${minWords} words. Example: "sono chiamato vicio".`
+  }
+  return `The prompt (the part you type first) is the problem. ${SUGGESTIONS[reason]}`
+}
+
+/** Throwing form of {@link validateEchoSecret}. */
+export function assertStrongEchoSecret(
+  parts: { readonly prompt: string; readonly echo: string; readonly key: string },
+  opts?: EchoSecretPolicy & { allowWeakSecret?: boolean },
+): void {
+  if (opts?.allowWeakSecret) return
+  const result = validateEchoSecret(parts, opts)
+  if (result.ok) return
+
+  // Which check produced the failure? Re-run the two that precede the
+  // combined one, in validateEchoSecret's own order: a non-empty parts set
+  // whose prompt fails means the verdict IS the prompt verdict.
+  const allPartsPresent = [parts.prompt, parts.echo, parts.key].every((p) => p.trim().length > 0)
+  const promptMinWords = opts?.prompt?.minWords ?? DEFAULT_ECHO_PROMPT_MIN_WORDS
+  const promptOk = validateSecret(parts.prompt, {
+    minWords: DEFAULT_ECHO_PROMPT_MIN_WORDS,
+    ...opts?.prompt,
+  }).ok
+  const suggestion = allPartsPresent && !promptOk
+    ? promptSuggestion(result.reason, promptMinWords)
+    : SUGGESTIONS[result.reason]
+
+  throw new WeakSecretError(result.reason, suggestion)
+}

@@ -179,9 +179,22 @@ export async function recoverUser(
   //    rotateSecret). Mint a fresh canary under newKek; the
   //    OLD canary on the spread `...target` would fail to verify against
   //    the new KEK and trip KeyringCorruptError on next load.
+  //
+  //    An echo block on the target is dropped for the same reason
+  //    (spec #940): `options.secret` is a STRING, so the rewrapped DEKs sit
+  //    under a string-derived KEK. Carrying the block over would make
+  //    `deriveKekForKeyring` demand the echo ceremony and derive via the echo
+  //    KDF — bricking the keyring for old parts AND new temp alike. The
+  //    recovered user therefore gets a STANDARD keyring; picking the echo
+  //    shape back up is their own `rotateSecret` away (peer recovery is a
+  //    single-use bridge, and widening `RecoverUserOptions.secret` to 3-part
+  //    parts would mean transporting three secrets over the out-of-band
+  //    channel — deliberately out of scope).
   const canary = await mintKeyringCanary(newKek)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- excluded from ...carried
+  const { echo: _staleEcho, ...carried } = target
   const next: KeyringFile = {
-    ...target,
+    ...carried,
     _noydb_keyring: NOYDB_KEYRING_VERSION,
     role: targetRole,
     display_name: options.displayName ?? target.display_name,

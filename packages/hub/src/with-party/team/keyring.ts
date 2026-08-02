@@ -3,6 +3,7 @@ import { NOYDB_KEYRING_VERSION, NOYDB_FORMAT_VERSION } from '../../kernel/types.
 import { USER_ENVELOPE_COLLECTION } from '../../kernel/constants.js'
 import {
   deriveKey,
+  deriveEchoKey,
   generateDEK,
   generateSalt,
   wrapKey,
@@ -12,11 +13,14 @@ import {
   bufferToBase64,
   base64ToBuffer,
   type EnclaveKey,
+  type EchoSecretParts,
 } from '../../kernel/enclave/index.js'
-import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, InvalidKeyError, ValidationError, DirectoryDisabledError } from '../../kernel/errors.js'
+import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, InvalidKeyError, ValidationError, DirectoryDisabledError, EchoCeremonyRequiredError } from '../../kernel/errors.js'
 import { readDirectoryConfig } from '../directory/storage.js'
 import { readUserVisibility, deleteUserVisibility } from '../directory/visibility.js'
-import { assertStrongSecret, type SecretPolicy } from '../../kernel/validation.js'
+import { assertStrongSecret, assertStrongEchoSecret, type SecretPolicy } from '../../kernel/validation.js'
+import { buildEchoBlock } from './echo-secret.js'
+import type { DeviceSealProvider } from './device-seal.js'
 import {
   saveUserEnvelope,
   loadUserEnvelope as loadUserEnvelopeFn,
@@ -216,8 +220,32 @@ async function verifyKeyringCanary(wrappedCanary: string, kek: EnclaveKey): Prom
 export interface LoadKeyringOptions {
   /** The user whose keyring to unlock. */
   readonly userId: string
-  /** That user's secret. */
-  readonly secret: string
+  /**
+   * That user's secret — a single string for a standard keyring, or the
+   * structured 3-part {@link EchoSecretParts} for an echo keyring (spec
+   * #940, AG-1: a single string can never unlock an echo keyring).
+   */
+  readonly secret: string | EchoSecretParts
+}
+
+/**
+ * KDF dispatch for tier-1 unlock (spec #940). An echo keyring accepts
+ * ONLY structured parts (AG-1 — no single string is key-equivalent);
+ * a standard keyring accepts only a string.
+ */
+export async function deriveKekForKeyring(
+  file: KeyringFile,
+  secret: string | EchoSecretParts,
+  salt: Uint8Array,
+): Promise<EnclaveKey> {
+  if (file.echo !== undefined) {
+    if (typeof secret === 'string') throw new EchoCeremonyRequiredError()
+    return deriveEchoKey(secret, salt)
+  }
+  if (typeof secret !== 'string') {
+    throw new ValidationError('This keyring uses a standard secret — pass a string, not echo parts.')
+  }
+  return deriveKey(secret, salt)
 }
 
 /** Load and unlock a user's keyring for a vault. */
@@ -248,7 +276,7 @@ export async function loadKeyring(
   }
 
   const salt = base64ToBuffer(keyringFile.salt)
-  const kek = await deriveKey(secret, salt)
+  const kek = await deriveKekForKeyring(keyringFile, secret, salt)
 
   // Verify the canary first when present. A canary success proves the
   // KEK is correct independent of any DEK byte — so subsequent DEK
@@ -356,12 +384,25 @@ export async function assertKeyringOpenAllowed(
 export interface CreateOwnerKeyringOptions extends SecretPolicy {
   /** The owner to create. */
   readonly userId: string
-  /** The owner's secret. */
-  readonly secret: string
+  /**
+   * The owner's secret — a plain string for a standard keyring, or the
+   * structured 3-part {@link EchoSecretParts} to enroll an echo keyring
+   * (spec #940). The shape alone selects the KDF and whether an `echo`
+   * block is written.
+   */
+  readonly secret: string | EchoSecretParts
   /** Gate creation on the phrase-format strength rules. Default false. */
   readonly validate?: boolean
   /** Escape hatch for fixtures and migrations — skips the strength gate. */
   readonly allowWeakSecret?: boolean
+  /**
+   * Echo enrollment only: device-local sealer for the reveal blob. Present
+   * ⇒ `reveal: 'sealed'` (attacker-B resistance); absent ⇒ `reveal:
+   * 'portable'` (spec resolved question 4). Ignored for a string secret.
+   */
+  readonly deviceSeal?: DeviceSealProvider
+  /** Echo enrollment only: optional display hint for the masked echo. */
+  readonly echoMaskHint?: string
 }
 
 /**
@@ -379,10 +420,17 @@ export async function createOwnerKeyring(
 ): Promise<UnlockedKeyring> {
   const { userId, secret } = opts
   if (opts.validate && !opts.allowWeakSecret) {
-    assertStrongSecret(secret, opts)
+    // `buildEchoBlock` validates nothing — the strength gate for the 3-part
+    // secret has to fire here, exactly like `assertStrongSecret` does for a
+    // string. (Echo-specific policy knobs default; they can ride the same
+    // bag later.)
+    if (typeof secret === 'string') assertStrongSecret(secret, opts)
+    else assertStrongEchoSecret(secret, opts)
   }
   const salt = generateSalt()
-  const kek = await deriveKey(secret, salt)
+  const kek = typeof secret === 'string'
+    ? await deriveKey(secret, salt)
+    : await deriveEchoKey(secret, salt)
 
   // Eager-provision the _users DEK at owner creation. This guarantees
   // every subsequent grant inherits it via the existing
@@ -408,6 +456,17 @@ export async function createOwnerKeyring(
     created_at: new Date().toISOString(),
     granted_by: userId,
     canary,
+    // The presence of this block is what makes the keyring an echo keyring —
+    // `deriveKekForKeyring` reads it to refuse a single-string unlock (AG-1).
+    ...(typeof secret !== 'string'
+      ? {
+          echo: await buildEchoBlock(
+            secret,
+            opts.deviceSeal ? { kind: 'sealed', deviceSeal: opts.deviceSeal } : { kind: 'portable' },
+            opts.echoMaskHint,
+          ),
+        }
+      : {}),
   }
 
   await writeKeyringFile(store, vault, userId, keyringFile)
@@ -993,6 +1052,17 @@ export async function changeSecret(
   keyring: UnlockedKeyring,
   opts: ChangeSecretOptions,
 ): Promise<UnlockedKeyring> {
+  // An echo keyring rotates via `rotateSecret` only — `changeSecret`
+  // rebuilds the keyring file literal below and would silently DROP the
+  // `echo` block, permanently losing the ceremony. Guard on the file as
+  // persisted (not `keyring`, which carries no echo info) before any
+  // derivation.
+  const existingEnvelope = await store.get(vault, '_keyring', keyring.userId)
+  if (existingEnvelope) {
+    const existingFile = JSON.parse(existingEnvelope._data) as KeyringFile
+    if (existingFile.echo !== undefined) throw new EchoCeremonyRequiredError()
+  }
+
   const { newSecret } = opts
   if (!opts.allowWeakSecret) {
     assertStrongSecret(newSecret, opts)
@@ -1043,6 +1113,16 @@ export async function changeSecret(
 // ─── Bundle recipients ──────────────────────────────────────────
 
 /**
+ * Echo-mode recipient secret (spec #940). A pod slot may embed the reveal
+ * (`'portable'`, default) or omit it (`'none'`) — `'sealed'` is
+ * live-device-only and unavailable here: `writePod` has no device context
+ * to seal the reveal blob against.
+ */
+export interface EchoRecipientSecret extends EchoSecretParts {
+  readonly reveal?: 'portable' | 'none'
+}
+
+/**
  * Recipient slot in a re-keyed `.noydb` bundle. Each slot becomes its
  * own keyring file inside the bundle, sealed with its own secret.
  * Same role/permission semantics as `db.grant()` but no store side
@@ -1055,8 +1135,13 @@ export interface BundleRecipient {
   readonly id: string
   /** Optional display name. Defaults to `id`. */
   readonly displayName?: string
-  /** Secret the recipient will type to unlock. */
-  readonly secret: string
+  /**
+   * Secret the recipient will type to unlock — a plain string for a
+   * standard keyring, or the structured 3-part {@link EchoRecipientSecret}
+   * to embed an echo keyring so the anti-phishing ceremony travels with
+   * the pod (spec #940).
+   */
+  readonly secret: string | EchoRecipientSecret
   /** Role on the destination vault. Defaults to `'viewer'`. */
   readonly role?: Role
   /**
@@ -1113,7 +1198,9 @@ export async function buildRecipientKeyringFile(
   const permissions = resolvePermissions(role, recipient.permissions)
 
   const newSalt = generateSalt()
-  const newKek = await deriveKey(recipient.secret, newSalt)
+  const newKek = typeof recipient.secret === 'string'
+    ? await deriveKey(recipient.secret, newSalt)
+    : await deriveEchoKey(recipient.secret, newSalt)
 
   const wrappedDeks: Record<string, string> = {}
 
@@ -1172,6 +1259,13 @@ export async function buildRecipientKeyringFile(
       : {}),
     ...(recipient.expiresAt !== undefined
       ? { expires_at: recipient.expiresAt }
+      : {}),
+    // The presence of this block is what makes the recipient's slot an
+    // echo keyring — mirrors `createOwnerKeyring`'s same dance so the
+    // ceremony (prompt → echo → key) travels with the pod, not just a
+    // live owner keyring.
+    ...(typeof recipient.secret !== 'string'
+      ? { echo: await buildEchoBlock(recipient.secret, { kind: recipient.secret.reveal ?? 'portable' }) }
       : {}),
   }
 }
@@ -1374,6 +1468,17 @@ export async function persistKeyring(
         'tier 1 (secret) before persisting.',
     )
   }
+  // Carry the `echo` block forward (#940). This function rebuilds the file
+  // from the `UnlockedKeyring`, which deliberately carries no echo info (same
+  // rationale as the `changeSecret` guard), so it has to be read back off the
+  // persisted file — otherwise the first DEK-provisioning write would drop it
+  // and silently degrade an echo keyring into a standard one that no secret
+  // shape can open (the KEK stays echo-derived).
+  const existingEnvelope = await store.get(vault, '_keyring', keyring.userId)
+  const existingEcho = existingEnvelope
+    ? (JSON.parse(existingEnvelope._data) as KeyringFile).echo
+    : undefined
+
   const wrappedDeks: Record<string, string> = {}
   for (const [collName, dek] of keyring.deks) {
     wrappedDeks[collName] = await wrapKey(dek, keyring.kek)
@@ -1395,6 +1500,7 @@ export async function persistKeyring(
     ...(keyring.importCapability !== undefined && { import_capability: keyring.importCapability }),
     ...(keyring.authenticators.length > 0 && { authenticators: keyring.authenticators }),
     ...(keyring.policy !== undefined && { policy: keyring.policy }),
+    ...(existingEcho !== undefined && { echo: existingEcho }),
   }
 
   await writeKeyringFile(store, vault, keyring.userId, keyringFile)

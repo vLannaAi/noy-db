@@ -132,6 +132,23 @@ export {
 // Re-exporting them from here as well would leave two homes for one thing,
 // which is what #895 set out to remove.
 
+// ─── Echo-secret ceremony (#940) ─────────────────────────
+export {
+  buildEchoBlock,
+  verifyPrompt,
+  resolveEchoReveal,
+  verifyTypedEcho,
+} from './echo-secret.js'
+export type { EchoRevealChoice } from './echo-secret.js'
+export { beginEchoUnlock } from './echo-ceremony.js'
+export type { BeginEchoUnlockOptions, EchoCeremony } from './echo-ceremony.js'
+export { MemoryDeviceSealProvider } from './device-seal.js'
+export type { DeviceSealProvider } from './device-seal.js'
+// Types the echo signatures name — exported from the same entry so the
+// type-reachability check (`check:types`) holds for `./team` consumers.
+export type { EchoSecretParts } from '../../kernel/enclave/index.js'
+export type { KeyringEchoBlock, NoydbStore } from '../../kernel/types.js'
+
 // #843 C3b — auth-config introspection. These are the `db.team.describeAuthConfig()` /
 // `diagramAuthConfig()` / `describeUserAuth()` / `describeAllUsersAuth()` facade surface
 // (#846a), so `./team` is their home; they had none but the root barrel.

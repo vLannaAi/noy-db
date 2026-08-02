@@ -1,0 +1,173 @@
+/**
+ * Echo-block builders + verifiers (spec
+ * docs/superpowers/specs/2026-08-02-echo-secret-design.md, #940).
+ *
+ * Builds and verifies the on-keyring {@link KeyringEchoBlock} declaration
+ * for the 3-part echo ceremony (prompt → echo → key). This module owns:
+ *
+ *   - Minting the prompt/echo canary verifiers (the "canary trick": AES-KW
+ *     wrap a constant 32-byte key under `deriveSecretKey(part, salt, …)`;
+ *     verify = unwrap succeeds).
+ *   - Building the reveal blob per the hybrid reveal policy (spec decision
+ *     4): `portable` (AES-GCM under the prompt, own salt), `sealed`
+ *     (opaque to hub, unsealed only by the enrolling device's
+ *     {@link DeviceSealProvider}), or `none`.
+ *   - Resolving the echo for display (`resolveEchoReveal`, `null` ⇒
+ *     degraded typed-echo path) and verifying a typed echo
+ *     (`verifyTypedEcho`) for that degraded path.
+ *
+ * Deriving the actual KEK from all three parts together is
+ * `deriveEchoKey`/`encodeEchoParts` (`kernel/enclave/crypto.ts`) — a
+ * separate concern from this module's per-part verifiers.
+ *
+ * Known, accepted disclosure: `prompt_verifier` and `echo_verifier` are
+ * offline brute-force oracles for anyone holding the keyring file (600K
+ * PBKDF2 per guess), and the `sealed` reveal blob is unpadded so its length
+ * discloses the echo's UTF-8 byte length — see the threat model in
+ * `docs/superpowers/specs/2026-08-02-echo-secret-design.md`.
+ *
+ * @module
+ */
+
+import {
+  deriveSecretKey,
+  generateSalt,
+  generateIV,
+  wrapKey,
+  bufferToBase64,
+  base64ToBuffer,
+  encodeEchoParts,
+  type EchoSecretParts,
+} from '../../kernel/enclave/index.js'
+import type { KeyringEchoBlock } from '../../kernel/types.js'
+import type { DeviceSealProvider } from './device-seal.js'
+import { WrongPromptError } from '../../kernel/errors.js'
+
+/** Same iteration floor as the KEK (spec resolved question 1). */
+export const ECHO_KDF_ITERATIONS = 600_000
+
+const VERIFIER_PLAINTEXT = new Uint8Array(32).fill(0x5a)
+const subtle = globalThis.crypto.subtle
+
+async function getVerifierKey(): Promise<CryptoKey> {
+  return subtle.importKey('raw', VERIFIER_PLAINTEXT as BufferSource, { name: 'AES-GCM' }, true, ['encrypt'])
+}
+
+async function mintVerifier(part: string, salt: Uint8Array): Promise<string> {
+  const kek = await deriveSecretKey(part, salt, { iterations: ECHO_KDF_ITERATIONS, keyUsage: 'aes-kw' })
+  return wrapKey(await getVerifierKey(), kek)
+}
+
+/**
+ * `saltB64` and `verifier` are both decoded INSIDE the guarded region so a
+ * tampered/corrupt base64 salt or verifier surfaces as `false`, not a raw
+ * `DOMException` (InvalidCharacterError) escaping to the caller.
+ */
+async function checkVerifier(verifier: string, part: string, saltB64: string): Promise<boolean> {
+  try {
+    const kek = await deriveSecretKey(part, base64ToBuffer(saltB64), { iterations: ECHO_KDF_ITERATIONS, keyUsage: 'aes-kw' })
+    await subtle.unwrapKey('raw', base64ToBuffer(verifier) as BufferSource, kek, 'AES-KW', { name: 'AES-GCM' }, false, ['encrypt'])
+    return true
+  } catch {
+    return false
+  }
+}
+
+export type EchoRevealChoice =
+  | { readonly kind: 'portable' }
+  | { readonly kind: 'sealed'; readonly deviceSeal: DeviceSealProvider }
+  | { readonly kind: 'none' }
+
+/** Build the on-keyring echo declaration for a fresh enrollment. */
+export async function buildEchoBlock(
+  parts: EchoSecretParts,
+  reveal: EchoRevealChoice,
+  maskHint?: string,
+): Promise<KeyringEchoBlock> {
+  // Validate the 3-part shape through the SAME chokepoint the KEK derivation
+  // uses (result deliberately discarded — only its guard is wanted here). A
+  // malformed parts object would otherwise be TextEncoder-coerced below and
+  // mint verifiers that no owner-derivable KEK matches.
+  encodeEchoParts(parts)
+  const promptSalt = generateSalt()
+  const echoSalt = generateSalt()
+  let revealField: KeyringEchoBlock['reveal']
+  if (reveal.kind === 'portable') {
+    const blobSalt = generateSalt()
+    const iv = generateIV()
+    const gcmKey = await deriveSecretKey(parts.prompt, blobSalt, { iterations: ECHO_KDF_ITERATIONS, keyUsage: 'aes-gcm' })
+    const ct = new Uint8Array(
+      await subtle.encrypt({ name: 'AES-GCM', iv: iv as BufferSource }, gcmKey, new TextEncoder().encode(parts.echo)),
+    )
+    revealField = { kind: 'portable', blob: bufferToBase64(ct), iv: bufferToBase64(iv), salt: bufferToBase64(blobSalt) }
+  } else if (reveal.kind === 'sealed') {
+    const sealed = await reveal.deviceSeal.seal(new TextEncoder().encode(parts.echo))
+    revealField = { kind: 'sealed', blob: bufferToBase64(sealed), provider_hint: reveal.deviceSeal.id }
+  } else {
+    revealField = { kind: 'none' }
+  }
+  return {
+    v: 1,
+    prompt_salt: bufferToBase64(promptSalt),
+    prompt_verifier: await mintVerifier(parts.prompt, promptSalt),
+    echo_salt: bufferToBase64(echoSalt),
+    echo_verifier: await mintVerifier(parts.echo, echoSalt),
+    reveal: revealField,
+    ...(maskHint !== undefined ? { mask_hint: maskHint } : {}),
+  }
+}
+
+export async function verifyPrompt(block: KeyringEchoBlock, prompt: string): Promise<boolean> {
+  return checkVerifier(block.prompt_verifier, prompt, block.prompt_salt)
+}
+
+/**
+ * Resolve the echo for display. `null` ⇒ degraded path: the player
+ * must ask the owner to TYPE the echo (verify via {@link verifyTypedEcho}).
+ * Callers MUST verify the prompt first — this assumes it.
+ *
+ * @throws WrongPromptError when the prompt cannot open the portable reveal
+ * (callers should verifyPrompt first for a boolean check).
+ */
+export async function resolveEchoReveal(
+  block: KeyringEchoBlock,
+  prompt: string,
+  deviceSeal?: DeviceSealProvider,
+): Promise<string | null> {
+  if (block.reveal.kind === 'portable') {
+    try {
+      const gcmKey = await deriveSecretKey(prompt, base64ToBuffer(block.reveal.salt), {
+        iterations: ECHO_KDF_ITERATIONS,
+        keyUsage: 'aes-gcm',
+      })
+      const plain = await subtle.decrypt(
+        { name: 'AES-GCM', iv: base64ToBuffer(block.reveal.iv) as BufferSource },
+        gcmKey,
+        base64ToBuffer(block.reveal.blob) as BufferSource,
+      )
+      return new TextDecoder().decode(plain)
+    } catch {
+      // Wrong prompt (or corrupt salt/iv/blob) — a wrong prompt must NOT
+      // silently degrade to the typed-echo path, that would weaken mutual
+      // auth. Surface a typed error instead of the raw DOMException.
+      throw new WrongPromptError()
+    }
+  }
+  if (block.reveal.kind === 'sealed' && deviceSeal !== undefined) {
+    if (deviceSeal.id !== block.reveal.provider_hint) {
+      // Legitimate foreign-device-with-its-own-provider case (spec's
+      // degradation matrix) — degrade to the typed-echo path rather than
+      // attempting (and failing) an unseal under the wrong provider.
+      return null
+    }
+    // Same provider id: a thrown error here is a genuine tamper/wrong-device
+    // anomaly and must surface, not be silently masked.
+    const plain = await deviceSeal.unseal(base64ToBuffer(block.reveal.blob))
+    return new TextDecoder().decode(plain)
+  }
+  return null
+}
+
+export async function verifyTypedEcho(block: KeyringEchoBlock, echo: string): Promise<boolean> {
+  return checkVerifier(block.echo_verifier, echo, block.echo_salt)
+}

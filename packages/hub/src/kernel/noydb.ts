@@ -30,14 +30,14 @@ import type {
   NoydbPolicyApi,
   PolicyCheckGateFn,
 } from './types.js'
-import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, DebugPlaintextError, RecoveryNotEnrolledError, ManagedRecoveryNotEnrolledError } from './errors.js'
+import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, DebugPlaintextError, RecoveryNotEnrolledError, ManagedRecoveryNotEnrolledError, EchoCeremonyRequiredError } from './errors.js'
 import {
   readDirectoryConfig,
   persistDirectoryConfig,
 } from '../with-party/directory/storage.js'
 import type { SecretPolicy } from './validation.js'
 import { hasRecoveryEnrolled, hasStrongRecoveryEnrolled } from '../with-party/team/recovery.js'
-import { resolveManagedSecret } from '../with-party/team/managed-secret.js'
+import { validateSecretModeOptions, resolveEffectiveSecret, ownerKeyringOptions } from './secret-mode.js'
 import { generateULID } from '../with-pod/ulid.js'
 import { createDefaultCoordinationProvider, type CoordinationProvider } from '../port/by/default-provider.js'
 import type { Cover } from '../with-party/directory/cover/types.js'
@@ -995,6 +995,7 @@ export class Noydb {
           'when encryption is enabled.',
       )
     }
+    const probeSecret = this.options.secret
 
     const minRank = ROLE_RANK[options.minRole ?? 'client']
     const universe = await adapter.listVaults()
@@ -1005,20 +1006,29 @@ export class Noydb {
       // auto-create a fresh owner keyring on miss — that would
       // silently grant access to every empty vault in the
       // universe and is exactly the wrong shape for an enumeration
-      // API). The two expected failure modes — no keyring file, or
-      // wrong secret — are caught and silently dropped so the
-      // return value never leaks existence.
+      // API). The expected failure modes — no keyring file, wrong
+      // secret, or a secret whose SHAPE doesn't match this vault's
+      // keyring — are caught and silently dropped so the return value
+      // never leaks existence.
       let keyring: UnlockedKeyring
       try {
         keyring = await loadKeyring(adapter, vault, {
           userId: this.options.user,
-          secret: this.options.secret,
+          secret: probeSecret,
         })
       } catch (err) {
         if (
           err instanceof NoAccessError ||
           err instanceof InvalidKeyError ||
-          err instanceof KeyringCorruptError
+          err instanceof KeyringCorruptError ||
+          // Mixed universe (#940): a string secret probing an echo keyring
+          // throws EchoCeremonyRequiredError, echo parts probing a standard
+          // keyring throw ValidationError — both from `deriveKekForKeyring`,
+          // both meaning "no accessible key material here", exactly like a
+          // wrong secret. `createNoydb` already rejects a secret/mode shape
+          // mismatch, so neither can be a caller misconfiguration.
+          err instanceof EchoCeremonyRequiredError ||
+          err instanceof ValidationError
         ) {
           // No accessible key material for this vault. KeyringCorruptError
           // is included so a single partially-corrupted vault does NOT
@@ -2000,23 +2010,9 @@ export class Noydb {
     // always on the encrypted path here. Logic lives in team/keyring.ts.
     await assertKeyringOpenAllowed(this.options.store, vault, this.options.user, opts.create)
 
-    // Managed-secret mode — resolve the effective secret
-    // before falling into the normal load/create path. The first call
-    // mints + seals + persists; subsequent calls unseal what's there.
-    // The returned string takes the place of `options.secret` for the
-    // rest of this method (and is NOT persisted on `this.options`).
-    let effectiveSecret: string | undefined
-    if (this.options.secretMode === 'managed') {
-      // sealingKey presence was validated at createNoydb time.
-       
-      effectiveSecret = await resolveManagedSecret(
-        this.options.store,
-        vault,
-        this.options.sealingKey!,
-      )
-    } else {
-      effectiveSecret = this.options.secret
-    }
+    // Per-mode secret resolution (standard / managed / echo) lives in
+    // ./secret-mode.ts.
+    const effectiveSecret = await resolveEffectiveSecret(this.options, this.options.store, vault)
 
     if (!effectiveSecret) {
       throw new ValidationError('A secret (secret) or getKeyring callback is required when encryption is enabled')
@@ -2028,30 +2024,14 @@ export class Noydb {
     } catch (err) {
       if (err instanceof NoAccessError) {
         // No keyring on disk — first boot or cleared store.
-        keyring = await createOwnerKeyring(this.options.store, vault, {
-          userId: this.options.user,
-          secret: effectiveSecret,
-          // Managed mode generates 256-bit base64 strings that don't satisfy
-          // the human-secret strength rules (no spaces, no "words").
-          // Skip validation in managed mode — the entropy floor is already
-          // 256 bits by construction.
-          validate: this.options.secretMode === 'managed'
-            ? false
-            : this.options.validateSecret === true,
-        })
+        keyring = await createOwnerKeyring(this.options.store, vault, ownerKeyringOptions(this.options, effectiveSecret))
       } else if (err instanceof InvalidKeyError && this.options.onInvalidKey === 'reset') {
         // Stale keyring: exists in the store but the current credentials can't
         // decrypt it (e.g. the data records were cleared while the _keyring row
         // survived, or a WebAuthn credential was rotated between sessions).
         // The caller opted into reset — delete the stale row and start fresh.
         await this.options.store.delete(vault, '_keyring', this.options.user)
-        keyring = await createOwnerKeyring(this.options.store, vault, {
-          userId: this.options.user,
-          secret: effectiveSecret,
-          validate: this.options.secretMode === 'managed'
-            ? false
-            : this.options.validateSecret === true,
-        })
+        keyring = await createOwnerKeyring(this.options.store, vault, ownerKeyringOptions(this.options, effectiveSecret))
       } else {
         throw err
       }
@@ -2092,41 +2072,8 @@ export class Noydb {
 /** Create a new NOYDB instance. */
 export async function createNoydb(options: NoydbOptions): Promise<Noydb> {
   if (!options.store) options = { ...options, store: memoryStore() }
-  const encrypted = options.encrypt !== false
-  const managed = options.secretMode === 'managed'
 
-  if (options.secret && options.getKeyring) {
-    throw new ValidationError('Provide either `secret` or `getKeyring`, not both')
-  }
-
-  // Managed-secret mode — mutually exclusive with both
-  // `secret` (the whole point is hub generates and seals; the user
-  // doesn't supply one) and `getKeyring` (a custom unlock path that
-  // bypasses the sealing flow entirely). Requires a SealingKeyProvider.
-  if (managed) {
-    if (options.secret) {
-      throw new ValidationError(
-        '`secretMode: "managed"` is mutually exclusive with `secret` — '
-        + 'managed mode generates the secret itself. Drop `secret`.',
-      )
-    }
-    if (options.getKeyring) {
-      throw new ValidationError(
-        '`secretMode: "managed"` is mutually exclusive with `getKeyring` — '
-        + 'a custom unlock callback would bypass the sealing flow. Drop `getKeyring`.',
-      )
-    }
-    if (!options.sealingKey) {
-      throw new ValidationError(
-        '`secretMode: "managed"` requires `sealingKey: SealingKeyProvider` '
-        + '(see @noy-db/seal-macos-keychain / @noy-db/seal-aws-kms / etc.).',
-      )
-    }
-  }
-
-  if (encrypted && !managed && !options.secret && !options.getKeyring) {
-    throw new ValidationError('A secret (secret) or getKeyring callback is required when encryption is enabled')
-  }
+  validateSecretModeOptions(options)
 
   if (!options.coordinationStrategy) options = { ...options, coordinationStrategy: await createDefaultCoordinationProvider(options.store!) }
   if (!options.userApiFactory) options = { ...options, userApiFactory: (await import('../with-party/directory/user-envelope/api.js')).createUserApi }
