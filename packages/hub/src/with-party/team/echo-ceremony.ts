@@ -15,11 +15,11 @@
  * @module
  */
 
-import type { KeyringFile, NoydbStore } from '../../kernel/types.js'
+import type { NoydbStore } from '../../kernel/types.js'
 import type { DeviceSealProvider } from './device-seal.js'
-import { WrongPromptError, WrongEchoError, ValidationError, NoAccessError, KeyringExpiredError } from '../../kernel/errors.js'
+import { WrongPromptError, WrongEchoError, ValidationError, NoAccessError } from '../../kernel/errors.js'
 import { verifyPrompt, resolveEchoReveal, verifyTypedEcho } from './echo-secret.js'
-import { loadKeyring, type UnlockedKeyring } from './keyring.js'
+import { loadKeyring, readKeyringFile, assertKeyringNotExpired, type UnlockedKeyring } from './keyring.js'
 
 /** Options for {@link beginEchoUnlock}. */
 export interface BeginEchoUnlockOptions {
@@ -81,22 +81,18 @@ export async function beginEchoUnlock(
 ): Promise<EchoCeremony> {
   const { userId, prompt, deviceSeal } = opts
 
-  // Same store path + missing-row error as loadKeyring:230-233.
-  const envelope = await store.get(vault, '_keyring', userId)
-  if (!envelope) {
+  // Same store path + missing-row error as loadKeyring, now shared via
+  // `readKeyringFile` (#951).
+  const found = await readKeyringFile(store, vault, userId)
+  if (!found) {
     throw new NoAccessError(`No keyring found for user "${userId}" in vault "${vault}"`)
   }
-  const keyringFile = JSON.parse(envelope._data) as KeyringFile
+  const { file: keyringFile } = found
 
-  // Same expiry gate as loadKeyring:271-276, applied BEFORE the prompt is
-  // verified so an expired slot never reveals its echo (and leaks no timing
-  // on the prompt). Same comparison + error construction.
-  if (keyringFile.expires_at !== undefined) {
-    const cutoff = Date.parse(keyringFile.expires_at)
-    if (Number.isFinite(cutoff) && Date.now() >= cutoff) {
-      throw new KeyringExpiredError({ userId: keyringFile.user_id, expiresAt: keyringFile.expires_at })
-    }
-  }
+  // Same expiry gate as loadKeyring, applied BEFORE the prompt is verified so
+  // an expired slot never reveals its echo (and leaks no timing on the
+  // prompt). Now shared via `assertKeyringNotExpired` (#951).
+  assertKeyringNotExpired(keyringFile)
 
   const block = keyringFile.echo
   if (block === undefined) {

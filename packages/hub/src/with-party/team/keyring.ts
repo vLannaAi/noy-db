@@ -248,6 +248,47 @@ export async function deriveKekForKeyring(
   return deriveKey(secret, salt)
 }
 
+// ─── Raw keyring reads (#951) ───────────────────────────────────────────
+//
+// Single sanctioned reader of a keyring file's `_data`, plus the fetch+parse
+// and expiry-gate wrappers built on it. Every keyring.ts / echo-ceremony.ts
+// call site that used to inline `JSON.parse(env._data) as KeyringFile`
+// (each with its own missing-row semantics — throw / skip / continue) now
+// goes through `readKeyringFile`, which stays neutral on the missing-row
+// case (`undefined`) and lets each caller keep its own decision.
+
+/** Parse a raw keyring envelope. Single sanctioned reader of `_data` for keyring files. */
+export function parseKeyringEnvelope(envelope: EncryptedEnvelope): KeyringFile {
+  return JSON.parse(envelope._data) as KeyringFile
+}
+
+/** Fetch + parse a user's keyring file; undefined when the row is missing. */
+export async function readKeyringFile(
+  store: NoydbStore,
+  vault: string,
+  userId: string,
+): Promise<{ readonly envelope: EncryptedEnvelope; readonly file: KeyringFile } | undefined> {
+  const envelope = await store.get(vault, '_keyring', userId)
+  if (!envelope) return undefined
+  return { envelope, file: parseKeyringEnvelope(envelope) }
+}
+
+/**
+ * Shared expiry gate — refuse to unwrap an expired slot. Call before any
+ * KEK derivation so an expired slot doesn't leak timing on the secret.
+ * Comparison uses Date.parse → ms-since-epoch; an unparseable expires_at is
+ * treated as "no expiry" so a malformed value can't silently lock users out
+ * (it'll surface in tests).
+ */
+export function assertKeyringNotExpired(file: KeyringFile): void {
+  if (file.expires_at !== undefined) {
+    const cutoff = Date.parse(file.expires_at)
+    if (Number.isFinite(cutoff) && Date.now() >= cutoff) {
+      throw new KeyringExpiredError({ userId: file.user_id, expiresAt: file.expires_at })
+    }
+  }
+}
+
 /** Load and unlock a user's keyring for a vault. */
 export async function loadKeyring(
   store: NoydbStore,
@@ -255,25 +296,15 @@ export async function loadKeyring(
   opts: LoadKeyringOptions,
 ): Promise<UnlockedKeyring> {
   const { userId, secret } = opts
-  const envelope = await store.get(vault, '_keyring', userId)
+  const found = await readKeyringFile(store, vault, userId)
 
-  if (!envelope) {
+  if (!found) {
     throw new NoAccessError(`No keyring found for user "${userId}" in vault "${vault}"`)
   }
 
-  const keyringFile = JSON.parse(envelope._data) as KeyringFile
+  const { file: keyringFile } = found
 
-  //  — refuse to unwrap an expired slot. Check happens before any
-  // KEK derivation so an expired slot doesn't leak timing on the
-  // secret. Comparison uses Date.parse → ms-since-epoch; an
-  // unparseable expires_at is treated as "no expiry" so a malformed
-  // value can't silently lock users out (it'll surface in tests).
-  if (keyringFile.expires_at !== undefined) {
-    const cutoff = Date.parse(keyringFile.expires_at)
-    if (Number.isFinite(cutoff) && Date.now() >= cutoff) {
-      throw new KeyringExpiredError({ userId: keyringFile.user_id, expiresAt: keyringFile.expires_at })
-    }
-  }
+  assertKeyringNotExpired(keyringFile)
 
   const salt = base64ToBuffer(keyringFile.salt)
   const kek = await deriveKekForKeyring(keyringFile, secret, salt)
@@ -420,10 +451,10 @@ export async function createOwnerKeyring(
 ): Promise<UnlockedKeyring> {
   const { userId, secret } = opts
   if (opts.validate && !opts.allowWeakSecret) {
-    // `buildEchoBlock` validates nothing — the strength gate for the 3-part
-    // secret has to fire here, exactly like `assertStrongSecret` does for a
-    // string. (Echo-specific policy knobs default; they can ride the same
-    // bag later.)
+    // `buildEchoBlock` only type-validates the 3-part secret via the
+    // `encodeEchoParts` chokepoint — the STRENGTH gate for it still has to
+    // fire here, exactly like `assertStrongSecret` does for a string.
+    // (Echo-specific policy knobs default; they can ride the same bag later.)
     if (typeof secret === 'string') assertStrongSecret(secret, opts)
     else assertStrongEchoSecret(secret, opts)
   }
@@ -676,9 +707,9 @@ async function findAdminDescendants(
   // edge level rather than after a recursive call.
   const childrenByParent = new Map<string, string[]>()
   for (const userId of allUserIds) {
-    const env = await store.get(vault, '_keyring', userId)
-    if (!env) continue
-    const kf = JSON.parse(env._data) as KeyringFile
+    const found = await readKeyringFile(store, vault, userId)
+    if (!found) continue
+    const kf = found.file
     // Only admins can grant, so only admins have a delegation subtree to
     // cascade. FR-6: a custodian is intentionally EXCLUDED here — it cannot
     // grant (canGrant(custodian,*) === false), so it is never a cascade root
@@ -714,12 +745,12 @@ export async function revoke(
   options: RevokeOptions,
 ): Promise<void> {
   // Load the target's keyring to check their role
-  const targetEnvelope = await store.get(vault, '_keyring', options.userId)
-  if (!targetEnvelope) {
+  const targetFound = await readKeyringFile(store, vault, options.userId)
+  if (!targetFound) {
     throw new NoAccessError(`User "${options.userId}" has no keyring in vault "${vault}"`)
   }
 
-  const targetKeyring = JSON.parse(targetEnvelope._data) as KeyringFile
+  const targetKeyring = targetFound.file
 
   if (!canRevoke(callerKeyring.role, targetKeyring.role)) {
     throw new PermissionDeniedError(
@@ -754,11 +785,10 @@ export async function revoke(
         // revoke set. We collect their affected collections too so
         // the single rotation pass at the end covers everything.
         for (const userId of descendants) {
-          const descEnv = await store.get(vault, '_keyring', userId)
-          if (!descEnv) continue
-          const descKf = JSON.parse(descEnv._data) as KeyringFile
+          const descFound = await readKeyringFile(store, vault, userId)
+          if (!descFound) continue
           usersToRevoke.push(userId)
-          for (const c of Object.keys(descKf.deks)) affectedCollections.add(c)
+          for (const c of Object.keys(descFound.file.deks)) affectedCollections.add(c)
         }
       }
     }
@@ -834,13 +864,13 @@ export async function updateKeyringIdentity(
     )
   }
 
-  const env = await store.get(vault, '_keyring', options.userId)
-  if (!env) {
+  const found = await readKeyringFile(store, vault, options.userId)
+  if (!found) {
     throw new NoAccessError(
       `updateUser: user "${options.userId}" has no keyring in vault "${vault}".`,
     )
   }
-  const target = JSON.parse(env._data) as KeyringFile
+  const target = found.file
 
   // Role-elevation guard. The OLD role must be one this caller is
   // allowed to manage, AND the NEW role (if changing) must be too.
@@ -989,10 +1019,10 @@ export async function rotateKeys(
   for (const userId of userIds) {
     if (userId === callerKeyring.userId) continue
 
-    const userEnvelope = await store.get(vault, '_keyring', userId)
-    if (!userEnvelope) continue
+    const userFound = await readKeyringFile(store, vault, userId)
+    if (!userFound) continue
 
-    const userKeyringFile = JSON.parse(userEnvelope._data) as KeyringFile
+    const userKeyringFile = userFound.file
     // A user's DEKs are wrapped with that user's KEK, and a KEK derives only
     // from the user's secret — the caller can never derive another user's
     // KEK, so re-wrapping the new DEKs for them is impossible. Rotation
@@ -1057,11 +1087,8 @@ export async function changeSecret(
   // `echo` block, permanently losing the ceremony. Guard on the file as
   // persisted (not `keyring`, which carries no echo info) before any
   // derivation.
-  const existingEnvelope = await store.get(vault, '_keyring', keyring.userId)
-  if (existingEnvelope) {
-    const existingFile = JSON.parse(existingEnvelope._data) as KeyringFile
-    if (existingFile.echo !== undefined) throw new EchoCeremonyRequiredError()
-  }
+  const existingFound = await readKeyringFile(store, vault, keyring.userId)
+  if (existingFound && existingFound.file.echo !== undefined) throw new EchoCeremonyRequiredError()
 
   const { newSecret } = opts
   if (!opts.allowWeakSecret) {
@@ -1281,9 +1308,9 @@ export async function listUsers(
   const users: UserInfo[] = []
 
   for (const userId of userIds) {
-    const envelope = await store.get(vault, '_keyring', userId)
-    if (!envelope) continue
-    const kf = JSON.parse(envelope._data) as KeyringFile
+    const found = await readKeyringFile(store, vault, userId)
+    if (!found) continue
+    const kf = found.file
     users.push({
       userId: kf.user_id,
       displayName: kf.display_name,
@@ -1474,10 +1501,8 @@ export async function persistKeyring(
   // persisted file — otherwise the first DEK-provisioning write would drop it
   // and silently degrade an echo keyring into a standard one that no secret
   // shape can open (the KEK stays echo-derived).
-  const existingEnvelope = await store.get(vault, '_keyring', keyring.userId)
-  const existingEcho = existingEnvelope
-    ? (JSON.parse(existingEnvelope._data) as KeyringFile).echo
-    : undefined
+  const existingFound = await readKeyringFile(store, vault, keyring.userId)
+  const existingEcho = existingFound?.file.echo
 
   const wrappedDeks: Record<string, string> = {}
   for (const [collName, dek] of keyring.deks) {

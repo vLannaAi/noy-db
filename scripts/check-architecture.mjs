@@ -2021,32 +2021,34 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-party/policy/storage.ts', 3],
   ['packages/hub/src/with-party/team/deed.ts', 3],
   ['packages/hub/src/with-party/team/delegation.ts', 2],
-  // #940 Task 6: `beginEchoUnlock` reads the keyring file the same raw way
-  // (`JSON.parse(envelope._data)`) to fetch the `echo` block before running
-  // the ceremony — same established idiom as keyring.ts's sites below
-  // (keyring files are always plaintext JSON, never routed through the
-  // encrypted-body barrel). Lives in echo-ceremony.ts, not echo-secret.ts
-  // (extracted to break a two-file import cycle — see that file's header).
-  ['packages/hub/src/with-party/team/echo-ceremony.ts', 1],
-  // #940 Task 4: `changeSecret`'s new echo-block guard reads the
-  // already-persisted keyring file (`JSON.parse(existingEnvelope._data)`)
-  // to check for an `echo` block before rebuilding the file literal —
-  // identical raw-read idiom to this file's other 7 `JSON.parse(env._data)`
-  // sites (keyring files are always plaintext JSON, never routed through
-  // the encrypted-body barrel). 14→15.
-  // #940 Task 5: `persistKeyring` reads the already-persisted keyring file
-  // the same way, to carry the `echo` block forward — it rebuilds the file
-  // from the `UnlockedKeyring`, which deliberately carries no echo info, so
-  // without this read the first DEK-provisioning write would drop the block
-  // and leave the vault unopenable by any secret shape. Same raw-read idiom
-  // as the 8 sites above. 15→16.
-  ['packages/hub/src/with-party/team/keyring.ts', 16],
+  // #951: `beginEchoUnlock`'s raw fetch+parse now routes through
+  // `readKeyringFile` (keyring.ts) and its expiry check through
+  // `assertKeyringNotExpired` — the file's last direct `_data` access is
+  // gone, reaching 0. Entry removed (missing-with-zero is correct).
+  // #951: the 9 `JSON.parse(env._data) as KeyringFile` sites across
+  // `loadKeyring`/`findAdminDescendants`/`revoke`/`updateKeyringIdentity`/
+  // `rotateKeys`/`changeSecret`/`listUsers`/`persistKeyring` collapsed to
+  // the single sanctioned reader inside `parseKeyringEnvelope` (routed
+  // through `readKeyringFile`); the expiry check duplicated in
+  // `echo-ceremony.ts` is now `assertKeyringNotExpired`, shared. The
+  // remaining 8 protected-body accesses are `rotateKeys`'s own
+  // decrypt/re-encrypt of arbitrary collection records (unrelated to
+  // keyring-file reads) plus `writeKeyringFile`'s envelope-literal
+  // construction. 16→8.
+  ['packages/hub/src/with-party/team/keyring.ts', 8],
   ['packages/hub/src/with-party/team/magic-link-grant.ts', 2],
   ['packages/hub/src/with-party/team/managed-secret.ts', 3],
-  ['packages/hub/src/with-party/team/peer-recover.ts', 3],
+  // #951: `recoverUser`'s target-keyring fetch+parse now routes through
+  // `readKeyringFile` (keyring.ts) — its own `writeKeyringFile`-equivalent
+  // envelope-literal construction is the sole remaining access. 3→2.
+  ['packages/hub/src/with-party/team/peer-recover.ts', 2],
   ['packages/hub/src/with-sync/presence.ts', 3],
   ['packages/hub/src/with-party/team/recovery.ts', 6],
-  ['packages/hub/src/with-party/team/rotate-recover.ts', 5],
+  // #951: `rotateSecret`'s and `recoverSecret`'s (paper + Shamir profiles)
+  // 3 fetch+parse sites now route through `readKeyringFile` (keyring.ts) —
+  // the file's own `writeKeyringFile` envelope-literal construction is the
+  // sole remaining access. 5→2.
+  ['packages/hub/src/with-party/team/rotate-recover.ts', 2],
   ['packages/hub/src/with-sync/credentials.ts', 2],
   ['packages/hub/src/with-sync/engine.ts', 3],
   ['packages/hub/src/with-pod/backup.ts', 3],

@@ -42,7 +42,7 @@ import {
 import type { ShamirRecoveryProvider } from './shamir-recovery-provider.js'
 import { assertStrongSecret, assertStrongEchoSecret, type SecretPolicy } from '../../kernel/validation.js'
 import type { UnlockedKeyring } from './keyring.js'
-import { mintKeyringCanary, deriveKekForKeyring } from './keyring.js'
+import { mintKeyringCanary, deriveKekForKeyring, readKeyringFile } from './keyring.js'
 import { buildEchoBlock } from './echo-secret.js'
 import type { DeviceSealProvider } from './device-seal.js'
 import type { KeyringAuthenticator } from '../../kernel/types.js'
@@ -235,11 +235,11 @@ export async function rotateSecret(
     assertStrongNewSecret(input.newSecret, input.secretPolicy)
   }
 
-  const env = await store.get(vault, '_keyring', userId)
-  if (!env) {
+  const found = await readKeyringFile(store, vault, userId)
+  if (!found) {
     throw new NoAccessError(`No keyring found for user "${userId}" in vault "${vault}".`)
   }
-  const file = JSON.parse(env._data) as KeyringFile
+  const { file } = found
   const oldSalt = base64ToBuffer(file.salt)
   // Dispatches on the STORED keyring's mode, so a string presented to an echo
   // keyring (or parts to a standard one) is refused before any unwrap.
@@ -584,11 +584,11 @@ async function recoverViaPaperCode(
   if (input.recoveryProof.profile !== 'paper') throw new Error('unreachable')
   const { code } = input.recoveryProof.payload
 
-  const env = await store.get(vault, '_keyring', userId)
-  if (!env) {
+  const found = await readKeyringFile(store, vault, userId)
+  if (!found) {
     throw new NoAccessError(`No keyring found for user "${userId}" in vault "${vault}".`)
   }
-  const file = JSON.parse(env._data) as KeyringFile
+  const { file } = found
 
   const entries = await loadPaperRecoveryEntries(store, vault)
   if (entries.length === 0) {
@@ -714,11 +714,11 @@ async function recoverViaShamir(
     )
   }
 
-  const env = await store.get(vault, '_keyring', userId)
-  if (!env) {
+  const found = await readKeyringFile(store, vault, userId)
+  if (!found) {
     throw new NoAccessError(`No keyring found for user "${userId}" in vault "${vault}".`)
   }
-  const file = JSON.parse(env._data) as KeyringFile
+  const { file } = found
 
   const allEntries = await loadShamirRecoveryEntries(store, vault)
   if (allEntries.length === 0) {
