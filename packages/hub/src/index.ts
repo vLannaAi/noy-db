@@ -1087,6 +1087,7 @@ export {
   validateEchoSecret,
   assertStrongEchoSecret,
   DEFAULT_ECHO_PROMPT_MIN_WORDS,
+  DEFAULT_ECHO_MIN_WORD_LENGTH,
 } from './kernel/validation.js'
 export type { EchoSecretPolicy } from './kernel/validation.js'
 

@@ -3,6 +3,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import {
   validateEchoSecret,
   assertStrongEchoSecret,
+  validateSecret,
   WeakSecretError,
   type EchoSecretPolicy,
 } from '../src/kernel/validation.js'
@@ -44,6 +45,16 @@ function inlineMemory(): NoydbStore {
 // validation.ts (unrelated to this task's new echo code) — swapped for
 // words meeting that floor while keeping the same 3+5+2=10 word split.
 const GOOD = { prompt: 'sono chiamato vicio', echo: 'quando ero piccolo tutti chiamavano', key: 'ciccio patata' }
+
+// The product's canonical example (#952) — contains 2-letter Italian
+// function words ("mi", "da") that DEFAULT_MIN_WORD_LENGTH (3) would
+// reject; DEFAULT_ECHO_MIN_WORD_LENGTH (1) relaxes the per-word floor for
+// echo validation specifically so this passes under defaults.
+const CANONICAL = {
+  prompt: 'mi chiamo vicio',
+  echo: 'ma da piccolo al santanna mi chiamavano',
+  key: 'ciccio',
+}
 
 describe('validateEchoSecret', () => {
   it('accepts a strong 3-part secret', () => {
@@ -111,6 +122,19 @@ describe('validateEchoSecret', () => {
     const twoWords = validateEchoSecret({ ...GOOD, prompt: 'sono chiamato' }, undefinedMinWords)
     expect(twoWords.ok).toBe(false)
     if (!twoWords.ok) expect(twoWords.reason).toBe('too-few-words')
+  })
+  it('accepts the canonical Italian example under defaults (Romance-friendly minWordLength)', () => {
+    expect(validateEchoSecret(CANONICAL)).toEqual({ ok: true, words: 11 })
+  })
+  it('an explicit minWordLength override still wins and rejects the canonical example', () => {
+    const r = validateEchoSecret(CANONICAL, { prompt: { minWordLength: 3 } })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.reason).toBe('word-too-short')
+  })
+  it('standard-phrase validation is unaffected — the relaxation is echo-only', () => {
+    const r = validateSecret('mi chiamo vicio piu tre parole')
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.reason).toBe('word-too-short')
   })
 })
 

@@ -204,6 +204,16 @@ export interface RotateSecretInput {
    */
   readonly echoOptions?: RotateEchoOptions
   /**
+   * Explicit confirmation for an echo→standard rotation. When the stored
+   * keyring has an `echo` block AND `newSecret` is a plain string, the
+   * rotation is a security-posture downgrade — and that shape is decided
+   * purely by argument shape, so it must be opted into explicitly. Without
+   * this flag such a rotation throws `ValidationError` BEFORE any write
+   * (and before deriving the new KEK). Upgrades (string→parts) and
+   * same-mode rotations (string→string, parts→parts) never require it.
+   */
+  readonly allowModeDowngrade?: boolean
+  /**
    * Map of slot id → re-enrolment ceremony. Slots whose id appears
    * here are PRESERVED across rotation (the ceremony re-derives the
    * method-specific wrapping under the new keyring); slots whose id
@@ -268,6 +278,15 @@ export async function rotateSecret(
   const deks = new Map<string, EnclaveKey>()
   for (const [coll, wrapped] of Object.entries(file.deks)) {
     deks.set(coll, await unwrapKey(wrapped, oldKek))
+  }
+
+  // Echo→standard is a security-posture downgrade decided by argument shape
+  // alone — require explicit opt-in, and refuse before deriving the new KEK
+  // or writing anything.
+  if (file.echo !== undefined && typeof input.newSecret === 'string' && !input.allowModeDowngrade) {
+    throw new ValidationError(
+      'Rotating an echo-secret keyring to a plain string secret is a security-posture downgrade — pass allowModeDowngrade: true to confirm.',
+    )
   }
 
   const newSalt = generateSalt()
@@ -415,6 +434,12 @@ export interface RecoverSecretInput {
    * would bind the reveal blob to the device running the recovery, which is
    * not necessarily the device the user will unlock from. Seal it afterwards
    * with an explicit `rotateSecret`.
+   *
+   * A string `newSecret` on a previously-echo keyring performs the same
+   * echo→standard downgrade as `rotateSecret`, but WITHOUT an
+   * `allowModeDowngrade` gate — recovery is already a proof-gated reset
+   * ceremony (a valid recovery code/shares), so the shape-alone check
+   * `rotateSecret` needs is redundant here by design.
    */
   readonly newSecret: string | EchoSecretParts
   readonly recoveryProof: RecoveryProof

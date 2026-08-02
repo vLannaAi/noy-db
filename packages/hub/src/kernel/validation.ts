@@ -249,6 +249,17 @@ export interface EchoSecretPolicy {
 }
 
 export const DEFAULT_ECHO_PROMPT_MIN_WORDS = 3
+/**
+ * Default per-word character floor for echo-mode validation (prompt AND
+ * combined checks). Relaxed to 1 from the standard 3-char floor
+ * ({@link DEFAULT_MIN_WORD_LENGTH}) — echo secrets are natural-language
+ * sentences (spec #940's canonical example is Italian), and Romance
+ * languages are full of 2-letter function words ("mi", "da", "al") that
+ * the standard floor would otherwise reject even though the combined
+ * secret is plenty strong. Word-COUNT floors (prompt 3, combined 6) are
+ * unchanged — this only relaxes per-word length.
+ */
+export const DEFAULT_ECHO_MIN_WORD_LENGTH = 1
 
 /** Which of `validateEchoSecret`'s three internal checks produced a result. */
 type EchoSecretCheck = 'empty' | 'prompt' | 'combined'
@@ -278,7 +289,7 @@ function validateEchoSecretDetailed(
   // when actually set (`exactOptionalPropertyTypes`).
   const promptPolicy: SecretPolicy = {
     minWords: opts?.prompt?.minWords ?? DEFAULT_ECHO_PROMPT_MIN_WORDS,
-    ...(opts?.prompt?.minWordLength !== undefined && { minWordLength: opts.prompt.minWordLength }),
+    minWordLength: opts?.prompt?.minWordLength ?? DEFAULT_ECHO_MIN_WORD_LENGTH,
     ...(opts?.prompt?.rejectRepeatedAdjacent !== undefined
       && { rejectRepeatedAdjacent: opts.prompt.rejectRepeatedAdjacent }),
     ...(opts?.prompt?.pattern !== undefined && { pattern: opts.prompt.pattern }),
@@ -286,7 +297,19 @@ function validateEchoSecretDetailed(
   }
   const promptResult = validateSecret(parts.prompt, promptPolicy)
   if (!promptResult.ok) return { result: promptResult, failedCheck: 'prompt' }
-  const combinedResult = validateSecret(`${parts.prompt} ${parts.echo} ${parts.key}`, opts?.combined)
+  // Same field-by-field construction as promptPolicy above (not a spread of
+  // `opts?.combined`) so the combined check's minWordLength defaults to the
+  // echo floor too, while minWords keeps the standard whole-secret default
+  // (6) when the caller doesn't override it.
+  const combinedPolicy: SecretPolicy = {
+    ...(opts?.combined?.minWords !== undefined && { minWords: opts.combined.minWords }),
+    minWordLength: opts?.combined?.minWordLength ?? DEFAULT_ECHO_MIN_WORD_LENGTH,
+    ...(opts?.combined?.rejectRepeatedAdjacent !== undefined
+      && { rejectRepeatedAdjacent: opts.combined.rejectRepeatedAdjacent }),
+    ...(opts?.combined?.pattern !== undefined && { pattern: opts.combined.pattern }),
+    ...(opts?.combined?.customValidator !== undefined && { customValidator: opts.combined.customValidator }),
+  }
+  const combinedResult = validateSecret(`${parts.prompt} ${parts.echo} ${parts.key}`, combinedPolicy)
   return { result: combinedResult, failedCheck: 'combined' }
 }
 

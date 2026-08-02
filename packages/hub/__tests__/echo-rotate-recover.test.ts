@@ -149,19 +149,39 @@ describe('rotateSecret across secret modes (#940)', () => {
     await expect(loadKeyring(store, 'acme', { userId: 'owner', secret: PARTS })).resolves.toBeDefined()
   }, T)
 
-  it('echo → standard downgrade: echo block removed, string unlocks again', async () => {
+  it('echo → standard downgrade: echo block removed, string unlocks again (with allowModeDowngrade)', async () => {
     const store = inlineMemory()
     const db = await createNoydb({ store, user: 'owner', secretMode: 'echo', secret: PARTS })
     await db.openVault('acme')
     db.close()
 
-    await rotateSecret(store, 'acme', 'owner', { oldSecret: PARTS, newSecret: STRONG_NEW })
+    await rotateSecret(store, 'acme', 'owner', {
+      oldSecret: PARTS,
+      newSecret: STRONG_NEW,
+      allowModeDowngrade: true,
+    })
 
     const file = await readKeyringFile(store, 'acme', 'owner')
     expect(file.echo).toBeUndefined()
     await expect(
       loadKeyring(store, 'acme', { userId: 'owner', secret: STRONG_NEW }),
     ).resolves.toBeDefined()
+  }, T)
+
+  it('echo → standard downgrade WITHOUT allowModeDowngrade: rejected, keyring untouched, old parts still unlock', async () => {
+    const store = inlineMemory()
+    const db = await createNoydb({ store, user: 'owner', secretMode: 'echo', secret: PARTS })
+    await db.openVault('acme')
+    db.close()
+    const before = await readKeyringFile(store, 'acme', 'owner')
+
+    await expect(
+      rotateSecret(store, 'acme', 'owner', { oldSecret: PARTS, newSecret: STRONG_NEW }),
+    ).rejects.toThrow(ValidationError)
+
+    const after = await readKeyringFile(store, 'acme', 'owner')
+    expect(after).toEqual(before)
+    await expect(loadKeyring(store, 'acme', { userId: 'owner', secret: PARTS })).resolves.toBeDefined()
   }, T)
 
   it('echo → echo rotation re-mints the block; the OLD parts stop working', async () => {
