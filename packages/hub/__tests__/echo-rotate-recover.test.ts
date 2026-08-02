@@ -30,6 +30,7 @@ import type {
   KeyringAuthenticator,
 } from '../src/kernel/types.js'
 import { ConflictError, EchoCeremonyRequiredError, ValidationError } from '../src/kernel/errors.js'
+import { WeakSecretError } from '../src/kernel/validation.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import {
   createOwnerKeyring,
@@ -240,6 +241,29 @@ describe('rotateSecret across secret modes (#940)', () => {
     } else {
       throw new Error('expected wrap-DEKs slot')
     }
+  }, T)
+
+  it('rotateSecret echoSecretPolicy applies to the new parts', async () => {
+    // PARTS.prompt ('sono chiamato vicio') is exactly 3 words — passes the
+    // echo default floor but fails an explicit { minWords: 4 } override, and
+    // the keyring must be left untouched by the rejected rotation.
+    const store = inlineMemory()
+    const db = await createNoydb({ store, user: 'owner', secret: STRONG_OLD })
+    await db.openVault('acme')
+    db.close()
+    const before = await readKeyringFile(store, 'acme', 'owner')
+
+    await expect(
+      rotateSecret(store, 'acme', 'owner', {
+        oldSecret: STRONG_OLD,
+        newSecret: PARTS,
+        echoSecretPolicy: { prompt: { minWords: 4 } },
+      }),
+    ).rejects.toThrow(WeakSecretError)
+
+    const after = await readKeyringFile(store, 'acme', 'owner')
+    expect(after).toEqual(before)
+    await expect(loadKeyring(store, 'acme', { userId: 'owner', secret: STRONG_OLD })).resolves.toBeDefined()
   }, T)
 
   it('malformed echo parts as newSecret throw at the chokepoint — no keyring is minted', async () => {

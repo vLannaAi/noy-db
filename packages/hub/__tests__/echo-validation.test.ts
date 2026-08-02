@@ -4,6 +4,7 @@ import {
   validateEchoSecret,
   assertStrongEchoSecret,
   WeakSecretError,
+  type EchoSecretPolicy,
 } from '../src/kernel/validation.js'
 import { EchoCeremonyRequiredError, WrongPromptError, WrongEchoError, ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
@@ -95,6 +96,21 @@ describe('validateEchoSecret', () => {
     expect(() =>
       assertStrongEchoSecret({ prompt: 'x', echo: 'y', key: 'z' }, { allowWeakSecret: true }),
     ).not.toThrow()
+  })
+  it('explicit { minWords: undefined } falls back to the ECHO prompt default, not the standard default', () => {
+    // An explicit-undefined override (as a spread producing an own
+    // `minWords: undefined` key might do) is a shape `exactOptionalPropertyTypes`
+    // refuses at a literal call site — cast to prove the RUNTIME fallback still
+    // resolves correctly when such a value reaches `validateEchoSecret`.
+    const undefinedMinWords = { prompt: { minWords: undefined } } as unknown as EchoSecretPolicy
+    // 3-word prompt clears the echo default (3) — must be `ok: true`, not
+    // fall through to validateSecret's standard 6-word default.
+    const threeWords = validateEchoSecret({ ...GOOD, prompt: 'sono chiamato vicio' }, undefinedMinWords)
+    expect(threeWords.ok).toBe(true)
+    // 2-word prompt still fails the echo default (3).
+    const twoWords = validateEchoSecret({ ...GOOD, prompt: 'sono chiamato' }, undefinedMinWords)
+    expect(twoWords.ok).toBe(false)
+    if (!twoWords.ok) expect(twoWords.reason).toBe('too-few-words')
   })
 })
 

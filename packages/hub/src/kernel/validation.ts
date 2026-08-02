@@ -269,10 +269,22 @@ function validateEchoSecretDetailed(
   for (const part of [parts.prompt, parts.echo, parts.key]) {
     if (part.trim().length === 0) return { result: { ok: false, reason: 'empty' }, failedCheck: 'empty' }
   }
-  const promptResult = validateSecret(parts.prompt, {
-    minWords: DEFAULT_ECHO_PROMPT_MIN_WORDS,
-    ...opts?.prompt,
-  })
+  // Field-by-field construction (not a spread of `opts?.prompt`) so an
+  // explicit `{ prompt: { minWords: undefined } }` override falls back to
+  // the ECHO prompt default (3) rather than reintroducing `undefined` as
+  // an own property that would then hit `validateSecret`'s STANDARD
+  // default (6) — a spread copies an explicit-`undefined` key verbatim and
+  // clobbers the default set here. Each optional field is included only
+  // when actually set (`exactOptionalPropertyTypes`).
+  const promptPolicy: SecretPolicy = {
+    minWords: opts?.prompt?.minWords ?? DEFAULT_ECHO_PROMPT_MIN_WORDS,
+    ...(opts?.prompt?.minWordLength !== undefined && { minWordLength: opts.prompt.minWordLength }),
+    ...(opts?.prompt?.rejectRepeatedAdjacent !== undefined
+      && { rejectRepeatedAdjacent: opts.prompt.rejectRepeatedAdjacent }),
+    ...(opts?.prompt?.pattern !== undefined && { pattern: opts.prompt.pattern }),
+    ...(opts?.prompt?.customValidator !== undefined && { customValidator: opts.prompt.customValidator }),
+  }
+  const promptResult = validateSecret(parts.prompt, promptPolicy)
   if (!promptResult.ok) return { result: promptResult, failedCheck: 'prompt' }
   const combinedResult = validateSecret(`${parts.prompt} ${parts.echo} ${parts.key}`, opts?.combined)
   return { result: combinedResult, failedCheck: 'combined' }

@@ -15,6 +15,7 @@ import { WeakSecretError } from '../src/kernel/validation.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { MemoryDeviceSealProvider } from '../src/with-party/team/device-seal.js'
 import { MemorySealingKeyProvider } from '../src/index.js'
+import { beginEchoUnlock } from '../src/with-party/team/echo-ceremony.js'
 
 // Same inline in-memory store pattern as __tests__/keyring.test.ts:17-42.
 function inlineMemory(): NoydbStore {
@@ -135,6 +136,49 @@ describe('echo mode end to end', () => {
     })
     await expect(db.openVault('acme')).rejects.toThrow(WeakSecretError)
   }, T)
+
+  it('echoSecretPolicy tightens the prompt floor at createNoydb', async () => {
+    // PARTS.prompt ('sono chiamato vicio') is exactly 3 words — passes the
+    // echo default floor but fails an explicit { minWords: 4 } override.
+    await expect(
+      createNoydb({
+        store: inlineMemory(),
+        user: 'o',
+        secretMode: 'echo',
+        secret: PARTS,
+        validateSecret: true,
+        echoSecretPolicy: { prompt: { minWords: 4 } },
+      }).then((db) => db.openVault('acme')),
+    ).rejects.toThrow(WeakSecretError)
+  }, T)
+
+  it('echoMaskHint lands in the keyring block and surfaces in the ceremony', async () => {
+    const store = inlineMemory()
+    const db = await createNoydb({ store, user: 'o', secretMode: 'echo', secret: PARTS, echoMaskHint: 'first-letters' })
+    await db.openVault('acme')
+    const file = JSON.parse((await store.get('acme', '_keyring', 'o'))!._data) as KeyringFile
+    expect(file.echo?.mask_hint).toBe('first-letters')
+    const ceremony = await beginEchoUnlock(store, 'acme', { userId: 'o', prompt: PARTS.prompt })
+    expect(ceremony.maskHint).toBe('first-letters')
+    db.close()
+  }, T)
+
+  it('echoMaskHint outside echo mode is rejected', async () => {
+    await expect(
+      createNoydb({ store: inlineMemory(), user: 'o', secret: 'sei parole buone lunghe per policy', echoMaskHint: 'x' }),
+    ).rejects.toThrow(ValidationError)
+  })
+
+  it('echoSecretPolicy outside echo mode is rejected', async () => {
+    await expect(
+      createNoydb({
+        store: inlineMemory(),
+        user: 'o',
+        secret: 'sei parole buone lunghe per policy',
+        echoSecretPolicy: { prompt: { minWords: 4 } },
+      }),
+    ).rejects.toThrow(ValidationError)
+  })
 
   it('secretMode: "echo" is mutually exclusive with sealingKey', async () => {
     const store = inlineMemory()

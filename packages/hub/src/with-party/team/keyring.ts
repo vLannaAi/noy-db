@@ -18,7 +18,12 @@ import {
 import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, InvalidKeyError, ValidationError, DirectoryDisabledError, EchoCeremonyRequiredError } from '../../kernel/errors.js'
 import { readDirectoryConfig } from '../directory/storage.js'
 import { readUserVisibility, deleteUserVisibility } from '../directory/visibility.js'
-import { assertStrongSecret, assertStrongEchoSecret, type SecretPolicy } from '../../kernel/validation.js'
+import {
+  assertStrongSecret,
+  assertStrongEchoSecret,
+  type SecretPolicy,
+  type EchoSecretPolicy,
+} from '../../kernel/validation.js'
 import { buildEchoBlock } from './echo-secret.js'
 import type { DeviceSealProvider } from './device-seal.js'
 import {
@@ -434,6 +439,15 @@ export interface CreateOwnerKeyringOptions extends SecretPolicy {
   readonly deviceSeal?: DeviceSealProvider
   /** Echo enrollment only: optional display hint for the masked echo. */
   readonly echoMaskHint?: string
+  /**
+   * Echo enrollment only: strength-policy knobs for the 3-part secret's
+   * prompt / combined floors — the parts-path counterpart of the
+   * flattened `SecretPolicy` fields this options bag already extends
+   * (those apply to a STRING secret via `assertStrongSecret`; this
+   * applies to {@link EchoSecretParts} via `assertStrongEchoSecret`).
+   * Ignored for a string secret.
+   */
+  readonly echoSecretPolicy?: EchoSecretPolicy
 }
 
 /**
@@ -454,9 +468,13 @@ export async function createOwnerKeyring(
     // `buildEchoBlock` only type-validates the 3-part secret via the
     // `encodeEchoParts` chokepoint — the STRENGTH gate for it still has to
     // fire here, exactly like `assertStrongSecret` does for a string.
-    // (Echo-specific policy knobs default; they can ride the same bag later.)
     if (typeof secret === 'string') assertStrongSecret(secret, opts)
-    else assertStrongEchoSecret(secret, opts)
+    else {
+      assertStrongEchoSecret(secret, {
+        ...opts.echoSecretPolicy,
+        ...(opts.allowWeakSecret !== undefined && { allowWeakSecret: opts.allowWeakSecret }),
+      })
+    }
   }
   const salt = generateSalt()
   const kek = typeof secret === 'string'
