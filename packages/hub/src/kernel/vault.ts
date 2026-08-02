@@ -131,8 +131,9 @@ import {
   type PeriodRecord,
   type ClosePeriodOptions,
   type OpenPeriodOptions,
+  purgeMarkersOn,
 } from '../with-audit/periods/index.js'
-import { encrypt, openEnvelopeJson, hasPerRecordKey, SEALED_CEK_NS, type SealingContext, type EnclaveKey, isDeleteMarker, buildDeleteMarker, makeReservedEnvelopes } from './enclave/index.js'
+import { encrypt, openEnvelopeJson, hasPerRecordKey, SEALED_CEK_NS, type SealingContext, type EnclaveKey, buildDeleteMarker, makeReservedEnvelopes } from './enclave/index.js'
 import type { RecipientSealer } from '../with-party/team/managed-secret.js'
 import {
   createExportBlobsHandle,
@@ -1117,26 +1118,7 @@ export class Vault {
    * them would re-open the resurrection window — the deferred half of #611).
    */
   async _purgeDeleteMarkers(before: string, collections?: string[]): Promise<number> {
-    return this._purgeMarkersOn(this.adapter, before, collections)
-  }
-
-  /**
-   * @internal #615. Sweep delete markers with `_ts < before` off ANY store
-   * (local adapter or a push-only sync target). Returns the count removed.
-   */
-  private async _purgeMarkersOn(store: NoydbStore, before: string, collections?: string[]): Promise<number> {
-    const snapshot = await store.loadAll(this.name)
-    let removed = 0
-    for (const [coll, records] of Object.entries(snapshot)) {
-      if (collections && !collections.includes(coll)) continue
-      for (const [id, env] of Object.entries(records)) {
-        if (isDeleteMarker(env) && env._ts < before) {
-          await store.delete(this.name, coll, id)
-          removed++
-        }
-      }
-    }
-    return removed
+    return purgeMarkersOn(this.adapter, this.name, before, collections)
   }
 
   /**
@@ -1168,7 +1150,7 @@ export class Vault {
   async _purgePeriodTargets(before: string): Promise<readonly { label?: string; role: 'backup' | 'archive'; purgedCount: number }[]> {
     const out: { label?: string; role: 'backup' | 'archive'; purgedCount: number }[] = []
     for (const t of this.getPurgeableTargets()) {
-      const purgedCount = await this._purgeMarkersOn(t.store, before)
+      const purgedCount = await purgeMarkersOn(t.store, this.name, before)
       out.push({ ...(t.label !== undefined ? { label: t.label } : {}), role: t.role, purgedCount })
     }
     return out
@@ -1814,6 +1796,19 @@ export class Vault {
 
   publishRevocationList(): Promise<RevocationList> {
     return this.attestation.publishRevocationList()
+  }
+
+  /**
+   * @internal #943 — read-only access to this vault's persisted document
+   * signer, for pod export signing. Never mints and does NOT require the
+   * `withAttestation()` opt-in (role-agnostic, pure read): if no signer has
+   * ever been minted, resolves to `null` (unsigned pod) rather than throwing
+   * or minting one. Dynamic-imports `signer.js` (the S4 gate escape hatch —
+   * see `_ensureFenceCoordination` above) since it is a with-* service path.
+   */
+  async _loadPodSigner(): Promise<import('../with-audit/attestation/signer.js').DocSigner | null> {
+    const { loadSigner } = await import('../with-audit/attestation/signer.js')
+    return loadSigner(this.adapter, this.name, this.getDEK)
   }
 
   private async writeExportAudit(entry: ExportBlobsAuditEntry): Promise<void> {
