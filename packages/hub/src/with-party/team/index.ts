@@ -132,6 +132,18 @@ export {
 // Re-exporting them from here as well would leave two homes for one thing,
 // which is what #895 set out to remove.
 
+// ─── Echo-secret ceremony (#940) ─────────────────────────
+export {
+  buildEchoBlock,
+  verifyPrompt,
+  resolveEchoReveal,
+  verifyTypedEcho,
+  beginEchoUnlock,
+} from './echo-secret.js'
+export type { EchoRevealChoice, BeginEchoUnlockOptions, EchoCeremony } from './echo-secret.js'
+export { MemoryDeviceSealProvider } from './device-seal.js'
+export type { DeviceSealProvider } from './device-seal.js'
+
 // #843 C3b — auth-config introspection. These are the `db.team.describeAuthConfig()` /
 // `diagramAuthConfig()` / `describeUserAuth()` / `describeAllUsersAuth()` facade surface
 // (#846a), so `./team` is their home; they had none but the root barrel.

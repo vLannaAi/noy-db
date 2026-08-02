@@ -2021,6 +2021,12 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-party/policy/storage.ts', 3],
   ['packages/hub/src/with-party/team/deed.ts', 3],
   ['packages/hub/src/with-party/team/delegation.ts', 2],
+  // #940 Task 6: `beginEchoUnlock` reads the keyring file the same raw way
+  // (`JSON.parse(envelope._data)`) to fetch the `echo` block before running
+  // the ceremony — same established idiom as keyring.ts's sites below
+  // (keyring files are always plaintext JSON, never routed through the
+  // encrypted-body barrel).
+  ['packages/hub/src/with-party/team/echo-secret.ts', 1],
   // #940 Task 4: `changeSecret`'s new echo-block guard reads the
   // already-persisted keyring file (`JSON.parse(existingEnvelope._data)`)
   // to check for an `echo` block before rebuilding the file literal —
