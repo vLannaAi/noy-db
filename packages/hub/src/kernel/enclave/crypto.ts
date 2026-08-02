@@ -36,7 +36,7 @@
  * @module
  */
 
-import { DecryptionError, InvalidKeyError, TamperedError } from '../errors.js'
+import { DecryptionError, InvalidKeyError, TamperedError, ValidationError } from '../errors.js'
 
 /**
  * **EnclaveKey** — the opaque key type at the enclave seam.
@@ -93,14 +93,34 @@ export interface EchoSecretParts {
   readonly key: string
 }
 
-const ECHO_KDF_CONTEXT = new TextEncoder().encode('noydb-echo-secret-v1')
+/**
+ * Domain context for the AG-1 encoding. The leading `0xFF` is the load-bearing
+ * byte: it is not a legal UTF-8 lead byte, so `TextEncoder` can never emit it —
+ * no string's UTF-8 encoding can equal an AG-1 encoding, whatever the string.
+ */
+const ECHO_KDF_CONTEXT = new Uint8Array([0xff, ...new TextEncoder().encode('noydb-echo-secret-v1')])
 
 /**
  * AG-1 encoding: domain context + 4-byte big-endian length prefix per
- * part. Structural boundaries are part of the key material, so no
- * separator-joined single string is ever key-equivalent (spec AG-1).
+ * part. Two independent guarantees make a single typed string unable to
+ * derive an echo vault's KEK (spec AG-1):
+ *
+ *   1. The `0xFF` context prefix — UTF-8 never produces that byte, so the
+ *      encoding is provably not the encoding of ANY string (not merely of
+ *      no separator-joined form).
+ *   2. Structural length prefixes — part boundaries are key material, so
+ *      re-splitting the same characters changes the derived KEK.
+ *
+ * @throws ValidationError when any part is not a string — the single
+ * chokepoint every echo KEK derivation and block mint passes through, so a
+ * malformed parts object cannot be `TextEncoder`-coerced into key material.
  */
 export function encodeEchoParts(parts: EchoSecretParts): Uint8Array {
+  for (const name of ['prompt', 'echo', 'key'] as const) {
+    if (typeof parts?.[name] !== 'string') {
+      throw new ValidationError('echo secret parts must be three strings: prompt, echo, key')
+    }
+  }
   const enc = new TextEncoder()
   const segments = [parts.prompt, parts.echo, parts.key].map((p) => enc.encode(p))
   const total = ECHO_KDF_CONTEXT.length + segments.reduce((n, s) => n + 4 + s.length, 0)

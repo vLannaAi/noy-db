@@ -115,19 +115,24 @@ Optional, append-only `KeyringFile` extension — same migration-free playbook a
 `canary` and `authenticators[]` (absent ⇒ legacy standard phrase):
 
 ```ts
-// KeyringFile (kernel/types.ts); pod recipient slots inherit automatically
+// KeyringFile (kernel/types.ts) — as shipped; pod recipient slots inherit automatically
 readonly echo?: {
   readonly v: 1
-  /** Expensive-KDF verifier for the prompt — gates the reveal step. */
-  readonly prompt_verifier: string
+  /** Salt + expensive-KDF verifier for the prompt — gates the reveal step. */
   readonly prompt_salt: string
+  readonly prompt_verifier: string
+  /** Salt + verifier for a TYPED echo ('sealed'-without-provider / 'none' degradation). */
+  readonly echo_salt: string
+  readonly echo_verifier: string
   /** Hybrid reveal policy, chosen per slot at enrollment/writePod time. */
   readonly reveal:
-    | { kind: 'portable'; blob: string; iv: string }   // blob = Enc(echo, KDF(prompt))
-    | { kind: 'sealed'; provider_hint?: string }        // blob held by DeviceSealProvider
+    // blob = Enc(echo, KDF(prompt, salt)); `salt` is the blob's own, never prompt_salt
+    | { kind: 'portable'; blob: string; iv: string; salt: string }
+    // blob is the DeviceSealProvider's sealed bytes; provider_hint is REQUIRED
+    // (it identifies the enrolling device, so a foreign provider degrades
+    // instead of attempting a doomed unseal)
+    | { kind: 'sealed'; blob: string; provider_hint: string }
     | { kind: 'none' }                                  // verified 3-field entry
-  /** Verifies a TYPED echo in the 'sealed'-without-provider / 'none' degradation. */
-  readonly echo_verifier: string
   /** Optional display-masking hint; pure player-UI concern. */
   readonly mask_hint?: string
 }
@@ -136,13 +141,17 @@ readonly echo?: {
 Visibility: the `echo` block is plaintext keyring metadata, consistent with `salt`
 and `authenticators[].method` — it leaks "this vault uses a 3-part secret" and
 nothing else. `BundleRecipient.secret` widens to
-`string | { prompt: string; echo: string; key: string; reveal?: 'portable' | 'sealed' | 'none' }`.
+`string | { prompt: string; echo: string; key: string; reveal?: 'portable' | 'none' }`
+(`EchoRecipientSecret`): `'sealed'` is **live-device-only and unreachable from
+`writePod`**, which has no device context to seal a reveal blob against.
 
 ## Ceremony (kernel state machine, UI-free)
 
 ```
 start(prompt)
-  ├─ prompt_verifier fails ............ WrongPromptError (counts toward on-threat lockout)
+  ├─ prompt_verifier fails ............ WrongPromptError (the kernel keeps no attempt
+  │                                      counter; rate-limiting/lockout is player-level
+  │                                      guidance, not kernel accounting)
   └─ ok →
      ├─ reveal 'portable' ............. → REVEAL(echo plaintext)          [mutual auth]
      ├─ reveal 'sealed' + provider .... → REVEAL(echo plaintext)          [mutual auth]
@@ -180,7 +189,8 @@ terminal state is mandatory copy; no "skip verification" affordance.
 |---|---|---|
 | Enrolled device, provider wired | sealed | Full mutual auth + attacker-B resistance |
 | Pod slot, default | portable | Full mutual auth, grade-A (static-clone) protection |
-| Orphaned pod, owner opted `sealed`/`none` | — | Verified 3-field entry (structure, no reveal) |
+| Pod slot, owner opted `none` (`sealed` unavailable here) | none | Verified 3-field entry (structure, no reveal) |
+| Live sealed keyring opened on a foreign device | sealed | Verified 3-field entry (typed echo, no reveal) |
 | Legacy player, echo keyring | — | **Refuses**: `EchoCeremonyRequiredError`; cannot fall back to single-field |
 
 ## Constraints
@@ -203,8 +213,12 @@ terminal state is mandatory copy; no "skip verification" affordance.
   injection, empty/unicode parts, length-prefix edge cases); verifier
   round-trips; state machine exhaustive transitions incl. both degradations and
   the phishing terminal.
-- Property: no string `s` exists with `KDF_standard(s) == KDF_echo(p,e,k)` for
-  the encoding (structural argument + spot vectors).
+- Property: the AG-1 encoding begins with `0xFF`, which `TextEncoder` can never
+  emit, so **no string's UTF-8 encoding can equal an AG-1 encoding** — hence no
+  `s` with `KDF_standard(s) == KDF_echo(p,e,k)` (information-theoretic, not
+  merely "no separator-joined form"). The `deriveKekForKeyring` dispatch guard
+  additionally refuses a string outright on an echo keyring
+  (`EchoCeremonyRequiredError`), so the property is enforced twice over.
 - Integration: enroll → tier-2 webauthn slot on top → rotate (slot survives via
   rewrap ceremony) → recover with echo-shaped input; pod round-trip: `writePod`
   echo recipient (each reveal kind) → `readPod` ceremony unlock; legacy-player

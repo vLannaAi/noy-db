@@ -6,7 +6,7 @@ import {
   verifyTypedEcho,
 } from '../src/with-party/team/echo-secret.js'
 import { MemoryDeviceSealProvider } from '../src/with-party/team/device-seal.js'
-import { WrongPromptError } from '../src/kernel/errors.js'
+import { WrongPromptError, ValidationError } from '../src/kernel/errors.js'
 import { bufferToBase64, base64ToBuffer } from '../src/kernel/enclave/index.js'
 
 const PARTS = { prompt: 'mi chiamo vicio', echo: 'da piccolo mi chiamavano', key: 'ciccio' }
@@ -85,6 +85,15 @@ describe('echo block', () => {
     const badEchoSalt = { ...block, echo_salt: 'not valid base64!!' }
     await expect(verifyPrompt(badPromptSalt, PARTS.prompt)).resolves.toBe(false)
     await expect(verifyTypedEcho(badEchoSalt, PARTS.echo)).resolves.toBe(false)
+  }, T)
+
+  it('refuses to mint a block from malformed parts (encodeEchoParts chokepoint)', async () => {
+    // Without the guard a missing field would be TextEncoder-coerced to the
+    // literal "undefined" and a block WOULD be minted, permanently mismatched
+    // with the KEK the owner can derive.
+    await expect(buildEchoBlock({ prompt: 'mi chiamo vicio', key: 'ciccio' } as never, { kind: 'none' })).rejects.toThrow(
+      ValidationError,
+    )
   }, T)
 
   it('unicode parts round-trip through build → verify → reveal', async () => {

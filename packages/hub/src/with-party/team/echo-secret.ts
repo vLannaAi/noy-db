@@ -20,6 +20,12 @@
  * `deriveEchoKey`/`encodeEchoParts` (`kernel/enclave/crypto.ts`) — a
  * separate concern from this module's per-part verifiers.
  *
+ * Known, accepted disclosure: `prompt_verifier` and `echo_verifier` are
+ * offline brute-force oracles for anyone holding the keyring file (600K
+ * PBKDF2 per guess), and the `sealed` reveal blob is unpadded so its length
+ * discloses the echo's UTF-8 byte length — see the threat model in
+ * `docs/superpowers/specs/2026-08-02-echo-secret-design.md`.
+ *
  * @module
  */
 
@@ -30,6 +36,7 @@ import {
   wrapKey,
   bufferToBase64,
   base64ToBuffer,
+  encodeEchoParts,
   type EchoSecretParts,
 } from '../../kernel/enclave/index.js'
 import type { KeyringEchoBlock } from '../../kernel/types.js'
@@ -77,6 +84,11 @@ export async function buildEchoBlock(
   reveal: EchoRevealChoice,
   maskHint?: string,
 ): Promise<KeyringEchoBlock> {
+  // Validate the 3-part shape through the SAME chokepoint the KEK derivation
+  // uses (result deliberately discarded — only its guard is wanted here). A
+  // malformed parts object would otherwise be TextEncoder-coerced below and
+  // mint verifiers that no owner-derivable KEK matches.
+  encodeEchoParts(parts)
   const promptSalt = generateSalt()
   const echoSalt = generateSalt()
   let revealField: KeyringEchoBlock['reveal']

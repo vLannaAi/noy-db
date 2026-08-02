@@ -29,7 +29,7 @@ import type {
   KeyringFile,
   KeyringAuthenticator,
 } from '../src/kernel/types.js'
-import { ConflictError, EchoCeremonyRequiredError } from '../src/kernel/errors.js'
+import { ConflictError, EchoCeremonyRequiredError, ValidationError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import {
   createOwnerKeyring,
@@ -240,6 +240,30 @@ describe('rotateSecret across secret modes (#940)', () => {
     } else {
       throw new Error('expected wrap-DEKs slot')
     }
+  }, T)
+
+  it('malformed echo parts as newSecret throw at the chokepoint — no keyring is minted', async () => {
+    // `allowWeakSecret: true` bypasses the validation layer, so the ONLY
+    // thing standing between a malformed parts object and a bricked keyring
+    // is the encodeEchoParts type guard in the enclave.
+    const store = inlineMemory()
+    const db = await createNoydb({ store, user: 'owner', secret: STRONG_OLD })
+    await db.openVault('acme')
+    db.close()
+    const before = await readKeyringFile(store, 'acme', 'owner')
+
+    await expect(
+      rotateSecret(store, 'acme', 'owner', {
+        oldSecret: STRONG_OLD,
+        newSecret: { prompt: 'sono chiamato vicio', key: 'ciccio patata' } as never,
+        allowWeakSecret: true,
+      }),
+    ).rejects.toThrow(ValidationError)
+
+    const after = await readKeyringFile(store, 'acme', 'owner')
+    expect(after.echo).toBeUndefined()
+    expect(after.salt).toBe(before.salt)
+    await expect(loadKeyring(store, 'acme', { userId: 'owner', secret: STRONG_OLD })).resolves.toBeDefined()
   }, T)
 })
 

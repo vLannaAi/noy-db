@@ -58,10 +58,37 @@ describe('validateEchoSecret', () => {
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('empty')
   })
+  it('rejects a whitespace-only part as empty', () => {
+    const r = validateEchoSecret({ ...GOOD, echo: '   ' })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.reason).toBe('empty')
+  })
   it('applies the existing whole-secret policy to the combined parts', () => {
     // 3+1+1 = 5 words total, under the default 6-word combined floor
     const r = validateEchoSecret({ prompt: 'uno due tre', echo: 'quattro', key: 'cinque' })
     expect(r.ok).toBe(false)
+  })
+  it('a prompt-floor failure suggests the PROMPT floor, not the generic 6-word copy', () => {
+    let err: WeakSecretError | undefined
+    try {
+      assertStrongEchoSecret({ ...GOOD, prompt: 'sono chiamato' })
+    } catch (e) {
+      err = e as WeakSecretError
+    }
+    expect(err).toBeInstanceOf(WeakSecretError)
+    expect(err!.reason).toBe('too-few-words')
+    expect(err!.suggestion).toMatch(/prompt/i)
+    expect(err!.suggestion).toMatch(/3 words/)
+    expect(err!.suggestion).not.toMatch(/at least 6 words/)
+  })
+  it('a combined-floor failure keeps the generic suggestion copy', () => {
+    let err: WeakSecretError | undefined
+    try {
+      assertStrongEchoSecret({ prompt: 'uno due tre', echo: 'quattro', key: 'cinque' })
+    } catch (e) {
+      err = e as WeakSecretError
+    }
+    expect(err!.suggestion).toMatch(/at least 6 words/)
   })
   it('assertStrongEchoSecret throws WeakSecretError / respects allowWeakSecret', () => {
     expect(() => assertStrongEchoSecret({ prompt: 'x', echo: 'y', key: 'z' })).toThrow(WeakSecretError)

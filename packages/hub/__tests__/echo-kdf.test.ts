@@ -8,16 +8,28 @@ import {
   wrapKey,
   unwrapKey,
 } from '../src/kernel/enclave/index.js'
+import { ValidationError } from '../src/kernel/errors.js'
 
 const PARTS = { prompt: 'mi chiamo vicio', echo: 'ma da piccolo mi chiamavano', key: 'ciccio' }
+
+/** The shipped domain context: 0xFF (invalid UTF-8 lead byte) + the label. */
+const CONTEXT = new Uint8Array([0xff, ...new TextEncoder().encode('noydb-echo-secret-v1')])
 
 describe('encodeEchoParts (AG-1)', () => {
   it('is deterministic and starts with the domain context', () => {
     const a = encodeEchoParts(PARTS)
     const b = encodeEchoParts(PARTS)
     expect(a).toEqual(b)
-    const ctx = new TextEncoder().encode('noydb-echo-secret-v1')
-    expect(Array.from(a.slice(0, ctx.length))).toEqual(Array.from(ctx))
+    expect(Array.from(a.slice(0, CONTEXT.length))).toEqual(Array.from(CONTEXT))
+  })
+
+  it('starts with 0xFF — an encoding no string’s UTF-8 form can produce', () => {
+    expect(encodeEchoParts(PARTS)[0]).toBe(0xff)
+    // 0xFF is not a legal UTF-8 lead byte, so decoding replaces it with
+    // U+FFFD and re-encoding can never round-trip to the original bytes.
+    const encoded = encodeEchoParts(PARTS)
+    const roundTripped = new TextEncoder().encode(new TextDecoder().decode(encoded))
+    expect(Array.from(roundTripped)).not.toEqual(Array.from(encoded))
   })
 
   it('part boundaries are structural — moving a word across parts changes the encoding', () => {
@@ -47,11 +59,18 @@ describe('encodeEchoParts (AG-1)', () => {
     // the self-delimiting frame (a decoder would read one byte short).
     expect('però'.length).toBe(4)
     const encoded = encodeEchoParts({ prompt: 'però', echo: 'echo text', key: 'key text' })
-    const domainContextLength = new TextEncoder().encode('noydb-echo-secret-v1').length
-    expect(domainContextLength).toBe(20)
+    // 1 domain byte (0xFF) + the 20-byte label.
+    expect(CONTEXT.length).toBe(21)
     const view = new DataView(encoded.buffer, encoded.byteOffset, encoded.byteLength)
-    const promptLength = view.getUint32(domainContextLength, false)
+    const promptLength = view.getUint32(CONTEXT.length, false)
     expect(promptLength).toBe(5)
+  })
+
+  it('refuses a parts object whose fields are not all strings (type chokepoint)', () => {
+    expect(() => encodeEchoParts({} as never)).toThrow(ValidationError)
+    expect(() => encodeEchoParts({ prompt: 'a', echo: 'b' } as never)).toThrow(/three strings/)
+    expect(() => encodeEchoParts({ prompt: 'a', echo: 1, key: 'c' } as never)).toThrow(ValidationError)
+    expect(() => encodeEchoParts(undefined as never)).toThrow(ValidationError)
   })
 })
 
@@ -69,5 +88,18 @@ describe('deriveEchoKey', () => {
       const joinedKek = await deriveKey([PARTS.prompt, PARTS.echo, PARTS.key].join(sep), salt)
       await expect(unwrapKey(wrapped, joinedKek)).rejects.toThrow()
     }
+  }, 120_000)
+
+  it('AG-1 is information-theoretic: even the decoded encoding, re-typed as a string, cannot unwrap', async () => {
+    // The strongest single-string candidate an attacker has is the AG-1
+    // encoding itself read back as text. Because byte 0 is 0xFF (never
+    // emitted by TextEncoder), that text re-encodes to different bytes and
+    // its standard-mode KEK cannot open what deriveEchoKey wrapped.
+    const salt = generateSalt()
+    const echoKek = await deriveEchoKey(PARTS, salt)
+    const wrapped = await wrapKey(await generateDEK(), echoKek)
+    const asString = new TextDecoder().decode(encodeEchoParts(PARTS))
+    const stringKek = await deriveKey(asString, salt)
+    await expect(unwrapKey(wrapped, stringKek)).rejects.toThrow()
   }, 120_000)
 })

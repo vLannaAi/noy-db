@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
-import { ConflictError, WrongPromptError, WrongEchoError, InvalidKeyError, NoAccessError, ValidationError } from '../src/kernel/errors.js'
+import { ConflictError, WrongPromptError, WrongEchoError, InvalidKeyError, NoAccessError, ValidationError, KeyringExpiredError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/index.js'
 import { beginEchoUnlock } from '../src/with-party/team/echo-ceremony.js'
 import { createOwnerKeyring } from '../src/with-party/team/keyring.js'
@@ -106,6 +106,22 @@ describe('beginEchoUnlock', () => {
     const ceremony = await beginEchoUnlock(store, 'acme', { userId: 'owner', prompt: PARTS.prompt })
     expect(ceremony.reveal).toBeNull()
     await expect(ceremony.complete({ key: PARTS.key })).rejects.toThrow(ValidationError)
+  }, T)
+
+  it('an expired echo keyring refuses BEFORE the echo is revealed', async () => {
+    const store = inlineMemory()
+    await createOwnerKeyring(store, 'acme', { userId: 'owner', secret: PARTS })
+    // Stamp an expiry in the past (same field loadKeyring gates on).
+    const env = await store.get('acme', '_keyring', 'owner')
+    const file = JSON.parse(env!._data) as Record<string, unknown>
+    file.expires_at = new Date(Date.now() - 60_000).toISOString()
+    await store.put('acme', '_keyring', 'owner', { ...env!, _data: JSON.stringify(file) })
+
+    // Even with the CORRECT prompt, no ceremony handle (and so no reveal)
+    // is produced — the expiry check precedes prompt verification.
+    await expect(
+      beginEchoUnlock(store, 'acme', { userId: 'owner', prompt: PARTS.prompt }),
+    ).rejects.toThrow(KeyringExpiredError)
   }, T)
 
   it('maskHint round-trips from the built echo block onto the ceremony', async () => {
