@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url'
 import * as pod from '../src/with-pod/index.js'
 import type {
   CompressionAlgo, Cover, NoydbBundleHeader, NoydbBundleReadResult, NoydbPodHeader,
+  PodVerifyResult,
   ReadNoydbBundleOptions, WriteNoydbBundleOptions, WritePodOptions,
   WrapBundleStoreOptions, WrapPodStoreOptions,
   WrappedBundleNoydbStore, WrappedPodNoydbStore,
@@ -87,6 +88,7 @@ describe('@noy-db/hub/pod — golden export surface', () => {
 // A removal/rename breaks `typecheck` here in addition to the source-parse test.
 type _FrozenTypes = [
   CompressionAlgo, Cover, NoydbBundleHeader, NoydbBundleReadResult, NoydbPodHeader,
+  PodVerifyResult,
   ReadNoydbBundleOptions, WriteNoydbBundleOptions, WritePodOptions,
   WrapBundleStoreOptions, WrapPodStoreOptions,
   WrappedBundleNoydbStore, WrappedPodNoydbStore,

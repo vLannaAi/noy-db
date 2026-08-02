@@ -1110,7 +1110,7 @@ export class Vault {
    *
    * Emits no ledger/event itself — its callers (#604's `freezePeriod`, #615's
    * `purgePeriodTargets`) own the audit record. The sweep body is shared via
-   * {@link _purgeMarkersOn}, which #615 also aims at push-only sync targets.
+   * `purgeMarkersOn`, which #615 also aims at push-only sync targets.
    *
    * Purges the local adapter only. Markers already pushed to the vault's
    * push-only (`backup`/`archive`) sync targets are reclaimed by #615's
@@ -1806,6 +1806,7 @@ export class Vault {
    * or minting one. Dynamic-imports `signer.js` (the S4 gate escape hatch —
    * see `_ensureFenceCoordination` above) since it is a with-* service path.
    */
+  // eslint-disable-next-line @typescript-eslint/consistent-type-imports
   async _loadPodSigner(): Promise<import('../with-audit/attestation/signer.js').DocSigner | null> {
     const { loadSigner } = await import('../with-audit/attestation/signer.js')
     return loadSigner(this.adapter, this.name, this.getDEK)

@@ -333,7 +333,7 @@ export function validateBundleHeader(
     if (typeof h['keyId'] !== 'string' || !/^[0-9a-f]{16}$/.test(h['keyId'])) {
       throw new Error(
         `.noydb bundle header.keyId must be a 16-character lowercase hex fingerprint, ` +
-          `got ${typeof h['keyId'] === 'string' ? `"${h['keyId']}"` : String(h['keyId'])}.`,
+          `got ${typeof h['keyId'] === 'string' ? `"${h['keyId']}"` : typeof h['keyId']}.`,
       )
     }
   }
@@ -341,7 +341,7 @@ export function validateBundleHeader(
     if (typeof h['sig'] !== 'string' || h['sig'].length === 0 || !/^[A-Za-z0-9_-]+$/.test(h['sig'])) {
       throw new Error(
         `.noydb bundle header.sig must be a non-empty base64url string, ` +
-          `got ${typeof h['sig'] === 'string' ? `"${h['sig']}"` : String(h['sig'])}.`,
+          `got ${typeof h['sig'] === 'string' ? `"${h['sig']}"` : typeof h['sig']}.`,
       )
     }
   }
