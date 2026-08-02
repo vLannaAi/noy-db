@@ -39,7 +39,7 @@ import { deriveKey, generateSalt, wrapKey, bufferToBase64 } from '../../kernel/e
 import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError } from '../../kernel/errors.js'
 import { assertStrongSecret, type SecretPolicy } from '../../kernel/validation.js'
 import type { UnlockedKeyring } from './keyring.js'
-import { mintKeyringCanary } from './keyring.js'
+import { mintKeyringCanary, readKeyringFile } from './keyring.js'
 
 // FR-6: 'custodian' is deliberately ABSENT — an admin cannot peer-recover a
 // custodian (mirrors ADMIN_GRANTABLE_TARGETS: custodians are owner-managed
@@ -116,13 +116,13 @@ export async function recoverUser(
   options: RecoverUserOptions,
 ): Promise<void> {
   // 1. Load the target's existing keyring file (plaintext header).
-  const env = await store.get(vault, '_keyring', options.userId)
-  if (!env) {
+  const found = await readKeyringFile(store, vault, options.userId)
+  if (!found) {
     throw new NoAccessError(
       `recoverUser: user "${options.userId}" has no keyring in vault "${vault}".`,
     )
   }
-  const target = JSON.parse(env._data) as KeyringFile
+  const target = found.file
   const targetRole = options.role ?? target.role
 
   // 2. Permission check — caller must be allowed to recover this role.

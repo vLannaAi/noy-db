@@ -250,22 +250,52 @@ export interface EchoSecretPolicy {
 
 export const DEFAULT_ECHO_PROMPT_MIN_WORDS = 3
 
+/** Which of `validateEchoSecret`'s three internal checks produced a result. */
+type EchoSecretCheck = 'empty' | 'prompt' | 'combined'
+
+/**
+ * `validateEchoSecret` plus which check produced the result — lets
+ * `assertStrongEchoSecret` pick the prompt-specific suggestion without
+ * re-running `validateSecret` on the failure path. Internal: NOT
+ * package-exported (the public `validateEchoSecret`/`SecretValidationResult`
+ * contract stays exactly as before).
+ */
+function validateEchoSecretDetailed(
+  parts: { readonly prompt: string; readonly echo: string; readonly key: string },
+  opts?: EchoSecretPolicy,
+): { readonly result: SecretValidationResult; readonly failedCheck: EchoSecretCheck } {
+  // Trimmed: a whitespace-only part carries no secret material, so it is
+  // 'empty' rather than a confusing spacing complaint.
+  for (const part of [parts.prompt, parts.echo, parts.key]) {
+    if (part.trim().length === 0) return { result: { ok: false, reason: 'empty' }, failedCheck: 'empty' }
+  }
+  // Field-by-field construction (not a spread of `opts?.prompt`) so an
+  // explicit `{ prompt: { minWords: undefined } }` override falls back to
+  // the ECHO prompt default (3) rather than reintroducing `undefined` as
+  // an own property that would then hit `validateSecret`'s STANDARD
+  // default (6) — a spread copies an explicit-`undefined` key verbatim and
+  // clobbers the default set here. Each optional field is included only
+  // when actually set (`exactOptionalPropertyTypes`).
+  const promptPolicy: SecretPolicy = {
+    minWords: opts?.prompt?.minWords ?? DEFAULT_ECHO_PROMPT_MIN_WORDS,
+    ...(opts?.prompt?.minWordLength !== undefined && { minWordLength: opts.prompt.minWordLength }),
+    ...(opts?.prompt?.rejectRepeatedAdjacent !== undefined
+      && { rejectRepeatedAdjacent: opts.prompt.rejectRepeatedAdjacent }),
+    ...(opts?.prompt?.pattern !== undefined && { pattern: opts.prompt.pattern }),
+    ...(opts?.prompt?.customValidator !== undefined && { customValidator: opts.prompt.customValidator }),
+  }
+  const promptResult = validateSecret(parts.prompt, promptPolicy)
+  if (!promptResult.ok) return { result: promptResult, failedCheck: 'prompt' }
+  const combinedResult = validateSecret(`${parts.prompt} ${parts.echo} ${parts.key}`, opts?.combined)
+  return { result: combinedResult, failedCheck: 'combined' }
+}
+
 /** Validate a 3-part echo secret. Never throws. */
 export function validateEchoSecret(
   parts: { readonly prompt: string; readonly echo: string; readonly key: string },
   opts?: EchoSecretPolicy,
 ): SecretValidationResult {
-  // Trimmed: a whitespace-only part carries no secret material, so it is
-  // 'empty' rather than a confusing spacing complaint.
-  for (const part of [parts.prompt, parts.echo, parts.key]) {
-    if (part.trim().length === 0) return { ok: false, reason: 'empty' }
-  }
-  const promptResult = validateSecret(parts.prompt, {
-    minWords: DEFAULT_ECHO_PROMPT_MIN_WORDS,
-    ...opts?.prompt,
-  })
-  if (!promptResult.ok) return promptResult
-  return validateSecret(`${parts.prompt} ${parts.echo} ${parts.key}`, opts?.combined)
+  return validateEchoSecretDetailed(parts, opts).result
 }
 
 /**
@@ -286,19 +316,11 @@ export function assertStrongEchoSecret(
   opts?: EchoSecretPolicy & { allowWeakSecret?: boolean },
 ): void {
   if (opts?.allowWeakSecret) return
-  const result = validateEchoSecret(parts, opts)
+  const { result, failedCheck } = validateEchoSecretDetailed(parts, opts)
   if (result.ok) return
 
-  // Which check produced the failure? Re-run the two that precede the
-  // combined one, in validateEchoSecret's own order: a non-empty parts set
-  // whose prompt fails means the verdict IS the prompt verdict.
-  const allPartsPresent = [parts.prompt, parts.echo, parts.key].every((p) => p.trim().length > 0)
   const promptMinWords = opts?.prompt?.minWords ?? DEFAULT_ECHO_PROMPT_MIN_WORDS
-  const promptOk = validateSecret(parts.prompt, {
-    minWords: DEFAULT_ECHO_PROMPT_MIN_WORDS,
-    ...opts?.prompt,
-  }).ok
-  const suggestion = allPartsPresent && !promptOk
+  const suggestion = failedCheck === 'prompt'
     ? promptSuggestion(result.reason, promptMinWords)
     : SUGGESTIONS[result.reason]
 

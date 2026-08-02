@@ -56,7 +56,7 @@ import type { SyncStrategy } from '../with-sync/strategy.js'
 import type { GuardStrategyAny } from '../with-audit/guards/types.js'
 import type { DerivationStrategy } from '../with-formula/derivations/types.js'
 import type { UnlockedKeyring } from '../with-party/team/keyring.js'
-import type { SecretPolicy } from './validation.js'
+import type { SecretPolicy, EchoSecretPolicy } from './validation.js'
 import type { CoverSchema } from '../with-party/directory/cover/types.js'
 import type { MaterializedViewStrategy } from '../with-formula/materialized-views/types.js'
 import type { OverlayedViewStrategy } from '../with-formula/overlay-views/types.js'
@@ -2796,6 +2796,17 @@ export interface NoydbOptions {
    * `sealed` (attacker-B resistance). Spec resolved question 4.
    */
   readonly deviceSeal?: DeviceSealProvider
+  /**
+   * Echo enrollment only: optional display hint for the masked echo,
+   * threaded to the owner keyring's `KeyringEchoBlock.mask_hint` (surfaced
+   * later by `beginEchoUnlock`'s `maskHint`). Echo mode only — rejected
+   * (`ValidationError`) when `secretMode` isn't `'echo'`.
+   *
+   * Counterpart of `RotateSecretInput.echoOptions.maskHint` /
+   * `CreateOwnerKeyringOptions.echoMaskHint` for first-boot enrollment via
+   * `createNoydb` instead of a later `rotateSecret`.
+   */
+  readonly echoMaskHint?: string
   /** Required to use `profile: 'shamir'` recovery. Pass
    *  `shamirRecoveryProvider()` from `@noy-db/on-shamir`. */
   readonly shamirRecovery?: ShamirRecoveryProvider
@@ -2846,6 +2857,19 @@ export interface NoydbOptions {
    * back-compat; planned to flip to `true` in a future major release.
    */
   readonly validateSecret?: boolean
+  /**
+   * Per-vault strength-policy knobs for the ECHO (3-part) secret's
+   * prompt / combined floors, applied at first-time keyring creation
+   * when `validateSecret` is on. Echo mode only — rejected
+   * (`ValidationError`) when `secretMode` isn't `'echo'`.
+   *
+   * This is the parts-path counterpart of `SecretPolicy` (there is no
+   * `secretPolicy` field on `NoydbOptions` itself — the standard/string
+   * secret path has no per-`createNoydb` override point today; see
+   * `RotateSecretInput.secretPolicy` / `RecoverSecretInput.secretPolicy`
+   * for where the string-path pairing lives).
+   */
+  readonly echoSecretPolicy?: EchoSecretPolicy
   /**
    * Vault-level policy gate document. When present, the hub
    * persists the merged policy at `_meta/policy` on first-time vault

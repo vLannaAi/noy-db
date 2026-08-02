@@ -40,9 +40,14 @@ import {
   type ShamirRecoveryEntry,
 } from './recovery.js'
 import type { ShamirRecoveryProvider } from './shamir-recovery-provider.js'
-import { assertStrongSecret, assertStrongEchoSecret, type SecretPolicy } from '../../kernel/validation.js'
+import {
+  assertStrongSecret,
+  assertStrongEchoSecret,
+  type SecretPolicy,
+  type EchoSecretPolicy,
+} from '../../kernel/validation.js'
 import type { UnlockedKeyring } from './keyring.js'
-import { mintKeyringCanary, deriveKekForKeyring } from './keyring.js'
+import { mintKeyringCanary, deriveKekForKeyring, readKeyringFile } from './keyring.js'
 import { buildEchoBlock } from './echo-secret.js'
 import type { DeviceSealProvider } from './device-seal.js'
 import type { KeyringAuthenticator } from '../../kernel/types.js'
@@ -113,9 +118,10 @@ async function deriveKekForNewSecret(
 function assertStrongNewSecret(
   newSecret: string | EchoSecretParts,
   secretPolicy?: SecretPolicy,
+  echoSecretPolicy?: EchoSecretPolicy,
 ): void {
   if (typeof newSecret === 'string') assertStrongSecret(newSecret, secretPolicy)
-  else assertStrongEchoSecret(newSecret)
+  else assertStrongEchoSecret(newSecret, echoSecretPolicy)
 }
 
 /**
@@ -178,7 +184,19 @@ export interface RotateSecretInput {
    * existing one (echo→standard downgrade).
    */
   readonly newSecret: string | EchoSecretParts
+  /**
+   * Strength-policy knobs applied when `newSecret` is a STRING. Ignored
+   * for 3-part {@link EchoSecretParts} — see `echoSecretPolicy` for the
+   * parts-path counterpart.
+   */
   readonly secretPolicy?: SecretPolicy
+  /**
+   * Strength-policy knobs applied when `newSecret` is 3-part
+   * {@link EchoSecretParts} (prompt / combined floors). Ignored for a
+   * string `newSecret` — see `secretPolicy` for the string-path
+   * counterpart.
+   */
+  readonly echoSecretPolicy?: EchoSecretPolicy
   readonly allowWeakSecret?: boolean
   /**
    * Echo-enrollment knobs for the block minted when `newSecret` is 3-part.
@@ -232,14 +250,14 @@ export async function rotateSecret(
   input: RotateSecretInput,
 ): Promise<UnlockedKeyring> {
   if (!input.allowWeakSecret) {
-    assertStrongNewSecret(input.newSecret, input.secretPolicy)
+    assertStrongNewSecret(input.newSecret, input.secretPolicy, input.echoSecretPolicy)
   }
 
-  const env = await store.get(vault, '_keyring', userId)
-  if (!env) {
+  const found = await readKeyringFile(store, vault, userId)
+  if (!found) {
     throw new NoAccessError(`No keyring found for user "${userId}" in vault "${vault}".`)
   }
-  const file = JSON.parse(env._data) as KeyringFile
+  const { file } = found
   const oldSalt = base64ToBuffer(file.salt)
   // Dispatches on the STORED keyring's mode, so a string presented to an echo
   // keyring (or parts to a standard one) is refused before any unwrap.
@@ -400,7 +418,19 @@ export interface RecoverSecretInput {
    */
   readonly newSecret: string | EchoSecretParts
   readonly recoveryProof: RecoveryProof
+  /**
+   * Strength-policy knobs applied when `newSecret` is a STRING. Ignored
+   * for 3-part {@link EchoSecretParts} — see `echoSecretPolicy` for the
+   * parts-path counterpart.
+   */
   readonly secretPolicy?: SecretPolicy
+  /**
+   * Strength-policy knobs applied when `newSecret` is 3-part
+   * {@link EchoSecretParts} (prompt / combined floors). Ignored for a
+   * string `newSecret` — see `secretPolicy` for the string-path
+   * counterpart.
+   */
+  readonly echoSecretPolicy?: EchoSecretPolicy
   readonly allowWeakSecret?: boolean
   /**
    * After a successful paper-recovery, replace ALL remaining recovery
@@ -555,7 +585,7 @@ export async function recoverSecret(
   input: RecoverSecretInput,
 ): Promise<UnlockedKeyring> {
   if (!input.allowWeakSecret) {
-    assertStrongNewSecret(input.newSecret, input.secretPolicy)
+    assertStrongNewSecret(input.newSecret, input.secretPolicy, input.echoSecretPolicy)
   }
 
   // Runtime defense-in-depth: the type narrows to 'paper' | 'shamir',
@@ -584,11 +614,11 @@ async function recoverViaPaperCode(
   if (input.recoveryProof.profile !== 'paper') throw new Error('unreachable')
   const { code } = input.recoveryProof.payload
 
-  const env = await store.get(vault, '_keyring', userId)
-  if (!env) {
+  const found = await readKeyringFile(store, vault, userId)
+  if (!found) {
     throw new NoAccessError(`No keyring found for user "${userId}" in vault "${vault}".`)
   }
-  const file = JSON.parse(env._data) as KeyringFile
+  const { file } = found
 
   const entries = await loadPaperRecoveryEntries(store, vault)
   if (entries.length === 0) {
@@ -714,11 +744,11 @@ async function recoverViaShamir(
     )
   }
 
-  const env = await store.get(vault, '_keyring', userId)
-  if (!env) {
+  const found = await readKeyringFile(store, vault, userId)
+  if (!found) {
     throw new NoAccessError(`No keyring found for user "${userId}" in vault "${vault}".`)
   }
-  const file = JSON.parse(env._data) as KeyringFile
+  const { file } = found
 
   const allEntries = await loadShamirRecoveryEntries(store, vault)
   if (allEntries.length === 0) {

@@ -80,6 +80,12 @@ export function validateSecretModeOptions(options: NoydbOptions): void {
   if (!echo && options.deviceSeal !== undefined) {
     throw new ValidationError("deviceSeal is only meaningful with secretMode: 'echo'.")
   }
+  if (!echo && options.echoSecretPolicy !== undefined) {
+    throw new ValidationError("echoSecretPolicy is only meaningful with secretMode: 'echo'.")
+  }
+  if (!echo && options.echoMaskHint !== undefined) {
+    throw new ValidationError("echoMaskHint is only meaningful with secretMode: 'echo'.")
+  }
   if (echo && options.sealingKey !== undefined) {
     throw new ValidationError(
       "secretMode 'echo' is mutually exclusive with `sealingKey` — that provider belongs to managed mode.",
@@ -149,5 +155,7 @@ export function ownerKeyringOptions(
     secret,
     validate: options.secretMode === 'managed' ? false : options.validateSecret === true,
     ...(options.deviceSeal !== undefined && { deviceSeal: options.deviceSeal }),
+    ...(options.echoSecretPolicy !== undefined && { echoSecretPolicy: options.echoSecretPolicy }),
+    ...(options.echoMaskHint !== undefined && { echoMaskHint: options.echoMaskHint }),
   }
 }
