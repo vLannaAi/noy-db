@@ -66,6 +66,14 @@ export function validateSecretModeOptions(options: NoydbOptions): void {
       "secretMode 'echo' requires a structured { prompt, echo, key } secret — a single string can never unlock an echo vault (AG-1).",
     )
   }
+  if (echo && typeof options.secret === 'object' && options.secret !== null) {
+    const parts = options.secret as Partial<EchoSecretParts>
+    if (typeof parts.prompt !== 'string' || typeof parts.echo !== 'string' || typeof parts.key !== 'string') {
+      throw new ValidationError(
+        "secretMode 'echo' requires a structured secret with all three fields present as strings: prompt, echo, key.",
+      )
+    }
+  }
   if (!echo && options.secret !== undefined && typeof options.secret !== 'string') {
     throw new ValidationError("A { prompt, echo, key } secret requires secretMode: 'echo'.")
   }

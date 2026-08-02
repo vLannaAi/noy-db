@@ -553,6 +553,18 @@ export type {
   SlotRewrapCeremony,
 } from './with-party/team/rotate-recover.js'
 
+// Echo-secret mode (tier 1, 3-part ceremony) — spec #940
+export { buildEchoBlock, verifyPrompt, resolveEchoReveal, verifyTypedEcho } from './with-party/team/echo-secret.js'
+export type { EchoRevealChoice } from './with-party/team/echo-secret.js'
+export { beginEchoUnlock } from './with-party/team/echo-ceremony.js'
+export type { EchoCeremony, BeginEchoUnlockOptions } from './with-party/team/echo-ceremony.js'
+export { MemoryDeviceSealProvider } from './with-party/team/device-seal.js'
+export type { DeviceSealProvider } from './with-party/team/device-seal.js'
+export type { EchoSecretParts } from './kernel/enclave/index.js'
+export type { KeyringEchoBlock } from './kernel/types.js'
+export type { EchoRecipientSecret } from './with-party/team/keyring.js'
+export { EchoCeremonyRequiredError, WrongPromptError, WrongEchoError } from './kernel/errors.js'
+
 // Cover (https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md)
 // Formerly "public envelope" (#799) — the old names below remain as
 // deprecated aliases for one pre-release window; the wire format is frozen.
@@ -1069,6 +1081,14 @@ export type {
   SecretValidationResult,
   WeakSecretReason,
 } from './kernel/validation.js'
+
+// Validation — echo-secret parts (#940)
+export {
+  validateEchoSecret,
+  assertStrongEchoSecret,
+  DEFAULT_ECHO_PROMPT_MIN_WORDS,
+} from './kernel/validation.js'
+export type { EchoSecretPolicy } from './kernel/validation.js'
 
 // Query DSL
 export {

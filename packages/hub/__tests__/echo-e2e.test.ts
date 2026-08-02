@@ -11,8 +11,10 @@
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, KeyringFile } from '../src/kernel/types.js'
 import { ConflictError, EchoCeremonyRequiredError, ValidationError } from '../src/kernel/errors.js'
+import { WeakSecretError } from '../src/kernel/validation.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { MemoryDeviceSealProvider } from '../src/with-party/team/device-seal.js'
+import { MemorySealingKeyProvider } from '../src/index.js'
 
 // Same inline in-memory store pattern as __tests__/keyring.test.ts:17-42.
 function inlineMemory(): NoydbStore {
@@ -114,4 +116,36 @@ describe('echo mode end to end', () => {
     expect(file.echo?.reveal.kind).toBe('portable')
     db.close()
   }, T)
+
+  it('an object secret missing prompt/echo/key never derives "undefined" — it is rejected up front', async () => {
+    const store = inlineMemory()
+    await expect(
+      createNoydb({ store, user: 'o', secretMode: 'echo', secret: {} as never }),
+    ).rejects.toThrow(ValidationError)
+  })
+
+  it('echo mode does not inherit managed mode\'s validateSecret: false — a weak secret is rejected', async () => {
+    const store = inlineMemory()
+    const db = await createNoydb({
+      store,
+      user: 'owner',
+      secretMode: 'echo',
+      secret: { prompt: 'x', echo: 'y', key: 'z' },
+      validateSecret: true,
+    })
+    await expect(db.openVault('acme')).rejects.toThrow(WeakSecretError)
+  }, T)
+
+  it('secretMode: "echo" is mutually exclusive with sealingKey', async () => {
+    const store = inlineMemory()
+    await expect(
+      createNoydb({
+        store,
+        user: 'o',
+        secretMode: 'echo',
+        secret: PARTS,
+        sealingKey: new MemorySealingKeyProvider({ id: 'test:seal' }),
+      }),
+    ).rejects.toThrow(ValidationError)
+  })
 })
