@@ -8,10 +8,10 @@
  */
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
-import { ConflictError } from '../src/kernel/errors.js'
+import { ConflictError, WrongPromptError, WrongEchoError, InvalidKeyError, NoAccessError, ValidationError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/index.js'
-import { beginEchoUnlock } from '../src/with-party/team/echo-secret.js'
-import { WrongPromptError, WrongEchoError, InvalidKeyError } from '../src/kernel/errors.js'
+import { beginEchoUnlock } from '../src/with-party/team/echo-ceremony.js'
+import { createOwnerKeyring } from '../src/with-party/team/keyring.js'
 import { MemoryDeviceSealProvider } from '../src/with-party/team/device-seal.js'
 
 // Same inline in-memory store pattern as __tests__/keyring.test.ts:17-42.
@@ -73,11 +73,45 @@ describe('beginEchoUnlock', () => {
     expect(keyring.userId).toBe('owner')
   }, T)
 
-  it('reveal-present + mismatched typed echo in complete() throws WrongEchoError', async () => {
+  it('reveal-present: mismatched typed echo throws WrongEchoError; matching typed echo unlocks', async () => {
     const store = inlineMemory()
     await seedEchoVault(store)
     const ceremony = await beginEchoUnlock(store, 'acme', { userId: 'owner', prompt: PARTS.prompt })
     expect(ceremony.reveal).toBe(PARTS.echo)
     await expect(ceremony.complete({ echo: 'eco sbagliata', key: PARTS.key })).rejects.toThrow(WrongEchoError)
+    // A caller that supplies a typed echo AGREEING with the reveal must
+    // still unlock — the mismatch guard only refuses disagreement.
+    const keyring = await ceremony.complete({ echo: PARTS.echo, key: PARTS.key })
+    expect(keyring.userId).toBe('owner')
+  }, T)
+
+  it('missing keyring row → NoAccessError', async () => {
+    const store = inlineMemory()
+    await expect(
+      beginEchoUnlock(store, 'acme', { userId: 'nobody', prompt: PARTS.prompt }),
+    ).rejects.toThrow(NoAccessError)
+  }, T)
+
+  it('keyring without an echo block → ValidationError', async () => {
+    const store = inlineMemory()
+    await createOwnerKeyring(store, 'acme', { userId: 'owner', secret: 'a plain string secret' })
+    await expect(
+      beginEchoUnlock(store, 'acme', { userId: 'owner', prompt: PARTS.prompt }),
+    ).rejects.toThrow(ValidationError)
+  }, T)
+
+  it('degraded path with input.echo absent → ValidationError', async () => {
+    const store = inlineMemory()
+    await seedEchoVault(store, new MemoryDeviceSealProvider({ id: 'enrolling-device' }))
+    const ceremony = await beginEchoUnlock(store, 'acme', { userId: 'owner', prompt: PARTS.prompt })
+    expect(ceremony.reveal).toBeNull()
+    await expect(ceremony.complete({ key: PARTS.key })).rejects.toThrow(ValidationError)
+  }, T)
+
+  it('maskHint round-trips from the built echo block onto the ceremony', async () => {
+    const store = inlineMemory()
+    await createOwnerKeyring(store, 'acme', { userId: 'owner', secret: PARTS, echoMaskHint: 'da piccolo...' })
+    const ceremony = await beginEchoUnlock(store, 'acme', { userId: 'owner', prompt: PARTS.prompt })
+    expect(ceremony.maskHint).toBe('da piccolo...')
   }, T)
 })

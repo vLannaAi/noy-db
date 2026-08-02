@@ -138,9 +138,10 @@ export {
   verifyPrompt,
   resolveEchoReveal,
   verifyTypedEcho,
-  beginEchoUnlock,
 } from './echo-secret.js'
-export type { EchoRevealChoice, BeginEchoUnlockOptions, EchoCeremony } from './echo-secret.js'
+export type { EchoRevealChoice } from './echo-secret.js'
+export { beginEchoUnlock } from './echo-ceremony.js'
+export type { BeginEchoUnlockOptions, EchoCeremony } from './echo-ceremony.js'
 export { MemoryDeviceSealProvider } from './device-seal.js'
 export type { DeviceSealProvider } from './device-seal.js'
 

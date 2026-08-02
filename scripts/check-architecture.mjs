@@ -2025,8 +2025,9 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   // (`JSON.parse(envelope._data)`) to fetch the `echo` block before running
   // the ceremony — same established idiom as keyring.ts's sites below
   // (keyring files are always plaintext JSON, never routed through the
-  // encrypted-body barrel).
-  ['packages/hub/src/with-party/team/echo-secret.ts', 1],
+  // encrypted-body barrel). Lives in echo-ceremony.ts, not echo-secret.ts
+  // (extracted to break a two-file import cycle — see that file's header).
+  ['packages/hub/src/with-party/team/echo-ceremony.ts', 1],
   // #940 Task 4: `changeSecret`'s new echo-block guard reads the
   // already-persisted keyring file (`JSON.parse(existingEnvelope._data)`)
   // to check for an `echo` block before rebuilding the file literal —
