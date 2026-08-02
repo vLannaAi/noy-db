@@ -34,6 +34,7 @@ import {
 } from '../../kernel/enclave/index.js'
 import type { KeyringEchoBlock } from '../../kernel/types.js'
 import type { DeviceSealProvider } from './device-seal.js'
+import { WrongPromptError } from '../../kernel/errors.js'
 
 /** Same iteration floor as the KEK (spec resolved question 1). */
 export const ECHO_KDF_ITERATIONS = 600_000
@@ -50,9 +51,14 @@ async function mintVerifier(part: string, salt: Uint8Array): Promise<string> {
   return wrapKey(await getVerifierKey(), kek)
 }
 
-async function checkVerifier(verifier: string, part: string, salt: Uint8Array): Promise<boolean> {
-  const kek = await deriveSecretKey(part, salt, { iterations: ECHO_KDF_ITERATIONS, keyUsage: 'aes-kw' })
+/**
+ * `saltB64` and `verifier` are both decoded INSIDE the guarded region so a
+ * tampered/corrupt base64 salt or verifier surfaces as `false`, not a raw
+ * `DOMException` (InvalidCharacterError) escaping to the caller.
+ */
+async function checkVerifier(verifier: string, part: string, saltB64: string): Promise<boolean> {
   try {
+    const kek = await deriveSecretKey(part, base64ToBuffer(saltB64), { iterations: ECHO_KDF_ITERATIONS, keyUsage: 'aes-kw' })
     await subtle.unwrapKey('raw', base64ToBuffer(verifier) as BufferSource, kek, 'AES-KW', { name: 'AES-GCM' }, false, ['encrypt'])
     return true
   } catch {
@@ -100,13 +106,16 @@ export async function buildEchoBlock(
 }
 
 export async function verifyPrompt(block: KeyringEchoBlock, prompt: string): Promise<boolean> {
-  return checkVerifier(block.prompt_verifier, prompt, base64ToBuffer(block.prompt_salt))
+  return checkVerifier(block.prompt_verifier, prompt, block.prompt_salt)
 }
 
 /**
  * Resolve the echo for display. `null` ⇒ degraded path: the player
  * must ask the owner to TYPE the echo (verify via {@link verifyTypedEcho}).
  * Callers MUST verify the prompt first — this assumes it.
+ *
+ * @throws WrongPromptError when the prompt cannot open the portable reveal
+ * (callers should verifyPrompt first for a boolean check).
  */
 export async function resolveEchoReveal(
   block: KeyringEchoBlock,
@@ -114,18 +123,33 @@ export async function resolveEchoReveal(
   deviceSeal?: DeviceSealProvider,
 ): Promise<string | null> {
   if (block.reveal.kind === 'portable') {
-    const gcmKey = await deriveSecretKey(prompt, base64ToBuffer(block.reveal.salt), {
-      iterations: ECHO_KDF_ITERATIONS,
-      keyUsage: 'aes-gcm',
-    })
-    const plain = await subtle.decrypt(
-      { name: 'AES-GCM', iv: base64ToBuffer(block.reveal.iv) as BufferSource },
-      gcmKey,
-      base64ToBuffer(block.reveal.blob) as BufferSource,
-    )
-    return new TextDecoder().decode(plain)
+    try {
+      const gcmKey = await deriveSecretKey(prompt, base64ToBuffer(block.reveal.salt), {
+        iterations: ECHO_KDF_ITERATIONS,
+        keyUsage: 'aes-gcm',
+      })
+      const plain = await subtle.decrypt(
+        { name: 'AES-GCM', iv: base64ToBuffer(block.reveal.iv) as BufferSource },
+        gcmKey,
+        base64ToBuffer(block.reveal.blob) as BufferSource,
+      )
+      return new TextDecoder().decode(plain)
+    } catch {
+      // Wrong prompt (or corrupt salt/iv/blob) — a wrong prompt must NOT
+      // silently degrade to the typed-echo path, that would weaken mutual
+      // auth. Surface a typed error instead of the raw DOMException.
+      throw new WrongPromptError()
+    }
   }
   if (block.reveal.kind === 'sealed' && deviceSeal !== undefined) {
+    if (deviceSeal.id !== block.reveal.provider_hint) {
+      // Legitimate foreign-device-with-its-own-provider case (spec's
+      // degradation matrix) — degrade to the typed-echo path rather than
+      // attempting (and failing) an unseal under the wrong provider.
+      return null
+    }
+    // Same provider id: a thrown error here is a genuine tamper/wrong-device
+    // anomaly and must surface, not be silently masked.
     const plain = await deviceSeal.unseal(base64ToBuffer(block.reveal.blob))
     return new TextDecoder().decode(plain)
   }
@@ -133,5 +157,5 @@ export async function resolveEchoReveal(
 }
 
 export async function verifyTypedEcho(block: KeyringEchoBlock, echo: string): Promise<boolean> {
-  return checkVerifier(block.echo_verifier, echo, base64ToBuffer(block.echo_salt))
+  return checkVerifier(block.echo_verifier, echo, block.echo_salt)
 }
