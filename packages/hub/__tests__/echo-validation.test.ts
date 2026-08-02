@@ -1,11 +1,41 @@
 import { describe, it, expect } from 'vitest'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import {
   validateEchoSecret,
   assertStrongEchoSecret,
   WeakSecretError,
 } from '../src/kernel/validation.js'
-import { EchoCeremonyRequiredError, WrongPromptError, WrongEchoError } from '../src/kernel/errors.js'
+import { EchoCeremonyRequiredError, WrongPromptError, WrongEchoError, ConflictError } from '../src/kernel/errors.js'
+import { createNoydb } from '../src/kernel/noydb.js'
 import { MemoryDeviceSealProvider } from '../src/with-party/team/device-seal.js'
+
+// Same inline in-memory store pattern as __tests__/keyring.test.ts:17-42.
+function inlineMemory(): NoydbStore {
+  const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
+  function gc(c: string, col: string) {
+    let comp = store.get(c); if (!comp) { comp = new Map(); store.set(c, comp) }
+    let coll = comp.get(col); if (!coll) { coll = new Map(); comp.set(col, coll) }
+    return coll
+  }
+  return {
+    async get(c, col, id) { return store.get(c)?.get(col)?.get(id) ?? null },
+    async put(c, col, id, env, ev) {
+      const coll = gc(c, col); const ex = coll.get(id)
+      if (ev !== undefined && ex && ex._v !== ev) throw new ConflictError(ex._v)
+      coll.set(id, env)
+    },
+    async delete(c, col, id) { store.get(c)?.get(col)?.delete(id) },
+    async list(c, col) { const coll = store.get(c)?.get(col); return coll ? [...coll.keys()] : [] },
+    async loadAll(c) {
+      const comp = store.get(c); const s: VaultSnapshot = {}
+      if (comp) for (const [n, coll] of comp) { if (!n.startsWith('_')) { const r: Record<string, EncryptedEnvelope> = {}; for (const [id, e] of coll) r[id] = e; s[n] = r } }
+      return s
+    },
+    async saveAll(c, data) {
+      for (const [n, recs] of Object.entries(data)) { const coll = gc(c, n); for (const [id, e] of Object.entries(recs)) coll.set(id, e) }
+    },
+  }
+}
 
 // NOTE: the brief's literal fixture ('mi chiamo vicio' / 'da piccolo mi
 // chiamavano sempre') contains 2-letter Italian words ("mi", "da") that
@@ -58,5 +88,25 @@ describe('MemoryDeviceSealProvider', () => {
     const tampered = sealed.slice()
     tampered[tampered.length - 1]! ^= 0xff
     await expect(p.unseal(tampered)).rejects.toThrow()
+  })
+})
+
+describe('secretMode: echo hard-fails before real wiring lands', () => {
+  // Regression guard for a Critical caught in review: `NoydbOptions.secret`
+  // is now `string | EchoSecretParts`, but until a later task rewires the
+  // load/create path, an `EchoSecretParts` object handed to `secretMode:
+  // 'echo'` must NEVER reach `TextEncoder` (which would silently coerce it
+  // to the string "[object Object]" and derive the same guessable KEK for
+  // every such vault). Opening a vault under echo mode must always throw
+  // `EchoCeremonyRequiredError`, never succeed.
+  it('openVault rejects with EchoCeremonyRequiredError instead of deriving a key', async () => {
+    const store = inlineMemory()
+    const db = await createNoydb({
+      store,
+      user: 'alice',
+      secretMode: 'echo',
+      secret: { prompt: 'a b c', echo: 'd', key: 'e' },
+    })
+    await expect(db.openVault('acme')).rejects.toThrow(EchoCeremonyRequiredError)
   })
 })

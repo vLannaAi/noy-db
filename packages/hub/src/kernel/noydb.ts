@@ -30,7 +30,7 @@ import type {
   NoydbPolicyApi,
   PolicyCheckGateFn,
 } from './types.js'
-import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, DebugPlaintextError, RecoveryNotEnrolledError, ManagedRecoveryNotEnrolledError } from './errors.js'
+import { ValidationError, NoAccessError, InvalidKeyError, KeyringCorruptError, StoreCapabilityError, PermissionDeniedError, DebugPlaintextError, RecoveryNotEnrolledError, ManagedRecoveryNotEnrolledError, EchoCeremonyRequiredError } from './errors.js'
 import {
   readDirectoryConfig,
   persistDirectoryConfig,
@@ -1010,9 +1010,10 @@ export class Noydb {
       // return value never leaks existence.
       let keyring: UnlockedKeyring
       try {
+        if (this.options.secretMode === 'echo') throw new EchoCeremonyRequiredError()
         keyring = await loadKeyring(adapter, vault, {
           userId: this.options.user,
-          secret: this.options.secret as string, // echo wiring: later task
+          secret: this.options.secret as string,
         })
       } catch (err) {
         if (
@@ -2014,8 +2015,8 @@ export class Noydb {
         vault,
         this.options.sealingKey!,
       )
-    } else {
-      effectiveSecret = this.options.secret as string // echo wiring: later task
+    } else if (this.options.secretMode === 'echo') { throw new EchoCeremonyRequiredError() } else {
+      effectiveSecret = this.options.secret as string
     }
 
     if (!effectiveSecret) {
