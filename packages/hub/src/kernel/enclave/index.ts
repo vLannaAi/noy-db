@@ -90,8 +90,11 @@ export {
   wrapCek,
   unwrapCek,
   importCek,
+  encodeEchoParts,
+  deriveEchoKey,
 } from './crypto.js'
 export type { SecretKeyUsage } from './crypto.js'
+export type { EchoSecretParts } from './crypto.js'
 export { resolveStableCek, rewrapBodyToDek, rewrapEnvelope, applyRewrappedBody, isRewrappedUnder } from './record-keys/lifecycle.js'
 export type { RewrappedBody } from './record-keys/lifecycle.js'
 

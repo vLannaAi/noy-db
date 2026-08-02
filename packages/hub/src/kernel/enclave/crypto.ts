@@ -64,26 +64,63 @@ export async function deriveKey(
   secret: string,
   salt: Uint8Array,
 ): Promise<CryptoKey> {
-  const keyMaterial = await subtle.importKey(
-    'raw',
-    new TextEncoder().encode(secret),
-    'PBKDF2',
-    false,
-    ['deriveKey'],
-  )
+  return deriveKekFromMaterial(new TextEncoder().encode(secret), salt)
+}
 
+/**
+ * Shared PBKDF2 → AES-KW derivation core. `material` is the raw
+ * pre-KDF input bytes (a UTF-8 phrase for standard mode, an
+ * AG-1-encoded 3-part structure for echo mode).
+ */
+async function deriveKekFromMaterial(
+  material: Uint8Array,
+  salt: Uint8Array,
+): Promise<CryptoKey> {
+  const keyMaterial = await subtle.importKey('raw', material as BufferSource, 'PBKDF2', false, ['deriveKey'])
   return subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      salt: salt as BufferSource,
-      iterations: PBKDF2_ITERATIONS,
-      hash: 'SHA-256',
-    },
+    { name: 'PBKDF2', salt: salt as BufferSource, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
     keyMaterial,
     { name: 'AES-KW', length: KEY_BITS },
     false,
     ['wrapKey', 'unwrapKey'],
   )
+}
+
+/** One three-part echo secret: prompt (typed) → echo (revealed) → key (typed). */
+export interface EchoSecretParts {
+  readonly prompt: string
+  readonly echo: string
+  readonly key: string
+}
+
+const ECHO_KDF_CONTEXT = new TextEncoder().encode('noydb-echo-secret-v1')
+
+/**
+ * AG-1 encoding: domain context + 4-byte big-endian length prefix per
+ * part. Structural boundaries are part of the key material, so no
+ * separator-joined single string is ever key-equivalent (spec AG-1).
+ */
+export function encodeEchoParts(parts: EchoSecretParts): Uint8Array {
+  const enc = new TextEncoder()
+  const segments = [parts.prompt, parts.echo, parts.key].map((p) => enc.encode(p))
+  const total = ECHO_KDF_CONTEXT.length + segments.reduce((n, s) => n + 4 + s.length, 0)
+  const out = new Uint8Array(total)
+  out.set(ECHO_KDF_CONTEXT, 0)
+  let offset = ECHO_KDF_CONTEXT.length
+  for (const s of segments) {
+    new DataView(out.buffer).setUint32(offset, s.length, false)
+    out.set(s, offset + 4)
+    offset += 4 + s.length
+  }
+  return out
+}
+
+/** Derive the tier-1 KEK from a 3-part echo secret (spec: KEK from ALL parts). */
+export async function deriveEchoKey(
+  parts: EchoSecretParts,
+  salt: Uint8Array,
+): Promise<CryptoKey> {
+  return deriveKekFromMaterial(encodeEchoParts(parts), salt)
 }
 
 /**
