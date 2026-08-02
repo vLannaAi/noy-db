@@ -1113,6 +1113,16 @@ export async function changeSecret(
 // ─── Bundle recipients ──────────────────────────────────────────
 
 /**
+ * Echo-mode recipient secret (spec #940). A pod slot may embed the reveal
+ * (`'portable'`, default) or omit it (`'none'`) — `'sealed'` is
+ * live-device-only and unavailable here: `writePod` has no device context
+ * to seal the reveal blob against.
+ */
+export interface EchoRecipientSecret extends EchoSecretParts {
+  readonly reveal?: 'portable' | 'none'
+}
+
+/**
  * Recipient slot in a re-keyed `.noydb` bundle. Each slot becomes its
  * own keyring file inside the bundle, sealed with its own secret.
  * Same role/permission semantics as `db.grant()` but no store side
@@ -1125,8 +1135,13 @@ export interface BundleRecipient {
   readonly id: string
   /** Optional display name. Defaults to `id`. */
   readonly displayName?: string
-  /** Secret the recipient will type to unlock. */
-  readonly secret: string
+  /**
+   * Secret the recipient will type to unlock — a plain string for a
+   * standard keyring, or the structured 3-part {@link EchoRecipientSecret}
+   * to embed an echo keyring so the anti-phishing ceremony travels with
+   * the pod (spec #940).
+   */
+  readonly secret: string | EchoRecipientSecret
   /** Role on the destination vault. Defaults to `'viewer'`. */
   readonly role?: Role
   /**
@@ -1183,7 +1198,9 @@ export async function buildRecipientKeyringFile(
   const permissions = resolvePermissions(role, recipient.permissions)
 
   const newSalt = generateSalt()
-  const newKek = await deriveKey(recipient.secret, newSalt)
+  const newKek = typeof recipient.secret === 'string'
+    ? await deriveKey(recipient.secret, newSalt)
+    : await deriveEchoKey(recipient.secret, newSalt)
 
   const wrappedDeks: Record<string, string> = {}
 
@@ -1242,6 +1259,13 @@ export async function buildRecipientKeyringFile(
       : {}),
     ...(recipient.expiresAt !== undefined
       ? { expires_at: recipient.expiresAt }
+      : {}),
+    // The presence of this block is what makes the recipient's slot an
+    // echo keyring — mirrors `createOwnerKeyring`'s same dance so the
+    // ceremony (prompt → echo → key) travels with the pod, not just a
+    // live owner keyring.
+    ...(typeof recipient.secret !== 'string'
+      ? { echo: await buildEchoBlock(recipient.secret, { kind: recipient.secret.reveal ?? 'portable' }) }
       : {}),
   }
 }
