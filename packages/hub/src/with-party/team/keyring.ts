@@ -3,6 +3,7 @@ import { NOYDB_KEYRING_VERSION, NOYDB_FORMAT_VERSION } from '../../kernel/types.
 import { USER_ENVELOPE_COLLECTION } from '../../kernel/constants.js'
 import {
   deriveKey,
+  deriveEchoKey,
   generateDEK,
   generateSalt,
   wrapKey,
@@ -12,8 +13,9 @@ import {
   bufferToBase64,
   base64ToBuffer,
   type EnclaveKey,
+  type EchoSecretParts,
 } from '../../kernel/enclave/index.js'
-import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, InvalidKeyError, ValidationError, DirectoryDisabledError } from '../../kernel/errors.js'
+import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, InvalidKeyError, ValidationError, DirectoryDisabledError, EchoCeremonyRequiredError } from '../../kernel/errors.js'
 import { readDirectoryConfig } from '../directory/storage.js'
 import { readUserVisibility, deleteUserVisibility } from '../directory/visibility.js'
 import { assertStrongSecret, type SecretPolicy } from '../../kernel/validation.js'
@@ -216,8 +218,32 @@ async function verifyKeyringCanary(wrappedCanary: string, kek: EnclaveKey): Prom
 export interface LoadKeyringOptions {
   /** The user whose keyring to unlock. */
   readonly userId: string
-  /** That user's secret. */
-  readonly secret: string
+  /**
+   * That user's secret — a single string for a standard keyring, or the
+   * structured 3-part {@link EchoSecretParts} for an echo keyring (spec
+   * #940, AG-1: a single string can never unlock an echo keyring).
+   */
+  readonly secret: string | EchoSecretParts
+}
+
+/**
+ * KDF dispatch for tier-1 unlock (spec #940). An echo keyring accepts
+ * ONLY structured parts (AG-1 — no single string is key-equivalent);
+ * a standard keyring accepts only a string.
+ */
+export async function deriveKekForKeyring(
+  file: KeyringFile,
+  secret: string | EchoSecretParts,
+  salt: Uint8Array,
+): Promise<EnclaveKey> {
+  if (file.echo !== undefined) {
+    if (typeof secret === 'string') throw new EchoCeremonyRequiredError()
+    return deriveEchoKey(secret, salt)
+  }
+  if (typeof secret !== 'string') {
+    throw new ValidationError('This keyring uses a standard secret — pass a string, not echo parts.')
+  }
+  return deriveKey(secret, salt)
 }
 
 /** Load and unlock a user's keyring for a vault. */
@@ -248,7 +274,7 @@ export async function loadKeyring(
   }
 
   const salt = base64ToBuffer(keyringFile.salt)
-  const kek = await deriveKey(secret, salt)
+  const kek = await deriveKekForKeyring(keyringFile, secret, salt)
 
   // Verify the canary first when present. A canary success proves the
   // KEK is correct independent of any DEK byte — so subsequent DEK
@@ -993,6 +1019,17 @@ export async function changeSecret(
   keyring: UnlockedKeyring,
   opts: ChangeSecretOptions,
 ): Promise<UnlockedKeyring> {
+  // An echo keyring rotates via `rotateSecret` only — `changeSecret`
+  // rebuilds the keyring file literal below and would silently DROP the
+  // `echo` block, permanently losing the ceremony. Guard on the file as
+  // persisted (not `keyring`, which carries no echo info) before any
+  // derivation.
+  const existingEnvelope = await store.get(vault, '_keyring', keyring.userId)
+  if (existingEnvelope) {
+    const existingFile = JSON.parse(existingEnvelope._data) as KeyringFile
+    if (existingFile.echo !== undefined) throw new EchoCeremonyRequiredError()
+  }
+
   const { newSecret } = opts
   if (!opts.allowWeakSecret) {
     assertStrongSecret(newSecret, opts)

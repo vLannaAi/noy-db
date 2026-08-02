@@ -2021,7 +2021,13 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-party/policy/storage.ts', 3],
   ['packages/hub/src/with-party/team/deed.ts', 3],
   ['packages/hub/src/with-party/team/delegation.ts', 2],
-  ['packages/hub/src/with-party/team/keyring.ts', 14],
+  // #940 Task 4: `changeSecret`'s new echo-block guard reads the
+  // already-persisted keyring file (`JSON.parse(existingEnvelope._data)`)
+  // to check for an `echo` block before rebuilding the file literal —
+  // identical raw-read idiom to this file's other 7 `JSON.parse(env._data)`
+  // sites (keyring files are always plaintext JSON, never routed through
+  // the encrypted-body barrel). 14→15.
+  ['packages/hub/src/with-party/team/keyring.ts', 15],
   ['packages/hub/src/with-party/team/magic-link-grant.ts', 2],
   ['packages/hub/src/with-party/team/managed-secret.ts', 3],
   ['packages/hub/src/with-party/team/peer-recover.ts', 3],
