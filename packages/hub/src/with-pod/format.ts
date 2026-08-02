@@ -54,8 +54,11 @@ export const NOYDB_BUNDLE_MAGIC = new Uint8Array([0x4e, 0x44, 0x42, 0x31])
 /** Total fixed prefix before the header JSON: 4+1+1+4 bytes. */
 export const NOYDB_BUNDLE_PREFIX_BYTES = 10
 
-/** Current bundle format version. Bumped on layout changes. */
+/** Current bundle format version. Bumped on layout changes. Default for unsigned pods. */
 export const NOYDB_BUNDLE_FORMAT_VERSION = 1
+
+/** Format version for pods carrying a header signature (`sig`/`keyId`/`sigAlg`). */
+export const NOYDB_BUNDLE_FORMAT_VERSION_SIGNED = 2
 
 /**
  * Bitfield interpretation of the flags byte.
@@ -165,6 +168,27 @@ export interface NoydbPodHeader {
     readonly alg: 'aes-256-gcm-pre-shared'
     readonly sealId: string
   }
+  /**
+   * Non-secret 16-hex-char fingerprint identifying the signing key
+   * used for `sig`. A hash prefix, not the key itself — discloses no
+   * crypto config, safe under minimum-disclosure. Present iff `sig`
+   * and `sigAlg` are also present (all-or-nothing 3-tuple), and only
+   * on `formatVersion === 2` headers.
+   */
+  readonly keyId?: string
+  /**
+   * Signature authenticating the rest of the header (base64url,
+   * no padding). Verifies the header wasn't tampered with in
+   * transit/storage — see `with-pod/signature.ts`. Part of the
+   * sig/keyId/sigAlg 3-tuple.
+   */
+  readonly sig?: string
+  /**
+   * Signature algorithm for `sig`. Named `sigAlg` (not `alg`) to
+   * avoid confusion with `transferSeal.alg`. Part of the
+   * sig/keyId/sigAlg 3-tuple.
+   */
+  readonly sigAlg?: 'ed25519'
 }
 
 /** @deprecated Use `NoydbPodHeader`. */
@@ -185,6 +209,9 @@ const ALLOWED_HEADER_KEYS: ReadonlySet<string> = new Set([
   'autoUnlock',
   'bundleKind',
   'transferSeal',
+  'sig',
+  'keyId',
+  'sigAlg',
 ])
 
 /**
@@ -223,9 +250,12 @@ export function validateBundleHeader(
     }
   }
   const h = parsed as Record<string, unknown>
-  if (typeof h['formatVersion'] !== 'number' || h['formatVersion'] !== NOYDB_BUNDLE_FORMAT_VERSION) {
+  if (
+    typeof h['formatVersion'] !== 'number' ||
+    (h['formatVersion'] !== NOYDB_BUNDLE_FORMAT_VERSION && h['formatVersion'] !== NOYDB_BUNDLE_FORMAT_VERSION_SIGNED)
+  ) {
     throw new Error(
-      `.noydb bundle header.formatVersion must be ${NOYDB_BUNDLE_FORMAT_VERSION}, ` +
+      `.noydb bundle header.formatVersion must be ${NOYDB_BUNDLE_FORMAT_VERSION} or ${NOYDB_BUNDLE_FORMAT_VERSION_SIGNED}, ` +
         `got ${String(h['formatVersion'])}. The reader does not support ` +
         `forward-compat versions; upgrade the reader to handle newer bundles.`,
     )
@@ -299,6 +329,28 @@ export function validateBundleHeader(
       throw new Error(`.noydb bundle header.transferSeal.sealId must be a non-empty string, got ${String(t['sealId'])}.`)
     }
   }
+  if (h['keyId'] !== undefined) {
+    if (typeof h['keyId'] !== 'string' || !/^[0-9a-f]{16}$/.test(h['keyId'])) {
+      throw new Error(
+        `.noydb bundle header.keyId must be a 16-character lowercase hex fingerprint, ` +
+          `got ${typeof h['keyId'] === 'string' ? `"${h['keyId']}"` : String(h['keyId'])}.`,
+      )
+    }
+  }
+  if (h['sig'] !== undefined) {
+    if (typeof h['sig'] !== 'string' || h['sig'].length === 0 || !/^[A-Za-z0-9_-]+$/.test(h['sig'])) {
+      throw new Error(
+        `.noydb bundle header.sig must be a non-empty base64url string, ` +
+          `got ${typeof h['sig'] === 'string' ? `"${h['sig']}"` : String(h['sig'])}.`,
+      )
+    }
+  }
+  if (h['sigAlg'] !== undefined) {
+    if (h['sigAlg'] !== 'ed25519') {
+      const got = typeof h['sigAlg'] === 'string' ? `"${h['sigAlg']}"` : typeof h['sigAlg']
+      throw new Error(`.noydb bundle header.sigAlg must be 'ed25519' when present, got ${got}.`)
+    }
+  }
   // Cross-field invariant: the seal indicator and the extracted-partition
   // kind imply each other. An extracted partition is unlocked via its
   // transfer seal; a seal without the kind is a malformed header.
@@ -323,6 +375,24 @@ export function validateBundleHeader(
       + `an extracted partition is unlocked via its transfer seal, not an auto-credential.`,
     )
   }
+  // Cross-field invariant: sig/keyId/sigAlg authenticate the header as a
+  // unit — a partial tuple (e.g. sig without keyId) is a malformed or
+  // truncated signature, not a valid unsigned header. Signed headers also
+  // require formatVersion 2 so older readers refuse them instead of
+  // silently ignoring the signature.
+  const sigFieldsPresent = [h['sig'], h['keyId'], h['sigAlg']].filter((v) => v !== undefined).length
+  if (sigFieldsPresent > 0 && sigFieldsPresent < 3) {
+    throw new Error(
+      `.noydb bundle header.sig, .keyId, and .sigAlg must be present together or not at all ` +
+        `(got ${sigFieldsPresent} of 3).`,
+    )
+  }
+  if (sigFieldsPresent === 3 && h['formatVersion'] !== NOYDB_BUNDLE_FORMAT_VERSION_SIGNED) {
+    throw new Error(
+      `.noydb bundle header with sig/keyId/sigAlg must have formatVersion === ${NOYDB_BUNDLE_FORMAT_VERSION_SIGNED}, ` +
+        `got ${String(h['formatVersion'])}.`,
+    )
+  }
 }
 
 /**
@@ -345,6 +415,13 @@ export function encodeBundleHeader(header: NoydbPodHeader): Uint8Array {
     ...(header.autoUnlock !== undefined ? { autoUnlock: header.autoUnlock } : {}),
     ...(header.bundleKind !== undefined ? { bundleKind: header.bundleKind } : {}),
     ...(header.transferSeal !== undefined ? { transferSeal: header.transferSeal } : {}),
+    // Encode order here is the WIRE-byte contract only — it does NOT
+    // affect the signature. The signer (Task 4/5) signs the header
+    // object via canonicalJson, which re-sorts keys independent of
+    // this insertion order.
+    ...(header.sig !== undefined ? { sig: header.sig } : {}),
+    ...(header.keyId !== undefined ? { keyId: header.keyId } : {}),
+    ...(header.sigAlg !== undefined ? { sigAlg: header.sigAlg } : {}),
   })
   return new TextEncoder().encode(json)
 }
