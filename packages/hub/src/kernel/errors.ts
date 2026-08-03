@@ -972,6 +972,35 @@ export function isConflictError(err: unknown): err is ConflictError {
 }
 
 /**
+ * Thrown by the schema-manifest writer (`with-shape/manifest/writer.ts`,
+ * #941 AC #1) when a strict-CAS write to the `_manifest/schema` record
+ * loses the race — the stored `_v` no longer matches `expectedVersion`.
+ *
+ * Unlike {@link ConflictError} (which every other reserved-collection
+ * writer catches and retries), the manifest writer REFUSES: it does not
+ * re-read, re-apply, and retry. Two concurrent direct edits to the
+ * manifest must be refused and surfaced to the caller, never silently
+ * merged.
+ */
+export class ManifestConflictError extends NoydbError {
+  /** The actual stored `_v` at the time of conflict. */
+  readonly foundVersion: number
+  /** The `expectedVersion` the caller supplied. */
+  readonly expectedVersion: number
+
+  constructor(foundVersion: number, expectedVersion: number, message?: string) {
+    super(
+      'MANIFEST_CONFLICT',
+      message ??
+        `Schema manifest write refused: expected _v=${expectedVersion} but found _v=${foundVersion} (concurrent edit — not retried)`,
+    )
+    this.name = 'ManifestConflictError'
+    this.foundVersion = foundVersion
+    this.expectedVersion = expectedVersion
+  }
+}
+
+/**
  * Thrown by `LedgerStore.append()` after exhausting its CAS retry
  * budget under multi-writer contention. Two browser tabs, a
  * web app + an offline mobile peer, or a server worker pool all
