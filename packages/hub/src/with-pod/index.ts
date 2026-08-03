@@ -87,3 +87,18 @@ export {
   BackupLedgerError,
   BackupCorruptedError,
 } from '../kernel/errors.js'
+
+// Redirect record (#944): a signed "this moved, go there" pointer carried
+// in the pod's plaintext header, plus the followRedirects resolver.
+export { readPodRedirect } from './bundle.js'
+export { signRedirect, verifyRedirect, followRedirects } from './redirect.js'
+export type { Redirect, RedirectHop, FollowRedirectsResult } from './redirect.js'
+// DocSigner is signRedirect's signer param — re-exported here so it's
+// nameable from the same entry (type-reachability guard).
+export type { DocSigner } from '../with-audit/attestation/signer.js'
+export {
+  RedirectDepthExceededError,
+  RedirectLoopError,
+  RedirectBadSignatureError,
+  RedirectUnreachableError,
+} from '../kernel/errors.js'

@@ -417,6 +417,21 @@ export { signRecord, verifyRecord, signedBytes, POD_SIG_ALG } from './with-pod/s
 export { decryptExtractedPartition } from './with-cargo/decrypt-partition.js'
 export type { DecryptedRecord } from './with-cargo/decrypt-partition.js'
 
+// Redirect record (#944): a signed "this moved, go there" pointer carried
+// in the pod's plaintext header, plus the followRedirects resolver.
+export { readPodRedirect } from './with-pod/bundle.js'
+export { signRedirect, verifyRedirect, followRedirects } from './with-pod/redirect.js'
+export type { Redirect, RedirectHop, FollowRedirectsResult } from './with-pod/redirect.js'
+// DocSigner is signRedirect's signer param — re-exported here so it's
+// nameable from the same entry (type-reachability guard).
+export type { DocSigner } from './with-audit/attestation/signer.js'
+export {
+  RedirectDepthExceededError,
+  RedirectLoopError,
+  RedirectBadSignatureError,
+  RedirectUnreachableError,
+} from './kernel/errors.js'
+
 // Schema validation — Standard Schema v1 integration
 export type {
   StandardSchemaV1,
