@@ -148,6 +148,7 @@
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { LedgerStore } from '../../with-commit/history/ledger/index.js'
 import { sha256Hex, canonicalJson } from '../../with-commit/history/ledger/index.js'
+import { isDeleteMarker } from '../../kernel/enclave/index.js'
 import { PeriodClosedError, ValidationError } from '../../kernel/errors.js'
 
 // The reserved collection names + `periodExclusiveUpperBound` moved to the
@@ -497,4 +498,30 @@ export async function appendPeriodLedgerEntry(
     actor,
     payloadHash: await envelopePayloadHash(envelope),
   })
+}
+
+/**
+ * @internal #615. Sweep delete markers with `_ts < before` off ANY store
+ * (the vault's local adapter, or a push-only sync target). Returns the count
+ * removed. Shared by `vault._purgeDeleteMarkers` (local) and
+ * `vault._purgePeriodTargets` (push-only targets).
+ */
+export async function purgeMarkersOn(
+  store: NoydbStore,
+  vault: string,
+  before: string,
+  collections?: string[],
+): Promise<number> {
+  const snapshot = await store.loadAll(vault)
+  let removed = 0
+  for (const [coll, records] of Object.entries(snapshot)) {
+    if (collections && !collections.includes(coll)) continue
+    for (const [id, env] of Object.entries(records)) {
+      if (isDeleteMarker(env) && env._ts < before) {
+        await store.delete(vault, coll, id)
+        removed++
+      }
+    }
+  }
+  return removed
 }

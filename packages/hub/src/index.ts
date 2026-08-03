@@ -368,6 +368,7 @@ export {
   writeNoydbBundle,
   readNoydbBundle,
   readNoydbBundleHeader,
+  verifyPodHeader,
 } from './with-pod/bundle.js'
 export { exportAccessibleData } from './with-audit/portability/export-accessible.js'
 export type { ExportAccessibleOptions } from './with-audit/portability/export-accessible.js'
@@ -400,6 +401,7 @@ export type {
   NoydbBundleReadResult,
   AutoCredentialKind,
   AutoCredential,
+  PodVerifyResult,
 } from './with-pod/bundle.js'
 export {
   NOYDB_BUNDLE_MAGIC,
@@ -408,6 +410,9 @@ export {
   hasNoydbBundleMagic,
 } from './with-pod/format.js'
 export { generateULID, isULID } from './with-pod/ulid.js'
+// Pod-signature family-wide signing convention (#943) — pod header, the
+// Redirect record (#944), and manifest writes (#941) all sign through this.
+export { signRecord, verifyRecord, signedBytes, POD_SIG_ALG } from './with-pod/signature.js'
 export { decryptExtractedPartition } from './with-cargo/decrypt-partition.js'
 export type { DecryptedRecord } from './with-cargo/decrypt-partition.js'
 

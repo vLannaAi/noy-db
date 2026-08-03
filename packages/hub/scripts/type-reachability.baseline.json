@@ -50,6 +50,7 @@
     "./periods :: appendPeriodLedgerEntry mentions LedgerStore",
     "./periods :: loadPeriods mentions EncryptedEnvelope",
     "./periods :: loadPeriods mentions NoydbStore",
+    "./periods :: purgeMarkersOn mentions NoydbStore",
     "./pod :: createPodStore mentions NoydbPodStore",
     "./pod :: wrapPodStore mentions NoydbPodStore",
     "./pod :: writePod mentions Vault",

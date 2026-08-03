@@ -32,6 +32,17 @@ export type {
   NoydbBundleReadResult,
 } from './bundle.js'
 
+// Pod header authentication (#943): a pure, dependency-free, WebCrypto-only
+// verifier for the sig/keyId/sigAlg tuple written by `writePod` — this is
+// the subpath a static verifier page tree-shakes down to.
+export { verifyPodHeader } from './bundle.js'
+export type { PodVerifyResult } from './bundle.js'
+
+// The family-wide signing convention (pod header, Redirect record #944,
+// manifest writes #941) — see with-pod/signature.ts for the canonical-JSON
+// + Ed25519 details.
+export { signRecord, verifyRecord, signedBytes, POD_SIG_ALG } from './signature.js'
+
 export {
   NOYDB_BUNDLE_MAGIC,
   NOYDB_BUNDLE_PREFIX_BYTES,

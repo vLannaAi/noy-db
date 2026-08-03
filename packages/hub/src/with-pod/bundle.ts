@@ -40,6 +40,7 @@ import {
   FLAG_COMPRESSED,
   FLAG_HAS_INTEGRITY_HASH,
   NOYDB_BUNDLE_FORMAT_VERSION,
+  NOYDB_BUNDLE_FORMAT_VERSION_SIGNED,
   NOYDB_BUNDLE_MAGIC,
   NOYDB_BUNDLE_PREFIX_BYTES,
   decodeBundleHeader,
@@ -50,6 +51,8 @@ import {
   type CompressionAlgo,
   type NoydbPodHeader,
 } from './format.js'
+import { signRecord, verifyRecord } from './signature.js'
+import type { DocSigner } from '../with-audit/attestation/signer.js'
 import { sha256Hex as sha256HexBytes } from '../kernel/enclave/index.js'
 import { BundleIntegrityError, BundleSealMismatchError, ValidationError } from '../kernel/errors.js'
 import type { Vault } from '../kernel/vault.js'
@@ -254,6 +257,22 @@ export interface WritePodOptions {
     readonly provider: SealingKeyProvider
     readonly perUser: Record<string, string>
   }
+  /**
+   * Pod-header signing control (#943).
+   *
+   *   - omitted (default) — sign the header iff the source vault has a
+   *     persisted document signer (`vault._loadPodSigner()` returns
+   *     non-null). A vault that never minted a signer produces an
+   *     unsigned `formatVersion: 1` header, exactly as before.
+   *   - `false` — never sign, even if a signer is persisted.
+   *   - an explicit {@link DocSigner} — sign with the supplied keypair
+   *     without touching the vault's persisted signer (test / advanced
+   *     injection). Does not mint or persist anything.
+   *
+   * Signing NEVER mints a signer as a side effect of export: an absent
+   * signer means an unsigned pod, not an on-the-fly key generation.
+   */
+  readonly sign?: false | DocSigner
 }
 
 /** @deprecated Use `WritePodOptions`. */
@@ -1250,6 +1269,13 @@ export async function assembleBundleContainer(opts: {
   compression: WritePodOptions['compression']
   /** Header fields beyond the always-present four. */
   headerExtras?: Partial<Pick<NoydbPodHeader, 'publicEnvelope' | 'autoUnlock' | 'bundleKind' | 'transferSeal'>>
+  /**
+   * When present, the assembled header is signed (#943): the header is
+   * bumped to `formatVersion: 2` and carries the sig/keyId/sigAlg tuple.
+   * Absent → an unsigned `formatVersion: 1` header (partitions, and pods
+   * from vaults without a signer, stay unsigned).
+   */
+  signer?: DocSigner
 }): Promise<Uint8Array> {
   const dumpBytes = new TextEncoder().encode(opts.bodyJsonStr)
   const { format, streamFormat } = selectCompression(opts.compression)
@@ -1268,7 +1294,21 @@ export async function assembleBundleContainer(opts: {
     ...(opts.headerExtras?.bundleKind !== undefined ? { bundleKind: opts.headerExtras.bundleKind } : {}),
     ...(opts.headerExtras?.transferSeal !== undefined ? { transferSeal: opts.headerExtras.transferSeal } : {}),
   }
-  const headerBytes = encodeBundleHeader(header)
+  // Header signing (#943): sign the header object as it will stand at
+  // formatVersion 2 WITH keyId + sigAlg but WITHOUT `sig`, then attach the
+  // resulting 3-tuple + bump the version. `signRecord`/`canonicalJson`
+  // throw on any `undefined`, so the signed payload is built with only the
+  // fields actually present (spread of the header carries no undefined
+  // keys). Only produce formatVersion 2 WHEN signing — an unsigned pod
+  // stays formatVersion 1 with no sig fields.
+  const signed: NoydbPodHeader = opts.signer === undefined
+    ? header
+    : await (async (s: DocSigner): Promise<NoydbPodHeader> => {
+        const toSign = { ...header, formatVersion: NOYDB_BUNDLE_FORMAT_VERSION_SIGNED, keyId: s.keyId, sigAlg: 'ed25519' as const }
+        const sig = await signRecord(s.privateKeyPkcs8B64, toSign)
+        return { ...toSign, sig }
+      })(opts.signer)
+  const headerBytes = encodeBundleHeader(signed)
 
   const prefix = new Uint8Array(NOYDB_BUNDLE_PREFIX_BYTES)
   prefix.set(NOYDB_BUNDLE_MAGIC, 0)
@@ -1327,6 +1367,16 @@ export async function writePod(
   // exactly like before, preserving back-compat.
   const cover = await vault.getCover()
 
+  // Resolve the header signer (#943): explicit `false` disables signing;
+  // an explicit DocSigner is used verbatim (no vault touch); otherwise fall
+  // back to the vault's persisted signer, which is `null` (unsigned) when
+  // none was ever minted — export never mints one.
+  const signer = opts.sign === false
+    ? undefined
+    : opts.sign !== undefined
+      ? opts.sign
+      : (await vault._loadPodSigner()) ?? undefined
+
   return assembleBundleContainer({
     handle,
     bodyJsonStr,
@@ -1336,6 +1386,7 @@ export async function writePod(
       ...(cover !== undefined ? { publicEnvelope: cover } : {}),
       ...(autoUnlockMode !== null ? { autoUnlock: autoUnlockMode } : {}),
     },
+    ...(signer !== undefined ? { signer } : {}),
   })
 }
 
@@ -1411,6 +1462,76 @@ export function readPodHeader(bytes: Uint8Array): NoydbPodHeader {
 
 /** @deprecated Use `readPodHeader`. */
 export const readNoydbBundleHeader = readPodHeader
+
+/**
+ * Outcome of {@link verifyPodHeader}.
+ *
+ *   - `verified`  — the header carried a sig-tuple, its `keyId` is in
+ *     `trustedKeys`, and the signature checks out over the canonical
+ *     header bytes.
+ *   - `unsigned`  — the header carried no signature (a legacy v1 pod, or a
+ *     v2 pod written with `{ sign: false }`). Not an error; just unauthenticated.
+ *   - `untrusted` — the header is signed but its `keyId` is not one the
+ *     caller trusts. The signature was NOT checked.
+ *   - `tampered`  — the header is signed by a trusted key but the signature
+ *     does not verify: the signed bytes were altered, or the mapped public
+ *     key is not the one that actually signed.
+ */
+export interface PodVerifyResult {
+  readonly status: 'verified' | 'unsigned' | 'untrusted' | 'tampered'
+  /** The header's `keyId`, present whenever the header carried a sig-tuple. */
+  readonly keyId?: string
+}
+
+/**
+ * Authenticate a pod header (#943) — a pure, dependency-free, WebCrypto-only
+ * verifier. Given only the raw pod bytes and a `trustedKeys` map
+ * (`keyId → publicKeyB64` the caller already trusts), it reports whether the
+ * header was signed by a trusted document signer.
+ *
+ * Pairs with the signing half in `assembleBundleContainer`/`writePod`: the
+ * signed payload is the final wire header with `sig` removed, so verification
+ * reconstructs it by stripping EXACTLY the `sig` field — `keyId`, `sigAlg`,
+ * and every other header field stay in the verified payload.
+ *
+ * No store, enclave, or vault dependency — reachable from a static page with
+ * only the pod bytes, the trusted-key map, and `globalThis.crypto`.
+ *
+ * SECURITY — authenticity is not integrity. A `verified` result proves the
+ * header (which includes the *claimed* `bodySha256`) is signed by a trusted
+ * key; it does NOT prove the body matches that hash. To trust the pod's
+ * BODY you MUST also confirm the body hashes to `header.bodySha256` — call
+ * `readPod`, which throws `BundleIntegrityError` on mismatch. A `verified`
+ * header paired with a swapped body is caught only by that integrity check.
+ * This function stays body-free by design so a static page can authenticate a
+ * header without decompressing the body; composing the two checks is the
+ * caller's responsibility. See `docs/subsystems/pod-signature.md`.
+ */
+export async function verifyPodHeader(
+  bytes: Uint8Array,
+  trustedKeys: Readonly<Record<string, string>>,
+): Promise<PodVerifyResult> {
+  const { header } = parsePrefixAndHeader(bytes)
+
+  // No signature tuple → unsigned, regardless of formatVersion. The format
+  // layer guarantees sig/keyId/sigAlg are all-or-nothing, so any one being
+  // absent means the header is unsigned.
+  if (header.sig === undefined || header.keyId === undefined || header.sigAlg === undefined) {
+    return { status: 'unsigned' }
+  }
+
+  const publicKeyB64 = trustedKeys[header.keyId]
+  if (publicKeyB64 === undefined) {
+    return { status: 'untrusted', keyId: header.keyId }
+  }
+
+  // Reconstruct the signed payload: the FINAL wire header minus EXACTLY `sig`.
+  const payload: Record<string, unknown> = { ...header }
+  delete payload['sig']
+
+  const ok = await verifyRecord(publicKeyB64, header.sig, payload)
+  return { status: ok ? 'verified' : 'tampered', keyId: header.keyId }
+}
 
 /**
  * Read just the bundle's cover (`https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/public-envelope.md`)

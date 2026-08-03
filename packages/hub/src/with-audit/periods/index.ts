@@ -26,6 +26,7 @@ export {
   assertTsWritable,
   validatePeriodName,
   appendPeriodLedgerEntry,
+  purgeMarkersOn,
 } from './periods.js'
 export type {
   PeriodRecord,
