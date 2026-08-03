@@ -26,6 +26,23 @@ describe('additiveOnly', () => {
     expect(d.action).toBe('reject')
     if (d.action === 'reject') expect(d.error).toBeInstanceOf(NonAdditiveSchemaChangeError)
   })
+
+  // #946 regression coverage: a `renamed` delta (kind: 'additive', empty
+  // added/removed/changed — computeSchemaDelta's actual shape for a pure
+  // rename) must still be REJECTED. The delta carries no data migration, so
+  // an allow here would orphan existing values under the old key.
+  it('rejects a renamed-only delta (kind additive) with NonAdditiveSchemaChangeError', async () => {
+    const d = await additiveOnly().onSchemaDelta(
+      delta({ kind: 'additive', renamed: [{ from: 'a', to: 'b' }] }), ctx,
+    )
+    expect(d.action).toBe('reject')
+    if (d.action === 'reject') expect(d.error).toBeInstanceOf(NonAdditiveSchemaChangeError)
+  })
+
+  it('still allows a genuine additive delta with no renamed pairs', async () => {
+    const d = await additiveOnly().onSchemaDelta(delta({ kind: 'additive', added: ['note'] }), ctx)
+    expect(d).toEqual({ action: 'allow' })
+  })
 })
 
 describe('lockSchema', () => {
@@ -42,5 +59,30 @@ describe('lockSchema', () => {
     expect(await onlyId.onSchemaDelta(delta({ kind: 'additive', added: ['note'] }), ctx)).toEqual({ action: 'allow' })
     const hit = await onlyId.onSchemaDelta(delta({ kind: 'non-additive', removed: ['id'] }), ctx)
     expect(hit.action).toBe('reject')
+  })
+
+  // #946 regression coverage: a locked field renamed AWAY (its `from`) must
+  // still be caught — `removed`/`added` no longer contain it (the rename
+  // pairing excludes it from both), so `renamed` must be folded into the
+  // touched-field computation.
+  it('with fields: rejects when the locked field is a renamed pair\'s `from`', async () => {
+    const onlyA = lockSchema({ fields: ['a'] })
+    const hit = await onlyA.onSchemaDelta(delta({ kind: 'additive', renamed: [{ from: 'a', to: 'b' }] }), ctx)
+    expect(hit.action).toBe('reject')
+    if (hit.action === 'reject') expect(hit.error).toBeInstanceOf(SchemaLockedError)
+  })
+
+  it('with fields: allows a renamed pair that does not touch a locked, unrelated field', async () => {
+    const onlyId = lockSchema({ fields: ['id'] })
+    const allowed = await onlyId.onSchemaDelta(delta({ kind: 'additive', renamed: [{ from: 'a', to: 'b' }] }), ctx)
+    expect(allowed).toEqual({ action: 'allow' })
+  })
+
+  // Blanket lockSchema() (no `fields`) already blocks any rename since a
+  // pure rename's `kind` is never 'none' — pinned explicitly here.
+  it('blanket lock (no fields) rejects a renamed-only delta', async () => {
+    const d = await lockSchema().onSchemaDelta(delta({ kind: 'additive', renamed: [{ from: 'a', to: 'b' }] }), ctx)
+    expect(d.action).toBe('reject')
+    if (d.action === 'reject') expect(d.error).toBeInstanceOf(SchemaLockedError)
   })
 })

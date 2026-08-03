@@ -48,4 +48,43 @@ describe('computeSchemaDelta', () => {
     expect(d.kind).toBe('non-additive')
     expect(d.changed[0]).toMatchObject({ field: 'amount', requiredChanged: true, shapeChanged: false })
   })
+
+  // #946 — rename detection
+  it('same shape, name change (a→b) → renamed pair, additive-safe (not non-additive)', () => {
+    const before = obj({ id: { type: 'string' }, a: { type: 'number' } }, ['id'])
+    const after = obj({ id: { type: 'string' }, b: { type: 'number' } }, ['id'])
+    const d = computeSchemaDelta(before, after, 'invoices')
+    expect(d.kind).toBe('additive')
+    expect(d.added).toEqual([])
+    expect(d.removed).toEqual([])
+    expect(d.changed).toEqual([])
+    expect(d.renamed).toEqual([{ from: 'a', to: 'b' }])
+  })
+
+  it('drop+add of DIFFERENT shapes is still a plain non-additive change (no rename pairing)', () => {
+    const before = obj({ id: { type: 'string' }, a: { type: 'number' } }, ['id'])
+    const after = obj({ id: { type: 'string' }, b: { type: 'string' } }, ['id'])
+    const d = computeSchemaDelta(before, after, 'invoices')
+    expect(d.kind).toBe('non-additive')
+    expect(d.added).toEqual(['b'])
+    expect(d.removed).toEqual(['a'])
+    expect(d.renamed).toBeUndefined()
+  })
+
+  it('ambiguous shape collision (2 removed + 2 added, same shape) does not pair — stays non-additive', () => {
+    const before = obj({ id: { type: 'string' }, a: { type: 'number' }, c: { type: 'number' } }, ['id'])
+    const after = obj({ id: { type: 'string' }, b: { type: 'number' }, d: { type: 'number' } }, ['id'])
+    const d = computeSchemaDelta(before, after, 'invoices')
+    expect(d.kind).toBe('non-additive')
+    expect([...d.added].sort()).toEqual(['b', 'd'])
+    expect([...d.removed].sort()).toEqual(['a', 'c'])
+    expect(d.renamed).toBeUndefined()
+  })
+
+  it('identical schemas with no rename → kind none, no renamed field', () => {
+    const s = obj({ id: { type: 'string' } }, ['id'])
+    const d = computeSchemaDelta(s, s, 'invoices')
+    expect(d.kind).toBe('none')
+    expect(d.renamed).toBeUndefined()
+  })
 })

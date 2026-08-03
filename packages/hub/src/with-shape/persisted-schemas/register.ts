@@ -16,10 +16,12 @@
 
 import { derivePersistedSchema } from './derive.js'
 import { loadPersistedSchemaEntry, savePersistedSchema } from './storage.js'
+import { resolveFieldIds } from './field-ids.js'
 import { computeSchemaDelta } from '../schema-update/delta.js'
 import { evaluateStrategies } from '../schema-update/dispatch.js'
+import { loadFence, saveFence } from '../schema-update/fence.js'
 import { isConflictError } from '../../kernel/errors.js'
-import type { SchemaUpdateStrategy, UpdateDecision } from '../schema-update/types.js'
+import type { SchemaUpdateStrategy, UpdateDecision, SchemaDelta } from '../schema-update/types.js'
 import type { NoydbStore, ClassifiedMarker } from '../../kernel/types.js'
 import type { PersistedSchemaEnvelope } from './types.js'
 import type { PairingMarker } from '../satellites/types.js'
@@ -68,19 +70,25 @@ export async function persistSchemaIfNeeded(opts: {
       return { written: false, skipped: true, envelope: stored, decision: { action: 'allow' } }
     }
 
-    // Changed (or first registration). Run update strategies only when we
-    // have a comparable JSON-Schema baseline and strategies were registered.
+    // Changed (or first registration). Compute the delta whenever we have a
+    // comparable JSON-Schema baseline — independent of whether strategies
+    // were registered (#946: the rename pairing it carries feeds the
+    // fieldIds id-carry below even on a bare re-declare with no
+    // `schemaUpdate` strategies configured). Strategies only run when
+    // registered.
     let decision: UpdateDecision = { action: 'allow' }
     const strategies = opts.strategies ?? []
+    let delta: SchemaDelta | undefined
     if (
       stored &&
-      strategies.length > 0 &&
       stored.kind === fresh.kind &&
       isPlainObject(stored.jsonSchema) &&
       isPlainObject(fresh.jsonSchema)
     ) {
-      const delta = computeSchemaDelta(stored.jsonSchema, fresh.jsonSchema, opts.collectionName)
-      decision = await evaluateStrategies(delta, strategies, { collection: opts.collectionName })
+      delta = computeSchemaDelta(stored.jsonSchema, fresh.jsonSchema, opts.collectionName)
+      if (strategies.length > 0) {
+        decision = await evaluateStrategies(delta, strategies, { collection: opts.collectionName })
+      }
     }
 
     if (decision.action !== 'allow') {
@@ -96,8 +104,34 @@ export async function persistSchemaIfNeeded(opts: {
     let toSave: PersistedSchemaEnvelope = fresh
     if (stored?.classified !== undefined) toSave = { ...toSave, classified: stored.classified }
     if (stored?.satellite !== undefined) toSave = { ...toSave, satellite: stored.satellite }
+
+    // #946: mint/preserve stable per-field ids (by name, carrying a
+    // detected rename's id from its old name — see `delta.renamed`) and
+    // stamp the vault-wide schema-fence generation this write happened at —
+    // binds "generation N" to this envelope's content hash
+    // (schemaFenceState() + loadPersistedSchema agree).
+    const fieldIds = resolveFieldIds(fresh.jsonSchema, stored?.fieldIds, delta?.renamed)
+    if (fieldIds !== undefined) toSave = { ...toSave, fieldIds }
+    const fence = await loadFence(opts.store, opts.vault)
+    toSave = { ...toSave, generation: fence.currentSchemaVersion }
+
     try {
       await savePersistedSchema(opts.store, opts.vault, opts.collectionName, opts.dek, toSave, version)
+      if (toSave.hash !== null) {
+        // This is the FIRST non-barrier writer to `_meta/schema-fence` —
+        // previously only SchemaFenceController.#setState wrote it, and only
+        // sequentially, under the drain barrier. There is no CAS on the fence
+        // doc (out of scope to add here), so re-read it immediately before
+        // writing rather than reusing the `fence` snapshot captured above
+        // (before the potentially-slow `savePersistedSchema` call): spreading
+        // a stale snapshot here would roll back `currentSchemaVersion`/
+        // `fenceState` if a concurrent cutover (on a different collection)
+        // advanced the fence in between — corrupting the vault-wide gate the
+        // whole barrier + MigrationRequiredError check depends on. Re-reading
+        // narrows (does not eliminate) that window to just this one overlay.
+        const freshFence = await loadFence(opts.store, opts.vault)
+        await saveFence(opts.store, opts.vault, { ...freshFence, schemaHash: toSave.hash })
+      }
       return { written: true, skipped: false, envelope: toSave, decision }
     } catch (err) {
       if (isConflictError(err) && attempt < MAX_SCHEMA_CAS_RETRIES) continue

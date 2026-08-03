@@ -54,4 +54,21 @@ export interface PersistedSchemaEnvelope {
    * the satellite-pair analogue of {@link classified}'s config-drift guard.
    */
   readonly satellite?: PairingMarker
+  /**
+   * Stable per-field identifiers (#946), keyed by the field's current name
+   * (top-level JSON Schema `properties` key) and mapping to an opaque,
+   * permanent id minted once via `mintFieldId()`. IDs are preserved by name
+   * across re-derivation (a field keeps its id as long as its name is
+   * unchanged) so a field's identity survives a rename — the name is a
+   * label, the id is the stable key. Absent on a legacy (pre-#946) envelope
+   * and on a stub envelope with no derivable field set (`jsonSchema === null`).
+   */
+  readonly fieldIds?: Record<string, string>
+  /**
+   * The vault-wide schema-fence generation (`FenceDoc.currentSchemaVersion`)
+   * as of this envelope's most recent write. Together with
+   * `FenceDoc.schemaHash`, answers "generation N = which schema content
+   * hash" (#946). Absent on a legacy (pre-#946) envelope.
+   */
+  readonly generation?: number
 }

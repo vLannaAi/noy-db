@@ -18,4 +18,15 @@ describe('coordinatedCutover', () => {
     expect(await s.onSchemaDelta(delta('additive'), ctx)).toEqual({ action: 'allow' })
     expect(await s.onSchemaDelta(delta('none'), ctx)).toEqual({ action: 'allow' })
   })
+
+  // #946 regression fix: a renamed-only delta (kind: 'additive', renamed
+  // populated) must STILL fire the transform — a pure rename carries no
+  // data migration on its own; without this the caller's TransformFn never
+  // runs and existing values are orphaned under the old key.
+  it('returns cutover (with the transform) on a renamed-only additive delta', async () => {
+    const renamedDelta: SchemaDelta = { ...delta('additive'), renamed: [{ from: 'a', to: 'b' }] }
+    const d = await coordinatedCutover({ transform }).onSchemaDelta(renamedDelta, ctx)
+    expect(d.action).toBe('cutover')
+    if (d.action === 'cutover') expect(d.transform).toBe(transform)
+  })
 })

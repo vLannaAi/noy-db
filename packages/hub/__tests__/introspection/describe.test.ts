@@ -383,6 +383,64 @@ describe('collection.describe(opts) — async path', () => {
   })
 })
 
+describe('DescribedField.id (#946)', () => {
+  it('async describe() exposes a stable id per field once the schema is persisted', async () => {
+    const store = inlineMemory()
+    const db = await createNoydb({ store, user: 'alice', secret: 'pw-fieldid-1' })
+    let v = await db.openVault('fieldid_v1')
+
+    const schema = z.object({ id: z.string(), amount: z.number() })
+    v.collection('invoices', { schema, persistJsonSchema: true })
+    await v._drainPendingSchemaWrites()
+
+    // Reopen so describe()'s async path reads the just-persisted envelope
+    // (mirrors the fence-state-accessor.test.ts fixture pattern).
+    const db2 = await createNoydb({ store, user: 'alice', secret: 'pw-fieldid-1' })
+    v = await db2.openVault('fieldid_v1')
+    const invoices = v.collection('invoices', { schema, persistJsonSchema: true })
+
+    const first = await invoices.describe({})
+    const byKeyFirst = Object.fromEntries(first.fields.map((f) => [f.key, f]))
+    expect(byKeyFirst.id!.id).toBeDefined()
+    expect(byKeyFirst.amount!.id).toBeDefined()
+    expect(byKeyFirst.id!.id).not.toBe(byKeyFirst.amount!.id)
+
+    // Stable across a second describe() call.
+    const second = await invoices.describe({})
+    const byKeySecond = Object.fromEntries(second.fields.map((f) => [f.key, f]))
+    expect(byKeySecond.id!.id).toBe(byKeyFirst.id!.id)
+    expect(byKeySecond.amount!.id).toBe(byKeyFirst.amount!.id)
+  })
+
+  it('sync describe() never reads storage — id is always undefined', async () => {
+    const store = inlineMemory()
+    const db = await createNoydb({ store, user: 'alice', secret: 'pw-fieldid-2' })
+    const v = await db.openVault('fieldid_v2')
+
+    const schema = z.object({ id: z.string(), amount: z.number() })
+    const invoices = v.collection('invoices', { schema, persistJsonSchema: true })
+    await v._drainPendingSchemaWrites()
+
+    // Sync describe() takes no store I/O — id stays undefined even though a
+    // persisted envelope with fieldIds now exists.
+    const d = invoices.describe()
+    for (const f of d.fields) expect(f.id).toBeUndefined()
+  })
+
+  it('a collection with no persisted schema yet — async describe() does not crash, id undefined', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-fieldid-3' })
+    const v = await db.openVault('fieldid_v3')
+
+    // No persistJsonSchema — never persisted, no `_schemas/<name>` envelope.
+    const c = v.collection('bare', { fieldMeta: { amount: { label: 'Amount' } } })
+
+    const d = await c.describe({})
+    const f = d.fields.find((x) => x.key === 'amount')
+    expect(f).toBeDefined()
+    expect(f!.id).toBeUndefined()
+  })
+})
+
 // ─── Task 3 (#483): i18n / widget / editable per-field enhancements ──────────
 
 describe('collection.describe() — Task 3: i18n, widget, editable', () => {
