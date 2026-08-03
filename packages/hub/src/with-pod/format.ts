@@ -47,6 +47,7 @@
  */
 
 import type { Cover } from '../with-party/directory/cover/types.js'
+import type { Redirect } from './redirect.js'
 
 /** Magic bytes 'NDB1' (ASCII), identifying a NOYDB bundle. */
 export const NOYDB_BUNDLE_MAGIC = new Uint8Array([0x4e, 0x44, 0x42, 0x31])
@@ -242,6 +243,15 @@ export interface NoydbPodHeader {
    * itself.
    */
   readonly pointerMode?: 'public' | 'private'
+  /**
+   * Signed "this moved, go there" pointer (#944). Carried in the
+   * PLAINTEXT header (not the encrypted body) so a dispatcher can follow
+   * it pre-auth — no secret, no decompression. Structurally validated
+   * here (shape only); the record's OWN signature is a separate
+   * verification step (`verifyRedirect`) since a parser has no
+   * `trustedKeys`. `readPodRedirect` returns this field UNVERIFIED.
+   */
+  readonly redirect?: Redirect
 }
 
 /**
@@ -285,6 +295,7 @@ const ALLOWED_HEADER_KEYS: ReadonlySet<string> = new Set([
   'hasApp',
   'species',
   'pointerMode',
+  'redirect',
 ])
 
 /** Valid `unlockMethods` member values — see `UnlockMethod`. */
@@ -307,6 +318,14 @@ const POD_SPECIES: ReadonlySet<string> = new Set([
   'snapshot',
   'redirect',
   'group',
+])
+
+/** Valid `redirect.reason` values — see `Redirect['reason']`. */
+const REDIRECT_REASONS: ReadonlySet<string> = new Set([
+  'moved',
+  'release',
+  'tombstone',
+  'repoint',
 ])
 
 /**
@@ -491,6 +510,38 @@ export function validateBundleHeader(
       throw new Error(`.noydb bundle header.pointerMode must be 'public' or 'private' when present, got ${got}.`)
     }
   }
+  if (h['redirect'] !== undefined) {
+    const r = h['redirect']
+    if (r === null || typeof r !== 'object' || Array.isArray(r)) {
+      throw new Error(`.noydb bundle header.redirect must be a JSON object when present, got ${typeof r}.`)
+    }
+    const rec = r as Record<string, unknown>
+    if (rec['v'] !== 1) {
+      throw new Error(`.noydb bundle header.redirect.v must be 1, got ${String(rec['v'])}.`)
+    }
+    if (typeof rec['target'] !== 'string' || rec['target'].length === 0) {
+      throw new Error(
+        `.noydb bundle header.redirect.target must be a non-empty string, got ${String(rec['target'])}.`,
+      )
+    }
+    if (!REDIRECT_REASONS.has(rec['reason'] as string)) {
+      throw new Error(
+        `.noydb bundle header.redirect.reason must be one of: ${[...REDIRECT_REASONS].join(', ')}, got ${String(rec['reason'])}.`,
+      )
+    }
+    if (typeof rec['issuedBy'] !== 'string' || !/^[0-9a-f]{16}$/.test(rec['issuedBy'])) {
+      throw new Error(
+        `.noydb bundle header.redirect.issuedBy must be a 16-character lowercase hex fingerprint, ` +
+          `got ${typeof rec['issuedBy'] === 'string' ? `"${rec['issuedBy']}"` : typeof rec['issuedBy']}.`,
+      )
+    }
+    if (typeof rec['sig'] !== 'string' || rec['sig'].length === 0 || !/^[A-Za-z0-9_-]+$/.test(rec['sig'])) {
+      throw new Error(
+        `.noydb bundle header.redirect.sig must be a non-empty base64url string, ` +
+          `got ${typeof rec['sig'] === 'string' ? `"${rec['sig']}"` : typeof rec['sig']}.`,
+      )
+    }
+  }
   // Cross-field invariant: the seal indicator and the extracted-partition
   // kind imply each other. An extracted partition is unlocked via its
   // transfer seal; a seal without the kind is a malformed header.
@@ -567,6 +618,7 @@ export function encodeBundleHeader(header: NoydbPodHeader): Uint8Array {
     ...(header.hasApp !== undefined ? { hasApp: header.hasApp } : {}),
     ...(header.species !== undefined ? { species: header.species } : {}),
     ...(header.pointerMode !== undefined ? { pointerMode: header.pointerMode } : {}),
+    ...(header.redirect !== undefined ? { redirect: header.redirect } : {}),
   })
   return new TextEncoder().encode(json)
 }
