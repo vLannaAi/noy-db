@@ -224,6 +224,53 @@ describe('full-vault integration: schemaFenceState() after a real coordinatedCut
   })
 })
 
+describe('rename carries field identity through a real declare (#946 Task 2)', () => {
+  const oldS = z.object({ id: z.string(), a: z.number() })
+  const newS = z.object({ id: z.string(), b: z.number() })
+  // Real per-record data migration for the renamed key — exercised the same
+  // way a genuinely non-additive change would be, via coordinatedCutover.
+  const transform = (d: Record<string, unknown>) => {
+    const { a, ...rest } = d as { a?: number }
+    return { ...rest, b: a }
+  }
+
+  async function open(store: NoydbStore) {
+    const db = await createNoydb({ store, user: 'a', secret: 'schema-field-ids-pass-1234' })
+    return db.openVault('demo')
+  }
+
+  it('a→b (same shape) is additive-safe (no cutover needed) and `b` inherits `a`\'s id', async () => {
+    const store = toMemory()
+    let v = await open(store)
+    const invoicesOld = v.collection('invoices', { schema: oldS, persistJsonSchema: true })
+    await v._drainPendingSchemaWrites()
+
+    const before = await invoicesOld.describe({})
+    const aId = before.fields.find((f) => f.key === 'a')?.id
+    expect(aId).toBeDefined()
+
+    // Reopen with the renamed schema, configured with a coordinatedCutover
+    // strategy just like a real caller migrating a field would (#946: the
+    // rename is additive-safe, so this never actually gates on the barrier —
+    // asserted below via the fence generation staying at 0).
+    v = await open(store)
+    const invoicesNew = v.collection('invoices', {
+      schema: newS, persistJsonSchema: true, schemaUpdate: [coordinatedCutover({ transform })],
+    })
+    await v._drainPendingSchemaWrites()
+
+    // No cutover was demanded — the rename went straight through the
+    // ordinary "allow" write path.
+    expect((await v.schemaFenceState()).currentSchemaVersion).toBe(0)
+
+    const after = await invoicesNew.describe({})
+    expect(after.fields.find((f) => f.key === 'a')).toBeUndefined()
+    const bId = after.fields.find((f) => f.key === 'b')?.id
+    expect(bId).toBeDefined()
+    expect(bId).toBe(aId)
+  })
+})
+
 describe('legacy back-compat (pre-#946 envelopes/fences)', () => {
   it('loadPersistedSchema tolerates an envelope written before fieldIds/generation existed', async () => {
     const store = inlineMemory()

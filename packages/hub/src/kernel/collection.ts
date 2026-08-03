@@ -65,7 +65,7 @@ import type { RetrieveOptions, RetrieveHit } from '../with-lookup/search/retriev
 import { encodeVecId, type VectorSet, type EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from '../with-lookup/indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
-import { buildDescription, deriveZodFields, type CollectionDescription, type DescribeOptions } from '../with-shape/introspection/describe.js'
+import { buildDescription, deriveZodFields, resolveDescribeFieldIds, type CollectionDescription, type DescribeOptions } from '../with-shape/introspection/describe.js'
 import type { CollectionConfig } from '../with-shape/introspection/types.js'
 import { estimateRecordBytes, type Lru, type LruStats } from './cache/index.js'
 import { generateULID } from '../with-pod/ulid.js'
@@ -995,6 +995,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       ...(this.classified !== undefined ? { classified: this.classified.byField } : {}),
       ...(this.via?.taint !== undefined ? { taint: this.via.taint } : {}),
       ...(this.via ? { viaFragments: this.via.describeFragments() } : {}), // #650 Task 7
+      ...(await resolveDescribeFieldIds(this.adapter, this.vault, this.name, this.getDEK)), // #946
     })
   }
 

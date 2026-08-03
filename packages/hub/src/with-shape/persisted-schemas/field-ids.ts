@@ -57,16 +57,27 @@ function topLevelFieldNames(jsonSchema: object | null): readonly string[] {
  * unchanged; a genuinely new field name mints a fresh id. Returns
  * `undefined` when the fresh schema has no derivable top-level field set
  * (e.g. a stub envelope, or a non-object root schema).
+ *
+ * `renamed` (#946 Task 2) — unambiguous rename pairs from
+ * `computeSchemaDelta`'s `SchemaDelta.renamed`. When the fresh name is a
+ * rename target (`to`), the id is looked up under its OLD name (`from`)
+ * instead of the fresh name itself — the whole point of a stable field id
+ * is that it survives exactly this case; without it, a rename would mint a
+ * fresh id for the new name and silently drop the old one.
  */
 export function resolveFieldIds(
   freshJsonSchema: object | null,
   priorFieldIds: Record<string, string> | undefined,
+  renamed?: readonly { readonly from: string; readonly to: string }[],
 ): Record<string, string> | undefined {
   const names = topLevelFieldNames(freshJsonSchema)
   if (names.length === 0) return undefined
+  const priorNameFor = new Map<string, string>()
+  if (renamed) for (const { from, to } of renamed) priorNameFor.set(to, from)
   const out: Record<string, string> = {}
   for (const name of names) {
-    out[name] = priorFieldIds?.[name] ?? mintFieldId()
+    const priorName = priorNameFor.get(name) ?? name
+    out[name] = priorFieldIds?.[priorName] ?? mintFieldId()
   }
   return out
 }

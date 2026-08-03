@@ -39,12 +39,25 @@ import type { ComputedFields } from '../../with-formula/computed/index.js'
 import type { RefDescriptor } from '../../kernel/refs.js'
 import type { ClassifiedFieldSpec } from '../../via/classified/descriptor.js'
 import { derivePersistedSchema, isZod4Schema } from '../persisted-schemas/derive.js'
+import { loadPersistedSchema } from '../persisted-schemas/storage.js'
 import { jsonSchemaToFields } from './fields.js'
+import type { NoydbStore } from '../../kernel/types.js'
+import type { EnclaveKey } from '../../kernel/enclave/index.js'
 
 // ─── Public types ──────────────────────────────────────────────────────────
 
 export interface DescribedField {
   readonly key: string
+  /**
+   * Stable, opaque per-field identity (#946) — survives a rename (the field
+   * keeps its id when its name/`key` changes). Sourced from the persisted
+   * schema's `PersistedSchemaEnvelope.fieldIds` map, so it is only present on
+   * the async `describeAsync()` path for a collection that has persisted a
+   * schema (`persistJsonSchema: true`) at least once; absent on the sync
+   * `describe()` path (no store I/O) and on any field with no persisted id
+   * yet.
+   */
+  readonly id?: string
   /** Sync: inferred from config ('number'|'enum'|'string'|'array'|'unknown'). Async (Task 4): validator-derived. */
   readonly type: string
   readonly optional: boolean
@@ -239,6 +252,39 @@ export async function deriveZodFields(
   return result
 }
 
+// ─── resolveDescribeFieldIds (#946) ───────────────────────────────────────
+
+/**
+ * Resolve the persisted-schema `fieldIds` map for `describeAsync()`'s
+ * `BuildDescriptionInput` (#946). Returns a spreadable partial so the call
+ * site can inline it with `...(await resolveDescribeFieldIds(...))` without
+ * an intermediate local — `collection.ts`'s `describe()` bodies are under a
+ * near-zero line-ceiling headroom.
+ *
+ * Silent-degrades to `{}` (no ids — every `DescribedField.id` stays
+ * `undefined`, never a describe() crash) on any failure: `getDEK` throwing,
+ * no persisted envelope yet, or an envelope with no `fieldIds` (legacy /
+ * never-persisted). Mirrors the leak/degrade posture of
+ * `satellites/dead-filter.ts`'s `liveBaseIdSetsForBundle`, but degrading to
+ * "no ids" is lossless here (unlike that filter's data-exposure tradeoff) —
+ * describe() simply omits `id` for every field.
+ */
+export async function resolveDescribeFieldIds(
+  store: NoydbStore,
+  vaultName: string,
+  collectionName: string,
+  getDEK: (collectionName: string) => Promise<EnclaveKey>,
+): Promise<{ fieldIds?: Record<string, string> }> {
+  let dek: EnclaveKey
+  try {
+    dek = await getDEK(collectionName)
+  } catch {
+    return {}
+  }
+  const persisted = await loadPersistedSchema(store, vaultName, collectionName, dek)
+  return persisted?.fieldIds !== undefined ? { fieldIds: persisted.fieldIds } : {}
+}
+
 // ─── buildDescription ─────────────────────────────────────────────────────
 
 export interface BuildDescriptionInput {
@@ -286,6 +332,12 @@ export interface BuildDescriptionInput {
    * until they gain a consumer too.
    */
   readonly viaFragments?: Record<string, Record<string, unknown>> | undefined
+  /**
+   * Persisted-schema `fieldName -> id` map (#946), resolved by the async
+   * describe path via {@link resolveDescribeFieldIds}. The sync path passes
+   * no `fieldIds` (no store I/O), so every field's `id` is `undefined` there.
+   */
+  readonly fieldIds?: Record<string, string> | undefined
 }
 
 // Re-export so that callers that want to catch the error don't need another import path.
@@ -340,7 +392,7 @@ function deriveWidget(opts: {
  * couldn't do (schema fields weren't knowable synchronously).
  */
 export function buildDescription(input: BuildDescriptionInput): CollectionDescription {
-  const { collection, fieldMeta, moneyFields, dictKeyFields, lookupFields, computed, refs, zodFields, dictLabels, meta, i18nFields, classified, taint } = input
+  const { collection, fieldMeta, moneyFields, dictKeyFields, lookupFields, computed, refs, zodFields, dictLabels, meta, i18nFields, classified, taint, fieldIds } = input
 
   // #650 Task 7 — the 'lookup' binding's describeFragment, keyed per field.
   // Deliberately routed through `viaFragments` rather than reused directly
@@ -594,6 +646,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
     // ── Assemble the field (exactOptionalPropertyTypes-safe spreads) ───────
     const field: DescribedField = {
       key,
+      ...(fieldIds?.[key] !== undefined ? { id: fieldIds[key] } : {}),
       type,
       optional: zod?.optional ?? false,
       ...(zod?.constraints !== undefined ? { constraints: zod.constraints } : {}),

@@ -21,7 +21,7 @@ import { computeSchemaDelta } from '../schema-update/delta.js'
 import { evaluateStrategies } from '../schema-update/dispatch.js'
 import { loadFence, saveFence } from '../schema-update/fence.js'
 import { isConflictError } from '../../kernel/errors.js'
-import type { SchemaUpdateStrategy, UpdateDecision } from '../schema-update/types.js'
+import type { SchemaUpdateStrategy, UpdateDecision, SchemaDelta } from '../schema-update/types.js'
 import type { NoydbStore, ClassifiedMarker } from '../../kernel/types.js'
 import type { PersistedSchemaEnvelope } from './types.js'
 import type { PairingMarker } from '../satellites/types.js'
@@ -70,19 +70,25 @@ export async function persistSchemaIfNeeded(opts: {
       return { written: false, skipped: true, envelope: stored, decision: { action: 'allow' } }
     }
 
-    // Changed (or first registration). Run update strategies only when we
-    // have a comparable JSON-Schema baseline and strategies were registered.
+    // Changed (or first registration). Compute the delta whenever we have a
+    // comparable JSON-Schema baseline — independent of whether strategies
+    // were registered (#946: the rename pairing it carries feeds the
+    // fieldIds id-carry below even on a bare re-declare with no
+    // `schemaUpdate` strategies configured). Strategies only run when
+    // registered.
     let decision: UpdateDecision = { action: 'allow' }
     const strategies = opts.strategies ?? []
+    let delta: SchemaDelta | undefined
     if (
       stored &&
-      strategies.length > 0 &&
       stored.kind === fresh.kind &&
       isPlainObject(stored.jsonSchema) &&
       isPlainObject(fresh.jsonSchema)
     ) {
-      const delta = computeSchemaDelta(stored.jsonSchema, fresh.jsonSchema, opts.collectionName)
-      decision = await evaluateStrategies(delta, strategies, { collection: opts.collectionName })
+      delta = computeSchemaDelta(stored.jsonSchema, fresh.jsonSchema, opts.collectionName)
+      if (strategies.length > 0) {
+        decision = await evaluateStrategies(delta, strategies, { collection: opts.collectionName })
+      }
     }
 
     if (decision.action !== 'allow') {
@@ -99,11 +105,12 @@ export async function persistSchemaIfNeeded(opts: {
     if (stored?.classified !== undefined) toSave = { ...toSave, classified: stored.classified }
     if (stored?.satellite !== undefined) toSave = { ...toSave, satellite: stored.satellite }
 
-    // #946: mint/preserve stable per-field ids (by name) and stamp the
-    // vault-wide schema-fence generation this write happened at — binds
-    // "generation N" to this envelope's content hash (schemaFenceState() +
-    // loadPersistedSchema agree).
-    const fieldIds = resolveFieldIds(fresh.jsonSchema, stored?.fieldIds)
+    // #946: mint/preserve stable per-field ids (by name, carrying a
+    // detected rename's id from its old name — see `delta.renamed`) and
+    // stamp the vault-wide schema-fence generation this write happened at —
+    // binds "generation N" to this envelope's content hash
+    // (schemaFenceState() + loadPersistedSchema agree).
+    const fieldIds = resolveFieldIds(fresh.jsonSchema, stored?.fieldIds, delta?.renamed)
     if (fieldIds !== undefined) toSave = { ...toSave, fieldIds }
     const fence = await loadFence(opts.store, opts.vault)
     toSave = { ...toSave, generation: fence.currentSchemaVersion }

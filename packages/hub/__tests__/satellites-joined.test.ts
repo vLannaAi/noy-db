@@ -9,6 +9,7 @@
  * satellites-fanout.test.ts.
  */
 import { describe, it, expect } from 'vitest'
+import { z } from 'zod'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withSync } from '../src/with-sync/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
@@ -137,5 +138,43 @@ describe('JoinedHandle', () => {
     const { vault } = await openPair()
     expect(() => vault.joined('nope')).toThrowError(SatelliteConfigError)
     expect(() => vault.joined('nope')).toThrowError(/joined:/)
+  })
+})
+
+describe('JoinedHandle describe() carries field ids through (#946 Task 2)', () => {
+  it('no persisted schema on either side — describe() does not crash, ids undefined', async () => {
+    const { vault } = await openPair()
+    const d = await vault.joined<Msg>('msgs_full').describe()
+    for (const f of d.fields) expect(f.id).toBeUndefined()
+  })
+
+  it('base + satellite both persist a schema — describe() carries each side\'s id through unmodified', async () => {
+    const local = spyMemory()
+    const db = await createNoydb({ store: local.store, user: 'alice', secret: SECRET })
+    const vault = await db.openVault('v946')
+
+    const baseSchema = z.object({ from: z.string() })
+    const satSchema = z.object({ subject: z.string(), body: z.string() })
+
+    vault.collection<Msg>('msgs', {
+      schema: baseSchema as unknown as import('../src/kernel/schema.js').StandardSchemaV1<unknown, Msg>,
+      persistJsonSchema: true,
+    })
+    vault.collection<Msg>('msgs_text', {
+      satelliteOf: 'msgs',
+      fields: ['subject', 'body'],
+      joined: 'msgs_full',
+      schema: satSchema as unknown as import('../src/kernel/schema.js').StandardSchemaV1<unknown, Msg>,
+      persistJsonSchema: true,
+    })
+    await vault._drainPendingSchemaWrites()
+
+    const d = await vault.joined<Msg>('msgs_full').describe()
+    const byKey = Object.fromEntries(d.fields.map((f) => [f.key, f]))
+    expect(byKey.from!.id).toBeDefined()
+    expect(byKey.subject!.id).toBeDefined()
+    expect(byKey.body!.id).toBeDefined()
+    expect(byKey.from!.id).not.toBe(byKey.subject!.id)
+    expect(byKey.subject!.id).not.toBe(byKey.body!.id)
   })
 })

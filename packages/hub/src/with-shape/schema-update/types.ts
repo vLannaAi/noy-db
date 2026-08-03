@@ -25,6 +25,14 @@ export interface SchemaDelta {
   readonly removed: readonly string[]
   /** Top-level properties present in both but altered. */
   readonly changed: readonly FieldChange[]
+  /**
+   * Unambiguous rename pairs detected by shape-matching a removed name
+   * against an added name (#946) — same field, new label. Present only
+   * when at least one pairing was found; the paired names are excluded
+   * from `added`/`removed` (a pure rename is additive-safe, not a
+   * drop+add). See `computeSchemaDelta`'s doc comment for the pairing rule.
+   */
+  readonly renamed?: readonly { readonly from: string; readonly to: string }[]
 }
 
 /** Context handed to a strategy alongside the delta. */
