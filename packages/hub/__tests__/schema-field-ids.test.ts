@@ -132,6 +132,53 @@ describe('generation<->content-hash binding', () => {
     expect(persisted!.generation).toBe(fence.currentSchemaVersion)
     expect(fence.schemaHash).toBe(persisted!.hash)
   })
+
+  it('a schemaHash stamp for collection B does not roll back a fence generation advanced concurrently by collection A', async () => {
+    // The schemaHash stamp is the FIRST non-barrier writer to
+    // `_meta/schema-fence` (previously only SchemaFenceController#setState
+    // wrote it, sequentially, under the drain barrier). This reproduces the
+    // race: while collection B's persistSchemaIfNeeded is mid-write (between
+    // its fence read at entry and its post-write schemaHash stamp),
+    // collection A's cutover completes elsewhere and bumps the vault-wide
+    // fence. B's stamp must NOT clobber A's advance.
+    const base = inlineMemory()
+    const dek2 = await generateDEK()
+    let armed = false
+    const racyStore: NoydbStore = {
+      ...base,
+      async put(c, col, id, env, ev) {
+        await base.put(c, col, id, env, ev)
+        if (armed && col === SCHEMAS_COLLECTION && id === 'B') {
+          armed = false
+          // Simulate collection A's coordinated cutover completing
+          // concurrently and bumping the vault-wide generation — exactly
+          // what `SchemaFenceController#runCutover` does at barrier-resolve.
+          await saveFence(base, VAULT, { currentSchemaVersion: 1, fenceState: 'normal' })
+        }
+      },
+    }
+
+    // Seed collection B's baseline at generation 0.
+    await persistSchemaIfNeeded({
+      store: racyStore, vault: VAULT, collectionName: 'B', validator: z.object({ id: z.string() }), dek: dek2,
+    })
+
+    // Collection B's ordinary re-declare (unrelated to A's cutover) — its
+    // internal fence read happens before A's concurrent bump; its post-write
+    // schemaHash stamp must re-read the fence rather than reuse that stale
+    // snapshot.
+    armed = true
+    const second = await persistSchemaIfNeeded({
+      store: racyStore, vault: VAULT, collectionName: 'B',
+      validator: z.object({ id: z.string(), extra: z.number() }), dek: dek2,
+    })
+    expect(second.written).toBe(true)
+
+    const fence = await loadFence(base, VAULT)
+    expect(fence.currentSchemaVersion).toBe(1) // NOT rolled back to 0
+    expect(fence.fenceState).toBe('normal')
+    expect(fence.schemaHash).toBe(second.envelope.hash) // B's stamp still lands
+  })
 })
 
 describe('full-vault integration: schemaFenceState() after a real coordinatedCutover', () => {

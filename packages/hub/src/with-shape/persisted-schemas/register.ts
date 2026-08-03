@@ -111,9 +111,19 @@ export async function persistSchemaIfNeeded(opts: {
     try {
       await savePersistedSchema(opts.store, opts.vault, opts.collectionName, opts.dek, toSave, version)
       if (toSave.hash !== null) {
-        // Best-effort last-writer-wins stamp (mirrors saveFence's existing
-        // unconditional-write contract) — no CAS on the fence doc today.
-        await saveFence(opts.store, opts.vault, { ...fence, schemaHash: toSave.hash })
+        // This is the FIRST non-barrier writer to `_meta/schema-fence` —
+        // previously only SchemaFenceController.#setState wrote it, and only
+        // sequentially, under the drain barrier. There is no CAS on the fence
+        // doc (out of scope to add here), so re-read it immediately before
+        // writing rather than reusing the `fence` snapshot captured above
+        // (before the potentially-slow `savePersistedSchema` call): spreading
+        // a stale snapshot here would roll back `currentSchemaVersion`/
+        // `fenceState` if a concurrent cutover (on a different collection)
+        // advanced the fence in between — corrupting the vault-wide gate the
+        // whole barrier + MigrationRequiredError check depends on. Re-reading
+        // narrows (does not eliminate) that window to just this one overlay.
+        const freshFence = await loadFence(opts.store, opts.vault)
+        await saveFence(opts.store, opts.vault, { ...freshFence, schemaHash: toSave.hash })
       }
       return { written: true, skipped: false, envelope: toSave, decision }
     } catch (err) {
