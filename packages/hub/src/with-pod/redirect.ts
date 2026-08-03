@@ -17,6 +17,13 @@
 
 import type { DocSigner } from '../with-audit/attestation/signer.js'
 import { signRecord, verifyRecord } from './signature.js'
+import { readPodRedirect } from './bundle.js'
+import {
+  RedirectBadSignatureError,
+  RedirectDepthExceededError,
+  RedirectLoopError,
+  RedirectUnreachableError,
+} from '../kernel/errors.js'
 
 /**
  * A signed pointer to another pod. `target` is a locator string or URL —
@@ -65,4 +72,74 @@ export async function verifyRedirect(
   if (publicKeyB64 === undefined) return false
   const payload = { v: record.v, target: record.target, reason: record.reason, issuedBy: record.issuedBy }
   return verifyRecord(publicKeyB64, record.sig, payload)
+}
+
+/** One followed hop's provenance — surfaced so a UI can show "moved from X via Y". */
+export interface RedirectHop {
+  readonly target: string
+  readonly reason: Redirect['reason']
+  readonly issuedBy: string
+}
+
+/** Result of {@link followRedirects}: the terminal (non-redirect) pod's bytes, plus the ordered hop list that led there. */
+export interface FollowRedirectsResult {
+  readonly terminal: Uint8Array
+  readonly hops: readonly RedirectHop[]
+}
+
+/**
+ * Follow a chain of Redirect records starting from `start`'s pod bytes,
+ * fetching each hop's target via `fetcher`, until a pod with no `redirect`
+ * header field (the terminal) is reached.
+ *
+ * HTTP-redirect discipline: each hop's Redirect is verified against
+ * `opts.trustedKeys` BEFORE it is followed (fail closed — an untrusted or
+ * forged hop never advances the walk), loops are detected on the target
+ * about to be followed, and the hop count is capped at `opts.maxDepth`
+ * (default 8). `fetcher` throwing or returning `null` for a target means
+ * that hop is unreachable.
+ *
+ * @throws {RedirectBadSignatureError} a hop's Redirect fails verification.
+ * @throws {RedirectLoopError} a hop's target was already followed in this chain.
+ * @throws {RedirectDepthExceededError} more than `maxDepth` hops were followed.
+ * @throws {RedirectUnreachableError} `fetcher` threw or returned `null` for a target.
+ */
+export async function followRedirects(
+  start: Uint8Array,
+  fetcher: (target: string) => Promise<Uint8Array | null>,
+  opts: { readonly trustedKeys: Readonly<Record<string, string>>; readonly maxDepth?: number },
+): Promise<FollowRedirectsResult> {
+  const maxDepth = opts.maxDepth ?? 8
+  let current = start
+  const hops: RedirectHop[] = []
+  const visited = new Set<string>()
+
+  for (;;) {
+    const rec = readPodRedirect(current)
+    if (rec === undefined) return { terminal: current, hops }
+
+    if (!(await verifyRedirect(rec, opts.trustedKeys))) {
+      throw new RedirectBadSignatureError(rec.target)
+    }
+    if (visited.has(rec.target)) {
+      throw new RedirectLoopError(rec.target)
+    }
+    visited.add(rec.target)
+
+    hops.push({ target: rec.target, reason: rec.reason, issuedBy: rec.issuedBy })
+    if (hops.length > maxDepth) {
+      throw new RedirectDepthExceededError(maxDepth)
+    }
+
+    let next: Uint8Array | null
+    try {
+      next = await fetcher(rec.target)
+    } catch (cause) {
+      throw new RedirectUnreachableError(rec.target, cause)
+    }
+    if (next === null) {
+      throw new RedirectUnreachableError(rec.target)
+    }
+    current = next
+  }
 }

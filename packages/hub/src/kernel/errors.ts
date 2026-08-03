@@ -1520,6 +1520,65 @@ export class BundleSealMismatchError extends NoydbError {
   }
 }
 
+// ─── Redirect Errors (#944) ────────────────────────────
+
+/**
+ * Thrown by `followRedirects` when the number of hops followed exceeds
+ * `maxDepth` (default 8) without reaching a terminal (non-redirect) pod.
+ */
+export class RedirectDepthExceededError extends NoydbError {
+  constructor(maxDepth: number) {
+    super(
+      'REDIRECT_DEPTH_EXCEEDED',
+      `followRedirects exceeded maxDepth=${maxDepth} without reaching a terminal pod.`,
+    )
+    this.name = 'RedirectDepthExceededError'
+  }
+}
+
+/**
+ * Thrown by `followRedirects` when a redirect chain revisits a target it has
+ * already followed — an infinite loop rather than progress toward a terminal
+ * pod.
+ */
+export class RedirectLoopError extends NoydbError {
+  constructor(target: string) {
+    super('REDIRECT_LOOP', `followRedirects detected a loop: target "${target}" was already followed in this chain.`)
+    this.name = 'RedirectLoopError'
+  }
+}
+
+/**
+ * Thrown by `followRedirects` when a hop's Redirect record fails
+ * verification — either its `issuedBy` is not in the caller's `trustedKeys`
+ * or its signature does not match the record contents. Both cases are
+ * treated the same, fail-closed: a Redirect is required to be signed by a
+ * trusted key, so an untrusted or forged hop is invalid for following, not
+ * merely "unverified".
+ */
+export class RedirectBadSignatureError extends NoydbError {
+  constructor(target: string) {
+    super(
+      'REDIRECT_BAD_SIGNATURE',
+      `followRedirects: the Redirect record pointing to "${target}" failed signature verification (untrusted issuedBy or forged sig).`,
+    )
+    this.name = 'RedirectBadSignatureError'
+  }
+}
+
+/**
+ * Thrown by `followRedirects` when the caller's `fetcher` cannot produce the
+ * pod bytes for a hop's target — it returned `null` or threw. `cause` carries
+ * the underlying fetcher error, when there was one.
+ */
+export class RedirectUnreachableError extends NoydbError {
+  constructor(target: string, cause?: unknown) {
+    super('REDIRECT_UNREACHABLE', `followRedirects: could not fetch pod bytes for redirect target "${target}".`)
+    this.name = 'RedirectUnreachableError'
+    if (cause !== undefined) this.cause = cause
+  }
+}
+
 // ─── i18n / Dictionary Errors ──────────────────────────
 
 /**
