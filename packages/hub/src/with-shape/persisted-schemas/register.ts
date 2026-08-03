@@ -21,6 +21,7 @@ import { computeSchemaDelta } from '../schema-update/delta.js'
 import { evaluateStrategies } from '../schema-update/dispatch.js'
 import { loadFence, saveFence } from '../schema-update/fence.js'
 import { isConflictError } from '../../kernel/errors.js'
+import { syncSchemaManifest, type ManifestSyncDeps } from '../manifest/sync.js'
 import type { SchemaUpdateStrategy, UpdateDecision, SchemaDelta } from '../schema-update/types.js'
 import type { NoydbStore, ClassifiedMarker } from '../../kernel/types.js'
 import type { PersistedSchemaEnvelope } from './types.js'
@@ -54,6 +55,8 @@ export async function persistSchemaIfNeeded(opts: {
   readonly validator: unknown
   readonly dek: EnclaveKey
   readonly strategies?: readonly SchemaUpdateStrategy[]
+  /** #941 Task 3: re-derive + sync the `_manifest/schema` INDEX after a write. Omitted → no sync (e.g. tests that don't care). */
+  readonly manifestSync?: ManifestSyncDeps
 }): Promise<PersistSchemaResult> {
   const fresh = await derivePersistedSchema(opts.validator)
 
@@ -131,6 +134,13 @@ export async function persistSchemaIfNeeded(opts: {
         // narrows (does not eliminate) that window to just this one overlay.
         const freshFence = await loadFence(opts.store, opts.vault)
         await saveFence(opts.store, opts.vault, { ...freshFence, schemaHash: toSave.hash })
+      }
+      // #941 Task 3: keep the `_manifest/schema` INDEX in sync with the
+      // `_schemas/<collection>` write that just landed. Opt-in via
+      // `opts.manifestSync` (threaded from vault.ts, which is the only
+      // caller with a general-purpose `getDEK` resolver + ledger handle).
+      if (opts.manifestSync) {
+        await syncSchemaManifest(opts.store, opts.vault, opts.manifestSync)
       }
       return { written: true, skipped: false, envelope: toSave, decision }
     } catch (err) {
