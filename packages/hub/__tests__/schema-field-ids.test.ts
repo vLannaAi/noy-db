@@ -224,11 +224,14 @@ describe('full-vault integration: schemaFenceState() after a real coordinatedCut
   })
 })
 
-describe('rename carries field identity through a real declare (#946 Task 2)', () => {
+describe('rename migrates data AND carries field identity through a real coordinatedCutover (#946 Task 2)', () => {
   const oldS = z.object({ id: z.string(), a: z.number() })
   const newS = z.object({ id: z.string(), b: z.number() })
-  // Real per-record data migration for the renamed key — exercised the same
-  // way a genuinely non-additive change would be, via coordinatedCutover.
+  // Real per-record data migration for the renamed key. #946 fix: a
+  // detected rename fires the transform (same as a genuinely non-additive
+  // change) so this actually runs — a rename delta on its own migrates NO
+  // data, and without the transform firing, existing values would be
+  // orphaned under the old key.
   const transform = (d: Record<string, unknown>) => {
     const { a, ...rest } = d as { a?: number }
     return { ...rest, b: a }
@@ -239,35 +242,52 @@ describe('rename carries field identity through a real declare (#946 Task 2)', (
     return db.openVault('demo')
   }
 
-  it('a→b (same shape) is additive-safe (no cutover needed) and `b` inherits `a`\'s id', async () => {
+  it('a→b (same shape): the transform actually runs (data moves a→b) AND `b` inherits `a`\'s id', async () => {
     const store = toMemory()
     let v = await open(store)
     const invoicesOld = v.collection('invoices', { schema: oldS, persistJsonSchema: true })
     await v._drainPendingSchemaWrites()
+    await invoicesOld.put('inv1', { id: 'inv1', a: 42 })
 
     const before = await invoicesOld.describe({})
     const aId = before.fields.find((f) => f.key === 'a')?.id
     expect(aId).toBeDefined()
 
-    // Reopen with the renamed schema, configured with a coordinatedCutover
-    // strategy just like a real caller migrating a field would (#946: the
-    // rename is additive-safe, so this never actually gates on the barrier —
-    // asserted below via the fence generation staying at 0).
+    // Reopen with the renamed schema + a coordinatedCutover strategy — the
+    // rename fires the migration transform (restored #946 behavior; a pure
+    // rename is no longer a silent no-op through coordinatedCutover).
     v = await open(store)
     const invoicesNew = v.collection('invoices', {
       schema: newS, persistJsonSchema: true, schemaUpdate: [coordinatedCutover({ transform })],
     })
     await v._drainPendingSchemaWrites()
+    await v.runSchemaCutover()
 
-    // No cutover was demanded — the rename went straight through the
-    // ordinary "allow" write path.
-    expect((await v.schemaFenceState()).currentSchemaVersion).toBe(0)
+    // The cutover DID fire (generation advanced) — a rename is treated the
+    // same as any other migration-worthy change by coordinatedCutover.
+    expect((await v.schemaFenceState()).currentSchemaVersion).toBe(1)
 
-    const after = await invoicesNew.describe({})
+    // The transform ACTUALLY RAN: reading the record back through the new
+    // schema returns its value under the new key `b`, not orphaned under `a`.
+    const migrated = await invoicesNew.get('inv1')
+    expect(migrated).toEqual({ id: 'inv1', b: 42 })
+
+    // A later non-gated re-declare (cutover already resolved) persists the
+    // migrated schema envelope at the new generation, same pattern as the
+    // generation-binding integration test above.
+    v = await open(store)
+    const invoicesFinal = v.collection('invoices', { schema: newS, persistJsonSchema: true })
+    await v._drainPendingSchemaWrites()
+
+    const after = await invoicesFinal.describe({})
     expect(after.fields.find((f) => f.key === 'a')).toBeUndefined()
     const bId = after.fields.find((f) => f.key === 'b')?.id
     expect(bId).toBeDefined()
-    expect(bId).toBe(aId)
+    expect(bId).toBe(aId) // identity survived the rename
+
+    // Reading the record back still returns the migrated value under `b`.
+    const rec = await invoicesFinal.get('inv1')
+    expect(rec).toEqual({ id: 'inv1', b: 42 })
   })
 })
 

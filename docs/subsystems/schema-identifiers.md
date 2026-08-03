@@ -119,6 +119,20 @@ performs (or explicitly opts out of) a migration — `coordinatedCutover` (gated
 or `blindUpdate()` (explicit opt-out) — never as a way to bypass the guards that exist precisely to
 demand one.
 
+**`coordinatedCutover()` itself fires its migration transform on a rename, not just on
+`kind: 'non-additive'`.** `computeSchemaDelta` classifies a pure rename as `kind: 'additive'`
+(the name-change itself is additive-safe), so `coordinatedCutover`'s own gate checks
+`delta.kind === 'non-additive' || (delta.renamed?.length ?? 0) > 0` — a non-empty `renamed` fires
+the `TransformFn` exactly as a genuinely non-additive change would. Pre-#946 a rename was a plain
+drop+add (`kind: 'non-additive'`), so the transform already fired then; without this explicit
+`renamed` check the reclassification to `additive` would have silently stopped the transform from
+running, orphaning every existing record's value under the old key even though
+`additiveOnly()`/`lockSchema()` correctly told the caller to reach for `coordinatedCutover()` to
+migrate it. The story is now coherent end to end: `additiveOnly()` blocks a bare rename →
+its rejection message points the caller at `coordinatedCutover()` → registering one now actually
+runs the `TransformFn` (re-keying `a` → `b` in each record) → data moves AND `resolveFieldIds`
+carries the same field id from `a` to `b` — identity and data survive the rename together.
+
 ## The #941 seam
 
 `fieldIds`, `generation` (on the envelope) and `schemaHash` (on the fence) are plain record-shape
