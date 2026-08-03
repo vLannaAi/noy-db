@@ -16,8 +16,10 @@
 
 import { derivePersistedSchema } from './derive.js'
 import { loadPersistedSchemaEntry, savePersistedSchema } from './storage.js'
+import { resolveFieldIds } from './field-ids.js'
 import { computeSchemaDelta } from '../schema-update/delta.js'
 import { evaluateStrategies } from '../schema-update/dispatch.js'
+import { loadFence, saveFence } from '../schema-update/fence.js'
 import { isConflictError } from '../../kernel/errors.js'
 import type { SchemaUpdateStrategy, UpdateDecision } from '../schema-update/types.js'
 import type { NoydbStore, ClassifiedMarker } from '../../kernel/types.js'
@@ -96,8 +98,23 @@ export async function persistSchemaIfNeeded(opts: {
     let toSave: PersistedSchemaEnvelope = fresh
     if (stored?.classified !== undefined) toSave = { ...toSave, classified: stored.classified }
     if (stored?.satellite !== undefined) toSave = { ...toSave, satellite: stored.satellite }
+
+    // #946: mint/preserve stable per-field ids (by name) and stamp the
+    // vault-wide schema-fence generation this write happened at — binds
+    // "generation N" to this envelope's content hash (schemaFenceState() +
+    // loadPersistedSchema agree).
+    const fieldIds = resolveFieldIds(fresh.jsonSchema, stored?.fieldIds)
+    if (fieldIds !== undefined) toSave = { ...toSave, fieldIds }
+    const fence = await loadFence(opts.store, opts.vault)
+    toSave = { ...toSave, generation: fence.currentSchemaVersion }
+
     try {
       await savePersistedSchema(opts.store, opts.vault, opts.collectionName, opts.dek, toSave, version)
+      if (toSave.hash !== null) {
+        // Best-effort last-writer-wins stamp (mirrors saveFence's existing
+        // unconditional-write contract) — no CAS on the fence doc today.
+        await saveFence(opts.store, opts.vault, { ...fence, schemaHash: toSave.hash })
+      }
       return { written: true, skipped: false, envelope: toSave, decision }
     } catch (err) {
       if (isConflictError(err) && attempt < MAX_SCHEMA_CAS_RETRIES) continue
