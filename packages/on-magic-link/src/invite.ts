@@ -36,6 +36,7 @@ import {
   type FactorProof,
   type SecretPolicy,
 } from '@noy-db/hub'
+import type { ShareLink } from '@noy-db/hub/share-link'
 
 const INVITE_AUDIT_DOC_PREFIX = 'invite-audit-'
 const INVITE_DEFAULT_TTL_MS = 24 * 60 * 60 * 1000
@@ -196,6 +197,14 @@ export class InviteAuditMissingError extends Error {
         'revoked-link-shadow-keyring defense from #32.',
     )
     this.name = 'InviteAuditMissingError'
+  }
+}
+
+export class GrantTokenMissingError extends Error {
+  readonly code = 'GRANT_TOKEN_MISSING' as const
+  constructor() {
+    super('Share link carries no #g= grant token to redeem.')
+    this.name = 'GrantTokenMissingError'
   }
 }
 
@@ -447,6 +456,56 @@ export async function acceptInvite(
   await db.openVault(payload.vault)
 
   return { db, payload }
+}
+
+// ─── Share-link redemption (#949) ──────────────────────────────────────
+
+export interface RedeemGrantTokenOptions {
+  readonly store: NoydbStore
+  readonly newPhrase: string
+  readonly now?: Date
+  readonly secretPolicy?: SecretPolicy
+  readonly allowWeakSecret?: boolean
+  readonly noydbOptions?: Omit<Parameters<typeof createNoydb>[0], 'store' | 'user' | 'secret'>
+}
+
+/**
+ * Redeem a parsed share link's `#g=` grant token through the existing
+ * invite-acceptance ladder. Pure wiring — the token IS a base64url
+ * `InvitePayload` (the same encoding `issueInvite`/`issuePeerRecovery`
+ * produce), so redemption is exactly `acceptInvite` with its full
+ * safety ladder (TTL → audit → revoke → replay), rotation, and session
+ * open. Works for both invite and peer-recovery payloads — `kind`
+ * lives in the payload, not the call site.
+ *
+ * The link's `vaultHandle` (a ULID) is addressing only — it is NOT
+ * cross-checked against the token's `payload.vault` (a vault NAME;
+ * different namespace entirely). The token is the capability: its own
+ * audit-doc presence, TTL, and single-use rotation are the security
+ * boundary, not the path the link happened to be served from. A
+ * mismatched-looking `vaultHandle` is cosmetic.
+ *
+ * @throws {@link GrantTokenMissingError} when `link.grantToken` is absent.
+ * @throws Whatever {@link acceptInvite} throws (`InviteExpiredError`,
+ *         `InviteRevokedError`, `InviteAlreadyAcceptedError`,
+ *         `InviteAuditMissingError`, …).
+ */
+export async function redeemGrantToken(
+  link: ShareLink,
+  opts: RedeemGrantTokenOptions,
+): Promise<AcceptInviteResult> {
+  const token = link.grantToken
+  if (token === undefined) {
+    throw new GrantTokenMissingError()
+  }
+  return acceptInvite(token, {
+    store: opts.store,
+    newPhrase: opts.newPhrase,
+    ...(opts.now !== undefined && { now: opts.now }),
+    ...(opts.secretPolicy !== undefined && { secretPolicy: opts.secretPolicy }),
+    ...(opts.allowWeakSecret !== undefined && { allowWeakSecret: opts.allowWeakSecret }),
+    ...(opts.noydbOptions !== undefined && { noydbOptions: opts.noydbOptions }),
+  })
 }
 
 // ─── Encoding ──────────────────────────────────────────────────────────
