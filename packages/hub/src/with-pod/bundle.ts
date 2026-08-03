@@ -53,6 +53,7 @@ import {
   type UnlockMethod,
 } from './format.js'
 import { signRecord, verifyRecord } from './signature.js'
+import type { Redirect } from './redirect.js'
 import type { DocSigner } from '../with-audit/attestation/signer.js'
 import { sha256Hex as sha256HexBytes } from '../kernel/enclave/index.js'
 import { BundleIntegrityError, BundleSealMismatchError, ValidationError } from '../kernel/errors.js'
@@ -285,6 +286,12 @@ export interface WritePodOptions {
   readonly hasApp?: boolean
   readonly species?: 'full' | 'connection' | 'snapshot' | 'redirect' | 'group'
   readonly pointerMode?: 'public' | 'private'
+  /**
+   * Signed "this moved, go there" pointer (#944), written verbatim into
+   * the plaintext header. Pass an already-signed {@link Redirect}
+   * (mint one via `signRedirect`) — `writePod` does not sign it for you.
+   */
+  readonly redirect?: Redirect
 }
 
 /** @deprecated Use `WritePodOptions`. */
@@ -1282,7 +1289,7 @@ export async function assembleBundleContainer(opts: {
   /** Header fields beyond the always-present four. */
   headerExtras?: Partial<Pick<NoydbPodHeader,
     | 'publicEnvelope' | 'autoUnlock' | 'bundleKind' | 'transferSeal'
-    | 'engineRange' | 'unlockMethods' | 'hasApp' | 'species' | 'pointerMode'
+    | 'engineRange' | 'unlockMethods' | 'hasApp' | 'species' | 'pointerMode' | 'redirect'
   >>
   /**
    * When present, the assembled header is signed (#943): the header is
@@ -1313,6 +1320,7 @@ export async function assembleBundleContainer(opts: {
     ...(opts.headerExtras?.hasApp !== undefined ? { hasApp: opts.headerExtras.hasApp } : {}),
     ...(opts.headerExtras?.species !== undefined ? { species: opts.headerExtras.species } : {}),
     ...(opts.headerExtras?.pointerMode !== undefined ? { pointerMode: opts.headerExtras.pointerMode } : {}),
+    ...(opts.headerExtras?.redirect !== undefined ? { redirect: opts.headerExtras.redirect } : {}),
   }
   // Header signing (#943): sign the header object as it will stand at
   // formatVersion 2 WITH keyId + sigAlg but WITHOUT `sig`, then attach the
@@ -1411,6 +1419,7 @@ export async function writePod(
       ...(opts.hasApp !== undefined ? { hasApp: opts.hasApp } : {}),
       ...(opts.species !== undefined ? { species: opts.species } : {}),
       ...(opts.pointerMode !== undefined ? { pointerMode: opts.pointerMode } : {}),
+      ...(opts.redirect !== undefined ? { redirect: opts.redirect } : {}),
     },
     ...(signer !== undefined ? { signer } : {}),
   })
@@ -1585,6 +1594,21 @@ export function readPodCover(
     ...(env.name !== undefined ? { name: pickLocale(env.name, opts.locale, env.defaultLocale) } : {}),
     ...(env.description !== undefined ? { description: pickLocale(env.description, opts.locale, env.defaultLocale) } : {}),
   }
+}
+
+/**
+ * Read just the bundle's Redirect record (#944) — without verifying the
+ * body or even parsing the dump JSON. Pass the raw bundle bytes; receive
+ * the header's `redirect` field or `undefined` if the bundle was written
+ * without one.
+ *
+ * The record is returned UNVERIFIED: `validateBundleHeader` only checks
+ * its shape at parse time (a parser has no `trustedKeys`). Callers that
+ * intend to follow the redirect MUST separately call `verifyRedirect`
+ * (`redirect.js`) before trusting `target`.
+ */
+export function readPodRedirect(bytes: Uint8Array): Redirect | undefined {
+  return parsePrefixAndHeader(bytes).header.redirect
 }
 
 /**
