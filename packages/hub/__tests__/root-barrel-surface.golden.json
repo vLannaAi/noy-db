@@ -826,6 +826,7 @@
     "TxOp",
     "UnionArmJoin",
     "UnionSource",
+    "UnlockMethod",
     "UnlockedKeyring",
     "Unsubscribe",
     "UpdateAuthenticatorOptions",

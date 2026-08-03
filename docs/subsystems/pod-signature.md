@@ -4,7 +4,7 @@ The `.noydb` pod format (`@noy-db/hub/pod`) wraps `vault.dump()` for safe cloud-
 
 ## What gets signed
 
-The header — `formatVersion`, `handle`, `bodyBytes`, `bodySha256`, and any of `publicEnvelope`/`autoUnlock`/`bundleKind`/`transferSeal` that are present — is signed as canonical JSON (`@noy-db/attestation`'s `canonicalJson` → `utf8` → Ed25519) via the shared `signRecord`/`verifyRecord`/`signedBytes` convention in `with-pod/signature.ts`. This is the same convention the Redirect record (#944) and manifest writes (#941) sign through, so a verifier only needs to learn one scheme.
+The header — `formatVersion`, `handle`, `bodyBytes`, `bodySha256`, and any of `publicEnvelope`/`autoUnlock`/`bundleKind`/`transferSeal`/`engineRange`/`unlockMethods`/`hasApp`/`species`/`pointerMode` that are present — is signed as canonical JSON (`@noy-db/attestation`'s `canonicalJson` → `utf8` → Ed25519) via the shared `signRecord`/`verifyRecord`/`signedBytes` convention in `with-pod/signature.ts`. This is the same convention the Redirect record (#944) and manifest writes (#941) sign through, so a verifier only needs to learn one scheme. The five pre-auth dispatch fields (`engineRange`/`unlockMethods`/`hasApp`/`species`/`pointerMode`, #942) join the signed header automatically since they're just more optional header keys — no separate signing path.
 
 Signing bumps the header to `formatVersion: 2` and attaches the `sig`/`keyId`/`sigAlg` 3-tuple:
 

@@ -50,6 +50,7 @@ import {
   writeUint32BE,
   type CompressionAlgo,
   type NoydbPodHeader,
+  type UnlockMethod,
 } from './format.js'
 import { signRecord, verifyRecord } from './signature.js'
 import type { DocSigner } from '../with-audit/attestation/signer.js'
@@ -273,6 +274,17 @@ export interface WritePodOptions {
    * signer means an unsigned pod, not an on-the-fly key generation.
    */
   readonly sign?: false | DocSigner
+  /**
+   * Header L2 fields (#942) — pre-auth dispatch metadata written verbatim
+   * into the pod header. See `NoydbPodHeader` for the disclosure rationale
+   * of each. All optional; absence produces a legacy-shaped header exactly
+   * as before.
+   */
+  readonly engineRange?: string
+  readonly unlockMethods?: readonly UnlockMethod[]
+  readonly hasApp?: boolean
+  readonly species?: 'full' | 'connection' | 'snapshot' | 'redirect' | 'group'
+  readonly pointerMode?: 'public' | 'private'
 }
 
 /** @deprecated Use `WritePodOptions`. */
@@ -1268,7 +1280,10 @@ export async function assembleBundleContainer(opts: {
   bodyJsonStr: string
   compression: WritePodOptions['compression']
   /** Header fields beyond the always-present four. */
-  headerExtras?: Partial<Pick<NoydbPodHeader, 'publicEnvelope' | 'autoUnlock' | 'bundleKind' | 'transferSeal'>>
+  headerExtras?: Partial<Pick<NoydbPodHeader,
+    | 'publicEnvelope' | 'autoUnlock' | 'bundleKind' | 'transferSeal'
+    | 'engineRange' | 'unlockMethods' | 'hasApp' | 'species' | 'pointerMode'
+  >>
   /**
    * When present, the assembled header is signed (#943): the header is
    * bumped to `formatVersion: 2` and carries the sig/keyId/sigAlg tuple.
@@ -1293,6 +1308,11 @@ export async function assembleBundleContainer(opts: {
     ...(opts.headerExtras?.autoUnlock !== undefined ? { autoUnlock: opts.headerExtras.autoUnlock } : {}),
     ...(opts.headerExtras?.bundleKind !== undefined ? { bundleKind: opts.headerExtras.bundleKind } : {}),
     ...(opts.headerExtras?.transferSeal !== undefined ? { transferSeal: opts.headerExtras.transferSeal } : {}),
+    ...(opts.headerExtras?.engineRange !== undefined ? { engineRange: opts.headerExtras.engineRange } : {}),
+    ...(opts.headerExtras?.unlockMethods !== undefined ? { unlockMethods: opts.headerExtras.unlockMethods } : {}),
+    ...(opts.headerExtras?.hasApp !== undefined ? { hasApp: opts.headerExtras.hasApp } : {}),
+    ...(opts.headerExtras?.species !== undefined ? { species: opts.headerExtras.species } : {}),
+    ...(opts.headerExtras?.pointerMode !== undefined ? { pointerMode: opts.headerExtras.pointerMode } : {}),
   }
   // Header signing (#943): sign the header object as it will stand at
   // formatVersion 2 WITH keyId + sigAlg but WITHOUT `sig`, then attach the
@@ -1385,6 +1405,12 @@ export async function writePod(
       // `publicEnvelope` is the frozen wire key for the cover (#799).
       ...(cover !== undefined ? { publicEnvelope: cover } : {}),
       ...(autoUnlockMode !== null ? { autoUnlock: autoUnlockMode } : {}),
+      // Header L2 fields (#942) — passed through verbatim from opts.
+      ...(opts.engineRange !== undefined ? { engineRange: opts.engineRange } : {}),
+      ...(opts.unlockMethods !== undefined ? { unlockMethods: opts.unlockMethods } : {}),
+      ...(opts.hasApp !== undefined ? { hasApp: opts.hasApp } : {}),
+      ...(opts.species !== undefined ? { species: opts.species } : {}),
+      ...(opts.pointerMode !== undefined ? { pointerMode: opts.pointerMode } : {}),
     },
     ...(signer !== undefined ? { signer } : {}),
   })

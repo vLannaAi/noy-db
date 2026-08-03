@@ -393,6 +393,7 @@ export type {
   NoydbPodHeader,
   NoydbBundleHeader,
   CompressionAlgo,
+  UnlockMethod,
 } from './with-pod/format.js'
 export type {
   WritePodOptions,

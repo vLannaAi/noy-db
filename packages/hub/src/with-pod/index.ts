@@ -63,6 +63,7 @@ export type {
   CompressionAlgo,
   NoydbPodHeader,
   NoydbBundleHeader,
+  UnlockMethod,
 } from './format.js'
 
 export { generateULID, isULID } from './ulid.js'
