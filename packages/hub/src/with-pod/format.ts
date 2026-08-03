@@ -189,7 +189,75 @@ export interface NoydbPodHeader {
    * sig/keyId/sigAlg 3-tuple.
    */
   readonly sigAlg?: 'ed25519'
+  /**
+   * Engine version range that wrote (and can read) this pod, e.g.
+   * `'^0.5.0'`. Discloses only a semver range — no timestamps, no
+   * identities — so a version-skew triage step (open a decade-old
+   * pod → route to a version-matched read-only player instead of a
+   * hard failure) or a landing page can branch before any library
+   * code runs. Safe under minimum-disclosure: a range says nothing
+   * about who wrote the pod or when.
+   */
+  readonly engineRange?: string
+  /**
+   * Declared unlock method(s), e.g. `['password', 'webauthn']`. Lets
+   * a landing/player present the right unlock UI pre-library, and is
+   * ALL a shared connection pod may disclose about its bootstrap
+   * (auth method + endpoint class). Safe under minimum-disclosure: it
+   * names a method family, not a credential, key, or identity.
+   *
+   * The member set mirrors the `@noy-db/on-*` package family
+   * (`on-password`, `on-webauthn`, `on-oidc`, `on-totp`,
+   * `on-email-otp`, `on-magic-link`, `on-pin`, `on-recovery`,
+   * `on-shamir`) — the top-level "which on-* package to load" method
+   * name, not the finer-grained `FactorKind` used by policy gates
+   * (which splits WebAuthn into `webauthn-roaming` /
+   * `webauthn-platform` for factor-proof freshness). `on-threat` is
+   * excluded — it's a lockout/duress helper, not an unlock method a
+   * landing page would present.
+   */
+  readonly unlockMethods?: readonly UnlockMethod[]
+  /**
+   * App-manifest presence flag. Lets a landing fork between
+   * "orphan pod → read-only browse" and "linked app → launch flow"
+   * without reading the body. Safe under minimum-disclosure: a
+   * boolean, not the app's identity or contents.
+   */
+  readonly hasApp?: boolean
+  /**
+   * Artifact species hint for dispatcher branching, cloud tooling,
+   * and the share-flow guard that warns when a data-bearing pod is
+   * shared where a pointer was intended. An "orphan" pod is derived
+   * (`species: 'full'` + `hasApp: false`), not a separate species.
+   * Safe under minimum-disclosure: a coarse artifact-shape label, not
+   * contents or identity.
+   */
+  readonly species?: 'full' | 'connection' | 'snapshot' | 'redirect' | 'group'
+  /**
+   * Whether the app pointer (if any) is disclosed pre-auth. Default
+   * is `'private'` by product decision (recorded in #942) — absence
+   * means private by convention; this field is never auto-injected,
+   * only an author's explicit opt-in writes `'public'`. Safe under
+   * minimum-disclosure: a disclosure-policy flag, not the pointer
+   * itself.
+   */
+  readonly pointerMode?: 'public' | 'private'
 }
+
+/**
+ * Declared unlock method names — mirrors the `@noy-db/on-*` package
+ * family (see `unlockMethods` doc comment on `NoydbPodHeader`).
+ */
+export type UnlockMethod =
+  | 'password'
+  | 'webauthn'
+  | 'oidc'
+  | 'totp'
+  | 'email-otp'
+  | 'magic-link'
+  | 'pin'
+  | 'recovery'
+  | 'shamir'
 
 /** @deprecated Use `NoydbPodHeader`. */
 export type NoydbBundleHeader = NoydbPodHeader
@@ -212,6 +280,33 @@ const ALLOWED_HEADER_KEYS: ReadonlySet<string> = new Set([
   'sig',
   'keyId',
   'sigAlg',
+  'engineRange',
+  'unlockMethods',
+  'hasApp',
+  'species',
+  'pointerMode',
+])
+
+/** Valid `unlockMethods` member values — see `UnlockMethod`. */
+const UNLOCK_METHODS: ReadonlySet<string> = new Set([
+  'password',
+  'webauthn',
+  'oidc',
+  'totp',
+  'email-otp',
+  'magic-link',
+  'pin',
+  'recovery',
+  'shamir',
+])
+
+/** Valid `species` values — see `NoydbPodHeader.species`. */
+const POD_SPECIES: ReadonlySet<string> = new Set([
+  'full',
+  'connection',
+  'snapshot',
+  'redirect',
+  'group',
 ])
 
 /**
@@ -351,6 +446,51 @@ export function validateBundleHeader(
       throw new Error(`.noydb bundle header.sigAlg must be 'ed25519' when present, got ${got}.`)
     }
   }
+  if (h['engineRange'] !== undefined) {
+    if (typeof h['engineRange'] !== 'string' || h['engineRange'].length === 0) {
+      throw new Error(
+        `.noydb bundle header.engineRange must be a string when present, ` +
+          `got ${typeof h['engineRange']}.`,
+      )
+    }
+  }
+  if (h['unlockMethods'] !== undefined) {
+    const methods = h['unlockMethods']
+    if (!Array.isArray(methods)) {
+      throw new Error(
+        `.noydb bundle header.unlockMethods must be an array when present, got ${typeof methods}.`,
+      )
+    }
+    for (let i = 0; i < methods.length; i++) {
+      if (!UNLOCK_METHODS.has(methods[i])) {
+        throw new Error(
+          `.noydb bundle header.unlockMethods[${i}] must be one of: ` +
+            `${[...UNLOCK_METHODS].join(', ')}, got ${String(methods[i])}.`,
+        )
+      }
+    }
+  }
+  if (h['hasApp'] !== undefined) {
+    if (typeof h['hasApp'] !== 'boolean') {
+      throw new Error(
+        `.noydb bundle header.hasApp must be a boolean when present, got ${typeof h['hasApp']}.`,
+      )
+    }
+  }
+  if (h['species'] !== undefined) {
+    if (!POD_SPECIES.has(h['species'] as string)) {
+      const got = typeof h['species'] === 'string' ? `"${h['species']}"` : typeof h['species']
+      throw new Error(
+        `.noydb bundle header.species must be one of: ${[...POD_SPECIES].join(', ')}, got ${got}.`,
+      )
+    }
+  }
+  if (h['pointerMode'] !== undefined) {
+    if (h['pointerMode'] !== 'public' && h['pointerMode'] !== 'private') {
+      const got = typeof h['pointerMode'] === 'string' ? `"${h['pointerMode']}"` : typeof h['pointerMode']
+      throw new Error(`.noydb bundle header.pointerMode must be 'public' or 'private' when present, got ${got}.`)
+    }
+  }
   // Cross-field invariant: the seal indicator and the extracted-partition
   // kind imply each other. An extracted partition is unlocked via its
   // transfer seal; a seal without the kind is a malformed header.
@@ -422,6 +562,11 @@ export function encodeBundleHeader(header: NoydbPodHeader): Uint8Array {
     ...(header.sig !== undefined ? { sig: header.sig } : {}),
     ...(header.keyId !== undefined ? { keyId: header.keyId } : {}),
     ...(header.sigAlg !== undefined ? { sigAlg: header.sigAlg } : {}),
+    ...(header.engineRange !== undefined ? { engineRange: header.engineRange } : {}),
+    ...(header.unlockMethods !== undefined ? { unlockMethods: header.unlockMethods } : {}),
+    ...(header.hasApp !== undefined ? { hasApp: header.hasApp } : {}),
+    ...(header.species !== undefined ? { species: header.species } : {}),
+    ...(header.pointerMode !== undefined ? { pointerMode: header.pointerMode } : {}),
   })
   return new TextEncoder().encode(json)
 }
