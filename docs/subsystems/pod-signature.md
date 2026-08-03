@@ -41,7 +41,16 @@ Reads only the prefix + header region (no body decompression, no vault). Returns
 | `untrusted` | Signed, but `keyId` isn't in `trustedKeys`. The signature was **not** checked. |
 | `tampered` | Signed by a trusted key, but the signature doesn't verify — the header was altered, or the wrong public key is mapped to that `keyId`. |
 
-`verifyPodHeader` is authenticity-only. `readPod`'s `bodySha256` integrity check is a separate, unchanged concern — compose both when a caller needs both guarantees.
+### Authenticity is not integrity — you MUST run both to trust the body
+
+`verifyPodHeader` authenticates the **header**, which includes the *claimed* `bodySha256`. A `verified` result therefore proves the signer vouched for that hash — it does **not** prove the pod's body actually matches it. Confirming the body requires hashing the body bytes and comparing against `header.bodySha256`, which is exactly what `readPod` does before it decompresses.
+
+So a consumer that trusts pod **contents** MUST compose both, and treat either failing as untrusted:
+
+1. `verifyPodHeader(bytes, trustedKeys)` → `verified` (the header, including `bodySha256`, is signed by a key you trust), **and**
+2. `readPod(bytes)` succeeds (the body hashes to the signed `bodySha256` — it throws `BundleIntegrityError` otherwise).
+
+Running only step 1 is a footgun: a `verified` header paired with a swapped body is caught **only** by step 2. `verifyPodHeader` deliberately never folds in the body check (it must stay body-free so a static page can authenticate a header without decompressing megabytes) — the composition is the caller's responsibility, and skipping the integrity half leaves the body unauthenticated even when the header says `verified`.
 
 ## Legacy semantics
 

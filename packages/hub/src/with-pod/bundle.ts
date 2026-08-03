@@ -1495,10 +1495,17 @@ export interface PodVerifyResult {
  * and every other header field stay in the verified payload.
  *
  * No store, enclave, or vault dependency — reachable from a static page with
- * only the pod bytes, the trusted-key map, and `globalThis.crypto`. Standalone
- * and additive: `readPod`'s bodySha256 integrity check is unchanged and
- * untouched by this function. Integrity (`readPod`) and authenticity
- * (`verifyPodHeader`) are separate concerns a caller composes as needed.
+ * only the pod bytes, the trusted-key map, and `globalThis.crypto`.
+ *
+ * SECURITY — authenticity is not integrity. A `verified` result proves the
+ * header (which includes the *claimed* `bodySha256`) is signed by a trusted
+ * key; it does NOT prove the body matches that hash. To trust the pod's
+ * BODY you MUST also confirm the body hashes to `header.bodySha256` — call
+ * `readPod`, which throws `BundleIntegrityError` on mismatch. A `verified`
+ * header paired with a swapped body is caught only by that integrity check.
+ * This function stays body-free by design so a static page can authenticate a
+ * header without decompressing the body; composing the two checks is the
+ * caller's responsibility. See `docs/subsystems/pod-signature.md`.
  */
 export async function verifyPodHeader(
   bytes: Uint8Array,
