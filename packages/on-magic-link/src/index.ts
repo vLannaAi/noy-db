@@ -496,6 +496,8 @@ export {
   InviteRevokedError,
   InviteAlreadyAcceptedError,
   InviteAuditMissingError,
+  redeemGrantToken,
+  GrantTokenMissingError,
 } from './invite.js'
 export type {
   InviteKind,
@@ -506,4 +508,5 @@ export type {
   IssueInviteResult,
   AcceptInviteOptions,
   AcceptInviteResult,
+  RedeemGrantTokenOptions,
 } from './invite.js'
