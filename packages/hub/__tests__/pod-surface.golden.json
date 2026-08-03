@@ -47,6 +47,7 @@
     "NoydbPodHeader",
     "PodVerifyResult",
     "ReadNoydbBundleOptions",
+    "UnlockMethod",
     "WrapBundleStoreOptions",
     "WrapPodStoreOptions",
     "WrappedBundleNoydbStore",
