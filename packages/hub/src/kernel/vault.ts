@@ -30,6 +30,7 @@ import type { Cover } from '../with-party/directory/cover/types.js'
 import { buildRecipientKeyringFile } from '../with-party/team/keyring.js'
 import { ensureCollectionDEK, hasAccess } from '../with-party/team/keyring.js'
 import { isSecretBearingReservedCollection } from '../with-party/team/reserved-secret-collections.js'
+import { isManifestReservedCollection } from '../with-shape/manifest/reserved-collections.js'
 import {
   assertCanExport as assertCanExportCapability,
   assertCanImport as assertCanImportCapability,
@@ -690,8 +691,11 @@ export class Vault {
     // must never be reachable through the generic public collection handle —
     // they are served only by their dedicated, owner/admin-gated API. Serving
     // them here would decrypt with whatever DEK the caller's keyring holds,
-    // bypassing that gate. See reserved-secret-collections.ts.
-    if (isSecretBearingReservedCollection(collectionName)) throw new ReservedCollectionNameError(collectionName)
+    // bypassing that gate. See reserved-secret-collections.ts. `_manifest`
+    // (manifest-engine, #941) joins the same refusal: its records are
+    // privileged/strict-CAS/ledger-audited and served only by the manifest
+    // engine's dedicated API, never the generic collection handle.
+    if (isSecretBearingReservedCollection(collectionName) || isManifestReservedCollection(collectionName)) throw new ReservedCollectionNameError(collectionName)
 
     if (this.satelliteRegistry?.byJoined(collectionName)) { // #591: joined handle — not a directly reachable collection
       throw new SatelliteConfigError(`"${collectionName}" is a joined handle — use vault.joined('${collectionName}'), not vault.collection().`)

@@ -449,6 +449,10 @@ const SCHEMA_DECLARED_OR_INFRA_EXEMPT = new Set([
   'via/money',
   'with-shape/persisted-schemas',
   'with-shape/schema-update',
+  // #941 — the manifest engine is always-on infra (reserved-collection
+  // gating + the schema-manifest read/fence path), same ③ bucket as its
+  // persisted-schemas/schema-update siblings above; no opt-in strategy.
+  'with-shape/manifest',
   // #591 satellites — satelliteOf/fields/joined declaration on collection(); joined handle via vault.joined()
   'with-shape/satellites',
   'with-party/directory',
@@ -1723,6 +1727,10 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/blobs/blob-compaction.js',
     '../with-shape/blobs/export-blobs.js',
     '../with-shape/blobs/object-projection.js',
+    // reserved-manifest-collection guard (#941 Task 1) — the collection()
+    // door rejects the reserved `_manifest` collection; sibling of the
+    // grandfathered reserved-secret-collections.js guard above.
+    '../with-shape/manifest/reserved-collections.js',
     // classified-fields stage 1 — ③ schema feature, joins the #553 lazy-import debt like money/dictKey/computed
     '../via/classified/resolve.js',
     '../with-shape/introspection/field-meta.js',
