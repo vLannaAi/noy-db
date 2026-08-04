@@ -335,6 +335,60 @@ describe('presence (v0.9)', () => {
     })
   })
 
+  describe('encrypted pub/sub round-trip (#968)', () => {
+    const SECRET_A = 'owner-pass-phrase-1234'
+    const SECRET_B = 'peer-pass-phrase-1234'
+
+    it('subscriber decrypts a broadcast presence update, surfacing the correct userId + payload', async () => {
+      const adapter = inlineMemory({ pubsub: true })
+
+      const ownerDb = await createNoydb({
+        teamStrategy: withTeam(), syncStrategy: withSync(),
+        store: adapter, user: 'user-a', secret: SECRET_A,
+      })
+      const compA = await ownerDb.openVault(COMP)
+      // Touch the collection so it has a DEK before granting access to it.
+      await compA.collection('invoices').put('seed', {})
+      await ownerDb.grant(COMP, {
+        userId: 'user-b', displayName: 'User B', role: 'operator', secret: SECRET_B,
+        permissions: { invoices: 'rw' },
+      })
+
+      const memberDb = await createNoydb({
+        teamStrategy: withTeam(), syncStrategy: withSync(),
+        store: adapter, user: 'user-b', secret: SECRET_B,
+      })
+      const compB = await memberDb.openVault(COMP)
+
+      const handleA = compA.collection<CursorPayload>('invoices').presence<CursorPayload>()
+      const handleB = compB.collection<CursorPayload>('invoices').presence<CursorPayload>()
+
+      const received: Array<{ userId: string; payload: CursorPayload }> = []
+      handleB.subscribe((peers) => { received.push(...peers) })
+
+      // A publishes an encrypted presence update over pub/sub — B's
+      // subscriber must decrypt the broadcast (using the IV `encrypt()`
+      // actually used) to surface A's identity + payload. Update twice: the
+      // first call's own storage write and its fire-and-forget pub/sub
+      // delivery to B race each other in this synchronous mock, so the
+      // second broadcast (after the first write has long since committed)
+      // is the one asserted on.
+      await handleA.update({ path: 'invoices/inv-1', action: 'editing' })
+      await new Promise((r) => setTimeout(r, 50))
+      await handleA.update({ path: 'invoices/inv-1', action: 'editing' })
+
+      // Allow the async decrypt + follow-up snapshot poll to settle.
+      await new Promise((r) => setTimeout(r, 100))
+
+      expect(
+        received.some((p) => p.userId === 'user-a' && p.payload.path === 'invoices/inv-1'),
+      ).toBe(true)
+
+      handleA.stop()
+      handleB.stop()
+    })
+  })
+
   describe('unencrypted storage-poll fallback — cleartext dev posture unchanged (#963)', () => {
     it('still uses the plaintext userId as the record id when encrypt: false', async () => {
       const syncAdapter = inlineMemory()

@@ -16,7 +16,7 @@
  */
 
 import type { NoydbStore, PresencePeer } from '../kernel/types.js'
-import { encrypt, decrypt, generateIV, bufferToBase64, derivePresenceKey, type EnclaveKey } from '../kernel/enclave/index.js'
+import { encrypt, decrypt, derivePresenceKey, type EnclaveKey } from '../kernel/enclave/index.js'
 
 const subtle = globalThis.crypto.subtle
 
@@ -125,10 +125,8 @@ export class PresenceHandle<P> {
     let encryptedPayload: string
 
     if (this.encrypted && key) {
-      const iv = generateIV()
-      const ivB64 = bufferToBase64(iv)
-      const { data } = await encrypt(plaintext, key)
-      encryptedPayload = JSON.stringify({ iv: ivB64, data })
+      const { iv, data } = await encrypt(plaintext, key)
+      encryptedPayload = JSON.stringify({ iv, data })
     } else {
       encryptedPayload = plaintext
     }
