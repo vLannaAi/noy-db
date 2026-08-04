@@ -21,9 +21,12 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import * as pod from '../src/with-pod/index.js'
 import type {
-  CompressionAlgo, Cover, DocSigner, FollowRedirectsResult, NoydbBundleHeader, NoydbBundleReadResult, NoydbPodHeader,
-  PodVerifyResult,
-  ReadNoydbBundleOptions, Redirect, RedirectHop, UnlockMethod, WriteNoydbBundleOptions, WritePodOptions,
+  CompressionAlgo, Cover, DeriveSchemaManifestResult, DocSigner, EchoSecretParts, FollowRedirectsResult,
+  GetManifestDEK, LoadedSchemaManifest, LookupDEK,
+  Noydb, NoydbBundleHeader, NoydbBundleReadResult, NoydbOptions, NoydbPodHeader, NoydbStore,
+  OpenPodOptions, OpenPodResult, PodVerifyResult,
+  ReadNoydbBundleOptions, Redirect, RedirectHop, SchemaManifest, SchemaManifestEntry, UnlockMethod, Vault,
+  WriteNoydbBundleOptions, WritePodOptions,
   WrapBundleStoreOptions, WrapPodStoreOptions,
   WrappedBundleNoydbStore, WrappedPodNoydbStore,
 } from '../src/with-pod/index.js'
@@ -87,9 +90,12 @@ describe('@noy-db/hub/pod — golden export surface', () => {
 // Compile-time exhaustiveness: every baselined type must still be exported.
 // A removal/rename breaks `typecheck` here in addition to the source-parse test.
 type _FrozenTypes = [
-  CompressionAlgo, Cover, DocSigner, FollowRedirectsResult, NoydbBundleHeader, NoydbBundleReadResult, NoydbPodHeader,
-  PodVerifyResult,
-  ReadNoydbBundleOptions, Redirect, RedirectHop, UnlockMethod, WriteNoydbBundleOptions, WritePodOptions,
+  CompressionAlgo, Cover, DeriveSchemaManifestResult, DocSigner, EchoSecretParts, FollowRedirectsResult,
+  GetManifestDEK, LoadedSchemaManifest, LookupDEK,
+  Noydb, NoydbBundleHeader, NoydbBundleReadResult, NoydbOptions, NoydbPodHeader, NoydbStore,
+  OpenPodOptions, OpenPodResult, PodVerifyResult,
+  ReadNoydbBundleOptions, Redirect, RedirectHop, SchemaManifest, SchemaManifestEntry, UnlockMethod, Vault,
+  WriteNoydbBundleOptions, WritePodOptions,
   WrapBundleStoreOptions, WrapPodStoreOptions,
   WrappedBundleNoydbStore, WrappedPodNoydbStore,
 ]

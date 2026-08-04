@@ -972,6 +972,35 @@ export function isConflictError(err: unknown): err is ConflictError {
 }
 
 /**
+ * Thrown by the schema-manifest writer (`with-shape/manifest/writer.ts`,
+ * #941 AC #1) when a strict-CAS write to the `_manifest/schema` record
+ * loses the race — the stored `_v` no longer matches `expectedVersion`.
+ *
+ * Unlike {@link ConflictError} (which every other reserved-collection
+ * writer catches and retries), the manifest writer REFUSES: it does not
+ * re-read, re-apply, and retry. Two concurrent direct edits to the
+ * manifest must be refused and surfaced to the caller, never silently
+ * merged.
+ */
+export class ManifestConflictError extends NoydbError {
+  /** The actual stored `_v` at the time of conflict. */
+  readonly foundVersion: number
+  /** The `expectedVersion` the caller supplied. */
+  readonly expectedVersion: number
+
+  constructor(foundVersion: number, expectedVersion: number, message?: string) {
+    super(
+      'MANIFEST_CONFLICT',
+      message ??
+        `Schema manifest write refused: expected _v=${expectedVersion} but found _v=${foundVersion} (concurrent edit — not retried)`,
+    )
+    this.name = 'ManifestConflictError'
+    this.foundVersion = foundVersion
+    this.expectedVersion = expectedVersion
+  }
+}
+
+/**
  * Thrown by `LedgerStore.append()` after exhausting its CAS retry
  * budget under multi-writer contention. Two browser tabs, a
  * web app + an offline mobile peer, or a server worker pool all
@@ -1474,6 +1503,27 @@ export class BundleIntegrityError extends NoydbError {
   constructor(message: string) {
     super('BUNDLE_INTEGRITY', `.noydb bundle integrity check failed: ${message}`)
     this.name = 'BundleIntegrityError'
+  }
+}
+
+/**
+ * Thrown by `open()` (`with-pod/open.ts`, #941) when the caller supplied
+ * `trustedKeys` and `verifyPodHeader` reports `'untrusted'` or `'tampered'`.
+ * Both are treated the same, fail-closed — same posture as
+ * `RedirectBadSignatureError`: once a caller opts into signature
+ * verification, an unverifiable header is a hard stop, not a soft signal.
+ * `'unsigned'` is deliberately NOT included — a legacy/unsigned pod is
+ * benign and open() proceeds, surfacing the status via `OpenPodResult.verification`.
+ */
+export class PodHeaderVerificationError extends NoydbError {
+  constructor(status: 'untrusted' | 'tampered', keyId?: string) {
+    super(
+      'POD_HEADER_VERIFICATION_FAILED',
+      `open(): pod header verification failed (status: '${status}'` +
+        `${keyId !== undefined ? `, keyId: '${keyId}'` : ''}). Refusing to open — ` +
+        `the header is signed but ${status === 'tampered' ? 'the signature does not verify' : 'the signing key is not trusted'}.`,
+    )
+    this.name = 'PodHeaderVerificationError'
   }
 }
 

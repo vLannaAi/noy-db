@@ -432,6 +432,20 @@ export {
   RedirectUnreachableError,
 } from './kernel/errors.js'
 
+// Manifest engine (#941): the pod read-path orchestrator — header → verify
+// → unlock → manifest → generation fence → data — plus the schema manifest
+// (an INDEX over per-collection `_schemas/<collection>` entries, not the
+// schemas themselves) it re-derives on every open.
+export { open } from './with-pod/open.js'
+export type { OpenPodOptions, OpenPodResult } from './with-pod/open.js'
+export { deriveSchemaManifest } from './with-shape/manifest/derive.js'
+export type { DeriveSchemaManifestResult, LookupDEK } from './with-shape/manifest/derive.js'
+export { loadSchemaManifestEntry } from './with-shape/manifest/storage.js'
+export type { GetManifestDEK, LoadedSchemaManifest } from './with-shape/manifest/storage.js'
+export type { SchemaManifest, SchemaManifestEntry } from './with-shape/manifest/types.js'
+export { MANIFEST_COLLECTION, isManifestReservedCollection } from './with-shape/manifest/reserved-collections.js'
+export { ManifestConflictError, PodHeaderVerificationError } from './kernel/errors.js'
+
 // Schema validation — Standard Schema v1 integration
 export type {
   StandardSchemaV1,
@@ -473,6 +487,10 @@ export {
   savePersistedSchema,
   persistSchemaIfNeeded,
 } from './with-shape/persisted-schemas/index.js'
+// `persistSchemaIfNeeded`'s optional `manifestSync` param type (#941 Task 3
+// carried gap — same type-reachability guard the manifest-engine exports
+// below satisfy for `/pod`).
+export type { ManifestSyncDeps } from './with-shape/manifest/sync.js'
 
 // Time-machine queries — vault.at(ts) method lives on
 // Vault; these classes are the return types.

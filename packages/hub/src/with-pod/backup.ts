@@ -17,6 +17,7 @@ import { BackupLedgerError, BackupCorruptedError } from '../kernel/errors.js'
 import { LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION } from '../with-commit/history/ledger/constants.js'
 import { SCHEMAS_COLLECTION } from '../with-shape/persisted-schemas/storage.js'
 import { SEQUENCE_COLLECTION } from '../with-commit/sequence/index.js'
+import { MANIFEST_COLLECTION } from '../with-shape/manifest/reserved-collections.js'
 import type {
   NoydbStore,
   EncryptedEnvelope,
@@ -107,6 +108,7 @@ export async function dumpVault(ctx: BackupContext): Promise<string> {
   const internalSnapshot: VaultSnapshot = {}
   const internalNames = [
     LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION, SCHEMAS_COLLECTION, SEQUENCE_COLLECTION,
+    MANIFEST_COLLECTION, // #941: the pod's manifest-set record(s) travel in the bundle too
     '_history', // full-snapshot version history — so history()/getVersion()/diff() survive the bundle
     '_blob_index', '_blob_chunks', '_blob_eviction_audit',
     // #753 spec §7 Q3: `_blob_intent` markers travel too — restoring mid-op
