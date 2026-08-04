@@ -644,6 +644,15 @@ importers:
         specifier: workspace:*
         version: link:../hub
 
+  packages/test-adapter-conformance:
+    devDependencies:
+      '@noy-db/hub':
+        specifier: workspace:*
+        version: link:../hub
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@22.19.17)(happy-dom@18.0.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.22.3)(yaml@2.9.0)
+
   packages/to-browser-idb:
     devDependencies:
       '@noy-db/hub':
@@ -651,7 +660,7 @@ importers:
         version: link:../hub
       '@noy-db/test-adapter-conformance':
         specifier: workspace:*
-        version: link:../../test-harnesses/adapter-conformance
+        version: link:../test-adapter-conformance
       fake-indexeddb:
         specifier: ^6.2.5
         version: 6.2.5
@@ -666,7 +675,7 @@ importers:
         version: link:../hub
       '@noy-db/test-adapter-conformance':
         specifier: workspace:*
-        version: link:../../test-harnesses/adapter-conformance
+        version: link:../test-adapter-conformance
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -678,7 +687,7 @@ importers:
         version: link:../hub
       '@noy-db/test-adapter-conformance':
         specifier: workspace:*
-        version: link:../../test-harnesses/adapter-conformance
+        version: link:../test-adapter-conformance
 
   packages/to-meter:
     devDependencies:
@@ -691,15 +700,6 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
-
-  test-harnesses/adapter-conformance:
-    devDependencies:
-      '@noy-db/hub':
-        specifier: workspace:*
-        version: link:../../packages/hub
-      vitest:
-        specifier: ^3.0.0
-        version: 3.2.4(@types/node@22.19.17)(happy-dom@18.0.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.22.3)(yaml@2.9.0)
 
   test-harnesses/benchmarks:
     devDependencies:

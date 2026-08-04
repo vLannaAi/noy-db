@@ -1,0 +1,58 @@
+{
+  "name": "@noy-db/test-adapter-conformance",
+  "version": "0.6.0-pre.0",
+  "description": "Parameterized adapter contract tests for noy-db stores — the conformance suite every NoydbStore implementation must pass",
+  "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/test-adapter-conformance#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vLannaAi/noy-db.git",
+    "directory": "packages/test-adapter-conformance"
+  },
+  "bugs": {
+    "url": "https://github.com/vLannaAi/noy-db/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@noy-db/hub": "workspace:*",
+    "vitest": "^3.0.0"
+  },
+  "devDependencies": {
+    "@noy-db/hub": "workspace:*",
+    "vitest": "^3.0.0"
+  },
+  "keywords": [
+    "noy-db",
+    "conformance",
+    "adapter",
+    "testing",
+    "storage"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "tag": "latest"
+  }
+}
