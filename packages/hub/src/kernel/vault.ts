@@ -153,7 +153,7 @@ import { CustodyApi } from '../with-party/custody/index.js'
 // #553: gate + controller + fence-doc reader stay static (a REMOTE cutover must fence this client even without local declarations, and schemaFenceState() is a thin live read that UI bindings seed from in one tick); the decision engine + watcher load lazily.
 import type { FenceWatcher } from '../with-shape/schema-update/fence-watcher.js'
 import { SchemaUpdateGate } from '../with-shape/schema-update/gate.js'
-import { SchemaFenceController } from '../with-shape/schema-update/fence-controller.js'
+import { SchemaFenceController, schemaBumpAuditHook } from '../with-shape/schema-update/fence-controller.js'
 import { loadFence, type FenceDoc } from '../with-shape/schema-update/fence.js'
 import type { UpdateDecision, TransformFn } from '../with-shape/schema-update/types.js'
 import type { RevocationList } from '@noy-db/attestation'
@@ -472,7 +472,7 @@ export class Vault {
       onFlush: () => this.noydb._writeQueueTracker.onFlush(),
       clientId: this.noydb._clientId,
       sessionId: this.noydb._sessionId,
-      emit: (e) => this.emitter.emit('schema:fence-changed', { vault: this.name, ...e }),
+      emit: (e) => this.emitter.emit('schema:fence-changed', { vault: this.name, ...e }), auditBump: schemaBumpAuditHook(() => this.getLedgerOrNull(), this.keyring.userId),
     })
     this.emitter = opts.emitter
     this.onDirty = opts.onDirty

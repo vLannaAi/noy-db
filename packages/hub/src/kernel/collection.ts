@@ -19,7 +19,8 @@ import {
   type DeterministicContext, type EnclaveKey, type SealedShredSlot,
 } from './enclave/index.js'
 import { countLiveEnvelopes } from './lazy-count.js'
-import { liveRecordIsElevated, assertTierWritable, assertCutoverTierSafe } from './tier-visibility.js'
+import { liveRecordIsElevated, assertTierWritable } from './tier-visibility.js'
+import { applyCutoverTransform } from './cutover-transform.js'
 import {
   classifySealedShred as classifySealedShredImpl, syncDerivedOutputs,
   type TiersContext, type TierMoveResult,
@@ -2365,41 +2366,22 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /**
-   * @internal — bulk-rewrite every record through a cutover transform. Raw adapter path (bypasses the write gate + guards — the transform is trusted and runs only during the `migrating` phase). Bumps each record's `_v` and appends a ledger `op:'migration'` entry. #708: refuses BEFORE any rewrite if a live record is elevated (assertCutoverTierSafe) — demote it first.
+   * @internal — bulk-rewrite every record through a cutover transform. Body
+   * lives in `./cutover-transform.js` (kernel-surface line ceiling); this is
+   * a thin context-passing delegator. See {@link applyCutoverTransform} for
+   * the full behavior doc.
    */
   async _applyCutoverTransform(
     transform: (doc: Record<string, unknown>) => Record<string, unknown>,
   ): Promise<number> {
-    const ids = await this.adapter.list(this.vault, this.name)
-    await assertCutoverTierSafe(this.adapter, this.vault, this.name, this.tiers !== null)
-    let count = 0
-    for (const id of ids) {
-      const env = await this.adapter.get(this.vault, this.name, id)
-      if (!env || isTombstone(env, this.storeCiphertext) || isDeleteMarker(env)) continue
-      const decoded = await this.codec.decryptRecord(env, { skipValidation: true, id })
-      if (decoded === null) continue // defensive: shredded between list and get
-      const record = decoded as unknown as Record<string, unknown>
-      const next = transform(record)
-      const nextVersion = (env._v ?? 0) + 1
-      // Migration pass: on a `perRecordKeys` collection, a legacy (no-`_cek`)
-      // record gets a freshly minted CEK here (legacy → CEK re-encrypt), while
-      // an already-CEK record reuses its stable CEK. This is the
-      // erasure-completeness pass — once migrated, the record body is keyed
-      // off a per-record CEK and a future shred can erase it. Until then it
-      // stays directly under the collection DEK. `forget()`/shred reports
-      // un-migrated records explicitly rather than claiming erasure.
-      const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
-      await this.adapter.put(this.vault, this.name, id, await this.codec.encryptRecord(next as unknown as T, nextVersion, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: env } : undefined, id))
-      await this._onRecordMutated(id, 'put', 'cutover') // refresh in-memory cache after the raw write (parity: cache only)
-      if (this.ledger) {
-        await this.ledger.append({
-          op: 'migration', collection: this.name, id, version: nextVersion,
-          actor: this.keyring.userId, payloadHash: '', reason: 'schema:coordinated-cutover',
-        }).catch(() => { /* ledger is best-effort here */ })
-      }
-      count++
-    }
-    return count
+    return applyCutoverTransform<T>({
+      adapter: this.adapter, vault: this.vault, name: this.name, tiers: this.tiers,
+      storeCiphertext: this.storeCiphertext, codec: this.codec, perRecordCek: this.perRecordCek,
+      vdigFields: this.vdigFields, ledger: this.ledger, keyring: this.keyring,
+      resolveRecordCek: this.resolveRecordCek.bind(this),
+      onRecordMutated: this._onRecordMutated.bind(this), envelopePayloadHash: (envelope) => this.strategies.history.envelopePayloadHash(envelope),
+      transform,
+    })
   }
 
   /** @internal Untracked delete body — call {@link delete}, not this. */

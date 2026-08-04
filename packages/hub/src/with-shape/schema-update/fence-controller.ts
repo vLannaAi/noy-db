@@ -20,6 +20,50 @@ import { runDrainBarrier, type CoordinationProvider } from '../../port/by/index.
 /** Runs one collection's transform; supplied by the Vault (binds to a Collection). */
 export type RunTransform = (collection: string, transform: TransformFn) => Promise<void>
 
+/** Structural (no static import — kernel-spine port-layering carve-out, same rationale as
+ *  `kernel/via/dispatch.ts`'s `AuditLedgerLike`) shape of the with-history `LedgerStore.append`
+ *  seam {@link schemaBumpAuditHook} needs. */
+interface AuditLedgerLike {
+  append(input: {
+    readonly op: 'lifecycle'
+    readonly collection: string
+    readonly id: string
+    readonly version: number
+    readonly actor: string
+    readonly payloadHash: string
+    readonly reason?: string
+  }): Promise<unknown>
+}
+
+/**
+ * #965 — a bare `runCutover` generation bump (no re-declare, no per-record
+ * migrations) otherwise leaves zero ledger evidence: per-record `migration`
+ * entries only fire from `applyCutoverTransform` when records + a transform
+ * exist. Mirrors `ledgerAuditHook` (`kernel/via/dispatch.ts`): encoded as a
+ * `'lifecycle'` entry (no ciphertext to hash, `payloadHash: ''`), distinct
+ * from the per-record `op: 'migration'` entries via its
+ * `reason: 'schema:generation-bump=<n>'`. Fires once per successful bump,
+ * always — even when the same cutover also produced per-record entries —
+ * so "one bump entry per generation bump" stays a simple, unconditional
+ * invariant to audit against.
+ *
+ * `getLedger` is called lazily (at bump time, not at wiring time) — same
+ * lazy-init contract as `Vault.getLedgerOrNull`; calling it eagerly during
+ * `Vault` construction (before `this.strategies` is assigned) would throw.
+ */
+export function schemaBumpAuditHook(
+  getLedger: () => AuditLedgerLike | null, actor: string,
+): (generation: number) => Promise<void> {
+  return async (generation) => {
+    const ledger = getLedger()
+    if (!ledger) return
+    await ledger.append({
+      op: 'lifecycle', collection: '', id: '', version: 0, actor, payloadHash: '',
+      reason: `schema:generation-bump=${generation}`,
+    })
+  }
+}
+
 export class SchemaFenceController {
   readonly #coordination: CoordinationProvider
   readonly #vault: string
@@ -29,6 +73,7 @@ export class SchemaFenceController {
   readonly #staleMs: number
   readonly #quiesceTimeoutMs: number
   readonly #emit: (e: { currentSchemaVersion: number; fenceState: FenceState }) => void
+  readonly #auditBump: ((generation: number) => Promise<void>) | undefined
   #snapshot = 0
   readonly #pending = new Map<string, TransformFn>()
 
@@ -48,6 +93,8 @@ export class SchemaFenceController {
     staleMs?: number
     quiesceTimeoutMs?: number
     emit?: (e: { currentSchemaVersion: number; fenceState: FenceState }) => void
+    /** #965 — best-effort ledger audit for a bare (no-record) generation bump. See {@link schemaBumpAuditHook}. */
+    auditBump?: ((generation: number) => Promise<void>) | undefined
   }) {
     this.#coordination = opts.coordination
     this.#vault = opts.vault
@@ -57,6 +104,7 @@ export class SchemaFenceController {
     this.#staleMs = opts.staleMs ?? 30_000
     this.#quiesceTimeoutMs = opts.quiesceTimeoutMs ?? 60_000
     this.#emit = opts.emit ?? (() => {})
+    this.#auditBump = opts.auditBump
   }
 
   /** Capture the generation snapshot at vault-open. */
@@ -135,6 +183,7 @@ export class SchemaFenceController {
         this.#pending.clear()
         await this.#setState(nextVersion, 'normal')
         this.#snapshot = nextVersion
+        if (this.#auditBump) await this.#auditBump(nextVersion).catch(() => { /* ledger is best-effort here, same as the per-record path */ })
       },
     )
     return { migrated }

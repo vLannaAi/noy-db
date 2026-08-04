@@ -966,7 +966,14 @@ const KERNEL_SURFACE_BUDGET = {
   // atomic-path leg post-finalize. Must live here: it needs writeHooks,
   // subsystemBus, keyring and #txIdForHook, all private, and the WriteEvent
   // must be built from the same prior basis the wrappers use.
-  'packages/hub/src/kernel/collection.ts': 4329,
+  // Lowered 4329→4311 (#964/#965 Task 1, shrink-first, 2026-08-04):
+  // `_applyCutoverTransform`'s body moved verbatim to
+  // kernel/cutover-transform.ts as a free `applyCutoverTransform(ctx)`
+  // function; the method here is now a thin context-passing delegator. Pure
+  // extraction, no behavior change (the buggy `payloadHash: ''` moved as-is —
+  // Task 2 fixes it in the new module). Locked in to the ACTUAL measured
+  // line count (readFileSync(...).split('\n').length = wc -l + 1).
+  'packages/hub/src/kernel/collection.ts': 4311,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
