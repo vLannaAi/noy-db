@@ -19,37 +19,75 @@ import { defineEventHandler, getRequestURL, readBody } from 'h3'
 import type { H3Event } from 'h3'
 import { createRestHandler } from '@noy-db/in-rest'
 import { nitroAdapter } from '@noy-db/in-rest/nitro'
-import type { NoydbRestHandler } from '@noy-db/in-rest'
+import type { NoydbRestHandler, RestRequest } from '@noy-db/in-rest'
 import type { NoydbStore } from '@noy-db/hub'
 
 let _handler: NoydbRestHandler | null = null
 
+/**
+ * Case-insensitive `Authorization: Bearer <token>` check against the
+ * configured `rest.authToken`. HTTP header names are case-insensitive on
+ * the wire — `nitroAdapter` already lowercases them, but `RestRequest`'s
+ * type gives no such guarantee, so both castings are checked defensively
+ * (matching what `@noy-db/in-rest`'s own pre-proxy `extractToken` did).
+ */
+function bearerAuthorize(expectedToken: string) {
+  return (req: RestRequest): boolean => {
+    const auth = req.headers['authorization'] ?? req.headers['Authorization']
+    if (!auth?.startsWith('Bearer ')) return false
+    return auth.slice(7) === expectedToken
+  }
+}
+
 function getHandler(
   store: NoydbStore,
-  user: string,
-  ttlSeconds: number,
+  authToken: string | undefined,
   basePath: string,
 ): NoydbRestHandler {
   if (!_handler) {
-    _handler = createRestHandler({ store, user, ttlSeconds, basePath })
+    // FAIL-CLOSED: @noy-db/in-rest rejects every /rpc request with 401
+    // when `authorize` is omitted. Without an `authToken`, that's exactly
+    // what happens here — the deployer MUST configure
+    // `noydb.rest.authToken` (or wire a custom handler directly) to
+    // accept any traffic.
+    _handler = createRestHandler({
+      store,
+      basePath,
+      ...(authToken ? { authorize: bearerAuthorize(authToken) } : {}),
+    })
   }
   return _handler
 }
 
 export default defineEventHandler(async (event: H3Event) => {
-  // Read REST config from Nitro's public runtime config. Nitro stores it at
+  // Read REST config from Nitro's runtime config. Nitro stores it at
   // `event.context.nitro.runtimeConfig` (the canonical location — confirmed
   // by reading nitropack's config.mjs). The fallback on
   // `event.context.runtimeConfig` covers bespoke setups that might inject
-  // config at that alternate key.
+  // config at that alternate key. `basePath` comes off the PUBLIC branch
+  // (module.ts mirrors it there too, it's not a secret); `authToken` comes
+  // off the PRIVATE branch — module.ts deliberately never puts it under
+  // `.public`, so it never reaches the client bundle.
   const ctx = event.context as {
-    nitro?: { runtimeConfig?: { public?: { noydb?: { rest?: Record<string, unknown> } } } }
-    runtimeConfig?: { public?: { noydb?: { rest?: Record<string, unknown> } } }
+    nitro?: {
+      runtimeConfig?: {
+        public?: { noydb?: { rest?: Record<string, unknown> } }
+        noydb?: { rest?: Record<string, unknown> }
+      }
+    }
+    runtimeConfig?: {
+      public?: { noydb?: { rest?: Record<string, unknown> } }
+      noydb?: { rest?: Record<string, unknown> }
+    }
     noydbStore?: NoydbStore
   }
-  const config =
+  const publicConfig =
     ctx.nitro?.runtimeConfig?.public?.noydb?.rest ??
     ctx.runtimeConfig?.public?.noydb?.rest ??
+    {}
+  const privateConfig =
+    ctx.nitro?.runtimeConfig?.noydb?.rest ??
+    ctx.runtimeConfig?.noydb?.rest ??
     {}
 
   // The store must be provided by a separate Nitro server plugin that
@@ -64,15 +102,11 @@ export default defineEventHandler(async (event: H3Event) => {
     )
   }
 
-  const restConfig = config as {
-    user?: string
-    ttlSeconds?: number
-    basePath?: string
-  }
+  const restConfig = publicConfig as { basePath?: string }
+  const authToken = (privateConfig as { authToken?: string }).authToken
   const handler = getHandler(
     store,
-    restConfig.user ?? 'api',
-    restConfig.ttlSeconds ?? 900,
+    authToken,
     restConfig.basePath ?? '/api/noydb',
   )
 
