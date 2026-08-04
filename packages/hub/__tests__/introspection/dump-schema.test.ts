@@ -124,6 +124,31 @@ describe('vault.dumpSchema() — baseline', () => {
     }))
   })
 
+  it('extends subsystems with the full strategy matrix (#948 seam 5)', async () => {
+    const plainDb = await createNoydb({ store: inlineMemory(), user: 'owner-01', secret: 'owner-pass' })
+    const plainComp = await plainDb.openVault(COMP)
+    const plainSnap = await plainComp.dumpSchema()
+    // Default (un-opted-in) strategy reads false, and the 4 registry keys remain present.
+    expect(plainSnap.subsystems.history).toBe(false)
+    expect(plainSnap.subsystems).toEqual(expect.objectContaining({
+      guards: expect.any(Boolean),
+      derivations: expect.any(Boolean),
+      materializedViews: expect.any(Boolean),
+      overlayViews: expect.any(Boolean),
+    }))
+
+    const { withHistory } = await import('../../src/with-commit/history/index.js')
+    const historyDb = await createNoydb({
+      store: inlineMemory(),
+      user: 'owner-01',
+      secret: 'owner-pass',
+      historyStrategy: withHistory(),
+    })
+    const historyComp = await historyDb.openVault(COMP)
+    const historySnap = await historyComp.dumpSchema()
+    expect(historySnap.subsystems.history).toBe(true)
+  })
+
   it('surfaces collection-level config (embeddings/textIndexes/crdt/provenance/tiers)', async () => {
     const comp = await db.openVault(COMP)
     comp.collection<{ id: string; body: string }>('docs', {

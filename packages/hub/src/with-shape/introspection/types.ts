@@ -125,7 +125,6 @@ export interface VaultSchemaSnapshot {
   readonly vault: string
   readonly emittedAt: string
   readonly subsystems: Record<string, boolean>
-  readonly aclRoles?: ReadonlyArray<string>
   readonly meta?: VaultMeta
   readonly collections: Record<string, CollectionDescriptor>
   readonly materializedViews: Record<string, MaterializedViewDescriptor>

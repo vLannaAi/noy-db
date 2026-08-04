@@ -161,6 +161,7 @@ import { VaultAttestation } from '../with-audit/attestation/vault-facade.js'
 import type { DumpSchemaOptions, VaultSchemaSnapshot, SchemaIntrospection } from '../with-shape/introspection/types.js'
 import type { VaultIntrospectState } from '../with-shape/introspection/walk.js'
 import type { VaultMeta } from '../with-shape/introspection/meta.js'
+import { buildSubsystemMatrix } from '../with-shape/introspection/subsystem-matrix.js'
 import { USER_ENVELOPE_COLLECTION } from './constants.js'
 
 /** A vault (tenant namespace) containing collections. */
@@ -3252,12 +3253,10 @@ export class Vault {
       refRegistry: this.refRegistry,
       getDEK: this.getDEK,
       keyring: this.keyring,
-      subsystems: {
-        guards: this.guardRegistry !== null,
-        derivations: this.derivationRegistry !== null,
-        materializedViews: this.materializedViewRegistry !== null,
-        overlayViews: this.overlayedViewRegistry !== null,
-      },
+      subsystems: buildSubsystemMatrix(this.strategies, {
+        guards: this.guardRegistry !== null, derivations: this.derivationRegistry !== null,
+        materializedViews: this.materializedViewRegistry !== null, overlayViews: this.overlayedViewRegistry !== null,
+      }),
       ...(this.vaultMeta !== undefined ? { vaultMeta: this.vaultMeta } : {}),
       mvRegistry: this.materializedViewRegistry,
       overlayRegistry: this.overlayedViewRegistry,

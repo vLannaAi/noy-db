@@ -1254,7 +1254,10 @@ const KERNEL_SURFACE_BUDGET = {
   // Lowered 3735→3704 (#948 Task 1, shrink-first): `getBundleHandle`'s body
   // moved to `with-pod/bundle-handle.ts` (`buildBundleHandle(adapter, name)`,
   // pure function — no logic change); vault.ts holds a 2-line delegator.
-  'packages/hub/src/kernel/vault.ts': 3704,
+  // Lowered 3704→3703 (#948 Task 3, shrink-first): the inline 4-key `subsystems`
+  // literal now calls `buildSubsystemMatrix()` (with-shape/introspection/subsystem-matrix.ts),
+  // which also folds in the 27 strategy-derived booleans; net -1 after the new import line.
+  'packages/hub/src/kernel/vault.ts': 3703,
   // Bumped 3960→3962 (#822 period-summary push symmetry, 2026-07-26): two lines wiring
   // the vault's existing `onDirty` into VaultPeriods so `closePeriod` marks the `_periods`
   // summary dirty and push carries it. The decision (which reserved collections push and
