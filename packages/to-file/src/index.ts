@@ -44,7 +44,14 @@
 
 import { readFile, writeFile, mkdir, readdir, unlink, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub/to'
+import type {
+  NoydbStore,
+  EncryptedEnvelope,
+  VaultSnapshot,
+  StoreDescriptor,
+  StoreFactory,
+  StoreLocator,
+} from '@noy-db/hub/to'
 import { ConflictError } from '@noy-db/hub/to'
 import type {
   Vault,
@@ -287,6 +294,50 @@ export function toFile(options: JsonFileOptions): NoydbStore {
       }
     },
   }
+}
+
+// ─── Store-locator descriptor (#945 — `local`-class reference impl) ──
+
+/**
+ * Builds the `StoreDescriptor` form of a `toFile()` store: `kind: 'file'`,
+ * `class: 'local'`, and a serializable `address` carrying the base
+ * directory (same value `JsonFileOptions.dir` would take directly).
+ *
+ * Credentialless — `to-file` never needs a `StoreCredentialSource`.
+ */
+export function fileStoreDescriptor(dir: string): StoreDescriptor {
+  return { kind: 'file', class: 'local', address: { dir } }
+}
+
+/**
+ * `StoreFactory` for `to-file`: reconstructs the same store `toFile()`
+ * builds, from a `StoreDescriptor` (as produced by {@link fileStoreDescriptor}).
+ *
+ * `to-file` is a credentialless local store, so `opts.credentials` is
+ * unused. `opts.binding` may carry a device-local directory override — a
+ * bare string or `{ dir }` — applied in place of `descriptor.address.dir`
+ * when present (e.g. a different mount point on this device than what the
+ * descriptor was authored with).
+ */
+export const fileStoreFactory: StoreFactory = (descriptor, opts) => {
+  const address = descriptor.address as { dir: string }
+  const binding = opts.binding as { dir?: string } | string | undefined
+
+  let dir: string
+  if (typeof binding === 'string') {
+    dir = binding
+  } else if (binding && binding.dir !== undefined) {
+    dir = binding.dir
+  } else {
+    dir = address.dir
+  }
+
+  return toFile({ dir })
+}
+
+/** Registers {@link fileStoreFactory} under the `'file'` kind on `locator`. */
+export function registerFileStore(locator: StoreLocator): void {
+  locator.register('file', fileStoreFactory)
 }
 
 // ─── .noydb bundle helpers ─────────────────────────────────
