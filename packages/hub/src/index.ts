@@ -274,6 +274,8 @@ export {
   PermissionDeniedError,
   PrivilegeEscalationError,
   StoreCapabilityError,
+  UnknownStoreKindError,
+  DuplicateStoreKindError,
   ConflictError,
   isConflictError,
   NetworkError,

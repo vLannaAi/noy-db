@@ -512,6 +512,58 @@ export class StoreCapabilityError extends NoydbError {
   }
 }
 
+/**
+ * Thrown by `StoreLocator.resolve()` (the `@noy-db/hub/to` Locator seam,
+ * #945) when a `StoreDescriptor.kind` has no registered factory. Names both
+ * the offending kind and every kind currently registered on the locator, so
+ * the fix — register the missing factory, or correct a typo'd kind string —
+ * is visible without a debugger.
+ */
+export class UnknownStoreKindError extends NoydbError {
+  /** The unregistered descriptor kind that was looked up. */
+  readonly kind: string
+  /** Every kind currently registered on the locator, for comparison. */
+  readonly registeredKinds: readonly string[]
+
+  constructor(kind: string, registeredKinds: readonly string[]) {
+    super(
+      'UNKNOWN_STORE_KIND',
+      `No store factory is registered for kind "${kind}". Registered kinds: ` +
+        `${registeredKinds.length > 0 ? registeredKinds.join(', ') : '(none)'}. ` +
+        `Call locator.register("${kind}", factory) before resolving a descriptor of this kind.`,
+    )
+    this.name = 'UnknownStoreKindError'
+    this.kind = kind
+    this.registeredKinds = registeredKinds
+  }
+}
+
+/**
+ * Thrown by `StoreLocator.register()` (the `@noy-db/hub/to` Locator seam,
+ * #945) when `kind` is already registered on the locator. A locator
+ * registers each kind exactly once — a duplicate registration is almost
+ * always a mistake (a copy-pasted setup block, two satellite packages
+ * fighting over the same kind string) — so it fails loudly at the mistake's
+ * source rather than silently overwriting (last-wins) and surfacing
+ * confusion at some unrelated `resolve()` call later. Mirrors
+ * `DuplicateBehaviorNameError`.
+ */
+export class DuplicateStoreKindError extends NoydbError {
+  /** The kind string that was already registered. */
+  readonly kind: string
+
+  constructor(kind: string) {
+    super(
+      'DUPLICATE_STORE_KIND',
+      `StoreLocator: kind "${kind}" is already registered. Each kind may ` +
+        `be registered once per locator — pick a distinct kind string, or ` +
+        `create a separate StoreLocator instance.`,
+    )
+    this.name = 'DuplicateStoreKindError'
+    this.kind = kind
+  }
+}
+
 export class PrivilegeEscalationError extends NoydbError {
   readonly offendingCollection: string
 

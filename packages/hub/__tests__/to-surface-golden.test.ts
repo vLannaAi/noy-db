@@ -19,7 +19,8 @@ import { fileURLToPath } from 'node:url'
 import * as to from '../src/port/to/index.js'
 import type {
   EncryptedEnvelope, ListPageResult, NoydbBundleStore, NoydbPodStore, NoydbStore,
-  StoreCapabilities, StoreCredentials, StoreCredentialSource, StoreTime, TxOp, VaultSnapshot,
+  StoreBinding, StoreCapabilities, StoreClass, StoreCredentials, StoreCredentialSource,
+  StoreDescriptor, StoreFactory, StoreLocator, StoreTime, TxOp, VaultSnapshot,
 } from '../src/port/to/index.js'
 
 interface Surface {
@@ -75,5 +76,6 @@ describe('@noy-db/hub/to — golden export surface', () => {
 // Compile-time exhaustiveness: every baselined type must still be exported.
 type _FrozenTypes = [
   EncryptedEnvelope, ListPageResult, NoydbBundleStore, NoydbPodStore, NoydbStore,
-  StoreCapabilities, StoreCredentials, StoreCredentialSource, StoreTime, TxOp, VaultSnapshot,
+  StoreBinding, StoreCapabilities, StoreClass, StoreCredentials, StoreCredentialSource,
+  StoreDescriptor, StoreFactory, StoreLocator, StoreTime, TxOp, VaultSnapshot,
 ]
