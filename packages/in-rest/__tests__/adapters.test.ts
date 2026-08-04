@@ -28,7 +28,7 @@ describe('nitroAdapter', () => {
 
     const mockEvent = {
       method: 'GET',
-      path: '/sessions/current',
+      path: '/rpc',
       headers: new Headers({ 'X-Test': '1' }),
       _body: null as unknown,
     }
@@ -44,7 +44,7 @@ describe('nitroAdapter', () => {
     // Header case-normalization: RestRequest should see 'x-test' lowercase.
     expect(capturedReq).not.toBeNull()
     expect(capturedReq!.method).toBe('GET')
-    expect(capturedReq!.pathname).toBe('/sessions/current')
+    expect(capturedReq!.pathname).toBe('/rpc')
     expect(capturedReq!.headers['x-test']).toBe('1')
   })
 
@@ -60,7 +60,7 @@ describe('nitroAdapter', () => {
     // headers as an object rather than a Headers instance.
     const mockEvent = {
       method: 'GET',
-      path: '/sessions/current',
+      path: '/rpc',
       headers: { 'X-Test': '1', 'Authorization': 'Bearer abc' } as Record<string, string>,
       _body: null as unknown,
     }
@@ -79,7 +79,7 @@ describe('honoAdapter', () => {
     const handler = stubHandler(okResponse)
     const app = honoAdapter(handler)
 
-    const response = await app.request('/sessions/current', {
+    const response = await app.request('/rpc', {
       method: 'GET',
       headers: { 'content-type': 'application/json' },
     })
@@ -107,9 +107,9 @@ describe('expressAdapter', () => {
 
     const mockReq = {
       method: 'GET',
-      path: '/sessions/current',
-      url: '/sessions/current',
-      originalUrl: '/sessions/current',
+      path: '/rpc',
+      url: '/rpc',
+      originalUrl: '/rpc',
       headers: {} as Record<string, string | string[] | undefined>,
       query: {} as Record<string, unknown>,
       body: null,
@@ -131,7 +131,7 @@ describe('expressAdapter', () => {
 
     expect(capturedReq).not.toBeNull()
     expect(capturedReq!.method).toBe('GET')
-    expect(capturedReq!.pathname).toBe('/sessions/current')
+    expect(capturedReq!.pathname).toBe('/rpc')
   })
 })
 
@@ -147,7 +147,7 @@ describe('fastifyPlugin', () => {
     await app.register(fastifyPlugin(handler))
     await app.ready()
 
-    const res = await app.inject({ method: 'GET', url: '/sessions/current' })
+    const res = await app.inject({ method: 'GET', url: '/rpc' })
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toEqual({ ok: true })
     await app.close()

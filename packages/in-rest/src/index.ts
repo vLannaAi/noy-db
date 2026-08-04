@@ -1,12 +1,22 @@
 /**
  * **@noy-db/in-rest** — Framework-neutral REST API integration for noy-db.
  *
+ * A thin RPC dispatcher — the HTTP twin of `@noy-db/by-peer`'s
+ * `servePeerStore` — that forwards the 6 `NoydbStore` methods straight to
+ * the caller's ciphertext store. The server NEVER sees a passphrase, never
+ * calls `createNoydb`/`openVault`, and never decrypts anything: every
+ * request/response body is an `EncryptedEnvelope` (or a plain id/list of
+ * one) round-tripped as-is.
+ *
  * @example
  * ```ts
  * import { createRestHandler } from '@noy-db/in-rest'
  * import { honoAdapter } from '@noy-db/in-rest/hono'
  *
- * const handler = createRestHandler({ store, user: 'api' })
+ * const handler = createRestHandler({
+ *   store,
+ *   authorize: (req) => req.headers['authorization'] === `Bearer ${API_KEY}`,
+ * })
  * app.route('/api/noydb', honoAdapter(handler))
  * ```
  *
@@ -14,7 +24,6 @@
  */
 
 import type { NoydbStore } from '@noy-db/hub'
-import { SessionStore } from './sessions.js'
 import { buildRouter } from './router.js'
 
 export interface RestRequest {
@@ -37,13 +46,21 @@ export interface NoydbRestHandler {
 
 export interface RestHandlerOptions {
   readonly store: NoydbStore
-  readonly user: string
-  readonly ttlSeconds?: number
+  /**
+   * Authorize each request. Return `true` to allow. If OMITTED, the
+   * handler is FAIL-CLOSED — every `/rpc` request is rejected with 401.
+   * The caller MUST supply an authorizer to accept any traffic.
+   */
+  readonly authorize?: (req: RestRequest) => boolean | Promise<boolean>
+  /**
+   * Optional method allowlist (e.g. a read-only relay). When set, a
+   * method not in the set is rejected with 403.
+   */
+  readonly allow?: ReadonlySet<string>
   readonly basePath?: string
 }
 
 export function createRestHandler(options: RestHandlerOptions): NoydbRestHandler {
-  const sessions = new SessionStore(options.ttlSeconds ?? 900)
-  const route = buildRouter(options.store, options.user, sessions, options.basePath ?? '')
+  const route = buildRouter(options)
   return { handle: route }
 }

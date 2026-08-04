@@ -39,145 +39,249 @@ function toMemory(): NoydbStore {
   }
 }
 
-function req(method: string, path: string, body?: unknown, token?: string): RestRequest {
+// A representative ciphertext envelope — `_data` is base64, never plaintext.
+function envelope(overrides: Partial<EncryptedEnvelope> = {}): EncryptedEnvelope {
+  return {
+    _noydb: 1,
+    _v: 1,
+    _ts: '2026-08-04T00:00:00.000Z',
+    _iv: 'aXZpdml2aXY=',
+    _data: 'Y2lwaGVydGV4dC1ub3QtcGxhaW50ZXh0',
+    ...overrides,
+  } as EncryptedEnvelope
+}
+
+function req(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): RestRequest {
   return {
     method,
     pathname: path,
     searchParams: new URLSearchParams(),
-    headers: {
-      'content-type': 'application/json',
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { 'content-type': 'application/json', ...headers },
     json: () => Promise.resolve(body ?? null),
   }
 }
 
-function reqSearch(method: string, path: string, search: string, token: string): RestRequest {
-  return {
-    method,
-    pathname: path,
-    searchParams: new URLSearchParams(search),
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-    json: () => Promise.resolve(null),
-  }
-}
+const allowAll = () => true
 
-describe('in-rest base handler', () => {
+describe('in-rest envelope-proxy handler', () => {
   let store: NoydbStore
   beforeEach(() => { store = toMemory() })
 
-  it('POST /sessions/unlock/secret → 200 with token', async () => {
-    const handler = createRestHandler({ store, user: 'owner' })
-    const res = await handler.handle(req('POST', '/sessions/unlock/secret', { secret: 'correct-horse-battery-staple' }))
-    expect(res.status).toBe(200)
-    const body = JSON.parse(res.body as string) as { token: string }
-    expect(typeof body.token).toBe('string')
-    expect(body.token.length).toBeGreaterThan(10)
+  // ── Envelope pass-through ────────────────────────────────────────
+
+  it('put then get returns the exact stored EncryptedEnvelope, ciphertext untouched', async () => {
+    const handler = createRestHandler({ store, authorize: allowAll })
+    const env = envelope()
+
+    const putRes = await handler.handle(
+      req('POST', '/rpc', { method: 'put', args: ['acme', 'invoices', 'i1', env] })
+    )
+    expect(putRes.status).toBe(200)
+    expect(JSON.parse(putRes.body as string)).toBeNull()
+
+    const getRes = await handler.handle(
+      req('POST', '/rpc', { method: 'get', args: ['acme', 'invoices', 'i1'] })
+    )
+    expect(getRes.status).toBe(200)
+    const got = JSON.parse(getRes.body as string) as EncryptedEnvelope
+    expect(got).toEqual(env)
+    expect(got._data).toBe('Y2lwaGVydGV4dC1ub3QtcGxhaW50ZXh0')
   })
 
-  it('GET /sessions/current without token → active: false', async () => {
-    const handler = createRestHandler({ store, user: 'owner' })
-    const res = await handler.handle(req('GET', '/sessions/current'))
+  it('list forwards to store.list and returns raw id array', async () => {
+    const handler = createRestHandler({ store, authorize: allowAll })
+    await handler.handle(req('POST', '/rpc', { method: 'put', args: ['acme', 'invoices', 'i1', envelope()] }))
+
+    const res = await handler.handle(req('POST', '/rpc', { method: 'list', args: ['acme', 'invoices'] }))
     expect(res.status).toBe(200)
-    const body = JSON.parse(res.body as string) as { active: boolean }
-    expect(body.active).toBe(false)
+    expect(JSON.parse(res.body as string)).toEqual(['i1'])
   })
 
-  it('GET /sessions/current with valid token → active: true', async () => {
-    const handler = createRestHandler({ store, user: 'owner' })
-    const unlockRes = await handler.handle(req('POST', '/sessions/unlock/secret', { secret: 'correct-horse-battery-staple' }))
-    const { token } = JSON.parse(unlockRes.body as string) as { token: string }
+  it('loadAll / saveAll forward raw VaultSnapshot', async () => {
+    const handler = createRestHandler({ store, authorize: allowAll })
+    const snapshot: VaultSnapshot = { invoices: { i1: envelope() } }
 
-    const res = await handler.handle(req('GET', '/sessions/current', undefined, token))
-    expect(res.status).toBe(200)
-    expect(JSON.parse(res.body as string)).toMatchObject({ active: true })
+    const saveRes = await handler.handle(req('POST', '/rpc', { method: 'saveAll', args: ['acme', snapshot] }))
+    expect(saveRes.status).toBe(200)
+    expect(JSON.parse(saveRes.body as string)).toBeNull()
+
+    const loadRes = await handler.handle(req('POST', '/rpc', { method: 'loadAll', args: ['acme'] }))
+    expect(loadRes.status).toBe(200)
+    expect(JSON.parse(loadRes.body as string)).toEqual(snapshot)
   })
 
-  it('vault routes require a valid token — 401 without one', async () => {
-    const handler = createRestHandler({ store, user: 'owner' })
-    const res = await handler.handle(req('GET', '/vaults'))
+  it('delete forwards to store.delete', async () => {
+    const handler = createRestHandler({ store, authorize: allowAll })
+    await handler.handle(req('POST', '/rpc', { method: 'put', args: ['acme', 'invoices', 'i1', envelope()] }))
+
+    const delRes = await handler.handle(req('POST', '/rpc', { method: 'delete', args: ['acme', 'invoices', 'i1'] }))
+    expect(delRes.status).toBe(200)
+    expect(JSON.parse(delRes.body as string)).toBeNull()
+
+    const getRes = await handler.handle(req('POST', '/rpc', { method: 'get', args: ['acme', 'invoices', 'i1'] }))
+    expect(JSON.parse(getRes.body as string)).toBeNull()
+  })
+
+  // ── Security invariant: no plaintext / no passphrase server-side ──
+
+  it('no unlock/secret route exists — unknown method → 400', async () => {
+    const handler = createRestHandler({ store, authorize: allowAll })
+    const unlockRes = await handler.handle(req('POST', '/rpc', { method: 'unlock', args: ['correct-horse-battery-staple'] }))
+    expect(unlockRes.status).toBe(400)
+
+    const secretRes = await handler.handle(req('POST', '/rpc', { method: 'secret', args: ['correct-horse-battery-staple'] }))
+    expect(secretRes.status).toBe(400)
+  })
+
+  it('does not import createNoydb/openVault (structural — no decrypt path in the module)', async () => {
+    const routerSrc = await import('node:fs').then((fs) =>
+      fs.promises.readFile(new URL('../src/router.ts', import.meta.url), 'utf8')
+    )
+    expect(routerSrc).not.toMatch(/createNoydb/)
+    expect(routerSrc).not.toMatch(/openVault/)
+  })
+
+  it('a put of an envelope then get round-trips the SAME ciphertext, never plaintext', async () => {
+    const handler = createRestHandler({ store, authorize: allowAll })
+    const env = envelope({ _data: 'c2VjcmV0LWNpcGhlcnRleHQ=' })
+    await handler.handle(req('POST', '/rpc', { method: 'put', args: ['acme', 'invoices', 'i1', env] }))
+    const getRes = await handler.handle(req('POST', '/rpc', { method: 'get', args: ['acme', 'invoices', 'i1'] }))
+    const got = JSON.parse(getRes.body as string) as EncryptedEnvelope
+    expect(got._data).toBe('c2VjcmV0LWNpcGhlcnRleHQ=')
+  })
+
+  // ── CAS conflict ────────────────────────────────────────────────
+
+  it('put with a stale expectedVersion → 409 with {error:{name:ConflictError,version}}', async () => {
+    const handler = createRestHandler({ store, authorize: allowAll })
+    await handler.handle(req('POST', '/rpc', { method: 'put', args: ['acme', 'invoices', 'i1', envelope({ _v: 1 })] }))
+
+    const res = await handler.handle(
+      req('POST', '/rpc', { method: 'put', args: ['acme', 'invoices', 'i1', envelope({ _v: 2 }), 99] })
+    )
+    expect(res.status).toBe(409)
+    const body = JSON.parse(res.body as string) as { error: { name: string; message: string; version: number } }
+    expect(body.error.name).toBe('ConflictError')
+    expect(typeof body.error.version).toBe('number')
+    expect(body.error.version).toBe(1)
+  })
+
+  // ── Fail-closed auth ────────────────────────────────────────────
+
+  it('no authorize supplied → every /rpc → 401 (fail-closed)', async () => {
+    const handler = createRestHandler({ store })
+    const res = await handler.handle(req('POST', '/rpc', { method: 'get', args: ['acme', 'invoices', 'i1'] }))
     expect(res.status).toBe(401)
   })
 
-  it('full CRUD flow: list → put → get → delete', async () => {
-    const handler = createRestHandler({ store, user: 'owner' })
-    const { token } = JSON.parse(
-      (await handler.handle(req('POST', '/sessions/unlock/secret', { secret: 'correct-horse-battery-staple' }))).body as string
-    ) as { token: string }
-
-    const listVaultsRes = await handler.handle(req('GET', '/vaults', undefined, token))
-    expect(listVaultsRes.status).toBe(200)
-
-    const putRes = await handler.handle(
-      req('POST', '/vaults/acme/collections/invoices/i1', { id: 'i1', amt: 100 }, token)
-    )
-    expect(putRes.status).toBe(200)
-
-    const getRes = await handler.handle(req('GET', '/vaults/acme/collections/invoices/i1', undefined, token))
-    expect(getRes.status).toBe(200)
-    const record = JSON.parse(getRes.body as string) as { id: string; amt: number }
-    expect(record.id).toBe('i1')
-    expect(record.amt).toBe(100)
-
-    const collRes = await handler.handle(req('GET', '/vaults/acme/collections/invoices', undefined, token))
-    expect(collRes.status).toBe(200)
-    const records = JSON.parse(collRes.body as string) as unknown[]
-    expect(records).toHaveLength(1)
-
-    const delRes = await handler.handle(req('DELETE', '/vaults/acme/collections/invoices/i1', undefined, token))
-    expect(delRes.status).toBe(200)
-
-    const gone = await handler.handle(req('GET', '/vaults/acme/collections/invoices/i1', undefined, token))
-    expect(gone.status).toBe(404)
+  it('authorize returning false → 401', async () => {
+    const handler = createRestHandler({ store, authorize: () => false })
+    const res = await handler.handle(req('POST', '/rpc', { method: 'get', args: ['acme', 'invoices', 'i1'] }))
+    expect(res.status).toBe(401)
   })
 
-  it('DELETE /sessions/current invalidates the token', async () => {
-    const handler = createRestHandler({ store, user: 'owner' })
-    const { token } = JSON.parse(
-      (await handler.handle(req('POST', '/sessions/unlock/secret', { secret: 'correct-horse-battery-staple' }))).body as string
-    ) as { token: string }
-
-    const delRes = await handler.handle(req('DELETE', '/sessions/current', undefined, token))
-    expect(delRes.status).toBe(204)
-
-    const afterDel = await handler.handle(req('GET', '/vaults', undefined, token))
-    expect(afterDel.status).toBe(401)
-  })
-
-  it('?where=status:eq:paid filters results', async () => {
-    const handler = createRestHandler({ store, user: 'owner' })
-    const { token } = JSON.parse(
-      (await handler.handle(req('POST', '/sessions/unlock/secret', { secret: 'correct-horse-battery-staple' }))).body as string
-    ) as { token: string }
-    await handler.handle(req('POST', '/vaults/acme/collections/invoices/i1', { id: 'i1', status: 'paid', amt: 100 }, token))
-    await handler.handle(req('POST', '/vaults/acme/collections/invoices/i2', { id: 'i2', status: 'draft', amt: 50 }, token))
-
-    const res = await handler.handle(
-      reqSearch('GET', '/vaults/acme/collections/invoices', 'where=status:eq:paid', token)
-    )
+  it('authorize returning true → 200', async () => {
+    const handler = createRestHandler({ store, authorize: () => true })
+    const res = await handler.handle(req('POST', '/rpc', { method: 'list', args: ['acme', 'invoices'] }))
     expect(res.status).toBe(200)
-    const results = JSON.parse(res.body as string) as Array<{ status: string }>
-    expect(results).toHaveLength(1)
-    expect(results[0]!.status).toBe('paid')
   })
 
-  it('?where=amt:pow:2 → 400 invalid op', async () => {
-    const handler = createRestHandler({ store, user: 'owner' })
-    const { token } = JSON.parse(
-      (await handler.handle(req('POST', '/sessions/unlock/secret', { secret: 'correct-horse-battery-staple' }))).body as string
-    ) as { token: string }
+  it('authorize that throws → 500 (fail-closed, structured response, never open or uncaught)', async () => {
+    const handler = createRestHandler({
+      store,
+      authorize: () => {
+        throw new Error('auth backend down')
+      },
+    })
+    const res = await handler.handle(req('POST', '/rpc', { method: 'get', args: ['acme', 'invoices', 'i1'] }))
+    expect(res.status).toBe(500)
+    // must not fall open, and must not leak the internal reason
+    expect(res.status).not.toBe(200)
+    expect(res.body).not.toContain('auth backend down')
+  })
 
-    const res = await handler.handle(
-      reqSearch('GET', '/vaults/acme/collections/invoices', 'where=amt:pow:2', token)
-    )
+  // ── allow allowlist ─────────────────────────────────────────────
+
+  it('allow: Set(["get","list"]) → put is 403, get is 200', async () => {
+    const handler = createRestHandler({ store, authorize: allowAll, allow: new Set(['get', 'list']) })
+    const putRes = await handler.handle(req('POST', '/rpc', { method: 'put', args: ['acme', 'invoices', 'i1', envelope()] }))
+    expect(putRes.status).toBe(403)
+
+    const getRes = await handler.handle(req('POST', '/rpc', { method: 'get', args: ['acme', 'invoices', 'i1'] }))
+    expect(getRes.status).toBe(200)
+  })
+
+  // ── Unknown / malformed ─────────────────────────────────────────
+
+  it('unknown method → 400', async () => {
+    const handler = createRestHandler({ store, authorize: allowAll })
+    const res = await handler.handle(req('POST', '/rpc', { method: 'frobnicate', args: [] }))
     expect(res.status).toBe(400)
-    const body = JSON.parse(res.body as string) as { error: string }
-    expect(body.error).toBe('invalid_op')
+  })
+
+  it('body without an args array → 400', async () => {
+    const handler = createRestHandler({ store, authorize: allowAll })
+    const res = await handler.handle(req('POST', '/rpc', { method: 'get' }))
+    expect(res.status).toBe(400)
+  })
+
+  it('malformed JSON body → 400', async () => {
+    const handler = createRestHandler({ store, authorize: allowAll })
+    const badReq: RestRequest = {
+      method: 'POST',
+      pathname: '/rpc',
+      searchParams: new URLSearchParams(),
+      headers: { 'content-type': 'application/json' },
+      json: () => Promise.reject(new Error('invalid json')),
+    }
+    const res = await handler.handle(badReq)
+    expect(res.status).toBe(400)
+  })
+
+  // ── Optional-method + error-message hygiene ─────────────────────
+
+  it('unsupported optional method → 501 (client can feature-detect, not 400)', async () => {
+    // toMemory implements only the 6 core methods — not listVaults.
+    const handler = createRestHandler({ store, authorize: allowAll })
+    const res = await handler.handle(req('POST', '/rpc', { method: 'listVaults', args: [] }))
+    expect(res.status).toBe(501)
+    const body = JSON.parse(res.body as string) as { error: { name: string } }
+    expect(body.error.name).toBe('NotImplemented')
+  })
+
+  it('a store error does not leak its raw message to the client (500)', async () => {
+    const leaky: NoydbStore = {
+      name: 'leaky',
+      async get(): Promise<EncryptedEnvelope | null> {
+        throw new Error('postgres://user:secret@db.internal:5432 connection refused')
+      },
+      async put() {},
+      async delete() {},
+      async list() { return [] },
+      async loadAll(): Promise<VaultSnapshot> { return {} },
+      async saveAll() {},
+    }
+    const handler = createRestHandler({ store: leaky, authorize: allowAll })
+    const res = await handler.handle(req('POST', '/rpc', { method: 'get', args: ['acme', 'invoices', 'i1'] }))
+    expect(res.status).toBe(500)
+    expect(res.body).not.toContain('secret')
+    expect(res.body).not.toContain('postgres://')
+  })
+
+  // ── Routing / basePath ──────────────────────────────────────────
+
+  it('unmatched path/method → 404', async () => {
+    const handler = createRestHandler({ store, authorize: allowAll })
+    const res = await handler.handle(req('GET', '/rpc'))
+    expect(res.status).toBe(404)
+
+    const res2 = await handler.handle(req('POST', '/vaults/acme/collections/invoices/i1'))
+    expect(res2.status).toBe(404)
   })
 
   it('basePath option strips the prefix before routing', async () => {
-    const handler = createRestHandler({ store, user: 'owner', basePath: '/api/noydb' })
-    const res = await handler.handle(req('POST', '/api/noydb/sessions/unlock/secret', { secret: 'correct-horse-battery-staple' }))
+    const handler = createRestHandler({ store, authorize: allowAll, basePath: '/api/noydb' })
+    const res = await handler.handle(req('POST', '/api/noydb/rpc', { method: 'list', args: ['acme', 'invoices'] }))
     expect(res.status).toBe(200)
   })
 })
