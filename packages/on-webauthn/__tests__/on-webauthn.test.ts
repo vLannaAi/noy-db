@@ -15,6 +15,7 @@ import {
   WebAuthnNotAvailableError,
   WebAuthnCancelledError,
   WebAuthnMultiDeviceError,
+  WebAuthnPRFUnavailableError,
 } from '../src/index.js'
 import type { WebAuthnEnrollment } from '../src/index.js'
 import type { UnlockedKeyring } from '@noy-db/hub'
@@ -214,12 +215,22 @@ describe('enrollWebAuthn', () => {
     expect(typeof enrollment.credentialId).toBe('string')
   })
 
-  it('returns an enrollment with prfUsed: false when PRF is absent (rawId fallback)', async () => {
+  it('rejects with WebAuthnPRFUnavailableError when PRF is absent and allowNonPrfInsecure is not set', async () => {
     stubWebAuthn({
       createReturn: mockCreateCredential({ prfOutput: null }),
     })
     const keyring = await makeKeyring()
-    const enrollment = await enrollWebAuthn(keyring, 'company-a')
+    await expect(
+      enrollWebAuthn(keyring, 'company-a'),
+    ).rejects.toThrow(WebAuthnPRFUnavailableError)
+  })
+
+  it('produces a record with prfUsed: false when PRF is absent and allowNonPrfInsecure: true (acknowledged-insecure escape hatch)', async () => {
+    stubWebAuthn({
+      createReturn: mockCreateCredential({ prfOutput: null }),
+    })
+    const keyring = await makeKeyring()
+    const enrollment = await enrollWebAuthn(keyring, 'company-a', { allowNonPrfInsecure: true })
     expect(enrollment.prfUsed).toBe(false)
   })
 
@@ -278,18 +289,20 @@ describe('enrollWebAuthn + unlockWebAuthn round-trip', () => {
     expect(unlocked.deks.has('invoices')).toBe(true)
   })
 
-  it('rawId fallback path: enroll then unlock returns equivalent keyring', async () => {
+  it('rawId fallback path (acknowledged-insecure): enroll with allowNonPrfInsecure then unlock returns equivalent keyring (back-compat)', async () => {
     const rawId = new Uint8Array(16).fill(0xef).buffer
 
-    // Enroll without PRF
+    // Enroll without PRF, explicitly acknowledging the non-confidential escape hatch.
     stubWebAuthn({
       createReturn: mockCreateCredential({ rawId, prfOutput: null }),
     })
     const keyring = await makeKeyring()
-    const enrollment = await enrollWebAuthn(keyring, 'company-a')
+    const enrollment = await enrollWebAuthn(keyring, 'company-a', { allowNonPrfInsecure: true })
     expect(enrollment.prfUsed).toBe(false)
 
-    // Unlock — rawId must match
+    // Unlock of that (existing, already-produced) non-PRF record still
+    // works — unlockWebAuthn never changed, back-compat for migrators.
+    // rawId must match.
     vi.unstubAllGlobals()
     stubWebAuthn({
       getReturn: mockGetCredential({ rawId, prfOutput: null }),
