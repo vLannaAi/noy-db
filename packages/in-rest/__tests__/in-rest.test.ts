@@ -186,6 +186,20 @@ describe('in-rest envelope-proxy handler', () => {
     expect(res.status).toBe(200)
   })
 
+  it('authorize that throws → 500 (fail-closed, structured response, never open or uncaught)', async () => {
+    const handler = createRestHandler({
+      store,
+      authorize: () => {
+        throw new Error('auth backend down')
+      },
+    })
+    const res = await handler.handle(req('POST', '/rpc', { method: 'get', args: ['acme', 'invoices', 'i1'] }))
+    expect(res.status).toBe(500)
+    // must not fall open, and must not leak the internal reason
+    expect(res.status).not.toBe(200)
+    expect(res.body).not.toContain('auth backend down')
+  })
+
   // ── allow allowlist ─────────────────────────────────────────────
 
   it('allow: Set(["get","list"]) → put is 403, get is 200', async () => {

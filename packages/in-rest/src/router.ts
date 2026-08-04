@@ -117,8 +117,15 @@ export function buildRouter(opts: RestHandlerOptions) {
     }
 
     // Auth first, and fail-closed: an omitted authorizer denies every
-    // request. The caller MUST supply one to accept any traffic.
-    const authorized = authorize ? await authorize(req) : false
+    // request. The caller MUST supply one to accept any traffic. A throwing
+    // authorizer also fails closed — a structured 500 with no leaked detail,
+    // never an open request or an uncaught rejection out of handle().
+    let authorized: boolean
+    try {
+      authorized = authorize ? await authorize(req) : false
+    } catch {
+      return json(500, { error: { name: 'Error', message: 'authorization failed' } })
+    }
     if (!authorized) {
       return json(401, { error: { name: 'Unauthorized', message: 'unauthorized' } })
     }
