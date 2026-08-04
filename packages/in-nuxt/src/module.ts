@@ -93,6 +93,10 @@ export interface ModuleOptions {
    * Optional REST API integration. When `enabled: true`, mounts a catch-all
    * Nitro server handler at `basePath/**` using `@noy-db/in-rest`.
    *
+   * The handler is a ciphertext RPC proxy — it never unlocks a vault or
+   * sees plaintext, and it is FAIL-CLOSED: without `authToken`, every
+   * `POST {basePath}/rpc` request is rejected with 401.
+   *
    * The handler is scaffold-level: it reads `event.context.noydbStore` which
    * a separate Nitro plugin must populate. spec follow-up for the store
    * wiring. The module simply registers the route here.
@@ -102,10 +106,20 @@ export interface ModuleOptions {
     enabled?: boolean
     /** Base path for all REST routes. Default: '/api/noydb'. */
     basePath?: string
-    /** User ID forwarded to createRestHandler. */
-    user?: string
-    /** Session TTL in seconds. Default: 900. */
-    ttlSeconds?: number
+    /**
+     * Bearer token required on every `/rpc` request's `Authorization`
+     * header. REQUIRED to accept any traffic — omitting it leaves the
+     * handler fail-closed (every request → 401). Kept OFF the public
+     * runtime config (never sent to the browser bundle); the module
+     * stashes it under the private `runtimeConfig.noydb.rest.authToken`
+     * instead, which only the Nitro server process can read.
+     *
+     * For anything beyond a static bearer token (per-user auth, JWT
+     * verification, …), call `createRestHandler` from `@noy-db/in-rest`
+     * directly with a custom `authorize` callback instead of using this
+     * module's REST integration.
+     */
+    authToken?: string
   }
 }
 
@@ -141,9 +155,15 @@ export default defineNuxtModule<ModuleOptions>({
     // We stash the typed options under `runtimeConfig.public.noydb` so
     // the client plugin (and any downstream composable) can read them
     // without re-parsing nuxt.config.ts. `public` is required so the
-    // values reach the browser bundle — but EVERY field is metadata
-    // (store name, table name, etc.), NEVER a secret. Secrets
-    // and tokens are still provided at runtime via user callbacks.
+    // values reach the browser bundle — but EVERY field there is metadata
+    // (store name, table name, etc.), NEVER a secret.
+    //
+    // `rest.authToken` is the one genuine secret this module accepts. It
+    // is deliberately kept OFF `runtimeConfig.public` and stashed on the
+    // private `runtimeConfig.noydb.rest.authToken` instead, which Nitro
+    // never ships to the client bundle — only `packages/in-nuxt`'s own
+    // server handler (`runtime/rest.ts`) reads it.
+    const { authToken, ...publicRest } = options.rest ?? {}
     nuxt.options.runtimeConfig.public.noydb = {
       // The cast is necessary because Nuxt's runtimeConfig type is
       // structurally `Record<string, any>` — modules are expected to
@@ -151,6 +171,13 @@ export default defineNuxtModule<ModuleOptions>({
       // below).
       ...(nuxt.options.runtimeConfig.public.noydb ?? {}),
       ...options,
+      ...(options.rest ? { rest: publicRest } : {}),
+    }
+    if (authToken) {
+      nuxt.options.runtimeConfig.noydb = {
+        ...(nuxt.options.runtimeConfig.noydb ?? {}),
+        rest: { authToken },
+      }
     }
 
     // ─── 2. Auto-imports for @noy-db/vue composables ────────────────
@@ -259,5 +286,9 @@ declare module '@nuxt/schema' {
   }
   interface PublicRuntimeConfig {
     noydb?: ModuleOptions
+  }
+  interface RuntimeConfig {
+    /** Private (server-only) mirror — carries only `rest.authToken`. */
+    noydb?: { rest?: { authToken?: string } }
   }
 }

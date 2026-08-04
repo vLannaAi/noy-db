@@ -114,10 +114,31 @@ describe('in-nuxt REST module option', () => {
     const { default: module } = await import('../src/module.js')
     const nuxt = makeNuxtMock()
     await (module as (opts: Record<string, unknown>, nuxt: unknown) => Promise<void>)(
-      { rest: { enabled: true, ttlSeconds: 1800, user: 'api' } },
+      { rest: { enabled: true, basePath: '/rpc' } },
       nuxt,
     )
     const rc = nuxt.options.runtimeConfig.public as Record<string, Record<string, unknown>>
-    expect(rc['noydb']?.['rest']).toMatchObject({ enabled: true, ttlSeconds: 1800, user: 'api' })
+    expect(rc['noydb']?.['rest']).toMatchObject({ enabled: true, basePath: '/rpc' })
+  })
+
+  it('does NOT put authToken on the public runtime config', async () => {
+    const { default: module } = await import('../src/module.js')
+    const nuxt = makeNuxtMock()
+    await (module as (opts: Record<string, unknown>, nuxt: unknown) => Promise<void>)(
+      { rest: { enabled: true, authToken: 'secret-token' } },
+      nuxt,
+    )
+    const rc = nuxt.options.runtimeConfig.public as Record<string, Record<string, unknown>>
+    expect(rc['noydb']?.['rest']).not.toHaveProperty('authToken')
+  })
+
+  it('stashes authToken on the private runtimeConfig.noydb.rest instead', async () => {
+    const { default: module } = await import('../src/module.js')
+    const nuxt = makeNuxtMock() as { options: { runtimeConfig: { public: Record<string, unknown>; noydb?: { rest?: { authToken?: string } } } } }
+    await (module as (opts: Record<string, unknown>, nuxt: unknown) => Promise<void>)(
+      { rest: { enabled: true, authToken: 'secret-token' } },
+      nuxt,
+    )
+    expect(nuxt.options.runtimeConfig.noydb?.rest?.authToken).toBe('secret-token')
   })
 })
