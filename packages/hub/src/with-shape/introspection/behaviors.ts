@@ -104,13 +104,28 @@ export function buildBehaviorSummary(registries: BehaviorRegistries): BehaviorSu
 
 function buildGuardEntries(registry: GuardRegistry | null): readonly GuardBehaviorEntry[] {
   if (!registry) return []
+  const all = registry.all()
+  const used = new Set<string>()
+  // Pre-seed with every explicit name BEFORE generating any fallback, so an
+  // unnamed guard's generated `${collection}#${occurrence}` name never
+  // collides with (and duplicates) an explicit guard name, regardless of
+  // registration order (#973).
+  for (const spec of all) {
+    if (spec.name !== undefined) used.add(spec.name)
+  }
   const unnamedOccurrence = new Map<string, number>()
-  return registry.all().map((spec) => {
+  return all.map((spec) => {
     let name = spec.name
     if (name === undefined) {
-      const occurrence = (unnamedOccurrence.get(spec.collection) ?? 0) + 1
+      let occurrence = (unnamedOccurrence.get(spec.collection) ?? 0) + 1
+      let candidate = `${spec.collection}#${occurrence}`
+      while (used.has(candidate)) {
+        occurrence++
+        candidate = `${spec.collection}#${occurrence}`
+      }
       unnamedOccurrence.set(spec.collection, occurrence)
-      name = `${spec.collection}#${occurrence}`
+      name = candidate
+      used.add(name)
     }
     return {
       name,
@@ -123,11 +138,18 @@ function buildGuardEntries(registry: GuardRegistry | null): readonly GuardBehavi
 
 function buildDerivationEntries(registry: DerivationRegistry | null): readonly DerivationBehaviorEntry[] {
   if (!registry) return []
+  const all = registry.all()
   const usedNames = new Set<string>()
-  const entries = registry.all().map(({ spec }) => {
+  // Pre-seed with every explicit name BEFORE keying any derivation, so an
+  // unnamed derivation's fallback key never collides with (and duplicates)
+  // a named one, regardless of registration order (#973).
+  for (const { spec } of all) {
+    if (spec.name !== undefined) usedNames.add(spec.name)
+  }
+  const entries = all.map(({ spec }) => {
     const outputCollections = Object.values(spec.outputs).map((o) => o.collection)
     const name = spec.name ?? fallbackDerivationName(outputCollections, spec.source, usedNames)
-    usedNames.add(name)
+    if (spec.name === undefined) usedNames.add(name)
     const outputs: Record<string, DerivationOutputEntry> = {}
     for (const [key, output] of Object.entries(spec.outputs)) {
       outputs[key] = output.shape === 'record'

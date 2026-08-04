@@ -117,4 +117,51 @@ describe('vault.dumpSchema() — derivation key collisions (#947)', () => {
     expect(namedEntry!.outputs).toContain('sharedOutput')
     expect(namedEntry!.name).toBe('gadget-to-shared')
   })
+
+  it('a NAMED derivation whose name exactly matches an unnamed derivation\'s fallback key does not clobber it (#973)', async () => {
+    const unnamedHandle = withDerivation({
+      source: 'widgets',
+      deterministic: true,
+      outputs: { entry: { shape: 'record', collection: 'catalogEntry' } },
+      derive: (s: Widget) => ({ entry: { id: s.id, kind: 'widget' } }),
+      lifecycle: 'eager',
+    })
+    const namedHandle = withDerivation({
+      name: 'catalogEntry',
+      source: 'gadgets',
+      deterministic: true,
+      outputs: { entry: { shape: 'record', collection: 'catalogEntryNamed' } },
+      derive: (s: Gadget) => ({ entry: { id: s.id, kind: 'gadget' } }),
+      lifecycle: 'eager',
+    })
+
+    const db = await createNoydb({
+      store: inlineMemory(),
+      user: 'alice',
+      secret: 'pw',
+      derivationStrategies: [unnamedHandle, namedHandle],
+    })
+    const vault = await db.openVault('acme')
+
+    const snap = await vault.dumpSchema()
+
+    // Both must appear — today the named derivation silently overwrites the
+    // unnamed one's entry because both key as 'catalogEntry'.
+    expect(Object.keys(snap.derivations)).toHaveLength(2)
+
+    const namedEntry = snap.derivations['catalogEntry']
+    expect(namedEntry).toBeDefined()
+    expect(namedEntry!.source).toBe('gadgets')
+    expect(namedEntry!.name).toBe('catalogEntry')
+
+    const unnamedEntry = snap.derivations['catalogEntry#1']
+    expect(unnamedEntry).toBeDefined()
+    expect(unnamedEntry!.source).toBe('widgets')
+    expect(unnamedEntry!.name).toBeUndefined()
+
+    // Consistency with listBehaviors() — same two names, no duplicate.
+    const behaviorNames = vault.listBehaviors().derivations.map((d) => d.name)
+    expect(new Set(behaviorNames).size).toBe(2)
+    expect(behaviorNames.sort()).toEqual(['catalogEntry', 'catalogEntry#1'])
+  })
 })
