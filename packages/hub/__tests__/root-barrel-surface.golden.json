@@ -837,6 +837,7 @@
     "SyncSchedulerStatus",
     "SyncStatus",
     "SyncTarget",
+    "SyncTargetInfo",
     "SyncTargetRole",
     "SyncTransactionResult",
     "TabChannel",

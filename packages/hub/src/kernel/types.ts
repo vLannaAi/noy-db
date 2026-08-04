@@ -25,7 +25,7 @@
 
 import type { StandardSchemaV1 } from './schema.js'
 import type { DeferredNumberingConfig } from '../with-commit/numbering/descriptor.js'
-import type { SyncPolicy, ReadinessState } from './sync-policy.js'
+import type { SyncPolicy, ReadinessState, PushMode, PullMode } from './sync-policy.js'
 import type { BlobsStrategy } from '../port/with/blob-strategy.js'
 import type { ArchiveStrategy } from '../with-fork/archive/index.js'
 import type { IndexingStrategy } from '../with-lookup/indexing/strategy.js'
@@ -1460,6 +1460,20 @@ export interface SyncTarget {
   readonly policy?: SyncPolicy
   /** Human-readable label for DevTools and audit logs. */
   readonly label?: string
+}
+
+/**
+ * Introspection view of a wired sync target, returned by `Noydb.listSyncTargets()`
+ * (#948). Deliberately omits any preset *name* — a resolved `SyncPolicy` doesn't
+ * retain which preset (if any) it came from, so only its push/pull mode is surfaced.
+ */
+export interface SyncTargetInfo {
+  readonly label: string | undefined
+  readonly role: SyncTargetRole
+  readonly policy: {
+    readonly push: { readonly mode: PushMode }
+    readonly pull: { readonly mode: PullMode }
+  } | undefined
 }
 
 // ─── Events ────────────────────────────────────────────────────────────

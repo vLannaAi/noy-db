@@ -53,7 +53,7 @@ import type { DiffEntry } from '../with-commit/history/diff.js'
 import { NO_HISTORY } from '../with-commit/history/strategy.js'
 import { Query, ScanBuilder } from './query/index.js'
 import type { QuerySource, JoinContext, JoinableSource } from './query/index.js'
-import type { CollectionIndexes } from '../with-lookup/indexing/eager-indexes.js'
+import { normalizeIndexDefs, type CollectionIndexes } from '../with-lookup/indexing/eager-indexes.js'
 import { decodeIdxId } from '../with-lookup/indexing/persisted-indexes.js'
 import type { PersistedCollectionIndex } from '../with-lookup/indexing/persisted-indexes.js'
 import { LazyQuery } from '../with-lookup/indexing/lazy-builder.js'
@@ -249,6 +249,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * `null` when no `unique:true` indexes are declared on this collection, or when the collection is in lazy mode (which throws at registration).
    */
   private readonly uniqueConstraints: UniqueConstraintSet | null
+
+  private readonly declaredIndexes: ReadonlyArray<{ readonly fields: readonly string[]; readonly unique?: boolean }> // declared index defs, normalized (introspection only)
 
   /**
    * True once `_idx/*` side-cars have been bulk-loaded into
@@ -671,12 +673,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // the cleartext value the seal was meant to hide). Compile-time refusal is
     // a deferred follow-up.
     if (this.sensitiveFields.size > 0 && opts.indexes) {
-      const indexedFields = new Set<string>()
-      for (const def of opts.indexes) {
-        if (typeof def === 'string') indexedFields.add(def)
-        else if (Array.isArray(def)) for (const f of def) indexedFields.add(f)
-        else for (const f of (def as { fields: readonly string[] }).fields) indexedFields.add(f)
-      }
+      const indexedFields = new Set(normalizeIndexDefs(opts.indexes).flatMap((d) => d.fields))
       const leaked = [...this.sensitiveFields].filter((f) => indexedFields.has(f))
       if (leaked.length > 0) {
         console.warn(
@@ -825,6 +822,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       defs: opts.indexes ?? [],
       lazy: this.lazy,
     })
+    this.declaredIndexes = normalizeIndexDefs(opts.indexes ?? [])
     this.indexes?.setCanonicalizer((f, v) => this.via?.canonicalizeIndexKey(f, v)) // #672 review C1: one-time canonicalizer registration; lazy `this.via` read survives late `_setVia` (#666)
     this.persistedIndexes?.setCanonicalizer((f, v) => this.via?.canonicalizeIndexKey(f, v)) // #677: lazy twin of the line above
 
@@ -857,6 +855,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /** The collection's declared descriptive metadata. */
   getMeta(): CollectionMeta | undefined { return this.meta }
+
+  getDeclaredIndexes(): ReadonlyArray<{ readonly fields: readonly string[]; readonly unique?: boolean }> { return this.declaredIndexes } // declared index defs, normalized; consumed by walk.ts
 
   /**
    * Aggregate all collection-level configuration options that are actively set

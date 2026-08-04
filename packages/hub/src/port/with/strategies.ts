@@ -158,7 +158,7 @@ export const STRATEGY_DEFAULTS: StrategyBag = {
 }
 
 /** Every key of the bag, as a runtime array. Derived, so it cannot drift. */
-const STRATEGY_KEYS = Object.keys(STRATEGY_DEFAULTS) as StrategyKey[]
+export const STRATEGY_KEYS = Object.keys(STRATEGY_DEFAULTS) as StrategyKey[]
 
 /**
  * Build the bag from user options. Called ONCE, in `createNoydb` — every

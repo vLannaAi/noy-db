@@ -153,7 +153,6 @@ export async function describeBundle(opts: DescribeOptions): Promise<string> {
     overlayViews: rest.overlayViews,
     derivations: rest.derivations,
     ...(rest.internal !== undefined ? { internal: rest.internal } : {}),
-    ...(rest.aclRoles !== undefined ? { aclRoles: rest.aclRoles } : {}),
   }
 
   // Sidecar emission — write each collection's JSON Schema to a
