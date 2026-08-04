@@ -51,16 +51,21 @@
 
 ---
 
-### Task 2: on-pin comment + changesets + gates
+### Task 2: pub/sub IV fix (#968) + on-pin comment + changesets + gates
 
-**Files:** `packages/on-pin/src/index.ts:44-48`; `.changeset/presence-userid-leak.md`; `.changeset/on-pin-cost-comment.md`.
+**Files:** `packages/hub/src/with-sync/presence.ts` (`update()` pub/sub branch, ~:127-134); `packages/hub/__tests__/presence.test.ts` (add a pub/sub round-trip test); `packages/on-pin/src/index.ts:44-48`; `.changeset/presence-userid-leak.md`; `.changeset/presence-pubsub-iv.md`; `.changeset/on-pin-cost-comment.md`.
 
-- [ ] **Step 1: on-pin comment** — replace the "~10^9 hash ops — roughly hours" bullet with an accurate statement: a 4-digit PIN's 10,000-candidate space is exhausted in **seconds** on a GPU once an attacker holds the state blob — PBKDF2 iteration cost does not meaningfully protect a space that small. This is precisely why on-pin is a UX-convenience resume factor, NOT primary authentication, and why the state blob must never be persisted to a public location. Keep the surrounding bullets intact; surgical edit only.
-- [ ] **Step 2: changesets** —
+**pub/sub IV bug (#968), verified real:** `encrypt(plaintext, key)` (kernel/enclave/crypto.ts:322) generates and RETURNS its own IV as `result.iv`. The `update()` pub/sub branch instead builds a separate `const iv = generateIV(); const ivB64 = bufferToBase64(iv)` and stores `ivB64` while discarding `encrypt()`'s real IV — so a subscriber decrypting with the stored IV hits an AES-GCM auth failure. Encrypted pub/sub presence is broken; latent because no test does an encrypted publish→subscribe→decrypt round-trip.
+
+- [ ] **Step 1: failing pub/sub round-trip test** — in `presence.test.ts`, add a test using a stub pub/sub adapter (implements `presencePublish`/`presenceSubscribe` — mirror the existing storage-poll fixtures but wire the pub/sub seam; check how `getPubSubAdapter`/`presenceSubscribe` are consumed in `subscribe()`): userA `update()`s over an ENCRYPTED handle; a subscribed userB receives and DECRYPTS the broadcast, surfacing userA's correct `userId` + payload. This fails today (wrong IV → decrypt throws / peer missing). Run red.
+- [ ] **Step 2: fix** — replace the pub/sub branch body with `const { iv, data } = await encrypt(plaintext, key); encryptedPayload = JSON.stringify({ iv, data })`; remove the now-unused `generateIV()`/`ivB64` lines. If `generateIV`/`bufferToBase64` become unused imports after this, remove them from the import (check `writeStorageRecord` still uses them — it does use `generateIV`/`bufferToBase64` for the storage path, so they stay imported). Green.
+- [ ] **Step 3: on-pin comment** — replace the "~10^9 hash ops — roughly hours" bullet with an accurate statement: a 4-digit PIN's 10,000-candidate space is exhausted in **seconds** on a GPU once an attacker holds the state blob — PBKDF2 iteration cost does not meaningfully protect a space that small. This is precisely why on-pin is a UX-convenience resume factor, NOT primary authentication, and why the state blob must never be persisted to a public location. Keep the surrounding bullets intact; surgical edit only.
+- [ ] **Step 4: changesets** —
   - `.changeset/presence-userid-leak.md` (`'@noy-db/hub': patch` — security fix, back-compatible record shape change within the reserved `_presence_*` collection; note old cleartext-id presence records are simply superseded on next update): presence storage-poll fallback no longer writes `userId` in cleartext to the storage adapter — userId is encrypted inside the record and the record id is an adapter-opaque per-user tag, matching the pub/sub path's guarantee and the module's stated no-identity-leak property.
+  - `.changeset/presence-pubsub-iv.md` (`'@noy-db/hub': patch` — correctness fix, #968): the presence pub/sub broadcast path stored a discarded IV instead of the one `encrypt()` used, so encrypted pub/sub presence could never decrypt; it now stores the correct IV.
   - `.changeset/on-pin-cost-comment.md` (`'@noy-db/on-pin': patch` — doc-only): correct the overstated PIN brute-force cost comment (seconds, not hours).
-- [ ] **Step 3: gates** — `pnpm --filter @noy-db/hub build && pnpm --filter @noy-db/hub test` + `pnpm --filter @noy-db/on-pin test` + `pnpm lint`. All green.
-- [ ] **Step 4: commit** — `docs(on-pin): correct overstated PIN brute-force cost + changesets (#963)`
+- [ ] **Step 5: gates** — `pnpm --filter @noy-db/hub build && pnpm --filter @noy-db/hub test` + `pnpm --filter @noy-db/on-pin test` + `pnpm lint`. All green.
+- [ ] **Step 6: commit** — `fix(hub): presence pub/sub stores the correct IV (#968); docs(on-pin): correct PIN brute-force cost (#963)`
 
 ## Out of scope
 - WebAuthn finding 1 (separate PR #967). in-rest finding 2 (separate re-architecture PR).
