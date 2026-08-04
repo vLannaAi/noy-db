@@ -349,6 +349,7 @@ export class PresenceHandle<P> {
     if (this.stopped || this.subscribers.length === 0) return
 
     try {
+      const key = await this.getPresenceKey()
       const storeAdapter = this.syncAdapter ?? this.adapter
       const ids = await storeAdapter.list(this.vault, this.storageCollection)
       const cutoff = new Date(Date.now() - this.staleMs).toISOString()
@@ -360,23 +361,30 @@ export class PresenceHandle<P> {
         const envelope = await storeAdapter.get(this.vault, this.storageCollection, id)
         if (!envelope) continue
 
-        const record = JSON.parse(envelope._data) as StoragePresenceRecord
-        if (record.lastSeen < cutoff) continue
+        try {
+          const record = JSON.parse(envelope._data) as StoragePresenceRecord
+          if (record.lastSeen < cutoff) continue
 
-        let peerUserId: string
-        let peerPayload: P
-        if (this.encrypted && this.presenceKey && record.iv) {
-          const plaintext = await decrypt(record.iv, record.data, this.presenceKey)
-          const decoded = JSON.parse(plaintext) as { userId: string; payload: P }
-          peerUserId = decoded.userId
-          peerPayload = decoded.payload
-        } else {
-          // Unencrypted mode: the record id IS the userId (see writeStorageRecord).
-          peerUserId = id
-          peerPayload = JSON.parse(record.data) as P
+          let peerUserId: string
+          let peerPayload: P
+          if (this.encrypted && key && record.iv) {
+            const plaintext = await decrypt(record.iv, record.data, key)
+            const decoded = JSON.parse(plaintext) as { userId: string; payload: P }
+            peerUserId = decoded.userId
+            peerPayload = decoded.payload
+          } else {
+            // Unencrypted mode: the record id IS the userId (see writeStorageRecord).
+            peerUserId = id
+            peerPayload = JSON.parse(record.data) as P
+          }
+
+          peers.push({ userId: peerUserId, payload: peerPayload, lastSeen: record.lastSeen })
+        } catch {
+          // One bad record (e.g. a pre-fix record that fails to decrypt
+          // under a new reader) shouldn't blank the whole snapshot — skip
+          // just this record.
+          continue
         }
-
-        peers.push({ userId: peerUserId, payload: peerPayload, lastSeen: record.lastSeen })
       }
 
       for (const cb of this.subscribers) {

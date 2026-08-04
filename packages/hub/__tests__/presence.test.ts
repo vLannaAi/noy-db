@@ -318,6 +318,30 @@ describe('presence (v0.9)', () => {
       handleB.stop()
     })
 
+    it('a read-only subscriber (never calls update()) still surfaces encrypted peers (#963)', async () => {
+      const { compA, compB } = await setupEncryptedPair()
+      const handleA = compA.collection<CursorPayload>('invoices').presence<CursorPayload>()
+      // Handle B never calls update() — it's a pure watcher, so its
+      // `presenceKey` field is never populated as a side effect (that only
+      // happens inside getPresenceKey(), which storage-poll mode only calls
+      // from update()). The poll must still resolve the key itself.
+      const handleB = compB.collection<CursorPayload>('invoices').presence<CursorPayload>({ pollIntervalMs: 50 })
+
+      await handleA.update({ path: 'invoices/inv-1', action: 'editing' })
+
+      const snapshotsB: Array<{ userId: string; payload: CursorPayload; lastSeen: string }> = []
+      handleB.subscribe((peers) => { snapshotsB.push(...peers) })
+
+      await new Promise((r) => setTimeout(r, 150))
+
+      expect(
+        snapshotsB.some((p) => p.userId === 'user-a' && p.payload.path === 'invoices/inv-1'),
+      ).toBe(true)
+
+      handleA.stop()
+      handleB.stop()
+    })
+
     it('is deterministic: repeated update() overwrites the same record id', async () => {
       const { adapter, compA } = await setupEncryptedPair()
       const handleA = compA.collection<CursorPayload>('invoices').presence<CursorPayload>()
