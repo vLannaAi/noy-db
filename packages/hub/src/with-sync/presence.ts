@@ -18,6 +18,17 @@
 import type { NoydbStore, PresencePeer } from '../kernel/types.js'
 import { encrypt, decrypt, generateIV, bufferToBase64, derivePresenceKey, type EnclaveKey } from '../kernel/enclave/index.js'
 
+const subtle = globalThis.crypto.subtle
+
+/**
+ * HKDF salt domain for the presence-tag key — the adapter-opaque record-id
+ * tag used by the storage-poll fallback. Domain-separated from the presence
+ * PAYLOAD key (`'noydb-presence'`, in `derivePresenceKey`) so the tag key
+ * and the payload encryption key are cryptographically independent even
+ * though both derive from the same collection DEK.
+ */
+const PRESENCE_TAG_KEY_DOMAIN = 'noydb.presence.tag.v1'
+
 /** Options for constructing a PresenceHandle. @internal */
 export interface PresenceHandleOpts {
   /** Local adapter for storage-poll fallback. */
@@ -28,7 +39,14 @@ export interface PresenceHandleOpts {
   vault: string
   /** Collection name — used as HKDF `info` and channel suffix. */
   collectionName: string
-  /** Calling user's ID, embedded unencrypted in storage records. */
+  /**
+   * Calling user's ID. In encrypted mode it is encrypted inside the
+   * storage-poll record's `data` field — the record id is an
+   * adapter-opaque HMAC tag, not the userId, so the adapter never learns
+   * peer identities. Unencrypted vaults have no key to tag or encrypt
+   * with, so the userId is used as the record id in cleartext (dev posture
+   * only — identity privacy requires encryption).
+   */
   userId: string
   /** Whether encryption is active. When false, presence payloads are stored as JSON. */
   encrypted: boolean
@@ -42,10 +60,15 @@ export interface PresenceHandleOpts {
 
 /**
  * Internal storage envelope for the storage-poll fallback.
- * Written to `_presence_<collection>` as `{ userId, lastSeen, iv, data }`.
+ * Written to `_presence_<collection>` as `{ lastSeen, iv, data }`.
+ *
+ * In encrypted mode `data` is ciphertext of `{ userId, payload }` — the
+ * userId rides inside the encrypted payload, never as a top-level field, and
+ * the record's storage id is a separate HMAC tag (see `presenceTag`), not
+ * the userId. In unencrypted mode `data` is `JSON.stringify(payload)` and
+ * the record id IS the (cleartext) userId — there is no key to tag with.
  */
 interface StoragePresenceRecord {
-  userId: string
   lastSeen: string
   iv: string    // base64 AES-GCM IV (empty when not encrypted)
   data: string  // base64 ciphertext or JSON string when not encrypted
@@ -66,6 +89,7 @@ export class PresenceHandle<P> {
   private readonly storageCollection: string
 
   private presenceKey: EnclaveKey | null = null
+  private presenceTagKey: EnclaveKey | null = null
   private subscribers: Array<(peers: PresencePeer<P>[]) => void> = []
   private unsubscribePubSub: (() => void) | null = null
   private pollTimer: ReturnType<typeof setInterval> | null = null
@@ -163,6 +187,51 @@ export class PresenceHandle<P> {
     return this.presenceKey
   }
 
+  /**
+   * Derive (and cache) the presence-tag key — a non-extractable, sign-only
+   * HMAC-SHA256 key HKDF-derived from the collection DEK, domain-separated
+   * from the presence payload key by {@link PRESENCE_TAG_KEY_DOMAIN}.
+   * Mirrors `deriveClassifyIndexKey` (kernel/enclave/classify/bidx.ts). No
+   * PBKDF2 stretch — the adapter never holds this key, so a plain keyed HMAC
+   * tag is sufficient and deterministic. Returns `null` when unencrypted
+   * (no DEK to derive from).
+   */
+  private async getPresenceTagKey(): Promise<EnclaveKey | null> {
+    if (!this.encrypted) return null
+    if (!this.presenceTagKey) {
+      try {
+        const dek = await this.getDEK(this.collectionName)
+        const rawDek = await subtle.exportKey('raw', dek)
+        const hkdfKey = await subtle.importKey('raw', rawDek, 'HKDF', false, ['deriveBits'])
+        const salt = new TextEncoder().encode(PRESENCE_TAG_KEY_DOMAIN)
+        const info = new TextEncoder().encode(this.collectionName)
+        const bits = await subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt, info }, hkdfKey, 256)
+        this.presenceTagKey = await subtle.importKey('raw', bits, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+      } catch {
+        // no-op — presence degrades gracefully if crypto fails
+      }
+    }
+    return this.presenceTagKey
+  }
+
+  /**
+   * Deterministic, adapter-opaque tag for `userId` — used as the
+   * storage-poll record id in encrypted mode so the adapter never sees the
+   * userId. Falls back to the raw `userId` when unencrypted (no key exists
+   * to tag with — see {@link PresenceHandleOpts.userId}).
+   *
+   * Signs directly via `subtle.sign` (like `bidx.ts`'s `mintAt`) rather than
+   * the barrel's `hmacSha256Hex` helper: that helper re-exports its key
+   * argument's raw bytes internally, which only works for extractable keys
+   * (e.g. an AES-GCM DEK) — `presenceTagKey` is deliberately non-extractable.
+   */
+  private async presenceTag(userId: string): Promise<string> {
+    const tagKey = await this.getPresenceTagKey()
+    if (!tagKey) return userId
+    const mac = await subtle.sign('HMAC', tagKey, new TextEncoder().encode(userId) as BufferSource)
+    return Array.from(new Uint8Array(mac)).map((b) => b.toString(16).padStart(2, '0')).join('')
+  }
+
   private getPubSubAdapter(): NoydbStore | undefined {
     // Prefer the sync adapter (it broadcasts to other devices)
     if (this.syncAdapter?.presencePublish) return this.syncAdapter
@@ -234,20 +303,26 @@ export class PresenceHandle<P> {
 
   private async writeStorageRecord(payload: P, now: string): Promise<void> {
     const key = await this.getPresenceKey()
-    const plaintext = JSON.stringify(payload)
     let iv = ''
     let data: string
+    let recordId: string
 
     if (this.encrypted && key) {
-      const ivBytes = generateIV()
-      iv = bufferToBase64(ivBytes)
+      // userId rides INSIDE the ciphertext, like the pub/sub path — the
+      // adapter never sees it. The record id is a separate deterministic
+      // tag, also opaque to the adapter.
+      const plaintext = JSON.stringify({ userId: this.userId, payload })
       const result = await encrypt(plaintext, key)
+      iv = result.iv
       data = result.data
+      recordId = await this.presenceTag(this.userId)
     } else {
-      data = plaintext
+      // Unencrypted vault — no key exists to tag or encrypt with.
+      data = JSON.stringify(payload)
+      recordId = this.userId
     }
 
-    const record: StoragePresenceRecord = { userId: this.userId, lastSeen: now, iv, data }
+    const record: StoragePresenceRecord = { lastSeen: now, iv, data }
     const json = JSON.stringify(record)
 
     // Use the sync adapter if available (so other devices can read it);
@@ -264,7 +339,7 @@ export class PresenceHandle<P> {
       await storeAdapter.put(
         this.vault,
         this.storageCollection,
-        this.userId,
+        recordId,
         envelope,
       )
     } catch {
@@ -280,24 +355,30 @@ export class PresenceHandle<P> {
       const ids = await storeAdapter.list(this.vault, this.storageCollection)
       const cutoff = new Date(Date.now() - this.staleMs).toISOString()
       const peers: PresencePeer<P>[] = []
+      const myTag = await this.presenceTag(this.userId)
 
       for (const id of ids) {
-        if (id === this.userId) continue // skip ourselves
+        if (id === myTag) continue // skip ourselves
         const envelope = await storeAdapter.get(this.vault, this.storageCollection, id)
         if (!envelope) continue
 
         const record = JSON.parse(envelope._data) as StoragePresenceRecord
         if (record.lastSeen < cutoff) continue
 
+        let peerUserId: string
         let peerPayload: P
         if (this.encrypted && this.presenceKey && record.iv) {
           const plaintext = await decrypt(record.iv, record.data, this.presenceKey)
-          peerPayload = JSON.parse(plaintext) as P
+          const decoded = JSON.parse(plaintext) as { userId: string; payload: P }
+          peerUserId = decoded.userId
+          peerPayload = decoded.payload
         } else {
+          // Unencrypted mode: the record id IS the userId (see writeStorageRecord).
+          peerUserId = id
           peerPayload = JSON.parse(record.data) as P
         }
 
-        peers.push({ userId: record.userId, payload: peerPayload, lastSeen: record.lastSeen })
+        peers.push({ userId: peerUserId, payload: peerPayload, lastSeen: record.lastSeen })
       }
 
       for (const cb of this.subscribers) {

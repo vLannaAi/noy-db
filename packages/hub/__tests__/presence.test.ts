@@ -3,6 +3,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withSync } from '../src/with-sync/index.js'
+import { withTeam } from '../src/with-party/team/index.js'
 
 // ─── Inline memory adapter with optional pub/sub ───────────────────────────
 
@@ -234,6 +235,119 @@ describe('presence (v0.9)', () => {
       expect(envelope).not.toBeNull()
       // In non-encrypted mode, _data is a JSON string
       expect(() => JSON.parse(envelope!._data)).not.toThrow()
+
+      handle.stop()
+    })
+  })
+
+  describe('encrypted storage-poll fallback — identity confidentiality (#963)', () => {
+    const SECRET_A = 'owner-pass-phrase-1234'
+    const SECRET_B = 'peer-pass-phrase-1234'
+
+    // Two real users sharing one vault via grant(), on a SINGLE shared
+    // adapter (no dedicated sync store — presence falls back to the local
+    // adapter for storage-poll, exactly as the fallback path is documented).
+    async function setupEncryptedPair() {
+      const adapter = inlineMemory()
+      const ownerDb = await createNoydb({
+        teamStrategy: withTeam(), syncStrategy: withSync(),
+        store: adapter, user: 'user-a', secret: SECRET_A,
+      })
+      const compA = await ownerDb.openVault(COMP)
+      // Touch the collection so it has a DEK before granting access to it.
+      await compA.collection('invoices').put('seed', {})
+      await ownerDb.grant(COMP, {
+        userId: 'user-b', displayName: 'User B', role: 'operator', secret: SECRET_B,
+        permissions: { invoices: 'rw' },
+      })
+
+      const memberDb = await createNoydb({
+        teamStrategy: withTeam(), syncStrategy: withSync(),
+        store: adapter, user: 'user-b', secret: SECRET_B,
+      })
+      const compB = await memberDb.openVault(COMP)
+
+      return { adapter, compA, compB }
+    }
+
+    it('never leaks the plaintext userId in the raw stored record', async () => {
+      const { adapter, compA } = await setupEncryptedPair()
+      const handleA = compA.collection<CursorPayload>('invoices').presence<CursorPayload>()
+
+      await handleA.update({ path: 'invoices/inv-1', action: 'editing' })
+
+      const ids = await adapter.list(COMP, '_presence_invoices')
+      expect(ids).toHaveLength(1)
+      const recordId = ids[0]!
+      // The record id is an adapter-opaque tag, not the userId.
+      expect(recordId).not.toBe('user-a')
+
+      const envelope = await adapter.get(COMP, '_presence_invoices', recordId)
+      expect(envelope).not.toBeNull()
+
+      // Neither the outer envelope nor the parsed inner record carries the
+      // plaintext userId anywhere.
+      expect(JSON.stringify(envelope)).not.toContain('user-a')
+      const record = JSON.parse(envelope!._data) as Record<string, unknown>
+      expect(record).not.toHaveProperty('userId')
+      expect(JSON.stringify(record)).not.toContain('user-a')
+
+      handleA.stop()
+    })
+
+    it('round-trips identity: peers see each other decrypted, excluding self', async () => {
+      const { compA, compB } = await setupEncryptedPair()
+      const handleA = compA.collection<CursorPayload>('invoices').presence<CursorPayload>()
+      const handleB = compB.collection<CursorPayload>('invoices').presence<CursorPayload>({ pollIntervalMs: 50 })
+
+      await handleA.update({ path: 'invoices/inv-1', action: 'editing' })
+      await handleB.update({ path: 'invoices/inv-2', action: 'viewing' })
+
+      const snapshotsB: Array<{ userId: string; payload: CursorPayload; lastSeen: string }> = []
+      handleB.subscribe((peers) => { snapshotsB.push(...peers) })
+
+      await new Promise((r) => setTimeout(r, 150))
+
+      expect(
+        snapshotsB.some((p) => p.userId === 'user-a' && p.payload.path === 'invoices/inv-1'),
+      ).toBe(true)
+      // Self must never appear in the surfaced peer list.
+      expect(snapshotsB.every((p) => p.userId !== 'user-b')).toBe(true)
+
+      handleA.stop()
+      handleB.stop()
+    })
+
+    it('is deterministic: repeated update() overwrites the same record id', async () => {
+      const { adapter, compA } = await setupEncryptedPair()
+      const handleA = compA.collection<CursorPayload>('invoices').presence<CursorPayload>()
+
+      await handleA.update({ path: 'invoices/inv-1', action: 'editing' })
+      const idsAfterFirst = await adapter.list(COMP, '_presence_invoices')
+
+      await handleA.update({ path: 'invoices/inv-1', action: 'viewing' })
+      const idsAfterSecond = await adapter.list(COMP, '_presence_invoices')
+
+      expect(idsAfterSecond).toEqual(idsAfterFirst)
+      expect(idsAfterSecond).toHaveLength(1)
+
+      handleA.stop()
+    })
+  })
+
+  describe('unencrypted storage-poll fallback — cleartext dev posture unchanged (#963)', () => {
+    it('still uses the plaintext userId as the record id when encrypt: false', async () => {
+      const syncAdapter = inlineMemory()
+      const db = await createNoydb({
+        store: inlineMemory(), sync: syncAdapter, user: 'plain-user', syncStrategy: withSync(), encrypt: false,
+      })
+      const comp = await db.openVault(COMP)
+      const handle = comp.collection('invoices').presence<CursorPayload>()
+
+      await handle.update({ path: 'invoices/inv-1', action: 'editing' })
+
+      const ids = await syncAdapter.list(COMP, '_presence_invoices')
+      expect(ids).toEqual(['plain-user'])
 
       handle.stop()
     })
