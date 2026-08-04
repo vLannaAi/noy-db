@@ -52,7 +52,6 @@
     "storage"
   ],
   "publishConfig": {
-    "access": "public",
-    "tag": "latest"
+    "access": "public"
   }
 }
