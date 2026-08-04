@@ -20,12 +20,21 @@
  *      target vault via `opts.vault`.
  *   4. Re-derive the `SchemaManifest` from the just-restored `_schemas/*`
  *      (the source of truth — Task 3's `deriveSchemaManifest`), via a
- *      `getDEK` resolver rebuilt the same way
- *      `packages/hub/__tests__/manifest/derive.test.ts` does: `loadKeyring`
- *      + `ensureCollectionDEK`, both public exports of
- *      `with-party/team/keyring.js`. `Vault`'s own DEK resolver is a
- *      private field — this is the published, faithful (same persisted
- *      `_keyring/<user>` file, same crypto) stand-in, not a shortcut.
+ *      NON-MINTING `LookupDEK` built from `loadKeyring`'s already-unwrapped
+ *      `UnlockedKeyring.deks` map directly (`with-party/team/keyring.js`).
+ *      **Not** `ensureCollectionDEK` (#941 review fix — Important 2): that
+ *      helper mints+persists a fresh DEK into `_keyring/<user>` for any
+ *      collection absent from the keyring, which is correct for a WRITE
+ *      path but wrong here — `deriveSchemaManifest` only ever reads
+ *      collections that already have a `_schemas` envelope, so an absent
+ *      DEK means "this principal can't decrypt this sibling" (e.g. a
+ *      collection-scoped grantee), never "new collection." The old
+ *      minting call polluted a scoped principal's freshly-restored keyring
+ *      with garbage sibling DEKs on every `open()`. The returned
+ *      `manifest` is that principal's own visible slice — see
+ *      `derive.ts`'s `LookupDEK` doc and `sync.ts`'s module doc for the
+ *      full rationale (the same distinction governs why the sync path
+ *      must SKIP rather than write a partial manifest).
  *   5. Generation check (AC #4 coexistence): compare the HIGHEST
  *      per-collection generation stamp carried by the restored manifest
  *      against THIS store's schema-fence generation as it stood
@@ -35,7 +44,10 @@
  *      same class `SchemaFenceController`'s write-path gate throws) — the
  *      reader hasn't reconciled schema changes that happened elsewhere.
  *      `allowGenerationAhead: true` is the documented dev override: open
- *      proceeds, with a console warning.
+ *      proceeds, with a console warning. Divergence in the OTHER direction
+ *      (reader ahead of the pod) is non-fatal but also warned (#941
+ *      review, Important 3 — AC #4 coexistence divergence must be
+ *      observable in either direction, not just the bypass case).
  *
  *      NOTE: this deliberately reads per-collection entries, not
  *      `manifest.generation` itself. `_meta/schema-fence` is local
@@ -59,9 +71,9 @@ import type { Noydb } from '../kernel/noydb.js'
 import type { Vault } from '../kernel/vault.js'
 import type { NoydbOptions, NoydbStore, EchoSecretParts } from '../kernel/types.js'
 import { MigrationRequiredError, PodHeaderVerificationError } from '../kernel/errors.js'
-import { loadKeyring, ensureCollectionDEK } from '../with-party/team/keyring.js'
+import { loadKeyring } from '../with-party/team/keyring.js'
 import { loadFence } from '../with-shape/schema-update/fence.js'
-import { deriveSchemaManifest } from '../with-shape/manifest/derive.js'
+import { deriveSchemaManifest, type LookupDEK } from '../with-shape/manifest/derive.js'
 import type { SchemaManifest } from '../with-shape/manifest/types.js'
 
 export interface OpenPodOptions {
@@ -131,9 +143,24 @@ export async function open(podFileOrBytes: Uint8Array, opts: OpenPodOptions): Pr
   const vault = await db.openVault(opts.vault)
   await vault.load(dumpJson)
 
+  // #941 review fix: a NON-MINTING lookup, not `ensureCollectionDEK` (which
+  // mints+persists a fresh DEK for any collection absent from the keyring).
+  // open() is a READ path — deriveSchemaManifest only ever iterates
+  // collections that already have a `_schemas` envelope, so an absent DEK
+  // here means "this principal cannot decrypt this sibling," never "new
+  // collection." The old minting call polluted a scoped principal's just-
+  // restored `_keyring/<user>` file with garbage sibling DEKs on every
+  // open(). See `derive.ts`'s `LookupDEK` doc for the full rationale.
   const keyring = await loadKeyring(opts.store, opts.vault, { userId: opts.user, secret: opts.secret })
-  const getDEK = await ensureCollectionDEK(opts.store, opts.vault, keyring)
-  const manifest = await deriveSchemaManifest(opts.store, opts.vault, getDEK)
+  const lookupDEK: LookupDEK = async (name) => keyring.deks.get(name)
+  const { manifest, undecodableCollections } = await deriveSchemaManifest(opts.store, opts.vault, lookupDEK)
+
+  // A scoped principal's `manifest` is legitimately their own visible
+  // slice (see `sync.ts`'s module doc) — `open()` is a per-principal read,
+  // not an assertion of pod-wide completeness. `undecodableCollections` is
+  // intentionally not surfaced on `OpenPodResult` (out of this fix's
+  // scope); callers that need it can call `deriveSchemaManifest` directly.
+  void undecodableCollections
 
   // See module doc, step 5 — the pod's generation signal is the highest
   // per-collection stamp, not the (locally re-derived, fence-driven)
@@ -150,8 +177,19 @@ export async function open(podFileOrBytes: Uint8Array, opts: OpenPodOptions): Pr
       )
     }
     console.warn(
-      `open(): vault "${opts.vault}" opened with allowGenerationAhead — pod schema generation ` +
-        `${podGeneration} is ahead of the local generation ${readerGeneration}.`,
+      `[noy-db] open(): vault "${opts.vault}" opened with allowGenerationAhead — pod schema ` +
+        `generation ${podGeneration} is ahead of the local generation ${readerGeneration}.`,
+    )
+  } else if (podGeneration < readerGeneration) {
+    // #941 review (Important 3, AC #4): divergence in EITHER direction
+    // should be observable, not just the ahead-bypass case above. The
+    // reader being ahead of the pod is non-fatal (the pod is simply older
+    // content) but silent coexistence divergence is exactly what AC #4
+    // asks to surface — same `[noy-db]`-prefixed console.warn facility as
+    // `sync.ts`'s cap-exhaustion warning.
+    console.warn(
+      `[noy-db] open(): vault "${opts.vault}"'s local schema generation (${readerGeneration}) is ` +
+        `ahead of the pod's (${podGeneration}) — the pod reflects an earlier schema than this reader.`,
     )
   }
 

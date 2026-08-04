@@ -201,4 +201,40 @@ describe('open() — #941 Task 4', () => {
     expect(warnSpy).toHaveBeenCalled()
     warnSpy.mockRestore()
   })
+
+  it('#941 review Important 3 (AC #4): reader ahead of the pod is non-fatal but warns (divergence observable in EITHER direction)', async () => {
+    // Give the TARGET store its own local generation (1) — independent of
+    // any pod — by cutting over a vault that already lives there, mirroring
+    // makeAheadPod()'s pattern but applied to the store open() restores
+    // INTO. `_meta/schema-fence` does NOT travel in a pod dump (see the
+    // module doc), so this local generation survives `vault.load()` intact.
+    const targetStore = toMemory()
+    const oldSchema = z.object({ id: z.string(), amount: z.number() })
+    const newSchema = z.object({ id: z.string(), total: z.number() })
+    const transform = (d: Record<string, unknown>) => {
+      const { amount, ...rest } = d as { amount?: number }
+      return { ...rest, total: amount }
+    }
+    let db = await createNoydb({ store: targetStore, user: USER, secret: SECRET, historyStrategy: withHistory() })
+    let vault = await db.openVault(VAULT)
+    vault.collection<Invoice>('invoices', { schema: oldSchema, persistJsonSchema: true })
+    await vault._drainPendingSchemaWrites()
+
+    db = await createNoydb({ store: targetStore, user: USER, secret: SECRET, historyStrategy: withHistory() })
+    vault = await db.openVault(VAULT)
+    vault.collection('invoices', {
+      schema: newSchema, persistJsonSchema: true, schemaUpdate: [coordinatedCutover({ transform })],
+    })
+    await vault._drainPendingSchemaWrites()
+    await vault.runSchemaCutover() // target's local fence is now at generation 1
+
+    // A source pod whose OWN generation stays 0 (never migrated).
+    const bytes = await makeSourcePod()
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const result = await open(bytes, baseOpts(targetStore))
+    expect(result.vault).toBeDefined() // non-fatal — no MigrationRequiredError
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('ahead of the pod'))
+    warnSpy.mockRestore()
+  })
 })

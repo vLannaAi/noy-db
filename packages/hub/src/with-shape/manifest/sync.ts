@@ -52,6 +52,42 @@
  * its own write failures as a visible (not silently discarded) fingerprint
  * failure.
  *
+ * ## CRITICAL fix (#941 review): a scoped principal must never write a
+ * partial manifest
+ *
+ * `deriveSchemaManifest` returns `undecodableCollections` for any
+ * `_schemas/<collection>` entry this principal's `lookupDEK` couldn't
+ * resolve — e.g. a member `grant()`-scoped to one collection can decrypt
+ * `_manifest` itself (system-prefixed DEKs propagate to every role) but
+ * NOT a sibling data collection's `_schemas/<sibling>` entry. Before this
+ * fix, `deriveSchemaManifest` silently treated "can't decrypt" the same as
+ * "no derivable content" and omitted the sibling — so a scoped member's
+ * OWN schema declare would derive a manifest missing every collection they
+ * can't see, load the real (complete) persisted manifest as a valid CAS
+ * token, observe a hash mismatch, and OVERWRITE it — permanently dropping
+ * the siblings, silently, ledger-audited as a legitimate migration. The
+ * converging recheck loop above made this WORSE, not better: re-deriving
+ * from the same restricted view just re-confirms the same partial result
+ * and declares it "stable."
+ *
+ * Fix: if `undecodableCollections` is non-empty, `syncSchemaManifest`
+ * `SKIP`s entirely — no read-compare, no write, no audit, no loop. It does
+ * NOT try to merge-preserve the undecodable entries from what's currently
+ * persisted: an `aggregateHash` computed over entries this principal can't
+ * verify would be a hash asserting something it never actually checked,
+ * which is worse than not writing at all. This is safe because:
+ *
+ *   - The source of truth, `_schemas/<their-collection>`, was ALREADY
+ *     updated by their declare — nothing about their own change is lost.
+ *   - The pod-wide `_manifest` cache simply isn't rewritten by a principal
+ *     who'd corrupt it by omission — it stays whatever a full-visibility
+ *     principal (owner/admin/custodian) last wrote.
+ *   - `open()` re-derives from `_schemas` directly (not from the cached
+ *     manifest) for whoever opens it, so a stale cache is never load-bearing.
+ *   - The NEXT full-visibility principal's declare (or any subsequent sync
+ *     by someone with complete access) naturally refreshes the cache,
+ *     including the scoped member's own just-landed change.
+ *
  * ## Ledger audit (AC #5)
  *
  * Schema-generation transitions are not ledger-audited anywhere else today
@@ -64,8 +100,9 @@
  * isn't opted in, matching every other optional-ledger call site
  * (`vault._getLedgerOrNull()?.append(...)`, see `liberate.ts`,
  * `with-audit/periods/vault-facade.ts`). No audit fires on the no-op path
- * (derived manifest unchanged) or on a swallowed conflict (the winning
- * writer's own sync already audits its write).
+ * (derived manifest unchanged), on a swallowed conflict (the winning
+ * writer's own sync already audits its write), or on the scoped-principal
+ * SKIP path above (nothing was written).
  *
  * @module
  */
@@ -74,15 +111,21 @@ import type { LedgerStore } from '../../with-commit/history/ledger/store.js'
 import { envelopePayloadHash } from '../../with-commit/history/ledger/hash.js'
 import type { NoydbStore } from '../../kernel/types.js'
 import { ManifestConflictError } from '../../kernel/errors.js'
-import { deriveSchemaManifest } from './derive.js'
+import { deriveSchemaManifest, type LookupDEK } from './derive.js'
 import { loadSchemaManifestEntry, type GetManifestDEK } from './storage.js'
 import { writeSchemaManifest } from './writer.js'
 import { MANIFEST_COLLECTION } from './reserved-collections.js'
-import { MANIFEST_SCHEMA_RECORD_ID } from './types.js'
+import { MANIFEST_SCHEMA_RECORD_ID, type SchemaManifest } from './types.js'
 
 export interface ManifestSyncDeps {
-  /** Resolver for any collection's DEK (both the `_schemas/<c>` entries and `_manifest` itself). */
+  /** Resolver for `_manifest`'s OWN DEK — mints if absent (this principal's declare is about to write it). */
   readonly getDEK: GetManifestDEK
+  /**
+   * NON-MINTING lookup for every OTHER (sibling data) collection's DEK,
+   * used by `deriveSchemaManifest` to build the index — see `derive.ts`'s
+   * `LookupDEK` doc for why minting here would be actively harmful.
+   */
+  readonly lookupDEK: LookupDEK
   /** Optional ledger handle — absent when the history strategy isn't opted in (no-op audit). */
   readonly getLedgerOrNull?: () => LedgerStore | null
 }
@@ -97,9 +140,12 @@ const MAX_SYNC_ATTEMPTS = 16
 /**
  * Re-derive the schema manifest and write it if it changed, looping until
  * the write is provably stable against concurrent sibling `_schemas`
- * writes (see module doc). Swallows a {@link ManifestConflictError} by
- * retrying against the fresher state; any other error propagates.
- * Ledger-audits (`op: 'migration'`) once per successful write.
+ * writes (see module doc). SKIPS entirely (no write, no audit) when this
+ * principal's view is incomplete (`undecodableCollections` non-empty) —
+ * see the module doc's CRITICAL fix section. Swallows a
+ * {@link ManifestConflictError} by retrying against the fresher state; any
+ * other error propagates. Ledger-audits (`op: 'migration'`) once per
+ * successful write.
  */
 export async function syncSchemaManifest(
   store: NoydbStore,
@@ -107,7 +153,13 @@ export async function syncSchemaManifest(
   deps: ManifestSyncDeps,
 ): Promise<void> {
   for (let attempt = 0; attempt < MAX_SYNC_ATTEMPTS; attempt++) {
-    const derived = await deriveSchemaManifest(store, vault, deps.getDEK)
+    const { manifest: derived, undecodableCollections } = await deriveSchemaManifest(store, vault, deps.lookupDEK)
+    if (undecodableCollections.length > 0) {
+      // Scoped principal — see module doc's CRITICAL fix. Never write a
+      // manifest we know is missing collections we couldn't decrypt.
+      return
+    }
+
     const existing = await loadSchemaManifestEntry(store, vault, deps.getDEK)
 
     if (
@@ -131,9 +183,14 @@ export async function syncSchemaManifest(
     // A sibling's `_schemas` write can land while WE were deriving/writing
     // (#941 flake fix — see module doc). Re-derive once more: if the truth
     // has already moved past what we just wrote, loop again to catch it up
-    // instead of leaving a permanently-partial manifest.
-    const recheck = await deriveSchemaManifest(store, vault, deps.getDEK)
-    if (recheck.generation === derived.generation && recheck.aggregateHash === derived.aggregateHash) {
+    // instead of leaving a permanently-partial manifest. (A principal with
+    // full visibility at the top of this iteration cannot lose that
+    // visibility mid-call — the keyring doesn't change during one sync —
+    // so this recheck is never itself subject to the undecodable-skip; the
+    // `for` loop's own guard covers it defensively regardless.)
+    const recheck = await deriveSchemaManifest(store, vault, deps.lookupDEK)
+    if (recheck.undecodableCollections.length > 0) return // defensive — see comment above
+    if (recheck.manifest.generation === derived.generation && recheck.manifest.aggregateHash === derived.aggregateHash) {
       return // stable — we were the last writer
     }
   }
@@ -152,7 +209,7 @@ async function auditManifestWrite(
   store: NoydbStore,
   vault: string,
   deps: ManifestSyncDeps,
-  derived: Awaited<ReturnType<typeof deriveSchemaManifest>>,
+  derived: SchemaManifest,
   expectedVersion: number,
 ): Promise<void> {
   const ledger = deps.getLedgerOrNull?.()

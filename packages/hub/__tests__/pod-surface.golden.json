@@ -58,11 +58,13 @@
   "types": [
     "CompressionAlgo",
     "Cover",
+    "DeriveSchemaManifestResult",
     "DocSigner",
     "EchoSecretParts",
     "FollowRedirectsResult",
     "GetManifestDEK",
     "LoadedSchemaManifest",
+    "LookupDEK",
     "Noydb",
     "NoydbBundleHeader",
     "NoydbBundleReadResult",

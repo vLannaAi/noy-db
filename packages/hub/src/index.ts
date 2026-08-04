@@ -439,6 +439,7 @@ export {
 export { open } from './with-pod/open.js'
 export type { OpenPodOptions, OpenPodResult } from './with-pod/open.js'
 export { deriveSchemaManifest } from './with-shape/manifest/derive.js'
+export type { DeriveSchemaManifestResult, LookupDEK } from './with-shape/manifest/derive.js'
 export { loadSchemaManifestEntry } from './with-shape/manifest/storage.js'
 export type { GetManifestDEK, LoadedSchemaManifest } from './with-shape/manifest/storage.js'
 export type { SchemaManifest, SchemaManifestEntry } from './with-shape/manifest/types.js'

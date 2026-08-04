@@ -755,7 +755,7 @@ export class Vault {
           const { persistSchemaIfNeeded } = await import('../with-shape/persisted-schemas/register.js') // lazy (#553)
           const result = await persistSchemaIfNeeded({
             store: this.adapter, vault: this.name, collectionName, validator, dek, strategies,
-            manifestSync: { getDEK: this.getDEK, getLedgerOrNull: () => this._getLedgerOrNull() },
+            manifestSync: { getDEK: this.getDEK, lookupDEK: async (name) => this.keyring.deks.get(name), getLedgerOrNull: () => this._getLedgerOrNull() },
           })
           const decision = result.decision ?? { action: 'allow' as const }
           if (decision.action === 'cutover') {
@@ -951,7 +951,7 @@ export class Vault {
               collectionName,
               validator,
               dek,
-              manifestSync: { getDEK: this.getDEK, getLedgerOrNull: () => this._getLedgerOrNull() },
+              manifestSync: { getDEK: this.getDEK, lookupDEK: async (name) => this.keyring.deks.get(name), getLedgerOrNull: () => this._getLedgerOrNull() },
             })
           } catch (err) {
             // Schema persistence is a fingerprint, not a correctness
