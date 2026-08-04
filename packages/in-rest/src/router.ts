@@ -1,8 +1,6 @@
-import { createNoydb, PermissionDeniedError, NotFoundError, ConflictError, ValidationError } from '@noy-db/hub'
-import type { NoydbStore } from '@noy-db/hub'
-import type { RestRequest, RestResponse } from './index.js'
-import type { SessionStore } from './sessions.js'
-import { parseQueryParams } from './query-params.js'
+import { isConflictError } from '@noy-db/hub'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
+import type { RestRequest, RestResponse, RestHandlerOptions } from './index.js'
 
 function json(status: number, body: unknown): RestResponse {
   return {
@@ -12,14 +10,95 @@ function json(status: number, body: unknown): RestResponse {
   }
 }
 
-function extractToken(req: RestRequest): string | null {
-  // HTTP headers are case-insensitive; check both common casings.
-  const auth = req.headers['authorization'] ?? req.headers['Authorization']
-  if (!auth?.startsWith('Bearer ')) return null
-  return auth.slice(7)
+/**
+ * The 6 required `NoydbStore` methods plus the optional sync/pagination
+ * extensions — the exact set `by-peer`'s `servePeerStore` exposes. The
+ * router never decrypts or interprets an argument; it forwards the
+ * positional tuple straight to `store.*` and returns the raw result.
+ */
+const CORE_METHODS = new Set<string>([
+  'get',
+  'put',
+  'delete',
+  'list',
+  'loadAll',
+  'saveAll',
+  'ping',
+  'listSince',
+  'listPage',
+  'listVaults',
+])
+
+class UnknownMethodError extends Error {}
+class UnsupportedMethodError extends Error {}
+
+async function dispatch(store: NoydbStore, method: string, args: readonly unknown[]): Promise<unknown> {
+  switch (method) {
+    case 'get': {
+      const [vault, collection, id] = args as [string, string, string]
+      return store.get(vault, collection, id)
+    }
+    case 'put': {
+      const [vault, collection, id, envelope, expectedVersion] = args as [
+        string,
+        string,
+        string,
+        EncryptedEnvelope,
+        number | undefined,
+      ]
+      await store.put(vault, collection, id, envelope, expectedVersion)
+      return null
+    }
+    case 'delete': {
+      const [vault, collection, id] = args as [string, string, string]
+      await store.delete(vault, collection, id)
+      return null
+    }
+    case 'list': {
+      const [vault, collection] = args as [string, string]
+      return store.list(vault, collection)
+    }
+    case 'loadAll': {
+      const [vault] = args as [string]
+      return store.loadAll(vault)
+    }
+    case 'saveAll': {
+      const [vault, data] = args as [string, VaultSnapshot]
+      await store.saveAll(vault, data)
+      return null
+    }
+    case 'ping': {
+      if (!store.ping) return true
+      return store.ping()
+    }
+    case 'listSince': {
+      if (!store.listSince) throw new UnsupportedMethodError('listSince not supported by this store')
+      const [vault, collection, since] = args as [string, string, string]
+      return store.listSince(vault, collection, since)
+    }
+    case 'listPage': {
+      if (!store.listPage) throw new UnsupportedMethodError('listPage not supported by this store')
+      const [vault, collection, cursor, limit] = args as [
+        string,
+        string,
+        string | undefined,
+        number | undefined,
+      ]
+      return store.listPage(vault, collection, cursor, limit)
+    }
+    case 'listVaults': {
+      if (!store.listVaults) throw new UnsupportedMethodError('listVaults not supported by this store')
+      return store.listVaults()
+    }
+  }
+  /* istanbul ignore next — CORE_METHODS gate makes this unreachable */
+  throw new UnknownMethodError(`Unhandled method: ${method}`)
 }
 
-export function buildRouter(store: NoydbStore, user: string, sessions: SessionStore, basePath: string) {
+export function buildRouter(opts: RestHandlerOptions) {
+  const { store, authorize, allow } = opts
+  const basePath = opts.basePath ?? ''
+
   function stripBase(pathname: string): string {
     // Segment-aware prefix match: basePath '/api' matches '/api' or '/api/...'
     // but NOT '/apifoo' or '/api-other/...'.
@@ -33,133 +112,48 @@ export function buildRouter(store: NoydbStore, user: string, sessions: SessionSt
     const path = stripBase(req.pathname)
     const method = req.method.toUpperCase()
 
-    // ── Session routes (no auth required) ─────────────────────────
-
-    if (method === 'POST' && path === '/sessions/unlock/secret') {
-      let body: unknown
-      try { body = await req.json() } catch { return json(400, { error: 'invalid_json' }) }
-      const secret = (body as Record<string, unknown>)?.secret
-      if (typeof secret !== 'string' || !secret) {
-        return json(400, { error: 'secret_required' })
-      }
-      try {
-        const db = await createNoydb({ store, user, secret: secret })
-        const token = sessions.create(db)
-        return json(200, { token })
-      } catch (err) {
-        if (err instanceof ValidationError) {
-          return json(400, { error: 'weak_secret', message: err.message })
-        }
-        return json(401, { error: 'invalid_secret' })
-      }
+    if (method !== 'POST' || path !== '/rpc') {
+      return json(404, { error: { name: 'NotFound', message: 'no such route' } })
     }
 
-    if (method === 'GET' && path === '/sessions/current') {
-      const token = extractToken(req)
-      const active = token !== null && sessions.peek(token)
-      return json(200, { active })
+    // Auth first, and fail-closed: an omitted authorizer denies every
+    // request. The caller MUST supply one to accept any traffic.
+    const authorized = authorize ? await authorize(req) : false
+    if (!authorized) {
+      return json(401, { error: { name: 'Unauthorized', message: 'unauthorized' } })
     }
 
-    if (method === 'DELETE' && path === '/sessions/current') {
-      const token = extractToken(req)
-      if (!token || !sessions.peek(token)) return json(401, { error: 'unauthorized' })
-      sessions.delete(token)
-      return { status: 204, headers: {}, body: null }
+    let body: unknown
+    try {
+      body = await req.json()
+    } catch {
+      return json(400, { error: { name: 'BadRequest', message: 'invalid JSON body' } })
+    }
+    const rpcMethod = (body as Record<string, unknown> | null)?.method
+    const rpcArgs = (body as Record<string, unknown> | null)?.args
+    if (typeof rpcMethod !== 'string' || !Array.isArray(rpcArgs)) {
+      return json(400, { error: { name: 'BadRequest', message: 'body must be { method: string, args: unknown[] }' } })
     }
 
-    // ── Auth guard ────────────────────────────────────────────────
-
-    const token = extractToken(req)
-    const db = token ? sessions.get(token) : null
-    if (!db) return json(401, { error: 'unauthorized' })
-
-    // ── Vault routes ──────────────────────────────────────────────
-
-    if (method === 'GET' && path === '/vaults') {
-      try {
-        if (typeof store.listVaults === 'function') {
-          const vaults = await db.listAccessibleVaults()
-          return json(200, vaults.map(v => v.id))
-        }
-        return json(200, [])
-      } catch {
-        return json(200, [])
-      }
+    if (!CORE_METHODS.has(rpcMethod)) {
+      return json(400, { error: { name: 'BadRequest', message: `unknown method: ${rpcMethod}` } })
+    }
+    if (allow && !allow.has(rpcMethod)) {
+      return json(403, { error: { name: 'Forbidden', message: `method not allowed: ${rpcMethod}` } })
     }
 
-    // Match /vaults/:vault/collections/:collection/:id
-    const recordMatch = path.match(/^\/vaults\/([^/]+)\/collections\/([^/]+)\/([^/]+)$/)
-    if (recordMatch) {
-      const vaultName = recordMatch[1]
-      const collName = recordMatch[2]
-      const id = recordMatch[3]
-      if (vaultName === undefined || collName === undefined || id === undefined) {
-        return json(500, { error: 'internal_error' })
+    try {
+      const result = await dispatch(store, rpcMethod, rpcArgs)
+      return json(200, result ?? null)
+    } catch (err) {
+      if (isConflictError(err)) {
+        return json(409, { error: { name: 'ConflictError', message: err.message, version: err.version } })
       }
-      try {
-        const vault = await db.openVault(vaultName)
-        const coll = vault.collection<Record<string, unknown>>(collName)
-
-        if (method === 'GET') {
-          const record = await coll.get(id)
-          if (!record) return json(404, { error: 'not_found' })
-          return json(200, record)
-        }
-
-        if (method === 'POST') {
-          let body: unknown
-          try { body = await req.json() } catch { return json(400, { error: 'invalid_json' }) }
-          await coll.put(id, body as Record<string, unknown>)
-          return json(200, { ok: true })
-        }
-
-        if (method === 'DELETE') {
-          await coll.delete(id)
-          return json(200, { ok: true })
-        }
-
-        return {
-          status: 405,
-          headers: { 'content-type': 'application/json', allow: 'GET, POST, DELETE' },
-          body: JSON.stringify({ error: 'method_not_allowed' }),
-        }
-      } catch (err) {
-        if (err instanceof PermissionDeniedError) return json(403, { error: 'forbidden' })
-        if (err instanceof NotFoundError) return json(404, { error: 'not_found' })
-        if (err instanceof ConflictError) return json(409, { error: 'conflict' })
-        return json(500, { error: 'internal_error' })
+      if (err instanceof UnsupportedMethodError) {
+        return json(400, { error: { name: 'BadRequest', message: err.message } })
       }
+      const e = err as Error
+      return json(500, { error: { name: e.name ?? 'Error', message: e.message ?? String(err) } })
     }
-
-    // Match /vaults/:vault/collections/:collection (list)
-    const collMatch = path.match(/^\/vaults\/([^/]+)\/collections\/([^/]+)$/)
-    if (collMatch) {
-      if (method !== 'GET') {
-        return {
-          status: 405,
-          headers: { 'content-type': 'application/json', allow: 'GET' },
-          body: JSON.stringify({ error: 'method_not_allowed' }),
-        }
-      }
-      const vaultName = collMatch[1]
-      const collName = collMatch[2]
-      if (vaultName === undefined || collName === undefined) {
-        return json(500, { error: 'internal_error' })
-      }
-      const params = parseQueryParams(req.searchParams)
-      if (params.error) return json(400, params.error)
-      try {
-        const vault = await db.openVault(vaultName)
-        const coll = vault.collection<Record<string, unknown>>(collName)
-        let results = params.apply(coll.query()).toArray()
-        if (params.limit !== null) results = results.slice(0, params.limit)
-        return json(200, results)
-      } catch (err) {
-        if (err instanceof PermissionDeniedError) return json(403, { error: 'forbidden' })
-        return json(500, { error: 'internal_error' })
-      }
-    }
-
-    return json(404, { error: 'not_found' })
   }
 }
