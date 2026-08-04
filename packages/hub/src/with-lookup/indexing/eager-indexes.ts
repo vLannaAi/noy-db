@@ -37,6 +37,22 @@ export type IndexDef =
   | readonly string[]
 
 /**
+ * Normalize a declared `IndexDef[]` into a uniform `{ fields, unique? }`
+ * shape: `string` → `{fields:[s]}`, `string[]` → `{fields}`, object →
+ * passthrough. Pure — used by `Collection`'s sensitive-field leak check
+ * and by `getDeclaredIndexes()` (introspection).
+ */
+export function normalizeIndexDefs(
+  defs: readonly IndexDef[],
+): ReadonlyArray<{ readonly fields: readonly string[]; readonly unique?: boolean }> {
+  return defs.map((def) => {
+    if (typeof def === 'string') return { fields: [def] }
+    if (Array.isArray(def)) return { fields: def }
+    return def as { readonly fields: readonly string[]; readonly unique?: boolean }
+  })
+}
+
+/**
  * Internal representation of a built hash index.
  *
  * Maps stringified field values to the set of record ids whose value

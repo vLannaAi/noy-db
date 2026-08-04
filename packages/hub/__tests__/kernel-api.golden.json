@@ -170,6 +170,7 @@
     "get",
     "getAtTier",
     "getConfig",
+    "getDeclaredIndexes",
     "getFieldMeta",
     "getIndexes",
     "getMany",

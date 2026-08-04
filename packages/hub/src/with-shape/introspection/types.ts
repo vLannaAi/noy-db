@@ -87,7 +87,7 @@ export interface CollectionConfig {
 export interface CollectionDescriptor {
   readonly fields: Record<string, FieldDescriptor>
   readonly indexes: ReadonlyArray<{ readonly fields: ReadonlyArray<string>; readonly unique?: boolean }>
-  readonly refs: Record<string, { readonly target: string; readonly mode: 'strict' | 'warn' | 'cascade' }>
+  readonly refs: Record<string, { readonly target: string; readonly mode: 'strict' | 'warn' | 'cascade'; readonly isArray?: true }>
   readonly validator?: {
     readonly kind: PersistedSchemaKind
     readonly source: 'persisted' | 'live-validator'

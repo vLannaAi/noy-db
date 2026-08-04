@@ -143,7 +143,7 @@ async function describeCollection(
   const refsRaw = state.refRegistry.getOutbound(collectionName)
   const refs: CollectionDescriptor['refs'] = {}
   for (const [name, desc] of Object.entries(refsRaw)) {
-    refs[name] = { target: desc.target, mode: desc.mode }
+    refs[name] = { target: desc.target, mode: desc.mode, ...(desc.isArray ? { isArray: true } : {}) }
   }
 
   // 1. Try the persisted Route B envelope first.
@@ -205,7 +205,7 @@ async function describeCollection(
 
   const descriptor: CollectionDescriptor = {
     fields,
-    indexes: [],
+    indexes: liveColl?.getDeclaredIndexes() ?? [],
     refs,
     ...(validator ? { validator } : {}),
     ...(collMeta !== undefined ? { meta: collMeta } : {}),

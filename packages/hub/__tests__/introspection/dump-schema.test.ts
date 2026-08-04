@@ -4,6 +4,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/ker
 import { ConflictError } from '../../src/kernel/errors.js'
 import { createNoydb } from '../../src/kernel/noydb.js'
 import type { Noydb } from '../../src/kernel/noydb.js'
+import { ref, refArray } from '../../src/kernel/refs.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -149,6 +150,38 @@ describe('vault.dumpSchema() — baseline', () => {
     comp.collection<Invoice>('plain')
     const dump = await comp.dumpSchema()
     expect(dump.collections['plain']!.config).toBeUndefined()
+  })
+
+  it('surfaces declared indexes, normalized (string / string[] / object)', async () => {
+    const comp = await db.openVault(COMP)
+    comp.collection<Invoice>('invoices', {
+      indexes: ['status', ['amount', 'status'], { fields: ['status'], unique: true }],
+    })
+    const dump = await comp.dumpSchema()
+    expect(dump.collections['invoices']!.indexes).toEqual([
+      { fields: ['status'] },
+      { fields: ['amount', 'status'] },
+      { fields: ['status'], unique: true },
+    ])
+  })
+
+  it('reports an empty indexes array when no indexes are declared', async () => {
+    const comp = await db.openVault(COMP)
+    comp.collection<Invoice>('plain')
+    const dump = await comp.dumpSchema()
+    expect(dump.collections['plain']!.indexes).toEqual([])
+  })
+
+  it('marks an array ref (refArray) with isArray: true, and a scalar ref without it', async () => {
+    const comp = await db.openVault(COMP)
+    comp.collection<Client>('clients')
+    comp.collection<Invoice & { tagIds: string[] }>('invoices', {
+      refs: { id: ref('clients'), tagIds: refArray('clients') },
+    })
+    const dump = await comp.dumpSchema()
+    const refs = dump.collections['invoices']!.refs
+    expect(refs['tagIds']).toEqual({ target: 'clients', mode: 'strict', isArray: true })
+    expect(refs['id']).toEqual({ target: 'clients', mode: 'strict' })
   })
 })
 
