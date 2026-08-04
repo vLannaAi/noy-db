@@ -1507,6 +1507,27 @@ export class BundleIntegrityError extends NoydbError {
 }
 
 /**
+ * Thrown by `open()` (`with-pod/open.ts`, #941) when the caller supplied
+ * `trustedKeys` and `verifyPodHeader` reports `'untrusted'` or `'tampered'`.
+ * Both are treated the same, fail-closed — same posture as
+ * `RedirectBadSignatureError`: once a caller opts into signature
+ * verification, an unverifiable header is a hard stop, not a soft signal.
+ * `'unsigned'` is deliberately NOT included — a legacy/unsigned pod is
+ * benign and open() proceeds, surfacing the status via `OpenPodResult.verification`.
+ */
+export class PodHeaderVerificationError extends NoydbError {
+  constructor(status: 'untrusted' | 'tampered', keyId?: string) {
+    super(
+      'POD_HEADER_VERIFICATION_FAILED',
+      `open(): pod header verification failed (status: '${status}'` +
+        `${keyId !== undefined ? `, keyId: '${keyId}'` : ''}). Refusing to open — ` +
+        `the header is signed but ${status === 'tampered' ? 'the signature does not verify' : 'the signing key is not trusted'}.`,
+    )
+    this.name = 'PodHeaderVerificationError'
+  }
+}
+
+/**
  * Thrown by `readPod` when the bundle carries
  * sealed per-user secrets but no supplied `SealingKeyProvider`
  * has a `.id` (= `pid`) matching the sealed entry's `pid`.
