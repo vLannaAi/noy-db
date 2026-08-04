@@ -414,7 +414,22 @@ jobs:
       # GITHUB_TOKEN is repo-scoped and cannot open issues cross-repo.
       # Without it this step no-ops (continue-on-error) and doc-sync must
       # be triggered manually.
+      # STABLE ONLY. A pre-release does not open a doc-sync issue.
+      #
+      # The docs site documents the `@latest` channel; nothing consumes the
+      # docs for an individual `@next` pre-release, and `@latest` eventually
+      # subsumes every pre-release on the line. Filing one issue per pre.N
+      # therefore produced a queue nobody could clear — the doc-sync backlog
+      # ran eleven releases deep, each issue carrying a package list but no
+      # semantic delta, because a pre-release's CHANGELOG section is thin or
+      # (for a version-only bump) absent entirely.
+      #
+      # Gating on the stable cut does not lose that signal, it concentrates
+      # it: `changeset version` consolidates the whole pre line into one
+      # CHANGELOG section at the 0.x.0 cut, so the stable release's payload
+      # carries the cumulative delta the individual pre-releases could not.
       - name: Notify noy-db-docs of a new publish
+        if: steps.dist_tag.outputs.tag == 'latest'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.DOCS_SYNC_TOKEN }}
@@ -459,10 +474,15 @@ jobs:
   #
   # Job-level continue-on-error: a docs-side outage or an unprovisioned
   # secret must never mark a successful publish as failed.
+  #
+  # STABLE ONLY, for the same reason as the `Notify noy-db-docs` step above:
+  # this job's whole output is the payload asset plus a comment on the issue
+  # that step opens. On a pre-release that issue does not exist, so the
+  # comment has nowhere to land and the asset has no consumer.
   docs-bridge:
     name: Docs bridge payload
     needs: publish
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' && needs.publish.outputs.dist_tag == 'latest'
     runs-on: ubuntu-latest
     continue-on-error: true
     permissions:
