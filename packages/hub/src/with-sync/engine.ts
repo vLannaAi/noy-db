@@ -45,6 +45,10 @@ export class SyncEngine {
   private readonly vault: string
   readonly role: SyncTargetRole
   readonly label: string | undefined
+  /** #948: the resolved policy this engine was constructed with, retained for
+   *  introspection (`Noydb.listSyncTargets()`) — otherwise lost once consumed
+   *  into the scheduler below. */
+  readonly policy: SyncPolicy | undefined
 
   private dirty: DirtyEntry[] = []
   private lastPush: string | null = null
@@ -145,6 +149,7 @@ export class SyncEngine {
     this.emitter = opts.emitter
     this.role = opts.role ?? 'sync-peer'
     this.label = opts.label
+    this.policy = opts.syncPolicy
 
     // Create a scheduler when the policy asks for ANY automatic behaviour.
     // #897: this used to test `push.mode !== 'manual'` alone, so a policy of

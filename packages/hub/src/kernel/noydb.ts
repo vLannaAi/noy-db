@@ -13,6 +13,7 @@ import type {
   PullOptions,
   SyncStatus,
   SyncTarget,
+  SyncTargetInfo,
   NoydbStore,
   Role,
   AccessibleVault,
@@ -1365,6 +1366,11 @@ export class Noydb {
     return this.options.store
   }
 
+  /** The default store this instance was opened with (#948). */
+  get store(): NoydbStore {
+    return this.options.store
+  }
+
   /**
    * Currently-running multi-record transaction, or `null` outside
    * Phase 2. `Collection.dispatchDerivations` consults this so a
@@ -1429,6 +1435,28 @@ export class Noydb {
       return { dirty: 0, lastPush: null, lastPull: null, online: true }
     }
     return engine.status()
+  }
+
+  /**
+   * Enumerate the sync targets wired for `vault` (#948) — the primary engine
+   * (keyed by vault name) plus any additional targets (keyed `vault::label`
+   * or `vault::role`). No preset name: a resolved `SyncPolicy` doesn't retain
+   * which preset (if any) produced it.
+   */
+  listSyncTargets(vault: string): SyncTargetInfo[] {
+    const targets: SyncTargetInfo[] = []
+    for (const [key, engine] of this.syncEngines) {
+      if (key === vault || key.startsWith(`${vault}::`)) {
+        targets.push({
+          label: engine.label,
+          role: engine.role,
+          policy: engine.policy
+            ? { push: { mode: engine.policy.push.mode }, pull: { mode: engine.policy.pull.mode } }
+            : undefined,
+        })
+      }
+    }
+    return targets
   }
 
   private getSyncEngine(vault: string): SyncEngine {
