@@ -27,6 +27,7 @@ import {
   WebAuthnCancelledError,
   WebAuthnMultiDeviceError,
   WebAuthnNotAvailableError,
+  WebAuthnPRFUnavailableError,
 } from '../src/index.js'
 import { ValidationError } from '@noy-db/hub'
 import type { UnlockedKeyring, KeyringAuthenticator, SlotRewrapContext, WebAuthnEnrollment } from '../src/index.js'
@@ -234,8 +235,8 @@ describe('webAuthnSlotRewrapCeremony — end-to-end (PRF path)', () => {
   })
 })
 
-describe('webAuthnSlotRewrapCeremony — rawId fallback path', () => {
-  it('rewraps correctly when prfUsed: false (rawId-derived wrapping key)', async () => {
+describe('webAuthnSlotRewrapCeremony — rawId fallback path (acknowledged-insecure)', () => {
+  it('rewraps correctly when prfUsed: false and allowNonPrfInsecure: true (rawId-derived wrapping key)', async () => {
     const rawId = new Uint8Array(16).fill(0xef).buffer
 
     const oldDek = await makeDek()
@@ -243,7 +244,7 @@ describe('webAuthnSlotRewrapCeremony — rawId fallback path', () => {
     stubWebAuthn({
       createReturn: mockCreateCredential({ rawId, prfOutput: null }),
     })
-    const enrollment = await enrollWebAuthn(oldKeyring, 'acme')
+    const enrollment = await enrollWebAuthn(oldKeyring, 'acme', { allowNonPrfInsecure: true })
     expect(enrollment.prfUsed).toBe(false)
     const oldSlot = slotFromEnrollment(enrollment)
 
@@ -259,7 +260,7 @@ describe('webAuthnSlotRewrapCeremony — rawId fallback path', () => {
     stubWebAuthn({
       getReturn: mockGetCredential({ rawId, prfOutput: null }),
     })
-    const rewrapped = await webAuthnSlotRewrapCeremony(ctx)
+    const rewrapped = await webAuthnSlotRewrapCeremony(ctx, { allowNonPrfInsecure: true })
     expect(rewrapped.id).toBe(oldSlot.id)
     expect(rewrapped.method).toBe('webauthn')
 
@@ -276,6 +277,8 @@ describe('webAuthnSlotRewrapCeremony — rawId fallback path', () => {
         wrapIv: (rewrapped.meta as { wrapIv: string }).wrapIv,
         enrolledAt: enrollment.enrolledAt,
       }
+      // Unlock of the rewrapped (still non-PRF) record still works —
+      // unlockWebAuthn never changed, back-compat for migrators.
       vi.unstubAllGlobals()
       stubWebAuthn({
         getReturn: mockGetCredential({ rawId, prfOutput: null }),
@@ -287,6 +290,31 @@ describe('webAuthnSlotRewrapCeremony — rawId fallback path', () => {
     } else {
       throw new Error('expected wrap-KEK rewrapped slot')
     }
+  })
+
+  it('rejects with WebAuthnPRFUnavailableError when the old slot is non-PRF and allowNonPrfInsecure is not set', async () => {
+    const rawId = new Uint8Array(16).fill(0xef).buffer
+
+    const oldDek = await makeDek()
+    const oldKeyring = await makeKeyring(new Map([['invoices', oldDek]]))
+    stubWebAuthn({
+      createReturn: mockCreateCredential({ rawId, prfOutput: null }),
+    })
+    const enrollment = await enrollWebAuthn(oldKeyring, 'acme', { allowNonPrfInsecure: true })
+    const oldSlot = slotFromEnrollment(enrollment)
+
+    const newDek = await makeDek()
+    const ctx: SlotRewrapContext = {
+      newKek: oldKeyring.salt as unknown as CryptoKey,
+      newDeks: new Map([['invoices', newDek]]),
+      oldSlot,
+    }
+
+    vi.unstubAllGlobals()
+    stubWebAuthn({
+      getReturn: mockGetCredential({ rawId, prfOutput: null }),
+    })
+    await expect(webAuthnSlotRewrapCeremony(ctx)).rejects.toThrow(WebAuthnPRFUnavailableError)
   })
 })
 

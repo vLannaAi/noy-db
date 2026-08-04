@@ -117,23 +117,28 @@ export class WebAuthnMultiDeviceError extends Error {
 }
 
 /**
- * Thrown (as a non-fatal warning, caught internally) when the PRF extension
- * is not supported by the authenticator.
+ * Thrown when `enrollWebAuthn()` (or `webAuthnSlotRewrapCeremony()`) is
+ * asked to enroll/rewrap without a PRF-capable authenticator and without
+ * explicit opt-in via `allowNonPrfInsecure: true`.
  *
- * NOYDB prefers PRF for key derivation because it produces a
- * credential-bound output that is deterministic and not extractable from
- * the authenticator. When PRF is unavailable, enrollment falls back to
- * HKDF over the credential's `rawId` — weaker binding, but still functional.
- * This error is caught at enrollment time; callers only see it if they
- * explicitly opt into strict PRF-only mode.
+ * Non-PRF WebAuthn cannot provide confidentiality: its wrapping key derives
+ * entirely from the credential's `rawId`, which is stored in cleartext in
+ * the enrollment record itself — the record would self-decrypt with no
+ * authenticator involved. By default, enrollment/rewrap refuses this path.
+ * Use a PRF-capable credential, fall back to the passphrase, or set
+ * `allowNonPrfInsecure: true` to explicitly accept a non-confidential
+ * presence gate instead.
  */
 export class WebAuthnPRFUnavailableError extends Error {
   readonly code = 'WEBAUTHN_PRF_UNAVAILABLE'
   constructor() {
     super(
-      'The PRF extension is not available on this authenticator. ' +
-      'Enrollment will fall back to rawId-based key derivation. ' +
-      'This provides weaker binding to the specific authenticator.',
+      'The PRF extension is not available on this authenticator, so it cannot provide ' +
+      'WebAuthn confidentiality — the non-PRF wrapping key derives entirely from the ' +
+      "credential's rawId, which is stored in the enrollment record itself (the record " +
+      'would self-decrypt with no authenticator involved). Enrollment refuses this path ' +
+      'by default. Use a PRF-capable authenticator, use the passphrase instead, or pass ' +
+      '{ allowNonPrfInsecure: true } to explicitly accept a non-confidential presence gate.',
     )
     this.name = 'WebAuthnPRFUnavailableError'
   }
@@ -194,12 +199,30 @@ export interface WebAuthnEnrollOptions {
    * If undefined, let the browser choose.
    */
   preferCrossPlatform?: boolean
+  /**
+   * Non-PRF WebAuthn cannot provide confidentiality — its wrapping key
+   * derives from `credentialId`, which is stored in the enrollment record,
+   * so the record self-decrypts with no authenticator. By default,
+   * enrollment REFUSES the non-PRF path (throws `WebAuthnPRFUnavailableError`).
+   * Set `true` ONLY to explicitly opt into a non-confidential presence gate;
+   * prefer the passphrase or a PRF-capable credential for real confidentiality.
+   */
+  allowNonPrfInsecure?: boolean
 }
 
 /** Options for `unlockWebAuthn()`. */
 export interface WebAuthnUnlockOptions {
   /** WebAuthn timeout in milliseconds. Default: 60_000. */
   timeout?: number
+  /**
+   * Only consulted by `webAuthnSlotRewrapCeremony()` — `unlockWebAuthn()`
+   * ignores it, since unlocking an existing non-PRF record is always
+   * permitted (back-compat; that record was never confidential). Same
+   * semantics as `WebAuthnEnrollOptions.allowNonPrfInsecure`: required to
+   * rewrap a non-PRF slot, since rewrap produces a fresh self-decrypting
+   * wrapped payload.
+   */
+  allowNonPrfInsecure?: boolean
 }
 
 // ─── Environment check ─────────────────────────────────────────────────
@@ -408,6 +431,9 @@ async function unwrapKeyringSummary(
  * @throws `WebAuthnCancelledError` if the user cancels the credential creation.
  * @throws `WebAuthnMultiDeviceError` if `requireSingleDevice` is true and the
  *         authenticator returned a credential with the BE flag set.
+ * @throws `WebAuthnPRFUnavailableError` if the authenticator did not provide
+ *         PRF output and `options.allowNonPrfInsecure` is not `true` — see
+ *         that option's doc for why the non-PRF path is refused by default.
  */
 export async function enrollWebAuthn(
   keyring: UnlockedKeyring,
@@ -478,6 +504,10 @@ export async function enrollWebAuthn(
   const prfOutput = extensions.prf?.results?.first
   const prfUsed = !!prfOutput
 
+  if (!prfUsed && !options.allowNonPrfInsecure) {
+    throw new WebAuthnPRFUnavailableError()
+  }
+
   const wrappingKey = prfOutput
     ? await deriveKeyFromPRF(prfOutput)
     : await deriveKeyFromRawId(credential.rawId)
@@ -507,6 +537,11 @@ export async function enrollWebAuthn(
  * The returned keyring has the same DEKs as at enrollment time. If DEKs
  * have been rotated since enrollment, this will return stale DEKs — the
  * caller should detect decryption failures and prompt for re-enrollment.
+ *
+ * Non-PRF unlock (`enrollment.prfUsed === false`) is a presence gate, not
+ * zero-knowledge confidentiality — it is kept working here for back-compat
+ * with existing non-PRF enrollments; new enrollments refuse that path by
+ * default (see `WebAuthnEnrollOptions.allowNonPrfInsecure`).
  *
  * @throws `WebAuthnNotAvailableError` if the environment doesn't support WebAuthn.
  * @throws `WebAuthnCancelledError` if the user cancels the assertion.
@@ -616,6 +651,10 @@ export async function unlockWebAuthn(
  *         when required `meta` fields are missing, or when the old
  *         payload fails to decrypt (credential changed / payload
  *         tampered).
+ * @throws {WebAuthnPRFUnavailableError} when the old slot is non-PRF and
+ *         `options.allowNonPrfInsecure` is not `true` — rewrapping a
+ *         non-PRF slot produces a fresh self-decrypting payload, so it
+ *         requires the same explicit acknowledgement as enrollment.
  *
  * @see passwordSlotRewrapCeremony — the password parallel.
  */
@@ -662,6 +701,10 @@ export async function webAuthnSlotRewrapCeremony(
     )
   }
   const prfUsed = meta.prfUsed === true
+
+  if (!prfUsed && !options.allowNonPrfInsecure) {
+    throw new WebAuthnPRFUnavailableError()
+  }
 
   // 1. Trigger the assertion. Same path `unlockWebAuthn` uses.
   const credentialIdBuf = base64ToBuffer(meta.credentialId)
