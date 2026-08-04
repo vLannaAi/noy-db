@@ -33,3 +33,6 @@ export type { FieldMeta, SemanticType } from './field-meta.js'
 export type { CollectionDescription, DescribedField, DescribeOptions } from './describe.js'
 export { applyListProjection } from './projection.js'
 export type { ListProjectionOptions } from './projection.js'
+// #947 Task 3 — `Vault.listBehaviors()`'s typed enumeration of the five
+// behavior registries (guards/derivations/MVs/overlays/satellites).
+export type { BehaviorSummary } from './behaviors.js'

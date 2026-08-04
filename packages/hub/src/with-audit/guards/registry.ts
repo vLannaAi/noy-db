@@ -65,6 +65,11 @@ export class GuardRegistry {
     }))
   }
 
+  /** Every registered guard spec, in registration order. Used by `Vault.listBehaviors()` (#947). */
+  all(): ReadonlyArray<AnyGuard> {
+    return [...this._byCollection.values()].flat()
+  }
+
   /**
    * Run every guard's `check` for this collection. First throw wins —
    * remaining guards are not invoked. Guards without a `check` skip.

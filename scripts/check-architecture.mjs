@@ -1257,6 +1257,11 @@ const KERNEL_SURFACE_BUDGET = {
   // Lowered 3704→3703 (#948 Task 3, shrink-first): the inline 4-key `subsystems`
   // literal now calls `buildSubsystemMatrix()` (with-shape/introspection/subsystem-matrix.ts),
   // which also folds in the 27 strategy-derived booleans; net -1 after the new import line.
+  // #947 Task 3, shrink-first: `link()`'s body (20 lines) moved to
+  // `with-shape/links/names.ts` (`declareLink(linkRegistry, name, spec)`, pure
+  // function — no logic change), freeing headroom for the new public
+  // `listBehaviors()` delegator (+ its import line) added in the same change.
+  // Net: still 3703 (measured split('\n').length) — same ceiling, zero slack.
   'packages/hub/src/kernel/vault.ts': 3703,
   // Bumped 3960→3962 (#822 period-summary push symmetry, 2026-07-26): two lines wiring
   // the vault's existing `onDirty` into VaultPeriods so `closePeriod` marks the `_periods`

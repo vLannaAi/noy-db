@@ -487,6 +487,7 @@
     "AutoCredential",
     "AutoCredentialKind",
     "BeginEchoUnlockOptions",
+    "BehaviorSummary",
     "BlobIntent",
     "BlobIntentHold",
     "BlobIntentResume",

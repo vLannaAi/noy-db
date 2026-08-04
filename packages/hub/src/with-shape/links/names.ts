@@ -10,7 +10,8 @@
  * paths and class identities are unchanged for existing consumers.
  */
 
-import { NoydbError } from '../../kernel/errors.js'
+import { NoydbError, ValidationError } from '../../kernel/errors.js'
+import type { RefDescriptor } from '../../kernel/refs.js'
 
 export const LINK_COLLECTION_PREFIX = '_links_'
 
@@ -39,6 +40,39 @@ export interface LinkSpec {
   readonly a: string
   readonly b: string
   readonly onDelete?: LinkOnDelete
+}
+
+/**
+ * Validate + register a `vault.link(name, spec)` declaration. `a`/`b`
+ * accept either a collection name or a `ref(target)` descriptor (only
+ * `target` is used). Idempotent for an identical re-declaration; throws
+ * `ValidationError` for an invalid endpoint or a conflicting
+ * re-declaration. Body extracted out of `Vault.link()` (shrink-first,
+ * #947) — the kernel floor keeps a thin delegator.
+ */
+export function declareLink(
+  linkRegistry: Map<string, LinkSpec>,
+  name: string,
+  spec: { a: string | RefDescriptor; b: string | RefDescriptor; onDelete?: LinkSpec['onDelete'] },
+): void {
+  const a = typeof spec.a === 'string' ? spec.a : spec.a.target
+  const b = typeof spec.b === 'string' ? spec.b : spec.b.target
+  for (const [slot, target] of [['a', a], ['b', b]] as const) {
+    if (!target || target.startsWith('_') || target.includes('/')) {
+      throw new ValidationError(
+        `vault.link("${name}"): endpoint "${slot}" must be a simple collection name, got "${target}".`,
+      )
+    }
+  }
+  const resolved: LinkSpec = { a, b, ...(spec.onDelete ? { onDelete: spec.onDelete } : {}) }
+  const existing = linkRegistry.get(name)
+  if (existing) {
+    if (existing.a !== resolved.a || existing.b !== resolved.b || (existing.onDelete ?? 'cascade') !== (resolved.onDelete ?? 'cascade')) {
+      throw new ValidationError(`vault.link("${name}"): conflicting re-declaration.`)
+    }
+    return
+  }
+  linkRegistry.set(name, resolved)
 }
 
 /** One link tuple as returned by `of()` / `list()`. */
