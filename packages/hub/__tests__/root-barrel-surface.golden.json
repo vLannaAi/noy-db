@@ -216,6 +216,7 @@
     "UnknownDictCodeError",
     "UnknownLookupKeyError",
     "UnknownShardError",
+    "UnknownStoreKindError",
     "UnsupportedIndexOptionError",
     "UnsupportedTierCompositionError",
     "UserApi",

@@ -512,6 +512,32 @@ export class StoreCapabilityError extends NoydbError {
   }
 }
 
+/**
+ * Thrown by `StoreLocator.resolve()` (the `@noy-db/hub/to` Locator seam,
+ * #945) when a `StoreDescriptor.kind` has no registered factory. Names both
+ * the offending kind and every kind currently registered on the locator, so
+ * the fix — register the missing factory, or correct a typo'd kind string —
+ * is visible without a debugger.
+ */
+export class UnknownStoreKindError extends NoydbError {
+  /** The unregistered descriptor kind that was looked up. */
+  readonly kind: string
+  /** Every kind currently registered on the locator, for comparison. */
+  readonly registeredKinds: readonly string[]
+
+  constructor(kind: string, registeredKinds: readonly string[]) {
+    super(
+      'UNKNOWN_STORE_KIND',
+      `No store factory is registered for kind "${kind}". Registered kinds: ` +
+        `${registeredKinds.length > 0 ? registeredKinds.join(', ') : '(none)'}. ` +
+        `Call locator.register("${kind}", factory) before resolving a descriptor of this kind.`,
+    )
+    this.name = 'UnknownStoreKindError'
+    this.kind = kind
+    this.registeredKinds = registeredKinds
+  }
+}
+
 export class PrivilegeEscalationError extends NoydbError {
   readonly offendingCollection: string
 

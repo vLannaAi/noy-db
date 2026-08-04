@@ -6,7 +6,9 @@
     "ConflictError",
     "NetworkError",
     "PodVersionConflictError",
-    "StoreCapabilityError"
+    "StoreCapabilityError",
+    "UnknownStoreKindError",
+    "createStoreLocator"
   ],
   "types": [
     "EncryptedEnvelope",
@@ -14,9 +16,14 @@
     "NoydbBundleStore",
     "NoydbPodStore",
     "NoydbStore",
+    "StoreBinding",
     "StoreCapabilities",
+    "StoreClass",
     "StoreCredentialSource",
     "StoreCredentials",
+    "StoreDescriptor",
+    "StoreFactory",
+    "StoreLocator",
     "StoreTime",
     "TxOp",
     "VaultSnapshot"
