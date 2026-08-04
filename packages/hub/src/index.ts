@@ -470,6 +470,12 @@ export type {
   OverlayViewDescriptor,
   DerivationDescriptor,
   BehaviorSummary,
+  GuardBehaviorEntry,
+  DerivationBehaviorEntry,
+  DerivationOutputEntry,
+  MaterializedViewBehaviorEntry,
+  OverlayBehaviorEntry,
+  SatelliteBehaviorEntry,
 } from './with-shape/introspection/index.js'
 
 // Persisted JSON Schema — opt-in per-collection encrypted snapshot

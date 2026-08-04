@@ -35,4 +35,12 @@ export { applyListProjection } from './projection.js'
 export type { ListProjectionOptions } from './projection.js'
 // #947 Task 3 — `Vault.listBehaviors()`'s typed enumeration of the five
 // behavior registries (guards/derivations/MVs/overlays/satellites).
-export type { BehaviorSummary } from './behaviors.js'
+export type {
+  BehaviorSummary,
+  GuardBehaviorEntry,
+  DerivationBehaviorEntry,
+  DerivationOutputEntry,
+  MaterializedViewBehaviorEntry,
+  OverlayBehaviorEntry,
+  SatelliteBehaviorEntry,
+} from './behaviors.js'
