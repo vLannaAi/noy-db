@@ -2379,7 +2379,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       storeCiphertext: this.storeCiphertext, codec: this.codec, perRecordCek: this.perRecordCek,
       vdigFields: this.vdigFields, ledger: this.ledger, keyring: this.keyring,
       resolveRecordCek: this.resolveRecordCek.bind(this),
-      onRecordMutated: this._onRecordMutated.bind(this),
+      onRecordMutated: this._onRecordMutated.bind(this), envelopePayloadHash: (envelope) => this.strategies.history.envelopePayloadHash(envelope),
       transform,
     })
   }

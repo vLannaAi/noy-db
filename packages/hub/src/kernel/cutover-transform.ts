@@ -9,7 +9,7 @@
  *
  * @internal
  */
-import type { NoydbStore, VdigFieldPolicy } from './types.js'
+import type { EncryptedEnvelope, NoydbStore, VdigFieldPolicy } from './types.js'
 import { isTombstone, isDeleteMarker, type RecordCodec, type EnclaveKey } from './enclave/index.js'
 import { assertCutoverTierSafe } from './tier-visibility.js'
 import type { MutationOrigin } from './mutation.js'
@@ -53,6 +53,7 @@ export interface CutoverTransformContext<T> {
   readonly vdigFields: ReadonlyMap<string, VdigFieldPolicy> | null
   readonly ledger: LedgerAppender | undefined
   readonly keyring: KeyringUserId
+  readonly envelopePayloadHash: (envelope: EncryptedEnvelope) => Promise<string>
   readonly resolveRecordCek: (id: string) => Promise<EnclaveKey>
   readonly onRecordMutated: (
     id: string,
@@ -86,12 +87,13 @@ export async function applyCutoverTransform<T>(ctx: CutoverTransformContext<T>):
     // stays directly under the collection DEK. `forget()`/shred reports
     // un-migrated records explicitly rather than claiming erasure.
     const cek = ctx.perRecordCek ? await ctx.resolveRecordCek(id) : undefined
-    await ctx.adapter.put(ctx.vault, ctx.name, id, await ctx.codec.encryptRecord(next as unknown as T, nextVersion, cek, undefined, undefined, ctx.vdigFields !== null ? { id, prev: env } : undefined, id))
+    const migEnvelope = await ctx.codec.encryptRecord(next as unknown as T, nextVersion, cek, undefined, undefined, ctx.vdigFields !== null ? { id, prev: env } : undefined, id)
+    await ctx.adapter.put(ctx.vault, ctx.name, id, migEnvelope)
     await ctx.onRecordMutated(id, 'put', 'cutover') // refresh in-memory cache after the raw write (parity: cache only)
     if (ctx.ledger) {
       await ctx.ledger.append({
         op: 'migration', collection: ctx.name, id, version: nextVersion,
-        actor: ctx.keyring.userId, payloadHash: '', reason: 'schema:coordinated-cutover',
+        actor: ctx.keyring.userId, payloadHash: await ctx.envelopePayloadHash(migEnvelope), reason: 'schema:coordinated-cutover',
       }).catch(() => { /* ledger is best-effort here */ })
     }
     count++
