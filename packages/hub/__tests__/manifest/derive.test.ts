@@ -25,6 +25,7 @@ import { SCHEMAS_COLLECTION } from '../../src/with-shape/persisted-schemas/stora
 import { loadKeyring, ensureCollectionDEK } from '../../src/with-party/team/keyring.js'
 import { deriveSchemaManifest } from '../../src/with-shape/manifest/derive.js'
 import { loadSchemaManifestEntry } from '../../src/with-shape/manifest/storage.js'
+import { syncSchemaManifest } from '../../src/with-shape/manifest/sync.js'
 import type { GetManifestDEK } from '../../src/with-shape/manifest/storage.js'
 import type { NoydbStore } from '../../src/kernel/types.js'
 import { toMemory } from '../../../to-memory/src/index.js'
@@ -130,6 +131,53 @@ describe('#941 Task 3: sync wiring — persistSchemaIfNeeded keeps _manifest/sch
 
     expect(Object.keys(derived.collections).sort()).toEqual(['customers', 'invoices'])
     expect(persisted!.manifest).toEqual(derived)
+  })
+
+  it('#941 flake fix: a stale first snapshot (a sibling _schemas write not yet visible) is caught up by the recheck-loop, not left permanently partial', async () => {
+    // Deterministic reproduction of the race that made the AC #2 round-trip
+    // test intermittently fail under full-suite parallel load: two
+    // collections' `persistSchemaIfNeeded` calls run concurrently, and a
+    // `syncSchemaManifest` invocation can `deriveSchemaManifest` BEFORE a
+    // sibling collection's `_schemas` write has landed — captures a
+    // partial view. Rather than relying on real timing to hit that window,
+    // wrap `store.list` so its FIRST call against `_schemas` deterministically
+    // returns a snapshot missing 'customers' (as if invoices' sync ran
+    // before customers' write committed), while both `_schemas` records are
+    // ALREADY fully written underneath. Before the fix, `syncSchemaManifest`
+    // would persist that partial (invoices-only) manifest and stop. After
+    // the fix, its post-write recheck detects the mismatch and loops until
+    // the manifest reflects both collections.
+    const store = toMemory()
+    const vault = await openWith(store)
+    vault.collection('invoices', { schema: z.object({ id: z.string(), amount: z.number() }), persistJsonSchema: true })
+    vault.collection('customers', { schema: z.object({ id: z.string(), name: z.string() }), persistJsonSchema: true })
+    await vault._drainPendingSchemaWrites()
+    // Both _schemas/invoices and _schemas/customers are now fully written and stable.
+
+    const getDEK = await externalGetDEK(store, VAULT)
+
+    let staleServed = false
+    const staleFirstList: NoydbStore = {
+      ...store,
+      async list(v, c) {
+        const names = await store.list(v, c)
+        if (c === SCHEMAS_COLLECTION && !staleServed) {
+          staleServed = true
+          return names.filter((n) => n !== 'customers') // simulate: customers' write not yet visible
+        }
+        return names
+      },
+    }
+
+    await syncSchemaManifest(staleFirstList, VAULT, { getDEK })
+
+    const trueManifest = await deriveSchemaManifest(store, VAULT, getDEK)
+    const persisted = await loadSchemaManifestEntry(store, VAULT, getDEK)
+
+    expect(staleServed).toBe(true) // the stale snapshot really was served once
+    expect(Object.keys(trueManifest.collections).sort()).toEqual(['customers', 'invoices'])
+    // The persisted manifest must NOT be left stuck on the partial (stale) view.
+    expect(persisted?.manifest).toEqual(trueManifest)
   })
 })
 
