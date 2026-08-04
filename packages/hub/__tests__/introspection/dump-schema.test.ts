@@ -208,6 +208,43 @@ describe('vault.dumpSchema() — baseline', () => {
     expect(refs['tagIds']).toEqual({ target: 'clients', mode: 'strict', isArray: true })
     expect(refs['id']).toEqual({ target: 'clients', mode: 'strict' })
   })
+
+  it('carries all #948 seams together in one snapshot (declared indexes + ref.isArray + subsystem matrix)', async () => {
+    const { withHistory } = await import('../../src/with-commit/history/index.js')
+    const combinedDb = await createNoydb({
+      store: inlineMemory(),
+      user: 'owner-01',
+      secret: 'owner-pass',
+      historyStrategy: withHistory(),
+    })
+    const comp = await combinedDb.openVault(COMP)
+    comp.collection<Client>('clients')
+    comp.collection<Invoice & { tagIds: string[] }>('invoices', {
+      indexes: ['status', { fields: ['amount', 'status'], unique: true }],
+      refs: { client: ref('clients'), tagIds: refArray('clients') },
+    })
+    const dump = await comp.dumpSchema()
+    const desc = dump.collections['invoices']!
+    // seam 1 — declared indexes, normalized
+    expect(desc.indexes).toEqual([
+      { fields: ['status'] },
+      { fields: ['amount', 'status'], unique: true },
+    ])
+    // seam 6a — array ref marked, scalar ref not
+    expect(desc.refs['tagIds']).toEqual({ target: 'clients', mode: 'strict', isArray: true })
+    expect(desc.refs['client']).toEqual({ target: 'clients', mode: 'strict' })
+    // seam 5 — full subsystem matrix (opted-in strategy true, default false, registry keys present)
+    expect(dump.subsystems.history).toBe(true)
+    expect(dump.subsystems.crdt).toBe(false)
+    expect(dump.subsystems).toEqual(expect.objectContaining({
+      guards: expect.any(Boolean),
+      derivations: expect.any(Boolean),
+      materializedViews: expect.any(Boolean),
+      overlayViews: expect.any(Boolean),
+    }))
+    // seam 6b — aclRoles is gone (never present on the snapshot)
+    expect('aclRoles' in dump).toBe(false)
+  })
 })
 
 describe('vault.dumpSchema() — archive + schemaUpdate config', () => {

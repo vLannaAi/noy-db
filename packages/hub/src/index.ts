@@ -245,7 +245,7 @@ export type { SyncPolicy, PushPolicy, PullPolicy, PushMode, PullMode, SyncSchedu
 export { SyncScheduler, INDEXED_STORE_POLICY, POD_STORE_POLICY, BUNDLE_STORE_POLICY } from './kernel/sync-policy.js'
 
 // Sync target
-export type { SyncTarget, SyncTargetRole } from './kernel/types.js'
+export type { SyncTarget, SyncTargetInfo, SyncTargetRole } from './kernel/types.js'
 
 // Store routing
 export { memoryStore } from './kernel/memory-store.js'
