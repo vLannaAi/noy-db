@@ -7,6 +7,7 @@
 
 import { derivePersistedSchema } from '../persisted-schemas/derive.js'
 import { loadPersistedSchema } from '../persisted-schemas/storage.js'
+import { fallbackDerivationName } from './derivation-key.js'
 import { jsonSchemaToFields } from './fields.js'
 import type {
   CollectionConfig,
@@ -306,6 +307,7 @@ function describeDerivations(registry: unknown): Record<string, DerivationDescri
   if (!registry || typeof registry !== 'object') return {}
   const items = listFromRegistry(registry as Record<string, unknown>)
   const out: Record<string, DerivationDescriptor> = {}
+  const used = new Set<string>()
   for (const item of items) {
     // `all()` on DerivationRegistry returns RegisteredStrategy objects:
     // { spec: DerivationSpec, strategyHash }. Read `spec` and fall
@@ -316,26 +318,13 @@ function describeDerivations(registry: unknown): Record<string, DerivationDescri
     const outputCollections = s.outputs
       ? Object.values(s.outputs).map((o) => (o as { collection: string }).collection)
       : []
-    // Named derivations key by their (vault-unique) `name` — never collides.
-    // Unnamed derivations key by sorted output-collection names so
-    // co-sourced derivations don't collide. A single-output derivation keys
-    // as just that collection name (e.g. 'billSummary'); multi-output keys
-    // as sorted join (e.g. 'a+b'). Falls back to source when no outputs are
-    // declared (defensive). Two unnamed derivations CAN share the same
-    // output set (e.g. two sources fanning into one collection) — that
-    // fallback key would then collide, so append a deterministic occurrence
-    // suffix (`key`, `key#1`, `key#2`, …) on collision so both still appear.
-    const fallbackKey = outputCollections.length > 0
-      ? [...outputCollections].sort().join('+')
-      : s.source
-    let key = s.name ?? fallbackKey
-    if (s.name === undefined) {
-      let occurrence = 1
-      while (Object.prototype.hasOwnProperty.call(out, key)) {
-        key = `${fallbackKey}#${occurrence}`
-        occurrence++
-      }
-    }
+    // Named derivations key by their (vault-unique) `name`. Unnamed ones key
+    // by the shared collision-safe fallback (sorted output collections, else
+    // source, with a `#occurrence` suffix on collision) — the SAME algorithm
+    // `listBehaviors` uses (`./derivation-key.ts`) so both surfaces key an
+    // unnamed derivation identically.
+    const key = s.name ?? fallbackDerivationName(outputCollections, s.source, used)
+    used.add(key)
     out[key] = {
       source: s.source,
       outputs: outputCollections,

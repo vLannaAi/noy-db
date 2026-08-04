@@ -14,7 +14,7 @@
  */
 import type { GuardRegistry } from '../../with-audit/guards/registry.js'
 import type { DerivationRegistry } from '../../with-formula/derivations/registry.js'
-import type { DerivationSpec } from '../../with-formula/derivations/types.js'
+import { fallbackDerivationName } from './derivation-key.js'
 import type { MaterializedViewRegistry } from '../../with-formula/materialized-views/registry.js'
 import type { OverlayedViewRegistry } from '../../with-formula/overlay-views/registry.js'
 import type { OverlayFieldMergeMode } from '../../with-formula/overlay-views/types.js'
@@ -125,7 +125,8 @@ function buildDerivationEntries(registry: DerivationRegistry | null): readonly D
   if (!registry) return []
   const usedNames = new Set<string>()
   const entries = registry.all().map(({ spec }) => {
-    const name = spec.name ?? fallbackDerivationName(spec, usedNames)
+    const outputCollections = Object.values(spec.outputs).map((o) => o.collection)
+    const name = spec.name ?? fallbackDerivationName(outputCollections, spec.source, usedNames)
     usedNames.add(name)
     const outputs: Record<string, DerivationOutputEntry> = {}
     for (const [key, output] of Object.entries(spec.outputs)) {
@@ -146,27 +147,6 @@ function buildDerivationEntries(registry: DerivationRegistry | null): readonly D
     }
   })
   return entries
-}
-
-/**
- * Mirrors `dumpSchema`'s derivation-key fallback (`walk.ts`'s
- * `describeDerivations`): sorted output-collection names joined by `+`
- * (or `source` when there are no outputs), with a `#occurrence` suffix
- * on collision against any name already assigned in this enumeration
- * (named or fallback).
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function fallbackDerivationName(spec: DerivationSpec<any, any>, used: ReadonlySet<string>): string {
-  const outputCollections = Object.values(spec.outputs).map((o) => o.collection)
-  const base = outputCollections.length > 0 ? [...outputCollections].sort().join('+') : spec.source
-  if (!used.has(base)) return base
-  let occurrence = 1
-  let candidate = `${base}#${occurrence}`
-  while (used.has(candidate)) {
-    occurrence++
-    candidate = `${base}#${occurrence}`
-  }
-  return candidate
 }
 
 function buildMaterializedViewEntries(registry: MaterializedViewRegistry | null): readonly MaterializedViewBehaviorEntry[] {
