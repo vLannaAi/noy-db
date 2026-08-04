@@ -4,7 +4,7 @@
 
 > WebAuthn hardware-key keyrings for noy-db
 
-Part of [**`@noy-db/hub`**](https://www.npmjs.com/package/@noy-db/hub) — the zero-knowledge, offline-first, encrypted document store.
+Part of [**`@noy-db/hub`**](https://www.npmjs.com/package/@noy-db/hub) — the zero-knowledge, offline-first, encrypted document store. Enrollment via PRF-capable authenticators maintains this zero-knowledge guarantee; non-PRF enrollments are a presence gate, not confidentiality (refused by default).
 
 ## Install
 
@@ -34,6 +34,8 @@ const db = await createNoydb({
 ```
 
 The callback is invoked lazily on the first `openVault(name)` per vault and the keyring is cached for the lifetime of the instance. `secret` and `getKeyring` are mutually exclusive — provide exactly one.
+
+**Note:** `unlockWebAuthn` is back-compatible with existing non-PRF enrollments (created before this version or via explicit `allowNonPrfInsecure: true`); unlocking such records works normally, but the confidentiality guarantee depends on the enrollment's `prfUsed` flag. New enrollments require PRF or explicit opt-in for documented non-zero-knowledge presence gates.
 
 For first-time bootstrap (no enrollment exists yet), open the vault with a secret, enroll WebAuthn from the unlocked keyring (`enrollWebAuthn(keyring, ...)`), persist the enrollment, then swap to `getKeyring` on subsequent sessions.
 

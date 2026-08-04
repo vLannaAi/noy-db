@@ -17,8 +17,11 @@
  * derived key bound to the physical authenticator.
  *
  * When PRF is not supported by the authenticator (common on older hardware),
- * the package falls back to HKDF-SHA256 over the credential's `rawId` —
- * the same approach as the pre-existing `@noy-db/core` biometric module.
+ * the package can fall back to HKDF-SHA256 over the credential's `rawId` —
+ * but by default, enrollment refuses this path because the `rawId` is stored
+ * in the record itself, making the record self-decrypting (presence gate, not
+ * confidentiality). Use `allowNonPrfInsecure: true` to opt in; prefer a
+ * PRF-capable device or the passphrase for real confidentiality.
  *
  * The derived key is NEVER persisted. It exists only in memory during the
  * unlock operation. What IS persisted (in the noy-db adapter, not in browser
@@ -277,7 +280,9 @@ async function deriveKeyFromPRF(prfOutput: ArrayBuffer): Promise<CryptoKey> {
 
 /**
  * Derive a wrapping key from the credential's rawId (fallback when PRF unavailable).
- * Weaker than PRF (rawId may be observable to the server) but universally supported.
+ * rawId IS the entire secret and is stored in the record itself — the record
+ * self-decrypts with no authenticator involved (presence gate, not confidentiality).
+ * Universally supported but only usable via explicit `allowNonPrfInsecure: true`.
  */
 async function deriveKeyFromRawId(rawId: ArrayBuffer): Promise<CryptoKey> {
   const keyMaterial = await globalThis.crypto.subtle.importKey(
