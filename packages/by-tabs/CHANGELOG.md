@@ -1,5 +1,28 @@
 # @noy-db/by-tabs
 
+## 0.6.0-pre.0
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.0
+  - @noy-db/by-peer@1.0.0-pre.0
+
 ## 0.5.0
 
 ### Patch Changes

@@ -1,5 +1,31 @@
 # @noy-db/on-magic-link
 
+## 0.6.0-pre.0
+
+### Minor Changes
+
+- `redeemGrantToken(link, { store, newPhrase, ... })` connects the frozen `#g=` share-link grammar (`@noy-db/hub/share-link`) to the existing `acceptInvite` ladder — the missing Tier-3 wire (#949). It reads `link.grantToken`, throwing the new `GrantTokenMissingError` when absent, and otherwise runs the unchanged TTL → audit-doc-missing fail-closed → revoked → already-accepted (replay) checks, rotates the single-use temp phrase to `newPhrase`, and opens the vault. The grammar's "single-use" claim is now true end to end: a second redemption of the same link throws `InviteAlreadyAcceptedError`. Works identically for invite and peer-recovery redemption — `kind` lives in the decoded payload, not the call site. Pure wiring; no new crypto, no change to the safety ladder itself.
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.0
+
 ## 0.5.0
 
 ### Patch Changes
