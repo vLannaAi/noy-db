@@ -108,6 +108,7 @@
     "link",
     "links",
     "listArchived",
+    "listBehaviors",
     "listPeriods",
     "load",
     "makeGetDEK",

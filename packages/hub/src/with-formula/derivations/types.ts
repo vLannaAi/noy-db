@@ -132,6 +132,11 @@ export interface DerivationSpec<
   /** Source collection name. */
   source: string
   /**
+   * Optional stable per-vault identifier; the behavior manifest
+   * references behaviors by this name. Must be unique within a vault.
+   */
+  readonly name?: string
+  /**
    * Additional collections whose writes ALSO re-fire this derivation.
    * By default only writes to the single declared
    * `source` re-trigger a derivation; a `derive` that reads sibling

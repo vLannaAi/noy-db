@@ -113,6 +113,7 @@ export interface OverlayViewDescriptor {
 export interface DerivationDescriptor {
   readonly source: string
   readonly outputs: ReadonlyArray<string>
+  readonly name?: string
 }
 
 export interface InternalCollectionStats {

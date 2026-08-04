@@ -1,3 +1,4 @@
+import { DuplicateBehaviorNameError } from '../../kernel/errors.js'
 import type { GuardSpec, GuardContext, GuardChange } from './types.js'
 
 /**
@@ -29,11 +30,23 @@ type AnyChange = GuardChange<Record<string, unknown>>
 
 export class GuardRegistry {
   private readonly _byCollection = new Map<string, AnyGuard[]>()
+  private readonly _byName = new Map<string, AnyGuard>()
   private _amendmentChanges: Map<string, AnyChange[]> | null = null
   private _amendmentMeta: Map<string, AmendmentChangeMeta[]> | null = null
 
-  /** Register a guard. Multiple guards per collection are allowed. */
+  /**
+   * Register a guard. Multiple guards per collection are allowed. If
+   * `spec.name` is given and already registered by another guard in this
+   * vault, throws {@link DuplicateBehaviorNameError} before indexing.
+   */
   register<T extends Record<string, unknown>>(spec: GuardSpec<T>): void {
+    if (spec.name !== undefined) {
+      if (this._byName.has(spec.name)) {
+        throw new DuplicateBehaviorNameError(spec.name, 'guard')
+      }
+      this._byName.set(spec.name, spec as unknown as AnyGuard)
+    }
+
     const existing = this._byCollection.get(spec.collection)
     if (existing) existing.push(spec as unknown as AnyGuard)
     else this._byCollection.set(spec.collection, [spec as unknown as AnyGuard])
@@ -50,6 +63,11 @@ export class GuardRegistry {
       collection,
       count: guards.length,
     }))
+  }
+
+  /** Every registered guard spec, in registration order. Used by `Vault.listBehaviors()` (#947). */
+  all(): ReadonlyArray<AnyGuard> {
+    return [...this._byCollection.values()].flat()
   }
 
   /**

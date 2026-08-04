@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { GuardRegistry } from '../../src/with-audit/guards/registry.js'
 import { withGuard } from '../../src/with-audit/guards/with-guard.js'
+import { DuplicateBehaviorNameError } from '../../src/kernel/errors.js'
 import type { GuardContext } from '../../src/with-audit/guards/types.js'
 
 const ctx = (existing: unknown = null): GuardContext<any> => ({
@@ -65,5 +66,28 @@ describe('GuardRegistry', () => {
     // beginAmendment resets state
     reg.beginAmendment()
     expect(reg.consumeChanges().size).toBe(0)
+  })
+
+  it('throws DuplicateBehaviorNameError when two guards share a name', () => {
+    const reg = new GuardRegistry()
+    reg.register(withGuard<{ x: number }>({ collection: 'w', name: 'dup', check: () => {} }).spec)
+    expect(() => reg.register(withGuard<{ x: number }>({ collection: 'other', name: 'dup', check: () => {} }).spec))
+      .toThrow(DuplicateBehaviorNameError)
+    expect(() => reg.register(withGuard<{ x: number }>({ collection: 'other', name: 'dup', check: () => {} }).spec))
+      .toThrow(/dup/)
+  })
+
+  it('allows guards with different names', () => {
+    const reg = new GuardRegistry()
+    reg.register(withGuard<{ x: number }>({ collection: 'w', name: 'a', check: () => {} }).spec)
+    expect(() => reg.register(withGuard<{ x: number }>({ collection: 'w', name: 'b', check: () => {} }).spec))
+      .not.toThrow()
+  })
+
+  it('allows multiple unnamed guards', () => {
+    const reg = new GuardRegistry()
+    reg.register(withGuard<{ x: number }>({ collection: 'w', check: () => {} }).spec)
+    expect(() => reg.register(withGuard<{ x: number }>({ collection: 'w', check: () => {} }).spec))
+      .not.toThrow()
   })
 })

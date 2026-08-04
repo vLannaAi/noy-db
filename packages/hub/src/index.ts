@@ -469,6 +469,13 @@ export type {
   MaterializedViewDescriptor,
   OverlayViewDescriptor,
   DerivationDescriptor,
+  BehaviorSummary,
+  GuardBehaviorEntry,
+  DerivationBehaviorEntry,
+  DerivationOutputEntry,
+  MaterializedViewBehaviorEntry,
+  OverlayBehaviorEntry,
+  SatelliteBehaviorEntry,
 } from './with-shape/introspection/index.js'
 
 // Persisted JSON Schema — opt-in per-collection encrypted snapshot
@@ -810,6 +817,7 @@ export {
   DerivationOutputUnknownError,
   DerivationOutputShapeError,
   DerivationCapExceededError,
+  DuplicateBehaviorNameError,
 } from './kernel/errors.js'
 
 // Materialized views (Dim 14 v2) — see docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md

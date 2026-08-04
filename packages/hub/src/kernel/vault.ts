@@ -97,7 +97,7 @@ import {
   reservedDictDepsOf, // #653
   type LookupDescriptor,
 } from '../port/with/lookup-strategy.js'
-import { isLinkCollectionName, type LinkSpec, type LinkSetHandle } from '../with-shape/links/names.js'
+import { isLinkCollectionName, declareLink, type LinkSpec, type LinkSetHandle } from '../with-shape/links/names.js'
 import { makeLazyLinkSetHandle, type LazyLinkSetHandle } from '../with-shape/links/lazy-handle.js'
 import { getAtPath } from './paths.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
@@ -120,6 +120,7 @@ import type { GuardStrategyAny } from '../with-audit/guards/types.js'
 import type { ReadOnlyVaultFacade } from '../with-audit/guards/read-only-facade.js'
 import type { DerivationRegistry } from '../with-formula/derivations/registry.js'
 import type { DerivationStrategy } from '../with-formula/derivations/types.js'
+import { buildBehaviorSummary, type BehaviorSummary } from '../with-shape/introspection/behaviors.js'
 import { ReservedCollectionNameError, StaticDictReadonlyError, SatelliteConfigError } from './errors.js'
 import { declareSatellite } from '../with-shape/satellites/declare.js'
 import { makeSatelliteProxy, makeBaseProxy } from '../with-shape/satellites/proxy.js'
@@ -1359,24 +1360,7 @@ export class Vault {
    * (`'cascade'` default, `'strict'`, `'warn'`).
    */
   link(name: string, spec: { a: string | RefDescriptor; b: string | RefDescriptor; onDelete?: LinkSpec['onDelete'] }): void {
-    const a = typeof spec.a === 'string' ? spec.a : spec.a.target
-    const b = typeof spec.b === 'string' ? spec.b : spec.b.target
-    for (const [slot, target] of [['a', a], ['b', b]] as const) {
-      if (!target || target.startsWith('_') || target.includes('/')) {
-        throw new ValidationError(
-          `vault.link("${name}"): endpoint "${slot}" must be a simple collection name, got "${target}".`,
-        )
-      }
-    }
-    const resolved: LinkSpec = { a, b, ...(spec.onDelete ? { onDelete: spec.onDelete } : {}) }
-    const existing = this.linkRegistry.get(name)
-    if (existing) {
-      if (existing.a !== resolved.a || existing.b !== resolved.b || (existing.onDelete ?? 'cascade') !== (resolved.onDelete ?? 'cascade')) {
-        throw new ValidationError(`vault.link("${name}"): conflicting re-declaration.`)
-      }
-      return
-    }
-    this.linkRegistry.set(name, resolved)
+    declareLink(this.linkRegistry, name, spec)
   }
 
   /**
@@ -2525,6 +2509,22 @@ export class Vault {
    */
   _getOverlayedViewRegistry(): OverlayedViewRegistry | null {
     return this.overlayedViewRegistry
+  }
+
+  /**
+   * Read-only enumeration of the five behavior registries — guards,
+   * derivations, materialized views, overlays, satellites — each entry
+   * carrying its name and the serializable half of its spec (never a
+   * function body). @see with-shape/introspection/behaviors.ts
+   */
+  listBehaviors(): BehaviorSummary {
+    return buildBehaviorSummary({
+      guards: this.guardRegistry,
+      derivations: this.derivationRegistry,
+      materializedViews: this.materializedViewRegistry,
+      overlays: this.overlayedViewRegistry,
+      satellites: this.satelliteRegistry,
+    })
   }
 
   /** @internal — ctx for `putDerivedOutput`'s frozen-period skip+audit (#638 Task 5). */
