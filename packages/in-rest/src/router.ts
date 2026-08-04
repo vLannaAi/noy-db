@@ -157,10 +157,15 @@ export function buildRouter(opts: RestHandlerOptions) {
         return json(409, { error: { name: 'ConflictError', message: err.message, version: err.version } })
       }
       if (err instanceof UnsupportedMethodError) {
-        return json(400, { error: { name: 'BadRequest', message: err.message } })
+        // The request was well-formed; the backing store just lacks this
+        // optional method. 501 (not 400) lets a client feature-detect.
+        return json(501, { error: { name: 'NotImplemented', message: err.message } })
       }
+      // Preserve the error NAME so a client can branch / re-hydrate, but do
+      // NOT echo the raw store message — it may embed operational internals
+      // (connection strings, paths). Operators read the detail from logs.
       const e = err as Error
-      return json(500, { error: { name: e.name ?? 'Error', message: e.message ?? String(err) } })
+      return json(500, { error: { name: e.name ?? 'Error', message: 'store error' } })
     }
   }
 }

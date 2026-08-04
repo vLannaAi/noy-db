@@ -238,6 +238,36 @@ describe('in-rest envelope-proxy handler', () => {
     expect(res.status).toBe(400)
   })
 
+  // ── Optional-method + error-message hygiene ─────────────────────
+
+  it('unsupported optional method → 501 (client can feature-detect, not 400)', async () => {
+    // toMemory implements only the 6 core methods — not listVaults.
+    const handler = createRestHandler({ store, authorize: allowAll })
+    const res = await handler.handle(req('POST', '/rpc', { method: 'listVaults', args: [] }))
+    expect(res.status).toBe(501)
+    const body = JSON.parse(res.body as string) as { error: { name: string } }
+    expect(body.error.name).toBe('NotImplemented')
+  })
+
+  it('a store error does not leak its raw message to the client (500)', async () => {
+    const leaky: NoydbStore = {
+      name: 'leaky',
+      async get(): Promise<EncryptedEnvelope | null> {
+        throw new Error('postgres://user:secret@db.internal:5432 connection refused')
+      },
+      async put() {},
+      async delete() {},
+      async list() { return [] },
+      async loadAll(): Promise<VaultSnapshot> { return {} },
+      async saveAll() {},
+    }
+    const handler = createRestHandler({ store: leaky, authorize: allowAll })
+    const res = await handler.handle(req('POST', '/rpc', { method: 'get', args: ['acme', 'invoices', 'i1'] }))
+    expect(res.status).toBe(500)
+    expect(res.body).not.toContain('secret')
+    expect(res.body).not.toContain('postgres://')
+  })
+
   // ── Routing / basePath ──────────────────────────────────────────
 
   it('unmatched path/method → 404', async () => {
