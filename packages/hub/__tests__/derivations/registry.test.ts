@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { DerivationRegistry } from '../../src/with-formula/derivations/registry.js'
 import { withDerivation } from '../../src/with-formula/derivations/with-derivation.js'
-import { DerivationCycleError } from '../../src/kernel/errors.js'
+import { DerivationCycleError, DuplicateBehaviorNameError } from '../../src/kernel/errors.js'
 
 describe('DerivationRegistry', () => {
   it('register + lookup by source', async () => {
@@ -82,5 +82,71 @@ describe('DerivationRegistry', () => {
       lifecycle: 'eager',
     }).spec)
     expect(() => reg.validate()).not.toThrow()
+  })
+
+  it('throws DuplicateBehaviorNameError when two derivations share a name', async () => {
+    const reg = new DerivationRegistry()
+    await reg.register(withDerivation({
+      source: 'a',
+      name: 'dup',
+      deterministic: true,
+      outputs: { o: { shape: 'record', collection: 'b' } },
+      derive: () => ({ o: {} }),
+      lifecycle: 'eager',
+    }).spec)
+    await expect(reg.register(withDerivation({
+      source: 'c',
+      name: 'dup',
+      deterministic: true,
+      outputs: { o: { shape: 'record', collection: 'd' } },
+      derive: () => ({ o: {} }),
+      lifecycle: 'eager',
+    }).spec)).rejects.toThrow(DuplicateBehaviorNameError)
+    await expect(reg.register(withDerivation({
+      source: 'c',
+      name: 'dup',
+      deterministic: true,
+      outputs: { o: { shape: 'record', collection: 'd' } },
+      derive: () => ({ o: {} }),
+      lifecycle: 'eager',
+    }).spec)).rejects.toThrow(/dup/)
+  })
+
+  it('allows derivations with different names', async () => {
+    const reg = new DerivationRegistry()
+    await reg.register(withDerivation({
+      source: 'a',
+      name: 'first',
+      deterministic: true,
+      outputs: { o: { shape: 'record', collection: 'b' } },
+      derive: () => ({ o: {} }),
+      lifecycle: 'eager',
+    }).spec)
+    await expect(reg.register(withDerivation({
+      source: 'c',
+      name: 'second',
+      deterministic: true,
+      outputs: { o: { shape: 'record', collection: 'd' } },
+      derive: () => ({ o: {} }),
+      lifecycle: 'eager',
+    }).spec)).resolves.toBeUndefined()
+  })
+
+  it('allows multiple unnamed derivations', async () => {
+    const reg = new DerivationRegistry()
+    await reg.register(withDerivation({
+      source: 'a',
+      deterministic: true,
+      outputs: { o: { shape: 'record', collection: 'b' } },
+      derive: () => ({ o: {} }),
+      lifecycle: 'eager',
+    }).spec)
+    await expect(reg.register(withDerivation({
+      source: 'c',
+      deterministic: true,
+      outputs: { o: { shape: 'record', collection: 'd' } },
+      derive: () => ({ o: {} }),
+      lifecycle: 'eager',
+    }).spec)).resolves.toBeUndefined()
   })
 })

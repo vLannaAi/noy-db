@@ -84,6 +84,11 @@ export interface GuardStrategyAny {
 export interface GuardSpec<T extends Record<string, unknown>> {
   collection: string
   /**
+   * Optional stable per-vault identifier; the behavior manifest
+   * references behaviors by this name. Must be unique within a vault.
+   */
+  readonly name?: string
+  /**
    * Fires on `Collection.put` (insert + update). The `incoming` argument
    * is the record being written. Throw to cancel the put.
    *

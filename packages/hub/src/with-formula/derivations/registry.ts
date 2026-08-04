@@ -1,4 +1,4 @@
-import { DerivationCycleError } from '../../kernel/errors.js'
+import { DerivationCycleError, DuplicateBehaviorNameError } from '../../kernel/errors.js'
 import { ViaGraph, type FieldRef, type EdgeKind, type Grain } from '../../kernel/via/graph.js'
 import { computeStrategyHash } from './strategy-hash.js'
 import type { DerivationSpec } from './types.js'
@@ -42,12 +42,24 @@ interface RegisteredStrategy {
 export class DerivationRegistry {
   private readonly _bySource = new Map<string, RegisteredStrategy[]>()
   private readonly _byOutput = new Map<string, RegisteredStrategy[]>()
+  private readonly _byName = new Map<string, RegisteredStrategy>()
 
+  /**
+   * Register a derivation strategy. If `spec.name` is given and already
+   * registered by another derivation in this vault, throws
+   * {@link DuplicateBehaviorNameError} before indexing.
+   */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async register(spec: DerivationSpec<any, any>): Promise<void> {
+    if (spec.name !== undefined && this._byName.has(spec.name)) {
+      throw new DuplicateBehaviorNameError(spec.name, 'derivation')
+    }
+
     const outputKeys = Object.keys(spec.outputs)
     const strategyHash = await computeStrategyHash(spec.source, outputKeys, spec.derive, spec.sources)
     const reg: RegisteredStrategy = { spec, strategyHash }
+
+    if (spec.name !== undefined) this._byName.set(spec.name, reg)
 
     const fromSource = this._bySource.get(spec.source)
     if (fromSource) fromSource.push(reg)

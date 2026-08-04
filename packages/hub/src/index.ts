@@ -810,6 +810,7 @@ export {
   DerivationOutputUnknownError,
   DerivationOutputShapeError,
   DerivationCapExceededError,
+  DuplicateBehaviorNameError,
 } from './kernel/errors.js'
 
 // Materialized views (Dim 14 v2) — see docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md

@@ -63,6 +63,7 @@
     "DictKeyMissingError",
     "DictionaryHandle",
     "DirectoryDisabledError",
+    "DuplicateBehaviorNameError",
     "ELEVATION_AUDIT_COLLECTION",
     "EchoCeremonyRequiredError",
     "ElevatedHandle",

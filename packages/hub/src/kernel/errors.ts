@@ -2788,6 +2788,32 @@ export class OverlayIdMismatchError extends NoydbError {
   }
 }
 
+// ─── Behavior Naming Errors (#947) ─────────────────────────
+
+/**
+ * Thrown at registration if a guard or derivation declares a `name` that
+ * is already registered by another behavior of the same kind in this
+ * vault. `name` is optional on both `GuardSpec` and `DerivationSpec` —
+ * unnamed behaviors never trigger this check — but once given, a name is
+ * the stable per-vault identifier a behavior manifest references, so it
+ * must be unique among behaviors of the same `kind`.
+ */
+export class DuplicateBehaviorNameError extends NoydbError {
+  readonly behaviorName: string
+  readonly kind: 'guard' | 'derivation'
+
+  constructor(name: string, kind: 'guard' | 'derivation') {
+    super(
+      'DUPLICATE_BEHAVIOR_NAME',
+      `Duplicate ${kind} name "${name}" — a ${kind} with this name is already registered ` +
+        `in this vault. Behavior names must be unique within a vault (per kind).`,
+    )
+    this.name = 'DuplicateBehaviorNameError'
+    this.behaviorName = name
+    this.kind = kind
+  }
+}
+
 // ─── Snapshot Errors ──────────────────────────────────────
 
 /**
