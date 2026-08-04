@@ -1,0 +1,14 @@
+# Changelog — test-adapter-conformance
+
+## 0.6.0-pre.1
+
+### Minor Changes
+
+- First publish. The adapter-conformance suite — the store contract every
+  `NoydbStore` implementation must pass — moves from a private in-repo test
+  harness to a published package, so satellite store repos and out-of-tree
+  store authors consume one shared definition of the contract instead of
+  vendoring a copy (noy-db-to#19).
+
+  `@noy-db/hub` and `vitest` are peer dependencies; the suite ships as
+  built ESM + types.
