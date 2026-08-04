@@ -41,11 +41,13 @@
  *   consumers.
  * - Offline brute-force is bounded by PBKDF2 cost + the secrecy of the
  *   state blob. Do not persist the state to a public location.
- * - A 4-digit numeric PIN has only 10,000 possibilities. With 100k
- *   PBKDF2 iterations each, a GPU attacker needs ~10^9 hash ops to
- *   exhaust the space — roughly hours. Combined with the short TTL
- *   and the attempts counter, this is acceptable for UX convenience
- *   but NOT for primary authentication.
+ * - A 4-digit numeric PIN has only 10,000 possibilities. Even at 100k
+ *   PBKDF2 iterations each (~10^9 hash ops total), a GPU attacker
+ *   exhausts the entire space in **seconds**, not hours — PBKDF2's
+ *   iteration cost does not meaningfully protect a keyspace this small
+ *   once the state blob leaks. This is exactly why on-pin is a
+ *   UX-convenience resume factor, NOT primary authentication, and why
+ *   the state blob must never be persisted to a public location.
  *
  * ## API shape (mirrors @noy-db/on-* siblings)
  *
