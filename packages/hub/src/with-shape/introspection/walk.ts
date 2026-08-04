@@ -308,6 +308,14 @@ function describeDerivations(registry: unknown): Record<string, DerivationDescri
   const items = listFromRegistry(registry as Record<string, unknown>)
   const out: Record<string, DerivationDescriptor> = {}
   const used = new Set<string>()
+  // Pre-seed with every explicit name BEFORE keying any derivation, so an
+  // unnamed derivation's fallback key never collides with (and clobbers) a
+  // named one, regardless of registration order (#973).
+  for (const item of items) {
+    const reg = item as { spec?: { name?: string }; name?: string }
+    const explicitName = (reg.spec ?? reg).name
+    if (explicitName !== undefined) used.add(explicitName)
+  }
   for (const item of items) {
     // `all()` on DerivationRegistry returns RegisteredStrategy objects:
     // { spec: DerivationSpec, strategyHash }. Read `spec` and fall
@@ -324,7 +332,7 @@ function describeDerivations(registry: unknown): Record<string, DerivationDescri
     // `listBehaviors` uses (`./derivation-key.ts`) so both surfaces key an
     // unnamed derivation identically.
     const key = s.name ?? fallbackDerivationName(outputCollections, s.source, used)
-    used.add(key)
+    if (s.name === undefined) used.add(key)
     out[key] = {
       source: s.source,
       outputs: outputCollections,

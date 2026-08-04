@@ -177,4 +177,23 @@ describe('vault.listBehaviors() (#947 Task 3)', () => {
     const names = vault.listBehaviors().derivations.map((d) => d.name)
     expect(names).toEqual(['catalogEntry'])
   })
+
+  it('an explicit guard name matching another unnamed guard\'s fallback key does not produce a duplicate name (#973)', async () => {
+    const explicitGuard = withGuard<Invoice>({ name: 'invoices#1', collection: 'invoices', check: () => {} })
+    const unnamedA = withGuard<Invoice>({ collection: 'invoices', check: () => {} })
+    const unnamedB = withGuard<Invoice>({ collection: 'invoices', check: () => {} })
+
+    const db = await createNoydb({
+      store: inlineMemory(),
+      user: 'alice',
+      secret: 'pw',
+      guardStrategies: [explicitGuard, unnamedA, unnamedB],
+    })
+    const vault = await db.openVault('acme')
+
+    const names = vault.listBehaviors().guards.map((g) => g.name)
+    expect(names).toHaveLength(3)
+    expect(new Set(names).size).toBe(3)
+    expect(names).toContain('invoices#1')
+  })
 })
