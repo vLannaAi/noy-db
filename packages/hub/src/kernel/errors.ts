@@ -538,6 +538,32 @@ export class UnknownStoreKindError extends NoydbError {
   }
 }
 
+/**
+ * Thrown by `StoreLocator.register()` (the `@noy-db/hub/to` Locator seam,
+ * #945) when `kind` is already registered on the locator. A locator
+ * registers each kind exactly once — a duplicate registration is almost
+ * always a mistake (a copy-pasted setup block, two satellite packages
+ * fighting over the same kind string) — so it fails loudly at the mistake's
+ * source rather than silently overwriting (last-wins) and surfacing
+ * confusion at some unrelated `resolve()` call later. Mirrors
+ * `DuplicateBehaviorNameError`.
+ */
+export class DuplicateStoreKindError extends NoydbError {
+  /** The kind string that was already registered. */
+  readonly kind: string
+
+  constructor(kind: string) {
+    super(
+      'DUPLICATE_STORE_KIND',
+      `StoreLocator: kind "${kind}" is already registered. Each kind may ` +
+        `be registered once per locator — pick a distinct kind string, or ` +
+        `create a separate StoreLocator instance.`,
+    )
+    this.name = 'DuplicateStoreKindError'
+    this.kind = kind
+  }
+}
+
 export class PrivilegeEscalationError extends NoydbError {
   readonly offendingCollection: string
 

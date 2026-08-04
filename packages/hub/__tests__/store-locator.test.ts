@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest'
 import {
   createStoreLocator,
   UnknownStoreKindError,
+  DuplicateStoreKindError,
   type StoreDescriptor,
   type StoreFactory,
 } from '../src/port/to/index.js'
@@ -66,7 +67,17 @@ describe('createStoreLocator', () => {
     const locator = createStoreLocator()
     locator.register('stub', () => makeSentinelStore('first'))
 
-    expect(() => locator.register('stub', () => makeSentinelStore('second'))).toThrow(/stub/)
+    let caught: unknown
+    try {
+      locator.register('stub', () => makeSentinelStore('second'))
+    } catch (e) {
+      caught = e
+    }
+
+    expect(caught).toBeInstanceOf(DuplicateStoreKindError)
+    const err = caught as DuplicateStoreKindError
+    expect(err.kind).toBe('stub')
+    expect(err.message).toContain('stub')
   })
 
   it('type-check: a descriptor literal cannot carry a credentials function', () => {

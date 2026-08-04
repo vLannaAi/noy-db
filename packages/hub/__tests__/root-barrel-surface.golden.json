@@ -64,6 +64,7 @@
     "DictionaryHandle",
     "DirectoryDisabledError",
     "DuplicateBehaviorNameError",
+    "DuplicateStoreKindError",
     "ELEVATION_AUDIT_COLLECTION",
     "EchoCeremonyRequiredError",
     "ElevatedHandle",

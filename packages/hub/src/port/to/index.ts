@@ -36,6 +36,7 @@ export {
   BundleVersionConflictError,
   PodVersionConflictError,
   UnknownStoreKindError,
+  DuplicateStoreKindError,
 } from '../../kernel/errors.js'
 
 export type { StoreClass, StoreDescriptor, StoreBinding, StoreFactory, StoreLocator } from './locator.js'

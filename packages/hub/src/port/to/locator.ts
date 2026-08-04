@@ -18,7 +18,7 @@
  * dependencies to `@noy-db/hub/to`.
  */
 import type { NoydbStore, StoreCredentialSource } from '../../kernel/types.js'
-import { UnknownStoreKindError } from '../../kernel/errors.js'
+import { DuplicateStoreKindError, UnknownStoreKindError } from '../../kernel/errors.js'
 
 /**
  * The broad topology bucket a store descriptor's kind falls into —
@@ -94,11 +94,7 @@ export function createStoreLocator(): StoreLocator {
   return {
     register(kind, factory) {
       if (factories.has(kind)) {
-        throw new Error(
-          `StoreLocator: kind "${kind}" is already registered. Each kind may ` +
-            `be registered once per locator — pick a distinct kind string, or ` +
-            `create a separate StoreLocator instance.`,
-        )
+        throw new DuplicateStoreKindError(kind)
       }
       factories.set(kind, factory)
     },

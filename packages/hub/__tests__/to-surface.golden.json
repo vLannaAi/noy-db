@@ -4,6 +4,7 @@
   "values": [
     "BundleVersionConflictError",
     "ConflictError",
+    "DuplicateStoreKindError",
     "NetworkError",
     "PodVersionConflictError",
     "StoreCapabilityError",

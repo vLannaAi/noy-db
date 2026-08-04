@@ -275,6 +275,7 @@ export {
   PrivilegeEscalationError,
   StoreCapabilityError,
   UnknownStoreKindError,
+  DuplicateStoreKindError,
   ConflictError,
   isConflictError,
   NetworkError,
