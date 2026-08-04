@@ -1,5 +1,45 @@
 # Changelog — on-webauthn
 
+## 0.6.0-pre.0
+
+### Minor Changes
+
+- docs(on-webauthn): correct non-PRF confidentiality claims
+
+  Non-PRF WebAuthn cannot provide confidentiality — its wrapping key derives entirely from the credential's `rawId`, which is stored in the enrollment record, so the record self-decrypts with no authenticator involved. By default, enrollment/rewrap refuses this path (throws `WebAuthnPRFUnavailableError`). The new behavior:
+
+  - New enrollments require PRF-capable authenticators, passphrases, or explicit opt-in via `allowNonPrfInsecure: true`
+  - Non-PRF WebAuthn is reclassified as a presence/liveness gate, not a confidentiality factor
+  - Existing non-PRF records continue to unlock for back-compat, but are documented as non-zero-knowledge
+  - The `allowNonPrfInsecure` escape hatch is explicitly opt-in and documented
+
+  Updated documentation:
+
+  - Module header (index.ts): added caveat about non-PRF not providing confidentiality by default
+  - `deriveKeyFromRawId` docstring: changed from "rawId may be observable" to "rawId IS the entire secret and is stored in the record — self-decrypting"
+  - `@noy-db/on-webauthn` README.md: clarified PRF requirement for zero-knowledge guarantee
+  - Root SECURITY.md threat model table: distinguished PRF-capable (enclave-bound, confidentiality) from non-PRF (presence gate, no confidentiality guarantee)
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.0
+
 ## 0.5.0
 
 ### Patch Changes

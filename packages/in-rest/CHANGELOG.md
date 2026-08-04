@@ -1,5 +1,39 @@
 # @noy-db/in-rest
 
+## 0.6.0-pre.0
+
+### Major Changes
+
+- **BREAKING (security):** `@noy-db/in-rest` no longer unlocks vaults or handles plaintext. The server is now a ciphertext relay that proxies only `EncryptedEnvelope`s.
+
+  Closes #963 finding 2 (external security review): the old server took the vault passphrase server-side, held unlocked vault handles in an in-memory session store, and returned/accepted decrypted records — so a compromised or curious REST host could read plaintext. It now exposes a single `POST {basePath}/rpc` endpoint that forwards the six `NoydbStore` methods (`get`/`put`/`delete`/`list`/`loadAll`/`saveAll`, plus optional `ping`/`listSince`/`listPage`/`listVaults`) straight to the store and returns envelopes unchanged. Unlock, decryption, and the query DSL move to the client — the same zero-knowledge boundary every other storage backend honors.
+
+  Removed: the `/sessions/*` unlock/session routes, the plaintext `/vaults/*` record + query routes, server-side query parsing, and the in-memory session store. `RestHandlerOptions` drops `user` and `ttlSeconds` and adds a **fail-closed** `authorize?: (req) => boolean | Promise<boolean>` (omit it and every request is `401`) plus an optional `allow` method allowlist for read-only relays. A CAS conflict now surfaces as `409 { error: { name: 'ConflictError', version } }`.
+
+  `@noy-db/in-nuxt` adapts to the new handler: its module `rest` options drop `user`/`ttlSeconds` and gain a server-only `authToken` (kept off the public runtime config), wired into a bearer authorizer.
+
+  Migrate REST clients to a `to-rest` `NoydbStore` (the HTTP mirror of `by-peer`'s `peerStore()`) — tracked in the `noy-db-to` companion repo.
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.0
+
 ## 0.5.0
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/by-peer",
-  "version": "0.5.0",
+  "version": "0.6.0-pre.0",
   "description": "WebRTC peer-to-peer transport for noy-db — direct browser-to-browser channel with signaling-agnostic handshake",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

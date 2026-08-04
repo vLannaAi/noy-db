@@ -1,5 +1,35 @@
 # Changelog — to-file
 
+## 0.6.0-pre.0
+
+### Minor Changes
+
+- Store-locator seam (L5) — a store can now be reconstructed from serializable data.
+
+  `@noy-db/hub/to` publishes a credentialless, serializable `StoreDescriptor` (`{ kind, class: 'local'|'browser'|'lan'|'cloud', address, options? }`) plus a `createStoreLocator()` registry (`register(kind, factory)` / `resolve(descriptor, { binding?, credentials? })`). Credentials ride a separate `StoreCredentialSource` resolve-time slot and per-device details a separate `binding` slot — never the descriptor, so a pod's storage manifest can name _where_ data lives without embedding a secret. Unknown kinds throw `UnknownStoreKindError`; duplicate registration throws `DuplicateStoreKindError`. The `@noy-db/hub/to` seam adds zero runtime dependencies.
+
+  `@noy-db/to-file` ships the `local`-class reference: `fileStoreDescriptor(dir)`, `fileStoreFactory`, and `registerFileStore(locator)` — a descriptor-constructed store passes the full adapter-conformance contract. Adoption across the remaining `to-*` stores (`to-webdav` lan, `to-aws-s3` cloud, …) is tracked in the noy-db-to companion.
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.0
+
 ## 0.5.0
 
 ### Patch Changes
