@@ -22,7 +22,7 @@ NOYDB is a zero-knowledge storage layer. Backends never see plaintext data.
 | Key derivation | PBKDF2-SHA256 | 600,000 iterations, 32-byte random salt |
 | Key wrapping | AES-KW (RFC 3394) | 256-bit KEK wraps DEKs |
 | Random generation | CSPRNG | `crypto.getRandomValues()` |
-| Biometric | WebAuthn / FIDO2 | Platform secure enclave |
+| Biometric | WebAuthn / FIDO2 (PRF-capable) | Platform secure enclave — derived key is enclave-bound; non-PRF WebAuthn is a presence/liveness gate, not a confidentiality factor |
 
 All operations use the Web Crypto API (`crypto.subtle`). Zero npm crypto dependencies.
 
@@ -31,11 +31,11 @@ All operations use the Web Crypto API (`crypto.subtle`). Zero npm crypto depende
 | Threat | Mitigation |
 |--------|-----------|
 | Lost USB stick | AES-256-GCM — without passphrase, all data is ciphertext |
-| Cloud admin reads data | Zero-knowledge — backends store only ciphertext |
+| Cloud admin reads data | Zero-knowledge by default — backends store only ciphertext; non-PRF WebAuthn enrollments are refused by default but can be explicitly opted in via `allowNonPrfInsecure`, producing a documented non-confidential presence gate |
 | Brute-force passphrase | PBKDF2 600K iterations (~200ms/attempt). 12-char passphrase is infeasible |
 | Tampered record | AES-GCM auth tag — decrypt fails with TAMPERED error |
 | Revoked user retains data | Key rotation re-encrypts with new DEKs |
-| Compromised biometric store | Wrapped KEK encrypted by WebAuthn credential |
+| Compromised biometric store | Wrapped KEK encrypted by WebAuthn credential (PRF-capable); non-PRF enrollments self-decrypt and are not recommended for this threat model |
 
 ### What NOYDB Does NOT Protect Against
 
