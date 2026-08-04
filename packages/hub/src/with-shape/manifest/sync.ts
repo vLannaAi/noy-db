@@ -40,11 +40,12 @@
  * derive sees every sibling's write already committed, and whose
  * recheck-after-write confirms nothing moved further — so it converges the
  * manifest deterministically, regardless of interleaving. If attempts are
- * exhausted under pathological contention, the loop gives up silently
- * (leaves the last successful write in place) — the manifest is a
- * derivable cache (not a correctness invariant), so a next schema write or
- * `open()`'s re-derive still converges it, matching how
- * `persistSchemaIfNeeded` already treats its own write failures.
+ * exhausted under pathological contention, the loop gives up — with a
+ * `console.warn` (see cap-exhaustion note below), not silently — leaving
+ * the last successful write in place; the manifest is a derivable cache
+ * (not a correctness invariant), so a next schema write or `open()`'s
+ * re-derive still converges it, matching how `persistSchemaIfNeeded`
+ * already treats its own write failures.
  * Any error OTHER than `ManifestConflictError` (store failure, DEK
  * resolution failure, etc.) is NOT swallowed — it propagates to the
  * caller immediately, matching how `persistSchemaIfNeeded` already treats
@@ -138,7 +139,13 @@ export async function syncSchemaManifest(
   }
   // Attempts exhausted under pathological contention — see module doc:
   // the manifest is a derivable cache, not a correctness invariant, so a
-  // later schema write or open()'s re-derive still converges it.
+  // later schema write or open()'s re-derive still converges it. Warn
+  // rather than fail silently — a silent give-up on a completeness
+  // invariant is exactly what hid the original concurrent-declare race.
+  console.warn(
+    `[noy-db] schema-manifest sync did not converge after ${MAX_SYNC_ATTEMPTS} attempts; ` +
+      'the persisted manifest may be stale until the next schema write or open()\'s re-derive.',
+  )
 }
 
 async function auditManifestWrite(
