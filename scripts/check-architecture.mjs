@@ -1251,7 +1251,10 @@ const KERNEL_SURFACE_BUDGET = {
   // graph.referencingEdgesOf, classic inbound via refRegistry.getInbound,
   // managed-link endpoints via linkRegistry). Lives here because Vault is the
   // only owner of all three registries; `_txAtomicSafe('delete')` consumes it.
-  'packages/hub/src/kernel/vault.ts': 3735,
+  // Lowered 3735→3704 (#948 Task 1, shrink-first): `getBundleHandle`'s body
+  // moved to `with-pod/bundle-handle.ts` (`buildBundleHandle(adapter, name)`,
+  // pure function — no logic change); vault.ts holds a 2-line delegator.
+  'packages/hub/src/kernel/vault.ts': 3704,
   // Bumped 3960→3962 (#822 period-summary push symmetry, 2026-07-26): two lines wiring
   // the vault's existing `onDirty` into VaultPeriods so `closePeriod` marks the `_periods`
   // summary dirty and push carries it. The decision (which reserved collections push and
@@ -1996,7 +1999,7 @@ const BODY_FIELD_ACCESS_RE =
 const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/kernel/debug.ts', 4],
   ['packages/hub/src/kernel/types.ts', 2],
-  ['packages/hub/src/kernel/vault.ts', 13],
+  ['packages/hub/src/kernel/vault.ts', 12],
   ['packages/hub/src/with-audit/attestation/issue.ts', 2],
   ['packages/hub/src/with-audit/attestation/revoke.ts', 2],
   ['packages/hub/src/with-audit/attestation/signer.ts', 2],
@@ -2068,6 +2071,16 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-sync/engine.ts', 3],
   ['packages/hub/src/with-pod/backup.ts', 3],
   ['packages/hub/src/with-pod/bundle.ts', 2],
+  // #948 Task 1 (shrink-first): `buildBundleHandle` moved verbatim out of
+  // vault.ts's `getBundleHandle` — the envelope-literal `_iv`/`_data`
+  // construction (2x `_data`, 1x `_iv`) is unchanged code, now counted here
+  // instead of in vault.ts's grandfather. vault.ts's stored count moves
+  // 13→12, not 13→10: the deleted "without forming a cycle" comment
+  // (containing the substring `bundle/*`) had been accidentally read by
+  // `stripComments`'s block-comment regex as an unterminated `/*`,
+  // swallowing 2 real code matches downstream as false "comment" — removing
+  // that comment un-hides them, netting -3 moved but +2 un-hidden.
+  ['packages/hub/src/with-pod/bundle-handle.ts', 3],
   ['packages/hub/src/with-shape/blobs/blob-compaction.ts', 4],
   // #724 Arc 10 correction (Task 1, closes C1): `rehomeForTier`'s solo
   // in-place rewrap (`unwrapCek(blob._cek, fromDEK)` + the `_cek:` literal
