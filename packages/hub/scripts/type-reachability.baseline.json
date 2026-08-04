@@ -53,7 +53,6 @@
     "./periods :: purgeMarkersOn mentions NoydbStore",
     "./pod :: createPodStore mentions NoydbPodStore",
     "./pod :: wrapPodStore mentions NoydbPodStore",
-    "./pod :: writePod mentions Vault",
     "./policy :: createNoydbPolicy mentions NoydbPolicyFactory",
     "./policy :: loadVaultPolicy mentions NoydbStore",
     "./policy :: saveVaultPolicy mentions NoydbStore",

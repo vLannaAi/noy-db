@@ -102,3 +102,22 @@ export {
   RedirectBadSignatureError,
   RedirectUnreachableError,
 } from '../kernel/errors.js'
+
+// Manifest engine (#941): the pod read-path orchestrator — header → verify
+// → unlock → manifest → generation fence → data — plus the schema manifest
+// (an INDEX over per-collection `_schemas/<collection>` entries, not the
+// schemas themselves) it re-derives on every open.
+export { open } from './open.js'
+export type { OpenPodOptions, OpenPodResult } from './open.js'
+export { deriveSchemaManifest } from '../with-shape/manifest/derive.js'
+export { loadSchemaManifestEntry } from '../with-shape/manifest/storage.js'
+export type { GetManifestDEK, LoadedSchemaManifest } from '../with-shape/manifest/storage.js'
+export type { SchemaManifest, SchemaManifestEntry } from '../with-shape/manifest/types.js'
+export { MANIFEST_COLLECTION, isManifestReservedCollection } from '../with-shape/manifest/reserved-collections.js'
+export { ManifestConflictError, MigrationRequiredError, PodHeaderVerificationError } from '../kernel/errors.js'
+// Types `open()`'s own signature names, so a `/pod`-only consumer can spell
+// them without a dual-import from the root barrel.
+export type { Noydb } from '../kernel/noydb.js'
+export type { Vault } from '../kernel/vault.js'
+export type { NoydbOptions, NoydbStore } from '../kernel/types.js'
+export type { EchoSecretParts } from '../kernel/enclave/index.js'
