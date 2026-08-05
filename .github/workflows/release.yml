@@ -397,65 +397,6 @@ jobs:
           echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Provenance: enabled (look for the ✓ on https://www.npmjs.com/package/@noy-db/hub)" >> "$GITHUB_STEP_SUMMARY"
 
-      # #600: tell noy-db-docs a fresh publish needs a doc-sync (the
-      # registry/llms.txt + llms-full.txt regeneration). Opens a tracking
-      # issue in the docs repo carrying the version/tag, the dist-tag
-      # channel, a link back to this run, and the packages that just went
-      # out — reusing the same version/channel values as the Summarise
-      # step above, not recomputed.
-      #
-      # continue-on-error: true — a noy-db-docs outage, or a
-      # not-yet-provisioned secret, must NEVER fail a publish that already
-      # succeeded; the step just no-ops and doc-sync is triggered by hand.
-      #
-      # DOCS_SYNC_TOKEN is a fine-grained PAT with Issues:write on
-      # vLannaAi/noy-db-docs, provisioned by the maintainer in this repo's
-      # Settings → Secrets before the pre.11 publish — the default
-      # GITHUB_TOKEN is repo-scoped and cannot open issues cross-repo.
-      # Without it this step no-ops (continue-on-error) and doc-sync must
-      # be triggered manually.
-      # STABLE ONLY. A pre-release does not open a doc-sync issue.
-      #
-      # The docs site documents the `@latest` channel; nothing consumes the
-      # docs for an individual `@next` pre-release, and `@latest` eventually
-      # subsumes every pre-release on the line. Filing one issue per pre.N
-      # therefore produced a queue nobody could clear — the doc-sync backlog
-      # ran eleven releases deep, each issue carrying a package list but no
-      # semantic delta, because a pre-release's CHANGELOG section is thin or
-      # (for a version-only bump) absent entirely.
-      #
-      # Gating on the stable cut does not lose that signal, it concentrates
-      # it: `changeset version` consolidates the whole pre line into one
-      # CHANGELOG section at the 0.x.0 cut, so the stable release's payload
-      # carries the cumulative delta the individual pre-releases could not.
-      - name: Notify noy-db-docs of a new publish
-        if: steps.dist_tag.outputs.tag == 'latest'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.DOCS_SYNC_TOKEN }}
-        run: |
-          VERSION="${{ github.event.release.tag_name || github.ref_name }}"
-          CHANNEL="${{ steps.dist_tag.outputs.tag }}"
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          PACKAGES=$(pnpm ls -r --filter '@noy-db/*' --depth -1 --json | jq -r '.[] | select(.private != true) | .name' | sort)
-
-          {
-            echo "Release \`$VERSION\` was just published to npm dist-tag \`$CHANNEL\`."
-            echo ""
-            echo "- Channel: \`$CHANNEL\`"
-            echo "- Run: $RUN_URL"
-            echo ""
-            echo "Published packages:"
-            echo "$PACKAGES" | sed 's/^/- /'
-            echo "- create-noy-db"
-            echo ""
-            echo "Please run the doc-sync (registry/llms.txt + llms-full.txt regeneration) for this release — see \`docs.manifest.json\` for the last-synced version per channel."
-          } > /tmp/doc-sync-issue-body.md
-
-          gh issue create -R vLannaAi/noy-db-docs \
-            --title "doc-sync needed: $VERSION @$CHANNEL" \
-            --body-file /tmp/doc-sync-issue-body.md
-
   # ── Docs bridge (#913) ────────────────────────────────────────────────
   #
   # Emits the machine-readable release payload (docs-bridge.json) for the
@@ -465,12 +406,16 @@ jobs:
   # Same `bridge: 1` schema, so noy-db-docs/scripts/sync/bridge.mjs parses
   # either repo's payload unchanged.
   #
-  # Deliberately SEPARATE from the `Notify noy-db-docs` step in `publish`,
-  # which stays exactly as it was. That step is the reliable notification
-  # path; folding it in here would mean a payload build failure silently
-  # suppresses the doc-sync issue altogether. This job is strictly
-  # additive — it uploads the asset and comments the details onto the
-  # issue that step already opened.
+  # This is now the ONLY doc-sync notification path. `publish` used to carry
+  # a separate `Notify noy-db-docs of a new publish` step (`gh issue create`,
+  # gated `latest`-only, unconditional on delta) — removed. Two paths meant
+  # two independent gating decisions: `publish`'s step had no payload to
+  # check gate (b) against (the payload is built here), so it always opened
+  # an issue on every stable release regardless of delta, defeating gate (a)
+  # for exactly the case ("stable while `latest` is parked") it exists to
+  # suppress. Consolidating onto this job's find-or-create means the one
+  # place that HAS the payload is the one place that decides whether an
+  # issue opens.
   #
   # Job-level continue-on-error: a docs-side outage or an unprovisioned
   # secret must never mark a successful publish as failed.
@@ -493,16 +438,6 @@ jobs:
   #
   # Both gates log their reason clearly to the workflow output so a green
   # run with no issue is legible, not silent.
-  #
-  # The `Notify noy-db-docs` step in `publish` above is untouched (still
-  # `latest`-only, unconditional on delta) — it is out of scope for this
-  # change. Since `latest` is parked pre-1.0, that step's issue-creation on a
-  # stable release goes uncommented by this job (gate (a) blocks it), which
-  # is a pre-existing quirk, not something this change introduces. For the
-  # channel this job actually cares about (`next`), no issue exists yet when
-  # this job runs — the step below now creates one itself (title/body
-  # matching the `publish` job's convention) when it finds none, rather than
-  # only commenting on an issue that step never opens for a pre-release.
   docs-bridge:
     name: Docs bridge payload
     needs: publish
@@ -560,12 +495,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ github.event.release.tag_name }}" /tmp/docs-bridge.json --clobber
 
-      # Comment the asset URL + per-store classification onto the doc-sync
-      # issue the publish job opened (the `latest` case) — or, when none
-      # exists yet (the `next` case, since the `publish` job's `Notify`
-      # step only fires on `latest`), open it here. Matched by exact title;
-      # gated on active-rail + real-delta first (see job header).
-      - name: Comment on the doc-sync issue
+      # Open the doc-sync issue in noy-db-docs (or comment on a matching one
+      # left over from a re-run of this job) — the single notification path,
+      # gated on active-rail + real-delta first (see job header). Body
+      # carries what the old `publish`-job step carried (published package
+      # list, run link) plus the payload asset link and per-store
+      # classification that step never had.
+      - name: Open or update the doc-sync issue
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.DOCS_SYNC_TOKEN }}
@@ -573,6 +509,7 @@ jobs:
           set -euo pipefail
           TAG="${{ github.event.release.tag_name }}"
           CHANNEL="${{ needs.publish.outputs.dist_tag }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           ASSET_URL="${{ github.server_url }}/${{ github.repository }}/releases/download/$TAG/docs-bridge.json"
 
           # Gate (a): active rail. DOC_SYNC_CHANNELS is a space-separated list.
@@ -593,12 +530,20 @@ jobs:
             exit 0
           fi
 
+          PACKAGES=$(pnpm ls -r --filter '@noy-db/*' --depth -1 --json | jq -r '.[] | select(.private != true) | .name' | sort)
+
           {
-            echo "A machine-readable release payload is attached to this release (schema \`bridge: 1\`)."
+            echo "Release \`$TAG\` was just published to npm dist-tag \`$CHANNEL\`."
             echo ""
-            echo "- Payload: $ASSET_URL"
+            echo "- Channel: \`$CHANNEL\`"
+            echo "- Run: $RUN_URL"
+            echo "- Machine-readable payload (schema \`bridge: 1\`): $ASSET_URL"
             echo ""
-            echo "Per-store classification:"
+            echo "Published packages:"
+            echo "$PACKAGES" | sed 's/^/- /'
+            echo "- create-noy-db"
+            echo ""
+            echo "Per-store classification (essential to-* stores, from the payload):"
             node -e "
               const p = require('/tmp/docs-bridge.json');
               for (const x of p.packages) {
@@ -607,7 +552,7 @@ jobs:
               }
             "
             echo ""
-            echo "Run the sync against it with \`--bridge <downloaded docs-bridge.json>\` — \`fetchBridge\`'s default \`-R\` targets noy-db-to, so this repo's payload must be passed as a file (or that flag parametrized)."
+            echo "Please run the doc-sync (registry/llms.txt + llms-full.txt regeneration) for this release — see \`docs.manifest.json\` for the last-synced version per channel. Run it against the payload with \`--bridge <downloaded docs-bridge.json>\` — \`fetchBridge\`'s default \`-R\` targets noy-db-to, so this repo's payload must be passed as a file (or that flag parametrized)."
           } > /tmp/bridge-comment.md
 
           cat /tmp/bridge-comment.md >> "$GITHUB_STEP_SUMMARY"
@@ -619,8 +564,6 @@ jobs:
           if [ -n "$NUM" ]; then
             gh issue comment "$NUM" -R vLannaAi/noy-db-docs --body-file /tmp/bridge-comment.md
           else
-            # publish's `Notify` step is `latest`-only, so on an active
-            # `next` publish no issue exists yet to comment on — open it.
             gh issue create -R vLannaAi/noy-db-docs \
               --title "doc-sync needed: $TAG @$CHANNEL" \
               --body-file /tmp/bridge-comment.md
