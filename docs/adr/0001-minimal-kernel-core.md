@@ -23,7 +23,7 @@
 These figures match `CLAUDE.md`'s stated split (~82,000 total / ~30,000 kernel / ~42,000 services)
 closely. `SERVICES.md`'s own header, by contrast, states the hub is "~28,000" LOC with "~6,500" LOC
 of core — a stale figure (documented as a separate finding in the gap analysis,
-`docs/superpowers/analysis/2026-07-14-624-taxonomy-gap-analysis.md` #8) that this ADR does not
+`design-history/2026-07-14-624-taxonomy-gap-analysis.md` #8) that this ADR does not
 inherit; the numbers above are the current, directly-measured ground truth.
 
 `SERVICES.md` itself defines the core's contents precisely (its "minimalist core" table, six
@@ -90,8 +90,8 @@ a ratcheted line ceiling). This ADR records the *why* behind those mechanical gu
   reads real file trees, mirroring `noy-db-docs/registry/validate-hierarchy.mjs`'s existing
   approach of reading a live checkout rather than hand-typed numbers) so the "core is minimal"
   claim stays falsifiable rather than aspirational. Tracked as a migration-checklist item (see
-  `docs/superpowers/analysis/2026-07-14-624-498-migration-checklist.md`).
-- **The taxonomy schema proposed for `noy-db-docs`** (`docs/superpowers/analysis/2026-07-14-624-feature-schema-proposal.md`)
+  `design-history/2026-07-14-624-498-migration-checklist.md`).
+- **The taxonomy schema proposed for `noy-db-docs`** (`design-history/2026-07-14-624-feature-schema-proposal.md`)
   needs a `kind` field with a `core` value distinct from `service`, precisely so a page can be
   taught inside a services-nav layer while being honestly labelled always-on (the `cpu` icon
   convention the handoff spec already uses for `joins`/`cross-join`/`links`).

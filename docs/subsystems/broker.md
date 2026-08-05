@@ -316,7 +316,7 @@ export async function handleCredentials(req: { vaultId: string; brokerId: string
 
 ## See also
 
-- `docs/superpowers/specs/2026-07-05-credential-broker-spec.md` — the full implementation
+- `design-history/2026-07-05-credential-broker-spec.md` — the full implementation
   spec (threat model, protocol, key derivations, refusal matrix, phasing, conformance vectors).
 - `packages/hub/src/kernel/enclave/broker/proof.ts` — the proof crypto (HKDF derivation, HMAC
   sign/verify, canonical-string construction).

@@ -16,5 +16,5 @@ subpath entry. All orchestration consumers bind `/cargo`. The export surface is 
 `__tests__/cargo-surface-golden.test.ts` against `cargo-surface.golden.json`, so
 changes to the seam are deliberate and reviewed (additive-only).
 
-See `docs/superpowers/specs/2026-07-01-noydb-architecture-lexicon.md` for the
+See `docs/foundations/architecture-lexicon.md` for the
 canonical lexicon this implements.

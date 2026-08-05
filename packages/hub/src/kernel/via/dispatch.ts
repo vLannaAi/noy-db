@@ -9,7 +9,7 @@
 // the phase-B at-rest contract) and re-runs the SAME `dispatchDerivations`/
 // `dispatchMaterializedViews` the local-write path uses, sharing one `WaveContext` so N touched
 // records feeding the SAME rollup/MV target recompute exactly once (per-target dedup).
-// See docs/superpowers/specs/2026-07-11-via-phase-c-design.md §3.
+// See design-history/2026-07-11-via-phase-c-design.md §3.
 
 import type { ViaGraph } from './graph.js'
 import type { Collection } from '../collection.js'

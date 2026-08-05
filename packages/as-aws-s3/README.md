@@ -35,8 +35,12 @@ await objects.putUrl('videos/x.mp4', { contentType: 'video/mp4' }) // presigned 
 
 Objects written here are **not encrypted** by noy-db. Prefer presigned
 (`objectUrl`) over public for anything sensitive, scope the bucket tightly, and
-treat public objects as **not crypto-shreddable**. See the design spec
-(`docs/superpowers/specs/2026-06-15-as-aws-s3-direct-serve-blobs-design.md`).
+treat public objects as **not crypto-shreddable**.
+
+This is a deliberate exception to noy-db's usual guarantee: everywhere else, a
+storage backend only ever holds ciphertext. Direct-serve exists so a browser can
+fetch an object without going through the vault, which requires readable bytes
+in the bucket. Decide per field, not per project.
 
 ## Peer dependencies
 

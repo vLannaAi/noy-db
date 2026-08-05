@@ -13,7 +13,7 @@
  * `rewrapBodyToDek(envelope, fromDek, toDek)` result each tier-move
  * function already computes for its live write.
  *
- * Plan: docs/superpowers/plans/2026-07-20-728-tier-move-history.md
+ * Plan: design-history/2026-07-20-728-tier-move-history.md
  */
 
 import { describe, it, expect } from 'vitest'

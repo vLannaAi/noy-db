@@ -8,7 +8,7 @@
  * distributed query, addressing, and change-observation. It consolidates the
  * runtime floor formerly published as `/kernel` plus the orchestration delta.
  *
- * See docs/superpowers/specs/2026-07-01-noydb-architecture-lexicon.md.
+ * See docs/foundations/architecture-lexicon.md.
  *
  * @packageDocumentation
  */

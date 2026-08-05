@@ -4,7 +4,7 @@
  * Owner + viewer fixture (matches showcase 06) for the multi-principal
  * tests. Single-principal tests use just the owner.
  *
- * @see docs/superpowers/specs/2026-05-05-user-envelope-design.md
+ * @see design-history/2026-05-05-user-envelope-design.md
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'

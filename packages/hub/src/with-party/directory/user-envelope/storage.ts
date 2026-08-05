@@ -12,7 +12,7 @@
  * (`vault.user.*`) sits on top of this; permission gates, own-only
  * write enforcement, and presence-channel propagation live there.
  *
- * @see docs/superpowers/specs/2026-05-05-user-envelope-design.md
+ * @see design-history/2026-05-05-user-envelope-design.md
  *
  * @module
  */

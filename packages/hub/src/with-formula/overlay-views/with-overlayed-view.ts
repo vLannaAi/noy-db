@@ -6,7 +6,7 @@ import type { OverlayedViewSpec, OverlayedViewStrategy } from './types.js'
  * a user-writable overlay so consumers can express operator-editable
  * lifecycles as one declarative block.
  *
- * See docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md.
+ * See design-history/2026-05-20-dim14-mv-v2-design.md.
  */
 export function withOverlayedView(
   spec: OverlayedViewSpec,

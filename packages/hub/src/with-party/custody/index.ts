@@ -20,7 +20,7 @@
  * vault instance (and thus no custody namespace) yet — it stays the exported
  * `team/deed.ts` function.
  *
- * @see docs/superpowers/specs/2026-06-17-fr6-deed-custodian-liberate-design.md
+ * @see design-history/2026-06-17-fr6-deed-custodian-liberate-design.md
  * @module
  */
 import type { GrantOptions, RevokeOptions, FactorProofBundle } from '../../kernel/types.js'

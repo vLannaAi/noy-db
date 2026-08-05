@@ -1504,7 +1504,7 @@ function checkNoDebugPlaintextInSource() {
 // hook seam freely, but must not statically reach into a `with-*` service
 // package or another family port (`to on at in by ui as`, discovered at
 // `src/port/*`) — see
-// docs/superpowers/specs/2026-07-02-family-doors-kernel-diet-design.md.
+// design-history/2026-07-02-family-doors-kernel-diet-design.md.
 // A dynamic `import()` is the sanctioned escape hatch (the S4 gate recipe);
 // this check only scans static `import`/`export … from` statements.
 //

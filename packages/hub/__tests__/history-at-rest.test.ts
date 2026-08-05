@@ -2,8 +2,8 @@
  * #712 (at-rest hardening) — `rewrapHistory` primitive (Task 1) + the
  * integration wiring into elevate/demote/putAtTier (Task 2).
  *
- * Spec: docs/superpowers/specs/2026-07-16-history-at-rest-design.md
- * Plan: docs/superpowers/plans/2026-07-16-history-at-rest.md
+ * Spec: design-history/2026-07-16-history-at-rest-design.md
+ * Plan: design-history/2026-07-16-history-at-rest.md
  *
  * The first section is primitive-level: it exercises `rewrapHistory` directly
  * against a bare in-memory adapter + hand-derived DEKs — no `createNoydb`,

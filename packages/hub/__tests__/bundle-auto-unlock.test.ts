@@ -3,7 +3,7 @@
  * `sealedSecrets` round-trip coverage.
  *
  * Covers the contract documented in
- * docs/superpowers/specs/2026-05-23-sealed-bundle-delivery.md.
+ * design-history/2026-05-23-sealed-bundle-delivery.md.
  *
  * Extended for #215 — generalized auto-unlock across credential kinds
  * (password, pin) + sugar/back-compat regression tests.

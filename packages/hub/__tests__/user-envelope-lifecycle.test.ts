@@ -11,7 +11,7 @@
  *  - revoke() deletes the principal's envelope alongside the keyring.
  *  - Cascade-revoke of an admin tree deletes every descendant's envelope.
  *
- * @see docs/superpowers/specs/2026-05-05-user-envelope-design.md
+ * @see design-history/2026-05-05-user-envelope-design.md
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'

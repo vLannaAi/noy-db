@@ -137,4 +137,4 @@ wrong thing while the actual capability check (the token ladder above) already r
   `redeemGrantToken` and the four-plus-one typed errors.
 - `packages/on-magic-link/__tests__/redeem-grant-token.test.ts` — the end-to-end, single-use,
   expired, revoked, audit-missing, grant-token-missing, and peer-recovery redemption cases.
-- `docs/superpowers/plans/2026-08-04-share-link-redemption.md` — the implementation plan for #949.
+- Issue #949 — the work this subsystem shipped under.

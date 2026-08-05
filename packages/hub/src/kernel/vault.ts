@@ -262,7 +262,7 @@ export class Vault {
    *   envelopes, subject to the `view-team-profiles` policy gate.
    * - Reactive: `subscribe(id, cb)`, `live(id)` — fire on local writes.
    *
-   * @see docs/superpowers/specs/2026-05-05-user-envelope-design.md
+   * @see design-history/2026-05-05-user-envelope-design.md
    */
   public readonly user: VaultUserApi
 
@@ -275,7 +275,7 @@ export class Vault {
    * - `liberate(opts)` — custodian-only: the audited claim of ownership over a
    *   sealed-owner (Deed) vault (mints a DISTINCT new owner; ledger-audited).
    *
-   * @see docs/superpowers/specs/2026-06-17-fr6-deed-custodian-liberate-design.md
+   * @see design-history/2026-06-17-fr6-deed-custodian-liberate-design.md
    */
   public readonly custody: CustodyApi
 
@@ -3186,7 +3186,7 @@ export class Vault {
    *   - `sampled`: inferred from decrypted records (deferred to a follow-up)
    *   - `unknown`: no schema info available
    *
-   * @see docs/superpowers/specs/2026-05-22-schema-dump-design.md
+   * @see design-history/2026-05-22-schema-dump-design.md
    */
   async dumpSchema(opts: DumpSchemaOptions = {}): Promise<VaultSchemaSnapshot> {
     const { dumpVaultSchema } = await import('../with-shape/introspection/walk.js') // lazy (#553)

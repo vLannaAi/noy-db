@@ -3,7 +3,7 @@
  *
  * `kernel/enclave/index.ts` has no public `@noy-db/hub/enclave` subpath —
  * per Enclave Contract v1 (see
- * docs/superpowers/specs/2026-07-03-enclave-contract-v1-design.md) it is a
+ * docs/foundations/enclave-contract.md) it is a
  * fork-swap contract a sister repo replaces wholesale by editing the folder
  * directly, not a runtime-injectable seam — so this test imports the barrel
  * by relative path, same as `packages/hub/__tests__/enclave-surface-golden.test.ts`

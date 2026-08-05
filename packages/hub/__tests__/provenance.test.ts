@@ -1,7 +1,7 @@
 /**
  * FR-5: Record provenance — `_source` / `_sourceTs` envelope fields.
  *
- * Spec: docs/superpowers/plans/2026-06-17-fr5-provenance.md Task 1
+ * Spec: design-history/2026-06-17-fr5-provenance.md Task 1
  *
  * Covers:
  *  1. provenance:true collection + put({source}) stamps _source/_sourceTs on the envelope.

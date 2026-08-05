@@ -23,9 +23,9 @@ import type { MaterializedViewSpec, MaterializedViewStrategy } from './types.js'
  * The three modes are mutually exclusive — exactly one of `query` /
  * `unionSources` / `projection` must be set at registration time.
  *
- * See docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md (single-source v2),
- * docs/superpowers/specs/2026-05-21-dim14-mv-multikey-and-union.md (UNION),
- * and docs/superpowers/specs/2026-07-25-join-projection-mv-design.md (projection).
+ * See design-history/2026-05-20-dim14-mv-v2-design.md (single-source v2),
+ * design-history/2026-05-21-dim14-mv-multikey-and-union.md (UNION),
+ * and design-history/2026-07-25-join-projection-mv-design.md (projection).
  */
 export function withMaterializedView<TRow extends Record<string, unknown>>(
   spec: MaterializedViewSpec<TRow>,

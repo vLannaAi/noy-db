@@ -146,7 +146,7 @@ export interface OpenCollectionOptions<
    * Default: `false`. Non-Zod Standard Schema validators receive a
    * stub envelope flagging the kind without a JSON Schema body.
    *
-   * @see docs/superpowers/specs/2026-05-22-schema-dump-design.md
+   * @see design-history/2026-05-22-schema-dump-design.md
    */
   persistJsonSchema?: boolean
   /**

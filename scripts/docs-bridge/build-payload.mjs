@@ -2,7 +2,7 @@
  * Assemble docs-bridge.json for noy-db's essential `to-*` stores (#913).
  *
  * Producer parity with noy-db-to (spec:
- * `noy-db-to/docs/superpowers/specs/2026-07-30-docs-bridge-design.md`) — same
+ * `noy-db-to/design-history/2026-07-30-docs-bridge-design.md`) — same
  * `bridge: 1` schema, so `noy-db-docs/scripts/sync/bridge.mjs` parses either
  * repo's payload unchanged. Pure given its inputs; the CLI at the bottom wires
  * the real fs/npm.

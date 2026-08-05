@@ -6,7 +6,7 @@
  * fan-out (Task 8), search/det existence filtering (Task 9), and sync
  * pair-expansion (Task 11) — never duplicating a single-task unit test.
  *
- * Spec: docs/superpowers/specs/2026-07-05-satellite-collections-design.md
+ * Spec: design-history/2026-07-05-satellite-collections-design.md
  *
  * Fixture patterns are copied (not reinvented) from:
  *  - satellites-fanout.test.ts   — spy store with put ordering

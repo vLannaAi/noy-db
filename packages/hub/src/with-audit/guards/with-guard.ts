@@ -12,7 +12,7 @@ import type { GuardSpec, GuardStrategy } from './types.js'
  *
  * Pass the returned handle to `createNoydb({ strategies: [...] })`.
  *
- * @see docs/superpowers/specs/2026-05-18-guards-design.md
+ * @see design-history/2026-05-18-guards-design.md
  */
 export function withGuard<T extends Record<string, unknown>>(
   strategy: GuardSpec<T>,

@@ -1,6 +1,6 @@
 /**
  * End-to-end proof of `secretMode: 'echo'` (spec
- * docs/superpowers/specs/2026-08-02-echo-secret-design.md, #940).
+ * design-history/2026-08-02-echo-secret-design.md, #940).
  *
  * This is the positive coverage of the `deriveEchoKey` dispatch leg in
  * `loadKeyring`/`deriveKekForKeyring`: a vault is CREATED under echo parts,

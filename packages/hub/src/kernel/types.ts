@@ -984,7 +984,7 @@ export type KeyringAuthenticator =
 
 /**
  * Echo-secret (3-part ceremony) declaration on a keyring — spec
- * docs/superpowers/specs/2026-08-02-echo-secret-design.md (#940).
+ * design-history/2026-08-02-echo-secret-design.md (#940).
  * Optional / append-only: keyrings written before the extension (or
  * using standard/managed modes) simply lack it.
  */
@@ -1616,7 +1616,7 @@ export interface GrantOptions {
    * Hub does not introspect the payload; it is JSON-serialized and
    * encrypted opaquely. Apps own the schema.
    *
-   * @see docs/superpowers/specs/2026-05-05-user-envelope-design.md → Lifecycle
+   * @see design-history/2026-05-05-user-envelope-design.md → Lifecycle
    */
   readonly initialProfile?: unknown
 }
@@ -2098,7 +2098,7 @@ export interface BlobObject {
    * DEK, so deleting this BlobObject at `refCount → 0` crypto-shreds the chunks
    * (they become permanently undecryptable). Absent → legacy blob, chunks
    * decrypt directly under the `_blob` DEK (read unchanged). See
-   * docs/superpowers/specs/2026-06-13-per-blob-cek-design.md.
+   * design-history/2026-06-13-per-blob-cek-design.md.
    */
   readonly _cek?: string
   /**
@@ -2736,7 +2736,7 @@ export interface NoydbOptions {
    * Secret for key derivation. Required unless encrypt is false or
    * `getKeyring` is provided. A plain `string` for `'standard'` /
    * `'managed'` mode; an {@link EchoSecretParts} 3-part struct for
-   * `'echo'` mode (spec docs/superpowers/specs/2026-08-02-echo-secret-design.md, #940).
+   * `'echo'` mode (spec design-history/2026-08-02-echo-secret-design.md, #940).
    */
   readonly secret?: string | EchoSecretParts
   /**
@@ -2791,7 +2791,7 @@ export interface NoydbOptions {
    *     exclusive with `secret` and `getKeyring`.
    *   - `'echo'` — 3-part ceremony (prompt / echo / key). `secret`
    *     takes an {@link EchoSecretParts} struct instead of a plain
-   *     string (spec docs/superpowers/specs/2026-08-02-echo-secret-design.md, #940).
+   *     string (spec design-history/2026-08-02-echo-secret-design.md, #940).
    *
    * @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/session-tiers.md → Managed-secret mode
    */
@@ -3121,7 +3121,7 @@ export interface DeleteManyResult {
 // — the same dynamic-import-then-stash pattern used for the default
 // `CoordinationProvider`.
 //
-// @see docs/superpowers/specs/2026-05-05-user-envelope-design.md
+// @see design-history/2026-05-05-user-envelope-design.md
 
 /**
  * Thin reader view of a user envelope. The on-disk shape is the standard
@@ -3240,7 +3240,7 @@ type PortabilityReturn<K extends keyof PortabilityStrategy> = ReturnType<Portabi
  *    writes. Cross-instance updates land via the team/sync engine and
  *    surface to subscribers when the sync diff replays through this API.
  *
- * @see docs/superpowers/specs/2026-05-05-user-envelope-design.md
+ * @see design-history/2026-05-05-user-envelope-design.md
  */
 export interface VaultUserApi {
   requestWithdrawal(opts?: PortabilityParam1<'requestWithdrawal'>): PortabilityReturn<'requestWithdrawal'>

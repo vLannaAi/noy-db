@@ -4,7 +4,7 @@
 
 > Authoritative list of services and the always-on core. The service catalog **is** the product surface — every entry below is both a developer-facing feature and a tree-shake-able code module behind a `with*()` strategy seam.
 
-> Each satellite family binds one golden-frozen contract subpath — a **port** (`/to`, `/on`, `/at`, `/in`, `/by`, `/ui`, `/with`, `/as`, `/cargo`, `/pod`) — rather than reaching into hub internals; services hook into the kernel through the `/with` port. See the port table and layering law in [`docs/superpowers/specs/2026-07-01-noydb-architecture-lexicon.md`](docs/superpowers/specs/2026-07-01-noydb-architecture-lexicon.md#addendum-ports-2026-07-02).
+> Each satellite family binds one golden-frozen contract subpath — a **port** (`/to`, `/on`, `/at`, `/in`, `/by`, `/ui`, `/with`, `/as`, `/cargo`, `/pod`) — rather than reaching into hub internals; services hook into the kernel through the `/with` port. See the port table and layering law in [`docs/foundations/architecture-lexicon.md`](docs/foundations/architecture-lexicon.md#addendum-ports-2026-07-02).
 
 > Unsure whether something is a family package, a service, a port, or prefix-less? [`FAMILIES.md`](FAMILIES.md) is the classification guide — decision rules plus worked case studies (to-memory vs the kernel cache, port/to vs with-store, in-ai, attestation).
 

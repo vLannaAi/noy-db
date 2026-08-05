@@ -5,7 +5,7 @@
  *
  * Extracted out of `kernel/noydb.ts` (which is under a line ceiling — see
  * `check-architecture`'s `kernel-surface` rule) when echo mode was wired in
- * (spec docs/superpowers/specs/2026-08-02-echo-secret-design.md, #940). The
+ * (spec design-history/2026-08-02-echo-secret-design.md, #940). The
  * managed-mode rules and their exact messages moved verbatim; the echo rules
  * are the addition.
  *

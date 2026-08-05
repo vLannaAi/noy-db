@@ -78,7 +78,10 @@ The Keychain entry IS the security boundary. Strength is bounded by:
 - A physically present attacker who knows the user's login password and can unlock the keychain.
 - macOS itself being compromised below the Keychain Services layer.
 
-For full architectural background see the [at-* sealing dimension foundation doc](../../docs/superpowers/specs/2026-05-23-sealing-at-dimension-foundation.md), §11.2 (capability matrix) and §2 (threat-model honesty table).
+Note the family-level property: `at-*` providers are the one **non-zero-knowledge**
+part of noy-db. A host you control can decrypt the scoped slice it unseals. That
+is the point of the family, and it is a real reduction in the guarantee the rest
+of the project makes.
 
 ## API
 
@@ -94,7 +97,7 @@ Returns a [`SealingKeyProvider`](../hub/src/team/managed-secret.ts) — the cont
 
 Throws at construction when `service` or `account` is empty, or when running on a non-darwin platform without a test stub.
 
-The provider exposes only `SealingKeyProvider` — not `RecipientSealer`. By the [capability matrix](../../docs/superpowers/specs/2026-05-23-sealing-at-dimension-foundation.md#112-provider-capability-matrix), this provider is **self-targeted only**: it can seal and unseal locally, but cannot seal for an arbitrary recipient (no public-half to publish). Bundle-handover delivery to arbitrary recipients requires a handover-capable cloud-KMS provider.
+The provider exposes only `SealingKeyProvider` — not `RecipientSealer`. It is **self-targeted only**: it can seal and unseal locally, but cannot seal for an arbitrary recipient (no public-half to publish). Bundle-handover delivery to arbitrary recipients requires a handover-capable cloud-KMS provider.
 
 ## Key lifecycle
 
@@ -136,7 +139,6 @@ For real-Keychain integration tests on darwin CI runners, leave `entry` undefine
 
 - [`@noy-db/at-env`](../at-env) — env-var sealing for server / container deployments.
 - [`@noy-db/hub`](../hub) — the database core that consumes `SealingKeyProvider`.
-- [Foundation doc — at-* sealing dimension](../../docs/superpowers/specs/2026-05-23-sealing-at-dimension-foundation.md)
 - [Sealing pid stability rule](https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/sealing-pid-stability.md)
 
 ## License

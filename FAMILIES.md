@@ -3,7 +3,7 @@
 > How to decide **where a package or capability belongs**: which preposition family, which
 > hub service cluster, a port, or the prefix-less top level. Companion to
 > [`SERVICES.md`](SERVICES.md) (the service catalog itself) and the port table in
-> [`docs/superpowers/specs/2026-07-01-noydb-architecture-lexicon.md`](docs/superpowers/specs/2026-07-01-noydb-architecture-lexicon.md#addendum-ports-2026-07-02).
+> [`docs/foundations/architecture-lexicon.md`](docs/foundations/architecture-lexicon.md#addendum-ports-2026-07-02).
 > Read this when adding, renaming, or questioning a package's home.
 
 ## The containing architecture — nested cores

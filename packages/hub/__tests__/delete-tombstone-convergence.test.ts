@@ -3,7 +3,7 @@
  * version-ordered `_del` marker instead of a physical removal, so the
  * deletion is visible to other pullers (a bare `adapter.delete` is
  * invisible on pull). Mirrors the #590 sync/tombstone test harness (see
- * docs/superpowers/plans/2026-07-09-delete-tombstone-convergence.md
+ * design-history/2026-07-09-delete-tombstone-convergence.md
  * "Shared test harness"). Later tasks append `describe` blocks here.
  */
 import { describe, it, expect } from 'vitest'

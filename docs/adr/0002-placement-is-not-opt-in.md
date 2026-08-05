@@ -6,7 +6,7 @@
 
 ## Context
 
-The taxonomy work for #624 (`docs/superpowers/analysis/2026-07-14-624-taxonomy-gap-analysis.md`)
+The taxonomy work for #624 (`design-history/2026-07-14-624-taxonomy-gap-analysis.md`)
 repeatedly found the same shape of mistake: a capability's **folder placement** (which `with-*`,
 `via/`, or `kernel/` directory its source lives in, and which docs-nav section/layer teaches it)
 was being read as if it were evidence of the capability's **opt-in status** (whether it ships
@@ -57,7 +57,7 @@ Consequences of treating them as independent, applied concretely:
   `cross-join`, `links` — the docs handoff's own `ALWAYS_ON_OPS` list, and `user-envelope`, which
   `SERVICES.md` explicitly documents as "included in the always-on core because it has zero
   peer-dep cost"). These get `kind: core`, never `kind: service`, regardless of which `layer` they
-  are grouped under for teaching purposes (schema proposal, `docs/superpowers/analysis/2026-07-14-624-feature-schema-proposal.md` §1).
+  are grouped under for teaching purposes (schema proposal, `design-history/2026-07-14-624-feature-schema-proposal.md` §1).
 - A capability may be **taught inside one `with-*` layer's nav folder while its real
   implementation is a different mechanism entirely** (`i18n`/`classified`/`blobs` taught under
   `with-shape`, implemented in `via/`). The new `source.path` field (schema proposal §7) records
@@ -76,7 +76,7 @@ Consequences of treating them as independent, applied concretely:
 ## Consequences
 
 - **`SERVICES.md`'s Cluster A table needs a correction** (tracked in the migration checklist,
-  `docs/superpowers/analysis/2026-07-14-624-498-migration-checklist.md`): `joins`/`live`/`cross-join`
+  `design-history/2026-07-14-624-498-migration-checklist.md`): `joins`/`live`/`cross-join`
   should either be footnoted as "ships inside `@noy-db/hub/query`, not independently tree-shaken"
   or removed from the numbered/subpath-bearing rows entirely and described in prose alongside the
   core query-basics section instead.

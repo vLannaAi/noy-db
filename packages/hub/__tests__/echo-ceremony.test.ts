@@ -1,6 +1,6 @@
 /**
  * `beginEchoUnlock` ceremony API (spec
- * docs/superpowers/specs/2026-08-02-echo-secret-design.md, #940, Task 6).
+ * design-history/2026-08-02-echo-secret-design.md, #940, Task 6).
  *
  * Covers the interactive prompt -> echo reveal -> key flow players run to
  * unlock an echo keyring, plus the degraded typed-echo path when the reveal

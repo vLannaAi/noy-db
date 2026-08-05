@@ -9,7 +9,7 @@
  * The architectural pattern mirrors paper-recovery (mint a wrapped
  * DEK blob; the unlock material — recovery secret here, code there —
  * is the only path back). The contract changes are spelled out in
- * docs/superpowers/specs/2026-05-23-shamir-recovery-dispatch.md §4.
+ * design-history/2026-05-23-shamir-recovery-dispatch.md §4.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
