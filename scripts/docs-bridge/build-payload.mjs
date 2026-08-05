@@ -66,6 +66,19 @@ export function buildPayload({ rootDir, caps, tag, channel, runUrl, isFirstPubli
 }
 
 /**
+ * True when the payload shows real work: some package was `added`/`updated`,
+ * or carries a non-empty changelog body. An all-`version-only` payload with
+ * no changelog text anywhere returns false — the docs-bridge job's signal
+ * that a doc-sync issue is not worth opening (design:
+ * noy-db-docs/docs/superpowers/specs/2026-08-05-family-channel-policy-design.md §3).
+ */
+export function hasRealDelta(payload) {
+  return payload.packages.some(pkg =>
+    pkg.changeType === 'added' || pkg.changeType === 'updated' || Boolean(pkg.changelog),
+  )
+}
+
+/**
  * True when a failed `npm view` call means the package has never been published
  * (npm's E404). Any other failure (network blip, registry outage, auth error, …)
  * is NOT first-publish — the caller should rethrow rather than silently guessing,
