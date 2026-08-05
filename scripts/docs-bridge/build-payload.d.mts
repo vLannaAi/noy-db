@@ -43,6 +43,12 @@ export interface BridgePayload {
 export function buildPayload(opts: BuildPayloadOpts): BridgePayload
 
 /**
+ * True when the payload shows real work: some package was `added`/`updated`,
+ * or carries a non-empty changelog body.
+ */
+export function hasRealDelta(payload: BridgePayload): boolean
+
+/**
  * True when a failed `npm view` call means the package has never been published
  * (npm's E404). Any other failure is NOT first-publish.
  */

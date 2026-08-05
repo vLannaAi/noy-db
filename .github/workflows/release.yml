@@ -475,16 +475,44 @@ jobs:
   # Job-level continue-on-error: a docs-side outage or an unprovisioned
   # secret must never mark a successful publish as failed.
   #
-  # STABLE ONLY, for the same reason as the `Notify noy-db-docs` step above:
-  # this job's whole output is the payload asset plus a comment on the issue
-  # that step opens. On a pre-release that issue does not exist, so the
-  # comment has nowhere to land and the asset has no consumer.
+  # The payload is built, validated, and attached to the release on EVERY
+  # publish, both channels, no exceptions — the asset is the permanent
+  # record (design: noy-db-docs/docs/superpowers/specs/
+  # 2026-08-05-family-channel-policy-design.md §3, superseding the
+  # `dist_tag == 'latest'` job gate this job used to carry).
+  #
+  # Only the doc-sync issue step below is gated, on two independent
+  # conditions:
+  #   (a) Active rail — DOC_SYNC_CHANNELS lists which npm dist-tag channels
+  #       are currently synced to docs. Pre-1.0 that's `next` only; `latest`
+  #       is parked (still gets its payload asset, opens/comments on no
+  #       issue) until the rail table flips at 1.0.
+  #   (b) Real delta — some package in the payload is `added`/`updated`, or
+  #       carries a non-empty changelog. An all-`version-only` payload opens
+  #       nothing even on an active rail.
+  #
+  # Both gates log their reason clearly to the workflow output so a green
+  # run with no issue is legible, not silent.
+  #
+  # The `Notify noy-db-docs` step in `publish` above is untouched (still
+  # `latest`-only, unconditional on delta) — it is out of scope for this
+  # change. Since `latest` is parked pre-1.0, that step's issue-creation on a
+  # stable release goes uncommented by this job (gate (a) blocks it), which
+  # is a pre-existing quirk, not something this change introduces. For the
+  # channel this job actually cares about (`next`), no issue exists yet when
+  # this job runs — the step below now creates one itself (title/body
+  # matching the `publish` job's convention) when it finds none, rather than
+  # only commenting on an issue that step never opens for a pre-release.
   docs-bridge:
     name: Docs bridge payload
     needs: publish
-    if: github.event_name == 'release' && needs.publish.outputs.dist_tag == 'latest'
+    if: github.event_name == 'release'
     runs-on: ubuntu-latest
     continue-on-error: true
+    env:
+      # Space-separated list of npm dist-tag channels currently synced to
+      # docs. Pre-1.0: `next` only. At 1.0 this becomes `next latest`.
+      DOC_SYNC_CHANNELS: next
     permissions:
       contents: write   # gh release upload
     steps:
@@ -533,8 +561,10 @@ jobs:
         run: gh release upload "${{ github.event.release.tag_name }}" /tmp/docs-bridge.json --clobber
 
       # Comment the asset URL + per-store classification onto the doc-sync
-      # issue the publish job opened. Matched by exact title; if it cannot be
-      # found the details still land in the run summary, so nothing is lost.
+      # issue the publish job opened (the `latest` case) — or, when none
+      # exists yet (the `next` case, since the `publish` job's `Notify`
+      # step only fires on `latest`), open it here. Matched by exact title;
+      # gated on active-rail + real-delta first (see job header).
       - name: Comment on the doc-sync issue
         continue-on-error: true
         env:
@@ -544,6 +574,24 @@ jobs:
           TAG="${{ github.event.release.tag_name }}"
           CHANNEL="${{ needs.publish.outputs.dist_tag }}"
           ASSET_URL="${{ github.server_url }}/${{ github.repository }}/releases/download/$TAG/docs-bridge.json"
+
+          # Gate (a): active rail. DOC_SYNC_CHANNELS is a space-separated list.
+          if ! echo " $DOC_SYNC_CHANNELS " | grep -q " $CHANNEL "; then
+            echo "No doc-sync issue opened/commented: channel '$CHANNEL' is parked (DOC_SYNC_CHANNELS=\"$DOC_SYNC_CHANNELS\"). Payload asset is still attached to the release." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # Gate (b): real delta. An all-version-only payload with no
+          # changelog text anywhere is not worth an issue.
+          if ! node --input-type=module -e "
+            import { hasRealDelta } from './scripts/docs-bridge/build-payload.mjs'
+            import { readFileSync } from 'node:fs'
+            const p = JSON.parse(readFileSync('/tmp/docs-bridge.json', 'utf8'))
+            process.exit(hasRealDelta(p) ? 0 : 1)
+          "; then
+            echo "No doc-sync issue opened/commented: payload has no delta (every package is version-only with no changelog) on channel '$CHANNEL'. Payload asset is still attached to the release." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
 
           {
             echo "A machine-readable release payload is attached to this release (schema \`bridge: 1\`)."
@@ -571,5 +619,9 @@ jobs:
           if [ -n "$NUM" ]; then
             gh issue comment "$NUM" -R vLannaAi/noy-db-docs --body-file /tmp/bridge-comment.md
           else
-            echo "No matching doc-sync issue found — payload URL recorded in the run summary only."
+            # publish's `Notify` step is `latest`-only, so on an active
+            # `next` publish no issue exists yet to comment on — open it.
+            gh issue create -R vLannaAi/noy-db-docs \
+              --title "doc-sync needed: $TAG @$CHANNEL" \
+              --body-file /tmp/bridge-comment.md
           fi

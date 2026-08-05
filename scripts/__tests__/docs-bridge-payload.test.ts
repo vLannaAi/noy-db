@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildPayload, isFirstPublishFromError } from '../docs-bridge/build-payload.mjs'
+import { buildPayload, hasRealDelta, isFirstPublishFromError } from '../docs-bridge/build-payload.mjs'
 
 let root: string
 
@@ -120,6 +120,27 @@ describe('buildPayload', () => {
       rootDir: drifted, caps, tag: 'v1.0.0', channel: 'latest',
       runUrl: 'u', isFirstPublish: () => false,
     })).toThrow(/to-unwired/)
+  })
+})
+
+describe('hasRealDelta', () => {
+  const pkg = (over: Partial<{ changeType: string; changelog: string | null }>) =>
+    ({ name: '@noy-db/to-x', dir: 'to-x', version: '0.9.0', changeType: 'version-only', changelog: null, ...over })
+
+  it('is false when every package is version-only with no changelog', () => {
+    expect(hasRealDelta({ packages: [pkg({}), pkg({})] })).toBe(false)
+  })
+
+  it('is true when a package is added', () => {
+    expect(hasRealDelta({ packages: [pkg({}), pkg({ changeType: 'added' })] })).toBe(true)
+  })
+
+  it('is true when a package is updated', () => {
+    expect(hasRealDelta({ packages: [pkg({ changeType: 'updated', changelog: '- fixed x' })] })).toBe(true)
+  })
+
+  it('is true when a version-only package carries a non-empty changelog', () => {
+    expect(hasRealDelta({ packages: [pkg({ changeType: 'version-only', changelog: '- noted anyway' })] })).toBe(true)
   })
 })
 
