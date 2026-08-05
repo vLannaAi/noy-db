@@ -168,7 +168,7 @@ const HEADER_FIXTURE = {
 /**
  * Registers the enclave contract as an executable vitest spec against
  * `enclave` — the contract every `kernel/enclave/index.ts` (reference or
- * fork) must satisfy. See `docs/superpowers/specs/2026-07-03-enclave-contract-v1-design.md`
+ * fork) must satisfy. See `docs/foundations/enclave-contract.md`
  * (C5) for the design.
  */
 export function runEnclaveConformance<K>(enclave: EnclaveModule<K>, opts: EnclaveConformanceOptions): void {

@@ -638,7 +638,7 @@ export type {
 } from './with-party/directory/cover/index.js'
 export { readPodCover } from './with-pod/bundle.js'
 
-// User envelope (docs/superpowers/specs/2026-05-05-user-envelope-design.md)
+// User envelope (design-history/2026-05-05-user-envelope-design.md)
 export {
   USER_ENVELOPE_COLLECTION,
   USER_ENVELOPE_MAX_BYTES,
@@ -788,7 +788,7 @@ export type { TxOp } from './kernel/types.js'
 export type { TransactionInvariant } from './with-commit/tx/invariants.js'
 export type { WithTransactionsOptions } from './with-commit/tx/active.js'
 
-// Guards (record lock + field freeze + amendment invariant) — see docs/superpowers/specs/2026-05-18-guards-design.md
+// Guards (record lock + field freeze + amendment invariant) — see design-history/2026-05-18-guards-design.md
 export { withGuard } from './with-audit/guards/index.js'
 export { immutableGuard } from './with-audit/guards/index.js'
 export type { ImmutableGuardConfig } from './with-audit/guards/index.js'
@@ -801,7 +801,7 @@ export type {
   GuardChange,
 } from './with-audit/guards/index.js'
 
-// Derivations (Dim 14) — see docs/superpowers/specs/2026-05-01-dim14-derivation-v1-design.md
+// Derivations (Dim 14) — see design-history/2026-05-01-dim14-derivation-v1-design.md
 export { withDerivation } from './with-formula/derivations/index.js'
 export { withRollup } from './with-formula/derivations/index.js'
 export type { WithRollupOptions } from './with-formula/derivations/index.js'
@@ -822,7 +822,7 @@ export {
   DuplicateBehaviorNameError,
 } from './kernel/errors.js'
 
-// Materialized views (Dim 14 v2) — see docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md
+// Materialized views (Dim 14 v2) — see design-history/2026-05-20-dim14-mv-v2-design.md
 export { withMaterializedView } from './with-formula/materialized-views/index.js'
 export type {
   MaterializedViewSpec,
@@ -841,7 +841,7 @@ export {
   MaterializedViewTooLargeError,
 } from './kernel/errors.js'
 
-// Overlay views (Dim 14 v2) — see docs/superpowers/specs/2026-05-20-dim14-mv-v2-design.md § Composition with operator-editable lifecycle
+// Overlay views (Dim 14 v2) — see design-history/2026-05-20-dim14-mv-v2-design.md § Composition with operator-editable lifecycle
 export { withOverlayedView } from './with-formula/overlay-views/index.js'
 export type {
   OverlayedViewSpec,

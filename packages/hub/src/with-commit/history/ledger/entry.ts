@@ -177,7 +177,7 @@ export interface LedgerEntry {
    * the role of the actor, the (collection, id, vBefore, vAfter) tuple
    * for every record touched, and which guard invariants passed.
    *
-   * See docs/superpowers/specs/2026-05-18-guards-design.md.
+   * See design-history/2026-05-18-guards-design.md.
    */
   readonly amendment?: {
     readonly reason: string

@@ -1,6 +1,6 @@
 /**
  * `beginEchoUnlock` — the interactive ceremony API (spec
- * docs/superpowers/specs/2026-08-02-echo-secret-design.md, #940, Task 6).
+ * design-history/2026-08-02-echo-secret-design.md, #940, Task 6).
  *
  * Split out of `echo-secret.ts` (which owns only the block builders +
  * verifiers) because this module orchestrates BOTH `echo-secret.ts`
@@ -38,7 +38,7 @@ export interface EchoCeremony {
    * TYPE it.
    *
    * Conforming-player contract (spec
-   * docs/superpowers/specs/2026-08-02-echo-secret-design.md, "Ceremony"):
+   * design-history/2026-08-02-echo-secret-design.md, "Ceremony"):
    * when the owner does NOT recognize the revealed echo, the player MUST show
    * a hard phishing warning — do not continue, open the official app, rotate
    * the secret immediately — MUST NOT offer any skip or
@@ -60,7 +60,7 @@ export interface EchoCeremony {
  * cannot be resolved — sealed reveal under a foreign device).
  *
  * Conforming-player contract (spec
- * docs/superpowers/specs/2026-08-02-echo-secret-design.md): an owner who does
+ * design-history/2026-08-02-echo-secret-design.md): an owner who does
  * not recognize `ceremony.reveal` is looking at a phish. The player MUST then
  * show a hard warning (stop, open the official app, rotate the secret now),
  * MUST NOT offer a skip / "verification unavailable" fallback or any

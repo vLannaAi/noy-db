@@ -2,7 +2,7 @@
  * Variable-N derivations — `shape: 'array'` (#200 slice 1).
  *
  * Covers the contract documented in
- * docs/superpowers/specs/2026-05-23-variable-n-derivations.md.
+ * design-history/2026-05-23-variable-n-derivations.md.
  */
 import { describe, it, expect } from 'vitest'
 import {

@@ -3,7 +3,7 @@
 // Metadata-only dependency graph over (collection, field) nodes: source-field
 // postures, derived-field edges, and the taint (effective-posture) algebra.
 // NEVER stores record values or key material — see
-// docs/superpowers/specs/2026-07-11-via-phase-c-design.md §1/§2.
+// design-history/2026-07-11-via-phase-c-design.md §1/§2.
 
 import { DerivationCycleError, MaterializedViewCycleError } from '../errors.js'
 import type { ViaPosture } from './index.js'

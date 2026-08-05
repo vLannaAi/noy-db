@@ -6,7 +6,7 @@
  * Loads the bundle into an in-memory store, unlocks it with the
  * supplied secret + user, calls `vault.dumpSchema()`, then emits.
  *
- * See `docs/superpowers/specs/2026-05-22-schema-dump-design.md`.
+ * See `design-history/2026-05-22-schema-dump-design.md`.
  *
  * @module
  */

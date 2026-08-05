@@ -5,7 +5,7 @@
  * `UserEnvelopeOversizedError` live in the kernel spine
  * (`kernel/types.ts` / `kernel/constants.ts` / `kernel/errors.ts`).
  *
- * @see docs/superpowers/specs/2026-05-05-user-envelope-design.md
+ * @see design-history/2026-05-05-user-envelope-design.md
  *
  * @module
  */

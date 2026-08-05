@@ -8,7 +8,7 @@
  * tightening: STRICT_POLICY requires a TOTP for edit-own-profile, and
  * a privacy-strict opt-out makes list() return only self.
  *
- * @see docs/superpowers/specs/2026-05-05-user-envelope-design.md
+ * @see design-history/2026-05-05-user-envelope-design.md
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'

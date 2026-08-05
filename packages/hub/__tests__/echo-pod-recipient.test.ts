@@ -1,6 +1,6 @@
 /**
  * Echo-mode pod recipients (spec
- * docs/superpowers/specs/2026-08-02-echo-secret-design.md, #940, Task 8).
+ * design-history/2026-08-02-echo-secret-design.md, #940, Task 8).
  *
  * A `.noydb` pod slot may carry a structured 3-part echo secret instead of
  * a plain string, so the anti-phishing ceremony (prompt → echo → key)

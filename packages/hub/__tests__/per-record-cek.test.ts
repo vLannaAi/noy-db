@@ -1,7 +1,7 @@
 /**
  * Per-record content-encryption keys (CEK) — foundation (step 1).
  *
- * Spec: docs/superpowers/specs/2026-06-13-per-record-cek-foundation-design.md
+ * Spec: design-history/2026-06-13-per-record-cek-foundation-design.md
  *
  * Covers the 5 build slices:
  *  1. Envelope `_cek` + wrap/unwrap on read/write + stable-CEK cache +

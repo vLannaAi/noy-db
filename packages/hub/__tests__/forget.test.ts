@@ -1,8 +1,8 @@
 /**
  * withForget / vault.forget() — GDPR crypto-shred (#304, epic step 2).
  *
- * Spec: docs/superpowers/specs/2026-06-08-forget-cascade-design.md
- * Foundation: docs/superpowers/specs/2026-06-13-per-record-cek-foundation-design.md
+ * Spec: design-history/2026-06-08-forget-cascade-design.md
+ * Foundation: design-history/2026-06-13-per-record-cek-foundation-design.md
  *
  * Decision pins (foundation, APPROVED): shred = TOMBSTONE (rewrite the live
  * envelope + every history version to `{_noydb,_v,_ts,_by,_iv:'',_data:''}`),

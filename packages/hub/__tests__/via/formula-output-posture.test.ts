@@ -15,7 +15,7 @@
  * posture must still apply even when the dependent (output/parent) collection
  * was opened BEFORE the classified source ever registered its field.
  *
- * Ground truth: docs/superpowers/specs/2026-07-12-via-consolidation-design.md
+ * Ground truth: design-history/2026-07-12-via-consolidation-design.md
  * §1; .superpowers/sdd/seam-map-consolidation.md PART 1 (esp. 1b/1c/1f) + PART 5.
  */
 import { describe, it, expect } from 'vitest'

@@ -2,7 +2,7 @@
  * @category capability
  * Document attestation — issue side. Mint a signed, per-field commitment
  * for a record and emit a QR credential verifiable offline via
- * `@noy-db/attestation`. See docs/superpowers/specs/2026-05-29-attestation-core-and-issue-design.md.
+ * `@noy-db/attestation`. See design-history/2026-05-29-attestation-core-and-issue-design.md.
  */
 export { withAttestation } from './active.js'
 export { NO_ATTESTATION, type AttestationStrategy } from './strategy.js'

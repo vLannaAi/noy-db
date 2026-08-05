@@ -1,6 +1,6 @@
 /**
  * Classified fields — behavioral sensitive-field descriptors (stage 1).
- * Design: docs/superpowers/specs/2026-07-04-classified-fields-design.md
+ * Design: design-history/2026-07-04-classified-fields-design.md
  * Law: open on write, declarative on read — read-side behavior is this
  * closed vocabulary; there are no read-side callbacks.
  * @module

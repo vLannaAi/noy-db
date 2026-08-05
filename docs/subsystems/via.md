@@ -512,9 +512,7 @@ the full story, including the still-open `orderBy` ordering item, #695).
 
 ## See also
 
-- [`docs/superpowers/specs/2026-07-10-via-port-design.md`](../superpowers/specs/2026-07-10-via-port-design.md) — full phase A design spec
-- [`docs/superpowers/specs/2026-07-11-via-phase-b-design.md`](../superpowers/specs/2026-07-11-via-phase-b-design.md) — full phase B design spec
-- [`docs/superpowers/specs/2026-07-11-via-phase-c-design.md`](../superpowers/specs/2026-07-11-via-phase-c-design.md) — full phase C design spec
+- Phase E — the external field-feature SPI — is unbuilt and tracked as issue #982.
 - [`docs/subsystems/via-money.md`](via-money.md) — money feature docs
 - [`docs/subsystems/via-i18n.md`](via-i18n.md) — i18n feature docs
 - [`docs/subsystems/via-classified.md`](via-classified.md) — classified feature docs

@@ -1,6 +1,6 @@
 /**
  * #715/#716 — the write ring. A tier-0 put()/delete() targeting an elevated
- * record is refused uniformly (spec: docs/superpowers/specs/2026-07-16-write-ring-refusal-design.md).
+ * record is refused uniformly (spec: design-history/2026-07-16-write-ring-refusal-design.md).
  * Holders are refused too: put()/delete() are the tier-0 APIs; putAtTier/
  * elevate/demote are the sanctioned tier-aware paths.
  *

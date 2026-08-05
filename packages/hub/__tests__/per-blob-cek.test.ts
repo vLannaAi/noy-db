@@ -7,7 +7,7 @@
  * only recoverable copy is the BlobObject's wrapped `_cek`; dedup is preserved;
  * legacy (non-erasable) blobs are byte-for-byte unchanged (no `_cek`); and
  * deleting the BlobObject (the refCount-0 shred primitive) renders the blob
- * unrecoverable. See docs/superpowers/specs/2026-06-13-per-blob-cek-design.md.
+ * unrecoverable. See design-history/2026-06-13-per-blob-cek-design.md.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'

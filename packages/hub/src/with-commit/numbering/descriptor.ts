@@ -1,7 +1,7 @@
 /**
  * @category capability
  * Deferred-numbering config descriptor. See
- * docs/superpowers/specs/2026-06-08-sealed-numbering-and-store-clock-design.md.
+ * design-history/2026-06-08-sealed-numbering-and-store-clock-design.md.
  */
 
 /** A registered deferred-numbering series. */

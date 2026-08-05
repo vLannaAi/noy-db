@@ -1,7 +1,7 @@
 /**
  * Forget fan-out through satellite pairs (#591, Task 8).
  *
- * Spec: docs/superpowers/specs/2026-07-05-satellite-collections-design.md
+ * Spec: design-history/2026-07-05-satellite-collections-design.md
  *
  * A satellite record is never itself present in the encrypted subject index
  * (its writes only ever flow through `joinedPut`, which the forget

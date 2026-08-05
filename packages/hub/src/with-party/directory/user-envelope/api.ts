@@ -11,7 +11,7 @@
  *    writes. Cross-instance updates land via the team/sync engine and
  *    surface to subscribers when the sync diff replays through this API.
  *
- * @see docs/superpowers/specs/2026-05-05-user-envelope-design.md
+ * @see design-history/2026-05-05-user-envelope-design.md
  *
  * @module
  */

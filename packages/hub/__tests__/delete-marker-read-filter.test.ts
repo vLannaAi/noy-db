@@ -3,7 +3,7 @@
  * every read choke point — `get()`, `list()`/`query()` (eager), `scan()`
  * (both modes) — in both eager and lazy collection modes. Mirrors the #590
  * sync/tombstone test harness (see
- * docs/superpowers/plans/2026-07-09-delete-tombstone-convergence.md
+ * design-history/2026-07-09-delete-tombstone-convergence.md
  * "Shared test harness").
  *
  * Assertion-shape note: the brief's draft asserted on `.query().all()` and on

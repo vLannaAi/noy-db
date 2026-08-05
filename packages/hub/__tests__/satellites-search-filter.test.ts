@@ -1,7 +1,7 @@
 /**
  * Search/retrieve existence post-filter for satellite collections (#591, Task 9).
  *
- * Spec: docs/superpowers/specs/2026-07-05-satellite-collections-design.md
+ * Spec: design-history/2026-07-05-satellite-collections-design.md
  *
  * `vault.collection(satelliteName)` returns an existence-filtering proxy
  * (`with-shape/satellites/proxy.ts`) for `get`/`list`/`put`, but the search

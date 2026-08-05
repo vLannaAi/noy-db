@@ -1,6 +1,6 @@
 /**
  * Echo-block builders + verifiers (spec
- * docs/superpowers/specs/2026-08-02-echo-secret-design.md, #940).
+ * design-history/2026-08-02-echo-secret-design.md, #940).
  *
  * Builds and verifies the on-keyring {@link KeyringEchoBlock} declaration
  * for the 3-part echo ceremony (prompt → echo → key). This module owns:
@@ -24,7 +24,7 @@
  * offline brute-force oracles for anyone holding the keyring file (600K
  * PBKDF2 per guess), and the `sealed` reveal blob is unpadded so its length
  * discloses the echo's UTF-8 byte length — see the threat model in
- * `docs/superpowers/specs/2026-08-02-echo-secret-design.md`.
+ * `design-history/2026-08-02-echo-secret-design.md`.
  *
  * @module
  */

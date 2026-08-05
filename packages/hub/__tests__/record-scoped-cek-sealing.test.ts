@@ -1,7 +1,7 @@
 /**
  * Record-scoped CEK sealing to an at-* host (#306 slices 2-3).
  *
- * Spec: docs/superpowers/specs/2026-06-13-record-scoped-cek-sealing-design.md
+ * Spec: design-history/2026-06-13-record-scoped-cek-sealing-design.md
  *
  * Grantor side (`vault.sealRecordToHost` / `revokeSealedRecord` /
  * `rotateRecordCek`) + host side (`openSealedRecord`). The host is a

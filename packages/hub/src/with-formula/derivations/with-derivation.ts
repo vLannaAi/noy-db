@@ -7,7 +7,7 @@ import type { DerivationSpec, DerivationStrategy } from './types.js'
  * plaintext after DEK unwrap. Outputs are encrypted with the same DEK
  * as the source and written via the standard `Collection.put` path.
  *
- * See docs/superpowers/specs/2026-05-01-dim14-derivation-v1-design.md.
+ * See design-history/2026-05-01-dim14-derivation-v1-design.md.
  */
 export function withDerivation<
   TSource extends Record<string, unknown>,
