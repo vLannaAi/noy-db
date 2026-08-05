@@ -9,36 +9,30 @@ The noy-db kernel is a pure encrypted document store: documents, envelopes, a qu
 title:    {}
 
 // each rung is one declaration + one tree-shaken chunk:
-number:   via(indexed())                                   // fast lookup            (phase D)
-customer: via(ref('customers', { onDelete: 'restrict' }))  // FK integrity           (phase D)
-summary:  via(searchable())                                // full-text              (phase D)
-subtotal: via(money({ currency: 'EUR', scale: 2 }))         // exact arithmetic       (phase A)
-label:    via(i18nText({ languages: ['en', 'th'], required: 'all' }))  // locale fills + Label (phase A)
+number:   via(indexed())                                   // fast lookup
+customer: via(ref('customers', { onDelete: 'restrict' }))  // FK integrity
+summary:  via(searchable())                                // full-text
+subtotal: via(money({ currency: 'EUR', scale: 2 }))         // exact arithmetic
+label:    via(i18nText({ languages: ['en', 'th'], required: 'all' }))  // locale fills + Label
 total:    via(computed(r => r.subtotal * (1 + r.vat), { deps: ['subtotal','vat'] }),
-              money({ currency: 'EUR' }))                   // derived + stacked      (phase C + A)
-iban:     via(classified())                                // sealed at rest         (phase B)
-contract: via(blob())                                      // externalized binary    (phase B)
+              money({ currency: 'EUR' }))                   // derived + stacked
+iban:     via(classified())                                // sealed at rest
+contract: via(blob())                                      // externalized binary
 ```
 
-> Illustrative — the phase A entries (`money`, `i18nText`) are shipped and runnable
-> as spelled above (see the `via()` composer section below for the full
-> collection-option context). Phase B's `classified`/`blob` features are ALSO
-> shipped, but not yet through the `via()` composer shown here — declare them
-> via their own sugar keys instead, `classifiedFields`/`blobFields` (see
-> [`docs/subsystems/via-classified.md`](via-classified.md) /
-> [`docs/subsystems/via-blob.md`](via-blob.md)); `via(classified())` /
-> `via(blob())` as spelled above remain unrunnable until the composer grows
-> those brands. Phase C's `computed` entry is shipped and runnable exactly as
-> spelled above, including the `money(...)` stack on the same field (see
-> [`docs/subsystems/via-computed.md`](via-computed.md)). Phase D shipped a
-> **different, more complete spelling** than the `indexed`/`ref`/`searchable`
-> sketch above: `lookupFields`/`via(lookup(...))` — one binding, three
-> backing tiers (enum/dict/first-class collection), altKeys, vocabulary, and
-> `restrict`/`cascade`/`nullify` reference semantics (see
-> [`docs/subsystems/via-lookup.md`](via-lookup.md)). The literal `indexed()`/
-> `ref()`/`searchable()` spellings above remain unshipped design sketches.
+> **The sketch above is illustrative — not every line is runnable as spelled.**
+> Read this before copying it.
+>
+> | Spelling | Runnable through `via()`? |
+> |---|---|
+> | `money(...)`, `i18nText(...)`, `computed(...)` — including the `money` stack on the same field | **Yes**, exactly as spelled |
+> | `classified()`, `blob()` | **No.** The features ship, but not through the composer — declare them with their own sugar keys, `classifiedFields` / `blobFields`. `via(classified())` stays unrunnable until the composer grows those brands. |
+> | `indexed()`, `ref()`, `searchable()` | **No.** These are unshipped design sketches. The lookup layer shipped a different, more complete spelling: `lookupFields` / `via(lookup(...))` — one binding, three backing tiers (enum / dict / first-class collection), `altKeys`, `vocabulary`, and `restrict`/`cascade`/`nullify` reference semantics. |
+>
+> Per-feature detail: [via-classified](via-classified.md), [via-blob](via-blob.md),
+> [via-computed](via-computed.md), [via-lookup](via-lookup.md).
 
-## The grammar (the naming system this arc completes)
+## The grammar
 
 noy-db speaks **prepositions**; the grain is the tier. `for` and `with` are JS reserved words — `via` is legal, pipeline-true ("the value passes via the seal, via the formula, via the index"), the sibling of `by-` ("by way of"), and security-honest where `like` would read as simulation.
 
@@ -112,44 +106,45 @@ READ:   load → decode (B) → present (A)
 
 For each phase, features run in **declared stack order** (the order they appear in `via(...)`). The runner lives in the kernel; collection.ts calls it at the existing write/read call sites, replacing today's hand-wired money/i18n branches. Zero-via fields skip the runner entirely (identity fast path — no regression for plain documents).
 
-The **feature stack order** is deterministic and pinned in one place (`compileViaBindings`). Today `collection.describe()` carries each feature's `describeFragment` contribution; surfacing the full per-field via-stack, phase order, declared dependencies, and staleness state is planned for phase C (the dependency graph makes those inspectable).
+The **feature stack order** is deterministic and pinned in one place (`compileViaBindings`). Today `collection.describe()` carries each feature's `describeFragment` contribution; `describe()` also surfaces a tainted field's effective posture and provenance once the dependency graph is in play. A full per-field via-stack dump — every binding, its pipeline order, declared dependencies and staleness state — is still not surfaced.
 
 ## Architecture guards & enforcement
 
 The kernel enforces two new **architecture rules** (checked by `pnpm check:architecture` at build time — `via-layering` and `via-enclave-isolation`):
 
 1. **`kernel` imports nothing from `via/*`** — all via-features are in the `via/` layer; the kernel holds only the port contract and runner. One frozen grandfather: `kernel/query/join.ts` imports i18n's `applyI18nLocale` from `via/i18n/core.js` for join-layer presentation (sync, i18n-text-only resolution of a joined right-side field) — issue #626 tracks converging it onto the Via seam instead.
-2. **`via/*` never imports `kernel/enclave/`** — this rule bans importing the enclave, not "crypto.subtle directly": crypto should reach a feature only through a scoped context (`ViaCryptoCtx`). Phase B built `ViaCryptoCtx` (the kernel's `sealedSlots`/`reservedEnvelopes` capability factories, `kernel/enclave/record-keys/sealed-slots.ts`) and used it to reroute `via/i18n/dictionary.ts`'s `DictionaryHandle` off its former direct `kernel/enclave/index.js` import (the one grandfather this rule used to carry, predating #623) onto `reservedEnvelopes('_dict_')` — **the allowlist is now empty** and every `via/**` file, including the new `via-classified`/`via-blob`, is enclave-clean by construction — statically; the rule only bans a static `import ... from`. The reveal/verify engines reach the enclave through the Check-13-allowlisted (`enclave-classify-index-only`) dynamic strategy seam in `via/classified/active.ts` (`await import('../../kernel/enclave/classify/...')`), which Check 15 does not see.
+2. **`via/*` never imports `kernel/enclave/`** — this rule bans importing the enclave, not "crypto.subtle directly": crypto should reach a feature only through a scoped context (`ViaCryptoCtx`). `ViaCryptoCtx` was built (the kernel's `sealedSlots`/`reservedEnvelopes` capability factories, `kernel/enclave/record-keys/sealed-slots.ts`) and used it to reroute `via/i18n/dictionary.ts`'s `DictionaryHandle` off its former direct `kernel/enclave/index.js` import (the one grandfather this rule used to carry, predating #623) onto `reservedEnvelopes('_dict_')` — **the allowlist is now empty** and every `via/**` file, including the new `via-classified`/`via-blob`, is enclave-clean by construction — statically; the rule only bans a static `import ... from`. The reveal/verify engines reach the enclave through the Check-13-allowlisted (`enclave-classify-index-only`) dynamic strategy seam in `via/classified/active.ts` (`await import('../../kernel/enclave/classify/...')`), which Check 15 does not see.
 
 `ViaCryptoCtx` is kernel-internal machinery for feature *authors* (a `ViaBinding`'s `encodeAtRest`/`decodeAtRest`/`erase` hooks receive it as a parameter — see `kernel/via/index.ts`) — not something a collection consumer calls directly. `sealedSlots` seals/unseals individual fields into their own `iv:data` slot under per-record key material (the mechanism `via-classified` seals recoverable fields with); `reservedEnvelopes(prefix)` is a whole-envelope encrypt/decrypt door scoped to collection names under a declared prefix, for reserved kernel-managed collections like `_dict_*` (see `packages/hub/__tests__/via/crypto-ctx.test.ts`).
 
-## Implementation phases
+## Capabilities
 
-The via-port lands in five phases, each with its own feature set, integration depth, and cross-repo governance:
+The sections below cover the four capability layers built on the port, in the order they
+compose: security features and posture enforcement, the dependency graph and taint algebra,
+the lookup layer, and late-attach/cycle-refusal parity.
 
-| Phase | What | Status | Issues |
-|---|---|---|---|
-| **A** | Core port (contract, registry, pipeline runner), `via-money`, `via-i18n` (sugar compatibility) | Landed on `feat/623-via-port`, unreleased | #623 (milestone #28) |
-| **B** | Security features: `via-classified`, `via-blob`; posture enforcement (query/export/forget); `ViaCryptoCtx` (`sealedSlots`/`reservedEnvelopes`) | Landed on `feat/629-via-phase-b`, unreleased | #629 (milestone #28) |
-| **C** | Formula & graph: the `ViaGraph` dependency graph + taint algebra, `via-computed` (virtual + materialized), taint enforcement (fixes #636), sync/cutover/restore dispatch (fixes #621), frozen-output skip+audit (fixes #637), forget fanout (fixes #622) | Landed on `feat/638-via-phase-c`, unreleased | #638 (milestone #28) |
-| **D** | Lookup layer: the `via-lookup` binding (`lookup`/`enum`/`dict`, three backing tiers, altKeys, vocabulary, `restrict`/`cascade`/`nullify` ref semantics) | Landed on `feat/650-via-phase-d`, unreleased | #650 (milestone #28) |
-| **E** | External SPI — publish the contract; plugin sandboxing; posture non-forgeability | Deferred | TBD |
+An **external SPI** — publishing the contract so code outside the hub can declare its own field
+feature, with plugin sandboxing and posture non-forgeability — is the one layer that was never
+built. It is tracked as [#982](https://github.com/vLannaAi/noy-db/issues/982), together with
+declassification/opt-out, which was deferred alongside it.
 
-Each phase is self-contained; work in earlier phases does not block later ones. Phase A ships with zero via-features in the kernel — all behavior lives in the features themselves, tree-shaken away if unused.
+One grandfathered exception remains open: `kernel/query/join.ts` reaching into i18n directly is
+tracked by #626 — see the layering note above. A `viaFields`-declared money field skipping the
+late-attach reconcile when a collection is constructed twice before the declaration (#627) and
+the index-accelerated fast path for fixed-mode money `where()` clauses (#625) were the other two
+review follow-ups from the port's first landing.
 
-Phase A's whole-branch review filed three follow-ups rather than blocking the phase — all **phase-A review follow-ups**, not new phases: **#625** (restore the index-accelerated `==`/`in` fast path for fixed-mode money `where()` clauses — the `indexProbe` hook), **#626** (converge `kernel/query/join.ts`'s join-layer i18n resolution onto the Via seam — see the grandfather note above), and **#627** (a `viaFields`-declared money field skips the late-attach reconcile when a collection is constructed twice before the declaration — the late-attach gap).
+## Security features and posture enforcement
 
-### Phase B — security features + posture enforcement
-
-Phase B retrofits the two remaining security-sensitive field kinds — classified fields (`via/classified/`) and blobs (`via/blob/`) — as via-features, and makes every binding's declared `ViaPosture` (`encryptedAtRest`/`queryable`/`exportable`/`forgettable`) an *enforced* contract instead of documentation: the query DSL refuses a `queryable: 'none'` field (`FieldNotQueryableError`), `Vault.exportStream()`/`exportJSON()` deliberately redact a `exportable: false` field to the literal string `'[sealed]'`, and `vault.forget()` consults `forgettable` and folds each sealed-posture binding's `erase()` hook into its erasure report. See [`docs/subsystems/via-classified.md`](via-classified.md) and [`docs/subsystems/via-blob.md`](via-blob.md) for the per-feature detail — two things worth knowing before reading either:
+The two security-sensitive field kinds are — classified fields (`via/classified/`) and blobs (`via/blob/`) — as via-features, and makes every binding's declared `ViaPosture` (`encryptedAtRest`/`queryable`/`exportable`/`forgettable`) an *enforced* contract instead of documentation: the query DSL refuses a `queryable: 'none'` field (`FieldNotQueryableError`), `Vault.exportStream()`/`exportJSON()` deliberately redact a `exportable: false` field to the literal string `'[sealed]'`, and `vault.forget()` consults `forgettable` and folds each sealed-posture binding's `erase()` hook into its erasure report. See [`docs/subsystems/via-classified.md`](via-classified.md) and [`docs/subsystems/via-blob.md`](via-blob.md) for the per-feature detail — two things worth knowing before reading either:
 
 - **`via-blob` is deliberately thin.** Blob content (chunked AEAD, per-blob key lifecycle) is real cryptographic engine work that the `via-enclave-isolation` rule forbids under `via/*` — so unlike `via-classified`, `via-blob`'s binding carries only declaration + posture + `describeFragment` + an `erase` hook; the content-crypto machinery stays service-side at `with-shape/blobs/` (unchanged, pre-dating the via port). `via-blob` declares no `encodeAtRest`/`decodeAtRest` hooks and never touches `ViaCryptoCtx`.
 - **Two pieces of erase-hook wiring are real, tested, and stay production-dormant on purpose.** `via-classified`'s `erase()` hook is live for `_sealed`-slot shred/residue classification (`vault.forget()` routes through it whenever a `classifiedFields` binding is compiled in — see `forget-classified-erase.test.ts`), but its *sealed-CEK prefix-purge* participation (`purgeSealedCekEnvelopes`) is never wired in, and `via-blob`'s `erase()` hook (`purgeBlobsForRecord`) is never wired in at all. Both are proven (by the pre-existing `forget-sealed-erasure.test.ts`/`per-blob-cek.test.ts` suites) to be **vault-level operations, unconditional by DEFAULT on any given collection declaring `classifiedFields`/`blobFields`** — routing them exclusively through a per-collection via binding would silently stop shredding for undeclared collections. `vault.forget()` keeps calling both directly (the sealed-CEK `_sealed_cek/*` prefix-delete, and `collection.blob(id).shredAllForRecord()`); the hooks themselves are unit-tested and wireable by a future, collection-scoping-aware caller.
 - **#633 made that scoping decision, as an opt-in, not a default change.** `withForget({ scopedPurge: true })` gates both purges above on the same per-collection declaration signal (`classifiedFields`/`blobFields`), reporting every skip through `ForgetResult.scopedPurgeResidue` rather than narrowing the erasure promise silently. The unconditional behavior above remains the default (`scopedPurge` absent/false) precisely because a declaration is a *necessary-but-not-sufficient* proxy — `sealRecordToHost()` and `.blob(id)` both work on collections that never declared anything. See [`docs/subsystems/via-classified.md`](via-classified.md#forget--erasure) (sealed-CEK arm) and [`docs/subsystems/via-blob.md`](via-blob.md#forget--erasure) (blob arm) for the full semantics.
 
-### Phase C — dependency graph, taint enforcement, sync dispatch, frozen-output, forget fanout
+## The dependency graph, taint enforcement, and fan-out
 
-Phase C adds the one dependency graph every derived value flows through: `ViaGraph`
+One dependency graph carries every derived value: `ViaGraph`
 (`kernel/via/graph.ts`), a per-vault, kernel-owned model of *what depends on what* and *what
 security posture a derived value inherits*. Every derivation/rollup/MV strategy, every `computed`
 `deps` entry, and every `ViaBinding.deps` declaration registers into it at collection-declare time;
@@ -189,10 +184,10 @@ declaration-order asymmetry between the single-call and cross-call versions of t
 classified posture — sealed at rest / non-exportable / non-queryable — where it previously did not;
 this is a deliberate, pre-1.0 security fix (see the [changeset](../../.changeset/via-phase-c.md)).
 
-### Formula-output posture (#642) — the #636-principle completion
+### Formula-output posture (#642)
 
 #636/#638's taint enforcement covered a `computed` field's own declared `deps`; it left one gap
-open, demonstrated live during the phase C whole-branch review: a with-formula edge
+open, found in review: a with-formula edge
 (derivation/rollup/MV) folds its effective posture from its source's whole-record `'*'` node, which
 never carried a registered posture at all — it always fell back to `DEFAULT_POSTURE`, no matter how
 classified the source collection was. A derive/rollup/MV `fn` receives DECRYPTED records by design
@@ -241,7 +236,7 @@ edges only, not `ref`/`computed` — so a lookup-referencing field stays `DEFAUL
 its backing dimension has a classified field, keeping the countries-matrix recipe byte-identical
 (`wildcard-fold.test.ts`, "TRAP 1").
 
-**Explicit per-declaration declassification is deferred to phase E** — not built here; there is
+**Explicit per-declaration declassification is unbuilt** — tracked with the external SPI in [#982](https://github.com/vLannaAi/noy-db/issues/982); there is
 currently no way to opt a formula output field back out of an inherited seal.
 
 **KNOWN LIMIT — reconcile-path ordering gap.** The cross-collection re-apply
@@ -283,7 +278,7 @@ expect(computeCalls).toBe(2) // 1 wave-driven (deduped from 3) + 1 self-triggere
 
 (from `packages/hub/__tests__/via/sync-dispatch.test.ts`; the flipped choke-point pin —
 `mutation-choke-point.test.ts`'s "sync-apply ... invalidates cache AND dispatches derivations" test
-— is the exact parity pin phase A/B left as a documented gap, now closed).
+— is the exact parity pin the earlier layers left as a documented gap, now closed).
 
 **Sync-applied deletes now recompute rollup parents too (#640).** Before this pass,
 `_invalidateSyncApplied` hardcoded every sync-applied mutation as a `'put'`, so a remotely-deleted
@@ -345,7 +340,7 @@ recompute is programmatically discoverable, not just logged (#644 item 3):
 db.on('derivation:wave-error', (e) => { /* e.collection, e.id, e.error */ })
 ```
 
-**Frozen-output rule (#637)**: before phase C, a derivation/rollup/MV output landing in a period
+**Frozen-output rule (#637)**: previously, a derivation/rollup/MV output landing in a period
 [closed](periods.md) threw `PeriodClosedError` straight through the *legal source write* that
 triggered the recompute. Now every output-write call site — live local-write dispatch,
 `vault.deriveAll()`, `vault.refreshView()`, and the sync dispatch wave — routes through
@@ -393,9 +388,9 @@ See [`docs/subsystems/via-computed.md`](via-computed.md) for the `computed(fn, {
 feature itself — declaring fields, virtual vs. materialized semantics, composition with other
 features, the declare-time guard and its known limit, and the binding architecture.
 
-### Phase D — the lookup layer: `lookup`/`enum`/`dict`, altKeys, vocabulary, ref semantics
+## The lookup layer — `lookup`/`enum`/`dict`, altKeys, vocabulary, ref semantics
 
-Phase D (#650) collapses the legacy `dictKey()`/`staticDict()` code-field pattern and a
+#650 collapsed the legacy `dictKey()`/`staticDict()` code-field pattern and a
 first-class reference-collection pattern into **one** `'lookup'` `ViaBinding` with three backing
 tiers (enum: inline keys, no store; dict: a reserved `_dict_<name>` micro-collection; matrix: a
 first-class collection like `countries`). `dictKey()`/`staticDict()` become **aliases** onto this
@@ -426,9 +421,9 @@ vocabulary, presentation/join-dressing, sorting, reference semantics, reserved-t
 `describe()` `lookup` block, all backed by `packages/hub/__tests__/via/countries-matrix.test.ts`'s
 canonical countries-matrix example.
 
-### Milestone #31 — late-attach parity, cycle detection at declare time
+## Late-attach parity and declare-time cycle refusal
 
-Five follow-up fixes, landed together on one branch, close gaps the phase A-D reviews surfaced.
+Five fixes closing gaps the port reviews surfaced.
 
 **Late-attach (reconcile) parity for i18n/dictKey/lookup (#664).** A SECOND-OR-LATER
 `vault.collection(name, {...})` call against an already-open collection ("late attach" /
@@ -498,7 +493,7 @@ lookup shape, including at a dotted (non-wildcard) path.
 **`indexProbe` — the index-accelerated fast path restored for fixed-mode money `where()` (#625)**
 — see [`docs/subsystems/via-money.md`](via-money.md#indexing--the-fast-path-and-an-honest-mixed-era-caveat-625):
 an optional `ViaBinding.indexProbe(op, payload)` hook lets a binding hand the query builder a
-STORED-form operand for a direct index bucket lookup on `==`/`in`, restoring the fast path phase A
+STORED-form operand for a direct index bucket lookup on `==`/`in`, restoring the fast path the port's first landing
 originally lost for money fields (multi-currency money and every other operator still scan — there
 is no single stored-form value a hash index can serve for those). The initial mixed-era caveat for
 pre-money-declaration legacy data was closed for eager-mode collections by #672's index-key
@@ -518,20 +513,20 @@ the full story, including the still-open `orderBy` ordering item, #695).
 - [`docs/subsystems/via-classified.md`](via-classified.md) — classified feature docs
 - [`docs/subsystems/via-blob.md`](via-blob.md) — blob feature docs
 - [`docs/subsystems/via-computed.md`](via-computed.md) — computed feature docs (virtual + materialized)
-- [`docs/subsystems/via-lookup.md`](via-lookup.md) — phase D: lookup feature docs (`lookup`/`enum`/`dict`)
+- [`docs/subsystems/via-lookup.md`](via-lookup.md) — lookup feature docs (`lookup`/`enum`/`dict`)
 - `packages/hub/src/kernel/via/index.ts` — the port contract and kernel runner (incl. `ViaCryptoCtx`, `ViaEraseCtx`/`ViaEraseReport`, `resolveOrderLabel`)
 - `packages/hub/src/kernel/via/pipeline.ts` — the phased runner (incl. `postureFor`, `redactForExport`, `eraseSealed`, `describeFragments`)
 - `packages/hub/src/kernel/via/compose.ts` — the `via()` composer + sugar/`viaFields` merge
 - `packages/hub/src/kernel/enclave/record-keys/sealed-slots.ts` — `ViaCryptoCtx`'s kernel-side capability factories
-- `packages/hub/src/kernel/via/graph.ts` — phase C: the `ViaGraph` dependency graph + taint algebra
-- `packages/hub/src/kernel/via/dispatch.ts` — phase C: sync/cutover/restore batched dispatch wave, `putDerivedOutput`, forget fanout
-- `packages/hub/src/kernel/via/taint-binding.ts` — phase C: the taint-enforcement `ViaBinding`
-- `packages/hub/src/via/money/` — phase A: money binding
-- `packages/hub/src/via/i18n/` — phase A: i18n binding
-- `packages/hub/src/via/classified/` — phase B: classified binding
-- `packages/hub/src/via/lookup/` — phase D: the lookup binding (descriptors, registry, snapshot, handle)
-- `packages/hub/src/via/blob/` — phase B: blob binding
-- `packages/hub/src/via/computed/` — phase C: computed binding
+- `packages/hub/src/kernel/via/graph.ts` — the `ViaGraph` dependency graph + taint algebra
+- `packages/hub/src/kernel/via/dispatch.ts` — sync/cutover/restore batched dispatch wave, `putDerivedOutput`, forget fanout
+- `packages/hub/src/kernel/via/taint-binding.ts` — the taint-enforcement `ViaBinding`
+- `packages/hub/src/via/money/` — money binding
+- `packages/hub/src/via/i18n/` — i18n binding
+- `packages/hub/src/via/classified/` — classified binding
+- `packages/hub/src/via/lookup/` — the lookup binding (descriptors, registry, snapshot, handle)
+- `packages/hub/src/via/blob/` — blob binding
+- `packages/hub/src/via/computed/` — computed binding
 - `packages/hub/__tests__/via/formula-output-posture.test.ts` — the #642 formula-output posture
   suite (both target shapes × three surfaces + the ordering gap)
 - `packages/hub/__tests__/via/wildcard-fold.test.ts` — the #642 `ViaGraph` `'*'`-fold unit suite
