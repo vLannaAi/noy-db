@@ -1,5 +1,14 @@
 # Changelog — hub
 
+## 0.6.0-pre.2
+
+### Patch Changes
+
+- Documentation-only: distilled in-source JSDoc.
+
+  - Removed shipped design history from doc comments across ~28 source files in `hub` and `cli`, keeping the open questions and the current contract. No behaviour, signature, or type changed — the diff contains **zero non-comment lines**, and the compiled output is identical to `0.6.0-pre.1`.
+  - Released because the in-source documentation is a published surface: `noy-db-docs` derives its API index and `llms-full.txt` corpus from these comments, so the distillation needs a version to sync against.
+
 ## 0.6.0-pre.0
 
 ### Minor Changes

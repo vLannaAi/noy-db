@@ -1,5 +1,12 @@
 # Changelog — on-oidc
 
+## 0.6.0-pre.2
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.2
+
 ## 0.6.0-pre.0
 
 ### Patch Changes
