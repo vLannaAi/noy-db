@@ -552,7 +552,7 @@ jobs:
               }
             "
             echo ""
-            echo "Please run the doc-sync (registry/llms.txt + llms-full.txt regeneration) for this release — see \`docs.manifest.json\` for the last-synced version per channel. Run it against the payload with \`--bridge <downloaded docs-bridge.json>\` — \`fetchBridge\`'s default \`-R\` targets noy-db-to, so this repo's payload must be passed as a file (or that flag parametrized)."
+            echo "Please run the doc-sync (registry/llms.txt + llms-full.txt regeneration) for this release — see \`docs.manifest.json\` for the last-synced version per channel. Run it against the payload with \`--bridge-repo vLannaAi/noy-db --bridge-tag $TAG\`, or pass the downloaded asset directly with \`--bridge <file>\` (noy-db-docs#191 added the repo flag; the payload self-identifies, so a mismatched repo now fails loudly instead of silently ingesting the other producer's data)."
           } > /tmp/bridge-comment.md
 
           cat /tmp/bridge-comment.md >> "$GITHUB_STEP_SUMMARY"
