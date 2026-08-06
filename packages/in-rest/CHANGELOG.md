@@ -1,5 +1,16 @@
 # @noy-db/in-rest
 
+## 0.6.0-pre.3
+
+### Patch Changes
+
+- Vocabulary: the user-facing text in these packages now says "secret", matching the `createNoydb` option and the `secret-*` API family. `WebAuthnPRFUnavailableError`'s message told callers to "use the passphrase instead" — an identifier that has not existed since the 0.4.0-pre rename.
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.3
+
 ## 0.6.0-pre.2
 
 ### Patch Changes
