@@ -20,7 +20,7 @@ that proxies the six store methods (`get`/`put`/`delete`/`list`/`loadAll`/`saveA
 optional `ping`/`listSince`/`listPage`/`listVaults`) over the wire. Hono, Express, Fastify,
 and Nitro subpath adapters marshal your framework's request/response into it.
 
-**The server only ever sees ciphertext.** It never receives the vault passphrase, never
+**The server only ever sees ciphertext.** It never receives the vault secret, never
 unlocks a vault, and never runs a query — it forwards `EncryptedEnvelope`s straight to the
 store and returns them unchanged. Unlock, decryption, and the query DSL all happen in the
 **client**, exactly as with every other noy-db storage backend. The REST server is a dumb,

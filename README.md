@@ -30,7 +30,7 @@ An encrypted, offline-first, **serverless** document store. The library lives in
 
 ## What makes noy-db different
 
-- **🔒 Hard privacy by construction.** Stores only ever see ciphertext. AES-256-GCM with per-user keys derived from a passphrase via PBKDF2. Breach the cloud, subpoena the provider, lose the USB stick — **every one of those surfaces already holds ciphertext**. Zero crypto dependencies — only the Web Crypto API.
+- **🔒 Hard privacy by construction.** Stores only ever see ciphertext. AES-256-GCM with per-user keys derived from a secret via PBKDF2. Breach the cloud, subpoena the provider, lose the USB stick — **every one of those surfaces already holds ciphertext**. Zero crypto dependencies — only the Web Crypto API.
 - **☁️ Serverless, runs anywhere.** No noy-db server. No Docker. No managed service. The library embeds in your app — ~30 KB, 0 runtime deps. Works in Node 18+, Bun, Deno, every modern browser, Cloudflare Workers, Electron, mobile PWAs.
 - **📴 Offline-first.** Every operation works without network. Sync when you want to, to whatever you want to. Single code path for online and offline — no "online mode" to toggle.
 - **👥 Multi-user, no auth server.** 5 roles (owner / admin / operator / viewer / client), per-collection permissions, key rotation on revoke. The keyring travels with the data.
@@ -268,7 +268,7 @@ In privacy engineering there's a distinction worth naming.
 - **Soft privacy** is a promise. A provider pledges to protect your data — by policy, by staff training, by a compliance certificate on the wall. You trust the policy, the people, the future owners, the jurisdiction, the subpoena response, the breach-response team on their worst day.
 - **Hard privacy** removes the need for that trust. Nobody else *can* break the promise because nobody else is in a position to. They don't have the keys. They never had the keys.
 
-noy-db is a hard-privacy tool. The only party that can read a record is the party holding the passphrase. That holds whether your cloud is breached, a sysadmin inspects the table, a court compels the provider, a laptop is stolen, or a backup is left on café Wi-Fi — **every one of those surfaces already holds ciphertext**.
+noy-db is a hard-privacy tool. The only party that can read a record is the party holding the secret. That holds whether your cloud is breached, a sysadmin inspects the table, a court compels the provider, a laptop is stolen, or a backup is left on café Wi-Fi — **every one of those surfaces already holds ciphertext**.
 
 There is no "encrypted in transit, briefly decrypted at rest for processing" step. There is no support engineer at noy-db with a recovery key — we do not run a service and we do not possess any key. The KEK exists in your process memory for the length of a session and is destroyed when you call `db.close()`.
 
@@ -288,7 +288,7 @@ noy-db does not inspect your data. It cannot — that is the architectural point
 
 | Layer | Algorithm | Purpose |
 |---|---|---|
-| Key derivation | PBKDF2-SHA256 (600K iterations) | Passphrase → KEK |
+| Key derivation | PBKDF2-SHA256 (600K iterations) | Secret → KEK |
 | Key wrapping | AES-KW (RFC 3394) | KEK wraps/unwraps DEKs |
 | Data encryption | AES-256-GCM | DEK encrypts records |
 | IV generation | CSPRNG | Fresh 12-byte IV per write |
