@@ -1,5 +1,17 @@
 # Changelog — hub
 
+## 0.6.0-pre.3
+
+### Minor Changes
+
+- `writePod` / `writeNoydbBundle` now refuse an option key they do not read, instead of ignoring it. Previously a retired key — most sharply `autoPassphrases`, renamed to `autoSecrets` and then generalised to `autoCredentials` — produced a structurally valid pod with no auto-unlock slot, with nothing failing at build or write time; the defect surfaced later, in whoever imported the pod. Keys explicitly set to `undefined` still pass, so spreading a partially-built options object is unaffected. The three retired pod-write keys (`autoPassphrases`, `sealedPassphrases`, `exportPassphrase`) throw an error naming their replacement.
+- `keyringRecoverSecret` is exported from the root `@noy-db/hub` barrel again, restoring symmetry with `keyringRotateSecret`. #876 kept the rotate half and dropped recover — which also left `RecoverSecretInput` / `RecoverSecretResult` / `RecoveryProof` exported from the root with no function to feed them. The standalone form is the load-bearing one: paper-code recovery runs before there is a `Noydb` instance, so `db.team.recoverSecret` is not reachable at that point in the flow. It remains available from `@noy-db/hub/team` as `recoverSecret`.
+- The 0.4.0-pre rename identifier map ships as a machine-readable asset at `@noy-db/hub/codemods/0.4.0-pre.json` — 80 rows covering the store-factory, `passphrase-*` → `secret-*`, subpath, `aggregate` → `reduce`, strategy-key, `on-*` namespacing and removed-option changes. Each row carries a `safeGlobalReplace` verdict, which is the load-bearing field: it separates the renames a blanket replace handles from the ones that need an import-specifier anchor, including the `aggregate` trap (derivation rollup aggregates keep the word). Rows are checked against the live surface by the test suite, so the map cannot drift into a second, disagreeing record of the same renames.
+
+### Patch Changes
+
+- The four strategy option keys renamed by #873 (`blobStrategy`, `indexStrategy`, `txStrategy`, `aggregateStrategy`) are declared on `NoydbOptions` as deprecated `never`-typed properties naming their replacement. Because the old keys were simply absent, TypeScript's excess-property check answered them with the nearest key by edit distance — `txStrategy` was reported as "Did you mean to write `crdtStrategy`?", a suggestion that silently enables a CRDT strategy for anyone who trusts it. The compiler now matches the declared key and surfaces the real replacement. One release of carry.
+
 ## 0.6.0-pre.2
 
 ### Patch Changes

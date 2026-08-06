@@ -67,7 +67,13 @@ console.log(`\n[release] Canonical version from @noy-db/hub: ${canonicalVersion}
 const packagesDir = join(ROOT, 'packages')
 const packageDirs = readdirSync(packagesDir).filter((name) => {
   const full = join(packagesDir, name)
-  return statSync(full).isDirectory() && name !== 'typescript-config' && name !== 'test-adapter-conformance'
+  // `test-adapter-conformance` was excluded here while it was an internal
+  // harness. It became a published package on the lockstep line at
+  // 0.6.0-pre.1, and the exclusion outlived that: `changeset version`'s
+  // pre-1.0 heuristic bumped it 0.6.0-pre.2 → 1.0.0-pre.3 and nothing pulled
+  // it back, which would have shipped a 1.0.0 on a 0.6.x line (v1.0 is
+  // reserved for LTS). It normalizes with everything else now.
+  return statSync(full).isDirectory() && name !== 'typescript-config'
 })
 
 const corrected = []
