@@ -8,7 +8,7 @@
 
 ## What it does
 
-The credential broker lets a client **passphrase-bound to a vault** obtain short-lived,
+The credential broker lets a client **secret-bound to a vault** obtain short-lived,
 rolling cloud-storage credentials (AWS access keys today; vendor-neutral token and
 password/connection-auth shapes are reserved for later slices) **without ever putting a long-lived secret in the client**. A
 32-byte seed is generated once, encrypted under the vault's own `_broker` collection DEK, and
@@ -32,7 +32,7 @@ read/write ciphertext at all), not confidentiality of what's inside it.
 ## Threat model — what this defeats, and what it honestly does not
 
 Store-access credentials gate **availability / tamper / deletion** of ciphertext, never its
-confidentiality — that rests on the enclave, unchanged. The passphrase and every key/DEK
+confidentiality — that rests on the enclave, unchanged. The secret and every key/DEK
 never leave the client; the broker sees only a challenge proof (and, in a future slice, seals
 credentials *to* a specific instance). The stolen-ciphertext story is unchanged by any of this.
 
@@ -40,7 +40,7 @@ credentials *to* a specific instance). The stolen-ciphertext story is unchanged 
 |---|---|---|
 | **Rolling** (short-lived, rotating) | A credential lifted from a memory dump, crash log, or devtools session is dead within its TTL (minutes–1 h). Revocation = the broker stops re-issuing; no client-side rotation ceremony. | Live abuse **within** the TTL. |
 | **Non-extractable** | An attacker who copies the app bundle, `localStorage`, or IndexedDB **at rest** gets nothing replayable: the steady-state proof key is a WebCrypto `extractable:false` `['sign']` HMAC key. | **A resident XSS attacker while the vault is unlocked.** Such an attacker can drive the whole proof flow with the live key, *and* — the honest, sharper bound — re-run the HKDF derivation from the decrypted seed to mint a fresh proof key, because the seed's bytes are re-derivable while unlocked. WebCrypto non-extractability denies **capability-cloning** (reuse of a *handle* offline/later/elsewhere), not **live in-page use or re-derivation**. The non-extractable import is defense-in-depth against a *leaked handle only*. |
-| **User-bound** (`access = f(app config, unlocked keyring)`) | App config alone (bundle constants, endpoint URLs) grants zero cloud access — the broker refuses without a proof derivable only from a decrypted `_broker` seed. Per-user STS session tags + a scoped session policy let the cloud side enforce per-vault scoping, so user A's creds cannot read user B's rows. | **A compromised broker host.** It is the credential authority; its compromise mints creds for anyone. This is outside the zero-knowledge boundary **by design** — the broker still never sees passphrase, KEK, DEK, or plaintext. Same trust class as the `at-*` sealing-key family. |
+| **User-bound** (`access = f(app config, unlocked keyring)`) | App config alone (bundle constants, endpoint URLs) grants zero cloud access — the broker refuses without a proof derivable only from a decrypted `_broker` seed. Per-user STS session tags + a scoped session policy let the cloud side enforce per-vault scoping, so user A's creds cannot read user B's rows. | **A compromised broker host.** It is the credential authority; its compromise mints creds for anyone. This is outside the zero-knowledge boundary **by design** — the broker still never sees the secret, KEK, DEK, or plaintext. Same trust class as the `at-*` sealing-key family. |
 | **Symmetric-verifiable** (the broker holds the same key it verifies) | A forged *client* proof grants nothing the broker cannot already grant itself — it **is** the credential mint. | **A read-only leak of the broker's registered-key store.** Because verification is symmetric HMAC, a registered proof key **is** a forgeable credential — an attacker who reads the key store can mint valid proofs for any registered vault. This is credential-equivalent **unless the store wraps registered keys at rest under a broker-side KMS key** (mandated below): with KMS-wrap, a read-only DB leak yields only ciphertext the attacker cannot unwrap without also compromising the KMS grant. |
 | **Transparent** (dev wires the cloud store at setup; the end user never sees it) | Nothing — this is UX, not security. Listed so nobody mistakes it for a security property. | — |
 
@@ -54,7 +54,7 @@ at-rest exposure — see the reference host below.
 **What the broker learns:** `vaultId`, `brokerId`, a one-way 32-byte HKDF output (registered
 once, inverts to nothing), the requested `profile`, request timing/IP, and the dev-backend
 attestation identity at enrol.
-**What it never learns:** the passphrase, any KEK/DEK, collection names, record contents, or
+**What it never learns:** the secret, any KEK/DEK, collection names, record contents, or
 the `_broker` seed itself.
 
 1. **Enrol** (`vault.broker().enroll()`, idempotent). Creates the `_broker` seed if absent

@@ -123,7 +123,7 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 | 16 | `@noy-db/hub/session` | Token sessions + dev-unlock + policy enforcement | 839 | `team` |
 | 16a | `vault.user.*` (always-on) — see `user-envelope` | Per-principal profile + preferences envelope (`_users/<keyringId>`) with own-only write rule | ~600 always-on | `team`, `session-tiers`, `sync` |
 | 30 | `@noy-db/hub/custody` | FR-6 sovereign custody — `grantCustodian` / `revokeCustodian` / audited `liberate` of a sealed-owner (Deed) vault (`withCustody()`) | ~400 | `team`, `history` (ledger audit) |
-| 27 | `@noy-db/hub/broker` | Passphrase-bound rolling non-extractable store-auth broker (enrol/challenge/credentials + refresh hook) | ~500 | `team`, `session` |
+| 27 | `@noy-db/hub/broker` | Secret-bound rolling non-extractable store-auth broker (enrol/challenge/credentials + refresh hook) | ~500 | `team`, `session` |
 
 <a id="user-envelope"></a>**`user-envelope`** is included in the always-on core because it has zero peer-dep cost and the policy gates (`edit-own-profile`, `view-team-profiles`) are valuable even for single-user vaults. See [`noy-db-docs/content/docs/services/user-envelope.md`](https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/user-envelope.md).
 
@@ -486,6 +486,6 @@ These are cross-package renames on separately-versioned satellites, so they need
 
 ## Open questions
 
-- ~~Should `keyring-grant` (multi-user grant/revoke/rotate) split out of core into the `team` service, leaving only single-owner keyring in core?~~ **Resolved (#267):** the split is complete. `db.grant` / `db.revoke` / `db.rotate` throw `TeamNotEnabledError` unless `teamStrategy: withTeam()` is passed; the keyring grant/revoke/rotate engines are linked only from the `@noy-db/hub/team` subpath, so the core floor really is single-user. Single-user primitives (owner keyring, unlock, `listUsers`, `updateUser`, passphrase rotate/recover, `createDeedOwner`) stay ungated.
+- ~~Should `keyring-grant` (multi-user grant/revoke/rotate) split out of core into the `team` service, leaving only single-owner keyring in core?~~ **Resolved (#267):** the split is complete. `db.grant` / `db.revoke` / `db.rotate` throw `TeamNotEnabledError` unless `teamStrategy: withTeam()` is passed; the keyring grant/revoke/rotate engines are linked only from the `@noy-db/hub/team` subpath, so the core floor really is single-user. Single-user primitives (owner keyring, unlock, `listUsers`, `updateUser`, secret rotate/recover, `createDeedOwner`) stay ungated.
 - ~~Should `lazy` mode (cache + on-demand fetch) be promoted from inside `routing` to its own headline service?~~ **Resolved (#267):** promoted — `@noy-db/hub/lazy` ships `withLazy()` (entry #26). Pre-1.0 back-compat: `prefetch: false` without `withLazy()` keeps working identically through a deprecated implicit path (one-time console warn); the implicit path is removed at 1.0.
 - Should `bundle` stay as a subpath given it already tree-shakes naturally via `"sideEffects": false` and named re-exports? Decision: yes — the docs surface matters more than the technical mechanism, and a uniform pattern (every service has `with*()`) is easier to teach.

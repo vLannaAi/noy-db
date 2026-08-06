@@ -3,7 +3,7 @@
  *
  * A thin RPC dispatcher — the HTTP twin of `@noy-db/by-peer`'s
  * `servePeerStore` — that forwards the 6 `NoydbStore` methods straight to
- * the caller's ciphertext store. The server NEVER sees a passphrase, never
+ * the caller's ciphertext store. The server NEVER sees a secret, never
  * calls `createNoydb`/`openVault`, and never decrypts anything: every
  * request/response body is an `EncryptedEnvelope` (or a plain id/list of
  * one) round-tripped as-is.

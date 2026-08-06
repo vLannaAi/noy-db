@@ -15,12 +15,13 @@ const db = await createNoydb({
   user: 'admin',
   teamStrategy: withTeam(),
 })
-await db.grant('acme', { userId: 'bob', role: 'operator', passphrase: '…' })
+await db.grant('acme', { userId: 'bob', role: 'operator', secret: '…' })
 ```
 
 Single-user primitives are unaffected and stay ungated: owner keyring
-creation, unlock, `listUsers`, `updateUser`, passphrase rotate/recover
-(`rotatePassphrase` / `recoverPassphrase`), and the `createDeedOwner` free
+creation, unlock, `listUsers`, `updateUser`, secret rotate/recover
+(`rotateSecret` / `recoverSecret` — named `rotatePassphrase` / `recoverPassphrase`
+at the time of this entry, renamed in `0.4.0-pre`), and the `createDeedOwner` free
 function. `db.grantCustodian` / `db.revokeCustodian` keep their own
 `custodyStrategy: withCustody()` gate (unchanged). Flows that mint users on
 a caller-supplied `db` — e.g. `issueInvite` from `@noy-db/on-magic-link`,
@@ -88,6 +89,8 @@ Shamir recovery now requires an injected provider.
 
 > Note: when multiple Shamir recovery entries are enrolled, supply the shares for a **single** entry per recovery attempt (optionally with `entryId`). Mixing shares from different entries in one call no longer recovers.
 
-> Managed-passphrase mode mandates a strong recovery profile, and Shamir is the only one — so **managed-mode vaults now also require a `shamirRecovery` provider**. Add `@noy-db/on-shamir` and pass `shamirRecovery: shamirRecoveryProvider()` to `createNoydb`.
+> Managed-secret mode mandates a strong recovery profile, and Shamir is the only one — so **managed-mode vaults now also require a `shamirRecovery` provider**. Add `@noy-db/on-shamir` and pass `shamirRecovery: shamirRecoveryProvider()` to `createNoydb`.
 
-> **Bundle auto-unlock generalized (#215):** `autoCredentials` / `sealedCredentials` carry `{ kind: 'passphrase' | 'password' | 'pin', value }`, so a delivered bundle can one-click-unlock whatever tier the user enrolled. `autoPassphrases` / `sealedPassphrases` still work (deprecated sugar for `kind: 'passphrase'`). On read, `autoUnlock.perUser[user]` is now `{ kind, value }` — dispatch your login by `kind` (PIN is a prefill, not an enrollment). WebAuthn is not auto-unlockable (hardware-bound) and is rejected at write time. Pre-0.2 bundles read back unchanged (bare-string entries coerce to `kind: 'passphrase'`).
+> **Bundle auto-unlock generalized (#215):** `autoCredentials` / `sealedCredentials` carry `{ kind: 'secret' | 'password' | 'pin', value }`, so a delivered bundle can one-click-unlock whatever tier the user enrolled. On read, `autoUnlock.perUser[user]` is now `{ kind, value }` — dispatch your login by `kind` (PIN is a prefill, not an enrollment). WebAuthn is not auto-unlockable (hardware-bound) and is rejected at write time. Pre-0.2 bundles read back unchanged (bare-string entries coerce to `kind: 'secret'`).
+>
+> The `kind` was spelled `'passphrase'` when this entry was written and became `'secret'` in the `0.4.0-pre` rename. The `autoPassphrases` / `sealedPassphrases` sugar named here was renamed to `autoSecrets` / `sealedSecrets` and then to `autoCredentials` / `sealedCredentials`; from `0.6.0-pre.3` the retired spellings are **refused** by `writePod` rather than silently ignored (#991).

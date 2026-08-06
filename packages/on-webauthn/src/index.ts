@@ -21,7 +21,7 @@
  * but by default, enrollment refuses this path because the `rawId` is stored
  * in the record itself, making the record self-decrypting (presence gate, not
  * confidentiality). Use `allowNonPrfInsecure: true` to opt in; prefer a
- * PRF-capable device or the passphrase for real confidentiality.
+ * PRF-capable device or the secret for real confidentiality.
  *
  * The derived key is NEVER persisted. It exists only in memory during the
  * unlock operation. What IS persisted (in the noy-db adapter, not in browser
@@ -128,7 +128,7 @@ export class WebAuthnMultiDeviceError extends Error {
  * entirely from the credential's `rawId`, which is stored in cleartext in
  * the enrollment record itself — the record would self-decrypt with no
  * authenticator involved. By default, enrollment/rewrap refuses this path.
- * Use a PRF-capable credential, fall back to the passphrase, or set
+ * Use a PRF-capable credential, fall back to the secret, or set
  * `allowNonPrfInsecure: true` to explicitly accept a non-confidential
  * presence gate instead.
  */
@@ -140,7 +140,7 @@ export class WebAuthnPRFUnavailableError extends Error {
       'WebAuthn confidentiality — the non-PRF wrapping key derives entirely from the ' +
       "credential's rawId, which is stored in the enrollment record itself (the record " +
       'would self-decrypt with no authenticator involved). Enrollment refuses this path ' +
-      'by default. Use a PRF-capable authenticator, use the passphrase instead, or pass ' +
+      'by default. Use a PRF-capable authenticator, use the secret instead, or pass ' +
       '{ allowNonPrfInsecure: true } to explicitly accept a non-confidential presence gate.',
     )
     this.name = 'WebAuthnPRFUnavailableError'
@@ -208,7 +208,7 @@ export interface WebAuthnEnrollOptions {
    * so the record self-decrypts with no authenticator. By default,
    * enrollment REFUSES the non-PRF path (throws `WebAuthnPRFUnavailableError`).
    * Set `true` ONLY to explicitly opt into a non-confidential presence gate;
-   * prefer the passphrase or a PRF-capable credential for real confidentiality.
+   * prefer the secret or a PRF-capable credential for real confidentiality.
    */
   allowNonPrfInsecure?: boolean
 }

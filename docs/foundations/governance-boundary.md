@@ -23,7 +23,7 @@ Two read-only surveys across both repos produced the per-cluster facts below.
 
 WS-1 (multivault bundle) relocated cleanly because `multi-bundle.ts` touched **zero crypto** — it only composed already-public single-vault read/write functions. All three governance clusters are the opposite: **they perform the DEK re-wrapping themselves**, binding to hub crypto internals that are deliberately *not* on the published seam:
 
-- **A (custody/liberate):** `wrapKey()` (AES-KW) from `../crypto.js`, `createOwnerKeyring()` from `../team/keyring.js`, `resolveManagedSecret()` + `SealingKeyProvider` from `../team/managed-passphrase.js`, `freezeSnapshotOnly()` from `../bundle/withdraw-accessible.js`.
+- **A (custody/liberate):** `wrapKey()` (AES-KW) from `../crypto.js`, `createOwnerKeyring()` from `../team/keyring.js`, `resolveManagedSecret()` + `SealingKeyProvider` from `../team/managed-secret.js`, `freezeSnapshotOnly()` from `../bundle/withdraw-accessible.js`.
 - **B (withdrawal):** `wrapKey()`, `base64ToBuffer()` from `../crypto.js`, `buildAccessibleBundle()`/`resolveAccessibleCollections()`, `freezeAndDeleteClosure()`, ledger append.
 - **C (adopt):** `wrapKey()`, `base64ToBuffer()`, `createOwnerKeyring()`, `resolveManagedSecret()`, `LedgerStore`, transfer-seal decode + bundle deserialization.
 

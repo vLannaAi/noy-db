@@ -30,9 +30,9 @@ All operations use the Web Crypto API (`crypto.subtle`). Zero npm crypto depende
 
 | Threat | Mitigation |
 |--------|-----------|
-| Lost USB stick | AES-256-GCM — without passphrase, all data is ciphertext |
+| Lost USB stick | AES-256-GCM — without the secret, all data is ciphertext |
 | Cloud admin reads data | Zero-knowledge by default — backends store only ciphertext; non-PRF WebAuthn enrollments are refused by default but can be explicitly opted in via `allowNonPrfInsecure`, producing a documented non-confidential presence gate |
-| Brute-force passphrase | PBKDF2 600K iterations (~200ms/attempt). 12-char passphrase is infeasible |
+| Brute-force secret | PBKDF2 600K iterations (~200ms/attempt). a 12-char secret is infeasible |
 | Tampered record | AES-GCM auth tag — decrypt fails with TAMPERED error |
 | Revoked user retains data | Key rotation re-encrypts with new DEKs |
 | Compromised biometric store | Wrapped KEK encrypted by WebAuthn credential (PRF-capable); non-PRF enrollments self-decrypt and are not recommended for this threat model |
@@ -40,12 +40,12 @@ All operations use the Web Crypto API (`crypto.subtle`). Zero npm crypto depende
 ### What NOYDB Does NOT Protect Against
 
 - Malicious application code (app has access to decrypted data in memory)
-- Keylogger capturing passphrase (OS-level; biometric mitigates this)
+- Keylogger capturing the secret (OS-level; biometric mitigates this)
 - Memory dump attacks (DEKs in process memory during session; mitigated by `db.close()`)
 
 ### Recommendations
 
-1. Use passphrases of 12+ characters or 4+ word diceware
-2. Enroll biometric for daily use to reduce passphrase exposure
+1. Use secrets of 12+ characters or 4+ word diceware
+2. Enroll biometric for daily use to reduce secret exposure
 3. Always use `rotateKeys: true` when revoking access
-4. Store passphrase in a password manager — loss means permanent data loss
+4. Store the secret in a password manager — loss means permanent data loss

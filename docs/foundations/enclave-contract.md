@@ -52,7 +52,7 @@ statically auditable source-level boundary beats a configurable one.
 2. `CryptoKey` appears in **44 non-enclave files** (`getDEK` closures, CEK
    caches, keyring types).
 3. The enclave folder has **inverted type-imports** (record-codec →
-   `with-commit/crdt`; sealing → `with-party/team/managed-passphrase` +
+   `with-commit/crdt`; sealing → `with-party/team/managed-secret` +
    `with-audit/sealed-record`) and one service holds raw enclave crypto
    (`with-audit/sealed-record/index.ts` `subtle.importKey`).
 4. Substantial **auth-layer crypto lives in with-party** (keyring derivation

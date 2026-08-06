@@ -122,7 +122,7 @@ describe('in-rest envelope-proxy handler', () => {
     expect(JSON.parse(getRes.body as string)).toBeNull()
   })
 
-  // ── Security invariant: no plaintext / no passphrase server-side ──
+  // ── Security invariant: no plaintext / no secret server-side ──
 
   it('no unlock/secret route exists — unknown method → 400', async () => {
     const handler = createRestHandler({ store, authorize: allowAll })
