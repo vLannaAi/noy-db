@@ -20,6 +20,7 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./codemods/0.4.0-pre.json": "./codemods/0.4.0-pre.json",
     "./i18n": {
       "types": "./dist/via/i18n/index.d.ts",
       "default": "./dist/i18n/index.js"
@@ -202,7 +203,8 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "codemods"
   ],
   "engines": {
     "node": ">=22.0.0"

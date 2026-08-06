@@ -346,6 +346,7 @@
     "isULID",
     "isViaFieldSpec",
     "isZodSchema",
+    "keyringRecoverSecret",
     "keyringRotateSecret",
     "liberateVault",
     "listCredentials",
