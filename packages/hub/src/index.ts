@@ -590,8 +590,14 @@ export type {
 export { QuickUnlockStore } from './with-party/session/unlock-state.js'
 export type { QuickUnlockState } from './with-party/session/unlock-state.js'
 
-// Tier-1 change flows
+// Tier-1 change flows.
+// Both halves ship here: #876 kept the rotate half and dropped recover, which
+// left `RecoverSecretInput`/`RecoverSecretResult` exported below with no
+// function to feed them (#992). The standalone form is the load-bearing one —
+// paper-code recovery runs before there is a `Noydb` instance, so
+// `db.team.recoverSecret` is not reachable at that point in the flow.
 export { rotateSecret as keyringRotateSecret } from './with-party/team/rotate-recover.js'
+export { recoverSecret as keyringRecoverSecret } from './with-party/team/rotate-recover.js'
 export type {
   RotateSecretInput,
   RecoverSecretInput,

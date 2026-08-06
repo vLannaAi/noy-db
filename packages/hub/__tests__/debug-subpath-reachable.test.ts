@@ -23,11 +23,21 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const HUB = join(dirname(fileURLToPath(import.meta.url)), '..')
 const pkg = JSON.parse(readFileSync(join(HUB, 'package.json'), 'utf8')) as {
-  exports: Record<string, { types: string; default: string }>
+  exports: Record<string, { types: string; default: string } | string>
 }
 
-/** Every published entry, as `[subpath, built JS path]`. */
-const ENTRIES = Object.entries(pkg.exports).map(
+/**
+ * Every published CODE entry, as `[subpath, built JS path]`.
+ *
+ * A string condition is a published data asset, not a module — `codemods/*`
+ * (#994) is a JSON rename map with no bundle to import.
+ */
+const CODE_EXPORTS = Object.fromEntries(
+  Object.entries(pkg.exports).filter(
+    (e): e is [string, { types: string; default: string }] => typeof e[1] !== 'string',
+  ),
+)
+const ENTRIES = Object.entries(CODE_EXPORTS).map(
   ([subpath, cond]) => [subpath, join(HUB, cond.default)] as const,
 )
 
@@ -60,10 +70,10 @@ describe('#914 — debugPlaintext inspection cluster is reachable', () => {
 
   it.runIf(built)('the error createNoydb throws is instanceof the exported class', async () => {
     const debug = (await import(
-      pathToFileURL(join(HUB, pkg.exports['./debug']!.default)).href
+      pathToFileURL(join(HUB, CODE_EXPORTS['./debug']!.default)).href
     )) as { DebugPlaintextError: new () => Error }
     const root = (await import(
-      pathToFileURL(join(HUB, pkg.exports['.']!.default)).href
+      pathToFileURL(join(HUB, CODE_EXPORTS['.']!.default)).href
     )) as { createNoydb: (o: Record<string, unknown>) => Promise<unknown> }
 
     // `debugPlaintext` with encryption left on is the documented failure mode.

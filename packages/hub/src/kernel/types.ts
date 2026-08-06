@@ -2692,6 +2692,41 @@ export interface NoydbOptions {
    */
   readonly cargoStrategy?: CargoStrategy
   /**
+   * @deprecated renamed to `blobsStrategy` (#873).
+   *
+   * Declared as `never` on purpose — see the block note below.
+   */
+  readonly blobStrategy?: never
+  /**
+   * @deprecated renamed to `indexingStrategy` (#873).
+   *
+   * Declared as `never` on purpose — see the block note below.
+   */
+  readonly indexStrategy?: never
+  /**
+   * @deprecated renamed to `transactionsStrategy` (#873).
+   *
+   * Declared as `never` on purpose — see the block note below.
+   */
+  readonly txStrategy?: never
+  /**
+   * @deprecated renamed to `reduceStrategy` (#873).
+   *
+   * The four keys above are the `#873` strategy-key renames, carried as
+   * unusable `never` slots rather than simply deleted (#993).
+   *
+   * An ABSENT key is answered by TypeScript's excess-property check with the
+   * nearest known key by edit distance, so `txStrategy` was reported as "Did
+   * you mean to write `crdtStrategy`?" — a suggestion that silently enables a
+   * CRDT strategy for a caller who trusts it. A DECLARED `never` key matches
+   * exactly, so the compiler surfaces the `@deprecated` line naming the real
+   * replacement instead of guessing.
+   *
+   * One release of carry; drop with the rest of the 0.4.0-pre compatibility
+   * surface.
+   */
+  readonly aggregateStrategy?: never
+  /**
    * Optional guard strategies — collection-level write guards. Each
    * handle is the output of `withGuard()` from `@noy-db/hub/guards`.
    * Multiple guards per collection are allowed; they are dispatched

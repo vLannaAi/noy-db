@@ -554,6 +554,10 @@ const NOT_SERVICE_SUBPATHS = new Set([
   // caller. An option, not an opt-in service, so there is no `withDebug()`.
   'debug',
 ])
+// Subpath prefixes that are published DATA, not code — no factory, no strategy,
+// nothing imports them at runtime. #994: `codemods/<line>.json` is the
+// machine-readable rename map consumers drive a migration off.
+const NOT_SERVICE_SUBPATH_PREFIXES = ['codemods/']
 const NO_SUBPATH_FACTORIES = new Set([
   // Complete seams that qualify for a subpath — no reason on record yet.
   'withArchive',   // held as `ArchiveStrategy | null`, no NO_* stub — decide the stub first
@@ -625,6 +629,7 @@ function checkServiceSubpathNaming() {
   )
   for (const sub of subpaths) {
     if (NOT_SERVICE_SUBPATHS.has(sub)) continue
+    if (NOT_SERVICE_SUBPATH_PREFIXES.some(p => sub.startsWith(p))) continue
     if (!produced.has(sub)) {
       fail(
         CHECK,

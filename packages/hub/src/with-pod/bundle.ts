@@ -298,6 +298,77 @@ export interface WritePodOptions {
 export type WriteNoydbBundleOptions = WritePodOptions
 
 /**
+ * Every key `writePod` reads, in declaration order (#991).
+ *
+ * A pod is a wire artifact, so an option this list doesn't name is refused
+ * rather than ignored: a dropped write option produces a structurally valid
+ * bundle that is missing something, and the defect surfaces later — in
+ * whoever imports it — with nothing left to trace it back to.
+ *
+ * `bundle-option-keys.test.ts` parses `WritePodOptions` out of this file and
+ * fails if the two ever drift, so adding an option is enough; you do not have
+ * to remember to update this list, only to keep the interface shape parseable.
+ *
+ * @internal
+ */
+export const WRITE_POD_OPTION_KEYS = [
+  'compression',
+  'collections',
+  'since',
+  'where',
+  'tierAtMost',
+  'exportSecret',
+  'recipients',
+  'autoCredentials',
+  'sealedCredentials',
+  'autoSecrets',
+  'sealedSecrets',
+  'sign',
+  'engineRange',
+  'unlockMethods',
+  'hasApp',
+  'species',
+  'pointerMode',
+  'redirect',
+] as const satisfies readonly (keyof WritePodOptions)[]
+
+/**
+ * Write options that were renamed away, mapped to what replaced them.
+ *
+ * These get a better message than a bare unknown key: `autoPassphrases` →
+ * `autoSecrets` (§3) → `autoCredentials` (#215) is two hops, and a caller
+ * arriving from `0.3.0` has no way to guess the far end.
+ */
+const RETIRED_WRITE_POD_OPTIONS: Readonly<Record<string, string>> = {
+  autoPassphrases: 'autoCredentials',
+  sealedPassphrases: 'sealedCredentials',
+  exportPassphrase: 'exportSecret',
+}
+
+/**
+ * Refuse any option key `writePod` does not read.
+ *
+ * Keys explicitly set to `undefined` pass — spreading a partially-built
+ * options object is a normal call shape and carries no intent.
+ */
+function assertKnownWritePodOptions(opts: WritePodOptions): void {
+  const known = new Set<string>(WRITE_POD_OPTION_KEYS)
+  for (const [key, value] of Object.entries(opts)) {
+    if (value === undefined || known.has(key)) continue
+    const replacement = RETIRED_WRITE_POD_OPTIONS[key]
+    throw new Error(
+      replacement !== undefined
+        ? `writePod: \`${key}\` was renamed to \`${replacement}\`. `
+          + 'Passing the old key would have written a pod without that '
+          + 'slot — see the 0.4.0-pre migration note.'
+        : `writePod: unknown option \`${key}\`. Options are not ignored — a `
+          + 'dropped write option produces a pod that is silently missing '
+          + `something. Known keys: ${WRITE_POD_OPTION_KEYS.join(', ')}.`,
+    )
+  }
+}
+
+/**
  * Result returned by `readPod`. The caller is expected to
  * pass `dumpJson` into `vault.load(json, secret)` to
  * actually restore a vault. Splitting the layers keeps the
@@ -1351,6 +1422,7 @@ export async function writePod(
   vault: Vault,
   opts: WritePodOptions = {},
 ): Promise<Uint8Array> {
+  assertKnownWritePodOptions(opts)
   if (opts.exportSecret !== undefined && opts.recipients !== undefined) {
     throw new Error(
       'writePod: pass either exportSecret or recipients, not both',

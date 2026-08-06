@@ -199,8 +199,18 @@ type BagOptionKeys = `${StrategyKey}Strategy`
 /**
  * Options that are `*Strategy`-shaped but deliberately not services. See the
  * file header for why `coordinationStrategy` is excluded.
+ *
+ * The four `#873` renames are `never`-typed tombstones (#993) — they exist so
+ * the excess-property check reports the real replacement instead of guessing a
+ * neighbour, and carry no bag row because nothing reads them. `resolveStrategies`
+ * above only walks `STRATEGY_KEYS`, so they are inert at runtime.
  */
-type NonServiceStrategyOptions = 'coordinationStrategy'
+type NonServiceStrategyOptions =
+  | 'coordinationStrategy'
+  | 'blobStrategy'
+  | 'indexStrategy'
+  | 'txStrategy'
+  | 'aggregateStrategy'
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 type _EveryOptionHasABagRow = AssertNever<
