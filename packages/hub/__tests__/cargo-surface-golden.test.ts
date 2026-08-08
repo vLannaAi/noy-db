@@ -32,7 +32,7 @@ import type {
   ExtractionPreview, FenceState, FuseOptions, GrantCustodianOptions, IndexDef, JoinStrategy,
   LiberateOptions, LiberateResult, LiveReduction, LiveQuery, Noydb, Operator,
   Query, RetrieveHit, RetrieveOptions, SealingKeyProvider, Unsubscribe, Vault,
-  VaultMeta, WriteConflict, WriteHook, WriteQueue, WriterPresence,
+  VaultMeta, WriteConflict, WriteEvent, WriteHook, WriteQueue, WriterPresence,
 } from '../src/with-cargo/index.js'
 
 interface Surface {
@@ -107,5 +107,5 @@ type _FrozenTypes = [
   LiveReduction<Record<string, unknown>>, LiveQuery<Record<string, unknown>>,
   Noydb, Operator, Query<Record<string, unknown>>, RetrieveHit<Record<string, unknown>>,
   RetrieveOptions, SealingKeyProvider, Unsubscribe, Vault, VaultMeta,
-  WriteConflict, WriteHook, WriteQueue, WriterPresence,
+  WriteConflict, WriteEvent, WriteHook, WriteQueue, WriterPresence,
 ]

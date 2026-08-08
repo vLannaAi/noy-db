@@ -84,6 +84,7 @@
     "VaultMeta",
     "WalkClosureOptions",
     "WriteConflict",
+    "WriteEvent",
     "WriteHook",
     "WriteQueue",
     "WriterPresence"
