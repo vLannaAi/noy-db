@@ -72,7 +72,7 @@ export type {
 export { TransferSealError, AdoptionStateError, PartitionExtractionError } from '../kernel/errors.js'
 
 // Change observation.
-export type { WriteHook } from '../port/with/write-hooks.js'
+export type { WriteHook, WriteEvent } from '../port/with/write-hooks.js'
 export type { WriteQueue } from '../kernel/write-queue.js'
 export type { WriteConflict } from '../kernel/types.js'
 export type { AccessibleVault } from '../kernel/types.js'
