@@ -1,5 +1,12 @@
 # Changelog — test-adapter-conformance
 
+## 0.6.0-pre.4
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.4
+
 ## 0.6.0-pre.3
 
 ### Patch Changes
