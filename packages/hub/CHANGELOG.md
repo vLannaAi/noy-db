@@ -1,5 +1,17 @@
 # Changelog — hub
 
+## 0.6.0-pre.4
+
+### Patch Changes
+
+- cargo: export `WriteEvent` by name alongside `WriteHook`
+
+  `@noy-db/hub/cargo` published `WriteHook` but not the `WriteEvent` it carries, so
+  a consumer writing a named function over the event had to derive the type
+  structurally (`Parameters<WriteHook>[0]`) or reach into a hub internal path. The
+  event type was already part of the effective public surface via `WriteHook`;
+  this makes it nameable. Additive — no behaviour change.
+
 ## 0.6.0-pre.3
 
 ### Minor Changes
