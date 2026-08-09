@@ -160,6 +160,29 @@ jobs:
           fi
           echo "✅ @noy-db/hub@$HUB_VERSION matches release tag v$VERSION"
 
+      # The dist-tag is routed entirely by the "Set as a pre-release" checkbox on
+      # the Release form, so a forgotten tick publishes a pre-release to @latest.
+      # That is not self-healing: it takes a manual `npm dist-tag` repair across
+      # every package in the scope. @klum-db/lobby@latest is rotten in exactly
+      # this way (stuck at 0.2.0-pre.26, peers demanding hub ^0.2.0-pre.24, so an
+      # untagged install cannot co-install with the current family). Refuse the
+      # mismatch rather than rely on the checkbox. Ported from noy-db-ui#22.
+      #
+      # Only this direction is blocked: a STABLE version published to @next is
+      # harmless and recoverable, so it stays allowed.
+      - name: Refuse a semver pre-release routed to @latest
+        if: github.event_name == 'release'
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+          if [ "${{ github.event.release.prerelease }}" != "true" ] && [ "${VERSION#*-}" != "$VERSION" ]; then
+            echo "::error::$VERSION is a semver pre-release, but this Release is not marked as a pre-release."
+            echo "::error::Publishing would route it to @latest and corrupt the tag for every @noy-db/* package."
+            echo "::error::Tick 'Set as a pre-release' on the Release and re-run."
+            exit 1
+          fi
+          echo "✅ routing check passed (version=$VERSION, prerelease=${{ github.event.release.prerelease }})"
+
   # ── Gate 1b: cross-OS interop (advisory) ─────────────────────────────
   # WinZip-AES-256 interop across ubuntu/macOS/windows (7z/unar/choco).
   # Moved here from dev CI: it's the slowest leg, so it runs only at
