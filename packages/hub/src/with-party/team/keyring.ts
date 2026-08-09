@@ -555,6 +555,26 @@ export async function grant(
     )
   }
 
+  // PRESENCE check — distinct from, and unskippable by, the strength check
+  // below. `GrantOptions.secret` is a required field, so only an untypechecked
+  // call site can omit it (a build script outside the typecheck project, a
+  // stale `passphrase` key surviving the 0.4.0-pre rename). Before #1004 that
+  // call derived a KEK from `undefined`, minted a real keyring slot, and
+  // surfaced as `InvalidKeyError` whenever the grantee first tried to unlock —
+  // arbitrarily far from the call that caused it. Fail at the grant instead.
+  // `allowWeakSecret` deliberately does NOT skip this: it waives the strength
+  // POLICY, not the existence of a secret.
+  const secret: unknown = options.secret
+  if (typeof secret !== 'string' || secret.trim() === '') {
+    throw new ValidationError(
+      `grant: \`secret\` is required and must be a non-empty string (got ${
+        secret === undefined ? 'undefined' : typeof secret === 'string' ? 'an empty string' : typeof secret
+      }). The grantee's key is derived from it, so a missing secret produces a ` +
+        'keyring slot nobody can unlock. Note the 0.4.0-pre rename: the option is ' +
+        '`secret`, not `passphrase`.',
+    )
+  }
+
   // Optional strength validation — opt-in via grant({ validateSecret: true })
   // or via the calling Noydb's NoydbOptions.validateSecret flag.
   // The override `allowWeakSecret: true` skips even when validate is on.
@@ -581,6 +601,32 @@ export async function grant(
   // one of these DEKs is a plaintext leak, not a metadata leak.
   const granteeMayHoldSecrets =
     options.role === 'owner' || options.role === 'admin'
+
+  // A grantee's DEKs can only ever be wrapped HERE, at grant time: wrapping
+  // needs the grantee's KEK, which is derived from a secret the vault never
+  // stores, so there is no later moment at which a newly-minted collection DEK
+  // could be back-filled into an existing keyring. #1004: granting
+  // `{ invoices: 'rw' }` before `invoices` existed therefore wrapped nothing
+  // and left a permanently blind slot. Mint the DEK now so the grant is
+  // honoured whichever order the caller works in.
+  //
+  // Only for collections that do not exist yet. If a collection HAS records
+  // and the grantor still lacks its DEK, minting would fabricate a key that
+  // decrypts nothing AND would hand the anti-privilege-escalation check below
+  // a DEK the grantor never legitimately held — turning a structural guarantee
+  // into a no-op. Leave those unwrapped and let the read path deny.
+  let mintedForGrant = false
+  for (const collName of Object.keys(permissions)) {
+    if (isSecretBearingReservedCollection(collName) && !granteeMayHoldSecrets) continue
+    if (callerKeyring.deks.has(collName)) continue
+    if (await collectionHasRecords(store, vault, collName)) continue
+    callerKeyring.deks.set(collName, await generateDEK())
+    mintedForGrant = true
+  }
+  // Only when we actually minted: the grantor's own keyring file has to record
+  // the new DEK, or their next write to that collection would mint a SECOND,
+  // different one and orphan the copy we are about to wrap for the grantee.
+  if (mintedForGrant) await persistKeyring(store, vault, callerKeyring)
 
   // Wrap the appropriate DEKs with the new user's KEK
   const wrappedDeks: Record<string, string> = {}
@@ -1441,6 +1487,23 @@ export async function listUsersWithEnvelopes<T = unknown>(
 // ─── DEK Management ────────────────────────────────────────────────────
 
 /** Ensure a DEK exists for a collection. Generates one if new. */
+/**
+ * Does this collection already hold persisted records?
+ *
+ * The one question that separates "I am creating this collection" from "I was
+ * never given the key to this collection" (#1004). Kept deliberately narrow:
+ * it asks the store, not the schema registry, because the store is the only
+ * authority on what ciphertext actually exists.
+ */
+async function collectionHasRecords(
+  store: NoydbStore,
+  vault: string,
+  collectionName: string,
+): Promise<boolean> {
+  const ids = await store.list(vault, collectionName)
+  return ids.length > 0
+}
+
 export async function ensureCollectionDEK(
   store: NoydbStore,
   vault: string,
@@ -1460,6 +1523,30 @@ export async function ensureCollectionDEK(
     if (pending) return pending
 
     const promise = (async () => {
+      // #1004 — minting on a DEK miss is only correct when the caller is
+      // ENTITLED to the collection (they are creating it, or they were granted
+      // it and it did not exist at grant time). For an unentitled caller the
+      // miss IS the denial, and minting fabricated a key that decrypts none of
+      // the stored envelopes — so the denial re-emerged from the enclave as an
+      // AES-GCM tag failure, i.e. `TamperedError`, the signal reserved for
+      // genuine ciphertext corruption. In a zero-knowledge design the DEK is
+      // the access control, so an unentitled miss is exactly `NoAccessError`.
+      //
+      // Entitlement is read straight off the keyring — no store round-trip, so
+      // the authorized mint path costs exactly what it did before.
+      //
+      // System collections (`_ledger`, `_meta`, `_history`, the fanout
+      // sidecars …) are exempt: their DEKs are propagated to every role at
+      // grant time and they are minted lazily by machinery running on behalf
+      // of a user who may hold no explicit permission for them. They are never
+      // addressable by user code, so nothing is being protected by denying
+      // here — only internal writes would break.
+      if (!collectionName.startsWith('_') && !hasAccess(keyring, collectionName)) {
+        throw new NoAccessError(
+          `No access — user does not have a key for collection "${collectionName}". ` +
+            'Grant them this collection in `permissions` to give them one.',
+        )
+      }
       const dek = await generateDEK()
       keyring.deks.set(collectionName, dek)
       await persistKeyring(store, vault, keyring)
@@ -1521,6 +1608,14 @@ export async function persistKeyring(
   // shape can open (the KEK stays echo-derived).
   const existingFound = await readKeyringFile(store, vault, keyring.userId)
   const existingEcho = existingFound?.file.echo
+  // Same carry-forward rationale as `echo`, for two fields that describe the
+  // keyring's ORIGIN rather than its current contents. `UnlockedKeyring` does
+  // not carry either, so rebuilding the file from it defaulted `granted_by` to
+  // the holder themselves and stamped a fresh `created_at` — meaning any
+  // DEK-provisioning write silently re-parented the holder to themselves and
+  // collapsed the admin delegation subtree that `granted_by` encodes.
+  const existingGrantedBy = existingFound?.file.granted_by
+  const existingCreatedAt = existingFound?.file.created_at
 
   const wrappedDeks: Record<string, string> = {}
   for (const [collName, dek] of keyring.deks) {
@@ -1536,8 +1631,8 @@ export async function persistKeyring(
     permissions: keyring.permissions,
     deks: wrappedDeks,
     salt: bufferToBase64(keyring.salt),
-    created_at: new Date().toISOString(),
-    granted_by: keyring.userId,
+    created_at: existingCreatedAt ?? new Date().toISOString(),
+    granted_by: existingGrantedBy ?? keyring.userId,
     canary,
     ...(keyring.exportCapability !== undefined && { export_capability: keyring.exportCapability }),
     ...(keyring.importCapability !== undefined && { import_capability: keyring.importCapability }),

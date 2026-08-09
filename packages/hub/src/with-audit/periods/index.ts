@@ -13,7 +13,9 @@
  * Vault can call them without TypeScript barrel gymnastics.
  */
 export { withPeriods } from './active.js'
+export type { WithPeriodsOptions } from './active.js'
 export type { PeriodsStrategy } from './strategy.js'
+export type { PeriodScope } from './vault-facade.js'
 
 export {
   PERIODS_COLLECTION,
@@ -21,6 +23,8 @@ export {
   PERIOD_ARCHIVES_COLLECTION,
   PERIOD_TARGET_PURGES_COLLECTION,
   periodExclusiveUpperBound,
+  resolvePeriodKey,
+  samePartition,
   loadPeriods,
   chainAnchor,
   assertTsWritable,
@@ -29,6 +33,8 @@ export {
   purgeMarkersOn,
 } from './periods.js'
 export type {
+  PeriodPartition,
+  PartitionResolver,
   PeriodRecord,
   PeriodFreezeRecord,
   PeriodArchiveRecord,

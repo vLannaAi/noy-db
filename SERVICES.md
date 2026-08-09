@@ -102,7 +102,7 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 
 | # | Subpath | Headline | LOC saved | Pairs with |
 |---|---|---|---:|---|
-| 10 | `@noy-db/hub/periods` | Accounting periods + closed-period write guard | 334 | `history` |
+| 10 | `@noy-db/hub/periods` | Accounting periods + closed-period write guard; optionally **partitioned** — `withPeriods({ subjects })` gives each `(subject, layer)` its own disjoint close calendar | 334 | `history` |
 | 11 | `@noy-db/hub/consent` | Consent audit log (GDPR/PIPL-friendly) | 194 | `history` |
 | 19 | `@noy-db/hub/guards` | Record lock + field-level freeze + role-gated amendment invariant with `op: 'amendment'` ledger entry | ~700 | `history` (amendment audit), `transactions` (amendment-mode rollback), `team` (role check) |
 

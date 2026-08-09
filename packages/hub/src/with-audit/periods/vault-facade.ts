@@ -22,6 +22,8 @@ import {
   PERIOD_ARCHIVES_COLLECTION,
   PERIOD_TARGET_PURGES_COLLECTION,
   periodExclusiveUpperBound,
+  resolvePeriodKey,
+  samePartition,
   type PeriodRecord,
   type PeriodFreezeRecord,
   type PeriodArchiveRecord,
@@ -29,7 +31,51 @@ import {
   type TargetPurgeCount,
   type ClosePeriodOptions,
   type OpenPeriodOptions,
+  type PeriodPartition,
 } from './periods.js'
+
+/** Selects one period timeline. Omit — or pass an empty tuple — for the vault-wide one (#1005). */
+export interface PeriodScope {
+  readonly partition?: PeriodPartition
+}
+
+/** The persisted side of a write, as the period write-guard sees it. */
+export interface PeriodGuardPrior {
+  readonly ts: string | null
+  readonly record: Record<string, unknown> | null
+}
+
+function hasPartition(partition?: PeriodPartition): boolean {
+  return partition !== undefined && partition.length > 0
+}
+
+function scopeSuffix(options?: PeriodScope): string {
+  return hasPartition(options?.partition) ? ` in partition [${options!.partition!.join(', ')}]` : ''
+}
+
+/**
+ * Guard the three PHYSICAL period operations against a partitioned period.
+ *
+ * Freeze, archive and target-purge all act on a write-time (`_ts`) window
+ * across the entire store: they purge delete markers, relocate envelopes to a
+ * cold tier, or sweep remote targets. None of that can be narrowed to one
+ * timeline, because deciding which partition a stored envelope belongs to
+ * requires READING it, and a storage tier only ever sees ciphertext — the same
+ * constraint that keeps the query DSL inside the hub.
+ *
+ * Refusing is the honest answer: silently applying a vault-wide purge on behalf
+ * of one subject's close would destroy other subjects' data. Partition-scoped
+ * physical operations need a design of their own.
+ */
+function assertVaultWide(op: string, period: PeriodRecord, why: string): void {
+  if (!hasPartition(period.partition)) return
+  throw new ValidationError(
+    `${op}: period "${period.name}" is partitioned ([${period.partition!.join(', ')}]), and ${op} ${why} — ` +
+      'it cannot be scoped to one timeline, because the store sees only ciphertext and cannot tell which ' +
+      'partition a stored record belongs to. Close partitioned periods for their sealing semantics; run ' +
+      `${op} against an unpartitioned period covering the same window.`,
+  )
+}
 
 /** Everything the moving period methods touched on the vault's `this.*`. */
 export interface VaultPeriodsDeps {
@@ -76,11 +122,11 @@ export class VaultPeriods {
 
   async closePeriod(options: ClosePeriodOptions): Promise<PeriodRecord> {
     const existing = await this.loadPeriodsCache()
-    this.deps.strategy.validatePeriodName(options.name, existing)
+    this.deps.strategy.validatePeriodName(options.name, existing, options.partition)
     if (typeof options.endDate !== 'string' || options.endDate.length === 0) {
       throw new ValidationError('closePeriod: endDate must be a non-empty ISO string.')
     }
-    const anchor = await this.deps.strategy.chainAnchor(existing)
+    const anchor = await this.deps.strategy.chainAnchor(existing, options.partition)
     const record: PeriodRecord = {
       name: options.name,
       kind: 'closed',
@@ -90,9 +136,11 @@ export class VaultPeriods {
       priorPeriodHash: anchor.priorPeriodHash,
       ...(anchor.priorPeriodName !== undefined && { priorPeriodName: anchor.priorPeriodName }),
       ...(options.dateField !== undefined && { dateField: options.dateField }),
+      ...(hasPartition(options.partition) && { partition: options.partition }),
     }
-    const envelope = await this.writeReserved(PERIODS_COLLECTION, record.name, record)
-    await this.deps.strategy.appendPeriodLedgerEntry(this.deps.getLedgerOrNull(), this.deps.userId(), envelope, record.name)
+    const storageKey = resolvePeriodKey(record.name, record.partition)
+    const envelope = await this.writeReserved(PERIODS_COLLECTION, storageKey, record)
+    await this.deps.strategy.appendPeriodLedgerEntry(this.deps.getLedgerOrNull(), this.deps.userId(), envelope, storageKey)
     existing.push(record)
     this.periodCache = existing
     return record
@@ -102,11 +150,20 @@ export class VaultPeriods {
     options: OpenPeriodOptions<TCollections>,
   ): Promise<PeriodRecord> {
     const existing = await this.loadPeriodsCache()
-    this.deps.strategy.validatePeriodName(options.name, existing)
-    const prior = existing.find((p) => p.name === options.fromPeriod)
+    this.deps.strategy.validatePeriodName(options.name, existing, options.partition)
+    // #1005 — `fromPeriod` is resolved WITHIN the target timeline. A chain
+    // cannot span partitions: each has its own `priorPeriodHash` lineage, so
+    // carrying forward from another subject's close would silently splice two
+    // independent audit trails together.
+    const prior = existing.find(
+      (p) => p.name === options.fromPeriod && samePartition(p.partition, options.partition),
+    )
     if (!prior) {
+      const where = hasPartition(options.partition)
+        ? ` in partition [${options.partition!.join(', ')}]`
+        : ''
       throw new ValidationError(
-        `openPeriod: fromPeriod "${options.fromPeriod}" does not exist in this vault.`,
+        `openPeriod: fromPeriod "${options.fromPeriod}" does not exist in this vault${where}.`,
       )
     }
     if (prior.kind !== 'closed') {
@@ -149,7 +206,7 @@ export class VaultPeriods {
       openingCollections.push(collName)
     }
 
-    const anchor = await this.deps.strategy.chainAnchor(existing)
+    const anchor = await this.deps.strategy.chainAnchor(existing, options.partition)
     const record: PeriodRecord = {
       name: options.name,
       kind: 'opened',
@@ -160,9 +217,11 @@ export class VaultPeriods {
       priorPeriodHash: anchor.priorPeriodHash,
       priorPeriodName: anchor.priorPeriodName ?? prior.name,
       ...(openingCollections.length > 0 && { openingCollections }),
+      ...(hasPartition(options.partition) && { partition: options.partition }),
     }
-    const envelope = await this.writeReserved(PERIODS_COLLECTION, record.name, record)
-    await this.deps.strategy.appendPeriodLedgerEntry(this.deps.getLedgerOrNull(), this.deps.userId(), envelope, record.name)
+    const storageKey = resolvePeriodKey(record.name, record.partition)
+    const envelope = await this.writeReserved(PERIODS_COLLECTION, storageKey, record)
+    await this.deps.strategy.appendPeriodLedgerEntry(this.deps.getLedgerOrNull(), this.deps.userId(), envelope, storageKey)
     existing.push(record)
     this.periodCache = existing
     return record
@@ -177,10 +236,11 @@ export class VaultPeriods {
    * read only. Idempotent: a second call is a no-op that returns the
    * same merged record without re-purging or re-appending a ledger entry.
    */
-  async freezePeriod(name: string): Promise<PeriodRecord> {
+  async freezePeriod(name: string, options?: PeriodScope): Promise<PeriodRecord> {
     const existing = await this.loadPeriodsCache()
-    const period = existing.find((p) => p.name === name)
-    if (!period) throw new ValidationError(`freezePeriod: no period named "${name}".`)
+    const period = this.findPeriod(existing, name, options)
+    if (!period) throw new ValidationError(`freezePeriod: no period named "${name}"${scopeSuffix(options)}.`)
+    assertVaultWide('freezePeriod', period, 'purges delete markers by write-time across the whole store')
     if (period.kind !== 'closed') {
       throw new ValidationError(
         `freezePeriod: period "${name}" is "${period.kind}"; only a closed period can be frozen.`,
@@ -226,10 +286,11 @@ export class VaultPeriods {
    * through to cold) and idempotent: a second call is a no-op returning the
    * same merged record.
    */
-  async archivePeriod(name: string): Promise<PeriodRecord> {
+  async archivePeriod(name: string, options?: PeriodScope): Promise<PeriodRecord> {
     const existing = await this.loadPeriodsCache()
-    const period = existing.find((p) => p.name === name)
-    if (!period) throw new ValidationError(`archivePeriod: no period named "${name}".`)
+    const period = this.findPeriod(existing, name, options)
+    if (!period) throw new ValidationError(`archivePeriod: no period named "${name}"${scopeSuffix(options)}.`)
+    assertVaultWide('archivePeriod', period, 'relocates records by write-time across the whole store')
     if (period.kind !== 'closed') {
       throw new ValidationError(
         `archivePeriod: period "${name}" is "${period.kind}"; only a closed period can be archived.`,
@@ -266,10 +327,11 @@ export class VaultPeriods {
    * Idempotent once run; with no push-only targets it writes no companion and
    * is re-runnable.
    */
-  async purgePeriodTargets(name: string): Promise<PeriodRecord> {
+  async purgePeriodTargets(name: string, options?: PeriodScope): Promise<PeriodRecord> {
     const existing = await this.loadPeriodsCache()
-    const period = existing.find((p) => p.name === name)
-    if (!period) throw new ValidationError(`purgePeriodTargets: no period named "${name}".`)
+    const period = this.findPeriod(existing, name, options)
+    if (!period) throw new ValidationError(`purgePeriodTargets: no period named "${name}"${scopeSuffix(options)}.`)
+    assertVaultWide('purgePeriodTargets', period, 'sweeps delete markers by write-time off whole sync targets')
     if (period.kind !== 'closed') {
       throw new ValidationError(
         `purgePeriodTargets: period "${name}" is "${period.kind}"; only a closed period can be target-purged.`,
@@ -335,8 +397,15 @@ export class VaultPeriods {
     }
   }
 
-  /** Return every closed / opened period in `closedAt` order, merged with any freeze + archive companions. */
-  async listPeriods(): Promise<readonly PeriodRecord[]> {
+  /**
+   * Return every closed / opened period in `closedAt` order, merged with any
+   * freeze + archive companions.
+   *
+   * With no argument this spans EVERY timeline — the pre-#1005 behaviour, and
+   * the right default for an audit sweep. Pass `{ partition }` to scope to one
+   * timeline; `{ partition: [] }` (or omitting it) means the vault-wide one.
+   */
+  async listPeriods(options?: PeriodScope): Promise<readonly PeriodRecord[]> {
     // #807: always re-read `_periods` from the adapter — a period-scoped pull
     // applies freshly synced period envelopes UNDERNEATH this cache, then
     // resolves its windows through this very method (the engine's
@@ -363,7 +432,10 @@ export class VaultPeriods {
       const tp = await this.readReserved<PeriodTargetPurgeRecord>(PERIOD_TARGET_PURGES_COLLECTION, id)
       if (tp) targetPurges.set(tp.period, tp)
     }
-    return all.map((p) => {
+    const scoped = options === undefined
+      ? all
+      : all.filter((p) => samePartition(p.partition, options.partition))
+    return scoped.map((p) => {
       const f = freezes.get(p.name)
       let merged = f ? this.mergeFreeze(p, f) : p
       const a = archives.get(p.name)
@@ -374,24 +446,43 @@ export class VaultPeriods {
     })
   }
 
-  /** Look up a single period by name, merged with its freeze + archive + target-purge companions if any. Returns `null` if not found. */
-  async getPeriod(name: string): Promise<PeriodRecord | null> {
+  /**
+   * Look up a single period by name within one timeline, merged with its
+   * freeze + archive + target-purge companions if any. Returns `null` if not
+   * found.
+   *
+   * Names are only unique per partition (#1005), so this resolves against the
+   * VAULT-WIDE timeline unless `{ partition }` says otherwise — matching how
+   * every pre-partition period is stored.
+   */
+  async getPeriod(name: string, options?: PeriodScope): Promise<PeriodRecord | null> {
     const all = await this.loadPeriodsCache()
-    const period = all.find((p) => p.name === name)
+    const period = this.findPeriod(all, name, options)
     if (!period) return null
-    const freeze = await this.readReserved<PeriodFreezeRecord>(PERIOD_FREEZES_COLLECTION, name)
-    const archive = await this.readReserved<PeriodArchiveRecord>(PERIOD_ARCHIVES_COLLECTION, name)
+    const key = resolvePeriodKey(name, options?.partition)
+    const freeze = await this.readReserved<PeriodFreezeRecord>(PERIOD_FREEZES_COLLECTION, key)
+    const archive = await this.readReserved<PeriodArchiveRecord>(PERIOD_ARCHIVES_COLLECTION, key)
     let merged = freeze ? this.mergeFreeze(period, freeze) : period
     if (archive) merged = this.mergeArchive(merged, archive)
-    const targetPurge = await this.readReserved<PeriodTargetPurgeRecord>(PERIOD_TARGET_PURGES_COLLECTION, name)
+    const targetPurge = await this.readReserved<PeriodTargetPurgeRecord>(PERIOD_TARGET_PURGES_COLLECTION, key)
     if (targetPurge) merged = this.mergeTargetPurge(merged, targetPurge)
     return merged
   }
 
-  /** Called by the gate bus before put/delete. */
+  /** Resolve one period within the timeline named by `options` (vault-wide when absent). */
+  private findPeriod(
+    all: readonly PeriodRecord[],
+    name: string,
+    options?: PeriodScope,
+  ): PeriodRecord | undefined {
+    return all.find((p) => p.name === name && samePartition(p.partition, options?.partition))
+  }
+
+  /** Called by the gate bus before put/delete. `collection` selects the subject mapping (#1005). */
   async assertTsWritable(
     existing: { ts: string | null; record: Record<string, unknown> | null } | null,
     incoming: Record<string, unknown> | null,
+    collection?: string,
   ): Promise<void> {
     // Fast path: nothing to check, and no periods ever touched this
     // vault — avoid a full adapter scan for every put.
@@ -404,7 +495,14 @@ export class VaultPeriods {
       )
     }
     if (this.periodCache.length === 0) return
-    this.deps.strategy.assertTsWritable(existing, incoming, this.periodCache)
+    this.deps.strategy.assertTsWritable(
+      existing,
+      incoming,
+      this.periodCache,
+      collection !== undefined
+        ? { collection, ...(this.deps.strategy.partitionOf !== undefined && { resolve: this.deps.strategy.partitionOf }) }
+        : undefined,
+    )
   }
 
   private async loadPeriodsCache(): Promise<PeriodRecord[]> {
