@@ -1,5 +1,14 @@
 # @noy-db/in-tanstack-query
 
+## 0.6.0-pre.5
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.5
+
 ## 0.6.0-pre.4
 
 ### Patch Changes
