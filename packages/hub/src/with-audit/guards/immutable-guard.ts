@@ -34,6 +34,20 @@ export interface ImmutableGuardConfig<T extends Record<string, unknown>> {
   /** The collection to make WORM. */
   collection: string
   /**
+   * Optional stable per-vault identifier, forwarded verbatim to the
+   * underlying {@link GuardSpec.name} — `immutableGuard` is a wrapper
+   * around `withGuard` and grants the same identity affordance (#1006).
+   *
+   * Omit and `vault.listBehaviors()` falls back to a POSITIONAL
+   * `${collection}#${occurrence}` key, which renumbers when another
+   * guard on the same collection is registered ahead of this one. Pass
+   * a name whenever something joins to the behavior manifest by key —
+   * a generated rulebook, a diff between two vault versions, an audit
+   * report — so the identifier tracks the rule rather than its
+   * registration order.
+   */
+  readonly name?: string
+  /**
    * A record becomes immutable once this predicate holds. Evaluated on
    * the *existing* (already-persisted) record, so the write that first
    * makes it true is still allowed; subsequent writes are blocked.
@@ -76,7 +90,7 @@ function recordId(record: Record<string, unknown> | null): string {
 export function immutableGuard<T extends Record<string, unknown>>(
   config: ImmutableGuardConfig<T>,
 ): GuardStrategy<T> {
-  const { collection, after, appendOnly, amendmentRoles, amendmentInvariant } = config
+  const { collection, name, after, appendOnly, amendmentRoles, amendmentInvariant } = config
   if (appendOnly && after !== undefined) {
     throw new ValidationError('immutableGuard: `after` and `appendOnly` are mutually exclusive')
   }
@@ -89,6 +103,10 @@ export function immutableGuard<T extends Record<string, unknown>>(
 
   const spec: GuardSpec<T> = {
     collection,
+    // Pass-through only — omitting the key entirely (rather than setting
+    // it to `undefined`) keeps the positional-fallback path in
+    // `buildGuardEntries` reachable for callers who don't name a guard.
+    ...(name !== undefined ? { name } : {}),
     // Block updates to an already-immutable record. Inserts (existing
     // null) and the transition write that first makes the record
     // immutable are allowed — `after` reads the prior state.

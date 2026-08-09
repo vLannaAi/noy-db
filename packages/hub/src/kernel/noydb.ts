@@ -449,7 +449,7 @@ export class Noydb {
       const existing = e.op === 'create'
         ? null
         : { ts: e.existingTs ?? null, record: (e.existing ?? null) as Record<string, unknown> | null }
-      await v._assertTsWritable(existing, e.incoming as Record<string, unknown>)
+      await v._assertTsWritable(existing, e.incoming as Record<string, unknown>, e.collection)
     })
     this.subsystemBus.registerGate('beforeDelete', async (e) => {
       if (e.internal) return
@@ -458,6 +458,7 @@ export class Noydb {
       await v._assertTsWritable(
         { ts: e.existingTs ?? null, record: (e.existing ?? null) as Record<string, unknown> | null },
         null,
+        e.collection,
       )
     })
   }

@@ -13,7 +13,7 @@
 
 import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'
 import type { LedgerStore } from '../../with-commit/history/ledger/store.js'
-import type { PeriodRecord } from './periods.js'
+import type { PeriodRecord, PeriodPartition, PartitionResolver } from './periods.js'
 
 /**
  * @internal
@@ -24,7 +24,7 @@ export interface PeriodsStrategy {
     vault: string,
     decrypt: (envelope: EncryptedEnvelope) => Promise<PeriodRecord>,
   ): Promise<PeriodRecord[]>
-  chainAnchor(records: readonly PeriodRecord[]): Promise<{
+  chainAnchor(records: readonly PeriodRecord[], partition?: PeriodPartition): Promise<{
     priorPeriodName?: string
     priorPeriodHash: string
   }>
@@ -32,8 +32,19 @@ export interface PeriodsStrategy {
     existing: { ts: string | null; record: Record<string, unknown> | null } | null,
     incoming: Record<string, unknown> | null,
     periods: readonly PeriodRecord[],
+    scope?: { collection: string; resolve?: PartitionResolver },
   ): void
-  validatePeriodName(name: string, existing: readonly PeriodRecord[]): void
+  validatePeriodName(
+    name: string,
+    existing: readonly PeriodRecord[],
+    partition?: PeriodPartition,
+  ): void
+  /**
+   * Record → timeline resolver built from `withPeriods({ subjects })` (#1005).
+   * `undefined` when the caller configured no subjects, which keeps every
+   * record on the vault-wide timeline.
+   */
+  readonly partitionOf?: PartitionResolver
   appendPeriodLedgerEntry(
     ledger: LedgerStore | null,
     actor: string,

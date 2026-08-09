@@ -211,6 +211,71 @@ export interface PeriodTargetPurgeRecord {
 }
 
 /**
+ * Scope tuple for a period timeline (#1005).
+ *
+ * Identical in shape and semantics to `SequenceOptions.partition`: a
+ * partitioned timeline is always disjoint from any unpartitioned one, and from
+ * every other tuple. `['acme', 'vat']` and `['acme', 'wht']` are two
+ * independent close calendars for the same subject — which is the whole point,
+ * since sub-ledgers for one legal entity and one month routinely close on
+ * different statutory deadlines.
+ */
+export type PeriodPartition = readonly (string | number)[]
+
+/**
+ * Resolve the `_periods` storage key for a (name, partition) pair.
+ *
+ * Deliberately the same encoding as `resolveSequenceKey`: `name` verbatim when
+ * unpartitioned, else `${name}\x00${parts}` with each component
+ * `encodeURIComponent`d and `'/'`-joined. The null-byte separator cannot occur
+ * in a period name, so a partitioned key never collides with an unpartitioned
+ * one; URI-encoding keeps `['a/b']` distinct from `['a','b']`.
+ *
+ * @throws {ValidationError} on an empty component or a non-finite number.
+ * @internal
+ */
+export function resolvePeriodKey(name: string, partition?: PeriodPartition): string {
+  if (!partition || partition.length === 0) return name
+  const parts = partition.map((p) => {
+    if (typeof p === 'number' && !Number.isFinite(p)) {
+      throw new ValidationError(`period partition component must be a finite number, got ${p}`)
+    }
+    const s = String(p)
+    if (s === '') {
+      throw new ValidationError('period partition component must not be empty')
+    }
+    return encodeURIComponent(s)
+  })
+  return `${name}\x00${parts.join('/')}`
+}
+
+/**
+ * Do two partitions denote the same timeline? Absent and empty both mean "the
+ * unpartitioned timeline", so they compare equal.
+ *
+ * @internal
+ */
+export function samePartition(a?: PeriodPartition, b?: PeriodPartition): boolean {
+  const x = a ?? []
+  const y = b ?? []
+  if (x.length !== y.length) return false
+  return x.every((v, i) => String(v) === String(y[i]))
+}
+
+/**
+ * Resolves a record to the timeline that governs it. Supplied by
+ * `withPeriods({ subjects })`; returns `undefined` for any collection with no
+ * mapping, which is what keeps an unconfigured vault on the single vault-wide
+ * timeline it has always had.
+ *
+ * @internal
+ */
+export type PartitionResolver = (
+  collection: string,
+  record: Record<string, unknown>,
+) => PeriodPartition | undefined
+
+/**
  * Stored record for one closed or opened accounting period. One entry
  * per period, keyed by `name` in the reserved `_periods` collection.
  *
@@ -220,8 +285,19 @@ export interface PeriodTargetPurgeRecord {
  * into the next one, the same way the ledger's `prevHash` works.
  */
 export interface PeriodRecord {
-  /** Human-readable name (e.g., `'FY2026-Q1'`). Unique per vault. */
+  /**
+   * Human-readable name (e.g., `'FY2026-Q1'`). Unique per PARTITION — two
+   * timelines may each carry a `'2026-06'`, which is the normal case when one
+   * vault serves several subjects (#1005). Unique per vault when unpartitioned.
+   */
   readonly name: string
+  /**
+   * The timeline this period belongs to. Absent = the vault-wide timeline.
+   * Two periods with the same `name` and different `partition` are unrelated:
+   * separate hash chains, separate close state, and the write guard applies
+   * each only to records that resolve to its own tuple.
+   */
+  readonly partition?: PeriodPartition
   /**
    * Role discriminator. A period is `'closed'` from the moment its
    * `closedAt` is recorded; `'opened'` marks a period whose opening
@@ -305,12 +381,33 @@ export interface ClosePeriodOptions {
    * an explicit `dateField`.
    */
   readonly dateField?: string
+  /**
+   * Close only this timeline (#1005). Omit for the vault-wide timeline.
+   *
+   * ```ts
+   * vault.closePeriod({
+   *   name: '2026-06', endDate: '2026-06-30', dateField: 'issuedAt',
+   *   partition: [clientId, 'vat'],
+   * })
+   * ```
+   *
+   * Which records the resulting seal applies to is decided by the
+   * `subjects` map passed to `withPeriods()` — without one, no record ever
+   * resolves to a partition and a partitioned close seals nothing.
+   */
+  readonly partition?: PeriodPartition
 }
 
 /** Options for `vault.openPeriod()`. */
 export interface OpenPeriodOptions<TCollections = Record<string, Record<string, unknown>>> {
   /** Human-readable name for the new period. Must be unique. */
   readonly name: string
+  /**
+   * The timeline to open in. Must match the partition of `fromPeriod` — a
+   * period cannot chain across timelines, since each carries its own hash
+   * chain (#1005).
+   */
+  readonly partition?: PeriodPartition
   /** ISO lower bound of the new period (usually prior `endDate + 1 day`). */
   readonly startDate: string
   /**
@@ -402,8 +499,14 @@ export async function loadPeriods(
  */
 export async function chainAnchor(
   records: readonly PeriodRecord[],
+  partition?: PeriodPartition,
 ): Promise<{ priorPeriodName?: string; priorPeriodHash: string }> {
-  const last = records[records.length - 1]
+  // #1005 — each timeline carries its OWN chain. Anchoring a partitioned close
+  // to whatever happened to be written last vault-wide would interleave
+  // unrelated subjects into one chain, so verifying client A's June would
+  // depend on client B never having closed in between.
+  const inTimeline = records.filter((p) => samePartition(p.partition, partition))
+  const last = inTimeline[inTimeline.length - 1]
   if (!last) return { priorPeriodHash: '' }
   const hash = await sha256Hex(canonicalJson(last as unknown as Record<string, unknown>))
   return { priorPeriodName: last.name, priorPeriodHash: hash }
@@ -431,22 +534,46 @@ export function assertTsWritable(
   existing: { ts: string | null; record: Record<string, unknown> | null } | null,
   incomingRecord: Record<string, unknown> | null,
   closedPeriods: readonly PeriodRecord[],
+  scope?: { collection: string; resolve?: PartitionResolver },
 ): void {
+  // #1005 — a period only governs records that resolve to ITS timeline. With no
+  // resolver (the default `withPeriods()`), nothing resolves to a partition, so
+  // every record sits on the vault-wide timeline exactly as before and a
+  // partitioned period governs nothing.
+  const partitionOf = (r: Record<string, unknown> | null): PeriodPartition | undefined => {
+    if (!r || !scope?.resolve) return undefined
+    return scope.resolve(scope.collection, r)
+  }
+  const existingRecord = existing?.record ?? null
+  const existingPartition = partitionOf(existingRecord)
+  const incomingPartition = partitionOf(incomingRecord)
+
   for (const p of closedPeriods) {
     if (p.kind !== 'closed') continue
     if (p.dateField) {
-      const checkRecord = (label: string, r: Record<string, unknown> | null): void => {
+      const checkRecord = (
+        label: string,
+        r: Record<string, unknown> | null,
+        recordPartition: PeriodPartition | undefined,
+      ): void => {
         if (!r) return
+        // Both sides are checked under their OWN partition, which is what stops
+        // a write from sliding a record either INTO or OUT OF a sealed
+        // timeline by rewriting the fields the subject mapping reads.
+        if (!samePartition(recordPartition, p.partition)) return
         const v = r[p.dateField!]
         if (typeof v === 'string' && v <= p.endDate) {
           throw new PeriodClosedError(p.name, p.endDate, `${label}[${p.dateField}]=${v}`)
         }
       }
-      checkRecord('existing', existing?.record ?? null)
-      checkRecord('incoming', incomingRecord)
+      checkRecord('existing', existingRecord, existingPartition)
+      checkRecord('incoming', incomingRecord, incomingPartition)
       continue
     }
-    // Fallback: write-time seal via envelope _ts.
+    // Fallback: write-time seal via envelope _ts. Scoped by the EXISTING
+    // record's partition — `_ts` belongs to the stored envelope, so the
+    // incoming side has no write-time of its own to compare.
+    if (!samePartition(existingPartition, p.partition)) continue
     const existingTs = existing?.ts ?? null
     if (existingTs !== null && existingTs <= p.endDate) {
       throw new PeriodClosedError(p.name, p.endDate, existingTs)
@@ -464,12 +591,21 @@ export function assertTsWritable(
 export function validatePeriodName(
   name: string,
   existing: readonly PeriodRecord[],
+  partition?: PeriodPartition,
 ): void {
   if (name.length === 0) {
     throw new ValidationError('Period name cannot be empty.')
   }
-  if (existing.some((p) => p.name === name)) {
-    throw new ValidationError(`Period "${name}" already exists.`)
+  // Validates the components as a side effect — an empty or non-finite
+  // component must be rejected at the call, not encoded into a storage key.
+  resolvePeriodKey(name, partition)
+  // #1005 — uniqueness is per TIMELINE. `'2026-06'` in `['A','vat']` does not
+  // collide with `'2026-06'` in `['B','vat']`.
+  if (existing.some((p) => p.name === name && samePartition(p.partition, partition))) {
+    const where = partition && partition.length > 0
+      ? ` in partition [${partition.join(', ')}]`
+      : ''
+    throw new ValidationError(`Period "${name}" already exists${where}.`)
   }
 }
 

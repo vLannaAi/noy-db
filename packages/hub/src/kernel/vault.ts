@@ -72,7 +72,7 @@ import {
 import { ForgetStrategyNotConfiguredError } from './errors.js'
 import type { VaultFrame } from '../with-fork/shadow/vault-frame.js'
 import type { ConsentContext, ConsentAuditEntry, ConsentAuditFilter, ConsentOp } from '../with-audit/consent/consent.js'
-import { VaultPeriods } from '../with-audit/periods/vault-facade.js'
+import { VaultPeriods, type PeriodScope, type PeriodGuardPrior } from '../with-audit/periods/vault-facade.js'
 import { VaultLinks } from '../with-shape/links/vault-facade.js'
 import {
   RefRegistry,
@@ -3110,14 +3110,14 @@ export class Vault {
     return this.periods.openPeriod(options)
   }
 
-  /** Return every closed / opened period in `closedAt` order. */
-  async listPeriods(): Promise<readonly PeriodRecord[]> {
-    return this.periods.listPeriods()
+  /** Every closed / opened period in `closedAt` order; ALL timelines unless `{ partition }` scopes it (#1005). */
+  async listPeriods(options?: PeriodScope): Promise<readonly PeriodRecord[]> {
+    return this.periods.listPeriods(options)
   }
 
-  /** Look up a single period by name. Returns `null` if not found. */
-  async getPeriod(name: string): Promise<PeriodRecord | null> {
-    return this.periods.getPeriod(name)
+  /** One period by name within a timeline (vault-wide unless `{ partition }`). `null` if not found. */
+  async getPeriod(name: string, options?: PeriodScope): Promise<PeriodRecord | null> {
+    return this.periods.getPeriod(name, options)
   }
 
   /**
@@ -3128,8 +3128,8 @@ export class Vault {
    * and purging re-opens the #589 resurrection window for a peer offline
    * since before the cutoff (see periods.ts's "Freeze" section).
    */
-  async freezePeriod(name: string): Promise<PeriodRecord> {
-    return this.periods.freezePeriod(name)
+  async freezePeriod(name: string, options?: PeriodScope): Promise<PeriodRecord> {
+    return this.periods.freezePeriod(name, options)
   }
 
   /**
@@ -3139,8 +3139,8 @@ export class Vault {
    * the chained `_periods` record. Non-destructive (reads fall through to
    * cold) and idempotent. Requires a routeStore with a cold route.
    */
-  async archivePeriod(name: string): Promise<PeriodRecord> {
-    return this.periods.archivePeriod(name)
+  async archivePeriod(name: string, options?: PeriodScope): Promise<PeriodRecord> {
+    return this.periods.archivePeriod(name, options)
   }
 
   /**
@@ -3151,16 +3151,13 @@ export class Vault {
    * frozen first. Idempotent; a vault with no push-only targets writes no
    * companion and is re-runnable.
    */
-  async purgePeriodTargets(name: string): Promise<PeriodRecord> {
-    return this.periods.purgePeriodTargets(name)
+  async purgePeriodTargets(name: string, options?: PeriodScope): Promise<PeriodRecord> {
+    return this.periods.purgePeriodTargets(name, options)
   }
 
   /** @internal — called by the gate bus before put/delete. */
-  async _assertTsWritable(
-    existing: { ts: string | null; record: Record<string, unknown> | null } | null,
-    incoming: Record<string, unknown> | null,
-  ): Promise<void> {
-    return this.periods.assertTsWritable(existing, incoming)
+  async _assertTsWritable(existing: PeriodGuardPrior | null, incoming: Record<string, unknown> | null, collection?: string): Promise<void> {
+    return this.periods.assertTsWritable(existing, incoming, collection)
   }
 
   /** List all collection names in this vault. */

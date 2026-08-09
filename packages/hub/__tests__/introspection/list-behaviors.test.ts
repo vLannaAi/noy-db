@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 import { ConflictError } from '../../src/kernel/errors.js'
-import { createNoydb, withGuard, withDerivation, withMaterializedView, withOverlayedView } from '../../src/index.js'
+import { createNoydb, withGuard, withDerivation, withMaterializedView, withOverlayedView, immutableGuard } from '../../src/index.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -195,5 +195,60 @@ describe('vault.listBehaviors() (#947 Task 3)', () => {
     expect(names).toHaveLength(3)
     expect(new Set(names).size).toBe(3)
     expect(names).toContain('invoices#1')
+  })
+
+  it('forwards an immutableGuard `name` into the manifest instead of the positional fallback (#1006)', async () => {
+    const namedImmutable = immutableGuard<Invoice>({
+      name: 'invoice-append-only',
+      collection: 'invoices',
+      appendOnly: true,
+    })
+
+    const db = await createNoydb({
+      store: inlineMemory(),
+      user: 'alice',
+      secret: 'pw',
+      guardStrategies: [namedImmutable],
+    })
+    const vault = await db.openVault('acme')
+
+    const names = vault.listBehaviors().guards.map((g) => g.name)
+    expect(names).toEqual(['invoice-append-only'])
+  })
+
+  it('keeps the positional fallback for an immutableGuard that omits `name` (#1006)', async () => {
+    const unnamedImmutable = immutableGuard<Invoice>({ collection: 'invoices', appendOnly: true })
+
+    const db = await createNoydb({
+      store: inlineMemory(),
+      user: 'alice',
+      secret: 'pw',
+      guardStrategies: [unnamedImmutable],
+    })
+    const vault = await db.openVault('acme')
+
+    expect(vault.listBehaviors().guards.map((g) => g.name)).toEqual(['invoices#1'])
+  })
+
+  it('an immutableGuard name is stable when an unrelated guard is registered ahead of it (#1006)', async () => {
+    const namedImmutable = immutableGuard<Invoice>({
+      name: 'invoice-append-only',
+      collection: 'invoices',
+      appendOnly: true,
+    })
+    const interloper = withGuard<Invoice>({ collection: 'invoices', check: () => {} })
+
+    const db = await createNoydb({
+      store: inlineMemory(),
+      user: 'alice',
+      secret: 'pw',
+      guardStrategies: [interloper, namedImmutable],
+    })
+    const vault = await db.openVault('acme')
+
+    // Registration order changed; the immutable guard's identity must not.
+    const entry = vault.listBehaviors().guards.find((g) => g.name === 'invoice-append-only')
+    expect(entry).toBeDefined()
+    expect(entry?.collection).toBe('invoices')
   })
 })
