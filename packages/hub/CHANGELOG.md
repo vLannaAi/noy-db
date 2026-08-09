@@ -1,5 +1,119 @@
 # Changelog — hub
 
+## 0.6.0-pre.5
+
+### Minor Changes
+
+- feat(periods): partitioned accounting periods — one close calendar per subject and layer (#1005)
+
+  A vault had exactly one period timeline, so the close unit could not be finer
+  than the whole vault. Real statutory close is not vault-global: separate legal
+  entities file independently, and separate sub-ledgers for the SAME entity and
+  month close on different statutory calendars — withholding tax weeks before VAT,
+  billing later still. A single `endDate` per period cannot represent "WHT sealed,
+  VAT open" for one subject-month.
+
+  `partition` gives each tuple its own disjoint timeline, reusing the semantics
+  `sequence('invoice', { partition: [2026, 'EU'] })` already established — a
+  partitioned key is always disjoint from any unpartitioned one:
+
+  ```ts
+  const db = await createNoydb({
+    periodsStrategy: withPeriods({
+      subjects: { receipts: (r) => [r.clientId, r.layer] },
+    }),
+  });
+
+  await vault.closePeriod({
+    name: "2026-06",
+    endDate: "2026-06-30",
+    dateField: "issuedAt",
+    partition: [clientId, "vat"],
+  });
+  await vault.listPeriods({ partition: [clientId, "vat"] });
+  ```
+
+  - `ClosePeriodOptions.partition`, `OpenPeriodOptions.partition`, and
+    `PeriodRecord.partition` are all new and optional.
+  - `withPeriods({ subjects })` resolves a record to its timeline — the same shape
+    `withForget({ subjects })` uses to answer the same question. Omit it and every
+    record stays on the vault-wide timeline, exactly as before.
+  - Period names are unique **per partition**; the write guard applies a period
+    only to records resolving to its tuple, checking both the existing and the
+    incoming side so a write cannot slide a record into or out of a sealed
+    timeline by rewriting the fields the mapping reads.
+  - Each timeline carries its own `priorPeriodHash` chain, and `openPeriod`
+    resolves `fromPeriod` within the target partition.
+  - `listPeriods()` still spans every timeline; `listPeriods({ partition })`
+    scopes. `getPeriod(name)` resolves the vault-wide timeline unless
+    `{ partition }` says otherwise.
+
+  `freezePeriod`, `archivePeriod` and `purgePeriodTargets` **refuse a partitioned
+  period** with a `ValidationError`. All three act on a write-time window across
+  the entire store, and narrowing that to one timeline would require reading a
+  stored envelope to learn its partition — which a storage tier, seeing only
+  ciphertext, cannot do. Refusing is safer than silently applying a vault-wide
+  purge on behalf of one subject's close.
+
+  Fully backwards compatible: `withPeriods()` with no options behaves exactly as
+  before.
+
+### Patch Changes
+
+- fix(team): `grant()` no longer produces a keyring slot that cannot read anything (#1004)
+
+  A user added with `db.grant()` at a permission-scoped role (`operator`, `client`)
+  authenticated successfully and then failed every collection read with
+  `TamperedError: Data integrity check failed`. Three distinct defects sat behind
+  the one symptom:
+
+  - **A DEK miss on a collection the caller is not entitled to now raises
+    `NoAccessError` instead of minting a fresh DEK.** Minting fabricated a key
+    that decrypts none of the stored envelopes, so an ordinary authorization gap
+    re-emerged from the enclave as an AES-GCM tag failure — the signal reserved
+    for genuine ciphertext corruption. Entitlement is read off the keyring, so the
+    authorized path costs exactly what it did before. System (`_`-prefixed)
+    collections are exempt: their DEKs are propagated to every role at grant time
+    and are minted lazily by internal machinery.
+  - **`grant({ permissions })` issued BEFORE the named collection exists now
+    works.** A grantee's DEKs can only ever be wrapped at grant time — wrapping
+    needs the grantee's KEK, derived from a secret the vault never stores — so
+    there is no later moment at which a newly minted DEK could be back-filled.
+    `grant()` now mints the DEK for a granted-but-not-yet-created collection up
+    front. Collections that already hold records are deliberately NOT minted, so
+    the anti-privilege-escalation check keeps its meaning.
+  - **`grant()` rejects a missing or blank `secret`** with `ValidationError`
+    rather than deriving a KEK from a non-secret and returning a slot whose damage
+    only surfaces when someone else tries to unlock. `allowWeakSecret` waives the
+    strength policy, not the existence of a secret.
+
+  Also repairs a latent bug this uncovered: `persistKeyring` rebuilds the keyring
+  file from the in-memory `UnlockedKeyring` and hardcoded `granted_by` to the
+  holder themselves, so any DEK-provisioning write silently re-parented the holder
+  and collapsed the admin delegation subtree. `granted_by` and `created_at` are
+  now carried forward from the persisted file, the same way `echo` already was.
+
+- feat(guards): `immutableGuard({ name })` — name a WORM guard so the behavior manifest can address it (#1006)
+
+  `GuardSpec.name` is the stable identifier `vault.listBehaviors()` reports, but
+  `ImmutableGuardConfig` had no such field, so every guard declared via
+  `immutableGuard()` fell back to a POSITIONAL `${collection}#${occurrence}` key.
+  That key is a function of registration order: adding an unrelated guard on the
+  same collection ahead of it renumbers the entry, silently re-pointing anything
+  that joins to the manifest by name — a generated rulebook, a diff between two
+  vault versions, an audit report.
+
+  `name` is now accepted and forwarded verbatim to the underlying `GuardSpec`.
+  Pure pass-through; omitting it keeps the existing positional fallback.
+
+  ```ts
+  immutableGuard({
+    name: "receipt-append-only",
+    collection: "receipts",
+    appendOnly: true,
+  });
+  ```
+
 ## 0.6.0-pre.4
 
 ### Patch Changes
