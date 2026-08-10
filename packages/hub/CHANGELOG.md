@@ -1,5 +1,56 @@
 # Changelog — hub
 
+## 0.6.0-pre.6
+
+### Patch Changes
+
+- fix(team): honour `permissions: { '*': ... }`, and deny honestly when a grant predates a collection (#1010)
+
+  **The wildcard now works.** `Permissions` has always documented `'*'` as "the
+  wildcard collection matching all collections in the vault", but nothing expanded
+  it — not the DEK wrapping in `grant()`, not `hasAccess`, not
+  `hasWritePermission`. The only `'*'` handling in the codebase was for
+  export-capability _formats_, which is unrelated. A grantee handed the documented
+  catch-all therefore received no keys at all and was denied at read time. All
+  three sites now agree:
+
+  ```ts
+  await db.grant(vault, {
+    userId: "belle",
+    role: "operator",
+    secret,
+    permissions: { "*": "rw" },
+  });
+  ```
+
+  **A collection created after a grant now denies honestly.** This is the half of
+  #1004 that fix missed. Being _entitled_ to a collection is not the same as
+  holding its key: a grant only ever wraps the DEKs that exist at grant time, and
+  re-wrapping later is impossible because it needs the grantee's KEK, derived from
+  a secret the vault never stores. A principal granted before a collection existed
+  is entitled to it and has no key for it — and the code minted one anyway,
+  producing a key that decrypts nothing and resurfacing as `TamperedError`.
+
+  That was reachable for **every whole-vault role** (`admin`, `viewer`,
+  `custodian`) and for a `'*'` grantee, and it predates 0.6.0-pre.5 — verified
+  against `0.6.0-pre.4`. It is now a `NoAccessError` that names the cause and the
+  remedy:
+
+  ```
+  No access — user "belle" is entitled to collection "invoices" but holds no key
+  for it, because the collection was created AFTER their grant. A collection DEK
+  can only be wrapped at grant time … re-grant the user to give them the key.
+  ```
+
+  Naming a collection in `permissions` **does** cover a late-created collection —
+  the DEK is minted at grant time into both keyrings (#1004). A wildcard or a
+  role-based grant cannot, because neither can enumerate collections that do not
+  exist yet. Re-granting restores access in every case.
+
+  Costs one `list()`, and only on the path where an entitled principal's keyring
+  is missing a DEK. Creating a genuinely new collection finds no records and mints
+  exactly as before.
+
 ## 0.6.0-pre.5
 
 ### Minor Changes
