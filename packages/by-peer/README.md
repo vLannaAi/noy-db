@@ -31,9 +31,22 @@ const channel = await initiator.channel
 
 const db = await createNoydb({
   store: to(),
+  syncStrategy: withSync(),                 // required — sync is opt-in
   sync: { store: peerStore({ channel }), role: 'sync-peer' },
 })
+
+const vault = await db.openVault('my-vault')
+await db.pull('my-vault')                   // the vault name is required
 ```
+
+`withSync` comes from `@noy-db/hub/sync`. Two things the snippet used to omit and
+that both fail confusingly without:
+
+- **`syncStrategy: withSync()`** — sync is an opt-in service, so `sync:` alone
+  wires the target but builds no engine.
+- **the vault name** on `pull` / `push` / `sync`. An engine is built per vault as
+  it is opened, so `db.pull()` with no argument looks up an engine for
+  `undefined` and finds none.
 
 Peer B mirrors the handshake with `acceptOffer` and runs `servePeerStore({ channel, store })` so its local store answers the incoming RPC calls.
 

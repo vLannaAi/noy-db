@@ -1463,7 +1463,23 @@ export class Noydb {
   private getSyncEngine(vault: string): SyncEngine {
     const engine = this.syncEngines.get(vault)
     if (!engine) {
-      throw new ValidationError('No sync adapter configured. Pass a `sync` adapter to createNoydb().')
+      // #1026 — two very different causes used to share one message, and the
+      // one it named was usually the wrong one. `pull(vault)` takes a REQUIRED
+      // vault name; calling `pull()` sent `undefined` here and got told to pass
+      // a `sync` adapter it had already passed. Say which case this is.
+      if (this.syncEngines.size === 0) {
+        throw new ValidationError(
+          'No sync adapter configured. Pass a `sync` adapter to createNoydb() — ' +
+            'a NoydbStore, a SyncTarget (`{ store, role }`), or an array of them — ' +
+            'and `syncStrategy: withSync()` to enable the engine.',
+        )
+      }
+      throw new ValidationError(
+        `No sync engine for vault "${String(vault)}". Sync is configured, but for ` +
+          `[${[...this.syncEngines.keys()].map((k) => `"${k}"`).join(', ')}] — ` +
+          'an engine is built per vault when it is opened, so open this vault first. ' +
+          'Note the vault name is a REQUIRED argument: `db.pull(vaultName)`, not `db.pull()`.',
+      )
     }
     return engine
   }

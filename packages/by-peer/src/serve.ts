@@ -130,9 +130,16 @@ function startServing(opts: ServePeerStoreOptions): () => void {
           string,
           string,
           EncryptedEnvelope,
-          number | undefined,
+          number | null | undefined,
         ]
-        await store.put(vault, collection, id, envelope, expectedVersion)
+        // #1026 — `null` is not a legal `expectedVersion` (the contract types it
+        // `number | undefined`), so anything that arrives as `null` came from a
+        // JSON round-trip of `undefined` and means "do not compare-and-set".
+        // Normalising here as well as on the client keeps a peer running an
+        // older by-peer from silently failing every overwrite: a store's guard
+        // is `!== undefined`, which `null` would pass, turning "no check" into
+        // an assertion no existing record can satisfy.
+        await store.put(vault, collection, id, envelope, expectedVersion ?? undefined)
         return null
       }
       case 'delete': {

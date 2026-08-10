@@ -18,6 +18,18 @@ import { LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION } from '../with-commit/hist
 import { SCHEMAS_COLLECTION } from '../with-shape/persisted-schemas/storage.js'
 import { SEQUENCE_COLLECTION } from '../with-commit/sequence/index.js'
 import { MANIFEST_COLLECTION } from '../with-shape/manifest/reserved-collections.js'
+// #1025 — imported from the dependency-light `window.ts`, not `periods.ts`: that
+// module exists precisely so a consumer can name the period collections without
+// dragging the ledger hash-chain machinery (`sha256Hex`/`canonicalJson`) into a
+// bundle that opted out of the periods service. Same reason the sync engine's
+// period-scoped pull imports it.
+import {
+  PERIODS_COLLECTION,
+  PERIOD_FREEZES_COLLECTION,
+  PERIOD_ARCHIVES_COLLECTION,
+  PERIOD_TARGET_PURGES_COLLECTION,
+  PERIOD_REOPENS_COLLECTION,
+} from '../with-audit/periods/window.js'
 import type {
   NoydbStore,
   EncryptedEnvelope,
@@ -109,6 +121,18 @@ export async function dumpVault(ctx: BackupContext): Promise<string> {
   const internalNames = [
     LEDGER_COLLECTION, LEDGER_DELTAS_COLLECTION, SCHEMAS_COLLECTION, SEQUENCE_COLLECTION,
     MANIFEST_COLLECTION, // #941: the pod's manifest-set record(s) travel in the bundle too
+    // #1025: the accounting-period close state + its companions. The bundle is
+    // the backup/restore path, so without these a restore discarded the
+    // hash-chained evidence that a month was ever closed — the artifact
+    // `closePeriod` exists to produce — and dropped the write gate with it, so
+    // the restored vault silently accepted back-dated writes into a sealed
+    // month. The companions matter as much as the close: a bounded reopen
+    // window (`reopenPeriod({ until })`) is state a restore must not lose.
+    PERIODS_COLLECTION,
+    PERIOD_REOPENS_COLLECTION,
+    PERIOD_FREEZES_COLLECTION,
+    PERIOD_ARCHIVES_COLLECTION,
+    PERIOD_TARGET_PURGES_COLLECTION,
     '_history', // full-snapshot version history — so history()/getVersion()/diff() survive the bundle
     '_blob_index', '_blob_chunks', '_blob_eviction_audit',
     // #753 spec §7 Q3: `_blob_intent` markers travel too — restoring mid-op
