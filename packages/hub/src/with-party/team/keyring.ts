@@ -617,6 +617,9 @@ export async function grant(
   // into a no-op. Leave those unwrapped and let the read path deny.
   let mintedForGrant = false
   for (const collName of Object.keys(permissions)) {
+    // `'*'` is a marker, not a collection — minting a DEK for it would create a
+    // literal `*` collection and cover nothing (#1010).
+    if (collName === PERMISSION_WILDCARD) continue
     if (isSecretBearingReservedCollection(collName) && !granteeMayHoldSecrets) continue
     if (callerKeyring.deks.has(collName)) continue
     if (await collectionHasRecords(store, vault, collName)) continue
@@ -631,6 +634,7 @@ export async function grant(
   // Wrap the appropriate DEKs with the new user's KEK
   const wrappedDeks: Record<string, string> = {}
   for (const collName of Object.keys(permissions)) {
+    if (collName === PERMISSION_WILDCARD) continue
     // Never hand a secret-bearing reserved DEK to a sub-admin, even if the
     // grantor explicitly names it in `permissions` — that path is served
     // only by the owner/admin-gated credential API, not per-collection grants.
@@ -645,11 +649,18 @@ export async function grant(
   // FR-6: a custodian operates EVERY collection, so — like admin — it must
   // receive every collection DEK on grant. Without this branch a custodian
   // could neither read nor write and the role would be inert.
+  // #1010 — `permissions: { '*': ... }` puts a permission-scoped grantee on the
+  // same footing as the whole-vault roles: every DEK the grantor holds. Note the
+  // inherent limit the caller must know about — this covers the collections that
+  // exist NOW. A wildcard cannot enumerate collections created later, and a DEK
+  // can only ever be wrapped at grant time, so a later collection needs a
+  // re-grant (the read path says so explicitly).
   if (
     options.role === 'owner' ||
     options.role === 'admin' ||
     options.role === 'custodian' ||
-    options.role === 'viewer'
+    options.role === 'viewer' ||
+    permissionsAreWildcard(options.permissions)
   ) {
     for (const [collName, dek] of callerKeyring.deks) {
       if (collName in wrappedDeks) continue
@@ -1541,11 +1552,35 @@ export async function ensureCollectionDEK(
       // of a user who may hold no explicit permission for them. They are never
       // addressable by user code, so nothing is being protected by denying
       // here — only internal writes would break.
-      if (!collectionName.startsWith('_') && !hasAccess(keyring, collectionName)) {
-        throw new NoAccessError(
-          `No access — user does not have a key for collection "${collectionName}". ` +
-            'Grant them this collection in `permissions` to give them one.',
-        )
+      if (!collectionName.startsWith('_')) {
+        if (!hasAccess(keyring, collectionName)) {
+          throw new NoAccessError(
+            `No access — user does not have a key for collection "${collectionName}". ` +
+              'Grant them this collection in `permissions` to give them one.',
+          )
+        }
+        // #1010 — the ENTITLED half of the same defect. Being allowed to read a
+        // collection is not the same as holding its key: a grant only ever
+        // wraps the DEKs that exist at grant time, and re-wrapping later is
+        // impossible because it needs the grantee's KEK, derived from a secret
+        // the vault never stores. So a principal granted BEFORE a collection
+        // existed is entitled to it and has no key for it — and minting one
+        // here produced a key that decrypts nothing, resurfacing as
+        // `TamperedError`. This is reachable for every whole-vault role
+        // (`admin`, `viewer`, `custodian`) and for a `'*'` wildcard grantee.
+        //
+        // Costs one `list()`, and only on this path: an entitled principal
+        // whose keyring is missing a DEK. Creating a genuinely new collection
+        // finds no records and mints exactly as before.
+        if (await collectionHasRecords(store, vault, collectionName)) {
+          throw new NoAccessError(
+            `No access — user "${keyring.userId}" is entitled to collection "${collectionName}" ` +
+              'but holds no key for it, because the collection was created AFTER their grant. ' +
+              'A collection DEK can only be wrapped at grant time (wrapping needs the grantee\'s ' +
+              'secret, which the vault never stores), so this cannot be back-filled — re-grant ' +
+              'the user to give them the key.',
+          )
+        }
       }
       const dek = await generateDEK()
       keyring.deks.set(collectionName, dek)
@@ -1563,11 +1598,26 @@ export async function ensureCollectionDEK(
 
 // ─── Permission Checks ─────────────────────────────────────────────────
 
+/**
+ * The `Permissions` catch-all key (#1010). `Permissions` has always documented
+ * `'*'` as "the wildcard collection matching all collections in the vault", but
+ * nothing expanded it — a grantee handed the documented catch-all got no keys
+ * at all. It is honoured in three places, and they must agree: the DEK wrapping
+ * in `grant()`, and both permission checks below.
+ */
+export const PERMISSION_WILDCARD = '*'
+
+/** Does this permission map hand over the whole vault? */
+export function permissionsAreWildcard(permissions: Permissions | undefined): boolean {
+  return permissions !== undefined && PERMISSION_WILDCARD in permissions
+}
+
 /** Check if a user has write permission for a collection. */
 export function hasWritePermission(keyring: UnlockedKeyring, collectionName: string): boolean {
   // FR-6: custodian writes every collection (admin-level operational rw).
   if (keyring.role === 'owner' || keyring.role === 'admin' || keyring.role === 'custodian') return true
   if (keyring.role === 'viewer' || keyring.role === 'client') return false
+  if (keyring.permissions[PERMISSION_WILDCARD] === 'rw') return true
   return keyring.permissions[collectionName] === 'rw'
 }
 
@@ -1581,6 +1631,7 @@ export function hasAccess(keyring: UnlockedKeyring, collectionName: string): boo
     keyring.role === 'viewer'
   )
     return true
+  if (PERMISSION_WILDCARD in keyring.permissions) return true
   return collectionName in keyring.permissions
 }
 
