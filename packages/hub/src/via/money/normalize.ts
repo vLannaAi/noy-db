@@ -118,6 +118,70 @@ function quantizeValue(field: string, raw: unknown, desc: MoneyDescriptor): unkn
 }
 
 /**
+ * Canonicalize money values for a MATERIALIZED-VIEW row (#1018).
+ *
+ * A money field in an MV row is NOT in the scaled-integer storage form a
+ * collection uses — the money-aware reducers emit `formatScaledInt(...)`, an
+ * exact decimal string, and that is what lands in the output collection. So a
+ * derived money field has to be canonicalized into the same shape as the
+ * aggregated ones beside it.
+ *
+ * Quantizing it into storage form instead is what #1018 reported: `toPay` came
+ * back as `"1000000"` where `netTotal` in the SAME row read `"10000.00"` —
+ * 100× the true value, and a string that looks like a plausible amount rather
+ * than an obvious error.
+ *
+ * Precision handling is identical to {@link quantizeMoneyFields} — the same
+ * `parseToScaledInt` and the same `MoneyPrecisionError` — so a value that
+ * cannot be represented at the declared scale is still refused rather than
+ * silently rounded. Only the OUTPUT shape differs: decimal, not scaled.
+ */
+export function canonicalizeMoneyFieldsAsDecimal<T extends Record<string, unknown>>(
+  record: T,
+  moneyFields: Record<string, MoneyDescriptor>,
+): T {
+  const out: Record<string, unknown> = { ...record }
+  for (const [field, desc] of Object.entries(moneyFields)) {
+    // Only simple top-level fields: an MV row is the flat product of
+    // groupBy + aggregate + derive, so there are no nested money paths here.
+    if (!isSimpleMoneyPath(field)) continue
+    const raw = out[field]
+    if (raw === null || raw === undefined) continue
+
+    let amount: number | string
+    let scale: number
+    if (desc.mode === 'fixed') {
+      amount = raw as number | string
+      scale = desc.scaleFor(desc.fixedCurrency!)
+    } else if (isMoneyValueObject(raw)) {
+      amount = raw.amount as number | string
+      scale = desc.scaleFor(String(raw.currency))
+    } else {
+      const sole = desc.soleCurrency()
+      if (sole === undefined) {
+        throw new TypeError(
+          `money: field "${field}" is multi-currency — a derived value must be ` +
+            '{ amount, currency }, not a bare amount',
+        )
+      }
+      amount = raw as number | string
+      scale = desc.scaleFor(sole)
+    }
+
+    const r = parseToScaledInt(amount, scale, desc.rounding)
+    if (!r.ok) {
+      if (r.reason === 'precision') throw new MoneyPrecisionError(field, amount, scale)
+      throw new TypeError(`money: field "${field}" value ${JSON.stringify(amount)} is not a finite decimal`)
+    }
+    const decimal = formatScaledInt(r.value, scale)
+    out[field] = desc.mode === 'fixed' || !isMoneyValueObject(raw)
+      ? decimal
+      : { amount: decimal, currency: String(raw.currency) }
+  }
+  return out as T
+}
+
+/**
  * Convert money fields in `record` from user input to their canonical
  * stored form. Returns a shallow clone (deep along declared nested
  * paths). A nested path whose declared shape disagrees with the

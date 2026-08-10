@@ -9,7 +9,7 @@ import { wrapDbWithPredicates } from './registry.js'
 import { groupAndReduce } from '../../with-lookup/reduce/groupby.js'
 import { canonicalGroupKey } from '../../with-lookup/reduce/canonical-key.js'
 import { applyI18nLocale, type I18nTextDescriptor } from '../../via/i18n/core.js'
-import { quantizeMoneyFields, decodeMoneyFields } from '../../via/money/normalize.js'
+import { canonicalizeMoneyFieldsAsDecimal, decodeMoneyFields } from '../../via/money/normalize.js'
 import { exactMath } from '../../via/money/exact.js'
 import { putDerivedOutput, type PutDerivedOutputCtx } from '../../kernel/via/dispatch.js'
 
@@ -272,11 +272,16 @@ function applyDerive<TRow extends Record<string, unknown>>(
         )
       }
     }
-    // Quantise the PATCH only, then merge onto the original row. Quantising the
-    // merged row would re-scale the untouched money fields a second time, since
-    // those are still in stored form.
-    const stored = spec.moneyFields ? quantizeMoneyFields(patch, spec.moneyFields) : patch
-    return { ...row, ...stored }
+    // Canonicalize the PATCH only, into the DECIMAL form the money-aware
+    // reducers emit — not the scaled-integer storage form a collection uses.
+    // An MV row's money fields are decimal strings, so a derived field
+    // quantised into storage form reads back as the scaled integer beside
+    // correctly-decoded siblings: `"1000000"` next to `"10000.00"` (#1018).
+    // Precision is still enforced; only the output shape differs.
+    const canonical = spec.moneyFields
+      ? canonicalizeMoneyFieldsAsDecimal(patch, spec.moneyFields)
+      : patch
+    return { ...row, ...canonical }
   })
 }
 
