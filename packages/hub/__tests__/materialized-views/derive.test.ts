@@ -193,11 +193,48 @@ describe('#1007 — MV post-aggregate derive', () => {
     await vault.collection('bills').put('b1', { id: 'b1', total: 10.05 })
     await vault.collection('receipts').put('r1', { id: 'r1', billId: 'b1', amount: 0.1 })
 
-    // Stored scaled at the descriptor's scale: 9.95 → 995, exactly.
-    // (Read-time decoding to "9.95" is the OUTPUT collection's job under the
-    // resolve-at-output model — declare money on it to read decimals back.)
     const row = await vault.collection<BalanceRow>('billBalanceMoney').get('b1')
-    expect(String(row?.toPay)).toBe('995')
+    expect(String(row?.toPay)).toBe('9.95')
+  })
+
+  /**
+   * #1018 — the derived money field must ROUND-TRIP, not merely be non-zero.
+   *
+   * It was canonicalized into the scaled-integer STORAGE form while the
+   * aggregated money fields beside it are decimal strings, so `toPay` read back
+   * as `"1000000"` next to `netTotal: "10000.00"` — 100× the true value, in the
+   * shape of a plausible amount. An assertion like "outstanding > 0" passes
+   * against that; only an exact equality catches it.
+   */
+  it('a derived money field reads back in the SAME decimal shape as its aggregated siblings', async () => {
+    const vault = await openVault([
+      moneyMV((row, exact) => ({ toPay: exact.max(0, exact.sub(row.netTotal, row.paid)) })),
+    ])
+    await vault.collection('bills').put('b1', { id: 'b1', total: 10000 })
+
+    const row = await vault.collection<BalanceRow>('billBalanceMoney').get('b1')
+    expect(row?.netTotal).toBe('10000.00')
+    expect(row?.paid).toBe('0.00')
+    expect(row?.toPay).toBe('10000.00')
+  })
+
+  it('round-trips a partially-paid balance to the exact decimal', async () => {
+    const vault = await openVault([
+      moneyMV((row, exact) => ({ toPay: exact.max(0, exact.sub(row.netTotal, row.paid)) })),
+    ])
+    await vault.collection('bills').put('b1', { id: 'b1', total: 10000 })
+    await vault.collection('receipts').put('r1', { id: 'r1', billId: 'b1', amount: 4000 })
+
+    const row = await vault.collection<BalanceRow>('billBalanceMoney').get('b1')
+    expect(row?.toPay).toBe('6000.00')
+    // The reported symptom, stated as a guard: never the scaled integer.
+    expect(row?.toPay).not.toBe('600000')
+  })
+
+  it('pads a derived value to the declared scale, matching the reducers', async () => {
+    const vault = await openVault([moneyMV(() => ({ toPay: '7' }))])
+    await vault.collection('bills').put('b1', { id: 'b1', total: 10 })
+    expect((await vault.collection<BalanceRow>('billBalanceMoney').get('b1'))?.toPay).toBe('7.00')
   })
 
   it('float arithmetic in derive is REFUSED rather than silently storing drift', async () => {
