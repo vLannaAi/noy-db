@@ -1,5 +1,17 @@
 # Changelog — in-nuxt
 
+## 0.6.0-pre.10
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.10
+  - @noy-db/in-devtools@0.6.0-pre.10
+  - @noy-db/in-pinia@0.6.0-pre.10
+  - @noy-db/in-rest@0.6.0-pre.10
+  - @noy-db/in-vue@0.6.0-pre.10
+
 ## 0.6.0-pre.9
 
 ### Patch Changes
