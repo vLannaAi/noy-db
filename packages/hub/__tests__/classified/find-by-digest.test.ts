@@ -110,7 +110,13 @@ describe('findByDigest', () => {
     const dt = Date.now() - t0
     expect(res).toEqual([])
     expect(storeCallsBeforeTarget).toBe(0)                            // target derived BEFORE any list/get
-    expect(spy.calls.filter((x) => x.op === 'list')).toHaveLength(1)  // list still ran (no pre-target early return)
+    // The point of this assertion is that a list RAN — i.e. there was no
+    // pre-target early return. It is deliberately not an op budget: this
+    // collection was never written to, so its DEK is minted lazily here, and
+    // #1010's entitlement probe lists once before minting. The exact-op-budget
+    // assertion lives in the populated-collection test above, where the DEK
+    // already exists and the probe cannot fire.
+    expect(spy.calls.filter((x) => x.op === 'list').length).toBeGreaterThanOrEqual(1)
     expect(dt).toBeGreaterThan(25)                                   // a real 600K PBKDF2 ran, not a ~0ms early return
   }, 60_000)
 
