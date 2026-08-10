@@ -39,5 +39,7 @@ export {
   DuplicateStoreKindError,
 } from '../../kernel/errors.js'
 
-export type { StoreClass, StoreDescriptor, StoreBinding, StoreFactory, StoreLocator } from './locator.js'
-export { createStoreLocator } from './locator.js'
+export type {
+  StoreClass, StoreDescriptor, StoreBinding, StoreFactory, StoreLocator, AnyNoydbStore,
+} from './locator.js'
+export { createStoreLocator, isPodStore } from './locator.js'

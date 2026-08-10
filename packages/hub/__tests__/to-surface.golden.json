@@ -9,9 +9,11 @@
     "PodVersionConflictError",
     "StoreCapabilityError",
     "UnknownStoreKindError",
-    "createStoreLocator"
+    "createStoreLocator",
+    "isPodStore"
   ],
   "types": [
+    "AnyNoydbStore",
     "EncryptedEnvelope",
     "ListPageResult",
     "NoydbBundleStore",

@@ -17,7 +17,7 @@
  * and errors, no Node built-ins, no crypto. It adds zero runtime
  * dependencies to `@noy-db/hub/to`.
  */
-import type { NoydbStore, StoreCredentialSource } from '../../kernel/types.js'
+import type { NoydbStore, NoydbPodStore, StoreCredentialSource } from '../../kernel/types.js'
 import { DuplicateStoreKindError, UnknownStoreKindError } from '../../kernel/errors.js'
 
 /**
@@ -56,23 +56,73 @@ export interface StoreDescriptor {
 export type StoreBinding = unknown
 
 /**
- * Reconstructs a live `NoydbStore` from a `StoreDescriptor`. Registered
- * against a `StoreLocator` under the descriptor's `kind`.
+ * Either store shape a factory may produce: the 6-method KV `NoydbStore`, or
+ * the whole-vault `NoydbPodStore` implemented by `to-drive` / `to-icloud`.
+ *
+ * The two are DISJOINT, not sub/supertypes — a pod store has none of the six
+ * KV methods — which is why moving between them needs a double cast and why
+ * `isPodStore()` exists to narrow instead.
  */
-export type StoreFactory = (
+export type AnyNoydbStore = NoydbStore | NoydbPodStore
+
+/**
+ * Narrow an `AnyNoydbStore` to the pod shape. Discriminates on the
+ * `kind: 'bundle'` tag `NoydbPodStore` carries for exactly this purpose; a
+ * `NoydbStore` has no `kind` field at all.
+ *
+ * Use this at a `resolve()` boundary instead of casting — a store resolved
+ * from a descriptor read out of a pod is only known to be one of the two
+ * shapes at runtime.
+ */
+export function isPodStore(store: AnyNoydbStore): store is NoydbPodStore {
+  return (store as NoydbPodStore).kind === 'bundle'
+}
+
+/**
+ * Reconstructs a live store from a `StoreDescriptor`. Registered against a
+ * `StoreLocator` under the descriptor's `kind`.
+ *
+ * The type parameter says WHICH shape this factory builds. It defaults to
+ * `NoydbStore`, so a bare `StoreFactory` means exactly what it always has;
+ * a pod-store factory declares `StoreFactory<NoydbPodStore>` and registers
+ * without a cast (#988).
+ */
+export type StoreFactory<S extends AnyNoydbStore = NoydbStore> = (
   descriptor: StoreDescriptor,
   opts: { binding?: StoreBinding; credentials?: StoreCredentialSource },
-) => NoydbStore | Promise<NoydbStore>
+) => S | Promise<S>
 
 /** A registry of `StoreFactory`s, keyed by `StoreDescriptor.kind`. */
 export interface StoreLocator {
-  /** Register a factory for `kind`. Throws if `kind` is already registered. */
-  register(kind: string, factory: StoreFactory): void
-  /** Resolve `descriptor` to a live store via its kind's registered factory. */
+  /**
+   * Register a factory for `kind`. Throws if `kind` is already registered.
+   *
+   * Accepts a factory building EITHER store shape — `S` is inferred from the
+   * factory's own return type, so a `NoydbPodStore` factory needs no cast.
+   */
+  register<S extends AnyNoydbStore>(kind: string, factory: StoreFactory<S>): void
+  /**
+   * Resolve `descriptor` to a live store via its kind's registered factory.
+   *
+   * Returns `NoydbStore`. If the `kind` was registered with a pod-store
+   * factory, the resolved value is really a `NoydbPodStore`: this signature
+   * is the seam's remaining unsoundness, kept because widening it to
+   * `AnyNoydbStore` would break every existing caller. Where the descriptor's
+   * kind is not statically known, prefer `resolveAny()` and `isPodStore()`.
+   */
   resolve(
     descriptor: StoreDescriptor,
     opts?: { binding?: StoreBinding; credentials?: StoreCredentialSource },
   ): NoydbStore | Promise<NoydbStore>
+  /**
+   * As `resolve()`, but typed honestly: the registry is keyed by a runtime
+   * `kind` string, so which of the two shapes comes back is not knowable
+   * statically. Narrow the result with `isPodStore()`.
+   */
+  resolveAny(
+    descriptor: StoreDescriptor,
+    opts?: { binding?: StoreBinding; credentials?: StoreCredentialSource },
+  ): AnyNoydbStore | Promise<AnyNoydbStore>
 }
 
 /**
@@ -89,7 +139,15 @@ export interface StoreLocator {
  * later.
  */
 export function createStoreLocator(): StoreLocator {
-  const factories = new Map<string, StoreFactory>()
+  const factories = new Map<string, StoreFactory<AnyNoydbStore>>()
+
+  function lookup(kind: string): StoreFactory<AnyNoydbStore> {
+    const factory = factories.get(kind)
+    if (!factory) {
+      throw new UnknownStoreKindError(kind, [...factories.keys()].sort())
+    }
+    return factory
+  }
 
   return {
     register(kind, factory) {
@@ -99,11 +157,16 @@ export function createStoreLocator(): StoreLocator {
       factories.set(kind, factory)
     },
     resolve(descriptor, opts = {}) {
-      const factory = factories.get(descriptor.kind)
-      if (!factory) {
-        throw new UnknownStoreKindError(descriptor.kind, [...factories.keys()].sort())
-      }
-      return factory(descriptor, opts)
+      // The one place the seam's `resolve(): NoydbStore` signature is paid
+      // for. A pod-store `kind` really returns a `NoydbPodStore`; the registry
+      // is keyed by a runtime string so nothing here can prove otherwise.
+      // Concentrated in the module that owns the invariant rather than
+      // duplicated as `as unknown as StoreFactory` in every pod-store package
+      // (#988). `resolveAny()` is the honest signature over the same call.
+      return lookup(descriptor.kind)(descriptor, opts) as NoydbStore | Promise<NoydbStore>
+    },
+    resolveAny(descriptor, opts = {}) {
+      return lookup(descriptor.kind)(descriptor, opts)
     },
   }
 }

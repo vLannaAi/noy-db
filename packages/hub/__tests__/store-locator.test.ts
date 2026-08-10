@@ -6,12 +6,13 @@
 import { describe, it, expect } from 'vitest'
 import {
   createStoreLocator,
+  isPodStore,
   UnknownStoreKindError,
   DuplicateStoreKindError,
   type StoreDescriptor,
   type StoreFactory,
 } from '../src/port/to/index.js'
-import type { NoydbStore } from '../src/port/to/index.js'
+import type { NoydbStore, NoydbPodStore, AnyNoydbStore } from '../src/port/to/index.js'
 
 /** Minimal stand-in satisfying the 6-method `NoydbStore` contract. */
 function makeSentinelStore(tag: string): NoydbStore {
@@ -23,6 +24,18 @@ function makeSentinelStore(tag: string): NoydbStore {
     list: async () => [],
     loadAll: async () => ({}),
     saveAll: async () => {},
+  }
+}
+
+/** Minimal stand-in satisfying the whole-vault `NoydbPodStore` contract. */
+function makePodStore(tag: string): NoydbPodStore {
+  return {
+    kind: 'bundle',
+    name: tag,
+    readBundle: async () => null,
+    writeBundle: async () => ({ version: '1' }),
+    deleteBundle: async () => {},
+    listBundles: async () => [],
   }
 }
 
@@ -78,6 +91,70 @@ describe('createStoreLocator', () => {
     const err = caught as DuplicateStoreKindError
     expect(err.kind).toBe('stub')
     expect(err.message).toContain('stub')
+  })
+
+  it('registers a pod-store factory without a cast (#988)', async () => {
+    const locator = createStoreLocator()
+    const sentinel = makePodStore('icloud')
+    // The point of the issue: this line used to require
+    // `podFactory as unknown as StoreFactory`, duplicated in to-drive and
+    // to-icloud. `S` now infers as `NoydbPodStore` from the factory itself.
+    const podFactory: StoreFactory<NoydbPodStore> = () => sentinel
+    locator.register('icloud', podFactory)
+
+    const resolved = await locator.resolveAny({ kind: 'icloud', class: 'cloud', address: {} })
+    expect(resolved).toBe(sentinel)
+    expect(isPodStore(resolved)).toBe(true)
+  })
+
+  it('resolve() is a pure pass-through — the cast it carries stays sound', async () => {
+    // #988 called the pod cast "sound against the current implementation,
+    // which is exactly the fragile kind of soundness". The fragility is real,
+    // so pin it: resolve() must not wrap, validate, or reshape what the
+    // factory returned. If a future resolve() does, this fails loudly here
+    // rather than silently at two pod stores in another repo.
+    const locator = createStoreLocator()
+    const pod = makePodStore('drive')
+    const kv = makeSentinelStore('memory')
+    locator.register('drive', (): NoydbPodStore => pod)
+    locator.register('mem', () => kv)
+
+    expect(await locator.resolveAny({ kind: 'drive', class: 'cloud', address: {} })).toBe(pod)
+    expect(await locator.resolveAny({ kind: 'mem', class: 'local', address: {} })).toBe(kv)
+    expect(await locator.resolve({ kind: 'mem', class: 'local', address: {} })).toBe(kv)
+  })
+
+  it('isPodStore discriminates the two disjoint shapes', () => {
+    const pod: AnyNoydbStore = makePodStore('drive')
+    const kv: AnyNoydbStore = makeSentinelStore('memory')
+
+    expect(isPodStore(pod)).toBe(true)
+    expect(isPodStore(kv)).toBe(false)
+
+    // The narrowing is what makes it useful, not just the boolean: inside the
+    // guard the pod-only methods are reachable without a cast.
+    if (isPodStore(pod)) expect(typeof pod.readBundle).toBe('function')
+    else throw new Error('unreachable — pod store must narrow')
+  })
+
+  it('resolveAny throws the same UnknownStoreKindError as resolve', async () => {
+    const locator = createStoreLocator()
+    locator.register('stub', () => makeSentinelStore('sentinel'))
+
+    await expect(
+      Promise.resolve().then(() =>
+        locator.resolveAny({ kind: 'nope', class: 'local', address: {} }),
+      ),
+    ).rejects.toBeInstanceOf(UnknownStoreKindError)
+  })
+
+  it('type-check: a bare StoreFactory still means a KV store', () => {
+    // Backward compatibility is the reason `S` defaults to `NoydbStore`
+    // rather than to the union: every existing `StoreFactory` annotation in
+    // the family keeps its exact previous meaning.
+    // @ts-expect-error — a pod store is not a NoydbStore, and the default did not widen.
+    const wrong: StoreFactory = () => makePodStore('drive')
+    expect(wrong).toBeTypeOf('function')
   })
 
   it('type-check: a descriptor literal cannot carry a credentials function', () => {
