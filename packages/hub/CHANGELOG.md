@@ -1,5 +1,75 @@
 # Changelog — hub
 
+## 0.6.0-pre.11
+
+### Minor Changes
+
+- `/to`: the store locator now accepts pod-store factories without a cast (#988)
+
+  `StoreFactory` gains a type parameter — `StoreFactory<S extends AnyNoydbStore = NoydbStore>` —
+  and `StoreLocator.register` infers it from the factory's own return type. A factory returning
+  `NoydbPodStore` (`to-drive`, `to-icloud`) registers directly; the `as unknown as StoreFactory`
+  double cast those packages carried is no longer needed.
+
+  The default is `NoydbStore`, so a bare `StoreFactory` means exactly what it did before.
+
+  New on the seam:
+
+  - `AnyNoydbStore` — `NoydbStore | NoydbPodStore`, the two disjoint store shapes.
+  - `isPodStore(store)` — type guard discriminating on the `kind: 'bundle'` tag.
+  - `StoreLocator.resolveAny()` — `resolve()` typed honestly. The registry is keyed by a runtime
+    `kind` string, so which shape a descriptor yields is not statically knowable; narrow the
+    result with `isPodStore()`.
+
+  `resolve()` is unchanged and still returns `NoydbStore`, so no existing caller breaks. Note for
+  anyone implementing `StoreLocator` by hand rather than calling `createStoreLocator()`: the
+  interface gained a method.
+
+### Patch Changes
+
+- Query DSL: `.where()` on a `.join()` alias no longer silently returns zero rows (#1030)
+
+  Join legs are applied after every `where` clause so the left set can be narrowed
+  (and index-driven) first. A predicate addressing a joined alias therefore
+  evaluated against a row where the alias did not exist yet — `readPath` returned
+  `undefined`, nothing matched, and the query returned `[]` with no error:
+
+  ```ts
+  bills
+    .query()
+    .join("clientId", { as: "client" })
+    .where("client.name", "==", "Ann")
+    .toArray();
+  // was []   now the matching rows
+  ```
+
+  Clauses are now split around the legs: those addressing an alias run after the
+  join, the rest keep running before it. Ordering and pagination move after the
+  post-join predicate, so `orderBy`/`limit`/`offset` observe it rather than
+  preceding it. The same fix applies to the streaming `scan()` path.
+
+  The split is narrow by construction: when no clause addresses an alias — every
+  query written against the previous behaviour — execution takes the original path
+  unchanged, so the reordered pipeline only ever runs for queries that matched
+  nothing before.
+
+  This also makes the anti-join expressible with no new operator:
+  `.join(…).where('client', '==', null)` selects rows whose right side is absent.
+
+  `count()` now applies join legs when, and only when, a predicate addresses one —
+  otherwise it would report the unfiltered left cardinality. Without such a
+  predicate it still skips them, preserving the projection-only contract.
+
+  `groupBy()` and `aggregate()` never apply join legs, so a field addressing an
+  alias silently reduced `undefined`. They now throw an error naming the alias and
+  pointing at `.crossJoin()`, whose expansion those terminals do see. Joined
+  aggregation remains unsupported — this replaces a plausible wrong number with a
+  message.
+
+  Known residual: `.filter(r => r.client?.name === 'Ann')` carries an opaque
+  closure that cannot be classified, so it still runs pre-join. Prefer `.where()`
+  for anything addressing a joined field.
+
 ## 0.6.0-pre.10
 
 ### Patch Changes
