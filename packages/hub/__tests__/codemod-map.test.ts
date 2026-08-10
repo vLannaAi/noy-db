@@ -126,6 +126,56 @@ describe('0.4.0-pre rename map: checked against the live surface', () => {
   })
 })
 
+/**
+ * #1011 — the gap behind the missing `sum` / `count` rows.
+ *
+ * The existing checks validate the rows the map DOES carry: subpaths against
+ * the real `exports`, option keys against the live source. Nothing asserted the
+ * other direction — that a symbol which LEFT the root barrel has a row at all.
+ * So the map could silently stop being a complete sweep, and a consumer running
+ * it got a clean result that meant nothing. That is worse than no map, because
+ * a clean sweep reads as "nothing to migrate".
+ *
+ * The root-barrel golden's `retired` ledger is the input: removing an export
+ * means moving its name there, and every name there must be migratable.
+ */
+describe('0.4.0-pre rename map: every retired root-barrel symbol is migratable', () => {
+  const golden = JSON.parse(read('./root-barrel-surface.golden.json')) as {
+    values: string[]
+    types: string[]
+    retired?: string[]
+  }
+
+  it('has a row for every symbol retired from the root barrel', () => {
+    const documented = new Set(map.renames.map((r) => r.from))
+    const undocumented = (golden.retired ?? []).filter((name) => !documented.has(name))
+    expect(
+      undocumented,
+      'each of these left the root barrel with no codemod row — a consumer running the ' +
+        'map-driven sweep would get a clean result and a broken import',
+    ).toEqual([])
+  })
+
+  // NOTE — the converse check ("no row claims to move a symbol that never
+  // left") is deliberately absent, because the map cannot express it. A row
+  // records `from` (an identifier) and `to` (a destination path) but NOT the
+  // path the symbol moved FROM, so `SyncEngine → @noy-db/hub/sync` is
+  // indistinguishable from a stale row even though it is correct: it describes
+  // `@noy-db/hub/team` dropping its re-export, while the root barrel still
+  // exports the name. Adding a `fromPath` to the row schema would make that
+  // check possible; until then asserting it produces false positives.
+
+  it('marks the reducer moves unsafe to replace globally — they are ordinary English', () => {
+    // `sum`, `count`, `min`, `max`, `avg` match prose and unrelated identifiers
+    // everywhere. This is the same trap the `aggregate` row exists to flag.
+    for (const name of ['sum', 'count', 'avg', 'min', 'max']) {
+      const row = map.renames.find((r) => r.from === name)
+      expect(row, `expected a row for "${name}"`).toBeDefined()
+      expect(row!.safeGlobalReplace, `"${name}" must not be globally replaceable`).toBe(false)
+    }
+  })
+})
+
 describe('0.4.0-pre rename map: reachable by consumers', () => {
   it('ships in the package and resolves at the path the map is versioned by', () => {
     expect(hubPkg.files).toContain('codemods')

@@ -920,6 +920,7 @@ export {
   asMoney,
   isMoneyString,
   moneyNumber,
+  exactMath,
 } from './via/money/index.js'
 export type {
   MoneyDescriptor,
@@ -931,6 +932,8 @@ export type {
   MulRateOptions,
   AllocateOptions,
   MoneyString,
+  ExactMath,
+  ExactOperand,
 } from './via/money/index.js'
 
 // via — public field composer (declares a field's Via feature(s) without a sugar key)
