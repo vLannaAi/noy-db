@@ -10,7 +10,7 @@ import type { Clause, CrossJoinClause, FieldClause, FilterClause, GroupClause, O
 import { evaluateClause, hasFnClause } from './predicate.js'
 import type { CollectionIndexes } from '../../with-lookup/indexing/eager-indexes.js'
 import type { JoinableSource, JoinContext, JoinLeg, JoinStrategy } from './join.js'
-import { applyJoins } from './join.js'
+import { applyJoins, splitAroundJoins } from './join.js'
 import { CrossJoinTooLargeError, CrossJoinSourceUnknownError, FieldNotQueryableError } from '../errors.js'
 import type { LiveQuery, LiveUpstream } from './live.js'
 import { buildLiveQuery } from './live.js'
@@ -67,6 +67,36 @@ const EMPTY_PLAN: QueryPlan = {
 
 /** Default row ceiling for cross-join expansion. Matches JoinTooLargeError's ceiling. */
 export const DEFAULT_CROSS_JOIN_MAX_ROWS = 50_000
+
+/**
+ * Guard for the terminals that reduce rather than project (#1030). Grouping
+ * or aggregating over a joined alias silently bucketed every row under
+ * `undefined`, because these terminals never apply join legs at all.
+ *
+ * Refusing is the honest answer here rather than reordering: unlike `.where()`,
+ * a joined aggregation is a genuine semantic question (which side's
+ * cardinality does `count()` report?) that the DSL has not answered. A
+ * consumer gets a message naming the alias instead of a plausible wrong number.
+ */
+function assertNoJoinAliasField(
+  fields: readonly string[],
+  joins: readonly JoinLeg[],
+  terminal: string,
+): void {
+  if (joins.length === 0) return
+  const aliases = new Set(joins.map(leg => leg.as))
+  for (const field of fields) {
+    const head = field.split('.')[0]!
+    if (!aliases.has(head)) continue
+    throw new Error(
+      `Query.${terminal}(): field "${field}" addresses the join alias "${head}", but ` +
+        `${terminal}() does not apply join legs — it would silently group every row ` +
+        `under undefined. Joined aggregation is not supported. Either aggregate over ` +
+        `the left collection's own fields, or use .crossJoin("${head}", { as: … }), ` +
+        `whose expansion IS visible to ${terminal}().`,
+    )
+  }
+}
 
 /**
  * Source of records that a query executes against.
@@ -634,24 +664,57 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * (Left/base i18n fields are resolved by `get`/`list`, not here.)
    */
   toArray(opts?: { locale?: string }): T[] {
-    // Decode Via-covered fields (e.g. money: stored scaled-int → canonical
-    // decimal) so query().toArray() matches get()/sum(), which already
-    // apply the same decode. Decode the left/base records before joins
-    // (right-side aliased fields belong to other collections and are out
-    // of this source's Via scope).
-    const base = this.decodeVia(executePlanWithSource(this.source, this.plan, this.joinContext, opts?.locale))
-    if (this.plan.joins.length === 0) return base as T[]
+    const { preJoin, postJoin } = splitAroundJoins(this.plan.clauses, this.plan.joins)
+
+    if (postJoin.length === 0) {
+      // Decode Via-covered fields (e.g. money: stored scaled-int → canonical
+      // decimal) so query().toArray() matches get()/sum(), which already
+      // apply the same decode. Decode the left/base records before joins
+      // (right-side aliased fields belong to other collections and are out
+      // of this source's Via scope).
+      const base = this.decodeVia(executePlanWithSource(this.source, this.plan, this.joinContext, opts?.locale))
+      if (this.plan.joins.length === 0) return base as T[]
+      return applyJoins(base, this.plan.joins, this.requireJoinContext('toArray'), opts?.locale) as T[]
+    }
+
+    // #1030 — at least one predicate addresses a join alias, so it cannot be
+    // evaluated until the legs are attached. Narrow with the pre-join clauses
+    // (still index-driven), join, then filter, and only THEN sort/paginate:
+    // ordering and limit must observe the post-join predicate, not precede it.
+    //
+    // The left-side JoinTooLargeError ceiling is now measured against the
+    // pre-join set only. That is inherent — a predicate on an alias cannot
+    // narrow a set the alias does not exist in yet — and a loud ceiling error
+    // beats today's silent empty result.
+    const joinContext = this.requireJoinContext('toArray')
+    const narrowed = this.decodeVia(
+      executePlanWithSource(
+        this.source,
+        { ...this.plan, clauses: preJoin, orderBy: [], limit: undefined, offset: 0 },
+        joinContext,
+        opts?.locale,
+      ),
+    )
+    const joined = applyJoins(narrowed, this.plan.joins, joinContext, opts?.locale)
+    const filtered = filterRecords(joined, postJoin, fnViewDecoder(this.source))
+    return applyOrderAndPage(filtered, this.plan, this.source, joinContext, opts?.locale) as T[]
+  }
+
+  /**
+   * Joins need a `JoinContext`. Unreachable in practice — `.join()` throws
+   * when one is missing — but belt-and-braces for a plan built through the
+   * raw `Query` constructor with joins pre-populated.
+   */
+  private requireJoinContext(terminal: string): JoinContext {
     if (!this.joinContext) {
-      // Unreachable in practice — .join() throws if joinContext is
-      // missing — but belt-and-braces for direct plan construction.
       throw new Error(
-        `Query.toArray(): plan carries ${this.plan.joins.length} join leg(s) ` +
+        `Query.${terminal}(): plan carries ${this.plan.joins.length} join leg(s) ` +
           `but no JoinContext is attached. This usually means the Query was ` +
           `constructed via the raw Query constructor with a plan that had joins ` +
           `pre-populated. Use collection.query().join(...) instead.`,
       )
     }
-    return applyJoins(base, this.plan.joins, this.joinContext, opts?.locale) as T[]
+    return this.joinContext
   }
 
   /**
@@ -682,12 +745,19 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
 
   /**
    * Return the number of matching records (after where/filter,
-   * before limit). **Joins are NOT applied** — count() reports the
-   * left-side cardinality, because joins in are projection-only
+   * before limit). **Joins are normally NOT applied** — count() reports the
+   * left-side cardinality, because joins are projection-only
    * (they attach an aliased field; they never filter). Running joins
    * here just to discard the aliases would be wasteful, and in strict
    * mode it could throw `DanglingReferenceError` for a call whose
    * intent is purely to count.
+   *
+   * The exception (#1030) is a `where` clause addressing a join alias. Then
+   * the legs must run, because the predicate is part of what is being
+   * counted — skipping them would report the unfiltered left cardinality.
+   * A strict-mode `DanglingReferenceError` becomes reachable from `count()`
+   * in exactly that case, which is acceptable: the caller asked to filter on
+   * the joined side, so they asked for the join.
    */
   count(): number {
     if (this.plan.clauses.some(c => c.type === 'crossJoin')) {
@@ -701,9 +771,17 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     // Use the same index-aware candidate machinery as toArray(); skip the
     // index-driving clause from re-evaluation. The length BEFORE limit/offset
     // is what `count()` documents.
-    const { candidates, remainingClauses } = candidateRecords(this.source, this.plan.clauses)
-    if (remainingClauses.length === 0) return candidates.length
-    return filterRecords(candidates, remainingClauses, fnViewDecoder(this.source)).length
+    const { preJoin, postJoin } = splitAroundJoins(this.plan.clauses, this.plan.joins)
+    const { candidates, remainingClauses } = candidateRecords(this.source, preJoin)
+    const narrowed =
+      remainingClauses.length === 0
+        ? candidates
+        : filterRecords(candidates, remainingClauses, fnViewDecoder(this.source))
+    if (postJoin.length === 0) return narrowed.length
+    // #1030 — the predicate lives on the joined side, so the legs are part of
+    // the count. Same pipeline as toArray(), minus ordering and pagination.
+    const joined = applyJoins(narrowed, this.plan.joins, this.requireJoinContext('count'))
+    return filterRecords(joined, postJoin, fnViewDecoder(this.source)).length
   }
 
   /**
@@ -767,6 +845,16 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     let spec = typeof specOrBuild === 'function'
       ? (specOrBuild as (b: ReducerBuilder<T, S, M>) => Spec)((reducerBuilder as unknown) as ReducerBuilder<T, S, M>)
       : specOrBuild
+    // A reducer over a joined alias would silently reduce undefined (#1030) —
+    // the terminals below never apply join legs. Reducers without a field
+    // (e.g. `count()`) have nothing to check.
+    assertNoJoinAliasField(
+      Object.values(spec)
+        .map(r => (r as { field?: unknown }).field)
+        .filter((f): f is string => typeof f === 'string'),
+      this.plan.joins,
+      'aggregate',
+    )
     // Rewrite sum/min/max over Via-covered fields (e.g. money) into exact
     // BigInt reducers before the strategy runs (covers static run() and
     // live/MV paths).
@@ -860,6 +948,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     if (fields.length === 0) {
       throw new Error('.groupBy() requires at least one field')
     }
+    assertNoJoinAliasField(fields, this.plan.joins, 'groupBy')
     // Same record-producing closure as .aggregate() — grouped and
     // non-grouped aggregations execute over the same candidate set.
     // We inline the closure here instead of sharing a helper so the
@@ -1070,6 +1159,24 @@ function executePlanWithSource(
         : filterRecords(candidates, remainingClauses, fnViewDecoder(source))
   }
 
+  return applyOrderAndPage(result, plan, source, joinContext, locale)
+}
+
+/**
+ * The tail of every execution path: sort, then offset, then limit.
+ *
+ * Extracted so the post-join filtering path (#1030) applies the identical
+ * ordering and pagination rules. Pagination MUST come after any post-join
+ * predicate — slicing first would page a set the filter has not seen yet.
+ */
+function applyOrderAndPage(
+  rows: unknown[],
+  plan: QueryPlan,
+  source: InternalSource,
+  joinContext?: JoinContext,
+  locale?: string,
+): unknown[] {
+  let result = rows
   if (plan.orderBy.length > 0) {
     // dictKey label-sort: for any `orderBy(..., { by: 'label' })`, build a
     // sync code→label resolver at the query locale so the sort compares

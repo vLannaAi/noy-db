@@ -68,6 +68,7 @@ import type {
   ReduceResult,
 } from '../../with-lookup/reduce/reduction.js'
 import type { JoinContext, JoinLeg, JoinableSource } from './join.js'
+import { splitAroundJoins } from './join.js'
 import { DanglingReferenceError, FieldNotQueryableError } from '../errors.js'
 import type { ViaPipeline } from '../via/pipeline.js'
 
@@ -368,6 +369,12 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
     // the left side stays O(pageSize) regardless — that's the
     // streaming property we're after.
     const joinResolvers = this.joins.length === 0 ? null : this.buildJoinResolvers()
+    // #1030 — a clause addressing a join alias cannot be evaluated against the
+    // raw record, where the alias does not exist yet. Split once per
+    // iteration, not per record. Streaming pays nothing for this: the
+    // post-join predicate runs on the row already in hand, so the O(pageSize)
+    // memory property is untouched.
+    const { preJoin, postJoin } = splitAroundJoins(this.clauses, this.joins)
 
     let page = await this.pageProvider.listPage({ limit: this.pageSize })
     while (true) {
@@ -376,7 +383,7 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
         // clauses first), then decode Via-covered fields (e.g. money, to
         // the canonical decimal) before yielding so scan() never leaks the
         // internal stored representation.
-        if (!this.recordMatches(record)) continue
+        if (!this.recordMatches(record, preJoin)) continue
         const decoded = this.decodeVia(record)
         if (joinResolvers === null) {
           yield decoded
@@ -389,6 +396,7 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
           for (const resolver of joinResolvers) {
             attached = this.applyOneJoinStreaming(attached, resolver)
           }
+          if (postJoin.length > 0 && !this.recordMatches(attached as T, postJoin)) continue
           yield attached as T
         }
       }
@@ -652,17 +660,17 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
    * path, because the stream sources records from the adapter
    * paginator, not from the in-memory cache where indexes live.
    */
-  private recordMatches(record: T): boolean {
-    if (this.clauses.length === 0) return true
+  private recordMatches(record: T, clauses: readonly Clause[] = this.clauses): boolean {
+    if (clauses.length === 0) return true
     // User-callback clauses (filter) see the DECODED view (e.g. money's
     // canonical decimal); field clauses keep the raw record — their
     // operands are pre-built into stored space. Decoded at most once per
     // record, only when a callback clause exists.
     const fnView =
-      this.via?.hasResultDecode && hasFnClause(this.clauses)
+      this.via?.hasResultDecode && hasFnClause(clauses)
         ? this.decodeVia(record)
         : undefined
-    for (const clause of this.clauses) {
+    for (const clause of clauses) {
       if (!evaluateClause(record, clause, fnView)) return false
     }
     return true

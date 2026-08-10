@@ -46,6 +46,7 @@
  */
 
 import type { RefDescriptor, RefMode } from '../refs.js'
+import type { Clause } from './predicate.js'
 import { readPath } from './predicate.js'
 import { JoinTooLargeError, DanglingReferenceError } from '../errors.js'
 
@@ -183,6 +184,58 @@ export interface JoinContext {
    * snapshot — same data as `DictionaryHandle.list()`, O(1) per lookup.
    */
   resolveDictSource?(field: string): JoinableSource | null
+}
+
+/**
+ * Does this clause address a field that only exists once join legs are
+ * attached — i.e. is its path rooted at a join alias?
+ *
+ * Only `FieldClause` is inspectable. A `FilterClause` carries an opaque
+ * function and a `WherePredicateClause` a named one, so neither can be
+ * classified; both stay on the pre-join side, which is where they have
+ * always run. See `splitAroundJoins`.
+ */
+function referencesJoinAlias(clause: Clause, aliases: ReadonlySet<string>): boolean {
+  if (clause.type !== 'field') return false
+  // `where('client.name', …)` addresses the alias; so does the anti-join
+  // form `where('client', '==', null)`, where the path IS the alias.
+  return aliases.has(clause.field.split('.')[0]!)
+}
+
+/**
+ * Split a plan's clauses into those evaluable before the join legs run and
+ * those that need the joined shape (#1030).
+ *
+ * Join legs attach after `where` so the left set can be narrowed (and
+ * index-driven) first. That is the right default, but it silently broke any
+ * predicate addressing a joined alias: the field did not exist yet, so
+ * `readPath` returned `undefined`, nothing matched, and the query returned an
+ * empty result with no error.
+ *
+ * The split is deliberately narrow. When no clause addresses an alias — every
+ * query written against the previous behaviour — `postJoin` is empty and the
+ * caller takes its original path unchanged. The reordered pipeline therefore
+ * only ever runs for queries that match nothing today.
+ *
+ * KNOWN RESIDUAL: `.filter(r => r.client?.name === 'Ann')` cannot be
+ * classified (the predicate is a closure), so it still runs pre-join and still
+ * sees no alias. Prefer `.where()` for anything addressing a joined field.
+ *
+ * Shared by the eager `Query` and the streaming `ScanBuilder` so the two
+ * cannot drift on which side a clause belongs to.
+ */
+export function splitAroundJoins(
+  clauses: readonly Clause[],
+  joins: readonly JoinLeg[],
+): { readonly preJoin: readonly Clause[]; readonly postJoin: readonly Clause[] } {
+  if (joins.length === 0 || clauses.length === 0) return { preJoin: clauses, postJoin: [] }
+  const aliases = new Set(joins.map(leg => leg.as))
+  const preJoin: Clause[] = []
+  const postJoin: Clause[] = []
+  for (const clause of clauses) {
+    ;(referencesJoinAlias(clause, aliases) ? postJoin : preJoin).push(clause)
+  }
+  return { preJoin, postJoin }
 }
 
 /**
