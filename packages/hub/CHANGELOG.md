@@ -1,5 +1,87 @@
 # Changelog — hub
 
+## 0.6.0-pre.7
+
+### Minor Changes
+
+- feat(materialized-views): `derive` — a post-aggregate projection over a finished MV row (#1007)
+
+  `aggregate` accepts reducers only, so an MV row could carry every input a
+  derived value needs and still not express it: `max(0, netTotal - paid)` is not
+  a reduction. The subtraction had to happen in a consumer, leaving the rule half
+  in the store and half out — the exact split a materialized view exists to
+  remove.
+
+  ```ts
+  withMaterializedView({
+    unionSources: [...],
+    groupBy: ['billId'],
+    aggregate: { paid: sum('paid'), netTotal: sum('netTotal') },
+    derive: (row, exact) => ({ toPay: exact.max(0, exact.sub(row.netTotal, row.paid)) }),
+    rowKey: (row) => row.billId,
+  })
+  ```
+
+  Deliberately the narrow version, and the narrowness is what makes it safe under
+  incremental recompute: **pure, single-row, no cross-row access, no second
+  aggregation pass.** It only ever sees the row the reducer just produced, so a
+  refresh triggered by one source write recomputes it correctly without the
+  engine needing to know anything about the function. Applies to every MV form —
+  union, projection and query — always as the last step before materialisation.
+
+  - Returning `null` / `undefined` leaves the row unchanged.
+  - Returning a **group key** throws `MaterializedViewConfigError`: a group key is
+    the row's identity and feeds `rowKey`, so rewriting it would silently re-home
+    the row into a bucket it was not aggregated for.
+
+  **Money is exact, by construction.** A field declared in `moneyFields` reaches
+  `derive` decoded — the decimal string a reader sees, not the scaled integer the
+  reducer left behind — and the result is quantised through its descriptor on the
+  way to storage. Doing the arithmetic in floats would defeat that: `10.05 - 0.10`
+  is `9.950000000000001`, which the quantiser correctly refuses rather than
+  storing drift. So `derive` receives a second argument, `exact`, whose
+  operations run in scaled BigInt and cannot introduce a representation error.
+
+  New public export **`exactMath`** (type `ExactMath`, operand type
+  `ExactOperand`) — `add` / `sub` / `neg` / `min` / `max` / `cmp` over decimal
+  strings, numbers and bigints. Deliberately the additive set only: multiplication
+  and division need a rounding policy, and that is a decision the caller must make
+  explicitly rather than one the helper should guess.
+
+### Patch Changes
+
+- fix(codemods): rows for the reducers that left the root barrel, and a guard so the next removal cannot go unrecorded (#1011)
+
+  The shipped `@noy-db/hub/codemods/0.4.0-pre.json` had rows for the
+  `@noy-db/hub/aggregate` → `/reduce` subpath move and the `aggregate` → `reduce`
+  identifier, but **no row for the reducer factories themselves leaving the root
+  barrel**. A consumer running the map-driven sweep therefore got a clean result
+  and a broken `import { sum } from '@noy-db/hub'`.
+
+  Adds `import-move` rows for **`sum`, `count`, `avg`, `min`, `max`** →
+  `@noy-db/hub/reduce`, each marked `safeGlobalReplace: false` — they are ordinary
+  English words that match prose and unrelated identifiers, the same trap the
+  `aggregate` row exists to flag.
+
+  **The guard behind it.** The existing checks validated the rows the map _does_
+  carry (subpaths against the real `exports`, option keys against the live
+  source); nothing asserted the other direction, so the map could silently stop
+  being a complete sweep. That is worse than having no map, because a clean sweep
+  reads as "nothing to migrate".
+
+  The root-barrel golden now carries a `retired` ledger: removing an export means
+  moving its name there, and the codemod suite fails unless every retired name has
+  a migration row. Additions to the root barrel were already visible (the baseline
+  had to be edited); removals now are too.
+
+  One check is deliberately **not** implemented, and the reason is worth recording:
+  a row cannot be validated as _not_ stale, because it records `from` (an
+  identifier) and `to` (a destination path) but not the path the symbol moved
+  _from_. `SyncEngine → @noy-db/hub/sync` is correct — it describes
+  `@noy-db/hub/team` dropping a re-export while the root barrel still exports the
+  name — yet is indistinguishable from a stale row. Adding a `fromPath` to the row
+  schema would make that check expressible.
+
 ## 0.6.0-pre.6
 
 ### Patch Changes
