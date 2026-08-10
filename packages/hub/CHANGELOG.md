@@ -1,5 +1,74 @@
 # Changelog — hub
 
+## 0.6.0-pre.9
+
+### Minor Changes
+
+- feat(periods): `reopenPeriod` / `reclosePeriod` — close is a three-state lifecycle (#1022)
+
+  The service offered two states, open and closed. Real accounting close has three
+  — **open / closed / reopened**. A month gets closed and then a missing invoice
+  arrives, a filing is rejected and must be amended, or an error surfaces during
+  review. The accountant reopens, corrects, and recloses. That is routine, not
+  exceptional, and it is supposed to leave a trail.
+
+  ```ts
+  await vault.reopenPeriod("2026-06", {
+    partition: [clientId, "vat"], // optional — scopes to one timeline (#1005)
+    until: "2026-07-15T00:00:00.000Z", // optional — re-seals itself, nobody acts
+    reason: "client sent a missing invoice",
+  });
+  // …corrections…
+  await vault.reclosePeriod("2026-06", { partition: [clientId, "vat"] });
+
+  await vault.listPeriodReopens("2026-06", { partition: [clientId, "vat"] });
+  // [{ op: 'reopen', at, by, reason }, { op: 'reclose', at, by }, …]
+  ```
+
+  **The close record is never touched.** Reopen/reclose events are appended to a
+  `_period_reopens/<key>` companion, the same pattern freeze / archive /
+  target-purge use to keep `_periods/<name>` byte-immutable — because a reopen
+  that rewrote the close would destroy the evidence that the close happened. Each
+  event is ledgered, so the chain reads _closed at T1, reopened at T2 by U,
+  reclosed at T3_. Unlike the other companions, which are single-shot and
+  idempotent, this one is an **append-only list**: the cycle repeats and the
+  sequence is the audit record.
+
+  **A reopen withdraws the period's veto and nothing else.** Record-level rules
+  stay in force: a sent receipt under `immutableGuard` is still locked inside a
+  reopened month, because guards are a separate gate handler registered ahead of
+  the period gate and every handler must pass. Period state can only ever _widen_
+  what the record-level rule already permits — consumers do not need to re-derive
+  that layering.
+
+  **A bounded window re-seals itself.** `until` is compared against the clock on
+  every write check, so a lapsed window needs no sweep, no timer and no cache
+  invalidation to take effect. Omit it for a window that stays open until an
+  explicit `reclosePeriod`.
+
+  **Partition-scoped, unlike freeze/archive.** Those three refuse a partitioned
+  period because they sweep a write-time window across the whole ciphertext store.
+  Reopen changes no stored bytes — it is a pure logical state change — so it
+  composes with per-`(subject, layer)` timelines cleanly.
+
+  `PeriodRecord` gains return-only `reopenedAt` / `reopenedBy` / `reopenedUntil` /
+  `reopenReason` / `reclosedAt` / `reopenCount`, merged on read from the companion
+  and never written into the chained record.
+
+### Patch Changes
+
+- feat(introspection): re-export `StandardSchemaV1Issue` from `@noy-db/hub/introspection` (#1021)
+
+  `/introspection` is the seam a describe/UI consumer binds — there is no `/ui`
+  subpath and none is planned (#1002). It already carried `CollectionDescription`,
+  `DescribedField`, `DescribeOptions`, `FieldMeta` and `SemanticType`, but
+  `StandardSchemaV1Issue` was root-only, so a consumer wanting the narrow seam
+  still had to reach into the whole-library root for one type.
+
+  Type-only re-export: no runtime surface, nothing to tree-shake. A describe/UI
+  consumer can now bind `@noy-db/hub/introspection` alone and be coupled to a
+  contract that unrelated root-export changes cannot break.
+
 ## 0.6.0-pre.8
 
 ### Patch Changes

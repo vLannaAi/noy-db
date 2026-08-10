@@ -1,5 +1,13 @@
 # Changelog — to-memory
 
+## 0.6.0-pre.9
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.9
+
 ## 0.6.0-pre.8
 
 ### Patch Changes
