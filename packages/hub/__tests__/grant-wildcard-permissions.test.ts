@@ -184,6 +184,44 @@ describe('#1010 — a collection created AFTER a grant denies honestly (complete
     expect(await vault.collection<Thing>('late').list()).toEqual([{ id: 'l1', n: 7 }])
   })
 
+  /**
+   * The distinction the deny-on-miss check must not lose: a SECOND LIVE HANDLE
+   * for the same principal (a second tab, a second `createNoydb` over one
+   * store) opened before a collection existed holds a keyring snapshot without
+   * that DEK — but the key is already on its own keyring file, because whoever
+   * first touched the collection persisted it there. That principal is stale,
+   * not unauthorized, and denying them breaks multi-tab propagation.
+   */
+  it('a second live handle for the SAME user picks up a DEK minted after it opened', async () => {
+    const store = inlineMemory()
+    const a = await createNoydb({ store, user: 'ann', secret: 'ann-secret-2026', teamStrategy: withTeam() })
+    const b = await createNoydb({ store, user: 'ann', secret: 'ann-secret-2026', teamStrategy: withTeam() })
+    const va = await a.openVault(V)
+    const vb = await b.openVault(V) // opened BEFORE `late` exists
+
+    await va.collection<Thing>('late').put('x', { id: 'x', n: 1 })
+
+    expect(await vb.collection<Thing>('late').list()).toEqual([{ id: 'x', n: 1 }])
+  })
+
+  it('the same holds for a grantee whose handle predates the collection but whose grant does not', async () => {
+    const store = inlineMemory()
+    const owner = await seededOwner(store)
+    await owner.grant(V, {
+      userId: 'belle', displayName: 'Belle', role: 'admin',
+      secret: 'belle-secret-2026', allowWeakSecret: true,
+    })
+    const belle = await createNoydb({ store, user: 'belle', secret: 'belle-secret-2026', teamStrategy: withTeam() })
+    const vb = await belle.openVault(V)
+
+    // Belle's own second handle mints + persists the DEK for a new collection;
+    // the first handle must adopt it rather than deny.
+    const belle2 = await createNoydb({ store, user: 'belle', secret: 'belle-secret-2026', teamStrategy: withTeam() })
+    await (await belle2.openVault(V)).collection<Thing>('fresh').put('f1', { id: 'f1', n: 3 })
+
+    expect(await vb.collection<Thing>('fresh').list()).toEqual([{ id: 'f1', n: 3 }])
+  })
+
   it('creating a brand-new collection still works for an entitled writer', async () => {
     const store = inlineMemory()
     const owner = await seededOwner(store)
