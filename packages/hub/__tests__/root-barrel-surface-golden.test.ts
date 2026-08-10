@@ -37,6 +37,13 @@ import * as index from '../src/index.js'
 interface Surface {
   readonly values: readonly string[]
   readonly types: readonly string[]
+  /**
+   * Names that USED to be exported from the root barrel and no longer are
+   * (#1011). Move an export's name here when you remove it — the codemod-map
+   * suite reads this list and requires a migration row for every entry, which
+   * is what stops a root-barrel removal from shipping unannounced.
+   */
+  readonly retired?: readonly string[]
 }
 
 function read(url: string): string {
@@ -94,6 +101,26 @@ describe('@noy-db/hub — root barrel golden export surface', () => {
 
   it('value exports in source match the baseline (source parse)', () => {
     expect(uniqSort(parsed.values)).toEqual([...baseline.values].sort())
+  })
+
+  // #1011 — the `retired` ledger. Additions to the root barrel were always
+  // visible (the baseline had to be edited), but a REMOVAL was equally quiet:
+  // you deleted the export, deleted its baseline line, and the suite went
+  // green with nothing recording that a public name had vanished. A consumer's
+  // only warning was a build error in their own tree.
+  //
+  // Removing an export now means MOVING its name into `retired`, which the
+  // codemod-map suite reads to demand a migration row for it. Two cheap
+  // assertions keep the ledger honest.
+  it('never lists a retired symbol that is still exported', () => {
+    const live = new Set([...baseline.values, ...baseline.types])
+    const resurrected = (baseline.retired ?? []).filter((name) => live.has(name))
+    expect(resurrected, 'retired symbols must not also be exported').toEqual([])
+  })
+
+  it('keeps the retired ledger free of duplicates', () => {
+    const retired = baseline.retired ?? []
+    expect(retired).toEqual(uniqSort([...retired]))
   })
 
   it('type exports match the frozen baseline (source parse)', () => {

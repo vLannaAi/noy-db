@@ -654,6 +654,46 @@
       "safeGlobalReplace": true,
       "section": "§3",
       "note": "Pod-write option; refused rather than ignored as of 0.6.0-pre.3 (#991)."
+    },
+    {
+      "from": "sum",
+      "to": "@noy-db/hub/reduce",
+      "kind": "import-move",
+      "safeGlobalReplace": false,
+      "section": "§5",
+      "note": "Same name, new home: the reducer factories were pruned off the root barrel and republished at `@noy-db/hub/reduce` in the 0.4.0-pre line (§5). Edit the import, not the identifier — and note these names are ordinary English, so this row is NOT safe to replace globally."
+    },
+    {
+      "from": "count",
+      "to": "@noy-db/hub/reduce",
+      "kind": "import-move",
+      "safeGlobalReplace": false,
+      "section": "§5",
+      "note": "Same name, new home: the reducer factories were pruned off the root barrel and republished at `@noy-db/hub/reduce` in the 0.4.0-pre line (§5). Edit the import, not the identifier — and note these names are ordinary English, so this row is NOT safe to replace globally."
+    },
+    {
+      "from": "avg",
+      "to": "@noy-db/hub/reduce",
+      "kind": "import-move",
+      "safeGlobalReplace": false,
+      "section": "§5",
+      "note": "Same name, new home: the reducer factories were pruned off the root barrel and republished at `@noy-db/hub/reduce` in the 0.4.0-pre line (§5). Edit the import, not the identifier — and note these names are ordinary English, so this row is NOT safe to replace globally."
+    },
+    {
+      "from": "min",
+      "to": "@noy-db/hub/reduce",
+      "kind": "import-move",
+      "safeGlobalReplace": false,
+      "section": "§5",
+      "note": "Same name, new home: the reducer factories were pruned off the root barrel and republished at `@noy-db/hub/reduce` in the 0.4.0-pre line (§5). Edit the import, not the identifier — and note these names are ordinary English, so this row is NOT safe to replace globally."
+    },
+    {
+      "from": "max",
+      "to": "@noy-db/hub/reduce",
+      "kind": "import-move",
+      "safeGlobalReplace": false,
+      "section": "§5",
+      "note": "Same name, new home: the reducer factories were pruned off the root barrel and republished at `@noy-db/hub/reduce` in the 0.4.0-pre line (§5). Edit the import, not the identifier — and note these names are ordinary English, so this row is NOT safe to replace globally."
     }
   ]
 }

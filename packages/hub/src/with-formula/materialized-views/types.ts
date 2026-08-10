@@ -4,6 +4,7 @@ import type { ReduceSpec, Reduction } from '../../with-lookup/reduce/reduction.j
 import type { GroupedReduction } from '../../with-lookup/reduce/groupby.js'
 import type { JoinStrategy } from '../../kernel/query/join.js'
 import type { MoneyDescriptor } from '../../via/money/descriptor.js'
+import type { ExactMath } from '../../via/money/exact.js'
 import type { I18nTextDescriptor } from '../../via/i18n/core.js'
 
 /**
@@ -277,6 +278,57 @@ export interface MaterializedViewSpec<TRow extends Record<string, unknown>> {
    * UNION-mode only. Ignored if {@link query} is set.
    */
   aggregate?: ReduceSpec
+  /**
+   * Post-aggregate projection over ONE finished row (#1007).
+   *
+   * `aggregate` accepts reducers only, so a row can carry every input a
+   * derived value needs and still not express it — `max(0, netTotal - paid)`
+   * is not a reduction. `derive` closes that gap: it receives the row the
+   * grouping/aggregation pipeline just produced and returns a patch merged
+   * onto it, immediately before materialisation.
+   *
+   * ```ts
+   * aggregate: { paid: sum('paid'), netTotal: sum('netTotal') },
+   * derive: (row) => ({ toPay: Math.max(0, row.netTotal - row.paid) }),
+   * ```
+   *
+   * Deliberately narrow, and the narrowness is what keeps it safe under
+   * incremental recompute: **pure, single-row, no cross-row access, no second
+   * aggregation pass.** It only ever sees the row the reducer just produced,
+   * so a refresh triggered by one source write recomputes it correctly without
+   * the engine needing to know anything about the function.
+   *
+   * Returning `null` / `undefined` leaves the row unchanged. Returned keys
+   * that collide with a {@link groupBy} field throw
+   * `MaterializedViewConfigError` — a group key is the row's identity and
+   * feeds {@link rowKey}, so rewriting it would silently re-home the row.
+   *
+   * **Money:** money leaves a reducer as an exact decimal string, and
+   * `Number(a) - Number(b)` would put it straight back through binary floating
+   * point — `10.05 - 0.10` becomes `9.950000000000001`, which the money
+   * quantiser then refuses rather than storing drift. So `derive` receives
+   * {@link ExactMath} as its second argument; it works in scaled BigInt and
+   * cannot introduce a representation error:
+   *
+   * ```ts
+   * moneyFields: { netTotal: THB, paid: THB, toPay: THB },
+   * derive: (row, exact) => ({ toPay: exact.max(0, exact.sub(row.netTotal, row.paid)) }),
+   * ```
+   *
+   * Declare the derived field in {@link moneyFields} and the result is
+   * quantised through that descriptor before storage, exact at its scale.
+   *
+   * Note the one place `TRow` under-describes what arrives: a field declared
+   * in {@link moneyFields} reaches `derive` DECODED — the decimal string a
+   * reader would see, not the scaled integer the reducer left behind — even
+   * where `TRow` types it as `number` (which is what the arms' `map` emits).
+   * `ExactMath` accepts both, which is why its operations are the right tool
+   * here and why no cast is needed.
+   *
+   * Applies to every MV form (union, projection, and query), always as the
+   * last step before rows are materialised.
+   */
+  derive?: (row: TRow, exact: ExactMath) => Record<string, unknown> | null | undefined
   /**
    * Money descriptors for the UNION-mode aggregate, keyed by the
    * OUTPUT/intermediate field name as it appears in the mapped row and

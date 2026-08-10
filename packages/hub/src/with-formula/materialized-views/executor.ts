@@ -9,6 +9,8 @@ import { wrapDbWithPredicates } from './registry.js'
 import { groupAndReduce } from '../../with-lookup/reduce/groupby.js'
 import { canonicalGroupKey } from '../../with-lookup/reduce/canonical-key.js'
 import { applyI18nLocale, type I18nTextDescriptor } from '../../via/i18n/core.js'
+import { quantizeMoneyFields, decodeMoneyFields } from '../../via/money/normalize.js'
+import { exactMath } from '../../via/money/exact.js'
 import { putDerivedOutput, type PutDerivedOutputCtx } from '../../kernel/via/dispatch.js'
 
 /**
@@ -228,6 +230,57 @@ function finalizeMappedRows<TRow extends Record<string, unknown>>(
 }
 
 /**
+ * Apply the spec's `derive` to each finished row (#1007).
+ *
+ * Three rules, all of them about keeping the hook narrow enough that the
+ * engine never has to reason about the function:
+ *
+ *  - a `null` / `undefined` return leaves the row untouched;
+ *  - a returned key that collides with a `groupBy` field is refused — group
+ *    keys are the row's identity and feed `rowKey`, so letting `derive`
+ *    rewrite one would silently re-home the row into a different bucket than
+ *    the one it was aggregated for;
+ *  - a derived field declared in `moneyFields` is quantised through its
+ *    descriptor, so the stored value is exact at the declared scale instead of
+ *    whatever the user's arithmetic produced.
+ *
+ * @internal
+ */
+function applyDerive<TRow extends Record<string, unknown>>(
+  spec: MaterializedViewSpec<TRow>,
+  rows: ReadonlyArray<Record<string, unknown>>,
+): ReadonlyArray<Record<string, unknown>> {
+  const groupFields = new Set<string>(
+    spec.groupBy === undefined ? [] : typeof spec.groupBy === 'string' ? [spec.groupBy] : spec.groupBy,
+  )
+  return rows.map((row) => {
+    // `derive` sees the row the way a READER would: money decoded to its
+    // canonical decimal form, not the scaled integer the reducer left behind.
+    // Handing over `1005` where the schema says `10.05` would make every
+    // derived money expression quietly wrong by a factor of the scale.
+    // `'raw'` keeps it at the exact decimal rather than a locale-formatted
+    // string, which is what `exact.*` consumes.
+    const view = spec.moneyFields ? decodeMoneyFields(row, spec.moneyFields, 'raw') : row
+    const patch = spec.derive!(view as TRow, exactMath)
+    if (patch === null || patch === undefined) return row
+    for (const key of Object.keys(patch)) {
+      if (groupFields.has(key)) {
+        throw new MaterializedViewConfigError(
+          `Materialized view "${spec.name}": derive() returned the group key "${key}". ` +
+            'A group key is the row\'s identity and feeds rowKey — rewriting it would re-home the ' +
+            'row into a bucket it was not aggregated for. Emit a differently-named field instead.',
+        )
+      }
+    }
+    // Quantise the PATCH only, then merge onto the original row. Quantising the
+    // merged row would re-scale the untouched money fields a second time, since
+    // those are still in stored form.
+    const stored = spec.moneyFields ? quantizeMoneyFields(patch, spec.moneyFields) : patch
+    return { ...row, ...stored }
+  })
+}
+
+/**
  * Materialize a projection-form MV (#810): hydrate the primary source
  * rows, resolve forward FK legs through the same `.join()` machinery
  * the UNION arms use, attach reverse "collect" legs via one
@@ -417,6 +470,11 @@ export const MaterializedViewExecutor = {
       const q = spec.query!(ctxForQuery)
       rows = await materializeQueryResult(q, spec.name, spec.i18nLocale, spec.i18nFields)
     }
+
+    // #1007 — the post-aggregate projection. Applied here, after every form has
+    // produced its finished rows, so union / projection / query all get the
+    // same single definition of "last step before materialisation".
+    if (spec.derive) rows = applyDerive(spec, rows)
 
     // #777 — exclude this MV's OWN previously-stamped output rows from the
     // input scan. A same-collection Query-form MV copies the whole source row
