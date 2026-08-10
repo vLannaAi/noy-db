@@ -73,10 +73,44 @@ export const DEFAULT_CROSS_JOIN_MAX_ROWS = 50_000
  * or aggregating over a joined alias silently bucketed every row under
  * `undefined`, because these terminals never apply join legs at all.
  *
- * Refusing is the honest answer here rather than reordering: unlike `.where()`,
- * a joined aggregation is a genuine semantic question (which side's
- * cardinality does `count()` report?) that the DSL has not answered. A
- * consumer gets a message naming the alias instead of a plausible wrong number.
+ * Refusing rather than reordering is a DELIBERATE, REVIEWED DECISION
+ * (2026-08-10), not an oversight. What follows is why, so it is not
+ * re-litigated from scratch — and so nobody "fixes" it for the wrong reason.
+ *
+ * It is NOT a cardinality problem. A ref join is an equi-join on the target's
+ * PRIMARY KEY, so every left row matches at most one right record and the row
+ * count is constant across legs (see `join.ts`). Aggregating over joined rows
+ * is perfectly well-defined; `count()` is unambiguous. Anyone who reads this
+ * guard as "the semantics are unclear" has the wrong model.
+ *
+ * The actual blocker is that the Via pipeline is LEFT-SCOPED. `aggregate()`
+ * runs `this.source.via.wrapReducers(spec)`, which resolves `postureFor(field)`
+ * against the LEFT collection's field map. For `sum('client.balance')` that map
+ * has no entry, so two things silently do not happen:
+ *
+ *   - money's exact-BigInt reducer rewrite is skipped, and a generic sum runs
+ *     over stored scaled-integer strings — silently wrong numbers;
+ *   - `refuseUnqueryableReducers` does not fire, so the `queryable: 'none'`
+ *     gate that would refuse the field never applies.
+ *
+ * A gate that silently does not apply is worse than a missing feature, which
+ * is why this refuses instead of guessing. Supporting joined aggregation means
+ * resolving a joined field's posture and reducers from the RIGHT collection's
+ * Via pipeline (via `joinContext.resolveSource`), plus merging right-side
+ * change streams into the live-reduction upstreams the way `Query.live()`
+ * already does — otherwise a live joined aggregate silently stops updating.
+ * That is the work. It is not "apply the legs here".
+ *
+ * Two things that are already handled, so they are not reasons to defer: the
+ * MV dependency analyzer already treats `plan.joins` targets as sources and
+ * folds them into the queryHash, and `.crossJoin()` — whose clause lives in
+ * the clause list — already aggregates correctly today. The error below points
+ * there because it is a real answer, not a consolation.
+ *
+ * Deliberately NOT tracked as an issue: no consumer has asked, and #984 is the
+ * cautionary tale — a speculative deferral whose premises had drifted out of
+ * sync with the code by the time anyone re-read it. Build this when a real
+ * query needs it, and design it against that query.
  */
 function assertNoJoinAliasField(
   fields: readonly string[],
