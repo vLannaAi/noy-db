@@ -1,5 +1,39 @@
 # Changelog — hub
 
+## 0.6.0-pre.8
+
+### Patch Changes
+
+- fix(materialized-views): a derived money field is stored in the row's decimal shape, not the scaled-integer storage form (#1018)
+
+  `derive` (#1007) canonicalized a declared money field into the SCALED-INTEGER
+  form a collection uses for storage. But an MV row's money fields are not in that
+  form: the money-aware reducers emit `formatScaledInt(...)`, an exact decimal
+  string, and that is what lands in the output collection. So the derived field
+  came back as the scaled integer beside correctly-decoded siblings:
+
+  ```
+  netTotal   = "10000.00"    ← decimal, from the reducer
+  paid       = "0.00"        ← decimal, from the reducer
+  toPay      = "1000000"     ← scaled integer  ✘  100× the true value
+  ```
+
+  Silent and directionally plausible — a large positive balance where a large
+  positive balance belongs — so a test asserting "outstanding is greater than
+  zero" passes while every displayed amount is 100× too high, on the number a
+  client is asked to pay.
+
+  Derived money is now canonicalized into the same decimal shape as the
+  aggregated fields beside it. Precision handling is unchanged: the same
+  `parseToScaledInt` and the same `MoneyPrecisionError`, so a value that cannot be
+  represented at the declared scale is still refused rather than silently rounded.
+  Only the output shape differs.
+
+  Three round-trip tests were added asserting exact decimal equality — including
+  one guarding explicitly against the scaled integer — since the reported failure
+  survives any assertion weaker than equality. The workaround of omitting the
+  field from `moneyFields` is no longer needed; declare it and it round-trips.
+
 ## 0.6.0-pre.7
 
 ### Minor Changes
