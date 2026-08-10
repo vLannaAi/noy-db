@@ -31,6 +31,12 @@ export { jsonSchemaToFields } from './fields.js'
 export type { SchemaIntrospection } from './types.js'
 export type { FieldMeta, SemanticType } from './field-meta.js'
 export type { CollectionDescription, DescribedField, DescribeOptions } from './describe.js'
+// #1021 — the last symbol a describe/UI consumer needed that lived only on the
+// root barrel. `/introspection` is the seam such a consumer binds (there is no
+// `/ui` subpath and none is planned — #1002), so binding it should not force a
+// second import from the whole-library root just for validation issues.
+// Type-only re-export: no runtime surface, nothing to tree-shake.
+export type { StandardSchemaV1Issue } from '../../kernel/schema.js'
 export { applyListProjection } from './projection.js'
 export type { ListProjectionOptions } from './projection.js'
 // #947 Task 3 — `Vault.listBehaviors()`'s typed enumeration of the five

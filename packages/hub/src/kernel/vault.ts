@@ -72,7 +72,7 @@ import {
 import { ForgetStrategyNotConfiguredError } from './errors.js'
 import type { VaultFrame } from '../with-fork/shadow/vault-frame.js'
 import type { ConsentContext, ConsentAuditEntry, ConsentAuditFilter, ConsentOp } from '../with-audit/consent/consent.js'
-import { VaultPeriods, type PeriodScope, type PeriodGuardPrior } from '../with-audit/periods/vault-facade.js'
+import { VaultPeriods, type PeriodScope, type PeriodGuardPrior, type ReopenPeriodOptions, type PeriodScopeWithReason } from '../with-audit/periods/vault-facade.js'
 import { VaultLinks } from '../with-shape/links/vault-facade.js'
 import {
   RefRegistry,
@@ -131,6 +131,7 @@ import { expandRefsWithSatellites } from '../with-shape/satellites/forget.js'
 import { migrateSatelliteCek } from '../with-shape/satellites/migrate-cek.js'
 import {
   type PeriodRecord,
+  type PeriodReopenEvent,
   type ClosePeriodOptions,
   type OpenPeriodOptions,
   purgeMarkersOn,
@@ -3153,6 +3154,21 @@ export class Vault {
    */
   async purgePeriodTargets(name: string, options?: PeriodScope): Promise<PeriodRecord> {
     return this.periods.purgePeriodTargets(name, options)
+  }
+
+  /** Return a closed period to writable (#1022); logged append-only, close chain untouched. */
+  async reopenPeriod(name: string, options?: ReopenPeriodOptions): Promise<PeriodRecord> {
+    return this.periods.reopenPeriod(name, options)
+  }
+
+  /** Seal a reopened period again (#1022) rather than waiting for its `until` to lapse. */
+  async reclosePeriod(name: string, options?: PeriodScopeWithReason): Promise<PeriodRecord> {
+    return this.periods.reclosePeriod(name, options)
+  }
+
+  /** The append-only reopen/reclose log for one period (#1022), in order. */
+  async listPeriodReopens(name: string, options?: PeriodScope): Promise<readonly PeriodReopenEvent[]> {
+    return this.periods.listPeriodReopens(name, options)
   }
 
   /** @internal — called by the gate bus before put/delete. */

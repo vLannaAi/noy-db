@@ -1267,7 +1267,16 @@ const KERNEL_SURFACE_BUDGET = {
   // function — no logic change), freeing headroom for the new public
   // `listBehaviors()` delegator (+ its import line) added in the same change.
   // Net: still 3703 (measured split('\n').length) — same ceiling, zero slack.
-  'packages/hub/src/kernel/vault.ts': 3703,
+  // Bumped 3703→3716 (#1022, reopen lifecycle): THREE new public delegators —
+  // `reopenPeriod` / `reclosePeriod` / `listPeriodReopens` — plus one import
+  // line. Every one is a 3-line pass-through; the whole lifecycle (the
+  // append-only companion log, the effective-state resolution, the guard-cache
+  // merge) lives in `with-audit/periods/`, which is what this ceiling is for.
+  // Bumped rather than shrunk because the periods service already publishes its
+  // other seven entry points here (close/open/freeze/archive/purgeTargets/
+  // list/get) and splitting one lifecycle across two surfaces to buy 12 lines
+  // would cost more in legibility than the ceiling is protecting.
+  'packages/hub/src/kernel/vault.ts': 3716,
   // Bumped 3960→3962 (#822 period-summary push symmetry, 2026-07-26): two lines wiring
   // the vault's existing `onDirty` into VaultPeriods so `closePeriod` marks the `_periods`
   // summary dirty and push carries it. The decision (which reserved collections push and
