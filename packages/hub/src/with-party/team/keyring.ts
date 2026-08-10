@@ -1515,6 +1515,37 @@ async function collectionHasRecords(
   return ids.length > 0
 }
 
+/**
+ * Re-read this principal's persisted keyring and adopt the DEK for one
+ * collection if it has appeared there since this handle unlocked (#1010).
+ *
+ * Returns the DEK (also caching it into `keyring.deks`) or `null` when the
+ * persisted keyring genuinely does not carry it. Only ever called on the
+ * miss path, so an up-to-date handle never pays for it.
+ *
+ * @internal
+ */
+async function reloadPersistedDEK(
+  store: NoydbStore,
+  vault: string,
+  keyring: UnlockedKeyring,
+  collectionName: string,
+): Promise<EnclaveKey | null> {
+  if (!keyring.kek) return null
+  const found = await readKeyringFile(store, vault, keyring.userId)
+  const wrapped = found?.file.deks[collectionName]
+  if (wrapped === undefined) return null
+  try {
+    const dek = await unwrapKey(wrapped, keyring.kek)
+    keyring.deks.set(collectionName, dek)
+    return dek
+  } catch {
+    // A DEK that will not unwrap under this KEK is corruption, not access —
+    // fall through to the caller's denial rather than masking it as success.
+    return null
+  }
+}
+
 export async function ensureCollectionDEK(
   store: NoydbStore,
   vault: string,
@@ -1573,6 +1604,18 @@ export async function ensureCollectionDEK(
         // whose keyring is missing a DEK. Creating a genuinely new collection
         // finds no records and mints exactly as before.
         if (await collectionHasRecords(store, vault, collectionName)) {
+          // Before denying: the in-memory keyring may simply be STALE. A DEK is
+          // minted lazily by whichever handle first touches a collection and
+          // persisted to the keyring file — so a second live handle for the
+          // SAME principal (a second tab, a second `createNoydb` over one
+          // store) that was opened before the collection existed holds a
+          // keyring snapshot without it. That principal is not unauthorized;
+          // their own key is already on disk. Re-read it.
+          //
+          // This is what separates "my snapshot is behind" from "I was granted
+          // before this collection existed": only the latter finds nothing.
+          const refreshed = await reloadPersistedDEK(store, vault, keyring, collectionName)
+          if (refreshed) return refreshed
           throw new NoAccessError(
             `No access — user "${keyring.userId}" is entitled to collection "${collectionName}" ` +
               'but holds no key for it, because the collection was created AFTER their grant. ' +
