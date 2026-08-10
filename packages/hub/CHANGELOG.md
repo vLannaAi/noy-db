@@ -1,5 +1,66 @@
 # Changelog — hub
 
+## 0.6.0-pre.10
+
+### Patch Changes
+
+- fix(by-peer): a `peerStore()` vault can overwrite an existing record again (#1026)
+
+  A vault backed by `peerStore()` could create and read records but **every
+  overwrite failed** with `ConflictError: expected null, found <n>`, which made
+  the remote-store topology effectively read-only.
+
+  JSON cannot represent `undefined` inside an array:
+  `JSON.stringify([v, c, id, env, undefined])` serialises the trailing argument as
+  `null`. `NoydbStore.put` types it `expectedVersion?: number` — `null` is not a
+  legal value — and a store's guard is `expectedVersion !== undefined`, which
+  `null` passes. So the wire hop silently rewrote **"do not compare-and-set"** into
+  **"assert this record is at version null"**, which no existing record can
+  satisfy. Creates kept working because the check short-circuits when there is no
+  existing record, which is why it presented as "remote stores are read-only"
+  rather than as a serialisation bug.
+
+  Fixed on both sides of the hop: the RPC client trims trailing `undefined`
+  arguments before serialising, and the server normalises a received `null`
+  `expectedVersion` back to `undefined` so a peer running an older by-peer
+  interoperates correctly. Real version conflicts still throw — there is a test
+  pinning that the fix does not disable CAS.
+
+  Also in this change, from the same report:
+
+  - **`Noydb.pull()` / `push()` / `sync()` take a REQUIRED vault name.** Calling
+    `db.pull()` looked up an engine for `undefined` and reported _"No sync adapter
+    configured. Pass a `sync` adapter to createNoydb()"_ — advice for a
+    configuration that was already correct. The two cases are now distinguished:
+    nothing configured at all says so, and a per-vault miss names the vault, lists
+    the vaults that do have engines, and points at the missing argument.
+  - **`@noy-db/by-peer`'s README** sync snippet omitted `syncStrategy: withSync()`
+    and showed `db.pull()` without a vault name; both are now shown.
+
+- fix(pod): carry `_periods` and its companions through a bundle round-trip (#1025)
+
+  Closing a period, exporting with `writeNoydbBundle`, and restoring with
+  `vault.load()` lost **all** close state: `listPeriods()` read back empty.
+
+  `loadAll` deliberately filters out every `_`-prefixed collection, so `dumpVault`
+  carries reserved collections through an explicit allowlist. `_periods` and its
+  four companions were simply not on it.
+
+  The missing row was not the sharp end. The bundle is the backup/restore path, so
+  a restore **discarded the hash-chained evidence that a month was ever closed** —
+  the artifact `closePeriod` exists to produce — and dropped the write gate with
+  it, so the reconstituted vault silently accepted back-dated writes into a sealed
+  month. Silent in both directions: no error on load, none on the write.
+
+  Now carried: `_periods`, `_period_reopens`, `_period_freezes`,
+  `_period_archives`, `_period_target_purges`. The companions matter as much as
+  the close record — a bounded reopen window (`reopenPeriod({ until })`) is state a
+  restore must not lose.
+
+  Imported from the dependency-light `periods/window.ts`, not `periods.ts`, so a
+  bundle in an app that never opted into the periods service still does not drag
+  in the ledger hash-chain machinery.
+
 ## 0.6.0-pre.9
 
 ### Minor Changes
