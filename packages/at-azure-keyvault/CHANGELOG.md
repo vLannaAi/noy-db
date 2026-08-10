@@ -1,5 +1,13 @@
 # Changelog — at-azure-keyvault
 
+## 0.6.0-pre.7
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.7
+
 ## 0.6.0-pre.6
 
 ### Patch Changes
