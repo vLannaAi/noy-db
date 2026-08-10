@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/on-oidc",
-  "version": "0.6.0-pre.10",
+  "version": "0.6.0-pre.11",
   "description": "OAuth/OIDC bridge for noy-db — federated login (LINE, Google, Apple, Okta) with split-key key connector — server never sees plaintext",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

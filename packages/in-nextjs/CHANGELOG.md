@@ -1,5 +1,14 @@
 # @noy-db/in-nextjs
 
+## 0.6.0-pre.11
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.11
+  - @noy-db/in-react@1.0.0-pre.11
+
 ## 0.6.0-pre.10
 
 ### Patch Changes
