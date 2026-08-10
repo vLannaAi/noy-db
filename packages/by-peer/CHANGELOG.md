@@ -1,5 +1,12 @@
 # Changelog — by-peer
 
+## 0.6.0-pre.6
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.6
+
 ## 0.6.0-pre.5
 
 ### Patch Changes
