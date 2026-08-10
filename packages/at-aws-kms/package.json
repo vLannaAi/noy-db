@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/at-aws-kms",
-  "version": "0.6.0-pre.7",
+  "version": "0.6.0-pre.8",
   "description": "AWS KMS sealing key provider for noy-db managed-secret mode — seal/unseal via KMS Encrypt/Decrypt, with KMS access logs.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
