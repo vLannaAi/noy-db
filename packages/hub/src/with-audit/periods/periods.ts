@@ -160,6 +160,7 @@ export {
   PERIOD_FREEZES_COLLECTION,
   PERIOD_ARCHIVES_COLLECTION,
   PERIOD_TARGET_PURGES_COLLECTION,
+  PERIOD_REOPENS_COLLECTION,
   periodExclusiveUpperBound,
 } from './window.js'
 import { PERIODS_COLLECTION } from './window.js'
@@ -195,6 +196,104 @@ export interface TargetPurgeCount {
   readonly label?: string
   readonly role: 'backup' | 'archive'
   readonly purgedCount: number
+}
+
+/**
+ * One entry in a period's append-only reopen/reclose log (#1022).
+ *
+ * Real accounting close is a three-state lifecycle — open / closed / reopened
+ * — not a one-way door. A month gets closed, a missing invoice arrives or a
+ * filing is rejected, the month is reopened, corrected, and reclosed. The audit
+ * value is not the ability to write again; it is the chain being able to say
+ * *closed at T1, reopened at T2 by U, reclosed at T3*.
+ */
+export interface PeriodReopenEvent {
+  readonly op: 'reopen' | 'reclose'
+  /** ISO timestamp the event was recorded. */
+  readonly at: string
+  /** userId of the keyring that performed it. */
+  readonly by: string
+  /**
+   * `reopen` only — ISO instant after which the period re-seals on its own,
+   * with nobody acting. Absent means the window stays open until an explicit
+   * `reclosePeriod`.
+   */
+  readonly until?: string
+  /** Free-text justification, carried verbatim into the audit trail. */
+  readonly reason?: string
+}
+
+/**
+ * Companion holding a period's reopen/reclose history (#1022). Stored in
+ * {@link PERIOD_REOPENS_COLLECTION}, keyed by the period's storage key — kept
+ * OFF the hash-chained `_periods/<name>` record for the same reason freeze and
+ * archive are: reopening must never rewrite the close, or the chain that proves
+ * the close happened is the very thing the reopen destroys.
+ *
+ * `events` is APPEND-ONLY. Where the other companions are single-shot and
+ * idempotent, this one accumulates, because the cycle repeats.
+ */
+export interface PeriodReopenRecord {
+  readonly period: string
+  readonly partition?: PeriodPartition
+  readonly events: readonly PeriodReopenEvent[]
+}
+
+/**
+ * Collapse an append-only reopen log into the return-only fields merged onto a
+ * {@link PeriodRecord} on read.
+ *
+ * Expiry is deliberately NOT resolved here: `reopenedUntil` is carried through
+ * verbatim and compared against the clock at write-guard time, so a bounded
+ * window re-seals on its own without anything having to run.
+ *
+ * @internal
+ */
+export function resolveReopenState(events: readonly PeriodReopenEvent[]): {
+  reopenedAt?: string
+  reopenedBy?: string
+  reopenedUntil?: string
+  reopenReason?: string
+  reclosedAt?: string
+  reopenCount: number
+} {
+  let lastReopen: PeriodReopenEvent | undefined
+  let reclosedAfter: string | undefined
+  let reopenCount = 0
+  for (const e of events) {
+    if (e.op === 'reopen') {
+      lastReopen = e
+      reclosedAfter = undefined
+      reopenCount++
+    } else if (lastReopen !== undefined) {
+      reclosedAfter = e.at
+    }
+  }
+  if (!lastReopen) return { reopenCount }
+  return {
+    reopenedAt: lastReopen.at,
+    reopenedBy: lastReopen.by,
+    ...(lastReopen.until !== undefined && { reopenedUntil: lastReopen.until }),
+    ...(lastReopen.reason !== undefined && { reopenReason: lastReopen.reason }),
+    ...(reclosedAfter !== undefined && { reclosedAt: reclosedAfter }),
+    reopenCount,
+  }
+}
+
+/**
+ * Is this period writable right now on account of a reopen? (#1022)
+ *
+ * Three ways to be sealed again: never reopened, explicitly reclosed after the
+ * last reopen, or a bounded window that has elapsed. The clock is read by the
+ * caller and passed in, so the guard and any diagnostic agree on one instant.
+ *
+ * @internal
+ */
+export function isEffectivelyReopened(period: PeriodRecord, nowIso: string): boolean {
+  if (period.reopenedAt === undefined) return false
+  if (period.reclosedAt !== undefined && period.reclosedAt >= period.reopenedAt) return false
+  if (period.reopenedUntil !== undefined && nowIso > period.reopenedUntil) return false
+  return true
 }
 
 /**
@@ -358,6 +457,19 @@ export interface PeriodRecord {
   readonly targetsPurgedAt?: string
   readonly targetsPurgedBy?: string
   readonly targetsPurged?: readonly TargetPurgeCount[]
+  /** #1022 return-only — collapsed from the `_period_reopens/<key>` append-only
+   *  log on read; NEVER written into the stored `_periods/<name>` record, so a
+   *  reopen cannot disturb the inter-period hash chain. Absent = never reopened.
+   *  `reclosedAt` present (and >= `reopenedAt`) means the window was closed
+   *  again explicitly; `reopenedUntil` in the past means it lapsed on its own.
+   *  Use {@link isEffectivelyReopened} rather than reading these directly. */
+  readonly reopenedAt?: string
+  readonly reopenedBy?: string
+  readonly reopenedUntil?: string
+  readonly reopenReason?: string
+  readonly reclosedAt?: string
+  /** How many times this period has been reopened, ever. */
+  readonly reopenCount?: number
 }
 
 /** Options for `vault.closePeriod()`. */
@@ -547,9 +659,17 @@ export function assertTsWritable(
   const existingRecord = existing?.record ?? null
   const existingPartition = partitionOf(existingRecord)
   const incomingPartition = partitionOf(incomingRecord)
+  // One instant for the whole check, so a bounded reopen window cannot expire
+  // between two periods in the same loop and seal a write half-way.
+  const now = new Date().toISOString()
 
   for (const p of closedPeriods) {
     if (p.kind !== 'closed') continue
+    // #1022 — a reopened period is writable again. This is the ONLY thing a
+    // reopen does: it withdraws the period's veto. It cannot grant a write that
+    // some other gate forbids, because the guard bus ANDs every handler and
+    // record-level guards are registered ahead of this one.
+    if (isEffectivelyReopened(p, now)) continue
     if (p.dateField) {
       const checkRecord = (
         label: string,

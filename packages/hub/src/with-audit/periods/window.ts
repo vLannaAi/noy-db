@@ -24,6 +24,17 @@ export const PERIOD_ARCHIVES_COLLECTION = '_period_archives'
 export const PERIOD_TARGET_PURGES_COLLECTION = '_period_target_purges'
 
 /**
+ * Sibling of {@link PERIODS_COLLECTION} holding reopen/reclose companions (#1022).
+ *
+ * Unlike the freeze / archive / target-purge companions — each a single,
+ * idempotent, once-only record — this one holds an APPEND-ONLY EVENT LIST,
+ * because reopening is a repeating cycle: a month can be closed, reopened,
+ * reclosed, and reopened again. The audit value is the sequence, not the
+ * latest state.
+ */
+export const PERIOD_REOPENS_COLLECTION = '_period_reopens'
+
+/**
  * Exclusive upper bound for a period's delete-marker purge window (#604).
  * Markers carry no business date (empty body), only write-time `_ts`, so freeze
  * purges markers with `_ts < bound`, `bound` being the instant just after the

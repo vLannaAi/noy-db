@@ -15,16 +15,19 @@
 export { withPeriods } from './active.js'
 export type { WithPeriodsOptions } from './active.js'
 export type { PeriodsStrategy } from './strategy.js'
-export type { PeriodScope } from './vault-facade.js'
+export type { PeriodScope, PeriodScopeWithReason, ReopenPeriodOptions } from './vault-facade.js'
 
 export {
   PERIODS_COLLECTION,
   PERIOD_FREEZES_COLLECTION,
   PERIOD_ARCHIVES_COLLECTION,
   PERIOD_TARGET_PURGES_COLLECTION,
+  PERIOD_REOPENS_COLLECTION,
   periodExclusiveUpperBound,
   resolvePeriodKey,
   samePartition,
+  resolveReopenState,
+  isEffectivelyReopened,
   loadPeriods,
   chainAnchor,
   assertTsWritable,
@@ -35,6 +38,8 @@ export {
 export type {
   PeriodPartition,
   PartitionResolver,
+  PeriodReopenEvent,
+  PeriodReopenRecord,
   PeriodRecord,
   PeriodFreezeRecord,
   PeriodArchiveRecord,

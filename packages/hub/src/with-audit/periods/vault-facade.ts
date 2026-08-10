@@ -21,9 +21,12 @@ import {
   PERIOD_FREEZES_COLLECTION,
   PERIOD_ARCHIVES_COLLECTION,
   PERIOD_TARGET_PURGES_COLLECTION,
+  PERIOD_REOPENS_COLLECTION,
   periodExclusiveUpperBound,
   resolvePeriodKey,
   samePartition,
+  resolveReopenState,
+  isEffectivelyReopened,
   type PeriodRecord,
   type PeriodFreezeRecord,
   type PeriodArchiveRecord,
@@ -32,11 +35,30 @@ import {
   type ClosePeriodOptions,
   type OpenPeriodOptions,
   type PeriodPartition,
+  type PeriodReopenEvent,
+  type PeriodReopenRecord,
 } from './periods.js'
 
 /** Selects one period timeline. Omit — or pass an empty tuple — for the vault-wide one (#1005). */
 export interface PeriodScope {
   readonly partition?: PeriodPartition
+}
+
+/** A scoped operation that also records a free-text justification in the audit trail. */
+export interface PeriodScopeWithReason extends PeriodScope {
+  readonly reason?: string
+}
+
+/** Options for `vault.reopenPeriod()` (#1022). */
+export interface ReopenPeriodOptions extends PeriodScopeWithReason {
+  /**
+   * ISO instant after which the period re-seals BY ITSELF, with nobody acting.
+   * Omit for a window that stays open until an explicit `reclosePeriod()`.
+   *
+   * Expiry is evaluated against the clock on every write check, so a lapsed
+   * window needs no sweep, no timer and no cache invalidation to take effect.
+   */
+  readonly until?: string
 }
 
 /** The persisted side of a write, as the period write-guard sees it. */
@@ -435,7 +457,9 @@ export class VaultPeriods {
     const scoped = options === undefined
       ? all
       : all.filter((p) => samePartition(p.partition, options.partition))
-    return scoped.map((p) => {
+    // #1022 — one listing for the whole set, not one read per period.
+    const withReopen = await this.mergeReopenState(scoped)
+    return withReopen.map((p) => {
       const f = freezes.get(p.name)
       let merged = f ? this.mergeFreeze(p, f) : p
       const a = archives.get(p.name)
@@ -466,7 +490,130 @@ export class VaultPeriods {
     if (archive) merged = this.mergeArchive(merged, archive)
     const targetPurge = await this.readReserved<PeriodTargetPurgeRecord>(PERIOD_TARGET_PURGES_COLLECTION, key)
     if (targetPurge) merged = this.mergeTargetPurge(merged, targetPurge)
+    const reopenLog = await this.readReserved<PeriodReopenRecord>(PERIOD_REOPENS_COLLECTION, key)
+    if (reopenLog) merged = { ...merged, ...resolveReopenState(reopenLog.events) }
     return merged
+  }
+
+  /**
+   * The full append-only reopen/reclose log for one period (#1022) — the record
+   * an audit actually asks for, in order. `[]` when never reopened.
+   */
+  async listPeriodReopens(name: string, options?: PeriodScope): Promise<readonly PeriodReopenEvent[]> {
+    const key = resolvePeriodKey(name, options?.partition)
+    const log = await this.readReserved<PeriodReopenRecord>(PERIOD_REOPENS_COLLECTION, key)
+    return log?.events ?? []
+  }
+
+  /**
+   * Return a closed period to a writable state (#1022).
+   *
+   * Close is a three-state lifecycle in practice — open / closed / reopened —
+   * because a month gets closed and then a missing invoice arrives, or a filing
+   * is rejected and must be amended. That is routine, and it is supposed to
+   * leave a trail.
+   *
+   * The `_periods/<key>` record is NOT touched: the reopen is appended to a
+   * companion log, so the inter-period hash chain that proves the close
+   * happened survives the reopen intact. The chain reads *closed at T1,
+   * reopened at T2 by U, reclosed at T3*.
+   *
+   * A reopen withdraws the PERIOD's veto and nothing else. Record-level rules —
+   * an `immutableGuard` on a sent receipt, a frozen field — are separate gate
+   * handlers registered ahead of the period gate, so a reopened month cannot
+   * resurrect a document that is independently locked. Period state can only
+   * ever widen what the record-level rule already permits.
+   *
+   * Reopening an already-open window is allowed and appends another event: that
+   * is how a window gets extended, and the log keeps both.
+   */
+  async reopenPeriod(name: string, options?: ReopenPeriodOptions): Promise<PeriodRecord> {
+    const existing = await this.loadPeriodsCache()
+    const period = this.findPeriod(existing, name, options)
+    if (!period) throw new ValidationError(`reopenPeriod: no period named "${name}"${scopeSuffix(options)}.`)
+    if (period.kind !== 'closed') {
+      throw new ValidationError(
+        `reopenPeriod: period "${name}" is "${period.kind}"; only a closed period can be reopened.`,
+      )
+    }
+    if (options?.until !== undefined && Number.isNaN(Date.parse(options.until))) {
+      throw new ValidationError(`reopenPeriod: unparseable \`until\` "${options.until}".`)
+    }
+    return this.appendReopenEvent(period, options, {
+      op: 'reopen',
+      at: new Date().toISOString(),
+      by: this.deps.userId(),
+      ...(options?.until !== undefined && { until: options.until }),
+      ...(options?.reason !== undefined && { reason: options.reason }),
+    })
+  }
+
+  /**
+   * Seal a reopened period again (#1022), ending the window explicitly rather
+   * than waiting for an `until` to lapse. Appends to the same log, so the
+   * close → reopen → reclose sequence is recoverable in order.
+   */
+  async reclosePeriod(name: string, options?: PeriodScopeWithReason): Promise<PeriodRecord> {
+    const existing = await this.loadPeriodsCache()
+    const period = this.findPeriod(existing, name, options)
+    if (!period) throw new ValidationError(`reclosePeriod: no period named "${name}"${scopeSuffix(options)}.`)
+    const merged = await this.mergeReopenState([period])
+    if (!isEffectivelyReopened(merged[0]!, new Date().toISOString())) {
+      throw new ValidationError(
+        `reclosePeriod: period "${name}"${scopeSuffix(options)} is not currently reopened — ` +
+          'nothing to reclose. A period whose `until` has already lapsed re-sealed on its own.',
+      )
+    }
+    return this.appendReopenEvent(period, options, {
+      op: 'reclose',
+      at: new Date().toISOString(),
+      by: this.deps.userId(),
+      ...(options?.reason !== undefined && { reason: options.reason }),
+    })
+  }
+
+  /** Append one entry to a period's reopen log, ledger it, and invalidate the guard's view. */
+  private async appendReopenEvent(
+    period: PeriodRecord,
+    scope: PeriodScope | undefined,
+    event: PeriodReopenEvent,
+  ): Promise<PeriodRecord> {
+    const key = resolvePeriodKey(period.name, period.partition)
+    const prior = await this.readReserved<PeriodReopenRecord>(PERIOD_REOPENS_COLLECTION, key)
+    const record: PeriodReopenRecord = {
+      period: period.name,
+      ...(hasPartition(period.partition) && { partition: period.partition }),
+      events: [...(prior?.events ?? []), event],
+    }
+    const envelope = await this.writeReserved(PERIOD_REOPENS_COLLECTION, key, record)
+    await this.deps.strategy.appendPeriodLedgerEntry(
+      this.deps.getLedgerOrNull(),
+      this.deps.userId(),
+      envelope,
+      key,
+      PERIOD_REOPENS_COLLECTION,
+    )
+    // The write guard caches merged period records; drop it so the next write
+    // sees the new state rather than the pre-reopen seal.
+    this.periodCache = null
+    void scope
+    return { ...period, ...resolveReopenState(record.events) }
+  }
+
+  /** Merge each period's reopen log onto it. One adapter listing, not one per period. */
+  private async mergeReopenState(periods: readonly PeriodRecord[]): Promise<PeriodRecord[]> {
+    if (periods.length === 0) return []
+    const ids = await this.deps.adapter.list(this.deps.vault, PERIOD_REOPENS_COLLECTION)
+    if (ids.length === 0) return [...periods]
+    const byKey = new Map<string, PeriodReopenRecord>()
+    for (const id of ids) {
+      const r = await this.readReserved<PeriodReopenRecord>(PERIOD_REOPENS_COLLECTION, id)
+      if (r) byKey.set(id, r)
+    }
+    return periods.map((p) => {
+      const log = byKey.get(resolvePeriodKey(p.name, p.partition))
+      return log ? { ...p, ...resolveReopenState(log.events) } : p
+    })
   }
 
   /** Resolve one period within the timeline named by `options` (vault-wide when absent). */
@@ -488,11 +635,21 @@ export class VaultPeriods {
     // vault — avoid a full adapter scan for every put.
     if (existing === null && incoming === null) return
     if (this.periodCache === null) {
-      this.periodCache = await this.deps.strategy.loadPeriods(
+      const loaded = await this.deps.strategy.loadPeriods(
         this.deps.adapter,
         this.deps.vault,
         (env) => this.decryptPeriodRecord(env),
       )
+      // #1022 — the guard reads raw `_periods` records, which carry no reopen
+      // state (it lives in a companion, so the chained record stays immutable).
+      // Merge it in HERE or a reopened period would show as reopened through
+      // `listPeriods()` while the write guard kept refusing writes — an audit
+      // trail saying "open" over a vault that behaves closed.
+      //
+      // Only the window BOUND is cached; whether it has elapsed is decided
+      // against the clock on every check, so a bounded reopen re-seals itself
+      // with no cache invalidation and nothing scheduled.
+      this.periodCache = await this.mergeReopenState(loaded)
     }
     if (this.periodCache.length === 0) return
     this.deps.strategy.assertTsWritable(
