@@ -45,6 +45,29 @@ export interface RpcClientOptions {
   timeoutMs?: number
 }
 
+/**
+ * Drop trailing `undefined` arguments before serialisation (#1026).
+ *
+ * JSON has no `undefined`: `JSON.stringify([a, undefined])` produces
+ * `[a, null]`. For an argument whose absence is meaningful that is not a
+ * lossless round-trip, it is a REWRITE. `NoydbStore.put`'s
+ * `expectedVersion?: number` is exactly such an argument — `undefined` means
+ * "do not compare-and-set", while a store's guard (`expectedVersion !== undefined`)
+ * treats the `null` that arrives as a real assertion, one no existing record can
+ * satisfy. Every overwrite through a peer store therefore failed with
+ * `expected null, found <n>`, making the whole topology look read-only.
+ *
+ * Trimming from the end is safe because a hole in the middle cannot occur: the
+ * store contract only ever has optional parameters last, and an explicitly
+ * passed `undefined` in a trailing slot is indistinguishable from omission by
+ * definition.
+ */
+function trimTrailingUndefined(args: readonly unknown[]): readonly unknown[] {
+  let end = args.length
+  while (end > 0 && args[end - 1] === undefined) end--
+  return end === args.length ? args : args.slice(0, end)
+}
+
 /** Client: wrap a `PeerChannel` in a `call(method, args)` helper. */
 export function createRpcClient(channel: PeerChannel, opts: RpcClientOptions = {}) {
   const timeoutMs = opts.timeoutMs ?? 30_000
@@ -92,7 +115,7 @@ export function createRpcClient(channel: PeerChannel, opts: RpcClientOptions = {
   return {
     async call<T = unknown>(method: string, args: readonly unknown[]): Promise<T> {
       const id = `${Date.now().toString(36)}-${(++counter).toString(36)}`
-      const req: RpcRequest = { t: 'req', id, method, args }
+      const req: RpcRequest = { t: 'req', id, method, args: trimTrailingUndefined(args) }
       return new Promise<T>((resolve, reject) => {
         const timer = setTimeout(() => {
           pending.delete(id)
