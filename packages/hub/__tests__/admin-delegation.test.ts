@@ -197,7 +197,7 @@ describe('admin-grants-admin (bounded delegation).', () => {
 
       // Owner revokes admin-1. Cascade defaults to 'strict', so
       // admin-2 and admin-3 should be wiped too.
-      await ownerDb.revoke(COMP, { userId: 'admin-1', rotateKeys: false })
+      await ownerDb.revoke(COMP, { userId: 'admin-1' })
 
       const usersAfter = await ownerDb.listUsers(COMP)
       expect(usersAfter.map((u) => u.userId)).toEqual(['owner-01'])
@@ -216,7 +216,7 @@ describe('admin-grants-admin (bounded delegation).', () => {
         userId: 'admin-A', displayName: 'AA', role: 'admin', secret: 'aa',
       })
 
-      await ownerDb.revoke(COMP, { userId: 'admin-1', rotateKeys: false })
+      await ownerDb.revoke(COMP, { userId: 'admin-1' })
 
       const users = await ownerDb.listUsers(COMP)
       expect(users.map((u) => u.userId).sort()).toEqual(['admin-A', 'owner-01'])
@@ -233,7 +233,7 @@ describe('admin-grants-admin (bounded delegation).', () => {
         permissions: { invoices: 'rw' },
       })
 
-      await ownerDb.revoke(COMP, { userId: 'admin-1', rotateKeys: false })
+      await ownerDb.revoke(COMP, { userId: 'admin-1' })
 
       const users = await ownerDb.listUsers(COMP)
       expect(users.map((u) => u.userId).sort()).toEqual(['op-1', 'owner-01'])
@@ -255,7 +255,6 @@ describe('admin-grants-admin (bounded delegation).', () => {
 
       await ownerDb.revoke(COMP, {
         userId: 'admin-1',
-        rotateKeys: false,
         cascade: 'warn',
       })
 
@@ -298,7 +297,7 @@ describe('admin-grants-admin (bounded delegation).', () => {
 
       const admin1Db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'admin-1', secret: 'admin-1-pass' })
       await expect(
-        admin1Db.revoke(COMP, { userId: 'admin-2', rotateKeys: false }),
+        admin1Db.revoke(COMP, { userId: 'admin-2' }),
       ).resolves.not.toThrow()
 
       const users = await ownerDb.listUsers(COMP)

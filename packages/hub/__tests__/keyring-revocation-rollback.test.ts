@@ -87,21 +87,28 @@ describe('#1043 — an untrusted store that suppresses the _keyring delete', () 
     expect(await readAsMallory(store, 'd1')).toBe('before-revocation')
   })
 
-  it('2. rotateKeys: false — revocation is a COMPLETE no-op against a hostile store', async () => {
+  it('2. rotation cannot be skipped — the no-op revocation is unreachable (#1043)', async () => {
+    // This test previously asserted the vulnerability: with `rotateKeys: false`
+    // the revoked member kept reading everything, including records written
+    // after the revocation, because the stale keyring still wrapped the live
+    // DEK. That option is gone — revocation always rotates — so the escape
+    // hatch cannot be reached from the public API at all.
     const { store, owner } = await setup()
 
-    await owner.revoke(VAULT, { userId: 'mallory', rotateKeys: false })
+    // Smuggle the old property past the type system — a JS caller, or code
+    // written against the previous version, can still pass it.
+    const opts = { userId: 'mallory', rotateKeys: false } as unknown as { userId: string }
+    await owner.revoke(VAULT, opts)
     expect(store.suppressedDeletes).toContain(`${VAULT}/mallory`)
 
-    // Owner writes new data AFTER the revocation.
     const vault = await owner.openVault(VAULT)
     await vault.collection<Doc>('docs').put('d2', { secret: 'after-revocation' })
 
-    // Without rotation there is no second line of defence: the stale keyring
-    // still wraps the live DEK, so the revoked member reads everything —
-    // including data written after they were revoked.
-    expect(await readAsMallory(store, 'd1')).toBe('before-revocation')
-    expect(await readAsMallory(store, 'd2')).toBe('after-revocation')
+    // It is inert: rotation runs regardless, so the revoked member is locked
+    // out of both the old and the new record even though the hostile store
+    // still holds their keyring file.
+    await expect(readAsMallory(store, 'd1')).rejects.toThrow(NoAccessError)
+    await expect(readAsMallory(store, 'd2')).rejects.toThrow(NoAccessError)
   })
 
   it('3. default rotation — how much does re-keying actually contain?', async () => {

@@ -85,7 +85,7 @@ describe('access control: permission matrix', () => {
     it('can revoke non-owner roles', async () => {
       await ownerDb.grant(COMP, { userId: 'op-01', displayName: 'Op', role: 'operator', secret: 'p', permissions: { invoices: 'rw' } })
       await expect(
-        ownerDb.revoke(COMP, { userId: 'op-01', rotateKeys: false }),
+        ownerDb.revoke(COMP, { userId: 'op-01' }),
       ).resolves.not.toThrow()
     })
 
