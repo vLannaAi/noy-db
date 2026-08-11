@@ -1,5 +1,106 @@
 # Changelog — to-file
 
+## 0.6.0-pre.13
+
+### Minor Changes
+
+- **BREAKING**: remove every deprecated alias export
+
+  17 alias exports are gone. Each had a canonical name that has existed for
+  releases; the aliases only made it possible to write new code against retired
+  vocabulary and never notice.
+
+  `@noy-db/hub` — use the name on the right:
+
+  | Removed                      | Use                       |
+  | ---------------------------- | ------------------------- |
+  | `writeNoydbBundle`           | `writePod`                |
+  | `readNoydbBundle`            | `readPod`                 |
+  | `readNoydbBundleHeader`      | `readPodHeader`           |
+  | `WriteNoydbBundleOptions`    | `WritePodOptions`         |
+  | `ReadNoydbBundleOptions`     | `ReadPodOptions`          |
+  | `NoydbBundleReadResult`      | `PodReadResult`           |
+  | `NoydbBundleHeader`          | `NoydbPodHeader`          |
+  | `NoydbBundleStore`           | `NoydbPodStore`           |
+  | `wrapBundleStore`            | `wrapPodStore`            |
+  | `createBundleStore`          | `createPodStore`          |
+  | `WrappedBundleNoydbStore`    | `WrappedPodNoydbStore`    |
+  | `WrapBundleStoreOptions`     | `WrapPodStoreOptions`     |
+  | `BundleVersionConflictError` | `PodVersionConflictError` |
+  | `BUNDLE_STORE_POLICY`        | `POD_STORE_POLICY`        |
+  | `SubsystemBus`               | `ServiceBus`              |
+
+  `@noy-db/to-file` — `saveBundle` → `savePod`, `loadBundle` → `loadPod`.
+
+  Why now: #1046 found the `bundle` → `pod` rename half-finished, with three
+  first-party packages still on the aliases. A surface golden cannot catch that —
+  it freezes which names exist, and an alias keeps every name present. Deleting
+  the aliases makes the compiler the enforcement mechanism instead.
+
+  NOT renamed: the `.noydb` wire-format constants (`NOYDB_BUNDLE_MAGIC`,
+  `NOYDB_BUNDLE_PREFIX_BYTES`, `NOYDB_BUNDLE_FORMAT_VERSION`,
+  `NOYDB_BUNDLE_FORMAT_VERSION_SIGNED`, `hasNoydbBundleMagic`). These are not
+  aliases — they name the on-disk container format, whose magic bytes are `NDB1`.
+  Also unchanged: `vault.getBundleHandle()` and `BundleIntegrityError`, which are
+  current API rather than retired vocabulary.
+
+### Patch Changes
+
+- to-file: write records atomically (temp-then-rename)
+
+  `put()`, `saveAll()`, and the `exportBlobsToDirectory()` blob/manifest writes
+  used a plain `writeFile`, which truncates the target before writing. A write
+  interrupted partway — a laptop dropping Wi-Fi mid-write to a mounted share, a
+  USB stick pulled during a flush — left a truncated `{id}.json` on disk. That is
+  worse than a lost update: the file no longer parses, so `loadAll()` fails for
+  the whole vault rather than for the one record (and `get()` silently reports the
+  record as absent).
+
+  Writes now stage into a `{path}.{pid}.{n}.tmp` sidecar and `rename` over the
+  target, matching what `@noy-db/to-smb` already does. `rename` is atomic within a
+  directory on POSIX and replaces atomically on Windows, so a reader sees the
+  complete previous file or the complete new one. Orphaned sidecars from a crashed
+  process stay invisible to `list`, `listPage` and `loadAll`, which accept only
+  `.json`.
+
+  This is atomicity of visibility, not durability — surviving a power cut would
+  additionally require fsyncing the file and its directory, which is deliberately
+  not paid per record.
+
+- Finish the `bundle` → `pod` rename (#1046)
+
+  The rename landed on the functions but not on the types, which left the
+  canonical API impossible to adopt: `readPod` declared its options as
+  `ReadNoydbBundleOptions` and returned `NoydbBundleReadResult`, so calling
+  the non-deprecated function required naming the deprecated concept. That
+  is why no first-party package ever migrated.
+
+  **hub** — `ReadPodOptions` and `PodReadResult` are now the canonical
+  declarations; `ReadNoydbBundleOptions` and `NoydbBundleReadResult` remain
+  as `@deprecated` aliases. Additive: nothing is removed, and both names are
+  exported from the root barrel and `/pod`.
+
+  **to-file** — adds `savePod()` / `loadPod()`; `saveBundle()` / `loadBundle()`
+  stay as `@deprecated` aliases (identity, not re-implementations, so they
+  cannot drift). `savePod()` now writes through the atomic temp-then-rename
+  helper added in #1045 — a pod exceeds `PIPE_BUF` essentially always, so the
+  previous bare `writeFile` genuinely raced with concurrent readers despite a
+  docstring claiming otherwise.
+
+  **as-noydb, cli** — migrated onto `writePod` / `readPod` / `readPodHeader`.
+
+  Stale docstring references to `@noy-db/core` (a package that no longer
+  exists) corrected to `@noy-db/hub`. Note `getBundleHandle()` and
+  `BundleIntegrityError` are _not_ renamed — those are current API.
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.13
+
 ## 0.6.0-pre.12
 
 ### Patch Changes
