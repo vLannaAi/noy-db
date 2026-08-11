@@ -2,7 +2,7 @@
  * Re-keyed multi-recipient bundle coverage.
  *
  * Verifies the new `exportSecret` and `recipients` options on
- * writeNoydbBundle:
+ * writePod:
  *
  *   - Single-recipient shorthand round-trips with a different
  *     secret, reading back the original records under the new
@@ -21,7 +21,7 @@ import type {
   NoydbStore, EncryptedEnvelope, VaultSnapshot, BundleRecipient,
 } from '../src/index.js'
 import {
-  ConflictError, createNoydb, writeNoydbBundle, readNoydbBundle,
+  ConflictError, createNoydb, writePod, readPod,
 } from '../src/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 
@@ -92,7 +92,7 @@ async function restoreAs(
   recipientUserId: string,
   recipientSecret: string,
 ): Promise<{ db: Awaited<ReturnType<typeof createNoydb>> }> {
-  const { dumpJson } = await readNoydbBundle(bundleBytes)
+  const { dumpJson } = await readPod(bundleBytes)
   const dump = JSON.parse(dumpJson) as {
     _compartment: string
     keyrings: Record<string, unknown>
@@ -129,10 +129,10 @@ async function restoreAs(
   return { db }
 }
 
-describe('writeNoydbBundle — exportSecret shorthand', () => {
+describe('writePod — exportSecret shorthand', () => {
   it('single-recipient bundle unlocks with the new secret', async () => {
     const { db: src, vault } = await setupSourceVault()
-    const bytes = await writeNoydbBundle(vault, { exportSecret: 'recipient-pw-2026' })
+    const bytes = await writePod(vault, { exportSecret: 'recipient-pw-2026' })
     src.close()
 
     const { db } = await restoreAs(bytes, 'alice', 'recipient-pw-2026')
@@ -144,7 +144,7 @@ describe('writeNoydbBundle — exportSecret shorthand', () => {
 
   it('source secret no longer unlocks the re-keyed bundle', async () => {
     const { db: src, vault } = await setupSourceVault()
-    const bytes = await writeNoydbBundle(vault, { exportSecret: 'recipient-pw-2026' })
+    const bytes = await writePod(vault, { exportSecret: 'recipient-pw-2026' })
     src.close()
 
     // Try opening with the SOURCE secret via restoreAs — must
@@ -156,14 +156,14 @@ describe('writeNoydbBundle — exportSecret shorthand', () => {
   })
 })
 
-describe('writeNoydbBundle — multi-recipient', () => {
+describe('writePod — multi-recipient', () => {
   it('every recipient unlocks independently with their own secret', async () => {
     const { db: src, vault } = await setupSourceVault()
     const recipients: readonly BundleRecipient[] = [
       { id: 'alice-r', secret: 'alice-pw', role: 'viewer' },
       { id: 'bob-r',   secret: 'bob-pw',   role: 'viewer' },
     ]
-    const bytes = await writeNoydbBundle(vault, { recipients })
+    const bytes = await writePod(vault, { recipients })
     src.close()
 
     const aliceDb = await restoreAs(bytes, 'alice-r', 'alice-pw')
@@ -186,7 +186,7 @@ describe('writeNoydbBundle — multi-recipient', () => {
       { id: 'restricted', secret: 'r-pw', role: 'operator',
         permissions: { invoices: 'ro' } },
     ]
-    const bytes = await writeNoydbBundle(vault, { recipients })
+    const bytes = await writePod(vault, { recipients })
     src.close()
 
     const r = await restoreAs(bytes, 'restricted', 'r-pw')
@@ -207,7 +207,7 @@ describe('writeNoydbBundle — multi-recipient', () => {
   it('rejects mutual exclusion of exportSecret + recipients', async () => {
     const { db: src, vault } = await setupSourceVault()
     await expect(
-      writeNoydbBundle(vault, {
+      writePod(vault, {
         exportSecret: 'pw',
         recipients: [{ id: 'r', secret: 'r-pw' }],
       }),
@@ -218,7 +218,7 @@ describe('writeNoydbBundle — multi-recipient', () => {
   it('rejects duplicate recipient ids', async () => {
     const { db: src, vault } = await setupSourceVault()
     await expect(
-      writeNoydbBundle(vault, {
+      writePod(vault, {
         recipients: [
           { id: 'same', secret: 'pw1' },
           { id: 'same', secret: 'pw2' },
@@ -229,7 +229,7 @@ describe('writeNoydbBundle — multi-recipient', () => {
   })
 })
 
-describe('writeNoydbBundle — recipients compose with slice', () => {
+describe('writePod — recipients compose with slice', () => {
   // Note on `collections` + `recipients` + history: dropping a whole
   // collection from a vault that has a ledger leaves dangling ledger
   // references, which `vault.load()` rejects via the integrity check.
@@ -243,7 +243,7 @@ describe('writeNoydbBundle — recipients compose with slice', () => {
     const { db: src, vault } = await setupSourceVault()
     // Use a cutoff far in the past so every record survives the
     // since filter while still proving the two pipelines compose.
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       since: '2000-01-01T00:00:00Z',
       recipients: [{ id: 'r', secret: 'r-pw' }],
     })

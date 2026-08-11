@@ -1,5 +1,5 @@
 /**
- * `writePod` / `writeNoydbBundle` option-key validation (#991).
+ * `writePod` / `writePod` option-key validation (#991).
  *
  * `autoPassphrases` was renamed to `autoSecrets` during the `passphrase-*` →
  * `secret-*` storm, and then generalised again to `autoCredentials`. Unlike
@@ -16,7 +16,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { createNoydb, writeNoydbBundle, readNoydbBundle } from '../src/index.js'
+import { createNoydb, writePod, readPod } from '../src/index.js'
 import { memoryStore } from '../src/kernel/memory-store.js'
 import { WRITE_POD_OPTION_KEYS } from '../src/with-pod/bundle.js'
 
@@ -33,7 +33,7 @@ describe('writePod option-key validation', () => {
   it('rejects the retired `autoPassphrases` and names its replacement', async () => {
     const vault = await seededVault()
     await expect(
-      writeNoydbBundle(vault, {
+      writePod(vault, {
         autoPassphrases: { policy: 'public-by-design', perUser: { ann: SECRET } },
       } as never),
     ).rejects.toThrow(/autoPassphrases.*autoCredentials/s)
@@ -42,16 +42,16 @@ describe('writePod option-key validation', () => {
   it('rejects an unrecognised key rather than dropping it', async () => {
     const vault = await seededVault()
     await expect(
-      writeNoydbBundle(vault, { autoUnlok: true } as never),
+      writePod(vault, { autoUnlok: true } as never),
     ).rejects.toThrow(/autoUnlok/)
   })
 
   it('still writes a readable pod with a recognised auto-unlock key', async () => {
     const vault = await seededVault()
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       autoSecrets: { policy: 'public-by-design', perUser: { ann: SECRET } },
     })
-    const { autoUnlock } = await readNoydbBundle(bytes)
+    const { autoUnlock } = await readPod(bytes)
     expect(autoUnlock?.kind).toBe('unsealed')
   })
 
@@ -60,7 +60,7 @@ describe('writePod option-key validation', () => {
     // Undefined values must not trip the guard — spreading a partially-built
     // options object is the normal call shape.
     const everyKey = Object.fromEntries(WRITE_POD_OPTION_KEYS.map((k) => [k, undefined]))
-    await expect(writeNoydbBundle(vault, everyKey)).resolves.toBeInstanceOf(Uint8Array)
+    await expect(writePod(vault, everyKey)).resolves.toBeInstanceOf(Uint8Array)
   })
 })
 

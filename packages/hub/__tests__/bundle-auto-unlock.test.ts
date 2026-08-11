@@ -13,9 +13,9 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.
 import {
   ConflictError,
   createNoydb,
-  writeNoydbBundle,
-  readNoydbBundle,
-  readNoydbBundleHeader,
+  writePod,
+  readPod,
+  readPodHeader,
   MemorySealingKeyProvider,
   MemoryRecipientSealer,
   BundleSealMismatchError,
@@ -80,17 +80,17 @@ async function freshVault() {
 describe('#197 — autoSecrets (unsealed, public-by-design)', () => {
   it('writes the header autoUnlock flag and round-trips plaintext secrets', async () => {
     const { vault } = await freshVault()
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       autoSecrets: {
         policy: 'public-by-design',
         perUser: { 'demo-customer': 'demo-pass-1', 'demo-prospect': 'demo-pass-2' },
       },
     })
 
-    const header = await readNoydbBundleHeader(bytes)
+    const header = await readPodHeader(bytes)
     expect(header.autoUnlock).toBe('unsealed')
 
-    const result = await readNoydbBundle(bytes)
+    const result = await readPod(bytes)
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('unsealed')
     expect(result.autoUnlock!.perUser).toEqual({
@@ -101,13 +101,13 @@ describe('#197 — autoSecrets (unsealed, public-by-design)', () => {
 
   it('dumpJson is still parseable / usable after auto-unlock unwrap', async () => {
     const { vault } = await freshVault()
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       autoSecrets: {
         policy: 'public-by-design',
         perUser: { 'alice': 'demo' },
       },
     })
-    const result = await readNoydbBundle(bytes)
+    const result = await readPod(bytes)
     expect(result.dumpJson).toBeTypeOf('string')
     // Dump JSON contains the keyring map and other vault metadata —
     // verify it survives the wrap/unwrap by parsing.
@@ -118,7 +118,7 @@ describe('#197 — autoSecrets (unsealed, public-by-design)', () => {
   it('rejects autoSecrets without policy marker', async () => {
     const { vault } = await freshVault()
     await expect(
-      writeNoydbBundle(vault, {
+      writePod(vault, {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         autoSecrets: { perUser: { x: 'y' } } as any,
       }),
@@ -128,7 +128,7 @@ describe('#197 — autoSecrets (unsealed, public-by-design)', () => {
   it('rejects empty perUser map', async () => {
     const { vault } = await freshVault()
     await expect(
-      writeNoydbBundle(vault, {
+      writePod(vault, {
         autoSecrets: { policy: 'public-by-design', perUser: {} },
       }),
     ).rejects.toBeInstanceOf(ValidationError)
@@ -138,7 +138,7 @@ describe('#197 — autoSecrets (unsealed, public-by-design)', () => {
     const { vault } = await freshVault()
     const provider = new MemorySealingKeyProvider({ id: 'test' })
     await expect(
-      writeNoydbBundle(vault, {
+      writePod(vault, {
         autoSecrets: { policy: 'public-by-design', perUser: { a: 'b' } },
         sealedSecrets: { mode: 'self-target', provider, perUser: { c: 'd' } },
       }),
@@ -151,7 +151,7 @@ describe('#197 — sealedSecrets (self-target)', () => {
     const { vault } = await freshVault()
     const provider = new MemorySealingKeyProvider({ id: 'macos-keychain:com.acme/alice' })
 
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       sealedSecrets: {
         mode: 'self-target',
         provider,
@@ -159,14 +159,14 @@ describe('#197 — sealedSecrets (self-target)', () => {
       },
     })
 
-    const header = await readNoydbBundleHeader(bytes)
+    const header = await readPodHeader(bytes)
     expect(header.autoUnlock).toBe('sealed')
 
     // Read with matching provider — should auto-unseal to plaintext.
     const recipientProvider = new MemorySealingKeyProvider({
       id: 'macos-keychain:com.acme/alice',
     })
-    const result = await readNoydbBundle(bytes, {
+    const result = await readPod(bytes, {
       sealingProviders: [recipientProvider],
     })
 
@@ -181,7 +181,7 @@ describe('#197 — sealedSecrets (self-target)', () => {
     const { vault } = await freshVault()
     const provider = new MemorySealingKeyProvider({ id: 'test-pid' })
 
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       sealedSecrets: {
         mode: 'self-target',
         provider,
@@ -189,7 +189,7 @@ describe('#197 — sealedSecrets (self-target)', () => {
       },
     })
 
-    const result = await readNoydbBundle(bytes)
+    const result = await readPod(bytes)
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('sealed')
     // perUser values are AutoCredential — value is opaque base64 sealed bytes, not the plaintext.
@@ -202,7 +202,7 @@ describe('#197 — sealedSecrets (self-target)', () => {
     const senderProvider = new MemorySealingKeyProvider({ id: 'aws-kms:abc' })
     const otherProvider = new MemorySealingKeyProvider({ id: 'macos-keychain:com.other/bob' })
 
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       sealedSecrets: {
         mode: 'self-target',
         provider: senderProvider,
@@ -211,7 +211,7 @@ describe('#197 — sealedSecrets (self-target)', () => {
     })
 
     await expect(
-      readNoydbBundle(bytes, { sealingProviders: [otherProvider] }),
+      readPod(bytes, { sealingProviders: [otherProvider] }),
     ).rejects.toBeInstanceOf(BundleSealMismatchError)
   })
 
@@ -220,7 +220,7 @@ describe('#197 — sealedSecrets (self-target)', () => {
     const senderProvider = new MemorySealingKeyProvider({ id: 'aws-kms:secret-arn' })
     const otherProvider = new MemorySealingKeyProvider({ id: 'wrong-pid' })
 
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       sealedSecrets: {
         mode: 'self-target',
         provider: senderProvider,
@@ -229,7 +229,7 @@ describe('#197 — sealedSecrets (self-target)', () => {
     })
 
     try {
-      await readNoydbBundle(bytes, { sealingProviders: [otherProvider] })
+      await readPod(bytes, { sealingProviders: [otherProvider] })
       expect.fail('expected throw')
     } catch (err) {
       expect(err).toBeInstanceOf(BundleSealMismatchError)
@@ -254,7 +254,7 @@ describe('#197 — sealedSecrets (self-target)', () => {
     const otherProvider1 = new MemorySealingKeyProvider({ id: 'wrong-pid-1' })
     const otherProvider2 = new MemorySealingKeyProvider({ id: 'wrong-pid-2' })
 
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       sealedSecrets: {
         mode: 'self-target',
         provider: senderProvider,
@@ -265,7 +265,7 @@ describe('#197 — sealedSecrets (self-target)', () => {
     // None of the "other" providers can actually unseal — trial mode
     // exhausts and throws BundleSealMismatchError.
     await expect(
-      readNoydbBundle(bytes, {
+      readPod(bytes, {
         sealingProviders: [otherProvider1, otherProvider2],
         attemptUnsealAcrossProviders: true,
       }),
@@ -276,7 +276,7 @@ describe('#197 — sealedSecrets (self-target)', () => {
     const { vault } = await freshVault()
     const provider = new MemorySealingKeyProvider({ id: 'test' })
     await expect(
-      writeNoydbBundle(vault, {
+      writePod(vault, {
         sealedSecrets: {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           mode: 'recipient-target' as any,
@@ -291,27 +291,27 @@ describe('#197 — sealedSecrets (self-target)', () => {
 describe('#197 — back-compat', () => {
   it('a bundle written without any auto-unlock options reads as pre-#197 shape', async () => {
     const { vault } = await freshVault()
-    const bytes = await writeNoydbBundle(vault)
-    const header = await readNoydbBundleHeader(bytes)
+    const bytes = await writePod(vault)
+    const header = await readPodHeader(bytes)
     expect(header.autoUnlock).toBeUndefined()
 
-    const result = await readNoydbBundle(bytes)
+    const result = await readPod(bytes)
     expect(result.autoUnlock).toBeUndefined()
     // dumpJson is the raw vault.dump() JSON (no wrapper).
     const parsed = JSON.parse(result.dumpJson) as Record<string, unknown>
     expect(typeof parsed).toBe('object')
   })
 
-  it('readNoydbBundleHeader does not require body decompression', async () => {
+  it('readPodHeader does not require body decompression', async () => {
     // We can't easily assert "didn't decompress" from outside, but we
     // can confirm the function returns the autoUnlock flag and only
     // the flag — the body might be truncated and the call would still
     // succeed because we look only at the header.
     const { vault } = await freshVault()
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       autoSecrets: { policy: 'public-by-design', perUser: { a: 'b' } },
     })
-    const header = await readNoydbBundleHeader(bytes)
+    const header = await readPodHeader(bytes)
     expect(header.autoUnlock).toBe('unsealed')
     expect(header.handle).toBeTypeOf('string')
     expect(header.bodySha256).toMatch(/^[0-9a-f]{64}$/)
@@ -324,10 +324,10 @@ describe('#197 — composes with publicEnvelope', () => {
     // publicEnvelope field stays undefined. Just verify autoUnlock
     // doesn't interfere with the existing envelope path.
     const { vault } = await freshVault()
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       autoSecrets: { policy: 'public-by-design', perUser: { a: 'b' } },
     })
-    const header = await readNoydbBundleHeader(bytes)
+    const header = await readPodHeader(bytes)
     expect(header.autoUnlock).toBe('unsealed')
     // publicEnvelope is undefined because the vault has none —
     // that's correct back-compat. The header just carries the new flag.
@@ -340,17 +340,17 @@ describe('#197 — composes with publicEnvelope', () => {
 describe('#215 — autoCredentials, password kind (unsealed)', () => {
   it('round-trips password credential as { kind:"password", value }', async () => {
     const { vault } = await freshVault()
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       autoCredentials: {
         policy: 'public-by-design',
         perUser: { carol: { kind: 'password', value: 'hunter2' } },
       },
     })
 
-    const header = readNoydbBundleHeader(bytes)
+    const header = readPodHeader(bytes)
     expect(header.autoUnlock).toBe('unsealed')
 
-    const result = await readNoydbBundle(bytes)
+    const result = await readPod(bytes)
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('unsealed')
     expect(result.autoUnlock!.perUser['carol']).toEqual({ kind: 'password', value: 'hunter2' })
@@ -360,14 +360,14 @@ describe('#215 — autoCredentials, password kind (unsealed)', () => {
 describe('#215 — autoCredentials, pin kind (unsealed)', () => {
   it('round-trips pin credential as { kind:"pin", value }', async () => {
     const { vault } = await freshVault()
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       autoCredentials: {
         policy: 'public-by-design',
         perUser: { dave: { kind: 'pin', value: '1234' } },
       },
     })
 
-    const result = await readNoydbBundle(bytes)
+    const result = await readPod(bytes)
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('unsealed')
     expect(result.autoUnlock!.perUser['dave']).toEqual({ kind: 'pin', value: '1234' })
@@ -377,14 +377,14 @@ describe('#215 — autoCredentials, pin kind (unsealed)', () => {
 describe('#215 — autoCredentials, secret kind (unsealed)', () => {
   it('round-trips secret credential via autoCredentials same as sugar path', async () => {
     const { vault } = await freshVault()
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       autoCredentials: {
         policy: 'public-by-design',
         perUser: { eve: { kind: 'secret', value: 'correct-horse' } },
       },
     })
 
-    const result = await readNoydbBundle(bytes)
+    const result = await readPod(bytes)
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('unsealed')
     expect(result.autoUnlock!.perUser['eve']).toEqual({ kind: 'secret', value: 'correct-horse' })
@@ -397,7 +397,7 @@ describe('#215 — sealedCredentials, password kind (sealed)', () => {
     const pid = 'macos-keychain:com.acme/carol'
     const senderProvider = new MemorySealingKeyProvider({ id: pid })
 
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       sealedCredentials: {
         mode: 'self-target',
         provider: senderProvider,
@@ -405,12 +405,12 @@ describe('#215 — sealedCredentials, password kind (sealed)', () => {
       },
     })
 
-    const header = readNoydbBundleHeader(bytes)
+    const header = readPodHeader(bytes)
     expect(header.autoUnlock).toBe('sealed')
 
     // WITH matching provider — should unseal to { kind:'password', value }
     const recipientProvider = new MemorySealingKeyProvider({ id: pid })
-    const result = await readNoydbBundle(bytes, { sealingProviders: [recipientProvider] })
+    const result = await readPod(bytes, { sealingProviders: [recipientProvider] })
 
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('sealed')
@@ -421,7 +421,7 @@ describe('#215 — sealedCredentials, password kind (sealed)', () => {
     const { vault } = await freshVault()
     const senderProvider = new MemorySealingKeyProvider({ id: 'test-sealed-password-pid' })
 
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       sealedCredentials: {
         mode: 'self-target',
         provider: senderProvider,
@@ -430,7 +430,7 @@ describe('#215 — sealedCredentials, password kind (sealed)', () => {
     })
 
     // WITHOUT provider — kind is preserved in passthrough, value is the opaque sealed bytes
-    const result = await readNoydbBundle(bytes)
+    const result = await readPod(bytes)
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('sealed')
     const entry = result.autoUnlock!.perUser['carol']!
@@ -444,14 +444,14 @@ describe('#215 — sealedCredentials, password kind (sealed)', () => {
 describe('#215 — sugar back-compat', () => {
   it('autoSecrets sugar round-trips as { kind:"secret", value }', async () => {
     const { vault } = await freshVault()
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       autoSecrets: {
         policy: 'public-by-design',
         perUser: { 'legacy-user': 'legacy-pass' },
       },
     })
 
-    const result = await readNoydbBundle(bytes)
+    const result = await readPod(bytes)
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('unsealed')
     expect(result.autoUnlock!.perUser['legacy-user']).toEqual({
@@ -465,7 +465,7 @@ describe('#215 — sugar back-compat', () => {
     const pid = 'macos-keychain:com.acme/legacy'
     const senderProvider = new MemorySealingKeyProvider({ id: pid })
 
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       sealedSecrets: {
         mode: 'self-target',
         provider: senderProvider,
@@ -474,7 +474,7 @@ describe('#215 — sugar back-compat', () => {
     })
 
     const recipientProvider = new MemorySealingKeyProvider({ id: pid })
-    const result = await readNoydbBundle(bytes, { sealingProviders: [recipientProvider] })
+    const result = await readPod(bytes, { sealingProviders: [recipientProvider] })
 
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('sealed')
@@ -495,7 +495,7 @@ describe('#215 — sugar back-compat', () => {
     const { vault } = await freshVault()
 
     // Write an uncompressed unsealed bundle so the body bytes are raw UTF-8 JSON.
-    const originalBytes = await writeNoydbBundle(vault, {
+    const originalBytes = await writePod(vault, {
       compression: 'none',
       autoCredentials: {
         policy: 'public-by-design',
@@ -552,7 +552,7 @@ describe('#215 — sugar back-compat', () => {
     patchedBundle.set(patchedBodyBytes, off)
 
     // ── Read back — coerceUnsealed should promote the bare string ─────────
-    const result = await readNoydbBundle(patchedBundle)
+    const result = await readPod(patchedBundle)
     expect(result.autoUnlock).toBeDefined()
     expect(result.autoUnlock!.kind).toBe('unsealed')
     expect(result.autoUnlock!.perUser['bob']).toEqual({ kind: 'secret', value: 'old-secret' })
@@ -563,7 +563,7 @@ describe('#215 — mutual exclusion (mixing rejected)', () => {
   it('autoCredentials + autoSecrets together throw ValidationError matching /only one of/', async () => {
     const { vault } = await freshVault()
     await expect(
-      writeNoydbBundle(vault, {
+      writePod(vault, {
         autoCredentials: {
           policy: 'public-by-design',
           perUser: { alice: { kind: 'secret', value: 'a' } },
@@ -582,7 +582,7 @@ describe('#215 — mutual exclusion (mixing rejected)', () => {
     const { vault } = await freshVault()
     const provider = new MemorySealingKeyProvider({ id: 'test-mix' })
     await expect(
-      writeNoydbBundle(vault, {
+      writePod(vault, {
         autoCredentials: {
           policy: 'public-by-design',
           perUser: { alice: { kind: 'secret', value: 'a' } },
@@ -603,7 +603,7 @@ describe('#215 — unsupported credential kind rejected', () => {
   it('autoCredentials with kind:"webauthn" rejects with ValidationError naming the kind and valid kinds', async () => {
     const { vault } = await freshVault()
     await expect(
-      writeNoydbBundle(vault, {
+      writePod(vault, {
         autoCredentials: {
           policy: 'public-by-design',
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -622,7 +622,7 @@ describe('#215 — unsupported credential kind rejected', () => {
     const { vault } = await freshVault()
     const provider = new MemorySealingKeyProvider({ id: 'test-bad-kind' })
     await expect(
-      writeNoydbBundle(vault, {
+      writePod(vault, {
         sealedCredentials: {
           mode: 'self-target',
           provider,
@@ -644,7 +644,7 @@ describe('recipient-target sealedCredentials — validation', () => {
     const recipient = new MemoryRecipientSealer({ id: 'r1' })
 
     await expect(
-      writeNoydbBundle(v, {
+      writePod(v, {
         sealedCredentials: {
           mode: 'recipient-target',
           provider: recipient,
@@ -664,7 +664,7 @@ describe('recipient-target sealedCredentials — validation', () => {
     const badHint = { ...goodHint, alg: 'unsupported-alg' } as unknown as typeof goodHint
 
     await expect(
-      writeNoydbBundle(v, {
+      writePod(v, {
         sealedCredentials: {
           mode: 'recipient-target',
           provider: recipient,
@@ -680,7 +680,7 @@ describe('recipient-target sealedCredentials — validation', () => {
     const someHint = await new MemoryRecipientSealer({ id: 'r1' }).publishRecipientHint()
 
     await expect(
-      writeNoydbBundle(v, {
+      writePod(v, {
         sealedCredentials: {
           mode: 'recipient-target',
           // @ts-expect-error — runtime guard for JS callers; TS rejects this at compile time
@@ -697,7 +697,7 @@ describe('recipient-target sealedCredentials — validation', () => {
     const validHint = await recipient.publishRecipientHint()
     const emptyPidHint = { ...validHint, pid: '' }
     await expect(
-      writeNoydbBundle(v, {
+      writePod(v, {
         sealedCredentials: {
           mode: 'recipient-target',
           provider: recipient,
@@ -721,7 +721,7 @@ describe('recipient-target sealedCredentials — round-trip', () => {
     // any recipient's private key.
     const sender = new MemoryRecipientSealer({ id: 'sender-rs' })
 
-    const bytes = await writeNoydbBundle(v, {
+    const bytes = await writePod(v, {
       sealedCredentials: {
         mode: 'recipient-target',
         provider: sender,
@@ -733,11 +733,11 @@ describe('recipient-target sealedCredentials — round-trip', () => {
     })
 
     // Recipient side — alice unseals with her provider.
-    const aliceRead = await readNoydbBundle(bytes, { sealingProviders: [aliceRs] })
+    const aliceRead = await readPod(bytes, { sealingProviders: [aliceRs] })
     expect(aliceRead.autoUnlock?.kind).toBe('sealed')
     expect(aliceRead.autoUnlock?.perUser.alice).toMatchObject({ kind: 'secret', value: 'alice-pass-bundled' })
 
-    const bobRead = await readNoydbBundle(bytes, { sealingProviders: [bobRs] })
+    const bobRead = await readPod(bytes, { sealingProviders: [bobRs] })
     expect(bobRead.autoUnlock?.perUser.bob).toMatchObject({ kind: 'secret', value: 'bob-pass-bundled' })
   })
 
@@ -748,7 +748,7 @@ describe('recipient-target sealedCredentials — round-trip', () => {
     const aliceHint = await aliceRs.publishRecipientHint()
     const sender = new MemoryRecipientSealer({ id: 'sender-rs' })
 
-    const bytes = await writeNoydbBundle(v, {
+    const bytes = await writePod(v, {
       sealedCredentials: {
         mode: 'recipient-target',
         provider: sender,
@@ -758,14 +758,14 @@ describe('recipient-target sealedCredentials — round-trip', () => {
 
     // Intruder has the same pid (so the reader's dispatch finds it) but a
     // different keypair → unseal fails inside the provider.
-    await expect(readNoydbBundle(bytes, { sealingProviders: [intruderRs] })).rejects.toThrow(/decrypt|OperationError|operation/i)
+    await expect(readPod(bytes, { sealingProviders: [intruderRs] })).rejects.toThrow(/decrypt|OperationError|operation/i)
   })
 
   it('back-compat: self-target bundles still round-trip with no hint field', async () => {
     const { vault: v } = await freshVault()
     const selfProvider = new MemorySealingKeyProvider({ id: 'shared-keychain' })
 
-    const bytes = await writeNoydbBundle(v, {
+    const bytes = await writePod(v, {
       sealedCredentials: {
         mode: 'self-target',
         provider: selfProvider,
@@ -773,7 +773,7 @@ describe('recipient-target sealedCredentials — round-trip', () => {
       },
     })
     const recipientProvider = new MemorySealingKeyProvider({ id: 'shared-keychain' })
-    const read = await readNoydbBundle(bytes, { sealingProviders: [recipientProvider] })
+    const read = await readPod(bytes, { sealingProviders: [recipientProvider] })
     expect(read.autoUnlock?.kind).toBe('sealed')
     expect(read.autoUnlock?.perUser.alice).toMatchObject({ kind: 'secret', value: 'alice-pass-bundled' })
     // Self-target entries omit the hint field

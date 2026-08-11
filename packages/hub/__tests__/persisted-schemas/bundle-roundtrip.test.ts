@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
 import { ConflictError } from '../../src/kernel/errors.js'
-import { createNoydb, writeNoydbBundle, readNoydbBundle } from '../../src/index.js'
+import { createNoydb, writePod, readPod } from '../../src/index.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
 import { SCHEMAS_COLLECTION } from '../../src/with-shape/persisted-schemas/storage.js'
 
@@ -52,7 +52,7 @@ describe('persisted schemas survive bundle write → read round-trip', () => {
     expect(Object.keys(backup._internal![SCHEMAS_COLLECTION]!)).toContain('invoices')
   })
 
-  it('after writeNoydbBundle → readNoydbBundle → vault.load, _schemas/<col> is queryable', async () => {
+  it('after writePod → readPod → vault.load, _schemas/<col> is queryable', async () => {
     const Invoice = z.object({ id: z.string(), amount: z.number() })
 
     // Source vault — write persisted schema, write bundle
@@ -63,13 +63,13 @@ describe('persisted schemas survive bundle write → read round-trip', () => {
       schema: Invoice, persistJsonSchema: true,
     })
     await srcVault._drainPendingSchemaWrites()
-    const bundleBytes = await writeNoydbBundle(srcVault, { compression: 'none' })
+    const bundleBytes = await writePod(srcVault, { compression: 'none' })
 
     // Target vault — fresh memory, load the bundle
     const dstStore = inlineMemory()
     const dstDb = await createNoydb({ store: dstStore, user: 'alice', secret: 'test-pw-12345678', historyStrategy: withHistory() })
     const dstVault = await dstDb.openVault('acme')
-    const { dumpJson } = await readNoydbBundle(bundleBytes)
+    const { dumpJson } = await readPod(bundleBytes)
     await dstVault.load(dumpJson)
 
     // After load, _schemas/invoices envelope is queryable in the target store
@@ -98,12 +98,12 @@ describe('persisted schemas survive bundle write → read round-trip', () => {
     await srcVault.collection<{ id: string; amount: number }>('invoices').put('i1', { id: 'i1', amount: 100 })
     await srcVault.collection('clients').put('c1', { id: 'c1', name: 'Acme' })
 
-    const bundleBytes = await writeNoydbBundle(srcVault, { compression: 'none' })
+    const bundleBytes = await writePod(srcVault, { compression: 'none' })
 
     const dstStore = inlineMemory()
     const dstDb = await createNoydb({ store: dstStore, user: 'alice', secret: 'test-pw-12345678', historyStrategy: withHistory() })
     const dstVault = await dstDb.openVault('acme')
-    const { dumpJson } = await readNoydbBundle(bundleBytes)
+    const { dumpJson } = await readPod(bundleBytes)
     await dstVault.load(dumpJson)
 
     // Mirror CLI describeBundle: iterate collections() + touch each

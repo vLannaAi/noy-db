@@ -7,13 +7,13 @@
  * vault in a backup.
  *
  * Fixture pattern (spy-free in-memory store, `db.openVault`, `historyStrategy`
- * required by `writeNoydbBundle` → `vault.dump()`) copied from
+ * required by `writePod` → `vault.dump()`) copied from
  * satellites-joined.test.ts / bundle-slice.test.ts.
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
-import { writeNoydbBundle, readNoydbBundle } from '../src/with-pod/bundle.js'
+import { writePod, readPod } from '../src/with-pod/bundle.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 
 const SECRET = 'satellite-bundle-filter-test-1234'
@@ -71,8 +71,8 @@ async function openPair() {
 }
 
 async function exportDump(vault: Awaited<ReturnType<Awaited<ReturnType<typeof createNoydb>>['openVault']>>): Promise<string> {
-  const bytes = await writeNoydbBundle(vault)
-  const { dumpJson } = await readNoydbBundle(bytes)
+  const bytes = await writePod(vault)
+  const { dumpJson } = await readPod(bytes)
   return dumpJson
 }
 
@@ -81,7 +81,7 @@ function collRecords(dumpJson: string, collName: string): Record<string, unknown
   return parsed.collections?.[collName] ?? {}
 }
 
-describe('writeNoydbBundle — satellite existence-authority filter (#591 Task 10)', () => {
+describe('writePod — satellite existence-authority filter (#591 Task 10)', () => {
   it('excludes a satellite record whose base was raw-deleted (absent); live pair exports both', async () => {
     const { db, vault, rawStore } = await openPair()
     await vault.joined<Msg>('msgs_full').put('x', { from: 'a', body: 'B' })

@@ -312,11 +312,3 @@ export function createPodStore<TOptions>(
 
 // ─── Deprecated aliases (pre-rename compatibility) ──────────────────────
 
-/** @deprecated Use wrapPodStore. */
-export const wrapBundleStore = wrapPodStore
-/** @deprecated Use createPodStore. */
-export const createBundleStore = createPodStore
-/** @deprecated Use WrappedPodNoydbStore. */
-export type WrappedBundleNoydbStore = WrappedPodNoydbStore
-/** @deprecated Use WrapPodStoreOptions. */
-export type WrapBundleStoreOptions = WrapPodStoreOptions

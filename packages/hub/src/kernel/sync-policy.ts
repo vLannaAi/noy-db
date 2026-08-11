@@ -137,8 +137,6 @@ export const POD_STORE_POLICY: SyncPolicy = {
   pull: { mode: 'interval', intervalMs: 60_000 },
 }
 
-/** @deprecated Use `POD_STORE_POLICY`. */
-export const BUNDLE_STORE_POLICY = POD_STORE_POLICY
 
 // ─── Sync scheduler ─────────────────────────────────────────────────────
 

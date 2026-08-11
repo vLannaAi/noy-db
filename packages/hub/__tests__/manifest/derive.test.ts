@@ -24,7 +24,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
-import { createNoydb, writeNoydbBundle, readNoydbBundle } from '../../src/index.js'
+import { createNoydb, writePod, readPod } from '../../src/index.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
 import { withTeam } from '../../src/with-party/team/index.js'
 import { coordinatedCutover } from '../../src/with-shape/schema-update/index.js'
@@ -271,12 +271,12 @@ describe('#941 AC #2: round-trip identity', () => {
     const srcGetDEK = await externalGetDEK(srcStore, VAULT)
     const { manifest: original } = await deriveSchemaManifest(srcStore, VAULT, srcGetDEK)
 
-    const bundleBytes = await writeNoydbBundle(srcVault, { compression: 'none' })
+    const bundleBytes = await writePod(srcVault, { compression: 'none' })
 
     const dstStore = toMemory()
     const dstDb = await createNoydb({ store: dstStore, user: USER, secret: SECRET })
     const dstVault = await dstDb.openVault(VAULT)
-    const { dumpJson } = await readNoydbBundle(bundleBytes)
+    const { dumpJson } = await readPod(bundleBytes)
     await dstVault.load(dumpJson)
 
     const dstGetDEK = await externalGetDEK(dstStore, VAULT)

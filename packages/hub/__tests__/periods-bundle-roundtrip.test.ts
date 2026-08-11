@@ -1,6 +1,6 @@
 /**
  * #1025 — period state must survive `dump()` → `load()` (and therefore
- * `writeNoydbBundle` → `vault.load`).
+ * `writePod` → `vault.load`).
  *
  * `loadAll` deliberately filters out every `_`-prefixed collection, so
  * `dumpVault` carries reserved collections through an explicit allowlist

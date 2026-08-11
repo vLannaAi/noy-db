@@ -12,7 +12,7 @@ import { generateDEK, decrypt } from '../src/kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { reKeySchemas, extractPartition } from '../src/with-cargo/extract-partition.js'
 import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/with-cargo/adopt-partition.js'
-import { readNoydbBundle, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
+import { readPod, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
 import { loadPersistedSchema } from '../src/with-shape/persisted-schemas/storage.js'
 
 function toMemory(): NoydbStore {
@@ -80,7 +80,7 @@ async function vaultWithSchema() {
 }
 
 async function bundleBody(bytes: Uint8Array) {
-  const { dump } = parseExtractedPartitionBody((await readNoydbBundle(bytes)).dumpJson)
+  const { dump } = parseExtractedPartitionBody((await readPod(bytes)).dumpJson)
   return JSON.parse(dump) as { collections: Record<string, unknown>; _internal?: { _schemas?: Record<string, unknown> } }
 }
 

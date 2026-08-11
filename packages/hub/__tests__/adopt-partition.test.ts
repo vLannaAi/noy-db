@@ -17,7 +17,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { ConflictError } from '../src/kernel/errors.js'
 import { adoptPartition, unsealDeks } from '../src/with-cargo/adopt-partition.js'
 import { extractPartition, sealDeks } from '../src/with-cargo/extract-partition.js'
-import { writeNoydbBundle, readNoydbBundle, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
+import { writePod, readPod, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
 
 function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -140,7 +140,7 @@ describe('adoptPartition rejections', () => {
     const db = await createNoydb({ cargoStrategy: withCargo(), store: toMemory(), user: 'alice', secret: 'test-secret-1234' })
     const company = await db.openVault('demo-co')
     await company.collection<Client>('clients').put('c-1', { id: 'c-1', name: 'A', operatorUserId: 'belle' })
-    const ordinary = await writeNoydbBundle(company)
+    const ordinary = await writePod(company)
     await expect(
       adoptPartition(ordinary, { transferKey: crypto.getRandomValues(new Uint8Array(32)), destinationStore: toMemory(), vaultName: 'v' }),
     ).rejects.toThrow(/extracted-partition/)
@@ -205,7 +205,7 @@ describe('adoptPartition end-to-end', () => {
     const dest = toMemory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'acme' })
 
-    const { seal } = parseExtractedPartitionBody((await readNoydbBundle(bundleBytes)).dumpJson)
+    const { seal } = parseExtractedPartitionBody((await readPod(bundleBytes)).dumpJson)
     const deks = await unsealDeks(seal, transferKey)
 
     const env = await dest.get('acme', 'clients', 'c-1')

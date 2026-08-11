@@ -19,7 +19,7 @@ import type { LedgerEntry } from '../src/with-commit/history/ledger/entry.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { reKeyLedger, reKeyClosure, extractPartition } from '../src/with-cargo/extract-partition.js'
 import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/with-cargo/adopt-partition.js'
-import { readNoydbBundle, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
+import { readPod, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
 
 function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -84,7 +84,7 @@ async function srcVault() {
 }
 
 async function bundleBody(bytes: Uint8Array) {
-  const { dump } = parseExtractedPartitionBody((await readNoydbBundle(bytes)).dumpJson)
+  const { dump } = parseExtractedPartitionBody((await readPod(bytes)).dumpJson)
   return JSON.parse(dump) as {
     _internal?: { _ledger?: Record<string, unknown> }
     ledgerHead?: { hash: string; index: number }

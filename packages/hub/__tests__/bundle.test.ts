@@ -8,7 +8,7 @@
  *   - ULID generator (shape, uniqueness, lexicographic time
  *     ordering)
  *   - Round-trip with small / medium / Unicode compartments
- *   - readNoydbBundleHeader without decompression
+ *   - readPodHeader without decompression
  *   - Integrity tampering — flip a single byte → BundleIntegrityError
  *   - Truncation detection
  *   - Compression algorithm selection (auto / gzip / none)
@@ -31,9 +31,9 @@ import type {
 import {
   ConflictError,
   BundleIntegrityError,
-  writeNoydbBundle,
-  readNoydbBundle,
-  readNoydbBundleHeader,
+  writePod,
+  readPod,
+  readPodHeader,
   hasNoydbBundleMagic,
   generateULID,
   isULID,
@@ -277,11 +277,11 @@ describe('bundle > round-trip with real compartment', () => {
     // checking structural fields. Full-string comparison against
     // a separate dump() call is unreliable because dump() emits
     // a fresh _exported_at timestamp on every call.
-    const bundleBytes = await writeNoydbBundle(c)
+    const bundleBytes = await writePod(c)
     expect(hasNoydbBundleMagic(bundleBytes)).toBe(true)
     expect(bundleBytes.length).toBeGreaterThan(NOYDB_BUNDLE_PREFIX_BYTES)
 
-    const result = await readNoydbBundle(bundleBytes)
+    const result = await readPod(bundleBytes)
     expect(result.header.formatVersion).toBe(1)
     expect(result.header.handle).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/)
     expect(result.header.bodySha256).toMatch(/^[0-9a-f]{64}$/)
@@ -298,7 +298,7 @@ describe('bundle > round-trip with real compartment', () => {
 
     // Reading the same bundle bytes twice must yield identical
     // output — the reader is pure over the input bytes.
-    const second = await readNoydbBundle(bundleBytes)
+    const second = await readPod(bundleBytes)
     expect(second.dumpJson).toBe(result.dumpJson)
   })
 
@@ -312,8 +312,8 @@ describe('bundle > round-trip with real compartment', () => {
         status: i % 2 === 0 ? 'open' : 'paid',
       })
     }
-    const bytes = await writeNoydbBundle(c)
-    const result = await readNoydbBundle(bytes)
+    const bytes = await writePod(c)
+    const result = await readPod(bytes)
     const parsed = JSON.parse(result.dumpJson) as {
       collections: Record<string, Record<string, unknown>>
     }
@@ -337,8 +337,8 @@ describe('bundle > round-trip with real compartment', () => {
       status: 'open',
       notes: 'ค่าที่ปรึกษา 🎉 น้ำใจ',
     })
-    const bytes = await writeNoydbBundle(c)
-    const result = await readNoydbBundle(bytes)
+    const bytes = await writePod(c)
+    const result = await readPod(bytes)
     // Same single-bundle round-trip pattern: parse the result and
     // confirm the vault name and collection structure
     // survive. The Thai content lives inside an encrypted record
@@ -362,17 +362,17 @@ describe('bundle > round-trip with real compartment', () => {
     // apart produce different strings. The test below uses the
     // captured copy as the comparison baseline.
     const dumpDirect = await c.dump()
-    const bytes = await writeNoydbBundle(c, { compression: 'gzip' })
+    const bytes = await writePod(c, { compression: 'gzip' })
     expect(bytes[5]).toBe(1) // COMPRESSION_GZIP
-    const result = await readNoydbBundle(bytes)
+    const result = await readPod(bytes)
     // Both dumpDirect and the round-tripped bundle were captured
     // from the same vault state — the bundle's internal dump
-    // is taken at writeNoydbBundle time, which may have a different
+    // is taken at writePod time, which may have a different
     // _exported_at. We verify the bundle round-trips by comparing
     // the bundle's reader output to the bundle's writer input,
     // re-derived through a single writer pass.
-    const bytes2 = await writeNoydbBundle(c, { compression: 'gzip' })
-    const result2 = await readNoydbBundle(bytes2)
+    const bytes2 = await writePod(c, { compression: 'gzip' })
+    const result2 = await readPod(bytes2)
     // Both bundles' decoded dumpJson must parse to a valid backup
     // (we cannot string-compare across two writes because each
     // bundle captures its own dump() with a fresh timestamp).
@@ -387,9 +387,9 @@ describe('bundle > round-trip with real compartment', () => {
     const c = await db.openVault('TEST')
     const invoices = c.collection<Invoice>('invoices')
     await invoices.put('inv-1', { id: 'inv-1', amount: 100, status: 'open' })
-    const bytes = await writeNoydbBundle(c, { compression: 'none' })
+    const bytes = await writePod(c, { compression: 'none' })
     expect(bytes[5]).toBe(0) // COMPRESSION_NONE
-    const result = await readNoydbBundle(bytes)
+    const result = await readPod(bytes)
     // Same _exported_at race as the gzip test — assert structure
     // rather than full-string equality.
     expect(result.dumpJson).toMatch(/_noydb_backup/)
@@ -401,7 +401,7 @@ describe('bundle > round-trip with real compartment', () => {
 // Header-only read
 // ---------------------------------------------------------------------------
 
-describe('bundle > readNoydbBundleHeader (no decompression)', () => {
+describe('bundle > readPodHeader (no decompression)', () => {
   let db: Noydb
 
   beforeEach(async () => {
@@ -416,8 +416,8 @@ describe('bundle > readNoydbBundleHeader (no decompression)', () => {
     const c = await db.openVault('TEST')
     const invoices = c.collection<Invoice>('invoices')
     await invoices.put('inv-1', { id: 'inv-1', amount: 100, status: 'open' })
-    const bytes = await writeNoydbBundle(c)
-    const header = readNoydbBundleHeader(bytes)
+    const bytes = await writePod(c)
+    const header = readPodHeader(bytes)
     expect(header.formatVersion).toBe(1)
     expect(header.handle).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/)
     expect(header.bodyBytes).toBeGreaterThan(0)
@@ -426,12 +426,12 @@ describe('bundle > readNoydbBundleHeader (no decompression)', () => {
 
   it('throws on missing magic prefix', () => {
     const bogus = new Uint8Array([0x7b, 0x22, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x22, 0x7d, 0x00])
-    expect(() => readNoydbBundleHeader(bogus)).toThrow(/missing 'NDB1' magic/)
+    expect(() => readPodHeader(bogus)).toThrow(/missing 'NDB1' magic/)
   })
 
   it('throws on truncated prefix', () => {
     const truncated = new Uint8Array([0x4e, 0x44, 0x42, 0x31])
-    expect(() => readNoydbBundleHeader(truncated)).toThrow(/Truncated/)
+    expect(() => readPodHeader(truncated)).toThrow(/Truncated/)
   })
 })
 
@@ -454,10 +454,10 @@ describe('bundle > integrity tampering', () => {
     const c = await db.openVault('TEST')
     const invoices = c.collection<Invoice>('invoices')
     await invoices.put('inv-1', { id: 'inv-1', amount: 100, status: 'open' })
-    const bytes = await writeNoydbBundle(c)
+    const bytes = await writePod(c)
 
     // Find the body region (after the header) and flip a byte there.
-    const header = readNoydbBundleHeader(bytes)
+    const header = readPodHeader(bytes)
     const headerLength = bytes.length - header.bodyBytes - NOYDB_BUNDLE_PREFIX_BYTES
     const bodyStart = NOYDB_BUNDLE_PREFIX_BYTES + headerLength
     const tampered = new Uint8Array(bytes)
@@ -466,7 +466,7 @@ describe('bundle > integrity tampering', () => {
 
     let threw: unknown = null
     try {
-      await readNoydbBundle(tampered)
+      await readPod(tampered)
     } catch (err) {
       threw = err
     }
@@ -478,13 +478,13 @@ describe('bundle > integrity tampering', () => {
     const c = await db.openVault('TEST')
     const invoices = c.collection<Invoice>('invoices')
     await invoices.put('inv-1', { id: 'inv-1', amount: 100, status: 'open' })
-    const bytes = await writeNoydbBundle(c)
+    const bytes = await writePod(c)
 
     // Drop the last byte of the body — length mismatch fires before sha.
     const truncated = bytes.slice(0, bytes.length - 1)
     let threw: unknown = null
     try {
-      await readNoydbBundle(truncated)
+      await readPod(truncated)
     } catch (err) {
       threw = err
     }
@@ -522,12 +522,12 @@ describe('bundle > handle stability across re-exports', () => {
     const invoices = c.collection<Invoice>('invoices')
     await invoices.put('inv-1', { id: 'inv-1', amount: 100, status: 'open' })
 
-    const bundle1 = await writeNoydbBundle(c)
+    const bundle1 = await writePod(c)
     await invoices.put('inv-2', { id: 'inv-2', amount: 200, status: 'paid' })
-    const bundle2 = await writeNoydbBundle(c)
+    const bundle2 = await writePod(c)
 
-    const header1 = readNoydbBundleHeader(bundle1)
-    const header2 = readNoydbBundleHeader(bundle2)
+    const header1 = readPodHeader(bundle1)
+    const header2 = readPodHeader(bundle2)
     expect(header1.handle).toBe(header2.handle)
     // But the body bytes differ — second bundle has more data.
     expect(header1.bodySha256).not.toBe(header2.bodySha256)

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { SubsystemBus } from '../src/port/with/service-bus.js'
+import { ServiceBus } from '../src/port/with/service-bus.js'
 import type { GatePutEvent, GateDeleteEvent } from '../src/port/with/service-bus.js'
 
 function putEv(over: Partial<GatePutEvent> = {}): GatePutEvent {
@@ -18,9 +18,9 @@ function deleteEv(over: Partial<GateDeleteEvent> = {}): GateDeleteEvent {
   }
 }
 
-describe('SubsystemBus (gate)', () => {
+describe('ServiceBus (gate)', () => {
   it('runs gate handlers in registration order', async () => {
-    const bus = new SubsystemBus()
+    const bus = new ServiceBus()
     const order: number[] = []
     bus.registerGate('beforePut', () => { order.push(1) })
     bus.registerGate('beforePut', () => { order.push(2) })
@@ -29,7 +29,7 @@ describe('SubsystemBus (gate)', () => {
   })
 
   it('hasGateHandlers reflects registration and unsubscribe', () => {
-    const bus = new SubsystemBus()
+    const bus = new ServiceBus()
     expect(bus.hasGateHandlers('beforePut')).toBe(false)
     const off = bus.registerGate('beforePut', () => {})
     expect(bus.hasGateHandlers('beforePut')).toBe(true)
@@ -38,7 +38,7 @@ describe('SubsystemBus (gate)', () => {
   })
 
   it('PROPAGATES a handler throw and stops subsequent handlers (gate policy)', async () => {
-    const bus = new SubsystemBus()
+    const bus = new ServiceBus()
     const ran: string[] = []
     bus.registerGate('beforePut', () => { ran.push('first') })
     bus.registerGate('beforePut', () => { throw new Error('blocked') })
@@ -48,7 +48,7 @@ describe('SubsystemBus (gate)', () => {
   })
 
   it('awaits async gate handlers and propagates async rejection', async () => {
-    const bus = new SubsystemBus()
+    const bus = new ServiceBus()
     bus.registerGate('beforePut', async () => {
       await new Promise((r) => setTimeout(r, 5))
       throw new Error('async-blocked')
@@ -57,19 +57,19 @@ describe('SubsystemBus (gate)', () => {
   })
 
   it('dispatchGate is a no-op when no gate handler is registered', async () => {
-    const bus = new SubsystemBus()
+    const bus = new ServiceBus()
     await expect(bus.dispatchGate('beforePut', putEv())).resolves.toBeUndefined()
   })
 
   it('observe and gate registries are independent', () => {
-    const bus = new SubsystemBus()
+    const bus = new ServiceBus()
     bus.registerGate('beforePut', () => { throw new Error('gate') })
     expect(bus.hasHandlers('afterPut')).toBe(false)
     expect(bus.hasGateHandlers('beforePut')).toBe(true)
   })
 
   it('tolerates gate handler unsubscribe during dispatch (snapshot semantics)', async () => {
-    const bus = new SubsystemBus()
+    const bus = new ServiceBus()
     const ran: string[] = []
     let off = () => {}
     off = bus.registerGate('beforePut', () => { off(); ran.push('first') })
@@ -79,7 +79,7 @@ describe('SubsystemBus (gate)', () => {
   })
 
   it('beforeDelete: a throwing handler propagates and aborts (gate policy)', async () => {
-    const bus = new SubsystemBus()
+    const bus = new ServiceBus()
     const ran: string[] = []
     bus.registerGate('beforeDelete', () => { ran.push('first') })
     bus.registerGate('beforeDelete', () => { throw new Error('locked') })

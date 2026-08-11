@@ -17,7 +17,6 @@
  */
 export type {
   NoydbStore,
-  NoydbBundleStore,
   NoydbPodStore,
   EncryptedEnvelope,
   VaultSnapshot,
@@ -33,7 +32,6 @@ export {
   ConflictError,
   NetworkError,
   StoreCapabilityError,
-  BundleVersionConflictError,
   PodVersionConflictError,
   UnknownStoreKindError,
   DuplicateStoreKindError,

@@ -17,9 +17,6 @@ export {
   readPod,
   readPodHeader,
   readPodCover,
-  writeNoydbBundle,
-  readNoydbBundle,
-  readNoydbBundleHeader,
   resetBrotliSupportCache,
 } from './bundle.js'
 // The cover type rides the pod header (frozen wire key `publicEnvelope`),
@@ -29,9 +26,6 @@ export type {
   WritePodOptions,
   ReadPodOptions,
   PodReadResult,
-  WriteNoydbBundleOptions,
-  ReadNoydbBundleOptions,
-  NoydbBundleReadResult,
 } from './bundle.js'
 
 // Pod header authentication (#943): a pure, dependency-free, WebCrypto-only
@@ -64,18 +58,15 @@ export {
 export type {
   CompressionAlgo,
   NoydbPodHeader,
-  NoydbBundleHeader,
   UnlockMethod,
 } from './format.js'
 
 export { generateULID, isULID } from './ulid.js'
 
-export { wrapPodStore, createPodStore, wrapBundleStore, createBundleStore } from './pod-store.js'
+export { wrapPodStore, createPodStore } from './pod-store.js'
 export type {
   WrappedPodNoydbStore,
   WrapPodStoreOptions,
-  WrappedBundleNoydbStore,
-  WrapBundleStoreOptions,
 } from './pod-store.js'
 
 // Errors thrown by the artifact/backup paths above (#812), so subpath
@@ -85,7 +76,6 @@ export {
   BundleIntegrityError,
   BundleSealMismatchError,
   PodVersionConflictError,
-  BundleVersionConflictError,
   BackupLedgerError,
   BackupCorruptedError,
 } from '../kernel/errors.js'

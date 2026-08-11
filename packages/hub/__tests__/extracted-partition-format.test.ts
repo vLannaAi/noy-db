@@ -14,7 +14,7 @@ import {
   decodeBundleHeader,
   validateBundleHeader,
   NOYDB_BUNDLE_FORMAT_VERSION,
-  type NoydbBundleHeader,
+  type NoydbPodHeader,
 } from '../src/with-pod/format.js'
 import {
   buildExtractedPartitionWrapper,
@@ -27,11 +27,11 @@ const base = {
   handle: '01ARZ3NDEKTSV4RRFFQ69G5FAV', // 26-char Crockford base32
   bodyBytes: 10,
   bodySha256: 'a'.repeat(64),
-} satisfies Partial<NoydbBundleHeader>
+} satisfies Partial<NoydbPodHeader>
 
 describe('extracted-partition header fields', () => {
   it('round-trips a header carrying bundleKind + transferSeal indicator', () => {
-    const header: NoydbBundleHeader = {
+    const header: NoydbPodHeader = {
       ...base,
       bundleKind: 'extracted-partition',
       transferSeal: { v: 1, alg: 'aes-256-gcm-pre-shared', sealId: 'seal-abc' },

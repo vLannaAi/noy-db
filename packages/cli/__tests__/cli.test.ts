@@ -2,7 +2,7 @@
  * Unit + integration tests for @noy-db/cli subcommands.
  *
  * Covers:
- *   - inspect: reads bundle header from a real writeNoydbBundle output
+ *   - inspect: reads bundle header from a real writePod output
  *   - verify: returns ok for a well-formed bundle, fails for a tampered one
  *   - validateOptions: rejects missing store, bad role, archive-with-pull
  *   - scaffold: emits non-empty code + env for profiles A / B / C / G
@@ -13,7 +13,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
-import { ConflictError, createNoydb, writeNoydbBundle } from '@noy-db/hub'
+import { ConflictError, createNoydb, writePod } from '@noy-db/hub'
 import { inspect } from '../src/commands/inspect.js'
 import { verify } from '../src/commands/verify.js'
 import { validateOptions, scaffold, loadOptionsFromFile } from '../src/commands/config.js'
@@ -58,14 +58,14 @@ describe('inspect — bundle header extraction', () => {
   afterEach(async () => { await rm(dir, { recursive: true, force: true }) })
 
   it('reads formatVersion/handle/bodyBytes/bodySha256 without a secret', async () => {
-    // Build a real bundle via createNoydb → writeNoydbBundle
+    // Build a real bundle via createNoydb → writePod
     const db = await createNoydb({
       store: memoryStore(),
       user: 'owner',
       secret: 'test-secret-12345678',
     })
     const vault = await db.openVault('test-vault')
-    const bundleBytes = await writeNoydbBundle(vault, { compression: 'none' })
+    const bundleBytes = await writePod(vault, { compression: 'none' })
     const path = join(dir, 'test.noydb')
     await writeFile(path, bundleBytes)
 
@@ -87,7 +87,7 @@ describe('verify — integrity check', () => {
       store: memoryStore(), user: 'owner', secret: 'test-secret-12345678',
     })
     const vault = await db.openVault('test-vault')
-    const bundleBytes = await writeNoydbBundle(vault, { compression: 'none' })
+    const bundleBytes = await writePod(vault, { compression: 'none' })
     const path = join(dir, 'ok.noydb')
     await writeFile(path, bundleBytes)
 
@@ -103,7 +103,7 @@ describe('verify — integrity check', () => {
       store: memoryStore(), user: 'owner', secret: 'test-secret-12345678',
     })
     const vault = await db.openVault('test-vault')
-    const bundleBytes = await writeNoydbBundle(vault, { compression: 'none' })
+    const bundleBytes = await writePod(vault, { compression: 'none' })
 
     // Flip a byte deep in the body (past header) to break the SHA
     const tampered = new Uint8Array(bundleBytes)

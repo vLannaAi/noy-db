@@ -10,7 +10,7 @@ import { PolicyDeniedError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withPortability } from '../src/with-audit/portability/index.js'
 import type { VaultPolicy } from '../src/kernel/types.js'
-import { readNoydbBundle } from '../src/with-pod/bundle.js'
+import { readPod } from '../src/with-pod/bundle.js'
 import { withTeam } from '../src/with-party/team/index.js'
 
 function makeStore(): NoydbStore {
@@ -70,7 +70,7 @@ describe('#199 P2 — unilateralWithdrawal', () => {
     const res = await cv.user.unilateralWithdrawal({ disposition: 'delete', legalBasis: 'gdpr-art-17', reKey: { secret: 'new-pw' } })
     expect(res.snapshot).toBeUndefined()
     // portable copy contains invoices
-    const dump = JSON.parse((await readNoydbBundle(res.bundle)).dumpJson) as { collections?: Record<string, unknown> }
+    const dump = JSON.parse((await readPod(res.bundle)).dumpJson) as { collections?: Record<string, unknown> }
     expect(Object.keys(dump.collections ?? {})).toContain('invoices')
     // live records gone
     expect(await cv.collection<{ id: string }>('invoices').get('i1')).toBeNull()

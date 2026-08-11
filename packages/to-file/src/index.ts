@@ -53,8 +53,6 @@
  *
  * {@link savePod} and {@link loadPod} are thin wrappers around the hub
  * `writePod` / `readPod` primitives that pipe bytes to/from `node:fs`.
- * The former `saveBundle` / `loadBundle` names remain as deprecated
- * aliases (#1046).
  *
  * @packageDocumentation
  */
@@ -424,21 +422,6 @@ export async function loadPod(path: string): Promise<PodReadResult> {
   return readPod(bytes)
 }
 
-/**
- * @deprecated Use {@link savePod}.
- *
- * #1046 — the `bundle` concept was renamed to `pod`; the hub
- * subpath `/bundle` is already retired in favour of `/pod`. Kept
- * for one line because these are published API.
- */
-export const saveBundle = savePod
-
-/**
- * @deprecated Use {@link loadPod}.
- *
- * #1046 — see {@link saveBundle}.
- */
-export const loadBundle = loadPod
 
 // Export-blobs FS materializer — wraps `vault.exportBlobs()` with
 // target-profile filename sanitization, Zip-Slip path containment, and

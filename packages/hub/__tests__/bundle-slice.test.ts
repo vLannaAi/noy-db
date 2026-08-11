@@ -1,5 +1,5 @@
 /**
- * Slice-filter coverage for writeNoydbBundle.
+ * Slice-filter coverage for writePod.
  *
  * Verifies the two opt-in filters added in this issue:
  *
@@ -7,13 +7,13 @@
  *   - `since` — drop records whose envelope `_ts` is older than the cutoff
  *
  * Both filters operate on metadata only — no plaintext access, no
- * envelope rewriting. The bundle round-trips via writeNoydbBundle →
- * readNoydbBundle and the resulting dump JSON is what's asserted on.
+ * envelope rewriting. The bundle round-trips via writePod →
+ * readPod and the resulting dump JSON is what's asserted on.
  */
 
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
-import { ConflictError, createNoydb, writeNoydbBundle, readNoydbBundle } from '../src/index.js'
+import { ConflictError, createNoydb, writePod, readPod } from '../src/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 
 function toMemory(): NoydbStore {
@@ -71,11 +71,11 @@ async function setup() {
   return { db, vault }
 }
 
-describe('writeNoydbBundle — collections filter', () => {
+describe('writePod — collections filter', () => {
   it('without filters carries every user collection', async () => {
     const { db, vault } = await setup()
-    const bytes = await writeNoydbBundle(vault)
-    const result = await readNoydbBundle(bytes)
+    const bytes = await writePod(vault)
+    const result = await readPod(bytes)
     expect(result.dumpJson).toContain('"invoices"')
     expect(result.dumpJson).toContain('"payments"')
     db.close()
@@ -83,8 +83,8 @@ describe('writeNoydbBundle — collections filter', () => {
 
   it('with collections allowlist drops other user collections', async () => {
     const { db, vault } = await setup()
-    const bytes = await writeNoydbBundle(vault, { collections: ['invoices'] })
-    const result = await readNoydbBundle(bytes)
+    const bytes = await writePod(vault, { collections: ['invoices'] })
+    const result = await readPod(bytes)
     const dump = JSON.parse(result.dumpJson) as { collections: Record<string, unknown> }
     expect(Object.keys(dump.collections)).toEqual(['invoices'])
     expect(dump.collections['invoices']).toBeDefined()
@@ -96,16 +96,16 @@ describe('writeNoydbBundle — collections filter', () => {
     // Keyrings must survive — the receiver needs them to unlock.
     // Ledger entries must survive — they're verified at load() time.
     const { db, vault } = await setup()
-    const bytes = await writeNoydbBundle(vault, { collections: ['invoices'] })
-    const result = await readNoydbBundle(bytes)
+    const bytes = await writePod(vault, { collections: ['invoices'] })
+    const result = await readPod(bytes)
     expect(result.dumpJson).toContain('"keyrings"')
     db.close()
   })
 
   it('empty allowlist yields zero user collections (but keyrings + ledger survive)', async () => {
     const { db, vault } = await setup()
-    const bytes = await writeNoydbBundle(vault, { collections: [] })
-    const result = await readNoydbBundle(bytes)
+    const bytes = await writePod(vault, { collections: [] })
+    const result = await readPod(bytes)
     const dump = JSON.parse(result.dumpJson) as { collections: Record<string, unknown> }
     expect(Object.keys(dump.collections)).toEqual([])
     expect(result.dumpJson).toContain('"keyrings"')
@@ -113,7 +113,7 @@ describe('writeNoydbBundle — collections filter', () => {
   })
 })
 
-describe('writeNoydbBundle — since filter', () => {
+describe('writePod — since filter', () => {
   it('drops records older than the cutoff', async () => {
     const db = await createNoydb({
       store: toMemory(), user: 'alice', secret: 'pw-2026',
@@ -129,8 +129,8 @@ describe('writeNoydbBundle — since filter', () => {
     await new Promise((r) => setTimeout(r, 10))
     await inv.put('new', { id: 'new', amount: 200 })
 
-    const bytes = await writeNoydbBundle(vault, { since: cutoff })
-    const result = await readNoydbBundle(bytes)
+    const bytes = await writePod(vault, { since: cutoff })
+    const result = await readPod(bytes)
     const dump = JSON.parse(result.dumpJson) as {
       collections: { invoices?: Record<string, unknown> }
     }
@@ -142,8 +142,8 @@ describe('writeNoydbBundle — since filter', () => {
   it('accepts an ISO string as well as a Date', async () => {
     const { db, vault } = await setup()
     // Use an instant in the past — every record survives.
-    const bytes = await writeNoydbBundle(vault, { since: '2000-01-01T00:00:00Z' })
-    const result = await readNoydbBundle(bytes)
+    const bytes = await writePod(vault, { since: '2000-01-01T00:00:00Z' })
+    const result = await readPod(bytes)
     const dump = JSON.parse(result.dumpJson) as {
       collections: { invoices: Record<string, unknown> }
     }
@@ -153,11 +153,11 @@ describe('writeNoydbBundle — since filter', () => {
 
   it('intersects with the collections allowlist (AND)', async () => {
     const { db, vault } = await setup()
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       collections: ['invoices'],
       since: '2000-01-01T00:00:00Z',
     })
-    const result = await readNoydbBundle(bytes)
+    const result = await readPod(bytes)
     const dump = JSON.parse(result.dumpJson) as {
       collections: Record<string, unknown>
     }

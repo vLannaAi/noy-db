@@ -24,7 +24,7 @@ import {
   type JsonValue,
 } from '../src/with-party/directory/cover/index.js'
 import { createNoydb } from '../src/kernel/noydb.js'
-import { writeNoydbBundle, readPodCover } from '../src/with-pod/bundle.js'
+import { writePod, readPodCover } from '../src/with-pod/bundle.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -396,7 +396,7 @@ describe('wire — additive, no format bump', () => {
       defaultLocale: 'en',
       custom: { 'noydb.viewer': { defaultCollection: 'invoices', theme: 'dark' } },
     })
-    const bundleBytes = await writeNoydbBundle(vault)
+    const bundleBytes = await writePod(vault)
     const env = readPodCover(bundleBytes)
     expect(env?.custom).toEqual({
       'noydb.viewer': { defaultCollection: 'invoices', theme: 'dark' },

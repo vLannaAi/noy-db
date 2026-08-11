@@ -7,8 +7,8 @@
  * still works end-to-end with the new naming and interfaces.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, NoydbBundleStore } from '../src/kernel/types.js'
-import { ConflictError, BundleVersionConflictError } from '../src/kernel/errors.js'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, NoydbPodStore } from '../src/kernel/types.js'
+import { ConflictError, PodVersionConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withBlobs } from '../src/via/blob/index.js'
 import {
@@ -269,13 +269,13 @@ describe('BlobSet (legacy attachment compat)', () => {
   })
 })
 
-describe('wrapBundleStore', () => {
+describe('wrapPodStore', () => {
   it('wraps a bundle into a full NoydbStore', async () => {
     const storage = new Map<string, { bytes: Uint8Array; version: string }>()
     let versionCounter = 0
-    const { wrapBundleStore } = await import('../src/with-pod/pod-store.js')
+    const { wrapPodStore } = await import('../src/with-pod/pod-store.js')
 
-    const bundleStore = wrapBundleStore({
+    const bundleStore = wrapPodStore({
       kind: 'bundle',
       name: 'test-bundle',
       async readBundle(vault) {
@@ -286,7 +286,7 @@ describe('wrapBundleStore', () => {
         const current = storage.get(vault)
         const currentVersion = current?.version ?? null
         if (expectedVersion !== currentVersion) {
-          throw new BundleVersionConflictError(currentVersion ?? 'null')
+          throw new PodVersionConflictError(currentVersion ?? 'null')
         }
         const newVersion = `v${++versionCounter}`
         storage.set(vault, { bytes, version: newVersion })
@@ -324,9 +324,9 @@ describe('wrapBundleStore', () => {
   it('conflict check: expectedVersion throws ConflictError on mismatch', async () => {
     const storage = new Map<string, { bytes: Uint8Array; version: string }>()
     let versionCounter = 0
-    const { wrapBundleStore } = await import('../src/with-pod/pod-store.js')
+    const { wrapPodStore } = await import('../src/with-pod/pod-store.js')
 
-    const bundleStore = wrapBundleStore({
+    const bundleStore = wrapPodStore({
       kind: 'bundle',
       async readBundle(vault) {
         const entry = storage.get(vault)
@@ -336,7 +336,7 @@ describe('wrapBundleStore', () => {
         const current = storage.get(vault)
         const currentVersion = current?.version ?? null
         if (expectedVersion !== currentVersion) {
-          throw new BundleVersionConflictError(currentVersion ?? 'null')
+          throw new PodVersionConflictError(currentVersion ?? 'null')
         }
         const newVersion = `v${++versionCounter}`
         storage.set(vault, { bytes, version: newVersion })
