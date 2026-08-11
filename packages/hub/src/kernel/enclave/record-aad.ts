@@ -4,22 +4,39 @@
  * AES-GCM authenticates its *additional authenticated data* alongside the
  * ciphertext without encrypting it. Binding a record's identity here is what
  * stops an untrusted store from silently **relocating** an envelope — moving
- * it to another vault, collection or id, re-tiering it, or rewriting who
+ * it to another collection or id, re-tiering it, or rewriting who
  * wrote it — while keeping a body whose auth tag still verifies.
  *
- * Scope, stated plainly: this closes relocation, the `_tier` silent-hide and
- * provenance forgery. It does **not** close version rollback — `_v` is
+ * Scope, stated plainly: this closes cross-COLLECTION relocation, the `_tier`
+ * silent-hide and provenance forgery. It does **not** close version rollback — `_v` is
  * deliberately *not* bound, because the sync engine re-stamps `_v` on existing
  * ciphertext without holding a DEK (`with-sync/engine.ts:935-937`), and
  * because the merge never decrypts, so a bad AAD would surface only after the
  * newer copy had already been overwritten. Rollback needs #1042 + #1044.
+ *
+ * ## Why `vault` is not bound
+ *
+ * It was, briefly, and it broke `adoptPartition`. That path re-homes a whole
+ * partition into a new vault name by moving envelopes **verbatim** —
+ * `with-cargo/adopt-partition.ts:140` is a bare
+ * `destinationStore.saveAll(vaultName, backup.collections)` with no
+ * re-encryption, because it does not hold the keys to re-encrypt at that
+ * point. Binding the vault name makes every adopted record undecryptable.
+ *
+ * The uncomfortable truth behind that: **relocation is not purely an attack.**
+ * Adoption is a legitimate, supported relocation, and AAD cannot tell the two
+ * apart. So the vault boundary has to be defended by something that can
+ * distinguish intent — an authenticated head or an explicit re-key — rather
+ * than by sealing a name the product deliberately changes.
+ *
+ * Cross-*collection* relocation has no such legitimate counterpart, so it stays
+ * bound.
  *
  * @packageDocumentation
  */
 
 /** The identity an envelope's body is sealed against. */
 export interface RecordIdentity {
-  readonly vault: string
   readonly collection: string
   readonly id: string
   /** Absent is identical to `0` — the read paths treat them as one record. */
@@ -35,7 +52,7 @@ const encoder = new TextEncoder()
 /**
  * Length-prefixed, order-fixed encoding.
  *
- * The obvious `${vault}:${collection}:${id}` is unsafe: an attacker who
+ * The obvious `${collection}:${id}` is unsafe: an attacker who
  * controls a collection name can choose one that re-splits the same joined
  * string a different way, so two different identities produce identical AAD
  * and the relocation this exists to prevent goes through. Every field is
@@ -55,7 +72,6 @@ export function buildRecordAad(identity: RecordIdentity): Uint8Array {
     parts.push(len, bytes)
   }
 
-  pushField(identity.vault)
   pushField(identity.collection)
   pushField(identity.id)
   // Absent tier ≡ tier 0: `collection.ts` reads `(envelope._tier ?? 0) > 0`,
