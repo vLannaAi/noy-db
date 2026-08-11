@@ -49,16 +49,17 @@
  * would additionally require fsyncing the file and its directory, which is
  * deliberately not paid per record.
  *
- * ## Bundle helpers
+ * ## Pod helpers
  *
- * {@link saveBundle} and {@link loadBundle} are thin wrappers around the
- * core `writeNoydbBundle` / `readNoydbBundle` primitives that pipe bytes
- * to/from `node:fs`.
+ * {@link savePod} and {@link loadPod} are thin wrappers around the hub
+ * `writePod` / `readPod` primitives that pipe bytes to/from `node:fs`.
+ * The former `saveBundle` / `loadBundle` names remain as deprecated
+ * aliases (#1046).
  *
  * @packageDocumentation
  */
 
-import { readFile, writeFile, mkdir, readdir, unlink, stat } from 'node:fs/promises'
+import { readFile, mkdir, readdir, unlink, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { atomicWrite } from './atomic-write.js'
 import type {
@@ -72,10 +73,10 @@ import type {
 import { ConflictError } from '@noy-db/hub/to'
 import type {
   Vault,
-  WriteNoydbBundleOptions,
-  NoydbBundleReadResult,
+  WritePodOptions,
+  PodReadResult,
 } from '@noy-db/hub'
-import { writeNoydbBundle, readNoydbBundle } from '@noy-db/hub'
+import { writePod, readPod } from '@noy-db/hub'
 
 /**
  * Options for `toFile()`.
@@ -357,15 +358,15 @@ export function registerFileStore(locator: StoreLocator): void {
   locator.register('file', fileStoreFactory)
 }
 
-// ─── .noydb bundle helpers ─────────────────────────────────
+// ─── .noydb pod helpers ────────────────────────────────────
 
 /**
  * Write a `.noydb` container for a vault to a local file.
  *
- * Thin wrapper around `writeNoydbBundle` from `@noy-db/core` —
- * the core primitive returns a `Uint8Array`, this helper just
- * pipes it to `node:fs.writeFile` after ensuring the parent
- * directory exists. Use the same options as the core primitive.
+ * Thin wrapper around `writePod` from `@noy-db/hub` — the hub
+ * primitive returns a `Uint8Array`, this helper just pipes it to
+ * disk after ensuring the parent directory exists. Use the same
+ * options as the hub primitive.
  *
  * **Path convention** is up to the caller — `.noydb` is the
  * recommended extension. Consumers using cloud-sync folders
@@ -375,26 +376,27 @@ export function registerFileStore(locator: StoreLocator): void {
  *
  * ```ts
  * const handle = await company.getBundleHandle()
- * await saveBundle(`./bundles/${handle}.noydb`, company)
+ * await savePod(`./pods/${handle}.noydb`, company)
  * ```
  *
- * The full container is written atomically by `node:fs.writeFile`
- * (the platform's atomic-write semantics apply — POSIX `write()`
- * is atomic up to PIPE_BUF, larger files race with concurrent
- * readers; consumers writing into shared cloud folders should
- * pair this with their cloud sync's conflict resolution).
+ * The container is staged in a `.tmp` sidecar and renamed into
+ * place (#1040), so a reader — or a cloud-sync daemon watching the
+ * folder — never observes a partially-written pod under its final
+ * name. A pod is past `PIPE_BUF` essentially always, so the
+ * previous bare `writeFile` genuinely did race with concurrent
+ * readers despite the docstring that claimed otherwise.
  */
-export async function saveBundle(
+export async function savePod(
   path: string,
   vault: Vault,
-  opts: WriteNoydbBundleOptions = {},
+  opts: WritePodOptions = {},
 ): Promise<void> {
-  const bytes = await writeNoydbBundle(vault, opts)
-  // Ensure the parent directory exists — `writeFile` does NOT
+  const bytes = await writePod(vault, opts)
+  // Ensure the parent directory exists — the write does NOT
   // create intermediate directories on its own. Recursive mkdir
   // is a no-op when the directory already exists.
   await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, bytes)
+  await atomicWrite(path, bytes)
 }
 
 /**
@@ -402,25 +404,41 @@ export async function saveBundle(
  *
  * Returns the parsed header plus the unwrapped `dump()` JSON
  * string ready to feed to `vault.load(json, secret)`.
- * Throws `BundleIntegrityError` from `@noy-db/core` if the body
+ * Throws `BundleIntegrityError` from `@noy-db/hub` if the body
  * bytes don't match the integrity hash declared in the header
- * (the bundle was modified between write and read), or any
- * format error from the core reader if the bytes aren't a valid
- * bundle at all.
+ * (the pod was modified between write and read), or any
+ * format error from the hub reader if the bytes aren't a valid
+ * pod at all.
  *
- * Does NOT take a secret — the bundle reader is purely a
+ * Does NOT take a secret — the pod reader is purely a
  * format layer. Restoring a vault from the returned dump
  * JSON requires a separate `vault.load()` call with the
  * secret, mirroring the split between
- * `readNoydbBundle()` and `vault.load()` in core.
+ * `readPod()` and `vault.load()` in hub.
  */
-export async function loadBundle(path: string): Promise<NoydbBundleReadResult> {
+export async function loadPod(path: string): Promise<PodReadResult> {
   const bytes = await readFile(path)
   // node:fs.readFile returns a Buffer, which is a Uint8Array
-  // subclass — `readNoydbBundle` accepts Uint8Array directly,
+  // subclass — `readPod` accepts Uint8Array directly,
   // no copy needed.
-  return readNoydbBundle(bytes)
+  return readPod(bytes)
 }
+
+/**
+ * @deprecated Use {@link savePod}.
+ *
+ * #1046 — the `bundle` concept was renamed to `pod`; the hub
+ * subpath `/bundle` is already retired in favour of `/pod`. Kept
+ * for one line because these are published API.
+ */
+export const saveBundle = savePod
+
+/**
+ * @deprecated Use {@link loadPod}.
+ *
+ * #1046 — see {@link saveBundle}.
+ */
+export const loadBundle = loadPod
 
 // Export-blobs FS materializer — wraps `vault.exportBlobs()` with
 // target-profile filename sanitization, Zip-Slip path containment, and

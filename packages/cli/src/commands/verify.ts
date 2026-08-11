@@ -15,7 +15,7 @@
  *
  * @module
  */
-import { readNoydbBundle, readNoydbBundleHeader } from '@noy-db/hub'
+import { readPod, readPodHeader } from '@noy-db/hub'
 import { readFile } from 'node:fs/promises'
 
 export interface VerifyReport {
@@ -35,15 +35,15 @@ export async function verify(filePath: string): Promise<VerifyReport> {
   let bodyBytes = 0
 
   try {
-    const header = readNoydbBundleHeader(bytes)
+    const header = readPodHeader(bytes)
     checks.magic = true
     checks.header = true
     handle = header.handle
     bodyBytes = header.bodyBytes
 
-    // readNoydbBundle() verifies bodySha256 internally — if it doesn't
+    // readPod() verifies bodySha256 internally — if it doesn't
     // throw, the body hash matched.
-    await readNoydbBundle(bytes)
+    await readPod(bytes)
     checks.bodyHash = true
 
     return { ok: true, file: filePath, handle, bodyBytes, checks }

@@ -23,7 +23,7 @@ import type {
 } from '@noy-db/hub'
 import {
   createNoydb,
-  readNoydbBundle,
+  readPod,
   ConflictError,
   loadPersistedSchema,
   SCHEMAS_COLLECTION,
@@ -99,7 +99,7 @@ export async function describeBundle(opts: DescribeOptions): Promise<string> {
   const bytes = await readFile(opts.bundlePath)
   const sourceSha256 = createHash('sha256').update(bytes).digest('hex')
 
-  const { dumpJson } = await readNoydbBundle(new Uint8Array(bytes))
+  const { dumpJson } = await readPod(new Uint8Array(bytes))
   const backup = JSON.parse(dumpJson) as BackupShape
   const compartmentName = backup._compartment ?? 'vault'
 
