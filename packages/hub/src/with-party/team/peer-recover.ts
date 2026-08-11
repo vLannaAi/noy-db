@@ -40,6 +40,7 @@ import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError } from '
 import { assertStrongSecret, type SecretPolicy } from '../../kernel/validation.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { mintKeyringCanary, readKeyringFile } from './keyring.js'
+import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 
 // FR-6: 'custodian' is deliberately ABSENT — an admin cannot peer-recover a
 // custodian (mirrors ADMIN_GRANTABLE_TARGETS: custodians are owner-managed
@@ -209,7 +210,7 @@ export async function recoverUser(
   //    Backend `put` is the canonical write primitive across every
   //    `to-*` store; no partial-failure window between revoke + grant.
   const envelope = {
-    _noydb: 1 as const,
+    _noydb: NOYDB_FORMAT_VERSION,
     _v: 1,
     _ts: new Date().toISOString(),
     _iv: '',

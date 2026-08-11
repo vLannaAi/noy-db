@@ -17,6 +17,7 @@
 
 import type { NoydbStore, PresencePeer } from '../kernel/types.js'
 import { encrypt, decrypt, derivePresenceKey, type EnclaveKey } from '../kernel/enclave/index.js'
+import { NOYDB_FORMAT_VERSION } from '../kernel/types.js'
 
 const subtle = globalThis.crypto.subtle
 
@@ -327,7 +328,7 @@ export class PresenceHandle<P> {
     // fall back to local adapter.
     const storeAdapter = this.syncAdapter ?? this.adapter
     const envelope = {
-      _noydb: 1 as const,
+      _noydb: NOYDB_FORMAT_VERSION,
       _v: 1,
       _ts: now,
       _iv: '',

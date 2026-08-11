@@ -1918,7 +1918,7 @@ async function writeKeyringFile(
   keyringFile: KeyringFile,
 ): Promise<void> {
   const envelope = {
-    _noydb: 1 as const,
+    _noydb: NOYDB_FORMAT_VERSION,
     _v: 1,
     _ts: new Date().toISOString(),
     _iv: '',

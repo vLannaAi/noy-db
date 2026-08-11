@@ -45,6 +45,7 @@ import { encrypt, openEnvelopeJson, wrapKey, unwrapKey, type EnclaveKey } from '
 import { dekKey } from './tiers.js'
 import { DelegationTargetMissingError } from '../../kernel/errors.js'
 import { generateULID } from '../../with-pod/ulid.js'
+import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 
 export const DELEGATIONS_COLLECTION = '_delegations'
 
@@ -121,7 +122,7 @@ export async function issueDelegation(
   const plaintext = JSON.stringify(token)
   const { iv, data } = await encrypt(plaintext, delegationsDek)
   const envelope: EncryptedEnvelope = {
-    _noydb: 1,
+    _noydb: NOYDB_FORMAT_VERSION,
     _v: 1,
     _ts: token.createdAt,
     _iv: iv,
