@@ -579,7 +579,7 @@ export class Noydb {
       if (declaredPolicy) syncEngine.startScheduler()
 
       // Additional targets get their own engines (backup/archive are push-only)
-      for (const target of targets) {
+      for (const [index, target] of targets.entries()) {
         if (target === primary) continue
         const targetPolicy = target.policy ?? this.options.syncPolicy ?? INDEXED_STORE_POLICY
         const engine = this.strategies.sync.buildSyncEngine({
@@ -592,8 +592,12 @@ export class Noydb {
           role: target.role,
           ...(target.label !== undefined ? { label: target.label } : {}),
         })
-        const key = `${name}::${target.label ?? target.role}`
-        this.syncEngines.set(key, engine)
+        // #1035 — keyed by POSITION, not `label ?? role`: two unlabelled targets of
+        // one role shared a key, so the second evicted the first, leaving it running
+        // (startScheduler below) but unreachable from every fan-out — a configured
+        // replica that silently received nothing. Position keeps `label` cosmetic as
+        // documented, and is the identity #1034's per-target status needs.
+        this.syncEngines.set(`${name}::${index}`, engine)
         // #897 — same for additional targets, on the same declared-policy condition.
         if (target.policy ?? this.options.syncPolicy) engine.startScheduler()
       }
@@ -1669,10 +1673,16 @@ export class Noydb {
    * No-op when `vault` is not currently in cache (idempotent).
    */
   lockVault(vault: string): void {
-    // Sync engine: stop autosync + drop the engine so the next openVault
-    // builds a fresh one against the freshly-loaded keyring.
-    this.syncEngines.get(vault)?.stopAutoSync()
-    this.syncEngines.delete(vault)
+    // Sync engines: stop autosync + drop them so the next openVault builds fresh
+    // ones against the freshly-loaded keyring. #1035 — this dropped only the PRIMARY,
+    // so each secondary stayed in the map still scheduling, and re-opening stacked a
+    // second set of timers on the abandoned ones. openVault builds the whole target
+    // list, so lock must tear down the whole list.
+    for (const [key, engine] of [...this.syncEngines]) {
+      if (key !== vault && !key.startsWith(`${vault}::`)) continue
+      engine.stopAutoSync()
+      this.syncEngines.delete(key)
+    }
     // Policy enforcer: cancels its idle timer and any visibility listener.
     this.policyEnforcers.get(vault)?.destroy()
     this.policyEnforcers.delete(vault)
