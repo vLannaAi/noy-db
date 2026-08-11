@@ -152,7 +152,6 @@ export type {
 // Blob store
 export type {
   NoydbPodStore,
-  NoydbBundleStore,
   BlobObject,
   SlotRecord,
   SlotInfo,
@@ -194,12 +193,10 @@ export {
 } from './with-shape/blobs/blob-intent.js'
 export type { BlobIntent, BlobIntentHold, BlobIntentResume } from './with-shape/blobs/blob-intent.js'
 export { BlobIntentPendingError, BlobOfflineError } from './kernel/errors.js'
-export { wrapPodStore, createPodStore, wrapBundleStore, createBundleStore } from './with-pod/pod-store.js'
+export { wrapPodStore, createPodStore } from './with-pod/pod-store.js'
 export type {
   WrappedPodNoydbStore,
   WrapPodStoreOptions,
-  WrappedBundleNoydbStore,
-  WrapBundleStoreOptions,
 } from './with-pod/pod-store.js'
 
 // Observable write-queue
@@ -242,7 +239,7 @@ export type { FenceState, FenceDoc } from './with-shape/schema-update/fence.js'
 
 // Sync policy
 export type { SyncPolicy, PushPolicy, PullPolicy, PushMode, PullMode, SyncSchedulerStatus, ReadinessState } from './kernel/sync-policy.js'
-export { SyncScheduler, INDEXED_STORE_POLICY, POD_STORE_POLICY, BUNDLE_STORE_POLICY } from './kernel/sync-policy.js'
+export { SyncScheduler, INDEXED_STORE_POLICY, POD_STORE_POLICY } from './kernel/sync-policy.js'
 
 // Sync target
 export type { SyncTarget, SyncTargetInfo, SyncTargetRole } from './kernel/types.js'
@@ -300,7 +297,6 @@ export {
   BundleIntegrityError,
   BundleSealMismatchError,
   PodVersionConflictError,
-  BundleVersionConflictError,
   SessionExpiredError,
   SessionNotFoundError,
   SessionPolicyError,
@@ -367,9 +363,6 @@ export {
   writePod,
   readPod,
   readPodHeader,
-  writeNoydbBundle,
-  readNoydbBundle,
-  readNoydbBundleHeader,
   verifyPodHeader,
 } from './with-pod/bundle.js'
 export { exportAccessibleData } from './with-audit/portability/export-accessible.js'
@@ -393,7 +386,6 @@ export type {
 } from './with-audit/portability/request-withdrawal.js'
 export type {
   NoydbPodHeader,
-  NoydbBundleHeader,
   CompressionAlgo,
   UnlockMethod,
 } from './with-pod/format.js'
@@ -401,9 +393,6 @@ export type {
   WritePodOptions,
   ReadPodOptions,
   PodReadResult,
-  WriteNoydbBundleOptions,
-  ReadNoydbBundleOptions,
-  NoydbBundleReadResult,
   AutoCredentialKind,
   AutoCredential,
   PodVerifyResult,

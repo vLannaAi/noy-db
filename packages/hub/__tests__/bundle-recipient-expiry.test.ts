@@ -11,7 +11,7 @@ import type {
   NoydbStore, EncryptedEnvelope, VaultSnapshot, BundleRecipient,
 } from '../src/index.js'
 import {
-  ConflictError, createNoydb, writeNoydbBundle, readNoydbBundle,
+  ConflictError, createNoydb, writePod, readPod,
   KeyringExpiredError,
 } from '../src/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
@@ -69,7 +69,7 @@ async function restoreAs(
   recipientUserId: string,
   recipientSecret: string,
 ): Promise<{ db: Awaited<ReturnType<typeof createNoydb>> }> {
-  const { dumpJson } = await readNoydbBundle(bundleBytes)
+  const { dumpJson } = await readPod(bundleBytes)
   const dump = JSON.parse(dumpJson) as {
     _compartment: string
     keyrings: Record<string, unknown>
@@ -105,14 +105,14 @@ async function restoreAs(
   return { db }
 }
 
-describe('writeNoydbBundle — recipient expiresAt', () => {
+describe('writePod — recipient expiresAt', () => {
   it('past-cutoff slot refuses to open with KeyringExpiredError', async () => {
     const { db: src, vault } = await setupSourceVault()
     const yesterday = new Date(Date.now() - 86400_000).toISOString()
     const recipients: readonly BundleRecipient[] = [
       { id: 'auditor', secret: 'aud-pw', role: 'viewer', expiresAt: yesterday },
     ]
-    const bytes = await writeNoydbBundle(vault, { recipients })
+    const bytes = await writePod(vault, { recipients })
     src.close()
 
     const auditor = await restoreAs(bytes, 'auditor', 'aud-pw')
@@ -126,7 +126,7 @@ describe('writeNoydbBundle — recipient expiresAt', () => {
     const recipients: readonly BundleRecipient[] = [
       { id: 'auditor', secret: 'aud-pw', role: 'viewer', expiresAt: tomorrow },
     ]
-    const bytes = await writeNoydbBundle(vault, { recipients })
+    const bytes = await writePod(vault, { recipients })
     src.close()
 
     const auditor = await restoreAs(bytes, 'auditor', 'aud-pw')
@@ -140,7 +140,7 @@ describe('writeNoydbBundle — recipient expiresAt', () => {
     const recipients: readonly BundleRecipient[] = [
       { id: 'auditor', secret: 'aud-pw', role: 'viewer' },
     ]
-    const bytes = await writeNoydbBundle(vault, { recipients })
+    const bytes = await writePod(vault, { recipients })
     src.close()
 
     const auditor = await restoreAs(bytes, 'auditor', 'aud-pw')
@@ -155,7 +155,7 @@ describe('writeNoydbBundle — recipient expiresAt', () => {
     const recipients: readonly BundleRecipient[] = [
       { id: 'auditor', secret: 'aud-pw', role: 'viewer', expiresAt: yesterday },
     ]
-    const bytes = await writeNoydbBundle(vault, { recipients })
+    const bytes = await writePod(vault, { recipients })
     src.close()
 
     const auditor = await restoreAs(bytes, 'auditor', 'aud-pw')

@@ -18,7 +18,7 @@ import { decrypt, base64ToBuffer, generateDEK } from '../src/kernel/enclave/inde
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { reKeyClosure, sealDeks, extractPartition } from '../src/with-cargo/extract-partition.js'
 import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/with-cargo/adopt-partition.js'
-import { readNoydbBundle, readNoydbBundleHeader, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
+import { readPod, readPodHeader, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withBlobs } from '../src/via/blob/index.js'
 import { BLOB_SLOTS_PREFIX, BLOB_INDEX_COLLECTION } from '../src/with-shape/blobs/blob-set.js'
@@ -136,7 +136,7 @@ describe('extractPartition', () => {
     expect(transferKey.byteLength).toBe(32)
     expect(sealId.length).toBeGreaterThan(0)
 
-    const header = await readNoydbBundleHeader(bundleBytes)
+    const header = await readPodHeader(bundleBytes)
     expect(header.bundleKind).toBe('extracted-partition')
     expect(header.transferSeal?.sealId).toBe(sealId)
     expect(header.transferSeal?.alg).toBe('aes-256-gcm-pre-shared')
@@ -167,7 +167,7 @@ describe('extractPartition end-to-end', () => {
       seeds: { clients: () => true },
     })
 
-    const { dumpJson } = await readNoydbBundle(bundleBytes)
+    const { dumpJson } = await readPod(bundleBytes)
     const { dump, seal } = parseExtractedPartitionBody(dumpJson)
     const backup = JSON.parse(dump) as {
       keyrings: Record<string, unknown>
@@ -240,7 +240,7 @@ describe('extractPartition — #748: elevated records are structurally excluded'
       seeds: { clients: () => true },
     })
 
-    const { dumpJson } = await readNoydbBundle(bundleBytes)
+    const { dumpJson } = await readPod(bundleBytes)
     const { dump } = parseExtractedPartitionBody(dumpJson)
     const backup = JSON.parse(dump) as {
       collections: Record<string, Record<string, EncryptedEnvelope>>
@@ -324,7 +324,7 @@ describe('extractPartition — #759: elevated FK parent is excluded with a dangl
       { collection: 'invoices', id: 'inv-1', field: 'clientId', target: 'clients', targetId: 'c-1', reason: 'elevated' },
     ])
 
-    const { dumpJson } = await readNoydbBundle(bundleBytes)
+    const { dumpJson } = await readPod(bundleBytes)
     const { dump } = parseExtractedPartitionBody(dumpJson)
     const backup = JSON.parse(dump) as { collections: Record<string, Record<string, EncryptedEnvelope>> }
 

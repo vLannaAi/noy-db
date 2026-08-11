@@ -2,7 +2,6 @@
   "subpath": "@noy-db/hub/to",
   "source": "src/port/to/index.ts",
   "values": [
-    "BundleVersionConflictError",
     "ConflictError",
     "DuplicateStoreKindError",
     "NetworkError",
@@ -16,7 +15,6 @@
     "AnyNoydbStore",
     "EncryptedEnvelope",
     "ListPageResult",
-    "NoydbBundleStore",
     "NoydbPodStore",
     "NoydbStore",
     "StoreBinding",

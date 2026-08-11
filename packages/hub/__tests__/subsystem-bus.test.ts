@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { SubsystemBus } from '../src/port/with/service-bus.js'
+import { ServiceBus } from '../src/port/with/service-bus.js'
 import type { WriteEvent } from '../src/port/with/write-hooks.js'
 
 function ev(over: Partial<WriteEvent> = {}): WriteEvent {
@@ -10,9 +10,9 @@ function ev(over: Partial<WriteEvent> = {}): WriteEvent {
   }
 }
 
-describe('SubsystemBus (observe)', () => {
+describe('ServiceBus (observe)', () => {
   it('dispatches handlers in registration order', async () => {
-    const bus = new SubsystemBus()
+    const bus = new ServiceBus()
     const order: number[] = []
     bus.register('afterPut', () => { order.push(1) })
     bus.register('afterPut', () => { order.push(2) })
@@ -21,7 +21,7 @@ describe('SubsystemBus (observe)', () => {
   })
 
   it('hasHandlers reflects registration and unsubscribe', async () => {
-    const bus = new SubsystemBus()
+    const bus = new ServiceBus()
     expect(bus.hasHandlers('afterPut')).toBe(false)
     const off = bus.register('afterPut', () => {})
     expect(bus.hasHandlers('afterPut')).toBe(true)
@@ -30,7 +30,7 @@ describe('SubsystemBus (observe)', () => {
   })
 
   it('awaits async handlers', async () => {
-    const bus = new SubsystemBus()
+    const bus = new ServiceBus()
     let done = false
     bus.register('afterPut', async () => {
       await new Promise((r) => setTimeout(r, 5))
@@ -41,7 +41,7 @@ describe('SubsystemBus (observe)', () => {
   })
 
   it('isolates a throwing handler — others still run, dispatch never rejects (observe policy)', async () => {
-    const bus = new SubsystemBus()
+    const bus = new ServiceBus()
     const ran: string[] = []
     bus.register('afterPut', () => { throw new Error('boom') })
     bus.register('afterPut', () => { ran.push('second') })
@@ -50,12 +50,12 @@ describe('SubsystemBus (observe)', () => {
   })
 
   it('dispatch is a no-op when no handler is registered', async () => {
-    const bus = new SubsystemBus()
+    const bus = new ServiceBus()
     await expect(bus.dispatch('afterPut', ev())).resolves.toBeUndefined()
   })
 
   it('tolerates handler unsubscribe during dispatch (snapshot semantics)', async () => {
-    const bus = new SubsystemBus()
+    const bus = new ServiceBus()
     const ran: string[] = []
     let off = () => {}
     off = bus.register('afterPut', () => { off(); ran.push('first') })
@@ -67,7 +67,7 @@ describe('SubsystemBus (observe)', () => {
   })
 
   it('delivers all events for concurrent dispatches with async handlers (no drop)', async () => {
-    const bus = new SubsystemBus()
+    const bus = new ServiceBus()
     const seen: string[] = []
     bus.register('afterPut', async (e) => {
       await new Promise((r) => setTimeout(r, 5))

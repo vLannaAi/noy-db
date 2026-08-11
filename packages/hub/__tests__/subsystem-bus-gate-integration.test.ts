@@ -32,7 +32,7 @@ function memoryStore(): NoydbStore {
   }
 }
 
-describe('SubsystemBus gate integration — beforePut/beforeDelete', () => {
+describe('ServiceBus gate integration — beforePut/beforeDelete', () => {
   it('a throwing beforePut handler aborts the write (record not persisted)', async () => {
     const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner' })
     const vault = await db.openVault('v1')

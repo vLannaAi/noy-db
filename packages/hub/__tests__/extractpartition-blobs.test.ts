@@ -26,7 +26,7 @@ import {
   createOwnerOnAdoptedPartition,
   unsealDeks,
 } from '../src/with-cargo/adopt-partition.js'
-import { readNoydbBundle, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
+import { readPod, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
 
 function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -86,7 +86,7 @@ interface Line { id: string; docId: string }
 
 /** Recover the sealed DEK map (incl. the transfer `_blob` DEK) from a bundle. */
 async function sealedDeks(bundleBytes: Uint8Array, transferKey: Uint8Array) {
-  const { seal } = parseExtractedPartitionBody((await readNoydbBundle(bundleBytes)).dumpJson)
+  const { seal } = parseExtractedPartitionBody((await readPod(bundleBytes)).dumpJson)
   return unsealDeks(seal, transferKey)
 }
 

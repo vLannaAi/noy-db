@@ -228,7 +228,3 @@ export class ServiceBus {
   }
 }
 
-/** @deprecated Use ServiceBus. */
-export const SubsystemBus = ServiceBus
-/** @deprecated Use ServiceBus. */
-export type SubsystemBus = ServiceBus

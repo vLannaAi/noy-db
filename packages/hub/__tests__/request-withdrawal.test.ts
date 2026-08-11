@@ -8,7 +8,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withPortability } from '../src/with-audit/portability/index.js'
-import { readNoydbBundle } from '../src/with-pod/bundle.js'
+import { readPod } from '../src/with-pod/bundle.js'
 import { WithdrawalRequestError } from '../src/with-audit/portability/request-withdrawal.js'
 import { withTeam } from '../src/with-party/team/index.js'
 
@@ -61,7 +61,7 @@ describe('#199 P3 — two-party withdrawal', () => {
     // Owner approves → bundle handed back + records deleted under owner authority.
     const { bundle, snapshot } = await ov.user.approveWithdrawal(requestId, { reKey: { secret: 'client-takeaway' } })
     expect(snapshot).toBeUndefined()
-    const dump = JSON.parse((await readNoydbBundle(bundle)).dumpJson) as { collections?: Record<string, unknown> }
+    const dump = JSON.parse((await readPod(bundle)).dumpJson) as { collections?: Record<string, unknown> }
     expect(Object.keys(dump.collections ?? {})).toContain('invoices')
     expect(await ov.collection<{ id: string }>('invoices').get('i1')).toBeNull()
     expect(await ov.collection<{ id: string }>('invoices').get('i2')).toBeNull()

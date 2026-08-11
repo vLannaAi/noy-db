@@ -1164,10 +1164,6 @@ export class PodVersionConflictError extends NoydbError {
   }
 }
 
-/** @deprecated Use `PodVersionConflictError`. */
-export const BundleVersionConflictError = PodVersionConflictError
-/** @deprecated Use `PodVersionConflictError`. */
-export type BundleVersionConflictError = PodVersionConflictError
 
 /**
  * Thrown when a sync operation (push or pull) fails due to a network error.

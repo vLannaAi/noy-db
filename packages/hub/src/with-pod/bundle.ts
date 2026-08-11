@@ -294,26 +294,6 @@ export interface WritePodOptions {
   readonly redirect?: Redirect
 }
 
-/** @deprecated Use `WritePodOptions`. */
-export type WriteNoydbBundleOptions = WritePodOptions
-
-/**
- * @deprecated Use `ReadPodOptions`.
- *
- * #1046 — `readPod` used to name its options after the retired `bundle`
- * concept, which made the pod vocabulary impossible to adopt fully: the
- * canonical function required a deprecated type. `ReadPodOptions` is now
- * the declaration and this is the alias.
- */
-export type ReadNoydbBundleOptions = ReadPodOptions
-
-/**
- * @deprecated Use `PodReadResult`.
- *
- * #1046 — see `ReadNoydbBundleOptions`. Same inversion: `readPod`'s
- * return type is now pod-named and this is the alias.
- */
-export type NoydbBundleReadResult = PodReadResult
 
 /**
  * Every key `writePod` reads, in declaration order (#991).
@@ -1515,8 +1495,6 @@ export async function writePod(
   })
 }
 
-/** @deprecated Use `writePod`. */
-export const writeNoydbBundle = writePod
 
 /**
  * Internal helper shared by both readers — parses just the prefix
@@ -1585,8 +1563,6 @@ export function readPodHeader(bytes: Uint8Array): NoydbPodHeader {
   return parsePrefixAndHeader(bytes).header
 }
 
-/** @deprecated Use `readPodHeader`. */
-export const readNoydbBundleHeader = readPodHeader
 
 /**
  * Outcome of {@link verifyPodHeader}.
@@ -1775,5 +1751,3 @@ export async function readPod(
   return { header, dumpJson: dump, autoUnlock }
 }
 
-/** @deprecated Use `readPod`. */
-export const readNoydbBundle = readPod

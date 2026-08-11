@@ -12,13 +12,13 @@ import {
   validateBundleHeader,
   NOYDB_BUNDLE_FORMAT_VERSION,
 } from '../src/with-pod/format.js'
-import type { NoydbBundleHeader } from '../src/with-pod/format.js'
+import type { NoydbPodHeader } from '../src/with-pod/format.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import {
-  writeNoydbBundle,
-  readNoydbBundle,
-  readNoydbBundleHeader,
+  writePod,
+  readPod,
+  readPodHeader,
   readPodCover,
 } from '../src/with-pod/bundle.js'
 
@@ -88,7 +88,7 @@ describe('bundle header — minimum-disclosure regression', () => {
 
 describe('bundle header — publicEnvelope shape', () => {
   it('round-trips a minimal envelope through encode/decode', () => {
-    const header: NoydbBundleHeader = {
+    const header: NoydbPodHeader = {
       formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,
       handle: HANDLE,
       bodyBytes: 100,
@@ -101,7 +101,7 @@ describe('bundle header — publicEnvelope shape', () => {
   })
 
   it('round-trips a locale-map envelope', () => {
-    const header: NoydbBundleHeader = {
+    const header: NoydbPodHeader = {
       formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,
       handle: HANDLE,
       bodyBytes: 100,
@@ -120,7 +120,7 @@ describe('bundle header — publicEnvelope shape', () => {
   })
 
   it('omits the field when absent (back-compat — old bundles still parse)', () => {
-    const header: NoydbBundleHeader = {
+    const header: NoydbPodHeader = {
       formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,
       handle: HANDLE,
       bodyBytes: 100,
@@ -171,7 +171,7 @@ describe('bundle header — publicEnvelope shape', () => {
   })
 })
 
-describe('writeNoydbBundle / readPodCover round-trip', () => {
+describe('writePod / readPodCover round-trip', () => {
   it('snapshots the vault\'s cover into the bundle header', async () => {
     const store = inlineMemory()
     const db = await createNoydb({
@@ -186,13 +186,13 @@ describe('writeNoydbBundle / readPodCover round-trip', () => {
       icon: TINY_PNG,
     })
 
-    const bundleBytes = await writeNoydbBundle(vault)
+    const bundleBytes = await writePod(vault)
     const env = readPodCover(bundleBytes)
     expect(env?.name).toBe('Acme 2026 Tax Records')
     expect(env?.icon).toBe(TINY_PNG)
 
     // Header read also surfaces it
-    const header = readNoydbBundleHeader(bundleBytes)
+    const header = readPodHeader(bundleBytes)
     expect(header.publicEnvelope?.name).toBe('Acme 2026 Tax Records')
   }, 60_000)
 
@@ -209,7 +209,7 @@ describe('writeNoydbBundle / readPodCover round-trip', () => {
       name: { en: 'Acme 2026', th: 'อะคมี 2026' },
       defaultLocale: 'en',
     })
-    const bundleBytes = await writeNoydbBundle(vault)
+    const bundleBytes = await writePod(vault)
     const th = readPodCover(bundleBytes, { locale: 'th' })
     expect(th?.name).toBe('อะคมี 2026')
 
@@ -226,7 +226,7 @@ describe('writeNoydbBundle / readPodCover round-trip', () => {
       cover: true,
     })
     const vault = await db.openVault('acme')
-    const bundleBytes = await writeNoydbBundle(vault)
+    const bundleBytes = await writePod(vault)
     expect(readPodCover(bundleBytes)).toBeUndefined()
   }, 60_000)
 
@@ -248,7 +248,7 @@ describe('writeNoydbBundle / readPodCover round-trip', () => {
     })
     const sourceVault = await source.openVault('acme')
     await source.setCover('acme', { name: 'Acme 2026 Tax Records' })
-    const bundleBytes = await writeNoydbBundle(sourceVault)
+    const bundleBytes = await writePod(sourceVault)
 
     // Destination — different store, different vault name.
     const destStore = inlineMemory()
@@ -261,7 +261,7 @@ describe('writeNoydbBundle / readPodCover round-trip', () => {
     const destVault = await dest.openVault('acme-restored')
 
     // Header read first — surfaces the cover without unlocking.
-    const result = await readNoydbBundle(bundleBytes)
+    const result = await readPod(bundleBytes)
     expect(result.header.publicEnvelope?.name).toBe('Acme 2026 Tax Records')
 
     // vault.load — whether _meta/* survives is store-dependent
@@ -281,7 +281,7 @@ describe('writeNoydbBundle / readPodCover round-trip', () => {
     expect((await dest.getCover('acme-restored'))?.name).toBe('Acme 2026 Tax Records')
   }, 60_000)
 
-  it('the body still round-trips through readNoydbBundle (cover does not break decryption)', async () => {
+  it('the body still round-trips through readPod (cover does not break decryption)', async () => {
     const store = inlineMemory()
     const db = await createNoydb({
       store,
@@ -291,11 +291,11 @@ describe('writeNoydbBundle / readPodCover round-trip', () => {
     })
     const vault = await db.openVault('acme')
     await db.setCover('acme', { name: 'Acme' })
-    const bundleBytes = await writeNoydbBundle(vault)
+    const bundleBytes = await writePod(vault)
 
     // Verify the body's integrity hash matches; this also exercises
     // the entire bundle decode path with the new header field present.
-    const result = await readNoydbBundle(bundleBytes)
+    const result = await readPod(bundleBytes)
     expect(result.header.publicEnvelope?.name).toBe('Acme')
     expect(typeof result.dumpJson).toBe('string')
   }, 60_000)

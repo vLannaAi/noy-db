@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
-import { ConflictError, createNoydb, writeNoydbBundle } from '@noy-db/hub'
+import { ConflictError, createNoydb, writePod } from '@noy-db/hub'
 import { describeBundle } from '../src/commands/describe.js'
 
 function memoryStore(): NoydbStore {
@@ -61,7 +61,7 @@ async function buildSampleBundle(dir: string): Promise<string> {
   await vault.collection<Invoice>('invoices').put('inv-002', { id: 'inv-002', client_id: 'c1', amount: 7500 })
   await vault.collection('clients').put('c1', { id: 'c1', name: 'Acme Co' })
 
-  const bundleBytes = await writeNoydbBundle(vault, { compression: 'none' })
+  const bundleBytes = await writePod(vault, { compression: 'none' })
   const path = join(dir, 'sample.noydb')
   await writeFile(path, bundleBytes)
   return path

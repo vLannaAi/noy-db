@@ -6,9 +6,9 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import { toMemory } from '../../to-memory/src/index.js'
 import { SnapshotEngine } from '../src/with-fork/snapshots/engine.js'
 import { withSnapshots } from '../src/with-fork/snapshots/active.js'
-import type { NoydbBundleStore } from '../src/kernel/types.js'
+import type { NoydbPodStore } from '../src/kernel/types.js'
 
-function makeMockStore(): NoydbBundleStore & { blobs: Map<string, Uint8Array> } {
+function makeMockStore(): NoydbPodStore & { blobs: Map<string, Uint8Array> } {
   const blobs = new Map<string, Uint8Array>()
   const versions = new Map<string, string>()
   let versionCounter = 0
@@ -37,7 +37,7 @@ function makeMockStore(): NoydbBundleStore & { blobs: Map<string, Uint8Array> } 
   }
 }
 
-// Minimal mock vault for unit tests. writeNoydbBundle calls getBundleHandle(),
+// Minimal mock vault for unit tests. writePod calls getBundleHandle(),
 // dump(), getCover(), and _loadPodSigner() on the vault when invoked with
 // empty opts. getBundleHandle() must return a valid 26-char Crockford
 // base32 ULID.

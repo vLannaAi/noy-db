@@ -10,7 +10,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { z } from 'zod'
 import { generateDocSigningKeyPair } from '@noy-db/attestation'
-import { createNoydb, writeNoydbBundle } from '../../src/index.js'
+import { createNoydb, writePod } from '../../src/index.js'
 import { readPod } from '../../src/with-pod/bundle.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
 import { open, type OpenPodOptions } from '../../src/with-pod/open.js'
@@ -41,7 +41,7 @@ async function makeSourcePod(opts: { readonly sign?: false | DocSigner } = {}): 
   vault.collection<Invoice>('invoices', { schema: Schema, persistJsonSchema: true })
   await vault._drainPendingSchemaWrites()
   await vault.collection<Invoice>('invoices').put('inv-1', { id: 'inv-1', amount: 100 })
-  return writeNoydbBundle(vault, { compression: 'none', ...(opts.sign !== undefined ? { sign: opts.sign } : {}) })
+  return writePod(vault, { compression: 'none', ...(opts.sign !== undefined ? { sign: opts.sign } : {}) })
 }
 
 // The source pods are always written with history on (`_ledger` travels in
@@ -101,7 +101,7 @@ async function makeAheadPod(): Promise<Uint8Array> {
   vault.collection('invoices', { schema: newSchema, persistJsonSchema: true })
   await vault._drainPendingSchemaWrites()
 
-  return writeNoydbBundle(vault, { compression: 'none' })
+  return writePod(vault, { compression: 'none' })
 }
 
 /** Re-wrap a pod with a fresh header, same body/prefix (mirrors pod-signature-verify.test.ts). */

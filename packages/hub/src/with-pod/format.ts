@@ -269,8 +269,6 @@ export type UnlockMethod =
   | 'recovery'
   | 'shamir'
 
-/** @deprecated Use `NoydbPodHeader`. */
-export type NoydbBundleHeader = NoydbPodHeader
 
 /**
  * Allowlist of header keys. Any key not in this set is forbidden

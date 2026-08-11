@@ -6,7 +6,6 @@
     "BackupLedgerError",
     "BundleIntegrityError",
     "BundleSealMismatchError",
-    "BundleVersionConflictError",
     "COMPRESSION_BROTLI",
     "COMPRESSION_GZIP",
     "COMPRESSION_NONE",
@@ -25,7 +24,6 @@
     "RedirectDepthExceededError",
     "RedirectLoopError",
     "RedirectUnreachableError",
-    "createBundleStore",
     "createPodStore",
     "deriveSchemaManifest",
     "encodeBundleHeader",
@@ -36,8 +34,6 @@
     "isULID",
     "loadSchemaManifestEntry",
     "open",
-    "readNoydbBundle",
-    "readNoydbBundleHeader",
     "readPod",
     "readPodCover",
     "readPodHeader",
@@ -50,9 +46,7 @@
     "verifyPodHeader",
     "verifyRecord",
     "verifyRedirect",
-    "wrapBundleStore",
     "wrapPodStore",
-    "writeNoydbBundle",
     "writePod"
   ],
   "types": [
@@ -66,8 +60,6 @@
     "LoadedSchemaManifest",
     "LookupDEK",
     "Noydb",
-    "NoydbBundleHeader",
-    "NoydbBundleReadResult",
     "NoydbOptions",
     "NoydbPodHeader",
     "NoydbStore",
@@ -75,7 +67,6 @@
     "OpenPodResult",
     "PodReadResult",
     "PodVerifyResult",
-    "ReadNoydbBundleOptions",
     "ReadPodOptions",
     "Redirect",
     "RedirectHop",
@@ -83,11 +74,8 @@
     "SchemaManifestEntry",
     "UnlockMethod",
     "Vault",
-    "WrapBundleStoreOptions",
     "WrapPodStoreOptions",
-    "WrappedBundleNoydbStore",
     "WrappedPodNoydbStore",
-    "WriteNoydbBundleOptions",
     "WritePodOptions"
   ]
 }

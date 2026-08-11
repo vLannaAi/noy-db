@@ -8,7 +8,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withPortability } from '../src/with-audit/portability/index.js'
-import { readNoydbBundle } from '../src/with-pod/bundle.js'
+import { readPod } from '../src/with-pod/bundle.js'
 import { withTeam } from '../src/with-party/team/index.js'
 
 function makeStore(): NoydbStore {
@@ -53,7 +53,7 @@ describe('#199 P1 — exportMyAccessibleData', () => {
     const cv = await client.openVault('acme')
     const bytes = await cv.user.exportMyAccessibleData({ reKey: { secret: 'new-owner-pw' } })
 
-    const { dumpJson } = await readNoydbBundle(bytes)
+    const { dumpJson } = await readPod(bytes)
     const cols = bundleCollections(dumpJson)
     expect(cols).toContain('invoices')
     expect(cols).not.toContain('secrets') // not granted → not exportable
@@ -66,11 +66,11 @@ describe('#199 P1 — exportMyAccessibleData', () => {
     await ov.collection<{ id: string }>('invoices').put('i1', { id: 'i1' })
     await ov.collection<{ id: string }>('secrets').put('s1', { id: 's1' })
 
-    const all = bundleCollections((await readNoydbBundle(await ov.user.exportMyAccessibleData())).dumpJson)
+    const all = bundleCollections((await readPod(await ov.user.exportMyAccessibleData())).dumpJson)
     expect(all).toEqual(expect.arrayContaining(['invoices', 'secrets']))
 
     const narrowed = bundleCollections(
-      (await readNoydbBundle(await ov.user.exportMyAccessibleData({ scope: { collections: ['invoices'] } }))).dumpJson,
+      (await readPod(await ov.user.exportMyAccessibleData({ scope: { collections: ['invoices'] } }))).dumpJson,
     )
     expect(narrowed).toContain('invoices')
     expect(narrowed).not.toContain('secrets')

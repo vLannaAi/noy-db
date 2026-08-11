@@ -32,7 +32,7 @@ function memoryStore(): NoydbStore {
   }
 }
 
-describe('SubsystemBus integration — afterPut fires from put()', () => {
+describe('ServiceBus integration — afterPut fires from put()', () => {
   it('fires with no write-hooks registered (proves decoupling from #230)', async () => {
     const db = await createNoydb({ store: memoryStore(), secret: 'pw', user: 'owner' })
     const seen: WriteEvent[] = []

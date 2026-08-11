@@ -1,7 +1,7 @@
 /**
  * Tests for the @noy-db/file pod helpers — savePod / loadPod.
  *
- * v0.6. These wrap the core writeNoydbBundle / readNoydbBundle
+ * v0.6. These wrap the core writePod / readPod
  * primitives with path-based filesystem I/O — the tests focus on the
  * filesystem behavior (path resolution, parent dir creation, atomic
  * write/read round-trip on a real temp directory) and on confirming
@@ -14,7 +14,7 @@ import { mkdtemp, rm, readFile, writeFile, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createNoydb, type Noydb, BundleIntegrityError, hasNoydbBundleMagic } from '@noy-db/hub'
-import { toFile, savePod, loadPod, saveBundle, loadBundle } from '../src/index.js'
+import { toFile, savePod, loadPod } from '../src/index.js'
 
 let testDir: string
 
@@ -173,11 +173,3 @@ describe('@noy-db/file > handle stability across separate noydb sessions', () =>
   })
 })
 
-describe('@noy-db/file > deprecated bundle aliases (#1046)', () => {
-  it('saveBundle / loadBundle are the pod helpers under their old names', () => {
-    // These stay exported for one line because they are published API.
-    // Identity, not a re-implementation — so they cannot drift.
-    expect(saveBundle).toBe(savePod)
-    expect(loadBundle).toBe(loadPod)
-  })
-})

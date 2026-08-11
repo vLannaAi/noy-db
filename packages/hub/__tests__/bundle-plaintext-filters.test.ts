@@ -1,5 +1,5 @@
 /**
- * Plaintext-tier slice filters for writeNoydbBundle (#320 `where`,
+ * Plaintext-tier slice filters for writePod (#320 `where`,
  *  `tierAtMost`).
  *
  * Both filters operate on the unencrypted vault dump:
@@ -14,7 +14,7 @@
 
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/index.js'
-import { ConflictError, createNoydb, writeNoydbBundle, readNoydbBundle } from '../src/index.js'
+import { ConflictError, createNoydb, writePod, readPod } from '../src/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 
 function toMemory(): NoydbStore {
@@ -71,15 +71,15 @@ async function setup() {
 async function readDump(bytes: Uint8Array): Promise<{
   collections: Record<string, Record<string, EncryptedEnvelope>>
 }> {
-  const { dumpJson } = await readNoydbBundle(bytes)
+  const { dumpJson } = await readPod(bytes)
   return JSON.parse(dumpJson)
 }
 
-describe('writeNoydbBundle — where filter', () => {
+describe('writePod — where filter', () => {
   it('predicate true for all → bundle identical to no-filter', async () => {
     const { db, vault } = await setup()
-    const baseline = await writeNoydbBundle(vault)
-    const filtered = await writeNoydbBundle(vault, { where: () => true })
+    const baseline = await writePod(vault)
+    const filtered = await writePod(vault, { where: () => true })
     const a = await readDump(baseline)
     const b = await readDump(filtered)
     expect(Object.keys(b.collections.invoices ?? {}).sort())
@@ -89,7 +89,7 @@ describe('writeNoydbBundle — where filter', () => {
 
   it('predicate false for all → empty collection in bundle', async () => {
     const { db, vault } = await setup()
-    const bytes = await writeNoydbBundle(vault, { where: () => false })
+    const bytes = await writePod(vault, { where: () => false })
     const dump = await readDump(bytes)
     expect(Object.keys(dump.collections.invoices ?? {})).toEqual([])
     db.close()
@@ -97,7 +97,7 @@ describe('writeNoydbBundle — where filter', () => {
 
   it('selective predicate keeps only matching records', async () => {
     const { db, vault } = await setup()
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       where: (record) => (record as Invoice).status === 'paid',
     })
     const dump = await readDump(bytes)
@@ -108,7 +108,7 @@ describe('writeNoydbBundle — where filter', () => {
   it('predicate ctx exposes collection + id', async () => {
     const { db, vault } = await setup()
     const observed: Array<{ collection: string; id: string }> = []
-    await writeNoydbBundle(vault, {
+    await writePod(vault, {
       where: (_record, ctx) => { observed.push(ctx); return true },
     })
     expect(observed.map((o) => o.collection)).toEqual(['invoices', 'invoices', 'invoices'])
@@ -118,7 +118,7 @@ describe('writeNoydbBundle — where filter', () => {
 
   it('async predicate is awaited', async () => {
     const { db, vault } = await setup()
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       where: async (record) => {
         await new Promise((r) => setTimeout(r, 1))
         return (record as Invoice).amount >= 200
@@ -132,7 +132,7 @@ describe('writeNoydbBundle — where filter', () => {
   it('composes with collections allowlist', async () => {
     const { db, vault } = await setup()
     await vault.collection('payments').put('p', { id: 'p', amount: 999 })
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       collections: ['invoices'],
       where: (record) => (record as Invoice).status === 'paid',
     })
@@ -144,8 +144,8 @@ describe('writeNoydbBundle — where filter', () => {
 
   it('survivors carry their ORIGINAL ciphertext (no re-encrypt)', async () => {
     const { db, vault } = await setup()
-    const baseline = await readDump(await writeNoydbBundle(vault))
-    const filtered = await readDump(await writeNoydbBundle(vault, {
+    const baseline = await readDump(await writePod(vault))
+    const filtered = await readDump(await writePod(vault, {
       where: (record) => (record as Invoice).status === 'paid',
     }))
     // Surviving record 'b' should carry the byte-identical _iv + _data
@@ -157,11 +157,11 @@ describe('writeNoydbBundle — where filter', () => {
   })
 })
 
-describe('writeNoydbBundle — tierAtMost filter', () => {
+describe('writePod — tierAtMost filter', () => {
   it('vault without tiers → option is a no-op', async () => {
     const { db, vault } = await setup()
-    const baseline = await readDump(await writeNoydbBundle(vault))
-    const filtered = await readDump(await writeNoydbBundle(vault, { tierAtMost: 2 }))
+    const baseline = await readDump(await writePod(vault))
+    const filtered = await readDump(await writePod(vault, { tierAtMost: 2 }))
     expect(Object.keys(filtered.collections.invoices ?? {}).sort())
       .toEqual(Object.keys(baseline.collections.invoices ?? {}).sort())
     db.close()
@@ -173,10 +173,10 @@ describe('writeNoydbBundle — tierAtMost filter', () => {
   // tiered vaults is plumbed (tracked alongside this issue).
 })
 
-describe('writeNoydbBundle — where + tierAtMost compose', () => {
+describe('writePod — where + tierAtMost compose', () => {
   it('untiered vault: tierAtMost is a no-op, where still trims', async () => {
     const { db, vault } = await setup()
-    const bytes = await writeNoydbBundle(vault, {
+    const bytes = await writePod(vault, {
       tierAtMost: 1,
       where: (record) => (record as Invoice).amount >= 200,
     })

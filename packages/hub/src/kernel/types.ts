@@ -2055,10 +2055,10 @@ export interface CrdtStrategy {
  * that operate on whole-vault bundles rather than per-record KV.
  *
  * Implement `readBundle` / `writeBundle` instead of the six-method KV
- * contract. Use `wrapBundleStore()` from `@noy-db/hub` to convert to a
+ * contract. Use `wrapPodStore()` from `@noy-db/hub` to convert to a
  * `NoydbStore` that the rest of the API consumes transparently.
  *
- * Named `NoydbPodStore` (not `NoydbBundleAdapter`) for consistency
+ * Named `NoydbPodStore` for consistency
  * with the hub / to-* / in-* rename. Concrete implementations ship
  * in `@noy-db/to-*` packages starting in.
  */
@@ -2090,8 +2090,6 @@ export interface NoydbPodStore {
   listBundles(): Promise<Array<{ vaultId: string; version: string; size: number }>>
 }
 
-/** @deprecated Use `NoydbPodStore`. */
-export type NoydbBundleStore = NoydbPodStore
 
 /**
  * Content-addressed blob object stored in the vault-level blob index.
