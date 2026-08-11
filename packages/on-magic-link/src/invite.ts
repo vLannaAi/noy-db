@@ -35,6 +35,7 @@ import {
   type Role,
   type FactorProof,
   type SecretPolicy,
+  NOYDB_FORMAT_VERSION,
 } from '@noy-db/hub'
 import type { ShareLink } from '@noy-db/hub/share-link'
 
@@ -554,7 +555,7 @@ async function writeAuditDoc(
   doc: InviteAuditDoc,
 ): Promise<void> {
   const envelope: EncryptedEnvelope = {
-    _noydb: 1 as const,
+    _noydb: NOYDB_FORMAT_VERSION,
     _v: 1,
     _ts: new Date().toISOString(),
     _iv: '',

@@ -51,6 +51,7 @@
 import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'
 import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { generateULID } from '../../with-pod/ulid.js'
+import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 
 /** Reserved collection for consent-audit entries. */
 export const CONSENT_AUDIT_COLLECTION = '_consent_audit'
@@ -164,7 +165,7 @@ async function buildEnvelope(
   const json = JSON.stringify(entry)
   if (!encrypted) {
     return {
-      _noydb: 1,
+      _noydb: NOYDB_FORMAT_VERSION,
       _v: 1,
       _ts: entry.timestamp,
       _iv: '',
@@ -174,7 +175,7 @@ async function buildEnvelope(
   const dek = await getDEK(CONSENT_AUDIT_COLLECTION)
   const { iv, data } = await encrypt(json, dek)
   return {
-    _noydb: 1,
+    _noydb: NOYDB_FORMAT_VERSION,
     _v: 1,
     _ts: entry.timestamp,
     _iv: iv,

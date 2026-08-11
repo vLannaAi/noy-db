@@ -55,7 +55,7 @@
  * @packageDocumentation
  */
 import type { NoydbStore } from '@noy-db/hub'
-import { ConflictError, wrapStore, withMetrics, memoryStore } from '@noy-db/hub'
+import { ConflictError, wrapStore, withMetrics, memoryStore, NOYDB_FORMAT_VERSION } from '@noy-db/hub'
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -399,7 +399,7 @@ function startLiveness(
       } else {
         // Fallback: put + delete — exercises the write path
         await inner.put(vault, collection, pingId, {
-          _noydb: 1, _v: 1,
+          _noydb: NOYDB_FORMAT_VERSION, _v: 1,
           _ts: new Date().toISOString(),
           _iv: 'AAAAAAAAAAAAAAAA',
           _data: 'cHJvYmU=',

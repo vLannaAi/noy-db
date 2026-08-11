@@ -25,6 +25,7 @@
  * @module
  */
 import type { EncryptedEnvelope, NoydbStore, StoreCapabilities, VaultSnapshot } from '@noy-db/hub'
+import { NOYDB_FORMAT_VERSION } from '@noy-db/hub'
 import type {
   CasAxis,
   HydrationAxis,
@@ -323,7 +324,7 @@ function envelope(version: number, seed = 0): EncryptedEnvelope {
   // base64-shape on persist don't explode
   const b64 = base64Encode(data)
   return {
-    _noydb: 1,
+    _noydb: NOYDB_FORMAT_VERSION,
     _v: version,
     _ts: new Date().toISOString(),
     _iv: base64Encode('0'.repeat(12)),

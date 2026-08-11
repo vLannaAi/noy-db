@@ -53,6 +53,7 @@ import type { UnlockedKeyring } from './keyring.js'
 import { encrypt, openEnvelopeJson, wrapKey, unwrapKey, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { dekKey } from './tiers.js'
 import { DelegationTargetMissingError } from '../../kernel/errors.js'
+import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 
 /** Reserved collection holding magic-link grant envelopes. */
 export const MAGIC_LINK_GRANTS_COLLECTION = '_magic_link_grants'
@@ -186,7 +187,7 @@ export async function writeMagicLinkGrant(
 
   const { iv, data } = await encrypt(JSON.stringify(payload), contentKey)
   const envelope: EncryptedEnvelope = {
-    _noydb: 1,
+    _noydb: NOYDB_FORMAT_VERSION,
     _v: 1,
     _ts: createdAt,
     _iv: iv,
