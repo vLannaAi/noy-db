@@ -8,6 +8,7 @@
     "base64ToBuffer",
     "bufferToBase64",
     "buildDeleteMarker",
+    "buildRecordAad",
     "buildTombstone",
     "computeBidxTarget",
     "computeBrokerProof",
@@ -23,10 +24,10 @@
     "deriveDeterministicKey",
     "deriveEchoKey",
     "deriveKey",
-    "deriveSecretKey",
     "derivePresenceKey",
     "deriveSealedFieldKey",
     "deriveSealedFieldKeyFromCek",
+    "deriveSecretKey",
     "deriveVdigSlotKey",
     "encodeEchoParts",
     "encrypt",
@@ -74,10 +75,11 @@
     "EnclaveKey",
     "EncryptResult",
     "IssuedChallenge",
-    "SecretKeyUsage",
+    "RecordIdentity",
     "RewrappedBody",
     "SealedShredSlot",
     "SealingContext",
+    "SecretKeyUsage",
     "VerifyBrokerProofArgs"
   ]
 }
