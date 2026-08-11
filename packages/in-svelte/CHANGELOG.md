@@ -1,5 +1,13 @@
 # @noy-db/in-svelte
 
+## 0.6.0-pre.12
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.12
+
 ## 0.6.0-pre.11
 
 ### Patch Changes
