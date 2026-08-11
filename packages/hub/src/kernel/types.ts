@@ -1420,9 +1420,38 @@ export interface SyncTransactionResult {
 
 export interface SyncStatus {
   readonly dirty: number
+  /**
+   * ISO 8601 timestamp of the last push that completed with **no errors**, or
+   * `null` if none ever has (#1036). A failed attempt does not advance it — so
+   * this answers "when did my data last reach the remote?", which is the reading
+   * the name invites and the one the field previously did not honour.
+   */
   readonly lastPush: string | null
+  /** As {@link SyncStatus.lastPush}, for pulls: last pull that had no errors. */
   readonly lastPull: string | null
+  /**
+   * Whether the **browser** reports network connectivity — driven solely by the
+   * global `online`/`offline` events (#1034). It is NOT target reachability: an
+   * unreachable store never flips it, and losing Wi-Fi flips it for every target
+   * at once. To detect a failing target, read {@link SyncStatus.lastError}.
+   */
   readonly online: boolean
+  /**
+   * The failure that ended the most recent push/pull, cleared by the next
+   * success (#1036). **Absent** when nothing has failed since the last success —
+   * so `lastPush: null` with no `lastError` means "never synced", while
+   * `lastPush` set plus a `lastError` means "synced then, failing since".
+   *
+   * Live state, not persisted: a reload cannot know whether the target still
+   * fails, so it starts absent until the next attempt says otherwise.
+   */
+  readonly lastError?: {
+    /** ISO 8601 timestamp of the failed attempt. */
+    readonly at: string
+    readonly op: 'push' | 'pull'
+    /** Message of the first error the attempt collected. */
+    readonly message: string
+  }
   /**
    * Per-collection readiness under a `'phased'` pull policy (#809). **Absent**
    * for every other policy, and a collection the sequence never names is absent

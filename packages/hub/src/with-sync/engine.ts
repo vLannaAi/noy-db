@@ -51,8 +51,17 @@ export class SyncEngine {
   readonly policy: SyncPolicy | undefined
 
   private dirty: DirtyEntry[] = []
+  /** #1036 — last SUCCESSFUL push/pull. Never advanced by a failed attempt. */
   private lastPush: string | null = null
   private lastPull: string | null = null
+  /**
+   * #1036 — the failure that ended the most recent attempt, cleared by the next
+   * success. Live state only: deliberately NOT persisted in `_sync/meta`, since a
+   * reload cannot know whether the target is still failing. It exists so a poller
+   * can separate "never synced" (both null) from "synced a while ago, failing
+   * since" (`lastPush` set, `lastError` set).
+   */
+  private lastError: { readonly at: string; readonly op: 'push' | 'pull'; readonly message: string } | null = null
   private loaded = false
   private autoSyncInterval: ReturnType<typeof setInterval> | null = null
   private isOnline = true
@@ -397,7 +406,7 @@ export class SyncEngine {
       this.dirty.splice(i, 1)
     }
 
-    this.lastPush = new Date().toISOString()
+    this.recordOutcome('push', errors)
     try {
       await this.persistMeta()
     } finally {
@@ -672,7 +681,7 @@ export class SyncEngine {
       errors.push(err instanceof Error ? err : new Error(String(err)))
     }
 
-    this.lastPull = new Date().toISOString()
+    this.recordOutcome('pull', errors)
     try {
       await this.persistMeta()
     } finally {
@@ -813,12 +822,34 @@ export class SyncEngine {
       this.dirty.splice(i, 1)
     }
 
-    this.lastPush = new Date().toISOString()
+    this.recordOutcome('push', errors)
     await this.persistMeta()
 
     const result: PushResult = { pushed, conflicts, errors, erasures }
     this.emitter.emit('sync:push', result)
     return result
+  }
+
+  /**
+   * #1036 — close out a push/pull. `push()` and `pull()` collect per-record
+   * failures into their result's `errors` rather than throwing, and the clock used
+   * to be stamped regardless — so an unreachable store still reported a fresh
+   * `lastPush`, and a UI rendered "Last synced: just now" over a sync that moved
+   * nothing. An attempt only advances the clock when it had no errors.
+   *
+   * An empty dirty log is a success, not a failure: nothing to send is not the
+   * same as failing to send, and treating it otherwise would leave a quiet vault
+   * looking permanently unsynced.
+   */
+  private recordOutcome(op: 'push' | 'pull', errors: readonly Error[]): void {
+    const at = new Date().toISOString()
+    if (errors.length > 0) {
+      this.lastError = { at, op, message: errors[0]!.message }
+      return
+    }
+    this.lastError = null
+    if (op === 'push') this.lastPush = at
+    else this.lastPull = at
   }
 
   /** Get current sync status. */
@@ -832,6 +863,7 @@ export class SyncEngine {
       lastPush: this.lastPush,
       lastPull: this.lastPull,
       online: this.isOnline,
+      ...(this.lastError ? { lastError: this.lastError } : {}),
       ...(scheduled && scheduled.readiness.size > 0
         ? { readiness: scheduled.readiness, phase: scheduled.phase }
         : {}),
