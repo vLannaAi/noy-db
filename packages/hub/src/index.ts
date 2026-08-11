@@ -399,6 +399,8 @@ export type {
 } from './with-pod/format.js'
 export type {
   WritePodOptions,
+  ReadPodOptions,
+  PodReadResult,
   WriteNoydbBundleOptions,
   ReadNoydbBundleOptions,
   NoydbBundleReadResult,

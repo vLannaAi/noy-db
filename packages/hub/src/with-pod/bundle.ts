@@ -298,6 +298,24 @@ export interface WritePodOptions {
 export type WriteNoydbBundleOptions = WritePodOptions
 
 /**
+ * @deprecated Use `ReadPodOptions`.
+ *
+ * #1046 — `readPod` used to name its options after the retired `bundle`
+ * concept, which made the pod vocabulary impossible to adopt fully: the
+ * canonical function required a deprecated type. `ReadPodOptions` is now
+ * the declaration and this is the alias.
+ */
+export type ReadNoydbBundleOptions = ReadPodOptions
+
+/**
+ * @deprecated Use `PodReadResult`.
+ *
+ * #1046 — see `ReadNoydbBundleOptions`. Same inversion: `readPod`'s
+ * return type is now pod-named and this is the alias.
+ */
+export type NoydbBundleReadResult = PodReadResult
+
+/**
  * Every key `writePod` reads, in declaration order (#991).
  *
  * A pod is a wire artifact, so an option this list doesn't name is refused
@@ -374,7 +392,7 @@ function assertKnownWritePodOptions(opts: WritePodOptions): void {
  * actually restore a vault. Splitting the layers keeps the
  * bundle module free of crypto concerns — see file-level docs.
  */
-export interface NoydbBundleReadResult {
+export interface PodReadResult {
   readonly header: NoydbPodHeader
   readonly dumpJson: string
   /**
@@ -447,7 +465,7 @@ interface AutoUnlockBody {
  * auto-unlock paths. Without these the reader behaves exactly as before
  * (header parsed; body returned as `dumpJson`).
  */
-export interface ReadNoydbBundleOptions {
+export interface ReadPodOptions {
   /**
    * Recipient-side sealing providers used to unseal entries from
    * `sealedSecrets`. The reader picks the one whose `.id`
@@ -890,7 +908,7 @@ function coerceUnsealed(entry: AutoCredential | string): AutoCredential {
  */
 async function resolveAutoUnlock(
   blob: AutoUnlockBody['_autoUnlock'],
-  opts: ReadNoydbBundleOptions,
+  opts: ReadPodOptions,
 ): Promise<{ kind: 'unsealed' | 'sealed'; perUser: Record<string, AutoCredential> }> {
   if (blob.kind === 'unsealed') {
     const resolved: Record<string, AutoCredential> = {}
@@ -1703,8 +1721,8 @@ export function readPodRedirect(bytes: Uint8Array): Redirect | undefined {
  */
 export async function readPod(
   bytes: Uint8Array,
-  opts: ReadNoydbBundleOptions = {},
-): Promise<NoydbBundleReadResult> {
+  opts: ReadPodOptions = {},
+): Promise<PodReadResult> {
   const { header, bodyOffset, algo } = parsePrefixAndHeader(bytes)
   const body = bytes.slice(bodyOffset)
 

@@ -18,7 +18,7 @@
  *
  * @module
  */
-import { readNoydbBundleHeader } from '@noy-db/hub'
+import { readPodHeader } from '@noy-db/hub'
 import { readFile } from 'node:fs/promises'
 
 export interface InspectResult {
@@ -30,7 +30,7 @@ export interface InspectResult {
 
 export async function inspect(filePath: string): Promise<InspectResult> {
   const bytes = await readFile(filePath)
-  const header = readNoydbBundleHeader(new Uint8Array(bytes))
+  const header = readPodHeader(new Uint8Array(bytes))
   return {
     formatVersion: header.formatVersion,
     handle: header.handle,

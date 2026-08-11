@@ -2,7 +2,7 @@
  * **@noy-db/as-noydb** — encrypted `.noydb` bundle export.
  *
  * The sole member of the Fork · As **encrypted tier**. Wraps the core
- * `writeNoydbBundle()` primitive with:
+ * `writePod()` primitive with:
  *
  *   1. The `canExportBundle` authorization gate — default
  *      on for owner/admin, off for operator/viewer/client. The
@@ -30,10 +30,10 @@
  * @packageDocumentation
  */
 
-import type { Vault, WriteNoydbBundleOptions, NoydbBundleHeader } from '@noy-db/hub'
-import { writeNoydbBundle as coreWrite, readNoydbBundleHeader } from '@noy-db/hub'
+import type { Vault, WritePodOptions, NoydbPodHeader } from '@noy-db/hub'
+import { writePod as coreWrite, readPodHeader } from '@noy-db/hub'
 
-export type AsNoydbOptions = WriteNoydbBundleOptions
+export type AsNoydbOptions = WritePodOptions
 
 export interface AsNoydbDownloadOptions extends AsNoydbOptions {
   /** Filename offered to the browser. Default uses the vault's bundle handle. */
@@ -88,6 +88,6 @@ export async function write(
  * — confirm the handle, the compression algorithm, and the declared
  * body size before committing to decrypt.
  */
-export function peek(bytes: Uint8Array): NoydbBundleHeader {
-  return readNoydbBundleHeader(bytes)
+export function peek(bytes: Uint8Array): NoydbPodHeader {
+  return readPodHeader(bytes)
 }

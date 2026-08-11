@@ -1,5 +1,5 @@
 /**
- * Tests for the @noy-db/file bundle helpers — saveBundle / loadBundle.
+ * Tests for the @noy-db/file pod helpers — savePod / loadPod.
  *
  * v0.6. These wrap the core writeNoydbBundle / readNoydbBundle
  * primitives with path-based filesystem I/O — the tests focus on the
@@ -14,7 +14,7 @@ import { mkdtemp, rm, readFile, writeFile, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createNoydb, type Noydb, BundleIntegrityError, hasNoydbBundleMagic } from '@noy-db/hub'
-import { toFile, saveBundle, loadBundle } from '../src/index.js'
+import { toFile, savePod, loadPod, saveBundle, loadBundle } from '../src/index.js'
 
 let testDir: string
 
@@ -40,7 +40,7 @@ async function makeDb(dataDir?: string): Promise<Noydb> {
   })
 }
 
-describe('@noy-db/file > saveBundle / loadBundle round-trip', () => {
+describe('@noy-db/file > savePod / loadPod round-trip', () => {
   it('writes a `.noydb` file with the magic prefix and reads it back', async () => {
     const db = await makeDb()
     const c = await db.openVault('TEST')
@@ -51,13 +51,13 @@ describe('@noy-db/file > saveBundle / loadBundle round-trip', () => {
     const handle = await c.getBundleHandle()
     const bundlePath = join(testDir, `${handle}.noydb`)
 
-    await saveBundle(bundlePath, c)
+    await savePod(bundlePath, c)
     // File exists and starts with the bundle magic.
     const bytes = await readFile(bundlePath)
     expect(hasNoydbBundleMagic(bytes)).toBe(true)
     expect(bytes.length).toBeGreaterThan(10)
 
-    const result = await loadBundle(bundlePath)
+    const result = await loadPod(bundlePath)
     expect(result.header.handle).toBe(handle)
     const parsed = JSON.parse(result.dumpJson) as {
       _compartment: string
@@ -75,7 +75,7 @@ describe('@noy-db/file > saveBundle / loadBundle round-trip', () => {
 
     // Path with two levels of directories that don't exist yet.
     const bundlePath = join(testDir, 'nested', 'path', 'bundle.noydb')
-    await saveBundle(bundlePath, c)
+    await savePod(bundlePath, c)
 
     const stats = await stat(bundlePath)
     expect(stats.isFile()).toBe(true)
@@ -89,20 +89,20 @@ describe('@noy-db/file > saveBundle / loadBundle round-trip', () => {
     await invoices.put('inv-1', { id: 'inv-1', amount: 100, status: 'open' })
 
     const bundlePath = join(testDir, 'bundle.noydb')
-    await saveBundle(bundlePath, c)
+    await savePod(bundlePath, c)
     const sizeBefore = (await stat(bundlePath)).size
 
     // Add more records and re-save.
     for (let i = 2; i <= 50; i++) {
       await invoices.put(`inv-${i}`, { id: `inv-${i}`, amount: i * 10, status: 'open' })
     }
-    await saveBundle(bundlePath, c)
+    await savePod(bundlePath, c)
     const sizeAfter = (await stat(bundlePath)).size
 
     // Bundle grew because we added 49 more records.
     expect(sizeAfter).toBeGreaterThan(sizeBefore)
     // The handle is stable across re-saves.
-    const result = await loadBundle(bundlePath)
+    const result = await loadPod(bundlePath)
     const parsed = JSON.parse(result.dumpJson) as {
       collections: Record<string, Record<string, unknown>>
     }
@@ -116,17 +116,17 @@ describe('@noy-db/file > saveBundle / loadBundle round-trip', () => {
     await invoices.put('inv-1', { id: 'inv-1', amount: 100, status: 'open' })
 
     const gzipPath = join(testDir, 'bundle-gzip.noydb')
-    await saveBundle(gzipPath, c, { compression: 'gzip' })
+    await savePod(gzipPath, c, { compression: 'gzip' })
     const gzipBytes = await readFile(gzipPath)
     expect(gzipBytes[5]).toBe(1) // COMPRESSION_GZIP
 
-    // loadBundle handles either format byte transparently.
-    const result = await loadBundle(gzipPath)
+    // loadPod handles either format byte transparently.
+    const result = await loadPod(gzipPath)
     expect(result.header.formatVersion).toBe(1)
   })
 })
 
-describe('@noy-db/file > loadBundle integrity verification', () => {
+describe('@noy-db/file > loadPod integrity verification', () => {
   it('throws BundleIntegrityError on a tampered bundle file', async () => {
     const db = await makeDb()
     const c = await db.openVault('TEST')
@@ -134,7 +134,7 @@ describe('@noy-db/file > loadBundle integrity verification', () => {
     await invoices.put('inv-1', { id: 'inv-1', amount: 100, status: 'open' })
 
     const bundlePath = join(testDir, 'bundle.noydb')
-    await saveBundle(bundlePath, c)
+    await savePod(bundlePath, c)
 
     // Read, flip a body byte, write back.
     const bytes = new Uint8Array(await readFile(bundlePath))
@@ -146,7 +146,7 @@ describe('@noy-db/file > loadBundle integrity verification', () => {
 
     let threw: unknown = null
     try {
-      await loadBundle(bundlePath)
+      await loadPod(bundlePath)
     } catch (err) {
       threw = err
     }
@@ -170,5 +170,14 @@ describe('@noy-db/file > handle stability across separate noydb sessions', () =>
     const handle2 = await c2.getBundleHandle()
 
     expect(handle2).toBe(handle1)
+  })
+})
+
+describe('@noy-db/file > deprecated bundle aliases (#1046)', () => {
+  it('saveBundle / loadBundle are the pod helpers under their old names', () => {
+    // These stay exported for one line because they are published API.
+    // Identity, not a re-implementation — so they cannot drift.
+    expect(saveBundle).toBe(savePod)
+    expect(loadBundle).toBe(loadPod)
   })
 })

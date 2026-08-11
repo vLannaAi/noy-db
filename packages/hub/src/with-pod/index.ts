@@ -27,6 +27,8 @@ export {
 export type { Cover } from '../with-party/directory/cover/types.js'
 export type {
   WritePodOptions,
+  ReadPodOptions,
+  PodReadResult,
   WriteNoydbBundleOptions,
   ReadNoydbBundleOptions,
   NoydbBundleReadResult,
