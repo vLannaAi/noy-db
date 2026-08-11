@@ -1,5 +1,27 @@
 # Changelog — hub
 
+## 0.6.0-pre.12
+
+### Minor Changes
+
+- `SyncStatus.lastPush` / `lastPull` now mean _last **successful** push/pull_, and a new `lastError` reports the current failure (#1036).
+
+  `push()` and `pull()` collect per-record failures into their result's `errors` rather than throwing, and the clock was stamped regardless — so against an unreachable store `syncStatus()` returned a fresh `lastPush` alongside `dirty: 1`, and a UI rendered _"Last synced: just now"_ over a sync that moved nothing. A failed attempt no longer advances either field.
+
+  `lastError` (`{ at, op, message }`, absent when the last attempt succeeded) makes the failure observable to a poller, which matters most on the automatic path: the scheduler discards the result the errors travel in, so status was the only channel left and it reported success. It is live state and deliberately not persisted — a reload cannot know whether the target is still failing.
+
+  `SyncStatus.online` is unchanged but now documented for what it is: the browser's global connectivity signal, not target reachability.
+
+  **Behaviour change:** code reading `lastPush` as "when was a push last _attempted_" will see it stop advancing while a target is failing. That reading was never the documented one, and is the misreport this fixes.
+
+### Patch Changes
+
+- Fix two sync targets that share a role and carry no `label` silently collapsing into one (#1035).
+
+  Per-target sync engines were keyed by `` `${vault}::${label ?? role}` ``, so two unlabelled targets of the same role produced the same key and the second evicted the first. The evicted engine kept its own scheduler running while being unreachable from every fan-out path (dirty tracking, `sync()`, `listSyncTargets()`) — configuring two backups yielded one replica plus a store that merely looked configured, with no error and no event. Engines are now keyed by position in the `sync` array, which keeps `label` cosmetic as documented and lets two targets share a label.
+
+  `lockVault()` dropped only the primary engine, leaving each secondary in the map still scheduling so that re-opening the vault stacked a second set of timers on the abandoned ones. It now tears down every engine for the vault.
+
 ## 0.6.0-pre.11
 
 ### Minor Changes
