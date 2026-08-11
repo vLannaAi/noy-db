@@ -1,5 +1,158 @@
 # Changelog — hub
 
+## 0.6.0-pre.13
+
+### Minor Changes
+
+- **BREAKING**: remove every deprecated alias export
+
+  17 alias exports are gone. Each had a canonical name that has existed for
+  releases; the aliases only made it possible to write new code against retired
+  vocabulary and never notice.
+
+  `@noy-db/hub` — use the name on the right:
+
+  | Removed                      | Use                       |
+  | ---------------------------- | ------------------------- |
+  | `writeNoydbBundle`           | `writePod`                |
+  | `readNoydbBundle`            | `readPod`                 |
+  | `readNoydbBundleHeader`      | `readPodHeader`           |
+  | `WriteNoydbBundleOptions`    | `WritePodOptions`         |
+  | `ReadNoydbBundleOptions`     | `ReadPodOptions`          |
+  | `NoydbBundleReadResult`      | `PodReadResult`           |
+  | `NoydbBundleHeader`          | `NoydbPodHeader`          |
+  | `NoydbBundleStore`           | `NoydbPodStore`           |
+  | `wrapBundleStore`            | `wrapPodStore`            |
+  | `createBundleStore`          | `createPodStore`          |
+  | `WrappedBundleNoydbStore`    | `WrappedPodNoydbStore`    |
+  | `WrapBundleStoreOptions`     | `WrapPodStoreOptions`     |
+  | `BundleVersionConflictError` | `PodVersionConflictError` |
+  | `BUNDLE_STORE_POLICY`        | `POD_STORE_POLICY`        |
+  | `SubsystemBus`               | `ServiceBus`              |
+
+  `@noy-db/to-file` — `saveBundle` → `savePod`, `loadBundle` → `loadPod`.
+
+  Why now: #1046 found the `bundle` → `pod` rename half-finished, with three
+  first-party packages still on the aliases. A surface golden cannot catch that —
+  it freezes which names exist, and an alias keeps every name present. Deleting
+  the aliases makes the compiler the enforcement mechanism instead.
+
+  NOT renamed: the `.noydb` wire-format constants (`NOYDB_BUNDLE_MAGIC`,
+  `NOYDB_BUNDLE_PREFIX_BYTES`, `NOYDB_BUNDLE_FORMAT_VERSION`,
+  `NOYDB_BUNDLE_FORMAT_VERSION_SIGNED`, `hasNoydbBundleMagic`). These are not
+  aliases — they name the on-disk container format, whose magic bytes are `NDB1`.
+  Also unchanged: `vault.getBundleHandle()` and `BundleIntegrityError`, which are
+  current API rather than retired vocabulary.
+
+- **BREAKING**: `revoke()` always rotates keys — `RevokeOptions.rotateKeys` removed
+
+  Revocation's first act is `store.delete(vault, '_keyring', userId)`, and the
+  store is untrusted by design: it can simply decline. The revoked member's old
+  keyring file stays authentic — it unwraps under their own KEK and its canary
+  verifies — so nothing in `loadKeyring` can tell it is stale. There is no epoch
+  or signature on the roster.
+
+  Key rotation is the only step a store cannot suppress, because it re-keys the
+  records themselves. A probe (#1043) measured both halves:
+
+  - **with rotation** — the revoked member is locked out entirely, including from
+    records written before the revocation
+  - **without it** — revocation is a **complete no-op**: they keep reading
+    everything, including records written _after_ they were revoked
+
+  So `rotateKeys: false` was a silent security downgrade whose only honest use was
+  "I know my store is trusted", which contradicts the threat model the product is
+  built on. It is gone rather than deprecated.
+
+  **Migration**: delete the option. `rotateKeys: true` was already the default;
+  `rotateKeys: false` has no replacement by design. No source code passed it —
+  all 10 call sites were tests, and the full suite passes unchanged, so nothing
+  depended on skipping rotation.
+
+  Note this does not make revocation safe against a _replayed_ keyring in general
+  — a hostile store can still serve a stale file. It makes the DEKs behind that
+  file worthless, which is what matters in practice.
+
+### Patch Changes
+
+- Finish the `bundle` → `pod` rename (#1046)
+
+  The rename landed on the functions but not on the types, which left the
+  canonical API impossible to adopt: `readPod` declared its options as
+  `ReadNoydbBundleOptions` and returned `NoydbBundleReadResult`, so calling
+  the non-deprecated function required naming the deprecated concept. That
+  is why no first-party package ever migrated.
+
+  **hub** — `ReadPodOptions` and `PodReadResult` are now the canonical
+  declarations; `ReadNoydbBundleOptions` and `NoydbBundleReadResult` remain
+  as `@deprecated` aliases. Additive: nothing is removed, and both names are
+  exported from the root barrel and `/pod`.
+
+  **to-file** — adds `savePod()` / `loadPod()`; `saveBundle()` / `loadBundle()`
+  stay as `@deprecated` aliases (identity, not re-implementations, so they
+  cannot drift). `savePod()` now writes through the atomic temp-then-rename
+  helper added in #1045 — a pod exceeds `PIPE_BUF` essentially always, so the
+  previous bare `writeFile` genuinely raced with concurrent readers despite a
+  docstring claiming otherwise.
+
+  **as-noydb, cli** — migrated onto `writePod` / `readPod` / `readPodHeader`.
+
+  Stale docstring references to `@noy-db/core` (a package that no longer
+  exists) corrected to `@noy-db/hub`. Note `getBundleHandle()` and
+  `BundleIntegrityError` are _not_ renamed — those are current API.
+
+- Narrow the record-identity AAD to `{collection, id, _tier, _by}` (#1041)
+
+  `vault` is no longer part of the binding. It was, and it broke `adoptPartition`:
+  that path re-homes a whole partition into a new vault name by moving envelopes
+  verbatim (`with-cargo/adopt-partition.ts:140` is a bare `saveAll` with no
+  re-encryption, because it does not hold the keys to re-encrypt at that point).
+  Binding the vault name made every adopted record undecryptable — 288 tests
+  across 55 files failed on it.
+
+  The underlying reason is worth recording: relocation is not purely an attack.
+  Adoption is a supported, legitimate relocation, and AAD cannot distinguish
+  intent. The vault boundary needs an authenticated head or an explicit re-key,
+  not a sealed name the product deliberately changes.
+
+  Cross-collection relocation, the `_tier` silent-hide and provenance forgery have
+  no legitimate counterpart and stay bound. Still no behaviour change — no call
+  site passes `aad` yet.
+
+- Record-identity AAD scaffolding (#1041)
+
+  Adds `buildRecordAad()` and optional `aad` parameters on `encrypt()`/`decrypt()`,
+  binding `{vault, collection, id, _tier, _by}` into the AES-GCM auth tag so an
+  untrusted store cannot relocate an envelope, re-tier it to hide it, or rewrite
+  its recorded author while keeping a body whose tag still verifies.
+
+  No behaviour change yet — no call site passes `aad`, so every envelope is
+  written exactly as before. This is the shared primitive the per-subsystem sweep
+  needs; `encrypt()` has 44 call sites across 8 subsystems and `decrypt()` 23, and
+  they must be migrated in pairs.
+
+  `_v` is deliberately NOT bound. The sync engine re-stamps `_v` on existing
+  ciphertext without holding a DEK, and the merge never decrypts, so binding it
+  would break replication while surfacing tampering only after the newer copy had
+  already been overwritten. Version rollback needs #1042 + #1044.
+
+- Single-source the envelope format version
+
+  14 sites across 13 source files hardcoded `_noydb: 1` instead of using
+  `NOYDB_FORMAT_VERSION`, while 85 sites used the constant correctly. All now
+  use the constant.
+
+  No behaviour change — the constant is `1`, so every envelope is byte-identical.
+  This is groundwork for #1041: nothing currently validates `_noydb` on read, so
+  these literals were invisible. Once the format version is bumped and a strict
+  reader is added, any surviving literal would emit format-1 envelopes that the
+  reader rejects — a runtime failure in delegation, sync presence, keyring and
+  metering paths, surfacing only when those envelopes are read back.
+
+  Because `EncryptedEnvelope._noydb` is typed `typeof NOYDB_FORMAT_VERSION`
+  rather than `number`, the absence of remaining literals is now compiler-
+  verifiable: flipping the constant typechecks clean.
+
 ## 0.6.0-pre.12
 
 ### Minor Changes

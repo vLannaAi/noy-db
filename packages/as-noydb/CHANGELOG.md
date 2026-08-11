@@ -1,5 +1,43 @@
 # @noy-db/as-noydb
 
+## 0.6.0-pre.13
+
+### Patch Changes
+
+- Finish the `bundle` → `pod` rename (#1046)
+
+  The rename landed on the functions but not on the types, which left the
+  canonical API impossible to adopt: `readPod` declared its options as
+  `ReadNoydbBundleOptions` and returned `NoydbBundleReadResult`, so calling
+  the non-deprecated function required naming the deprecated concept. That
+  is why no first-party package ever migrated.
+
+  **hub** — `ReadPodOptions` and `PodReadResult` are now the canonical
+  declarations; `ReadNoydbBundleOptions` and `NoydbBundleReadResult` remain
+  as `@deprecated` aliases. Additive: nothing is removed, and both names are
+  exported from the root barrel and `/pod`.
+
+  **to-file** — adds `savePod()` / `loadPod()`; `saveBundle()` / `loadBundle()`
+  stay as `@deprecated` aliases (identity, not re-implementations, so they
+  cannot drift). `savePod()` now writes through the atomic temp-then-rename
+  helper added in #1045 — a pod exceeds `PIPE_BUF` essentially always, so the
+  previous bare `writeFile` genuinely raced with concurrent readers despite a
+  docstring claiming otherwise.
+
+  **as-noydb, cli** — migrated onto `writePod` / `readPod` / `readPodHeader`.
+
+  Stale docstring references to `@noy-db/core` (a package that no longer
+  exists) corrected to `@noy-db/hub`. Note `getBundleHandle()` and
+  `BundleIntegrityError` are _not_ renamed — those are current API.
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.13
+
 ## 0.6.0-pre.12
 
 ### Patch Changes

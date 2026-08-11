@@ -1,5 +1,34 @@
 # @noy-db/on-magic-link
 
+## 0.6.0-pre.13
+
+### Patch Changes
+
+- Single-source the envelope format version
+
+  14 sites across 13 source files hardcoded `_noydb: 1` instead of using
+  `NOYDB_FORMAT_VERSION`, while 85 sites used the constant correctly. All now
+  use the constant.
+
+  No behaviour change — the constant is `1`, so every envelope is byte-identical.
+  This is groundwork for #1041: nothing currently validates `_noydb` on read, so
+  these literals were invisible. Once the format version is bumped and a strict
+  reader is added, any surviving literal would emit format-1 envelopes that the
+  reader rejects — a runtime failure in delegation, sync presence, keyring and
+  metering paths, surfacing only when those envelopes are read back.
+
+  Because `EncryptedEnvelope._noydb` is typed `typeof NOYDB_FORMAT_VERSION`
+  rather than `number`, the absence of remaining literals is now compiler-
+  verifiable: flipping the constant typechecks clean.
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.13
+
 ## 0.6.0-pre.12
 
 ### Patch Changes
