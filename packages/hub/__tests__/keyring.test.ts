@@ -239,7 +239,7 @@ describe('keyring', () => {
       expect(users.find(u => u.userId === 'op-01')).toBeDefined()
 
       // Revoke without key rotation
-      await revoke(adapter, COMP, owner, { userId: 'op-01', rotateKeys: false })
+      await revoke(adapter, COMP, owner, { userId: 'op-01' })
 
       // Operator's keyring is gone
       users = await listUsers(adapter, COMP)
@@ -283,7 +283,7 @@ describe('keyring', () => {
         permissions: { invoices: 'rw' },
       })
 
-      await revoke(adapter, COMP, owner, { userId: 'op-01', rotateKeys: true })
+      await revoke(adapter, COMP, owner, { userId: 'op-01' })
 
       const envelope = await adapter.get(COMP, 'invoices', 'inv-001')
       expect(envelope).not.toBeNull()

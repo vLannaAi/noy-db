@@ -1689,7 +1689,6 @@ export interface UpdateUserOptions {
 
 export interface RevokeOptions {
   readonly userId: string
-  readonly rotateKeys?: boolean
 
   /**
    * Cascade behavior when the revoked user is an admin who has granted

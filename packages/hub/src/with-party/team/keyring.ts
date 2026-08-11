@@ -891,7 +891,18 @@ export async function revoke(
   // descendant's collections were unioned into `affectedCollections`
   // before we got here, so the rotation re-encrypts each affected
   // record exactly once regardless of how deep the cascade went.
-  if (options.rotateKeys !== false && affectedCollections.size > 0) {
+  //
+  // #1043 — this is UNCONDITIONAL, and it is what makes revocation mean
+  // anything. Revocation's first act is `store.delete(vault, '_keyring',
+  // userId)`, and the store is untrusted by design: it can simply decline.
+  // The revoked member's old keyring file is authentic — it unwraps under
+  // their own KEK and its canary verifies — so nothing in `loadKeyring` can
+  // tell it is stale. Rotation is the only step the store cannot suppress,
+  // because it re-keys the records themselves. A probe confirmed both halves:
+  // with rotation the revoked member is locked out entirely; without it,
+  // revocation is a complete no-op and they keep reading data written after
+  // they were revoked.
+  if (affectedCollections.size > 0) {
     await rotateKeys(store, vault, callerKeyring, { collections: [...affectedCollections] })
   }
 }

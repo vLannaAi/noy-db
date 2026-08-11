@@ -136,7 +136,7 @@ describe('simulation: two user identities on one shared store', () => {
     expect(await (await before.openVault(VAULT)).collection<Invoice>('invoices').get('inv-001'))
       .toEqual({ customer: 'alpha', amount: 5000 })
 
-    await ownerDb.revoke(VAULT, { userId: 'op-01', rotateKeys: false })
+    await ownerDb.revoke(VAULT, { userId: 'op-01' })
 
     // ...and a NEW session after revoke finds no keyring and is refused.
     const after = await open(shared, 'op-01', 'op-own-pass')
