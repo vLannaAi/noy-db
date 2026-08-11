@@ -213,7 +213,7 @@ Use cases:
 - **Suspected key leak**: an operator lost a laptop, a developer accidentally pasted a secret into a Slack channel, a USB stick went missing. Rotating is cheap insurance.
 - **Scheduled rotation**: some compliance regimes require periodic key rotation regardless of exposure. This command makes rotation scriptable from cron or a CI job.
 
-Different from `noydb.revoke({ rotateKeys: true })` in that it doesn't kick anyone out — it's the "just rotate" path.
+Different from `noydb.revoke()` — which always rotates the affected collections — in that it doesn't kick anyone out. It's the "just rotate" path.
 
 ### `noy-db backup <target> [options]`
 
