@@ -19,7 +19,8 @@
  * @module
  */
 
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
+import { atomicWrite } from './atomic-write.js'
 import { resolve, sep, dirname, extname } from 'node:path'
 import type { Vault } from '@noy-db/hub'
 import { PathEscapeError } from '@noy-db/hub'
@@ -140,7 +141,7 @@ export async function exportBlobsToDirectory(
     }
 
     await mkdir(dirname(absPath), { recursive: true })
-    await writeFile(absPath, blob.bytes)
+    await atomicWrite(absPath, blob.bytes)
     entries.push({ blobId: blob.blobId, path: absPath })
     totalBytes += blob.bytes.byteLength
 
@@ -170,7 +171,7 @@ export async function exportBlobsToDirectory(
       null,
       2,
     )
-    await writeFile(manifestPath, json)
+    await atomicWrite(manifestPath, json)
   }
 
   return {

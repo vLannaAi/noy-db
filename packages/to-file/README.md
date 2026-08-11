@@ -30,6 +30,8 @@ Each compartment is written as a set of JSON files containing only ciphertext en
 - Network drive sharing with per-user secrets
 - Backup-friendly storage
 
+Record writes are staged in a `.tmp` sidecar and renamed into place, so an interrupted write — Wi-Fi dropping mid-write to a mounted share, a USB stick pulled during a flush — never leaves a truncated file under a record's name. Readers see the complete previous file or the complete new one.
+
 ## License
 
 MIT © vLannaAi — see the [noy-db repo](https://github.com/vLannaAi/noy-db) for full documentation.

@@ -33,6 +33,22 @@
  * | `listPage` | ✓ — cursor-based pagination over sorted filenames |
  * | `ping` | ✓ — `stat(dir)` |
  *
+ * ## Atomicity
+ *
+ * The filesystem has `rename` but no atomic CAS — `casAtomic` is `false`,
+ * and the `expectedVersion` check is read-then-write, so it is advisory
+ * under concurrent writers. Per-record writes do go through
+ * `{id}.json.{pid}.{n}.tmp` + rename, so a write interrupted partway (a
+ * laptop dropping Wi-Fi mid-write to a mounted share, a USB stick pulled
+ * during a flush) can never leave a truncated `{id}.json` behind — readers
+ * see the complete previous file or the complete new one. Orphaned `.tmp`
+ * sidecars from a crashed process are invisible to `list`, `listPage` and
+ * `loadAll`, which only accept `.json`.
+ *
+ * This is atomicity of *visibility*, not durability: surviving a power cut
+ * would additionally require fsyncing the file and its directory, which is
+ * deliberately not paid per record.
+ *
  * ## Bundle helpers
  *
  * {@link saveBundle} and {@link loadBundle} are thin wrappers around the
@@ -44,6 +60,7 @@
 
 import { readFile, writeFile, mkdir, readdir, unlink, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { atomicWrite } from './atomic-write.js'
 import type {
   NoydbStore,
   EncryptedEnvelope,
@@ -148,7 +165,7 @@ export function toFile(options: JsonFileOptions): NoydbStore {
       }
 
       await ensureDir(collectionDir(vault, collection))
-      await writeFile(path, serialize(envelope), 'utf-8')
+      await atomicWrite(path, serialize(envelope))
     },
 
     async delete(vault, collection, id) {
@@ -206,7 +223,7 @@ export function toFile(options: JsonFileOptions): NoydbStore {
         const collDir = collectionDir(vault, collName)
         await ensureDir(collDir)
         for (const [id, envelope] of Object.entries(records)) {
-          await writeFile(join(collDir, `${id}.json`), serialize(envelope), 'utf-8')
+          await atomicWrite(join(collDir, `${id}.json`), serialize(envelope))
         }
       }
     },
