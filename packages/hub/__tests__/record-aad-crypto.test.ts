@@ -8,7 +8,6 @@ const subtle = globalThis.crypto.subtle
 let dek: CryptoKey
 
 const identity: RecordIdentity = {
-  vault: 'acme',
   collection: 'invoices',
   id: 'inv-1',
   tier: 0,
@@ -36,10 +35,17 @@ describe('record AAD through encrypt/decrypt (#1041)', () => {
     await expect(decrypt(iv, data, dek, moved)).rejects.toThrow(TamperedError)
   })
 
-  it('3. relocating to another vault fails closed', async () => {
-    const { iv, data } = await encrypt(body, dek, buildRecordAad(identity))
-    const moved = buildRecordAad({ ...identity, vault: 'other-tenant' })
-    await expect(decrypt(iv, data, dek, moved)).rejects.toThrow(TamperedError)
+  it('3. moving a record to another VAULT still decrypts — deliberately', async () => {
+    // `vault` is NOT bound: adoptPartition re-homes a partition into a new
+    // vault name by moving envelopes verbatim (with-cargo/adopt-partition.ts:140,
+    // a bare saveAll with no re-encryption). Binding it would make every
+    // adopted record undecryptable. Relocation across vaults is a supported
+    // product feature, so it cannot be sealed against here — it needs an
+    // authenticated head or an explicit re-key instead. Pinned so a future
+    // "hardening" change re-adds `vault` on purpose, not by accident.
+    const aad = buildRecordAad(identity)
+    const { iv, data } = await encrypt(body, dek, aad)
+    expect(await decrypt(iv, data, dek, aad)).toBe(body)
   })
 
   it('4. re-pointing the envelope at another record id fails closed', async () => {
