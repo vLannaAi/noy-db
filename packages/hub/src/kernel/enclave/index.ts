@@ -99,6 +99,10 @@ export { resolveStableCek, rewrapBodyToDek, rewrapEnvelope, applyRewrappedBody, 
 export type { RewrappedBody } from './record-keys/lifecycle.js'
 
 // ─── record codec ──────────────────────────────────────────────────
+// #1041 — record-identity AAD. Internal: the sweep binding each encrypt/decrypt
+// pair uses it; it is not part of the published surface.
+export { buildRecordAad } from './record-aad.js'
+export type { RecordIdentity } from './record-aad.js'
 export { RecordCodec } from './record-keys/record-codec.js'
 export type { SealedShredSlot } from './record-keys/record-codec.js'
 

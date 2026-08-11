@@ -318,16 +318,33 @@ export interface EncryptResult {
   data: string // base64
 }
 
-/** Encrypt plaintext JSON string with AES-256-GCM. Fresh IV per call. */
+/**
+ * Encrypt plaintext JSON string with AES-256-GCM. Fresh IV per call.
+ *
+ * `aad` binds the record's identity into the auth tag (#1041) — see
+ * `record-aad.ts` for what is bound and why `_v` is not. A body sealed with
+ * AAD can only be opened by a reader supplying the identical bytes, which is
+ * what stops an untrusted store from relocating or re-tiering an envelope.
+ *
+ * Optional **only while the call-site sweep is in progress**. It becomes
+ * mandatory once every `encrypt`/`decrypt` pair supplies it, at which point
+ * the format version bumps and the reader rejects anything unbound. Until
+ * then an omitted `aad` reproduces the previous, unauthenticated behaviour.
+ */
 export async function encrypt(
   plaintext: string,
   dek: CryptoKey,
+  aad?: Uint8Array,
 ): Promise<EncryptResult> {
   const iv = generateIV()
   const encoded = new TextEncoder().encode(plaintext)
 
   const ciphertext = await subtle.encrypt(
-    { name: 'AES-GCM', iv: iv as BufferSource },
+    {
+      name: 'AES-GCM',
+      iv: iv as BufferSource,
+      ...(aad !== undefined && { additionalData: aad as BufferSource }),
+    },
     dek,
     encoded,
   )
@@ -338,18 +355,31 @@ export async function encrypt(
   }
 }
 
-/** Decrypt AES-256-GCM ciphertext. Throws on wrong key or tampered data. */
+/**
+ * Decrypt AES-256-GCM ciphertext. Throws on wrong key or tampered data.
+ *
+ * `aad` must be byte-identical to what {@link encrypt} was given, or the auth
+ * tag fails and this throws `TamperedError` (#1041). Note the asymmetry that
+ * makes this useful: a mismatched identity is indistinguishable from a
+ * corrupted body, so relocation fails **closed** rather than returning a
+ * plausible record in the wrong place.
+ */
 export async function decrypt(
   ivBase64: string,
   dataBase64: string,
   dek: CryptoKey,
+  aad?: Uint8Array,
 ): Promise<string> {
   const iv = base64ToBuffer(ivBase64)
   const ciphertext = base64ToBuffer(dataBase64)
 
   try {
     const plaintext = await subtle.decrypt(
-      { name: 'AES-GCM', iv: iv as BufferSource },
+      {
+        name: 'AES-GCM',
+        iv: iv as BufferSource,
+        ...(aad !== undefined && { additionalData: aad as BufferSource }),
+      },
       dek,
       ciphertext as BufferSource,
     )
