@@ -396,7 +396,7 @@ describe('#706 lazy count(): eager parity — elevated and deleted envelopes are
     await docs.put('a', { name: 'a' })
     await docs.put('gone', { name: 'gone' })
     const live = (await store.get('v1', 'mc', 'gone'))!
-    await store.put('v1', 'mc', 'gone', buildDeleteMarker(live._v, 'owner'))
+    await store.put('v1', 'mc', 'gone', buildDeleteMarker({ collection: 'c', id: 'r' }, live._v, 'owner'))
     // Pre-#706: raw adapter.list().length counted the marker id too (== 2).
     expect(await docs.count()).toBe(1)
   })
@@ -415,7 +415,7 @@ describe('#713 lazy count() batches via adapter.listPage — behavior parity, fe
     await docs.put('c', { name: 'c' })   // delete-marked below — not counted
     await docs.elevate('b', 1)
     const live = (await store.get('v1', 'docs', 'c'))!
-    await store.put('v1', 'docs', 'c', buildDeleteMarker(live._v, 'owner'))
+    await store.put('v1', 'docs', 'c', buildDeleteMarker({ collection: 'c', id: 'r' }, live._v, 'owner'))
     nativeCounts.get = 0
     nativeCounts.listPage = 0 // reset after setup writes — only count() below matters
     expect(await docs.count()).toBe(1) // only 'a' is live tier-0 — parity with fallback
@@ -433,7 +433,7 @@ describe('#713 lazy count() batches via adapter.listPage — behavior parity, fe
     await docs.put('c', { name: 'c' })
     await docs.elevate('b', 1)
     const live = (await store.get('v1', 'docs', 'c'))!
-    await store.put('v1', 'docs', 'c', buildDeleteMarker(live._v, 'owner'))
+    await store.put('v1', 'docs', 'c', buildDeleteMarker({ collection: 'c', id: 'r' }, live._v, 'owner'))
     expect(await docs.count()).toBe(1)
   })
 })

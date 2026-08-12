@@ -98,7 +98,7 @@ describe('writePod — satellite existence-authority filter (#591 Task 10)', () 
     const { db, vault, rawStore } = await openPair()
     await vault.joined<Msg>('msgs_full').put('x', { from: 'a', body: 'B' })
     await vault.joined<Msg>('msgs_full').put('y', { from: 'b', body: 'C' })
-    // buildTombstone() shape: _iv === '' && _data === '' — written directly via the raw store.
+    // buildTombstone({ collection: 'c', id: 'r' }, ) shape: _iv === '' && _data === '' — written directly via the raw store.
     await rawStore.put('v1', 'msgs', 'x', { _noydb: 1, _v: 2, _ts: 't', _iv: '', _data: '' })
 
     const dumpJson = await exportDump(vault)

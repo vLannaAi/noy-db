@@ -15,7 +15,9 @@
  * (`_writeTombstone`) and drives `vault.forget()` lives with the collection /
  * vault; it calls into these.
  */
-import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope } from '../../types.js'
+import { type EncryptedEnvelope } from '../../types.js'
+import { buildRecordEnvelope } from '../record-envelope.js'
+import type { RecordIdentity } from '../record-aad.js'
 
 /**
  * Shape-only tombstone recognition for layers that have no per-collection
@@ -53,15 +55,17 @@ export function isTombstone(envelope: EncryptedEnvelope, encrypted: boolean): bo
  * Deliberately omits `_iv`/`_data`/`_cek`/`_det` — that omission *is* the
  * erasure.
  */
-export function buildTombstone(version: number, actor: string): EncryptedEnvelope {
-  return {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: version,
-    _ts: new Date().toISOString(),
-    _iv: '',
-    _data: '',
-    ...(actor ? { _by: actor } : {}),
-  }
+export function buildTombstone(
+  identity: RecordIdentity,
+  version: number,
+  actor: string,
+): EncryptedEnvelope {
+  return buildRecordEnvelope(identity, {
+    version,
+    iv: '',
+    data: '',
+    ...(actor ? { by: actor } : {}),
+  })
 }
 
 /** #589: is this envelope an ordinary-delete marker (version-ordered, reads as absent)? */
@@ -75,14 +79,20 @@ export function isDeleteMarker(envelope: EncryptedEnvelope): boolean {
  * keeps the displaced `_v` — so it wins convergence over the pre-delete copy and a
  * re-create can still win over it at a higher version.
  */
-export function buildDeleteMarker(version: number, actor: string): EncryptedEnvelope {
+export function buildDeleteMarker(
+  identity: RecordIdentity,
+  version: number,
+  actor: string,
+): EncryptedEnvelope {
+  // `_del` is not one of buildRecordEnvelope's declared slots — a delete marker
+  // is a distinct envelope class, not a record body — so it is stamped here.
   return {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: version,
-    _ts: new Date().toISOString(),
-    _iv: '',
-    _data: '',
+    ...buildRecordEnvelope(identity, {
+      version,
+      iv: '',
+      data: '',
+      ...(actor ? { by: actor } : {}),
+    }),
     _del: true,
-    ...(actor ? { _by: actor } : {}),
   }
 }

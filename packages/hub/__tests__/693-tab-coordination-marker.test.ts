@@ -99,7 +99,7 @@ describe('#693: re-create gate falls back to a store read under multi-tab coordi
     // Simulate a peer tab writing a delete-marker directly into the SHARED
     // local store, bypassing this instance's Collection entirely — the
     // broadcast-relay latency window. Do NOT deliver any broadcast.
-    await local.put(V, 'notes', 'x', buildDeleteMarker(2, 'peer'))
+    await local.put(V, 'notes', 'x', buildDeleteMarker({ collection: 'c', id: 'r' }, 2, 'peer'))
 
     // Pre-fix: markerIds has no entry for 'x' → gate skips the store read →
     // version resets to 1, silently overwriting the peer's marker (data loss).
@@ -159,7 +159,7 @@ describe('#693: presence-only coordination (propagateWrites: false) also trigger
 
     // Peer tab writes a delete-marker directly into the shared store, with no
     // relay in play to ever inform this instance.
-    await local.put(V, 'notes', 'x', buildDeleteMarker(2, 'peer'))
+    await local.put(V, 'notes', 'x', buildDeleteMarker({ collection: 'c', id: 'r' }, 2, 'peer'))
 
     // Pre-fix (narrow `writeRelay !== undefined` signal): the fallback never
     // fires → gate skips the store read → version resets to 1, resurrecting

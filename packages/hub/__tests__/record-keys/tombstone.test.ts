@@ -24,7 +24,7 @@ const live: EncryptedEnvelope = {
 
 describe('buildTombstone', () => {
   it('keeps _v, stamps _ts, drops body/_cek/_det, records actor', () => {
-    const t = buildTombstone(3, 'alice')
+    const t = buildTombstone({ collection: 'c', id: 'r' }, 3, 'alice')
     expect(t._v).toBe(3)
     expect(t._iv).toBe('')
     expect(t._data).toBe('')
@@ -36,12 +36,12 @@ describe('buildTombstone', () => {
   })
 
   it('omits _by entirely when actor is empty', () => {
-    const t = buildTombstone(1, '')
+    const t = buildTombstone({ collection: 'c', id: 'r' }, 1, '')
     expect('_by' in t).toBe(false)
   })
 
   it('round-trips through isTombstone', () => {
-    expect(isTombstone(buildTombstone(7, 'bob'), true)).toBe(true)
+    expect(isTombstone(buildTombstone({ collection: 'c', id: 'r' }, 7, 'bob'), true)).toBe(true)
   })
 })
 
@@ -73,13 +73,13 @@ describe('delete marker predicate (#589)', () => {
     expect(isDeleteMarker({ _noydb: 1, _v: 1, _ts: 'x', _iv: '', _data: '' })).toBe(false) // forget tombstone
   })
   it('a delete marker is NOT a forget tombstone (predicates never overlap)', () => {
-    const marker = buildDeleteMarker(6, 'alice')
+    const marker = buildDeleteMarker({ collection: 'c', id: 'r' }, 6, 'alice')
     expect(isDeleteMarker(marker)).toBe(true)
     expect(isTombstoneShape(marker)).toBe(false)             // guarded by _del !== true
     expect(isTombstone(marker, true)).toBe(false)
   })
   it('buildDeleteMarker mints the marker shape at the given version', () => {
-    const m = buildDeleteMarker(6, 'alice')
+    const m = buildDeleteMarker({ collection: 'c', id: 'r' }, 6, 'alice')
     expect(m).toMatchObject({ _noydb: 1, _v: 6, _iv: '', _data: '', _del: true, _by: 'alice' })
     expect(typeof m._ts).toBe('string')
     expect(m._cek).toBeUndefined()

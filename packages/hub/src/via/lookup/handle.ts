@@ -155,7 +155,7 @@ export class LookupHandle<Keys extends string = string> {
      * `enclave-body-only` / Check 15 `via-enclave-isolation`) — the Vault binds the real
      * `kernel/enclave` function at construction time, same pattern as `reservedEnvelopes` above.
      */
-    private readonly buildDeleteMarker: (version: number, actor: string) => EncryptedEnvelope,
+    private readonly buildDeleteMarker: (identity: { collection: string; id: string }, version: number, actor: string) => EncryptedEnvelope,
     /** #650 Task 4 (#647) — dirty-log participation hook (origin `local-write`), threaded from `BuildLookupHandleOptions`. */
     private readonly onDirty?: (collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>,
     /** #650 Task 4 — thin `graphDispatch.collect`-equivalent; opens/collects/flushes a one-shot wave for this touch. */
@@ -350,7 +350,7 @@ export class LookupHandle<Keys extends string = string> {
     // the removal round-trips like any other row. No-op (plain adapter.delete) when sync isn't wired.
     const nextVersion = existing._v + 1
     if (this.onDirty) {
-      await this.adapter.put(this.compartmentName, this.collName, key, this.buildDeleteMarker(nextVersion, this.keyring.userId))
+      await this.adapter.put(this.compartmentName, this.collName, key, this.buildDeleteMarker({ collection: this.collName, id: key }, nextVersion, this.keyring.userId))
     } else {
       await this.adapter.delete(this.compartmentName, this.collName, key)
     }
@@ -451,7 +451,7 @@ export class LookupHandle<Keys extends string = string> {
     // that only observes the new key arriving.
     const oldKeyNextVersion = existing._v + 1
     if (this.onDirty) {
-      await this.adapter.put(this.compartmentName, this.collName, oldKey, this.buildDeleteMarker(oldKeyNextVersion, this.keyring.userId))
+      await this.adapter.put(this.compartmentName, this.collName, oldKey, this.buildDeleteMarker({ collection: this.collName, id: oldKey }, oldKeyNextVersion, this.keyring.userId))
     } else {
       await this.adapter.delete(this.compartmentName, this.collName, oldKey)
     }

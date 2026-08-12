@@ -86,7 +86,7 @@ export interface BuildLookupHandleOptions<Keys extends string = string> {
    * may not import `kernel/enclave/` itself (Check 11/15), so this capability is injected the
    * same way `reservedEnvelopes` above is.
    */
-  readonly buildDeleteMarker: (version: number, actor: string) => EncryptedEnvelope
+  readonly buildDeleteMarker: (identity: { collection: string; id: string }, version: number, actor: string) => EncryptedEnvelope
   /** #650 Task 4 (#647) — choke-point participation hooks. */
   readonly onDirty?: ((collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>) | undefined
   readonly onRecordMutated?: ((collection: string, id: string, action: 'put' | 'delete', version: number) => Promise<void>) | undefined

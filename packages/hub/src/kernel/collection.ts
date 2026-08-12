@@ -2556,7 +2556,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       // No-op if there is no live record to delete (already marked / shredded).
       const live = previousEnvelope
       if (!live || isTombstone(live, this.storeCiphertext) || isDeleteMarker(live)) return null
-      marker = buildDeleteMarker(live._v + 1, this.keyring.userId)
+      marker = buildDeleteMarker({ collection: this.name, id }, live._v + 1, this.keyring.userId)
     }
 
     // History-snapshot key material, resolved HERE off the live envelope —
@@ -2709,7 +2709,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const live = await this.adapter.get(this.vault, this.name, id)
     if (!live || isTombstone(live, this.storeCiphertext) || isDeleteMarker(live)) return null
 
-    await this.adapter.put(this.vault, this.name, id, buildTombstone(live._v, actor))
+    await this.adapter.put(this.vault, this.name, id, buildTombstone({ collection: this.name, id }, live._v, actor))
 
     // Invalidate every in-memory view of this record so subsequent reads see
     // the tombstone (→ null), not a stale decrypted value.

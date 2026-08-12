@@ -92,7 +92,7 @@ describe('JoinedHandle', () => {
   it('get returns null when the base is tombstoned (not merely absent), even if a satellite envelope exists', async () => {
     const { vault, rawStore } = await openPair()
     await vault.joined<Msg>('msgs_full').put('x', { from: 'a', body: 'B' })
-    // buildTombstone() shape: _iv === '' && _data === '' — written directly via the raw store.
+    // buildTombstone({ collection: 'c', id: 'r' }, ) shape: _iv === '' && _data === '' — written directly via the raw store.
     await rawStore.put('v1', 'msgs', 'x', { _noydb: 1, _v: 2, _ts: 't', _iv: '', _data: '' })
     expect(await vault.joined<Msg>('msgs_full').get('x')).toBeNull()
   })
