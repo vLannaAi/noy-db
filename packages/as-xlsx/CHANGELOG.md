@@ -1,5 +1,13 @@
 # @noy-db/as-xlsx
 
+## 0.6.0-pre.14
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.14
+  - @noy-db/as-zip@1.0.0-pre.14
+
 ## 0.6.0-pre.13
 
 ### Patch Changes
