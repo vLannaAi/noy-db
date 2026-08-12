@@ -34,11 +34,11 @@ import { PartitionExtractionError } from '../kernel/errors.js'
 import { walkClosure, type WalkClosureOptions, type DanglingRefNotice } from './walk-closure.js'
 import { generateULID } from '../with-pod/ulid.js'
 import { SCHEMAS_COLLECTION } from '../with-shape/persisted-schemas/storage.js'
-import { NOYDB_FORMAT_VERSION } from '../kernel/types.js'
 import { LEDGER_COLLECTION } from '../with-commit/history/ledger/constants.js'
 import { canonicalJson, hashEntry } from '../with-commit/history/ledger/entry.js'
 import type { LedgerEntry } from '../with-commit/history/ledger/entry.js'
 import { envelopePayloadHash } from '../with-commit/history/ledger/hash.js'
+import { buildRecordEnvelope } from '../kernel/enclave/index.js'
 import {
   assemblePodContainer,
   buildExtractedPartitionWrapper,
@@ -237,9 +237,10 @@ export async function reKeyLedger(
       ...(src.reason !== undefined ? { reason: src.reason } : {}),
     }
     const { iv, data } = await encrypt(canonicalJson(entry), ledgerDek)
-    entries[paddedIndex(i)] = {
-      _noydb: NOYDB_FORMAT_VERSION, _v: i + 1, _ts: entry.ts, _iv: iv, _data: data, _by: entry.actor,
-    }
+    entries[paddedIndex(i)] = buildRecordEnvelope(
+      { collection: LEDGER_COLLECTION, id: paddedIndex(i) },
+      { version: i + 1, ts: entry.ts, iv, data, by: entry.actor },
+    )
     prevHash = await hashEntry(entry)
     last = entry
   }

@@ -8,8 +8,8 @@
  *
  * Internal — reached through `vault.getPodHandle()`.
  */
-import { NOYDB_FORMAT_VERSION } from '../kernel/types.js'
 import type { NoydbStore, EncryptedEnvelope } from '../kernel/types.js'
+import { buildRecordEnvelope } from '../kernel/enclave/index.js'
 
 /**
  * Return the stable opaque bundle handle for the given vault adapter,
@@ -37,13 +37,10 @@ export async function buildPodHandle(adapter: NoydbStore, name: string): Promise
   }
   const { generateULID } = await import('./ulid.js')
   const handle = generateULID()
-  const envelope: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: 1,
-    _ts: new Date().toISOString(),
-    _iv: '',
-    _data: JSON.stringify({ handle }),
-  }
+  const envelope: EncryptedEnvelope = buildRecordEnvelope(
+    { collection: '_meta', id: 'handle' },
+    { version: 1, iv: '', data: JSON.stringify({ handle }) },
+  )
   await adapter.put(name, '_meta', 'handle', envelope)
   return handle
 }

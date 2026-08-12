@@ -2054,8 +2054,8 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   // (parity with the tier-0 leg, which already goes through `decryptRecord`'s
   // own `_sealed` handling).
   ['packages/hub/src/with-audit/tiers/index.ts', 24],
-  ['packages/hub/src/with-cargo/adopt-partition.ts', 8],
-  ['packages/hub/src/with-cargo/extract-partition.ts', 26],
+  ['packages/hub/src/with-cargo/adopt-partition.ts', 6],  // #1051: buildRecordEnvelope() now builds these bodies
+  ['packages/hub/src/with-cargo/extract-partition.ts', 24],  // #1051: buildRecordEnvelope() now builds these bodies
   ['packages/hub/src/with-commit/history/history.ts', 2],
   ['packages/hub/src/with-commit/history/ledger/store.ts', 11],
   ['packages/hub/src/with-commit/history/time-machine.ts', 1],
@@ -2101,7 +2101,7 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-party/team/rotate-recover.ts', 2],
   ['packages/hub/src/with-sync/credentials.ts', 2],
   ['packages/hub/src/with-sync/engine.ts', 3],
-  ['packages/hub/src/with-pod/backup.ts', 3],
+  ['packages/hub/src/with-pod/backup.ts', 1],  // #1051: buildRecordEnvelope() now builds these bodies
   ['packages/hub/src/with-pod/pod.ts', 2],
   // #948 Task 1 (shrink-first): `buildBundleHandle` moved verbatim out of
   // vault.ts's `getBundleHandle` — the envelope-literal `_iv`/`_data`
@@ -2112,7 +2112,7 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   // `stripComments`'s block-comment regex as an unterminated `/*`,
   // swallowing 2 real code matches downstream as false "comment" — removing
   // that comment un-hides them, netting -3 moved but +2 un-hidden.
-  ['packages/hub/src/with-pod/pod-handle.ts', 3],
+  ['packages/hub/src/with-pod/pod-handle.ts', 1],  // #1051: buildRecordEnvelope() now builds this body
   ['packages/hub/src/with-shape/blobs/blob-compaction.ts', 4],
   // #724 Arc 10 correction (Task 1, closes C1): `rehomeForTier`'s solo
   // in-place rewrap (`unwrapCek(blob._cek, fromDEK)` + the `_cek:` literal
