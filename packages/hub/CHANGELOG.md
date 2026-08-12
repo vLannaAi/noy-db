@@ -1,5 +1,63 @@
 # Changelog — hub
 
+## 0.6.0-pre.15
+
+### Minor Changes
+
+- Add `db.syncTargetStatus(vault)` — per-target sync state (#1034)
+
+  `syncStatus()` reads **only the primary** engine, so in a redundant topology it
+  reports one target's `dirty`/`lastPush`/`lastPull` as if they were the vault's.
+  That makes "the LAN store is unavailable — syncing via the cloud" impossible to
+  render: you can see that something is behind, not which thing.
+
+  `syncTargetStatus()` returns one row per target — `label`, `role`, `dirty`,
+  `lastPush`, `lastPull`, `caughtUp` — in registration order, primary first. The
+  state already existed: `openVault()` builds one `SyncEngine` per target, each
+  with its own dirty log and timestamps.
+
+  **No per-target `online` flag, deliberately.** `SyncStatus.online` reflects the
+  _browser's_ connectivity: it is set only by the global `online`/`offline` window
+  events, and no store outcome ever changes it. Exposing it per target would make
+  a global signal look per-target — every row would move together while appearing
+  to move independently. Per-target reachability derived from real store outcomes
+  is separate, still-unbuilt work, and is tracked on #1034.
+
+  `caughtUp` is `dirty === 0` — well-defined for every role: for a `sync-peer` the
+  two sides agree as of the last exchange; for a push-only `backup` every local
+  write has reached it. It describes the outbound queue only.
+
+### Patch Changes
+
+- Ship a 0.6.0-pre codemod map; fix prose that taught removed API (#1061, #1062, #1063)
+
+  **New: `@noy-db/hub/codemods/0.6.0-pre.json`** — a machine-readable rename map for
+  the 0.6 breaking set (#1052 alias removal, #1058 pod vocabulary, #1054 revocation),
+  shipped as a real subpath export like its 0.4.0-pre predecessor. 25 rows, each
+  carrying whether a blanket whole-word replace is safe. A new test verifies every
+  target exists on the live surface and every source is genuinely gone, so the map
+  cannot drift from the code.
+
+  That test immediately corrected two rows I had written from #1052's prose table:
+  `SubsystemBus` and `NOYDB_BUNDLE_FORMAT_VERSION_SIGNED` were **internal**, never
+  barrel-exported, so no consumer could have held them. #1052's table over-counted
+  them as published removals — and separately missed `hasNoydbBundleMagic`, which
+  is #1061.
+
+  **Prose fixes** — none of it compiles, so nothing caught it:
+
+  - `README.md` and `SERVICES.md` taught `import { withAggregate } from
+'@noy-db/hub/aggregate'`, a subpath deleted in the 0.6 line. Both also used the
+    retired `aggregateStrategy` option key. Now `withReduce` from `/reduce` with
+    `reduceStrategy` (#1063)
+  - `@noy-db/as-noydb`'s npm `description` and README said it wraps
+    `writeNoydbBundle()` — the description renders on the package page (#1063)
+  - `kernel/noydb.ts` contrasted against `revoke({ rotateKeys: true })`, an option
+    removed in #1054. It is JSDoc, so it shipped in the published `.d.ts` (#1062)
+  - `docs/foundations/` architecture docs asserted `/kernel` and `/adapter` still
+    exist. The governance decision record is annotated rather than rewritten — its
+    argument stands, only the seam names moved
+
 ## 0.6.0-pre.14
 
 ### Minor Changes
