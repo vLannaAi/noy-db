@@ -1,5 +1,42 @@
 # Changelog — hub
 
+## 0.6.0-pre.14
+
+### Minor Changes
+
+- **BREAKING**: finish the pod vocabulary — no `bundle`-named pod API remains
+
+  The `bundle` → `pod` rename previously stopped at the functions and types. The
+  wire-format constants, the integrity errors, the recipient type and the vault's
+  handle accessor still carried the retired concept.
+
+  | Removed                              | Use                               |
+  | ------------------------------------ | --------------------------------- |
+  | `NOYDB_BUNDLE_MAGIC`                 | `NOYDB_POD_MAGIC`                 |
+  | `NOYDB_BUNDLE_PREFIX_BYTES`          | `NOYDB_POD_PREFIX_BYTES`          |
+  | `NOYDB_BUNDLE_FORMAT_VERSION`        | `NOYDB_POD_FORMAT_VERSION`        |
+  | `NOYDB_BUNDLE_FORMAT_VERSION_SIGNED` | `NOYDB_POD_FORMAT_VERSION_SIGNED` |
+  | `hasNoydbBundleMagic()`              | `hasNoydbPodMagic()`              |
+  | `BundleIntegrityError`               | `PodIntegrityError`               |
+  | `BundleSealMismatchError`            | `PodSealMismatchError`            |
+  | `BundleRecipient`                    | `PodRecipient`                    |
+  | `vault.getBundleHandle()`            | `vault.getPodHandle()`            |
+
+  The wire format is unchanged — the magic bytes are still `NDB1`. Only the names
+  change, and no aliases are kept.
+
+  Why now: `NDB1` is "NoyDB 1". The word _bundle_ appears nowhere in the format —
+  not in the magic bytes, not in the `.noydb` extension — so these named the
+  retired concept rather than the format. They were kept in the previous cut on
+  the mistaken grounds that they described the wire format.
+
+  Timing matters more than tidiness here. The consumers already have a migration
+  pending from 0.6.0-pre.13, and several of them touch these very constants.
+  Landing this in the same window means they migrate once instead of twice.
+
+  `FactorProofBundle` and the accessible-export helpers keep "bundle" — those are
+  a different concept (a bundle _of_ things), not the `.noydb` container.
+
 ## 0.6.0-pre.13
 
 ### Minor Changes
