@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/to-browser-idb",
-  "version": "0.6.0-pre.15",
+  "version": "0.6.0-pre.16",
   "description": "IndexedDB adapter for noy-db with optional key obfuscation",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
