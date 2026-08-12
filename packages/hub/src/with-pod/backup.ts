@@ -39,7 +39,7 @@ import type {
   ExportChunk,
 } from '../kernel/types.js'
 import type { LedgerStore } from '../with-commit/history/ledger/store.js'
-import { NOYDB_FORMAT_VERSION } from '../kernel/types.js'
+import { buildRecordEnvelope } from '../kernel/enclave/index.js'
 
 /** Everything the moving backup methods touched on the vault's `this.*`. */
 export interface BackupContext {
@@ -212,13 +212,8 @@ export async function loadVault(ctx: BackupContext, backupJson: string): Promise
 
   // 2. Restore keyrings.
   for (const [userId, keyringFile] of Object.entries(backup.keyrings)) {
-    const envelope = {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: 1,
-      _ts: new Date().toISOString(),
-      _iv: '',
-      _data: JSON.stringify(keyringFile),
-    }
+    const envelope = buildRecordEnvelope({ collection: '_keyring', id: userId },
+      { version: 1, iv: '', data: JSON.stringify(keyringFile) })
     await ctx.adapter.put(ctx.vault, '_keyring', userId, envelope)
   }
 

@@ -19,7 +19,7 @@ import { LedgerStore } from '../with-commit/history/ledger/store.js'
 import { LEDGER_COLLECTION } from '../with-commit/history/ledger/constants.js'
 import type { TransferSealPayload } from '../with-pod/pod.js'
 import { readPodHeader, readPod, parseExtractedPartitionBody } from '../with-pod/pod.js'
-import { NOYDB_FORMAT_VERSION } from '../kernel/types.js'
+import { buildRecordEnvelope } from '../kernel/enclave/index.js'
 
 /**
  * Reverse of `sealDeks`. Imports the transfer key, decrypts the
@@ -151,9 +151,9 @@ export async function adoptPartition(
 
   const adoptedAt = new Date().toISOString()
   const adoption = { sealId: seal.sealId, adoptedAt, needsOwner: true as const, transferSeal: seal }
-  await destinationStore.put(vaultName, '_meta', 'adoption', {
-    _noydb: NOYDB_FORMAT_VERSION, _v: 1, _ts: adoptedAt, _iv: '', _data: JSON.stringify(adoption),
-  })
+  await destinationStore.put(vaultName, '_meta', 'adoption',
+    buildRecordEnvelope({ collection: '_meta', id: 'adoption' },
+      { version: 1, ts: adoptedAt, iv: '', data: JSON.stringify(adoption) }))
 
   return { vaultName, needsOwner: true, sealId: seal.sealId }
 }
