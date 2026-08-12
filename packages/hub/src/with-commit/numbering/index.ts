@@ -3,8 +3,8 @@
  * Deferred numbering engine — store-clock-ordered, gap-free serials assigned
  * at an explicit numbering pass. See the design spec.
  */
+import { buildRecordEnvelope } from '../../kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope, StoreTime } from '../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { isConflictError, NumberingUncertaintyError } from '../../kernel/errors.js'
 import type { DeferredNumberingConfig } from './descriptor.js'
@@ -84,10 +84,10 @@ export class DeferredNumberingStore {
     const json = JSON.stringify(value)
     let env: EncryptedEnvelope
     if (!this.encrypted) {
-      env = { _noydb: NOYDB_FORMAT_VERSION, _v: expectedVersion + 1, _ts: new Date().toISOString(), _iv: '', _data: json, _by: this.actor }
+      env = buildRecordEnvelope({ collection, id }, { version: expectedVersion + 1, iv: '', data: json, by: this.actor })
     } else {
       const { iv, data } = await encrypt(json, await this.dek(collection))
-      env = { _noydb: NOYDB_FORMAT_VERSION, _v: expectedVersion + 1, _ts: new Date().toISOString(), _iv: iv, _data: data, _by: this.actor }
+      env = buildRecordEnvelope({ collection, id }, { version: expectedVersion + 1, iv, data, by: this.actor })
     }
     await this.adapter.put(this.vault, collection, id, env, expectedVersion)
   }

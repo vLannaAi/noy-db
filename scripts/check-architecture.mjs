@@ -2056,11 +2056,10 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-audit/tiers/index.ts', 24],
   ['packages/hub/src/with-cargo/adopt-partition.ts', 6],  // #1051: buildRecordEnvelope() now builds these bodies
   ['packages/hub/src/with-cargo/extract-partition.ts', 24],  // #1051: buildRecordEnvelope() now builds these bodies
-  ['packages/hub/src/with-commit/history/history.ts', 2],
   ['packages/hub/src/with-commit/history/ledger/store.ts', 11],
   ['packages/hub/src/with-commit/history/time-machine.ts', 1],
-  ['packages/hub/src/with-commit/numbering/index.ts', 5],
-  ['packages/hub/src/with-commit/sequence/index.ts', 5],
+  ['packages/hub/src/with-commit/numbering/index.ts', 1],  // #1051
+  ['packages/hub/src/with-commit/sequence/index.ts', 1],  // #1051
   ['packages/hub/src/with-formula/derivations/fanout-sidecar.ts', 6],
   ['packages/hub/src/with-party/auth-introspection/index.ts', 1],
   ['packages/hub/src/with-party/custody/liberate.ts', 2],
@@ -2092,15 +2091,14 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   // `readKeyringFile` (keyring.ts) — its own `writeKeyringFile`-equivalent
   // envelope-literal construction is the sole remaining access. 3→2.
   ['packages/hub/src/with-party/team/peer-recover.ts', 2],
-  ['packages/hub/src/with-sync/presence.ts', 3],
+  ['packages/hub/src/with-sync/presence.ts', 1],  // #1051
   ['packages/hub/src/with-party/team/recovery.ts', 6],
   // #951: `rotateSecret`'s and `recoverSecret`'s (paper + Shamir profiles)
   // 3 fetch+parse sites now route through `readKeyringFile` (keyring.ts) —
   // the file's own `writeKeyringFile` envelope-literal construction is the
   // sole remaining access. 5→2.
   ['packages/hub/src/with-party/team/rotate-recover.ts', 2],
-  ['packages/hub/src/with-sync/credentials.ts', 2],
-  ['packages/hub/src/with-sync/engine.ts', 3],
+  ['packages/hub/src/with-sync/engine.ts', 1],  // #1051
   ['packages/hub/src/with-pod/backup.ts', 1],  // #1051: buildRecordEnvelope() now builds these bodies
   ['packages/hub/src/with-pod/pod.ts', 2],
   // #948 Task 1 (shrink-first): `buildBundleHandle` moved verbatim out of
