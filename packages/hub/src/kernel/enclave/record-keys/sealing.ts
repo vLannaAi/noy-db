@@ -17,7 +17,6 @@
  */
 import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek, bufferToBase64, deriveSealedFieldKeyFromCek, type EnclaveKey } from '../crypto.js'
 import {
-  NOYDB_FORMAT_VERSION,
   type EncryptedEnvelope,
   type NoydbStore,
   type RecipientSealer,
@@ -27,6 +26,7 @@ import {
 import { dualReadSealedSlot } from './sealed-slot.js'
 import { openVdigPayload, sealVdigPayload } from '../classify/vdig.js'
 import { RecordCekNotFoundError, ValidationError } from '../../errors.js'
+import { buildRecordEnvelope } from '../record-envelope.js'
 
 const subtle = globalThis.crypto.subtle
 
@@ -104,16 +104,20 @@ export async function sealRecordToHost(
 
   const envelopeKey = `${collection}/${id}/${hint.pid}`
   const prior = await ctx.adapter.get(ctx.vault, SEALED_CEK_NS, envelopeKey)
-  const env: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: (prior?._v ?? 0) + 1,
-    _ts: new Date().toISOString(),
-    // AES-GCM bypassed — the sealing layer is the security boundary, exactly
-    // like the managed-secret `_meta/sealed-secret` envelope.
-    _iv: '',
-    _data: JSON.stringify(delivery),
-    ...(ctx.actor ? { _by: ctx.actor } : {}),
-  }
+  // Identity is the STORAGE address — `(SEALED_CEK_NS, envelopeKey)` — not the
+  // record this delivery describes. Binding the subject record's collection/id
+  // here would produce an envelope that cannot be read back from where it lives.
+  const env: EncryptedEnvelope = buildRecordEnvelope(
+    { collection: SEALED_CEK_NS, id: envelopeKey },
+    {
+      version: (prior?._v ?? 0) + 1,
+      // AES-GCM bypassed — the sealing layer is the security boundary, exactly
+      // like the managed-secret `_meta/sealed-secret` envelope.
+      iv: '',
+      data: JSON.stringify(delivery),
+      ...(ctx.actor ? { by: ctx.actor } : {}),
+    },
+  )
   await ctx.adapter.put(ctx.vault, SEALED_CEK_NS, envelopeKey, env)
 
   return { pid: hint.pid, envelopeKey }
@@ -205,14 +209,13 @@ export async function rotateRecordCek(
     vdigOut = out
   }
 
-  const env: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: live._v + 1,
-    _ts: new Date().toISOString(),
-    _iv: iv,
-    _data: data,
-    _cek: await wrapCek(newCek, dek),
-    ...(ctx.actor ? { _by: ctx.actor } : {}),
+  const env: EncryptedEnvelope = buildRecordEnvelope({ collection, id }, {
+    version: live._v + 1,
+    iv,
+    data,
+    cek: await wrapCek(newCek, dek),
+    ...(ctx.actor ? { by: ctx.actor } : {}),
+    extra: {
     ...(live._tier !== undefined ? { _tier: live._tier } : {}),
     ...(live._det !== undefined ? { _det: live._det } : {}),
     // `_bidx` (equality-index tag) is DEK-rooted and CEK-independent, so it is
@@ -228,7 +231,8 @@ export async function rotateRecordCek(
     // dual-read from the old CEK (or the legacy DEK) and re-sealed under newCek.
     ...(sealedOut !== undefined ? { _sealed: sealedOut } : {}),
     ...(vdigOut !== undefined ? { _vdig: vdigOut } : {}),
-  }
+    },
+  })
   await ctx.adapter.put(ctx.vault, collection, id, env)
 
   // Evict BOTH caches synchronously so no read returns the stale old-CEK record.

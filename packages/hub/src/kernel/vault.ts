@@ -16,7 +16,6 @@ import type {
 } from './types.js'
 import type { Noydb } from './noydb.js'
 import type { IssueDelegationOptions, DelegationToken } from '../with-party/team/delegation.js'
-import { NOYDB_FORMAT_VERSION } from './types.js'
 import { Collection } from './collection.js'
 import type { JoinableSource } from './query/index.js'
 import type { OnDirtyCallback } from './collection.js'
@@ -136,6 +135,7 @@ import {
   type OpenPeriodOptions,
   purgeMarkersOn,
 } from '../with-audit/periods/index.js'
+import { buildRecordEnvelope } from './enclave/index.js'
 import { encrypt, openEnvelopeJson, hasPerRecordKey, SEALED_CEK_NS, type SealingContext, type EnclaveKey, buildDeleteMarker, makeReservedEnvelopes } from './enclave/index.js'
 import type { RecipientSealer } from '../with-party/team/managed-secret.js'
 import {
@@ -1810,9 +1810,11 @@ export class Vault {
       ? await (async () => {
           const dek = await this.getDEK(EXPORT_AUDIT_COLLECTION)
           const { iv, data } = await encrypt(json, dek)
-          return { _noydb: NOYDB_FORMAT_VERSION, _v: 1, _ts: entry.startedAt, _iv: iv, _data: data, _by: entry.actor }
+          return buildRecordEnvelope({ collection: EXPORT_AUDIT_COLLECTION, id: entry.id },
+            { version: 1, ts: entry.startedAt, iv, data, by: entry.actor })
         })()
-      : { _noydb: NOYDB_FORMAT_VERSION, _v: 1, _ts: entry.startedAt, _iv: '', _data: json, _by: entry.actor }
+      : buildRecordEnvelope({ collection: EXPORT_AUDIT_COLLECTION, id: entry.id },
+          { version: 1, ts: entry.startedAt, iv: '', data: json, by: entry.actor })
     await this.adapter.put(this.name, EXPORT_AUDIT_COLLECTION, entry.id, envelope)
   }
 
@@ -3018,23 +3020,11 @@ export class Vault {
       ? await (async () => {
           const dek = await this.getDEK(ELEVATION_AUDIT_COLLECTION)
           const { iv, data } = await encrypt(json, dek)
-          return {
-            _noydb: NOYDB_FORMAT_VERSION,
-            _v: 1,
-            _ts: entry.startedAt,
-            _iv: iv,
-            _data: data,
-            _by: entry.actor,
-          }
+          return buildRecordEnvelope({ collection: ELEVATION_AUDIT_COLLECTION, id },
+            { version: 1, ts: entry.startedAt, iv, data, by: entry.actor })
         })()
-      : {
-          _noydb: NOYDB_FORMAT_VERSION,
-          _v: 1,
-          _ts: entry.startedAt,
-          _iv: '',
-          _data: json,
-          _by: entry.actor,
-        }
+      : buildRecordEnvelope({ collection: ELEVATION_AUDIT_COLLECTION, id },
+          { version: 1, ts: entry.startedAt, iv: '', data: json, by: entry.actor })
     await this.adapter.put(this.name, ELEVATION_AUDIT_COLLECTION, id, envelope)
   }
 

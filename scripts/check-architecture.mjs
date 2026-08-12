@@ -2029,7 +2029,9 @@ const BODY_FIELD_ACCESS_RE =
 const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/kernel/debug.ts', 4],
   ['packages/hub/src/kernel/types.ts', 2],
-  ['packages/hub/src/kernel/vault.ts', 12],
+  // #1051: 12 → 4. buildRecordEnvelope() now constructs these bodies, so vault.ts
+  // no longer touches _iv/_data directly for the audit envelopes.
+  ['packages/hub/src/kernel/vault.ts', 4],
   ['packages/hub/src/with-audit/attestation/issue.ts', 2],
   ['packages/hub/src/with-audit/attestation/revoke.ts', 2],
   ['packages/hub/src/with-audit/attestation/signer.ts', 2],
