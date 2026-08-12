@@ -8,7 +8,7 @@
 
 import { describe, it, expect } from 'vitest'
 import type {
-  NoydbStore, EncryptedEnvelope, VaultSnapshot, BundleRecipient,
+  NoydbStore, EncryptedEnvelope, VaultSnapshot, PodRecipient,
 } from '../src/index.js'
 import {
   ConflictError, createNoydb, writePod, readPod,
@@ -109,7 +109,7 @@ describe('writePod — recipient expiresAt', () => {
   it('past-cutoff slot refuses to open with KeyringExpiredError', async () => {
     const { db: src, vault } = await setupSourceVault()
     const yesterday = new Date(Date.now() - 86400_000).toISOString()
-    const recipients: readonly BundleRecipient[] = [
+    const recipients: readonly PodRecipient[] = [
       { id: 'auditor', secret: 'aud-pw', role: 'viewer', expiresAt: yesterday },
     ]
     const bytes = await writePod(vault, { recipients })
@@ -123,7 +123,7 @@ describe('writePod — recipient expiresAt', () => {
   it('future-cutoff slot opens normally', async () => {
     const { db: src, vault } = await setupSourceVault()
     const tomorrow = new Date(Date.now() + 86400_000).toISOString()
-    const recipients: readonly BundleRecipient[] = [
+    const recipients: readonly PodRecipient[] = [
       { id: 'auditor', secret: 'aud-pw', role: 'viewer', expiresAt: tomorrow },
     ]
     const bytes = await writePod(vault, { recipients })
@@ -137,7 +137,7 @@ describe('writePod — recipient expiresAt', () => {
 
   it('omitted expiresAt = no cutoff (existing behavior unchanged)', async () => {
     const { db: src, vault } = await setupSourceVault()
-    const recipients: readonly BundleRecipient[] = [
+    const recipients: readonly PodRecipient[] = [
       { id: 'auditor', secret: 'aud-pw', role: 'viewer' },
     ]
     const bytes = await writePod(vault, { recipients })
@@ -152,7 +152,7 @@ describe('writePod — recipient expiresAt', () => {
   it('expired error carries the userId and ISO timestamp', async () => {
     const { db: src, vault } = await setupSourceVault()
     const yesterday = new Date(Date.now() - 86400_000).toISOString()
-    const recipients: readonly BundleRecipient[] = [
+    const recipients: readonly PodRecipient[] = [
       { id: 'auditor', secret: 'aud-pw', role: 'viewer', expiresAt: yesterday },
     ]
     const bytes = await writePod(vault, { recipients })

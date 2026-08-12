@@ -294,8 +294,8 @@ export {
   SequenceContentionError,
   SequenceOfflineError,
   SequenceNotEnabledError,
-  BundleIntegrityError,
-  BundleSealMismatchError,
+  PodIntegrityError,
+  PodSealMismatchError,
   PodVersionConflictError,
   SessionExpiredError,
   SessionNotFoundError,
@@ -358,13 +358,13 @@ export { UnknownShardError, ShardProvisioningError, VaultTemplateNotFoundError, 
 export { ForgetStrategyNotConfiguredError } from './kernel/errors.js'
 export { SealedRecordExpiredError, SealedRecordMismatchError, RecordCekNotFoundError, SealedRecordNotEnabledError } from './kernel/errors.js'
 
-// Bundle format — `.noydb` container
+// Pod format — `.noydb` container
 export {
   writePod,
   readPod,
   readPodHeader,
   verifyPodHeader,
-} from './with-pod/bundle.js'
+} from './with-pod/pod.js'
 export { exportAccessibleData } from './with-audit/portability/export-accessible.js'
 export type { ExportAccessibleOptions } from './with-audit/portability/export-accessible.js'
 export { withdrawAccessibleData } from './with-audit/portability/withdraw-accessible.js'
@@ -396,12 +396,12 @@ export type {
   AutoCredentialKind,
   AutoCredential,
   PodVerifyResult,
-} from './with-pod/bundle.js'
+} from './with-pod/pod.js'
 export {
-  NOYDB_BUNDLE_MAGIC,
-  NOYDB_BUNDLE_PREFIX_BYTES,
-  NOYDB_BUNDLE_FORMAT_VERSION,
-  hasNoydbBundleMagic,
+  NOYDB_POD_MAGIC,
+  NOYDB_POD_PREFIX_BYTES,
+  NOYDB_POD_FORMAT_VERSION,
+  hasNoydbPodMagic,
 } from './with-pod/format.js'
 export { generateULID, isULID } from './with-pod/ulid.js'
 // Pod-signature family-wide signing convention (#943) — pod header, the
@@ -412,7 +412,7 @@ export type { DecryptedRecord } from './with-cargo/decrypt-partition.js'
 
 // Redirect record (#944): a signed "this moved, go there" pointer carried
 // in the pod's plaintext header, plus the followRedirects resolver.
-export { readPodRedirect } from './with-pod/bundle.js'
+export { readPodRedirect } from './with-pod/pod.js'
 export { signRedirect, verifyRedirect, followRedirects } from './with-pod/redirect.js'
 export type { Redirect, RedirectHop, FollowRedirectsResult } from './with-pod/redirect.js'
 // DocSigner is signRedirect's signer param — re-exported here so it's
@@ -633,7 +633,7 @@ export type {
   ResolvedCoverSchema,
   SetCoverInput,
 } from './with-party/directory/cover/index.js'
-export { readPodCover } from './with-pod/bundle.js'
+export { readPodCover } from './with-pod/pod.js'
 
 // User envelope (design-history/2026-05-05-user-envelope-design.md)
 export {
@@ -736,8 +736,8 @@ export type { RecoverUserOptions } from './with-party/team/peer-recover.js'
 export { hasExportCapability, evaluateExportCapability } from './with-party/team/keyring.js'
 export { hasImportCapability, evaluateImportCapability } from './with-party/team/keyring.js'
 
-// Bundle recipients
-export type { BundleRecipient } from './with-party/team/keyring.js'
+// Pod recipients
+export type { PodRecipient } from './with-party/team/keyring.js'
 export { buildRecipientKeyringFile } from './with-party/team/keyring.js'
 
 // Team enumeration — joined view of keyrings and their user envelopes.

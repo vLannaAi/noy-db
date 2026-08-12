@@ -13,7 +13,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
-import { writePod, readPod } from '../src/with-pod/bundle.js'
+import { writePod, readPod } from '../src/with-pod/pod.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 
 const SECRET = 'satellite-bundle-filter-test-1234'

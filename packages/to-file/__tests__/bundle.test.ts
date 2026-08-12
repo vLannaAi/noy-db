@@ -13,7 +13,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtemp, rm, readFile, writeFile, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createNoydb, type Noydb, BundleIntegrityError, hasNoydbBundleMagic } from '@noy-db/hub'
+import { createNoydb, type Noydb, PodIntegrityError, hasNoydbPodMagic } from '@noy-db/hub'
 import { toFile, savePod, loadPod } from '../src/index.js'
 
 let testDir: string
@@ -48,13 +48,13 @@ describe('@noy-db/file > savePod / loadPod round-trip', () => {
     await invoices.put('inv-1', { id: 'inv-1', amount: 100, status: 'open' })
     await invoices.put('inv-2', { id: 'inv-2', amount: 200, status: 'paid' })
 
-    const handle = await c.getBundleHandle()
+    const handle = await c.getPodHandle()
     const bundlePath = join(testDir, `${handle}.noydb`)
 
     await savePod(bundlePath, c)
     // File exists and starts with the bundle magic.
     const bytes = await readFile(bundlePath)
-    expect(hasNoydbBundleMagic(bytes)).toBe(true)
+    expect(hasNoydbPodMagic(bytes)).toBe(true)
     expect(bytes.length).toBeGreaterThan(10)
 
     const result = await loadPod(bundlePath)
@@ -127,7 +127,7 @@ describe('@noy-db/file > savePod / loadPod round-trip', () => {
 })
 
 describe('@noy-db/file > loadPod integrity verification', () => {
-  it('throws BundleIntegrityError on a tampered bundle file', async () => {
+  it('throws PodIntegrityError on a tampered bundle file', async () => {
     const db = await makeDb()
     const c = await db.openVault('TEST')
     const invoices = c.collection<Invoice>('invoices')
@@ -150,7 +150,7 @@ describe('@noy-db/file > loadPod integrity verification', () => {
     } catch (err) {
       threw = err
     }
-    expect(threw).toBeInstanceOf(BundleIntegrityError)
+    expect(threw).toBeInstanceOf(PodIntegrityError)
   })
 })
 
@@ -160,14 +160,14 @@ describe('@noy-db/file > handle stability across separate noydb sessions', () =>
 
     const db1 = await makeDb(dataDir)
     const c1 = await db1.openVault('TEST')
-    const handle1 = await c1.getBundleHandle()
+    const handle1 = await c1.getPodHandle()
 
     // Fresh noydb instance over the same data directory — the
     // _meta/handle envelope persists on disk and is visible to
     // the new instance.
     const db2 = await makeDb(dataDir)
     const c2 = await db2.openVault('TEST')
-    const handle2 = await c2.getBundleHandle()
+    const handle2 = await c2.getPodHandle()
 
     expect(handle2).toBe(handle1)
   })

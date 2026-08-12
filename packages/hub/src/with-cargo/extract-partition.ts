@@ -40,10 +40,10 @@ import { canonicalJson, hashEntry } from '../with-commit/history/ledger/entry.js
 import type { LedgerEntry } from '../with-commit/history/ledger/entry.js'
 import { envelopePayloadHash } from '../with-commit/history/ledger/hash.js'
 import {
-  assembleBundleContainer,
+  assemblePodContainer,
   buildExtractedPartitionWrapper,
   type TransferSealPayload,
-} from '../with-pod/bundle.js'
+} from '../with-pod/pod.js'
 
 /** Re-keyed collections snapshot + the fresh DEKs used. */
 export interface ReKeyResult {
@@ -667,7 +667,7 @@ export async function extractPartitionCore(
   // mint a fresh handle rather than reusing the source's stable ULID
   // (which would collide if a recipient imports both source + partition).
   const handle = generateULID()
-  const bundleBytes = await assembleBundleContainer({
+  const bundleBytes = await assemblePodContainer({
     handle,
     bodyJsonStr,
     compression: opts.compression,

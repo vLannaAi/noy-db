@@ -52,7 +52,7 @@
  *       │    ├─ BackupLedgerError      — hash-chain verification failed
  *       │    └─ BackupCorruptedError   — envelope hash mismatch in dump
  *       ├─ Bundle errors
- *       │    └─ BundleIntegrityError   — .noydb body sha256 mismatch
+ *       │    └─ PodIntegrityError   — .noydb body sha256 mismatch
  *       ├─ Session errors
  *       │    ├─ SessionExpiredError
  *       │    ├─ SessionNotFoundError
@@ -363,7 +363,7 @@ export class ExportCapabilityError extends NoydbError {
  * can show a precise "this bundle slot has expired" message instead
  * of the generic decryption-failure UX.
  *
- * Used predominantly on `BundleRecipient` slots produced by
+ * Used predominantly on `PodRecipient` slots produced by
  * `writePod({ recipients: [...] })` to time-box audit access.
  */
 export class KeyringExpiredError extends NoydbError {
@@ -1537,7 +1537,7 @@ export class FieldNotQueryableError extends NoydbError {
  * format violations like a missing magic prefix or malformed
  * header JSON) so consumers can pattern-match the corruption case
  * and handle it differently from a producer bug. A
- * `BundleIntegrityError` indicates "the bytes you got are not
+ * `PodIntegrityError` indicates "the bytes you got are not
  * what was written"; a plain `Error` from `parsePrefixAndHeader`
  * indicates "what was written wasn't a valid bundle in the first
  * place."
@@ -1547,10 +1547,10 @@ export class FieldNotQueryableError extends NoydbError {
  * written) but it surfaces with the same error class because the
  * end result is "the body cannot be turned back into a dump."
  */
-export class BundleIntegrityError extends NoydbError {
+export class PodIntegrityError extends NoydbError {
   constructor(message: string) {
     super('BUNDLE_INTEGRITY', `.noydb bundle integrity check failed: ${message}`)
-    this.name = 'BundleIntegrityError'
+    this.name = 'PodIntegrityError'
   }
 }
 
@@ -1584,7 +1584,7 @@ export class PodHeaderVerificationError extends NoydbError {
  * surface an actionable prompt:
  *
  * ```
- * BundleSealMismatchError: bundle carries sealed secret for user "alice"
+ * PodSealMismatchError: bundle carries sealed secret for user "alice"
  *   under provider "macos-keychain:com.acme.app/alice@acme.example",
  *   but no registered provider matches that pid.
  * ```
@@ -1597,7 +1597,7 @@ export class PodHeaderVerificationError extends NoydbError {
  * 3. Inspect without unsealing — pass no `sealingProviders` to
  *    receive the sealed entries unmodified for offline analysis.
  */
-export class BundleSealMismatchError extends NoydbError {
+export class PodSealMismatchError extends NoydbError {
   readonly userId: string
   readonly pid: string
   constructor(userId: string, pid: string) {
@@ -1612,7 +1612,7 @@ export class BundleSealMismatchError extends NoydbError {
       + '  3. Inspect the bundle without unsealing — pass no `sealingProviders`\n'
       + '     to receive the sealed entries unmodified for offline analysis.',
     )
-    this.name = 'BundleSealMismatchError'
+    this.name = 'PodSealMismatchError'
     this.userId = userId
     this.pid = pid
   }

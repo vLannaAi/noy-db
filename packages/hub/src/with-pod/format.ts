@@ -49,17 +49,17 @@
 import type { Cover } from '../with-party/directory/cover/types.js'
 import type { Redirect } from './redirect.js'
 
-/** Magic bytes 'NDB1' (ASCII), identifying a NOYDB bundle. */
-export const NOYDB_BUNDLE_MAGIC = new Uint8Array([0x4e, 0x44, 0x42, 0x31])
+/** Magic bytes 'NDB1' (ASCII) — `NoyDB 1` — identifying a NOYDB pod (`.noydb` container). */
+export const NOYDB_POD_MAGIC = new Uint8Array([0x4e, 0x44, 0x42, 0x31])
 
 /** Total fixed prefix before the header JSON: 4+1+1+4 bytes. */
-export const NOYDB_BUNDLE_PREFIX_BYTES = 10
+export const NOYDB_POD_PREFIX_BYTES = 10
 
 /** Current bundle format version. Bumped on layout changes. Default for unsigned pods. */
-export const NOYDB_BUNDLE_FORMAT_VERSION = 1
+export const NOYDB_POD_FORMAT_VERSION = 1
 
 /** Format version for pods carrying a header signature (`sig`/`keyId`/`sigAlg`). */
-export const NOYDB_BUNDLE_FORMAT_VERSION_SIGNED = 2
+export const NOYDB_POD_FORMAT_VERSION_SIGNED = 2
 
 /**
  * Bitfield interpretation of the flags byte.
@@ -94,7 +94,7 @@ export type CompressionAlgo = 0 | 1 | 2
  *
  * **Minimum-disclosure rules:** these are the ONLY allowed keys.
  * Any other key in a parsed header causes
- * `validateBundleHeader` to throw. The set is kept short to
+ * `validatePodHeaderFields` to throw. The set is kept short to
  * minimize attack surface from cloud-storage metadata indexing —
  * see the file-level doc comment for the rationale.
  *
@@ -272,7 +272,7 @@ export type UnlockMethod =
 
 /**
  * Allowlist of header keys. Any key not in this set is forbidden
- * and causes `validateBundleHeader` to throw. Kept as a Set for
+ * and causes `validatePodHeaderFields` to throw. Kept as a Set for
  * O(1) lookup; the validator iterates over the parsed header and
  * checks each key against this set.
  */
@@ -341,7 +341,7 @@ const REDIRECT_REASONS: ReadonlySet<string> = new Set([
  * The error messages name the offending field so consumers can
  * fix the producer rather than the reader.
  */
-export function validateBundleHeader(
+export function validatePodHeaderFields(
   parsed: unknown,
 ): asserts parsed is NoydbPodHeader {
   if (parsed === null || typeof parsed !== 'object') {
@@ -364,10 +364,10 @@ export function validateBundleHeader(
   const h = parsed as Record<string, unknown>
   if (
     typeof h['formatVersion'] !== 'number' ||
-    (h['formatVersion'] !== NOYDB_BUNDLE_FORMAT_VERSION && h['formatVersion'] !== NOYDB_BUNDLE_FORMAT_VERSION_SIGNED)
+    (h['formatVersion'] !== NOYDB_POD_FORMAT_VERSION && h['formatVersion'] !== NOYDB_POD_FORMAT_VERSION_SIGNED)
   ) {
     throw new Error(
-      `.noydb bundle header.formatVersion must be ${NOYDB_BUNDLE_FORMAT_VERSION} or ${NOYDB_BUNDLE_FORMAT_VERSION_SIGNED}, ` +
+      `.noydb bundle header.formatVersion must be ${NOYDB_POD_FORMAT_VERSION} or ${NOYDB_POD_FORMAT_VERSION_SIGNED}, ` +
         `got ${String(h['formatVersion'])}. The reader does not support ` +
         `forward-compat versions; upgrade the reader to handle newer bundles.`,
     )
@@ -576,9 +576,9 @@ export function validateBundleHeader(
         `(got ${sigFieldsPresent} of 3).`,
     )
   }
-  if (sigFieldsPresent === 3 && h['formatVersion'] !== NOYDB_BUNDLE_FORMAT_VERSION_SIGNED) {
+  if (sigFieldsPresent === 3 && h['formatVersion'] !== NOYDB_POD_FORMAT_VERSION_SIGNED) {
     throw new Error(
-      `.noydb bundle header with sig/keyId/sigAlg must have formatVersion === ${NOYDB_BUNDLE_FORMAT_VERSION_SIGNED}, ` +
+      `.noydb bundle header with sig/keyId/sigAlg must have formatVersion === ${NOYDB_POD_FORMAT_VERSION_SIGNED}, ` +
         `got ${String(h['formatVersion'])}.`,
     )
   }
@@ -589,8 +589,8 @@ export function validateBundleHeader(
  * minimum disclosure. Used by the writer to serialize the header
  * region of the container.
  */
-export function encodeBundleHeader(header: NoydbPodHeader): Uint8Array {
-  validateBundleHeader(header)
+export function encodePodHeader(header: NoydbPodHeader): Uint8Array {
+  validatePodHeaderFields(header)
   // Stable key ordering — JSON.stringify with no replacer uses
   // insertion order, which is fine here because we control the
   // object construction. Stable ordering means two bundles with
@@ -625,7 +625,7 @@ export function encodeBundleHeader(header: NoydbPodHeader): Uint8Array {
  * Parse a bundle header from its UTF-8 JSON bytes. Throws on
  * invalid JSON or any minimum-disclosure violation.
  */
-export function decodeBundleHeader(bytes: Uint8Array): NoydbPodHeader {
+export function decodePodHeader(bytes: Uint8Array): NoydbPodHeader {
   const json = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
   let parsed: unknown
   try {
@@ -635,7 +635,7 @@ export function decodeBundleHeader(bytes: Uint8Array): NoydbPodHeader {
       `.noydb bundle header is not valid JSON: ${(err as Error).message}`,
     )
   }
-  validateBundleHeader(parsed)
+  validatePodHeaderFields(parsed)
   return parsed
 }
 
@@ -670,10 +670,10 @@ export function writeUint32BE(bytes: Uint8Array, offset: number, value: number):
  * 4 bytes match `NDB1`. Used by readers as a fast file-type check
  * before any further parsing.
  */
-export function hasNoydbBundleMagic(bytes: Uint8Array): boolean {
-  if (bytes.length < NOYDB_BUNDLE_MAGIC.length) return false
-  for (let i = 0; i < NOYDB_BUNDLE_MAGIC.length; i++) {
-    if (bytes[i] !== NOYDB_BUNDLE_MAGIC[i]) return false
+export function hasNoydbPodMagic(bytes: Uint8Array): boolean {
+  if (bytes.length < NOYDB_POD_MAGIC.length) return false
+  for (let i = 0; i < NOYDB_POD_MAGIC.length; i++) {
+    if (bytes[i] !== NOYDB_POD_MAGIC[i]) return false
   }
   return true
 }

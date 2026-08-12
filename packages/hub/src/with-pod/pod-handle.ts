@@ -2,11 +2,11 @@
  * Vault bundle handle — the stable opaque ULID identifying a vault
  * across `.noydb` exports.
  *
- * Behaviour is byte-identical to the inline `Vault.getBundleHandle`
+ * Behaviour is byte-identical to the inline `Vault.getPodHandle`
  * method this function replaced. `Vault` keeps the public method as
  * a thin delegator.
  *
- * Internal — reached through `vault.getBundleHandle()`.
+ * Internal — reached through `vault.getPodHandle()`.
  */
 import { NOYDB_FORMAT_VERSION } from '../kernel/types.js'
 import type { NoydbStore, EncryptedEnvelope } from '../kernel/types.js'
@@ -15,10 +15,10 @@ import type { NoydbStore, EncryptedEnvelope } from '../kernel/types.js'
  * Return the stable opaque bundle handle for the given vault adapter,
  * generating and persisting a fresh ULID on first call.
  *
- * See {@link import('../kernel/vault.js').Vault.getBundleHandle} for
+ * See {@link import('../kernel/vault.js').Vault.getPodHandle} for
  * the full rationale and storage-path documentation.
  */
-export async function buildBundleHandle(adapter: NoydbStore, name: string): Promise<string> {
+export async function buildPodHandle(adapter: NoydbStore, name: string): Promise<string> {
   const existing = await adapter.get(name, '_meta', 'handle')
   if (existing) {
     try {

@@ -39,13 +39,13 @@ import {
   COMPRESSION_NONE,
   FLAG_COMPRESSED,
   FLAG_HAS_INTEGRITY_HASH,
-  NOYDB_BUNDLE_FORMAT_VERSION,
-  NOYDB_BUNDLE_FORMAT_VERSION_SIGNED,
-  NOYDB_BUNDLE_MAGIC,
-  NOYDB_BUNDLE_PREFIX_BYTES,
-  decodeBundleHeader,
-  encodeBundleHeader,
-  hasNoydbBundleMagic,
+  NOYDB_POD_FORMAT_VERSION,
+  NOYDB_POD_FORMAT_VERSION_SIGNED,
+  NOYDB_POD_MAGIC,
+  NOYDB_POD_PREFIX_BYTES,
+  decodePodHeader,
+  encodePodHeader,
+  hasNoydbPodMagic,
   readUint32BE,
   writeUint32BE,
   type CompressionAlgo,
@@ -56,9 +56,9 @@ import { signRecord, verifyRecord } from './signature.js'
 import type { Redirect } from './redirect.js'
 import type { DocSigner } from '../with-audit/attestation/signer.js'
 import { sha256Hex as sha256HexBytes } from '../kernel/enclave/index.js'
-import { BundleIntegrityError, BundleSealMismatchError, ValidationError } from '../kernel/errors.js'
+import { PodIntegrityError, PodSealMismatchError, ValidationError } from '../kernel/errors.js'
 import type { Vault } from '../kernel/vault.js'
-import type { BundleRecipient } from '../with-party/team/keyring.js'
+import type { PodRecipient } from '../with-party/team/keyring.js'
 import { pickLocale } from '../with-party/directory/cover/storage.js'
 import type { Cover } from '../with-party/directory/cover/types.js'
 import type { SealingKeyProvider, RecipientSealer, RecipientHint } from '../with-party/team/managed-secret.js'
@@ -156,7 +156,7 @@ export interface WritePodOptions {
    * the bundle inherits the source keyring as-is (today's behaviour,
    * suited to personal backup-and-restore).
    */
-  readonly recipients?: readonly BundleRecipient[]
+  readonly recipients?: readonly PodRecipient[]
   /**
    * Auto-unlock — unsealed per-user credentials.
    *
@@ -752,31 +752,31 @@ function parseAutoUnlockBody(bodyString: string): { dump: string; blob: AutoUnlo
   try {
     parsed = JSON.parse(bodyString)
   } catch (err) {
-    throw new BundleIntegrityError(
+    throw new PodIntegrityError(
       'header declared autoUnlock but body could not be parsed as JSON wrapper: '
       + (err instanceof Error ? err.message : String(err)),
     )
   }
   if (typeof parsed !== 'object' || parsed === null) {
-    throw new BundleIntegrityError('autoUnlock body is not a JSON object')
+    throw new PodIntegrityError('autoUnlock body is not a JSON object')
   }
   const obj = parsed as Record<string, unknown>
   if (obj['_noydb_bundle_body'] !== 1) {
-    throw new BundleIntegrityError(
+    throw new PodIntegrityError(
       'autoUnlock body missing `_noydb_bundle_body: 1` discriminator',
     )
   }
   if (typeof obj['dump'] !== 'string') {
-    throw new BundleIntegrityError('autoUnlock body must carry a string `dump` field')
+    throw new PodIntegrityError('autoUnlock body must carry a string `dump` field')
   }
   const blob = obj['_autoUnlock']
   if (typeof blob !== 'object' || blob === null) {
-    throw new BundleIntegrityError('autoUnlock body missing `_autoUnlock` blob')
+    throw new PodIntegrityError('autoUnlock body missing `_autoUnlock` blob')
   }
   const blobObj = blob as Record<string, unknown>
   const kind = blobObj['kind']
   if (kind !== 'unsealed' && kind !== 'sealed') {
-    throw new BundleIntegrityError(
+    throw new PodIntegrityError(
       `autoUnlock blob has invalid kind ${String(kind)}; expected 'unsealed' or 'sealed'`,
     )
   }
@@ -826,31 +826,31 @@ export function parseExtractedPartitionBody(
   try {
     parsed = JSON.parse(bodyString)
   } catch (err) {
-    throw new BundleIntegrityError(
+    throw new PodIntegrityError(
       'header declared extracted-partition but body could not be parsed as JSON wrapper: '
       + (err instanceof Error ? err.message : String(err)),
     )
   }
   if (typeof parsed !== 'object' || parsed === null) {
-    throw new BundleIntegrityError('extracted-partition body is not a JSON object')
+    throw new PodIntegrityError('extracted-partition body is not a JSON object')
   }
   const obj = parsed as Record<string, unknown>
   if (obj['_noydb_bundle_body'] !== 1) {
-    throw new BundleIntegrityError(
+    throw new PodIntegrityError(
       'extracted-partition body missing `_noydb_bundle_body: 1` discriminator',
     )
   }
   if (typeof obj['dump'] !== 'string') {
-    throw new BundleIntegrityError('extracted-partition body must carry a string `dump` field')
+    throw new PodIntegrityError('extracted-partition body must carry a string `dump` field')
   }
   const seal = obj['_transferSeal']
   if (typeof seal !== 'object' || seal === null) {
-    throw new BundleIntegrityError('extracted-partition body missing `_transferSeal` blob')
+    throw new PodIntegrityError('extracted-partition body missing `_transferSeal` blob')
   }
   const s = seal as Record<string, unknown>
   if (s['v'] !== 1 || s['alg'] !== 'aes-256-gcm-pre-shared'
       || typeof s['sealId'] !== 'string' || typeof s['payload'] !== 'string') {
-    throw new BundleIntegrityError('extracted-partition `_transferSeal` blob is malformed')
+    throw new PodIntegrityError('extracted-partition `_transferSeal` blob is malformed')
   }
   return { dump: obj['dump'], seal: seal as TransferSealPayload }
 }
@@ -872,7 +872,7 @@ function coerceUnsealed(entry: AutoCredential | string): AutoCredential {
  * - For `kind: 'sealed'`: pick a `SealingKeyProvider` from
  *   `opts.sealingProviders` whose `.id` matches each entry's `pid`;
  *   unseal to `AutoCredential`. When no provider matches AND strict mode
- *   (default), throw `BundleSealMismatchError`. With
+ *   (default), throw `PodSealMismatchError`. With
  *   `attemptUnsealAcrossProviders: true`, try each provider whose
  *   `alg` matches the envelope.
  *   Exception: if an unmatched entry carries a `hint` field (recipient-target
@@ -937,7 +937,7 @@ async function resolveAutoUnlock(
             unsealedMap[userId] = { kind: credKind, value: entry.sealed }
             continue
           }
-          throw new BundleSealMismatchError(userId, entry.pid)
+          throw new PodSealMismatchError(userId, entry.pid)
         }
         unsealedMap[userId] = { kind: credKind, value: opened }
         continue
@@ -949,7 +949,7 @@ async function resolveAutoUnlock(
         unsealedMap[userId] = { kind: credKind, value: entry.sealed }
         continue
       }
-      throw new BundleSealMismatchError(userId, entry.pid)
+      throw new PodSealMismatchError(userId, entry.pid)
     }
     const plaintextBytes = await provider.unseal(base64ToBytes(entry.sealed))
     unsealedMap[userId] = { kind: credKind, value: decoder.decode(plaintextBytes) }
@@ -1127,7 +1127,7 @@ async function applyRecipientRewrap(
     return dumpJson
   }
 
-  const recipients: readonly BundleRecipient[] =
+  const recipients: readonly PodRecipient[] =
     opts.recipients ?? [
       {
         id: vault.userId,
@@ -1223,7 +1223,7 @@ function applySliceFilters(
  * implement `_introspectState()` at all — some call sites pass a minimal
  * duck-typed vault-like object for unit tests (e.g.
  * `snapshots.test.ts`'s `makeMockVault`, which implements only
- * `getBundleHandle`/`dump`/`load`/`getCover`); a real `Vault`
+ * `getPodHandle`/`dump`/`load`/`getCover`); a real `Vault`
  * always implements it.
  *
  * @internal
@@ -1326,7 +1326,7 @@ async function applyPlaintextFilters(
  *
  * Pipeline:
  *   1. Resolve or create the compartment's stable bundle handle
- *      via `vault.getBundleHandle()` — same handle on
+ *      via `vault.getPodHandle()` — same handle on
  *      every export from the same vault instance, so cloud
  *      adapters can use it as a primary key.
  *   2. `vault.dump()` → JSON string with encrypted records
@@ -1351,7 +1351,7 @@ async function applyPlaintextFilters(
  *
  * @internal
  */
-export async function assembleBundleContainer(opts: {
+export async function assemblePodContainer(opts: {
   handle: string
   bodyJsonStr: string
   compression: WritePodOptions['compression']
@@ -1376,7 +1376,7 @@ export async function assembleBundleContainer(opts: {
   const bodySha256 = await sha256Hex(body)
 
   const header: NoydbPodHeader = {
-    formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,
+    formatVersion: NOYDB_POD_FORMAT_VERSION,
     handle: opts.handle,
     bodyBytes: body.length,
     bodySha256,
@@ -1401,14 +1401,14 @@ export async function assembleBundleContainer(opts: {
   const signed: NoydbPodHeader = opts.signer === undefined
     ? header
     : await (async (s: DocSigner): Promise<NoydbPodHeader> => {
-        const toSign = { ...header, formatVersion: NOYDB_BUNDLE_FORMAT_VERSION_SIGNED, keyId: s.keyId, sigAlg: 'ed25519' as const }
+        const toSign = { ...header, formatVersion: NOYDB_POD_FORMAT_VERSION_SIGNED, keyId: s.keyId, sigAlg: 'ed25519' as const }
         const sig = await signRecord(s.privateKeyPkcs8B64, toSign)
         return { ...toSign, sig }
       })(opts.signer)
-  const headerBytes = encodeBundleHeader(signed)
+  const headerBytes = encodePodHeader(signed)
 
-  const prefix = new Uint8Array(NOYDB_BUNDLE_PREFIX_BYTES)
-  prefix.set(NOYDB_BUNDLE_MAGIC, 0)
+  const prefix = new Uint8Array(NOYDB_POD_PREFIX_BYTES)
+  prefix.set(NOYDB_POD_MAGIC, 0)
   prefix[4] = (streamFormat === null ? 0 : FLAG_COMPRESSED) | FLAG_HAS_INTEGRITY_HASH
   prefix[5] = format
   writeUint32BE(prefix, 6, headerBytes.length)
@@ -1432,7 +1432,7 @@ export async function writePod(
   const normalizedAutoUnlock = normalizeAutoUnlock(opts)
   const autoUnlockMode = validateAutoUnlockOptions(opts, normalizedAutoUnlock)
 
-  const handle = await vault.getBundleHandle()
+  const handle = await vault.getPodHandle()
   const dumpJson = await vault.dump()
 
   // Satellite existence-authority filter (#591 Task 10) — unconditional,
@@ -1475,7 +1475,7 @@ export async function writePod(
       ? opts.sign
       : (await vault._loadPodSigner()) ?? undefined
 
-  return assembleBundleContainer({
+  return assemblePodContainer({
     handle,
     bodyJsonStr,
     compression: opts.compression,
@@ -1512,16 +1512,16 @@ function parsePrefixAndHeader(bytes: Uint8Array): {
   algo: CompressionAlgo
   flags: number
 } {
-  if (!hasNoydbBundleMagic(bytes)) {
+  if (!hasNoydbPodMagic(bytes)) {
     throw new Error(
       `Not a .noydb bundle: missing 'NDB1' magic prefix. The first 4 bytes ` +
         `are ${[...bytes.slice(0, 4)].map((b) => b.toString(16).padStart(2, '0')).join(' ')}.`,
     )
   }
-  if (bytes.length < NOYDB_BUNDLE_PREFIX_BYTES) {
+  if (bytes.length < NOYDB_POD_PREFIX_BYTES) {
     throw new Error(
       `Truncated .noydb bundle: file is only ${bytes.length} bytes, ` +
-        `which is less than the ${NOYDB_BUNDLE_PREFIX_BYTES}-byte fixed prefix.`,
+        `which is less than the ${NOYDB_POD_PREFIX_BYTES}-byte fixed prefix.`,
     )
   }
   const flags = bytes[4]!
@@ -1533,15 +1533,15 @@ function parsePrefixAndHeader(bytes: Uint8Array): {
     )
   }
   const headerLength = readUint32BE(bytes, 6)
-  const bodyOffset = NOYDB_BUNDLE_PREFIX_BYTES + headerLength
+  const bodyOffset = NOYDB_POD_PREFIX_BYTES + headerLength
   if (bodyOffset > bytes.length) {
     throw new Error(
       `Truncated .noydb bundle: declared header length ${headerLength} ` +
         `would extend past end of file (${bytes.length} bytes).`,
     )
   }
-  const headerBytes = bytes.slice(NOYDB_BUNDLE_PREFIX_BYTES, bodyOffset)
-  const header = decodeBundleHeader(headerBytes)
+  const headerBytes = bytes.slice(NOYDB_POD_PREFIX_BYTES, bodyOffset)
+  const header = decodePodHeader(headerBytes)
   return { header, bodyOffset, algo: algo as CompressionAlgo, flags }
 }
 
@@ -1590,7 +1590,7 @@ export interface PodVerifyResult {
  * (`keyId → publicKeyB64` the caller already trusts), it reports whether the
  * header was signed by a trusted document signer.
  *
- * Pairs with the signing half in `assembleBundleContainer`/`writePod`: the
+ * Pairs with the signing half in `assemblePodContainer`/`writePod`: the
  * signed payload is the final wire header with `sig` removed, so verification
  * reconstructs it by stripping EXACTLY the `sig` field — `keyId`, `sigAlg`,
  * and every other header field stay in the verified payload.
@@ -1602,7 +1602,7 @@ export interface PodVerifyResult {
  * header (which includes the *claimed* `bodySha256`) is signed by a trusted
  * key; it does NOT prove the body matches that hash. To trust the pod's
  * BODY you MUST also confirm the body hashes to `header.bodySha256` — call
- * `readPod`, which throws `BundleIntegrityError` on mismatch. A `verified`
+ * `readPod`, which throws `PodIntegrityError` on mismatch. A `verified`
  * header paired with a swapped body is caught only by that integrity check.
  * This function stays body-free by design so a static page can authenticate a
  * header without decompressing the body; composing the two checks is the
@@ -1668,7 +1668,7 @@ export function readPodCover(
  * the header's `redirect` field or `undefined` if the bundle was written
  * without one.
  *
- * The record is returned UNVERIFIED: `validateBundleHeader` only checks
+ * The record is returned UNVERIFIED: `validatePodHeaderFields` only checks
  * its shape at parse time (a parser has no `trustedKeys`). Callers that
  * intend to follow the redirect MUST separately call `verifyRedirect`
  * (`redirect.js`) before trusting `target`.
@@ -1683,7 +1683,7 @@ export function readPodRedirect(bytes: Uint8Array): Redirect | undefined {
  * original `vault.dump()` JSON string ready to pass to
  * `vault.load()`.
  *
- * Throws `BundleIntegrityError` if the body's actual SHA-256 does
+ * Throws `PodIntegrityError` if the body's actual SHA-256 does
  * not match the value declared in the header. Distinct from a
  * format error so consumers can pattern-match in catch blocks
  * (corrupted-in-transit vs malformed-by-producer).
@@ -1705,7 +1705,7 @@ export async function readPod(
   // Length check before hash check — a length mismatch is the
   // cheapest tamper signal and produces a more actionable error.
   if (body.length !== header.bodyBytes) {
-    throw new BundleIntegrityError(
+    throw new PodIntegrityError(
       `body length ${body.length} does not match header.bodyBytes ` +
         `${header.bodyBytes}. The bundle was truncated or padded ` +
         `between write and read.`,
@@ -1714,7 +1714,7 @@ export async function readPod(
 
   const actualSha = await sha256Hex(body)
   if (actualSha !== header.bodySha256) {
-    throw new BundleIntegrityError(
+    throw new PodIntegrityError(
       `body sha256 ${actualSha} does not match header.bodySha256 ` +
         `${header.bodySha256}. The bundle bytes were modified between ` +
         `write and read — refuse to decompress.`,
@@ -1730,7 +1730,7 @@ export async function readPod(
     try {
       dumpBytes = await pumpThroughStream(body, new DecompressionStream(streamFormat))
     } catch (err) {
-      throw new BundleIntegrityError(
+      throw new PodIntegrityError(
         `decompression failed: ${(err as Error).message}. The bundle ` +
           `passed the integrity hash but the body is not valid ` +
           `${streamFormat} data — likely a producer bug.`,

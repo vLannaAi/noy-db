@@ -19,12 +19,12 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { writePod, readPodHeader } from '../src/index.js'
-import { verifyPodHeader } from '../src/with-pod/bundle.js'
+import { verifyPodHeader } from '../src/with-pod/pod.js'
 import {
-  encodeBundleHeader,
+  encodePodHeader,
   readUint32BE,
   writeUint32BE,
-  NOYDB_BUNDLE_PREFIX_BYTES,
+  NOYDB_POD_PREFIX_BYTES,
   type NoydbPodHeader,
 } from '../src/with-pod/format.js'
 import { generateDocSigningKeyPair } from '@noy-db/attestation'
@@ -132,14 +132,14 @@ async function unsignedPod(): Promise<Uint8Array> {
  */
 function reassembleWithHeader(bytes: Uint8Array, newHeader: NoydbPodHeader): Uint8Array {
   const headerLen = readUint32BE(bytes, 6)
-  const bodyOffset = NOYDB_BUNDLE_PREFIX_BYTES + headerLen
+  const bodyOffset = NOYDB_POD_PREFIX_BYTES + headerLen
   const body = bytes.slice(bodyOffset)
-  const newHeaderBytes = encodeBundleHeader(newHeader)
-  const out = new Uint8Array(NOYDB_BUNDLE_PREFIX_BYTES + newHeaderBytes.length + body.length)
-  out.set(bytes.slice(0, NOYDB_BUNDLE_PREFIX_BYTES), 0)
+  const newHeaderBytes = encodePodHeader(newHeader)
+  const out = new Uint8Array(NOYDB_POD_PREFIX_BYTES + newHeaderBytes.length + body.length)
+  out.set(bytes.slice(0, NOYDB_POD_PREFIX_BYTES), 0)
   writeUint32BE(out, 6, newHeaderBytes.length)
-  out.set(newHeaderBytes, NOYDB_BUNDLE_PREFIX_BYTES)
-  out.set(body, NOYDB_BUNDLE_PREFIX_BYTES + newHeaderBytes.length)
+  out.set(newHeaderBytes, NOYDB_POD_PREFIX_BYTES)
+  out.set(body, NOYDB_POD_PREFIX_BYTES + newHeaderBytes.length)
   return out
 }
 

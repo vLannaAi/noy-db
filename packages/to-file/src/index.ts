@@ -369,11 +369,11 @@ export function registerFileStore(locator: StoreLocator): void {
  * **Path convention** is up to the caller — `.noydb` is the
  * recommended extension. Consumers using cloud-sync folders
  * should name files by the bundle handle (available via
- * `vault.getBundleHandle()`) rather than the vault
+ * `vault.getPodHandle()`) rather than the vault
  * name to avoid leaking metadata at the filesystem layer:
  *
  * ```ts
- * const handle = await company.getBundleHandle()
+ * const handle = await company.getPodHandle()
  * await savePod(`./pods/${handle}.noydb`, company)
  * ```
  *
@@ -402,7 +402,7 @@ export async function savePod(
  *
  * Returns the parsed header plus the unwrapped `dump()` JSON
  * string ready to feed to `vault.load(json, secret)`.
- * Throws `BundleIntegrityError` from `@noy-db/hub` if the body
+ * Throws `PodIntegrityError` from `@noy-db/hub` if the body
  * bytes don't match the integrity hash declared in the header
  * (the pod was modified between write and read), or any
  * format error from the hub reader if the bytes aren't a valid

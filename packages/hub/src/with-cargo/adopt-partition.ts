@@ -17,8 +17,8 @@ import type { ShamirRecoveryProvider } from '../with-party/team/shamir-recovery-
 import type { RecoveryEnrollmentInput } from '../with-party/team/rotate-recover.js'
 import { LedgerStore } from '../with-commit/history/ledger/store.js'
 import { LEDGER_COLLECTION } from '../with-commit/history/ledger/constants.js'
-import type { TransferSealPayload } from '../with-pod/bundle.js'
-import { readPodHeader, readPod, parseExtractedPartitionBody } from '../with-pod/bundle.js'
+import type { TransferSealPayload } from '../with-pod/pod.js'
+import { readPodHeader, readPod, parseExtractedPartitionBody } from '../with-pod/pod.js'
 import { NOYDB_FORMAT_VERSION } from '../kernel/types.js'
 
 /**

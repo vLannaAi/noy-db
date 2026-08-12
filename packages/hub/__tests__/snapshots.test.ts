@@ -37,16 +37,16 @@ function makeMockStore(): NoydbPodStore & { blobs: Map<string, Uint8Array> } {
   }
 }
 
-// Minimal mock vault for unit tests. writePod calls getBundleHandle(),
+// Minimal mock vault for unit tests. writePod calls getPodHandle(),
 // dump(), getCover(), and _loadPodSigner() on the vault when invoked with
-// empty opts. getBundleHandle() must return a valid 26-char Crockford
+// empty opts. getPodHandle() must return a valid 26-char Crockford
 // base32 ULID.
 function makeMockVault(name: string): unknown {
   // Static valid ULID-format handle (26 chars, Crockford base32 alphabet)
   const handle = '01ARZ3NDEKTSV4RRFFQ69G5FAV'
   return {
     name,
-    async getBundleHandle() { return handle },
+    async getPodHandle() { return handle },
     async dump() { return JSON.stringify({ collections: {}, keyrings: {} }) },
     async load(_dumpJson: string) { /* no-op in unit tests */ },
     // No signer minted in these unit tests — pods stay unsigned (#943).

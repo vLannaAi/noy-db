@@ -24,7 +24,7 @@ import {
   type JsonValue,
 } from '../src/with-party/directory/cover/index.js'
 import { createNoydb } from '../src/kernel/noydb.js'
-import { writePod, readPodCover } from '../src/with-pod/bundle.js'
+import { writePod, readPodCover } from '../src/with-pod/pod.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

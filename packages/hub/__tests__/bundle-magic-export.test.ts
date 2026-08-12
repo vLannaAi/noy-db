@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { hasNoydbBundleMagic, writePod } from '../src/index.js'
+import { hasNoydbPodMagic, writePod } from '../src/index.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
@@ -29,13 +29,13 @@ function memStore(): NoydbStore {
   }
 }
 
-describe('hasNoydbBundleMagic public export', () => {
+describe('hasNoydbPodMagic public export', () => {
   it('is exported from @noy-db/hub and detects a real single-vault bundle', async () => {
-    expect(typeof hasNoydbBundleMagic).toBe('function')
+    expect(typeof hasNoydbPodMagic).toBe('function')
     const db = await createNoydb({ store: memStore(), user: 'a', secret: 'correct-horse-battery-staple' })
     const vault = await db.openVault('test-vault')
     const bundle = await writePod(vault, {})
-    expect(hasNoydbBundleMagic(bundle)).toBe(true)
-    expect(hasNoydbBundleMagic(new Uint8Array([0, 1, 2, 3]))).toBe(false)
+    expect(hasNoydbPodMagic(bundle)).toBe(true)
+    expect(hasNoydbPodMagic(new Uint8Array([0, 1, 2, 3]))).toBe(false)
   })
 })

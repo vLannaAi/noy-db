@@ -80,4 +80,4 @@ export type { Unsubscribe } from '../kernel/types.js'
 
 // #837 — option/payload types named by this seam's own signatures.
 export type { ExtractPartitionOptions } from './extract-partition.js'
-export type { TransferSealPayload } from '../with-pod/bundle.js'
+export type { TransferSealPayload } from '../with-pod/pod.js'

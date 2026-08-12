@@ -18,7 +18,7 @@ import { decrypt, base64ToBuffer, generateDEK } from '../src/kernel/enclave/inde
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { reKeyClosure, sealDeks, extractPartition } from '../src/with-cargo/extract-partition.js'
 import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/with-cargo/adopt-partition.js'
-import { readPod, readPodHeader, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
+import { readPod, readPodHeader, parseExtractedPartitionBody } from '../src/with-pod/pod.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withBlobs } from '../src/via/blob/index.js'
 import { BLOB_SLOTS_PREFIX, BLOB_INDEX_COLLECTION } from '../src/with-shape/blobs/blob-set.js'

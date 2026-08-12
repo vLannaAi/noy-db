@@ -10,7 +10,7 @@ import { PolicyDeniedError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withPortability } from '../src/with-audit/portability/index.js'
 import type { VaultPolicy } from '../src/kernel/types.js'
-import { readPod } from '../src/with-pod/bundle.js'
+import { readPod } from '../src/with-pod/pod.js'
 import { withTeam } from '../src/with-party/team/index.js'
 
 function makeStore(): NoydbStore {

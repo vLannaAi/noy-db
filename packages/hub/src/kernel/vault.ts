@@ -20,7 +20,7 @@ import { NOYDB_FORMAT_VERSION } from './types.js'
 import { Collection } from './collection.js'
 import type { JoinableSource } from './query/index.js'
 import type { OnDirtyCallback } from './collection.js'
-import type { UnlockedKeyring, BundleRecipient } from '../with-party/team/keyring.js'
+import type { UnlockedKeyring, PodRecipient } from '../with-party/team/keyring.js'
 import type { MaterializedViewRegistry } from '../with-formula/materialized-views/registry.js'
 import type { MaterializedViewStrategy, MVQueryContext } from '../with-formula/materialized-views/types.js'
 import type { OverlayedViewRegistry } from '../with-formula/overlay-views/registry.js'
@@ -1464,7 +1464,7 @@ export class Vault {
    * @public
    */
   async buildBundleRecipientKeyrings(
-    recipients: readonly BundleRecipient[],
+    recipients: readonly PodRecipient[],
   ): Promise<Record<string, KeyringFile>> {
     const result: Record<string, KeyringFile> = {}
     for (const recipient of recipients) {
@@ -3320,16 +3320,16 @@ export class Vault {
    * distinct handles, which is the right behavior — they're
    * separate vault instances now.
    */
-  async getBundleHandle(): Promise<string> {
-    const { buildBundleHandle } = await import('../with-pod/bundle-handle.js')
-    return buildBundleHandle(this.adapter, this.name)
+  async getPodHandle(): Promise<string> {
+    const { buildPodHandle } = await import('../with-pod/pod-handle.js')
+    return buildPodHandle(this.adapter, this.name)
   }
 
   /**
    * Read the owner-curated cover for this vault (or `undefined` if
    * none is persisted). The cover lives in `_meta/public-envelope`
    * (the frozen wire name) as plaintext — readable without any KEK
-   * — so `getBundleHandle`-style callers can label a vault before
+   * — so `getPodHandle`-style callers can label a vault before
    * unlock.
    *
    * Mirrors `Noydb.getCover(vault, opts)` but scoped to a

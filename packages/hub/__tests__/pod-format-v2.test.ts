@@ -6,16 +6,16 @@
 
 import { describe, it, expect } from 'vitest'
 import {
-  validateBundleHeader,
-  encodeBundleHeader,
-  decodeBundleHeader,
-  NOYDB_BUNDLE_FORMAT_VERSION,
-  NOYDB_BUNDLE_FORMAT_VERSION_SIGNED,
+  validatePodHeaderFields,
+  encodePodHeader,
+  decodePodHeader,
+  NOYDB_POD_FORMAT_VERSION,
+  NOYDB_POD_FORMAT_VERSION_SIGNED,
 } from '../src/with-pod/format.js'
 
 describe('pod header v2 — sig/keyId/sigAlg', () => {
   const baseV1 = {
-    formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,
+    formatVersion: NOYDB_POD_FORMAT_VERSION,
     handle: '01HYABCDEFGHJKMNPQRSTVWXYZ',
     bodyBytes: 1234,
     bodySha256: 'a'.repeat(64),
@@ -29,9 +29,9 @@ describe('pod header v2 — sig/keyId/sigAlg', () => {
 
   it('accepts a v2 header carrying the full sig tuple', () => {
     expect(() =>
-      validateBundleHeader({
+      validatePodHeaderFields({
         ...baseV1,
-        formatVersion: NOYDB_BUNDLE_FORMAT_VERSION_SIGNED,
+        formatVersion: NOYDB_POD_FORMAT_VERSION_SIGNED,
         ...signedTuple,
       }),
     ).not.toThrow()
@@ -39,9 +39,9 @@ describe('pod header v2 — sig/keyId/sigAlg', () => {
 
   it('rejects a partial tuple (sig without keyId/sigAlg)', () => {
     expect(() =>
-      validateBundleHeader({
+      validatePodHeaderFields({
         ...baseV1,
-        formatVersion: NOYDB_BUNDLE_FORMAT_VERSION_SIGNED,
+        formatVersion: NOYDB_POD_FORMAT_VERSION_SIGNED,
         sig: signedTuple.sig,
       }),
     ).toThrow(/present together or not at all/)
@@ -49,9 +49,9 @@ describe('pod header v2 — sig/keyId/sigAlg', () => {
 
   it('rejects the full tuple paired with formatVersion 1', () => {
     expect(() =>
-      validateBundleHeader({
+      validatePodHeaderFields({
         ...baseV1,
-        formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,
+        formatVersion: NOYDB_POD_FORMAT_VERSION,
         ...signedTuple,
       }),
     ).toThrow(/formatVersion === 2/)
@@ -59,9 +59,9 @@ describe('pod header v2 — sig/keyId/sigAlg', () => {
 
   it('rejects a malformed keyId', () => {
     expect(() =>
-      validateBundleHeader({
+      validatePodHeaderFields({
         ...baseV1,
-        formatVersion: NOYDB_BUNDLE_FORMAT_VERSION_SIGNED,
+        formatVersion: NOYDB_POD_FORMAT_VERSION_SIGNED,
         ...signedTuple,
         keyId: 'not-hex',
       }),
@@ -69,17 +69,17 @@ describe('pod header v2 — sig/keyId/sigAlg', () => {
   })
 
   it('still validates a plain v1 header with no sig fields', () => {
-    expect(() => validateBundleHeader(baseV1)).not.toThrow()
+    expect(() => validatePodHeaderFields(baseV1)).not.toThrow()
   })
 
   it('round-trips a signed v2 header through encode/decode', () => {
     const header = {
       ...baseV1,
-      formatVersion: NOYDB_BUNDLE_FORMAT_VERSION_SIGNED,
+      formatVersion: NOYDB_POD_FORMAT_VERSION_SIGNED,
       ...signedTuple,
     }
-    const bytes = encodeBundleHeader(header)
-    const decoded = decodeBundleHeader(bytes)
+    const bytes = encodePodHeader(header)
+    const decoded = decodePodHeader(bytes)
     expect(decoded).toEqual(header)
   })
 })

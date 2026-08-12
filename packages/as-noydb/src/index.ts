@@ -57,7 +57,7 @@ export async function toBytes(vault: Vault, options: AsNoydbOptions = {}): Promi
  */
 export async function download(vault: Vault, options: AsNoydbDownloadOptions = {}): Promise<void> {
   const bytes = await toBytes(vault, options)
-  const filename = options.filename ?? `vault-${await vault.getBundleHandle()}.noydb`
+  const filename = options.filename ?? `vault-${await vault.getPodHandle()}.noydb`
   const blob = new Blob([bytes as BlobPart], { type: 'application/octet-stream' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import type {
-  NoydbStore, EncryptedEnvelope, VaultSnapshot, BundleRecipient, KeyringFile,
+  NoydbStore, EncryptedEnvelope, VaultSnapshot, PodRecipient, KeyringFile,
 } from '../src/index.js'
 import {
   ConflictError, createNoydb, writePod, readPod,
@@ -118,7 +118,7 @@ async function restoreBytes(bundleBytes: Uint8Array) {
 describe('writePod — echo-mode recipients', () => {
   it('recipient enrolled with echo parts opens the pod and reads shared data', async () => {
     const { db: src, vault } = await setupSourceVault()
-    const recipients: readonly BundleRecipient[] = [
+    const recipients: readonly PodRecipient[] = [
       { id: 'auditor', secret: RPARTS, role: 'viewer' },
     ]
     const bytes = await writePod(vault, { recipients })
@@ -136,7 +136,7 @@ describe('writePod — echo-mode recipients', () => {
 
   it('a joined "#"-separated string cannot bypass the ceremony', async () => {
     const { db: src, vault } = await setupSourceVault()
-    const recipients: readonly BundleRecipient[] = [
+    const recipients: readonly PodRecipient[] = [
       { id: 'auditor', secret: RPARTS, role: 'viewer' },
     ]
     const bytes = await writePod(vault, { recipients })
@@ -151,7 +151,7 @@ describe('writePod — echo-mode recipients', () => {
 
   it('reveal: "none" stores a recipient keyring with echo.reveal.kind === "none"', async () => {
     const { db: src, vault } = await setupSourceVault()
-    const recipients: readonly BundleRecipient[] = [
+    const recipients: readonly PodRecipient[] = [
       { id: 'auditor', secret: { ...RPARTS, reveal: 'none' }, role: 'viewer' },
     ]
     const bytes = await writePod(vault, { recipients })
@@ -165,7 +165,7 @@ describe('writePod — echo-mode recipients', () => {
 
   it('the interactive ceremony unlocks a restored pod keyring end to end', async () => {
     const { db: src, vault } = await setupSourceVault()
-    const recipients: readonly BundleRecipient[] = [
+    const recipients: readonly PodRecipient[] = [
       { id: 'auditor', secret: RPARTS, role: 'viewer' },
     ]
     const bytes = await writePod(vault, { recipients })

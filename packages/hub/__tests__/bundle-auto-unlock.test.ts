@@ -18,13 +18,13 @@ import {
   readPodHeader,
   MemorySealingKeyProvider,
   MemoryRecipientSealer,
-  BundleSealMismatchError,
+  PodSealMismatchError,
   ValidationError,
 } from '../src/index.js'
 import {
-  encodeBundleHeader,
-  decodeBundleHeader,
-  NOYDB_BUNDLE_PREFIX_BYTES,
+  encodePodHeader,
+  decodePodHeader,
+  NOYDB_POD_PREFIX_BYTES,
   readUint32BE,
   writeUint32BE,
 } from '../src/with-pod/format.js'
@@ -197,7 +197,7 @@ describe('#197 — sealedSecrets (self-target)', () => {
     expect(result.autoUnlock!.perUser['alice']!.value.length).toBeGreaterThan(0)
   })
 
-  it('throws BundleSealMismatchError when no provider matches pid (strict)', async () => {
+  it('throws PodSealMismatchError when no provider matches pid (strict)', async () => {
     const { vault } = await freshVault()
     const senderProvider = new MemorySealingKeyProvider({ id: 'aws-kms:abc' })
     const otherProvider = new MemorySealingKeyProvider({ id: 'macos-keychain:com.other/bob' })
@@ -212,10 +212,10 @@ describe('#197 — sealedSecrets (self-target)', () => {
 
     await expect(
       readPod(bytes, { sealingProviders: [otherProvider] }),
-    ).rejects.toBeInstanceOf(BundleSealMismatchError)
+    ).rejects.toBeInstanceOf(PodSealMismatchError)
   })
 
-  it('BundleSealMismatchError message names the failing pid + actionable resolutions', async () => {
+  it('PodSealMismatchError message names the failing pid + actionable resolutions', async () => {
     const { vault } = await freshVault()
     const senderProvider = new MemorySealingKeyProvider({ id: 'aws-kms:secret-arn' })
     const otherProvider = new MemorySealingKeyProvider({ id: 'wrong-pid' })
@@ -232,7 +232,7 @@ describe('#197 — sealedSecrets (self-target)', () => {
       await readPod(bytes, { sealingProviders: [otherProvider] })
       expect.fail('expected throw')
     } catch (err) {
-      expect(err).toBeInstanceOf(BundleSealMismatchError)
+      expect(err).toBeInstanceOf(PodSealMismatchError)
       const msg = (err as Error).message
       expect(msg).toContain('alice')
       expect(msg).toContain('aws-kms:secret-arn')
@@ -263,13 +263,13 @@ describe('#197 — sealedSecrets (self-target)', () => {
     })
 
     // None of the "other" providers can actually unseal — trial mode
-    // exhausts and throws BundleSealMismatchError.
+    // exhausts and throws PodSealMismatchError.
     await expect(
       readPod(bytes, {
         sealingProviders: [otherProvider1, otherProvider2],
         attemptUnsealAcrossProviders: true,
       }),
-    ).rejects.toBeInstanceOf(BundleSealMismatchError)
+    ).rejects.toBeInstanceOf(PodSealMismatchError)
   })
 
   it('rejects mode other than self-target', async () => {
@@ -505,9 +505,9 @@ describe('#215 — sugar back-compat', () => {
 
     // ── Parse the prefix to locate header + body ──────────────────────────
     const headerLen = readUint32BE(originalBytes, 6)
-    const bodyOffset = NOYDB_BUNDLE_PREFIX_BYTES + headerLen
-    const headerBytes = originalBytes.slice(NOYDB_BUNDLE_PREFIX_BYTES, bodyOffset)
-    const header = decodeBundleHeader(headerBytes)
+    const bodyOffset = NOYDB_POD_PREFIX_BYTES + headerLen
+    const headerBytes = originalBytes.slice(NOYDB_POD_PREFIX_BYTES, bodyOffset)
+    const header = decodePodHeader(headerBytes)
     const bodyBytes = originalBytes.slice(bodyOffset)
 
     // ── Patch: replace the AutoCredential object with a bare string ───────
@@ -535,10 +535,10 @@ describe('#215 — sugar back-compat', () => {
       bodyBytes: patchedBodyBytes.length,
       bodySha256: newSha,
     }
-    const patchedHeaderBytes = encodeBundleHeader(patchedHeader)
+    const patchedHeaderBytes = encodePodHeader(patchedHeader)
 
     // ── Reassemble: prefix (first 6 bytes keep flags/algo) + new headerLen + new header + body ──
-    const patchedPrefix = new Uint8Array(NOYDB_BUNDLE_PREFIX_BYTES)
+    const patchedPrefix = new Uint8Array(NOYDB_POD_PREFIX_BYTES)
     // Copy magic + flags + algo bytes unchanged
     patchedPrefix.set(originalBytes.slice(0, 6))
     writeUint32BE(patchedPrefix, 6, patchedHeaderBytes.length)

@@ -7,10 +7,10 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  encodeBundleHeader,
-  decodeBundleHeader,
-  validateBundleHeader,
-  NOYDB_BUNDLE_FORMAT_VERSION,
+  encodePodHeader,
+  decodePodHeader,
+  validatePodHeaderFields,
+  NOYDB_POD_FORMAT_VERSION,
 } from '../src/with-pod/format.js'
 import type { NoydbPodHeader } from '../src/with-pod/format.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
@@ -20,7 +20,7 @@ import {
   readPod,
   readPodHeader,
   readPodCover,
-} from '../src/with-pod/bundle.js'
+} from '../src/with-pod/pod.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -63,8 +63,8 @@ const TINY_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1
 describe('bundle header — minimum-disclosure regression', () => {
   it('still rejects unknown keys (the rule survives the publicEnvelope addition)', () => {
     expect(() =>
-      validateBundleHeader({
-        formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,
+      validatePodHeaderFields({
+        formatVersion: NOYDB_POD_FORMAT_VERSION,
         handle: HANDLE,
         bodyBytes: 100,
         bodySha256: BODY_HASH,
@@ -75,8 +75,8 @@ describe('bundle header — minimum-disclosure regression', () => {
 
   it('still rejects renamed forbidden keys (e.g. vault, exporter)', () => {
     expect(() =>
-      validateBundleHeader({
-        formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,
+      validatePodHeaderFields({
+        formatVersion: NOYDB_POD_FORMAT_VERSION,
         handle: HANDLE,
         bodyBytes: 100,
         bodySha256: BODY_HASH,
@@ -89,20 +89,20 @@ describe('bundle header — minimum-disclosure regression', () => {
 describe('bundle header — publicEnvelope shape', () => {
   it('round-trips a minimal envelope through encode/decode', () => {
     const header: NoydbPodHeader = {
-      formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,
+      formatVersion: NOYDB_POD_FORMAT_VERSION,
       handle: HANDLE,
       bodyBytes: 100,
       bodySha256: BODY_HASH,
       publicEnvelope: { _noydb_public: 1, version: 1, name: 'Acme' },
     }
-    const bytes = encodeBundleHeader(header)
-    const back = decodeBundleHeader(bytes)
+    const bytes = encodePodHeader(header)
+    const back = decodePodHeader(bytes)
     expect(back.publicEnvelope).toEqual({ _noydb_public: 1, version: 1, name: 'Acme' })
   })
 
   it('round-trips a locale-map envelope', () => {
     const header: NoydbPodHeader = {
-      formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,
+      formatVersion: NOYDB_POD_FORMAT_VERSION,
       handle: HANDLE,
       bodyBytes: 100,
       bodySha256: BODY_HASH,
@@ -114,20 +114,20 @@ describe('bundle header — publicEnvelope shape', () => {
         icon: TINY_PNG,
       },
     }
-    const bytes = encodeBundleHeader(header)
-    const back = decodeBundleHeader(bytes)
+    const bytes = encodePodHeader(header)
+    const back = decodePodHeader(bytes)
     expect((back.publicEnvelope!.name as Record<string, string>).th).toBe('อะคมี')
   })
 
   it('omits the field when absent (back-compat — old bundles still parse)', () => {
     const header: NoydbPodHeader = {
-      formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,
+      formatVersion: NOYDB_POD_FORMAT_VERSION,
       handle: HANDLE,
       bodyBytes: 100,
       bodySha256: BODY_HASH,
     }
-    const bytes = encodeBundleHeader(header)
-    const back = decodeBundleHeader(bytes)
+    const bytes = encodePodHeader(header)
+    const back = decodePodHeader(bytes)
     expect(back.publicEnvelope).toBeUndefined()
     // Forward compat: a JSON header with the key absent decodes too.
     const json = new TextDecoder().decode(bytes)
@@ -136,8 +136,8 @@ describe('bundle header — publicEnvelope shape', () => {
 
   it('rejects a publicEnvelope with the wrong _noydb_public marker', () => {
     expect(() =>
-      validateBundleHeader({
-        formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,
+      validatePodHeaderFields({
+        formatVersion: NOYDB_POD_FORMAT_VERSION,
         handle: HANDLE,
         bodyBytes: 100,
         bodySha256: BODY_HASH,
@@ -148,8 +148,8 @@ describe('bundle header — publicEnvelope shape', () => {
 
   it('rejects a publicEnvelope with no version', () => {
     expect(() =>
-      validateBundleHeader({
-        formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,
+      validatePodHeaderFields({
+        formatVersion: NOYDB_POD_FORMAT_VERSION,
         handle: HANDLE,
         bodyBytes: 100,
         bodySha256: BODY_HASH,
@@ -160,8 +160,8 @@ describe('bundle header — publicEnvelope shape', () => {
 
   it('rejects a non-object publicEnvelope', () => {
     expect(() =>
-      validateBundleHeader({
-        formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,
+      validatePodHeaderFields({
+        formatVersion: NOYDB_POD_FORMAT_VERSION,
         handle: HANDLE,
         bodyBytes: 100,
         bodySha256: BODY_HASH,

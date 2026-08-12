@@ -17,8 +17,8 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { writePod } from '../src/index.js'
-import { readPodRedirect, verifyPodHeader } from '../src/with-pod/bundle.js'
-import { validateBundleHeader, NOYDB_BUNDLE_FORMAT_VERSION } from '../src/with-pod/format.js'
+import { readPodRedirect, verifyPodHeader } from '../src/with-pod/pod.js'
+import { validatePodHeaderFields, NOYDB_POD_FORMAT_VERSION } from '../src/with-pod/format.js'
 import { signRedirect, verifyRedirect, type Redirect } from '../src/with-pod/redirect.js'
 import { generateDocSigningKeyPair } from '@noy-db/attestation'
 import type { DocSigner } from '../src/with-audit/attestation/signer.js'
@@ -130,7 +130,7 @@ describe('Redirect record — signRedirect/verifyRedirect (#944 Task 1)', () => 
 
 describe('redirect header field — structural validation (#944 Task 1)', () => {
   const baseV1 = {
-    formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,
+    formatVersion: NOYDB_POD_FORMAT_VERSION,
     handle: '01HYABCDEFGHJKMNPQRSTVWXYZ',
     bodyBytes: 1234,
     bodySha256: 'a'.repeat(64),
@@ -144,35 +144,35 @@ describe('redirect header field — structural validation (#944 Task 1)', () => 
   }
 
   it('accepts a well-formed redirect header field', () => {
-    expect(() => validateBundleHeader({ ...baseV1, redirect: goodRedirect })).not.toThrow()
+    expect(() => validatePodHeaderFields({ ...baseV1, redirect: goodRedirect })).not.toThrow()
   })
 
   it('still validates a header with no redirect field', () => {
-    expect(() => validateBundleHeader(baseV1)).not.toThrow()
+    expect(() => validatePodHeaderFields(baseV1)).not.toThrow()
   })
 
   it('rejects a bad reason', () => {
     expect(() =>
-      validateBundleHeader({ ...baseV1, redirect: { ...goodRedirect, reason: 'bogus' } }),
+      validatePodHeaderFields({ ...baseV1, redirect: { ...goodRedirect, reason: 'bogus' } }),
     ).toThrow(/header\.redirect\.reason must be one of/)
   })
 
   it('rejects a missing sig', () => {
     const { sig: _sig, ...withoutSig } = goodRedirect
     expect(() =>
-      validateBundleHeader({ ...baseV1, redirect: withoutSig }),
+      validatePodHeaderFields({ ...baseV1, redirect: withoutSig }),
     ).toThrow(/header\.redirect\.sig must be a non-empty base64url string/)
   })
 
   it('rejects a non-string target', () => {
     expect(() =>
-      validateBundleHeader({ ...baseV1, redirect: { ...goodRedirect, target: 42 } }),
+      validatePodHeaderFields({ ...baseV1, redirect: { ...goodRedirect, target: 42 } }),
     ).toThrow(/header\.redirect\.target must be a non-empty string/)
   })
 
   it('rejects a malformed issuedBy (not 16-hex)', () => {
     expect(() =>
-      validateBundleHeader({ ...baseV1, redirect: { ...goodRedirect, issuedBy: 'not-hex' } }),
+      validatePodHeaderFields({ ...baseV1, redirect: { ...goodRedirect, issuedBy: 'not-hex' } }),
     ).toThrow(/header\.redirect\.issuedBy must be a 16-character lowercase hex fingerprint/)
   })
 })

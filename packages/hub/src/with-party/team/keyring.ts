@@ -1243,7 +1243,7 @@ export interface EchoRecipientSecret extends EchoSecretParts {
  *
  * @public
  */
-export interface BundleRecipient {
+export interface PodRecipient {
   /** User id stamped onto the keyring file in the bundle. */
   readonly id: string
   /** Optional display name. Defaults to `id`. */
@@ -1297,7 +1297,7 @@ export interface BundleRecipient {
  */
 export async function buildRecipientKeyringFile(
   callerKeyring: UnlockedKeyring,
-  recipient: BundleRecipient,
+  recipient: PodRecipient,
 ): Promise<KeyringFile> {
   if (!callerKeyring.kek) {
     throw new ValidationError(
