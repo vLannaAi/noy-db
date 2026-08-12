@@ -46,6 +46,7 @@
     "store",
     "sync",
     "syncStatus",
+    "syncTargetStatus",
     "tabRole",
     "team",
     "touchPolicy",

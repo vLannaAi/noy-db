@@ -1420,7 +1420,15 @@ const KERNEL_SURFACE_BUDGET = {
   // the needsRegrant report. Shaving that explanation to hit a line budget
   // is what let the contract drift in the first place. Still 183 under the
   // 2344 this file started the milestone at.
-  'packages/hub/src/kernel/noydb.ts': 2161,
+  // #1034 raises this by 17 from 2161, for `syncTargetStatus()`. Shrink-first
+  // was tried: the method's jsdoc was cut to three lines and the body compacted
+  // to a destructured push. What remains is the walk itself. It belongs here
+  // rather than in a service because it is the third of three sibling
+  // accessors over the same engine map — `syncStatus()` (primary only) and
+  // `listSyncTargets()` (same walk, different projection) are already in this
+  // file, and splitting one of the three out would cost more clarity than the
+  // 16 lines buy back. Still 167 under the 2344 this file started at.
+  'packages/hub/src/kernel/noydb.ts': 2178,
   // Lowered 2407→2345 (#834 vault() cache-only, 2026-07-26): deleting the two drifted
   // fallback Vault constructors from vault() removed ~80 lines of duplicated option block.
   // A test now asserts noydb.ts contains exactly ONE `new Vault(` site — that invariant,
@@ -1442,7 +1450,7 @@ function checkKernelSurface() {
     if (lines > ceiling) {
       fail(
         'kernel-surface',
-        `${rel} is ${lines} lines, over its ${ceiling}-line kernel-surface ceiling (+${lines - ceiling}). The always-on kernel must stay lean — move new capability into a service that registers on the SubsystemBus instead of growing this file. If the growth is genuinely core, raise the ceiling in scripts/check-architecture.mjs with justification.`,
+        `${rel} is ${lines} lines, over its ${ceiling}-line kernel-surface ceiling (+${lines - ceiling}). The always-on kernel must stay lean — move new capability into a service that registers on the ServiceBus instead of growing this file. If the growth is genuinely core, raise the ceiling in scripts/check-architecture.mjs with justification.`,
         file,
       )
     }

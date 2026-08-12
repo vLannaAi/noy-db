@@ -1496,6 +1496,42 @@ export interface SyncTarget {
  * (#948). Deliberately omits any preset *name* — a resolved `SyncPolicy` doesn't
  * retain which preset (if any) it came from, so only its push/pull mode is surfaced.
  */
+/**
+ * Per-target sync state (#1034). `syncStatus()` answers for the vault as a
+ * whole; this answers per target, which is what a redundant topology needs in
+ * order to say "the LAN store is unavailable — syncing via the cloud" rather
+ * than just "something is wrong".
+ *
+ * Deliberately carries **no `online` flag.** `SyncStatus.online` reflects the
+ * *browser's* global connectivity — it is set only by the `online`/`offline`
+ * window events and no store outcome ever changes it, so every engine flips at
+ * once for the same reason. Exposing it per target would make a global signal
+ * look per-target: a status list would appear to update row by row while every
+ * row actually moved together. Per-target *reachability* derived from real
+ * store outcomes is a separate, still-unbuilt thing.
+ */
+export interface SyncTargetStatus {
+  /** As registered. `undefined` when the target was declared without one. */
+  readonly label: string | undefined
+  readonly role: SyncTargetRole
+  /** Pending local writes for this target. */
+  readonly dirty: number
+  /** Last push that completed with no errors, or `null`. See {@link SyncStatus.lastPush}. */
+  readonly lastPush: string | null
+  /** Last pull that completed with no errors, or `null`. */
+  readonly lastPull: string | null
+  /**
+   * Nothing queued for this target — `dirty === 0`.
+   *
+   * Well-defined for every role: for a `sync-peer` it means the two sides
+   * agree as of the last exchange; for a push-only `backup` it means every
+   * local write has reached it. It is a statement about the *outbound* queue
+   * only, and says nothing about whether the target holds data this client has
+   * not pulled.
+   */
+  readonly caughtUp: boolean
+}
+
 export interface SyncTargetInfo {
   readonly label: string | undefined
   readonly role: SyncTargetRole
