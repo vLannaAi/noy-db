@@ -15,9 +15,9 @@
  *     (if available) or local adapter, and polled periodically.
  */
 
+import { buildRecordEnvelope } from '../kernel/enclave/index.js'
 import type { NoydbStore, PresencePeer } from '../kernel/types.js'
 import { encrypt, decrypt, derivePresenceKey, type EnclaveKey } from '../kernel/enclave/index.js'
-import { NOYDB_FORMAT_VERSION } from '../kernel/types.js'
 
 const subtle = globalThis.crypto.subtle
 
@@ -327,13 +327,10 @@ export class PresenceHandle<P> {
     // Use the sync adapter if available (so other devices can read it);
     // fall back to local adapter.
     const storeAdapter = this.syncAdapter ?? this.adapter
-    const envelope = {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: 1,
-      _ts: now,
-      _iv: '',
-      _data: json,
-    }
+    const envelope = buildRecordEnvelope(
+      { collection: this.storageCollection, id: recordId },
+      { version: 1, ts: now, iv: '', data: json },
+    )
     try {
       await storeAdapter.put(
         this.vault,

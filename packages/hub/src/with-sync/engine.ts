@@ -1,3 +1,4 @@
+import { buildRecordEnvelope } from '../kernel/enclave/index.js'
 import type {
   NoydbStore,
   DirtyEntry,
@@ -27,7 +28,6 @@ import type { NoydbEventEmitter } from '../kernel/events.js'
 import type { SyncPolicy } from '../kernel/sync-policy.js'
 import { SyncScheduler } from '../kernel/sync-policy.js'
 import { isTombstoneShape, isDeleteMarker, envelopeBodySize } from '../kernel/enclave/index.js'
-import { NOYDB_FORMAT_VERSION } from '../kernel/types.js'
 
 /** #650 Task 4 (#647) — the declared reserved-lookup (`_dict_*`/`_lookup_*`) collection-name
  *  registry a `SyncEngine` enumerates on pull. Explicit, not a blanket underscore-glob — other
@@ -1077,13 +1077,10 @@ export class SyncEngine {
       dirty: this.dirty,
     }
 
-    const envelope: EncryptedEnvelope = {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: 1,
-      _ts: new Date().toISOString(),
-      _iv: '',
-      _data: JSON.stringify(meta),
-    }
+    const envelope: EncryptedEnvelope = buildRecordEnvelope(
+      { collection: '_sync', id: 'meta' },
+      { version: 1, iv: '', data: JSON.stringify(meta) },
+    )
 
     await this.local.put(this.vault, '_sync', 'meta', envelope)
   }

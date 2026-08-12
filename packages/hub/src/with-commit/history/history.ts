@@ -1,5 +1,5 @@
+import { buildRecordEnvelope } from '../../kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope, HistoryOptions, PruneOptions } from '../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { isTombstone, isTombstoneShape, rewrapEnvelope, isRewrappedUnder, type EnclaveKey } from '../../kernel/enclave/index.js'
 
 /**
@@ -197,14 +197,10 @@ export async function tombstoneHistory(
     if (!env) continue
     // Already a tombstone (no body and no wrapped CEK)? Skip — idempotent.
     if (isTombstone(env, encrypted)) continue
-    const tombstone: EncryptedEnvelope = {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: env._v,
-      _ts: now,
-      _iv: '',
-      _data: '',
-      ...(actor ? { _by: actor } : {}),
-    }
+    const tombstone: EncryptedEnvelope = buildRecordEnvelope(
+      { collection: HISTORY_COLLECTION, id },
+      { version: env._v, ts: now, iv: '', data: '', ...(actor ? { by: actor } : {}) },
+    )
     await adapter.put(vault, HISTORY_COLLECTION, id, tombstone)
     count++
   }

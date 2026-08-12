@@ -19,8 +19,8 @@
  * to its record in the same operation.
  */
 
+import { buildRecordEnvelope } from '../../kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import type { ConflictError} from '../../kernel/errors.js';
 import { isConflictError, SequenceContentionError, SequenceOfflineError, ValidationError } from '../../kernel/errors.js'
@@ -258,13 +258,13 @@ export class SequenceStore {
     return { env, value: state.value }
   }
 
-  private async encryptState(state: SequenceState, version: number): Promise<EncryptedEnvelope> {
+  private async encryptState(name: string, state: SequenceState, version: number): Promise<EncryptedEnvelope> {
     const json = JSON.stringify(state)
     if (!this.encrypted) {
-      return { _noydb: NOYDB_FORMAT_VERSION, _v: version, _ts: new Date().toISOString(), _iv: '', _data: json, _by: this.actor }
+      return buildRecordEnvelope({ collection: SEQUENCE_COLLECTION, id: name }, { version, iv: '', data: json, by: this.actor })
     }
     const { iv, data } = await encrypt(json, await this.dek())
-    return { _noydb: NOYDB_FORMAT_VERSION, _v: version, _ts: new Date().toISOString(), _iv: iv, _data: data, _by: this.actor }
+    return buildRecordEnvelope({ collection: SEQUENCE_COLLECTION, id: name }, { version, iv, data, by: this.actor })
   }
 
   async peek(name: string): Promise<number> {
@@ -278,7 +278,7 @@ export class SequenceStore {
       const { env, value } = await this.read(name)
       const nextValue = value + 1
       const expectedVersion = env?._v ?? 0 // 0 ≡ "must not yet exist" (create)
-      const envelope = await this.encryptState({ value: nextValue }, expectedVersion + 1)
+      const envelope = await this.encryptState(name, { value: nextValue }, expectedVersion + 1)
       try {
         await this.adapter.put(this.vault, SEQUENCE_COLLECTION, name, envelope, expectedVersion)
         return nextValue
@@ -303,7 +303,7 @@ export class SequenceStore {
       const { env, value } = await this.read(name)
       if (value >= n) return // already at or past the floor — no write, idempotent
       const expectedVersion = env?._v ?? 0 // 0 ≡ "must not yet exist" (create)
-      const envelope = await this.encryptState({ value: n }, expectedVersion + 1)
+      const envelope = await this.encryptState(name, { value: n }, expectedVersion + 1)
       try {
         await this.adapter.put(this.vault, SEQUENCE_COLLECTION, name, envelope, expectedVersion)
         return
