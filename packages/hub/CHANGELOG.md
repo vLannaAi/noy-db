@@ -1,5 +1,67 @@
 # Changelog — hub
 
+## 0.6.0-pre.16
+
+### Patch Changes
+
+- Migrate `sealing.ts` and `vault.ts` onto the envelope constructor (#1051)
+
+  Batch 2. **No behaviour change** — `buildRecordEnvelope` still ignores identity,
+  so output is byte-identical.
+
+  Six more producers moved: the sealed-CEK delivery and CEK-rotation writers in
+  `kernel/enclave/record-keys/sealing.ts`, and the export- and elevation-audit
+  writers in `kernel/vault.ts`. 46 direct-literal producers remain.
+
+  Banked a real reduction while here: `vault.ts` dropped from 12 protected-body
+  field accesses to 4, because the constructor now builds those bodies. The
+  architecture guard flagged the drift down and asked for it to be locked in.
+
+- Migrate the pod and cargo producers onto the envelope constructor (#1051)
+
+  Batch 3. **No behaviour change** — the constructor still ignores identity.
+
+  Four more producers: `adopt-partition` (the adoption marker), `extract-partition`
+  (the rebuilt ledger), `backup` (restored keyrings) and `pod-handle`. These are the
+  bulk movers — the ones that write into user record collections — so this is the
+  subset that has to be complete before #1041 can flip AAD on.
+
+  42 direct-literal producers remain.
+
+  Banked four more protected-body reductions: `adopt-partition` 8→6,
+  `extract-partition` 26→24, `backup` 3→1, `pod-handle` 3→1.
+
+- Migrate the commit and sync producers onto the envelope constructor (#1051)
+
+  Batch 4. **No behaviour change** — the constructor still ignores identity.
+
+  Six producers: history tombstones, numbering, sequences, the sync-meta envelope,
+  sync credentials, and presence. 36 direct-literal producers remain.
+
+  Two producers needed an identity parameter threaded in rather than a local edit
+  (`encryptState` now takes the sequence name), because they returned an envelope
+  whose storage address lived at the call site.
+
+  Banked six more protected-body reductions, two of which reached zero and had
+  their grandfather entries removed outright: numbering 5→1, sequence 5→1,
+  sync engine 3→1, presence 3→1, history 2→0, credentials 2→0.
+
+- Add the single envelope constructor and migrate the tombstone producers (#1051)
+
+  `buildRecordEnvelope(identity, body)` is now the one place an `EncryptedEnvelope`
+  is constructed. `buildTombstone()` and `buildDeleteMarker()` route through it and
+  take a `{collection, id}` identity.
+
+  **No behaviour change.** `identity` is required but deliberately unused, so output
+  is byte-identical to the object literals it replaces. That is what makes #1051
+  migratable at all: each of the 49 producers can move independently, verified by
+  the existing suite, and the behaviour change happens exactly once — when AAD is
+  switched on inside the constructor, by which point every writer already supplies
+  identity and the compiler has proved it.
+
+  48 direct-literal producers remain. The pattern is established and each is
+  independent.
+
 ## 0.6.0-pre.15
 
 ### Minor Changes

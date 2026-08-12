@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/as-xlsx",
-  "version": "0.6.0-pre.15",
+  "version": "0.6.0-pre.16",
   "description": "Excel spreadsheet plaintext export for noy-db — produces a real .xlsx (Office Open XML) from one or more collections. Multi-sheet, Unicode-safe via shared-strings table. Zero runtime deps beyond the workspace zip encoder. Gated by RFC #249 `canExportPlaintext` with format `'xlsx'`.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
