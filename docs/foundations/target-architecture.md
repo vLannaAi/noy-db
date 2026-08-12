@@ -13,11 +13,11 @@ From the outside in — each is a partition with a clear boundary:
 | Layer | What it is | Seam / how it plugs in | State today |
 |---|---|---|---|
 | **Family packages** | the `to- in- on- as- by- at-` satellites — the only code that touches the wire/edge | npm packages, prefix grammar, bind published subpaths | organized by prefix; some live in `noy-db-to` |
-| **Optional subsystems** | opt-in capability *dimensions* — lookup · commit · formula · shape · audit · **fork** · **share** · party | `with-*` source folders + `with<Name>()` strategy + subpath export, registered on the **subsystem-bus** | 8 dimension folders on `main`; bus under-adopted (only periods+guards migrated) — **Phase 2 ✓ + 5** |
+| **Optional subsystems** | opt-in capability *dimensions* — lookup · commit · formula · shape · audit · **fork** · **share** · party | `with-*` source folders + `with<Name>()` strategy + subpath export, registered on the **service-bus** | 8 dimension folders on `main`; bus under-adopted (only periods+guards migrated) — **Phase 2 ✓ + 5** |
 | **Encryption transformers** | encryption as a **pluggable codec at the boundary**, not a fixed invariant — enabling **full / partial / no** encryption per store/field | a typed `StoreEdgeCodec` seam applied at every real egress (disk/net/export) | invariant is "encrypt before any store call"; `ramCiphertext` is an inert hook — **Phase 4** |
-| **Surfaces & contracts** | the **outbound exchange seams** to the sister frameworks | `@noy-db/hub/kernel`→klum-db · `@noy-db/hub/adapter`→noy-db-to · `collection.describe()`+design-tokens→noy-db-ui · published packages→noy-db-docs | kernel+adapter exist; ui+docs implicit — **Phase 3** |
+| **Surfaces & contracts** | the **outbound exchange seams** to the sister frameworks | `@noy-db/hub/cargo`→klum-db · `@noy-db/hub/to`→noy-db-to · `collection.describe()`+design-tokens→noy-db-ui · published packages→noy-db-docs | cargo+to shipped (`/kernel` and `/adapter` retired in the 0.3.0-pre line); ui+docs implicit — **Phase 3** |
 | **Core essentials** | what noy-db *is*: vault · collection · query basics · keyring · schema/refs · envelope crypto | the always-on classes | correct but bloated (god-objects) — **Phase 1 + 5** |
-| **Kernel / microkernel** | the minimal runtime + the extension bus everything registers on | `kernel/` (frozen seam) + `subsystem-bus.ts` | real but small relative to what bypasses it — **Phase 5** |
+| **Kernel / microkernel** | the minimal runtime + the extension bus everything registers on | `kernel/` (frozen seam) + `port/with/service-bus.ts` | real but small relative to what bypasses it — **Phase 5** |
 
 ## The three north-star commitments (owner's framing, beyond the current specs)
 

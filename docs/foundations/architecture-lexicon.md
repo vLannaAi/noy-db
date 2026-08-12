@@ -63,7 +63,9 @@ enclave, so it stays in sync with noy-db by construction.
 
 ## What this triggers (downstream — each its own plan, not this doc)
 
-1. **cargo seam.** Rename the mislabeled `@noy-db/hub/kernel` subpath to the **cargo** seam;
+1. **cargo seam.** ✅ **Done** — `/cargo` and `/to` shipped in the 0.3.0-pre line and `/kernel`,
+   `/adapter`, `/bundle` are retired. Original entry, kept as the record of the decision:
+   Rename the mislabeled `@noy-db/hub/kernel` subpath to the **cargo** seam;
    migrate klum's bare-barrel + `/kernel` + `/bundle` imports onto `cargo` (+ `pod`); add the
    klum-side import guard. (This is the pending klum seam-hardening — now correctly named.)
 2. **bundle → pod.** Rename the artifact + its API (`with-share/bundle` → the `pod` layer,

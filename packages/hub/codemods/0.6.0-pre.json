@@ -1,0 +1,211 @@
+{
+  "$comment": "Machine-readable rename map for the noy-db 0.6.0-pre breaking set \u2014 the alias removal (#1052), the pod-vocabulary completion (#1058) and the revocation change (#1054). Every `from` was REMOVED with no alias, per the project's no-legacy-aliases policy, so each row is a hard break rather than a deprecation. safeGlobalReplace:true means a whole-word match of `from` cannot plausibly hit anything else in a consumer codebase; false means anchor on the import specifier or call site and read `note` first. Rows are verified against the live surface by packages/hub/__tests__/codemod-map-0.6.test.ts. Note SubsystemBus \u2192 ServiceBus is deliberately ABSENT: it was an INTERNAL alias (port/with/service-bus.ts), never exported from the hub barrel, so no consumer could hold it. #1052's prose table listed it among the published removals \u2014 that was an over-count. NOYDB_BUNDLE_FORMAT_VERSION_SIGNED is absent for the same reason: declared in format.ts but never barrel-exported. The wire format did NOT change: .noydb magic bytes are still NDB1 \u2014 only the constants' names moved.",
+  "renames": [
+    {
+      "from": "writeNoydbBundle",
+      "to": "writePod",
+      "kind": "identifier",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1052"
+    },
+    {
+      "from": "readNoydbBundle",
+      "to": "readPod",
+      "kind": "identifier",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1052"
+    },
+    {
+      "from": "readNoydbBundleHeader",
+      "to": "readPodHeader",
+      "kind": "identifier",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1052"
+    },
+    {
+      "from": "WriteNoydbBundleOptions",
+      "to": "WritePodOptions",
+      "kind": "type",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1052"
+    },
+    {
+      "from": "ReadNoydbBundleOptions",
+      "to": "ReadPodOptions",
+      "kind": "type",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1052"
+    },
+    {
+      "from": "NoydbBundleReadResult",
+      "to": "PodReadResult",
+      "kind": "type",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1052"
+    },
+    {
+      "from": "NoydbBundleHeader",
+      "to": "NoydbPodHeader",
+      "kind": "type",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1052"
+    },
+    {
+      "from": "NoydbBundleStore",
+      "to": "NoydbPodStore",
+      "kind": "type",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1052"
+    },
+    {
+      "from": "wrapBundleStore",
+      "to": "wrapPodStore",
+      "kind": "identifier",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1052"
+    },
+    {
+      "from": "createBundleStore",
+      "to": "createPodStore",
+      "kind": "identifier",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1052"
+    },
+    {
+      "from": "WrappedBundleNoydbStore",
+      "to": "WrappedPodNoydbStore",
+      "kind": "type",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1052"
+    },
+    {
+      "from": "WrapBundleStoreOptions",
+      "to": "WrapPodStoreOptions",
+      "kind": "type",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1052"
+    },
+    {
+      "from": "BundleVersionConflictError",
+      "to": "PodVersionConflictError",
+      "kind": "identifier",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1052"
+    },
+    {
+      "from": "BUNDLE_STORE_POLICY",
+      "to": "POD_STORE_POLICY",
+      "kind": "identifier",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1052"
+    },
+    {
+      "from": "saveBundle",
+      "to": "savePod",
+      "kind": "identifier",
+      "package": "@noy-db/to-file",
+      "safeGlobalReplace": false,
+      "section": "#1052",
+      "note": "Plausible as a consumer's own helper name. Anchor on the @noy-db/to-file import."
+    },
+    {
+      "from": "loadBundle",
+      "to": "loadPod",
+      "kind": "identifier",
+      "package": "@noy-db/to-file",
+      "safeGlobalReplace": false,
+      "section": "#1052",
+      "note": "As saveBundle \u2014 anchor on the import specifier."
+    },
+    {
+      "from": "NOYDB_BUNDLE_MAGIC",
+      "to": "NOYDB_POD_MAGIC",
+      "kind": "identifier",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1058"
+    },
+    {
+      "from": "NOYDB_BUNDLE_PREFIX_BYTES",
+      "to": "NOYDB_POD_PREFIX_BYTES",
+      "kind": "identifier",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1058"
+    },
+    {
+      "from": "NOYDB_BUNDLE_FORMAT_VERSION",
+      "to": "NOYDB_POD_FORMAT_VERSION",
+      "kind": "identifier",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1058"
+    },
+    {
+      "from": "hasNoydbBundleMagic",
+      "to": "hasNoydbPodMagic",
+      "kind": "identifier",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1058",
+      "note": "The row missing from #1052's table (#1061). klum-db imported it from @noy-db/hub/pod and only the compiler caught it \u2014 TS2724, 'Did you mean hasNoydbPodMagic?'."
+    },
+    {
+      "from": "BundleIntegrityError",
+      "to": "PodIntegrityError",
+      "kind": "identifier",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1058"
+    },
+    {
+      "from": "BundleSealMismatchError",
+      "to": "PodSealMismatchError",
+      "kind": "identifier",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1058"
+    },
+    {
+      "from": "BundleRecipient",
+      "to": "PodRecipient",
+      "kind": "type",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1058"
+    },
+    {
+      "from": "getBundleHandle",
+      "to": "getPodHandle",
+      "kind": "method",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1058",
+      "note": "Vault method. Call site is `vault.getBundleHandle()`."
+    },
+    {
+      "from": "rotateKeys",
+      "to": null,
+      "kind": "removed",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": false,
+      "section": "#1054",
+      "note": "RevokeOptions.rotateKeys is REMOVED \u2014 revocation always rotates. There is no replacement by design: `rotateKeys: false` made revocation a no-op against a store that declines the _keyring delete. Delete the option. Note `rotateKeys()` the standalone function still exists, so do NOT blanket-replace the word \u2014 anchor on the revoke() options object."
+    }
+  ],
+  "version": "0.6.0-pre"
+}

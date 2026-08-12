@@ -94,14 +94,14 @@ A minimalist core (~6,500 LOC) plus 24 opt-in capabilities behind `with*()` stra
 ```ts
 import { createNoydb } from '@noy-db/hub'
 import { withHistory } from '@noy-db/hub/history'
-import { withAggregate } from '@noy-db/hub/aggregate'
+import { withReduce } from '@noy-db/hub/reduce'
 import { withBlobs } from '@noy-db/hub/blobs'
 
 const db = await createNoydb({
   store: ...,
   user: ...,
   historyStrategy: withHistory(),     // versioning + ledger + time-machine
-  aggregateStrategy: withAggregate(), // sum/groupBy/avg
+  reduceStrategy: withReduce(),       // sum/groupBy/avg
   blobsStrategy: withBlobs(),          // file attachments
   // ... 21 more available
 })

@@ -893,8 +893,8 @@ export class Noydb {
    * collection) pair that was dropped. Re-run `grant()` for those pairs, or
    * they stay locked out.
    *
-   * Unlike `revoke({ rotateKeys: true })`, this call does not REMOVE any
-   * user from the vault — they keep membership and their other collections.
+   * Unlike `revoke()`, this call does not REMOVE any user from the vault —
+   * they keep membership and their other collections.
    * This is the "just rotate" path; "revoke and rotate" lives in `revoke()`.
    *
    * Exposed on Noydb (rather than only on the lower-level keyring
