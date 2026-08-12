@@ -441,7 +441,7 @@ describe('#691 fold-ins: tier moves × record cache × tombstones', () => {
     const docs = vault.collection<Doc>('docs', { tiers: [0, 1] })
     await docs.put('gone', { id: 'gone', title: 'x', body: 'y' })
     const live = (await store.get('v1', 'docs', 'gone'))!
-    await store.put('v1', 'docs', 'gone', buildDeleteMarker(live._v, 'owner'))
+    await store.put('v1', 'docs', 'gone', buildDeleteMarker({ collection: 'c', id: 'r' }, live._v, 'owner'))
     await expect(docs.elevate('gone', 1)).rejects.toThrow(/not found/)
     await expect(docs.demote('gone', 0)).rejects.toThrow(/not found/)
   })

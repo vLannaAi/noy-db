@@ -11,7 +11,7 @@ const passwordSpec: ClassifiedFieldSpec = {
 
 describe('forget() × _vdig', () => {
   it('a tombstone structurally carries no _vdig', () => {
-    expect(buildTombstone(4, 'actor')._vdig).toBeUndefined()
+    expect(buildTombstone({ collection: 'c', id: 'r' }, 4, 'actor')._vdig).toBeUndefined()
   })
 
   it('classifySealedShred reports vdig slots as shreddable on a _cek record (no dekResidue class)', async () => {

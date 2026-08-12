@@ -1,0 +1,78 @@
+/**
+ * The one place an `EncryptedEnvelope` is constructed (#1051).
+ *
+ * ## Why this exists
+ *
+ * 49 files built envelopes with an object literal, bypassing
+ * `RecordCodec.buildEnvelope` (which had 4 callers). That is **writer
+ * fan-out**: N independent places each had to know the envelope contract, and
+ * nothing checked that they agreed.
+ *
+ * It only became load-bearing with #1041. Binding a record's identity into the
+ * AEAD requires every writer to supply that identity — and a writer that
+ * doesn't produces data the reader rejects. Reader fan-out you fix by threading
+ * an argument through call sites; **writer fan-out cannot be migrated
+ * incrementally**, because the first migrated writer emits envelopes the
+ * unmigrated readers refuse.
+ *
+ * ## Why adopting it is safe
+ *
+ * `identity` is **required but not yet used**. Output is byte-identical to the
+ * literals it replaces, so every producer can migrate independently and the
+ * existing suite verifies each step. The behaviour change happens **once**,
+ * when AAD is switched on here — by which point every writer already supplies
+ * identity, and the compiler proved it.
+ *
+ * That ordering is deliberate: a required-but-unused parameter converts "did
+ * we find every writer?" from a question into a compile error, the same trick
+ * that made the `NOYDB_FORMAT_VERSION` single-sourcing safe in #1048.
+ *
+ * @packageDocumentation
+ */
+import { NOYDB_FORMAT_VERSION } from '../types.js'
+import type { EncryptedEnvelope } from '../types.js'
+import type { RecordIdentity } from './record-aad.js'
+
+/** The body an envelope carries, independent of who is writing it. */
+export interface RecordEnvelopeBody {
+  readonly version: number
+  /** AES-GCM IV, base64. Empty string for a plaintext or tombstone envelope. */
+  readonly iv: string
+  /** Ciphertext (or plaintext JSON when the collection stores plaintext). */
+  readonly data: string
+  /** ISO timestamp. Defaults to now — pass it when the caller has a real one. */
+  readonly ts?: string | undefined
+  readonly by?: string | undefined
+  /** Wrapped per-record CEK, when the record has one. */
+  readonly cek?: string | undefined
+  readonly provenance?: { readonly source: string; readonly sourceTs: string } | undefined
+  /** Slots the envelope may additionally carry. */
+  readonly extra?: Partial<Pick<EncryptedEnvelope, '_tier' | '_det' | '_sealed' | '_vdig' | '_bidx'>> | undefined
+}
+
+/**
+ * Build an envelope for `identity`.
+ *
+ * `identity` is required and currently unused — see the module docs. Do not
+ * "simplify" it away: its presence is what makes the eventual AAD binding a
+ * one-line change here instead of a 49-site hunt.
+ */
+export function buildRecordEnvelope(
+  identity: RecordIdentity,
+  body: RecordEnvelopeBody,
+): EncryptedEnvelope {
+  void identity
+  return {
+    _noydb: NOYDB_FORMAT_VERSION,
+    _v: body.version,
+    _ts: body.ts ?? new Date().toISOString(),
+    _iv: body.iv,
+    _data: body.data,
+    ...(body.by !== undefined ? { _by: body.by } : {}),
+    ...(body.cek !== undefined ? { _cek: body.cek } : {}),
+    ...(body.provenance !== undefined
+      ? { _source: body.provenance.source, _sourceTs: body.provenance.sourceTs }
+      : {}),
+    ...(body.extra ?? {}),
+  }
+}

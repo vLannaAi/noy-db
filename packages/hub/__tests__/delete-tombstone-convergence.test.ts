@@ -154,7 +154,7 @@ describe('re-create version continuity (#589)', () => {
     // marker landed on disk in a previous run (or via another peer's sync
     // write) and this instance's `ensureHydrated()` is the ONLY thing that
     // can discover it, as opposed to a live delete populating the set.
-    await local.put(V, 'notes', 'n1', buildDeleteMarker(2, 'peer'))
+    await local.put(V, 'notes', 'n1', buildDeleteMarker({ collection: 'c', id: 'r' }, 2, 'peer'))
 
     const db = await createNoydb({ store: local, sync: remote, user: 'u', syncStrategy: withSync(), encrypt: false })
     const notes = (await db.openVault(V)).collection<Note>('notes')

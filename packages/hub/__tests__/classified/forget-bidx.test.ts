@@ -45,7 +45,7 @@ describe('forget + classifySealedShred (_bidx)', () => {
       { password: 'hunter2-hunter2' }, 1, cek, undefined, undefined, { id: 'r1', prev: null },
     )
     expect(env._bidx?.password).toBeDefined()
-    const tomb = buildTombstone(env._v, 'actor')
+    const tomb = buildTombstone({ collection: 'c', id: 'r' }, env._v, 'actor')
     expect(tomb._bidx).toBeUndefined()
   }, 30_000)
 })
