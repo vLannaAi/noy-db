@@ -26,7 +26,7 @@ import {
   createOwnerOnAdoptedPartition,
   unsealDeks,
 } from '../src/with-cargo/adopt-partition.js'
-import { readPod, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
+import { readPod, parseExtractedPartitionBody } from '../src/with-pod/pod.js'
 
 function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

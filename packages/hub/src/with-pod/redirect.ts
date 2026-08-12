@@ -17,7 +17,7 @@
 
 import type { DocSigner } from '../with-audit/attestation/signer.js'
 import { signRecord, verifyRecord } from './signature.js'
-import { readPodRedirect } from './bundle.js'
+import { readPodRedirect } from './pod.js'
 import {
   RedirectBadSignatureError,
   RedirectDepthExceededError,

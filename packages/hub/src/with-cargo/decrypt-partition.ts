@@ -9,7 +9,7 @@
  */
 import type { EncryptedEnvelope } from '../kernel/types.js'
 import { openEnvelopeJson } from '../kernel/enclave/index.js'
-import { readPodHeader, readPod, parseExtractedPartitionBody } from '../with-pod/bundle.js'
+import { readPodHeader, readPod, parseExtractedPartitionBody } from '../with-pod/pod.js'
 import { unsealDeks } from './adopt-partition.js'
 
 /** One decrypted record from an extracted-partition compartment. */

@@ -9,12 +9,12 @@
  *     ordering)
  *   - Round-trip with small / medium / Unicode compartments
  *   - readPodHeader without decompression
- *   - Integrity tampering — flip a single byte → BundleIntegrityError
+ *   - Integrity tampering — flip a single byte → PodIntegrityError
  *   - Truncation detection
  *   - Compression algorithm selection (auto / gzip / none)
  *   - Brotli explicit-fail when unsupported
  *   - ULID handle stability across re-exports of the same vault
- *   - getBundleHandle generates a fresh handle on first call,
+ *   - getPodHandle generates a fresh handle on first call,
  *     persists it, returns the same handle on subsequent calls
  */
 
@@ -30,18 +30,18 @@ import type {
 } from '../src/kernel/types.js'
 import {
   ConflictError,
-  BundleIntegrityError,
+  PodIntegrityError,
   writePod,
   readPod,
   readPodHeader,
-  hasNoydbBundleMagic,
+  hasNoydbPodMagic,
   generateULID,
   isULID,
-  NOYDB_BUNDLE_MAGIC,
-  NOYDB_BUNDLE_PREFIX_BYTES,
-  NOYDB_BUNDLE_FORMAT_VERSION,
+  NOYDB_POD_MAGIC,
+  NOYDB_POD_PREFIX_BYTES,
+  NOYDB_POD_FORMAT_VERSION,
 } from '../src/index.js'
-import { validateBundleHeader, decodeBundleHeader, encodeBundleHeader } from '../src/with-pod/format.js'
+import { validatePodHeaderFields, decodePodHeader, encodePodHeader } from '../src/with-pod/format.js'
 
 /** Inline memory adapter — same shape as other integration tests. */
 function toMemory(): NoydbStore {
@@ -162,64 +162,64 @@ describe('bundle > ULID generator', () => {
 
 describe('bundle > header validator', () => {
   const valid = {
-    formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,
+    formatVersion: NOYDB_POD_FORMAT_VERSION,
     handle: '01HYABCDEFGHJKMNPQRSTVWXYZ',
     bodyBytes: 1234,
     bodySha256: 'a'.repeat(64),
   }
 
   it('accepts a minimal valid header', () => {
-    expect(() => validateBundleHeader(valid)).not.toThrow()
+    expect(() => validatePodHeaderFields(valid)).not.toThrow()
   })
 
   it('rejects forbidden disclosure keys', () => {
     expect(() =>
-      validateBundleHeader({ ...valid, vault: 'Acme Corp' }),
+      validatePodHeaderFields({ ...valid, vault: 'Acme Corp' }),
     ).toThrow(/forbidden key "vault"/)
     expect(() =>
-      validateBundleHeader({ ...valid, _exported_at: '2026-04-08' }),
+      validatePodHeaderFields({ ...valid, _exported_at: '2026-04-08' }),
     ).toThrow(/forbidden key "_exported_at"/)
     expect(() =>
-      validateBundleHeader({ ...valid, exporter: 'alice' }),
+      validatePodHeaderFields({ ...valid, exporter: 'alice' }),
     ).toThrow(/forbidden key "exporter"/)
   })
 
   it('rejects unsupported formatVersion', () => {
-    expect(() => validateBundleHeader({ ...valid, formatVersion: 99 })).toThrow(
+    expect(() => validatePodHeaderFields({ ...valid, formatVersion: 99 })).toThrow(
       /formatVersion must be 1/,
     )
   })
 
   it('rejects malformed handle', () => {
-    expect(() => validateBundleHeader({ ...valid, handle: 'too-short' })).toThrow(
+    expect(() => validatePodHeaderFields({ ...valid, handle: 'too-short' })).toThrow(
       /handle must be a 26-character/,
     )
-    expect(() => validateBundleHeader({ ...valid, handle: 'I'.repeat(26) })).toThrow(
+    expect(() => validatePodHeaderFields({ ...valid, handle: 'I'.repeat(26) })).toThrow(
       /handle must be a 26-character/,
     )
   })
 
   it('rejects malformed bodySha256', () => {
-    expect(() => validateBundleHeader({ ...valid, bodySha256: 'short' })).toThrow(
+    expect(() => validatePodHeaderFields({ ...valid, bodySha256: 'short' })).toThrow(
       /bodySha256 must be a 64-character/,
     )
-    expect(() => validateBundleHeader({ ...valid, bodySha256: 'A'.repeat(64) })).toThrow(
+    expect(() => validatePodHeaderFields({ ...valid, bodySha256: 'A'.repeat(64) })).toThrow(
       /bodySha256 must be a 64-character lowercase hex/,
     )
   })
 
   it('rejects negative or non-integer bodyBytes', () => {
-    expect(() => validateBundleHeader({ ...valid, bodyBytes: -1 })).toThrow(
+    expect(() => validatePodHeaderFields({ ...valid, bodyBytes: -1 })).toThrow(
       /bodyBytes must be a non-negative integer/,
     )
-    expect(() => validateBundleHeader({ ...valid, bodyBytes: 1.5 })).toThrow(
+    expect(() => validatePodHeaderFields({ ...valid, bodyBytes: 1.5 })).toThrow(
       /bodyBytes must be a non-negative integer/,
     )
   })
 
   it('round-trips encode → decode without modification', () => {
-    const bytes = encodeBundleHeader(valid)
-    const decoded = decodeBundleHeader(bytes)
+    const bytes = encodePodHeader(valid)
+    const decoded = decodePodHeader(bytes)
     expect(decoded).toEqual(valid)
   })
 })
@@ -229,21 +229,21 @@ describe('bundle > header validator', () => {
 // ---------------------------------------------------------------------------
 
 describe('bundle > magic byte detection', () => {
-  it('hasNoydbBundleMagic returns true for NDB1 prefix', () => {
+  it('hasNoydbPodMagic returns true for NDB1 prefix', () => {
     const bytes = new Uint8Array([0x4e, 0x44, 0x42, 0x31, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
-    expect(hasNoydbBundleMagic(bytes)).toBe(true)
+    expect(hasNoydbPodMagic(bytes)).toBe(true)
   })
 
-  it('hasNoydbBundleMagic returns false for non-bundle bytes', () => {
-    expect(hasNoydbBundleMagic(new Uint8Array([0x50, 0x4b, 0x03, 0x04]))).toBe(false) // ZIP
-    expect(hasNoydbBundleMagic(new Uint8Array([0x7b, 0x22]))).toBe(false) // {"
-    expect(hasNoydbBundleMagic(new Uint8Array([]))).toBe(false)
-    expect(hasNoydbBundleMagic(new Uint8Array([0x4e, 0x44]))).toBe(false) // truncated
+  it('hasNoydbPodMagic returns false for non-bundle bytes', () => {
+    expect(hasNoydbPodMagic(new Uint8Array([0x50, 0x4b, 0x03, 0x04]))).toBe(false) // ZIP
+    expect(hasNoydbPodMagic(new Uint8Array([0x7b, 0x22]))).toBe(false) // {"
+    expect(hasNoydbPodMagic(new Uint8Array([]))).toBe(false)
+    expect(hasNoydbPodMagic(new Uint8Array([0x4e, 0x44]))).toBe(false) // truncated
   })
 
-  it('NOYDB_BUNDLE_MAGIC encodes ASCII NDB1', () => {
-    expect(NOYDB_BUNDLE_MAGIC).toEqual(new Uint8Array([0x4e, 0x44, 0x42, 0x31]))
-    expect(String.fromCharCode(...NOYDB_BUNDLE_MAGIC)).toBe('NDB1')
+  it('NOYDB_POD_MAGIC encodes ASCII NDB1', () => {
+    expect(NOYDB_POD_MAGIC).toEqual(new Uint8Array([0x4e, 0x44, 0x42, 0x31]))
+    expect(String.fromCharCode(...NOYDB_POD_MAGIC)).toBe('NDB1')
   })
 })
 
@@ -278,8 +278,8 @@ describe('bundle > round-trip with real compartment', () => {
     // a separate dump() call is unreliable because dump() emits
     // a fresh _exported_at timestamp on every call.
     const bundleBytes = await writePod(c)
-    expect(hasNoydbBundleMagic(bundleBytes)).toBe(true)
-    expect(bundleBytes.length).toBeGreaterThan(NOYDB_BUNDLE_PREFIX_BYTES)
+    expect(hasNoydbPodMagic(bundleBytes)).toBe(true)
+    expect(bundleBytes.length).toBeGreaterThan(NOYDB_POD_PREFIX_BYTES)
 
     const result = await readPod(bundleBytes)
     expect(result.header.formatVersion).toBe(1)
@@ -450,7 +450,7 @@ describe('bundle > integrity tampering', () => {
     })
   })
 
-  it('flipping a single body byte triggers BundleIntegrityError', async () => {
+  it('flipping a single body byte triggers PodIntegrityError', async () => {
     const c = await db.openVault('TEST')
     const invoices = c.collection<Invoice>('invoices')
     await invoices.put('inv-1', { id: 'inv-1', amount: 100, status: 'open' })
@@ -458,8 +458,8 @@ describe('bundle > integrity tampering', () => {
 
     // Find the body region (after the header) and flip a byte there.
     const header = readPodHeader(bytes)
-    const headerLength = bytes.length - header.bodyBytes - NOYDB_BUNDLE_PREFIX_BYTES
-    const bodyStart = NOYDB_BUNDLE_PREFIX_BYTES + headerLength
+    const headerLength = bytes.length - header.bodyBytes - NOYDB_POD_PREFIX_BYTES
+    const bodyStart = NOYDB_POD_PREFIX_BYTES + headerLength
     const tampered = new Uint8Array(bytes)
     // XOR a non-zero pattern to guarantee the byte changed.
     tampered[bodyStart + 5] = tampered[bodyStart + 5]! ^ 0xff
@@ -470,11 +470,11 @@ describe('bundle > integrity tampering', () => {
     } catch (err) {
       threw = err
     }
-    expect(threw).toBeInstanceOf(BundleIntegrityError)
-    expect((threw as BundleIntegrityError).message).toMatch(/sha256/)
+    expect(threw).toBeInstanceOf(PodIntegrityError)
+    expect((threw as PodIntegrityError).message).toMatch(/sha256/)
   })
 
-  it('truncating the body bytes triggers BundleIntegrityError on length check', async () => {
+  it('truncating the body bytes triggers PodIntegrityError on length check', async () => {
     const c = await db.openVault('TEST')
     const invoices = c.collection<Invoice>('invoices')
     await invoices.put('inv-1', { id: 'inv-1', amount: 100, status: 'open' })
@@ -488,8 +488,8 @@ describe('bundle > integrity tampering', () => {
     } catch (err) {
       threw = err
     }
-    expect(threw).toBeInstanceOf(BundleIntegrityError)
-    expect((threw as BundleIntegrityError).message).toMatch(/length/)
+    expect(threw).toBeInstanceOf(PodIntegrityError)
+    expect((threw as PodIntegrityError).message).toMatch(/length/)
   })
 })
 
@@ -508,11 +508,11 @@ describe('bundle > handle stability across re-exports', () => {
     })
   })
 
-  it('getBundleHandle returns the same handle across multiple calls', async () => {
+  it('getPodHandle returns the same handle across multiple calls', async () => {
     const c = await db.openVault('TEST')
-    const a = await c.getBundleHandle()
-    const b = await c.getBundleHandle()
-    const cc = await c.getBundleHandle()
+    const a = await c.getPodHandle()
+    const b = await c.getPodHandle()
+    const cc = await c.getPodHandle()
     expect(a).toBe(b)
     expect(b).toBe(cc)
   })
@@ -544,7 +544,7 @@ describe('bundle > handle stability across re-exports', () => {
       secret: 'bundle-test-secret-2026',
     })
     const c1 = await db1.openVault('TEST')
-    const handle1 = await c1.getBundleHandle()
+    const handle1 = await c1.getPodHandle()
 
     // New noydb instance over the same adapter.
     const db2 = await createNoydb({
@@ -553,7 +553,7 @@ describe('bundle > handle stability across re-exports', () => {
       secret: 'bundle-test-secret-2026',
     })
     const c2 = await db2.openVault('TEST')
-    const handle2 = await c2.getBundleHandle()
+    const handle2 = await c2.getPodHandle()
 
     expect(handle2).toBe(handle1)
   })
@@ -561,8 +561,8 @@ describe('bundle > handle stability across re-exports', () => {
   it('different compartments get different handles', async () => {
     const cA = await db.openVault('COMP-A')
     const cB = await db.openVault('COMP-B')
-    const handleA = await cA.getBundleHandle()
-    const handleB = await cB.getBundleHandle()
+    const handleA = await cA.getPodHandle()
+    const handleB = await cB.getPodHandle()
     expect(handleA).not.toBe(handleB)
   })
 })

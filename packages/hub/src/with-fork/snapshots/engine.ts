@@ -1,4 +1,4 @@
-import { writePod, readPod } from '../../with-pod/bundle.js'
+import { writePod, readPod } from '../../with-pod/pod.js'
 import { SnapshotNotFoundError } from '../../kernel/errors.js'
 import type { NoydbPodStore } from '../../kernel/types.js'
 import type { Vault } from '../../kernel/vault.js'

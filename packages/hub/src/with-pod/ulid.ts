@@ -39,7 +39,7 @@
  *
  * If a future use case needs timestamp-free handles, a v2 of the
  * format could specify "use the random portion only" without a
- * format break — `validateBundleHeader` only checks the regex
+ * format break — `validatePodHeaderFields` only checks the regex
  * shape, not the encoded timestamp.
  */
 

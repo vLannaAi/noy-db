@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createNoydb, writePod, readPod } from '../src/index.js'
 import { memoryStore } from '../src/kernel/memory-store.js'
-import { WRITE_POD_OPTION_KEYS } from '../src/with-pod/bundle.js'
+import { WRITE_POD_OPTION_KEYS } from '../src/with-pod/pod.js'
 
 const SECRET = 'correct-horse-battery'
 
@@ -67,7 +67,7 @@ describe('writePod option-key validation', () => {
 describe('the accepted-key list tracks the interface', () => {
   it('names exactly the keys `WritePodOptions` declares', () => {
     const src = readFileSync(
-      fileURLToPath(new URL('../src/with-pod/bundle.ts', import.meta.url)),
+      fileURLToPath(new URL('../src/with-pod/pod.ts', import.meta.url)),
       'utf8',
     )
     const body = /export interface WritePodOptions \{([\s\S]*?)\n\}/.exec(src)?.[1]

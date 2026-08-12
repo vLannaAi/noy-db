@@ -17,7 +17,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { ConflictError } from '../src/kernel/errors.js'
 import { adoptPartition, unsealDeks } from '../src/with-cargo/adopt-partition.js'
 import { extractPartition, sealDeks } from '../src/with-cargo/extract-partition.js'
-import { writePod, readPod, parseExtractedPartitionBody } from '../src/with-pod/bundle.js'
+import { writePod, readPod, parseExtractedPartitionBody } from '../src/with-pod/pod.js'
 
 function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

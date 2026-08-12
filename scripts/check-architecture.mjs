@@ -1257,7 +1257,7 @@ const KERNEL_SURFACE_BUDGET = {
   // managed-link endpoints via linkRegistry). Lives here because Vault is the
   // only owner of all three registries; `_txAtomicSafe('delete')` consumes it.
   // Lowered 3735→3704 (#948 Task 1, shrink-first): `getBundleHandle`'s body
-  // moved to `with-pod/bundle-handle.ts` (`buildBundleHandle(adapter, name)`,
+  // moved to `with-pod/pod-handle.ts` (`buildPodHandle(adapter, name)`,
   // pure function — no logic change); vault.ts holds a 2-line delegator.
   // Lowered 3704→3703 (#948 Task 3, shrink-first): the inline 4-key `subsystems`
   // literal now calls `buildSubsystemMatrix()` (with-shape/introspection/subsystem-matrix.ts),
@@ -2092,7 +2092,7 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-sync/credentials.ts', 2],
   ['packages/hub/src/with-sync/engine.ts', 3],
   ['packages/hub/src/with-pod/backup.ts', 3],
-  ['packages/hub/src/with-pod/bundle.ts', 2],
+  ['packages/hub/src/with-pod/pod.ts', 2],
   // #948 Task 1 (shrink-first): `buildBundleHandle` moved verbatim out of
   // vault.ts's `getBundleHandle` — the envelope-literal `_iv`/`_data`
   // construction (2x `_data`, 1x `_iv`) is unchanged code, now counted here
@@ -2102,7 +2102,7 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   // `stripComments`'s block-comment regex as an unterminated `/*`,
   // swallowing 2 real code matches downstream as false "comment" — removing
   // that comment un-hides them, netting -3 moved but +2 un-hidden.
-  ['packages/hub/src/with-pod/bundle-handle.ts', 3],
+  ['packages/hub/src/with-pod/pod-handle.ts', 3],
   ['packages/hub/src/with-shape/blobs/blob-compaction.ts', 4],
   // #724 Arc 10 correction (Task 1, closes C1): `rehomeForTier`'s solo
   // in-place rewrap (`unwrapCek(blob._cek, fromDEK)` + the `_cek:` literal

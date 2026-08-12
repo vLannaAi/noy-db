@@ -11,7 +11,7 @@
  */
 import type { Vault } from '../../kernel/vault.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
-import { writePod } from '../../with-pod/bundle.js'
+import { writePod } from '../../with-pod/pod.js'
 
 /**
  * Resolve the collections a caller may export/withdraw: operator/client are

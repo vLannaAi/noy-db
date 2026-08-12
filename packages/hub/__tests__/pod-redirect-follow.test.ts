@@ -14,8 +14,8 @@ import {
   followRedirects,
   type Redirect,
 } from '../src/with-pod/redirect.js'
-import { readPodRedirect } from '../src/with-pod/bundle.js'
-import { encodeBundleHeader, readUint32BE, writeUint32BE, NOYDB_BUNDLE_PREFIX_BYTES, type NoydbPodHeader } from '../src/with-pod/format.js'
+import { readPodRedirect } from '../src/with-pod/pod.js'
+import { encodePodHeader, readUint32BE, writeUint32BE, NOYDB_POD_PREFIX_BYTES, type NoydbPodHeader } from '../src/with-pod/format.js'
 import { generateDocSigningKeyPair } from '@noy-db/attestation'
 import type { DocSigner } from '../src/with-audit/attestation/signer.js'
 import {
@@ -121,14 +121,14 @@ function tamperRedirectTarget(bytes: Uint8Array): Uint8Array {
   const mutated: NoydbPodHeader = { ...header, redirect: { ...redirect, target: `${redirect.target}-tampered` } }
 
   const headerLen = readUint32BE(bytes, 6)
-  const bodyOffset = NOYDB_BUNDLE_PREFIX_BYTES + headerLen
+  const bodyOffset = NOYDB_POD_PREFIX_BYTES + headerLen
   const body = bytes.slice(bodyOffset)
-  const newHeaderBytes = encodeBundleHeader(mutated)
-  const out = new Uint8Array(NOYDB_BUNDLE_PREFIX_BYTES + newHeaderBytes.length + body.length)
-  out.set(bytes.slice(0, NOYDB_BUNDLE_PREFIX_BYTES), 0)
+  const newHeaderBytes = encodePodHeader(mutated)
+  const out = new Uint8Array(NOYDB_POD_PREFIX_BYTES + newHeaderBytes.length + body.length)
+  out.set(bytes.slice(0, NOYDB_POD_PREFIX_BYTES), 0)
   writeUint32BE(out, 6, newHeaderBytes.length)
-  out.set(newHeaderBytes, NOYDB_BUNDLE_PREFIX_BYTES)
-  out.set(body, NOYDB_BUNDLE_PREFIX_BYTES + newHeaderBytes.length)
+  out.set(newHeaderBytes, NOYDB_POD_PREFIX_BYTES)
+  out.set(body, NOYDB_POD_PREFIX_BYTES + newHeaderBytes.length)
   return out
 }
 

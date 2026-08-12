@@ -11,16 +11,16 @@ import { describe, it, expect, vi } from 'vitest'
 import { z } from 'zod'
 import { generateDocSigningKeyPair } from '@noy-db/attestation'
 import { createNoydb, writePod } from '../../src/index.js'
-import { readPod } from '../../src/with-pod/bundle.js'
+import { readPod } from '../../src/with-pod/pod.js'
 import { withHistory } from '../../src/with-commit/history/index.js'
 import { open, type OpenPodOptions } from '../../src/with-pod/open.js'
 import { PodHeaderVerificationError, MigrationRequiredError } from '../../src/kernel/errors.js'
 import { coordinatedCutover } from '../../src/with-shape/schema-update/index.js'
 import {
-  encodeBundleHeader,
+  encodePodHeader,
   readUint32BE,
   writeUint32BE,
-  NOYDB_BUNDLE_PREFIX_BYTES,
+  NOYDB_POD_PREFIX_BYTES,
   type NoydbPodHeader,
 } from '../../src/with-pod/format.js'
 import type { DocSigner } from '../../src/with-audit/attestation/signer.js'
@@ -107,14 +107,14 @@ async function makeAheadPod(): Promise<Uint8Array> {
 /** Re-wrap a pod with a fresh header, same body/prefix (mirrors pod-signature-verify.test.ts). */
 function reassembleWithHeader(bytes: Uint8Array, newHeader: NoydbPodHeader): Uint8Array {
   const headerLen = readUint32BE(bytes, 6)
-  const bodyOffset = NOYDB_BUNDLE_PREFIX_BYTES + headerLen
+  const bodyOffset = NOYDB_POD_PREFIX_BYTES + headerLen
   const body = bytes.slice(bodyOffset)
-  const newHeaderBytes = encodeBundleHeader(newHeader)
-  const out = new Uint8Array(NOYDB_BUNDLE_PREFIX_BYTES + newHeaderBytes.length + body.length)
-  out.set(bytes.slice(0, NOYDB_BUNDLE_PREFIX_BYTES), 0)
+  const newHeaderBytes = encodePodHeader(newHeader)
+  const out = new Uint8Array(NOYDB_POD_PREFIX_BYTES + newHeaderBytes.length + body.length)
+  out.set(bytes.slice(0, NOYDB_POD_PREFIX_BYTES), 0)
   writeUint32BE(out, 6, newHeaderBytes.length)
-  out.set(newHeaderBytes, NOYDB_BUNDLE_PREFIX_BYTES)
-  out.set(body, NOYDB_BUNDLE_PREFIX_BYTES + newHeaderBytes.length)
+  out.set(newHeaderBytes, NOYDB_POD_PREFIX_BYTES)
+  out.set(body, NOYDB_POD_PREFIX_BYTES + newHeaderBytes.length)
   return out
 }
 

@@ -18,7 +18,7 @@ export {
   readPodHeader,
   readPodCover,
   resetBrotliSupportCache,
-} from './bundle.js'
+} from './pod.js'
 // The cover type rides the pod header (frozen wire key `publicEnvelope`),
 // so orchestrator-side consumers get it from this frozen seam (#799).
 export type { Cover } from '../with-party/directory/cover/types.js'
@@ -26,13 +26,13 @@ export type {
   WritePodOptions,
   ReadPodOptions,
   PodReadResult,
-} from './bundle.js'
+} from './pod.js'
 
 // Pod header authentication (#943): a pure, dependency-free, WebCrypto-only
 // verifier for the sig/keyId/sigAlg tuple written by `writePod` — this is
 // the subpath a static verifier page tree-shakes down to.
-export { verifyPodHeader } from './bundle.js'
-export type { PodVerifyResult } from './bundle.js'
+export { verifyPodHeader } from './pod.js'
+export type { PodVerifyResult } from './pod.js'
 
 // The family-wide signing convention (pod header, Redirect record #944,
 // manifest writes #941) — see with-pod/signature.ts for the canonical-JSON
@@ -40,20 +40,20 @@ export type { PodVerifyResult } from './bundle.js'
 export { signRecord, verifyRecord, signedBytes, POD_SIG_ALG } from './signature.js'
 
 export {
-  NOYDB_BUNDLE_MAGIC,
-  NOYDB_BUNDLE_PREFIX_BYTES,
-  NOYDB_BUNDLE_FORMAT_VERSION,
+  NOYDB_POD_MAGIC,
+  NOYDB_POD_PREFIX_BYTES,
+  NOYDB_POD_FORMAT_VERSION,
   FLAG_COMPRESSED,
   FLAG_HAS_INTEGRITY_HASH,
   COMPRESSION_NONE,
   COMPRESSION_GZIP,
   COMPRESSION_BROTLI,
-  validateBundleHeader,
-  encodeBundleHeader,
-  // #820: the magic-bytes predicate belongs beside NOYDB_BUNDLE_MAGIC —
+  validatePodHeaderFields,
+  encodePodHeader,
+  // #820: the magic-bytes predicate belongs beside NOYDB_POD_MAGIC —
   // klum's multi-bundle reader needed it and had to keep a root-barrel
   // import alive for this one symbol.
-  hasNoydbBundleMagic,
+  hasNoydbPodMagic,
 } from './format.js'
 export type {
   CompressionAlgo,
@@ -73,8 +73,8 @@ export type {
 // consumers can `instanceof` them without falling back to the root
 // barrel — the retiring /bundle was their only other published home.
 export {
-  BundleIntegrityError,
-  BundleSealMismatchError,
+  PodIntegrityError,
+  PodSealMismatchError,
   PodVersionConflictError,
   BackupLedgerError,
   BackupCorruptedError,
@@ -82,7 +82,7 @@ export {
 
 // Redirect record (#944): a signed "this moved, go there" pointer carried
 // in the pod's plaintext header, plus the followRedirects resolver.
-export { readPodRedirect } from './bundle.js'
+export { readPodRedirect } from './pod.js'
 export { signRedirect, verifyRedirect, followRedirects } from './redirect.js'
 export type { Redirect, RedirectHop, FollowRedirectsResult } from './redirect.js'
 // DocSigner is signRedirect's signer param — re-exported here so it's

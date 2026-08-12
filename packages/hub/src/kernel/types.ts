@@ -1060,7 +1060,7 @@ export interface KeyringFile {
    * "this slot works for 30 days then becomes opaque to its holder."
    *
    * Absent on live keyrings written via `db.grant()` — the field is
-   * meaningful for `BundleRecipient` slots produced by
+   * meaningful for `PodRecipient` slots produced by
    * `writePod({ recipients: [...] })`. Setting it on a live
    * keyring is allowed but unusual.
    */

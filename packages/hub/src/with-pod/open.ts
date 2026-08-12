@@ -6,7 +6,7 @@
  * reachable through published seams). Composes, in order:
  *
  *   1. `readPod` — parse + integrity-check the container (throws
- *      `BundleIntegrityError` on a corrupted/truncated pod).
+ *      `PodIntegrityError` on a corrupted/truncated pod).
  *   2. `verifyPodHeader` — only when `opts.trustedKeys` is supplied.
  *      `'unsigned'` is benign (legacy pod, or `writePod({ sign: false })`)
  *      and open() proceeds; `'untrusted'` / `'tampered'` are fail-closed —
@@ -63,9 +63,9 @@
  * @module
  */
 
-import { readPod, verifyPodHeader } from './bundle.js'
+import { readPod, verifyPodHeader } from './pod.js'
 import type { NoydbPodHeader } from './format.js'
-import type { PodVerifyResult } from './bundle.js'
+import type { PodVerifyResult } from './pod.js'
 import { createNoydb } from '../kernel/noydb.js'
 import type { Noydb } from '../kernel/noydb.js'
 import type { Vault } from '../kernel/vault.js'

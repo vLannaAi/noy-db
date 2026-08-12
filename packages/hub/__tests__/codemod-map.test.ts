@@ -19,7 +19,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { WRITE_POD_OPTION_KEYS } from '../src/with-pod/bundle.js'
+import { WRITE_POD_OPTION_KEYS } from '../src/with-pod/pod.js'
 
 const read = (rel: string) =>
   readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')

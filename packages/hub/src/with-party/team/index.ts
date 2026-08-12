@@ -36,7 +36,7 @@ export {
   updateKeyringIdentity,
   buildRecipientKeyringFile,
 } from './keyring.js'
-export type { BundleRecipient, ListUsersOptions } from './keyring.js'
+export type { PodRecipient, ListUsersOptions } from './keyring.js'
 // #846b — the credential functions' trailing options objects, nameable.
 export type {
   LoadKeyringOptions,

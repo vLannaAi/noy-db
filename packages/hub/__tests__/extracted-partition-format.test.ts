@@ -10,20 +10,20 @@
 
 import { describe, it, expect } from 'vitest'
 import {
-  encodeBundleHeader,
-  decodeBundleHeader,
-  validateBundleHeader,
-  NOYDB_BUNDLE_FORMAT_VERSION,
+  encodePodHeader,
+  decodePodHeader,
+  validatePodHeaderFields,
+  NOYDB_POD_FORMAT_VERSION,
   type NoydbPodHeader,
 } from '../src/with-pod/format.js'
 import {
   buildExtractedPartitionWrapper,
   parseExtractedPartitionBody,
   type ExtractedPartitionBody,
-} from '../src/with-pod/bundle.js'
+} from '../src/with-pod/pod.js'
 
 const base = {
-  formatVersion: NOYDB_BUNDLE_FORMAT_VERSION,
+  formatVersion: NOYDB_POD_FORMAT_VERSION,
   handle: '01ARZ3NDEKTSV4RRFFQ69G5FAV', // 26-char Crockford base32
   bodyBytes: 10,
   bodySha256: 'a'.repeat(64),
@@ -36,31 +36,31 @@ describe('extracted-partition header fields', () => {
       bundleKind: 'extracted-partition',
       transferSeal: { v: 1, alg: 'aes-256-gcm-pre-shared', sealId: 'seal-abc' },
     }
-    const decoded = decodeBundleHeader(encodeBundleHeader(header))
+    const decoded = decodePodHeader(encodePodHeader(header))
     expect(decoded.bundleKind).toBe('extracted-partition')
     expect(decoded.transferSeal).toEqual({ v: 1, alg: 'aes-256-gcm-pre-shared', sealId: 'seal-abc' })
   })
 
   it('accepts bundleKind: snapshot and a header with neither field (back-compat)', () => {
-    expect(() => validateBundleHeader({ ...base, bundleKind: 'snapshot' })).not.toThrow()
-    expect(() => validateBundleHeader({ ...base })).not.toThrow()
+    expect(() => validatePodHeaderFields({ ...base, bundleKind: 'snapshot' })).not.toThrow()
+    expect(() => validatePodHeaderFields({ ...base })).not.toThrow()
   })
 
   it('rejects an unknown bundleKind value', () => {
-    expect(() => validateBundleHeader({ ...base, bundleKind: 'nope' })).toThrow(/bundleKind/)
+    expect(() => validatePodHeaderFields({ ...base, bundleKind: 'nope' })).toThrow(/bundleKind/)
   })
 })
 
 describe('bundleKind ⇔ transferSeal cross-field invariant', () => {
   it('rejects transferSeal without bundleKind: extracted-partition', () => {
     expect(() =>
-      validateBundleHeader({ ...base, transferSeal: { v: 1, alg: 'aes-256-gcm-pre-shared', sealId: 's' } }),
+      validatePodHeaderFields({ ...base, transferSeal: { v: 1, alg: 'aes-256-gcm-pre-shared', sealId: 's' } }),
     ).toThrow(/transferSeal.*extracted-partition/)
   })
 
   it('rejects bundleKind: extracted-partition without a transferSeal', () => {
     expect(() =>
-      validateBundleHeader({ ...base, bundleKind: 'extracted-partition' }),
+      validatePodHeaderFields({ ...base, bundleKind: 'extracted-partition' }),
     ).toThrow(/extracted-partition.*transferSeal/)
   })
 })
@@ -101,7 +101,7 @@ describe('ExtractedPartitionBody wrapper', () => {
 describe('autoUnlock ⊕ extracted-partition mutual exclusion', () => {
   it('rejects a header carrying both autoUnlock and bundleKind: extracted-partition', () => {
     expect(() =>
-      validateBundleHeader({
+      validatePodHeaderFields({
         ...base,
         autoUnlock: 'sealed',
         bundleKind: 'extracted-partition',

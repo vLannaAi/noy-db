@@ -18,7 +18,7 @@
 
 import { describe, it, expect } from 'vitest'
 import type {
-  NoydbStore, EncryptedEnvelope, VaultSnapshot, BundleRecipient,
+  NoydbStore, EncryptedEnvelope, VaultSnapshot, PodRecipient,
 } from '../src/index.js'
 import {
   ConflictError, createNoydb, writePod, readPod,
@@ -159,7 +159,7 @@ describe('writePod — exportSecret shorthand', () => {
 describe('writePod — multi-recipient', () => {
   it('every recipient unlocks independently with their own secret', async () => {
     const { db: src, vault } = await setupSourceVault()
-    const recipients: readonly BundleRecipient[] = [
+    const recipients: readonly PodRecipient[] = [
       { id: 'alice-r', secret: 'alice-pw', role: 'viewer' },
       { id: 'bob-r',   secret: 'bob-pw',   role: 'viewer' },
     ]
@@ -181,7 +181,7 @@ describe('writePod — multi-recipient', () => {
 
   it('per-recipient permission scoping limits the DEKs each slot carries', async () => {
     const { db: src, vault } = await setupSourceVault()
-    const recipients: readonly BundleRecipient[] = [
+    const recipients: readonly PodRecipient[] = [
       // 'restricted' gets only invoices — payments DEK must NOT be wrapped.
       { id: 'restricted', secret: 'r-pw', role: 'operator',
         permissions: { invoices: 'ro' } },
