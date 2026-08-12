@@ -348,7 +348,7 @@ const db = await createNoydb({
 import { createNoydb } from '@noy-db/hub'
 import { withIndexing } from '@noy-db/hub/indexing'
 import { withJoins } from '@noy-db/hub/joins'
-import { withAggregate } from '@noy-db/hub/aggregate'
+import { withReduce } from '@noy-db/hub/reduce'
 import { withRouting } from '@noy-db/hub/routing'
 
 const db = await createNoydb({
@@ -356,7 +356,7 @@ const db = await createNoydb({
   user: 'analyst',
   indexingStrategy: withIndexing({ lazy: true }),
   joinsStrategy: withJoins(),
-  aggregateStrategy: withAggregate(),
+  reduceStrategy: withReduce(),
   routingStrategy: withRouting({ ... }),
 })
 ```

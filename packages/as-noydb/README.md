@@ -14,7 +14,7 @@ pnpm add @noy-db/hub @noy-db/as-noydb
 
 ## What it is
 
-Encrypted .noydb bundle export for noy-db — wraps writeNoydbBundle() with the RFC #249 canExportBundle authorization gate and ergonomic browser/node helpers. Sole member of the @noy-db/as-* encrypted tier — ciphertext in, ciphertext out.
+Encrypted .noydb bundle export for noy-db — wraps writePod() with the RFC #249 canExportBundle authorization gate and ergonomic browser/node helpers. Sole member of the @noy-db/as-* encrypted tier — ciphertext in, ciphertext out.
 
 ## Status
 

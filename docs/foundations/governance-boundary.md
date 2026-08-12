@@ -1,5 +1,11 @@
 # WS-2 governance ceremonies — boundary decision record
 
+> **Note (2026-08-12).** This is a decision record and its argument is preserved as
+> written. The seam names have since changed: `@noy-db/hub/kernel` → `/cargo` and
+> `@noy-db/hub/bundle` → `/pod`, both retired in later lines. Read the `/kernel` and
+> `/bundle` references below as naming those seams at the time of the decision — the
+> boundary conclusion is unaffected.
+
 **Status:** decision (approved 2026-06-20) — no code relocation; durable rationale
 **Type:** architecture decision record (ADR). Workstream #2 of the "orchestration → klum-db" boundary epic.
 **Repos examined:** `vLannaAi/noy-db` (`@noy-db/hub`) and `vLannaAi/klum-db` (`@klum-db/lobby`).
