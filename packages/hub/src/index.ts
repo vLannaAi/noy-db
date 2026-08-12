@@ -102,6 +102,7 @@ export type {
   PullResult,
   SyncTransactionResult,
   SyncStatus,
+  SyncTargetStatus,
   ChangeEvent,
   NoydbEventMap,
   GrantOptions,

@@ -14,6 +14,7 @@ import type {
   SyncStatus,
   SyncTarget,
   SyncTargetInfo,
+  SyncTargetStatus,
   NoydbStore,
   Role,
   AccessibleVault,
@@ -1440,6 +1441,22 @@ export class Noydb {
       return { dirty: 0, lastPush: null, lastPull: null, online: true }
     }
     return engine.status()
+  }
+
+  /**
+   * Per-target sync state for `vault` (#1034) — `syncStatus()` reads only the
+   * primary engine, so it cannot express "the LAN store is behind, the cloud
+   * is current". Registration order, primary first. See {@link SyncTargetStatus}.
+   */
+  syncTargetStatus(vault: string): SyncTargetStatus[] {
+    const targets: SyncTargetStatus[] = []
+    for (const [key, engine] of this.syncEngines) {
+      if (key !== vault && !key.startsWith(`${vault}::`)) continue
+      const { dirty, lastPush, lastPull } = engine.status()
+      const { label, role } = engine
+      targets.push({ label, role, dirty, lastPush, lastPull, caughtUp: dirty === 0 })
+    }
+    return targets
   }
 
   /**

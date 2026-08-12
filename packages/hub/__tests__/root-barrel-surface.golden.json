@@ -844,6 +844,7 @@
     "SyncTarget",
     "SyncTargetInfo",
     "SyncTargetRole",
+    "SyncTargetStatus",
     "SyncTransactionResult",
     "TabChannel",
     "TabCoordinationOptions",
