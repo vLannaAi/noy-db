@@ -140,6 +140,16 @@ jobs:
       - name: Typecheck
         run: pnpm turbo typecheck
 
+      # ci.yml has run this as its own job since it was written; release.yml
+      # never has. A release cut by workflow_dispatch, or from a commit whose
+      # CI never completed, could publish code that violates the design
+      # contract — peer-deps, no-crypto-deps, hub-portable,
+      # stores-ciphertext-only, strategy-opt-in, no-outbound-klum-import.
+      # Cheap (<1s) and it is the guard on the trust boundary, so the publish
+      # path should not be the one place it is absent.
+      - name: Architecture contract
+        run: node scripts/check-architecture.mjs
+
       # HARD GATE: unlike dev CI, a failing test here BLOCKS the publish
       # (this is the last line of defence before npm), on both node 22 + 24.
       # Two-phase schedule matches dev CI (#564) — kept in lockstep per cbf07ea4.
@@ -591,3 +601,35 @@ jobs:
               --title "doc-sync needed: $TAG @$CHANNEL" \
               --body-file /tmp/bridge-comment.md
           fi
+
+      # The job is `continue-on-error: true` so a docs-side outage can never
+      # fail a publish that already succeeded — deliberate, and correct.
+      #
+      # The side effect is that "non-fatal" and "invisible" became the same
+      # setting: the run reports success while this job is red, with nothing in
+      # the summary to say so. noy-db-to lost two releases to exactly that
+      # (a store missing from the payload wiring threw here, twice, both runs
+      # green — noy-db-to#93).
+      #
+      # This step runs only on failure and writes a loud line to the run
+      # summary. It cannot affect the publish: `continue-on-error` already
+      # swallowed the failure at job level.
+      - name: Surface a bridge failure in the run summary
+        if: failure()
+        run: |
+          {
+            echo "## ⚠️ Docs bridge FAILED — the publish succeeded, this did not"
+            echo ""
+            echo "\`docs-bridge.json\` was **not** attached to \`${{ github.event.release.tag_name }}\`,"
+            echo "and no doc-sync issue was filed in noy-db-docs."
+            echo ""
+            echo "The publish itself is unaffected and needs no action."
+            echo ""
+            echo "Most likely cause: a published \`packages/to-*\` store missing from the payload"
+            echo "wiring — \`build-payload.mjs\` throws on the first unregistered store."
+            echo "\`scripts/__tests__/docs-bridge-capabilities.test.ts\` derives the expected set"
+            echo "from the filesystem and should have caught that in the PR; if it did not, the"
+            echo "derivation and the payload script have drifted apart."
+            echo ""
+            echo "Re-run this job after fixing, or run the doc-sync manually."
+          } >> "$GITHUB_STEP_SUMMARY"
