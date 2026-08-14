@@ -49,9 +49,8 @@
  * @module
  */
 import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'
-import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { generateULID } from '../../with-pod/ulid.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 
 /** Reserved collection for consent-audit entries. */
 export const CONSENT_AUDIT_COLLECTION = '_consent_audit'
@@ -163,24 +162,16 @@ async function buildEnvelope(
   getDEK: (collection: string) => Promise<EnclaveKey>,
 ): Promise<EncryptedEnvelope> {
   const json = JSON.stringify(entry)
+  // `entry.id` IS the record id the caller writes under, so identity needs no
+  // threading here (#1051).
+  const identity = { collection: CONSENT_AUDIT_COLLECTION, id: entry.id }
+  const body = { version: 1, ts: entry.timestamp }
   if (!encrypted) {
-    return {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: 1,
-      _ts: entry.timestamp,
-      _iv: '',
-      _data: json,
-    }
+    return buildRecordEnvelope(identity, { ...body, iv: '', data: json })
   }
   const dek = await getDEK(CONSENT_AUDIT_COLLECTION)
   const { iv, data } = await encrypt(json, dek)
-  return {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: 1,
-    _ts: entry.timestamp,
-    _iv: iv,
-    _data: data,
-  }
+  return buildRecordEnvelope(identity, { ...body, iv, data })
 }
 
 async function decryptEntry(
