@@ -1,7 +1,10 @@
 # ADR 0003: Store integrity — untrusted for ordering, not just confidentiality
 
-> **Status:** proposed (#1071 — the design gate on #1041, #1042, #1044).
+> **Status:** **accepted** 2026-08-14 (#1071 — the design gate on #1041, #1042, #1044).
 > **Date:** 2026-08-14. MADR-lite, per ADR 0001.
+>
+> Accepted after the no-legacy premise below replaced the coexistence half of the design.
+> #1041, #1042 and #1044 are unblocked and may land in that order.
 
 ## Context
 
