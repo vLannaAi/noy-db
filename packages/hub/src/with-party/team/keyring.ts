@@ -8,7 +8,7 @@ import {
   generateSalt,
   wrapKey,
   unwrapKey,
-  rekeyEnvelopeToDek,
+  rekeyEnvelopeIfNeeded,
   bufferToBase64,
   base64ToBuffer,
   type EnclaveKey,
@@ -108,6 +108,11 @@ export interface UnlockedKeyring {
   readonly role: Role
   readonly permissions: Permissions
   readonly deks: Map<string, EnclaveKey>
+  /**
+   * Unwrapped counterpart of {@link KeyringFile.pending_deks} — an
+   * uncommitted rotation (#1074). Empty in the normal state.
+   */
+  readonly pendingDeks?: Map<string, EnclaveKey> | undefined
   /**
    * The KEK, when this keyring was unlocked via tier 1 (secret) or
    * a wrap-KEK tier-2 method (WebAuthn / OIDC). `null` when the
@@ -338,6 +343,20 @@ export async function loadKeyring(
     }
   }
 
+  // #1074 — unwrap any uncommitted rotation key. Deliberately NOT folded into
+  // `failedCollections`: a pending DEK that fails to unwrap means the
+  // interrupted rotation cannot be resumed, which is worth surfacing on its own
+  // terms, but it must not make an otherwise-healthy keyring read as corrupt.
+  const pendingDeks = new Map<string, EnclaveKey>()
+  for (const [collName, wrapped] of Object.entries(keyringFile.pending_deks ?? {})) {
+    try {
+      pendingDeks.set(collName, await unwrapKey(wrapped, kek))
+    } catch {
+      // Unresumable; `deks` still holds the pre-rotation key, so the records
+      // the interrupted run had not reached remain readable.
+    }
+  }
+
   if (canaryOk === true) {
     // KEK proven correct by the canary. Any DEK failure is corruption.
     if (failedCollections.length > 0) {
@@ -372,6 +391,7 @@ export async function loadKeyring(
     role: keyringFile.role,
     permissions: keyringFile.permissions,
     deks,
+    pendingDeks,
     kek,
     salt,
     authenticators: keyringFile.authenticators ?? [],
@@ -1036,10 +1056,36 @@ export async function rotateKeys(
     )
   }
   // Generate new DEKs for each affected collection
+  // #1074 part 2 — RESUME. A pending DEK means a previous rotation of this
+  // collection was interrupted after persisting its key but before committing.
+  // Reuse it: minting a fresh one would strand every record the interrupted run
+  // already moved, since nothing would hold the key they were sealed under.
+  //
+  // This is what makes `rotateKeys` its own resume path — re-running it after a
+  // crash finishes the job rather than starting a second, incompatible one.
   const newDeks = new Map<string, EnclaveKey>()
   for (const collName of collections) {
-    newDeks.set(collName, await generateDEK())
+    newDeks.set(collName, callerKeyring.pendingDeks?.get(collName) ?? await generateDEK())
   }
+
+  // Persist the new DEKs BEFORE rewriting a single record. This is the whole
+  // fix: previously the key existed only in memory until after the loop, so any
+  // interruption left already-rewritten records sealed under a key that was
+  // never saved — permanently unreadable, not merely un-migrated.
+  //
+  // `deks` still holds the OLD key here, so reads during the window continue to
+  // work for records the loop has not reached. Records it HAS reached are
+  // unreadable until the rotation is resumed — degraded, but recoverable, which
+  // is the property that was missing.
+  // `pendingDeks` is optional on the public `UnlockedKeyring` — absent simply
+  // means no rotation is in flight — so materialise it on first use rather than
+  // forcing every constructor of the type to write an empty map.
+  const pending = callerKeyring.pendingDeks ?? new Map<string, EnclaveKey>()
+  ;(callerKeyring as { pendingDeks?: Map<string, EnclaveKey> }).pendingDeks = pending
+  for (const [collName, newDek] of newDeks) {
+    pending.set(collName, newDek)
+  }
+  await persistKeyring(store, vault, callerKeyring)
 
   // Re-encrypt all records in affected collections
   //
@@ -1084,14 +1130,21 @@ export async function rotateKeys(
       // instead of trying to decrypt its body under the DEK. Both were wrong
       // inline here, and `enclave-body-only` is why they moved — envelope
       // surgery belongs in the enclave, where the guard can see it.
-      const newEnvelope = await rekeyEnvelopeToDek(envelope, oldDek, newDek)
-      await store.put(vault, collName, id, newEnvelope)
+      // Returns null when this record is already under `newDek` — the
+      // resumed-rotation case. A record readable under NEITHER key rethrows
+      // rather than being skipped: walking silently past unreadable records
+      // would turn a loud failure into permanent quiet loss.
+      const newEnvelope = await rekeyEnvelopeIfNeeded(envelope, oldDek, newDek)
+      if (newEnvelope !== null) await store.put(vault, collName, id, newEnvelope)
     }
   }
 
-  // Update caller's keyring with new DEKs
+  // COMMIT (#1074 part 2). Every record is now under the new key, so promote
+  // it and clear the pending marker. A keyring that still carries `pending_deks`
+  // after this point means the rotation did not reach here.
   for (const [collName, newDek] of newDeks) {
     callerKeyring.deks.set(collName, newDek)
+    callerKeyring.pendingDeks?.delete(collName)
   }
   await persistKeyring(store, vault, callerKeyring)
 
@@ -1726,6 +1779,13 @@ export async function persistKeyring(
   for (const [collName, dek] of keyring.deks) {
     wrappedDeks[collName] = await wrapKey(dek, keyring.kek)
   }
+  // #1074 — an uncommitted rotation's key must survive a crash, so it is
+  // persisted under its own field rather than mixed into `deks`, which would
+  // make readers treat it as current before any record had moved.
+  const wrappedPending: Record<string, string> = {}
+  for (const [collName, dek] of keyring.pendingDeks ?? []) {
+    wrappedPending[collName] = await wrapKey(dek, keyring.kek)
+  }
   const canary = await mintKeyringCanary(keyring.kek)
 
   const keyringFile: KeyringFile = {
@@ -1735,6 +1795,7 @@ export async function persistKeyring(
     role: keyring.role,
     permissions: keyring.permissions,
     deks: wrappedDeks,
+    ...(Object.keys(wrappedPending).length > 0 ? { pending_deks: wrappedPending } : {}),
     salt: bufferToBase64(keyring.salt),
     created_at: existingCreatedAt ?? new Date().toISOString(),
     granted_by: existingGrantedBy ?? keyring.userId,

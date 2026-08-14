@@ -57,3 +57,42 @@ export async function rekeyEnvelopeToDek(
   const { iv, data } = await encrypt(plaintext, newDek)
   return { ...carried, _ts: new Date().toISOString(), _iv: iv, _data: data }
 }
+
+/**
+ * Resumable variant: returns the re-keyed envelope, or `null` when `envelope`
+ * is **already** under `newDek` and needs no work (#1074 part 2).
+ *
+ * A rotation interrupted mid-collection leaves records on both sides of the
+ * migration. Resuming means re-running the rotation with the *same* new DEK,
+ * which requires distinguishing "not yet moved" from "already moved" without
+ * the caller touching protected slots.
+ *
+ * Detection is by trial decryption under `oldDek`. There is no metadata that
+ * says which DEK sealed a record — deliberately, since such a marker would be
+ * store-writable and therefore a downgrade lever (the same reasoning that
+ * keeps the reader from branching on `_noydb`).
+ *
+ * A record that opens under *neither* key is genuinely damaged and rethrows,
+ * rather than being silently skipped: a rotation that quietly walked past
+ * unreadable records would convert a loud failure into permanent silent loss,
+ * which is the defect this whole issue is about.
+ */
+export async function rekeyEnvelopeIfNeeded(
+  envelope: EncryptedEnvelope,
+  oldDek: EnclaveKey,
+  newDek: EnclaveKey,
+): Promise<EncryptedEnvelope | null> {
+  try {
+    return await rekeyEnvelopeToDek(envelope, oldDek, newDek)
+  } catch (errUnderOld) {
+    // Already migrated? Then it opens under the new DEK and there is nothing
+    // to do. Verified rather than assumed.
+    try {
+      if (envelope._cek !== undefined) await unwrapCek(envelope._cek, newDek)
+      else await decrypt(envelope._iv, envelope._data, newDek)
+      return null
+    } catch {
+      throw errUnderOld
+    }
+  }
+}
