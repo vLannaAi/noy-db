@@ -197,11 +197,53 @@ rather than needing to be built:
    is what a deployment reads to report progress. That satisfies the pre-release-soak
    requirement without a flag day.
 
+### Three blockers found while checking this (review, 2026-08-14)
+
+Decision 5 says "migration IS rotation". Checking that against `rotateKeys` found three problems
+that must be fixed **before** rotation can serve as the migration mechanism. None invalidates the
+approach; all are prerequisites, and they are now the real content of this decision.
+
+**B1 — adoption re-wraps a DEK without re-encrypting, and it exists today.**
+`adopt-partition.ts:140` does a bare `saveAll` of the ciphertext and `:253` unseals the *same*
+DEK to re-wrap under a new KEK. Records are never re-encrypted, and the DEK lands in a
+**different keyring file**. So the invariant cannot be "the marker and the DEK travel in the
+same file" — adoption changes the file. It must be **"the marker travels *with the DEK*"**, and
+adoption must be required to carry it. If it defaults to absent, an adopted v2 collection reads
+as v1: **a downgrade path requiring no attacker at all.**
+
+Note this interacts with the `vault` exclusion, which exists *because* adoption re-homes records
+(constraint (c)). Adoption now has to carry format state as well as ciphertext.
+
+**B2 — rotation drops exactly the fields Decision 2 binds.**
+The re-encrypted envelope is built as a fresh literal carrying only
+`_noydb / _v / _ts / _iv / _data`. `_by`, `_tier`, `_cek`, `_sealed`, `_vdig`, `_source` are all
+absent. Binding `_tier` and `_by` into the AAD while making migration a rotation that **strips
+them** is self-defeating: migration would produce envelopes whose AAD cannot be reconstructed,
+and re-tier a record to 0 as a side effect. Rotation must be made field-preserving first.
+
+(`_bidx` is a deliberate exception — the existing comment explains it is DEK-rooted and must be
+dropped, not carried. That reasoning stands and should be preserved.)
+
+**B3 — rotation is not crash-safe, and migration inherits that.**
+The new DEK is generated **in memory** (`generateDEK()`), every record is re-encrypted and
+`put()`, and the keyring is persisted **last**. An interruption mid-collection therefore leaves
+records re-encrypted under a DEK that was never persisted and is now lost — **permanently
+unreadable**, not merely un-migrated.
+
+That directly contradicts point 1 of this decision. "Atomic per collection" describes the
+intended end state, not the mechanism: rotation is a loop, not a transaction. Since the pilot
+gate makes "what happens if migration is interrupted" a release-blocking question, this needs a
+resumable design — persist the new DEK before the loop, or journal progress — before migration
+can be offered to a production-sized vault.
+
 ### The invariant, stated rather than inherited
 
-> **An old keyring cannot mis-describe a migrated collection, because the generation marker and
-> the DEK travel together in the same KEK-authenticated file — and the DEK that accompanies a
-> stale marker cannot decrypt the data that marker would mis-describe.**
+> **An old keyring cannot mis-describe a migrated collection, because the generation marker
+> travels WITH THE DEK — and the DEK that accompanies a stale marker cannot decrypt the data
+> that marker would mis-describe.**
+
+Corrected from "in the same KEK-authenticated file": adoption moves a DEK into a *different*
+file (B1), so the file is not what the property rests on. The DEK is.
 
 This is a property of rotation re-encrypting, not of how the code happens to be arranged today.
 If a future change makes rotation re-wrap DEKs *without* re-encrypting records, **this invariant
@@ -226,6 +268,8 @@ with the client asserted to fail closed on every row:
 | downgrade `_noydb` 2 → 1 | rejected — no no-AAD path exists for a migrated collection | D5 |
 | replay an old keyring to force v1 reads | rejected — its DEKs cannot open v2 records | D5 |
 | rotation that re-wraps without re-encrypting | **the invariant itself is asserted** | D5 |
+| adopt a v2 partition | the adopted collection still reads as v2 | D5/B1 |
+| interrupt a migration mid-collection | resumable; no record becomes unreadable | D5/B3 |
 | withhold a record entirely | detected | head (opt-in) |
 | suppress a `_keyring` delete | retained DEKs worthless | already closed (#1054) |
 
@@ -271,8 +315,15 @@ name installs **without** it.
    authenticate. Bind them for uniformity, or exempt them explicitly and state why in the
    harness? An exemption is an attack surface if a tombstone can be replayed to suppress a
    live record.
-3. **Head granularity and anti-entropy cost.** Per-vault manifest versus per-collection, and how
-   often it is reconciled. Affects whether the head is usable on a large vault.
+3. **Head granularity and anti-entropy cost.** A per-vault `{id → version}` manifest written per
+   commit is write amplification proportional to vault size — potentially unusable on exactly the
+   large deployment that most needs it. Size this **early**: if per-vault does not scale,
+   per-collection changes the manifest's shape, and shape decisions are cheap now and expensive
+   later.
+
+4. **Migration cost, which the pilot will ask first.** How long does converting a
+   production-sized collection take? B3 must be fixed before that question can even be answered
+   honestly.
 
 ## Consequences
 
