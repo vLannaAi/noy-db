@@ -379,7 +379,7 @@ export async function maintainPersistedIndexesOnPut<T>(
           recordId: id,
           writtenAt: new Date().toISOString(),
         })
-        const envelope = await ctx.codec.encryptJsonString(body, version)
+        const envelope = await ctx.codec.encryptJsonString({ collection: ctx.name, id: idxId }, body, version)
         await ctx.adapter.put(ctx.vault, ctx.name, idxId, envelope)
       }
     } catch (cause) {

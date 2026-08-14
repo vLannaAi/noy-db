@@ -262,7 +262,7 @@ export function buildPersistedIndexCallbacks<T>(provideCtx: () => SearchContext<
     save: async (json, fp, isStale) => {
       const ctx = provideCtx()
       const body = JSON.stringify({ fp, idx: json })
-      const env = await ctx.codec.encryptJsonString(body, fp.count)
+      const env = await ctx.codec.encryptJsonString({ collection: FT, id: ctx.name }, body, fp.count)
       // #725 review: a purge (removePersisted) can land while the encrypt above was
       // in flight — check right before the write and skip it rather than resurrect a
       // purged/forgotten record's blob. PersistedIndexStore's own post-save epoch
@@ -408,7 +408,7 @@ export async function embedOnWrite<T>(ctx: SearchContext<T>, id: string, record:
   const vec = await ctx.embeddings.encode(text)
   if (vec.length !== ctx.embeddings.dim) throw new EmbeddingDimMismatchError('embeddings', ctx.embeddings.dim, vec.length)
   const body = JSON.stringify({ vec: Array.from(vec), model: ctx.embeddings.model, dim: ctx.embeddings.dim })
-  const vecEnv = await ctx.codec.encryptJsonString(body, version)
+  const vecEnv = await ctx.codec.encryptJsonString({ collection: '_vec', id: encodeVecId(ctx.name, id) }, body, version)
   await ctx.adapter.put(ctx.vault, '_vec', encodeVecId(ctx.name, id), vecEnv)
   ctx.vectorSet?.markDirty()
 }

@@ -87,7 +87,7 @@ export async function applyCutoverTransform<T>(ctx: CutoverTransformContext<T>):
     // stays directly under the collection DEK. `forget()`/shred reports
     // un-migrated records explicitly rather than claiming erasure.
     const cek = ctx.perRecordCek ? await ctx.resolveRecordCek(id) : undefined
-    const migEnvelope = await ctx.codec.encryptRecord(next as unknown as T, nextVersion, cek, undefined, undefined, ctx.vdigFields !== null ? { id, prev: env } : undefined, id)
+    const migEnvelope = await ctx.codec.encryptRecord({ collection: ctx.name, id }, next as unknown as T, nextVersion, cek, undefined, undefined, ctx.vdigFields !== null ? { id, prev: env } : undefined)
     await ctx.adapter.put(ctx.vault, ctx.name, id, migEnvelope)
     await ctx.onRecordMutated(id, 'put', 'cutover') // refresh in-memory cache after the raw write (parity: cache only)
     if (ctx.ledger) {

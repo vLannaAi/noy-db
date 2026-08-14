@@ -71,7 +71,7 @@ describe('RecordCodec codec boundary — via at-rest hooks (#629 Task 3)', () =>
     const pipeline = ViaPipeline.build([fixtureBinding()])!
     const codec = new RecordCodec(makeCtx({ storeCiphertext: true, via: pipeline, dek }))
 
-    const envelope = await codec.encryptRecord({ secret: 'shh', open: 'visible' }, 1, undefined, undefined, undefined, undefined, 'r1')
+    const envelope = await codec.encryptRecord({ collection: 'c', id: 'r1' }, { secret: 'shh', open: 'visible' }, 1, undefined)
 
     expect(envelope._sealed).toBeDefined()
     expect(envelope._sealed!.secret).toMatch(/^.+:.+$/)
@@ -85,7 +85,7 @@ describe('RecordCodec codec boundary — via at-rest hooks (#629 Task 3)', () =>
     const pipeline = ViaPipeline.build([fixtureBinding()])!
     const codec = new RecordCodec(makeCtx({ storeCiphertext: true, via: pipeline, dek }))
 
-    const envelope = await codec.encryptRecord({ secret: 'shh', open: 'visible' }, 1, cek, undefined, undefined, undefined, 'r1')
+    const envelope = await codec.encryptRecord({ collection: 'c', id: 'r1' }, { secret: 'shh', open: 'visible' }, 1, cek)
     expect(envelope._cek).toBeDefined() // per-record CEK path was taken
 
     const decoded = await codec.decryptRecord(envelope, { id: 'r1' })
@@ -98,7 +98,7 @@ describe('RecordCodec codec boundary — via at-rest hooks (#629 Task 3)', () =>
     const pipeline = ViaPipeline.build([fixtureBinding()])!
     const codec = new RecordCodec(makeCtx({ storeCiphertext: true, via: pipeline, dek }))
 
-    const envelope = await codec.encryptRecord({ secret: 'shh', open: 'visible' }, 1, undefined, undefined, undefined, undefined, 'r1')
+    const envelope = await codec.encryptRecord({ collection: 'c', id: 'r1' }, { secret: 'shh', open: 'visible' }, 1, undefined)
     const decoded = (await codec.decryptRecord(envelope, { id: 'r1', sealedAsHandles: true })) as Record<string, unknown>
 
     expect(decoded.secret).toBeInstanceOf(SealedHandle)
@@ -112,26 +112,30 @@ describe('RecordCodec codec boundary — via at-rest hooks (#629 Task 3)', () =>
     const pipeline = ViaPipeline.build([fixtureBinding()])!
     const codec = new RecordCodec(makeCtx({ storeCiphertext: false, via: pipeline, dek }))
 
-    const envelope = await codec.encryptRecord({ secret: 'shh', open: 'visible' }, 1)
+    const envelope = await codec.encryptRecord({ collection: 'c', id: 'r1' }, { secret: 'shh', open: 'visible' }, 1)
 
     expect(envelope._sealed).toBeUndefined()
     expect(envelope._iv).toBe('')
     expect(JSON.parse(envelope._data)).toEqual({ secret: 'shh', open: 'visible' })
   })
 
-  it('encryptRecord refuses (explicit recordId check) when hasAtRestHooks is true but no id is supplied', async () => {
+  // #1051 retargeted this: the old `id === undefined` case is now a COMPILE
+  // error (`ref.id` is a required string), so the runtime backstop guards the
+  // value that can still slip through — an empty id, which would bind every
+  // such record to the same identity once AAD is on.
+  it('encryptRecord refuses when hasAtRestHooks is true but the record id is empty', async () => {
     const dek = await generateDEK()
     const pipeline = ViaPipeline.build([fixtureBinding()])!
     const codec = new RecordCodec(makeCtx({ storeCiphertext: true, via: pipeline, dek }))
 
-    await expect(codec.encryptRecord({ secret: 'shh' }, 1)).rejects.toThrow(/record id/i)
+    await expect(codec.encryptRecord({ collection: 'c', id: '' }, { secret: 'shh' }, 1)).rejects.toThrow(/record id/i)
   })
 
   it('decryptRecord refuses (explicit recordId check) when hasAtRestHooks is true but opts.id is missing', async () => {
     const dek = await generateDEK()
     const pipeline = ViaPipeline.build([fixtureBinding()])!
     const codec = new RecordCodec(makeCtx({ storeCiphertext: true, via: pipeline, dek }))
-    const envelope = await codec.encryptRecord({ secret: 'shh' }, 1, undefined, undefined, undefined, undefined, 'r1')
+    const envelope = await codec.encryptRecord({ collection: 'c', id: 'r1' }, { secret: 'shh' }, 1, undefined)
 
     await expect(codec.decryptRecord(envelope)).rejects.toThrow(/record id/i)
   })
@@ -146,7 +150,7 @@ describe('zero-via fast path stays on the inline path (#629 Task 3 parity)', () 
 
     const codec = new RecordCodec(makeCtx({ storeCiphertext: true, via: pipeline, dek, sensitiveFields: new Set(['secret']) }))
 
-    const envelope = await codec.encryptRecord({ secret: 'shh', open: 'visible' }, 1)
+    const envelope = await codec.encryptRecord({ collection: 'c', id: 'r1' }, { secret: 'shh', open: 'visible' }, 1)
 
     expect(envelope._sealed).toBeDefined()
     expect(envelope._sealed!.secret).toMatch(/^.+:.+$/)
@@ -163,8 +167,8 @@ describe('zero-via fast path stays on the inline path (#629 Task 3 parity)', () 
       makeCtx({ storeCiphertext: true, via: ViaPipeline.build([syncOnlyBinding])!, dek, sensitiveFields: new Set(['secret']) }),
     )
 
-    const envNoVia = await codecNoVia.encryptRecord(record, 1)
-    const envSyncPipeline = await codecSyncPipeline.encryptRecord(record, 1)
+    const envNoVia = await codecNoVia.encryptRecord({ collection: 'c', id: 'r1' }, record, 1)
+    const envSyncPipeline = await codecSyncPipeline.encryptRecord({ collection: 'c', id: 'r1' }, record, 1)
 
     expect(Object.keys(envNoVia).sort()).toEqual(Object.keys(envSyncPipeline).sort())
     expect(Object.keys(envNoVia._sealed ?? {})).toEqual(Object.keys(envSyncPipeline._sealed ?? {}))
@@ -212,7 +216,7 @@ describe('viaCryptoCtx.reservedEnvelopes — per-collection DEK resolution (#629
     }
     const codec = new RecordCodec(ctx)
 
-    await codec.encryptRecord({ open: 'visible' }, 1, undefined, undefined, undefined, undefined, 'r1')
+    await codec.encryptRecord({ collection: 'c', id: 'r1' }, { open: 'visible' }, 1, undefined)
 
     expect(captured).toBeDefined()
     // The record's OWN collection DEK must NOT open the reserved envelope.
@@ -250,7 +254,7 @@ describe('at-rest hook failure propagates through the codec boundary (#629 Task 
     // A BigInt value: JSON.stringify throws inside sealOneField, BEFORE any
     // crypto runs — a genuine encodeAtRest-hook failure, not a codec-level one.
     await expect(
-      codec.encryptRecord({ mail: 10n as unknown as string }, 1, undefined, undefined, undefined, undefined, 'r1'),
+      codec.encryptRecord({ collection: 'c', id: 'r1' }, { mail: 10n as unknown as string }, 1, undefined),
     ).rejects.toThrow(/BigInt/)
   })
 
@@ -259,7 +263,7 @@ describe('at-rest hook failure propagates through the codec boundary (#629 Task 
     const cfg = { entries: { mail: classified.email() }, collectionName: 'fixtures', guardCtx: fixtureGuardCtx }
     const pipeline = ViaPipeline.build([classifiedBinding(cfg)])!
     const codec = new RecordCodec(makeCtx({ storeCiphertext: true, via: pipeline, dek }))
-    const envelope = await codec.encryptRecord(
+    const envelope = await codec.encryptRecord({ collection: 'c', id: 'r1' }, 
       { mail: 'person@example.com' }, 1, undefined, undefined, undefined, undefined, 'r1',
     )
     expect(envelope._sealed!.mail).toBeDefined()

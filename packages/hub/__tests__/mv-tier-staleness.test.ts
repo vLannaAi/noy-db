@@ -205,7 +205,7 @@ describe('#736 whole-branch review — invalidateMVAtRest scopes deletion to MV-
     const env = (await store.get('demo', MV_STALE_COLLECTION, 'ghost-mv')) ?? null
     expect(env).toBeNull()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const plainEnv = (await import('../src/kernel/enclave/index.js')).RecordCodec.buildPlaintextEnvelope({ version: 1, data: '{}' })
+    const plainEnv = (await import('../src/kernel/enclave/index.js')).RecordCodec.buildPlaintextEnvelope({ collection: 'c', id: 'r1' }, { version: 1, data: '{}' })
     await store.put('demo', MV_STALE_COLLECTION, 'ghost-mv', plainEnv)
     expect(await store.get('demo', MV_STALE_COLLECTION, 'ghost-mv')).not.toBeNull()
 

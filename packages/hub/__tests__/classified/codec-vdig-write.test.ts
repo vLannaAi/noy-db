@@ -28,7 +28,7 @@ describe('encryptRecord digest-only branches (C6)', () => {
   it('rotate branch: string value → _vdig slot, field stripped from _data, no _sealed', async () => {
     const { codec } = await makeCodec(new Map([['password', pw]]))
     const cek = await generateDEK()
-    const env = await codec.encryptRecord({ name: 'Nok', password: 'hunter2-hunter2' }, 1, cek, undefined, undefined, { id: 'r1', prev: null })
+    const env = await codec.encryptRecord({ collection: 'c', id: 'r1' }, { name: 'Nok', password: 'hunter2-hunter2' }, 1, cek, undefined, undefined, { id: 'r1', prev: null })
     expect(env._vdig?.password).toMatch(/^[^:]+:.+$/)
     expect(env._sealed?.password).toBeUndefined()          // I4 mutual exclusion
     const payload = await openVdigPayload(env._vdig!.password!, cek, 'users', 'r1', 'password')
@@ -42,16 +42,16 @@ describe('encryptRecord digest-only branches (C6)', () => {
   it('carry-forward branch: field absent → prev._vdig copied BYTE-VERBATIM', async () => {
     const { codec } = await makeCodec(new Map([['password', pw]]))
     const cek = await generateDEK()
-    const v1 = await codec.encryptRecord({ name: 'Nok', password: 'hunter2-hunter2' }, 1, cek, undefined, undefined, { id: 'r1', prev: null })
-    const v2 = await codec.encryptRecord({ name: 'Somchai' }, 2, cek, undefined, undefined, { id: 'r1', prev: v1 })
+    const v1 = await codec.encryptRecord({ collection: 'c', id: 'r1' }, { name: 'Nok', password: 'hunter2-hunter2' }, 1, cek, undefined, undefined, { id: 'r1', prev: null })
+    const v2 = await codec.encryptRecord({ collection: 'c', id: 'r1' }, { name: 'Somchai' }, 2, cek, undefined, undefined, { id: 'r1', prev: v1 })
     expect(v2._vdig?.password).toBe(v1._vdig?.password)    // verbatim bytes (ledger determinism)
   }, 30_000)
 
   it('clear branch: explicit null drops the slot and emits nothing into _data', async () => {
     const { codec } = await makeCodec(new Map([['password', pw]]))
     const cek = await generateDEK()
-    const v1 = await codec.encryptRecord({ password: 'hunter2-hunter2' }, 1, cek, undefined, undefined, { id: 'r1', prev: null })
-    const v2 = await codec.encryptRecord({ password: null }, 2, cek, undefined, undefined, { id: 'r1', prev: v1 })
+    const v1 = await codec.encryptRecord({ collection: 'c', id: 'r1' }, { password: 'hunter2-hunter2' }, 1, cek, undefined, undefined, { id: 'r1', prev: null })
+    const v2 = await codec.encryptRecord({ collection: 'c', id: 'r1' }, { password: null }, 2, cek, undefined, undefined, { id: 'r1', prev: v1 })
     expect(v2._vdig?.password).toBeUndefined()
     expect(await codec.decryptRecord(v2, { id: 'r1' })).toEqual({})
   }, 30_000)
@@ -60,14 +60,14 @@ describe('encryptRecord digest-only branches (C6)', () => {
     const { codec } = await makeCodec(new Map([['password', pw]]))
     const cek = await generateDEK()
     await expect(
-      codec.encryptRecord({ password: 42 }, 1, cek, undefined, undefined, { id: 'r1', prev: null }),
+      codec.encryptRecord({ collection: 'c', id: 'r1' }, { password: 42 }, 1, cek, undefined, undefined, { id: 'r1', prev: null }),
     ).rejects.toBeInstanceOf(ValidationError)
   })
 
   it('fail-loud: vdig ctx omitted on a digest-only collection (any missed call site = C6 wipe)', async () => {
     const { codec } = await makeCodec(new Map([['password', pw]]))
     const cek = await generateDEK()
-    await expect(codec.encryptRecord({ name: 'x' }, 1, cek)).rejects.toThrow(/silently destroy _vdig|digest-only/)
+    await expect(codec.encryptRecord({ collection: 'c', id: 'r1' }, { name: 'x' }, 1, cek)).rejects.toThrow(/silently destroy _vdig|digest-only/)
   })
 
   it('R6 write-side: rotating a field that still has prev._sealed[field] throws ClassifiedConfigError', async () => {
@@ -78,14 +78,14 @@ describe('encryptRecord digest-only branches (C6)', () => {
       _sealed: { password: 'iv:stale-recoverable-slot' },
     }
     await expect(
-      codec.encryptRecord({ password: 'new-password-1' }, 2, cek, undefined, undefined, { id: 'r1', prev }),
+      codec.encryptRecord({ collection: 'c', id: 'r1' }, { password: 'new-password-1' }, 2, cek, undefined, undefined, { id: 'r1', prev }),
     ).rejects.toBeInstanceOf(ClassifiedConfigError)
   })
 
   it('I5: digest-only fields are excluded from _det even when declared deterministic', async () => {
     const { codec } = await makeCodec(new Map([['password', pw]]), { deterministicFields: new Set(['password', 'city']) })
     const cek = await generateDEK()
-    const env = await codec.encryptRecord({ password: 'hunter2-hunter2', city: 'CNX' }, 1, cek, undefined, undefined, { id: 'r1', prev: null })
+    const env = await codec.encryptRecord({ collection: 'c', id: 'r1' }, { password: 'hunter2-hunter2', city: 'CNX' }, 1, cek, undefined, undefined, { id: 'r1', prev: null })
     expect(env._det?.password).toBeUndefined()
     expect(env._det?.city).toBeDefined()
   }, 30_000)
@@ -96,14 +96,14 @@ describe('notLastN ring (real 600K PBKDF2 — slow test)', () => {
     const ringPw: VdigFieldPolicy = { normalize: 'password', notLastN: 2, equatable: false }
     const { codec } = await makeCodec(new Map([['password', ringPw]]))
     const cek = await generateDEK()
-    const v1 = await codec.encryptRecord({ password: 'password-one!' }, 1, cek, undefined, undefined, { id: 'r1', prev: null })
-    const v2 = await codec.encryptRecord({ password: 'password-two!' }, 2, cek, undefined, undefined, { id: 'r1', prev: v1 })
+    const v1 = await codec.encryptRecord({ collection: 'c', id: 'r1' }, { password: 'password-one!' }, 1, cek, undefined, undefined, { id: 'r1', prev: null })
+    const v2 = await codec.encryptRecord({ collection: 'c', id: 'r1' }, { password: 'password-two!' }, 2, cek, undefined, undefined, { id: 'r1', prev: v1 })
     // reuse of the immediately-previous value → refused
     await expect(
-      codec.encryptRecord({ password: 'password-one!' }, 3, cek, undefined, undefined, { id: 'r1', prev: v2 }),
+      codec.encryptRecord({ collection: 'c', id: 'r1' }, { password: 'password-one!' }, 3, cek, undefined, undefined, { id: 'r1', prev: v2 }),
     ).rejects.toBeInstanceOf(ClassifiedRotationError)
     // a fresh value is fine, and the ring holds ≤ notLastN entries
-    const v3 = await codec.encryptRecord({ password: 'password-three!' }, 3, cek, undefined, undefined, { id: 'r1', prev: v2 })
+    const v3 = await codec.encryptRecord({ collection: 'c', id: 'r1' }, { password: 'password-three!' }, 3, cek, undefined, undefined, { id: 'r1', prev: v2 })
     const payload = await openVdigPayload(v3._vdig!.password!, cek, 'users', 'r1', 'password')
     expect((payload.ring ?? []).length).toBeLessThanOrEqual(2)
   }, 120_000)

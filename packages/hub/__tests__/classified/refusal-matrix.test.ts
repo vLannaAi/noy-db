@@ -186,7 +186,7 @@ describe('Imp5: R6 write-side fires on EVERY codec branch over a prev._sealed sl
     const codec = await makeCodec()
     const cek = await generateDEK()
     await expect(
-      codec.encryptRecord({ password: 'new-password-1' }, 2, cek, undefined, undefined, { id: 'r1', prev: prevWithSealed }),
+      codec.encryptRecord({ collection: 'c', id: 'r1' }, { password: 'new-password-1' }, 2, cek, undefined, undefined, { id: 'r1', prev: prevWithSealed }),
     ).rejects.toBeInstanceOf(ClassifiedConfigError)
   })
 
@@ -194,7 +194,7 @@ describe('Imp5: R6 write-side fires on EVERY codec branch over a prev._sealed sl
     const codec = await makeCodec()
     const cek = await generateDEK()
     await expect(
-      codec.encryptRecord({ name: 'x' }, 2, cek, undefined, undefined, { id: 'r1', prev: prevWithSealed }),
+      codec.encryptRecord({ collection: 'c', id: 'r1' }, { name: 'x' }, 2, cek, undefined, undefined, { id: 'r1', prev: prevWithSealed }),
     ).rejects.toBeInstanceOf(ClassifiedConfigError)
   })
 
@@ -202,7 +202,7 @@ describe('Imp5: R6 write-side fires on EVERY codec branch over a prev._sealed sl
     const codec = await makeCodec()
     const cek = await generateDEK()
     await expect(
-      codec.encryptRecord({ password: null }, 2, cek, undefined, undefined, { id: 'r1', prev: prevWithSealed }),
+      codec.encryptRecord({ collection: 'c', id: 'r1' }, { password: null }, 2, cek, undefined, undefined, { id: 'r1', prev: prevWithSealed }),
     ).rejects.toBeInstanceOf(ClassifiedConfigError)
   })
 })
