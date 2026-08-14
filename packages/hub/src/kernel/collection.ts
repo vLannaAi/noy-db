@@ -732,7 +732,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         const merged = this.strategies.crdt.mergeCrdtStates(JSON.parse(localJson) as CrdtState, JSON.parse(remoteJson) as CrdtState)
         const mergedVersion = Math.max(local._v, remote._v) + 1
         const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
-        return this.codec.encryptJsonString(JSON.stringify(merged), mergedVersion, cek)
+        return this.codec.encryptJsonString({ collection: this.name, id }, JSON.stringify(merged), mergedVersion, cek)
       }
       opts.onRegisterConflictResolver(this.name, crdtResolver)
     }
@@ -790,7 +790,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
           const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
           // R2 refuses digest-only × conflictPolicy; on a vdig collection this path is
           // unreachable and the codec fail-loud guard backstops it.
-          return this.codec.encryptRecord(merged, mergedVersion, cek, undefined, undefined, undefined, id)
+          return this.codec.encryptRecord({ collection: this.name, id }, merged, mergedVersion, cek)
         }
       }
 
@@ -1719,7 +1719,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
     await this.strategies.history.saveHistory(
       this.adapter, this.vault, this.name, id,
-      await this.codec.encryptRecord(prior.record, prior.version, cek, undefined, undefined, vdigCtx, id),
+      await this.codec.encryptRecord({ collection: this.name, id }, prior.record, prior.version, cek, undefined, undefined, vdigCtx), // ⚠️ LIVE identity — saveHistory re-homes this into _history; see RecordCodec.encryptJsonString (#1041)
     )
     this.emitter.emit('history:save', { vault: this.vault, collection: this.name, id, version: prior.version })
 
@@ -1940,7 +1940,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       // Stable per-record CEK shared by the new CRDT body and its history
       // snapshot (undefined on non-CEK collections → legacy path).
       const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
-      const envelope = await this.codec.encryptJsonString(JSON.stringify(crdtState), version, cek, options?.source, options?.sourceTs)
+      const envelope = await this.codec.encryptJsonString({ collection: this.name, id }, JSON.stringify(crdtState), version, cek, options?.source, options?.sourceTs)
       await this.adapter.put(this.vault, this.name, id, envelope)
 
       // Resolve snapshot for cache and history
@@ -2063,7 +2063,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       ? { id, prev: await this.adapter.get(this.vault, this.name, id) }
       : undefined
 
-    const envelope = await this.codec.encryptRecord(record, version, cek, options?.source, options?.sourceTs, vdigCtx, id)
+    const envelope = await this.codec.encryptRecord({ collection: this.name, id }, record, version, cek, options?.source, options?.sourceTs, vdigCtx)
 
     return { id, envelope, version, indexed: record, event: record, prior: existing, cek, vdigCtx, reason: options?.reason }
   }
@@ -2590,7 +2590,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // live envelope) so the displaced version stays in the same key chain as
     // the rest of its history.
     if (existing && this.historyConfig.enabled !== false) {
-      await this.strategies.history.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord(existing.record, existing.version, cek, undefined, undefined, vdigCtx, id))
+      await this.strategies.history.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord({ collection: this.name, id }, existing.record, existing.version, cek, undefined, undefined, vdigCtx)) // live identity — see the _history note above (#1041)
     }
 
     if (marker) {
@@ -3817,7 +3817,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       // chain. `undefined` → legacy path.
       const cek = this.perRecordCek ? await this.resolveRecordCek(id) : undefined
       const prevForVdig = this.vdigFields !== null ? await this.adapter.get(this.vault, this.name, id) : null
-      result[id] = await this.codec.encryptRecord(entry.record, entry.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: prevForVdig } : undefined, id)
+      result[id] = await this.codec.encryptRecord({ collection: this.name, id }, entry.record, entry.version, cek, undefined, undefined, this.vdigFields !== null ? { id, prev: prevForVdig } : undefined)
     }
     return result
   }

@@ -24,7 +24,7 @@ describe('forget + classifySealedShred (_bidx)', () => {
   it('classifySealedShred reports the _bidx slot as live-shreddable+dekResidue-in-backups', async () => {
     const { codec } = await makeCodec(new Map([['password', eq]]))
     const cek = await generateDEK()
-    const env = await codec.encryptRecord(
+    const env = await codec.encryptRecord({ collection: 'c', id: 'r1' }, 
       { password: 'hunter2-hunter2' }, 1, cek, undefined, undefined, { id: 'r1', prev: null },
     )
     expect(env._vdig?.password).toBeDefined()
@@ -41,7 +41,7 @@ describe('forget + classifySealedShred (_bidx)', () => {
   it('tombstone drops _bidx from the live envelope', async () => {
     const { codec } = await makeCodec(new Map([['password', eq]]))
     const cek = await generateDEK()
-    const env = await codec.encryptRecord(
+    const env = await codec.encryptRecord({ collection: 'c', id: 'r1' }, 
       { password: 'hunter2-hunter2' }, 1, cek, undefined, undefined, { id: 'r1', prev: null },
     )
     expect(env._bidx?.password).toBeDefined()

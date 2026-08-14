@@ -20,6 +20,8 @@ import { encrypt, decrypt, encryptDeterministic, deriveDeterministicKey, wrapCek
 import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope, type CrdtMode, type CrdtState, type CrdtStrategy, type VdigFieldPolicy, type SealedHandle } from '../../types.js'
 import { isTombstone, isDeleteMarker } from './tombstone.js'
 import { parseSealedSlot } from './sealed-slot.js'
+import { buildRecordEnvelope } from '../record-envelope.js'
+import type { RecordIdentity } from '../record-aad.js'
 import { sealFields, unsealOneField, unsealFields, makeHandleProducer, makeSealedSlotCapability, makeReservedEnvelopes, type SealKeyMaterial } from './sealed-slots.js'
 import { DebugReservedFieldError, ClassifiedConfigError, ValidationError } from '../../errors.js'
 import { mintVdigSlot } from '../classify/write.js'
@@ -158,7 +160,7 @@ export class RecordCodec<T> {
    * parts. Pure, no crypto. Each call stamps its own `_ts` — provenance carries
    * a SEPARATE timestamp (computed by the caller), so the two never share one.
    */
-  static buildEnvelope(p: {
+  static buildEnvelope(identity: RecordIdentity, p: {
     version: number
     iv: string
     data: string
@@ -167,35 +169,17 @@ export class RecordCodec<T> {
     provenance?: { source: string; sourceTs: string } | undefined
     extra?: Partial<Pick<EncryptedEnvelope, '_tier' | '_det' | '_sealed'>>
   }): EncryptedEnvelope {
-    return {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: p.version,
-      _ts: new Date().toISOString(),
-      _iv: p.iv,
-      _data: p.data,
-      ...(p.by !== undefined ? { _by: p.by } : {}),
-      ...(p.cek !== undefined ? { _cek: p.cek } : {}),
-      ...(p.provenance !== undefined ? { _source: p.provenance.source, _sourceTs: p.provenance.sourceTs } : {}),
-      ...(p.extra ?? {}),
-    }
+    return buildRecordEnvelope(identity, p)
   }
 
   /** Plaintext (`_iv:''`) body envelope — the `!storeCiphertext` shape. */
-  static buildPlaintextEnvelope(p: {
+  static buildPlaintextEnvelope(identity: RecordIdentity, p: {
     version: number
     data: string
     by?: string
     provenance?: { source: string; sourceTs: string } | undefined
   }): EncryptedEnvelope {
-    return {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: p.version,
-      _ts: new Date().toISOString(),
-      _iv: '',
-      _data: p.data,
-      ...(p.by !== undefined ? { _by: p.by } : {}),
-      ...(p.provenance !== undefined ? { _source: p.provenance.source, _sourceTs: p.provenance.sourceTs } : {}),
-    }
+    return buildRecordEnvelope(identity, { ...p, iv: '' })
   }
 
   // ──────────────────────────────────────────────────────────────────────
@@ -210,22 +194,26 @@ export class RecordCodec<T> {
    * (see {@link encryptRecord}). Rejects `_`-prefixed record fields, which
    * would collide with the reserved metadata namespace.
    */
-  buildDebugEnvelope(record: T, version: number, source?: string, sourceTs?: string): EncryptedEnvelope {
+  buildDebugEnvelope(id: string, record: T, version: number, source?: string, sourceTs?: string): EncryptedEnvelope {
     const rec = record as unknown as Record<string, unknown>
     for (const key of Object.keys(rec)) {
       if (key.startsWith('_')) throw new DebugReservedFieldError(this.ctx.name, key)
     }
-    return {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: version,
-      _ts: new Date().toISOString(),
-      _iv: '',
-      _data: '',
-      _by: this.ctx.actor,
-      _debug: NOYDB_FORMAT_VERSION,
-      ...(this.ctx.provenance && source !== undefined ? { _source: source, _sourceTs: sourceTs ?? new Date().toISOString() } : {}),
-      ...rec,
-    } as unknown as EncryptedEnvelope
+    const base = buildRecordEnvelope(
+      { collection: this.ctx.name, id, by: this.ctx.actor },
+      {
+        version,
+        iv: '',
+        data: '',
+        by: this.ctx.actor,
+        ...(this.ctx.provenance && source !== undefined
+          ? { provenance: { source, sourceTs: sourceTs ?? new Date().toISOString() } }
+          : {}),
+      },
+    )
+    // `_debug` and the inlined record fields are this envelope's own shape —
+    // they are not part of the canonical constructor's contract.
+    return { ...base, _debug: NOYDB_FORMAT_VERSION, ...rec } as unknown as EncryptedEnvelope
   }
 
   /**
@@ -237,20 +225,41 @@ export class RecordCodec<T> {
    * path encrypts the body directly under the collection DEK — byte-identical
    * to pre-CEK behaviour, so non-adopting collections pay nothing.
    */
+  /**
+   * `ref` is the identity the envelope is sealed against, and it is **the
+   * location the bytes are stored at** — not necessarily this codec's own
+   * collection (#1051).
+   *
+   * That distinction was discovered here rather than assumed. Several callers
+   * put the result somewhere else entirely: search's vector sidecar lands in
+   * `_vec` under `encodeVecId(name, id)`, the lexical index under `_ft/<name>`,
+   * indexing's entries under a synthetic `idxId`. A codec that supplied
+   * `this.ctx.name` for those would seal them against a collection they are not
+   * in, and once AAD binds identity every one of them would fail to verify.
+   *
+   * ⚠️ **`_history` is the open case, and it is #1041's to settle.** Snapshots
+   * are produced with the LIVE record's identity here and then re-homed by
+   * `saveHistory` into `_history/<historyId(collection,id,_v)>`. Both readings
+   * are defensible — bind where it lives, or bind what it is a copy of — and
+   * the choice must be made before AAD is switched on, not inferred from this
+   * migration.
+   */
   async encryptJsonString(
+    ref: RecordIdentity,
     json: string,
     version: number,
     cek?: EnclaveKey,
     source?: string,
     sourceTs?: string,
   ): Promise<EncryptedEnvelope> {
+    const identity: RecordIdentity = { ...ref, by: this.ctx.actor }
     const by = this.ctx.actor
     const provenance = this.ctx.provenance && source !== undefined
       ? { source, sourceTs: sourceTs ?? new Date().toISOString() }
       : undefined
 
     if (!this.ctx.storeCiphertext) {
-      return RecordCodec.buildPlaintextEnvelope({ version, data: json, by, provenance })
+      return RecordCodec.buildPlaintextEnvelope(identity, { version, data: json, by, provenance })
     }
 
     const dek = await this.ctx.getDEK()
@@ -258,28 +267,40 @@ export class RecordCodec<T> {
     if (cek !== undefined) {
       const { iv, data } = await encrypt(json, cek)
       const wrapped = await wrapCek(cek, dek)
-      return RecordCodec.buildEnvelope({ version, iv, data, by, cek: wrapped, provenance })
+      return RecordCodec.buildEnvelope(identity, { version, iv, data, by, cek: wrapped, provenance })
     }
 
     const { iv, data } = await encrypt(json, dek)
-    return RecordCodec.buildEnvelope({ version, iv, data, by, provenance })
+    return RecordCodec.buildEnvelope(identity, { version, iv, data, by, provenance })
   }
 
+  /**
+   * `ref` is FIRST and required (#1051). It was previously a trailing optional
+   * `id?: string`, which TypeScript cannot promote to required because it sits
+   * after other optionals — so the migration would have needed an `id ?? ''`
+   * fallback. That is exactly the silent default this issue exists to remove:
+   * once identity is bound into the AEAD, every record written with an empty id
+   * binds to the SAME identity and becomes interchangeable with the others.
+   * An object, not a bare string, so a swap with `version`/`source` cannot
+   * compile on the hottest write path. Carries the collection too — see
+   * {@link encryptJsonString} for why the codec must not assume its own.
+   */
   async encryptRecord(
+    ref: RecordIdentity,
     record: T,
     version: number,
     cek?: EnclaveKey,
     source?: string,
     sourceTs?: string,
     vdig?: { readonly id: string; readonly prev: EncryptedEnvelope | null },
-    id?: string,
   ): Promise<EncryptedEnvelope> {
+    const id = ref.id
     // Debug-plaintext: write user-collection records with their fields inlined
     // beside the envelope metadata so native store tools read them directly.
     // Internal (`_`-prefixed) collections keep the classic shape — some store
     // `_`-prefixed fields that the inline layout would collide with.
     if (!this.ctx.storeCiphertext && this.ctx.debugPlaintext && !this.ctx.name.startsWith('_')) {
-      return this.buildDebugEnvelope(record, version, source, sourceTs)
+      return this.buildDebugEnvelope(id, record, version, source, sourceTs)
     }
 
     // ── C-A / R10 config-drift guard (superset) ────────────────────────
@@ -340,10 +361,19 @@ export class RecordCodec<T> {
     let openRecord = record
     let sealed: Record<string, string> | undefined
     if (this.ctx.storeCiphertext && this.ctx.via?.hasAtRestHooks) {
-      if (id === undefined) {
+      // Was `id === undefined`, which #1051 made UNREACHABLE — `ref.id` is a
+      // required `string` now, so the compiler asks the question instead. The
+      // backstop is retargeted rather than deleted: an EMPTY id still gets
+      // through, and it is the realistic hazard, not a hypothetical one. The
+      // first draft of this very migration wrote `id ?? ''` to satisfy a
+      // trailing-optional signature. Once identity is bound into the AEAD every
+      // record written with `''` binds to the SAME identity and they become
+      // mutually interchangeable — the failure would be silent at write time
+      // and unrecoverable later.
+      if (id === '') {
         throw new Error(
           `RecordCodec.encryptRecord: collection "${this.ctx.name}" has via at-rest hooks but this write ` +
-          'path supplied no record id (needed to scope the sealed-slot capability) — caller bug.',
+          'path supplied an empty record id (needed to scope the sealed-slot capability) — caller bug.',
         )
       }
       const src = record as unknown as Record<string, unknown>
@@ -450,7 +480,7 @@ export class RecordCodec<T> {
       if (Object.keys(bidxOut).length > 0) bidxOutMap = bidxOut
     }
 
-    const base = await this.encryptJsonString(JSON.stringify(openRecord), version, cek, source, sourceTs)
+    const base = await this.encryptJsonString(ref, JSON.stringify(openRecord), version, cek, source, sourceTs)
     const withSealed = sealed ? { ...base, _sealed: sealed } : base
     const withVdig = vdigOut ? { ...withSealed, _vdig: vdigOut } : withSealed
     const withBidx = bidxOutMap ? { ...withVdig, _bidx: bidxOutMap } : withVdig
