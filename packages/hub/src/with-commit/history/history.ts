@@ -1,4 +1,5 @@
 import { buildRecordEnvelope } from '../../kernel/enclave/index.js'
+import type { RecordIdentity } from '../../kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope, HistoryOptions, PruneOptions } from '../../kernel/types.js'
 import { isTombstone, isTombstoneShape, rewrapEnvelope, isRewrappedUnder, type EnclaveKey } from '../../kernel/enclave/index.js'
 
@@ -14,6 +15,34 @@ const VERSION_PAD = 10
 
 function historyId(collection: string, recordId: string, version: number): string {
   return `${collection}:${recordId}:${String(version).padStart(VERSION_PAD, '0')}`
+}
+
+/**
+ * The identity a history snapshot is **sealed against** — its STORAGE location,
+ * not the live record it is a copy of (#1041).
+ *
+ * ## Why storage, and why this is a decision rather than a detail
+ *
+ * A snapshot is a copy, so two identities are available: the live record
+ * (`collection`/`recordId`) or where the bytes actually land
+ * (`_history`/`historyId(...)`). They are not equivalent under attack.
+ *
+ * Binding the LIVE identity makes a snapshot's AAD **indistinguishable from the
+ * live record's at the same version** — so an untrusted store could serve a
+ * history entry *as the current record* and the client would accept it. It also
+ * leaves entries relocatable within `_history`.
+ *
+ * Binding STORAGE identity closes both. The cost is that the id must be known
+ * *before* the envelope is sealed, where `saveHistory` previously derived it
+ * *after* (from `envelope._v`) — which is precisely the restructure this
+ * function exists to make possible.
+ *
+ * `saveHistory` uses this too, so the sealed identity and the put location have
+ * **one definition** and cannot drift apart. Changing the layout here changes
+ * both at once, by construction.
+ */
+export function historyIdentity(collection: string, recordId: string, version: number): RecordIdentity {
+  return { collection: HISTORY_COLLECTION, id: historyId(collection, recordId, version) }
 }
 
 // Unused today, kept for future history-id parsing utilities.
@@ -47,7 +76,9 @@ export async function saveHistory(
   recordId: string,
   envelope: EncryptedEnvelope,
 ): Promise<void> {
-  const id = historyId(collection, recordId, envelope._v)
+  // Same derivation the caller sealed against — one definition, so the sealed
+  // identity and the put location cannot drift (#1041).
+  const { id } = historyIdentity(collection, recordId, envelope._v)
   await adapter.put(vault, HISTORY_COLLECTION, id, envelope)
 }
 

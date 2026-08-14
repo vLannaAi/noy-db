@@ -23,6 +23,7 @@ export type { HistoryStrategy } from './strategy.js'
 // ─── Per-record history ──────────────────────────────────
 export {
   saveHistory,
+  historyIdentity,
   getHistory,
   getVersionEnvelope,
   pruneHistory,

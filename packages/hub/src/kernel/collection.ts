@@ -1719,7 +1719,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
     await this.strategies.history.saveHistory(
       this.adapter, this.vault, this.name, id,
-      await this.codec.encryptRecord({ collection: this.name, id }, prior.record, prior.version, cek, undefined, undefined, vdigCtx), // ⚠️ LIVE identity — saveHistory re-homes this into _history; see RecordCodec.encryptJsonString (#1041)
+      await this.codec.encryptRecord(this.strategies.history.historyIdentity(this.name, id, prior.version), prior.record, prior.version, cek, undefined, undefined, vdigCtx), // sealed against its _history STORAGE identity (#1041)
     )
     this.emitter.emit('history:save', { vault: this.vault, collection: this.name, id, version: prior.version })
 
@@ -2590,7 +2590,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // live envelope) so the displaced version stays in the same key chain as
     // the rest of its history.
     if (existing && this.historyConfig.enabled !== false) {
-      await this.strategies.history.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord({ collection: this.name, id }, existing.record, existing.version, cek, undefined, undefined, vdigCtx)) // live identity — see the _history note above (#1041)
+      await this.strategies.history.saveHistory(this.adapter, this.vault, this.name, id, await this.codec.encryptRecord(this.strategies.history.historyIdentity(this.name, id, existing.version), existing.record, existing.version, cek, undefined, undefined, vdigCtx))
     }
 
     if (marker) {
