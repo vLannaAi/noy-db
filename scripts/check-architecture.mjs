@@ -2084,7 +2084,7 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   // decrypt/re-encrypt of arbitrary collection records (unrelated to
   // keyring-file reads) plus `writeKeyringFile`'s envelope-literal
   // construction. 16→8.
-  ['packages/hub/src/with-party/team/keyring.ts', 8],
+  ['packages/hub/src/with-party/team/keyring.ts', 4],  // #1074: rekeyEnvelopeToDek moved the envelope surgery into the enclave
   ['packages/hub/src/with-party/team/magic-link-grant.ts', 2],
   ['packages/hub/src/with-party/team/managed-secret.ts', 3],
   // #951: `recoverUser`'s target-keyring fetch+parse now routes through
