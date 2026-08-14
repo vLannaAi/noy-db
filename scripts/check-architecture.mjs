@@ -2063,13 +2063,13 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-formula/derivations/fanout-sidecar.ts', 2],
   ['packages/hub/src/with-party/auth-introspection/index.ts', 1],
   ['packages/hub/src/with-party/custody/liberate.ts', 2],
-  ['packages/hub/src/with-party/directory/cover/storage.ts', 3],
-  ['packages/hub/src/with-party/directory/storage.ts', 3],
-  ['packages/hub/src/with-party/directory/user-envelope/storage.ts', 2],
-  ['packages/hub/src/with-party/directory/visibility.ts', 3],
-  ['packages/hub/src/with-party/policy/storage.ts', 3],
-  ['packages/hub/src/with-party/team/deed.ts', 3],
-  ['packages/hub/src/with-party/team/delegation.ts', 2],
+  ['packages/hub/src/with-party/directory/cover/storage.ts', 1],
+  ['packages/hub/src/with-party/directory/storage.ts', 1],
+  ['packages/hub/src/with-party/directory/user-envelope/storage.ts', 0],
+  ['packages/hub/src/with-party/directory/visibility.ts', 1],
+  ['packages/hub/src/with-party/policy/storage.ts', 1],
+  ['packages/hub/src/with-party/team/deed.ts', 1],
+  ['packages/hub/src/with-party/team/delegation.ts', 0],
   // #951: `beginEchoUnlock`'s raw fetch+parse now routes through
   // `readKeyringFile` (keyring.ts) and its expiry check through
   // `assertKeyringNotExpired` — the file's last direct `_data` access is
@@ -2084,20 +2084,20 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   // decrypt/re-encrypt of arbitrary collection records (unrelated to
   // keyring-file reads) plus `writeKeyringFile`'s envelope-literal
   // construction. 16→8.
-  ['packages/hub/src/with-party/team/keyring.ts', 4],  // #1074: rekeyEnvelopeToDek moved the envelope surgery into the enclave
-  ['packages/hub/src/with-party/team/magic-link-grant.ts', 2],
-  ['packages/hub/src/with-party/team/managed-secret.ts', 3],
+  ['packages/hub/src/with-party/team/keyring.ts', 2],  // #1074: rekeyEnvelopeToDek moved the envelope surgery into the enclave
+  ['packages/hub/src/with-party/team/magic-link-grant.ts', 0],
+  ['packages/hub/src/with-party/team/managed-secret.ts', 1],
   // #951: `recoverUser`'s target-keyring fetch+parse now routes through
   // `readKeyringFile` (keyring.ts) — its own `writeKeyringFile`-equivalent
   // envelope-literal construction is the sole remaining access. 3→2.
-  ['packages/hub/src/with-party/team/peer-recover.ts', 2],
+  ['packages/hub/src/with-party/team/peer-recover.ts', 0],
   ['packages/hub/src/with-sync/presence.ts', 1],  // #1051
-  ['packages/hub/src/with-party/team/recovery.ts', 6],
+  ['packages/hub/src/with-party/team/recovery.ts', 2],
   // #951: `rotateSecret`'s and `recoverSecret`'s (paper + Shamir profiles)
   // 3 fetch+parse sites now route through `readKeyringFile` (keyring.ts) —
   // the file's own `writeKeyringFile` envelope-literal construction is the
   // sole remaining access. 5→2.
-  ['packages/hub/src/with-party/team/rotate-recover.ts', 2],
+  ['packages/hub/src/with-party/team/rotate-recover.ts', 0],
   ['packages/hub/src/with-sync/engine.ts', 1],  // #1051
   ['packages/hub/src/with-pod/backup.ts', 1],  // #1051: buildRecordEnvelope() now builds these bodies
   ['packages/hub/src/with-pod/pod.ts', 2],

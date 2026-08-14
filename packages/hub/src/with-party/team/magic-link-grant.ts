@@ -48,12 +48,11 @@
  * @module
  */
 
-import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
+import type { NoydbStore } from '../../kernel/types.js'
 import type { UnlockedKeyring } from './keyring.js'
-import { encrypt, openEnvelopeJson, wrapKey, unwrapKey, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildRecordEnvelope, encrypt, openEnvelopeJson, wrapKey, unwrapKey, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { dekKey } from './tiers.js'
 import { DelegationTargetMissingError } from '../../kernel/errors.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 
 /** Reserved collection holding magic-link grant envelopes. */
 export const MAGIC_LINK_GRANTS_COLLECTION = '_magic_link_grants'
@@ -186,14 +185,10 @@ export async function writeMagicLinkGrant(
   }
 
   const { iv, data } = await encrypt(JSON.stringify(payload), contentKey)
-  const envelope: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: 1,
-    _ts: createdAt,
-    _iv: iv,
-    _data: data,
-    _by: grantor.userId,
-  }
+  const envelope = buildRecordEnvelope(
+    { collection: MAGIC_LINK_GRANTS_COLLECTION, id: recordId, by: grantor.userId },
+    { version: 1, ts: createdAt, iv, data, by: grantor.userId },
+  )
   await store.put(vault, MAGIC_LINK_GRANTS_COLLECTION, recordId, envelope)
   return { recordId, payload }
 }

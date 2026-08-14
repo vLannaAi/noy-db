@@ -1,7 +1,8 @@
 import type { NoydbStore, KeyringFile, KeyringAuthenticator, Role, Permissions, GrantOptions, RevokeOptions, UpdateUserOptions, UserInfo, EncryptedEnvelope, ExportCapability, ExportFormat, ImportCapability, VaultPolicyOnDisk, UserEnvelope } from '../../kernel/types.js'
-import { NOYDB_KEYRING_VERSION, NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
+import { NOYDB_KEYRING_VERSION } from '../../kernel/types.js'
 import { USER_ENVELOPE_COLLECTION } from '../../kernel/constants.js'
 import {
+  buildRecordEnvelope,
   deriveKey,
   deriveEchoKey,
   generateDEK,
@@ -2007,12 +2008,9 @@ async function writeKeyringFile(
   userId: string,
   keyringFile: KeyringFile,
 ): Promise<void> {
-  const envelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: 1,
-    _ts: new Date().toISOString(),
-    _iv: '',
-    _data: JSON.stringify(keyringFile),
-  }
+  const envelope = buildRecordEnvelope(
+    { collection: '_keyring', id: userId },
+    { version: 1, iv: '', data: JSON.stringify(keyringFile) },
+  )
   await store.put(vault, '_keyring', userId, envelope)
 }

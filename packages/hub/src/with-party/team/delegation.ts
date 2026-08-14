@@ -39,13 +39,12 @@
  * @module
  */
 
-import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
+import type { NoydbStore } from '../../kernel/types.js'
 import type { UnlockedKeyring } from './keyring.js'
-import { encrypt, openEnvelopeJson, wrapKey, unwrapKey, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildRecordEnvelope, encrypt, openEnvelopeJson, wrapKey, unwrapKey, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { dekKey } from './tiers.js'
 import { DelegationTargetMissingError } from '../../kernel/errors.js'
 import { generateULID } from '../../with-pod/ulid.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 
 export const DELEGATIONS_COLLECTION = '_delegations'
 
@@ -121,14 +120,10 @@ export async function issueDelegation(
 
   const plaintext = JSON.stringify(token)
   const { iv, data } = await encrypt(plaintext, delegationsDek)
-  const envelope: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: 1,
-    _ts: token.createdAt,
-    _iv: iv,
-    _data: data,
-    _by: grantor.userId,
-  }
+  const envelope = buildRecordEnvelope(
+    { collection: DELEGATIONS_COLLECTION, id: token.id, by: grantor.userId },
+    { version: 1, ts: token.createdAt, iv, data, by: grantor.userId },
+  )
   await store.put(vault, DELEGATIONS_COLLECTION, token.id, envelope)
   return token
 }

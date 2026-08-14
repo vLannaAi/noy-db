@@ -6,8 +6,8 @@
  *
  * @module
  */
-import type { NoydbStore, EncryptedEnvelope } from '../../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../../kernel/types.js'
+import { buildRecordEnvelope } from '../../../kernel/enclave/index.js'
+import type { NoydbStore } from '../../../kernel/types.js'
 import type { Cover } from './types.js'
 import { isCover } from './schema.js'
 
@@ -46,13 +46,10 @@ export async function saveCover(
   vault: string,
   cover: Cover,
 ): Promise<void> {
-  const wireEnvelope: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: 1,
-    _ts: new Date().toISOString(),
-    _iv: '',
-    _data: JSON.stringify(cover),
-  }
+  const wireEnvelope = buildRecordEnvelope(
+    { collection: '_meta', id: COVER_RECORD_ID },
+    { version: 1, iv: '', data: JSON.stringify(cover) },
+  )
   await store.put(vault, '_meta', COVER_RECORD_ID, wireEnvelope)
 }
 

@@ -48,8 +48,8 @@
  * @module
  */
 
-import type { NoydbStore, EncryptedEnvelope, RecipientSealer } from '../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
+import { buildRecordEnvelope } from '../../kernel/enclave/index.js'
+import type { NoydbStore, RecipientSealer } from '../../kernel/types.js'
 
 /**
  * The contract concrete providers (per-platform key stores) implement
@@ -456,14 +456,11 @@ export async function saveSealedSecret(
     payload: bytesToBase64(payload.sealed),
   }
   const prior = await store.get(vault, '_meta', SEALED_SECRET_RECORD_ID)
-  const env: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: (prior?._v ?? 0) + 1,
-    _ts: new Date().toISOString(),
+  const env = buildRecordEnvelope(
+    { collection: '_meta', id: SEALED_SECRET_RECORD_ID },
     // AES-GCM bypassed — the sealing layer is the security boundary.
-    _iv: '',
-    _data: JSON.stringify(persisted),
-  }
+    { version: (prior?._v ?? 0) + 1, iv: '', data: JSON.stringify(persisted) },
+  )
   await store.put(vault, '_meta', SEALED_SECRET_RECORD_ID, env)
 }
 

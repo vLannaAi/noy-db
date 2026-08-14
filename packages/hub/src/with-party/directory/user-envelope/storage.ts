@@ -16,9 +16,8 @@
  *
  * @module
  */
-import type { NoydbStore, EncryptedEnvelope, UserEnvelope } from '../../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../../kernel/types.js'
-import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../../kernel/enclave/index.js'
+import type { NoydbStore, UserEnvelope } from '../../../kernel/types.js'
+import { buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../../kernel/enclave/index.js'
 import { ConflictError, UserEnvelopeOversizedError } from '../../../kernel/errors.js'
 import {
   USER_ENVELOPE_COLLECTION,
@@ -96,13 +95,10 @@ export async function saveUserEnvelope<T>(
   const ts = new Date().toISOString()
   const { iv, data } = await encrypt(json, dek)
 
-  const envelope: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: nextVersion,
-    _ts: ts,
-    _iv: iv,
-    _data: data,
-  }
+  const envelope = buildRecordEnvelope(
+    { collection: USER_ENVELOPE_COLLECTION, id: keyringId },
+    { version: nextVersion, ts, iv, data },
+  )
   await store.put(vault, USER_ENVELOPE_COLLECTION, keyringId, envelope)
 
   return {
