@@ -841,6 +841,24 @@ export async function revoke(
   // Load the target's keyring to check their role
   const targetFound = await readKeyringFile(store, vault, options.userId)
   if (!targetFound) {
+    // #1077 — the entry may be absent because a PREVIOUS revoke deleted it and
+    // then failed during rotation. `revoke()` deletes first and rotates second,
+    // with no transaction, so that window is reachable by any store error.
+    //
+    // Throwing here is what made the state dangerous: the operator retries,
+    // sees "has no keyring", reads it as "already revoked, nothing to do", and
+    // stops — while the keys were never rotated. The failure was silent
+    // precisely because it looked like success.
+    //
+    // An uncommitted rotation on the caller's own keyring is the evidence that
+    // this happened (`pending_deks`, #1074). Resume it rather than reporting a
+    // not-found: finishing the interrupted job is what the operator asked for,
+    // and it makes retrying `revoke()` idempotent instead of misleading.
+    const pending = [...(callerKeyring.pendingDeks?.keys() ?? [])]
+    if (pending.length > 0) {
+      await rotateKeys(store, vault, callerKeyring, { collections: pending })
+      return
+    }
     throw new NoAccessError(`User "${options.userId}" has no keyring in vault "${vault}"`)
   }
 
