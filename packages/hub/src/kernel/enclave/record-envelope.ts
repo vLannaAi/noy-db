@@ -76,3 +76,31 @@ export function buildRecordEnvelope(
     ...(body.extra ?? {}),
   }
 }
+
+/**
+ * Build an envelope from an already-sealed body — the output of
+ * `writeEnvelopeBody` — **without the caller ever naming `_iv`/`_data`/`_cek`**.
+ *
+ * This exists because of a guard, and the guard was right. Migrating
+ * `writeEnvelopeBody` callers to {@link buildRecordEnvelope} meant rewriting
+ * `...body` (a spread, which names nothing) into `iv: body._iv, data:
+ * body._data, cek: body._cek` — and `enclave-body-only` failed it: three new
+ * protected-body accesses in files that previously had zero.
+ *
+ * That is the correct outcome rather than an obstacle. #1051 exists to move
+ * knowledge of the envelope's shape *inward*; a migration that spreads the
+ * protected field names outward to every caller would have defeated its own
+ * purpose while looking like progress. The pairing belongs here.
+ */
+export function buildSealedRecordEnvelope(
+  identity: RecordIdentity,
+  sealed: Pick<EncryptedEnvelope, '_iv' | '_data' | '_cek'>,
+  body: Omit<RecordEnvelopeBody, 'iv' | 'data' | 'cek'>,
+): EncryptedEnvelope {
+  return buildRecordEnvelope(identity, {
+    ...body,
+    iv: sealed._iv,
+    data: sealed._data,
+    cek: sealed._cek,
+  })
+}

@@ -10,6 +10,7 @@
     "buildDeleteMarker",
     "buildRecordAad",
     "buildRecordEnvelope",
+    "buildSealedRecordEnvelope",
     "buildTombstone",
     "computeBidxTarget",
     "computeBrokerProof",

@@ -3,8 +3,8 @@
  * state, stored at `_meta/schema-fence` using the plaintext-envelope
  * pattern of `_meta/policy` (no PII — a counter + a state enum).
  */
-import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
+import type { NoydbStore } from '../../kernel/types.js'
+import { buildRecordEnvelope } from '../../kernel/enclave/index.js'
 
 export type FenceState = 'normal' | 'draining' | 'migrating' | 'complete'
 
@@ -40,13 +40,10 @@ export async function loadFence(store: NoydbStore, vault: string): Promise<Fence
 }
 
 export async function saveFence(store: NoydbStore, vault: string, fence: FenceDoc): Promise<void> {
-  const envelope: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: 1,
-    _ts: new Date().toISOString(),
-    _iv: '',
-    _data: JSON.stringify(fence),
-  }
+  const envelope = buildRecordEnvelope(
+    { collection: META_COLLECTION, id: FENCE_RECORD_ID },
+    { version: 1, iv: '', data: JSON.stringify(fence) },
+  )
   await store.put(vault, META_COLLECTION, FENCE_RECORD_ID, envelope)
 }
 

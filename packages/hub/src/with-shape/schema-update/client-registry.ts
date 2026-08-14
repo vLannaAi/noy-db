@@ -4,8 +4,8 @@
  * liveness (`lastSeen`) and the fence generation it has quiesced for
  * (`quiescedAtVersion`). Plaintext envelope, like the fence doc.
  */
-import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
+import type { NoydbStore } from '../../kernel/types.js'
+import { buildRecordEnvelope } from '../../kernel/enclave/index.js'
 
 const META_COLLECTION = '_meta'
 const CLIENT_PREFIX = 'schema-fence:client:'
@@ -28,14 +28,12 @@ export async function writeClientDoc(
   clientId: string,
   doc: { lastSeen: number; quiescedAtVersion: number | null; sessionId?: string },
 ): Promise<void> {
-  const envelope: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: 1,
-    _ts: new Date().toISOString(),
-    _iv: '',
-    _data: JSON.stringify({ clientId, ...doc }),
-  }
-  await store.put(vault, META_COLLECTION, `${CLIENT_PREFIX}${clientId}`, envelope)
+  const recordId = `${CLIENT_PREFIX}${clientId}`
+  const envelope = buildRecordEnvelope(
+    { collection: META_COLLECTION, id: recordId },
+    { version: 1, iv: '', data: JSON.stringify({ clientId, ...doc }) },
+  )
+  await store.put(vault, META_COLLECTION, recordId, envelope)
 }
 
 export async function listClientDocs(store: NoydbStore, vault: string): Promise<ClientDoc[]> {

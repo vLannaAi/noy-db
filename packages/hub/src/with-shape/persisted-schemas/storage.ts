@@ -15,9 +15,8 @@
  * @module
  */
 
-import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
+import { buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
+import type { NoydbStore } from '../../kernel/types.js'
 import type { PersistedSchemaEnvelope } from './types.js'
 
 /** Reserved collection name where persisted schemas live. */
@@ -100,12 +99,9 @@ export async function savePersistedSchema(
   const json = JSON.stringify(payload)
   const { iv, data } = await encrypt(json, dek)
   const baseVersion = expectedVersion ?? (await store.get(vault, SCHEMAS_COLLECTION, collection))?._v ?? 0
-  const env: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: baseVersion + 1,
-    _ts: new Date().toISOString(),
-    _iv: iv,
-    _data: data,
-  }
+  const env = buildRecordEnvelope(
+    { collection: SCHEMAS_COLLECTION, id: collection },
+    { version: baseVersion + 1, iv, data },
+  )
   await store.put(vault, SCHEMAS_COLLECTION, collection, env, expectedVersion)
 }

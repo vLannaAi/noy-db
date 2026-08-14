@@ -30,9 +30,8 @@
  */
 
 import type { NoydbStore, EncryptedEnvelope, SlotInfo } from '../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { ValidationError } from '../../kernel/errors.js'
-import { encrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildRecordEnvelope, encrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
 
 // ─── Config types ───────────────────────────────────────────────────────
 
@@ -498,27 +497,15 @@ function generateEvictionId(collection: string, recordId: string, slotName: stri
 
 async function writeAuditEntry(ctx: CompactionContext, entry: BlobEvictionEntry): Promise<void> {
   const json = JSON.stringify(entry)
+  const identity = { collection: BLOB_EVICTION_AUDIT_COLLECTION, id: entry.id, by: entry.actor }
+  const body = { version: 1, ts: entry.evictedAt, by: entry.actor }
   let envelope: EncryptedEnvelope
   if (ctx.encrypted) {
     const dek = await ctx.getDEK(BLOB_EVICTION_AUDIT_COLLECTION)
     const { iv, data } = await encrypt(json, dek)
-    envelope = {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: 1,
-      _ts: entry.evictedAt,
-      _iv: iv,
-      _data: data,
-      _by: entry.actor,
-    }
+    envelope = buildRecordEnvelope(identity, { ...body, iv, data })
   } else {
-    envelope = {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: 1,
-      _ts: entry.evictedAt,
-      _iv: '',
-      _data: json,
-      _by: entry.actor,
-    }
+    envelope = buildRecordEnvelope(identity, { ...body, iv: '', data: json })
   }
   await ctx.adapter.put(ctx.vault, BLOB_EVICTION_AUDIT_COLLECTION, entry.id, envelope)
 }

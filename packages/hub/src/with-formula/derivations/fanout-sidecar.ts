@@ -21,8 +21,7 @@
  * @module
  */
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 
 type GetDEK = (collectionName: string) => Promise<EnclaveKey>
 
@@ -132,24 +131,14 @@ export async function saveFanoutSidecar(
   const id = recordId(payload.source, payload.sourceId, payload.outputKey)
   const prior = await store.get(vault, '_meta', id)
   const json = JSON.stringify(doc)
+  const identity = { collection: '_meta', id }
+  const version = (prior?._v ?? 0) + 1
   let envelope: EncryptedEnvelope
   if (!encrypted) {
-    envelope = {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: (prior?._v ?? 0) + 1,
-      _ts: new Date().toISOString(),
-      _iv: '',
-      _data: json,
-    }
+    envelope = buildRecordEnvelope(identity, { version, iv: '', data: json })
   } else {
     const { iv, data } = await encrypt(json, await getDEK(FANOUT_DEK_COLLECTION))
-    envelope = {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: (prior?._v ?? 0) + 1,
-      _ts: new Date().toISOString(),
-      _iv: iv,
-      _data: data,
-    }
+    envelope = buildRecordEnvelope(identity, { version, iv, data })
   }
   await store.put(vault, '_meta', id, envelope)
 }

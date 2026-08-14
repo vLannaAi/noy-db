@@ -8,10 +8,10 @@ import type {
   BlobPutOptions,
   BlobResponseOptions,
 } from '../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import type { ObjectProjection } from './object-projection.js'
 import type { BlobFieldsConfig } from './blob-compaction.js'
 import {
+  buildRecordEnvelope,
   encrypt,
   openEnvelopeJson,
   hmacSha256Hex,
@@ -498,26 +498,16 @@ export class BlobSet {
   ): Promise<void> {
     const json = JSON.stringify(slots)
     const now = new Date().toISOString()
+    const identity = { collection: this.slotsCollection, id: this.recordId }
+    const body = { version: currentVersion + 1, ts: now }
     let envelope: EncryptedEnvelope
 
     if (this.encrypted) {
       const dek = await this.getDEK(dekKey(this.collection, tier ?? await this.ownerTier()))
       const { iv, data } = await encrypt(json, dek)
-      envelope = {
-        _noydb: NOYDB_FORMAT_VERSION,
-        _v: currentVersion + 1,
-        _ts: now,
-        _iv: iv,
-        _data: data,
-      }
+      envelope = buildRecordEnvelope(identity, { ...body, iv, data })
     } else {
-      envelope = {
-        _noydb: NOYDB_FORMAT_VERSION,
-        _v: currentVersion + 1,
-        _ts: now,
-        _iv: '',
-        _data: json,
-      }
+      envelope = buildRecordEnvelope(identity, { ...body, iv: '', data: json })
     }
 
     await this.store.put(
@@ -733,12 +723,13 @@ export class BlobSet {
     const newVersion = (expectedVersion ?? 0) + 1
     let envelope: EncryptedEnvelope
 
+    const identity = { collection: BLOB_INDEX_COLLECTION, id: blob.eTag }
     if (this.encrypted) {
       const dek = await this.getDEK(dekKey(BLOB_COLLECTION, tier ?? await this.ownerTier()))
       const { iv, data } = await encrypt(json, dek)
-      envelope = { _noydb: NOYDB_FORMAT_VERSION, _v: newVersion, _ts: now, _iv: iv, _data: data }
+      envelope = buildRecordEnvelope(identity, { version: newVersion, ts: now, iv, data })
     } else {
-      envelope = { _noydb: NOYDB_FORMAT_VERSION, _v: newVersion, _ts: now, _iv: '', _data: json }
+      envelope = buildRecordEnvelope(identity, { version: newVersion, ts: now, iv: '', data: json })
     }
 
     await this.store.put(
@@ -1952,18 +1943,13 @@ export class BlobSet {
     const now = new Date().toISOString()
     let envelope: EncryptedEnvelope
 
+    const identity = { collection: BLOB_CHUNKS_COLLECTION, id }
     if (dek) {
       const aad = chunkAAD(eTag, index, chunkCount)
       const { iv, data } = await encryptBytesWithAAD(chunk, dek, aad)
-      envelope = { _noydb: NOYDB_FORMAT_VERSION, _v: 1, _ts: now, _iv: iv, _data: data }
+      envelope = buildRecordEnvelope(identity, { version: 1, ts: now, iv, data })
     } else {
-      envelope = {
-        _noydb: NOYDB_FORMAT_VERSION,
-        _v: 1,
-        _ts: now,
-        _iv: '',
-        _data: bufferToBase64(chunk),
-      }
+      envelope = buildRecordEnvelope(identity, { version: 1, ts: now, iv: '', data: bufferToBase64(chunk) })
     }
 
     await this.store.put(this.vault, BLOB_CHUNKS_COLLECTION, id, envelope)
@@ -2052,12 +2038,13 @@ export class BlobSet {
     const now = new Date().toISOString()
     let envelope: EncryptedEnvelope
 
+    const identity = { collection: this.versionsCollection, id: key }
     if (this.encrypted) {
       const dek = await this.getDEK(dekKey(this.collection, tier))
       const { iv, data } = await encrypt(json, dek)
-      envelope = { _noydb: NOYDB_FORMAT_VERSION, _v: 1, _ts: now, _iv: iv, _data: data }
+      envelope = buildRecordEnvelope(identity, { version: 1, ts: now, iv, data })
     } else {
-      envelope = { _noydb: NOYDB_FORMAT_VERSION, _v: 1, _ts: now, _iv: '', _data: json }
+      envelope = buildRecordEnvelope(identity, { version: 1, ts: now, iv: '', data: json })
     }
 
     await this.store.put(this.vault, this.versionsCollection, key, envelope)

@@ -45,8 +45,7 @@
  */
 
 import type { NoydbStore, EncryptedEnvelope } from '../../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../../kernel/types.js'
-import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../../kernel/enclave/index.js'
+import { buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../../kernel/enclave/index.js'
 import type { ConflictError} from '../../../kernel/errors.js';
 import { isConflictError, LedgerContentionError } from '../../../kernel/errors.js'
 import {
@@ -287,7 +286,7 @@ export class LedgerStore {
     let deltaEnvelope: EncryptedEnvelope | undefined
     let deltaHash: string | undefined
     if (input.delta !== undefined) {
-      deltaEnvelope = await this.encryptDelta(input.delta)
+      deltaEnvelope = await this.encryptDelta(input.delta, nextIndex)
       deltaHash = await sha256Hex(deltaEnvelope._data)
     }
 
@@ -404,29 +403,22 @@ export class LedgerStore {
     return purged
   }
 
-  /** Encrypt a JSON Patch into an envelope for storage. Mirrors encryptEntry. */
-  private async encryptDelta(patch: JsonPatch): Promise<EncryptedEnvelope> {
+  /**
+   * Encrypt a JSON Patch into an envelope for storage. Mirrors encryptEntry.
+   *
+   * `index` is the ledger index this delta will be stored under — the caller
+   * knows it before the entry exists, and it is what makes the envelope's
+   * identity bindable (#1051).
+   */
+  private async encryptDelta(patch: JsonPatch, index: number): Promise<EncryptedEnvelope> {
+    const identity = { collection: LEDGER_DELTAS_COLLECTION, id: paddedIndex(index), by: this.actor }
     const json = JSON.stringify(patch)
     if (!this.encrypted) {
-      return {
-        _noydb: NOYDB_FORMAT_VERSION,
-        _v: 1,
-        _ts: new Date().toISOString(),
-        _iv: '',
-        _data: json,
-        _by: this.actor,
-      }
+      return buildRecordEnvelope(identity, { version: 1, iv: '', data: json, by: this.actor })
     }
     const dek = await this.getDEK(LEDGER_COLLECTION)
     const { iv, data } = await encrypt(json, dek)
-    return {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: 1,
-      _ts: new Date().toISOString(),
-      _iv: iv,
-      _data: data,
-      _by: this.actor,
-    }
+    return buildRecordEnvelope(identity, { version: 1, iv, data, by: this.actor })
   }
 
   /**
@@ -687,27 +679,15 @@ export class LedgerStore {
    * writes should always bump the index).
    */
   private async encryptEntry(entry: LedgerEntry): Promise<EncryptedEnvelope> {
+    const identity = { collection: LEDGER_COLLECTION, id: paddedIndex(entry.index), by: entry.actor }
+    const body = { version: entry.index + 1, ts: entry.ts, by: entry.actor }
     const json = canonicalJson(entry)
     if (!this.encrypted) {
-      return {
-        _noydb: NOYDB_FORMAT_VERSION,
-        _v: entry.index + 1,
-        _ts: entry.ts,
-        _iv: '',
-        _data: json,
-        _by: entry.actor,
-      }
+      return buildRecordEnvelope(identity, { ...body, iv: '', data: json })
     }
     const dek = await this.getDEK(LEDGER_COLLECTION)
     const { iv, data } = await encrypt(json, dek)
-    return {
-      _noydb: NOYDB_FORMAT_VERSION,
-      _v: entry.index + 1,
-      _ts: entry.ts,
-      _iv: iv,
-      _data: data,
-      _by: entry.actor,
-    }
+    return buildRecordEnvelope(identity, { ...body, iv, data })
   }
 
   /** Decrypt an envelope into a LedgerEntry. Throws on bad key / tamper. */

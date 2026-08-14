@@ -38,8 +38,7 @@
  * 2, rehome — mint/resume/consume for `op:'rehome'` markers).
  */
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { writeEnvelopeBody, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildSealedRecordEnvelope, writeEnvelopeBody, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { isConflictError, BlobIntentPendingError, ValidationError } from '../../kernel/errors.js'
 
 /** Reserved collection holding `_blob_intent` marker rows. */
@@ -134,15 +133,18 @@ function parseIntentKey(key: string): { collection: string; recordId: string } |
  * already-created marker in place and passes the incremented version
  * explicitly.
  */
-async function encodeIntentEnvelope(intent: BlobIntent, dek: EnclaveKey, newVersion = 1): Promise<EncryptedEnvelope> {
+async function encodeIntentEnvelope(
+  intent: BlobIntent,
+  dek: EnclaveKey,
+  key: string,
+  newVersion = 1,
+): Promise<EncryptedEnvelope> {
   const json = JSON.stringify(intent)
-  const body = await writeEnvelopeBody(json, dek)
-  return {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: newVersion,
-    _ts: new Date().toISOString(),
-    ...body,
-  }
+  return buildSealedRecordEnvelope(
+    { collection: BLOB_INTENT_COLLECTION, id: key },
+    await writeEnvelopeBody(json, dek),
+    { version: newVersion },
+  )
 }
 
 /** Decrypt an envelope back into its `BlobIntent` payload. */
@@ -191,7 +193,7 @@ export async function createIntent(
 ): Promise<void> {
   const key = intentKey(collection, recordId)
   const dek = await getDEK(collection)
-  const envelope = await encodeIntentEnvelope(intent, dek)
+  const envelope = await encodeIntentEnvelope(intent, dek, key)
   try {
     await adapter.put(vault, BLOB_INTENT_COLLECTION, key, envelope, 0)
   } catch (err) {
@@ -246,7 +248,7 @@ export async function recordAppliedStamp(
     const intent = await decodeIntentEnvelope(envelope, dek)
     if (intent.op !== 'rehome' || intent.appliedStamps?.includes(stamp)) return // already recorded (or not ours)
     const updated: BlobIntent = { ...intent, appliedStamps: [...(intent.appliedStamps ?? []), stamp] }
-    const newEnvelope = await encodeIntentEnvelope(updated, dek, envelope._v + 1)
+    const newEnvelope = await encodeIntentEnvelope(updated, dek, key, envelope._v + 1)
     try {
       await adapter.put(vault, BLOB_INTENT_COLLECTION, key, newEnvelope, envelope._v)
       return
