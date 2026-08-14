@@ -1428,7 +1428,7 @@ const KERNEL_SURFACE_BUDGET = {
   // `listSyncTargets()` (same walk, different projection) are already in this
   // file, and splitting one of the three out would cost more clarity than the
   // 16 lines buy back. Still 167 under the 2344 this file started at.
-  'packages/hub/src/kernel/noydb.ts': 2178,
+  'packages/hub/src/kernel/noydb.ts': 2179,  // #1074: +1 for pendingDeks on the bootstrap keyring literal
   // Lowered 2407→2345 (#834 vault() cache-only, 2026-07-26): deleting the two drifted
   // fallback Vault constructors from vault() removed ~80 lines of duplicated option block.
   // A test now asserts noydb.ts contains exactly ONE `new Vault(` site — that invariant,

@@ -1012,6 +1012,21 @@ export interface KeyringFile {
   readonly role: Role
   readonly permissions: Permissions
   readonly deks: Record<string, string>
+  /**
+   * DEKs for a rotation that has STARTED but not committed (#1074).
+   *
+   * `rotateKeys` persists the new DEK here *before* rewriting any record, so an
+   * interruption can never strand records under a key that was only ever in
+   * memory. On commit these move into `deks` and this is cleared.
+   *
+   * Present on disk ⇒ a rotation was interrupted and the collection may hold
+   * records on both sides of the migration. Re-running `rotateKeys` resumes
+   * with this key rather than minting a fresh one.
+   *
+   * Optional: absent on every keyring written before this existed, and absent
+   * in the normal committed state.
+   */
+  readonly pending_deks?: Record<string, string>
   readonly salt: string
   readonly created_at: string
   readonly granted_by: string
