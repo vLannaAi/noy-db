@@ -12,9 +12,13 @@
  * The wiring table lives here, mirroring noy-db-to's dump.
  */
 import { describe, it, expect } from 'vitest'
-import { writeFileSync, mkdtempSync } from 'node:fs'
+import { writeFileSync, mkdtempSync, readdirSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+/** Repo root — this file lives at scripts/__tests__/. */
+const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url))
 
 import { toMemory } from '../../packages/to-memory/src/index.js'
 import { toFile } from '../../packages/to-file/src/index.js'
@@ -84,9 +88,27 @@ describe('docs-bridge capability dump', () => {
       else expect(dump[dir]!.conditionalBits, `${dir}: conditionalBits on a fixed store`).toBeUndefined()
     }
 
-    // Guards the count against a store being added to packages/ without being
-    // wired here — build-payload.mjs throws on the same drift from the other side.
-    expect(Object.keys(dump)).toHaveLength(4)
+    // DERIVED, not counted. A hardcoded length cannot catch the drift its own
+    // comment claimed: add a 5th store to packages/ without wiring it here and
+    // the dump stays at 4, so the assertion passes and `build-payload.mjs`
+    // throws at RELEASE time instead — which is exactly how noy-db-to lost two
+    // releases to `to-browser-fs` (noy-db-to#93).
+    //
+    // `build-payload.mjs` enumerates `packages/to-*`; this reads the same
+    // source, so a new store fails here in the PR that adds it.
+    const shipped = readdirSync(join(REPO_ROOT, 'packages'), { withFileTypes: true })
+      .filter(d => d.isDirectory() && d.name.startsWith('to-'))
+      .map(d => d.name)
+      .filter(name => {
+        const pkg = join(REPO_ROOT, 'packages', name, 'package.json')
+        if (!existsSync(pkg)) return false
+        return JSON.parse(readFileSync(pkg, 'utf8')).private !== true
+      })
+      .sort()
+    expect(
+      Object.keys(dump).sort(),
+      'every published to-* store must be wired into WIRING — see build-payload.mjs',
+    ).toEqual(shipped)
 
     const out = process.env['DOCS_BRIDGE_CAPS_OUT']
     if (out) writeFileSync(out, JSON.stringify(dump, null, 2) + '\n')

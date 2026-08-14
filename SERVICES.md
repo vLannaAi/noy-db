@@ -111,7 +111,7 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 | # | Subpath | Headline | LOC saved | Pairs with |
 |---|---|---|---:|---|
 | 12 | `@noy-db/hub/shadow` | Read-only `vault.frame()` views | 129 | `history` (time-machine) |
-| 13 | `@noy-db/hub/pod` (alias: `/bundle`, deprecated) | `.noydb` encrypted container format (backup, transport) | 846 | `blobs`, `routing` |
+| 13 | `@noy-db/hub/pod` | `.noydb` encrypted container format (backup, transport) | 846 | `blobs`, `routing` |
 | 23 | `@noy-db/hub/snapshots` | Vault checkpoint/restore — `db.snapshot()` / `listSnapshots()` / `restoreSnapshot()` with declarative retention + `ledgerHead` tamper-detection | ~200 | `pod`, `history` |
 
 ### Cluster G — Collaboration & Auth
@@ -307,7 +307,7 @@ import { withI18n } from '@noy-db/hub/i18n'
 import { withConsent } from '@noy-db/hub/consent'
 
 const db = await createNoydb({
-  store: postgresStore({ ... }),
+  store: routeStore({ ... }),   // multi-store routing is a STORE, not a strategy
   user: 'admin',
   historyStrategy: withHistory(),
   periodsStrategy: withPeriods(),
@@ -325,7 +325,6 @@ const db = await createNoydb({
 import { createNoydb } from '@noy-db/hub'
 import { withCrdt } from '@noy-db/hub/crdt'
 import { withSync } from '@noy-db/hub/sync'
-import { withLive } from '@noy-db/hub/live'
 import { withTeam } from '@noy-db/hub/team'
 import { withSession } from '@noy-db/hub/session'
 
@@ -334,7 +333,6 @@ const db = await createNoydb({
   user: currentUser,
   crdtStrategy: withCrdt(),
   syncStrategy: withSync({ peer: ... }),
-  liveStrategy: withLive(),
   teamStrategy: withTeam(),
   sessionStrategy: withSession(),
 })
@@ -347,17 +345,14 @@ const db = await createNoydb({
 ```ts
 import { createNoydb } from '@noy-db/hub'
 import { withIndexing } from '@noy-db/hub/indexing'
-import { withJoins } from '@noy-db/hub/joins'
 import { withReduce } from '@noy-db/hub/reduce'
-import { withRouting } from '@noy-db/hub/routing'
+import { routeStore } from '@noy-db/hub/store'
 
 const db = await createNoydb({
-  store: postgresStore({ ... }),
+  store: routeStore({ ... }),   // multi-store routing is a STORE, not a strategy
   user: 'analyst',
   indexingStrategy: withIndexing({ lazy: true }),
-  joinsStrategy: withJoins(),
   reduceStrategy: withReduce(),
-  routingStrategy: withRouting({ ... }),
 })
 ```
 
