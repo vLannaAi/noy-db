@@ -8,8 +8,7 @@ import {
   generateSalt,
   wrapKey,
   unwrapKey,
-  encrypt,
-  decrypt,
+  rekeyEnvelopeIfNeeded,
   bufferToBase64,
   base64ToBuffer,
   type EnclaveKey,
@@ -109,6 +108,11 @@ export interface UnlockedKeyring {
   readonly role: Role
   readonly permissions: Permissions
   readonly deks: Map<string, EnclaveKey>
+  /**
+   * Unwrapped counterpart of {@link KeyringFile.pending_deks} — an
+   * uncommitted rotation (#1074). Empty in the normal state.
+   */
+  readonly pendingDeks?: Map<string, EnclaveKey> | undefined
   /**
    * The KEK, when this keyring was unlocked via tier 1 (secret) or
    * a wrap-KEK tier-2 method (WebAuthn / OIDC). `null` when the
@@ -339,6 +343,20 @@ export async function loadKeyring(
     }
   }
 
+  // #1074 — unwrap any uncommitted rotation key. Deliberately NOT folded into
+  // `failedCollections`: a pending DEK that fails to unwrap means the
+  // interrupted rotation cannot be resumed, which is worth surfacing on its own
+  // terms, but it must not make an otherwise-healthy keyring read as corrupt.
+  const pendingDeks = new Map<string, EnclaveKey>()
+  for (const [collName, wrapped] of Object.entries(keyringFile.pending_deks ?? {})) {
+    try {
+      pendingDeks.set(collName, await unwrapKey(wrapped, kek))
+    } catch {
+      // Unresumable; `deks` still holds the pre-rotation key, so the records
+      // the interrupted run had not reached remain readable.
+    }
+  }
+
   if (canaryOk === true) {
     // KEK proven correct by the canary. Any DEK failure is corruption.
     if (failedCollections.length > 0) {
@@ -373,6 +391,7 @@ export async function loadKeyring(
     role: keyringFile.role,
     permissions: keyringFile.permissions,
     deks,
+    pendingDeks,
     kek,
     salt,
     authenticators: keyringFile.authenticators ?? [],
@@ -822,6 +841,24 @@ export async function revoke(
   // Load the target's keyring to check their role
   const targetFound = await readKeyringFile(store, vault, options.userId)
   if (!targetFound) {
+    // #1077 — the entry may be absent because a PREVIOUS revoke deleted it and
+    // then failed during rotation. `revoke()` deletes first and rotates second,
+    // with no transaction, so that window is reachable by any store error.
+    //
+    // Throwing here is what made the state dangerous: the operator retries,
+    // sees "has no keyring", reads it as "already revoked, nothing to do", and
+    // stops — while the keys were never rotated. The failure was silent
+    // precisely because it looked like success.
+    //
+    // An uncommitted rotation on the caller's own keyring is the evidence that
+    // this happened (`pending_deks`, #1074). Resume it rather than reporting a
+    // not-found: finishing the interrupted job is what the operator asked for,
+    // and it makes retrying `revoke()` idempotent instead of misleading.
+    const pending = [...(callerKeyring.pendingDeks?.keys() ?? [])]
+    if (pending.length > 0) {
+      await rotateKeys(store, vault, callerKeyring, { collections: pending })
+      return
+    }
     throw new NoAccessError(`User "${options.userId}" has no keyring in vault "${vault}"`)
   }
 
@@ -1037,10 +1074,36 @@ export async function rotateKeys(
     )
   }
   // Generate new DEKs for each affected collection
+  // #1074 part 2 — RESUME. A pending DEK means a previous rotation of this
+  // collection was interrupted after persisting its key but before committing.
+  // Reuse it: minting a fresh one would strand every record the interrupted run
+  // already moved, since nothing would hold the key they were sealed under.
+  //
+  // This is what makes `rotateKeys` its own resume path — re-running it after a
+  // crash finishes the job rather than starting a second, incompatible one.
   const newDeks = new Map<string, EnclaveKey>()
   for (const collName of collections) {
-    newDeks.set(collName, await generateDEK())
+    newDeks.set(collName, callerKeyring.pendingDeks?.get(collName) ?? await generateDEK())
   }
+
+  // Persist the new DEKs BEFORE rewriting a single record. This is the whole
+  // fix: previously the key existed only in memory until after the loop, so any
+  // interruption left already-rewritten records sealed under a key that was
+  // never saved — permanently unreadable, not merely un-migrated.
+  //
+  // `deks` still holds the OLD key here, so reads during the window continue to
+  // work for records the loop has not reached. Records it HAS reached are
+  // unreadable until the rotation is resumed — degraded, but recoverable, which
+  // is the property that was missing.
+  // `pendingDeks` is optional on the public `UnlockedKeyring` — absent simply
+  // means no rotation is in flight — so materialise it on first use rather than
+  // forcing every constructor of the type to write an empty map.
+  const pending = callerKeyring.pendingDeks ?? new Map<string, EnclaveKey>()
+  ;(callerKeyring as { pendingDeks?: Map<string, EnclaveKey> }).pendingDeks = pending
+  for (const [collName, newDek] of newDeks) {
+    pending.set(collName, newDek)
+  }
+  await persistKeyring(store, vault, callerKeyring)
 
   // Re-encrypt all records in affected collections
   //
@@ -1056,13 +1119,20 @@ export async function rotateKeys(
   // only regrow per-record, the next time each record is `put()` under the
   // new DEK.
   //
-  // D-5 (pre-existing hazard, flagged not fixed): in a mixed collection, bare
-  // (non-`_cek`) records below are re-encrypted and `put()` in this loop
-  // *before* any `_cek` record is reached; if a later record in the same
-  // collection throws (e.g. an unwrap failure), those already-rewritten bare
-  // records are left persisted under the new DEK while `callerKeyring` is
-  // never updated with it (the `deks.set` below hasn't run) — an unsaved-DEK
-  // state with no rollback.
+  // #1074 — CRASH-SAFETY HAZARD, still open, and the scope is GENERAL.
+  //
+  // This was previously filed as D-5 and described narrowly: "in a mixed
+  // collection, if a later record throws". That framing understated it and is
+  // why it sat. The hazard applies to ANY interruption of this loop — a thrown
+  // error, a process kill, a lost connection — because the new DEK exists only
+  // in memory until `persistKeyring` runs AFTER every record is rewritten.
+  // Interrupt it and the already-rewritten records are sealed under a DEK that
+  // was never persisted: permanently unreadable, not merely un-migrated.
+  //
+  // Fixed separately (see #1074): the new DEK must be persisted BEFORE the loop
+  // so a resume can find it. Doing that needs the keyring to hold two
+  // generations transiently, so it is its own change rather than part of this
+  // one. What IS fixed here is everything the loop does to a record it reaches.
   for (const collName of collections) {
     const oldDek = callerKeyring.deks.get(collName)
     const newDek = newDeks.get(collName)!
@@ -1073,25 +1143,26 @@ export async function rotateKeys(
       const envelope = await store.get(vault, collName, id)
       if (!envelope || !envelope._iv) continue
 
-      // Decrypt with old DEK
-      const plaintext = await decrypt(envelope._iv, envelope._data, oldDek)
-
-      // Re-encrypt with new DEK
-      const { iv, data } = await encrypt(plaintext, newDek)
-      const newEnvelope: EncryptedEnvelope = {
-        _noydb: NOYDB_FORMAT_VERSION,
-        _v: envelope._v,
-        _ts: new Date().toISOString(),
-        _iv: iv,
-        _data: data,
-      }
-      await store.put(vault, collName, id, newEnvelope)
+      // #1074 — one enclave helper does the whole per-record rotation:
+      // carries every slot except `_bidx`, and re-wraps a per-record CEK
+      // instead of trying to decrypt its body under the DEK. Both were wrong
+      // inline here, and `enclave-body-only` is why they moved — envelope
+      // surgery belongs in the enclave, where the guard can see it.
+      // Returns null when this record is already under `newDek` — the
+      // resumed-rotation case. A record readable under NEITHER key rethrows
+      // rather than being skipped: walking silently past unreadable records
+      // would turn a loud failure into permanent quiet loss.
+      const newEnvelope = await rekeyEnvelopeIfNeeded(envelope, oldDek, newDek)
+      if (newEnvelope !== null) await store.put(vault, collName, id, newEnvelope)
     }
   }
 
-  // Update caller's keyring with new DEKs
+  // COMMIT (#1074 part 2). Every record is now under the new key, so promote
+  // it and clear the pending marker. A keyring that still carries `pending_deks`
+  // after this point means the rotation did not reach here.
   for (const [collName, newDek] of newDeks) {
     callerKeyring.deks.set(collName, newDek)
+    callerKeyring.pendingDeks?.delete(collName)
   }
   await persistKeyring(store, vault, callerKeyring)
 
@@ -1726,6 +1797,13 @@ export async function persistKeyring(
   for (const [collName, dek] of keyring.deks) {
     wrappedDeks[collName] = await wrapKey(dek, keyring.kek)
   }
+  // #1074 — an uncommitted rotation's key must survive a crash, so it is
+  // persisted under its own field rather than mixed into `deks`, which would
+  // make readers treat it as current before any record had moved.
+  const wrappedPending: Record<string, string> = {}
+  for (const [collName, dek] of keyring.pendingDeks ?? []) {
+    wrappedPending[collName] = await wrapKey(dek, keyring.kek)
+  }
   const canary = await mintKeyringCanary(keyring.kek)
 
   const keyringFile: KeyringFile = {
@@ -1735,6 +1813,7 @@ export async function persistKeyring(
     role: keyring.role,
     permissions: keyring.permissions,
     deks: wrappedDeks,
+    ...(Object.keys(wrappedPending).length > 0 ? { pending_deks: wrappedPending } : {}),
     salt: bufferToBase64(keyring.salt),
     created_at: existingCreatedAt ?? new Date().toISOString(),
     granted_by: existingGrantedBy ?? keyring.userId,
