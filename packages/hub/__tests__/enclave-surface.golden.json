@@ -55,6 +55,7 @@
     "openEnvelopeJson",
     "pbkdf2VerifyDigest",
     "queryByDet",
+    "rekeyEnvelopeToDek",
     "resolveStableCek",
     "revokeSealedRecord",
     "rewrapBodyToDek",

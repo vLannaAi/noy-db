@@ -8,8 +8,7 @@ import {
   generateSalt,
   wrapKey,
   unwrapKey,
-  encrypt,
-  decrypt,
+  rekeyEnvelopeToDek,
   bufferToBase64,
   base64ToBuffer,
   type EnclaveKey,
@@ -1056,13 +1055,20 @@ export async function rotateKeys(
   // only regrow per-record, the next time each record is `put()` under the
   // new DEK.
   //
-  // D-5 (pre-existing hazard, flagged not fixed): in a mixed collection, bare
-  // (non-`_cek`) records below are re-encrypted and `put()` in this loop
-  // *before* any `_cek` record is reached; if a later record in the same
-  // collection throws (e.g. an unwrap failure), those already-rewritten bare
-  // records are left persisted under the new DEK while `callerKeyring` is
-  // never updated with it (the `deks.set` below hasn't run) — an unsaved-DEK
-  // state with no rollback.
+  // #1074 — CRASH-SAFETY HAZARD, still open, and the scope is GENERAL.
+  //
+  // This was previously filed as D-5 and described narrowly: "in a mixed
+  // collection, if a later record throws". That framing understated it and is
+  // why it sat. The hazard applies to ANY interruption of this loop — a thrown
+  // error, a process kill, a lost connection — because the new DEK exists only
+  // in memory until `persistKeyring` runs AFTER every record is rewritten.
+  // Interrupt it and the already-rewritten records are sealed under a DEK that
+  // was never persisted: permanently unreadable, not merely un-migrated.
+  //
+  // Fixed separately (see #1074): the new DEK must be persisted BEFORE the loop
+  // so a resume can find it. Doing that needs the keyring to hold two
+  // generations transiently, so it is its own change rather than part of this
+  // one. What IS fixed here is everything the loop does to a record it reaches.
   for (const collName of collections) {
     const oldDek = callerKeyring.deks.get(collName)
     const newDek = newDeks.get(collName)!
@@ -1073,18 +1079,12 @@ export async function rotateKeys(
       const envelope = await store.get(vault, collName, id)
       if (!envelope || !envelope._iv) continue
 
-      // Decrypt with old DEK
-      const plaintext = await decrypt(envelope._iv, envelope._data, oldDek)
-
-      // Re-encrypt with new DEK
-      const { iv, data } = await encrypt(plaintext, newDek)
-      const newEnvelope: EncryptedEnvelope = {
-        _noydb: NOYDB_FORMAT_VERSION,
-        _v: envelope._v,
-        _ts: new Date().toISOString(),
-        _iv: iv,
-        _data: data,
-      }
+      // #1074 — one enclave helper does the whole per-record rotation:
+      // carries every slot except `_bidx`, and re-wraps a per-record CEK
+      // instead of trying to decrypt its body under the DEK. Both were wrong
+      // inline here, and `enclave-body-only` is why they moved — envelope
+      // surgery belongs in the enclave, where the guard can see it.
+      const newEnvelope = await rekeyEnvelopeToDek(envelope, oldDek, newDek)
       await store.put(vault, collName, id, newEnvelope)
     }
   }
