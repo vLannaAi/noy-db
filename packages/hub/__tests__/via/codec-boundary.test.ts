@@ -263,8 +263,10 @@ describe('at-rest hook failure propagates through the codec boundary (#629 Task 
     const cfg = { entries: { mail: classified.email() }, collectionName: 'fixtures', guardCtx: fixtureGuardCtx }
     const pipeline = ViaPipeline.build([classifiedBinding(cfg)])!
     const codec = new RecordCodec(makeCtx({ storeCiphertext: true, via: pipeline, dek }))
-    const envelope = await codec.encryptRecord({ collection: 'c', id: 'r1' }, 
-      { mail: 'person@example.com' }, 1, undefined, undefined, undefined, undefined, 'r1',
+    const envelope = await codec.encryptRecord(
+      { collection: 'c', id: 'r1' },
+      { mail: 'person@example.com' },
+      1,
     )
     expect(envelope._sealed!.mail).toBeDefined()
 
