@@ -1,5 +1,124 @@
 # Changelog — hub
 
+## 0.6.0-pre.17
+
+### Patch Changes
+
+- Close three silent-failure gaps in CI and docs (coordination hand-off)
+
+  **`release.yml` now runs the architecture contract.** `ci.yml` has always had it
+  as its own job; the release path never did, so a cut via `workflow_dispatch` — or
+  from a commit whose CI never completed — could publish code violating
+  peer-deps / no-crypto-deps / hub-portable / stores-ciphertext-only /
+  strategy-opt-in / no-outbound-klum-import.
+
+  **The docs-bridge completeness test now derives its expectation from the
+  filesystem.** It asserted a hardcoded `toHaveLength(4)`, which could not catch the
+  drift its own comment claimed: adding a 5th `to-*` store without wiring it leaves
+  the dump at 4 and the test green, so `build-payload.mjs` throws at release time
+  instead. That cost noy-db-to two releases. Verified by adding a fake store and
+  watching the test fail.
+
+  **A failed docs-bridge job now writes to the run summary.** The job is
+  `continue-on-error` so a docs outage cannot fail a publish — correct, but it made
+  "non-fatal" and "invisible" the same setting.
+
+  Also new: a check that fenced `@noy-db/hub/<subpath>` imports in `README.md` and
+  `SERVICES.md` exist in hub's `exports` map — prose is the one category with no
+  gate, which is how #1063 happened.
+
+  It found three more, all in `SERVICES.md`'s recipes and all contradicting that
+  file's own catalog table: `withLive` and `withJoins` do not exist because
+  `.live()`/`.subscribe()` and joins are **always-core**, and `withRouting` does not
+  exist because routing is a **store** (`routeStore()` from `/store`), not a
+  strategy. Also corrected `/pod`'s row, which still described `/bundle` as a
+  deprecated alias after it was removed.
+
+- `revoke()` resumes an interrupted rotation instead of reporting "no keyring" (#1077)
+
+  `revoke()` deletes the target's keyring entry and _then_ rotates, with no
+  transaction. If rotation failed, the roster entry was gone and the keys were
+  unchanged — and retrying threw `NoAccessError` because the entry the first
+  attempt deleted was missing.
+
+  That error is indistinguishable from "already revoked, nothing to do". The
+  operator retried, saw a not-found, concluded the job was done, and stopped —
+  while the keys had never been rotated. **The failure was silent precisely
+  because it looked like success.**
+
+  An uncommitted rotation on the caller's own keyring (`pending_deks`, #1074) is
+  evidence that this happened. `revoke()` now resumes it rather than reporting
+  not-found, which finishes the job the operator asked for and makes retrying
+  idempotent instead of misleading.
+
+  Only reachable when a rotation was genuinely interrupted; a `revoke()` for a user
+  who never existed still throws `NoAccessError` as before.
+
+- **DEK rotation is now crash-safe and resumable** (#1074 part 2)
+
+  Additive only: `KeyringFile.pending_deks` and `UnlockedKeyring.pendingDeks` are
+  both optional, so no consumer breaks. Keyrings written before this load
+  unchanged, and one written with a pending rotation is readable by an older
+  client — which simply ignores the field and sees the pre-rotation key, the same
+  state it would have seen anyway.
+
+  The new DEK was generated in memory, every record re-encrypted, and the keyring
+  persisted **last**. An interruption left records sealed under a key that was
+  never saved — permanently unreadable, not merely un-migrated.
+
+  The new DEK is now persisted **before** any record is rewritten, under a new
+  optional `KeyringFile.pending_deks`. `deks` still holds the old key during the
+  window, so records the loop has not reached keep reading normally; records it has
+  reached are unreadable **until resumed**, which is degraded but recoverable — the
+  property that was missing.
+
+  Re-running `rotateKeys` **is** the resume path: it reuses a pending DEK rather
+  than minting a fresh one, and skips records already on the new side. A record
+  readable under neither key rethrows rather than being skipped, so a rotation
+  cannot quietly walk past damage.
+
+  `UnlockedKeyring.pendingDeks` is **optional** — absent means no rotation in
+  flight. That keeps the publicly exported type constructible without ceremony;
+  two satellites construct it and would otherwise have needed edits for a field
+  that is an implementation detail of rotation.
+
+  Verified by interrupting a real rotation — the store throws mid-loop — then
+  resuming and asserting every record is readable. Removing the pre-loop persist
+  turns that test red.
+
+- **Fix data loss on every revocation**: DEK rotation no longer discards envelope slots (#1074)
+
+  `rotateKeys` rebuilt each re-encrypted record as a fresh literal carrying only
+  `_noydb/_v/_ts/_iv/_data`, silently dropping `_by`, `_tier`, `_cek`, `_sealed`,
+  `_vdig` and `_source`/`_sourceTs`.
+
+  Since #1054 removed `rotateKeys: false`, rotation is the **only** revocation
+  path — so every revocation on every published version has been erasing tier
+  elevation and provenance on the affected collections. Losing `_tier` was the
+  worst of them: tier-0 reads treat elevated as missing, so an elevated record did
+  not error after a rotation, it **disappeared**.
+
+  Rotation also **could not complete at all** on a collection holding a
+  per-record-CEK record: those bodies are sealed under the CEK, not the DEK, and
+  the loop ran `decrypt(body, oldDek)` on them, which throws. Rotation now
+  re-wraps the CEK and leaves the body untouched.
+
+  The per-record work moved into a new enclave helper, `rekeyEnvelopeToDek` —
+  envelope surgery belongs where `enclave-body-only` can see it, and that guard is
+  what caught the fix reaching into protected slots from outside. `keyring.ts`
+  dropped from 8 grandfathered protected-body accesses to 4.
+
+  `_bidx` is still dropped, deliberately — it is DEK-rooted, so a tag carried
+  across a rotation can never re-derive to match a query while still leaking the
+  old equality partition.
+
+  **Not fixed here:** rotation is still not crash-safe. The new DEK is generated in
+  memory and the keyring persisted only after every record is rewritten, so an
+  interruption leaves records under a DEK that was never saved. That needs the
+  keyring to hold two generations transiently and is its own change; the hazard
+  comment at the loop now states the general scope rather than describing it as a
+  narrow mixed-collection edge case.
+
 ## 0.6.0-pre.16
 
 ### Patch Changes

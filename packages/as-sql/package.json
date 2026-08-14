@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/as-sql",
-  "version": "0.6.0-pre.16",
+  "version": "0.6.0-pre.17",
   "description": "SQL dump export for noy-db — decrypts records and emits dialect-aware CREATE TABLE + INSERT statements for postgres / mysql / sqlite. One-way migration helper. Gated by RFC #249 canExportPlaintext.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
