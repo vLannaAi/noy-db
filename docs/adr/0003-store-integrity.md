@@ -165,11 +165,51 @@ Therefore:
 `2` → `1` and switch AAD back off on demand. **AAD you can disable by editing a plaintext field
 is not AAD.**
 
-Closing it requires a per-collection format floor on a surface the store cannot rewrite,
-consulted on every read, as a one-way ratchet. Given the decision to accept a format break
-rather than carry compat indefinitely, the cheaper resolution is a **hard cutover per vault**:
-once a vault's floor is raised, a v1 envelope is rejected outright rather than read leniently.
-The floor's storage location is the one genuinely open question below.
+So the reader must never branch on it. The format state has to come from somewhere the store
+cannot rewrite.
+
+## Decision 5 — the format floor rides on DEK generation (#1043 pulled in)
+
+Directed at the family root: #1043's roster anti-rollback is **in scope**, because a floor
+anchored in a structure with a known rollback gap is not a floor. Investigating that produced a
+smaller design rather than a larger one.
+
+**`rotateKeys` already re-encrypts every record in the affected collections** — it decrypts
+under the old DEK and re-encrypts under the new one (`with-party/team/keyring.ts`, the
+`Re-encrypt all records in affected collections` loop). That is not an incidental
+implementation detail; it is the mechanism that made revocation meaningful in #1054.
+
+Therefore: **migrating a collection to format 2 IS a DEK rotation.** The consequences fall out
+rather than needing to be built:
+
+1. **Migration is atomic per collection.** Rotation rewrites every record, so afterwards the
+   collection is entirely v2 under the new DEK. There is no mixed-format state *within* a
+   collection, and therefore no per-record format decision to make.
+2. **No floor field, no ratchet, no `_noydb` branch.** The reader passes AAD for any collection
+   whose DEK is the post-migration one. It has no no-AAD code path for that collection, so there
+   is nothing to downgrade *to*.
+3. **A rolled-back keyring fails closed.** An old roster carries pre-rotation DEKs, which cannot
+   open post-rotation records at all — the attacker gets a decryption failure, not a lenient
+   read. This is what makes anchoring the floor in the keyring safe *despite* the roster being
+   replayable.
+4. **Migration stays observable and incremental.** The vault migrates collection by collection;
+   each collection is atomically v1 or v2, and the per-collection DEK generation in the keyring
+   is what a deployment reads to report progress. That satisfies the pre-release-soak
+   requirement without a flag day.
+
+### The invariant, stated rather than inherited
+
+> **An old keyring cannot mis-describe a migrated collection, because the generation marker and
+> the DEK travel together in the same KEK-authenticated file — and the DEK that accompanies a
+> stale marker cannot decrypt the data that marker would mis-describe.**
+
+This is a property of rotation re-encrypting, not of how the code happens to be arranged today.
+If a future change makes rotation re-wrap DEKs *without* re-encrypting records, **this invariant
+breaks silently and the downgrade hole reopens.** That is a guard-worthy claim: the harness must
+assert it directly, not assume it.
+
+What an attacker can still do is present a *consistent* old world — old roster plus old records
+— which is **withholding**, not alteration, and is the head's job (Decision 3).
 
 ## The adversarial-store harness is part of the deliverable
 
@@ -183,7 +223,9 @@ with the client asserted to fail closed on every row:
 | relocate into another collection/id | rejected | D2 |
 | flip `_tier` to hide a record | rejected | D2 |
 | forge `_by` / `_source` | rejected | D2 |
-| downgrade `_noydb` 2 → 1 | rejected | floor |
+| downgrade `_noydb` 2 → 1 | rejected — no no-AAD path exists for a migrated collection | D5 |
+| replay an old keyring to force v1 reads | rejected — its DEKs cannot open v2 records | D5 |
+| rotation that re-wraps without re-encrypting | **the invariant itself is asserted** | D5 |
 | withhold a record entirely | detected | head (opt-in) |
 | suppress a `_keyring` delete | retained DEKs worthless | already closed (#1054) |
 
@@ -218,11 +260,13 @@ name installs **without** it.
 
 ## Open questions
 
-1. **Where the format floor lives.** It must be on a surface the store cannot rewrite. The
-   keyring is KEK-authenticated (canary + AES-KW) and is the obvious candidate — but its own
-   anti-rollback story is open (#1043), so anchoring to it inherits that gap. Alternative: derive
-   the floor from the collection's persisted schema/config if that surface is authenticated.
-   **This is the last thing blocking implementation of #1041.**
+1. ~~Where the format floor lives.~~ **Resolved by Decision 5** — the keyring, as a
+   per-collection DEK generation, safe because rotation re-encrypts. No longer blocking.
+
+   What remains of #1043 is the one un-probed question from the original report: **can `grant`
+   ever mint a keyring broader than the user's later standing?** That is what would make a
+   roster replay an *escalation* rather than a reinstatement, and it is unaffected by Decision 5
+   because it concerns a roster that was legitimately minted. Needs a probe, and it is small.
 2. **Tombstones and `_v` binding** (`engine.ts:974`). Empty body, nothing meaningful to
    authenticate. Bind them for uniformity, or exempt them explicitly and state why in the
    harness? An exemption is an attack surface if a tombstone can be replayed to suppress a
