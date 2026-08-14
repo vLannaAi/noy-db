@@ -22,8 +22,8 @@
  *
  * @module
  */
-import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
+import type { NoydbStore } from '../../kernel/types.js'
+import { buildRecordEnvelope } from '../../kernel/enclave/index.js'
 import type { EnclaveKey } from '../../kernel/enclave/index.js'
 import {
   mintWrappedDeksBlob,
@@ -93,13 +93,10 @@ export async function savePaperRecoveryEntries(
     profile: 'paper',
     entries,
   }
-  const envelope: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: 1,
-    _ts: new Date().toISOString(),
-    _iv: '',
-    _data: JSON.stringify(doc),
-  }
+  const envelope = buildRecordEnvelope(
+    { collection: '_meta', id: PAPER_DOC_ID },
+    { version: 1, iv: '', data: JSON.stringify(doc) },
+  )
   await store.put(vault, '_meta', PAPER_DOC_ID, envelope)
 }
 
@@ -219,13 +216,10 @@ export async function saveShamirRecoveryEntries(
     profile: 'shamir',
     entries,
   }
-  const envelope: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: 1,
-    _ts: new Date().toISOString(),
-    _iv: '',
-    _data: JSON.stringify(doc),
-  }
+  const envelope = buildRecordEnvelope(
+    { collection: '_meta', id: SHAMIR_DOC_ID },
+    { version: 1, iv: '', data: JSON.stringify(doc) },
+  )
   await store.put(vault, '_meta', SHAMIR_DOC_ID, envelope)
 }
 

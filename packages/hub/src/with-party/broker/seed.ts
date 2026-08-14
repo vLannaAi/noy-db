@@ -36,11 +36,11 @@
  * @module
  */
 import type { NoydbStore, EncryptedEnvelope, StoreCredentials } from '../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import { ensureCollectionDEK } from '../../with-party/team/keyring.js'
 import { BROKER_COLLECTION } from '../../with-party/team/reserved-secret-collections.js'
 import {
+  buildSealedRecordEnvelope,
   openEnvelopeJson,
   writeEnvelopeBody,
   bufferToBase64,
@@ -142,14 +142,11 @@ async function persistRecord(
   record: BrokerSeedRecord,
   expectedVersion: number,
 ): Promise<void> {
-  const body = await writeEnvelopeBody(JSON.stringify(record), dek)
-  const envelope: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: expectedVersion + 1,
-    _ts: new Date().toISOString(),
-    ...body,
-    _by: keyring.userId,
-  }
+  const envelope = buildSealedRecordEnvelope(
+    { collection: BROKER_COLLECTION, id: record.brokerId, by: keyring.userId },
+    await writeEnvelopeBody(JSON.stringify(record), dek),
+    { version: expectedVersion + 1, by: keyring.userId },
+  )
   await store.put(vault, BROKER_COLLECTION, record.brokerId, envelope, expectedVersion)
 }
 

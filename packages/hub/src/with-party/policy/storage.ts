@@ -8,8 +8,8 @@
  *
  * @module
  */
-import type { NoydbStore, EncryptedEnvelope, VaultPolicy } from '../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
+import { buildRecordEnvelope } from '../../kernel/enclave/index.js'
+import type { NoydbStore, VaultPolicy } from '../../kernel/types.js'
 
 /** Reserved collection name for vault-level metadata documents. */
 export const META_COLLECTION = '_meta'
@@ -50,13 +50,10 @@ export async function saveVaultPolicy(
   vault: string,
   policy: VaultPolicy,
 ): Promise<void> {
-  const envelope: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: 1,
-    _ts: new Date().toISOString(),
-    _iv: '',
-    _data: JSON.stringify(policy),
-  }
+  const envelope = buildRecordEnvelope(
+    { collection: META_COLLECTION, id: POLICY_RECORD_ID },
+    { version: 1, iv: '', data: JSON.stringify(policy) },
+  )
   await store.put(vault, META_COLLECTION, POLICY_RECORD_ID, envelope)
 }
 

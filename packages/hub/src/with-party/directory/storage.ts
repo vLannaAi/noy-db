@@ -9,8 +9,8 @@
  *
  * @module
  */
-import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
+import { buildRecordEnvelope } from '../../kernel/enclave/index.js'
+import type { NoydbStore } from '../../kernel/types.js'
 import type { DirectoryConfig } from './types.js'
 
 /** Reserved collection name for vault-level metadata documents. */
@@ -52,13 +52,10 @@ export async function persistDirectoryConfig(
   vault: string,
   config: DirectoryConfig,
 ): Promise<void> {
-  const envelope: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: 1,
-    _ts: new Date().toISOString(),
-    _iv: '',
-    _data: JSON.stringify({ enabled: config.enabled }),
-  }
+  const envelope = buildRecordEnvelope(
+    { collection: META_COLLECTION, id: DIRECTORY_RECORD_ID },
+    { version: 1, iv: '', data: JSON.stringify({ enabled: config.enabled }) },
+  )
   await store.put(vault, META_COLLECTION, DIRECTORY_RECORD_ID, envelope)
 }
 

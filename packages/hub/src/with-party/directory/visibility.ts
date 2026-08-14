@@ -19,8 +19,8 @@
  *
  * @module
  */
-import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
+import { buildRecordEnvelope } from '../../kernel/enclave/index.js'
+import type { NoydbStore } from '../../kernel/types.js'
 import type { UserVisibility } from './types.js'
 import { META_COLLECTION } from './storage.js'
 
@@ -65,14 +65,12 @@ export async function persistUserVisibility(
   keyringId: string,
   visibility: UserVisibility,
 ): Promise<void> {
-  const envelope: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: 1,
-    _ts: new Date().toISOString(),
-    _iv: '',
-    _data: JSON.stringify({ hidden: visibility.hidden }),
-  }
-  await store.put(vault, META_COLLECTION, visibilityRecordId(keyringId), envelope)
+  const recordId = visibilityRecordId(keyringId)
+  const envelope = buildRecordEnvelope(
+    { collection: META_COLLECTION, id: recordId },
+    { version: 1, iv: '', data: JSON.stringify({ hidden: visibility.hidden }) },
+  )
+  await store.put(vault, META_COLLECTION, recordId, envelope)
 }
 
 /**

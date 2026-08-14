@@ -19,6 +19,7 @@
 import type { NoydbStore, KeyringFile, KeyringEchoBlock } from '../../kernel/types.js'
 import { NOYDB_KEYRING_VERSION } from '../../kernel/types.js'
 import {
+  buildRecordEnvelope,
   deriveKey,
   deriveEchoKey,
   generateSalt,
@@ -53,7 +54,6 @@ import type { DeviceSealProvider } from './device-seal.js'
 import type { KeyringAuthenticator } from '../../kernel/types.js'
 import type { EnrollAuthenticatorOptions } from './authenticators.js'
 import { ValidationError } from '../../kernel/errors.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 
 /**
  * Echo-enrollment knobs for a rotation whose NEW secret is 3-part (spec #940).
@@ -889,12 +889,9 @@ async function writeKeyringFile(
   userId: string,
   file: KeyringFile,
 ): Promise<void> {
-  const envelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: 1,
-    _ts: new Date().toISOString(),
-    _iv: '',
-    _data: JSON.stringify(file),
-  }
+  const envelope = buildRecordEnvelope(
+    { collection: '_keyring', id: userId },
+    { version: 1, iv: '', data: JSON.stringify(file) },
+  )
   await store.put(vault, '_keyring', userId, envelope)
 }

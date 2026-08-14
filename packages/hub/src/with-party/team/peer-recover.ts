@@ -35,12 +35,11 @@
  */
 import type { NoydbStore, KeyringFile, Role } from '../../kernel/types.js'
 import { NOYDB_KEYRING_VERSION } from '../../kernel/types.js'
-import { deriveKey, generateSalt, wrapKey, bufferToBase64 } from '../../kernel/enclave/index.js'
+import { buildRecordEnvelope, deriveKey, generateSalt, wrapKey, bufferToBase64 } from '../../kernel/enclave/index.js'
 import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError } from '../../kernel/errors.js'
 import { assertStrongSecret, type SecretPolicy } from '../../kernel/validation.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { mintKeyringCanary, readKeyringFile } from './keyring.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 
 // FR-6: 'custodian' is deliberately ABSENT — an admin cannot peer-recover a
 // custodian (mirrors ADMIN_GRANTABLE_TARGETS: custodians are owner-managed
@@ -209,12 +208,9 @@ export async function recoverUser(
   // 7. Single atomic write — overwrites the existing envelope.
   //    Backend `put` is the canonical write primitive across every
   //    `to-*` store; no partial-failure window between revoke + grant.
-  const envelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: 1,
-    _ts: new Date().toISOString(),
-    _iv: '',
-    _data: JSON.stringify(next),
-  }
+  const envelope = buildRecordEnvelope(
+    { collection: '_keyring', id: options.userId },
+    { version: 1, iv: '', data: JSON.stringify(next) },
+  )
   await store.put(vault, '_keyring', options.userId, envelope)
 }

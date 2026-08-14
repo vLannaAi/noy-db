@@ -29,8 +29,8 @@
  * @module
  */
 
-import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
+import { buildRecordEnvelope } from '../../kernel/enclave/index.js'
+import type { NoydbStore } from '../../kernel/types.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { createOwnerKeyring } from './keyring.js'
 import type { SealingKeyProvider } from './managed-secret.js'
@@ -180,13 +180,10 @@ export async function saveDeedMarker(
 ): Promise<void> {
   const persisted: DeedEnvelopePayload = { _noydb_deed: 1, ...marker }
   const prior = await store.get(vault, '_meta', DEED_RECORD_ID)
-  const env: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: (prior?._v ?? 0) + 1,
-    _ts: new Date().toISOString(),
+  const env = buildRecordEnvelope(
+    { collection: '_meta', id: DEED_RECORD_ID },
     // AES-GCM bypassed — the marker is plaintext audit metadata.
-    _iv: '',
-    _data: JSON.stringify(persisted),
-  }
+    { version: (prior?._v ?? 0) + 1, iv: '', data: JSON.stringify(persisted) },
+  )
   await store.put(vault, '_meta', DEED_RECORD_ID, env)
 }
