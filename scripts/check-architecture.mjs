@@ -2032,11 +2032,11 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   // #1051: 12 → 4. buildRecordEnvelope() now constructs these bodies, so vault.ts
   // no longer touches _iv/_data directly for the audit envelopes.
   ['packages/hub/src/kernel/vault.ts', 4],
-  ['packages/hub/src/with-audit/attestation/issue.ts', 2],
-  ['packages/hub/src/with-audit/attestation/revoke.ts', 2],
-  ['packages/hub/src/with-audit/attestation/signer.ts', 2],
-  ['packages/hub/src/with-audit/consent/consent.ts', 5],
-  ['packages/hub/src/with-audit/forget/subject-index.ts', 7],
+  ['packages/hub/src/with-audit/attestation/issue.ts', 0],
+  ['packages/hub/src/with-audit/attestation/revoke.ts', 0],
+  ['packages/hub/src/with-audit/attestation/signer.ts', 0],
+  ['packages/hub/src/with-audit/consent/consent.ts', 1],
+  ['packages/hub/src/with-audit/forget/subject-index.ts', 3],
   // #604 Task 3: `readReserved()` — generic reserved-collection reader added
   // alongside `writeReserved()` (DRY'd from the old `writePeriodRecord`) to
   // also serve the `_period_freezes` companion. Its plaintext fallback
@@ -2044,16 +2044,16 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   // used in with-shape/links/link-set.ts and with-commit/{numbering,sequence}/index.ts
   // (`this.encrypted ? await openEnvelopeJson(...) : env._data`) — reviewed,
   // not a new pattern.
-  ['packages/hub/src/with-audit/periods/vault-facade.ts', 6],
-  ['packages/hub/src/with-audit/portability/request-withdrawal.ts', 4],
-  ['packages/hub/src/with-audit/portability/withdraw-accessible.ts', 2],
+  ['packages/hub/src/with-audit/periods/vault-facade.ts', 2],
+  ['packages/hub/src/with-audit/portability/request-withdrawal.ts', 2],
+  ['packages/hub/src/with-audit/portability/withdraw-accessible.ts', 0],
   ['packages/hub/src/with-audit/sealed-record/index.ts', 4],
   // #635: `getAtTier`'s tier>0 leg now processes `_sealed` slots (reads
   // `envelope._sealed` to detect + forward the blob map to
   // `RecordCodec.applySealedSlots`) — 2 new accesses, reviewed & justified
   // (parity with the tier-0 leg, which already goes through `decryptRecord`'s
   // own `_sealed` handling).
-  ['packages/hub/src/with-audit/tiers/index.ts', 24],
+  ['packages/hub/src/with-audit/tiers/index.ts', 22],
   ['packages/hub/src/with-cargo/adopt-partition.ts', 6],  // #1051: buildRecordEnvelope() now builds these bodies
   ['packages/hub/src/with-cargo/extract-partition.ts', 24],  // #1051: buildRecordEnvelope() now builds these bodies
   ['packages/hub/src/with-commit/history/ledger/store.ts', 3],

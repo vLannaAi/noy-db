@@ -10,8 +10,7 @@
  * Internal service — reached through `vault.closePeriod(...)` etc.
  */
 import { ValidationError } from '../../kernel/errors.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'
 import type { LedgerStore } from '../../with-commit/history/ledger/store.js'
 import type { Collection } from '../../kernel/collection.js'
@@ -676,27 +675,15 @@ export class VaultPeriods {
   /** Generic reserved-collection writer — serves `_periods` and `_period_freezes` alike. */
   private async writeReserved(collection: string, key: string, value: object): Promise<EncryptedEnvelope> {
     const json = JSON.stringify(value)
+    const actor = this.deps.userId()
+    const identity = { collection, id: key, by: actor }
     let envelope: EncryptedEnvelope
     if (this.deps.encrypted) {
       const dek = await this.deps.getDEK(collection)
       const { iv, data } = await encrypt(json, dek)
-      envelope = {
-        _noydb: NOYDB_FORMAT_VERSION,
-        _v: 1,
-        _ts: new Date().toISOString(),
-        _iv: iv,
-        _data: data,
-        _by: this.deps.userId(),
-      }
+      envelope = buildRecordEnvelope(identity, { version: 1, iv, data, by: actor })
     } else {
-      envelope = {
-        _noydb: NOYDB_FORMAT_VERSION,
-        _v: 1,
-        _ts: new Date().toISOString(),
-        _iv: '',
-        _data: json,
-        _by: this.deps.userId(),
-      }
+      envelope = buildRecordEnvelope(identity, { version: 1, iv: '', data: json, by: actor })
     }
     await this.deps.adapter.put(this.deps.vault, collection, key, envelope)
     // #822: the period summaries are vault-wide state — period-scoped pull

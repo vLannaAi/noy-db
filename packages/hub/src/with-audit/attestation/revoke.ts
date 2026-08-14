@@ -1,6 +1,5 @@
-import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
+import type { NoydbStore } from '../../kernel/types.js'
+import { buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { AttestationError, ConflictError } from '../../kernel/errors.js'
 import { loadOrCreateSigner, ATTESTATIONS_COLLECTION, REVOKED_RECORD_ID } from './signer.js'
 import { signRevocationList, type RevocationList } from '@noy-db/attestation'
@@ -41,9 +40,10 @@ async function mutateSet(ctx: RevokeContext, mutate: (ids: Set<string>) => void)
     const payload: RevokedSet = { docIds: [...docIds].sort(), updatedAt: new Date().toISOString() }
     const { iv, data } = await encrypt(JSON.stringify(payload), dek)
     const expectedVersion = version ?? 0
-    const env: EncryptedEnvelope = {
-      _noydb: NOYDB_FORMAT_VERSION, _v: expectedVersion + 1, _ts: payload.updatedAt, _iv: iv, _data: data,
-    }
+    const env = buildRecordEnvelope(
+      { collection: ATTESTATIONS_COLLECTION, id: REVOKED_RECORD_ID },
+      { version: expectedVersion + 1, ts: payload.updatedAt, iv, data },
+    )
     try {
       await ctx.store.put(ctx.vault, ATTESTATIONS_COLLECTION, REVOKED_RECORD_ID, env, expectedVersion)
       return

@@ -17,9 +17,8 @@
  * (`request-withdrawal.ts`).
  */
 import type { Vault } from '../../kernel/vault.js'
-import { sha256Hex } from '../../kernel/enclave/index.js'
+import { buildRecordEnvelope, sha256Hex } from '../../kernel/enclave/index.js'
 import { ReadOnlyError } from '../../kernel/errors.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
 import { resolveAccessibleCollections, buildAccessibleBundle } from './export-accessible.js'
 
 export const FROZEN_SNAPSHOTS_COLLECTION = '_frozen_snapshots'
@@ -97,7 +96,10 @@ export async function freezeSnapshotOnly(
     vaultName,
     FROZEN_SNAPSHOTS_COLLECTION,
     withdrawalId,
-    { _noydb: NOYDB_FORMAT_VERSION, _v: 1, _ts: frozenAt, _iv: '', _data: body, _by: opts.actorUserId },
+    buildRecordEnvelope(
+      { collection: FROZEN_SNAPSHOTS_COLLECTION, id: withdrawalId, by: opts.actorUserId },
+      { version: 1, ts: frozenAt, iv: '', data: body, by: opts.actorUserId },
+    ),
     0,
   )
   // Hash-pin into the tamper-evident ledger — makes the snapshot provably unaltered.

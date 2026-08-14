@@ -23,7 +23,7 @@
 export { withTiers } from './active.js'
 export { NO_TIERS, type TiersStrategy } from './strategy.js'
 export { TiersNotEnabledError } from '../../kernel/errors.js'
-import { encrypt, decrypt, unwrapCek, rewrapBodyToDek, applyRewrappedBody, isDeleteMarker, isTombstoneShape, type RecordCodec, type EnclaveKey, type SealedShredSlot } from '../../kernel/enclave/index.js'
+import { buildRecordEnvelope, encrypt, decrypt, unwrapCek, rewrapBodyToDek, applyRewrappedBody, isDeleteMarker, isTombstoneShape, type RecordCodec, type EnclaveKey, type SealedShredSlot } from '../../kernel/enclave/index.js'
 import { TierDemoteDeniedError, UnsupportedTierCompositionError, PersistedIndexCompensationError } from '../../kernel/errors.js'
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
@@ -449,16 +449,19 @@ export async function putAtTier<T>(
 
   const json = JSON.stringify(record)
   const { iv, data } = await encrypt(json, dek)
-  const envelope: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: version,
-    _ts: new Date().toISOString(),
-    _iv: iv,
-    _data: data,
-    _by: ctx.keyring.userId,
-    ...(tier > 0 && { _tier: tier }),
-    ...(ctx.provenance && opts?.source !== undefined ? { _source: opts.source, _sourceTs: opts.sourceTs ?? new Date().toISOString() } : {}),
-  }
+  const envelope = buildRecordEnvelope(
+    { collection: ctx.name, id, by: ctx.keyring.userId, ...(tier > 0 ? { tier } : {}) },
+    {
+      version,
+      iv,
+      data,
+      by: ctx.keyring.userId,
+      ...(tier > 0 ? { extra: { _tier: tier } } : {}),
+      ...(ctx.provenance && opts?.source !== undefined
+        ? { provenance: { source: opts.source, sourceTs: opts.sourceTs ?? new Date().toISOString() } }
+        : {}),
+    },
+  )
 
   await ctx.adapter.put(ctx.vault, ctx.name, id, envelope)
 
@@ -723,6 +726,12 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   // the fields a tier move manages. rewrapBodyToDek preserves the CEK, so no
   // passenger slot is re-keyed by the move. The old field-literal dropped every
   // unlisted slot.
+  // NOT a `buildRecordEnvelope` site, deliberately (#1051). This is an envelope
+  // TRANSFORM, not a construction: the spread is load-bearing (#662) — it carries
+  // every passenger slot (`_sealed`/`_det`/`_vdig`/`_bidx`/`_source`/`_debug`)
+  // through unchanged, which a fresh literal would drop. That drop is exactly the
+  // defect #1074 found in `rotateKeys`. Its body already goes through the enclave
+  // (`rewrapBodyToDek`), which is where a tier move will supply AAD.
   const next: EncryptedEnvelope = {
     ...envelope,
     _noydb: NOYDB_FORMAT_VERSION,
@@ -834,6 +843,7 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
   // above. `_v` stays the PRE-move version (unbumped), as `carried` already
   // carries it.
   await ctx.saveHistorySnapshot(id, applyRewrappedBody(carried, body))
+  // Transform, not construction — see the note on elevate()'s `next` above.
   const next: EncryptedEnvelope = {
     ...carried,
     _noydb: NOYDB_FORMAT_VERSION,

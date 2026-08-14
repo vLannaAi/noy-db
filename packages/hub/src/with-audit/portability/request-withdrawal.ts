@@ -20,8 +20,7 @@
  * stored at rest.
  */
 import type { Vault } from '../../kernel/vault.js'
-import type { EncryptedEnvelope } from '../../kernel/types.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
+import { buildRecordEnvelope } from '../../kernel/enclave/index.js'
 import { NoydbError } from '../../kernel/errors.js'
 import { resolveAccessibleCollections, buildAccessibleBundle } from './export-accessible.js'
 import { freezeAndDeleteClosure, randomId, type FrozenSnapshotRef, type WithdrawResult } from './withdraw-accessible.js'
@@ -70,10 +69,11 @@ export interface RequestWithdrawalResult {
 function writeRequest(vault: Vault, req: WithdrawalRequest, expectedVersion: number): Promise<void> {
   const { name: vaultName, adapter } = vault._introspectState()
   const body = JSON.stringify(req)
-  const env: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION, _v: expectedVersion + 1, _ts: req.decidedAt ?? req.requestedAt,
-    _iv: '', _data: body, _by: req.decidedBy ?? req.requester,
-  }
+  const actor = req.decidedBy ?? req.requester
+  const env = buildRecordEnvelope(
+    { collection: WITHDRAWAL_REQUESTS_COLLECTION, id: req.requestId, by: actor },
+    { version: expectedVersion + 1, ts: req.decidedAt ?? req.requestedAt, iv: '', data: body, by: actor },
+  )
   return adapter.put(vaultName, WITHDRAWAL_REQUESTS_COLLECTION, req.requestId, env, expectedVersion)
 }
 
