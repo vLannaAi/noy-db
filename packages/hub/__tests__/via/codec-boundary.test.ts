@@ -196,7 +196,7 @@ describe('viaCryptoCtx.reservedEnvelopes — per-collection DEK resolution (#629
       posture: posture(),
       reservedPrefixes: ['_dict_'],
       async encodeAtRest(record, crypto) {
-        captured = await crypto.reservedEnvelopes('_dict_').encrypt('_dict_other', JSON.stringify({ hello: 'world' }), 1)
+        captured = await crypto.reservedEnvelopes('_dict_').encrypt('_dict_other', 'r1', JSON.stringify({ hello: 'world' }), 1)
         return { record }
       },
     }

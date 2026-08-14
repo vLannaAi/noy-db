@@ -105,9 +105,26 @@ function walkTsFiles(dir, onFile) {
  * an actual import," and code-in-comments doesn't fit that bill.
  */
 function stripComments(content) {
+  // ORDER IS LOAD-BEARING: line comments first, block comments second.
+  //
+  // The reverse order (which this had until 2026-08-14) is silently wrong. A
+  // line comment that merely MENTIONS a glob or path containing a slash-star —
+  // `// via/lookup/**` is the real example that exposed it — opens a phantom
+  // block comment for the block regex, which then runs to the next star-slash
+  // ANYWHERE in the file and deletes the real code in between.
+  //
+  // That is a guard that silently stops looking. It zeroed an entire file's
+  // enclave-body-only count while reporting success, and it is shared by 15
+  // call sites, so the same blindness applied to every check built on it.
+  // Nothing in the tree was being hidden when this was found, but only by luck
+  // — the phantom blocks happened to close over comment-only regions.
+  //
+  // Stripping line comments first cannot have the inverse problem: a `//`
+  // inside a block comment is removed harmlessly, and the block's own
+  // delimiters survive to be matched normally.
   return content
-    .replace(/\/\*[\s\S]*?\*\//g, '')   // /* ... */ and /** ... */
     .replace(/^\s*\/\/.*$/gm, '')       // // line comments
+    .replace(/\/\*[\s\S]*?\*\//g, '')   // /* ... */ and /** ... */
 }
 
 /**
@@ -1777,6 +1794,21 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/introspection/meta.js',
     '../with-shape/introspection/types.js',
     '../with-shape/introspection/walk.js',
+    // ⚠️ THE THREE BELOW WERE HIDDEN, NOT SANCTIONED — see #1085.
+    // `stripComments` stripped block comments BEFORE line comments until
+    // 2026-08-14, so vault.ts:84's `// … (never via/lookup/*` opened a phantom
+    // block that swallowed every import after it. These three static imports
+    // landed during that window and this check never saw them.
+    //
+    // They are listed here to preserve the exact status quo while the TOOL is
+    // fixed — not because anyone has judged them exempt. Each is the same shape
+    // as its allowlisted siblings above (thin call-site, heavy logic in the
+    // service), which is why this is a defensible hold rather than a fix. The
+    // real question — exempt, or move to a dynamic import? — is #1085's, and
+    // must not be settled by a line in a tool-fix PR.
+    '../with-shape/introspection/behaviors.js',
+    '../with-shape/introspection/subsystem-matrix.js',
+    '../with-shape/satellites/migrate-cek.js',
     // #553 -- always-loadable links slice (naming/types + the lazy handle
     // factory); the LinkSet storage engine itself now dynamic-imports
     '../with-shape/links/lazy-handle.js',

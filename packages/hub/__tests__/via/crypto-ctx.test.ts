@@ -68,9 +68,9 @@ describe('makeReservedEnvelopes', () => {
     const reservedEnvelopes = makeReservedEnvelopes(async () => dek, ['_dict_'])
     const cap = reservedEnvelopes('_dict_')
 
-    await expect(cap.encrypt('notdict_x', '{}', 1)).rejects.toBeInstanceOf(ValidationError)
+    await expect(cap.encrypt('notdict_x', 'r1', '{}', 1)).rejects.toBeInstanceOf(ValidationError)
 
-    const env = await cap.encrypt('_dict_test', '{}', 1)
+    const env = await cap.encrypt('_dict_test', 'r1', '{}', 1)
     await expect(cap.decrypt('notdict_x', env)).rejects.toBeInstanceOf(ValidationError)
   })
 
@@ -80,7 +80,7 @@ describe('makeReservedEnvelopes', () => {
     const cap = reservedEnvelopes('_dict_')
 
     const body = JSON.stringify({ key: 'greeting', labels: { en: 'hi' } })
-    const env = await cap.encrypt('_dict_test', body, 1)
+    const env = await cap.encrypt('_dict_test', 'r1', body, 1)
     expect(env._v).toBe(1)
     expect(env._iv).toBeTruthy()
     expect(env._data).toBeTruthy()

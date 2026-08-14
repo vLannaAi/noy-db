@@ -22,7 +22,8 @@
  */
 import { encrypt, decrypt, deriveSealedFieldKey, deriveSealedFieldKeyFromCek, type EnclaveKey } from '../crypto.js'
 import { dualReadSealedSlot } from './sealed-slot.js'
-import { NOYDB_FORMAT_VERSION, SealedHandle, type EncryptedEnvelope } from '../../types.js'
+import { buildRecordEnvelope } from '../record-envelope.js'
+import { SealedHandle, type EncryptedEnvelope } from '../../types.js'
 import { ValidationError } from '../../errors.js'
 import type { SealedSlotRef, ViaCryptoCtx } from '../../via/index.js'
 
@@ -244,17 +245,11 @@ export function makeReservedEnvelopes(
       }
     }
 
-    const encryptForPrefix = async (collection: string, json: string, v: number): Promise<EncryptedEnvelope> => {
+    const encryptForPrefix = async (collection: string, id: string, json: string, v: number): Promise<EncryptedEnvelope> => {
       assertPrefixed(collection, 'encrypt')
       const dek = await dekResolver(collection)
       const { iv, data } = await encrypt(json, dek)
-      return {
-        _noydb: NOYDB_FORMAT_VERSION,
-        _v: v,
-        _ts: new Date().toISOString(),
-        _iv: iv,
-        _data: data,
-      }
+      return buildRecordEnvelope({ collection, id }, { version: v, iv, data })
     }
 
     const decryptForPrefix = async (collection: string, env: EncryptedEnvelope): Promise<string> => {
