@@ -193,6 +193,12 @@ export class LookupHandle<Keys extends string = string> {
 
   private async encryptEntry(entry: DictEntry, version: number): Promise<EncryptedEnvelope> {
     if (!this.encrypted) {
+      // Plaintext/debug vault: no AEAD, therefore no AAD to bind — this literal
+      // has nothing `buildRecordEnvelope` could authenticate, and `via/lookup/**`
+      // may not import `kernel/enclave/` to reach it anyway (Check 15,
+      // `via-enclave-isolation`). The ENCRYPTED branch below is the one that
+      // matters, and it is bound: `reservedEnvelopes.encrypt` holds the DEK, so
+      // it is where identity AAD is applied (#1051).
       return {
         _noydb: NOYDB_FORMAT_VERSION,
         _v: version,
@@ -202,7 +208,8 @@ export class LookupHandle<Keys extends string = string> {
         _by: this.keyring.userId,
       }
     }
-    const envelope = await this.reservedEnvelopes.encrypt(this.collName, JSON.stringify(entry), version)
+    // `entry.key` IS the record id this envelope is stored under.
+    const envelope = await this.reservedEnvelopes.encrypt(this.collName, entry.key, JSON.stringify(entry), version)
     return { ...envelope, _by: this.keyring.userId }
   }
 
