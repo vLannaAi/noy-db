@@ -21,10 +21,9 @@
  * @module
  */
 
-import { openEnvelopeJson, writeEnvelopeBody, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildSealedRecordEnvelope, openEnvelopeJson, writeEnvelopeBody, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { canonicalJson, sha256Hex } from '../../with-commit/history/ledger/index.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
+import type { NoydbStore } from '../../kernel/types.js'
 import { MANIFEST_COLLECTION } from './reserved-collections.js'
 import { MANIFEST_SCHEMA_RECORD_ID, type SchemaManifest, type SchemaManifestEntry } from './types.js'
 
@@ -84,13 +83,11 @@ export async function saveSchemaManifest(
 ): Promise<void> {
   const dek = await getDEK(MANIFEST_COLLECTION)
   const json = JSON.stringify(manifest)
-  const body = await writeEnvelopeBody(json, dek)
-  const env: EncryptedEnvelope = {
-    _noydb: NOYDB_FORMAT_VERSION,
-    _v: expectedVersion + 1,
-    _ts: new Date().toISOString(),
-    ...body,
-  }
+  const env = buildSealedRecordEnvelope(
+    { collection: MANIFEST_COLLECTION, id: MANIFEST_SCHEMA_RECORD_ID },
+    await writeEnvelopeBody(json, dek),
+    { version: expectedVersion + 1 },
+  )
   await store.put(vault, MANIFEST_COLLECTION, MANIFEST_SCHEMA_RECORD_ID, env, expectedVersion)
 }
 

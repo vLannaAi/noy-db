@@ -20,8 +20,7 @@
 
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
-import { NOYDB_FORMAT_VERSION } from '../../kernel/types.js'
-import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { NoydbError } from '../../kernel/errors.js'
 
 // Naming helpers, declaration types, and LinkIntegrityError live in
@@ -74,12 +73,14 @@ export class LinkSet implements LinkSetHandle {
     return this.dekPromise
   }
 
-  private async encryptEntry(entry: LinkEntry, version: number): Promise<EncryptedEnvelope> {
+  private async encryptEntry(entry: LinkEntry, version: number, key: string): Promise<EncryptedEnvelope> {
     const json = JSON.stringify(entry)
-    const base = { _noydb: NOYDB_FORMAT_VERSION, _v: version, _ts: new Date().toISOString(), _by: this.actor }
-    if (!this.encrypted) return { ...base, _iv: '', _data: json }
+    const identity = { collection: this.collName, id: key, by: this.actor }
+    if (!this.encrypted) {
+      return buildRecordEnvelope(identity, { version, iv: '', data: json, by: this.actor })
+    }
     const { iv, data } = await encrypt(json, await this.dek())
-    return { ...base, _iv: iv, _data: data }
+    return buildRecordEnvelope(identity, { version, iv, data, by: this.actor })
   }
 
   private async decryptEntry(env: EncryptedEnvelope): Promise<LinkEntry> {
@@ -97,7 +98,7 @@ export class LinkSet implements LinkSetHandle {
     const key = linkRowKey(aId, bId)
     const entry: LinkEntry = meta !== undefined ? { a: aId, b: bId, meta } : { a: aId, b: bId }
     const existing = await this.adapter.get(this.vault, this.collName, key)
-    const env = await this.encryptEntry(entry, (existing?._v ?? 0) + 1)
+    const env = await this.encryptEntry(entry, (existing?._v ?? 0) + 1, key)
     await this.adapter.put(this.vault, this.collName, key, env, existing?._v)
     this.emitter.emit('change', { vault: this.vault, collection: this.collName, id: key, action: 'put' })
   }

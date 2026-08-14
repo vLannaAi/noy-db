@@ -2056,11 +2056,11 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   ['packages/hub/src/with-audit/tiers/index.ts', 24],
   ['packages/hub/src/with-cargo/adopt-partition.ts', 6],  // #1051: buildRecordEnvelope() now builds these bodies
   ['packages/hub/src/with-cargo/extract-partition.ts', 24],  // #1051: buildRecordEnvelope() now builds these bodies
-  ['packages/hub/src/with-commit/history/ledger/store.ts', 11],
+  ['packages/hub/src/with-commit/history/ledger/store.ts', 3],
   ['packages/hub/src/with-commit/history/time-machine.ts', 1],
   ['packages/hub/src/with-commit/numbering/index.ts', 1],  // #1051
   ['packages/hub/src/with-commit/sequence/index.ts', 1],  // #1051
-  ['packages/hub/src/with-formula/derivations/fanout-sidecar.ts', 6],
+  ['packages/hub/src/with-formula/derivations/fanout-sidecar.ts', 2],
   ['packages/hub/src/with-party/auth-introspection/index.ts', 1],
   ['packages/hub/src/with-party/custody/liberate.ts', 2],
   ['packages/hub/src/with-party/directory/cover/storage.ts', 3],
@@ -2111,7 +2111,7 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   // swallowing 2 real code matches downstream as false "comment" — removing
   // that comment un-hides them, netting -3 moved but +2 un-hidden.
   ['packages/hub/src/with-pod/pod-handle.ts', 1],  // #1051: buildRecordEnvelope() now builds this body
-  ['packages/hub/src/with-shape/blobs/blob-compaction.ts', 4],
+  ['packages/hub/src/with-shape/blobs/blob-compaction.ts', 0],
   // #724 Arc 10 correction (Task 1, closes C1): `rehomeForTier`'s solo
   // in-place rewrap (`unwrapCek(blob._cek, fromDEK)` + the `_cek:` literal
   // on the rewritten BlobObject) is DELETED — solo now re-`put()`s through
@@ -2139,7 +2139,7 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   // identical existing plaintext-mode fallback directly above; every
   // encrypted-branch decrypt goes through the `openEnvelopeJson` barrel.
   // Up 2. 37→39.
-  ['packages/hub/src/with-shape/blobs/blob-set.ts', 39],
+  ['packages/hub/src/with-shape/blobs/blob-set.ts', 23],
   // #629 Task 4: DictionaryHandle's encrypt/decrypt now goes through the
   // reservedEnvelopes('_dict_') capability instead of building `_iv`/`_data`
   // literals inline — down from 5 (the plaintext branch's `_iv: ''`/`_data:`
@@ -2151,8 +2151,8 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   // read). via/i18n/dictionary.ts now re-exports the class and has 0.
   ['packages/hub/src/via/lookup/handle.ts', 3],
   ['packages/hub/src/with-shape/introspection/walk.ts', 1],
-  ['packages/hub/src/with-shape/links/link-set.ts', 5],
-  ['packages/hub/src/with-shape/persisted-schemas/storage.ts', 2],
+  ['packages/hub/src/with-shape/links/link-set.ts', 1],
+  ['packages/hub/src/with-shape/persisted-schemas/storage.ts', 0],
   // #591 satellites — existence authority (spec § Convergence & existence
   // authority, rule 1): one undecrypted envelope-shape check (`_iv === '' &&
   // _data === ''`, mirroring the tombstone shape) on the store's raw `get()`.
@@ -2160,8 +2160,8 @@ const PRE_EXISTING_BODY_ACCESS = new Map([
   // isTombstone()'s two-arg contract doesn't drop in cleanly; reviewed as a
   // deliberate, narrow exception rather than growing the barrel's contract.
   ['packages/hub/src/with-shape/satellites/existence.ts', 2],
-  ['packages/hub/src/with-shape/schema-update/client-registry.ts', 3],
-  ['packages/hub/src/with-shape/schema-update/fence.ts', 3],
+  ['packages/hub/src/with-shape/schema-update/client-registry.ts', 1],
+  ['packages/hub/src/with-shape/schema-update/fence.ts', 1],
   ['packages/hub/src/with-store/route-store.ts', 1],
   ['packages/hub/src/with-store/store-middleware.ts', 1],
 ])
