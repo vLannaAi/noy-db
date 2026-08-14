@@ -14,6 +14,28 @@ has to concede it in one sentence:
 
 **The purpose of this work is to delete that sentence honestly.** Not to narrow it.
 
+### The premise that shapes everything below: there is nothing to be compatible with
+
+**Directed by the user, 2026-08-14.** No production deployment and no existing vault holds data
+in the current envelope format. The pilot rebuilds its pod programmatically. The published
+`0.6.0-pre.*` line carries no durable state anywhere.
+
+Therefore this ADR **replaces** the format. It does not migrate to a new one. No legacy path, no
+deprecation window, no coexistence — consistent with the family's standing no-legacy-alias
+policy, applied here to the wire format itself.
+
+That is not a shortcut, and it is worth being explicit about why it makes the result *safer*
+rather than merely cheaper. Roughly half of an integrity scheme's complexity is coexistence:
+two formats alive at once means every reader needs a branch, and **every branch is a lever an
+attacker can steer**. The classic failure is the downgrade — flip a plaintext marker, get the
+weaker path. A design with one format has no such lever, because there is no weaker path to
+select. *An earlier draft of this ADR spent an entire decision closing that hole; deleting
+coexistence deleted the hole instead.*
+
+One check makes the scope concrete: **`_noydb` is stamped by ~49 producers and read by nothing.**
+No reader in `packages/hub/src` branches on it. So the format marker was never load-bearing, and
+it does not become load-bearing here.
+
 The AES-GCM auth tag covers the record body (`_data`). The sibling fields — `_v`, `_ts`, `_by`,
 `_source`, `_tier`, `_noydb` — sit outside the AEAD and carry no integrity, so a store can
 rewrite them and the tag still verifies. Reproduced: re-serving an old envelope with an inflated
@@ -24,12 +46,21 @@ rewrite them and the tag still verifies. Reproduced: re-serving an old envelope 
 Decided at the family root on 2026-08-12 and not reopened here. Two reasons, the second being
 the real one:
 
-1. **Staging risks a second format break.** #1041 must choose what to bind; #1044 needs a stable
-   notion of record identity and a per-record digest to anchor on. Freeze the tuple before the
-   anchor's requirements are known and it may bind the wrong thing — so staging is more expensive
-   *even measured purely in migration cost*, which was the whole argument for staging.
+1. ~~**Staging risks a second format break.**~~ **This plank is withdrawn.** It was costed in
+   *migration*, and under the no-legacy premise a second format break inside the pre line costs
+   nothing. Stating it honestly: the original anti-staging argument was half financial, and that
+   half has evaporated.
 2. **It is the premise, not hardening.** A store untrusted for confidentiality but trusted for
-   ordering is a hole in the product's central claim.
+   ordering is a hole in the product's central claim. Unaffected, and now carrying the argument
+   alone.
+3. **Design coherence, which survives independently of cost.** #1041 must choose what to bind;
+   #1044 needs a stable notion of record identity to anchor on. Freezing the tuple before the
+   anchor's requirements are known risks binding the wrong thing — and that is a *correctness*
+   risk, not a migration bill. It already paid off once: settling the anchor first is what
+   shrank #1044 from a Merkle chain to an `{id → version}` manifest.
+
+**So the conclusion is unchanged but the footing is narrower**, and worth knowing if staging is
+ever reconsidered: it is now defended on coherence and premise, not on expense.
 
 ### The three constraints (verified in source; do not re-derive)
 
@@ -138,120 +169,73 @@ This split is what lets `SECURITY.md` replace the concession with something prec
 That sentence is honest, narrower, and it is a *statement of what the design guarantees* rather
 than an admission of what it does not.
 
-## Decision 4 — the stable is `0.7.0`
+## Decision 4 — the stable is `0.6.0`
 
-`0.6.0-pre.16` has shipped a format the stable will not use. Calling the stable `0.6.0` would
-mean `0.6.0` and `0.6.0-pre.16` carry **incompatible envelope formats**, which is precisely the
-confusion the pre-release line exists to avoid. `0.7.0`, with the `0.6` pre line retired.
+**Reversed from this ADR's first draft, which said `0.7.0`.** The reason given there was that
+`0.6.0-pre.*` shipped a format the stable would not use, so a `0.6.0` stable would carry an
+envelope format incompatible with its own pre-line. That reason rests entirely on someone
+holding data in the pre-line format. Under the premise above, nobody does — pre-releases are
+explicitly unstable, and changing the format between `0.6.0-pre.17` and `0.6.0` breaks no
+promise that was made.
 
-## Migration must be observable, not a flag day
+What decided it is the coordination cost, measured rather than estimated. Every satellite peer
+range is already `^0.6.0-pre.*`:
 
-A stable release now requires validation against the pilot deployment, against **published
-pre-releases** rather than `main`. That constrains the design, not just the rollout: a
-one-shot flag day cannot be validated incrementally.
+| repo | declared range | admits `0.6.0`? | admits `0.7.0`? |
+|---|---|---|---|
+| noy-db-to | `^0.6.0-pre.0`, `^0.6.0-pre.11` | ✅ | ❌ |
+| klum-db | `^0.6.0-pre.14` | ✅ | ❌ |
+| noy-db-ui | `^0.6.0-pre.0` | ✅ | ❌ |
 
-Therefore:
+`^0.6.0-pre.0` desugars to `>=0.6.0-pre.0 <0.7.0`, so **a `0.6.0` stable needs zero manifest
+edits anywhere in the family.** `0.7.0` would require appending `|| ^0.7.0` in three repos and
+republishing all three — and the family record documents a *half-finished* append
+(`"^0.6.0-pre.0 || "`) as a real hazard that silently floors at `0.0.0` and admits every version
+while looking almost right in a diff.
 
-- **`_noydb: 2`** marks an AAD-bound envelope. The reader must **not** branch on it — see below.
-- **A vault reports its format state.** A running deployment must be able to answer "is this
-  vault on the old or new format, and how far along is any conversion" without reading records
-  by hand.
-- **Define the mixed case.** What a v2 client does with a v1 envelope, and vice versa, is a
-  specified behaviour with a test, not an emergent one.
+So `0.7.0` would buy a signal nobody needs, at the price of three coordinated edits whose known
+failure mode is an unbounded peer range. `0.6.0`.
 
-### The downgrade hole, and why the reader cannot branch on `_noydb`
+## Decision 5 — replace the format; there is no migration
 
-`_noydb` is itself unauthenticated metadata. A reader that trusts it lets an attacker rewrite
-`2` → `1` and switch AAD back off on demand. **AAD you can disable by editing a plaintext field
-is not AAD.**
+*The first draft of this ADR made Decision 5 "the format floor rides on DEK generation", pulling
+in #1043, and carried three blockers (B1 adoption, B2 field-dropping rotation, B3 crash-unsafe
+rotation). All of that existed to make **coexistence** safe. Under the no-legacy premise there is
+no coexistence, so the decision is replaced rather than amended. What follows is the whole of it.*
 
-So the reader must never branch on it. The format state has to come from somewhere the store
-cannot rewrite.
+- **AAD is unconditional.** Every record envelope is written and read with the Decision 2 tuple
+  bound. There is no opt-out, no per-collection state, and no "is this collection converted yet"
+  question — because nothing predates the change.
+- **The reader never branches on `_noydb`.** It does not branch on it today (verified: no reader
+  in `packages/hub/src` consults it), and it must not start. `_noydb` stays a plaintext
+  provenance marker at its current value, useful for "is this blob ours" and load-bearing for
+  nothing. **AAD you can disable by editing a plaintext field is not AAD** — the way to keep that
+  true is to have no code path it could select.
+- **Anything sealed under the old format is unreadable and that is correct.** A pre-`0.6.0`
+  envelope fails AAD verification and is rejected. That is the intended behaviour, not an edge
+  case to soften: a lenient path for unbound envelopes *is* the downgrade hole.
+- **No migration tooling ships.** No converter, no format-progress reporting, no mixed-format
+  specification, no flag day to schedule.
 
-## Decision 5 — the format floor rides on DEK generation (#1043 pulled in)
+### What this deleted, recorded so it is not rebuilt
 
-Directed at the family root: #1043's roster anti-rollback is **in scope**, because a floor
-anchored in a structure with a known rollback gap is not a floor. Investigating that produced a
-smaller design rather than a larger one.
+The retired blockers were real findings, and two of them were **fixed and shipped in
+`0.6.0-pre.17`** on their own merits — they were live revocation defects, not merely migration
+prerequisites:
 
-**`rotateKeys` already re-encrypts every record in the affected collections** — it decrypts
-under the old DEK and re-encrypts under the new one (`with-party/team/keyring.ts`, the
-`Re-encrypt all records in affected collections` loop). That is not an incidental
-implementation detail; it is the mechanism that made revocation meaningful in #1054.
+| | was | now |
+|---|---|---|
+| **B1** adoption re-wraps a DEK without re-encrypting | would have made an adopted partition read as old-format — a downgrade needing no attacker | **dissolved** — no format state to carry |
+| **B2** rotation dropped `_by`/`_tier`/`_cek`/`_sealed`/`_vdig`/`_source` | AAD unreconstructible after rotation; silent re-tier to 0 | **fixed** (#1074/#1075, `rekeyEnvelopeToDek`) |
+| **B3** rotation not crash-safe | interrupted rotation left records under a DEK never persisted — permanently unreadable | **fixed** (#1074 part 2, pending-DEK-before-loop) |
 
-Therefore: **migrating a collection to format 2 IS a DEK rotation.** The consequences fall out
-rather than needing to be built:
+B2 and B3 were worth fixing regardless: since #1054 removed `rotateKeys: false`, rotation is the
+**only** revocation path, so both defects fired on every revocation on every published version.
+The no-legacy premise removed their role in *this* design; it did not make them not-bugs.
 
-1. **Migration is atomic per collection.** Rotation rewrites every record, so afterwards the
-   collection is entirely v2 under the new DEK. There is no mixed-format state *within* a
-   collection, and therefore no per-record format decision to make.
-2. **No floor field, no ratchet, no `_noydb` branch.** The reader passes AAD for any collection
-   whose DEK is the post-migration one. It has no no-AAD code path for that collection, so there
-   is nothing to downgrade *to*.
-3. **A rolled-back keyring fails closed.** An old roster carries pre-rotation DEKs, which cannot
-   open post-rotation records at all — the attacker gets a decryption failure, not a lenient
-   read. This is what makes anchoring the floor in the keyring safe *despite* the roster being
-   replayable.
-4. **Migration stays observable and incremental.** The vault migrates collection by collection;
-   each collection is atomically v1 or v2, and the per-collection DEK generation in the keyring
-   is what a deployment reads to report progress. That satisfies the pre-release-soak
-   requirement without a flag day.
-
-### Three blockers found while checking this (review, 2026-08-14)
-
-Decision 5 says "migration IS rotation". Checking that against `rotateKeys` found three problems
-that must be fixed **before** rotation can serve as the migration mechanism. None invalidates the
-approach; all are prerequisites, and they are now the real content of this decision.
-
-**B1 — adoption re-wraps a DEK without re-encrypting, and it exists today.**
-`adopt-partition.ts:140` does a bare `saveAll` of the ciphertext and `:253` unseals the *same*
-DEK to re-wrap under a new KEK. Records are never re-encrypted, and the DEK lands in a
-**different keyring file**. So the invariant cannot be "the marker and the DEK travel in the
-same file" — adoption changes the file. It must be **"the marker travels *with the DEK*"**, and
-adoption must be required to carry it. If it defaults to absent, an adopted v2 collection reads
-as v1: **a downgrade path requiring no attacker at all.**
-
-Note this interacts with the `vault` exclusion, which exists *because* adoption re-homes records
-(constraint (c)). Adoption now has to carry format state as well as ciphertext.
-
-**B2 — rotation drops exactly the fields Decision 2 binds.**
-The re-encrypted envelope is built as a fresh literal carrying only
-`_noydb / _v / _ts / _iv / _data`. `_by`, `_tier`, `_cek`, `_sealed`, `_vdig`, `_source` are all
-absent. Binding `_tier` and `_by` into the AAD while making migration a rotation that **strips
-them** is self-defeating: migration would produce envelopes whose AAD cannot be reconstructed,
-and re-tier a record to 0 as a side effect. Rotation must be made field-preserving first.
-
-(`_bidx` is a deliberate exception — the existing comment explains it is DEK-rooted and must be
-dropped, not carried. That reasoning stands and should be preserved.)
-
-**B3 — rotation is not crash-safe, and migration inherits that.**
-The new DEK is generated **in memory** (`generateDEK()`), every record is re-encrypted and
-`put()`, and the keyring is persisted **last**. An interruption mid-collection therefore leaves
-records re-encrypted under a DEK that was never persisted and is now lost — **permanently
-unreadable**, not merely un-migrated.
-
-That directly contradicts point 1 of this decision. "Atomic per collection" describes the
-intended end state, not the mechanism: rotation is a loop, not a transaction. Since the pilot
-gate makes "what happens if migration is interrupted" a release-blocking question, this needs a
-resumable design — persist the new DEK before the loop, or journal progress — before migration
-can be offered to a production-sized vault.
-
-### The invariant, stated rather than inherited
-
-> **An old keyring cannot mis-describe a migrated collection, because the generation marker
-> travels WITH THE DEK — and the DEK that accompanies a stale marker cannot decrypt the data
-> that marker would mis-describe.**
-
-Corrected from "in the same KEK-authenticated file": adoption moves a DEK into a *different*
-file (B1), so the file is not what the property rests on. The DEK is.
-
-This is a property of rotation re-encrypting, not of how the code happens to be arranged today.
-If a future change makes rotation re-wrap DEKs *without* re-encrypting records, **this invariant
-breaks silently and the downgrade hole reopens.** That is a guard-worthy claim: the harness must
-assert it directly, not assume it.
-
-What an attacker can still do is present a *consistent* old world — old roster plus old records
-— which is **withholding**, not alteration, and is the head's job (Decision 3).
+**#1043 is no longer pulled in.** Its roster-replay concern was in scope only because a format
+floor anchored in the keyring inherited it. With no floor, the remaining half of #1043 is one
+un-probed question about current code — see Open Questions.
 
 ## The adversarial-store harness is part of the deliverable
 
@@ -265,13 +249,17 @@ with the client asserted to fail closed on every row:
 | relocate into another collection/id | rejected | D2 |
 | flip `_tier` to hide a record | rejected | D2 |
 | forge `_by` / `_source` | rejected | D2 |
-| downgrade `_noydb` 2 → 1 | rejected — no no-AAD path exists for a migrated collection | D5 |
-| replay an old keyring to force v1 reads | rejected — its DEKs cannot open v2 records | D5 |
-| rotation that re-wraps without re-encrypting | **the invariant itself is asserted** | D5 |
-| adopt a v2 partition | the adopted collection still reads as v2 | D5/B1 |
-| interrupt a migration mid-collection | resumable; no record becomes unreadable | D5/B3 |
+| edit `_noydb` to any value | **no effect** — nothing reads it | D5 |
+| serve an unbound (pre-`0.6.0`) envelope | rejected — no lenient path exists | D5 |
+| adopt a partition, then tamper with it | rejected — AAD survives re-homing (`vault` unbound by design) | D2 + D5 |
 | withhold a record entirely | detected | head (opt-in) |
 | suppress a `_keyring` delete | retained DEKs worthless | already closed (#1054) |
+| interrupt a revocation mid-rotation | resumable; no record becomes unreadable | shipped (#1074) |
+
+Four rows from the first draft are gone — `_noydb` downgrade, old-keyring replay to force
+old-format reads, rotation-that-re-wraps-without-re-encrypting, and interrupted *migration*.
+Each tested a coexistence property that no longer exists. **They were deleted, not silently
+dropped:** if coexistence is ever reintroduced, they come back with it.
 
 Because the head is opt-in, this is a **matrix**: each row asserted both with and without
 `withVaultHead()`, with the without-head expectations matching `SECURITY.md` exactly. If the two
@@ -290,7 +278,7 @@ you"* — which is its threat model, and why doi-db gates on this whole scheme r
 
 1. Finish **#1051** — one envelope construction site (13/49 producers migrated). AAD switches on
    *inside* `buildRecordEnvelope`, so this is the prerequisite that makes the change one line.
-2. **#1041** — bind the tuple; `_noydb: 2`; the floor.
+2. **#1041** — bind the tuple, unconditionally. No format flag, no floor, no ratchet.
 3. **#1042** — `MergeAuthority`, verify before `local.put`, `advance()` replaces the spread.
 4. **#1044** — the head, as an opt-in service.
 5. Adversarial harness, published.
@@ -298,19 +286,25 @@ you"* — which is its threat model, and why doi-db gates on this whole scheme r
 7. **Promote the exact validated commit.** Do not rebuild from a moved `main` — the artefact
    shipped would not be the artefact tested, and the validation silently expires.
 
+Steps 2–4 are one format, landed once. Because no vault predates them they may land across
+several `0.6.0-pre.*` cuts without any inter-version compatibility obligation between those
+pre-releases — the pilot re-seeds from scratch on each. **That is a property of the pre line
+only, and it ends at `0.6.0`.**
+
 Acceptance criterion the family already holds: the pilot currently needs
 `npm install --legacy-peer-deps` because of strict pre-release peers. A stable that deserves the
 name installs **without** it.
 
 ## Open questions
 
-1. ~~Where the format floor lives.~~ **Resolved by Decision 5** — the keyring, as a
-   per-collection DEK generation, safe because rotation re-encrypts. No longer blocking.
+1. ~~Where the format floor lives.~~ **Dissolved by Decision 5** — there is no floor, because
+   there is no second format to floor against.
 
    What remains of #1043 is the one un-probed question from the original report: **can `grant`
-   ever mint a keyring broader than the user's later standing?** That is what would make a
-   roster replay an *escalation* rather than a reinstatement, and it is unaffected by Decision 5
-   because it concerns a roster that was legitimately minted. Needs a probe, and it is small.
+   ever mint a keyring broader than the user's later standing?** That would make a roster replay
+   an *escalation* rather than a reinstatement. It concerns a roster that was **legitimately
+   minted**, so it is untouched by the no-legacy premise and by Decision 5 alike. Small,
+   self-contained, needs a probe rather than a design.
 2. **Tombstones and `_v` binding** (`engine.ts:974`). Empty body, nothing meaningful to
    authenticate. Bind them for uniformity, or exempt them explicitly and state why in the
    harness? An exemption is an attack surface if a tombstone can be replayed to suppress a
@@ -321,13 +315,20 @@ name installs **without** it.
    per-collection changes the manifest's shape, and shape decisions are cheap now and expensive
    later.
 
-4. **Migration cost, which the pilot will ask first.** How long does converting a
-   production-sized collection take? B3 must be fixed before that question can even be answered
-   honestly.
+4. ~~Migration cost.~~ **Dissolved** — nothing is converted. The pilot re-seeds.
+
+5. **Should `_noydb` exist at all?** It costs bytes on every record and, as established above,
+   no reader consults it. Keeping it is defensible as a "is this blob ours" sentinel for stores
+   and tooling. Removing it touches ~49 producers and a public type. **Not decided here** — it is
+   a separate simplification, and bundling it into an integrity change would make both harder to
+   review.
 
 ## Consequences
 
-- One format break, not two. `0.7.0`.
+- One format, landed once, at `0.6.0` — and **zero satellite manifest edits**, since every peer
+  range already admits it.
+- **Anything written by `0.6.0-pre.*` becomes unreadable.** Accepted deliberately under the
+  premise above; it is the cost that buys the deletion of every coexistence branch.
 - `check:architecture` is unchanged — if the implementation needs to weaken it, the design is wrong.
 - `SECURITY.md`'s concession is replaced by a narrower true statement, and the harness matrix is
   what keeps the two honest.
