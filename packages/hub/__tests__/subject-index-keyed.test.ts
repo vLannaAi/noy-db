@@ -118,12 +118,22 @@ describe('M-2 — subject index keyed id + bucketed ref list', () => {
     const invoices = vault.collection<Invoice>('invoices')
     await invoices.put('i-1', { id: 'i-1', buyerId: 'buyer-1', amount: 100 })
 
-    // Simulate a legacy deployment: relocate buyer-1's index entry from the
-    // new keyed id to the legacy sha256 id (body unchanged).
+    // Simulate a legacy deployment. This used to RELOCATE buyer-1's entry from
+    // the keyed id to the legacy sha256 id, body unchanged — which #1041 now
+    // refuses, and rightly: relocating an envelope to a different id is the
+    // attack AAD exists to stop, so a fixture cannot use it to fake history.
+    //
+    // A legacy entry is therefore MINTED at the legacy address instead: same
+    // ref list, sealed against the id it actually lives at. That is what a real
+    // pre-migration deployment would contain.
     const keyedId = store.rawList('v', '_subject_index')[0]!
-    const env = store.raw('v', '_subject_index', keyedId)!
+    const keyedEnv = store.raw('v', '_subject_index', keyedId)!
     const legacyId = await sha256HexUtf8('buyer-1')
-    await store.put('v', '_subject_index', legacyId, env)
+    const { encrypt, buildRecordAad, openEnvelopeJson } = await import('../src/kernel/enclave/index.js')
+    const subjDek = await vault._introspectState().getDEK('_subject_index')
+    const body = await openEnvelopeJson({ collection: '_subject_index', id: keyedId }, keyedEnv, subjDek)
+    const { iv, data } = await encrypt(body, subjDek, buildRecordAad({ collection: '_subject_index', id: legacyId }))
+    await store.put('v', '_subject_index', legacyId, { ...keyedEnv, _iv: iv, _data: data })
     await store.delete('v', '_subject_index', keyedId)
 
     const result = await vault.forget('buyer-1')
@@ -140,8 +150,9 @@ describe('M-2 — subject index keyed id + bucketed ref list', () => {
     const getDEK = async () => dek
     // Hand-write a legacy entry: sha256 key + bare-array body encrypted under DEK.
     const legacyId = await sha256HexUtf8('buyer-L')
-    const { encrypt } = await import('../src/kernel/enclave/index.js')
-    const { iv, data } = await encrypt(JSON.stringify([{ collection: 'invoices', id: 'i-L' }]), dek)
+    const { encrypt, buildRecordAad } = await import('../src/kernel/enclave/index.js')
+    // #1041: seal against the address it is stored at.
+    const { iv, data } = await encrypt(JSON.stringify([{ collection: 'invoices', id: 'i-L' }]), dek, buildRecordAad({ collection: '_subject_index', id: legacyId }))
     await store.put('v', '_subject_index', legacyId, {
       _noydb: 1, _v: 1, _ts: new Date().toISOString(), _iv: iv, _data: data,
     } as EncryptedEnvelope)
