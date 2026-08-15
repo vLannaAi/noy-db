@@ -239,7 +239,7 @@ export async function reKeyLedger(
     const { iv, data } = await encrypt(canonicalJson(entry), ledgerDek)
     entries[paddedIndex(i)] = buildRecordEnvelope(
       { collection: LEDGER_COLLECTION, id: paddedIndex(i) },
-      { version: i + 1, ts: entry.ts, iv, data, by: entry.actor },
+      { version: i + 1, ts: entry.ts, iv, data},
     )
     prevHash = await hashEntry(entry)
     last = entry

@@ -72,7 +72,7 @@ function writeRequest(vault: Vault, req: WithdrawalRequest, expectedVersion: num
   const actor = req.decidedBy ?? req.requester
   const env = buildRecordEnvelope(
     { collection: WITHDRAWAL_REQUESTS_COLLECTION, id: req.requestId, by: actor },
-    { version: expectedVersion + 1, ts: req.decidedAt ?? req.requestedAt, iv: '', data: body, by: actor },
+    { version: expectedVersion + 1, ts: req.decidedAt ?? req.requestedAt, iv: '', data: body},
   )
   return adapter.put(vaultName, WITHDRAWAL_REQUESTS_COLLECTION, req.requestId, env, expectedVersion)
 }

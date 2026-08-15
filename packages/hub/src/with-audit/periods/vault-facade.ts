@@ -681,9 +681,9 @@ export class VaultPeriods {
     if (this.deps.encrypted) {
       const dek = await this.deps.getDEK(collection)
       const { iv, data } = await encrypt(json, dek)
-      envelope = buildRecordEnvelope(identity, { version: 1, iv, data, by: actor })
+      envelope = buildRecordEnvelope(identity, { version: 1, iv, data})
     } else {
-      envelope = buildRecordEnvelope(identity, { version: 1, iv: '', data: json, by: actor })
+      envelope = buildRecordEnvelope(identity, { version: 1, iv: '', data: json})
     }
     await this.deps.adapter.put(this.deps.vault, collection, key, envelope)
     // #822: the period summaries are vault-wide state — period-scoped pull

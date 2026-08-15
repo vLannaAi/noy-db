@@ -1810,11 +1810,11 @@ export class Vault {
       ? await (async () => {
           const dek = await this.getDEK(EXPORT_AUDIT_COLLECTION)
           const { iv, data } = await encrypt(json, dek)
-          return buildRecordEnvelope({ collection: EXPORT_AUDIT_COLLECTION, id: entry.id },
-            { version: 1, ts: entry.startedAt, iv, data, by: entry.actor })
+          return buildRecordEnvelope({ collection: EXPORT_AUDIT_COLLECTION, id: entry.id, by: entry.actor },
+            { version: 1, ts: entry.startedAt, iv, data})
         })()
-      : buildRecordEnvelope({ collection: EXPORT_AUDIT_COLLECTION, id: entry.id },
-          { version: 1, ts: entry.startedAt, iv: '', data: json, by: entry.actor })
+      : buildRecordEnvelope({ collection: EXPORT_AUDIT_COLLECTION, id: entry.id, by: entry.actor },
+          { version: 1, ts: entry.startedAt, iv: '', data: json})
     await this.adapter.put(this.name, EXPORT_AUDIT_COLLECTION, entry.id, envelope)
   }
 
@@ -3020,11 +3020,11 @@ export class Vault {
       ? await (async () => {
           const dek = await this.getDEK(ELEVATION_AUDIT_COLLECTION)
           const { iv, data } = await encrypt(json, dek)
-          return buildRecordEnvelope({ collection: ELEVATION_AUDIT_COLLECTION, id },
-            { version: 1, ts: entry.startedAt, iv, data, by: entry.actor })
+          return buildRecordEnvelope({ collection: ELEVATION_AUDIT_COLLECTION, id, by: entry.actor },
+            { version: 1, ts: entry.startedAt, iv, data})
         })()
-      : buildRecordEnvelope({ collection: ELEVATION_AUDIT_COLLECTION, id },
-          { version: 1, ts: entry.startedAt, iv: '', data: json, by: entry.actor })
+      : buildRecordEnvelope({ collection: ELEVATION_AUDIT_COLLECTION, id, by: entry.actor },
+          { version: 1, ts: entry.startedAt, iv: '', data: json})
     await this.adapter.put(this.name, ELEVATION_AUDIT_COLLECTION, id, envelope)
   }
 

@@ -122,7 +122,7 @@ export async function issueDelegation(
   const { iv, data } = await encrypt(plaintext, delegationsDek)
   const envelope = buildRecordEnvelope(
     { collection: DELEGATIONS_COLLECTION, id: token.id, by: grantor.userId },
-    { version: 1, ts: token.createdAt, iv, data, by: grantor.userId },
+    { version: 1, ts: token.createdAt, iv, data},
   )
   await store.put(vault, DELEGATIONS_COLLECTION, token.id, envelope)
   return token

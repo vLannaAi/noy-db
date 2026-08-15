@@ -42,33 +42,51 @@ export interface RecordEnvelopeBody {
   readonly data: string
   /** ISO timestamp. Defaults to now — pass it when the caller has a real one. */
   readonly ts?: string | undefined
-  readonly by?: string | undefined
   /** Wrapped per-record CEK, when the record has one. */
   readonly cek?: string | undefined
   readonly provenance?: { readonly source: string; readonly sourceTs: string } | undefined
-  /** Slots the envelope may additionally carry. */
-  readonly extra?: Partial<Pick<EncryptedEnvelope, '_tier' | '_det' | '_sealed' | '_vdig' | '_bidx'>> | undefined
+  /**
+   * Slots the envelope may additionally carry.
+   *
+   * `_tier` and `_by` are deliberately NOT here — they come from `identity`,
+   * which is the single source for both. See {@link buildRecordEnvelope}.
+   */
+  readonly extra?: Partial<Pick<EncryptedEnvelope, '_det' | '_sealed' | '_vdig' | '_bidx'>> | undefined
 }
 
 /**
  * Build an envelope for `identity`.
  *
- * `identity` is required and currently unused — see the module docs. Do not
- * "simplify" it away: its presence is what makes the eventual AAD binding a
- * one-line change here instead of a 49-site hunt.
+ * ## `identity` is the SINGLE SOURCE for `_by` and `_tier`
+ *
+ * Both are stamped from it, and `RecordEnvelopeBody` deliberately cannot carry
+ * them. That is not tidiness — it is what makes the AAD binding safe.
+ *
+ * The caller encrypts the body under AAD derived from `{collection, id, tier,
+ * by}`. A reader recomputes that AAD from the address it fetched from plus
+ * `_tier`/`_by` read back **off the envelope** (`recordAadFor`). So if the
+ * identity a writer *declares* could differ from the fields it *stamps*, the
+ * AAD would not reproduce and the record would be undecryptable — silently, at
+ * write time, discoverable only on the next read, and invisible to every gate
+ * because the envelope is perfectly well-formed.
+ *
+ * An earlier draft took both and asserted they agreed. The assertion fired 230
+ * times on the existing tree, which is the argument against it: a rule that can
+ * be violated is a rule someone must remember. Taking one source removes the
+ * violation instead of reporting it.
  */
 export function buildRecordEnvelope(
   identity: RecordIdentity,
   body: RecordEnvelopeBody,
 ): EncryptedEnvelope {
-  void identity
   return {
     _noydb: NOYDB_FORMAT_VERSION,
     _v: body.version,
     _ts: body.ts ?? new Date().toISOString(),
     _iv: body.iv,
     _data: body.data,
-    ...(body.by !== undefined ? { _by: body.by } : {}),
+    ...(identity.by !== undefined ? { _by: identity.by } : {}),
+    ...(identity.tier !== undefined && identity.tier > 0 ? { _tier: identity.tier } : {}),
     ...(body.cek !== undefined ? { _cek: body.cek } : {}),
     ...(body.provenance !== undefined
       ? { _source: body.provenance.source, _sourceTs: body.provenance.sourceTs }

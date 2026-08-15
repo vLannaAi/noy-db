@@ -122,7 +122,7 @@ export async function putCredential(
 
   const envelope: EncryptedEnvelope = buildRecordEnvelope(
     { collection: SYNC_CREDENTIALS_COLLECTION, id: credential.adapterId },
-    { version, iv, data, by: keyring.userId },
+    { version, iv, data},
   )
 
   await adapter.put(

@@ -91,3 +91,33 @@ export function buildRecordAad(identity: RecordIdentity): Uint8Array {
   }
   return out
 }
+
+/**
+ * The AAD a **reader** must supply to open `envelope`, given where it fetched
+ * it from.
+ *
+ * This is the read-side counterpart of {@link buildRecordAad}, and the split
+ * exists because of one asymmetry: **a writer always knows what it is writing;
+ * a reader often does not.** Query execution, sync merge and backup restore
+ * hold an envelope that arrived from a map or a batch, having discarded the
+ * address it came from.
+ *
+ * What makes the read side tractable is that only `{collection, id}` has to be
+ * threaded — precisely what the caller passed to `store.get`. `_tier` and `_by`
+ * are read back **off the envelope**, so no extra plumbing carries them.
+ *
+ * That is not a weakening. An attacker who edits `_tier` to hide a record, or
+ * `_by` to forge provenance, changes the AAD the reader computes — and AES-GCM
+ * then fails to authenticate. The tampered field defeats itself.
+ */
+export function recordAadFor(
+  ref: { readonly collection: string; readonly id: string },
+  envelope: { readonly _tier?: number | undefined; readonly _by?: string | undefined },
+): Uint8Array {
+  return buildRecordAad({
+    collection: ref.collection,
+    id: ref.id,
+    tier: envelope._tier,
+    by: envelope._by,
+  })
+}

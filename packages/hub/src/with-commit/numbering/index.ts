@@ -84,10 +84,10 @@ export class DeferredNumberingStore {
     const json = JSON.stringify(value)
     let env: EncryptedEnvelope
     if (!this.encrypted) {
-      env = buildRecordEnvelope({ collection, id }, { version: expectedVersion + 1, iv: '', data: json, by: this.actor })
+      env = buildRecordEnvelope({ collection, id }, { version: expectedVersion + 1, iv: '', data: json})
     } else {
       const { iv, data } = await encrypt(json, await this.dek(collection))
-      env = buildRecordEnvelope({ collection, id }, { version: expectedVersion + 1, iv, data, by: this.actor })
+      env = buildRecordEnvelope({ collection, id }, { version: expectedVersion + 1, iv, data})
     }
     await this.adapter.put(this.vault, collection, id, env, expectedVersion)
   }

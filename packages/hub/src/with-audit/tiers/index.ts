@@ -471,8 +471,7 @@ export async function putAtTier<T>(
       version,
       iv,
       data,
-      by: ctx.keyring.userId,
-      ...(tier > 0 ? { extra: { _tier: tier } } : {}),
+      // `_tier` is stamped from `identity.tier` above — the single source.
       ...(ctx.provenance && opts?.source !== undefined
         ? { provenance: { source: opts.source, sourceTs: opts.sourceTs ?? new Date().toISOString() } }
         : {}),

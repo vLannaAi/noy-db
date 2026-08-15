@@ -414,11 +414,11 @@ export class LedgerStore {
     const identity = { collection: LEDGER_DELTAS_COLLECTION, id: paddedIndex(index), by: this.actor }
     const json = JSON.stringify(patch)
     if (!this.encrypted) {
-      return buildRecordEnvelope(identity, { version: 1, iv: '', data: json, by: this.actor })
+      return buildRecordEnvelope(identity, { version: 1, iv: '', data: json})
     }
     const dek = await this.getDEK(LEDGER_COLLECTION)
     const { iv, data } = await encrypt(json, dek)
-    return buildRecordEnvelope(identity, { version: 1, iv, data, by: this.actor })
+    return buildRecordEnvelope(identity, { version: 1, iv, data})
   }
 
   /**

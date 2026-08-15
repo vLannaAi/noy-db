@@ -9,7 +9,9 @@ describe('buildRecordEnvelope (#1051)', () => {
   it('1. produces exactly what the hand-written literals produced', () => {
     // The migration is only safe if this is byte-identical to what the 49
     // producers wrote by hand. This is that contract.
-    const env = buildRecordEnvelope(id, { version: 1, iv: 'IV', data: 'DATA', ts: 'T', by: 'alice' })
+    // #1041: `by` moved onto the IDENTITY — it is the single source for `_by`
+    // and for the AAD, so the two cannot disagree.
+    const env = buildRecordEnvelope({ ...id, by: 'alice' }, { version: 1, iv: 'IV', data: 'DATA', ts: 'T' })
     expect(env).toEqual({
       _noydb: NOYDB_FORMAT_VERSION,
       _v: 1,
@@ -40,9 +42,26 @@ describe('buildRecordEnvelope (#1051)', () => {
   it('4. passes extra slots through untouched', () => {
     const env = buildRecordEnvelope(id, {
       version: 1, iv: 'IV', data: 'D', ts: 'T',
-      extra: { _tier: 1, _det: { field: 'x' } as never },
+      extra: { _det: { field: 'x' } as never },
     })
-    expect(env._tier).toBe(1)
+    expect(env._det).toEqual({ field: 'x' })
+  })
+
+  it('4b. `_tier` comes from the IDENTITY, never from `extra` (#1041)', () => {
+    // Single source: the caller seals under AAD derived from `identity`, and a
+    // reader recomputes it from `_tier` read off the envelope. If `extra` could
+    // also set `_tier`, the two could disagree and the record would be sealed
+    // under AAD nothing can reproduce. The type forbids it; this pins the
+    // behaviour so a future widening of `extra` has to fail here first.
+    const env = buildRecordEnvelope({ ...id, tier: 2 }, { version: 1, iv: 'IV', data: 'D', ts: 'T' })
+    expect(env._tier).toBe(2)
+  })
+
+  it('4c. tier 0 is OMITTED, not stamped — absent and 0 are one record', () => {
+    // `buildRecordAad` folds `undefined` and 0 together for exactly this reason;
+    // stamping `_tier: 0` would change stored bytes for no gain.
+    const env = buildRecordEnvelope({ ...id, tier: 0 }, { version: 1, iv: 'IV', data: 'D', ts: 'T' })
+    expect('_tier' in env).toBe(false)
   })
 
   it('5. defaults `_ts` to now when the caller has no real timestamp', () => {

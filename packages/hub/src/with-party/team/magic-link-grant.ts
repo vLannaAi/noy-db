@@ -187,7 +187,7 @@ export async function writeMagicLinkGrant(
   const { iv, data } = await encrypt(JSON.stringify(payload), contentKey)
   const envelope = buildRecordEnvelope(
     { collection: MAGIC_LINK_GRANTS_COLLECTION, id: recordId, by: grantor.userId },
-    { version: 1, ts: createdAt, iv, data, by: grantor.userId },
+    { version: 1, ts: createdAt, iv, data},
   )
   await store.put(vault, MAGIC_LINK_GRANTS_COLLECTION, recordId, envelope)
   return { recordId, payload }

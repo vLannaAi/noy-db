@@ -205,7 +205,7 @@ export class RecordCodec<T> {
         version,
         iv: '',
         data: '',
-        by: this.ctx.actor,
+        
         ...(this.ctx.provenance && source !== undefined
           ? { provenance: { source, sourceTs: sourceTs ?? new Date().toISOString() } }
           : {}),

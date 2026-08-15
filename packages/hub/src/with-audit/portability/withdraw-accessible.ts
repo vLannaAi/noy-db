@@ -98,7 +98,7 @@ export async function freezeSnapshotOnly(
     withdrawalId,
     buildRecordEnvelope(
       { collection: FROZEN_SNAPSHOTS_COLLECTION, id: withdrawalId, by: opts.actorUserId },
-      { version: 1, ts: frozenAt, iv: '', data: body, by: opts.actorUserId },
+      { version: 1, ts: frozenAt, iv: '', data: body},
     ),
     0,
   )
