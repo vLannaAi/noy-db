@@ -14,6 +14,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { RecordCodec, type RecordCodecContext } from '../../src/kernel/enclave/record-keys/record-codec.js'
+import { recordAadFor } from '../../src/kernel/enclave/record-aad.js'
 import { ViaPipeline } from '../../src/kernel/via/pipeline.js'
 import type { ViaBinding, ViaPosture } from '../../src/kernel/via/index.js'
 import { generateDEK, decrypt, type EnclaveKey } from '../../src/kernel/enclave/index.js'
@@ -75,7 +76,7 @@ describe('RecordCodec codec boundary — via at-rest hooks (#629 Task 3)', () =>
 
     expect(envelope._sealed).toBeDefined()
     expect(envelope._sealed!.secret).toMatch(/^.+:.+$/)
-    const bodyJson = await codec.decryptJsonString(envelope, 'r1')
+    const bodyJson = await codec.decryptJsonString({ collection: 'c', id: 'r1' }, envelope)
     expect(JSON.parse(bodyJson!)).toEqual({ open: 'visible' }) // `secret` peeled out before `_data` was built
   })
 
@@ -88,7 +89,7 @@ describe('RecordCodec codec boundary — via at-rest hooks (#629 Task 3)', () =>
     const envelope = await codec.encryptRecord({ collection: 'c', id: 'r1' }, { secret: 'shh', open: 'visible' }, 1, cek)
     expect(envelope._cek).toBeDefined() // per-record CEK path was taken
 
-    const decoded = await codec.decryptRecord(envelope, { id: 'r1' })
+    const decoded = await codec.decryptRecord({ collection: 'c', id: 'r1' }, envelope)
 
     expect(decoded).toEqual({ secret: 'shh', open: 'visible' })
   })
@@ -99,7 +100,7 @@ describe('RecordCodec codec boundary — via at-rest hooks (#629 Task 3)', () =>
     const codec = new RecordCodec(makeCtx({ storeCiphertext: true, via: pipeline, dek }))
 
     const envelope = await codec.encryptRecord({ collection: 'c', id: 'r1' }, { secret: 'shh', open: 'visible' }, 1, undefined)
-    const decoded = (await codec.decryptRecord(envelope, { id: 'r1', sealedAsHandles: true })) as Record<string, unknown>
+    const decoded = (await codec.decryptRecord({ collection: 'c', id: 'r1' }, envelope, { sealedAsHandles: true })) as Record<string, unknown>
 
     expect(decoded.secret).toBeInstanceOf(SealedHandle)
     expect(JSON.stringify(decoded.secret)).toBe('"[sealed]"') // never leaks the plaintext
@@ -131,13 +132,19 @@ describe('RecordCodec codec boundary — via at-rest hooks (#629 Task 3)', () =>
     await expect(codec.encryptRecord({ collection: 'c', id: '' }, { secret: 'shh' }, 1)).rejects.toThrow(/record id/i)
   })
 
-  it('decryptRecord refuses (explicit recordId check) when hasAtRestHooks is true but opts.id is missing', async () => {
+  // #1041: AAD SUBSUMES this guard on the read path. "No id supplied" is now a
+  // compile error, and an empty id no longer even reaches the sealed-slot
+  // check — the body was sealed against the real id, so decryption fails
+  // first. The guard stays as a backstop for a plaintext collection (no AEAD,
+  // nothing to catch it), but here the assertion is that a wrong identity is
+  // refused, not which layer refuses it.
+  it('decryptRecord refuses an empty record id when at-rest hooks are declared', async () => {
     const dek = await generateDEK()
     const pipeline = ViaPipeline.build([fixtureBinding()])!
     const codec = new RecordCodec(makeCtx({ storeCiphertext: true, via: pipeline, dek }))
     const envelope = await codec.encryptRecord({ collection: 'c', id: 'r1' }, { secret: 'shh' }, 1, undefined)
 
-    await expect(codec.decryptRecord(envelope)).rejects.toThrow(/record id/i)
+    await expect(codec.decryptRecord({ collection: 'c', id: '' }, envelope)).rejects.toThrow()
   })
 })
 
@@ -154,7 +161,7 @@ describe('zero-via fast path stays on the inline path (#629 Task 3 parity)', () 
 
     expect(envelope._sealed).toBeDefined()
     expect(envelope._sealed!.secret).toMatch(/^.+:.+$/)
-    const decoded = await codec.decryptRecord(envelope)
+    const decoded = await codec.decryptRecord({ collection: 'c', id: 'r1' }, envelope)
     expect(decoded).toEqual({ secret: 'shh', open: 'visible' })
   })
 
@@ -172,7 +179,7 @@ describe('zero-via fast path stays on the inline path (#629 Task 3 parity)', () 
 
     expect(Object.keys(envNoVia).sort()).toEqual(Object.keys(envSyncPipeline).sort())
     expect(Object.keys(envNoVia._sealed ?? {})).toEqual(Object.keys(envSyncPipeline._sealed ?? {}))
-    expect(await codecNoVia.decryptRecord(envNoVia)).toEqual(await codecSyncPipeline.decryptRecord(envSyncPipeline))
+    expect(await codecNoVia.decryptRecord({ collection: 'c', id: 'r1' }, envNoVia)).toEqual(await codecSyncPipeline.decryptRecord({ collection: 'c', id: 'r1' }, envSyncPipeline))
   })
 })
 
@@ -200,7 +207,7 @@ describe('viaCryptoCtx.reservedEnvelopes — per-collection DEK resolution (#629
       posture: posture(),
       reservedPrefixes: ['_dict_'],
       async encodeAtRest(record, crypto) {
-        captured = await crypto.reservedEnvelopes('_dict_').encrypt('_dict_other', 'r1', JSON.stringify({ hello: 'world' }), 1)
+        captured = await crypto.reservedEnvelopes('_dict_').encrypt({ collection: '_dict_other', id: 'r1' }, JSON.stringify({ hello: 'world' }), 1)
         return { record }
       },
     }
@@ -219,10 +226,12 @@ describe('viaCryptoCtx.reservedEnvelopes — per-collection DEK resolution (#629
     await codec.encryptRecord({ collection: 'c', id: 'r1' }, { open: 'visible' }, 1, undefined)
 
     expect(captured).toBeDefined()
+    // AAD is the reserved envelope's own address, not the record's (#1041).
+    const aad = recordAadFor({ collection: '_dict_other', id: 'r1' }, captured!)
     // The record's OWN collection DEK must NOT open the reserved envelope.
-    await expect(decrypt(captured!._iv, captured!._data, ownDek)).rejects.toThrow()
+    await expect(decrypt(captured!._iv, captured!._data, ownDek, aad)).rejects.toThrow()
     // Only the reserved collection's DEK does.
-    const json = await decrypt(captured!._iv, captured!._data, dictDek)
+    const json = await decrypt(captured!._iv, captured!._data, dictDek, aad)
     expect(JSON.parse(json)).toEqual({ hello: 'world' })
   })
 })
@@ -276,6 +285,6 @@ describe('at-rest hook failure propagates through the codec boundary (#629 Task 
     const tamperedData = data!.slice(0, -2) + (data!.slice(-2) === '00' ? '11' : '00')
     const tampered: EncryptedEnvelope = { ...envelope, _sealed: { mail: `${iv}:${tamperedData}` } }
 
-    await expect(codec.decryptRecord(tampered, { id: 'r1' })).rejects.toThrow()
+    await expect(codec.decryptRecord({ collection: 'c', id: 'r1' }, tampered)).rejects.toThrow()
   })
 })

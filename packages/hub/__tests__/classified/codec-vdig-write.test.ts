@@ -35,7 +35,7 @@ describe('encryptRecord digest-only branches (C6)', () => {
     expect(payload.v).toBe(1)
     expect(payload.iter).toBe(600_000)
     // decrypt _data and prove the plaintext is gone
-    const back = await codec.decryptRecord(env, { id: 'r1' })
+    const back = await codec.decryptRecord({ collection: 'c', id: 'r1' }, env)
     expect(back).toEqual({ name: 'Nok' })
   }, 30_000)
 
@@ -53,7 +53,7 @@ describe('encryptRecord digest-only branches (C6)', () => {
     const v1 = await codec.encryptRecord({ collection: 'c', id: 'r1' }, { password: 'hunter2-hunter2' }, 1, cek, undefined, undefined, { id: 'r1', prev: null })
     const v2 = await codec.encryptRecord({ collection: 'c', id: 'r1' }, { password: null }, 2, cek, undefined, undefined, { id: 'r1', prev: v1 })
     expect(v2._vdig?.password).toBeUndefined()
-    expect(await codec.decryptRecord(v2, { id: 'r1' })).toEqual({})
+    expect(await codec.decryptRecord({ collection: 'c', id: 'r1' }, v2)).toEqual({})
   }, 30_000)
 
   it('validate branch: non-string non-null value is a loud ValidationError', async () => {

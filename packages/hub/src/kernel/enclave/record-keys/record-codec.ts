@@ -738,7 +738,11 @@ export class RecordCodec<T> {
     opts: { id?: string; sealedAsHandles?: boolean } = {},
   ): Promise<T> {
     if (this.ctx.via?.hasAtRestHooks) {
-      if (opts.id === undefined) {
+      // Retargeted from `=== undefined`, which #1041 made unreachable on the
+      // read path too: `decryptRecord` now takes a required identity, so the
+      // compiler asks that question. An EMPTY id can still get through, and it
+      // would scope every record's sealed slots to the same capability.
+      if (opts.id === undefined || opts.id === '') {
         throw new Error(
           `RecordCodec.decryptRecord: collection "${this.ctx.name}" has via at-rest hooks but this read ` +
           'path supplied no record id (needed to scope the sealed-slot capability) — caller bug.',
