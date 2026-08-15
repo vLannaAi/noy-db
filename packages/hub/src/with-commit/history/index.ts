@@ -62,3 +62,8 @@ export type { VaultEngine } from './time-machine.js'
 
 /** The un-opted-in stub for this service — exported so callers can compare against it (#844). */
 export { NO_HISTORY } from './strategy.js'
+
+// `historyIdentity`'s return type — re-exported so `@noy-db/hub/history` is
+// self-sufficient: a consumer must be able to NAME what this subpath returns
+// without reaching for another entry point (check:types / type-reachability).
+export type { RecordIdentity } from '../../kernel/enclave/index.js'
