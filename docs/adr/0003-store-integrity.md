@@ -279,8 +279,36 @@ you"* — which is its threat model, and why doi-db gates on this whole scheme r
 
 ## Rollout
 
-1. Finish **#1051** — one envelope construction site (13/49 producers migrated). AAD switches on
-   *inside* `buildRecordEnvelope`, so this is the prerequisite that makes the change one line.
+1. ~~Finish **#1051** — AAD switches on *inside* `buildRecordEnvelope`, making the change one
+   line.~~ **DONE (#1051 closed), and the second half of that sentence was WRONG.** Corrected
+   2026-08-15, by checking instead of assuming — the same failure this ADR catalogues elsewhere.
+
+   `buildRecordEnvelope(identity, body)` receives **already-encrypted** `iv`/`data`. AAD is an
+   argument to `subtle.encrypt`. The constructor never touches plaintext, so it is physically
+   incapable of applying AAD. The real choke points are:
+
+   | | sites | state after #1051 |
+   |---|---|---|
+   | **write** — `encrypt(json, dek, aad?)` | 44 | already accepts AAD; identity is **in scope at every one**, which is what #1051 bought |
+   | **read** — `openEnvelopeJson(env, key)` | 41 | **takes no identity at all** |
+   | **read** — direct `decrypt(...)` | 21 | same |
+
+   **#1051 was not wasted — it is what makes the write side mechanical.** But it solved envelope
+   *construction* fan-out, and AAD is applied at *encryption*, which is a different set.
+
+   **The read side is the hard half and was never scoped.** AES-GCM is symmetric in AAD: a reader
+   must supply byte-identical AAD or decryption fails. Several read paths — query execution, sync
+   merge, backup restore, `loadAll` — hold only an envelope, having discarded the collection/id
+   they came from. That is a data-flow change, not a crypto change.
+
+   **What bounds it:** `_tier` and `_by` live *on the envelope*, so a reader only needs
+   `{collection, id}` threaded — exactly what it passed to `store.get`. Binding still works
+   against tampering: an attacker who flips `_tier` changes the AAD the reader computes, and
+   decryption fails. So the threading is bounded to two fields, not four.
+
+   **Consequence for planning:** this is days, not hours, and it must be **atomic** — a
+   partially-bound database is not a valid state, so there is no safe intermediate to ship. The
+   adversarial harness lands with it, not after.
 2. **#1041** — bind the tuple, unconditionally. No format flag, no floor, no ratchet.
 3. **#1042** — `MergeAuthority`, verify before `local.put`, `advance()` replaces the spread.
 4. **#1044** — the head, as an opt-in service.
