@@ -142,7 +142,7 @@ async function encodeIntentEnvelope(
   const json = JSON.stringify(intent)
   return buildSealedRecordEnvelope(
     { collection: BLOB_INTENT_COLLECTION, id: key },
-    await writeEnvelopeBody({ collection: BLOB_INTENT_COLLECTION, id: key }, json, dek),
+    (identity) => writeEnvelopeBody(identity, json, dek),
     { version: newVersion },
   )
 }

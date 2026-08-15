@@ -208,9 +208,14 @@ export class LookupHandle<Keys extends string = string> {
         _by: this.keyring.userId,
       }
     }
-    // `entry.key` IS the record id this envelope is stored under.
-    const envelope = await this.reservedEnvelopes.encrypt(this.collName, entry.key, JSON.stringify(entry), version)
-    return { ...envelope, _by: this.keyring.userId }
+    // `entry.key` IS the record id this envelope is stored under. `_by` goes
+    // IN, not on afterwards: stamping it on the returned envelope would leave
+    // it outside the AAD the door just sealed (#1041).
+    return this.reservedEnvelopes.encrypt(
+      { collection: this.collName, id: entry.key, by: this.keyring.userId },
+      JSON.stringify(entry),
+      version,
+    )
   }
 
   private async decryptEntry(key: string, envelope: EncryptedEnvelope): Promise<DictEntry> {

@@ -246,10 +246,17 @@ export function makeReservedEnvelopes(
       }
     }
 
-    const encryptForPrefix = async (collection: string, id: string, json: string, v: number): Promise<EncryptedEnvelope> => {
-      assertPrefixed(collection, 'encrypt')
-      const dek = await dekResolver(collection)
-      const identity = { collection, id }
+    const encryptForPrefix = async (
+      identity: { readonly collection: string; readonly id: string; readonly by?: string },
+      json: string,
+      v: number,
+    ): Promise<EncryptedEnvelope> => {
+      assertPrefixed(identity.collection, 'encrypt')
+      const dek = await dekResolver(identity.collection)
+      // `by` is part of the identity, so it is SEALED here and stamped by
+      // `buildRecordEnvelope` from the same source. A caller that added `_by`
+      // to the returned envelope afterwards would produce a record whose AAD
+      // no reader can reproduce — which is exactly what via/lookup did (#1041).
       const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
       return buildRecordEnvelope(identity, { version: v, iv, data })
     }

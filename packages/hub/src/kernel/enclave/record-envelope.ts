@@ -109,12 +109,26 @@ export function buildRecordEnvelope(
  * knowledge of the envelope's shape *inward*; a migration that spreads the
  * protected field names outward to every caller would have defeated its own
  * purpose while looking like progress. The pairing belongs here.
+ *
+ * ## It takes a SEALER, not a sealed body — and that is load-bearing (#1041)
+ *
+ * The obvious shape is `(identity, alreadySealedBody, rest)`. That requires the
+ * caller to name the identity TWICE — once for `writeEnvelopeBody` and once
+ * here — and the two must agree byte for byte or the record is sealed under
+ * AAD no reader can reproduce.
+ *
+ * They did not agree. `with-party/broker/seed.ts` sealed against
+ * `{collection, id}` and stamped `{collection, id, by}`, so every broker seed
+ * became unreadable the moment AAD switched on. Taking the sealer means the
+ * identity is written once and handed to both — divergence stops being
+ * possible rather than being something to remember.
  */
-export function buildSealedRecordEnvelope(
+export async function buildSealedRecordEnvelope(
   identity: RecordIdentity,
-  sealed: Pick<EncryptedEnvelope, '_iv' | '_data' | '_cek'>,
+  seal: (identity: RecordIdentity) => Promise<Pick<EncryptedEnvelope, '_iv' | '_data' | '_cek'>>,
   body: Omit<RecordEnvelopeBody, 'iv' | 'data' | 'cek'>,
-): EncryptedEnvelope {
+): Promise<EncryptedEnvelope> {
+  const sealed = await seal(identity)
   return buildRecordEnvelope(identity, {
     ...body,
     iv: sealed._iv,
