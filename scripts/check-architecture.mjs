@@ -1460,7 +1460,14 @@ const KERNEL_SURFACE_BUDGET = {
   // ServiceBus because it must be handed to the engine AT CONSTRUCTION. The
   // 33-line body that first sat here was rightly refused and now lives in
   // `kernel/merge-authority.ts`.
-  'packages/hub/src/kernel/noydb.ts': 2182,  // #1074: +1 for pendingDeks on the bootstrap keyring literal
+  // Bumped 2182→2200 (2026-08-15, #1044 vault-head observer): the registration
+  // itself — 14 lines plus a one-line pointer — must live in the kernel because
+  // the ServiceBus does. The 18-line rationale that first sat here moved to
+  // `with-commit/vault-head/strategy.ts`, and the CAPABILITY was never here at
+  // all: `note`/`expected`/`knownIn`/the sweep are entirely in the service, and
+  // nothing registers unless the head is enabled, so a vault that has not opted
+  // in pays nothing.
+  'packages/hub/src/kernel/noydb.ts': 2200,  // #1074: +1 for pendingDeks on the bootstrap keyring literal
   // Lowered 2407→2345 (#834 vault() cache-only, 2026-07-26): deleting the two drifted
   // fallback Vault constructors from vault() removed ~80 lines of duplicated option block.
   // A test now asserts noydb.ts contains exactly ONE `new Vault(` site — that invariant,
@@ -1719,6 +1726,7 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-cargo/strategy.js',
     '../with-commit/crdt/crdt.js',
     '../with-commit/crdt/strategy.js',
+    '../with-commit/vault-head/strategy.js',
     '../with-commit/history/strategy.js',
     '../with-commit/numbering/descriptor.js',
     '../with-commit/sequence/strategy.js',

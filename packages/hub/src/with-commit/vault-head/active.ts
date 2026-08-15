@@ -20,6 +20,7 @@ export function withVaultHead(opts: WithVaultHeadOptions = {}): VaultHeadStrateg
   const dekFor = (getDEK: (c: string) => Promise<EnclaveKey>) => getDEK(VAULT_HEAD_COLLECTION)
 
   return {
+    enabled: true,
     bucketFor: (collection, id) => bucketId(collection, id, buckets),
 
     async note(store: NoydbStore, vault, getDEK, entry: HeadEntry) {

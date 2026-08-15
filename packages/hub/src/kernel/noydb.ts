@@ -310,6 +310,7 @@ export class Noydb {
     this.#registerGuardGate()
     this.#registerPeriodGate()
     this.#registerForgetHooks()
+    this.#registerVaultHeadObserver()
     this.resetSessionTimer()
   }
 
@@ -328,6 +329,23 @@ export class Noydb {
   //   - the subsystemBus `afterDelete` observer fires on delete (onAfterWrite
   //     does NOT) — drop the ref so a deleted record never lingers in the
   //     index (RISK #2). Without it, forget() would try to shred a ghost.
+  /** #1044 — see `with-commit/vault-head/strategy.ts` for why this is an observer. */
+  #registerVaultHeadObserver(): void {
+    if (!this.strategies.vaultHead.enabled) return
+    for (const point of ['afterPut', 'afterDelete'] as const) {
+      this.subsystemBus.register(point, async (event) => {
+        const vault = this.vaultCache.get(event.vault)
+        if (!vault) return
+        const { adapter, getDEK } = vault._introspectState()
+        await this.strategies.vaultHead.note(adapter, event.vault, getDEK, {
+          collection: event.collection,
+          id: event.docId,
+          version: event.version,
+        })
+      })
+    }
+  }
+
   #registerForgetHooks(): void {
     const subjects = this.strategies.forget.subjects
     if (Object.keys(subjects).length === 0) return

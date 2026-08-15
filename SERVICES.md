@@ -76,6 +76,7 @@ Most services have their own subpath export under `@noy-db/hub/<name>`, a `with<
 | # | Subpath | Headline | LOC saved | Pairs with |
 |---|---|---|---:|---|
 | 5 | `@noy-db/hub/history` | Versioning, diff, revert, time-machine, audit ledger (hash-chained) | 1,880 | `periods`, `consent`, `shadow`, `guards` |
+| 5b | `@noy-db/hub/vault-head` | Detects a store that **withholds** — an authenticated `{id → version}` manifest (#1044) | 180 | `sync`, `history` |
 | 6 | `@noy-db/hub/transactions` | Multi-record atomic writes (`db.transaction(fn)`) | 280 | `history`, `sync`, `derivations`, `guards` |
 | 7 | `@noy-db/hub/crdt` | LWW-Map / RGA / Yjs interop | 221 | `live`, `sync` |
 | 29 | `@noy-db/hub/sequence` | Atomic gap-free numbering — `vault.sequence(name).next()` over a CAS retry loop; online-only by design (`withSequence()`) | ~300 | `transactions`, `periods` |

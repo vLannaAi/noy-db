@@ -41,6 +41,25 @@
  * this is not a trade-off between cost and strength. Verifying one pulled
  * record reads one bucket rather than a megabyte.
  *
+ * ## Wired as a bus OBSERVER, not a call in `collection.ts`
+ *
+ * That is what `kernel-surface` means by "register on the ServiceBus instead of
+ * growing this file", and it keeps the hot write path untouched for anyone who
+ * has not opted in: nothing is registered at all, so `hasHandlers` stays false
+ * and the dispatch never happens.
+ *
+ * Both `afterPut` AND `afterDelete`, because a delete is a version bump like
+ * any other. A head that stopped tracking deleted records would let a store
+ * resurrect one by withholding the tombstone — precisely the omission this
+ * exists to catch.
+ *
+ * ⚠️ The registration must be UNCONDITIONAL on anything but `enabled`. Its first
+ * draft sat inside `#registerForgetHooks()`, which returns early when no forget
+ * subjects are declared, so the head silently recorded nothing unless the vault
+ * happened to use an unrelated feature. The tests caught it only because they
+ * asserted a COUNT rather than "no error" — a head that records nothing raises
+ * no errors and sweeps perfectly clean.
+ *
  * @packageDocumentation
  */
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
@@ -70,6 +89,17 @@ export interface HeadEntry {
 }
 
 export interface VaultHeadStrategy {
+  /**
+   * Is the head actually keeping a manifest?
+   *
+   * An explicit flag rather than an identity check against the stub: the kernel
+   * decides whether to register the write-path observer at all, and
+   * `port-layering` forbids it importing `NO_VAULT_HEAD` to compare. Without
+   * this, every write in a vault that never opted in would still pay a cache
+   * lookup and a no-op call.
+   */
+  readonly enabled: boolean
+
   /** Bucket a record id lands in — pure, so callers can pre-group a batch. */
   bucketFor(collection: string, id: string): string
 
@@ -127,6 +157,7 @@ function notEnabled(op: string): Error {
  * would look exactly like a clean sweep.
  */
 export const NO_VAULT_HEAD: VaultHeadStrategy = {
+  enabled: false,
   bucketFor: () => '',
   async note() {},
   async expected() { throw notEnabled('vault.verifyHead()') },

@@ -121,3 +121,77 @@ describe('#1044 — vault head', () => {
     expect(largest).toBeLessThan(wholeVault / 8)
   })
 })
+
+describe('#1044 — the sweep detects what per-envelope authentication cannot', () => {
+  it('9. END TO END: a withheld record is detected, and an untouched vault is clean', async () => {
+    const { createNoydb } = await import('../src/kernel/noydb.js')
+    const { verifyVaultHead } = await import('../src/with-commit/vault-head/index.js')
+    const store = memoryStore()
+    const head = withVaultHead()
+    const db = await createNoydb({ vaultHeadStrategy: head, store, user: 'owner', secret: 'pw' })
+    const vault = await db.openVault(VAULT)
+    const docs = vault.collection<{ n: number }>(COLL)
+    await docs.put('d1', { n: 1 })
+    await docs.put('d2', { n: 2 })
+
+    const { adapter, getDEK } = vault._introspectState()
+
+    // Control first: an untouched vault must sweep clean, or every assertion
+    // below is satisfied by a detector that simply always complains.
+    const before = await verifyVaultHead(head, adapter, VAULT, getDEK, COLL)
+    expect(before.checked).toBe(2)
+    expect(before.clean).toBe(true)
+
+    // The store withholds d1 — serving nothing. Every envelope it DOES serve is
+    // perfectly authentic, which is exactly why #1041/#1042 see nothing wrong.
+    await adapter.delete(VAULT, COLL, 'd1')
+
+    const after = await verifyVaultHead(head, adapter, VAULT, getDEK, COLL)
+    expect(after.clean).toBe(false)
+    expect(after.discrepancies).toEqual([
+      { collection: COLL, id: 'd1', expected: 1, actual: null, kind: 'withheld' },
+    ])
+  })
+
+  it('10. a ROLLED-BACK record is detected — an authentic older version served in place of the current one', async () => {
+    const { createNoydb } = await import('../src/kernel/noydb.js')
+    const { verifyVaultHead } = await import('../src/with-commit/vault-head/index.js')
+    const store = memoryStore()
+    const head = withVaultHead()
+    const db = await createNoydb({ vaultHeadStrategy: head, store, user: 'owner', secret: 'pw' })
+    const vault = await db.openVault(VAULT)
+    const docs = vault.collection<{ n: number }>(COLL)
+    await docs.put('d1', { n: 1 })
+    const v1 = (await store.get(VAULT, COLL, 'd1'))!
+    await docs.put('d1', { n: 2 })
+
+    const { adapter, getDEK } = vault._introspectState()
+    // Re-serve the genuine v1. It authenticates perfectly — it IS a real record
+    // this client wrote — so nothing per-envelope can object.
+    await adapter.put(VAULT, COLL, 'd1', v1)
+
+    const result = await verifyVaultHead(head, adapter, VAULT, getDEK, COLL)
+    expect(result.discrepancies).toEqual([
+      { collection: COLL, id: 'd1', expected: 2, actual: 1, kind: 'rolled-back' },
+    ])
+  })
+
+  it('11. a record the head never saw is NOT reported — the claim is one-directional', async () => {
+    // The head can be switched on for an existing vault; every pre-existing
+    // record would otherwise read as an anomaly and the report would be noise.
+    const { createNoydb } = await import('../src/kernel/noydb.js')
+    const { verifyVaultHead } = await import('../src/with-commit/vault-head/index.js')
+    const store = memoryStore()
+    const head = withVaultHead()
+    const db = await createNoydb({ vaultHeadStrategy: head, store, user: 'owner', secret: 'pw' })
+    const vault = await db.openVault(VAULT)
+    await vault.collection<{ n: number }>(COLL).put('known', { n: 1 })
+    const { adapter, getDEK } = vault._introspectState()
+
+    // Something the head has no expectation for.
+    await adapter.put(VAULT, COLL, 'stranger', (await adapter.get(VAULT, COLL, 'known'))!)
+
+    const result = await verifyVaultHead(head, adapter, VAULT, getDEK, COLL)
+    expect(result.clean).toBe(true)
+  })
+})
