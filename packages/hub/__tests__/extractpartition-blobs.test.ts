@@ -410,7 +410,7 @@ describe('extractPartition blob carriage — #769: strips `pendingRelease` (back
     const slotsCollection = `${BLOB_SLOTS_PREFIX}docs`
     const slotEnv = (await adapter.get(vaultName, slotsCollection, 'd1'))!
     const dek = await getDEK('docs')
-    const slots = JSON.parse(await openEnvelopeJson({ collection: 'c', id: 'r1' }, slotEnv, dek)) as Record<string, { eTag: string; pendingRelease?: string }>
+    const slots = JSON.parse(await openEnvelopeJson({ collection: slotsCollection, id: 'd1' }, slotEnv, dek)) as Record<string, { eTag: string; pendingRelease?: string }>
     slots['cover.png']!.pendingRelease = 'stale-etag-awaiting-release'
     const reEncrypted = await encrypt(JSON.stringify(slots), dek)
     await adapter.put(vaultName, slotsCollection, 'd1', { ...slotEnv, _iv: reEncrypted.iv, _data: reEncrypted.data }, slotEnv._v)
@@ -429,7 +429,7 @@ describe('extractPartition blob carriage — #769: strips `pendingRelease` (back
     const rState = recipientVault._introspectState()
     const carriedSlotEnv = (await rState.adapter.get('fresh', slotsCollection, 'd1'))!
     const carriedSlots = JSON.parse(
-      await openEnvelopeJson({ collection: 'c', id: 'r1' }, carriedSlotEnv, await rState.getDEK('docs')),
+      await openEnvelopeJson({ collection: slotsCollection, id: 'd1' }, carriedSlotEnv, await rState.getDEK('docs')),
     ) as Record<string, { eTag: string; pendingRelease?: string }>
     expect(carriedSlots['cover.png']!.pendingRelease).toBeUndefined()
     // The eTag itself still travels — only the breadcrumb is stripped.
@@ -442,7 +442,7 @@ describe('extractPartition blob carriage — #769: strips `pendingRelease` (back
     const backedUpSlotEnv = backup._internal?.[slotsCollection]?.['d1']
     expect(backedUpSlotEnv).toBeDefined()
     const backedUpSlots = JSON.parse(
-      await openEnvelopeJson({ collection: 'c', id: 'r1' }, backedUpSlotEnv!, dek),
+      await openEnvelopeJson({ collection: slotsCollection, id: 'd1' }, backedUpSlotEnv!, dek),
     ) as Record<string, { eTag: string; pendingRelease?: string }>
     expect(backedUpSlots['cover.png']!.pendingRelease).toBe('stale-etag-awaiting-release')
 

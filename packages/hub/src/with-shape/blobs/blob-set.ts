@@ -2041,7 +2041,7 @@ export class BlobSet {
     const identity = { collection: this.versionsCollection, id: key }
     if (this.encrypted) {
       const dek = await this.getDEK(dekKey(this.collection, tier))
-      const { iv, data } = await encrypt(json, dek)
+      const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
       envelope = buildRecordEnvelope(identity, { version: 1, ts: now, iv, data })
     } else {
       envelope = buildRecordEnvelope(identity, { version: 1, ts: now, iv: '', data: json })
@@ -2623,6 +2623,9 @@ export class BlobSet {
     }
     if (mode === 'encrypted' && this.encrypted) {
       const dek = await this.getDEK(BLOB_COLLECTION)
+      // NOT a record envelope — this is a backlink written into the external
+      // object's own user metadata, with no (collection, id) address of its
+      // own. There is no record identity to bind (#1041).
       const { iv, data } = await encrypt(JSON.stringify(ref), dek)
       return { userMeta: { 'noydb-backlink-enc': `${iv}.${data}` } }
     }
