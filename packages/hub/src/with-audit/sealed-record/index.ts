@@ -14,7 +14,7 @@
  * @module
  */
 
-import { decrypt, base64ToBuffer, importCek } from '../../kernel/enclave/index.js'
+import { recordAadFor, decrypt, base64ToBuffer, importCek } from '../../kernel/enclave/index.js'
 import {
   SealedRecordExpiredError,
   SealedRecordMismatchError,
@@ -57,10 +57,24 @@ export { SealedRecordNotEnabledError } from '../../kernel/errors.js'
  * @param expectedCollection Collection the caller believes `recordEnvelope` is in.
  * @param expectedId         Record id the caller believes `recordEnvelope` is.
  * @returns The decrypted record body as a JSON string.
+ *
+ * ⚠️ **`recordEnvelope` must carry `_tier` and `_by`, not just the body**
+ * (#1041). They are plaintext metadata rather than secrets, but they are bound
+ * into the record's AAD, so a host handed only `{_iv, _data}` cannot
+ * reconstruct the identity the body was sealed against.
+ *
+ * That is a feature, not a tax: it means a host cannot be fed a body with its
+ * tags stripped or rewritten — a re-tiered or re-authored envelope no longer
+ * opens, even with a valid sealed CEK.
  */
 export async function openSealedRecord(
   sealedCekEnvelope: SealedCekDeliveryEnvelope,
-  recordEnvelope: { readonly _iv: string; readonly _data: string },
+  recordEnvelope: {
+    readonly _iv: string
+    readonly _data: string
+    readonly _tier?: number | undefined
+    readonly _by?: string | undefined
+  },
   recipientSealer: { unseal(bytes: Uint8Array): Promise<Uint8Array> },
   expectedCollection: string,
   expectedId: string,
@@ -96,5 +110,14 @@ export async function openSealedRecord(
   // (5) Import the raw CEK + decrypt the body. Wrong-key (pre-rotation CEK vs
   // post-rotation body) surfaces as TamperedError from decrypt's GCM tag check.
   const cek = await importCek(base64ToBuffer(binding.cek))
-  return decrypt(recordEnvelope._iv, recordEnvelope._data, cek)
+  // AAD from the binding's OWN collection/id — which step (3) has just proven
+  // match the caller's expectation. So a host cannot be handed record A's
+  // sealed CEK alongside record B's body and open it (#1041): the AAD would
+  // describe A while the ciphertext was sealed for B.
+  return decrypt(
+    recordEnvelope._iv,
+    recordEnvelope._data,
+    cek,
+    recordAadFor({ collection: expectedCollection, id: expectedId }, recordEnvelope),
+  )
 }

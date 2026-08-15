@@ -290,7 +290,18 @@ describe('record-scoped CEK sealing — cross-process reconstruction', () => {
     // Marshal ONLY the two envelopes across the "process boundary" — no DEK,
     // no keyring, no vault handle. The host keeps its own sealer (its KMS key).
     const sealedEnv = readDelivery(store, 'v', 'docs', 'd-1', pid)
-    const recordEnv = { _iv: store.raw('v', 'docs', 'd-1')!._iv, _data: store.raw('v', 'docs', 'd-1')!._data }
+    // #1041: the marshalled envelope must now carry `_tier`/`_by` as well as
+    // the body. They are plaintext metadata, not secrets — but they are bound
+    // into the AAD, so a host given only {_iv, _data} cannot reconstruct the
+    // identity the body was sealed against. That is the point: it also means a
+    // host cannot be fed a body with its tags stripped or altered.
+    const raw = store.raw('v', 'docs', 'd-1')!
+    const recordEnv = {
+      _iv: raw._iv,
+      _data: raw._data,
+      ...(raw._tier !== undefined ? { _tier: raw._tier } : {}),
+      ...(raw._by !== undefined ? { _by: raw._by } : {}),
+    }
 
     async function hostFunction(
       env: SealedCekDeliveryEnvelope,
