@@ -23,7 +23,7 @@
 export { withTiers } from './active.js'
 export { NO_TIERS, type TiersStrategy } from './strategy.js'
 export { TiersNotEnabledError } from '../../kernel/errors.js'
-import { buildRecordAad, buildRecordEnvelope, encrypt, decrypt, unwrapCek, rewrapBodyToDek, applyRewrappedBody, isDeleteMarker, isTombstoneShape, type RecordCodec, type EnclaveKey, type SealedShredSlot } from '../../kernel/enclave/index.js'
+import { type RecordIdentity, buildRecordAad, buildRecordEnvelope, encrypt, decrypt, unwrapCek, rewrapBodyToDek, applyRewrappedBody, isDeleteMarker, isTombstoneShape, type RecordCodec, type EnclaveKey, type SealedShredSlot } from '../../kernel/enclave/index.js'
 import { TierDemoteDeniedError, UnsupportedTierCompositionError, PersistedIndexCompensationError } from '../../kernel/errors.js'
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
@@ -131,22 +131,25 @@ export interface TiersContext<T> {
    * (folds the `historyConfig.enabled` gate so `tiers/index.ts` stays simple).
    */
   /**
-   * ⚠️ **#1041 GAP — tier-move snapshots are NOT yet sealed against their
-   * `_history` storage identity, and this signature is why.**
+   * Persist a `_history` snapshot of `version`, sealed against the address it
+   * will be STORED at (#1041).
    *
-   * It takes a PRE-BUILT envelope. The three callers below produce theirs with
-   * `applyRewrappedBody(carried, body)` — a re-wrap of an existing envelope,
-   * not a codec construction — so there is no point at which an identity could
-   * be supplied. The codec-built snapshots in `collection.ts` were restructured
-   * to ask `history.historyIdentity()` before sealing; these cannot be, until
-   * the enclave's rewrap takes an identity too.
+   * Takes a **sealer**, not a finished envelope, because the destination
+   * identity is not knowable here: only the history strategy owns the
+   * `_history` layout. It hands the address in; the caller seals to it.
    *
-   * Until then a tier-move snapshot carries whatever identity its source
-   * envelope had — the LIVE record's. That is exactly the confusability the
-   * storage-identity decision exists to remove, so this must close in the same
-   * change that switches AAD on, not after it.
+   * ⚠️ The identity passed to `rewrapBodyToDek` must be what a READER will
+   * recompute — `recordAadFor(address, finalEnvelope)`. A tier-move snapshot
+   * strips `_tier`/`_elevatedBy` but KEEPS `_by`, so the destination is
+   * `{...address, by: envelope._by}` with no tier. Sealing against the bare
+   * address would produce history nothing can open, and the failure would
+   * surface only when someone reads it.
    */
-  saveHistorySnapshot(id: string, envelope: EncryptedEnvelope): Promise<void>
+  saveHistorySnapshot(
+    id: string,
+    version: number,
+    seal: (address: RecordIdentity) => Promise<EncryptedEnvelope>,
+  ): Promise<void>
   /**
    * `true` iff a real history strategy is wired (not `NO_HISTORY`) AND not
    * explicitly disabled via `historyConfig.enabled`. `putAtTier` checks this
@@ -457,10 +460,20 @@ export async function putAtTier<T>(
     // Untagged (`_tier`/`_elevatedBy` stripped), same as elevate()/
     // demote()'s snapshots. `_v` stays the PRE-move version (unbumped), as
     // `preCarried` already carries it.
-    const body = await rewrapBodyToDek(existing, fromDek, dek)
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- excluded from ...preCarried
-    const { _tier: _preTier, _elevatedBy: _preElevatedBy, ...preCarried } = existing
-    await ctx.saveHistorySnapshot(id, applyRewrappedBody(preCarried, body))
+    const preFrom: RecordIdentity = {
+      collection: ctx.name, id,
+      ...(existing._tier !== undefined ? { tier: existing._tier } : {}),
+      ...(existing._by !== undefined ? { by: existing._by } : {}),
+    }
+    await ctx.saveHistorySnapshot(id, existing._v, async (address) => {
+      // The snapshot is UNTAGGED (`_tier` stripped) and keeps `_by`, so that is
+      // the identity a reader will recompute from it (#1041).
+      const to: RecordIdentity = { ...address, ...(existing._by !== undefined ? { by: existing._by } : {}) }
+      const body = await rewrapBodyToDek(preFrom, to, existing, fromDek, dek)
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- excluded from ...preCarried
+      const { _tier: _preTier, _elevatedBy: _preElevatedBy, ...preCarried } = existing
+      return applyRewrappedBody(preCarried, body)
+    })
   }
 
   const json = JSON.stringify(record)
@@ -723,7 +736,17 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   // chain identity preserved); only the wrapping key moves with the tier.
   // Legacy (no `_cek`) records take the direct-DEK path unchanged.
   const now = new Date().toISOString()
-  const body = await rewrapBodyToDek(envelope, fromDek, toDek)
+  const moveFrom: RecordIdentity = {
+    collection: ctx.name, id,
+    ...(fromTier > 0 ? { tier: fromTier } : {}),
+    ...(envelope._by !== undefined ? { by: envelope._by } : {}),
+  }
+  const moveTo: RecordIdentity = {
+    collection: ctx.name, id,
+    ...(toTier > 0 ? { tier: toTier } : {}),
+    by: ctx.keyring.userId,
+  }
+  const body = await rewrapBodyToDek(moveFrom, moveTo, envelope, fromDek, toDek)
   if (body.cek) ctx.cekCache?.set(id, body.cek, 1)
   // #728: snapshot the PRE-move version into `_history` before it's
   // overwritten below — reuses `body` (already fromDek→toDek) via
@@ -734,9 +757,18 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   // back — at-rest protection comes from the ciphertext being under
   // `toDek`, not from the tag. `_v` stays the PRE-move version (unbumped),
   // exactly as `envelope` already carries it.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- excluded from ...snapshot
-  const { _tier: _preTier, _elevatedBy: _preElevatedBy, ...snapshot } = applyRewrappedBody(envelope, body)
-  await ctx.saveHistorySnapshot(id, snapshot)
+  //
+  // A SECOND rewrap, not a reuse of `body` above. The live write and the
+  // snapshot now land at different identities, so they need different AAD and
+  // therefore different ciphertext — sharing one rewrap would produce bytes
+  // that open at one address and not the other (#1041).
+  await ctx.saveHistorySnapshot(id, envelope._v, async (address) => {
+    const to: RecordIdentity = { ...address, ...(envelope._by !== undefined ? { by: envelope._by } : {}) }
+    const histBody = await rewrapBodyToDek(moveFrom, to, envelope, fromDek, toDek)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- excluded from ...snapshot
+    const { _tier: _preTier, _elevatedBy: _preElevatedBy, ...snapshot } = applyRewrappedBody(envelope, histBody)
+    return snapshot
+  })
   // #662: spread every slot the source carries (_sealed/_det/_vdig/_bidx/
   // _source/_sourceTs/_debug) through UNCHANGED, then override only
   // the fields a tier move manages. rewrapBodyToDek preserves the CEK, so no
@@ -844,7 +876,17 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
   // CEK re-wrap on demote — same body key, moved from the source tier
   // DEK to the target tier DEK. Legacy records take the direct-DEK path.
   const now = new Date().toISOString()
-  const body = await rewrapBodyToDek(envelope, fromDek, toDek)
+  const moveFrom: RecordIdentity = {
+    collection: ctx.name, id,
+    ...(fromTier > 0 ? { tier: fromTier } : {}),
+    ...(envelope._by !== undefined ? { by: envelope._by } : {}),
+  }
+  const moveTo: RecordIdentity = {
+    collection: ctx.name, id,
+    ...(toTier > 0 ? { tier: toTier } : {}),
+    by: ctx.keyring.userId,
+  }
+  const body = await rewrapBodyToDek(moveFrom, moveTo, envelope, fromDek, toDek)
   if (body.cek) ctx.cekCache?.set(id, body.cek, 1)
   // #662: same passenger carry-through as elevate(). demote additionally CLEARS
   // `_elevatedBy` (the demote right is consumed) and OMITS `_tier` at tier 0, so
@@ -858,7 +900,13 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
   // just like an ordinary put() entry, same law as elevate()'s snapshot
   // above. `_v` stays the PRE-move version (unbumped), as `carried` already
   // carries it.
-  await ctx.saveHistorySnapshot(id, applyRewrappedBody(carried, body))
+  // A SECOND rewrap — see elevate()'s note. The snapshot's destination
+  // identity differs from the live write's, so the bytes must differ too.
+  await ctx.saveHistorySnapshot(id, envelope._v, async (address) => {
+    const to: RecordIdentity = { ...address, ...(envelope._by !== undefined ? { by: envelope._by } : {}) }
+    const histBody = await rewrapBodyToDek(moveFrom, to, envelope, fromDek, toDek)
+    return applyRewrappedBody(carried, histBody)
+  })
   // Transform, not construction — see the note on elevate()'s `next` above.
   const next: EncryptedEnvelope = {
     ...carried,

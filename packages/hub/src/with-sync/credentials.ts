@@ -37,7 +37,7 @@
  * against the caller's keyring role at call time.
  */
 
-import { buildRecordEnvelope } from '../kernel/enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope } from '../kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../kernel/types.js'
 import type { UnlockedKeyring } from '../with-party/team/keyring.js'
 import { encrypt, openEnvelopeJson } from '../kernel/enclave/index.js'
@@ -115,15 +115,13 @@ export async function putCredential(
   const getDek = await ensureCollectionDEK(adapter, vault, keyring)
   const dek = await getDek(SYNC_CREDENTIALS_COLLECTION)
 
-  const { iv, data } = await encrypt(JSON.stringify(credential), dek)
+  const identity = { collection: SYNC_CREDENTIALS_COLLECTION, id: credential.adapterId }
+  const { iv, data } = await encrypt(JSON.stringify(credential), dek, buildRecordAad(identity))
 
   const existing = await adapter.get(vault, SYNC_CREDENTIALS_COLLECTION, credential.adapterId)
   const version = existing ? existing._v + 1 : 1
 
-  const envelope: EncryptedEnvelope = buildRecordEnvelope(
-    { collection: SYNC_CREDENTIALS_COLLECTION, id: credential.adapterId },
-    { version, iv, data},
-  )
+  const envelope: EncryptedEnvelope = buildRecordEnvelope(identity, { version, iv, data })
 
   await adapter.put(
     vault,

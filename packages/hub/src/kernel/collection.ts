@@ -13,7 +13,7 @@ import { viaBinder, type ViaDescriptor, type ViaWriteCtx, type ViaEraseReport } 
 import type { MutationOrigin } from './mutation.js'
 import { putDerivedOutput, ledgerAuditHook, selfWriteFieldEqual, resolveRollupDeleteIntents, findRollupSpecForIntent, type WaveContext, type RollupOutcome, type RollupDeleteIntent } from './via/dispatch.js'
 import type { ComputedFields } from '../with-formula/computed/index.js'
-import {
+import { type RecordIdentity,
   isTombstone, isDeleteMarker, buildTombstone, buildDeleteMarker,
   resolveStableCek, findByDet, queryByDet, RecordCodec,
   type DeterministicContext, type EnclaveKey, type SealedShredSlot,
@@ -4264,8 +4264,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       syncIndexes: (id: string, rec: T | null, version: number, priorEnvelope?: EncryptedEnvelope) => syncTierIndexesImpl(this.indexingContext(), id, rec, version, priorEnvelope),
       syncSearch: (id: string, rec: T | null, version?: number) => syncTierSearchImpl(this.searchContext(), id, rec, version),
       syncHistory: async (id: string, fromDek: EnclaveKey, toDek: EnclaveKey) => this.strategies.history.rewrapHistory(this.adapter, this.vault, this.name, id, fromDek, toDek, await this.getDEK(this.name)),
-      saveHistorySnapshot: async (id: string, envelope: EncryptedEnvelope) => { // #728: gate folded in here so tiers/index.ts stays simple; review fix — mirror put()'s save→emit→prune parity (maxVersions was unbounded on tier moves)
+      saveHistorySnapshot: async (id: string, version: number, seal: (address: RecordIdentity) => Promise<EncryptedEnvelope>) => { // #728: gate folded in here so tiers/index.ts stays simple; review fix — mirror put()'s save→emit→prune parity (maxVersions was unbounded on tier moves)
         if (this.historyConfig.enabled === false) return
+        const envelope = await seal(this.strategies.history.historyIdentity(this.name, id, version)) // #1041: the layout owner hands the address in; the caller seals to it
         await this.strategies.history.saveHistory(this.adapter, this.vault, this.name, id, envelope)
         this.emitter.emit('history:save', { vault: this.vault, collection: this.name, id, version: envelope._v })
         if (this.historyConfig.maxVersions) await this.strategies.history.pruneHistory(this.adapter, this.vault, this.name, id, { keepVersions: this.historyConfig.maxVersions })

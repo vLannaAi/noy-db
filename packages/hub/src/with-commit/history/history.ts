@@ -302,16 +302,24 @@ export async function rewrapHistory(
     // #712/whole-branch-fix-3: toDek-first idempotency skip — already at the
     // target key (a same-target retry, or demote-after-crash landing back on
     // a key it already reached)? Nothing to do; put nothing.
-    if (await isRewrappedUnder(env, toDek)) continue
+    // In-place re-key of a `_history` entry: the address does not move, so the
+    // same identity opens and re-seals it (#1041). Built from the entry itself,
+    // exactly as a reader would via `recordAadFor`.
+    const identity = {
+      collection: HISTORY_COLLECTION, id,
+      ...(env._tier !== undefined ? { tier: env._tier } : {}),
+      ...(env._by !== undefined ? { by: env._by } : {}),
+    }
+    if (await isRewrappedUnder(identity, env, toDek)) continue
 
     let next: EncryptedEnvelope
     try {
-      next = await rewrapEnvelope(env, fromDek, toDek)
+      next = await rewrapEnvelope(identity, env, fromDek, toDek)
     } catch (err) {
       if (!tier0Dek) throw err
       // Legacy fallback: retry once under the tier-0 DEK. A failure here is
       // real corruption, not a tier mismatch — let it propagate.
-      next = await rewrapEnvelope(env, tier0Dek, toDek)
+      next = await rewrapEnvelope(identity, env, tier0Dek, toDek)
     }
 
     await adapter.put(vault, HISTORY_COLLECTION, id, next)
