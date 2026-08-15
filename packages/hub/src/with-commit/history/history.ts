@@ -228,9 +228,12 @@ export async function tombstoneHistory(
     if (!env) continue
     // Already a tombstone (no body and no wrapped CEK)? Skip — idempotent.
     if (isTombstone(env, encrypted)) continue
+    // `by` rides on the IDENTITY — passing it in the body went through a
+    // conditional spread, which TypeScript does not excess-property-check, so
+    // it was silently dropped once `_by` moved to the identity (#1041).
     const tombstone: EncryptedEnvelope = buildRecordEnvelope(
-      { collection: HISTORY_COLLECTION, id },
-      { version: env._v, ts: now, iv: '', data: '', ...(actor ? { by: actor } : {}) },
+      { collection: HISTORY_COLLECTION, id, ...(actor ? { by: actor } : {}) },
+      { version: env._v, ts: now, iv: '', data: '' },
     )
     await adapter.put(vault, HISTORY_COLLECTION, id, tombstone)
     count++
