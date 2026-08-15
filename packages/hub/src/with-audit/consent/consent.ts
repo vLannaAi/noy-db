@@ -147,7 +147,7 @@ export async function loadConsentEntries(
   for (const id of ids.sort()) {
     const envelope = await adapter.get(vault, CONSENT_AUDIT_COLLECTION, id)
     if (!envelope) continue
-    const entry = await decryptEntry(envelope, encrypted, getDEK)
+    const entry = await decryptEntry(id, envelope, encrypted, getDEK)
     if (!matchesFilter(entry, filter)) continue
     entries.push(entry)
   }
@@ -175,12 +175,13 @@ async function buildEnvelope(
 }
 
 async function decryptEntry(
+  id: string,
   envelope: EncryptedEnvelope,
   encrypted: boolean,
   getDEK: (collection: string) => Promise<EnclaveKey>,
 ): Promise<ConsentAuditEntry> {
   if (!encrypted) return JSON.parse(envelope._data) as ConsentAuditEntry
-  const json = await openEnvelopeJson(envelope, await getDEK(CONSENT_AUDIT_COLLECTION))
+  const json = await openEnvelopeJson({ collection: CONSENT_AUDIT_COLLECTION, id }, envelope, await getDEK(CONSENT_AUDIT_COLLECTION))
   return JSON.parse(json) as ConsentAuditEntry
 }
 

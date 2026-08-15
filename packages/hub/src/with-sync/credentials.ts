@@ -154,7 +154,7 @@ export async function getCredential(
   const envelope = await adapter.get(vault, SYNC_CREDENTIALS_COLLECTION, adapterId)
   if (!envelope) return null
 
-  const plaintext = await openEnvelopeJson(envelope, dek)
+  const plaintext = await openEnvelopeJson({ collection: SYNC_CREDENTIALS_COLLECTION, id: adapterId }, envelope, dek)
   return JSON.parse(plaintext) as SyncCredential
 }
 

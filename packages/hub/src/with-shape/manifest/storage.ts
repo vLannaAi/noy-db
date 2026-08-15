@@ -58,7 +58,7 @@ export async function loadSchemaManifestEntry(
   if (!envelope) return undefined
   const dek = await getDEK(MANIFEST_COLLECTION)
   try {
-    const plaintext = await openEnvelopeJson(envelope, dek)
+    const plaintext = await openEnvelopeJson({ collection: MANIFEST_COLLECTION, id: MANIFEST_SCHEMA_RECORD_ID }, envelope, dek)
     const parsed = JSON.parse(plaintext) as SchemaManifest
     if (parsed.v !== 1 || parsed.kind !== 'schema') return undefined
     return { version: envelope._v, manifest: parsed }
@@ -85,7 +85,7 @@ export async function saveSchemaManifest(
   const json = JSON.stringify(manifest)
   const env = buildSealedRecordEnvelope(
     { collection: MANIFEST_COLLECTION, id: MANIFEST_SCHEMA_RECORD_ID },
-    await writeEnvelopeBody(json, dek),
+    await writeEnvelopeBody({ collection: MANIFEST_COLLECTION, id: MANIFEST_SCHEMA_RECORD_ID }, json, dek),
     { version: expectedVersion + 1 },
   )
   await store.put(vault, MANIFEST_COLLECTION, MANIFEST_SCHEMA_RECORD_ID, env, expectedVersion)

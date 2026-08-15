@@ -76,7 +76,7 @@ export class DeferredNumberingStore {
   private async readJson<T>(collection: string, id: string): Promise<{ env: EncryptedEnvelope | null; value: T | null }> {
     const env = await this.adapter.get(this.vault, collection, id)
     if (!env) return { env: null, value: null }
-    const json = this.encrypted ? await openEnvelopeJson(env, await this.dek(collection)) : env._data
+    const json = this.encrypted ? await openEnvelopeJson({ collection, id }, env, await this.dek(collection)) : env._data
     return { env, value: JSON.parse(json) as T }
   }
 

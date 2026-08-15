@@ -213,7 +213,7 @@ export async function readMagicLinkGrantRecord(
   const env = await store.get(vault, MAGIC_LINK_GRANTS_COLLECTION, recordId)
   if (!env) return null
   try {
-    const json = await openEnvelopeJson(env, contentKey)
+    const json = await openEnvelopeJson({ collection: MAGIC_LINK_GRANTS_COLLECTION, id: recordId }, env, contentKey)
     return JSON.parse(json) as MagicLinkGrantPayload
   } catch {
     return null

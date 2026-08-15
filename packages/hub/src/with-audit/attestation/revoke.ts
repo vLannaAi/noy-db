@@ -27,7 +27,7 @@ function requireOwner(ctx: RevokeContext, op: string): void {
 async function readSet(store: NoydbStore, vault: string, dek: EnclaveKey): Promise<{ docIds: Set<string>; version: number | undefined }> {
   const env = await store.get(vault, ATTESTATIONS_COLLECTION, REVOKED_RECORD_ID)
   if (!env) return { docIds: new Set<string>(), version: undefined }
-  const set = JSON.parse(await openEnvelopeJson(env, dek)) as RevokedSet
+  const set = JSON.parse(await openEnvelopeJson({ collection: ATTESTATIONS_COLLECTION, id: REVOKED_RECORD_ID }, env, dek)) as RevokedSet
   return { docIds: new Set(set.docIds), version: env._v }
 }
 

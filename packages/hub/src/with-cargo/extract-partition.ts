@@ -119,7 +119,7 @@ export async function reKeyClosure(
         out[id] = { ...env, _iv: iv, _data: data, _cek: wrapped }
         continue
       }
-      const plaintext = await openEnvelopeJson(env, srcDek)
+      const plaintext = await openEnvelopeJson({ collection: collectionName, id }, env, srcDek)
       const { iv, data } = await encrypt(project(plaintext), destDek)
       out[id] = { ...env, _iv: iv, _data: data }
     }
@@ -154,7 +154,7 @@ export async function reKeySchemas(
     const destDek = destDeks.get(collectionName)
     if (!destDek) continue
     const srcDek = await getDEK(collectionName)
-    const plaintext = await openEnvelopeJson(env, srcDek)
+    const plaintext = await openEnvelopeJson({ collection: SCHEMAS_COLLECTION, id: collectionName }, env, srcDek)
     const { iv, data } = await encrypt(plaintext, destDek)
     out[collectionName] = { ...env, _iv: iv, _data: data }
   }
@@ -195,7 +195,7 @@ export async function reKeyLedger(
   for (const id of ids) {
     const env = await adapter.get(vaultName, LEDGER_COLLECTION, id)
     if (!env) continue
-    srcEntries.push(JSON.parse(await openEnvelopeJson(env, srcLedgerDek)) as LedgerEntry)
+    srcEntries.push(JSON.parse(await openEnvelopeJson({ collection: LEDGER_COLLECTION, id }, env, srcLedgerDek)) as LedgerEntry)
   }
 
   // 2. Keep closure put/delete entries (drop amendments + out-of-closure).
@@ -351,8 +351,8 @@ export async function reKeyBlobs(
       const intentId = `${collectionName}::${id}`
       const intentEnv = await adapter.get(vaultName, BLOB_INTENT_COLLECTION, intentId)
       if (intentEnv) {
-        const intentPlain = await openEnvelopeJson(intentEnv, srcDek)
-        const intentBody = await writeEnvelopeBody(intentPlain, destDek)
+        const intentPlain = await openEnvelopeJson({ collection: BLOB_INTENT_COLLECTION, id: intentId }, intentEnv, srcDek)
+        const intentBody = await writeEnvelopeBody({ collection: BLOB_INTENT_COLLECTION, id: intentId }, intentPlain, destDek)
         place(BLOB_INTENT_COLLECTION, intentId, { ...intentEnv, ...intentBody })
       }
 
@@ -368,7 +368,7 @@ export async function reKeyBlobs(
           + `id="${id}" _tier=${env._tier}) — this is unreachable by construction. Refusing to carry it into a partition.`,
         )
       }
-      const slots = JSON.parse(await openEnvelopeJson(env, srcDek)) as Record<string, SlotRecord>
+      const slots = JSON.parse(await openEnvelopeJson({ collection: slotsCollection, id }, env, srcDek)) as Record<string, SlotRecord>
       // FR-7: drop projected-out blob fields' slots (slot names are blob field
       // names) — their eTags then never enter the travel set.
       const kept: Record<string, SlotRecord> = {}
@@ -410,7 +410,7 @@ export async function reKeyBlobs(
           + `key="${key}" _tier=${env._tier}) — this is unreachable by construction. Refusing to carry it into a partition.`,
         )
       }
-      const record = JSON.parse(await openEnvelopeJson(env, srcDek)) as VersionRecord
+      const record = JSON.parse(await openEnvelopeJson({ collection: versionsCollection, id: key }, env, srcDek)) as VersionRecord
       addRef(record.eTag)
       const { iv, data } = await encrypt(JSON.stringify(record), destDek)
       place(versionsCollection, key, { ...env, _iv: iv, _data: data })
@@ -429,7 +429,7 @@ export async function reKeyBlobs(
   for (const [eTag, refCount] of carriedRefs) {
     const idxEnv = await adapter.get(vaultName, BLOB_INDEX_COLLECTION, eTag)
     if (!idxEnv) continue // dangling slot reference — nothing to carry
-    const blob = JSON.parse(await openEnvelopeJson(idxEnv, srcBlobDek)) as BlobObject
+    const blob = JSON.parse(await openEnvelopeJson({ collection: BLOB_INDEX_COLLECTION, id: eTag }, idxEnv, srcBlobDek)) as BlobObject
 
     // Resolve the per-blob content CEK; passthrough vs. in-bundle promotion.
     let contentCek: EnclaveKey

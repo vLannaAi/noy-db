@@ -32,7 +32,7 @@ export async function loadSigner(
   const existing = await store.get(vault, ATTESTATIONS_COLLECTION, SIGNER_RECORD_ID)
   if (!existing) return null
   const dek = await getDEK(ATTESTATIONS_COLLECTION)
-  const json = await openEnvelopeJson(existing, dek)
+  const json = await openEnvelopeJson({ collection: ATTESTATIONS_COLLECTION, id: SIGNER_RECORD_ID }, existing, dek)
   return JSON.parse(json) as DocSigner
 }
 

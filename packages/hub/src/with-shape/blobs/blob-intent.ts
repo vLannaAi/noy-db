@@ -142,14 +142,14 @@ async function encodeIntentEnvelope(
   const json = JSON.stringify(intent)
   return buildSealedRecordEnvelope(
     { collection: BLOB_INTENT_COLLECTION, id: key },
-    await writeEnvelopeBody(json, dek),
+    await writeEnvelopeBody({ collection: BLOB_INTENT_COLLECTION, id: key }, json, dek),
     { version: newVersion },
   )
 }
 
 /** Decrypt an envelope back into its `BlobIntent` payload. */
-async function decodeIntentEnvelope(envelope: EncryptedEnvelope, dek: EnclaveKey): Promise<BlobIntent> {
-  const json = await openEnvelopeJson(envelope, dek)
+async function decodeIntentEnvelope(key: string, envelope: EncryptedEnvelope, dek: EnclaveKey): Promise<BlobIntent> {
+  const json = await openEnvelopeJson({ collection: BLOB_INTENT_COLLECTION, id: key }, envelope, dek)
   return JSON.parse(json) as BlobIntent
 }
 
@@ -168,7 +168,7 @@ export async function getIntent(
   const envelope = await adapter.get(vault, BLOB_INTENT_COLLECTION, intentKey(collection, recordId))
   if (!envelope) return null
   const dek = await getDEK(collection)
-  return decodeIntentEnvelope(envelope, dek)
+  return decodeIntentEnvelope(intentKey(collection, recordId), envelope, dek)
 }
 
 /**
@@ -245,7 +245,7 @@ export async function recordAppliedStamp(
   for (let attempt = 0; attempt < MAX_APPLIED_STAMP_RETRIES; attempt++) {
     const envelope = await adapter.get(vault, BLOB_INTENT_COLLECTION, key)
     if (!envelope) return // marker already gone — nothing to record against
-    const intent = await decodeIntentEnvelope(envelope, dek)
+    const intent = await decodeIntentEnvelope(key, envelope, dek)
     if (intent.op !== 'rehome' || intent.appliedStamps?.includes(stamp)) return // already recorded (or not ours)
     const updated: BlobIntent = { ...intent, appliedStamps: [...(intent.appliedStamps ?? []), stamp] }
     const newEnvelope = await encodeIntentEnvelope(updated, dek, key, envelope._v + 1)
@@ -295,7 +295,7 @@ export async function sweepBlobIntents(
       const envelope = await adapter.get(vault, BLOB_INTENT_COLLECTION, key)
       if (!envelope) continue // raced with a concurrent resume's delete
       const dek = await getDEK(parsed.collection)
-      const intent = await decodeIntentEnvelope(envelope, dek)
+      const intent = await decodeIntentEnvelope(key, envelope, dek)
       await resume(parsed.collection, parsed.recordId, intent)
     } catch (err) {
       onResumeError?.(parsed.collection, parsed.recordId, err)

@@ -13,6 +13,7 @@
  * per-function doc for its oracle call site) — this file introduces no new
  * crypto or semantics, only a narrower door onto what already runs.
  */
+import type { RecordIdentity } from '../record-aad.js'
 import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek, type EnclaveKey } from '../crypto.js'
 import type { EncryptedEnvelope } from '../../types.js'
 
@@ -29,10 +30,12 @@ import type { EncryptedEnvelope } from '../../types.js'
  *  - `env._cek` absent → legacy path, decrypt the body directly under `key`.
  */
 export async function openEnvelopeJson(
+  ref: { readonly collection: string; readonly id: string },
   env: EncryptedEnvelope,
   key: EnclaveKey,
   opts?: { encrypted?: boolean },
 ): Promise<string> {
+  void ref // AAD binding lands in the switch-on commit (#1041)
   if (opts?.encrypted === false) return env._data
   if (env._cek !== undefined) {
     const cek = await unwrapCek(env._cek, key)
@@ -55,10 +58,12 @@ export async function openEnvelopeJson(
  *  - otherwise → legacy path, body encrypted directly under `key`.
  */
 export async function writeEnvelopeBody(
+  identity: RecordIdentity,
   json: string,
   key: EnclaveKey,
   opts?: { encrypted?: boolean; perRecordKey?: boolean },
 ): Promise<Pick<EncryptedEnvelope, '_iv' | '_data' | '_cek'>> {
+  void identity // AAD binding lands in the switch-on commit (#1041)
   if (opts?.encrypted === false) return { _iv: '', _data: json }
 
   if (opts?.perRecordKey === true) {

@@ -149,7 +149,7 @@ export async function loadActiveDelegations(
     if (!env) continue
     let token: DelegationToken
     try {
-      const plaintext = await openEnvelopeJson(env, delegationsDek)
+      const plaintext = await openEnvelopeJson({ collection: DELEGATIONS_COLLECTION, id }, env, delegationsDek)
       token = JSON.parse(plaintext) as DelegationToken
     } catch {
       continue

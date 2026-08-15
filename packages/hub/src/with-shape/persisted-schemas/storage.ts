@@ -52,7 +52,7 @@ export async function loadPersistedSchemaEntry(
   if (!envelope) return { version: 0, payload: undefined }
   const version = envelope._v
   try {
-    const plaintext = await openEnvelopeJson(envelope, dek)
+    const plaintext = await openEnvelopeJson({ collection: SCHEMAS_COLLECTION, id: collection }, envelope, dek)
     const parsed = JSON.parse(plaintext) as PersistedSchemaEnvelope
     if (parsed._noydb_schema !== 1) return { version, payload: undefined }
     return { version, payload: parsed }

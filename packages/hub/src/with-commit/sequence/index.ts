@@ -253,7 +253,7 @@ export class SequenceStore {
   private async read(name: string): Promise<{ env: EncryptedEnvelope | null; value: number }> {
     const env = await this.adapter.get(this.vault, SEQUENCE_COLLECTION, name)
     if (!env) return { env: null, value: 0 }
-    const json = this.encrypted ? await openEnvelopeJson(env, await this.dek()) : env._data
+    const json = this.encrypted ? await openEnvelopeJson({ collection: SEQUENCE_COLLECTION, id: name }, env, await this.dek()) : env._data
     const state = JSON.parse(json) as SequenceState
     return { env, value: state.value }
   }

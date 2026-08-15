@@ -41,7 +41,7 @@ export async function loadUserEnvelope<T = unknown>(
 ): Promise<UserEnvelope<T> | null> {
   const envelope = await store.get(vault, USER_ENVELOPE_COLLECTION, keyringId)
   if (!envelope) return null
-  const plaintext = await openEnvelopeJson(envelope, dek)
+  const plaintext = await openEnvelopeJson({ collection: USER_ENVELOPE_COLLECTION, id: keyringId }, envelope, dek)
   const data = JSON.parse(plaintext) as T
   return {
     keyringId,

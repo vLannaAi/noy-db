@@ -49,7 +49,7 @@ export async function decryptExtractedPartition(
     if (dek === undefined) continue // no DEK sealed for this collection — skip
     const recs: DecryptedRecord[] = []
     for (const [id, env] of Object.entries(byId)) {
-      const plaintext = await openEnvelopeJson(env, dek)
+      const plaintext = await openEnvelopeJson({ collection, id }, env, dek)
       const body = JSON.parse(plaintext) as Record<string, unknown>
       recs.push({
         id,

@@ -105,7 +105,7 @@ async function readRefs(
   if (!env || !env._data) return []
   if (!encrypted) return parseRefs(env._data)
   const dek = await getDEK(SUBJECT_INDEX_COLLECTION)
-  const json = await openEnvelopeJson(env, dek)
+  const json = await openEnvelopeJson({ collection: SUBJECT_INDEX_COLLECTION, id: key }, env, dek)
   return parseRefs(json)
 }
 

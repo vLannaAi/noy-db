@@ -589,13 +589,13 @@ export interface ReadOnlyCollection<T> {
 export async function loadPeriods(
   adapter: NoydbStore,
   vault: string,
-  decrypt: (envelope: EncryptedEnvelope) => Promise<PeriodRecord>,
+  decrypt: (id: string, envelope: EncryptedEnvelope) => Promise<PeriodRecord>,
 ): Promise<PeriodRecord[]> {
   const ids = await adapter.list(vault, PERIODS_COLLECTION)
   const records: PeriodRecord[] = []
   for (const id of ids) {
     const env = await adapter.get(vault, PERIODS_COLLECTION, id)
-    if (env) records.push(await decrypt(env))
+    if (env) records.push(await decrypt(id, env))
   }
   // Stable order by closedAt so chain verification is reproducible.
   records.sort((a, b) => a.closedAt.localeCompare(b.closedAt))

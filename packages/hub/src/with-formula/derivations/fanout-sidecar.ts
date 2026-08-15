@@ -94,7 +94,7 @@ export async function loadFanoutSidecar(
   // Legacy plaintext (`_iv === ''`) reads directly; encrypted bodies decrypt.
   const json = (!encrypted || envelope._iv === '')
     ? envelope._data
-    : await openEnvelopeJson(envelope, await getDEK(FANOUT_DEK_COLLECTION))
+    : await openEnvelopeJson({ collection: '_meta', id: recordId(source, sourceId, outputKey) }, envelope, await getDEK(FANOUT_DEK_COLLECTION))
   const parsed = JSON.parse(json) as FanoutSidecar
   if (parsed._noydb_fanout !== 1) return undefined
   if (!Array.isArray(parsed.keys)) return undefined

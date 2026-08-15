@@ -48,7 +48,21 @@
  */
 import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'
 import type { LedgerStore } from './ledger/store.js'
-import { getHistory } from './history.js'
+import { getHistory, historyIdentity } from './history.js'
+
+/**
+ * An envelope together with **the address it was fetched from**.
+ *
+ * The time machine resolves a record's state at an instant from two different
+ * places — the live collection, or a `_history` snapshot — and those are sealed
+ * against different identities (#1041). Returning the envelope alone discards
+ * the one fact the reader needs to open it, which is precisely the read-side
+ * data-flow gap that binding identity exposes.
+ */
+interface ResolvedEnvelope {
+  readonly envelope: EncryptedEnvelope
+  readonly ref: { readonly collection: string; readonly id: string }
+}
 import { openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { ReadOnlyAtInstantError } from '../../kernel/errors.js'
 import { liveRecordIsElevated } from '../../kernel/tier-visibility.js'
@@ -141,11 +155,14 @@ export class CollectionInstant<T = unknown> {
    * DEK directly.
    */
   async get(id: string): Promise<T | null> {
-    const envelope = await this.resolveVisibleEnvelope(id)
-    if (!envelope) return null
+    const found = await this.resolveVisibleEnvelope(id)
+    if (!found) return null
+    // The envelope may be the LIVE record or a `_history` snapshot, and the two
+    // are sealed against different identities (#1041). `resolveEnvelope` carries
+    // the address down with the bytes precisely so this read can name it.
     const plaintext = this.engine.encrypted
-      ? await openEnvelopeJson(envelope, await this.engine.getDEK(this.name))
-      : envelope._data
+      ? await openEnvelopeJson(found.ref, found.envelope, await this.engine.getDEK(this.name))
+      : found.envelope._data
     return JSON.parse(plaintext) as T
   }
 
@@ -196,11 +213,11 @@ export class CollectionInstant<T = unknown> {
    * the invisibility law holds on the whole time-machine read surface, not
    * just a decrypt failure.
    */
-  private async resolveVisibleEnvelope(id: string): Promise<EncryptedEnvelope | null> {
-    const envelope = await this.resolveEnvelope(id)
-    if (!envelope || (envelope._tier ?? 0) > 0) return null
+  private async resolveVisibleEnvelope(id: string): Promise<ResolvedEnvelope | null> {
+    const found = await this.resolveEnvelope(id)
+    if (!found || (found.envelope._tier ?? 0) > 0) return null
     if (await liveRecordIsElevated(this.engine.adapter, this.engine.name, this.name, id)) return null
-    return envelope
+    return found
   }
 
   /**
@@ -233,7 +250,7 @@ export class CollectionInstant<T = unknown> {
    * intermediate versions; adopters needing accurate time-machine
    * reads should leave history enabled.
    */
-  private async resolveEnvelope(id: string): Promise<EncryptedEnvelope | null> {
+  private async resolveEnvelope(id: string): Promise<ResolvedEnvelope | null> {
     const ledger = this.engine.getLedger()
     if (ledger) {
       return this.resolveViaLedger(id, ledger)
@@ -241,7 +258,7 @@ export class CollectionInstant<T = unknown> {
     return this.resolveViaEnvelopeTs(id)
   }
 
-  private async resolveViaLedger(id: string, ledger: LedgerStore): Promise<EncryptedEnvelope | null> {
+  private async resolveViaLedger(id: string, ledger: LedgerStore): Promise<ResolvedEnvelope | null> {
     const entries = await ledger.entries()
     // Entries are already ordered by index which is the mutation order.
     let latest: { op: 'put' | 'delete'; version: number } | null = null
@@ -263,18 +280,23 @@ export class CollectionInstant<T = unknown> {
     return this.loadVersion(id, latest.version)
   }
 
-  private async resolveViaEnvelopeTs(id: string): Promise<EncryptedEnvelope | null> {
+  private async resolveViaEnvelopeTs(id: string): Promise<ResolvedEnvelope | null> {
     const history = await getHistory(
       this.engine.adapter, this.engine.name, this.name, id,
     )
     const live = await this.engine.adapter.get(this.engine.name, this.name, id)
-    const byVersion = new Map<number, EncryptedEnvelope>()
-    for (const e of history) byVersion.set(e._v, e)
-    if (live) byVersion.set(live._v, live)
+    // Each candidate keeps the address it came from — a snapshot and the live
+    // record are sealed against different identities, and this map is exactly
+    // where that provenance used to be discarded (#1041).
+    const byVersion = new Map<number, ResolvedEnvelope>()
+    for (const e of history) {
+      byVersion.set(e._v, { envelope: e, ref: historyIdentity(this.name, id, e._v) })
+    }
+    if (live) byVersion.set(live._v, { envelope: live, ref: { collection: this.name, id } })
     const sorted = [...byVersion.values()].sort((a, b) =>
-      a._ts < b._ts ? 1 : a._ts > b._ts ? -1 : 0,
+      a.envelope._ts < b.envelope._ts ? 1 : a.envelope._ts > b.envelope._ts ? -1 : 0,
     )
-    return sorted.find((e) => e._ts <= this.targetTs) ?? null
+    return sorted.find((e) => e.envelope._ts <= this.targetTs) ?? null
   }
 
   /**
@@ -285,13 +307,22 @@ export class CollectionInstant<T = unknown> {
    * history, and skipping live for the current-version case avoids a
    * redundant lookup.
    */
-  private async loadVersion(id: string, version: number): Promise<EncryptedEnvelope | null> {
+  private async loadVersion(id: string, version: number): Promise<ResolvedEnvelope | null> {
     const live = await this.engine.adapter.get(this.engine.name, this.name, id)
-    if (live && live._v === version) return live
+    if (live && live._v === version) {
+      return { envelope: live, ref: { collection: this.name, id } }
+    }
 
     // Direct lookup by (collection, id, version) — avoids scanning all history.
-    const historyId = `${this.name}:${id}:${String(version).padStart(10, '0')}`
-    return await this.engine.adapter.get(this.engine.name, '_history', historyId)
+    //
+    // This used to rebuild the key inline as
+    // `${name}:${id}:${padStart(10,'0')}` — a SECOND definition of the history
+    // layout, free to drift from `historyId`'s. It now goes through
+    // `historyIdentity`, the same function `saveHistory` writes with, so the
+    // read address and the write address cannot disagree (#1041).
+    const ref = historyIdentity(this.name, id, version)
+    const envelope = await this.engine.adapter.get(this.engine.name, ref.collection, ref.id)
+    return envelope ? { envelope, ref } : null
   }
 }
 
