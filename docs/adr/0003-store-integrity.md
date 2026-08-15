@@ -126,7 +126,8 @@ prevention. With it:
 |---|---|
 | re-serve an old body with inflated `_v` | AAD for `v99` ≠ body sealed at `v1` → **rejected before `local.put`** |
 | relocate into another collection/id | rejected |
-| flip `_tier` to hide a record | rejected |
+| raise `_tier` to hide a record | ⚠️ **NOT rejected — see below** |
+| lower `_tier` to expose an elevated record | rejected (wrong DEK) |
 | forge `_by` / `_source` | rejected |
 
 Note this holds for a **fresh device with no prior state** — the client recomputes AAD from the
@@ -135,6 +136,27 @@ earlier analyses listed as uncovered, is covered.
 
 `_ts` is deliberately excluded: it is advisory, and binding it would make legitimate clock
 correction a tamper event.
+
+### ⚠️ Correction, 2026-08-15: raising `_tier` is WITHHOLDING, not alteration
+
+An earlier draft of this table claimed *"flip `_tier` to hide a record → rejected"*. **It is not
+rejected**, and the adversarial harness found that within minutes of first running — which is the
+argument for building the harness rather than reasoning about the table.
+
+Raising `_tier` never reaches AAD. The tier-0 read gate treats any envelope claiming `_tier > 0`
+as **missing** and returns before decrypting (`collection.ts`), so the record simply comes back
+`null` — hidden, which is the outcome the row said was closed.
+
+**Reordering cannot fix it.** A reader holding only the tier-0 DEK has no way to distinguish a
+*genuinely* elevated record from a faked one: both fail under the key it has. So an upward
+re-tier is **withholding**, and withholding is exactly what `SECURITY.md` still concedes without
+`withVaultHead()` (#1044).
+
+Lowering `_tier` *is* rejected, because that direction reaches the crypto: a tier-N body
+relabelled tier 0 is opened with the tier-0 DEK, which is not the key it was sealed under.
+
+Both directions are pinned as separate harness rows measuring the real behaviour, rather than one
+row asserting a defence that does not exist.
 
 ## Decision 3 — the head detects **omission**, not alteration
 
@@ -250,7 +272,8 @@ with the client asserted to fail closed on every row:
 |---|---|---|
 | re-serve old envelope, inflated `_v` | rejected **before** `local.put` | D1 + D2 |
 | relocate into another collection/id | rejected | D2 |
-| flip `_tier` to hide a record | rejected | D2 |
+| raise `_tier` to hide a record | ⚠️ **withheld, not rejected** — see Decision 2 | head (opt-in) |
+| lower `_tier` to expose an elevated record | rejected | D2 |
 | forge `_by` / `_source` | rejected | D2 |
 | edit `_noydb` to any value | **no effect** — nothing reads it | D5 |
 | serve an unbound (pre-`0.6.0`) envelope | rejected — no lenient path exists | D5 |
