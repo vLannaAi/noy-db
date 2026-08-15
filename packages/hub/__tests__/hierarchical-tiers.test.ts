@@ -309,7 +309,13 @@ describe('v0.18 hierarchical access', () => {
       const getDEK = (vault as unknown as { getDEK(name: string): Promise<CryptoKey> }).getDEK
       const tier0Dek = await getDEK('docs')
       const tier1Dek = await getDEK('docs#1')
-      const body = await rewrapBodyToDek(tier0Env, tier0Dek, tier1Dek)
+      // #1041: a tier move changes `_tier`, so the AAD moves with it — open at
+      // tier 0, re-seal at tier 1, exactly as elevate() does.
+      const body = await rewrapBodyToDek(
+        { collection: 'docs', id: 'd1', ...(tier0Env._by !== undefined ? { by: tier0Env._by } : {}) },
+        { collection: 'docs', id: 'd1', tier: 1, ...(tier0Env._by !== undefined ? { by: tier0Env._by } : {}) },
+        tier0Env, tier0Dek, tier1Dek,
+      )
       const tier1Env: EncryptedEnvelope = {
         ...tier0Env,
         _v: tier0Env._v + 1,

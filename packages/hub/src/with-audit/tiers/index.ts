@@ -23,7 +23,7 @@
 export { withTiers } from './active.js'
 export { NO_TIERS, type TiersStrategy } from './strategy.js'
 export { TiersNotEnabledError } from '../../kernel/errors.js'
-import { type RecordIdentity, buildRecordAad, buildRecordEnvelope, encrypt, decrypt, unwrapCek, rewrapBodyToDek, applyRewrappedBody, isDeleteMarker, isTombstoneShape, type RecordCodec, type EnclaveKey, type SealedShredSlot } from '../../kernel/enclave/index.js'
+import { recordAadFor, type RecordIdentity, buildRecordAad, buildRecordEnvelope, encrypt, decrypt, unwrapCek, rewrapBodyToDek, applyRewrappedBody, isDeleteMarker, isTombstoneShape, type RecordCodec, type EnclaveKey, type SealedShredSlot } from '../../kernel/enclave/index.js'
 import { TierDemoteDeniedError, UnsupportedTierCompositionError, PersistedIndexCompensationError } from '../../kernel/errors.js'
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
@@ -612,14 +612,19 @@ export async function getAtTier<T>(ctx: TiersContext<T>, id: string): Promise<T 
   // elevated via `elevate()`): the CEK is wrapped under the TIER DEK, so
   // unwrap under the tier DEK then decrypt the body under the CEK. Legacy
   // tiered records decrypt directly under the tier DEK.
+  // This leg decrypts manually rather than through `decryptRecord` (#635), so
+  // it must build the AAD itself — from the address it fetched from plus the
+  // envelope's own `_tier`/`_by`, exactly as `recordAadFor` does everywhere
+  // else (#1041).
+  const aad = recordAadFor({ collection: ctx.name, id }, envelope)
   let plaintext: string
   let cek: EnclaveKey | undefined
   if (envelope._cek !== undefined) {
     cek = await unwrapCek(envelope._cek, dek)
     ctx.cekCache?.set(id, cek, 1)
-    plaintext = await decrypt(envelope._iv, envelope._data, cek)
+    plaintext = await decrypt(envelope._iv, envelope._data, cek, aad)
   } else {
-    plaintext = await decrypt(envelope._iv, envelope._data, dek)
+    plaintext = await decrypt(envelope._iv, envelope._data, dek, aad)
   }
   let record = JSON.parse(plaintext) as T
 
