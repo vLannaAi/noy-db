@@ -367,7 +367,7 @@ describe('#712 at-rest: history snapshots follow the record’s tier', () => {
     await expect(unwrapCek(after!._cek!, tier0Dek)).rejects.toThrow()
     // …and DOES under tier-1 (content preserved, moved not destroyed).
     const cek = await unwrapCek(after!._cek!, tier1Dek)
-    expect(await decrypt(after!._iv, after!._data, cek)).toContain('v1-secret')
+    expect(await decrypt(after!._iv, after!._data, cek, recordAadFor({ collection: '_history', id: 'docs:d1:0000000001' }, after!))).toContain('v1-secret')
   })
 
   it('a cold tier-0-only session cannot decrypt an elevated record’s history at rest', async () => {
@@ -401,7 +401,7 @@ describe('#712 at-rest: history snapshots follow the record’s tier', () => {
     const env = await store.get('v1', '_history', 'docs:d1:0000000001')
     expect(env).not.toBeNull()
     const cek = await unwrapCek(env!._cek!, tier0Dek) // readable at tier-0 again
-    expect(await decrypt(env!._iv, env!._data, cek)).toContain('v1')
+    expect(await decrypt(env!._iv, env!._data, cek, recordAadFor({ collection: '_history', id: 'docs:d1:0000000001' }, env!))).toContain('v1')
   })
 
   it('putAtTier(>0) over a record with history rewraps that history too', async () => {
@@ -463,7 +463,7 @@ describe('#712 at-rest: history snapshots follow the record’s tier', () => {
     const histAfter = await store.get('v1', '_history', 'docs:d1:0000000001')
     expect(histAfter).not.toBeNull()
     const cek = await unwrapCek(histAfter!._cek!, tier0Dek)
-    expect(await decrypt(histAfter!._iv, histAfter!._data, cek)).toContain('v1')
+    expect(await decrypt(histAfter!._iv, histAfter!._data, cek, recordAadFor({ collection: '_history', id: 'docs:d1:0000000001' }, histAfter!))).toContain('v1')
   })
 
   it('DEK-tracking holds across multi-step moves: elevate 0→1, elevate 1→2, demote 2→0', async () => {
@@ -494,6 +494,6 @@ describe('#712 at-rest: history snapshots follow the record’s tier', () => {
     const env = await store.get('v1', '_history', 'docs:d1:0000000001')
     expect(env).not.toBeNull()
     const cek = await unwrapCek(env!._cek!, tier0Dek)
-    expect(await decrypt(env!._iv, env!._data, cek)).toContain('v1')
+    expect(await decrypt(env!._iv, env!._data, cek, recordAadFor({ collection: '_history', id: 'docs:d1:0000000001' }, env!))).toContain('v1')
   })
 })

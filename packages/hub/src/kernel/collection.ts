@@ -3194,7 +3194,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     for (const env of envelopes) {
       if ((env._tier ?? 0) > 0) continue // #712: defensive — a per-version tiered snapshot
       // History reads skip schema validation — see getVersion() docs.
-      const record = await this.codec.decryptRecord({ collection: this.name, id }, env, { skipValidation: true, })
+      const record = await this.codec.decryptRecord(this.strategies.history.historyIdentity(this.name, id, env._v), env, { skipValidation: true, }) // #1041: _history identity
       // Shredded (tombstoned) history version: the body is permanently gone,
       // so there is nothing to return — skip it. The version still counted in
       // the audit ledger; history() just can't surface its erased content.
@@ -3223,7 +3223,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       this.adapter, this.vault, this.name, id, version,
     )
     if (!envelope || (envelope._tier ?? 0) > 0 || await liveRecordIsElevated(this.adapter, this.vault, this.name, id)) return null
-    return this.codec.decryptRecord({ collection: this.name, id }, envelope, { skipValidation: true, })
+    return this.codec.decryptRecord(this.strategies.history.historyIdentity(this.name, id, envelope._v), envelope, { skipValidation: true, }) // #1041: _history storage identity, not the live record's
   }
 
   /** Revert a record to a past version. Creates a new version with the old content. */
@@ -4266,7 +4266,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       syncHistory: async (id: string, fromDek: EnclaveKey, toDek: EnclaveKey) => this.strategies.history.rewrapHistory(this.adapter, this.vault, this.name, id, fromDek, toDek, await this.getDEK(this.name)),
       saveHistorySnapshot: async (id: string, version: number, seal: (address: RecordIdentity) => Promise<EncryptedEnvelope>) => { // #728: gate folded in here so tiers/index.ts stays simple; review fix — mirror put()'s save→emit→prune parity (maxVersions was unbounded on tier moves)
         if (this.historyConfig.enabled === false) return
-        const envelope = await seal(this.strategies.history.historyIdentity(this.name, id, version)) // #1041: the layout owner hands the address in; the caller seals to it
+        const envelope = await seal(this.strategies.history.historyIdentity(this.name, id, version)) // #1041
         await this.strategies.history.saveHistory(this.adapter, this.vault, this.name, id, envelope)
         this.emitter.emit('history:save', { vault: this.vault, collection: this.name, id, version: envelope._v })
         if (this.historyConfig.maxVersions) await this.strategies.history.pruneHistory(this.adapter, this.vault, this.name, id, { keepVersions: this.historyConfig.maxVersions })
