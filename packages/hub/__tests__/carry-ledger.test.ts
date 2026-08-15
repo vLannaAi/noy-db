@@ -12,7 +12,7 @@ import { withCargo } from '../src/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { ref } from '../src/kernel/refs.js'
 import { ConflictError } from '../src/kernel/errors.js'
-import { generateDEK, decrypt } from '../src/kernel/enclave/index.js'
+import { recordAadFor, generateDEK, decrypt } from '../src/kernel/enclave/index.js'
 import { hashEntry } from '../src/with-commit/history/ledger/entry.js'
 import { envelopePayloadHash } from '../src/with-commit/history/ledger/hash.js'
 import type { LedgerEntry } from '../src/with-commit/history/ledger/entry.js'
@@ -106,7 +106,7 @@ describe('reKeyLedger', () => {
     const carried: LedgerEntry[] = []
     for (const id of ids) {
       const env = result.entries[id]!
-      carried.push(JSON.parse(await decrypt(env._iv, env._data, ledgerDek)) as LedgerEntry)
+      carried.push(JSON.parse(await decrypt(env._iv, env._data, ledgerDek, recordAadFor({ collection: '_ledger', id }, env))) as LedgerEntry)
     }
     expect(carried.some((e) => e.id === 'c-2')).toBe(false) // ann's client, outside closure
     expect(carried[0]!.index).toBe(0)
@@ -136,7 +136,7 @@ describe('reKeyLedger', () => {
     const carried: LedgerEntry[] = []
     for (const id of Object.keys(entries).sort()) {
       const env = entries[id]!
-      carried.push(JSON.parse(await decrypt(env._iv, env._data, ledgerDek)) as LedgerEntry)
+      carried.push(JSON.parse(await decrypt(env._iv, env._data, ledgerDek, recordAadFor({ collection: '_ledger', id }, env))) as LedgerEntry)
     }
     const puts = carried.filter((e) => e.collection === 'clients' && e.id === 'c-1' && e.op === 'put')
     expect(puts.length).toBe(2) // both versions carried (audit fidelity)

@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withCargo } from '../src/index.js'
 import { ConflictError } from '../src/kernel/errors.js'
-import { generateDEK, decrypt } from '../src/kernel/enclave/index.js'
+import { recordAadFor, generateDEK, decrypt } from '../src/kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { reKeySchemas, extractPartition } from '../src/with-cargo/extract-partition.js'
 import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/with-cargo/adopt-partition.js'
@@ -123,7 +123,7 @@ describe('reKeySchemas', () => {
     const schemas = await reKeySchemas(company, new Map([['clients', new Set(['c-1'])]]), new Map([['clients', destDek]]))
 
     const env = schemas['clients']!
-    const json = await decrypt(env._iv, env._data, destDek)
+    const json = await decrypt(env._iv, env._data, destDek, recordAadFor({ collection: '_schemas', id: 'clients' }, env))
     expect(JSON.parse(json)._noydb_schema).toBe(1)
   })
 

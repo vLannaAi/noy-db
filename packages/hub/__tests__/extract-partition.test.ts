@@ -14,7 +14,7 @@ import { withCargo } from '../src/index.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import { ref } from '../src/kernel/refs.js'
 import { ConflictError } from '../src/kernel/errors.js'
-import { decrypt, base64ToBuffer, generateDEK } from '../src/kernel/enclave/index.js'
+import { recordAadFor, decrypt, base64ToBuffer, generateDEK } from '../src/kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { reKeyClosure, sealDeks, extractPartition } from '../src/with-cargo/extract-partition.js'
 import { adoptPartition, createOwnerOnAdoptedPartition } from '../src/with-cargo/adopt-partition.js'
@@ -90,7 +90,7 @@ describe('reKeyClosure', () => {
 
     const env = collections['clients']!['c-1']!
     const destDek = deks.get('clients')!
-    const plaintext = await decrypt(env._iv, env._data, destDek)
+    const plaintext = await decrypt(env._iv, env._data, destDek, recordAadFor({ collection: 'clients', id: 'c-1' }, env))
     expect(JSON.parse(plaintext)).toMatchObject({ id: 'c-1', name: 'Acme', operatorUserId: 'belle' })
   })
 })
@@ -186,7 +186,7 @@ describe('extractPartition end-to-end', () => {
     // Import the clients DEK + decrypt the re-keyed record.
     const clientsDek = await crypto.subtle.importKey('raw', base64ToBuffer(dekMap['clients']!), 'AES-GCM', false, ['decrypt'])
     const env = backup.collections['clients']!['c-1']!
-    const recordJson = await decrypt(env._iv, env._data, clientsDek)
+    const recordJson = await decrypt(env._iv, env._data, clientsDek, recordAadFor({ collection: 'clients', id: 'c-1' }, env))
     expect(JSON.parse(recordJson)).toMatchObject({ id: 'c-1', name: 'Hotel' })
   })
 })
