@@ -412,7 +412,10 @@ describe('extractPartition blob carriage — #769: strips `pendingRelease` (back
     const dek = await getDEK('docs')
     const slots = JSON.parse(await openEnvelopeJson({ collection: slotsCollection, id: 'd1' }, slotEnv, dek)) as Record<string, { eTag: string; pendingRelease?: string }>
     slots['cover.png']!.pendingRelease = 'stale-etag-awaiting-release'
-    const reEncrypted = await encrypt(JSON.stringify(slots), dek)
+    // #1041: re-sealing in place keeps the SAME identity — same collection, same
+    // id — so the same AAD applies. Writing it back without one would produce a
+    // record the product cannot read.
+    const reEncrypted = await encrypt(JSON.stringify(slots), dek, recordAadFor({ collection: slotsCollection, id: 'd1' }, slotEnv))
     await adapter.put(vaultName, slotsCollection, 'd1', { ...slotEnv, _iv: reEncrypted.iv, _data: reEncrypted.data }, slotEnv._v)
 
     // ── extract-partition: STRIPS it (cross-vault; breadcrumb is meaningless there) ──

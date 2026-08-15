@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { loadOrCreateSigner, loadSigner, SIGNER_RECORD_ID, ATTESTATIONS_COLLECTION, type DocSigner } from '../src/with-audit/attestation/signer.js'
-import { generateDEK, encrypt } from '../src/kernel/enclave/index.js'
+import { buildRecordAad, generateDEK, encrypt } from '../src/kernel/enclave/index.js'
 import { ed25519Verify, signPayloadCore, generateDocSigningKeyPair } from '@noy-db/attestation'
 import { NOYDB_FORMAT_VERSION } from '../src/kernel/types.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
@@ -83,7 +83,8 @@ function lostRaceStore(winnerEnv: EncryptedEnvelope | null): { store: NoydbStore
 }
 
 async function sealSigner(signer: DocSigner, dek: CryptoKey): Promise<EncryptedEnvelope> {
-  const { iv, data } = await encrypt(JSON.stringify(signer), dek)
+  // #1041: sealed against `_attestations/__signer__`, where it is stored.
+  const { iv, data } = await encrypt(JSON.stringify(signer), dek, buildRecordAad({ collection: ATTESTATIONS_COLLECTION, id: SIGNER_RECORD_ID }))
   return { _noydb: NOYDB_FORMAT_VERSION, _v: 1, _ts: '2026-05-31T00:00:00.000Z', _iv: iv, _data: data }
 }
 

@@ -19,7 +19,7 @@
  *    for `envelopeBodyForHash`.
  */
 import { describe, it, expect } from 'vitest'
-import {
+import { buildRecordAad,
   openEnvelopeJson,
   writeEnvelopeBody,
   hasPerRecordKey,
@@ -102,7 +102,7 @@ describe('envelope-body helpers', () => {
       const dek = await generateDEK()
       const cek = await generateDEK()
       const json = JSON.stringify({ mirrored: true })
-      const { iv, data } = await encrypt(json, cek)
+      const { iv, data } = await encrypt(json, cek, buildRecordAad({ collection: 'c', id: 'r1' }))
       const wrapped = await wrapCek(cek, dek)
       const envelope = baseEnvelope({ _iv: iv, _data: data, _cek: wrapped })
 
