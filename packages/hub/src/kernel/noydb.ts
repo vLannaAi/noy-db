@@ -1,3 +1,4 @@
+import { buildMergeAuthority } from './merge-authority.js'
 import { resolveStrategies, type StrategyBag } from '../port/with/strategies.js'
 import type { RotateResult } from '../with-party/team/keyring.js'
 import type {
@@ -551,6 +552,7 @@ export class Noydb {
       await this.bootstrapPolicy(name)
     }
 
+    const mergeAuthority = buildMergeAuthority(keyring) // #1042 — see merge-authority.ts
     // Set up sync engine(s) — handles bare NoydbStore, SyncTarget, or SyncTarget[]
     let syncEngine: SyncEngine | undefined
     const targets = normalizeSyncTargets(this.options.sync)
@@ -571,6 +573,7 @@ export class Noydb {
         emitter: this.emitter,
         syncPolicy: effectivePolicy,
         role: primary.role,
+        mergeAuthority,
         ...(primary.label !== undefined ? { label: primary.label } : {}),
       })
       this.syncEngines.set(name, syncEngine)
@@ -591,6 +594,7 @@ export class Noydb {
           emitter: this.emitter,
           syncPolicy: targetPolicy,
           role: target.role,
+          mergeAuthority,
           ...(target.label !== undefined ? { label: target.label } : {}),
         })
         // #1035 — keyed by POSITION, not `label ?? role`: two unlabelled targets of

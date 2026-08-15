@@ -69,6 +69,7 @@
     "unwrapCek",
     "unwrapKey",
     "verifyBrokerProof",
+    "verifyRecordIdentity",
     "wrapCek",
     "wrapKey",
     "writeEnvelopeBody"

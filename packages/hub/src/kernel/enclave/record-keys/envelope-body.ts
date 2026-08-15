@@ -150,3 +150,35 @@ export function envelopeBodyForHash(env: EncryptedEnvelope): string {
   if (env._bidx !== undefined) segments.push(mapPart('_bidx', env._bidx))
   return `{${segments.join(',')}}`
 }
+
+/**
+ * Does `env` authenticate at the identity `ref` claims, under `key`? (#1042)
+ *
+ * The merge's fail-closed check, living here because it is envelope surgery:
+ * deciding "is there a sealed body at all" reads `_iv`, which
+ * `enclave-body-only` reserves to this folder. An earlier draft did that test
+ * in `kernel/noydb.ts` and the guard refused it — correctly, since a caller
+ * outside the enclave inspecting protected fields is how envelope knowledge
+ * leaks back out.
+ *
+ * Returns a boolean rather than throwing: `applyRemote` must be able to reject
+ * one poisoned record without halting an entire sync, and a hostile store
+ * would very much like the opposite.
+ *
+ * **A record with no sealed body is vacuously authentic** — a tombstone carries
+ * none, and a plaintext collection has no AEAD to verify. Those are pass-through
+ * by construction, not by omission.
+ */
+export async function verifyRecordIdentity(
+  ref: { readonly collection: string; readonly id: string },
+  env: EncryptedEnvelope,
+  key: EnclaveKey,
+): Promise<boolean> {
+  if (env._iv === '') return true
+  try {
+    await openEnvelopeJson(ref, env, key)
+    return true
+  } catch {
+    return false
+  }
+}
