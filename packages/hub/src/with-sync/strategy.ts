@@ -30,6 +30,7 @@ import type {
   ConflictStrategy,
   SyncTargetRole,
 } from '../kernel/types.js'
+import type { MergeAuthority } from '../port/with/merge-authority.js'
 import type { NoydbEventEmitter } from '../kernel/events.js'
 import type { SyncPolicy } from '../kernel/sync-policy.js'
 import type { SyncEngine } from './engine.js'
@@ -53,6 +54,8 @@ export interface BuildSyncEngineOptions {
   syncPolicy?: SyncPolicy
   role?: SyncTargetRole
   label?: string
+  /** #1042 — the merge's verify/re-stamp capability, bound to the keys by the caller. */
+  mergeAuthority?: MergeAuthority
 }
 
 /**

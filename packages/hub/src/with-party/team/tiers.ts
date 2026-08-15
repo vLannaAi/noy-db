@@ -21,10 +21,11 @@ import type { UnlockedKeyring } from './keyring.js'
 import { TierNotGrantedError } from '../../kernel/errors.js'
 
 /** Canonical DEK key for a given collection + tier. Tier 0 → bare name. */
-export function dekKey(collection: string, tier: number): string {
-  if (tier <= 0) return collection
-  return `${collection}#${tier}`
-}
+// Moved to `kernel/tier-visibility.ts` (#1042): the kernel needs it to resolve
+// a pulled envelope's DEK, and `port-layering` forbids the spine importing a
+// `with-*` service. Re-exported so every existing importer is unchanged.
+import { dekKey } from '../../kernel/tier-visibility.js'
+export { dekKey }
 
 /**
  * Returns the user's effective clearance for a given collection: the

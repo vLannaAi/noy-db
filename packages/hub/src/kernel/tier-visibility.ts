@@ -88,3 +88,22 @@ export async function assertCutoverTierSafe(
     }
   }
 }
+
+/**
+ * The key a collection's DEK is stored under in `UnlockedKeyring.deks` for a
+ * given tier: `collection` at tier 0, `collection#N` above it.
+ *
+ * Lives in the kernel because the `deks` map is a kernel type and the kernel
+ * reads it — `noydb.ts` needs this to resolve the right DEK when verifying a
+ * pulled envelope (#1042). `with-party/team/tiers.ts` re-exports it, so every
+ * existing importer is unchanged; the definition simply moved to the layer that
+ * owns the map rather than one that happens to use it.
+ *
+ * This move was forced by `port-layering`, and rightly: the alternative was the
+ * kernel spine statically importing a `with-*` service, or duplicating the
+ * naming convention in two places where it could drift.
+ */
+export function dekKey(collection: string, tier: number): string {
+  if (tier <= 0) return collection
+  return `${collection}#${tier}`
+}

@@ -17,6 +17,7 @@ import type {
 } from '../kernel/types.js'
 import { NOYDB_SYNC_VERSION } from '../kernel/types.js'
 import { isConflictError, ValidationError } from '../kernel/errors.js'
+import type { MergeAuthority } from '../port/with/merge-authority.js'
 import {
   PERIOD_SUMMARY_COLLECTIONS,
   PERIODS_COLLECTION,
@@ -39,6 +40,7 @@ export interface ReservedLookupSource {
 
 /** Sync engine: dirty tracking, push, pull, conflict resolution, scheduling. */
 export class SyncEngine {
+  private readonly mergeAuthority: MergeAuthority | undefined
   private readonly local: NoydbStore
   private readonly remote: NoydbStore
   private readonly strategy: ConflictStrategy
@@ -151,6 +153,15 @@ export class SyncEngine {
     syncPolicy?: SyncPolicy
     role?: SyncTargetRole
     label?: string
+    /**
+     * #1042 — the merge's verify/re-stamp capability. Optional so an engine
+     * built without one behaves exactly as before; the Vault supplies it.
+     *
+     * A closure, not an import: `with-sync` is DEK-free and
+     * `check:architecture` enforces that, so the capability arrives already
+     * bound to the keys rather than the engine reaching for them.
+     */
+    mergeAuthority?: MergeAuthority
   }) {
     this.local = opts.local
     this.remote = opts.remote
@@ -160,6 +171,7 @@ export class SyncEngine {
     this.role = opts.role ?? 'sync-peer'
     this.label = opts.label
     this.policy = opts.syncPolicy
+    this.mergeAuthority = opts.mergeAuthority
 
     // Create a scheduler when the policy asks for ANY automatic behaviour.
     // #897: this used to test `push.mode !== 'manual'` alone, so a policy of
@@ -938,6 +950,24 @@ export class SyncEngine {
   }
 
   private async applyRemote(collection: string, id: string, envelope: EncryptedEnvelope): Promise<void> {
+    // #1042 — FAIL CLOSED, and do it HERE rather than at the 14 call sites.
+    // Every path that commits store-supplied ciphertext goes through this
+    // function, so gating it once covers them all by construction instead of by
+    // remembering. A gate added per-caller is a gate someone forgets.
+    //
+    // Throwing is the correct shape, not a shortcut: each pull entry is wrapped
+    // in its own try/catch that records the error and moves on, so a poisoned
+    // record becomes one `PullResult.errors` entry rather than a halted sync —
+    // which is exactly what a hostile store would want.
+    //
+    // Ordering is the whole point: this runs BEFORE `local.put`, so a rejection
+    // costs the client nothing. Its existing copy is untouched.
+    if (this.mergeAuthority && !(await this.mergeAuthority.verify(collection, id, envelope))) {
+      throw new ValidationError(
+        `sync: refusing remote envelope for "${collection}/${id}" — it does not authenticate at the ` +
+        'identity and version it claims. The local copy is unchanged.',
+      )
+    }
     await this.local.put(this.vault, collection, id, envelope)
     if (this.pullByteSink !== null) {
       // #807: KPI — one applied envelope; bytes ≈ ciphertext payload size.
