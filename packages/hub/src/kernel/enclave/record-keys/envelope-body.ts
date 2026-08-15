@@ -13,7 +13,7 @@
  * per-function doc for its oracle call site) — this file introduces no new
  * crypto or semantics, only a narrower door onto what already runs.
  */
-import type { RecordIdentity } from '../record-aad.js'
+import { buildRecordAad, recordAadFor, type RecordIdentity } from '../record-aad.js'
 import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek, type EnclaveKey } from '../crypto.js'
 import type { EncryptedEnvelope } from '../../types.js'
 
@@ -35,13 +35,18 @@ export async function openEnvelopeJson(
   key: EnclaveKey,
   opts?: { encrypted?: boolean },
 ): Promise<string> {
-  void ref // AAD binding lands in the switch-on commit (#1041)
+  // A plaintext collection has no AEAD, so there is nothing to authenticate —
+  // `_data` is returned as-is and identity binding does not apply to it.
   if (opts?.encrypted === false) return env._data
+  // Recomputed from the ADDRESS this was fetched from plus `_tier`/`_by` read
+  // off the envelope. A store that edited either one changes this value, and
+  // AES-GCM then refuses the body (#1041).
+  const aad = recordAadFor(ref, env)
   if (env._cek !== undefined) {
     const cek = await unwrapCek(env._cek, key)
-    return decrypt(env._iv, env._data, cek)
+    return decrypt(env._iv, env._data, cek, aad)
   }
-  return decrypt(env._iv, env._data, key)
+  return decrypt(env._iv, env._data, key, aad)
 }
 
 /**
@@ -63,17 +68,18 @@ export async function writeEnvelopeBody(
   key: EnclaveKey,
   opts?: { encrypted?: boolean; perRecordKey?: boolean },
 ): Promise<Pick<EncryptedEnvelope, '_iv' | '_data' | '_cek'>> {
-  void identity // AAD binding lands in the switch-on commit (#1041)
   if (opts?.encrypted === false) return { _iv: '', _data: json }
+
+  const aad = buildRecordAad(identity)
 
   if (opts?.perRecordKey === true) {
     const cek = await generateDEK()
-    const { iv, data } = await encrypt(json, cek)
+    const { iv, data } = await encrypt(json, cek, aad)
     const wrapped = await wrapCek(cek, key)
     return { _iv: iv, _data: data, _cek: wrapped }
   }
 
-  const { iv, data } = await encrypt(json, key)
+  const { iv, data } = await encrypt(json, key, aad)
   return { _iv: iv, _data: data }
 }
 
