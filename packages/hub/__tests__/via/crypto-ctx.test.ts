@@ -68,10 +68,10 @@ describe('makeReservedEnvelopes', () => {
     const reservedEnvelopes = makeReservedEnvelopes(async () => dek, ['_dict_'])
     const cap = reservedEnvelopes('_dict_')
 
-    await expect(cap.encrypt('notdict_x', 'r1', '{}', 1)).rejects.toBeInstanceOf(ValidationError)
+    await expect(cap.encrypt({ collection: 'notdict_x', id: 'r1' }, '{}', 1)).rejects.toBeInstanceOf(ValidationError)
 
-    const env = await cap.encrypt('_dict_test', 'r1', '{}', 1)
-    await expect(cap.decrypt('notdict_x', env)).rejects.toBeInstanceOf(ValidationError)
+    const env = await cap.encrypt({ collection: '_dict_test', id: 'r1' }, '{}', 1)
+    await expect(cap.decrypt('notdict_x', 'r1', env)).rejects.toBeInstanceOf(ValidationError)
   })
 
   it('encrypt/decrypt round-trips a _dict_test envelope', async () => {
@@ -80,12 +80,12 @@ describe('makeReservedEnvelopes', () => {
     const cap = reservedEnvelopes('_dict_')
 
     const body = JSON.stringify({ key: 'greeting', labels: { en: 'hi' } })
-    const env = await cap.encrypt('_dict_test', 'r1', body, 1)
+    const env = await cap.encrypt({ collection: '_dict_test', id: 'r1' }, body, 1)
     expect(env._v).toBe(1)
     expect(env._iv).toBeTruthy()
     expect(env._data).toBeTruthy()
 
-    const json = await cap.decrypt('_dict_test', env)
+    const json = await cap.decrypt('_dict_test', 'r1', env)
     expect(JSON.parse(json)).toEqual({ key: 'greeting', labels: { en: 'hi' } })
   })
 })

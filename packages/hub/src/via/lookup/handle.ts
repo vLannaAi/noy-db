@@ -208,16 +208,23 @@ export class LookupHandle<Keys extends string = string> {
         _by: this.keyring.userId,
       }
     }
-    // `entry.key` IS the record id this envelope is stored under.
-    const envelope = await this.reservedEnvelopes.encrypt(this.collName, entry.key, JSON.stringify(entry), version)
-    return { ...envelope, _by: this.keyring.userId }
+    // `entry.key` IS the record id this envelope is stored under. `_by` goes
+    // IN, not on afterwards: stamping it on the returned envelope would leave
+    // it outside the AAD the door just sealed (#1041).
+    return this.reservedEnvelopes.encrypt(
+      { collection: this.collName, id: entry.key, by: this.keyring.userId },
+      JSON.stringify(entry),
+      version,
+    )
   }
 
-  private async decryptEntry(envelope: EncryptedEnvelope): Promise<DictEntry> {
+  private async decryptEntry(key: string, envelope: EncryptedEnvelope): Promise<DictEntry> {
     if (!this.encrypted) {
       return JSON.parse(envelope._data) as DictEntry
     }
-    const json = await this.reservedEnvelopes.decrypt(this.collName, envelope)
+    // `key` IS the record id this envelope is stored under, and the identity the
+    // writer sealed it against (#1041).
+    const json = await this.reservedEnvelopes.decrypt(this.collName, key, envelope)
     return JSON.parse(json) as DictEntry
   }
 
@@ -229,7 +236,7 @@ export class LookupHandle<Keys extends string = string> {
   async _refreshSyncCache(key: string): Promise<void> {
     const envelope = await this.adapter.get(this.compartmentName, this.collName, key)
     if (!envelope || isDeleteMarker(envelope)) { this._syncCache.delete(key); return }
-    this._syncCache.set(key, await this.decryptEntry(envelope))
+    this._syncCache.set(key, await this.decryptEntry(key, envelope))
   }
 
   // ─── Public API ───────────────────────────────────────────────────
@@ -314,7 +321,7 @@ export class LookupHandle<Keys extends string = string> {
       key,
     )
     if (!envelope || isDeleteMarker(envelope)) return null
-    const entry = await this.decryptEntry(envelope)
+    const entry = await this.decryptEntry(key, envelope)
     return entry.labels
   }
 
@@ -428,7 +435,7 @@ export class LookupHandle<Keys extends string = string> {
     if (!existing || isDeleteMarker(existing)) {
       throw new DictKeyMissingError(this.dictionaryName, oldKey)
     }
-    const oldEntry = await this.decryptEntry(existing)
+    const oldEntry = await this.decryptEntry(oldKey, existing)
 
     // 2. Write new key
     const newEntry: DictEntry = { key: newKey, labels: oldEntry.labels }
@@ -530,7 +537,7 @@ export class LookupHandle<Keys extends string = string> {
       // #647 fix wave 1 — a delete-marker row is a removed key, not a live entry: exclude it
       // from the listing and drop any stale cache entry a prior warm may have left under it.
       if (!envelope || isDeleteMarker(envelope)) { this._syncCache.delete(key); continue }
-      const entry = await this.decryptEntry(envelope)
+      const entry = await this.decryptEntry(key, envelope)
       entries.push(entry)
       // Warm the synchronous cache
       this._syncCache.set(key, entry)

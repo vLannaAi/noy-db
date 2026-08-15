@@ -10,7 +10,7 @@
  * Internal service — reached through `vault.closePeriod(...)` etc.
  */
 import { ValidationError } from '../../kernel/errors.js'
-import { buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'
 import type { LedgerStore } from '../../with-commit/history/ledger/store.js'
 import type { Collection } from '../../kernel/collection.js'
@@ -637,7 +637,7 @@ export class VaultPeriods {
       const loaded = await this.deps.strategy.loadPeriods(
         this.deps.adapter,
         this.deps.vault,
-        (env) => this.decryptPeriodRecord(env),
+        (id, env) => this.decryptPeriodRecord(id, env),
       )
       // #1022 — the guard reads raw `_periods` records, which carry no reopen
       // state (it lives in a companion, so the chained record stays immutable).
@@ -666,7 +666,7 @@ export class VaultPeriods {
     const loaded = await this.deps.strategy.loadPeriods(
       this.deps.adapter,
       this.deps.vault,
-      (env: EncryptedEnvelope) => this.decryptPeriodRecord(env),
+      (id: string, env: EncryptedEnvelope) => this.decryptPeriodRecord(id, env),
     )
     this.periodCache = loaded
     return loaded
@@ -680,10 +680,10 @@ export class VaultPeriods {
     let envelope: EncryptedEnvelope
     if (this.deps.encrypted) {
       const dek = await this.deps.getDEK(collection)
-      const { iv, data } = await encrypt(json, dek)
-      envelope = buildRecordEnvelope(identity, { version: 1, iv, data, by: actor })
+      const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
+      envelope = buildRecordEnvelope(identity, { version: 1, iv, data})
     } else {
-      envelope = buildRecordEnvelope(identity, { version: 1, iv: '', data: json, by: actor })
+      envelope = buildRecordEnvelope(identity, { version: 1, iv: '', data: json})
     }
     await this.deps.adapter.put(this.deps.vault, collection, key, envelope)
     // #822: the period summaries are vault-wide state — period-scoped pull
@@ -704,15 +704,15 @@ export class VaultPeriods {
   private async readReserved<T>(collection: string, key: string): Promise<T | null> {
     const env = await this.deps.adapter.get(this.deps.vault, collection, key)
     if (!env) return null
-    const json = this.deps.encrypted ? await openEnvelopeJson(env, await this.deps.getDEK(collection)) : env._data
+    const json = this.deps.encrypted ? await openEnvelopeJson({ collection, id: key }, env, await this.deps.getDEK(collection)) : env._data
     return JSON.parse(json) as T
   }
 
-  private async decryptPeriodRecord(envelope: EncryptedEnvelope): Promise<PeriodRecord> {
+  private async decryptPeriodRecord(periodId: string, envelope: EncryptedEnvelope): Promise<PeriodRecord> {
     let json: string
     if (this.deps.encrypted) {
       const dek = await this.deps.getDEK(PERIODS_COLLECTION)
-      json = await openEnvelopeJson(envelope, dek)
+      json = await openEnvelopeJson({ collection: PERIODS_COLLECTION, id: periodId }, envelope, dek)
     } else {
       json = envelope._data
     }

@@ -1024,6 +1024,22 @@ export type { DevUnlockOptions } from './with-party/session/dev-unlock.js'
 export { isDiscriminant } from './kernel/util/discriminant.js'
 
 // Crypto utilities (buffer encoding helpers + binary encrypt/hash)
+/**
+ * Record-identity AAD (#1041) — **public because a raw DEK is no longer enough
+ * to read a record.**
+ *
+ * Every record body is sealed with additional authenticated data derived from
+ * `{collection, id, _tier, _by}`, so a holder of a delegated DEK — a magic-link
+ * grantee, an `at-*` host, external tooling reading a backup — must be able to
+ * reproduce it. Without this export a delegated key opens nothing, which would
+ * silently break delegation rather than merely inconvenience it.
+ *
+ * `recordAadFor(address, envelope)` is the reader's form: it takes the address
+ * the envelope was fetched from and reads `_tier`/`_by` off the envelope
+ * itself, so callers thread two fields rather than four.
+ */
+export { recordAadFor } from './kernel/enclave/index.js'
+export type { RecordIdentity } from './kernel/enclave/index.js'
 export { bufferToBase64, base64ToBuffer, encryptBytes, decryptBytes } from './kernel/enclave/index.js'
 export { encryptDeterministic, decryptDeterministic } from './kernel/enclave/index.js'
 // Enclave fork-swap contract — optional-group refusal (C4)

@@ -130,7 +130,7 @@ async function readRecord(
 ): Promise<{ envelope: EncryptedEnvelope; record: BrokerSeedRecord } | null> {
   const envelope = await store.get(vault, BROKER_COLLECTION, brokerId)
   if (!envelope) return null
-  const record = JSON.parse(await openEnvelopeJson(envelope, dek)) as BrokerSeedRecord
+  const record = JSON.parse(await openEnvelopeJson({ collection: BROKER_COLLECTION, id: brokerId }, envelope, dek)) as BrokerSeedRecord
   return { envelope, record }
 }
 
@@ -142,10 +142,10 @@ async function persistRecord(
   record: BrokerSeedRecord,
   expectedVersion: number,
 ): Promise<void> {
-  const envelope = buildSealedRecordEnvelope(
+  const envelope = await buildSealedRecordEnvelope(
     { collection: BROKER_COLLECTION, id: record.brokerId, by: keyring.userId },
-    await writeEnvelopeBody(JSON.stringify(record), dek),
-    { version: expectedVersion + 1, by: keyring.userId },
+    (identity) => writeEnvelopeBody(identity, JSON.stringify(record), dek),
+    { version: expectedVersion + 1 },
   )
   await store.put(vault, BROKER_COLLECTION, record.brokerId, envelope, expectedVersion)
 }

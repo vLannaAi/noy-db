@@ -16,7 +16,7 @@ import { withCargo } from '../src/index.js'
 import { ref } from '../src/kernel/refs.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, KeyringFile } from '../src/kernel/types.js'
-import { decrypt, encrypt, unwrapCek, openEnvelopeJson } from '../src/kernel/enclave/index.js'
+import { recordAadFor, decrypt, encrypt, unwrapCek, openEnvelopeJson } from '../src/kernel/enclave/index.js'
 import { withBlobs } from '../src/via/blob/index.js'
 import { BLOB_INDEX_COLLECTION, BLOB_CHUNKS_COLLECTION, BLOB_SLOTS_PREFIX } from '../src/with-shape/blobs/blob-set.js'
 import { BLOB_INTENT_COLLECTION, createIntent, getIntent, type BlobIntent } from '../src/with-shape/blobs/blob-intent.js'
@@ -157,7 +157,7 @@ describe('extractPartition blob carriage — HARDENED isolation property', () =>
     // (re-keyed under the transfer DEK into the bundle / destination)...
     const coverIdx = await dest.get('fresh', BLOB_INDEX_COLLECTION, coverETag)
     expect(coverIdx).not.toBeNull()
-    const coverBlob = JSON.parse(await decrypt(coverIdx!._iv, coverIdx!._data, transferBlobDek!)) as { _cek?: string }
+    const coverBlob = JSON.parse(await decrypt(coverIdx!._iv, coverIdx!._data, transferBlobDek!, recordAadFor({ collection: BLOB_INDEX_COLLECTION, id: coverETag }, coverIdx!))) as { _cek?: string }
     expect(coverBlob._cek).toBeDefined()
     // ...and unwraps its content CEK (chunks become decryptable for the recipient).
     await expect(unwrapCek(coverBlob._cek!, transferBlobDek!)).resolves.toBeDefined()
@@ -171,7 +171,7 @@ describe('extractPartition blob carriage — HARDENED isolation property', () =>
     const lonelyIdx = await src.get('demo-co', BLOB_INDEX_COLLECTION, lonelyETag)
     expect(lonelyIdx).not.toBeNull()
     // Sanity — the source DEK CAN read it (so the ciphertext is real)...
-    const lonelyBlob = JSON.parse(await decrypt(lonelyIdx!._iv, lonelyIdx!._data, srcBlobDek)) as { _cek?: string }
+    const lonelyBlob = JSON.parse(await decrypt(lonelyIdx!._iv, lonelyIdx!._data, srcBlobDek, recordAadFor({ collection: BLOB_INDEX_COLLECTION, id: lonelyETag }, lonelyIdx!))) as { _cek?: string }
     expect(lonelyBlob._cek).toBeDefined()
     // ...but the transfer DEK throws on the index envelope...
     await expect(decrypt(lonelyIdx!._iv, lonelyIdx!._data, transferBlobDek!)).rejects.toThrow()
@@ -272,7 +272,7 @@ describe('extractPartition blob carriage — refCount + no-blob', () => {
     const dest = toMemory()
     await adoptPartition(bundleBytes, { transferKey, destinationStore: dest, vaultName: 'fresh' })
     const carriedIdx = await dest.get('fresh', BLOB_INDEX_COLLECTION, eTag)
-    const carried = JSON.parse(await decrypt(carriedIdx!._iv, carriedIdx!._data, deks.get('_blob')!)) as { refCount: number }
+    const carried = JSON.parse(await decrypt(carriedIdx!._iv, carriedIdx!._data, deks.get('_blob')!, recordAadFor({ collection: BLOB_INDEX_COLLECTION, id: eTag }, carriedIdx!))) as { refCount: number }
     expect(carried.refCount).toBe(1) // recomputed from the single carried reference
     db.close()
   })
@@ -410,9 +410,12 @@ describe('extractPartition blob carriage — #769: strips `pendingRelease` (back
     const slotsCollection = `${BLOB_SLOTS_PREFIX}docs`
     const slotEnv = (await adapter.get(vaultName, slotsCollection, 'd1'))!
     const dek = await getDEK('docs')
-    const slots = JSON.parse(await openEnvelopeJson(slotEnv, dek)) as Record<string, { eTag: string; pendingRelease?: string }>
+    const slots = JSON.parse(await openEnvelopeJson({ collection: slotsCollection, id: 'd1' }, slotEnv, dek)) as Record<string, { eTag: string; pendingRelease?: string }>
     slots['cover.png']!.pendingRelease = 'stale-etag-awaiting-release'
-    const reEncrypted = await encrypt(JSON.stringify(slots), dek)
+    // #1041: re-sealing in place keeps the SAME identity — same collection, same
+    // id — so the same AAD applies. Writing it back without one would produce a
+    // record the product cannot read.
+    const reEncrypted = await encrypt(JSON.stringify(slots), dek, recordAadFor({ collection: slotsCollection, id: 'd1' }, slotEnv))
     await adapter.put(vaultName, slotsCollection, 'd1', { ...slotEnv, _iv: reEncrypted.iv, _data: reEncrypted.data }, slotEnv._v)
 
     // ── extract-partition: STRIPS it (cross-vault; breadcrumb is meaningless there) ──
@@ -429,7 +432,7 @@ describe('extractPartition blob carriage — #769: strips `pendingRelease` (back
     const rState = recipientVault._introspectState()
     const carriedSlotEnv = (await rState.adapter.get('fresh', slotsCollection, 'd1'))!
     const carriedSlots = JSON.parse(
-      await openEnvelopeJson(carriedSlotEnv, await rState.getDEK('docs')),
+      await openEnvelopeJson({ collection: slotsCollection, id: 'd1' }, carriedSlotEnv, await rState.getDEK('docs')),
     ) as Record<string, { eTag: string; pendingRelease?: string }>
     expect(carriedSlots['cover.png']!.pendingRelease).toBeUndefined()
     // The eTag itself still travels — only the breadcrumb is stripped.
@@ -442,7 +445,7 @@ describe('extractPartition blob carriage — #769: strips `pendingRelease` (back
     const backedUpSlotEnv = backup._internal?.[slotsCollection]?.['d1']
     expect(backedUpSlotEnv).toBeDefined()
     const backedUpSlots = JSON.parse(
-      await openEnvelopeJson(backedUpSlotEnv!, dek),
+      await openEnvelopeJson({ collection: slotsCollection, id: 'd1' }, backedUpSlotEnv!, dek),
     ) as Record<string, { eTag: string; pendingRelease?: string }>
     expect(backedUpSlots['cover.png']!.pendingRelease).toBe('stale-etag-awaiting-release')
 

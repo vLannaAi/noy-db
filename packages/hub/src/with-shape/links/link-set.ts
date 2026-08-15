@@ -20,7 +20,7 @@
 
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
-import { buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { NoydbError } from '../../kernel/errors.js'
 
 // Naming helpers, declaration types, and LinkIntegrityError live in
@@ -77,14 +77,14 @@ export class LinkSet implements LinkSetHandle {
     const json = JSON.stringify(entry)
     const identity = { collection: this.collName, id: key, by: this.actor }
     if (!this.encrypted) {
-      return buildRecordEnvelope(identity, { version, iv: '', data: json, by: this.actor })
+      return buildRecordEnvelope(identity, { version, iv: '', data: json})
     }
-    const { iv, data } = await encrypt(json, await this.dek())
-    return buildRecordEnvelope(identity, { version, iv, data, by: this.actor })
+    const { iv, data } = await encrypt(json, await this.dek(), buildRecordAad(identity))
+    return buildRecordEnvelope(identity, { version, iv, data})
   }
 
-  private async decryptEntry(env: EncryptedEnvelope): Promise<LinkEntry> {
-    const json = this.encrypted ? await openEnvelopeJson(env, await this.dek()) : env._data
+  private async decryptEntry(key: string, env: EncryptedEnvelope): Promise<LinkEntry> {
+    const json = this.encrypted ? await openEnvelopeJson({ collection: this.collName, id: key }, env, await this.dek()) : env._data
     return JSON.parse(json) as LinkEntry
   }
 
@@ -126,7 +126,7 @@ export class LinkSet implements LinkSetHandle {
     for (const key of keys) {
       const env = await this.adapter.get(this.vault, this.collName, key)
       if (!env) continue
-      const e = await this.decryptEntry(env)
+      const e = await this.decryptEntry(key, env)
       out.push(e.meta !== undefined ? { a: e.a, b: e.b, meta: e.meta } : { a: e.a, b: e.b })
     }
     return out

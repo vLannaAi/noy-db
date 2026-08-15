@@ -56,8 +56,12 @@ export interface ViaCryptoCtx {
      * (#1051) because this function holds the DEK, so it is where record-identity
      * AAD is applied — a caller that cannot name the id cannot be bound.
      */
-    encrypt(collection: string, id: string, json: string, v: number): Promise<EncryptedEnvelope>
-    decrypt(collection: string, env: EncryptedEnvelope): Promise<string>
+    encrypt(
+      identity: { readonly collection: string; readonly id: string; readonly by?: string },
+      json: string,
+      v: number,
+    ): Promise<EncryptedEnvelope>
+    decrypt(collection: string, id: string, env: EncryptedEnvelope): Promise<string>
   }
 }
 

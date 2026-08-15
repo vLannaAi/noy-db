@@ -97,7 +97,7 @@ export async function findByDet<T>(ctx: DeterministicContext<T>, field: string, 
     // session that performed the elevate).
     if (!env || !env._det || (env._tier ?? 0) > 0) continue
     if (env._det[field] === target || env._det[field] === legacyTarget) {
-      return ctx.codec.decryptRecord(env, { id })
+      return ctx.codec.decryptRecord({ collection: ctx.name, id }, env)
     }
   }
   return null
@@ -118,7 +118,7 @@ export async function queryByDet<T>(ctx: DeterministicContext<T>, field: string,
     // #691: skip elevated — see findByDet above
     if (!env || !env._det || (env._tier ?? 0) > 0) continue
     if (env._det[field] === target || env._det[field] === legacyTarget) {
-      const rec = await ctx.codec.decryptRecord(env, { id })
+      const rec = await ctx.codec.decryptRecord({ collection: ctx.name, id }, env)
       if (rec !== null) matches.push(rec) // skip tombstone (defensive)
     }
   }

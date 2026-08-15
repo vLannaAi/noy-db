@@ -21,6 +21,7 @@
  */
 import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek, type EnclaveKey } from '../crypto.js'
 import type { EncryptedEnvelope } from '../../types.js'
+import { buildRecordAad, type RecordIdentity } from '../record-aad.js'
 import type { Lru } from '../../cache/index.js'
 
 /** Dependencies {@link resolveStableCek} needs from its collection. */
@@ -64,27 +65,47 @@ export interface RewrappedBody {
 }
 
 /**
- * Move a record body from `fromDek` to `toDek`.
+ * Move a record body from `fromDek`/`from` to `toDek`/`to`.
  *
  * - Per-record-key record (`_cek` present): unwrap the CEK under `fromDek`,
  *   re-encrypt the body under the SAME CEK, re-wrap the CEK under `toDek`. The
  *   body key is unchanged → history-chain identity preserved.
  * - Legacy record (no `_cek`): decrypt under `fromDek`, re-encrypt under `toDek`
- *   directly — byte-for-byte the pre-CEK behaviour.
+ *   directly.
+ *
+ * ## Why it takes TWO identities (#1041)
+ *
+ * A rewrap is the one operation where the identity genuinely **changes**. A
+ * tier move rewrites `_tier`; a history snapshot lands at a different
+ * `(collection, id)` entirely. Since AAD binds both, the body must be opened
+ * under the identity it currently has and re-sealed under the one it is moving
+ * to. A single identity would be wrong for one end or the other.
+ *
+ * ⚠️ **This retires an optimisation, deliberately.** Callers used to compute
+ * ONE rewrap and reuse the bytes for both a tier move's live write and its
+ * `_history` snapshot (#728). Those now have different destination identities,
+ * so they need different AAD and therefore different ciphertext — the same
+ * bytes cannot satisfy both. Reusing one rewrap for two destinations is now a
+ * silent corruption, not a saving: it produces a record that opens at one
+ * address and not the other.
  */
 export async function rewrapBodyToDek(
-  envelope: Pick<EncryptedEnvelope, '_iv' | '_data' | '_cek'>,
+  from: RecordIdentity,
+  to: RecordIdentity,
+  envelope: Pick<EncryptedEnvelope, '_iv' | '_data' | '_cek' | '_tier' | '_by'>,
   fromDek: EnclaveKey,
   toDek: EnclaveKey,
 ): Promise<RewrappedBody> {
+  const openAad = buildRecordAad(from)
+  const sealAad = buildRecordAad(to)
   if (envelope._cek !== undefined) {
     const cek = await unwrapCek(envelope._cek, fromDek)
-    const plaintext = await decrypt(envelope._iv, envelope._data, cek)
-    const { iv, data } = await encrypt(plaintext, cek)
+    const plaintext = await decrypt(envelope._iv, envelope._data, cek, openAad)
+    const { iv, data } = await encrypt(plaintext, cek, sealAad)
     return { _iv: iv, _data: data, _cek: await wrapCek(cek, toDek), cek }
   }
-  const plaintext = await decrypt(envelope._iv, envelope._data, fromDek)
-  const { iv, data } = await encrypt(plaintext, toDek)
+  const plaintext = await decrypt(envelope._iv, envelope._data, fromDek, openAad)
+  const { iv, data } = await encrypt(plaintext, toDek, sealAad)
   return { _iv: iv, _data: data, cek: null }
 }
 
@@ -122,11 +143,15 @@ export function applyRewrappedBody(envelope: EncryptedEnvelope, body: RewrappedB
  * `_v`/`_ts`/`_tier` the way a tier move does).
  */
 export async function rewrapEnvelope(
+  identity: RecordIdentity,
   envelope: EncryptedEnvelope,
   fromDek: EnclaveKey,
   toDek: EnclaveKey,
 ): Promise<EncryptedEnvelope> {
-  return applyRewrappedBody(envelope, await rewrapBodyToDek(envelope, fromDek, toDek))
+  // Identity is UNCHANGED here — this rewrap only moves the wrapping key
+  // (history re-key after a rotation), never the record's address or tags. So
+  // the same identity opens and re-seals (#1041).
+  return applyRewrappedBody(envelope, await rewrapBodyToDek(identity, identity, envelope, fromDek, toDek))
 }
 
 /**
@@ -157,6 +182,7 @@ export async function rewrapEnvelope(
  * ratchet.
  */
 export async function isRewrappedUnder(
+  identity: RecordIdentity,
   envelope: Pick<EncryptedEnvelope, '_iv' | '_data' | '_cek'>,
   dek: EnclaveKey,
 ): Promise<boolean> {
@@ -164,7 +190,10 @@ export async function isRewrappedUnder(
     if (envelope._cek !== undefined) {
       await unwrapCek(envelope._cek, dek)
     } else {
-      await decrypt(envelope._iv, envelope._data, dek)
+      // MUST pass AAD: without it this trial decrypt fails for every bound
+      // record, the answer is always `false`, and the crash-idempotency skip
+      // it exists to provide silently stops working (#1041).
+      await decrypt(envelope._iv, envelope._data, dek, buildRecordAad(identity))
     }
     return true
   } catch {

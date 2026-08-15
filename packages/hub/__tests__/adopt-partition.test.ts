@@ -11,7 +11,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withCargo } from '../src/index.js'
 import { ref } from '../src/kernel/refs.js'
-import { decrypt, generateDEK, base64ToBuffer } from '../src/kernel/enclave/index.js'
+import { recordAadFor, decrypt, generateDEK, base64ToBuffer } from '../src/kernel/enclave/index.js'
 import { TransferSealError, AdoptionStateError } from '../src/kernel/errors.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
@@ -209,7 +209,7 @@ describe('adoptPartition end-to-end', () => {
     const deks = await unsealDeks(seal, transferKey)
 
     const env = await dest.get('acme', 'clients', 'c-1')
-    const plaintext = await decrypt(env!._iv, env!._data, deks.get('clients')!)
+    const plaintext = await decrypt(env!._iv, env!._data, deks.get('clients')!, recordAadFor({ collection: 'clients', id: 'c-1' }, env!))
     expect(JSON.parse(plaintext)).toMatchObject({ id: 'c-1', name: 'Hotel' })
   })
 })

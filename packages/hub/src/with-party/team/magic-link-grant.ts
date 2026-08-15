@@ -50,7 +50,7 @@
 
 import type { NoydbStore } from '../../kernel/types.js'
 import type { UnlockedKeyring } from './keyring.js'
-import { buildRecordEnvelope, encrypt, openEnvelopeJson, wrapKey, unwrapKey, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope, encrypt, openEnvelopeJson, wrapKey, unwrapKey, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { dekKey } from './tiers.js'
 import { DelegationTargetMissingError } from '../../kernel/errors.js'
 
@@ -184,10 +184,11 @@ export async function writeMagicLinkGrant(
     ...(opts.note && { note: opts.note }),
   }
 
-  const { iv, data } = await encrypt(JSON.stringify(payload), contentKey)
+  const identity = { collection: MAGIC_LINK_GRANTS_COLLECTION, id: recordId, by: grantor.userId }
+  const { iv, data } = await encrypt(JSON.stringify(payload), contentKey, buildRecordAad(identity))
   const envelope = buildRecordEnvelope(
     { collection: MAGIC_LINK_GRANTS_COLLECTION, id: recordId, by: grantor.userId },
-    { version: 1, ts: createdAt, iv, data, by: grantor.userId },
+    { version: 1, ts: createdAt, iv, data},
   )
   await store.put(vault, MAGIC_LINK_GRANTS_COLLECTION, recordId, envelope)
   return { recordId, payload }
@@ -213,7 +214,7 @@ export async function readMagicLinkGrantRecord(
   const env = await store.get(vault, MAGIC_LINK_GRANTS_COLLECTION, recordId)
   if (!env) return null
   try {
-    const json = await openEnvelopeJson(env, contentKey)
+    const json = await openEnvelopeJson({ collection: MAGIC_LINK_GRANTS_COLLECTION, id: recordId }, env, contentKey)
     return JSON.parse(json) as MagicLinkGrantPayload
   } catch {
     return null

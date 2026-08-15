@@ -3,7 +3,7 @@
  * Deferred numbering engine — store-clock-ordered, gap-free serials assigned
  * at an explicit numbering pass. See the design spec.
  */
-import { buildRecordEnvelope } from '../../kernel/enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope } from '../../kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope, StoreTime } from '../../kernel/types.js'
 import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { isConflictError, NumberingUncertaintyError } from '../../kernel/errors.js'
@@ -76,7 +76,7 @@ export class DeferredNumberingStore {
   private async readJson<T>(collection: string, id: string): Promise<{ env: EncryptedEnvelope | null; value: T | null }> {
     const env = await this.adapter.get(this.vault, collection, id)
     if (!env) return { env: null, value: null }
-    const json = this.encrypted ? await openEnvelopeJson(env, await this.dek(collection)) : env._data
+    const json = this.encrypted ? await openEnvelopeJson({ collection, id }, env, await this.dek(collection)) : env._data
     return { env, value: JSON.parse(json) as T }
   }
 
@@ -84,10 +84,11 @@ export class DeferredNumberingStore {
     const json = JSON.stringify(value)
     let env: EncryptedEnvelope
     if (!this.encrypted) {
-      env = buildRecordEnvelope({ collection, id }, { version: expectedVersion + 1, iv: '', data: json, by: this.actor })
+      env = buildRecordEnvelope({ collection, id }, { version: expectedVersion + 1, iv: '', data: json})
     } else {
-      const { iv, data } = await encrypt(json, await this.dek(collection))
-      env = buildRecordEnvelope({ collection, id }, { version: expectedVersion + 1, iv, data, by: this.actor })
+      const identity = { collection, id }
+      const { iv, data } = await encrypt(json, await this.dek(collection), buildRecordAad(identity))
+      env = buildRecordEnvelope({ collection, id }, { version: expectedVersion + 1, iv, data})
     }
     await this.adapter.put(this.vault, collection, id, env, expectedVersion)
   }

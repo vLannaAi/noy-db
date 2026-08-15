@@ -23,6 +23,7 @@
 import { encrypt, decrypt, deriveSealedFieldKey, deriveSealedFieldKeyFromCek, type EnclaveKey } from '../crypto.js'
 import { dualReadSealedSlot } from './sealed-slot.js'
 import { buildRecordEnvelope } from '../record-envelope.js'
+import { buildRecordAad, recordAadFor } from '../record-aad.js'
 import { SealedHandle, type EncryptedEnvelope } from '../../types.js'
 import { ValidationError } from '../../errors.js'
 import type { SealedSlotRef, ViaCryptoCtx } from '../../via/index.js'
@@ -245,17 +246,25 @@ export function makeReservedEnvelopes(
       }
     }
 
-    const encryptForPrefix = async (collection: string, id: string, json: string, v: number): Promise<EncryptedEnvelope> => {
-      assertPrefixed(collection, 'encrypt')
-      const dek = await dekResolver(collection)
-      const { iv, data } = await encrypt(json, dek)
-      return buildRecordEnvelope({ collection, id }, { version: v, iv, data })
+    const encryptForPrefix = async (
+      identity: { readonly collection: string; readonly id: string; readonly by?: string },
+      json: string,
+      v: number,
+    ): Promise<EncryptedEnvelope> => {
+      assertPrefixed(identity.collection, 'encrypt')
+      const dek = await dekResolver(identity.collection)
+      // `by` is part of the identity, so it is SEALED here and stamped by
+      // `buildRecordEnvelope` from the same source. A caller that added `_by`
+      // to the returned envelope afterwards would produce a record whose AAD
+      // no reader can reproduce — which is exactly what via/lookup did (#1041).
+      const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
+      return buildRecordEnvelope(identity, { version: v, iv, data })
     }
 
-    const decryptForPrefix = async (collection: string, env: EncryptedEnvelope): Promise<string> => {
+    const decryptForPrefix = async (collection: string, id: string, env: EncryptedEnvelope): Promise<string> => {
       assertPrefixed(collection, 'decrypt')
       const dek = await dekResolver(collection)
-      return decrypt(env._iv, env._data, dek)
+      return decrypt(env._iv, env._data, dek, recordAadFor({ collection, id }, env))
     }
 
     return { encrypt: encryptForPrefix, decrypt: decryptForPrefix }

@@ -15,7 +15,7 @@
  * @module
  */
 
-import { buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import type { NoydbStore } from '../../kernel/types.js'
 import type { PersistedSchemaEnvelope } from './types.js'
 
@@ -52,7 +52,7 @@ export async function loadPersistedSchemaEntry(
   if (!envelope) return { version: 0, payload: undefined }
   const version = envelope._v
   try {
-    const plaintext = await openEnvelopeJson(envelope, dek)
+    const plaintext = await openEnvelopeJson({ collection: SCHEMAS_COLLECTION, id: collection }, envelope, dek)
     const parsed = JSON.parse(plaintext) as PersistedSchemaEnvelope
     if (parsed._noydb_schema !== 1) return { version, payload: undefined }
     return { version, payload: parsed }
@@ -97,7 +97,8 @@ export async function savePersistedSchema(
   expectedVersion?: number,
 ): Promise<void> {
   const json = JSON.stringify(payload)
-  const { iv, data } = await encrypt(json, dek)
+  const identity = { collection: SCHEMAS_COLLECTION, id: collection }
+  const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
   const baseVersion = expectedVersion ?? (await store.get(vault, SCHEMAS_COLLECTION, collection))?._v ?? 0
   const env = buildRecordEnvelope(
     { collection: SCHEMAS_COLLECTION, id: collection },

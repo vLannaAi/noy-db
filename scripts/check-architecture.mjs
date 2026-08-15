@@ -995,7 +995,15 @@ const KERNEL_SURFACE_BUDGET = {
   // extraction, no behavior change (the buggy `payloadHash: ''` moved as-is —
   // Task 2 fixes it in the new module). Locked in to the ACTUAL measured
   // line count (readFileSync(...).split('\n').length = wc -l + 1).
-  'packages/hub/src/kernel/collection.ts': 4311,
+  // Bumped 4311→4312 (2026-08-15, #1041 record-identity AAD): net +1 line after
+  // folding every comment inline. The growth is identity THREADING, not
+  // capability: `saveHistorySnapshot` now takes a sealer plus the version so
+  // the history layout owner supplies the storage address, and the two history
+  // read paths (`history()` / `getVersion()`) resolve a snapshot's `_history`
+  // identity instead of the live record's. Passing the live identity there read
+  // a perfectly good snapshot as tampered — a correctness fix, not an addition.
+  // Nothing here can move onto the ServiceBus: the kernel is the caller.
+  'packages/hub/src/kernel/collection.ts': 4312,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The

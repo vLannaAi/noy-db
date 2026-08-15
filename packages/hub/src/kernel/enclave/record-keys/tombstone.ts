@@ -60,12 +60,12 @@ export function buildTombstone(
   version: number,
   actor: string,
 ): EncryptedEnvelope {
-  return buildRecordEnvelope(identity, {
-    version,
-    iv: '',
-    data: '',
-    ...(actor ? { by: actor } : {}),
-  })
+  // `actor` rides on the IDENTITY, not the body — it is stamped as `_by` and
+  // bound into the AAD from that one source (#1041).
+  return buildRecordEnvelope(
+    { ...identity, ...(actor ? { by: actor } : {}) },
+    { version, iv: '', data: '' },
+  )
 }
 
 /** #589: is this envelope an ordinary-delete marker (version-ordered, reads as absent)? */
@@ -87,12 +87,10 @@ export function buildDeleteMarker(
   // `_del` is not one of buildRecordEnvelope's declared slots — a delete marker
   // is a distinct envelope class, not a record body — so it is stamped here.
   return {
-    ...buildRecordEnvelope(identity, {
-      version,
-      iv: '',
-      data: '',
-      ...(actor ? { by: actor } : {}),
-    }),
+    ...buildRecordEnvelope(
+      { ...identity, ...(actor ? { by: actor } : {}) },
+      { version, iv: '', data: '' },
+    ),
     _del: true,
   }
 }

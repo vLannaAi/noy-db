@@ -19,7 +19,7 @@
  * to its record in the same operation.
  */
 
-import { buildRecordEnvelope } from '../../kernel/enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope } from '../../kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import type { ConflictError} from '../../kernel/errors.js';
@@ -253,7 +253,7 @@ export class SequenceStore {
   private async read(name: string): Promise<{ env: EncryptedEnvelope | null; value: number }> {
     const env = await this.adapter.get(this.vault, SEQUENCE_COLLECTION, name)
     if (!env) return { env: null, value: 0 }
-    const json = this.encrypted ? await openEnvelopeJson(env, await this.dek()) : env._data
+    const json = this.encrypted ? await openEnvelopeJson({ collection: SEQUENCE_COLLECTION, id: name }, env, await this.dek()) : env._data
     const state = JSON.parse(json) as SequenceState
     return { env, value: state.value }
   }
@@ -261,10 +261,11 @@ export class SequenceStore {
   private async encryptState(name: string, state: SequenceState, version: number): Promise<EncryptedEnvelope> {
     const json = JSON.stringify(state)
     if (!this.encrypted) {
-      return buildRecordEnvelope({ collection: SEQUENCE_COLLECTION, id: name }, { version, iv: '', data: json, by: this.actor })
+      return buildRecordEnvelope({ collection: SEQUENCE_COLLECTION, id: name }, { version, iv: '', data: json})
     }
-    const { iv, data } = await encrypt(json, await this.dek())
-    return buildRecordEnvelope({ collection: SEQUENCE_COLLECTION, id: name }, { version, iv, data, by: this.actor })
+    const identity = { collection: SEQUENCE_COLLECTION, id: name }
+    const { iv, data } = await encrypt(json, await this.dek(), buildRecordAad(identity))
+    return buildRecordEnvelope({ collection: SEQUENCE_COLLECTION, id: name }, { version, iv, data})
   }
 
   async peek(name: string): Promise<number> {

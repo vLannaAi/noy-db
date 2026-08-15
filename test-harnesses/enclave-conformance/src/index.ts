@@ -12,6 +12,21 @@ import {
 } from './vectors.js'
 
 /**
+ * The address every body-door assertion in this kit uses (#1041).
+ *
+ * `REF` is the bare address, correct for envelopes carrying no `_tier`/`_by` —
+ * the known-answer vectors. `HEADER_REF` adds the tags `HEADER_FIXTURE` stamps,
+ * because **the identity must describe the envelope AS ASSEMBLED**: a reader
+ * recomputes AAD from the address plus `_tier`/`_by` read off the envelope, so
+ * sealing against a bare address and then stamping tags produces a record
+ * nothing can open.
+ *
+ * That distinction is itself part of the contract, and it is why the two are
+ * separate constants rather than one convenient default.
+ */
+const REF = { collection: 'conformance', id: 'r1' } as const
+
+/**
  * **EnclaveModule** — the enclave conformance kit's structural view of
  * `@noy-db/hub`'s `kernel/enclave/index.ts` barrel (Enclave Contract v1,
  * C5). Deliberately NOT imported from `@noy-db/hub` — a fork's enclave is a
@@ -38,8 +53,24 @@ export interface EnclaveModule<K = unknown> {
   unwrapKey(wrapped: string, kek: K): Promise<K>
 
   // ─── envelope body (unconditional core, C1) ────────────────────────
-  openEnvelopeJson(env: EncryptedEnvelope, key: K, opts?: { encrypted?: boolean }): Promise<string>
+  //
+  // #1041 — CONTRACT REVISION. Both doors now take the record's identity, and a
+  // conforming enclave MUST bind it into the AEAD as additional authenticated
+  // data. That is what stops an untrusted store relocating, re-tiering or
+  // re-authoring an envelope: the reader recomputes the AAD from the address it
+  // fetched from plus `_tier`/`_by`, so a tampered field defeats itself.
+  //
+  // A fork that ignores `identity` still round-trips its own writes and will
+  // pass the shape assertions — but it does NOT satisfy the contract, which is
+  // why the suite below asserts tamper REJECTION and not merely round-tripping.
+  openEnvelopeJson(
+    ref: { readonly collection: string; readonly id: string },
+    env: EncryptedEnvelope,
+    key: K,
+    opts?: { encrypted?: boolean },
+  ): Promise<string>
   writeEnvelopeBody(
+    identity: { readonly collection: string; readonly id: string; readonly tier?: number; readonly by?: string },
     json: string,
     key: K,
     opts?: { encrypted?: boolean; perRecordKey?: boolean },
@@ -165,6 +196,9 @@ const HEADER_FIXTURE = {
   _elevatedBy: 'user-2',
 } as const
 
+/** {@link REF} plus the tags {@link HEADER_FIXTURE} stamps — see REF's doc. */
+const HEADER_REF = { ...REF, tier: HEADER_FIXTURE._tier, by: HEADER_FIXTURE._by } as const
+
 /**
  * Registers the enclave contract as an executable vitest spec against
  * `enclave` — the contract every `kernel/enclave/index.ts` (reference or
@@ -177,7 +211,7 @@ export function runEnclaveConformance<K>(enclave: EnclaveModule<K>, opts: Enclav
       it('encrypted body: write -> open recovers identical JSON; header fields untouched', async () => {
         const dek = await enclave.generateDEK()
         const json = JSON.stringify({ hello: 'world', n: 42 })
-        const body = await enclave.writeEnvelopeBody(json, dek)
+        const body = await enclave.writeEnvelopeBody(HEADER_REF, json, dek)
         const env: EncryptedEnvelope = {
           _noydb: 1,
           _v: 1,
@@ -186,7 +220,7 @@ export function runEnclaveConformance<K>(enclave: EnclaveModule<K>, opts: Enclav
           ...body,
         }
 
-        const recovered = await enclave.openEnvelopeJson(env, dek)
+        const recovered = await enclave.openEnvelopeJson(HEADER_REF, env, dek)
         expect(recovered).toBe(json)
 
         // The body helpers must never touch the protocol header.
@@ -200,12 +234,12 @@ export function runEnclaveConformance<K>(enclave: EnclaveModule<K>, opts: Enclav
       it('plaintext body (encrypted: false): write -> open recovers identical JSON', async () => {
         const dek = await enclave.generateDEK()
         const json = JSON.stringify({ hello: 'plain' })
-        const body = await enclave.writeEnvelopeBody(json, dek, { encrypted: false })
+        const body = await enclave.writeEnvelopeBody(REF, json, dek, { encrypted: false })
         expect(body._iv).toBe('')
         expect(body._data).toBe(json)
 
         const env: EncryptedEnvelope = { _noydb: 1, _v: 1, _ts: '2026-01-01T00:00:00.000Z', ...body }
-        const recovered = await enclave.openEnvelopeJson(env, dek, { encrypted: false })
+        const recovered = await enclave.openEnvelopeJson(REF, env, dek, { encrypted: false })
         expect(recovered).toBe(json)
       })
     })
@@ -238,7 +272,7 @@ export function runEnclaveConformance<K>(enclave: EnclaveModule<K>, opts: Enclav
 
       it('a live envelope -> isTombstone is false', async () => {
         const dek = await enclave.generateDEK()
-        const body = await enclave.writeEnvelopeBody(JSON.stringify({ a: 1 }), dek)
+        const body = await enclave.writeEnvelopeBody(REF, JSON.stringify({ a: 1 }), dek)
         const env: EncryptedEnvelope = { _noydb: 1, _v: 1, _ts: '2026-01-01T00:00:00.000Z', ...body }
         expect(enclave.isTombstone(env, true)).toBe(false)
       })
@@ -389,7 +423,7 @@ export function runEnclaveConformance<K>(enclave: EnclaveModule<K>, opts: Enclav
 
         for (const vector of ALL_VECTORS) {
           const dek = await enclave.unwrapKey(vector.wrappedDek, kek)
-          const recovered = await enclave.openEnvelopeJson(vector.envelope, dek)
+          const recovered = await enclave.openEnvelopeJson(REF, vector.envelope, dek)
           expect(recovered).toBe(vector.plaintext)
 
           // No-leak: the recovered plaintext must not carry the envelope's

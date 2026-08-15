@@ -23,7 +23,7 @@
 export { withTiers } from './active.js'
 export { NO_TIERS, type TiersStrategy } from './strategy.js'
 export { TiersNotEnabledError } from '../../kernel/errors.js'
-import { buildRecordEnvelope, encrypt, decrypt, unwrapCek, rewrapBodyToDek, applyRewrappedBody, isDeleteMarker, isTombstoneShape, type RecordCodec, type EnclaveKey, type SealedShredSlot } from '../../kernel/enclave/index.js'
+import { recordAadFor, type RecordIdentity, buildRecordAad, buildRecordEnvelope, encrypt, decrypt, unwrapCek, rewrapBodyToDek, applyRewrappedBody, isDeleteMarker, isTombstoneShape, type RecordCodec, type EnclaveKey, type SealedShredSlot } from '../../kernel/enclave/index.js'
 import { TierDemoteDeniedError, UnsupportedTierCompositionError, PersistedIndexCompensationError } from '../../kernel/errors.js'
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
@@ -131,22 +131,25 @@ export interface TiersContext<T> {
    * (folds the `historyConfig.enabled` gate so `tiers/index.ts` stays simple).
    */
   /**
-   * ⚠️ **#1041 GAP — tier-move snapshots are NOT yet sealed against their
-   * `_history` storage identity, and this signature is why.**
+   * Persist a `_history` snapshot of `version`, sealed against the address it
+   * will be STORED at (#1041).
    *
-   * It takes a PRE-BUILT envelope. The three callers below produce theirs with
-   * `applyRewrappedBody(carried, body)` — a re-wrap of an existing envelope,
-   * not a codec construction — so there is no point at which an identity could
-   * be supplied. The codec-built snapshots in `collection.ts` were restructured
-   * to ask `history.historyIdentity()` before sealing; these cannot be, until
-   * the enclave's rewrap takes an identity too.
+   * Takes a **sealer**, not a finished envelope, because the destination
+   * identity is not knowable here: only the history strategy owns the
+   * `_history` layout. It hands the address in; the caller seals to it.
    *
-   * Until then a tier-move snapshot carries whatever identity its source
-   * envelope had — the LIVE record's. That is exactly the confusability the
-   * storage-identity decision exists to remove, so this must close in the same
-   * change that switches AAD on, not after it.
+   * ⚠️ The identity passed to `rewrapBodyToDek` must be what a READER will
+   * recompute — `recordAadFor(address, finalEnvelope)`. A tier-move snapshot
+   * strips `_tier`/`_elevatedBy` but KEEPS `_by`, so the destination is
+   * `{...address, by: envelope._by}` with no tier. Sealing against the bare
+   * address would produce history nothing can open, and the failure would
+   * surface only when someone reads it.
    */
-  saveHistorySnapshot(id: string, envelope: EncryptedEnvelope): Promise<void>
+  saveHistorySnapshot(
+    id: string,
+    version: number,
+    seal: (address: RecordIdentity) => Promise<EncryptedEnvelope>,
+  ): Promise<void>
   /**
    * `true` iff a real history strategy is wired (not `NO_HISTORY`) AND not
    * explicitly disabled via `historyConfig.enabled`. `putAtTier` checks this
@@ -457,22 +460,32 @@ export async function putAtTier<T>(
     // Untagged (`_tier`/`_elevatedBy` stripped), same as elevate()/
     // demote()'s snapshots. `_v` stays the PRE-move version (unbumped), as
     // `preCarried` already carries it.
-    const body = await rewrapBodyToDek(existing, fromDek, dek)
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- excluded from ...preCarried
-    const { _tier: _preTier, _elevatedBy: _preElevatedBy, ...preCarried } = existing
-    await ctx.saveHistorySnapshot(id, applyRewrappedBody(preCarried, body))
+    const preFrom: RecordIdentity = {
+      collection: ctx.name, id,
+      ...(existing._tier !== undefined ? { tier: existing._tier } : {}),
+      ...(existing._by !== undefined ? { by: existing._by } : {}),
+    }
+    await ctx.saveHistorySnapshot(id, existing._v, async (address) => {
+      // The snapshot is UNTAGGED (`_tier` stripped) and keeps `_by`, so that is
+      // the identity a reader will recompute from it (#1041).
+      const to: RecordIdentity = { ...address, ...(existing._by !== undefined ? { by: existing._by } : {}) }
+      const body = await rewrapBodyToDek(preFrom, to, existing, fromDek, dek)
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- excluded from ...preCarried
+      const { _tier: _preTier, _elevatedBy: _preElevatedBy, ...preCarried } = existing
+      return applyRewrappedBody(preCarried, body)
+    })
   }
 
   const json = JSON.stringify(record)
-  const { iv, data } = await encrypt(json, dek)
+  const identity = { collection: ctx.name, id, by: ctx.keyring.userId, ...(tier > 0 ? { tier } : {}) }
+  const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
   const envelope = buildRecordEnvelope(
-    { collection: ctx.name, id, by: ctx.keyring.userId, ...(tier > 0 ? { tier } : {}) },
+    identity,
     {
       version,
       iv,
       data,
-      by: ctx.keyring.userId,
-      ...(tier > 0 ? { extra: { _tier: tier } } : {}),
+      // `_tier` is stamped from `identity.tier` above — the single source.
       ...(ctx.provenance && opts?.source !== undefined
         ? { provenance: { source: opts.source, sourceTs: opts.sourceTs ?? new Date().toISOString() } }
         : {}),
@@ -510,12 +523,12 @@ export async function putAtTier<T>(
     await ctx.syncDerived(
       id,
       ctx.hasDerivedOutputs && existing
-        ? await ctx.codec.decryptRecordAtDek(existing, await ctx.getDEK(dekKey(ctx.name, existing._tier ?? 0)), id)
+        ? await ctx.codec.decryptRecordAtDek({ collection: ctx.name, id }, existing, await ctx.getDEK(dekKey(ctx.name, existing._tier ?? 0)))
         : null,
       true,
     )
   } else {
-    const rec = await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
+    const rec = await ctx.codec.decryptRecord({ collection: ctx.name, id }, envelope, { sealedAsHandles: true })
     await ctx.syncIndexes(id, rec, envelope._v, existing ?? undefined)
     ctx.syncCache(id, rec !== null ? { record: rec, version: envelope._v } : null)
     // #722 Task 2: the record is written at tier 0 — restore its
@@ -583,7 +596,7 @@ export async function getAtTier<T>(ctx: TiersContext<T>, id: string): Promise<T 
   if (!envelope) return null
   const tier = envelope._tier ?? 0
   if (tier === 0) {
-    return ctx.codec.decryptRecord(envelope, { id })
+    return ctx.codec.decryptRecord({ collection: ctx.name, id }, envelope)
   }
 
   const key = dekKey(ctx.name, tier)
@@ -599,14 +612,19 @@ export async function getAtTier<T>(ctx: TiersContext<T>, id: string): Promise<T 
   // elevated via `elevate()`): the CEK is wrapped under the TIER DEK, so
   // unwrap under the tier DEK then decrypt the body under the CEK. Legacy
   // tiered records decrypt directly under the tier DEK.
+  // This leg decrypts manually rather than through `decryptRecord` (#635), so
+  // it must build the AAD itself — from the address it fetched from plus the
+  // envelope's own `_tier`/`_by`, exactly as `recordAadFor` does everywhere
+  // else (#1041).
+  const aad = recordAadFor({ collection: ctx.name, id }, envelope)
   let plaintext: string
   let cek: EnclaveKey | undefined
   if (envelope._cek !== undefined) {
     cek = await unwrapCek(envelope._cek, dek)
     ctx.cekCache?.set(id, cek, 1)
-    plaintext = await decrypt(envelope._iv, envelope._data, cek)
+    plaintext = await decrypt(envelope._iv, envelope._data, cek, aad)
   } else {
-    plaintext = await decrypt(envelope._iv, envelope._data, dek)
+    plaintext = await decrypt(envelope._iv, envelope._data, dek, aad)
   }
   let record = JSON.parse(plaintext) as T
 
@@ -620,7 +638,7 @@ export async function getAtTier<T>(ctx: TiersContext<T>, id: string): Promise<T 
   // `decryptRecord`/`resolveEnvelopeCek` would — which would be the wrong
   // key for a `_cek` wrapped under a tier DEK. `sealedAsHandles` is omitted
   // (default false) to match this function's OWN tier-0 branch above
-  // (`ctx.codec.decryptRecord(envelope, { id })`, no `sealedAsHandles`) —
+  // (`ctx.codec.decryptRecord({ collection: ctx.name, id }, envelope)`, no `sealedAsHandles`) —
   // both tiers return sealed fields inline-decrypted, not as handles.
   if (envelope._sealed !== undefined) {
     record = await ctx.codec.applySealedSlots(record, envelope._sealed, cek, { id })
@@ -723,7 +741,17 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   // chain identity preserved); only the wrapping key moves with the tier.
   // Legacy (no `_cek`) records take the direct-DEK path unchanged.
   const now = new Date().toISOString()
-  const body = await rewrapBodyToDek(envelope, fromDek, toDek)
+  const moveFrom: RecordIdentity = {
+    collection: ctx.name, id,
+    ...(fromTier > 0 ? { tier: fromTier } : {}),
+    ...(envelope._by !== undefined ? { by: envelope._by } : {}),
+  }
+  const moveTo: RecordIdentity = {
+    collection: ctx.name, id,
+    ...(toTier > 0 ? { tier: toTier } : {}),
+    by: ctx.keyring.userId,
+  }
+  const body = await rewrapBodyToDek(moveFrom, moveTo, envelope, fromDek, toDek)
   if (body.cek) ctx.cekCache?.set(id, body.cek, 1)
   // #728: snapshot the PRE-move version into `_history` before it's
   // overwritten below — reuses `body` (already fromDek→toDek) via
@@ -734,9 +762,18 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   // back — at-rest protection comes from the ciphertext being under
   // `toDek`, not from the tag. `_v` stays the PRE-move version (unbumped),
   // exactly as `envelope` already carries it.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- excluded from ...snapshot
-  const { _tier: _preTier, _elevatedBy: _preElevatedBy, ...snapshot } = applyRewrappedBody(envelope, body)
-  await ctx.saveHistorySnapshot(id, snapshot)
+  //
+  // A SECOND rewrap, not a reuse of `body` above. The live write and the
+  // snapshot now land at different identities, so they need different AAD and
+  // therefore different ciphertext — sharing one rewrap would produce bytes
+  // that open at one address and not the other (#1041).
+  await ctx.saveHistorySnapshot(id, envelope._v, async (address) => {
+    const to: RecordIdentity = { ...address, ...(envelope._by !== undefined ? { by: envelope._by } : {}) }
+    const histBody = await rewrapBodyToDek(moveFrom, to, envelope, fromDek, toDek)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- excluded from ...snapshot
+    const { _tier: _preTier, _elevatedBy: _preElevatedBy, ...snapshot } = applyRewrappedBody(envelope, histBody)
+    return snapshot
+  })
   // #662: spread every slot the source carries (_sealed/_det/_vdig/_bidx/
   // _source/_sourceTs/_debug) through UNCHANGED, then override only
   // the fields a tier move manages. rewrapBodyToDek preserves the CEK, so no
@@ -786,7 +823,7 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   // elevate), and `ctx.codec.decryptRecord`'s tier-unaware CEK resolution
   // threw `TamperedError` whenever this op's own rewrap hadn't just primed
   // the cekCache (non-`perRecordKeys` collections; `_cek`-absent bodies).
-  await ctx.syncDerived(id, ctx.hasDerivedOutputs ? await ctx.codec.decryptRecordAtDek(envelope, fromDek, id) : null, true)
+  await ctx.syncDerived(id, ctx.hasDerivedOutputs ? await ctx.codec.decryptRecordAtDek({ collection: ctx.name, id }, envelope, fromDek) : null, true)
 
   ctx.emitCrossTierEvent({
     actor: ctx.keyring.userId,
@@ -844,7 +881,17 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
   // CEK re-wrap on demote — same body key, moved from the source tier
   // DEK to the target tier DEK. Legacy records take the direct-DEK path.
   const now = new Date().toISOString()
-  const body = await rewrapBodyToDek(envelope, fromDek, toDek)
+  const moveFrom: RecordIdentity = {
+    collection: ctx.name, id,
+    ...(fromTier > 0 ? { tier: fromTier } : {}),
+    ...(envelope._by !== undefined ? { by: envelope._by } : {}),
+  }
+  const moveTo: RecordIdentity = {
+    collection: ctx.name, id,
+    ...(toTier > 0 ? { tier: toTier } : {}),
+    by: ctx.keyring.userId,
+  }
+  const body = await rewrapBodyToDek(moveFrom, moveTo, envelope, fromDek, toDek)
   if (body.cek) ctx.cekCache?.set(id, body.cek, 1)
   // #662: same passenger carry-through as elevate(). demote additionally CLEARS
   // `_elevatedBy` (the demote right is consumed) and OMITS `_tier` at tier 0, so
@@ -858,7 +905,13 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
   // just like an ordinary put() entry, same law as elevate()'s snapshot
   // above. `_v` stays the PRE-move version (unbumped), as `carried` already
   // carries it.
-  await ctx.saveHistorySnapshot(id, applyRewrappedBody(carried, body))
+  // A SECOND rewrap — see elevate()'s note. The snapshot's destination
+  // identity differs from the live write's, so the bytes must differ too.
+  await ctx.saveHistorySnapshot(id, envelope._v, async (address) => {
+    const to: RecordIdentity = { ...address, ...(envelope._by !== undefined ? { by: envelope._by } : {}) }
+    const histBody = await rewrapBodyToDek(moveFrom, to, envelope, fromDek, toDek)
+    return applyRewrappedBody(carried, histBody)
+  })
   // Transform, not construction — see the note on elevate()'s `next` above.
   const next: EncryptedEnvelope = {
     ...carried,
@@ -888,7 +941,7 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
   // branches and surfaced as residue on the return value instead.
   let searchResidue: boolean
   if (toTier === 0) {
-    const rec = await ctx.codec.decryptRecord(next, { id, sealedAsHandles: true })
+    const rec = await ctx.codec.decryptRecord({ collection: ctx.name, id }, next, { sealedAsHandles: true })
     await ctx.syncIndexes(id, rec, next._v, envelope)
     ctx.syncCache(id, rec !== null ? { record: rec, version: next._v } : null)
     // #721: reuse the decode above — no double-decrypt. The record is tier-0
@@ -914,7 +967,7 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
     // `ctx.codec.decryptRecord`'s tier-unaware CEK resolution threw
     // `TamperedError` here exactly as it did in elevate() above
     // (code-identical bug, same fix).
-    await ctx.syncDerived(id, ctx.hasDerivedOutputs ? await ctx.codec.decryptRecordAtDek(envelope, fromDek, id) : null, true)
+    await ctx.syncDerived(id, ctx.hasDerivedOutputs ? await ctx.codec.decryptRecordAtDek({ collection: ctx.name, id }, envelope, fromDek) : null, true)
   }
 
   ctx.emitCrossTierEvent({

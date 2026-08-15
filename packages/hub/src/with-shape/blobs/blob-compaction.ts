@@ -31,7 +31,7 @@
 
 import type { NoydbStore, EncryptedEnvelope, SlotInfo } from '../../kernel/types.js'
 import { ValidationError } from '../../kernel/errors.js'
-import { buildRecordEnvelope, encrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope, encrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
 
 // ─── Config types ───────────────────────────────────────────────────────
 
@@ -502,7 +502,7 @@ async function writeAuditEntry(ctx: CompactionContext, entry: BlobEvictionEntry)
   let envelope: EncryptedEnvelope
   if (ctx.encrypted) {
     const dek = await ctx.getDEK(BLOB_EVICTION_AUDIT_COLLECTION)
-    const { iv, data } = await encrypt(json, dek)
+    const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
     envelope = buildRecordEnvelope(identity, { ...body, iv, data })
   } else {
     envelope = buildRecordEnvelope(identity, { ...body, iv: '', data: json })

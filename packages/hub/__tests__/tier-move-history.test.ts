@@ -22,7 +22,7 @@ import { ConflictError } from '../src/kernel/errors.js'
 import { withTiers } from '../src/with-audit/tiers/index.js'
 import { withHistory } from '../src/with-commit/history/index.js'
 import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope, type NoydbStore, type VaultSnapshot } from '../src/kernel/types.js'
-import { unwrapCek, decrypt, type EnclaveKey } from '../src/kernel/enclave/index.js'
+import { recordAadFor, unwrapCek, decrypt, type EnclaveKey } from '../src/kernel/enclave/index.js'
 import { LEDGER_COLLECTION } from '../src/with-commit/history/ledger/constants.js'
 
 interface HistDoc { id: string; body: string }
@@ -121,7 +121,7 @@ describe('#728 tier moves snapshot the pre-move version into _history', () => {
     expect(env!._tier).toBeUndefined() // untagged — matches an ordinary put() snapshot shape
     await expect(unwrapCek(env!._cek!, tier0Dek)).rejects.toThrow()
     const cek = await unwrapCek(env!._cek!, tier1Dek)
-    expect(await decrypt(env!._iv, env!._data, cek)).toContain('v1-secret')
+    expect(await decrypt(env!._iv, env!._data, cek, recordAadFor({ collection: '_history', id: historyId('docs', 'd1', 1) }, env!))).toContain('v1-secret')
 
     // Public read-gate: history() stays hidden while elevated (existing #712 behavior).
     expect(await docs.history('d1')).toEqual([])
@@ -138,7 +138,7 @@ describe('#728 tier moves snapshot the pre-move version into _history', () => {
     await expect(unwrapCek(secondSnapshot!._cek!, tier0Dek)).rejects.toThrow()
     await expect(unwrapCek(secondSnapshot!._cek!, tier1Dek)).rejects.toThrow()
     const cek = await unwrapCek(secondSnapshot!._cek!, tier2Dek)
-    expect(await decrypt(secondSnapshot!._iv, secondSnapshot!._data, cek)).toContain('v1')
+    expect(await decrypt(secondSnapshot!._iv, secondSnapshot!._data, cek, recordAadFor({ collection: '_history', id: historyId('docs', 'd1', 2) }, secondSnapshot!))).toContain('v1')
 
     // The first elevate's snapshot follows the chain: the trailing syncHistory
     // rewrap of the second elevate() moves it tier-1 → tier-2 as well.
@@ -157,7 +157,7 @@ describe('#728 tier moves snapshot the pre-move version into _history', () => {
     expect(env).not.toBeNull()
     expect(env!._tier).toBeUndefined()
     const cek = await unwrapCek(env!._cek!, tier0Dek)
-    expect(await decrypt(env!._iv, env!._data, cek)).toContain('v1-secret')
+    expect(await decrypt(env!._iv, env!._data, cek, recordAadFor({ collection: '_history', id: historyId('docs', 'd1', 1) }, env!))).toContain('v1-secret')
   })
 
   it('putAtTier over an existing record snapshots the prior version', async () => {

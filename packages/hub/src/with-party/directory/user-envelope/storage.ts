@@ -17,7 +17,7 @@
  * @module
  */
 import type { NoydbStore, UserEnvelope } from '../../../kernel/types.js'
-import { buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../../kernel/enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../../kernel/enclave/index.js'
 import { ConflictError, UserEnvelopeOversizedError } from '../../../kernel/errors.js'
 import {
   USER_ENVELOPE_COLLECTION,
@@ -41,7 +41,7 @@ export async function loadUserEnvelope<T = unknown>(
 ): Promise<UserEnvelope<T> | null> {
   const envelope = await store.get(vault, USER_ENVELOPE_COLLECTION, keyringId)
   if (!envelope) return null
-  const plaintext = await openEnvelopeJson(envelope, dek)
+  const plaintext = await openEnvelopeJson({ collection: USER_ENVELOPE_COLLECTION, id: keyringId }, envelope, dek)
   const data = JSON.parse(plaintext) as T
   return {
     keyringId,
@@ -93,7 +93,8 @@ export async function saveUserEnvelope<T>(
 
   const nextVersion = (prior?._v ?? 0) + 1
   const ts = new Date().toISOString()
-  const { iv, data } = await encrypt(json, dek)
+  const identity = { collection: USER_ENVELOPE_COLLECTION, id: keyringId }
+  const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
 
   const envelope = buildRecordEnvelope(
     { collection: USER_ENVELOPE_COLLECTION, id: keyringId },

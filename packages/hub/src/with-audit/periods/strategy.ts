@@ -22,7 +22,7 @@ export interface PeriodsStrategy {
   loadPeriods(
     adapter: NoydbStore,
     vault: string,
-    decrypt: (envelope: EncryptedEnvelope) => Promise<PeriodRecord>,
+    decrypt: (id: string, envelope: EncryptedEnvelope) => Promise<PeriodRecord>,
   ): Promise<PeriodRecord[]>
   chainAnchor(records: readonly PeriodRecord[], partition?: PeriodPartition): Promise<{
     priorPeriodName?: string

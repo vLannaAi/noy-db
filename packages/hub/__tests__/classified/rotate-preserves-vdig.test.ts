@@ -11,7 +11,7 @@
  * @module
  */
 import { describe, it, expect } from 'vitest'
-import { generateDEK, wrapCek, unwrapCek, encrypt, type EnclaveKey } from '../../src/kernel/enclave/index.js'
+import { buildRecordAad, generateDEK, wrapCek, unwrapCek, encrypt, type EnclaveKey } from '../../src/kernel/enclave/index.js'
 import { sealVdigPayload, openVdigPayload, type VdigPayload } from '../../src/kernel/enclave/classify/vdig.js'
 import {
   rotateRecordCek, revokeSealedRecord, type SealingContext,
@@ -30,7 +30,7 @@ const payload: VdigPayload = {
 
 /** Seed a live record: body + `_vdig[password]` slot sealed under `oldCek`. */
 async function seed(store: InlineMemoryStore, dek: EnclaveKey, oldCek: EnclaveKey): Promise<void> {
-  const { iv, data } = await encrypt(JSON.stringify({ name: 'Nok' }), oldCek)
+  const { iv, data } = await encrypt(JSON.stringify({ name: 'Nok' }), oldCek, buildRecordAad({ collection: COLL, id: ID }))
   const blob = await sealVdigPayload(payload, oldCek, COLL, ID, FIELD)
   const env: EncryptedEnvelope = {
     _noydb: 1, _v: 1, _ts: '2026-07-04T00:00:00.000Z',

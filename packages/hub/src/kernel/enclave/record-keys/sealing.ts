@@ -16,6 +16,7 @@
  * `sealed-record/` directly.
  */
 import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek, bufferToBase64, deriveSealedFieldKeyFromCek, type EnclaveKey } from '../crypto.js'
+import { buildRecordAad, recordAadFor, type RecordIdentity } from '../record-aad.js'
 import {
   type EncryptedEnvelope,
   type NoydbStore,
@@ -174,10 +175,20 @@ export async function rotateRecordCek(
 
   const dek = await ctx.getDEK(collection)
   const oldCek = await unwrapCek(live._cek, dek)
-  const json = await decrypt(live._iv, live._data, oldCek)
+  // A CEK rotation moves the body key, not the record's address — but it MAY
+  // restamp `_by` (the rotating actor). So the identity is not symmetric: open
+  // under what the live record carries, re-seal under what the new envelope
+  // will carry (#1041).
+  const openAad = recordAadFor({ collection, id }, live)
+  const json = await decrypt(live._iv, live._data, oldCek, openAad)
 
+  const rotatedIdentity: RecordIdentity = {
+    collection, id,
+    ...(live._tier !== undefined ? { tier: live._tier } : {}),
+    ...(ctx.actor ? { by: ctx.actor } : live._by !== undefined ? { by: live._by } : {}),
+  }
   const newCek = await generateDEK()
-  const { iv, data } = await encrypt(json, newCek)
+  const { iv, data } = await encrypt(json, newCek, buildRecordAad(rotatedIdentity))
 
   // Sealed fields are keyed off the per-record CEK, so a rotation
   // must RE-ENCRYPT each `_sealed[field]` under the new CEK (carrying the old
@@ -209,14 +220,17 @@ export async function rotateRecordCek(
     vdigOut = out
   }
 
-  const env: EncryptedEnvelope = buildRecordEnvelope({ collection, id }, {
+  // `_by`/`_tier` ride on `rotatedIdentity` — the same value the AAD above was
+  // built from. They used to be passed in the body via a conditional SPREAD,
+  // which TypeScript does not excess-property-check, so they flowed silently
+  // into a shape that no longer reads them: stamped nowhere, sealed as if
+  // present. Exactly the mismatch class this issue exists to close.
+  const env: EncryptedEnvelope = buildRecordEnvelope(rotatedIdentity, {
     version: live._v + 1,
     iv,
     data,
     cek: await wrapCek(newCek, dek),
-    ...(ctx.actor ? { by: ctx.actor } : {}),
     extra: {
-    ...(live._tier !== undefined ? { _tier: live._tier } : {}),
     ...(live._det !== undefined ? { _det: live._det } : {}),
     // `_bidx` (equality-index tag) is DEK-rooted and CEK-independent, so it is
     // carried forward VERBATIM — not recomputed — unlike `_vdig`/`_sealed`

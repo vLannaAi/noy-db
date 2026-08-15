@@ -21,7 +21,7 @@ import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope, type CrdtMode, type CrdtS
 import { isTombstone, isDeleteMarker } from './tombstone.js'
 import { parseSealedSlot } from './sealed-slot.js'
 import { buildRecordEnvelope } from '../record-envelope.js'
-import type { RecordIdentity } from '../record-aad.js'
+import { buildRecordAad, recordAadFor, type RecordIdentity } from '../record-aad.js'
 import { sealFields, unsealOneField, unsealFields, makeHandleProducer, makeSealedSlotCapability, makeReservedEnvelopes, type SealKeyMaterial } from './sealed-slots.js'
 import { DebugReservedFieldError, ClassifiedConfigError, ValidationError } from '../../errors.js'
 import { mintVdigSlot } from '../classify/write.js'
@@ -164,7 +164,9 @@ export class RecordCodec<T> {
     version: number
     iv: string
     data: string
-    by?: string
+    // No `by` — `_by` is stamped from `identity`, the single source (#1041).
+    // It was declared here and silently ignored, which is exactly how a
+    // dropped field hides.
     cek?: string
     provenance?: { source: string; sourceTs: string } | undefined
     extra?: Partial<Pick<EncryptedEnvelope, '_tier' | '_det' | '_sealed'>>
@@ -176,7 +178,6 @@ export class RecordCodec<T> {
   static buildPlaintextEnvelope(identity: RecordIdentity, p: {
     version: number
     data: string
-    by?: string
     provenance?: { source: string; sourceTs: string } | undefined
   }): EncryptedEnvelope {
     return buildRecordEnvelope(identity, { ...p, iv: '' })
@@ -205,7 +206,7 @@ export class RecordCodec<T> {
         version,
         iv: '',
         data: '',
-        by: this.ctx.actor,
+        
         ...(this.ctx.provenance && source !== undefined
           ? { provenance: { source, sourceTs: sourceTs ?? new Date().toISOString() } }
           : {}),
@@ -253,25 +254,26 @@ export class RecordCodec<T> {
     sourceTs?: string,
   ): Promise<EncryptedEnvelope> {
     const identity: RecordIdentity = { ...ref, by: this.ctx.actor }
-    const by = this.ctx.actor
     const provenance = this.ctx.provenance && source !== undefined
       ? { source, sourceTs: sourceTs ?? new Date().toISOString() }
       : undefined
 
     if (!this.ctx.storeCiphertext) {
-      return RecordCodec.buildPlaintextEnvelope(identity, { version, data: json, by, provenance })
+      return RecordCodec.buildPlaintextEnvelope(identity, { version, data: json, provenance })
     }
 
     const dek = await this.ctx.getDEK()
 
+    const aad = buildRecordAad(identity)
+
     if (cek !== undefined) {
-      const { iv, data } = await encrypt(json, cek)
+      const { iv, data } = await encrypt(json, cek, aad)
       const wrapped = await wrapCek(cek, dek)
-      return RecordCodec.buildEnvelope(identity, { version, iv, data, by, cek: wrapped, provenance })
+      return RecordCodec.buildEnvelope(identity, { version, iv, data, cek: wrapped, provenance })
     }
 
-    const { iv, data } = await encrypt(json, dek)
-    return RecordCodec.buildEnvelope(identity, { version, iv, data, by, provenance })
+    const { iv, data } = await encrypt(json, dek, aad)
+    return RecordCodec.buildEnvelope(identity, { version, iv, data, provenance })
   }
 
   /**
@@ -546,7 +548,15 @@ export class RecordCodec<T> {
    * The optional `id` lets reads populate the CEK cache; it is omitted by
    * callers (history, conflict merge) that have only the envelope.
    */
-  async decryptJsonString(envelope: EncryptedEnvelope, id?: string): Promise<string | null> {
+  /**
+   * `ref` must be the SAME identity the writer sealed against — which is the
+   * storage address, not necessarily this codec's own collection. Search's
+   * vector sidecar lives in `_vec`, its lexical index in `_ft`; passing
+   * `this.ctx.name` for those would recompute the wrong AAD and fail to open a
+   * perfectly good record (#1041).
+   */
+  async decryptJsonString(ref: RecordIdentity, envelope: EncryptedEnvelope): Promise<string | null> {
+    const id = ref.id
     // RISK #1 (forget cascade): a shred tombstone carries `_data: ''` and no
     // `_cek`. Decrypting it would call `decrypt('', '', dek)` → AES-GCM
     // OperationError → TamperedError. Return null so every read callsite
@@ -574,10 +584,11 @@ export class RecordCodec<T> {
       // tombstone: null, not a `JSON.parse('')` crash.
       return envelope._data === '' ? null : envelope._data
     }
+    const aad = recordAadFor(ref, envelope)
     const cek = await this.resolveEnvelopeCek(envelope, id)
-    if (cek !== undefined) return decrypt(envelope._iv, envelope._data, cek)
+    if (cek !== undefined) return decrypt(envelope._iv, envelope._data, cek, aad)
     const dek = await this.ctx.getDEK()
-    return decrypt(envelope._iv, envelope._data, dek)
+    return decrypt(envelope._iv, envelope._data, dek, aad)
   }
 
   /**
@@ -727,7 +738,11 @@ export class RecordCodec<T> {
     opts: { id?: string; sealedAsHandles?: boolean } = {},
   ): Promise<T> {
     if (this.ctx.via?.hasAtRestHooks) {
-      if (opts.id === undefined) {
+      // Retargeted from `=== undefined`, which #1041 made unreachable on the
+      // read path too: `decryptRecord` now takes a required identity, so the
+      // compiler asks that question. An EMPTY id can still get through, and it
+      // would scope every record's sealed slots to the same capability.
+      if (opts.id === undefined || opts.id === '') {
         throw new Error(
           `RecordCodec.decryptRecord: collection "${this.ctx.name}" has via at-rest hooks but this read ` +
           'path supplied no record id (needed to scope the sealed-slot capability) — caller bug.',
@@ -779,15 +794,17 @@ export class RecordCodec<T> {
    * output-recompute path, not the public per-record read surface schema
    * validation guards.
    */
-  async decryptRecordAtDek(envelope: EncryptedEnvelope, dek: EnclaveKey, id?: string): Promise<T | null> {
+  async decryptRecordAtDek(ref: RecordIdentity, envelope: EncryptedEnvelope, dek: EnclaveKey): Promise<T | null> {
+    const id = ref.id
     if (isTombstone(envelope, this.ctx.storeCiphertext) || isDeleteMarker(envelope)) return null
     let plaintext: string
     let cek: EnclaveKey | undefined
+    const aad = recordAadFor(ref, envelope)
     if (envelope._cek !== undefined) {
       cek = await unwrapCek(envelope._cek, dek)
-      plaintext = await decrypt(envelope._iv, envelope._data, cek)
+      plaintext = await decrypt(envelope._iv, envelope._data, cek, aad)
     } else {
-      plaintext = await decrypt(envelope._iv, envelope._data, dek)
+      plaintext = await decrypt(envelope._iv, envelope._data, dek, aad)
     }
     let record = JSON.parse(plaintext) as T
     if (envelope._sealed !== undefined && this.ctx.storeCiphertext) {
@@ -812,10 +829,11 @@ export class RecordCodec<T> {
    * false positive. Every non-history read leaves this flag `false`.
    */
   async decryptRecord(
+    ref: RecordIdentity,
     envelope: EncryptedEnvelope,
-    opts: { skipValidation?: boolean; id?: string; sealedAsHandles?: boolean } = {},
+    opts: { skipValidation?: boolean; sealedAsHandles?: boolean } = {},
   ): Promise<T | null> {
-    const json = await this.decryptJsonString(envelope, opts.id)
+    const json = await this.decryptJsonString(ref, envelope)
     // Tombstone (shredded record) → null, propagated from decryptJsonString.
     // Callers skip null exactly as they already skip a tombstone envelope.
     if (json === null) return null
@@ -840,9 +858,9 @@ export class RecordCodec<T> {
     // zero-via fast path (no `via`, or a pipeline with no at-rest hooks)
     // always takes the `else` branch, unchanged.
     if (envelope._sealed !== undefined && this.ctx.storeCiphertext) {
-      const sealedCek = await this.resolveEnvelopeCek(envelope, opts.id)
+      const sealedCek = await this.resolveEnvelopeCek(envelope, ref.id)
       record = await this.applySealedSlots(record, envelope._sealed, sealedCek, {
-        ...(opts.id !== undefined ? { id: opts.id } : {}),
+        id: ref.id,
         ...(opts.sealedAsHandles !== undefined ? { sealedAsHandles: opts.sealedAsHandles } : {}),
       })
     }

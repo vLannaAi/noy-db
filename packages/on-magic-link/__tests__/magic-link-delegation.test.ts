@@ -15,6 +15,7 @@ import type {
   Vault,
 } from '@noy-db/hub'
 import {
+  recordAadFor,
   ConflictError,
   createNoydb,
   MAGIC_LINK_GRANTS_COLLECTION,
@@ -136,8 +137,15 @@ describe('issueMagicLinkDelegation → claimMagicLinkDelegation', () => {
     expect(env).not.toBeNull()
     const iv = Uint8Array.from(atob(env!._iv), c => c.charCodeAt(0))
     const ct = Uint8Array.from(atob(env!._data), c => c.charCodeAt(0))
+    // #1041: the body is sealed with record-identity AAD, so a delegated DEK
+    // must reproduce it to read anything. That is the delegation contract now —
+    // `recordAadFor` is exported from `@noy-db/hub` for exactly this caller.
     const plaintext = await globalThis.crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: iv as BufferSource },
+      {
+        name: 'AES-GCM',
+        iv: iv as BufferSource,
+        additionalData: recordAadFor({ collection: 'invoices', id: 'inv-1' }, env!) as BufferSource,
+      },
       dek,
       ct as unknown as BufferSource,
     )

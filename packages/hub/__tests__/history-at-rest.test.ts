@@ -22,7 +22,7 @@ import { withHistory } from '../src/with-commit/history/index.js'
 import { NO_HISTORY } from '../src/with-commit/history/strategy.js'
 import { rewrapHistory } from '../src/with-commit/history/history.js'
 import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope, type NoydbStore, type VaultSnapshot } from '../src/kernel/types.js'
-import { generateDEK, wrapCek, unwrapCek, encrypt, decrypt, rewrapBodyToDek, type EnclaveKey } from '../src/kernel/enclave/index.js'
+import { recordAadFor, buildRecordAad, generateDEK, wrapCek, unwrapCek, encrypt, decrypt, rewrapBodyToDek, type EnclaveKey } from '../src/kernel/enclave/index.js'
 
 const HISTORY_COLLECTION = '_history'
 const VAULT = 'v'
@@ -71,9 +71,13 @@ const historyId = (collection: string, recordId: string, version: number) =>
 
 /** Build a perRecordKeys-style `_history` envelope: a fresh CEK wraps the
  * body under `wrapDek`, the body is encrypted under the CEK. */
-async function buildCekEnvelope(plaintext: string, wrapDek: EnclaveKey, version = 1): Promise<EncryptedEnvelope> {
+async function buildCekEnvelope(histId: string, plaintext: string, wrapDek: EnclaveKey, version = 1): Promise<EncryptedEnvelope> {
   const cek = await generateDEK()
-  const { iv, data } = await encrypt(plaintext, cek)
+  // #1041: a hand-built fixture must seal under the SAME identity a reader
+  // recomputes — the `_history` address it will be stored at. Without this the
+  // fixture is indistinguishable from a relocated envelope, which is precisely
+  // what binding is for.
+  const { iv, data } = await encrypt(plaintext, cek, buildRecordAad({ collection: HISTORY_COLLECTION, id: histId }))
   return {
     _noydb: NOYDB_FORMAT_VERSION,
     _v: version,
@@ -85,8 +89,8 @@ async function buildCekEnvelope(plaintext: string, wrapDek: EnclaveKey, version 
 }
 
 /** Build a legacy (no `_cek`) history envelope: body encrypted directly under `dek`. */
-async function buildLegacyEnvelope(plaintext: string, dek: EnclaveKey, version = 1): Promise<EncryptedEnvelope> {
-  const { iv, data } = await encrypt(plaintext, dek)
+async function buildLegacyEnvelope(histId: string, plaintext: string, dek: EnclaveKey, version = 1): Promise<EncryptedEnvelope> {
+  const { iv, data } = await encrypt(plaintext, dek, buildRecordAad({ collection: HISTORY_COLLECTION, id: histId }))
   return {
     _noydb: NOYDB_FORMAT_VERSION,
     _v: version,
@@ -112,7 +116,7 @@ describe('rewrapHistory — primitive', () => {
     const fromDek = await generateDEK()
     const toDek = await generateDEK()
     const id = historyId('docs', 'd1', 1)
-    const before = await buildCekEnvelope('v1-secret', fromDek, 1)
+    const before = await buildCekEnvelope(id, 'v1-secret', fromDek, 1)
     await store.put(VAULT, HISTORY_COLLECTION, id, before)
 
     await rewrapHistory(store, VAULT, 'docs', 'd1', fromDek, toDek)
@@ -124,7 +128,7 @@ describe('rewrapHistory — primitive', () => {
     await expect(unwrapCek(after!._cek!, fromDek)).rejects.toThrow()
     // ...but is under toDek, and the content decrypts unchanged.
     const cek = await unwrapCek(after!._cek!, toDek)
-    const plaintext = await decrypt(after!._iv, after!._data, cek)
+    const plaintext = await decrypt(after!._iv, after!._data, cek, recordAadFor({ collection: HISTORY_COLLECTION, id }, after!))
     expect(plaintext).toBe('v1-secret')
     // Version/timestamp/format metadata untouched by the rewrap.
     expect(after!._v).toBe(1)
@@ -136,14 +140,14 @@ describe('rewrapHistory — primitive', () => {
     const fromDek = await generateDEK()
     const toDek = await generateDEK()
     const id = historyId('legacy', 'd1', 1)
-    await store.put(VAULT, HISTORY_COLLECTION, id, await buildLegacyEnvelope('legacy-body', fromDek, 1))
+    await store.put(VAULT, HISTORY_COLLECTION, id, await buildLegacyEnvelope(id, 'legacy-body', fromDek, 1))
 
     await rewrapHistory(store, VAULT, 'legacy', 'd1', fromDek, toDek)
 
     const after = await store.get(VAULT, HISTORY_COLLECTION, id)
     expect(after!._cek).toBeUndefined()
     await expect(decrypt(after!._iv, after!._data, fromDek)).rejects.toThrow()
-    expect(await decrypt(after!._iv, after!._data, toDek)).toBe('legacy-body')
+    expect(await decrypt(after!._iv, after!._data, toDek, recordAadFor({ collection: HISTORY_COLLECTION, id }, after!))).toBe('legacy-body')
   })
 
   it('rewraps every matching version for the record, leaves other records untouched', async () => {
@@ -153,16 +157,16 @@ describe('rewrapHistory — primitive', () => {
     const idV1 = historyId('docs', 'd1', 1)
     const idV2 = historyId('docs', 'd1', 2)
     const otherId = historyId('docs', 'd2', 1)
-    await store.put(VAULT, HISTORY_COLLECTION, idV1, await buildCekEnvelope('v1', fromDek, 1))
-    await store.put(VAULT, HISTORY_COLLECTION, idV2, await buildCekEnvelope('v2', fromDek, 2))
-    await store.put(VAULT, HISTORY_COLLECTION, otherId, await buildCekEnvelope('other', fromDek, 1))
+    await store.put(VAULT, HISTORY_COLLECTION, idV1, await buildCekEnvelope(idV1, 'v1', fromDek, 1))
+    await store.put(VAULT, HISTORY_COLLECTION, idV2, await buildCekEnvelope(idV2, 'v2', fromDek, 2))
+    await store.put(VAULT, HISTORY_COLLECTION, otherId, await buildCekEnvelope(otherId, 'other', fromDek, 1))
 
     await rewrapHistory(store, VAULT, 'docs', 'd1', fromDek, toDek)
 
     for (const id of [idV1, idV2]) {
       const env = await store.get(VAULT, HISTORY_COLLECTION, id)
       const cek = await unwrapCek(env!._cek!, toDek)
-      expect(await decrypt(env!._iv, env!._data, cek)).toMatch(/^v[12]$/)
+      expect(await decrypt(env!._iv, env!._data, cek, recordAadFor({ collection: HISTORY_COLLECTION, id }, env!))).toMatch(/^v[12]$/)
     }
     // d2's entry is untouched — still wrapped under fromDek only.
     const untouched = await store.get(VAULT, HISTORY_COLLECTION, otherId)
@@ -198,13 +202,13 @@ describe('rewrapHistory — primitive', () => {
     const id = historyId('docs', 'd1', 1)
     // Pre-fix state: snapshot still wrapped under tier-0, even though the
     // record has since moved to tier N (the caller passes fromDek = tierNDek).
-    await store.put(VAULT, HISTORY_COLLECTION, id, await buildCekEnvelope('pre-fix-secret', tier0Dek, 1))
+    await store.put(VAULT, HISTORY_COLLECTION, id, await buildCekEnvelope(id, 'pre-fix-secret', tier0Dek, 1))
 
     await rewrapHistory(store, VAULT, 'docs', 'd1', tierNDek, toDek, tier0Dek)
 
     const after = await store.get(VAULT, HISTORY_COLLECTION, id)
     const cek = await unwrapCek(after!._cek!, toDek)
-    expect(await decrypt(after!._iv, after!._data, cek)).toBe('pre-fix-secret')
+    expect(await decrypt(after!._iv, after!._data, cek, recordAadFor({ collection: HISTORY_COLLECTION, id }, after!))).toBe('pre-fix-secret')
     await expect(unwrapCek(after!._cek!, tier0Dek)).rejects.toThrow()
     await expect(unwrapCek(after!._cek!, tierNDek)).rejects.toThrow()
   })
@@ -215,7 +219,7 @@ describe('rewrapHistory — primitive', () => {
     const tierNDek = await generateDEK()
     const toDek = await generateDEK()
     const id = historyId('docs', 'd1', 1)
-    await store.put(VAULT, HISTORY_COLLECTION, id, await buildCekEnvelope('pre-fix-secret', tier0Dek, 1))
+    await store.put(VAULT, HISTORY_COLLECTION, id, await buildCekEnvelope(id, 'pre-fix-secret', tier0Dek, 1))
 
     // No tier0Dek supplied — the mismatched fromDek must propagate, not be swallowed.
     await expect(rewrapHistory(store, VAULT, 'docs', 'd1', tierNDek, toDek)).rejects.toThrow()
@@ -228,7 +232,7 @@ describe('rewrapHistory — primitive', () => {
     const actualDek = await generateDEK()
     const toDek = await generateDEK()
     const id = historyId('docs', 'd1', 1)
-    await store.put(VAULT, HISTORY_COLLECTION, id, await buildCekEnvelope('secret', actualDek, 1))
+    await store.put(VAULT, HISTORY_COLLECTION, id, await buildCekEnvelope(id, 'secret', actualDek, 1))
 
     await expect(rewrapHistory(store, VAULT, 'docs', 'd1', wrongDek1, toDek, wrongDek2)).rejects.toThrow()
   })
@@ -238,7 +242,7 @@ describe('rewrapHistory — primitive', () => {
     const fromDek = await generateDEK()
     const toDek = await generateDEK()
     const id = historyId('docs', 'd1', 1)
-    await store.put(VAULT, HISTORY_COLLECTION, id, await buildCekEnvelope('v1-secret', fromDek, 1))
+    await store.put(VAULT, HISTORY_COLLECTION, id, await buildCekEnvelope(id, 'v1-secret', fromDek, 1))
 
     await rewrapHistory(store, VAULT, 'docs', 'd1', fromDek, toDek)
     const afterFirst = await store.get(VAULT, HISTORY_COLLECTION, id)
@@ -252,7 +256,7 @@ describe('rewrapHistory — primitive', () => {
 
     expect(afterSecond).toEqual(afterFirst)
     const cek = await unwrapCek(afterSecond!._cek!, toDek)
-    expect(await decrypt(afterSecond!._iv, afterSecond!._data, cek)).toBe('v1-secret')
+    expect(await decrypt(afterSecond!._iv, afterSecond!._data, cek, recordAadFor({ collection: HISTORY_COLLECTION, id }, afterSecond!))).toBe('v1-secret')
   })
 
   it('skips entries already wrapped under toDek — a crash-recovery retry does not re-touch already-migrated entries (#712 whole-branch fix-3)', async () => {
@@ -263,9 +267,9 @@ describe('rewrapHistory — primitive', () => {
     const idV2 = historyId('docs', 'd1', 2)
     // Simulate a crash mid-loop: v1 already migrated to toDek, v2 still
     // stranded under fromDek.
-    const originalV1 = await buildCekEnvelope('v1-secret', toDek, 1)
+    const originalV1 = await buildCekEnvelope(idV1, 'v1-secret', toDek, 1)
     await store.put(VAULT, HISTORY_COLLECTION, idV1, originalV1)
-    await store.put(VAULT, HISTORY_COLLECTION, idV2, await buildCekEnvelope('v2-secret', fromDek, 2))
+    await store.put(VAULT, HISTORY_COLLECTION, idV2, await buildCekEnvelope(idV2, 'v2-secret', fromDek, 2))
 
     await rewrapHistory(store, VAULT, 'docs', 'd1', fromDek, toDek)
 
@@ -276,7 +280,7 @@ describe('rewrapHistory — primitive', () => {
     // v2 was migrated by this call, same as the ordinary rewrap path.
     const afterV2 = await store.get(VAULT, HISTORY_COLLECTION, idV2)
     const cek2 = await unwrapCek(afterV2!._cek!, toDek)
-    expect(await decrypt(afterV2!._iv, afterV2!._data, cek2)).toBe('v2-secret')
+    expect(await decrypt(afterV2!._iv, afterV2!._data, cek2, recordAadFor({ collection: HISTORY_COLLECTION, id: idV2 }, afterV2!))).toBe('v2-secret')
     await expect(unwrapCek(afterV2!._cek!, fromDek)).rejects.toThrow()
   })
 })
@@ -363,7 +367,7 @@ describe('#712 at-rest: history snapshots follow the record’s tier', () => {
     await expect(unwrapCek(after!._cek!, tier0Dek)).rejects.toThrow()
     // …and DOES under tier-1 (content preserved, moved not destroyed).
     const cek = await unwrapCek(after!._cek!, tier1Dek)
-    expect(await decrypt(after!._iv, after!._data, cek)).toContain('v1-secret')
+    expect(await decrypt(after!._iv, after!._data, cek, recordAadFor({ collection: '_history', id: 'docs:d1:0000000001' }, after!))).toContain('v1-secret')
   })
 
   it('a cold tier-0-only session cannot decrypt an elevated record’s history at rest', async () => {
@@ -397,7 +401,7 @@ describe('#712 at-rest: history snapshots follow the record’s tier', () => {
     const env = await store.get('v1', '_history', 'docs:d1:0000000001')
     expect(env).not.toBeNull()
     const cek = await unwrapCek(env!._cek!, tier0Dek) // readable at tier-0 again
-    expect(await decrypt(env!._iv, env!._data, cek)).toContain('v1')
+    expect(await decrypt(env!._iv, env!._data, cek, recordAadFor({ collection: '_history', id: 'docs:d1:0000000001' }, env!))).toContain('v1')
   })
 
   it('putAtTier(>0) over a record with history rewraps that history too', async () => {
@@ -429,7 +433,13 @@ describe('#712 at-rest: history snapshots follow the record’s tier', () => {
     // and never touched history — exactly what elevate() did before #712.
     const live = await store.get('v1', 'docs', 'd1')
     expect(live).not.toBeNull()
-    const body = await rewrapBodyToDek(live!, tier0Dek, tier1Dek)
+    // #1041: the pre-fix elevate moved the body between tiers, so `_tier`
+    // changes and the AAD moves with it — open at tier 0, re-seal at tier 1.
+    const body = await rewrapBodyToDek(
+      { collection: 'docs', id: 'd1', ...(live!._by !== undefined ? { by: live!._by } : {}) },
+      { collection: 'docs', id: 'd1', tier: 1, ...(live!._by !== undefined ? { by: live!._by } : {}) },
+      live!, tier0Dek, tier1Dek,
+    )
     const preFixElevated: EncryptedEnvelope = {
       ...live!,
       _v: live!._v + 1,
@@ -453,7 +463,7 @@ describe('#712 at-rest: history snapshots follow the record’s tier', () => {
     const histAfter = await store.get('v1', '_history', 'docs:d1:0000000001')
     expect(histAfter).not.toBeNull()
     const cek = await unwrapCek(histAfter!._cek!, tier0Dek)
-    expect(await decrypt(histAfter!._iv, histAfter!._data, cek)).toContain('v1')
+    expect(await decrypt(histAfter!._iv, histAfter!._data, cek, recordAadFor({ collection: '_history', id: 'docs:d1:0000000001' }, histAfter!))).toContain('v1')
   })
 
   it('DEK-tracking holds across multi-step moves: elevate 0→1, elevate 1→2, demote 2→0', async () => {
@@ -484,6 +494,6 @@ describe('#712 at-rest: history snapshots follow the record’s tier', () => {
     const env = await store.get('v1', '_history', 'docs:d1:0000000001')
     expect(env).not.toBeNull()
     const cek = await unwrapCek(env!._cek!, tier0Dek)
-    expect(await decrypt(env!._iv, env!._data, cek)).toContain('v1')
+    expect(await decrypt(env!._iv, env!._data, cek, recordAadFor({ collection: '_history', id: 'docs:d1:0000000001' }, env!))).toContain('v1')
   })
 })

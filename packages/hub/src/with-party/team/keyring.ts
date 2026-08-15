@@ -1153,7 +1153,7 @@ export async function rotateKeys(
       // resumed-rotation case. A record readable under NEITHER key rethrows
       // rather than being skipped: walking silently past unreadable records
       // would turn a loud failure into permanent quiet loss.
-      const newEnvelope = await rekeyEnvelopeIfNeeded(envelope, oldDek, newDek)
+      const newEnvelope = await rekeyEnvelopeIfNeeded({ collection: collName, id }, envelope, oldDek, newDek)
       if (newEnvelope !== null) await store.put(vault, collName, id, newEnvelope)
     }
   }

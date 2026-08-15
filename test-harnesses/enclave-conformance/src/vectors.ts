@@ -31,6 +31,13 @@ export interface EnclaveVector {
 /**
  * Fixed secret all three vectors' DEKs are wrapped under.
  *
+ * ⚠️ **REGENERATED 2026-08-15 for #1041.** The envelope ciphertexts below are
+ * now sealed with record-identity AAD for `{collection: 'conformance', id:
+ * 'r1'}` — the address the suite reads them at. The previous values were sealed
+ * without AAD and cannot be opened by a conforming enclave, which is the point:
+ * known-answer vectors are FORMAT-BOUND, so a format change invalidates them by
+ * design rather than by accident.
+ *
  * The VALUE is frozen and deliberately still says "passphrase" after the
  * #862 rename. These are known-answer vectors: the wrapped DEKs below were
  * computed under this exact string, so changing it changes the derived KEK
@@ -48,8 +55,8 @@ export const VECTOR_1_PLAIN: EnclaveVector = {
     _noydb: 1,
     _v: 1,
     _ts: '2026-01-01T00:00:00.000Z',
-    _iv: 'FYZywb2VWaxgnbyP',
-    _data: 'nOpWUESr6QljwjZhBKn4LiM0s4yJD4hF88G3LG5vkAqRY2u5r9uppevOl5vcfK8=',
+    _iv: 'MmYqPz9Qm9WiCKsT',
+    _data: '35VA96UQdb1ixNLRUe+37bqAYALdGfUq5JSLhGyYsgxm46iBF5NQkNEGDXD6xAg=',
   },
   plaintext: '{"name":"Somchai","amount":100}',
 }
@@ -61,9 +68,9 @@ export const VECTOR_2_PER_RECORD_KEY: EnclaveVector = {
     _noydb: 1,
     _v: 1,
     _ts: '2026-01-01T00:00:00.000Z',
-    _iv: 'bwJq3WRnmqwMqBGN',
-    _data: 'g8wlcblbf74ACJ+tRHt5BoOSKc0nz7hRRm89SYZlhCYL5Tc6lRjTi9FD0w==',
-    _cek: 'O1QQ/iKvm3PkqPcK+EuI3jY/O4l4HNs7BCWO7b8udhThWaeH5UVInw==',
+    _iv: 'MNIvdgciFarubKop',
+    _data: 'ml5VXKUOaG5XTe36eNuV+4brCA59wKYaKoS2uETs46xMTP1jdyk00V4ERA==',
+    _cek: 'CPPZAWdkxxmk3Tk6VcG5SX1a/QnE7Oo+nYaeXJNrCBeUqp0HLaHB6A==',
   },
   plaintext: '{"name":"Nok","amount":250}',
 }
@@ -75,9 +82,9 @@ export const VECTOR_3_SEALED: EnclaveVector = {
     _noydb: 1,
     _v: 1,
     _ts: '2026-01-01T00:00:00.000Z',
-    _iv: '6ibwqK2quz+m6dYu',
-    _data: 'b3YcKiDtVsruQ+rS4rmi7m89dfKhoULtJXZIROnAhhpyi1QCDBfOHsAvQA==',
-    _sealed: { taxId: '90M6L+iwXGKkp0eg:FhpbYBk4XB2KumfmYlsqQAnnFUp55hUO7R8kpTFn' },
+    _iv: '+wz5Wby+sJ/MYfy5',
+    _data: 'Ih7Qnjr+gKuimQM0meyRAhP3ZdMnu+41KAjYGuA0ua4j+mZKJnwEmopRUw==',
+    _sealed: { taxId: 'vFajgQH7YjcK77Fh:GWD48tQkOQnW59vKU+/8tA3iIOTU/gzWH2eSJe2x' },
   },
   plaintext: '{"name":"Kob","amount":500}',
 }

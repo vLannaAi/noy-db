@@ -45,7 +45,7 @@
  */
 
 import type { NoydbStore, EncryptedEnvelope } from '../../../kernel/types.js'
-import { buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../../kernel/enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../../kernel/enclave/index.js'
 import type { ConflictError} from '../../../kernel/errors.js';
 import { isConflictError, LedgerContentionError } from '../../../kernel/errors.js'
 import {
@@ -360,7 +360,7 @@ export class LedgerStore {
       return JSON.parse(envelope._data) as JsonPatch
     }
     const dek = await this.getDEK(LEDGER_COLLECTION)
-    const json = await openEnvelopeJson(envelope, dek)
+    const json = await openEnvelopeJson({ collection: LEDGER_DELTAS_COLLECTION, id: paddedIndex(index) }, envelope, dek)
     return JSON.parse(json) as JsonPatch
   }
 
@@ -414,11 +414,11 @@ export class LedgerStore {
     const identity = { collection: LEDGER_DELTAS_COLLECTION, id: paddedIndex(index), by: this.actor }
     const json = JSON.stringify(patch)
     if (!this.encrypted) {
-      return buildRecordEnvelope(identity, { version: 1, iv: '', data: json, by: this.actor })
+      return buildRecordEnvelope(identity, { version: 1, iv: '', data: json})
     }
     const dek = await this.getDEK(LEDGER_COLLECTION)
-    const { iv, data } = await encrypt(json, dek)
-    return buildRecordEnvelope(identity, { version: 1, iv, data, by: this.actor })
+    const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
+    return buildRecordEnvelope(identity, { version: 1, iv, data})
   }
 
   /**
@@ -440,7 +440,7 @@ export class LedgerStore {
         key,
       )
       if (!envelope) continue
-      entries.push(await this.decryptEntry(envelope))
+      entries.push(await this.decryptEntry(key, envelope))
     }
     return entries
   }
@@ -686,17 +686,17 @@ export class LedgerStore {
       return buildRecordEnvelope(identity, { ...body, iv: '', data: json })
     }
     const dek = await this.getDEK(LEDGER_COLLECTION)
-    const { iv, data } = await encrypt(json, dek)
+    const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
     return buildRecordEnvelope(identity, { ...body, iv, data })
   }
 
   /** Decrypt an envelope into a LedgerEntry. Throws on bad key / tamper. */
-  private async decryptEntry(envelope: EncryptedEnvelope): Promise<LedgerEntry> {
+  private async decryptEntry(key: string, envelope: EncryptedEnvelope): Promise<LedgerEntry> {
     if (!this.encrypted) {
       return JSON.parse(envelope._data) as LedgerEntry
     }
     const dek = await this.getDEK(LEDGER_COLLECTION)
-    const json = await openEnvelopeJson(envelope, dek)
+    const json = await openEnvelopeJson({ collection: LEDGER_COLLECTION, id: key }, envelope, dek)
     return JSON.parse(json) as LedgerEntry
   }
 }

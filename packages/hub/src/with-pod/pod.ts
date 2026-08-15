@@ -1309,6 +1309,7 @@ async function applyPlaintextFilters(
         const record = await vault._decryptEnvelopeForBundleFilter(
           env as never,
           collName,
+          id,
         )
         const ok = await where(record, { collection: collName, id })
         if (!ok) continue

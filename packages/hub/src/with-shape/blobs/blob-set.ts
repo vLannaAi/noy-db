@@ -10,7 +10,7 @@ import type {
 } from '../../kernel/types.js'
 import type { ObjectProjection } from './object-projection.js'
 import type { BlobFieldsConfig } from './blob-compaction.js'
-import {
+import { buildRecordAad,
   buildRecordEnvelope,
   encrypt,
   openEnvelopeJson,
@@ -448,7 +448,7 @@ export class BlobSet {
     }
 
     const dek = await this.getDEK(dekKey(this.collection, tier ?? await this.ownerTier()))
-    const json = await openEnvelopeJson(envelope, dek)
+    const json = await openEnvelopeJson({ collection: this.slotsCollection, id: this.recordId }, envelope, dek)
     return {
       slots: JSON.parse(json) as Record<string, SlotRecord>,
       version: envelope._v,
@@ -479,14 +479,14 @@ export class BlobSet {
 
     const fromDek = await this.getDEK(dekKey(this.collection, fromTier))
     try {
-      const json = await openEnvelopeJson(envelope, fromDek)
+      const json = await openEnvelopeJson({ collection: this.slotsCollection, id: this.recordId }, envelope, fromDek)
       return { slots: JSON.parse(json) as Record<string, SlotRecord>, version: envelope._v, atTier: fromTier }
     } catch (err) {
       if (!(err instanceof TamperedError) || fromTier === toTier) throw err
     }
 
     const toDek = await this.getDEK(dekKey(this.collection, toTier))
-    const json = await openEnvelopeJson(envelope, toDek)
+    const json = await openEnvelopeJson({ collection: this.slotsCollection, id: this.recordId }, envelope, toDek)
     return { slots: JSON.parse(json) as Record<string, SlotRecord>, version: envelope._v, atTier: toTier }
   }
 
@@ -504,7 +504,7 @@ export class BlobSet {
 
     if (this.encrypted) {
       const dek = await this.getDEK(dekKey(this.collection, tier ?? await this.ownerTier()))
-      const { iv, data } = await encrypt(json, dek)
+      const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
       envelope = buildRecordEnvelope(identity, { ...body, iv, data })
     } else {
       envelope = buildRecordEnvelope(identity, { ...body, iv: '', data: json })
@@ -662,7 +662,7 @@ export class BlobSet {
 
     const primaryDek = await this.getDEK(dekKey(BLOB_COLLECTION, t))
     try {
-      const json = await openEnvelopeJson(envelope, primaryDek)
+      const json = await openEnvelopeJson({ collection: BLOB_INDEX_COLLECTION, id: eTag }, envelope, primaryDek)
       return { blob: JSON.parse(json) as BlobObject, version: envelope._v, atTier: t }
     } catch (err) {
       // M1 (whole-branch review): only a decrypt/auth failure under the
@@ -678,7 +678,7 @@ export class BlobSet {
     }
 
     const fallbackDek = await this.getDEK(dekKey(BLOB_COLLECTION, fallbackTier))
-    const json = await openEnvelopeJson(envelope, fallbackDek)
+    const json = await openEnvelopeJson({ collection: BLOB_INDEX_COLLECTION, id: eTag }, envelope, fallbackDek)
     return { blob: JSON.parse(json) as BlobObject, version: envelope._v, atTier: fallbackTier }
   }
 
@@ -726,7 +726,7 @@ export class BlobSet {
     const identity = { collection: BLOB_INDEX_COLLECTION, id: blob.eTag }
     if (this.encrypted) {
       const dek = await this.getDEK(dekKey(BLOB_COLLECTION, tier ?? await this.ownerTier()))
-      const { iv, data } = await encrypt(json, dek)
+      const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
       envelope = buildRecordEnvelope(identity, { version: newVersion, ts: now, iv, data })
     } else {
       envelope = buildRecordEnvelope(identity, { version: newVersion, ts: now, iv: '', data: json })
@@ -1370,7 +1370,7 @@ export class BlobSet {
       if (!envelope) continue
       try {
         const record = this.encrypted
-          ? JSON.parse(await openEnvelopeJson(envelope, dek!)) as VersionRecord
+          ? JSON.parse(await openEnvelopeJson({ collection: this.versionsCollection, id: key }, envelope, dek!)) as VersionRecord
           : JSON.parse(envelope._data) as VersionRecord
         holds.set(record.eTag, (holds.get(record.eTag) ?? 0) + 1)
         readable.push(key)
@@ -1728,13 +1728,13 @@ export class BlobSet {
 
     const fromDek = await this.getDEK(dekKey(this.collection, fromTier))
     try {
-      const json = await openEnvelopeJson(envelope, fromDek)
+      const json = await openEnvelopeJson({ collection: this.versionsCollection, id: key }, envelope, fromDek)
       return { record: JSON.parse(json) as VersionRecord, atTier: fromTier }
     } catch (err) {
       if (!(err instanceof TamperedError) || fromTier === toTier) throw err
     }
     const toDek = await this.getDEK(dekKey(this.collection, toTier))
-    const json = await openEnvelopeJson(envelope, toDek)
+    const json = await openEnvelopeJson({ collection: this.versionsCollection, id: key }, envelope, toDek)
     return { record: JSON.parse(json) as VersionRecord, atTier: toTier }
   }
 
@@ -2014,7 +2014,7 @@ export class BlobSet {
     }
 
     const dek = await this.getDEK(dekKey(this.collection, tier ?? await this.ownerTier()))
-    const json = await openEnvelopeJson(envelope, dek)
+    const json = await openEnvelopeJson({ collection: this.versionsCollection, id: key }, envelope, dek)
     return JSON.parse(json) as VersionRecord
   }
 
@@ -2041,7 +2041,7 @@ export class BlobSet {
     const identity = { collection: this.versionsCollection, id: key }
     if (this.encrypted) {
       const dek = await this.getDEK(dekKey(this.collection, tier))
-      const { iv, data } = await encrypt(json, dek)
+      const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
       envelope = buildRecordEnvelope(identity, { version: 1, ts: now, iv, data })
     } else {
       envelope = buildRecordEnvelope(identity, { version: 1, ts: now, iv: '', data: json })
@@ -2623,6 +2623,9 @@ export class BlobSet {
     }
     if (mode === 'encrypted' && this.encrypted) {
       const dek = await this.getDEK(BLOB_COLLECTION)
+      // NOT a record envelope — this is a backlink written into the external
+      // object's own user metadata, with no (collection, id) address of its
+      // own. There is no record identity to bind (#1041).
       const { iv, data } = await encrypt(JSON.stringify(ref), dek)
       return { userMeta: { 'noydb-backlink-enc': `${iv}.${data}` } }
     }
@@ -3181,7 +3184,7 @@ export class BlobSet {
         versions.push(JSON.parse(envelope._data) as VersionRecord)
       } else {
         const dek = await this.getDEK(this.collection)
-        const json = await openEnvelopeJson(envelope, dek)
+        const json = await openEnvelopeJson({ collection: this.versionsCollection, id: key }, envelope, dek)
         versions.push(JSON.parse(json) as VersionRecord)
       }
     }

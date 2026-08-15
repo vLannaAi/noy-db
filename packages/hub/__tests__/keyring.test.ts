@@ -12,7 +12,7 @@ import {
   persistKeyring,
   buildRecipientKeyringFile,
 } from '../src/with-party/team/keyring.js'
-import { encrypt, decrypt } from '../src/kernel/enclave/index.js'
+import { buildRecordAad, recordAadFor, encrypt, decrypt } from '../src/kernel/enclave/index.js'
 
 function inlineMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -269,7 +269,8 @@ describe('keyring', () => {
       const invoiceDek = await getDEK('invoices')
 
       // Put some encrypted data
-      const { iv, data } = await encrypt('{"amount":5000}', invoiceDek)
+      // #1041: seal against the address it is stored at, as the product does.
+      const { iv, data } = await encrypt('{"amount":5000}', invoiceDek, buildRecordAad({ collection: 'invoices', id: 'inv-001' }))
       await adapter.put(COMP, 'invoices', 'inv-001', {
         _noydb: 1, _v: 1, _ts: new Date().toISOString(), _iv: iv, _data: data,
       })
@@ -290,14 +291,14 @@ describe('keyring', () => {
 
       // Owner must be able to decrypt with the NEW DEK
       const newDek = owner.deks.get('invoices')!
-      const decrypted = await decrypt(envelope!._iv, envelope!._data, newDek)
+      const decrypted = await decrypt(envelope!._iv, envelope!._data, newDek, recordAadFor({ collection: 'invoices', id: 'inv-001' }, envelope!))
       expect(JSON.parse(decrypted)).toEqual({ amount: 5000 })
 
       // Critical: the OLD DEK (captured before rotation) must no longer decrypt
       // If it does, key rotation is ineffective — a revoked user who saved their
       // DEK copy could still read all past and future records.
       expect(newDek).not.toBe(invoiceDek) // sanity: rotation produced a new key object
-      await expect(decrypt(envelope!._iv, envelope!._data, invoiceDek)).rejects.toThrow()
+      await expect(decrypt(envelope!._iv, envelope!._data, invoiceDek, recordAadFor({ collection: 'invoices', id: 'inv-001' }, envelope!))).rejects.toThrow()
     })
   })
 

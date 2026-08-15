@@ -208,7 +208,7 @@ export async function rebuildIndexes<T>(ctx: IndexingContext<T>): Promise<void> 
     // publish what elevation is meant to hide. Gate BEFORE the decrypt: a warm
     // cekCache would otherwise let it succeed (and a cold session throw).
     if ((envelope._tier ?? 0) > 0) continue
-    const record = await ctx.codec.decryptRecord(envelope, { skipValidation: true, id: recordId })
+    const record = await ctx.codec.decryptRecord({ collection: ctx.name, id: recordId }, envelope, { skipValidation: true })
     if (record === null) continue // shredded (tombstone) — no side-car to build
     await maintainPersistedIndexesOnPut(ctx, recordId, record, null, envelope._v)
   }
@@ -260,7 +260,7 @@ export async function reconcileIndex<T>(
     const env = await ctx.adapter.get(ctx.vault, ctx.name, id)
     if (!env) continue
     try {
-      const sidecarJson = await ctx.codec.decryptJsonString(env)
+      const sidecarJson = await ctx.codec.decryptJsonString({ collection: ctx.name, id }, env)
       if (sidecarJson === null) {
         // Tombstone side-car (shredded) — treat as stale so it's rewritten.
         sidecar.set(decoded.recordId, undefined)
@@ -284,7 +284,7 @@ export async function reconcileIndex<T>(
     const env = await ctx.adapter.get(ctx.vault, ctx.name, id)
     if (!env) continue
     if ((env._tier ?? 0) > 0) continue // #709: skip elevated records — see rebuildIndexes' gate above
-    const record = await ctx.codec.decryptRecord(env, { skipValidation: true, id })
+    const record = await ctx.codec.decryptRecord({ collection: ctx.name, id }, env, { skipValidation: true })
     // Shredded (tombstone) canonical record: treat like a vanished record —
     // leave its `id` in `sidecarIds` so any lingering side-car is marked
     // stale (and deleted) by the leftover loop below.
@@ -529,5 +529,5 @@ async function resolveTierSyncPrior<T>(ctx: IndexingContext<T>, id: string, prio
   const cached = ctx.cache.get(id)?.record
   if (cached !== undefined) return cached
   if (!ctx.lazy || !priorEnvelope || (priorEnvelope._tier ?? 0) > 0) return null
-  return await ctx.codec.decryptRecord(priorEnvelope, { skipValidation: true, id })
+  return await ctx.codec.decryptRecord({ collection: ctx.name, id }, priorEnvelope, { skipValidation: true })
 }

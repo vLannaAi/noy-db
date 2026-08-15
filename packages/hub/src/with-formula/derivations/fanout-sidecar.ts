@@ -21,7 +21,7 @@
  * @module
  */
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
-import { buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 
 type GetDEK = (collectionName: string) => Promise<EnclaveKey>
 
@@ -94,7 +94,7 @@ export async function loadFanoutSidecar(
   // Legacy plaintext (`_iv === ''`) reads directly; encrypted bodies decrypt.
   const json = (!encrypted || envelope._iv === '')
     ? envelope._data
-    : await openEnvelopeJson(envelope, await getDEK(FANOUT_DEK_COLLECTION))
+    : await openEnvelopeJson({ collection: '_meta', id: recordId(source, sourceId, outputKey) }, envelope, await getDEK(FANOUT_DEK_COLLECTION))
   const parsed = JSON.parse(json) as FanoutSidecar
   if (parsed._noydb_fanout !== 1) return undefined
   if (!Array.isArray(parsed.keys)) return undefined
@@ -137,7 +137,7 @@ export async function saveFanoutSidecar(
   if (!encrypted) {
     envelope = buildRecordEnvelope(identity, { version, iv: '', data: json })
   } else {
-    const { iv, data } = await encrypt(json, await getDEK(FANOUT_DEK_COLLECTION))
+    const { iv, data } = await encrypt(json, await getDEK(FANOUT_DEK_COLLECTION), buildRecordAad(identity))
     envelope = buildRecordEnvelope(identity, { version, iv, data })
   }
   await store.put(vault, '_meta', id, envelope)
