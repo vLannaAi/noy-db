@@ -10,6 +10,7 @@
  * @packageDocumentation
  */
 import { encrypt, decrypt, wrapCek, unwrapCek, type EnclaveKey } from '../crypto.js'
+import { recordAadFor } from '../record-aad.js'
 import type { EncryptedEnvelope } from '../../types.js'
 
 /**
@@ -41,10 +42,14 @@ import type { EncryptedEnvelope } from '../../types.js'
  * of the migration each record is on before calling.
  */
 export async function rekeyEnvelopeToDek(
+  ref: { readonly collection: string; readonly id: string },
   envelope: EncryptedEnvelope,
   oldDek: EnclaveKey,
   newDek: EnclaveKey,
 ): Promise<EncryptedEnvelope> {
+  // A DEK rotation moves the WRAPPING key only — the record keeps its address
+  // and its tags — so the same AAD opens and re-seals it (#1041).
+  const aad = recordAadFor(ref, envelope)
   const { _bidx, ...carried } = envelope
   void _bidx // dropped deliberately — see above
 
@@ -53,8 +58,8 @@ export async function rekeyEnvelopeToDek(
     return { ...carried, _cek: await wrapCek(cek, newDek) }
   }
 
-  const plaintext = await decrypt(envelope._iv, envelope._data, oldDek)
-  const { iv, data } = await encrypt(plaintext, newDek)
+  const plaintext = await decrypt(envelope._iv, envelope._data, oldDek, aad)
+  const { iv, data } = await encrypt(plaintext, newDek, aad)
   return { ...carried, _ts: new Date().toISOString(), _iv: iv, _data: data }
 }
 
@@ -78,18 +83,19 @@ export async function rekeyEnvelopeToDek(
  * which is the defect this whole issue is about.
  */
 export async function rekeyEnvelopeIfNeeded(
+  ref: { readonly collection: string; readonly id: string },
   envelope: EncryptedEnvelope,
   oldDek: EnclaveKey,
   newDek: EnclaveKey,
 ): Promise<EncryptedEnvelope | null> {
   try {
-    return await rekeyEnvelopeToDek(envelope, oldDek, newDek)
+    return await rekeyEnvelopeToDek(ref, envelope, oldDek, newDek)
   } catch (errUnderOld) {
     // Already migrated? Then it opens under the new DEK and there is nothing
     // to do. Verified rather than assumed.
     try {
       if (envelope._cek !== undefined) await unwrapCek(envelope._cek, newDek)
-      else await decrypt(envelope._iv, envelope._data, newDek)
+      else await decrypt(envelope._iv, envelope._data, newDek, recordAadFor(ref, envelope))
       return null
     } catch {
       throw errUnderOld
