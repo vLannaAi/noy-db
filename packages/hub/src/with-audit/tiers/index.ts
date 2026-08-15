@@ -130,6 +130,22 @@ export interface TiersContext<T> {
    * pre-move body whenever `fromTier > 0`. No-op when history is disabled
    * (folds the `historyConfig.enabled` gate so `tiers/index.ts` stays simple).
    */
+  /**
+   * ⚠️ **#1041 GAP — tier-move snapshots are NOT yet sealed against their
+   * `_history` storage identity, and this signature is why.**
+   *
+   * It takes a PRE-BUILT envelope. The three callers below produce theirs with
+   * `applyRewrappedBody(carried, body)` — a re-wrap of an existing envelope,
+   * not a codec construction — so there is no point at which an identity could
+   * be supplied. The codec-built snapshots in `collection.ts` were restructured
+   * to ask `history.historyIdentity()` before sealing; these cannot be, until
+   * the enclave's rewrap takes an identity too.
+   *
+   * Until then a tier-move snapshot carries whatever identity its source
+   * envelope had — the LIVE record's. That is exactly the confusability the
+   * storage-identity decision exists to remove, so this must close in the same
+   * change that switches AAD on, not after it.
+   */
   saveHistorySnapshot(id: string, envelope: EncryptedEnvelope): Promise<void>
   /**
    * `true` iff a real history strategy is wired (not `NO_HISTORY`) AND not

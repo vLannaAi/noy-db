@@ -39,7 +39,8 @@ import type { LedgerStore } from './ledger/store.js'
 import type { JsonPatch } from './ledger/patch.js'
 import type { DiffEntry } from './diff.js'
 import type { VaultInstant, VaultEngine } from './time-machine.js'
-import type { EnclaveKey } from '../../kernel/enclave/index.js'
+import type { EnclaveKey, RecordIdentity } from '../../kernel/enclave/index.js'
+import { historyIdentity } from './history.js'
 
 /**
  * Options accepted by `HistoryStrategy.buildLedger`. Mirrors the
@@ -72,6 +73,17 @@ export interface HistoryStrategy {
     recordId: string,
     envelope: EncryptedEnvelope,
   ): Promise<void>
+
+  /**
+   * The identity a snapshot of `collection/recordId@version` must be **sealed
+   * against** — its `_history` storage location (#1041).
+   *
+   * On the port because the kernel writes history snapshots but must not import
+   * `with-commit` to learn its layout. Exposing it here keeps the derivation in
+   * the module that owns the layout, and `saveHistory` uses the same function,
+   * so the sealed identity and the put location cannot drift.
+   */
+  historyIdentity(collection: string, recordId: string, version: number): RecordIdentity
 
   /**
    * List history envelopes for a record, newest first. Throws under
@@ -214,6 +226,10 @@ function notEnabled(op: string): Error {
  */
 export const NO_HISTORY: HistoryStrategy = {
   async saveHistory() {},
+  // Unreachable in practice — `saveHistory` above is a no-op, so nothing is
+  // ever sealed. Returns the real layout rather than a sentinel so a future
+  // caller that reads it without writing cannot be misled.
+  historyIdentity: (collection, recordId, version) => historyIdentity(collection, recordId, version),
   async getHistoryEntries() { throw notEnabled('collection.history()') },
   async getVersionEnvelope() { throw notEnabled('collection.getVersion()') },
   async pruneHistory() { return 0 },

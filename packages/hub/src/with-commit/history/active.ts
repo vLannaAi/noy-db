@@ -30,6 +30,7 @@
 import type { HistoryStrategy, BuildLedgerOptions } from './strategy.js'
 import {
   saveHistory,
+  historyIdentity,
   getHistory,
   getVersionEnvelope,
   pruneHistory,
@@ -55,6 +56,7 @@ import { VaultInstant } from './time-machine.js'
 export function withHistory(): HistoryStrategy {
   return {
     saveHistory,
+    historyIdentity,
     getHistoryEntries: getHistory,
     getVersionEnvelope,
     pruneHistory,
