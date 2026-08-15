@@ -35,6 +35,7 @@ import type { PeriodsStrategy } from '../with-audit/periods/strategy.js'
 import type { ShadowStrategy } from '../with-fork/shadow/strategy.js'
 import type { TransactionsStrategy } from '../with-commit/tx/strategy.js'
 import type { HistoryStrategy } from '../with-commit/history/strategy.js'
+import type { VaultHeadStrategy } from '../with-commit/vault-head/strategy.js'
 import type { ForgetStrategy } from '../with-audit/forget/strategy.js'
 import type { SnapshotsStrategy } from '../with-fork/snapshots/strategy.js'
 import type { DerivationSkippedFrozen } from './via/dispatch.js'
@@ -2606,6 +2607,13 @@ export interface NoydbOptions {
    * @internal
    */
   readonly historyStrategy?: HistoryStrategy
+  /**
+   * #1044 — opt in to the vault head, which detects a store that WITHHOLDS.
+   * `withVaultHead()` from `@noy-db/hub/vault-head`. Costs one small write per
+   * commit; on a single-device offline vault it defends against nothing, which
+   * is why it is opt-in while AAD is not.
+   */
+  readonly vaultHeadStrategy?: VaultHeadStrategy
   /**
    * GDPR right-to-erasure. Pass `withForget({ subjects })`
    * from `@noy-db/hub/forget` to declare which collections carry erasable

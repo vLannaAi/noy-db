@@ -51,6 +51,7 @@
  * @internal
  */
 
+import { NO_VAULT_HEAD, type VaultHeadStrategy } from '../../with-commit/vault-head/strategy.js'
 import type { NoydbOptions } from '../../kernel/types.js'
 
 import { NO_REDUCE, type ReduceStrategy } from '../../with-lookup/reduce/strategy.js'
@@ -102,6 +103,7 @@ export interface StrategyBag {
   readonly custody: CustodyStrategy
   readonly forget: ForgetStrategy
   readonly history: HistoryStrategy
+  readonly vaultHead: VaultHeadStrategy
   readonly i18n: I18nStrategy
   readonly indexing: IndexingStrategy
   readonly lazy: LazyStrategy
@@ -140,6 +142,7 @@ export const STRATEGY_DEFAULTS: StrategyBag = {
   custody: NO_CUSTODY,
   forget: NO_FORGET,
   history: NO_HISTORY,
+  vaultHead: NO_VAULT_HEAD,
   i18n: NO_I18N,
   indexing: NO_INDEXING,
   lazy: IMPLICIT_LAZY,

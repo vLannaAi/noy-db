@@ -37,6 +37,10 @@
       "types": "./dist/with-party/session/index.d.ts",
       "default": "./dist/session/index.js"
     },
+    "./vault-head": {
+      "types": "./dist/with-commit/vault-head/index.d.ts",
+      "default": "./dist/vault-head/index.js"
+    },
     "./history": {
       "types": "./dist/with-commit/history/index.d.ts",
       "default": "./dist/history/index.js"

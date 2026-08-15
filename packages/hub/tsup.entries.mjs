@@ -11,6 +11,7 @@ export const ENTRIES = {
   'broker/index': 'src/with-party/broker/index.ts',
   'session/index': 'src/with-party/session/index.ts',
   'history/index': 'src/with-commit/history/index.ts',
+  'vault-head/index': 'src/with-commit/vault-head/index.ts',
   'forget/index': 'src/with-audit/forget/index.ts',
   'sealed-record/index': 'src/with-audit/sealed-record/index.ts',
   'query/index': 'src/kernel/query/index.ts',
