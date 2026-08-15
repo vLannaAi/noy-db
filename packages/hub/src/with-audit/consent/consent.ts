@@ -49,7 +49,7 @@
  * @module
  */
 import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'
-import { buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { generateULID } from '../../with-pod/ulid.js'
 
 /** Reserved collection for consent-audit entries. */
@@ -170,7 +170,7 @@ async function buildEnvelope(
     return buildRecordEnvelope(identity, { ...body, iv: '', data: json })
   }
   const dek = await getDEK(CONSENT_AUDIT_COLLECTION)
-  const { iv, data } = await encrypt(json, dek)
+  const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
   return buildRecordEnvelope(identity, { ...body, iv, data })
 }
 

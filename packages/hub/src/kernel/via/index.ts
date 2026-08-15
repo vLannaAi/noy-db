@@ -57,7 +57,7 @@ export interface ViaCryptoCtx {
      * AAD is applied — a caller that cannot name the id cannot be bound.
      */
     encrypt(collection: string, id: string, json: string, v: number): Promise<EncryptedEnvelope>
-    decrypt(collection: string, env: EncryptedEnvelope): Promise<string>
+    decrypt(collection: string, id: string, env: EncryptedEnvelope): Promise<string>
   }
 }
 

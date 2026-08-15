@@ -10,7 +10,7 @@ import type {
 } from '../../kernel/types.js'
 import type { ObjectProjection } from './object-projection.js'
 import type { BlobFieldsConfig } from './blob-compaction.js'
-import {
+import { buildRecordAad,
   buildRecordEnvelope,
   encrypt,
   openEnvelopeJson,
@@ -504,7 +504,7 @@ export class BlobSet {
 
     if (this.encrypted) {
       const dek = await this.getDEK(dekKey(this.collection, tier ?? await this.ownerTier()))
-      const { iv, data } = await encrypt(json, dek)
+      const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
       envelope = buildRecordEnvelope(identity, { ...body, iv, data })
     } else {
       envelope = buildRecordEnvelope(identity, { ...body, iv: '', data: json })
@@ -726,7 +726,7 @@ export class BlobSet {
     const identity = { collection: BLOB_INDEX_COLLECTION, id: blob.eTag }
     if (this.encrypted) {
       const dek = await this.getDEK(dekKey(BLOB_COLLECTION, tier ?? await this.ownerTier()))
-      const { iv, data } = await encrypt(json, dek)
+      const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
       envelope = buildRecordEnvelope(identity, { version: newVersion, ts: now, iv, data })
     } else {
       envelope = buildRecordEnvelope(identity, { version: newVersion, ts: now, iv: '', data: json })

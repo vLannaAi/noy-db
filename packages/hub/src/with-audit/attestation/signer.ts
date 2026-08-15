@@ -1,5 +1,5 @@
 import type { NoydbStore } from '../../kernel/types.js'
-import { buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { ConflictError } from '../../kernel/errors.js'
 import { generateDocSigningKeyPair } from '@noy-db/attestation'
 
@@ -56,9 +56,10 @@ export async function loadOrCreateSigner(
 
   const dek = await getDEK(ATTESTATIONS_COLLECTION)
   const signer = await generateDocSigningKeyPair()
-  const { iv, data } = await encrypt(JSON.stringify(signer), dek)
+  const identity = { collection: ATTESTATIONS_COLLECTION, id: SIGNER_RECORD_ID }
+  const { iv, data } = await encrypt(JSON.stringify(signer), dek, buildRecordAad(identity))
   const env = buildRecordEnvelope(
-    { collection: ATTESTATIONS_COLLECTION, id: SIGNER_RECORD_ID },
+    identity,
     { version: 1, iv, data },
   )
   try {

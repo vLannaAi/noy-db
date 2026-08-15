@@ -74,7 +74,7 @@ export async function applyCutoverTransform<T>(ctx: CutoverTransformContext<T>):
   for (const id of ids) {
     const env = await ctx.adapter.get(ctx.vault, ctx.name, id)
     if (!env || isTombstone(env, ctx.storeCiphertext) || isDeleteMarker(env)) continue
-    const decoded = await ctx.codec.decryptRecord(env, { skipValidation: true, id })
+    const decoded = await ctx.codec.decryptRecord({ collection: ctx.name, id }, env, { skipValidation: true, })
     if (decoded === null) continue // defensive: shredded between list and get
     const record = decoded as unknown as Record<string, unknown>
     const next = ctx.transform(record)

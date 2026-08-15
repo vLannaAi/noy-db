@@ -723,8 +723,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
           // Core cannot merge Yjs without the yjs package — take the higher version
           return local._v >= remote._v ? local : remote
         }
-        const localJson = await this.codec.decryptJsonString(local, id)
-        const remoteJson = await this.codec.decryptJsonString(remote, id)
+        const localJson = await this.codec.decryptJsonString({ collection: this.name, id }, local)
+        const remoteJson = await this.codec.decryptJsonString({ collection: this.name, id }, remote)
         // Tombstone (shredded) on either side: the live envelope is the
         // authoritative merge result — a shred must win and stay shredded.
         if (localJson === null) return local
@@ -779,8 +779,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         // Custom merge fn: decrypt both → merge → re-encrypt
         const mergeFn = policy as (local: T, remote: T) => T
         resolver = async (id, local, remote) => {
-          const localRecord = await this.codec.decryptRecord(local, { skipValidation: true, id })
-          const remoteRecord = await this.codec.decryptRecord(remote, { skipValidation: true, id })
+          const localRecord = await this.codec.decryptRecord({ collection: this.name, id }, local, { skipValidation: true, })
+          const remoteRecord = await this.codec.decryptRecord({ collection: this.name, id }, remote, { skipValidation: true, })
           // Tombstone on either side wins — a shredded record must not be
           // resurrected by a merge against a still-live peer.
           if (localRecord === null) return local
@@ -1395,7 +1395,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         // Tombstone tolerance (decision 5): a shredded record carries no
         // body / CEK. Reads return null rather than throwing TamperedError. #701: elevated records are invisible — gate BEFORE decrypt, or the warm cekCache serves tier plaintext.
         if (isTombstone(envelope, this.storeCiphertext) || isDeleteMarker(envelope) || (envelope._tier ?? 0) > 0) return null
-        record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
+        record = await this.codec.decryptRecord({ collection: this.name, id }, envelope, { sealedAsHandles: true })
         if (record === null) return null
         this.lru.set(id, { record, version: envelope._v }, estimateRecordBytes(record))
       }
@@ -1426,7 +1426,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     }
     const envelope = await this.adapter.get(this.vault, this.name, id)
     if (!envelope || (envelope._tier ?? 0) > 0) return null
-    const json = await this.codec.decryptJsonString(envelope)
+    const json = await this.codec.decryptJsonString({ collection: this.name, id }, envelope)
     if (json === null) return null // shredded (tombstone)
     return JSON.parse(json) as CrdtState
   }
@@ -1558,7 +1558,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       if (cached) return cached.record as Record<string, unknown>
       const env = await this.adapter.get(this.vault, this.name, id)
       if (!env || (env._tier ?? 0) > 0) return undefined // #707: elevated ≡ missing
-      const rec = await this.codec.decryptRecord(env, { id })
+      const rec = await this.codec.decryptRecord({ collection: this.name, id }, env, { })
       return rec === null ? undefined : (rec as Record<string, unknown>)
     }
     await this.ensureHydrated()
@@ -1610,7 +1610,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       if (cached) return { record: cached.record, version: cached.version }
       const env = await this.adapter.get(this.vault, this.name, id)
       if (!env || (env._tier ?? 0) > 0) return { record: null, version: 0 } // #707: elevated ≡ missing
-      return { record: (await this.codec.decryptRecord(env, { skipValidation: true, id })) as unknown ?? null, version: env._v }
+      return { record: (await this.codec.decryptRecord({ collection: this.name, id }, env, { skipValidation: true, })) as unknown ?? null, version: env._v }
     }
     await this.ensureHydrated()
     const cached = this.cache.get(id)
@@ -1634,7 +1634,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (this.sensitiveFields.size > 0 || this.via?.hasAtRestHooks === true) {
       const env = await this.adapter.get(this.vault, this.name, id)
       if (!env || isTombstone(env, this.storeCiphertext) || (env._tier ?? 0) > 0) return undefined // #707: elevated ≡ missing
-      const rec = await this.codec.decryptRecord(env, { skipValidation: true, id })
+      const rec = await this.codec.decryptRecord({ collection: this.name, id }, env, { skipValidation: true, })
       return rec === null ? undefined : { record: rec, version: env._v }
     }
     const cached = this.cache.get(id)
@@ -1647,7 +1647,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const env = await this.adapter.get(this.vault, this.name, id)
     if (!env) return { env: null, record: null, elided: false }
     if ((env._tier ?? 0) > 0) return { env, record: null, elided: false } // #707: elevated invisible to gate handlers — deterministic, not a swallowed InvalidKeyError
-    return { env, record: await this.codec.decryptRecord(env, { skipValidation: true, id }), elided: false }
+    return { env, record: await this.codec.decryptRecord({ collection: this.name, id }, env, { skipValidation: true, }), elided: false }
   }
 
   /**
@@ -1673,10 +1673,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * payload that is not a CRDT state. The `lww-map` and `rga` branches each
    * carried a copy, byte-identical apart from the cast (#842).
    */
-  async #decodePriorCrdtState<S>(envelope: EncryptedEnvelope | null): Promise<S | undefined> {
+  async #decodePriorCrdtState<S>(id: string, envelope: EncryptedEnvelope | null): Promise<S | undefined> {
     if (!envelope) return undefined
 
-    const prevJson = await this.codec.decryptJsonString(envelope)
+    const prevJson = await this.codec.decryptJsonString({ collection: this.name, id }, envelope)
     if (prevJson === null) return undefined
 
     const prevParsed = JSON.parse(prevJson) as unknown
@@ -1926,10 +1926,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       let crdtState: CrdtState
 
       if (this.crdtMode === 'lww-map') {
-        const existingState = await this.#decodePriorCrdtState<LwwMapState>(existingEnvelope)
+        const existingState = await this.#decodePriorCrdtState<LwwMapState>(id, existingEnvelope)
         crdtState = this.strategies.crdt.buildLwwMapState(record as Record<string, unknown>, existingState, now)
       } else if (this.crdtMode === 'rga') {
-        const existingState = await this.#decodePriorCrdtState<RgaState>(existingEnvelope)
+        const existingState = await this.#decodePriorCrdtState<RgaState>(id, existingEnvelope)
         crdtState = this.strategies.crdt.buildRgaState(Array.isArray(record) ? record : [record], existingState, generateULID)
       } else {
         // yjs: record is the base64 update string (produced by @noy-db/yjs)
@@ -1948,7 +1948,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       // A tombstone (shredded) prior envelope yields a null record → treat as
       // "no previous version" so we don't snapshot/diff an erased value.
       const existingResolvedRecord = existingEnvelope
-        ? await this.codec.decryptRecord(existingEnvelope, { skipValidation: true })
+        ? await this.codec.decryptRecord({ collection: this.name, id }, existingEnvelope, { skipValidation: true })
         : null
       const existingResolved = existingResolvedRecord !== null
         ? { record: existingResolvedRecord, version: existingVersion }
@@ -2003,7 +2003,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       if (!existing) {
         priorRaw = await this.adapter.get(this.vault, this.name, id)
         if (priorRaw) {
-          const previousRecord = await this.codec.decryptRecord(priorRaw, { id })
+          const previousRecord = await this.codec.decryptRecord({ collection: this.name, id }, priorRaw, { })
           // Tombstone (shredded) prior → treat as no previous version.
           if (previousRecord !== null) {
             existing = { record: previousRecord, version: priorRaw._v }
@@ -2157,7 +2157,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         const cached = this.lru.get(id)
         const env = await this.adapter.get(this.vault, this.name, id)
         if (!env || isTombstone(env, this.storeCiphertext) || isDeleteMarker(env)) return null
-        raw = await this.codec.decryptRecord(env, { id })
+        raw = await this.codec.decryptRecord({ collection: this.name, id }, env, { })
         if (raw === null) return null
         if (!cached) {
           this.lru.set(id, { record: await this.codec.toCacheRecord(raw, env, id), version: env._v }, estimateRecordBytes(raw))
@@ -2168,7 +2168,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         else {
           const env = await this.adapter.get(this.vault, this.name, id)
           if (!env || isTombstone(env, this.storeCiphertext) || isDeleteMarker(env)) return null
-          raw = await this.codec.decryptRecord(env, { id })
+          raw = await this.codec.decryptRecord({ collection: this.name, id }, env, { })
           if (raw === null) return null
           this.lru.set(id, { record: raw, version: env._v }, estimateRecordBytes(raw))
         }
@@ -2188,7 +2188,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   async _getStoredRecordForDispatch(id: string): Promise<{ record: T; version: number } | null> {
     const env = await this.adapter.get(this.vault, this.name, id)
     if (!env || isTombstone(env, this.storeCiphertext) || isDeleteMarker(env)) return null
-    const record = await this.codec.decryptRecord(env, { id })
+    const record = await this.codec.decryptRecord({ collection: this.name, id }, env, { })
     return record === null ? null : { record, version: env._v }
   }
 
@@ -2523,7 +2523,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       if (!existing && this.historyConfig.enabled !== false) {
         const previousEnvelope = await this.adapter.get(this.vault, this.name, id)
         if (previousEnvelope) {
-          const previousRecord = await this.codec.decryptRecord(previousEnvelope, { id })
+          const previousRecord = await this.codec.decryptRecord({ collection: this.name, id }, previousEnvelope, { })
           // Tombstone (shredded) prior → no record to snapshot on delete.
           if (previousRecord !== null) {
             existing = { record: previousRecord, version: previousEnvelope._v }
@@ -2698,7 +2698,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    */
   async _decodeEnvelope(envelope: EncryptedEnvelope, id: string): Promise<Record<string, unknown> | null> {
     try {
-      const rec = await this.codec.decryptRecord(envelope, { skipValidation: true, id })
+      const rec = await this.codec.decryptRecord({ collection: this.name, id }, envelope, { skipValidation: true, })
       return rec === null ? null : (rec as unknown as Record<string, unknown>)
     } catch {
       return null
@@ -3194,7 +3194,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     for (const env of envelopes) {
       if ((env._tier ?? 0) > 0) continue // #712: defensive — a per-version tiered snapshot
       // History reads skip schema validation — see getVersion() docs.
-      const record = await this.codec.decryptRecord(env, { skipValidation: true, id })
+      const record = await this.codec.decryptRecord({ collection: this.name, id }, env, { skipValidation: true, })
       // Shredded (tombstoned) history version: the body is permanently gone,
       // so there is nothing to return — skip it. The version still counted in
       // the audit ledger; history() just can't surface its erased content.
@@ -3223,7 +3223,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       this.adapter, this.vault, this.name, id, version,
     )
     if (!envelope || (envelope._tier ?? 0) > 0 || await liveRecordIsElevated(this.adapter, this.vault, this.name, id)) return null
-    return this.codec.decryptRecord(envelope, { skipValidation: true, id })
+    return this.codec.decryptRecord({ collection: this.name, id }, envelope, { skipValidation: true, })
   }
 
   /** Revert a record to a past version. Creates a new version with the old content. */
@@ -3353,7 +3353,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       const id = ids[i]!
       const envelope = await this.adapter.get(this.vault, this.name, id)
       if (envelope && (envelope._tier ?? 0) === 0) {
-        const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
+        const record = await this.codec.decryptRecord({ collection: this.name, id }, envelope, { sealedAsHandles: true })
         if (record === null) continue // shredded (tombstone) — skip
         items.push(record)
         // Same lazy-mode skip as the native path: don't pollute the LRU
@@ -3456,7 +3456,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     for (const { id, envelope } of items) {
       // Public scan/listPage output + opportunistic cache fill — sealed fields stay handles; elevated records are invisible (#706: gate BEFORE decrypt or the warm cekCache leaks tier plaintext, audit-free).
       if ((envelope._tier ?? 0) > 0) continue
-      const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
+      const record = await this.codec.decryptRecord({ collection: this.name, id }, envelope, { sealedAsHandles: true })
       if (record === null) continue // shredded (tombstone) — skip the page row
       out.push({ id, record, version: envelope._v })
     }
@@ -3530,7 +3530,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       return
     }
     // Handle-form for the cache (non-residency for sensitive fields).
-    const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
+    const record = await this.codec.decryptRecord({ collection: this.name, id }, envelope, { sealedAsHandles: true })
     if (record === null) {
       // The on-disk envelope is now a tombstone (shredded). Treat exactly
       // like a deleted record: drop the cache entry and its index rows.
@@ -3650,7 +3650,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     for (const id of ids) {
       const envelope = await this.adapter.get(this.vault, this.name, id)
       if (envelope && !isTombstone(envelope, this.storeCiphertext) && !isDeleteMarker(envelope) && (envelope._tier ?? 0) === 0) {
-        const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
+        const record = await this.codec.decryptRecord({ collection: this.name, id }, envelope, { sealedAsHandles: true })
         if (record === null) continue
         this.cache.set(id, { record, version: envelope._v })
       } else if (envelope && isDeleteMarker(envelope)) {
@@ -3667,7 +3667,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     for (const [id, envelope] of Object.entries(records)) {
       if (isDeleteMarker(envelope)) { this.markerIds.add(id); continue } // #606: seed from a pre-loaded snapshot too
       if (isTombstone(envelope, this.storeCiphertext) || (envelope._tier ?? 0) > 0) continue
-      const record = await this.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
+      const record = await this.codec.decryptRecord({ collection: this.name, id }, envelope, { sealedAsHandles: true })
       if (record === null) continue
       this.cache.set(id, { record, version: envelope._v })
     }
@@ -3958,7 +3958,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       const envelope = await this.adapter.get(this.vault, this.name, id)
       if (!envelope) continue
       try {
-        const json = await this.codec.decryptJsonString(envelope)
+        const json = await this.codec.decryptJsonString({ collection: this.name, id }, envelope)
         if (json === null) continue // tombstone side-car — skip
         const body = JSON.parse(json) as { value: unknown; recordId: string }
         if (typeof body.recordId !== 'string') continue

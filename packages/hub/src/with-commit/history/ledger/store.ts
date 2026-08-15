@@ -45,7 +45,7 @@
  */
 
 import type { NoydbStore, EncryptedEnvelope } from '../../../kernel/types.js'
-import { buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../../kernel/enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../../kernel/enclave/index.js'
 import type { ConflictError} from '../../../kernel/errors.js';
 import { isConflictError, LedgerContentionError } from '../../../kernel/errors.js'
 import {
@@ -417,7 +417,7 @@ export class LedgerStore {
       return buildRecordEnvelope(identity, { version: 1, iv: '', data: json})
     }
     const dek = await this.getDEK(LEDGER_COLLECTION)
-    const { iv, data } = await encrypt(json, dek)
+    const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
     return buildRecordEnvelope(identity, { version: 1, iv, data})
   }
 
@@ -686,7 +686,7 @@ export class LedgerStore {
       return buildRecordEnvelope(identity, { ...body, iv: '', data: json })
     }
     const dek = await this.getDEK(LEDGER_COLLECTION)
-    const { iv, data } = await encrypt(json, dek)
+    const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
     return buildRecordEnvelope(identity, { ...body, iv, data })
   }
 

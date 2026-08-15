@@ -41,7 +41,7 @@
 
 import type { NoydbStore } from '../../kernel/types.js'
 import type { UnlockedKeyring } from './keyring.js'
-import { buildRecordEnvelope, encrypt, openEnvelopeJson, wrapKey, unwrapKey, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope, encrypt, openEnvelopeJson, wrapKey, unwrapKey, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { dekKey } from './tiers.js'
 import { DelegationTargetMissingError } from '../../kernel/errors.js'
 import { generateULID } from '../../with-pod/ulid.js'
@@ -119,7 +119,8 @@ export async function issueDelegation(
   }
 
   const plaintext = JSON.stringify(token)
-  const { iv, data } = await encrypt(plaintext, delegationsDek)
+  const identity = { collection: DELEGATIONS_COLLECTION, id: token.id, by: grantor.userId }
+  const { iv, data } = await encrypt(plaintext, delegationsDek, buildRecordAad(identity))
   const envelope = buildRecordEnvelope(
     { collection: DELEGATIONS_COLLECTION, id: token.id, by: grantor.userId },
     { version: 1, ts: token.createdAt, iv, data},

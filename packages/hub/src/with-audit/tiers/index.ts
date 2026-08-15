@@ -23,7 +23,7 @@
 export { withTiers } from './active.js'
 export { NO_TIERS, type TiersStrategy } from './strategy.js'
 export { TiersNotEnabledError } from '../../kernel/errors.js'
-import { buildRecordEnvelope, encrypt, decrypt, unwrapCek, rewrapBodyToDek, applyRewrappedBody, isDeleteMarker, isTombstoneShape, type RecordCodec, type EnclaveKey, type SealedShredSlot } from '../../kernel/enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope, encrypt, decrypt, unwrapCek, rewrapBodyToDek, applyRewrappedBody, isDeleteMarker, isTombstoneShape, type RecordCodec, type EnclaveKey, type SealedShredSlot } from '../../kernel/enclave/index.js'
 import { TierDemoteDeniedError, UnsupportedTierCompositionError, PersistedIndexCompensationError } from '../../kernel/errors.js'
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
@@ -464,9 +464,10 @@ export async function putAtTier<T>(
   }
 
   const json = JSON.stringify(record)
-  const { iv, data } = await encrypt(json, dek)
+  const identity = { collection: ctx.name, id, by: ctx.keyring.userId, ...(tier > 0 ? { tier } : {}) }
+  const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
   const envelope = buildRecordEnvelope(
-    { collection: ctx.name, id, by: ctx.keyring.userId, ...(tier > 0 ? { tier } : {}) },
+    identity,
     {
       version,
       iv,
@@ -509,12 +510,12 @@ export async function putAtTier<T>(
     await ctx.syncDerived(
       id,
       ctx.hasDerivedOutputs && existing
-        ? await ctx.codec.decryptRecordAtDek(existing, await ctx.getDEK(dekKey(ctx.name, existing._tier ?? 0)), id)
+        ? await ctx.codec.decryptRecordAtDek({ collection: ctx.name, id }, existing, await ctx.getDEK(dekKey(ctx.name, existing._tier ?? 0)))
         : null,
       true,
     )
   } else {
-    const rec = await ctx.codec.decryptRecord(envelope, { id, sealedAsHandles: true })
+    const rec = await ctx.codec.decryptRecord({ collection: ctx.name, id }, envelope, { sealedAsHandles: true })
     await ctx.syncIndexes(id, rec, envelope._v, existing ?? undefined)
     ctx.syncCache(id, rec !== null ? { record: rec, version: envelope._v } : null)
     // #722 Task 2: the record is written at tier 0 — restore its
@@ -582,7 +583,7 @@ export async function getAtTier<T>(ctx: TiersContext<T>, id: string): Promise<T 
   if (!envelope) return null
   const tier = envelope._tier ?? 0
   if (tier === 0) {
-    return ctx.codec.decryptRecord(envelope, { id })
+    return ctx.codec.decryptRecord({ collection: ctx.name, id }, envelope)
   }
 
   const key = dekKey(ctx.name, tier)
@@ -619,7 +620,7 @@ export async function getAtTier<T>(ctx: TiersContext<T>, id: string): Promise<T 
   // `decryptRecord`/`resolveEnvelopeCek` would — which would be the wrong
   // key for a `_cek` wrapped under a tier DEK. `sealedAsHandles` is omitted
   // (default false) to match this function's OWN tier-0 branch above
-  // (`ctx.codec.decryptRecord(envelope, { id })`, no `sealedAsHandles`) —
+  // (`ctx.codec.decryptRecord({ collection: ctx.name, id }, envelope)`, no `sealedAsHandles`) —
   // both tiers return sealed fields inline-decrypted, not as handles.
   if (envelope._sealed !== undefined) {
     record = await ctx.codec.applySealedSlots(record, envelope._sealed, cek, { id })
@@ -785,7 +786,7 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   // elevate), and `ctx.codec.decryptRecord`'s tier-unaware CEK resolution
   // threw `TamperedError` whenever this op's own rewrap hadn't just primed
   // the cekCache (non-`perRecordKeys` collections; `_cek`-absent bodies).
-  await ctx.syncDerived(id, ctx.hasDerivedOutputs ? await ctx.codec.decryptRecordAtDek(envelope, fromDek, id) : null, true)
+  await ctx.syncDerived(id, ctx.hasDerivedOutputs ? await ctx.codec.decryptRecordAtDek({ collection: ctx.name, id }, envelope, fromDek) : null, true)
 
   ctx.emitCrossTierEvent({
     actor: ctx.keyring.userId,
@@ -887,7 +888,7 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
   // branches and surfaced as residue on the return value instead.
   let searchResidue: boolean
   if (toTier === 0) {
-    const rec = await ctx.codec.decryptRecord(next, { id, sealedAsHandles: true })
+    const rec = await ctx.codec.decryptRecord({ collection: ctx.name, id }, next, { sealedAsHandles: true })
     await ctx.syncIndexes(id, rec, next._v, envelope)
     ctx.syncCache(id, rec !== null ? { record: rec, version: next._v } : null)
     // #721: reuse the decode above — no double-decrypt. The record is tier-0
@@ -913,7 +914,7 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
     // `ctx.codec.decryptRecord`'s tier-unaware CEK resolution threw
     // `TamperedError` here exactly as it did in elevate() above
     // (code-identical bug, same fix).
-    await ctx.syncDerived(id, ctx.hasDerivedOutputs ? await ctx.codec.decryptRecordAtDek(envelope, fromDek, id) : null, true)
+    await ctx.syncDerived(id, ctx.hasDerivedOutputs ? await ctx.codec.decryptRecordAtDek({ collection: ctx.name, id }, envelope, fromDek) : null, true)
   }
 
   ctx.emitCrossTierEvent({

@@ -1,5 +1,5 @@
 import type { NoydbStore } from '../../kernel/types.js'
-import { buildRecordEnvelope, encrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope, encrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { AttestationError } from '../../kernel/errors.js'
 import { generateULID } from '../../with-pod/ulid.js'
 import { loadOrCreateSigner, ATTESTATIONS_COLLECTION } from './signer.js'
@@ -60,9 +60,10 @@ export async function issueAttestationCore(ctx: IssueContext, args: IssueArgs): 
     fieldPaths: args.fieldSchema.fields.map((f) => f.path),
     sourceRefs: [{ collection: args.collection, id: args.id, version: src.version }],
   }
-  const { iv, data } = await encrypt(JSON.stringify(index), dek)
+  const identity = { collection: ATTESTATIONS_COLLECTION, id: docId }
+  const { iv, data } = await encrypt(JSON.stringify(index), dek, buildRecordAad(identity))
   const env = buildRecordEnvelope(
-    { collection: ATTESTATIONS_COLLECTION, id: docId },
+    identity,
     { version: 1, ts: index.issuedAt, iv, data },
   )
   await ctx.store.put(ctx.vault, ATTESTATIONS_COLLECTION, docId, env)

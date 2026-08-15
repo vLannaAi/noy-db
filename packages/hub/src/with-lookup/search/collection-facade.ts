@@ -213,7 +213,7 @@ function buildVectorLoad<T>(ctx: SearchContext<T>): () => Promise<StoredVector[]
       // similarTo()/retrieve() for the whole collection.
       let body: string | null
       try {
-        body = await ctx.codec.decryptJsonString(env)
+        body = await ctx.codec.decryptJsonString({ collection: '_vec', id: vecId }, env)
       } catch {
         continue
       }
@@ -250,7 +250,7 @@ export function buildPersistedIndexCallbacks<T>(provideCtx: () => SearchContext<
       const ctx = provideCtx()
       const env = await ctx.adapter.get(ctx.vault, FT, ctx.name)
       if (!env) return null
-      const body = await ctx.codec.decryptJsonString(env)
+      const body = await ctx.codec.decryptJsonString({ collection: FT, id: ctx.name }, env)
       if (body === null) return null
       try {
         const wrapped = JSON.parse(body) as { fp: { count: number; maxVersion: number }; idx: string }
@@ -442,7 +442,7 @@ export async function rebuildEmbeddings<T>(ctx: SearchContext<T>): Promise<{ reb
     if (await liveRecordIsElevated(ctx.adapter, ctx.vault, ctx.name, id)) { skipped++; continue }
     const env = await ctx.adapter.get(ctx.vault, ctx.name, id)
     if (!env) { skipped++; continue }
-    const decoded = await ctx.codec.decryptRecord(env, { id })
+    const decoded = await ctx.codec.decryptRecord({ collection: ctx.name, id }, env)
     if (decoded === null) { skipped++; continue }
     await embedOnWrite(ctx, id, decoded, env._v ?? 1)
     rebuilt++

@@ -10,7 +10,7 @@
  * Internal service — reached through `vault.closePeriod(...)` etc.
  */
 import { ValidationError } from '../../kernel/errors.js'
-import { buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import type { EncryptedEnvelope, NoydbStore } from '../../kernel/types.js'
 import type { LedgerStore } from '../../with-commit/history/ledger/store.js'
 import type { Collection } from '../../kernel/collection.js'
@@ -680,7 +680,7 @@ export class VaultPeriods {
     let envelope: EncryptedEnvelope
     if (this.deps.encrypted) {
       const dek = await this.deps.getDEK(collection)
-      const { iv, data } = await encrypt(json, dek)
+      const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
       envelope = buildRecordEnvelope(identity, { version: 1, iv, data})
     } else {
       envelope = buildRecordEnvelope(identity, { version: 1, iv: '', data: json})

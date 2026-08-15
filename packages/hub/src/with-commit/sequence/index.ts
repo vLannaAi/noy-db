@@ -19,7 +19,7 @@
  * to its record in the same operation.
  */
 
-import { buildRecordEnvelope } from '../../kernel/enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope } from '../../kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import { encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import type { ConflictError} from '../../kernel/errors.js';
@@ -263,7 +263,8 @@ export class SequenceStore {
     if (!this.encrypted) {
       return buildRecordEnvelope({ collection: SEQUENCE_COLLECTION, id: name }, { version, iv: '', data: json})
     }
-    const { iv, data } = await encrypt(json, await this.dek())
+    const identity = { collection: SEQUENCE_COLLECTION, id: name }
+    const { iv, data } = await encrypt(json, await this.dek(), buildRecordAad(identity))
     return buildRecordEnvelope({ collection: SEQUENCE_COLLECTION, id: name }, { version, iv, data})
   }
 

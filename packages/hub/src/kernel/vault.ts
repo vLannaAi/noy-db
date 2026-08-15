@@ -135,7 +135,7 @@ import {
   type OpenPeriodOptions,
   purgeMarkersOn,
 } from '../with-audit/periods/index.js'
-import { buildRecordEnvelope } from './enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope } from './enclave/index.js'
 import { encrypt, openEnvelopeJson, hasPerRecordKey, SEALED_CEK_NS, type SealingContext, type EnclaveKey, buildDeleteMarker, makeReservedEnvelopes } from './enclave/index.js'
 import type { RecipientSealer } from '../with-party/team/managed-secret.js'
 import {
@@ -1806,14 +1806,15 @@ export class Vault {
 
   private async writeExportAudit(entry: ExportBlobsAuditEntry): Promise<void> {
     const json = JSON.stringify(entry)
+    const exportAuditIdentity = { collection: EXPORT_AUDIT_COLLECTION, id: entry.id, by: entry.actor }
     const envelope: EncryptedEnvelope = this.encrypted
       ? await (async () => {
           const dek = await this.getDEK(EXPORT_AUDIT_COLLECTION)
-          const { iv, data } = await encrypt(json, dek)
-          return buildRecordEnvelope({ collection: EXPORT_AUDIT_COLLECTION, id: entry.id, by: entry.actor },
+          const { iv, data } = await encrypt(json, dek, buildRecordAad(exportAuditIdentity))
+          return buildRecordEnvelope(exportAuditIdentity,
             { version: 1, ts: entry.startedAt, iv, data})
         })()
-      : buildRecordEnvelope({ collection: EXPORT_AUDIT_COLLECTION, id: entry.id, by: entry.actor },
+      : buildRecordEnvelope(exportAuditIdentity,
           { version: 1, ts: entry.startedAt, iv: '', data: json})
     await this.adapter.put(this.name, EXPORT_AUDIT_COLLECTION, entry.id, envelope)
   }
@@ -3017,14 +3018,15 @@ export class Vault {
   }): Promise<void> {
     const id = `elev-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`
     const json = JSON.stringify({ id, ...entry })
+    const elevationAuditIdentity = { collection: ELEVATION_AUDIT_COLLECTION, id, by: entry.actor }
     const envelope: EncryptedEnvelope = this.encrypted
       ? await (async () => {
           const dek = await this.getDEK(ELEVATION_AUDIT_COLLECTION)
-          const { iv, data } = await encrypt(json, dek)
-          return buildRecordEnvelope({ collection: ELEVATION_AUDIT_COLLECTION, id, by: entry.actor },
+          const { iv, data } = await encrypt(json, dek, buildRecordAad(elevationAuditIdentity))
+          return buildRecordEnvelope(elevationAuditIdentity,
             { version: 1, ts: entry.startedAt, iv, data})
         })()
-      : buildRecordEnvelope({ collection: ELEVATION_AUDIT_COLLECTION, id, by: entry.actor },
+      : buildRecordEnvelope(elevationAuditIdentity,
           { version: 1, ts: entry.startedAt, iv: '', data: json})
     await this.adapter.put(this.name, ELEVATION_AUDIT_COLLECTION, id, envelope)
   }

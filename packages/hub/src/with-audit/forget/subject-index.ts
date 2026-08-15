@@ -32,7 +32,7 @@
  *
  * @module
  */
-import { buildRecordEnvelope, encrypt, openEnvelopeJson, hmacSha256Hex, sha256Hex, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope, encrypt, openEnvelopeJson, hmacSha256Hex, sha256Hex, type EnclaveKey } from '../../kernel/enclave/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 
 /** Reserved collection holding the encrypted subject → records index. */
@@ -125,7 +125,7 @@ async function writeRefs(
     env = buildRecordEnvelope(identity, { version: 1, iv: '', data: JSON.stringify(refs) })
   } else {
     const dek = await getDEK(SUBJECT_INDEX_COLLECTION)
-    const { iv, data } = await encrypt(serializeRefs(refs), dek)
+    const { iv, data } = await encrypt(serializeRefs(refs), dek, buildRecordAad(identity))
     env = buildRecordEnvelope(identity, { version: 1, iv, data })
   }
   await adapter.put(vault, SUBJECT_INDEX_COLLECTION, key, env)

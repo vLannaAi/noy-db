@@ -20,7 +20,7 @@
 
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
-import { buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { buildRecordAad, buildRecordEnvelope, encrypt, openEnvelopeJson, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { NoydbError } from '../../kernel/errors.js'
 
 // Naming helpers, declaration types, and LinkIntegrityError live in
@@ -79,7 +79,7 @@ export class LinkSet implements LinkSetHandle {
     if (!this.encrypted) {
       return buildRecordEnvelope(identity, { version, iv: '', data: json})
     }
-    const { iv, data } = await encrypt(json, await this.dek())
+    const { iv, data } = await encrypt(json, await this.dek(), buildRecordAad(identity))
     return buildRecordEnvelope(identity, { version, iv, data})
   }
 
