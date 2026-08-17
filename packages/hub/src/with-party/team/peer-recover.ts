@@ -36,10 +36,10 @@
 import type { NoydbStore, KeyringFile, Role } from '../../kernel/types.js'
 import { NOYDB_KEYRING_VERSION } from '../../kernel/types.js'
 import { buildRecordEnvelope, deriveKey, generateSalt, wrapKey, bufferToBase64 } from '../../kernel/enclave/index.js'
-import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, ValidationError } from '../../kernel/errors.js'
+import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError } from '../../kernel/errors.js'
 import { assertStrongSecret, type SecretPolicy } from '../../kernel/validation.js'
 import type { UnlockedKeyring } from './keyring.js'
-import { mintKeyringCanary, readKeyringFile, rosterKeyOf } from './keyring.js'
+import { mintKeyringCanary, readKeyringFile, requireRosterKey } from './keyring.js'
 import { mintRosterTag } from './roster-tag.js'
 
 // FR-6: 'custodian' is deliberately ABSENT — an admin cannot peer-recover a
@@ -159,15 +159,7 @@ export async function recoverUser(
   // #1096 — recovery rewrites the target's authority half (`granted_by`
   // becomes the recoverer, `role` may change), so it must restamp the roster
   // tag, which needs the caller's vault roster key.
-  const rosterKey = rosterKeyOf(callerKeyring)
-  if (!rosterKey) {
-    throw new ValidationError(
-      'recoverUser: caller keyring has no vault roster key — cannot stamp a roster tag. ' +
-        'This typically means the keyring was opened via tier-3 PIN resume, ' +
-        'session restore, or a wrap-DEKs tier-2 unlock. Re-authenticate at ' +
-        'tier 1 (secret) before recovering a user.',
-    )
-  }
+  const rosterKey = requireRosterKey(callerKeyring, 'recoverUser')
 
   // 5. Mint a fresh salt + KEK from the temp secret. The DEKs
   //    themselves are unchanged — only the wrapping is replaced.

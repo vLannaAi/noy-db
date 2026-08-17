@@ -710,6 +710,11 @@ export type { PaperRecoveryEntry } from './with-party/team/recovery.js'
 // `mintPaperRecoveryEntry` and `enrollPasswordAuthenticator` both
 // delegate to these helpers.
 export { mintWrappedDeksBlob, unwrapDeksFromBlob } from './with-party/team/wrapped-deks.js'
+// #1096 — every path that builds an `UnlockedKeyring` from a `KeyringFile`
+// must authenticate its plaintext authority half. `@noy-db/on-password`'s
+// wrap-DEKs slot is such a path, so the chokepoint is part of the published
+// surface rather than hub-internal.
+export { assertRosterAuthenticated } from './with-party/team/roster-tag.js'
 export type { WrappedDeksBlob } from './with-party/team/wrapped-deks.js'
 
 // Managed-secret mode — rubber-hose-resistant vaults where

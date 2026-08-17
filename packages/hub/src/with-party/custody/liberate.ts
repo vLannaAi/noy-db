@@ -46,9 +46,8 @@ import type { Vault } from '../../kernel/vault.js'
 import type { FactorProofBundle, KeyringFile } from '../../kernel/types.js'
 import { PermissionDeniedError } from '../../kernel/errors.js'
 import { wrapKey } from '../../kernel/enclave/index.js'
-import { createOwnerKeyring } from '../team/keyring.js'
+import { createOwnerKeyring, requireRosterKey } from '../team/keyring.js'
 import { mintRosterTag } from '../team/roster-tag.js'
-import { ROSTER_KEY_ID } from '../../kernel/constants.js'
 import type { FrozenSnapshotRef } from '../../with-audit/portability/withdraw-accessible.js'
 import { freezeSnapshotOnly } from '../../with-audit/portability/withdraw-accessible.js'
 import { loadDeedMarker, saveDeedMarker } from '../team/deed.js'
@@ -132,13 +131,7 @@ export async function liberateVault(
   // Keeping the incumbent key is the substantive half: a fresh one would leave
   // the new owner unable to verify any co-member's roster, and every co-member
   // unable to verify theirs.
-  const rosterKey = keyring.deks.get(ROSTER_KEY_ID)
-  if (!rosterKey) {
-    throw new PermissionDeniedError(
-      `liberateVault: the custodian keyring for "${keyring.userId}" carries no vault roster key, ` +
-        'so the new owner\'s roster tag cannot be stamped. Re-authenticate at tier 1 (secret).',
-    )
-  }
+  const rosterKey = requireRosterKey(keyring, 'liberateVault')
   const merged: KeyringFile = { ...keyringFile, deks: mergedDeks }
   const mergedFile: KeyringFile = { ...merged, roster_tag: await mintRosterTag(merged, rosterKey) }
   await adapter.put(vaultName, '_keyring', opts.newOwnerId, { ...env, _data: JSON.stringify(mergedFile) })

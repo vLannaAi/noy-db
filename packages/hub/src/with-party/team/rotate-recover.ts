@@ -49,6 +49,7 @@ import {
 } from '../../kernel/validation.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { mintKeyringCanary, deriveKekForKeyring, readKeyringFile } from './keyring.js'
+import { assertRosterAuthenticated } from './roster-tag.js'
 import { buildEchoBlock } from './echo-secret.js'
 import type { DeviceSealProvider } from './device-seal.js'
 import type { KeyringAuthenticator } from '../../kernel/types.js'
@@ -280,6 +281,13 @@ export async function rotateSecret(
   for (const [coll, wrapped] of Object.entries(file.deks)) {
     deks.set(coll, await unwrapKey(wrapped, oldKek))
   }
+
+  // #1096 — this function returns an `UnlockedKeyring` whose `role` and
+  // `permissions` come from the plaintext header, so it must authenticate the
+  // roster like `loadKeyring` does. Checked BEFORE anything is written: a
+  // forged roster must be refused, not rewrapped under a fresh secret and
+  // thereby blessed.
+  await assertRosterAuthenticated(file, deks, userId)
 
   // Echo→standard is a security-posture downgrade decided by argument shape
   // alone — require explicit opt-in, and refuse before deriving the new KEK
@@ -674,6 +682,11 @@ async function recoverViaPaperCode(
 
   const deks = recovered.deks
 
+  // #1096 — same as the rotateSecret path: the returned keyring's authority
+  // comes from the plaintext header. The roster key rides the paper entry's
+  // wrapped-DEK blob, so it is in reach here even though no KEK ever is.
+  await assertRosterAuthenticated(file, deks, userId)
+
   // Fresh salt + KEK from the new secret, rewrap.
   const newSalt = generateSalt()
   const newKek = await deriveKekForNewSecret(input.newSecret, newSalt)
@@ -841,6 +854,10 @@ async function recoverViaShamir(
       + 'or the entry was rotated after these shares were distributed.',
     )
   }
+
+  // #1096 — mirrors paper: authenticate the roster before rewrapping it under
+  // a fresh secret. The roster key rides the Shamir entry's wrapped-DEK blob.
+  await assertRosterAuthenticated(file, recoveredDeks, userId)
 
   // Mint fresh KEK from new secret, rewrap DEKs (mirrors paper).
   const newSalt = generateSalt()

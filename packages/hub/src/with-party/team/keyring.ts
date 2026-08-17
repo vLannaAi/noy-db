@@ -16,7 +16,7 @@ import {
   type EchoSecretParts,
 } from '../../kernel/enclave/index.js'
 import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, KeyringTamperedError, InvalidKeyError, ValidationError, DirectoryDisabledError, EchoCeremonyRequiredError } from '../../kernel/errors.js'
-import { mintRosterTag, verifyRosterTag } from './roster-tag.js'
+import { mintRosterTag, assertRosterAuthenticated } from './roster-tag.js'
 import { readDirectoryConfig } from '../directory/storage.js'
 import { readUserVisibility, deleteUserVisibility } from '../directory/visibility.js'
 import {
@@ -248,8 +248,12 @@ export function rosterKeyOf(keyring: UnlockedKeyring): EnclaveKey | null {
   return keyring.deks.get(ROSTER_KEY_ID) ?? null
 }
 
-/** Shared wording for the stamping-site guards — mirrors the `kek` guard's shape. */
-function requireRosterKey(keyring: UnlockedKeyring, fn: string): EnclaveKey {
+/**
+ * Shared wording for the stamping-site guards — mirrors the `kek` guard's shape.
+ * Exported so every roster-stamping site in the hub raises ONE error with one
+ * wording, rather than each hand-copying it (`peer-recover`, `liberate`).
+ */
+export function requireRosterKey(keyring: UnlockedKeyring, fn: string): EnclaveKey {
   const rosterKey = rosterKeyOf(keyring)
   if (!rosterKey) {
     throw new ValidationError(
@@ -429,18 +433,9 @@ export async function loadKeyring(
   // Absence is an error, not a skip. The alternative — verify only when a
   // tag is present — lets a store opt out of the whole mechanism by deleting
   // a plaintext field, which is precisely the power this closes.
-  const rosterKey = deks.get(ROSTER_KEY_ID)
-  if (rosterKey === undefined) {
-    // A present-but-damaged entry already threw as KeyringCorruptError above,
-    // so reaching here means the entry is absent from the file entirely.
-    throw new KeyringTamperedError({ userId, reason: 'roster-key-missing' })
-  }
-  if (!(await verifyRosterTag(keyringFile, keyringFile.roster_tag, rosterKey))) {
-    throw new KeyringTamperedError({
-      userId,
-      reason: keyringFile.roster_tag === undefined ? 'roster-tag-missing' : 'roster-tag-mismatch',
-    })
-  }
+  // A present-but-damaged roster entry already threw as KeyringCorruptError
+  // above, so `roster-key-missing` from here means genuinely absent.
+  await assertRosterAuthenticated(keyringFile, deks, userId)
 
   return {
     userId: keyringFile.user_id,
@@ -1017,6 +1012,11 @@ export async function revoke(
   // with rotation the revoked member is locked out entirely; without it,
   // revocation is a complete no-op and they keep reading data written after
   // they were revoked.
+  // #1096 — the set above is derived from DEK-map keys, so it picks up the
+  // reserved roster key, which is not a collection and must never be rotated
+  // (see the refusal in `rotateKeys`). Dropped here, at the one site that
+  // gathers it implicitly, so `rotateKeys` can stay loud about explicit asks.
+  affectedCollections.delete(ROSTER_KEY_ID)
   if (affectedCollections.size > 0) {
     await rotateKeys(store, vault, callerKeyring, { collections: [...affectedCollections] })
   }
@@ -1096,7 +1096,7 @@ export async function updateKeyringIdentity(
   // holding their credential, which is exactly the power a hostile store was
   // helping itself to. The caller's own roster key is what re-authenticates
   // the result; the target's canary rides the spread untouched.
-  const rosterKey = requireRosterKey(callerKeyring, 'updateUser')
+  const rosterKey = requireRosterKey(callerKeyring, 'updateKeyringIdentity')
 
   const edited: KeyringFile = {
     ...target,
@@ -1215,21 +1215,29 @@ export async function rotateKeys(
   callerKeyring: UnlockedKeyring,
   opts: RotateKeysOptions,
 ): Promise<RotateResult> {
-  // #1096 — the roster key is NOT rotatable, and this filter is load-bearing.
+  // #1096 — the roster key is NOT rotatable, and this refusal is load-bearing.
   //
-  // `revoke` builds its rotation set from `Object.keys(targetKeyring.deks)`,
-  // which now contains `_roster`. Rotating it would mint a fresh roster key
-  // for the caller and then DROP the entry from every other member's file
-  // (rotation cannot re-wrap for a member whose KEK it cannot derive) — so the
-  // next `loadKeyring` for every remaining member would throw
-  // `roster-key-missing` and the whole vault would be unopenable, from an
-  // ordinary revoke. Refusing here rather than filtering at each caller keeps
-  // the guarantee at the chokepoint.
-  //
-  // Rotation also buys nothing: the roster tag defends against the STORE,
+  // Rotating it would mint a fresh roster key for the caller and then DROP the
+  // entry from every other member's file (rotation cannot re-wrap for a member
+  // whose KEK it cannot derive) — so the next `loadKeyring` for every remaining
+  // member would throw `roster-key-missing` and the whole vault would be
+  // unopenable. It also buys nothing: the roster tag defends against the STORE,
   // which never holds a key, and explicitly not against a member who has
   // already walked away with one.
-  const collections = opts.collections.filter((c) => c !== ROSTER_KEY_ID)
+  //
+  // THROWN, not silently dropped. `revoke` — the one caller that could pass it
+  // implicitly, since it derives its set from `Object.keys(target.deks)` —
+  // filters it out at source instead. So anything arriving here named it, and
+  // a caller that asks to rotate the roster key has a mistaken model of what
+  // rotation does; swallowing that would hide the mistake rather than fix it.
+  const { collections } = opts
+  if (collections.includes(ROSTER_KEY_ID)) {
+    throw new ValidationError(
+      `rotateKeys: "${ROSTER_KEY_ID}" is the vault roster key, not a collection, and cannot be ` +
+        'rotated — doing so would strip it from every other member and leave the vault unopenable. ' +
+        'Remove it from `collections`.',
+    )
+  }
   // FR-6: re-keying is an owner-only meta-capability. A custodian operates the
   // vault fully but must NOT rotate — rotation would let it mint fresh DEKs and
   // strip the sealed owner's access, breaking the inalienability floor.
@@ -1988,6 +1996,13 @@ export async function persistKeyring(
   // collapsed the admin delegation subtree that `granted_by` encodes.
   const existingGrantedBy = existingFound?.file.granted_by
   const existingCreatedAt = existingFound?.file.created_at
+  // Third field of the same class, and #1096 raised the stakes on it.
+  // `UnlockedKeyring` does not carry `expires_at`, so rebuilding the file from
+  // it silently CLEARED a bundle slot's expiry on any DEK-provisioning write —
+  // turning a time-boxed audit grant into a permanent one. Worse now: the
+  // roster tag would be stamped over the cleared value, so the erasure would
+  // come out authenticated.
+  const existingExpiresAt = existingFound?.file.expires_at
 
   const wrappedDeks: Record<string, string> = {}
   for (const [collName, dek] of keyring.deks) {
@@ -2011,6 +2026,7 @@ export async function persistKeyring(
     role: keyring.role,
     permissions: keyring.permissions,
     granted_by: existingGrantedBy ?? keyring.userId,
+    ...(existingExpiresAt !== undefined && { expires_at: existingExpiresAt }),
     ...(keyring.exportCapability !== undefined && { export_capability: keyring.exportCapability }),
     ...(keyring.importCapability !== undefined && { import_capability: keyring.importCapability }),
   }

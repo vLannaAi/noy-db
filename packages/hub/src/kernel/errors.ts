@@ -10,9 +10,9 @@
  *       ├─ Crypto errors
  *       │    ├─ DecryptionError        — AES-GCM tag failure
  *       │    ├─ TamperedError          — ciphertext modified after write
- *       │    └─ InvalidKeyError        — wrong secret / corrupt keyring
- *       │    ├─ KeyringCorruptError     — partial DEK corruption, KEK correct
- *       │    └─ KeyringTamperedError    — keyring roster failed authentication (#1096)
+ *       │    ├─ InvalidKeyError        — wrong secret / corrupt keyring
+ *       │    ├─ KeyringCorruptError    — partial DEK corruption, KEK correct
+ *       │    └─ KeyringTamperedError   — keyring roster failed authentication (#1096)
  *       ├─ Access errors
  *       │    ├─ NoAccessError          — no DEK for this collection
  *       │    ├─ ReadOnlyError          — ro permission, write attempted

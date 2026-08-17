@@ -23,6 +23,7 @@ import { memoryStore } from '../src/index.js'
 import { withTeam } from '../src/with-party/team/index.js'
 import { ROSTER_KEY_ID } from '../src/kernel/constants.js'
 import { isSecretBearingReservedCollection } from '../src/with-party/team/reserved-secret-collections.js'
+import { mintRosterTag } from '../src/with-party/team/roster-tag.js'
 import type { NoydbStore, KeyringFile, Role } from '../src/kernel/types.js'
 
 const VAULT = 'acme'
@@ -162,6 +163,51 @@ describe('#1096 — legitimate authority edits restamp', () => {
     const carolDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'carol', secret: 'carol-pass-1' })
     await expect(carolDb.openVault(VAULT)).resolves.toBeDefined()
     carolDb.close()
+  })
+
+  it('rotateKeys REFUSES an explicit roster-key rotation rather than dropping it silently', async () => {
+    // `revoke` filters the roster key out at source (it gathers DEK-map keys
+    // implicitly), so anything reaching `rotateKeys` named it deliberately —
+    // and a caller with a mistaken model of what rotation does is better told
+    // than quietly humoured. Silent-drop is the failure shape to avoid here.
+    const store = memoryStore()
+    const { db } = await ownerWith(store)
+    await expect(db.rotate(VAULT, [ROSTER_KEY_ID])).rejects.toMatchObject({
+      name: 'ValidationError',
+      message: expect.stringContaining(ROSTER_KEY_ID),
+    })
+    // A rotation naming only real collections is unaffected.
+    await expect(db.rotate(VAULT, ['invoices'])).resolves.toBeDefined()
+  })
+
+  it('persistKeyring carries `expires_at` forward instead of authenticating its erasure', async () => {
+    // `UnlockedKeyring` does not carry `expires_at`, so rebuilding the file
+    // from it used to silently CLEAR a time-boxed grant on the next
+    // DEK-provisioning write. #1096 raised the stakes: the roster tag would be
+    // stamped over the cleared value, so the erasure came out authenticated.
+    // Same carry-forward class as the granted_by / created_at bugs already
+    // fixed in that function.
+    const store = memoryStore()
+    const { db } = await ownerWith(store)
+    // admin so bob's own write provisions a DEK and triggers `persistKeyring`.
+    await db.grant(VAULT, { userId: 'bob', displayName: 'Bob', role: 'admin', secret: 'bob-pass-1' })
+
+    // Seed a LEGITIMATELY expiring keyring — stamped with the vault roster key,
+    // exactly as an admin setting a time-boxed grant would. Writing the field
+    // without restamping would be a forgery, and (correctly) refused.
+    const expiresAt = '2099-01-01T00:00:00.000Z'
+    const ownerKeyring = await db.team.getKeyring(VAULT)
+    const rosterKey = ownerKeyring.deks.get(ROSTER_KEY_ID)!
+    const expiring = { ...(await fileOf(store, 'bob')), expires_at: expiresAt }
+    await rewrite(store, 'bob', { ...expiring, roster_tag: await mintRosterTag(expiring, rosterKey) })
+
+    // Provoke a DEK-provisioning persist on bob's own keyring.
+    const bobDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: 'bob-pass-1' })
+    const bobVault = await bobDb.openVault(VAULT)
+    await bobVault.collection<{ n: number }>('notes').put('n-1', { n: 1 })
+    bobDb.close()
+
+    expect((await fileOf(store, 'bob')).expires_at).toBe(expiresAt)
   })
 
   it('the roster key SURVIVES a revoke — rotation must never drop it', async () => {
