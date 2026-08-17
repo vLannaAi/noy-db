@@ -1,5 +1,13 @@
 # @noy-db/on-threat
 
+## 0.6.0-pre.20
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.20
+
 ## 0.6.0-pre.19
 
 ### Patch Changes
