@@ -1,5 +1,27 @@
 # Changelog — hub
 
+## 0.6.0-pre.19
+
+### Patch Changes
+
+- `TamperedError` now says WHICH failure it is (#1103).
+
+  #1041 switched identity AAD on, so every record written by `0.6.0-pre.17` or
+  earlier fails its tag check — arriving as the same `TamperedError` the docs
+  describe as a modified envelope and instruct the reader to treat as a security
+  alert. An honest upgrade on honest data therefore raised the product's central
+  alarm, and the documentation confirmed the wrong reading.
+
+  `TamperedError` gains an optional `reason`. When the body opens under an **empty**
+  AAD it is reported as `'unbound-legacy-format'` — a data-format transition rather
+  than tampering, with a message that says so and points at #1100. Otherwise the
+  field is absent and the bare security alert stands.
+
+  The check is **classification only**: the retry's plaintext is discarded and the
+  call still throws, so this cannot become a path by which unbound data is
+  accepted. `reason` is additive — existing `instanceof TamperedError` handling is
+  unchanged.
+
 ## 0.6.0-pre.18
 
 > **⚠️ ADDENDUM, added 2026-08-17 after publication. The entries below are left
@@ -11,7 +33,7 @@
 > migration path. See #1100 for the 0.7.0 migration position.
 >
 > **The cause is #1041, not #1093.** The entry below says identity has been
-> authenticated "since #1041" in a way that reads as *already shipped*. It was
+> authenticated "since #1041" in a way that reads as _already shipped_. It was
 > not: `pre.17` was tagged 2026-08-14 and #1041 merged 2026-08-15, so **#1041
 > ships in THIS release**, alongside #1042, #1044 and #1093.
 >
