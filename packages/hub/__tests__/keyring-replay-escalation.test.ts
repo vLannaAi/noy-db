@@ -253,8 +253,14 @@ describe('#1043/#1096 A — the plaintext ROLE was forgeable; roster_tag now ref
 
     await forgeRole(store, 'bob', 'admin')
 
-    // The revoke must not silently succeed while re-signing bob's forgery.
-    await expect(db.revoke(VAULT, { userId: 'carol' })).rejects.toBeInstanceOf(KeyringTamperedError)
+    // The revoke must not re-sign bob's forgery. It originally proved that by
+    // aborting; since #1114 the rotation SKIPS bob and the revoke completes,
+    // because one member's bad file must not freeze roster administration for
+    // the whole vault. The row is stronger this way — it now shows the
+    // operation running to completion and still not laundering, where before
+    // it only showed the operation refusing to run.
+    await db.revoke(VAULT, { userId: 'carol' })
+    expect(await store.get(VAULT, '_keyring', 'carol')).toBeNull()
 
     // The load-time refusal still stands — nothing re-signed it.
     const forged = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: 'bob-pass-1' })
