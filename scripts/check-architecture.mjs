@@ -1817,21 +1817,31 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/introspection/meta.js',
     '../with-shape/introspection/types.js',
     '../with-shape/introspection/walk.js',
-    // ⚠️ THE THREE BELOW WERE HIDDEN, NOT SANCTIONED — see #1085.
-    // `stripComments` stripped block comments BEFORE line comments until
-    // 2026-08-14, so vault.ts:84's `// … (never via/lookup/*` opened a phantom
-    // block that swallowed every import after it. These three static imports
-    // landed during that window and this check never saw them.
+    // The two below were HIDDEN by the `stripComments` ordering bug (block
+    // comments stripped before line comments, so vault.ts:84's
+    // `// … (never via/lookup/*` opened a phantom block that swallowed every
+    // import after it) and are now SANCTIONED — #1085, decided 2026-08-17.
     //
-    // They are listed here to preserve the exact status quo while the TOOL is
-    // fixed — not because anyone has judged them exempt. Each is the same shape
-    // as its allowlisted siblings above (thin call-site, heavy logic in the
-    // service), which is why this is a defensible hold rather than a fix. The
-    // real question — exempt, or move to a dynamic import? — is #1085's, and
-    // must not be settled by a line in a tool-fix PR.
+    // The three hidden imports were not one case. What separates them is
+    // whether their CALLER is async, which decides whether the S4 dynamic-import
+    // recipe is free or costs a public API break:
+    //
+    //   migrate-cek.js      → `migrateSatellitePerRecordKeys` is already async.
+    //                         Converted to `await import()` and REMOVED from
+    //                         this list. Free, so it was taken.
+    //   behaviors.js        → `listBehaviors(): BehaviorSummary` is sync and public.
+    //   subsystem-matrix.js → `_introspectState(): VaultIntrospectState` is sync
+    //                         and read all over the spine and the tests.
+    //
+    // Making those last two dynamic would turn two synchronous read-only
+    // introspection surfaces into promise-returning ones — a public breaking
+    // change to satisfy a layering guard, which is the tail wagging the dog.
+    // Both are pure builders over state the spine already holds (no service
+    // state, no I/O), the same shape as `field-meta.js`/`meta.js`/`walk.js`
+    // above. Exempting them costs the eager graph two small modules that
+    // `introspection/` already pulls in via those siblings.
     '../with-shape/introspection/behaviors.js',
     '../with-shape/introspection/subsystem-matrix.js',
-    '../with-shape/satellites/migrate-cek.js',
     // #553 -- always-loadable links slice (naming/types + the lazy handle
     // factory); the LinkSet storage engine itself now dynamic-imports
     '../with-shape/links/lazy-handle.js',

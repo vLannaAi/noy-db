@@ -127,7 +127,6 @@ import type { SatelliteRegistry } from '../with-shape/satellites/registry.js'
 import { makeJoinedHandle } from '../with-shape/satellites/joined.js'
 import type { JoinedHandle } from '../with-shape/satellites/types.js'
 import { expandRefsWithSatellites } from '../with-shape/satellites/forget.js'
-import { migrateSatelliteCek } from '../with-shape/satellites/migrate-cek.js'
 import {
   type PeriodRecord,
   type PeriodReopenEvent,
@@ -994,9 +993,14 @@ export class Vault {
    * unblocks R-S7 when a base gains forget coverage after its satellite was
    * already declared without `perRecordKeys`. Call BEFORE re-declaring with
    * `{ satelliteOf, perRecordKeys: true }` AND before this collection serves
-   * writes (unfenced walk — see {@link migrateSatelliteCek}); resumable.
+   * writes (unfenced walk — see `with-shape/satellites/migrate-cek.ts`); resumable.
    */
   async migrateSatellitePerRecordKeys(satelliteName: string): Promise<{ migrated: number }> {
+    // Dynamic (#1085): this method is already async, so the spine keeps the
+    // migrator out of its eager graph at zero call-site cost. Its two former
+    // companions stay static because THEIR callers are synchronous — see the
+    // port-layering allowlist in scripts/check-architecture.mjs.
+    const { migrateSatelliteCek } = await import('../with-shape/satellites/migrate-cek.js')
     return migrateSatelliteCek(satelliteName, this.collection(satelliteName, { perRecordKeys: true }))
   }
 
