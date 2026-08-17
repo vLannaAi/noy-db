@@ -1,6 +1,6 @@
 {
   "name": "create-noy-db",
-  "version": "0.3.3-pre.18",
+  "version": "0.3.3-pre.19",
   "description": "Wizard + CLI tool for noy-db: scaffold a fresh Nuxt 4 + Pinia encrypted store, or add collections to an existing project. Invoke via `npm create noy-db`.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

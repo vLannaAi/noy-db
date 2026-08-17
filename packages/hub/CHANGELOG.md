@@ -1,5 +1,64 @@
 # Changelog — hub
 
+## 0.6.0-pre.20
+
+### Patch Changes
+
+- SECURITY: revocation now re-keys history snapshots and ledger deltas (#1108).
+
+  `rotateKeys` re-keyed by collection **name**, which assumed DEK-name and
+  collection-name are 1:1. They are not — a `_history` snapshot is filed under
+  `_history` but sealed under its **source** collection's DEK, and
+  `_ledger_deltas` is sealed under the `_ledger` DEK.
+
+  So a revocation rotated the live records and missed everything sealed under the
+  same key but filed elsewhere. The defect was symmetric:
+
+  - **confidentiality** — a revoked member kept reading every prior version of
+    every record they could previously see;
+  - **availability** — the owner _lost_ access to that history, since the keyring
+    moved to the new DEK while the snapshots stayed on the old one. `getVersion()`
+    threw `TamperedError` after any revocation.
+
+  Rotation now covers those surfaces, through the same `rekeyEnvelopeIfNeeded`
+  helper, so the resume-after-interruption property from #1074 holds for them too.
+
+  Guarded by an invariant rather than an enumeration: _after a revocation, no
+  retained key may open any envelope._ The test does not consult the fix's table,
+  so a service that later seals under a borrowed DEK fails there rather than
+  leaking quietly.
+
+- `verifyVaultHead()` returns a THREE-way verdict (#1101).
+
+  `HeadVerifyResult.clean: boolean` is **replaced** by
+  `verdict: 'verified' | 'unverifiable' | 'tampered'` plus
+  `because: HeadUnverifiableReason[]`.
+
+  `clean` could not distinguish "the head holds no expectations" from "every
+  expectation was met" — both rendered `true`, and that indistinguishability _was_
+  the defect this subsystem shipped with: a head registered on a code path that
+  returned early recorded nothing and swept perfectly clean.
+
+  Collapsing the middle value is wrong in a different direction each way: into
+  "clean" it hides withholding, which is the one thing the head exists to catch;
+  into "tampered" it cries wolf on a vault that is merely unexamined.
+
+  Two reasons a sweep cannot conclude:
+
+  - `'no-expectations'` — a fresh vault, a head switched on late, or a **restore
+    from a snapshot** (`_head` is `_`-prefixed, so `loadAll` excludes it).
+  - `'store-cannot-cas'` — without `capabilities.casAtomic`, racing writers can
+    silently drop a head entry, and a dropped entry is a record the sweep stops
+    expecting. Capability honesty is an **integrity** concern here rather than a
+    lost-update one: a store that declines CAS degrades the very manifest that
+    exists to detect that store.
+
+  A discrepancy outranks any `unverifiable` reason — positive evidence wins.
+
+  `withVaultHead()` deliberately still arms against a non-CAS store: the common
+  file/S3/R2 backends are not CAS-capable, and a weaker head beats no head. The
+  honesty lives in the verdict, where a caller cannot miss it.
+
 ## 0.6.0-pre.19
 
 ### Patch Changes
