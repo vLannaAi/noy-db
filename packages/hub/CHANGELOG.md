@@ -2,6 +2,33 @@
 
 ## 0.6.0-pre.18
 
+> **⚠️ ADDENDUM, added 2026-08-17 after publication. The entries below are left
+> exactly as they shipped; this note corrects them rather than rewriting them.**
+>
+> **This release cannot read vaults written by `0.6.0-pre.17` or earlier.**
+> Records sealed by any earlier version fail with `TamperedError`. Not a stricter
+> check rejecting bad data — valid data becomes unreadable, and there is no
+> migration path. See #1100 for the 0.7.0 migration position.
+>
+> **The cause is #1041, not #1093.** The entry below says identity has been
+> authenticated "since #1041" in a way that reads as *already shipped*. It was
+> not: `pre.17` was tagged 2026-08-14 and #1041 merged 2026-08-15, so **#1041
+> ships in THIS release**, alongside #1042, #1044 and #1093.
+>
+> `pre.17` compiles `buildRecordAad` and never invokes it on the record write
+> path (`encryptJsonString` → `encrypt(json, dek)`, no AAD) — the deliberate
+> "required but not yet used" state from #1051. Confirmed two ways: a `pre.17`
+> envelope opens under an **empty** AAD and under no identity variant; and call
+> sites in the published tarballs go `recordAadFor` 0 → 15 across the boundary.
+>
+> So the transition is **no AAD → AAD**. `#1093`'s `noydb-aad/2` scheme label is
+> **not** the cause, and reverting it — or `_v` — would restore nothing.
+>
+> This addendum exists because the uncorrected text has already led three
+> separate investigations to the same wrong conclusion. **A string constant is
+> not a call site:** grepping a scheme label proves the encoder was compiled in,
+> never that anything invoked it.
+
 ### Patch Changes
 
 - Bind a record's version `_v` into the AEAD (#1093).
