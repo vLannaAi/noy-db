@@ -263,14 +263,27 @@ export class KeyringCorruptError extends NoydbError {
  * wrong-secret keeps reporting as `InvalidKeyError` and is never
  * misannounced to the user as an attack.
  */
+/**
+ * Why a `_keyring` file failed roster authentication (#1096).
+ *
+ * Named rather than inlined because a third consumer now reports it without
+ * throwing: `RotateResult.unverified` (#1114) lists the members a rotation
+ * skipped, and a union duplicated per call site drifts.
+ */
+export type KeyringTamperedReason =
+  | 'canary-missing'
+  | 'roster-key-missing'
+  | 'roster-tag-missing'
+  | 'roster-tag-mismatch'
+
 export class KeyringTamperedError extends NoydbError {
   readonly details: {
     readonly userId: string
-    readonly reason: 'canary-missing' | 'roster-key-missing' | 'roster-tag-missing' | 'roster-tag-mismatch'
+    readonly reason: KeyringTamperedReason
   }
   constructor(details: {
     readonly userId: string
-    readonly reason: 'canary-missing' | 'roster-key-missing' | 'roster-tag-missing' | 'roster-tag-mismatch'
+    readonly reason: KeyringTamperedReason
   }) {
     super(
       'KEYRING_TAMPERED',

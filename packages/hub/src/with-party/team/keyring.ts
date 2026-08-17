@@ -16,6 +16,7 @@ import {
   type EchoSecretParts,
 } from '../../kernel/enclave/index.js'
 import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, KeyringTamperedError, InvalidKeyError, ValidationError, DirectoryDisabledError, EchoCeremonyRequiredError } from '../../kernel/errors.js'
+import type { KeyringTamperedReason } from '../../kernel/errors.js'
 import { mintRosterTag, assertRosterAuthenticated, assertRosterTagValid } from './roster-tag.js'
 import { readDirectoryConfig } from '../directory/storage.js'
 import { readUserVisibility, deleteUserVisibility } from '../directory/visibility.js'
@@ -1049,7 +1050,23 @@ export async function revoke(
   // gathers it implicitly, so `rotateKeys` can stay loud about explicit asks.
   affectedCollections.delete(ROSTER_KEY_ID)
   if (affectedCollections.size > 0) {
-    await rotateKeys(store, vault, callerKeyring, { collections: [...affectedCollections] })
+    const { unverified } = await rotateKeys(store, vault, callerKeyring, {
+      collections: [...affectedCollections],
+    })
+    // #1114 — `revoke` resolves to void, so without this the quarantine would
+    // be the one thing a rotation reports that nobody can hear. Noisy and
+    // itemised on purpose, matching the `cascade: 'warn'` warning above: the
+    // operator needs the names, because each one is a member who is now locked
+    // out of the vault by a file only an out-of-band repair can fix.
+    if (unverified.length > 0) {
+      console.warn(
+        `[noy-db] revoke(${options.userId}): ${unverified.length} member(s) were SKIPPED by the ` +
+          `rotation because their keyring failed roster authentication: ` +
+          `${unverified.map((u) => `${u.userId} (${u.reason})`).join(', ')}. ` +
+          'The revocation itself completed. Those members cannot open the vault and did not ' +
+          'receive the rotated keys; their keyring files need repair or removal (noy-db#1114).',
+      )
+    }
   }
 }
 
@@ -1173,6 +1190,26 @@ export async function updateKeyringIdentity(
 export interface RotateResult {
   /** (member, collection) pairs whose access was dropped by the rotation. */
   readonly needsRegrant: ReadonlyArray<{ readonly userId: string; readonly collection: string }>
+  /**
+   * Members skipped because their `_keyring` file failed roster verification
+   * (#1114).
+   *
+   * Rotation hands a member re-wrapped DEKs, so skipping one gives them
+   * **less**, never more: the file is left untouched and its wrappings for the
+   * rotated collections go stale. That is the same fail-closed end state as
+   * `needsRegrant`, but it needs a different remedy and so gets a different
+   * field — a `needsRegrant` entry is fixed by `grant()`, whereas one of these
+   * is a file that no longer authenticates and cannot be repaired by granting
+   * over it.
+   *
+   * Before this existed, one such file threw and took `revoke` and
+   * `rotateKeys` down vault-wide — the two operations most needed when a
+   * roster is suspect.
+   */
+  readonly unverified: ReadonlyArray<{
+    readonly userId: string
+    readonly reason: KeyringTamperedReason
+  }>
 }
 
 /** Options for {@link rotateKeys} (#846b — was a bare `string[]`). */
@@ -1392,6 +1429,7 @@ export async function rotateKeys(
   // `Noydb.rotate`'s jsdoc promised too — but re-wrapping is impossible and
   // always was (#854). See the note below.
   const needsRegrant: Array<{ userId: string; collection: string }> = []
+  const unverified: Array<{ userId: string; reason: KeyringTamperedReason }> = []
   const userIds = await store.list(vault, '_keyring')
   for (const userId of userIds) {
     if (userId === callerKeyring.userId) continue
@@ -1405,7 +1443,26 @@ export async function rotateKeys(
     // roster that `loadKeyring` refuses and hand it back a GENUINE tag. And
     // `revoke` calls this unconditionally, so one forged member plus any later
     // revocation anywhere in the vault would be a complete bypass.
-    await assertRosterTagValid(userKeyringFile, callerRosterKey, userId)
+    //
+    // #1114 — SKIP the member rather than failing the rotation. Throwing here
+    // meant one bad file froze `revoke` and `rotateKeys` for the whole vault,
+    // including the revoke that would have removed it. Skipping is safe
+    // precisely HERE, and the reason is directional: this loop's effect on a
+    // member is to hand them re-wrapped DEKs, so declining to process one gives
+    // them LESS. Their file is not restamped (nothing laundered) and not
+    // re-wrapped (no new key), leaving the same fail-closed end state rotation
+    // already produces for a member it cannot re-wrap for (#854).
+    //
+    // Only the tamper verdict is caught. Any other failure is still fatal —
+    // "skip on error" would quietly convert a bug into a silent no-rotation,
+    // which is the shape of defect this subsystem keeps finding.
+    try {
+      await assertRosterTagValid(userKeyringFile, callerRosterKey, userId)
+    } catch (err) {
+      if (!(err instanceof KeyringTamperedError)) throw err
+      unverified.push({ userId, reason: err.details.reason })
+      continue
+    }
     // A user's DEKs are wrapped with that user's KEK, and a KEK derives only
     // from the user's secret — the caller can never derive another user's
     // KEK, so re-wrapping the new DEKs for them is impossible. Rotation
@@ -1441,7 +1498,7 @@ export async function rotateKeys(
     await writeKeyringFile(store, vault, userId, updatedKeyring)
   }
 
-  return { needsRegrant }
+  return { needsRegrant, unverified }
 }
 
 // ─── Change Secret ─────────────────────────────────────────────────────
