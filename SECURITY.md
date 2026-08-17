@@ -33,7 +33,7 @@ All operations use the Web Crypto API (`crypto.subtle`). Zero npm crypto depende
 | Lost USB stick | AES-256-GCM — without the secret, all data is ciphertext |
 | Cloud admin reads data | Zero-knowledge by default — backends store only ciphertext; non-PRF WebAuthn enrollments are refused by default but can be explicitly opted in via `allowNonPrfInsecure`, producing a documented non-confidential presence gate |
 | Brute-force secret | PBKDF2 600K iterations (~200ms/attempt). a 12-char secret is infeasible |
-| Tampered record **body** | AES-GCM auth tag — decrypt fails with `TamperedError`. Covers `_data` only; see *Envelope metadata is not authenticated* below |
+| Tampered record **body** | AES-GCM auth tag — decrypt fails with `TamperedError`. Covers `_data` only; see *Envelope metadata is not authenticated* below. ⚠️ **A `TamperedError` is not by itself proof of an attack** — see *Reading a `TamperedError`* |
 | Revoked user retains data | Revocation always re-encrypts the affected collections under new DEKs — the rotation cannot be skipped |
 | Compromised biometric store | Wrapped KEK encrypted by WebAuthn credential (PRF-capable); non-PRF enrollments self-decrypt and are not recommended for this threat model |
 
@@ -110,6 +110,28 @@ binding — **done**), [#1042](https://github.com/vLannaAi/noy-db/issues/1042)
 unblocked the wiring — **done**),
 [#1093](https://github.com/vLannaAi/noy-db/issues/1093) (binding `_v` —
 **done**). What remains is withholding, which is detected rather than prevented.
+
+### Reading a `TamperedError`
+
+`TamperedError` means *the bytes are not what this client can authenticate*.
+Since #1041 that covers more than one situation, so **it is not on its own proof
+of an attack**:
+
+| `err.reason` | meaning |
+|---|---|
+| `'unbound-legacy-format'` | the body opens under an **empty** AAD, so it was sealed before identity binding — a **data-format transition, not tampering**. Records written by `0.6.0-pre.17` or earlier read this way; there is no migration path ([#1100](https://github.com/vLannaAi/noy-db/issues/1100)) |
+| absent | no benign explanation was found. Treat as the security alert — a modified, relocated, re-tiered or re-authored envelope, or a store that dropped a bound field such as `_by`/`_tier` while reconstructing one |
+
+The discriminant is **positive evidence, not a guess**: producing a body that
+decrypts under the record's key requires that key, which an untrusted store does
+not hold. It is also **classification only** — the retry's plaintext is
+discarded and the call still throws, so this is not a path by which unbound data
+can be accepted.
+
+Note what the legacy verdict concedes: pre-#1041 data carried no authenticated
+metadata, so a legacy record that was *also* tampered with reads as legacy. That
+is an accurate statement about data that never had a binding, not a weakening of
+one.
 
 ### What NOYDB Does NOT Protect Against
 

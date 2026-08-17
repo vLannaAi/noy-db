@@ -171,9 +171,30 @@ export class DecryptionError extends NoydbError {
  * Treat it as a security alert: the stored bytes are not what NOYDB wrote.
  */
 export class TamperedError extends NoydbError {
-  constructor(message = 'Data integrity check failed — record may have been tampered with') {
+  /**
+   * Why the tag check failed, when the enclave could tell (#1103).
+   *
+   * `'unbound-legacy-format'` — the body opens under an EMPTY AAD, so it was
+   * sealed before identity binding (#1041) and this is a format transition, not
+   * an attack. Positive evidence, not a guess: producing a body that decrypts
+   * under this DEK requires the DEK, which an untrusted store does not hold.
+   *
+   * Absent — no benign explanation was found. Treat as the security alert this
+   * error has always been.
+   *
+   * The field is additive and the throw is unchanged, so
+   * `catch (e) { if (e instanceof TamperedError) … }` keeps working; callers
+   * that want to tell a migration from a breach can now read this.
+   */
+  readonly reason?: 'unbound-legacy-format'
+
+  constructor(
+    message = 'Data integrity check failed — record may have been tampered with',
+    reason?: 'unbound-legacy-format',
+  ) {
     super('TAMPERED', message)
     this.name = 'TamperedError'
+    if (reason !== undefined) this.reason = reason
   }
 }
 
