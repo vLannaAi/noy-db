@@ -30,11 +30,53 @@ export interface HeadDiscrepancy {
   readonly kind: 'withheld' | 'rolled-back'
 }
 
+/**
+ * Why a sweep could not reach a conclusion.
+ *
+ * - `'no-expectations'` — the head holds nothing for this collection. A fresh
+ *   vault, a head switched on after the fact, or a **restore from a snapshot**:
+ *   `_head` is `_`-prefixed, so `loadAll` excludes it and a restored vault has
+ *   no head to compare against.
+ * - `'store-cannot-cas'` — the store does not advertise `capabilities.casAtomic`,
+ *   so two writers racing on one bucket can silently lose an entry. A lost entry
+ *   is a record the sweep stops expecting, which is a false clean.
+ */
+export type HeadUnverifiableReason = 'no-expectations' | 'store-cannot-cas'
+
+/**
+ * ## Three-way, deliberately (#1101)
+ *
+ * - `'verified'` — the head held expectations, every one was met, and the store
+ *   can serialize head writes.
+ * - `'unverifiable'` — the sweep could not conclude. See `because`.
+ * - `'tampered'` — at least one discrepancy. Positive evidence, so it wins over
+ *   any `unverifiable` reason present at the same time.
+ *
+ * **The middle value is the point, and collapsing it is wrong in a different
+ * direction each way:** folded into "clean" it hides withholding, which is the
+ * one thing this service exists to catch; folded into "tampered" it cries wolf
+ * on a vault that is merely unexamined.
+ *
+ * That is not hypothetical. #1044's own first bug was a head that recorded
+ * nothing and swept **perfectly clean** — the degraded state rendered
+ * identically to a healthy one, which is why its test asserts `checked` before
+ * anything else. A two-way verdict makes that state a supported outcome.
+ */
+export type HeadVerdict = 'verified' | 'unverifiable' | 'tampered'
+
 export interface HeadVerifyResult {
+  readonly verdict: HeadVerdict
   readonly checked: number
   readonly discrepancies: readonly HeadDiscrepancy[]
-  /** `true` when every record the head knows about is served at or above its expected version. */
-  readonly clean: boolean
+  /**
+   * Non-empty only when `verdict === 'unverifiable'`.
+   *
+   * There is deliberately no `clean: boolean`. It could not distinguish "no
+   * expectations" from "all expectations met" — both rendered `true` — and that
+   * indistinguishability *was* the defect. Replacing it rather than keeping it
+   * alongside forces every caller to face the three-way.
+   */
+  readonly because: readonly HeadUnverifiableReason[]
 }
 
 /**
@@ -60,6 +102,13 @@ export async function verifyVaultHead(
   const known = await head.knownIn(store, vault, getDEK, collection)
   const discrepancies: HeadDiscrepancy[] = []
 
+  const because: HeadUnverifiableReason[] = []
+  if (known.size === 0) because.push('no-expectations')
+  // Read the store's OWN declared capability rather than probing: a store that
+  // cannot serialize head writes may have silently dropped an entry, and a
+  // dropped entry is invisible by construction — there is nothing left to find.
+  if (store.capabilities?.casAtomic !== true) because.push('store-cannot-cas')
+
   for (const [id, expected] of known) {
     const env = await store.get(vault, collection, id)
     if (env === null) {
@@ -71,5 +120,12 @@ export async function verifyVaultHead(
     }
   }
 
-  return { checked: known.size, discrepancies, clean: discrepancies.length === 0 }
+  // A discrepancy is positive evidence, so it outranks any reason the sweep was
+  // also incomplete: a rolled-back record found by a head that may be missing
+  // OTHER entries is still a rolled-back record.
+  const verdict: HeadVerdict = discrepancies.length > 0
+    ? 'tampered'
+    : because.length > 0 ? 'unverifiable' : 'verified'
+
+  return { verdict, checked: known.size, discrepancies, because }
 }

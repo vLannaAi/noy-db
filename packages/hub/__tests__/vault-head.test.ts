@@ -11,8 +11,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import { memoryStore } from '../src/index.js'
-import { generateDEK, openEnvelopeJson, recordAadFor, decrypt, type EnclaveKey } from '../src/kernel/enclave/index.js'
-import { withVaultHead, VAULT_HEAD_COLLECTION } from '../src/with-commit/vault-head/index.js'
+import { generateDEK, openEnvelopeJson, recordAadFor, decrypt, writeEnvelopeBody, buildRecordEnvelope, type EnclaveKey } from '../src/kernel/enclave/index.js'
+import { withVaultHead, verifyVaultHead, VAULT_HEAD_COLLECTION } from '../src/with-commit/vault-head/index.js'
 import { bucketIndex } from '../src/with-commit/vault-head/head.js'
 
 const VAULT = 'acme'
@@ -140,14 +140,16 @@ describe('#1044 — the sweep detects what per-envelope authentication cannot', 
     // below is satisfied by a detector that simply always complains.
     const before = await verifyVaultHead(head, adapter, VAULT, getDEK, COLL)
     expect(before.checked).toBe(2)
-    expect(before.clean).toBe(true)
+    // `memoryStore` advertises casAtomic, so a met sweep is fully 'verified'.
+    expect(before.verdict).toBe('verified')
+    expect(before.because).toEqual([])
 
     // The store withholds d1 — serving nothing. Every envelope it DOES serve is
     // perfectly authentic, which is exactly why #1041/#1042 see nothing wrong.
     await adapter.delete(VAULT, COLL, 'd1')
 
     const after = await verifyVaultHead(head, adapter, VAULT, getDEK, COLL)
-    expect(after.clean).toBe(false)
+    expect(after.verdict).toBe('tampered')
     expect(after.discrepancies).toEqual([
       { collection: COLL, id: 'd1', expected: 1, actual: null, kind: 'withheld' },
     ])
@@ -192,6 +194,61 @@ describe('#1044 — the sweep detects what per-envelope authentication cannot', 
     await adapter.put(VAULT, COLL, 'stranger', (await adapter.get(VAULT, COLL, 'known'))!)
 
     const result = await verifyVaultHead(head, adapter, VAULT, getDEK, COLL)
-    expect(result.clean).toBe(true)
+    expect(result.verdict).toBe('verified')
+    expect(result.discrepancies).toEqual([])
+  })
+})
+
+describe('#1101 — the verdict is three-way, and "unverifiable" is not "clean"', () => {
+  /** A store that honestly declares it cannot serialize a compare-and-swap. */
+  function withoutCas(base: ReturnType<typeof memoryStore>): ReturnType<typeof memoryStore> {
+    const caps = base.capabilities!
+    return { ...base, capabilities: { ...caps, casAtomic: false } }
+  }
+
+  it('12. a vault the head knows NOTHING about is `unverifiable`, never `verified`', async () => {
+    // The shape of this subsystem's own first bug: a head that recorded nothing
+    // swept perfectly clean, because "no expectations" and "all expectations
+    // met" rendered identically. They must not.
+    const { store, getDEK, head } = await fixture()
+    const result = await verifyVaultHead(head, store, VAULT, getDEK, COLL)
+    expect(result.checked).toBe(0)
+    expect(result.verdict).toBe('unverifiable')
+    expect(result.because).toContain('no-expectations')
+  })
+
+  it('13. a store that cannot CAS is `unverifiable` even when every expectation is MET', async () => {
+    // Capability honesty is an INTEGRITY concern here, not a lost-update one: a
+    // store that declines CAS can silently drop a head entry, and a dropped
+    // entry is a record the sweep stops expecting — a false clean. So a fully
+    // met sweep against such a store is still not a clean bill of health.
+    const { store, dek, getDEK, head } = await fixture()
+    const noCas = withoutCas(store)
+
+    await head.note(noCas, VAULT, getDEK, { collection: COLL, id: 'd1', version: 1 })
+    // The sweep reads only `_v`, so a minimal envelope satisfies the expectation.
+    const ident = { collection: COLL, id: 'd1', version: 1 }
+    const body = await writeEnvelopeBody(ident, '{}', dek)
+    await noCas.put(VAULT, COLL, 'd1', buildRecordEnvelope(ident, { iv: body._iv, data: body._data }))
+
+    const result = await verifyVaultHead(head, noCas, VAULT, getDEK, COLL)
+    expect(result.discrepancies).toEqual([]) // nothing is actually wrong…
+    expect(result.because).toContain('store-cannot-cas')
+    expect(result.verdict).toBe('unverifiable') // …but it cannot be called verified
+  })
+
+  it('14. a real discrepancy OUTRANKS any unverifiable reason', async () => {
+    // Positive evidence wins: a withheld record found by a head that may ALSO be
+    // missing other entries is still a withheld record, and reporting it as
+    // merely "unverifiable" would bury the one thing worth acting on.
+    const { store, getDEK, head } = await fixture()
+    const noCas = withoutCas(store)
+
+    await head.note(noCas, VAULT, getDEK, { collection: COLL, id: 'ghost', version: 4 })
+
+    const result = await verifyVaultHead(head, noCas, VAULT, getDEK, COLL)
+    expect(result.because).toContain('store-cannot-cas')
+    expect(result.verdict).toBe('tampered')
+    expect(result.discrepancies[0]).toMatchObject({ id: 'ghost', kind: 'withheld' })
   })
 })
