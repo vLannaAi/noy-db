@@ -254,6 +254,15 @@ no coexistence, so the decision is replaced rather than amended. What follows is
 - **No migration tooling ships.** No converter, no format-progress reporting, no mixed-format
   specification, no flag day to schedule.
 
+> **Applied a second time, 2026-08-17 — this decision governs the `_keyring` format too.**
+> #1096 made `canary` and `roster_tag` required and deleted the legacy no-canary fallback, so
+> every keyring written before it is unloadable. Same premise, same reasoning, and stated in the
+> commit rather than discovered: there is no production vault, so the format is *replaced*. Worth
+> recording because the decision was written about record envelopes and read as if it were only
+> about them — under a compatibility constraint, authenticating the roster would have needed a
+> tolerate-an-unauthenticated-file path, which is the downgrade hole this decision exists to
+> refuse.
+
 ### What this deleted, recorded so it is not rebuilt
 
 The retired blockers were real findings, and two of them were **fixed and shipped in
@@ -293,6 +302,10 @@ with the client asserted to fail closed on every row:
 | withhold a record entirely | detected | head (opt-in) |
 | suppress a `_keyring` delete | retained DEKs worthless | already closed (#1054) |
 | interrupt a revocation mid-rotation | resumable; no record becomes unreadable | shipped (#1074) |
+| edit `role` / `permissions` in a `_keyring` file | rejected on every unlock path | shipped (#1096) |
+| strip the roster tag, or the key that verifies it | rejected — absence is an alarm, not a skip | shipped (#1096) |
+| forge a roster, then wait for a routine `revoke`/`updateUser` to restamp it | rejected — every roster **editor** verifies before it restamps | shipped (#1096) |
+| replay a genuine pre-narrowing `_keyring` file | ⚠️ **accepted** — a replayed roster is internally consistent | open (#1097) |
 
 Four rows from the first draft are gone — `_noydb` downgrade, old-keyring replay to force
 old-format reads, rotation-that-re-wraps-without-re-encrypting, and interrupted *migration*.
@@ -366,11 +379,24 @@ name installs **without** it.
 1. ~~Where the format floor lives.~~ **Dissolved by Decision 5** — there is no floor, because
    there is no second format to floor against.
 
-   What remains of #1043 is the one un-probed question from the original report: **can `grant`
-   ever mint a keyring broader than the user's later standing?** That would make a roster replay
-   an *escalation* rather than a reinstatement. It concerns a roster that was **legitimately
-   minted**, so it is untouched by the no-legacy premise and by Decision 5 alike. Small,
-   self-contained, needs a probe rather than a design.
+   ~~What remains of #1043 is the one un-probed question from the original report: **can `grant`
+   ever mint a keyring broader than the user's later standing?**~~ **PROBED, 2026-08-17 — the
+   answer is yes, and probing it surfaced something strictly larger.**
+
+   `grant` overwrites in place and there is no role-change API, so narrowing standing means
+   re-granting at a lower role: the broader file existed legitimately, and a store that kept it
+   can re-serve it. Narrowing rotates nothing, so the replay restores **live** access, not stale
+   — which is precisely where this ADR's rotation argument stops applying. That is **#1097**,
+   accepted as residue and documented in `SECURITY.md` beside the anti-entropy concession.
+   Detection via `withVaultHead()` was probed and rejected: keyring writes bypass the head
+   observer and are versionless, and detection is defeated anyway by a colluding member simply
+   not verifying.
+
+   The larger finding: a `_keyring` file is stored **plaintext**, so `role` and `permissions`
+   were authenticated by nothing at all — a store did not need to keep an old file, it edited one
+   word. Fixed in **#1096** (vault-wide roster key, `roster_tag`, verified on every unlock path
+   *and* by every roster editor before it restamps). The method is the lesson: the question was
+   probed rather than reasoned about, and the probe found a hole nobody had asked about.
 2. ~~**Tombstones and `_v` binding.**~~ **RESOLVED — exempt, through one predicate.** A tombstone
    carries no sealed body, so there is nothing to authenticate and nothing to re-seal; both
    `verifyRecordIdentity` and `MergeAuthority.advance` branch on the same enclave predicate
