@@ -35,6 +35,7 @@
  * @packageDocumentation
  */
 import {
+  assertRosterAuthenticated,
   base64ToBuffer,
   mintWrappedDeksBlob,
   unwrapDeksFromBlob,
@@ -261,6 +262,18 @@ export async function verifyPasswordSlot(
   }
   const file = JSON.parse(env._data) as KeyringFile
   const salt = new Uint8Array(base64ToBuffer(file.salt))
+
+  // #1096 — the identity fields below are read from the PLAINTEXT header, so
+  // without this the store could promote a viewer to admin by editing one word
+  // and have it refused at tier-1 open but accepted here. A vault is only as
+  // strong as its weakest unlock path.
+  //
+  // Verifiable at tier 2 because `deks` above already carries the vault roster
+  // key — it rides the slot's wrapped-DEK blob like any other DEK, and that
+  // blob is authenticated by its own AES-GCM tag under the password. The
+  // canary is deliberately NOT checked: it proves the KEK, and this path has
+  // no KEK by design.
+  await assertRosterAuthenticated(file, deks, options.userId)
 
   return {
     userId: file.user_id,

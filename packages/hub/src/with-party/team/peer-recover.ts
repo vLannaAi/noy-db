@@ -39,7 +39,8 @@ import { buildRecordEnvelope, deriveKey, generateSalt, wrapKey, bufferToBase64 }
 import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError } from '../../kernel/errors.js'
 import { assertStrongSecret, type SecretPolicy } from '../../kernel/validation.js'
 import type { UnlockedKeyring } from './keyring.js'
-import { mintKeyringCanary, readKeyringFile } from './keyring.js'
+import { mintKeyringCanary, readKeyringFile, requireRosterKey } from './keyring.js'
+import { mintRosterTag, assertRosterTagValid } from './roster-tag.js'
 
 // FR-6: 'custodian' is deliberately ABSENT — an admin cannot peer-recover a
 // custodian (mirrors ADMIN_GRANTABLE_TARGETS: custodians are owner-managed
@@ -123,6 +124,15 @@ export async function recoverUser(
     )
   }
   const target = found.file
+
+  // #1096 — verify BEFORE anything reads this file, because the very next line
+  // adopts `target.role` as the recovered role. The attack is self-triggering:
+  // a store forges a member's role, that member is locked out at load, and the
+  // admin's natural remedy IS recovery — which without this check would rewrap
+  // the forged authority under a fresh secret and stamp it genuine.
+  const rosterKey = requireRosterKey(callerKeyring, 'recoverUser')
+  await assertRosterTagValid(target, rosterKey, options.userId)
+
   const targetRole = options.role ?? target.role
 
   // 2. Permission check — caller must be allowed to recover this role.
@@ -154,6 +164,7 @@ export async function recoverUser(
   if (options.validateSecret && !options.allowWeakSecret) {
     assertStrongSecret(options.secret, options.secretPolicy)
   }
+
 
   // 5. Mint a fresh salt + KEK from the temp secret. The DEKs
   //    themselves are unchanged — only the wrapping is replaced.
@@ -193,7 +204,7 @@ export async function recoverUser(
   const canary = await mintKeyringCanary(newKek)
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- excluded from ...carried
   const { echo: _staleEcho, ...carried } = target
-  const next: KeyringFile = {
+  const edited: KeyringFile = {
     ...carried,
     _noydb_keyring: NOYDB_KEYRING_VERSION,
     role: targetRole,
@@ -203,6 +214,15 @@ export async function recoverUser(
     granted_by: callerKeyring.userId,
     authenticators: [],
     canary,
+  }
+  // #1096 — a restamp is REQUIRED here, not merely uniform: `granted_by`
+  // becomes the recoverer and `role` may change, so the carried tag no longer
+  // describes the file. The recovered user's own copy of the roster key was
+  // re-wrapped into `wrappedDeks` above (it is one of the target's DEKs), so
+  // they can verify this on first unlock with the temp secret.
+  const next: KeyringFile = {
+    ...edited,
+    roster_tag: await mintRosterTag(edited, rosterKey),
   }
 
   // 7. Single atomic write — overwrites the existing envelope.

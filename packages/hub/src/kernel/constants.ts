@@ -19,3 +19,22 @@ export const USER_ENVELOPE_MAX_BYTES = 64 * 1024
  * existing system-collection DEK propagation path in `team/keyring.ts`.
  */
 export const USER_ENVELOPE_COLLECTION = '_users'
+
+/**
+ * #1096 — reserved DEK-map key holding the vault-wide ROSTER KEY.
+ *
+ * Not a collection: no records are ever stored under this name. It rides the
+ * `deks` map purely so the roster key reaches every member through the
+ * channels a DEK already travels — grant's `_`-prefix propagation,
+ * `persistKeyring`, the wrapped-DEKs recovery blob, `peer-recover`, pod
+ * recipient slots, session tokens — with no new plumbing and no satellite
+ * changes.
+ *
+ * The key authenticates each keyring file's plaintext AUTHORITY half via
+ * `roster_tag` (see `team/roster-tag.ts`). It is deliberately NOT
+ * secret-bearing: every role must be able to verify the roster it is
+ * subject to, so it propagates like `_ledger`, not like `_sync_credentials`.
+ *
+ * `rotateKeys` refuses to rotate it — see the guard there for why.
+ */
+export const ROSTER_KEY_ID = '_roster'

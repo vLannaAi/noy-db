@@ -278,3 +278,69 @@ describe('recoverSecret (paper profile)', () => {
   })
 })
 
+
+describe('#1096 — a tier-1 change must not launder a forged roster', () => {
+  /** The store rewrites the one plaintext word. No key, no prior file. */
+  async function forgeRole(store: NoydbStore, userId: string, role: string): Promise<void> {
+    const env = (await store.get('acme', '_keyring', userId))!
+    await store.put('acme', '_keyring', userId, {
+      ...env,
+      _data: env._data.replace(/"role":"[a-z]+"/, `"role":"${role}"`),
+    })
+  }
+
+  // Both flows return an `UnlockedKeyring` whose `role`/`permissions` come from
+  // the PLAINTEXT header, and both then REWRITE the keyring under a fresh
+  // secret. Without a check they would not merely accept a forged roster —
+  // they would re-persist it, stamping the forgery into a file the victim's own
+  // credential opens. Refusal must therefore happen BEFORE any write.
+
+  it('rotateSecret refuses a forged role even with the correct old secret', async () => {
+    const store = inlineMemory()
+    const keyring = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: STRONG_OLD })
+    keyring.deks.set('invoices', await generateDEK())
+    await persistKeyring(store, 'acme', keyring)
+
+    await forgeRole(store, 'alice', 'client')
+
+    await expect(
+      rotateSecret(store, 'acme', 'alice', { oldSecret: STRONG_OLD, newSecret: STRONG_NEW }),
+    ).rejects.toMatchObject({
+      name: 'KeyringTamperedError',
+      details: { userId: 'alice', reason: 'roster-tag-mismatch' },
+    })
+
+    // And nothing was written: the old secret still opens the vault, so a
+    // refused rotation is not also a lockout.
+    await expect(
+      loadKeyring(store, 'acme', { userId: 'alice', secret: STRONG_NEW }),
+    ).rejects.toThrow()
+  }, 30_000)
+
+  it('recoverSecret (paper) refuses a forged role even with a valid code', async () => {
+    const store = inlineMemory()
+    const keyring = await createOwnerKeyring(store, 'acme', { userId: 'alice', secret: STRONG_OLD })
+    keyring.deks.set('invoices', await generateDEK())
+    await persistKeyring(store, 'acme', keyring)
+    const code = 'TESTCODE12345'
+    await savePaperRecoveryEntries(store, 'acme', [
+      await mintPaperRecoveryEntry(keyring.deks, code, 'entry-001'),
+    ])
+
+    await forgeRole(store, 'alice', 'client')
+
+    await expect(
+      recoverSecret(undefined, store, 'acme', 'alice', {
+        newSecret: STRONG_NEW,
+        recoveryProof: { profile: 'paper', payload: { code } },
+      }),
+    ).rejects.toMatchObject({
+      name: 'KeyringTamperedError',
+      details: { userId: 'alice', reason: 'roster-tag-mismatch' },
+    })
+
+    // The recovery code must NOT have been burned by a refused recovery —
+    // otherwise a store could spend a victim's single-use codes by forging.
+    expect(await loadPaperRecoveryEntries(store, 'acme')).toHaveLength(1)
+  }, 30_000)
+})

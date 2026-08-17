@@ -37,6 +37,12 @@ export {
   buildRecipientKeyringFile,
 } from './keyring.js'
 export type { PodRecipient, ListUsersOptions } from './keyring.js'
+// #1096 — the roster-authentication chokepoint is exported from the ROOT
+// barrel only, not here. Its signature names `KeyringFile` and `EnclaveKey`,
+// which the root exports and `./team` does not, so exporting it from this
+// subpath would open two type-reachability gaps (caught by `check:types`) to
+// no benefit: `@noy-db/on-password`, the one external caller, imports from the
+// root. See `src/index.ts`.
 // #846b — the credential functions' trailing options objects, nameable.
 export type {
   LoadKeyringOptions,

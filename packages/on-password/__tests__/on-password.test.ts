@@ -20,7 +20,7 @@ import {
   PasswordInvalidError,
 } from '../src/index.js'
 import type { UnlockedKeyring, KeyringAuthenticator, NoydbStore, EncryptedEnvelope, KeyringFile, SlotRewrapContext } from '@noy-db/hub'
-import { ValidationError } from '@noy-db/hub'
+import { ValidationError, createNoydb, withTeam } from '@noy-db/hub'
 
 const subtle = globalThis.crypto.subtle
 
@@ -177,35 +177,20 @@ describe('@noy-db/on-password — wrap-DEKs enroll + verify (#26 Path C)', () =>
     })
   })
 
+  // #1096 — this test used to feed the verifier a HAND-BUILT `KeyringFile`.
+  // That fixture could not exercise roster authentication (a synthetic file
+  // carries no roster key), and hand-built fixtures are exactly how a real
+  // vault's shape and a test's idea of it drift apart. It now enrolls the slot
+  // from a REAL tier-1 keyring against a REAL vault, which is what makes the
+  // forgery row below meaningful.
   it('verifyPasswordSlot returns UnlockedKeyring with kek:null + identity from disk (cold-start path)', async () => {
-    // Niwat PR #42 review point 3: verifier loads identity from
-    // `_keyring/<userId>` directly, so cold-start (createNoydb +
-    // getKeyring callback) works without a pre-existing keyring.
-    const keyring = await buildKeyring()
-    const opts = await enrollPasswordAuthenticator(keyring, {
-      password: 'strong-password-2026',
-    })
-
-    // Build a real store with a written keyring file to feed the verifier.
     const store = inlineMemory()
-    const file: KeyringFile = {
-      _noydb_keyring: 1,
-      user_id: 'alice',
-      display_name: 'Alice Example',
-      role: 'owner',
-      permissions: {},
-      deks: {},
-      salt: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
-      created_at: new Date().toISOString(),
-      granted_by: 'alice',
-    }
-    await store.put('acme', '_keyring', 'alice', {
-      _noydb: 1,
-      _v: 1,
-      _ts: new Date().toISOString(),
-      _iv: '',
-      _data: JSON.stringify(file),
-    })
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: 'owner-pass-1' })
+    const vault = await db.openVault('acme')
+    await vault.collection<{ amount: number }>('invoices').put('inv-1', { amount: 1 })
+    const keyring = await db.team.getKeyring('acme')
+
+    const opts = await enrollPasswordAuthenticator(keyring, { password: 'strong-password-2026' })
 
     const unlocked = await verifyPasswordSlot(
       slotFromOptions(opts),
@@ -213,11 +198,46 @@ describe('@noy-db/on-password — wrap-DEKs enroll + verify (#26 Path C)', () =>
       { store, vault: 'acme', userId: 'alice' },
     )
     expect(unlocked.userId).toBe('alice')
-    expect(unlocked.displayName).toBe('Alice Example')
     expect(unlocked.role).toBe('owner')
-    expect(unlocked.deks.size).toBe(2)
+    expect(unlocked.deks.size).toBe(keyring.deks.size)
     // wrap-DEKs unlock cannot recover the KEK — must be null.
     expect(unlocked.kek).toBeNull()
+    db.close()
+  }, 30_000)
+
+  it('#1096: a store that forges `role` in the plaintext header is REFUSED at password unlock', async () => {
+    // The identity fields verifyPasswordSlot returns are read from the
+    // PLAINTEXT `_keyring` header. Without roster authentication here, the
+    // one-word forgery that tier-1 refuses would be ACCEPTED at tier 2 — a
+    // vault is only as strong as its weakest unlock path. This row is the one
+    // that noticed that gap; keep it.
+    const store = inlineMemory()
+    const db = await createNoydb({ teamStrategy: withTeam(), store, user: 'alice', secret: 'owner-pass-1' })
+    await db.openVault('acme')
+    await db.grant('acme', { userId: 'bob', displayName: 'Bob', role: 'viewer', secret: 'bob-pass-1' })
+    db.close()
+
+    const bobDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: 'bob-pass-1' })
+    await bobDb.openVault('acme')
+    const bobKeyring = await bobDb.team.getKeyring('acme')
+    const opts = await enrollPasswordAuthenticator(bobKeyring, { password: 'strong-password-2026' })
+    bobDb.close()
+
+    // The store edits one word. No key, no prior file.
+    const env = (await store.get('acme', '_keyring', 'bob'))!
+    await store.put('acme', '_keyring', 'bob', {
+      ...env,
+      _data: env._data.replace('"role":"viewer"', '"role":"admin"'),
+    })
+
+    await expect(
+      verifyPasswordSlot(slotFromOptions(opts), 'strong-password-2026', {
+        store, vault: 'acme', userId: 'bob',
+      }),
+    ).rejects.toMatchObject({
+      name: 'KeyringTamperedError',
+      details: { userId: 'bob', reason: 'roster-tag-mismatch' },
+    })
   }, 30_000)
 
   it('verifyPasswordSlot throws when the keyring file is missing', async () => {

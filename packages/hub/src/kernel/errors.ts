@@ -10,7 +10,9 @@
  *       ├─ Crypto errors
  *       │    ├─ DecryptionError        — AES-GCM tag failure
  *       │    ├─ TamperedError          — ciphertext modified after write
- *       │    └─ InvalidKeyError        — wrong secret / corrupt keyring
+ *       │    ├─ InvalidKeyError        — wrong secret / corrupt keyring
+ *       │    ├─ KeyringCorruptError    — partial DEK corruption, KEK correct
+ *       │    └─ KeyringTamperedError   — keyring roster failed authentication (#1096)
  *       ├─ Access errors
  *       │    ├─ NoAccessError          — no DEK for this collection
  *       │    ├─ ReadOnlyError          — ro permission, write attempted
@@ -240,6 +242,43 @@ export class KeyringCorruptError extends NoydbError {
     this.name = 'KeyringCorruptError'
     this.failedCollections = opts.failedCollections
     this.intactCount = opts.intactCount
+  }
+}
+
+/**
+ * #1096 — the keyring's plaintext AUTHORITY half failed authentication.
+ *
+ * Thrown by `loadKeyring` when the canary is absent, when the reserved
+ * roster-key DEK entry is absent, or when the keys check out (KEK proven
+ * correct) but `roster_tag` is missing or does not match the file.
+ *
+ * Distinct from {@link KeyringCorruptError}: the KEYS are fine; the ROSTER —
+ * `role`, `permissions`, `granted_by`, the capability grants — is what cannot
+ * be trusted. A `_keyring` file is stored plaintext so admins can edit a
+ * member's authority without holding that member's credential, which left
+ * those fields authenticated by nothing; this error is what a hostile store
+ * editing them now produces.
+ *
+ * Deliberately raised only AFTER the key-unwrap epilogue, so a plain
+ * wrong-secret keeps reporting as `InvalidKeyError` and is never
+ * misannounced to the user as an attack.
+ */
+export class KeyringTamperedError extends NoydbError {
+  readonly details: {
+    readonly userId: string
+    readonly reason: 'canary-missing' | 'roster-key-missing' | 'roster-tag-missing' | 'roster-tag-mismatch'
+  }
+  constructor(details: {
+    readonly userId: string
+    readonly reason: 'canary-missing' | 'roster-key-missing' | 'roster-tag-missing' | 'roster-tag-mismatch'
+  }) {
+    super(
+      'KEYRING_TAMPERED',
+      `Keyring for "${details.userId}" failed roster authentication (${details.reason}). ` +
+        'The store serving this vault may have altered the roster.',
+    )
+    this.name = 'KeyringTamperedError'
+    this.details = details
   }
 }
 
