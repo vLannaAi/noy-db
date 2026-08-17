@@ -1059,6 +1059,72 @@ export interface RotateKeysOptions {
   readonly collections: readonly string[]
 }
 
+/**
+ * Collections whose envelopes are sealed under **another** collection's DEK
+ * (#1108).
+ *
+ * ## The defect this closes
+ *
+ * `rotateKeys` re-keys by collection NAME, which silently assumes DEK-name and
+ * collection-name are 1:1. They are not. A history snapshot lives in
+ * `_history` but is sealed under its **source** collection's DEK, and
+ * `_ledger_deltas` is sealed under the `_ledger` DEK. So a revocation rotated
+ * the live records and left their prior versions readable under the key the
+ * revoked member walked away with — for a history-enabled collection, that is
+ * substantially its whole content.
+ *
+ * Measured before the fix: a revoked member's retained `docs` DEK opened the
+ * live record (no) and `_history/docs:d1:…` (YES).
+ *
+ * ## Why the layouts are duplicated here rather than imported
+ *
+ * `with-party` has never imported `with-commit` and this is not the change that
+ * should start. The two id layouts below are copied deliberately, with their
+ * owners named, and the **invariant test is what keeps them honest**: after a
+ * revocation, no retained key may open any envelope. That test does not consult
+ * this table, so a service that adds a third such surface fails there rather
+ * than passing quietly here.
+ */
+const HISTORY_COLLECTION = '_history' // owner: with-commit/history/history.ts
+const LEDGER_COLLECTION = '_ledger' // owner: with-commit/history/ledger/constants.ts
+const LEDGER_DELTAS_COLLECTION = '_ledger_deltas' // ditto
+
+/** `store.list` on a collection that may not exist yet. */
+async function listOrEmpty(store: NoydbStore, vault: string, collection: string): Promise<string[]> {
+  try { return await store.list(vault, collection) } catch { return [] }
+}
+
+/**
+ * Envelopes sealed under `rotated`'s DEK but stored under a different
+ * collection — the refs {@link rotateKeys} must re-key alongside the collection
+ * itself.
+ */
+async function derivedRefsFor(
+  store: NoydbStore,
+  vault: string,
+  rotated: string,
+): Promise<Array<{ collection: string; id: string }>> {
+  const out: Array<{ collection: string; id: string }> = []
+
+  // `_history` snapshot ids are `${collection}:${recordId}:${paddedVersion}`,
+  // and each is sealed under `${collection}`'s DEK. Reserved collections have
+  // no history of their own, so only user collections contribute.
+  if (!rotated.startsWith('_')) {
+    for (const id of await listOrEmpty(store, vault, HISTORY_COLLECTION)) {
+      if (id.startsWith(`${rotated}:`)) out.push({ collection: HISTORY_COLLECTION, id })
+    }
+  }
+
+  // Every `_ledger_deltas` entry is sealed under the `_ledger` DEK.
+  if (rotated === LEDGER_COLLECTION) {
+    for (const id of await listOrEmpty(store, vault, LEDGER_DELTAS_COLLECTION)) {
+      out.push({ collection: LEDGER_DELTAS_COLLECTION, id })
+    }
+  }
+
+  return out
+}
+
 export async function rotateKeys(
   store: NoydbStore,
   vault: string,
@@ -1139,9 +1205,17 @@ export async function rotateKeys(
     const newDek = newDeks.get(collName)!
     if (!oldDek) continue
 
-    const ids = await store.list(vault, collName)
-    for (const id of ids) {
-      const envelope = await store.get(vault, collName, id)
+    // The collection's own records, PLUS every envelope sealed under this DEK
+    // but filed elsewhere (#1108). Both go through the same helper, so the
+    // resume property holds for derived surfaces too: `rekeyEnvelopeIfNeeded`
+    // returns null for anything already under `newDek`.
+    const refs: Array<{ collection: string; id: string }> = [
+      ...(await store.list(vault, collName)).map((id) => ({ collection: collName, id })),
+      ...(await derivedRefsFor(store, vault, collName)),
+    ]
+    for (const ref of refs) {
+      const { collection: refColl, id } = ref
+      const envelope = await store.get(vault, refColl, id)
       if (!envelope || !envelope._iv) continue
 
       // #1074 — one enclave helper does the whole per-record rotation:
@@ -1153,8 +1227,8 @@ export async function rotateKeys(
       // resumed-rotation case. A record readable under NEITHER key rethrows
       // rather than being skipped: walking silently past unreadable records
       // would turn a loud failure into permanent quiet loss.
-      const newEnvelope = await rekeyEnvelopeIfNeeded({ collection: collName, id }, envelope, oldDek, newDek)
-      if (newEnvelope !== null) await store.put(vault, collName, id, newEnvelope)
+      const newEnvelope = await rekeyEnvelopeIfNeeded({ collection: refColl, id }, envelope, oldDek, newDek)
+      if (newEnvelope !== null) await store.put(vault, refColl, id, newEnvelope)
     }
   }
 
