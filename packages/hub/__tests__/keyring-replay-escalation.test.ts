@@ -234,6 +234,53 @@ describe('#1043/#1096 A — the plaintext ROLE was forgeable; roster_tag now ref
     const forged = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: 'bob-pass-1' })
     await expectTampered(forged.openVault(VAULT), 'roster-tag-mismatch')
   })
+
+  // ── LAUNDERING: the refusal above is worthless if another flow re-signs it ──
+  //
+  // Every row above proves a forged file is refused AT LOAD. These two prove it
+  // STAYS refused — because the flows that legitimately rewrite someone else's
+  // roster hold the roster key, and a read-modify-restamp that skipped
+  // verification would hand a forged file a genuine tag. That converts a
+  // detected forgery into an undetectable one, using the fix's own key.
+
+  it('9. a forged role is NOT laundered by a revoke of a DIFFERENT user', async () => {
+    // `revoke` rotates, and rotation rewrites EVERY other member's file. So the
+    // owner doing something entirely unrelated to bob is the trigger.
+    const store = memoryStore()
+    const { db } = await ownerWith(store)
+    await db.grant(VAULT, { userId: 'bob', displayName: 'Bob', role: 'viewer', secret: 'bob-pass-1' })
+    await db.grant(VAULT, { userId: 'carol', displayName: 'Carol', role: 'operator', permissions: { invoices: 'rw' }, secret: 'carol-pass-1' })
+
+    await forgeRole(store, 'bob', 'admin')
+
+    // The revoke must not silently succeed while re-signing bob's forgery.
+    await expect(db.revoke(VAULT, { userId: 'carol' })).rejects.toBeInstanceOf(KeyringTamperedError)
+
+    // The load-time refusal still stands — nothing re-signed it.
+    const forged = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: 'bob-pass-1' })
+    await expectTampered(forged.openVault(VAULT), 'roster-tag-mismatch')
+  })
+
+  it('10. a forged role is NOT laundered by peer-recovering the forged member', async () => {
+    // The sharpest shape: the forgery INDUCES ITS OWN TRIGGER. Forging bob's
+    // role locks bob out, and an admin's natural remedy for a locked-out member
+    // is recovery — which rewraps under a fresh secret and restamps. Without
+    // verification, the attacker gets a genuinely-signed admin bob by making
+    // the legitimate owner press the button.
+    const store = memoryStore()
+    const { db } = await ownerWith(store)
+    await db.grant(VAULT, { userId: 'bob', displayName: 'Bob', role: 'viewer', secret: 'bob-pass-1' })
+
+    await forgeRole(store, 'bob', 'admin')
+
+    await expect(
+      db.team.recoverUser(VAULT, { userId: 'bob', secret: 'temp-recovery-pass-1', allowWeakSecret: true }),
+    ).rejects.toBeInstanceOf(KeyringTamperedError)
+
+    // And the temp secret was never minted, so nothing new opens the vault.
+    const viaTemp = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: 'temp-recovery-pass-1' })
+    await expect(viaTemp.openVault(VAULT)).rejects.toThrow()
+  })
 })
 
 describe('#1043 B — the original question: a replay is ESCALATION, not reinstatement', () => {

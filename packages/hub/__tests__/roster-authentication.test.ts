@@ -24,6 +24,7 @@ import { withTeam } from '../src/with-party/team/index.js'
 import { ROSTER_KEY_ID } from '../src/kernel/constants.js'
 import { isSecretBearingReservedCollection } from '../src/with-party/team/reserved-secret-collections.js'
 import { mintRosterTag } from '../src/with-party/team/roster-tag.js'
+import { changeSecret } from '../src/with-party/team/keyring.js'
 import type { NoydbStore, KeyringFile, Role } from '../src/kernel/types.js'
 
 const VAULT = 'acme'
@@ -208,6 +209,44 @@ describe('#1096 — legitimate authority edits restamp', () => {
     bobDb.close()
 
     expect((await fileOf(store, 'bob')).expires_at).toBe(expiresAt)
+  })
+
+  it('changeSecret carries origin + capability fields forward instead of authenticating their erasure', async () => {
+    // `UnlockedKeyring` carries none of `granted_by` / `expires_at` /
+    // `export_capability` / `import_capability`, so rebuilding the file from it
+    // re-parented the holder to themselves (collapsing the admin delegation
+    // subtree `revoke`'s cascade walks) and dropped a time-boxed grant and both
+    // capability bits. #1096 makes each erasure come out SIGNED.
+    const store = memoryStore()
+    const { db } = await ownerWith(store)
+    await db.grant(VAULT, {
+      userId: 'bob', displayName: 'Bob', role: 'admin', secret: 'bob-pass-1',
+      exportCapability: { bundle: true }, importCapability: { bundle: true },
+    })
+
+    const expiresAt = '2099-01-01T00:00:00.000Z'
+    const ownerKeyring = await db.team.getKeyring(VAULT)
+    const rosterKey = ownerKeyring.deks.get(ROSTER_KEY_ID)!
+    const expiring = { ...(await fileOf(store, 'bob')), expires_at: expiresAt }
+    await rewrite(store, 'bob', { ...expiring, roster_tag: await mintRosterTag(expiring, rosterKey) })
+
+    const bobDb = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: 'bob-pass-1' })
+    await bobDb.openVault(VAULT)
+    await changeSecret(store, VAULT, await bobDb.team.getKeyring(VAULT), {
+      newSecret: 'bob-pass-2-much-longer', allowWeakSecret: true,
+    })
+    bobDb.close()
+
+    const after = await fileOf(store, 'bob')
+    expect(after.granted_by).toBe('owner-01')
+    expect(after.expires_at).toBe(expiresAt)
+    expect(after.export_capability).toEqual({ bundle: true })
+    expect(after.import_capability).toEqual({ bundle: true })
+
+    // And the result is loadable — the carried fields are inside the new tag.
+    const reopened = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: 'bob-pass-2-much-longer' })
+    await expect(reopened.openVault(VAULT)).resolves.toBeDefined()
+    reopened.close()
   })
 
   it('the roster key SURVIVES a revoke — rotation must never drop it', async () => {

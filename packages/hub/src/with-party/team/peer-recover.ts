@@ -40,7 +40,7 @@ import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError } from '
 import { assertStrongSecret, type SecretPolicy } from '../../kernel/validation.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { mintKeyringCanary, readKeyringFile, requireRosterKey } from './keyring.js'
-import { mintRosterTag } from './roster-tag.js'
+import { mintRosterTag, assertRosterTagValid } from './roster-tag.js'
 
 // FR-6: 'custodian' is deliberately ABSENT — an admin cannot peer-recover a
 // custodian (mirrors ADMIN_GRANTABLE_TARGETS: custodians are owner-managed
@@ -124,6 +124,15 @@ export async function recoverUser(
     )
   }
   const target = found.file
+
+  // #1096 — verify BEFORE anything reads this file, because the very next line
+  // adopts `target.role` as the recovered role. The attack is self-triggering:
+  // a store forges a member's role, that member is locked out at load, and the
+  // admin's natural remedy IS recovery — which without this check would rewrap
+  // the forged authority under a fresh secret and stamp it genuine.
+  const rosterKey = requireRosterKey(callerKeyring, 'recoverUser')
+  await assertRosterTagValid(target, rosterKey, options.userId)
+
   const targetRole = options.role ?? target.role
 
   // 2. Permission check — caller must be allowed to recover this role.
@@ -156,10 +165,6 @@ export async function recoverUser(
     assertStrongSecret(options.secret, options.secretPolicy)
   }
 
-  // #1096 — recovery rewrites the target's authority half (`granted_by`
-  // becomes the recoverer, `role` may change), so it must restamp the roster
-  // tag, which needs the caller's vault roster key.
-  const rosterKey = requireRosterKey(callerKeyring, 'recoverUser')
 
   // 5. Mint a fresh salt + KEK from the temp secret. The DEKs
   //    themselves are unchanged — only the wrapping is replaced.

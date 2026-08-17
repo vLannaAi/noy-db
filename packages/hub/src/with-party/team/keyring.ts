@@ -16,7 +16,7 @@ import {
   type EchoSecretParts,
 } from '../../kernel/enclave/index.js'
 import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, KeyringTamperedError, InvalidKeyError, ValidationError, DirectoryDisabledError, EchoCeremonyRequiredError } from '../../kernel/errors.js'
-import { mintRosterTag, assertRosterAuthenticated } from './roster-tag.js'
+import { mintRosterTag, assertRosterAuthenticated, assertRosterTagValid } from './roster-tag.js'
 import { readDirectoryConfig } from '../directory/storage.js'
 import { readUserVisibility, deleteUserVisibility } from '../directory/visibility.js'
 import {
@@ -356,7 +356,18 @@ export async function loadKeyring(
 
   const { file: keyringFile } = found
 
-  assertKeyringNotExpired(keyringFile)
+  // #1096 — the expiry gate MOVED below roster verification. `expires_at` is a
+  // plaintext field, so gating on it first let a store forge a past date and
+  // choose the error the user sees: `KeyringExpiredError` ("your access ran
+  // out") instead of `KeyringTamperedError` ("your store is attacking you").
+  // Fail-closed either way, but it is a lockout an operator would spend the
+  // afternoon re-granting rather than investigating.
+  //
+  // The old ordering's rationale — skip the KDF for an expired slot so it
+  // "doesn't leak timing on the secret" — does not survive the trade: PBKDF2
+  // costs the same whether or not the secret is right, so the early exit
+  // revealed expiry, not secret correctness. Doing the derivation costs an
+  // expired slot 600K iterations and buys an honest error.
 
   const salt = base64ToBuffer(keyringFile.salt)
   const kek = await deriveKekForKeyring(keyringFile, secret, salt)
@@ -436,6 +447,10 @@ export async function loadKeyring(
   // A present-but-damaged roster entry already threw as KeyringCorruptError
   // above, so `roster-key-missing` from here means genuinely absent.
   await assertRosterAuthenticated(keyringFile, deks, userId)
+
+  // Now that `expires_at` is known to be the value an authorised editor wrote,
+  // an expiry is genuinely an expiry. See the note at the top of this function.
+  assertKeyringNotExpired(keyringFile)
 
   return {
     userId: keyringFile.user_id,
@@ -866,6 +881,7 @@ async function findAdminDescendants(
   store: NoydbStore,
   vault: string,
   rootUserId: string,
+  rosterKey: EnclaveKey,
 ): Promise<string[]> {
   const allUserIds = await store.list(vault, '_keyring')
 
@@ -877,6 +893,12 @@ async function findAdminDescendants(
     const found = await readKeyringFile(store, vault, userId)
     if (!found) continue
     const kf = found.file
+    // #1096 — the two fields this walk steers on, `role` and `granted_by`, are
+    // both plaintext. A forged `granted_by` re-parents a descendant admin out
+    // of the cascade so a revoke silently leaves them in place; a forged `role`
+    // hides them from the walk entirely. Verify every file before reading
+    // either — this is the graph the whole cascade is computed from.
+    await assertRosterTagValid(kf, rosterKey, userId)
     // Only admins can grant, so only admins have a delegation subtree to
     // cascade. FR-6: a custodian is intentionally EXCLUDED here — it cannot
     // grant (canGrant(custodian,*) === false), so it is never a cascade root
@@ -937,6 +959,12 @@ export async function revoke(
 
   const targetKeyring = targetFound.file
 
+  // #1096 — `canRevoke` below consumes `targetKeyring.role`, and the cascade
+  // walk consumes `granted_by` from every keyring in the vault. Both come from
+  // the plaintext header, so verify before either is trusted.
+  const callerRosterKey = requireRosterKey(callerKeyring, 'revoke')
+  await assertRosterTagValid(targetKeyring, callerRosterKey, options.userId)
+
   if (!canRevoke(callerKeyring.role, targetKeyring.role)) {
     throw new PermissionDeniedError(
       `Role "${callerKeyring.role}" cannot revoke role "${targetKeyring.role}"`,
@@ -951,7 +979,7 @@ export async function revoke(
   const affectedCollections = new Set(Object.keys(targetKeyring.deks))
 
   if (targetKeyring.role === 'admin') {
-    const descendants = await findAdminDescendants(store, vault, options.userId)
+    const descendants = await findAdminDescendants(store, vault, options.userId, callerRosterKey)
     if (descendants.length > 0) {
       if (cascadeMode === 'warn') {
         // Diagnostic mode: leave the descendants in place but make
@@ -972,6 +1000,9 @@ export async function revoke(
         for (const userId of descendants) {
           const descFound = await readKeyringFile(store, vault, userId)
           if (!descFound) continue
+          // Re-read, so re-verify: the walk above proved a file at one moment,
+          // this is a second fetch from the same untrusted store.
+          await assertRosterTagValid(descFound.file, callerRosterKey, userId)
           usersToRevoke.push(userId)
           for (const c of Object.keys(descFound.file.deks)) affectedCollections.add(c)
         }
@@ -1073,6 +1104,14 @@ export async function updateKeyringIdentity(
   }
   const target = found.file
 
+  // #1096 — verify BEFORE the guards below, not just before the restamp. The
+  // role-elevation checks consume `target.role`, so a forged one does not only
+  // get laundered into the output — it decides whether this edit is permitted
+  // at all. Every field not named in `options` is also carried through the
+  // spread, so an unverified read would authenticate forgeries nobody touched.
+  const rosterKey = requireRosterKey(callerKeyring, 'updateKeyringIdentity')
+  await assertRosterTagValid(target, rosterKey, options.userId)
+
   // Role-elevation guard. The OLD role must be one this caller is
   // allowed to manage, AND the NEW role (if changing) must be too.
   // Two-sided check: blocks admin→owner promotion (new side) and
@@ -1092,12 +1131,11 @@ export async function updateKeyringIdentity(
     )
   }
 
-  // #1096 — this function exists to edit another member's AUTHORITY without
-  // holding their credential, which is exactly the power a hostile store was
-  // helping itself to. The caller's own roster key is what re-authenticates
-  // the result; the target's canary rides the spread untouched.
-  const rosterKey = requireRosterKey(callerKeyring, 'updateKeyringIdentity')
-
+  // This function exists to edit another member's AUTHORITY without holding
+  // their credential, which is exactly the power a hostile store was helping
+  // itself to. The caller's own roster key (verified against `target` above)
+  // is what re-authenticates the result; the target's canary rides the spread
+  // untouched.
   const edited: KeyringFile = {
     ...target,
     ...(options.role !== undefined && { role: options.role }),
@@ -1362,6 +1400,12 @@ export async function rotateKeys(
     if (!userFound) continue
 
     const userKeyringFile = userFound.file
+    // #1096 — VERIFY BEFORE RESTAMPING. This loop edits and re-signs a file it
+    // read from an untrusted store, so without this it would take a forged
+    // roster that `loadKeyring` refuses and hand it back a GENUINE tag. And
+    // `revoke` calls this unconditionally, so one forged member plus any later
+    // revocation anywhere in the vault would be a complete bypass.
+    await assertRosterTagValid(userKeyringFile, callerRosterKey, userId)
     // A user's DEKs are wrapped with that user's KEK, and a KEK derives only
     // from the user's secret — the caller can never derive another user's
     // KEK, so re-wrapping the new DEKs for them is impossible. Rotation
@@ -1434,6 +1478,11 @@ export async function changeSecret(
   // persisted (not `keyring`, which carries no echo info) before any
   // derivation.
   const existingFound = await readKeyringFile(store, vault, keyring.userId)
+  // #1096 — verified before ANY of it is consumed: the echo guard below steers
+  // on it, and the carry-forward further down re-signs it.
+  if (existingFound) {
+    await assertRosterTagValid(existingFound.file, requireRosterKey(keyring, 'changeSecret'), keyring.userId)
+  }
   if (existingFound && existingFound.file.echo !== undefined) throw new EchoCeremonyRequiredError()
 
   const { newSecret } = opts
@@ -1453,12 +1502,23 @@ export async function changeSecret(
   // under the new KEK by the loop above and travels with the secret change.
   const rosterKey = requireRosterKey(keyring, 'changeSecret')
   const canary = await mintKeyringCanary(newKek)
+  // Carry the ORIGIN + capability fields forward, exactly as `persistKeyring`
+  // does. `UnlockedKeyring` carries none of them, so rebuilding the file from
+  // it re-parented `granted_by` to the holder themselves — collapsing the admin
+  // delegation subtree — and silently dropped a time-boxed grant and both
+  // capability bits. #1096 turns each of those from a quiet erasure into an
+  // AUTHENTICATED one, since the tag below now signs whatever is left.
+  const existingAuthority = existingFound?.file
+  const keptGrantedBy = existingAuthority?.granted_by ?? keyring.userId
   const authority = {
     user_id: keyring.userId,
     display_name: keyring.displayName,
     role: keyring.role,
     permissions: keyring.permissions,
-    granted_by: keyring.userId,
+    granted_by: keptGrantedBy,
+    ...(existingAuthority?.expires_at !== undefined && { expires_at: existingAuthority.expires_at }),
+    ...(existingAuthority?.export_capability !== undefined && { export_capability: existingAuthority.export_capability }),
+    ...(existingAuthority?.import_capability !== undefined && { import_capability: existingAuthority.import_capability }),
   }
   const keyringFile: KeyringFile = {
     _noydb_keyring: NOYDB_KEYRING_VERSION,
@@ -1664,6 +1724,12 @@ export async function listUsers(
   store: NoydbStore,
   vault: string,
 ): Promise<UserInfo[]> {
+  // #1096 — DELIBERATELY UNVERIFIED. `role` and `permissions` below come
+  // straight from the plaintext header, so a hostile store can misreport them
+  // in a directory listing. Not verified because this is a display surface with
+  // no caller keyring in scope, and every ENFORCEMENT path (loadKeyring, grant,
+  // revoke, updateUser, recover, tier-2 unlock) verifies independently. If this
+  // output ever feeds an authorisation decision, that stops being true.
   const userIds = await store.list(vault, '_keyring')
   const users: UserInfo[] = []
 
@@ -1746,6 +1812,12 @@ export async function listUsersWithEnvelopes<T = unknown>(
   // (bypassing the visibility toggle + listing hidden principals); a custodian
   // is non-owning and cannot grant/revoke, so it should not see the hidden
   // team membership. It still gets the normal (non-hidden) directory view.
+  // #1096 — DELIBERATELY UNVERIFIED. `role` and `permissions` below come
+  // straight from the plaintext header, so a hostile store can misreport them
+  // in a directory listing. Not verified because this is a display surface with
+  // no caller keyring in scope, and every ENFORCEMENT path (loadKeyring, grant,
+  // revoke, updateUser, recover, tier-2 unlock) verifies independently. If this
+  // output ever feeds an authorisation decision, that stops being true.
   const isPrivileged = callerRole === 'owner' || callerRole === 'admin'
 
   // 1. Vault-level directory toggle.
@@ -1987,6 +2059,11 @@ export async function persistKeyring(
   // and silently degrade an echo keyring into a standard one that no secret
   // shape can open (the KEK stays echo-derived).
   const existingFound = await readKeyringFile(store, vault, keyring.userId)
+  // #1096 — narrower than the read-modify-restamp sites, but the same shape:
+  // every field carried forward below comes from a fresh, unverified re-read,
+  // and the tag minted at the bottom would authenticate whatever came back.
+  // (Absent on a first write, which is not a forgery — nothing to verify.)
+  if (existingFound) await assertRosterTagValid(existingFound.file, rosterKey, keyring.userId)
   const existingEcho = existingFound?.file.echo
   // Same carry-forward rationale as `echo`, for two fields that describe the
   // keyring's ORIGIN rather than its current contents. `UnlockedKeyring` does

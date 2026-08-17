@@ -19,6 +19,17 @@
  * `user_id` is inside the canonical string so a genuine tag cannot be
  * transplanted onto another member's file.
  *
+ * ## What "authority half" does NOT cover
+ *
+ * The canonical string is exactly {@link RosterAuthorityFields} — the fields a
+ * privilege decision reads. Other plaintext fields are deliberately excluded
+ * and REMAIN FORGEABLE by the store: `display_name` (cosmetic), `policy`
+ * (round-tripped, never enforced at v1.0), `echo` and `authenticators` (each
+ * authenticated by its own wrapped key material — a forged one fails to
+ * unlock rather than granting anything), plus `created_at` / `salt` /
+ * `_noydb_keyring`. Adding a field to the tag means adding it to
+ * `rosterCanonical`; nothing else here is a claim about it.
+ *
  * ## The bound
  *
  * This stops the STORE, which holds no keys. It deliberately does NOT stop a
@@ -119,6 +130,35 @@ export async function assertRosterAuthenticated(
     // "verify only when a key is present" would let a store opt out entirely.
     throw new KeyringTamperedError({ userId, reason: 'roster-key-missing' })
   }
+  await assertRosterTagValid(file, rosterKey, userId)
+}
+
+/**
+ * #1096 — VERIFY BEFORE YOU TRUST, and especially before you RESTAMP.
+ *
+ * The sibling of {@link assertRosterAuthenticated} for the other half of the
+ * problem. That one guards paths that *unlock* a keyring; this one guards paths
+ * that **read another member's file** — because the roster key is vault-wide, a
+ * caller holding it can verify any member's tag, not just their own.
+ *
+ * Every read-modify-write on a member's roster must call this **before** the
+ * modify. A flow that reads a forged file, edits one field and restamps does
+ * not merely tolerate the forgery — it **launders** it, converting a file
+ * `loadKeyring` refuses into one it accepts, under a genuine tag. `revoke`
+ * calls into such a flow unconditionally, so without this a single forged
+ * member plus any later revocation anywhere in the vault is a complete bypass.
+ *
+ * Fail-closed, deliberately: a forged member's file aborts the operation rather
+ * than being skipped. Skipping would complete the revoke while leaving the
+ * forgery in place, and an untrusted store can already refuse writes — so the
+ * availability it costs was never guaranteed, while the integrity it buys is
+ * the point of the mechanism.
+ */
+export async function assertRosterTagValid(
+  file: KeyringFile,
+  rosterKey: EnclaveKey,
+  userId: string,
+): Promise<void> {
   if (!(await verifyRosterTag(file, file.roster_tag, rosterKey))) {
     throw new KeyringTamperedError({
       userId,

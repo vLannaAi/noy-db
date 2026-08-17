@@ -160,6 +160,7 @@ collection read is reachable.
 | **Transplant a genuine tag** from one member's file onto another's | `user_id` is inside the canonical string the tag covers |
 | **Delete `roster_tag` or `canary`** and hope for a legacy fallback | both are required; there is no no-canary/no-tag fallback (#1096 removed the last one) |
 | **Revoke a peer via a forged admin role** | the forged role is refused at `openVault`, before any grant/revoke call is reachable |
+| **Launder a forged file through a legitimate editor** — forge a member's role, then wait for any revoke, `updateUser`, rotation, peer-recovery or secret change to re-sign it | every roster editor **verifies before it restamps**: a flow that reads another member's file checks the existing `roster_tag` before trusting or rewriting any of it, and refuses outright rather than skipping the member. Without this the refusals above would hold only until the next routine admin action — including one the forgery itself provokes, since a forged member is locked out and recovery is the natural remedy |
 
 #### The two honest bounds
 

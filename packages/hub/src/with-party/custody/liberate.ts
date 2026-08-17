@@ -47,7 +47,7 @@ import type { FactorProofBundle, KeyringFile } from '../../kernel/types.js'
 import { PermissionDeniedError } from '../../kernel/errors.js'
 import { wrapKey } from '../../kernel/enclave/index.js'
 import { createOwnerKeyring, requireRosterKey } from '../team/keyring.js'
-import { mintRosterTag } from '../team/roster-tag.js'
+import { mintRosterTag, assertRosterTagValid } from '../team/roster-tag.js'
 import type { FrozenSnapshotRef } from '../../with-audit/portability/withdraw-accessible.js'
 import { freezeSnapshotOnly } from '../../with-audit/portability/withdraw-accessible.js'
 import { loadDeedMarker, saveDeedMarker } from '../team/deed.js'
@@ -117,6 +117,13 @@ export async function liberateVault(
     throw new PermissionDeniedError(`new owner keyring for "${opts.newOwnerId}" did not persist`)
   }
   const keyringFile = JSON.parse(env._data) as KeyringFile
+  // #1096 — this is a read-BACK of the file `createOwnerKeyring` just wrote, and
+  // it is about to be edited and restamped, so the store gets a window to alter
+  // it in between. Verified against the NEW owner's own roster key, not the
+  // incumbent's: at this instant the file is still stamped under the fresh key
+  // minted above (the swap to the incumbent key happens below).
+  const mintedRosterKey = requireRosterKey(newOwner, 'liberateVault')
+  await assertRosterTagValid(keyringFile, mintedRosterKey, opts.newOwnerId)
   const mergedDeks: Record<string, string> = { ...keyringFile.deks }
   for (const [collection, dek] of keyring.deks) {
     mergedDeks[collection] = await wrapKey(dek, newOwner.kek)
