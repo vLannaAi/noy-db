@@ -386,12 +386,70 @@ export async function decrypt(
     return new TextDecoder().decode(plaintext)
   } catch (err) {
     if (err instanceof Error && err.name === 'OperationError') {
-      throw new TamperedError()
+      throw new TamperedError(...(await classifyTagFailure(iv, ciphertext, dek, aad)))
     }
     throw new DecryptionError(
       err instanceof Error ? err.message : 'Decryption failed',
     )
   }
+}
+
+
+/**
+ * Distinguish a FORMAT TRANSITION from an attack, when the enclave can (#1103).
+ *
+ * ## The problem
+ *
+ * Since #1041 switched identity AAD on, one `TamperedError` covers at least
+ * four situations: legitimate pre-binding data, a store that reconstructs an
+ * envelope and drops a bound field, a CEK/rotation mismatch, and actual
+ * tampering. `SECURITY.md` and the subsystem docs teach the LAST reading — so a
+ * user who upgrades, hits this on their own honest data, and consults the docs
+ * is told their store has been compromised.
+ *
+ * That is a false positive on the product's central security claim, and the
+ * cost is not merely a confusing message: **a tamper alarm that cries wolf is
+ * one users learn to ignore.**
+ *
+ * ## Why the probe is sound, and why it is NOT a downgrade
+ *
+ * A body sealed before #1041 carries no AAD, so it opens under an empty one.
+ * Retrying that way is **positive evidence** of the legacy format rather than a
+ * guess: forging a body that decrypts under this DEK requires the DEK, and an
+ * untrusted store does not hold one.
+ *
+ * ⚠️ **Classification ONLY — the plaintext is discarded and the caller still
+ * throws.** That is the entire safety argument: the outcome is identical either
+ * way, so this cannot become the lenient path #1041 exists to remove. A variant
+ * that RETURNED the retry's plaintext would be exactly the accept-without-AAD
+ * downgrade the binding was built to prevent. Do not "optimise" it into one.
+ *
+ * Note what the honest message concedes: pre-#1041 data had no authenticated
+ * metadata, so a legacy record that was ALSO tampered with reads as legacy.
+ * That is not a weakening — it is an accurate statement about data that
+ * genuinely never carried a binding.
+ */
+async function classifyTagFailure(
+  iv: Uint8Array,
+  ciphertext: Uint8Array,
+  dek: CryptoKey,
+  aad: Uint8Array | undefined,
+): Promise<[] | [string, 'unbound-legacy-format']> {
+  // Only meaningful when AAD was supplied: with none there is no second
+  // interpretation to test, and the failure is a plain tag mismatch.
+  if (aad === undefined) return []
+  try {
+    await subtle.decrypt({ name: 'AES-GCM', iv: iv as BufferSource }, dek, ciphertext as BufferSource)
+  } catch {
+    return [] // no benign explanation — the security alert stands
+  }
+  return [
+    'This record was sealed BEFORE record-identity binding (#1041) and cannot be read by this ' +
+    'version. Its body decrypts correctly under the record key, so this is a data-format ' +
+    'transition, not tampering — but it also means the record predates authenticated metadata. ' +
+    'There is no migration path; see noy-db #1100.',
+    'unbound-legacy-format',
+  ]
 }
 
 // ─── Binary Encrypt / Decrypt ────────
