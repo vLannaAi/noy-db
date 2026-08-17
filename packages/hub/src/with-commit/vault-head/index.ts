@@ -4,7 +4,7 @@
  * @packageDocumentation
  */
 export { withVaultHead } from './active.js'
-export { verifyVaultHead, type HeadDiscrepancy, type HeadVerifyResult } from './verify.js'
+export { verifyVaultHead, type HeadDiscrepancy, type HeadVerifyResult, type HeadVerdict, type HeadUnverifiableReason } from './verify.js'
 export {
   NO_VAULT_HEAD,
   VAULT_HEAD_COLLECTION,

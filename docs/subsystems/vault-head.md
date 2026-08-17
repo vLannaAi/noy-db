@@ -51,13 +51,61 @@ const vault = await db.openVault('acme')
 
 const { adapter, getDEK } = vault._introspectState()
 const result = await verifyVaultHead(head, adapter, 'acme', getDEK, 'invoices')
-if (!result.clean) {
+if (result.verdict === 'tampered') {
   for (const d of result.discrepancies) {
     // d.kind === 'withheld'    → the store serves nothing for a record we wrote
     // d.kind === 'rolled-back' → it serves an authentic OLDER version
   }
 }
 ```
+
+## The verdict is THREE-way, and the middle value is the point
+
+```ts
+result.verdict  // 'verified' | 'unverifiable' | 'tampered'
+result.because  // why it could not conclude — non-empty only when 'unverifiable'
+```
+
+| verdict | meaning |
+|---|---|
+| `verified` | the head held expectations, every one was met, and the store can serialize head writes |
+| `unverifiable` | the sweep could not conclude — see `because` |
+| `tampered` | at least one discrepancy. Positive evidence, so it outranks any `unverifiable` reason present at the same time |
+
+**Collapsing the middle value is wrong in a different direction each way.** Folded
+into "clean" it hides withholding, which is the one thing this service exists to
+catch. Folded into "tampered" it cries wolf on a vault that is merely unexamined.
+
+That is not hypothetical. This subsystem's own first bug was a head registered on
+a code path that returned early, so it recorded nothing and swept **perfectly
+clean** — the degraded state rendered identically to a healthy one. A two-way
+verdict makes that state a supported outcome, which is why there is no
+`clean: boolean`.
+
+### `because: 'no-expectations'`
+
+The head holds nothing for this collection: a fresh vault, a head switched on
+after the fact, or — the one worth knowing — a **restore from a snapshot**.
+`_head` is `_`-prefixed, so `loadAll` excludes it exactly as it excludes
+`_keyring` and `_sync`. A restored vault therefore has no head to compare
+against, and reporting that as clean would be the original bug wearing a
+supported name.
+
+### `because: 'store-cannot-cas'`
+
+Each bucket is written with a compare-and-swap. Without
+`capabilities.casAtomic`, two writers racing on one bucket can silently lose an
+entry — and **a lost entry is a record the sweep stops expecting**, which is a
+false clean rather than a visible failure.
+
+So capability honesty is an **integrity** concern for this service, not the
+lost-update concern it is elsewhere: *a store that declines CAS degrades the very
+manifest that exists to detect that store.* The attack disables its own detector.
+
+`withVaultHead()` deliberately does **not** refuse to arm against such a store —
+the common file/S3/R2 backends are not CAS-capable, and a weaker head beats no
+head, especially for the single-writer case that is the majority. The honesty
+lives in the verdict instead, where a caller cannot miss it.
 
 ## Shape: bucketed, and why that is not a compromise
 
