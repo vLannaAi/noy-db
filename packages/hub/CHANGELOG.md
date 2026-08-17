@@ -1,5 +1,71 @@
 # Changelog — hub
 
+## 0.6.0-pre.18
+
+### Patch Changes
+
+- Bind a record's version `_v` into the AEAD (#1093).
+
+  `{collection, id, _tier, _by}` have been authenticated since #1041; `_v` was
+  deliberately left out because the sync engine re-stamped it on ciphertext it
+  holds no key for. #1042's `MergeAuthority` removed that obstacle, so advancing a
+  version is now a **re-seal** rather than a metadata edit, and `_v` joins the
+  tuple.
+
+  An untrusted store can no longer present a body at a version it was not sealed
+  at — neither inflating `_v` to outrank a peer nor relabelling a stale copy as
+  the current one. Rollback therefore stops being forgery and collapses into
+  **withholding**, which `withVaultHead()` detects.
+
+  `RecordIdentity` now carries a required `version`, and a new `RecordRef`
+  (`{collection, id}`) types the read paths, which read `_v`/`_tier`/`_by` off the
+  envelope as before.
+
+- The sync merge now fails closed against a hostile remote (#1042).
+
+  `applyRemote` verified nothing: a forged envelope was written into the local
+  store first, and the client discovered the problem at read time — by which
+  point its own newer copy was gone. Detection after destruction is not a
+  defence.
+
+  AAD alone could not fix it. AAD is checked inside `subtle.decrypt`, and the
+  merge never decrypts: `with-sync` is DEK-free by design and
+  `check:architecture` enforces it. So the engine now takes a `MergeAuthority`
+  at construction — a closure holding the DEK — and verifies **before**
+  `local.put`. The engine's import graph is unchanged, so the guard passes
+  unweakened.
+
+  Rejection is per-record: a poisoned entry lands in `PullResult.errors` and
+  the sync continues, because a hostile store must not be able to halt
+  replication by forging one record.
+
+  **Residue, stated rather than hidden:** a peer holding no key for a
+  collection cannot judge what it is given and accepts it unverified.
+  Rejecting instead would break replication of data a peer legitimately holds
+  but this client is not cleared to read. Such records are inert — the client
+  cannot decrypt them either — and they displace nothing. Closing it needs the
+  vault head (#1044), which detects substitution without holding the key.
+
+- New opt-in service: `withVaultHead()` from `@noy-db/hub/vault-head` (#1044).
+
+  Detects a store that **withholds**. #1041 made every envelope
+  self-authenticating and #1042 made the merge reject one that is not; neither
+  can see absence. A store serving a genuine, unmodified `v1` when `v7` exists
+  is serving a real record — nothing about the bytes is wrong. The head is the
+  missing external knowledge: an authenticated `{id → version}` manifest the
+  client writes and the store cannot forge.
+
+  Opt-in because it costs a write per commit and needs anti-entropy; on a
+  single-device offline vault it defends against nothing. That split is what
+  lets `SECURITY.md` state a narrower true thing rather than a concession —
+  a store cannot alter, relocate, re-tier, re-author or rewind a record;
+  without `withVaultHead()` it can still withhold or omit.
+
+  Bucketed (256 by default). Measured at the documented 50K-record ceiling, a
+  per-vault manifest costs 1.1 MiB per commit against ~4.4 KiB bucketed, and
+  bucketing changes only write amplification — detection stays per-record.
+  Not opted in costs nothing: no observer is registered at all.
+
 ## 0.6.0-pre.17
 
 ### Patch Changes
