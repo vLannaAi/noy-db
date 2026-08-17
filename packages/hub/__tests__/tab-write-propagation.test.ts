@@ -19,13 +19,11 @@ function makeBus(n: number): TabChannel[] {
   }
   return chans
 }
-const settle = async () => { await new Promise((r) => setTimeout(r, 0)); await new Promise((r) => setTimeout(r, 0)) }
-
 /**
  * Poll until `cond` is true (or throw on timeout). The cross-tab conflict path
- * does async store reads after a write signal is delivered, so a fixed number
- * of `settle()` ticks is racy on slow/contended CI runners — wait for the
- * observable outcome instead of guessing how many microtasks it takes.
+ * does async store reads after a write signal is delivered, so a fixed number of
+ * microtask ticks is racy on slow/contended CI runners — wait for the observable
+ * outcome instead of guessing how many it takes.
  */
 const waitFor = async (cond: () => boolean, timeoutMs = 2000) => {
   const start = Date.now()
@@ -34,6 +32,34 @@ const waitFor = async (cond: () => boolean, timeoutMs = 2000) => {
     await new Promise((r) => setTimeout(r, 5))
   }
 }
+
+/**
+ * {@link waitFor} for an ASYNC predicate — the propagation assertions need a
+ * `collection.get()`, which the sync version cannot express (#1106).
+ */
+const waitForAsync = async (cond: () => Promise<boolean>, timeoutMs = 2000) => {
+  const start = Date.now()
+  while (!(await cond())) {
+    if (Date.now() - start > timeoutMs) throw new Error('waitForAsync: condition not met within timeout')
+    await new Promise((r) => setTimeout(r, 5))
+  }
+}
+
+/**
+ * ⚠️ **`settle()` is only sound for asserting ABSENCE, and its failure mode is
+ * the opposite one** (#1106).
+ *
+ * For a *positive* transition — "the other tab now sees the write" — a fixed
+ * tick count is a race, and losing it produced a flake that failed a release
+ * publish. Those rows use {@link waitForAsync}.
+ *
+ * For an *absence* — "the other tab must NOT see it" — there is nothing to wait
+ * for, so a delay is the only option. But then too SHORT a delay makes the row
+ * pass spuriously rather than flake: it would report success because nothing has
+ * happened *yet*. So those rows keep a delay, and it must stay generous. A flake
+ * announces itself; a false pass does not.
+ */
+const settleForAbsence = async () => { await new Promise((r) => setTimeout(r, 50)) }
 
 /** A bus that QUEUES sends until deliver() — lets both tabs write before any delivery. */
 function makeManualBus(n: number): { chans: TabChannel[]; deliver: () => void } {
@@ -103,12 +129,15 @@ describe('end-to-end cross-tab propagation (#228b)', () => {
     db2.enableTabCoordination({ writeChannel: wB!, tabId: 'B' })
     await c2.get('seed') // hydrate db2
 
+    // Both of these are positive transitions, so wait for the OUTCOME rather
+    // than for a guessed number of microtasks. This is the row that flaked and
+    // skipped a release publish.
     await c1.put('i1', { id: 'i1', amount: 5 })
-    await settle()
+    await waitForAsync(async () => (await c2.get('i1')) !== null)
     expect(await c2.get('i1')).toMatchObject({ amount: 5 }) // propagated put
 
     await c1.delete('i1')
-    await settle()
+    await waitForAsync(async () => (await c2.get('i1')) === null)
     expect(await c2.get('i1')).toBeNull() // propagated delete
 
     db1.close(); db2.close()
@@ -122,7 +151,7 @@ describe('end-to-end cross-tab propagation (#228b)', () => {
     await c2.get('seed')
 
     await c1.put('i1', { id: 'i1', amount: 9 })
-    await settle()
+    await settleForAbsence() // absence: nothing to wait for — see the helper's doc
     expect(await c2.get('i1')).toBeNull() // db2 opted out → no refresh
 
     // no channel at all (node default) → enabling is a safe no-op, no throw
@@ -214,7 +243,10 @@ describe('cross-tab conflict detection (#228c)', () => {
 
     await c1.put('seed', { id: 'seed', amount: 5 }) // db2 never wrote 'seed'
     deliver()
-    await settle()
+    // The applied value is a positive transition — wait for it. Waiting here
+    // also makes the conflict-count assertion below meaningful: once the write
+    // has landed, the conflict path has had its chance to fire.
+    await waitForAsync(async () => (await c2.get('seed'))?.amount === 5)
 
     expect(conflicts).toBe(0)
     expect((await c2.get('seed'))!.amount).toBe(5) // applied, no conflict
