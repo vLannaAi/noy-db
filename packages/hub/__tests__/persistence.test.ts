@@ -280,23 +280,30 @@ describe('persistence round-trip (simulated page reload)', () => {
     db2.close()
   })
 
-  it('issue #113: legacy keyring without canary still loads via the multi-DEK heuristic', async () => {
+  // #1096 — this test previously asserted the OPPOSITE: that a canary-less
+  // keyring still loaded via the multi-DEK heuristic (issue #113's legacy
+  // fallback). That fallback is deleted. Stripping a plaintext field was the
+  // store's way to opt out of verification, so absence is now the alarm — and
+  // the setup below is the attack, not a compatibility scenario.
+  it('#1096: a keyring whose canary was stripped is refused, not fallen back on', async () => {
     const adapter = persistentMemory()
     const db1 = await createNoydb({ store: adapter, user: USER, secret: PASS })
     const comp1 = await db1.openVault(COMP)
     await comp1.collection<Invoice>('invoices').put('inv-1', { amount: 100, status: 'paid' })
     db1.close()
 
-    // Strip the canary to simulate a pre-#113 keyring.
     const env = await adapter.get(COMP, '_keyring', USER)
     const file = JSON.parse(env!._data) as Record<string, unknown>
     delete file['canary']
     await adapter.put(COMP, '_keyring', USER, { ...env!, _data: JSON.stringify(file) })
 
-    // Correct secret still works (no canary, all DEKs unwrap).
+    // The secret is CORRECT and every DEK would unwrap — the refusal is about
+    // the missing canary alone.
     const db2 = await createNoydb({ store: adapter, user: USER, secret: PASS })
-    const comp2 = await db2.openVault(COMP)
-    expect((await comp2.collection<Invoice>('invoices').get('inv-1'))?.amount).toBe(100)
+    await expect(db2.openVault(COMP)).rejects.toMatchObject({
+      name: 'KeyringTamperedError',
+      details: { userId: USER, reason: 'canary-missing' },
+    })
     db2.close()
   })
 

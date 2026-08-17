@@ -267,6 +267,7 @@ export {
   TamperedError,
   InvalidKeyError,
   KeyringCorruptError,
+  KeyringTamperedError,
   NoAccessError,
   ReadOnlyError,
   PermissionDeniedError,

@@ -39,7 +39,17 @@ function inlineMemory(): NoydbStore {
   } as unknown as NoydbStore
 }
 
-async function writeKeyring(store: NoydbStore, vault: string, file: KeyringFile): Promise<void> {
+// `describeUserAuth` is a plaintext-header reader — it never unlocks the
+// keyring, so it never verifies the #1096 canary / roster tag. These fixtures
+// therefore carry inert placeholders rather than real crypto: filling them in
+// would test nothing here and would obscure that this reader is deliberately
+// key-free.
+async function writeKeyring(
+  store: NoydbStore,
+  vault: string,
+  authority: Omit<KeyringFile, 'canary' | 'roster_tag'>,
+): Promise<void> {
+  const file: KeyringFile = { ...authority, canary: '', roster_tag: { iv: '', data: '' } }
   const env: EncryptedEnvelope = {
     _noydb: 1,
     _v: 1,

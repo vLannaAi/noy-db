@@ -82,6 +82,7 @@
     "InvariantError",
     "JoinTooLargeError",
     "KeyringCorruptError",
+    "KeyringTamperedError",
     "KeyringExpiredError",
     "LEDGER_COLLECTION",
     "LEDGER_DELTAS_COLLECTION",

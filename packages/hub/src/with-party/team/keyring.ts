@@ -1,6 +1,6 @@
 import type { NoydbStore, KeyringFile, KeyringAuthenticator, Role, Permissions, GrantOptions, RevokeOptions, UpdateUserOptions, UserInfo, EncryptedEnvelope, ExportCapability, ExportFormat, ImportCapability, VaultPolicyOnDisk, UserEnvelope } from '../../kernel/types.js'
 import { NOYDB_KEYRING_VERSION } from '../../kernel/types.js'
-import { USER_ENVELOPE_COLLECTION } from '../../kernel/constants.js'
+import { USER_ENVELOPE_COLLECTION, ROSTER_KEY_ID } from '../../kernel/constants.js'
 import {
   buildRecordEnvelope,
   deriveKey,
@@ -15,7 +15,8 @@ import {
   type EnclaveKey,
   type EchoSecretParts,
 } from '../../kernel/enclave/index.js'
-import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, InvalidKeyError, ValidationError, DirectoryDisabledError, EchoCeremonyRequiredError } from '../../kernel/errors.js'
+import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, KeyringTamperedError, InvalidKeyError, ValidationError, DirectoryDisabledError, EchoCeremonyRequiredError } from '../../kernel/errors.js'
+import { mintRosterTag, verifyRosterTag } from './roster-tag.js'
 import { readDirectoryConfig } from '../directory/storage.js'
 import { readUserVisibility, deleteUserVisibility } from '../directory/visibility.js'
 import {
@@ -224,6 +225,43 @@ async function verifyKeyringCanary(wrappedCanary: string, kek: EnclaveKey): Prom
   }
 }
 
+// ─── Roster key (#1096) ────────────────────────────────────────────
+//
+// The vault-wide key that authenticates each keyring file's plaintext
+// AUTHORITY half. It lives in the DEK map under `ROSTER_KEY_ID` rather
+// than in a field of its own, so it reaches every member through the
+// channels a DEK already travels — grant's `_`-prefix propagation,
+// `persistKeyring`, the wrapped-DEKs recovery blob, `peer-recover`, pod
+// recipient slots, session tokens.
+
+/**
+ * The vault roster key held by this keyring, or `null` when the keyring
+ * carries none.
+ *
+ * Null is expected on the resume-style paths (`kek: null` sessions, tier-3
+ * PIN resume, plaintext mode) — none of which may write a keyring file.
+ * Every stamping site null-guards this exactly as it guards `kek`: minting a
+ * file without a verifiable `roster_tag` would be worse than refusing, since
+ * it is indistinguishable on the next load from a store having stripped it.
+ */
+export function rosterKeyOf(keyring: UnlockedKeyring): EnclaveKey | null {
+  return keyring.deks.get(ROSTER_KEY_ID) ?? null
+}
+
+/** Shared wording for the stamping-site guards — mirrors the `kek` guard's shape. */
+function requireRosterKey(keyring: UnlockedKeyring, fn: string): EnclaveKey {
+  const rosterKey = rosterKeyOf(keyring)
+  if (!rosterKey) {
+    throw new ValidationError(
+      `${fn}: caller keyring has no vault roster key — cannot stamp a roster tag. ` +
+        'This typically means the keyring was opened via tier-3 PIN resume, ' +
+        'session restore, or a wrap-DEKs tier-2 unlock. Re-authenticate at ' +
+        'tier 1 (secret) before writing a keyring.',
+    )
+  }
+  return rosterKey
+}
+
 // ─── Load / Create ─────────────────────────────────────────────────────
 
 /** Options for {@link loadKeyring} (#846b). */
@@ -324,11 +362,15 @@ export async function loadKeyring(
   // unwrap failures are unambiguously corruption, not wrong-pass. A
   // canary failure with at least one DEK success indicates the KEK
   // is correct but the canary itself is corrupt.
-  // `null` sentinel = legacy keyring without canary; falls back to the
-  // multi-DEK heuristic.
-  const canaryOk: boolean | null = keyringFile.canary !== undefined
-    ? await verifyKeyringCanary(keyringFile.canary, kek)
-    : null
+  //
+  // #1096 — the canary is REQUIRED. `=== undefined` stays reachable at
+  // runtime despite the required type: this object was parsed from JSON a
+  // store controls. No-legacy policy means an absent canary is not an old
+  // file, it is a store stripping the field to escape verification.
+  if (keyringFile.canary === undefined) {
+    throw new KeyringTamperedError({ userId, reason: 'canary-missing' })
+  }
+  const canaryOk = await verifyKeyringCanary(keyringFile.canary, kek)
 
   // Unwrap each DEK independently — collect successes and failures.
   const deks = new Map<string, EnclaveKey>()
@@ -358,12 +400,12 @@ export async function loadKeyring(
     }
   }
 
-  if (canaryOk === true) {
+  if (canaryOk) {
     // KEK proven correct by the canary. Any DEK failure is corruption.
     if (failedCollections.length > 0) {
       throw new KeyringCorruptError({ failedCollections, intactCount: deks.size })
     }
-  } else if (canaryOk === false) {
+  } else {
     // Canary failed. If any DEK unwrapped, KEK is correct → canary bytes
     // are corrupted (rare; reported under the '_canary' sentinel).
     if (deks.size > 0) {
@@ -376,14 +418,28 @@ export async function loadKeyring(
     // corruption). Surface the original InvalidKeyError so
     // onInvalidKey: 'reset' can fire its documented recovery path.
     throw firstUnwrapError instanceof Error ? firstUnwrapError : new InvalidKeyError()
-  } else {
-    // Legacy keyring (no canary). Fall back to the multi-DEK heuristic.
-    if (failedCollections.length > 0) {
-      if (deks.size > 0) {
-        throw new KeyringCorruptError({ failedCollections, intactCount: deks.size })
-      }
-      throw firstUnwrapError instanceof Error ? firstUnwrapError : new InvalidKeyError()
-    }
+  }
+
+  // #1096 — ROSTER AUTHENTICATION. Deliberately AFTER the key epilogue: a
+  // plain wrong secret must keep reporting as InvalidKeyError and must never
+  // be announced to the user as an attack. Past this point the KEK is proven
+  // correct and every DEK unwrapped, so anything wrong with the plaintext
+  // authority half is the store's doing.
+  //
+  // Absence is an error, not a skip. The alternative — verify only when a
+  // tag is present — lets a store opt out of the whole mechanism by deleting
+  // a plaintext field, which is precisely the power this closes.
+  const rosterKey = deks.get(ROSTER_KEY_ID)
+  if (rosterKey === undefined) {
+    // A present-but-damaged entry already threw as KeyringCorruptError above,
+    // so reaching here means the entry is absent from the file entirely.
+    throw new KeyringTamperedError({ userId, reason: 'roster-key-missing' })
+  }
+  if (!(await verifyRosterTag(keyringFile, keyringFile.roster_tag, rosterKey))) {
+    throw new KeyringTamperedError({
+      userId,
+      reason: keyringFile.roster_tag === undefined ? 'roster-tag-missing' : 'roster-tag-mismatch',
+    })
   }
 
   return {
@@ -512,19 +568,30 @@ export async function createOwnerKeyring(
   // pre-existing keyrings" rollout note in the spec).
   const userEnvelopeDek = await generateDEK()
   const wrappedUserEnvelopeDek = await wrapKey(userEnvelopeDek, kek)
+  // #1096 — the vault's roster key is minted exactly here, once, and reaches
+  // every later member through grant's `_`-prefix DEK propagation.
+  const rosterKey = await generateDEK()
+  const wrappedRosterKey = await wrapKey(rosterKey, kek)
   const canary = await mintKeyringCanary(kek)
 
-  const keyringFile: KeyringFile = {
-    _noydb_keyring: NOYDB_KEYRING_VERSION,
+  const authority = {
     user_id: userId,
     display_name: userId,
-    role: 'owner',
+    role: 'owner' as const,
     permissions: {},
-    deks: { [USER_ENVELOPE_COLLECTION]: wrappedUserEnvelopeDek },
+    granted_by: userId,
+  }
+  const keyringFile: KeyringFile = {
+    _noydb_keyring: NOYDB_KEYRING_VERSION,
+    ...authority,
+    deks: {
+      [USER_ENVELOPE_COLLECTION]: wrappedUserEnvelopeDek,
+      [ROSTER_KEY_ID]: wrappedRosterKey,
+    },
     salt: bufferToBase64(salt),
     created_at: new Date().toISOString(),
-    granted_by: userId,
     canary,
+    roster_tag: await mintRosterTag(authority, rosterKey),
     // The presence of this block is what makes the keyring an echo keyring —
     // `deriveKekForKeyring` reads it to refuse a single-string unlock (AG-1).
     ...(typeof secret !== 'string'
@@ -545,7 +612,10 @@ export async function createOwnerKeyring(
     displayName: userId,
     role: 'owner',
     permissions: {},
-    deks: new Map([[USER_ENVELOPE_COLLECTION, userEnvelopeDek]]),
+    deks: new Map([
+      [USER_ENVELOPE_COLLECTION, userEnvelopeDek],
+      [ROSTER_KEY_ID, rosterKey],
+    ]),
     kek,
     salt,
     authenticators: [],
@@ -568,6 +638,7 @@ export async function grant(
         '(secret) before granting.',
     )
   }
+  const callerRosterKey = requireRosterKey(callerKeyring, 'grant')
 
   if (!canGrant(callerKeyring.role, options.role)) {
     throw new PermissionDeniedError(
@@ -734,19 +805,25 @@ export async function grant(
   }
 
   const canary = await mintKeyringCanary(newKek)
-  const keyringFile: KeyringFile = {
-    _noydb_keyring: NOYDB_KEYRING_VERSION,
+  const authority = {
     user_id: options.userId,
     display_name: options.displayName,
     role: options.role,
     permissions,
+    granted_by: callerKeyring.userId,
+    ...(options.exportCapability !== undefined && { export_capability: options.exportCapability }),
+    ...(options.importCapability !== undefined && { import_capability: options.importCapability }),
+  }
+  const keyringFile: KeyringFile = {
+    _noydb_keyring: NOYDB_KEYRING_VERSION,
+    ...authority,
     deks: wrappedDeks,
     salt: bufferToBase64(newSalt),
     created_at: new Date().toISOString(),
-    granted_by: callerKeyring.userId,
     canary,
-    ...(options.exportCapability !== undefined && { export_capability: options.exportCapability }),
-    ...(options.importCapability !== undefined && { import_capability: options.importCapability }),
+    // The grantee's own copy of the roster key rode in via the `_`-prefix
+    // propagation loop above, so they can verify this tag on first unlock.
+    roster_tag: await mintRosterTag(authority, callerRosterKey),
   }
 
   await writeKeyringFile(store, vault, options.userId, keyringFile)
@@ -1015,7 +1092,13 @@ export async function updateKeyringIdentity(
     )
   }
 
-  const next: KeyringFile = {
+  // #1096 — this function exists to edit another member's AUTHORITY without
+  // holding their credential, which is exactly the power a hostile store was
+  // helping itself to. The caller's own roster key is what re-authenticates
+  // the result; the target's canary rides the spread untouched.
+  const rosterKey = requireRosterKey(callerKeyring, 'updateUser')
+
+  const edited: KeyringFile = {
     ...target,
     ...(options.role !== undefined && { role: options.role }),
     ...(options.displayName !== undefined && {
@@ -1024,6 +1107,7 @@ export async function updateKeyringIdentity(
     }),
     ...(options.permissions !== undefined && { permissions: options.permissions }),
   }
+  const next: KeyringFile = { ...edited, roster_tag: await mintRosterTag(edited, rosterKey) }
 
   await writeKeyringFile(store, vault, options.userId, next)
 }
@@ -1131,7 +1215,21 @@ export async function rotateKeys(
   callerKeyring: UnlockedKeyring,
   opts: RotateKeysOptions,
 ): Promise<RotateResult> {
-  const { collections } = opts
+  // #1096 — the roster key is NOT rotatable, and this filter is load-bearing.
+  //
+  // `revoke` builds its rotation set from `Object.keys(targetKeyring.deks)`,
+  // which now contains `_roster`. Rotating it would mint a fresh roster key
+  // for the caller and then DROP the entry from every other member's file
+  // (rotation cannot re-wrap for a member whose KEK it cannot derive) — so the
+  // next `loadKeyring` for every remaining member would throw
+  // `roster-key-missing` and the whole vault would be unopenable, from an
+  // ordinary revoke. Refusing here rather than filtering at each caller keeps
+  // the guarantee at the chokepoint.
+  //
+  // Rotation also buys nothing: the roster tag defends against the STORE,
+  // which never holds a key, and explicitly not against a member who has
+  // already walked away with one.
+  const collections = opts.collections.filter((c) => c !== ROSTER_KEY_ID)
   // FR-6: re-keying is an owner-only meta-capability. A custodian operates the
   // vault fully but must NOT rotate — rotation would let it mint fresh DEKs and
   // strip the sealed owner's access, breaking the inalienability floor.
@@ -1140,6 +1238,7 @@ export async function rotateKeys(
       'custodian cannot rotate keys (FR-6: re-key is an owner-only meta-capability; use the Deed owner)',
     )
   }
+  const callerRosterKey = requireRosterKey(callerKeyring, 'rotateKeys')
   // Generate new DEKs for each affected collection
   // #1074 part 2 — RESUME. A pending DEK means a previous rotation of this
   // collection was interrupted after persisting its key but before committing.
@@ -1274,10 +1373,17 @@ export async function rotateKeys(
       delete updatedPermissions[collName]
     }
 
-    const updatedKeyring: KeyringFile = {
+    // #1096 — `permissions` is an authority field, so narrowing it here
+    // invalidates the member's existing roster tag. Restamp with the caller's
+    // roster key (same key: it is vault-wide).
+    const edited: KeyringFile = {
       ...userKeyringFile,
       deks: updatedDeks,
       permissions: updatedPermissions,
+    }
+    const updatedKeyring: KeyringFile = {
+      ...edited,
+      roster_tag: await mintRosterTag(edited, callerRosterKey),
     }
 
     await writeKeyringFile(store, vault, userId, updatedKeyring)
@@ -1335,18 +1441,25 @@ export async function changeSecret(
     wrappedDeks[collName] = await wrapKey(dek, newKek)
   }
 
+  // #1096 — the roster key is one of `keyring.deks`, so it was re-wrapped
+  // under the new KEK by the loop above and travels with the secret change.
+  const rosterKey = requireRosterKey(keyring, 'changeSecret')
   const canary = await mintKeyringCanary(newKek)
-  const keyringFile: KeyringFile = {
-    _noydb_keyring: NOYDB_KEYRING_VERSION,
+  const authority = {
     user_id: keyring.userId,
     display_name: keyring.displayName,
     role: keyring.role,
     permissions: keyring.permissions,
+    granted_by: keyring.userId,
+  }
+  const keyringFile: KeyringFile = {
+    _noydb_keyring: NOYDB_KEYRING_VERSION,
+    ...authority,
     deks: wrappedDeks,
     salt: bufferToBase64(newSalt),
     created_at: new Date().toISOString(),
-    granted_by: keyring.userId,
     canary,
+    roster_tag: await mintRosterTag(authority, rosterKey),
   }
 
   await writeKeyringFile(store, vault, keyring.userId, keyringFile)
@@ -1452,6 +1565,7 @@ export async function buildRecipientKeyringFile(
         'Re-authenticate at tier 1 (secret) before building a bundle.',
     )
   }
+  const rosterKey = requireRosterKey(callerKeyring, 'buildRecipientKeyringFile')
 
   const role: Role = recipient.role ?? 'viewer'
   const permissions = resolvePermissions(role, recipient.permissions)
@@ -1499,17 +1613,12 @@ export async function buildRecipientKeyringFile(
   }
 
   const canary = await mintKeyringCanary(newKek)
-  return {
-    _noydb_keyring: NOYDB_KEYRING_VERSION,
+  const authority = {
     user_id: recipient.id,
     display_name: recipient.displayName ?? recipient.id,
     role,
     permissions,
-    deks: wrappedDeks,
-    salt: bufferToBase64(newSalt),
-    created_at: new Date().toISOString(),
     granted_by: callerKeyring.userId,
-    canary,
     ...(recipient.exportCapability !== undefined
       ? { export_capability: recipient.exportCapability }
       : {}),
@@ -1519,6 +1628,17 @@ export async function buildRecipientKeyringFile(
     ...(recipient.expiresAt !== undefined
       ? { expires_at: recipient.expiresAt }
       : {}),
+  }
+  return {
+    _noydb_keyring: NOYDB_KEYRING_VERSION,
+    ...authority,
+    deks: wrappedDeks,
+    salt: bufferToBase64(newSalt),
+    created_at: new Date().toISOString(),
+    canary,
+    // The recipient's copy of the roster key rode in via the `_`-prefix
+    // propagation loop above, so the slot verifies on first unlock.
+    roster_tag: await mintRosterTag(authority, rosterKey),
     // The presence of this block is what makes the recipient's slot an
     // echo keyring — mirrors `createOwnerKeyring`'s same dance so the
     // ceremony (prompt → echo → key) travels with the pod, not just a
@@ -1851,6 +1971,7 @@ export async function persistKeyring(
         'tier 1 (secret) before persisting.',
     )
   }
+  const rosterKey = requireRosterKey(keyring, 'persistKeyring')
   // Carry the `echo` block forward (#940). This function rebuilds the file
   // from the `UnlockedKeyring`, which deliberately carries no echo info (same
   // rationale as the `changeSecret` guard), so it has to be read back off the
@@ -1881,20 +2002,27 @@ export async function persistKeyring(
   }
   const canary = await mintKeyringCanary(keyring.kek)
 
-  const keyringFile: KeyringFile = {
-    _noydb_keyring: NOYDB_KEYRING_VERSION,
+  // #1096 — build the authority half first and stamp from exactly that
+  // object, so the tag covers precisely what is persisted rather than a
+  // hand-copied restatement of it.
+  const authority = {
     user_id: keyring.userId,
     display_name: keyring.displayName,
     role: keyring.role,
     permissions: keyring.permissions,
+    granted_by: existingGrantedBy ?? keyring.userId,
+    ...(keyring.exportCapability !== undefined && { export_capability: keyring.exportCapability }),
+    ...(keyring.importCapability !== undefined && { import_capability: keyring.importCapability }),
+  }
+  const keyringFile: KeyringFile = {
+    _noydb_keyring: NOYDB_KEYRING_VERSION,
+    ...authority,
     deks: wrappedDeks,
     ...(Object.keys(wrappedPending).length > 0 ? { pending_deks: wrappedPending } : {}),
     salt: bufferToBase64(keyring.salt),
     created_at: existingCreatedAt ?? new Date().toISOString(),
-    granted_by: existingGrantedBy ?? keyring.userId,
     canary,
-    ...(keyring.exportCapability !== undefined && { export_capability: keyring.exportCapability }),
-    ...(keyring.importCapability !== undefined && { import_capability: keyring.importCapability }),
+    roster_tag: await mintRosterTag(authority, rosterKey),
     ...(keyring.authenticators.length > 0 && { authenticators: keyring.authenticators }),
     ...(keyring.policy !== undefined && { policy: keyring.policy }),
     ...(existingEcho !== undefined && { echo: existingEcho }),

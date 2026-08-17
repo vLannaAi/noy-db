@@ -1035,17 +1035,28 @@ export interface KeyringFile {
    * Secret canary — base64 AES-KW-wrapped form of a known constant
    * 256-bit value, wrapped under the keyring's KEK.
    *
-   * Optional: older keyrings load with no canary and fall back to
-   * the multi-DEK corruption heuristic. Newer keyrings
-   * carry one and let `loadKeyring` distinguish wrong-secret
-   * from corruption even when ALL DEKs (including a single-DEK keyring's
-   * sole DEK) are corrupted.
+   * Lets `loadKeyring` distinguish wrong-secret from corruption even when
+   * ALL DEKs (including a single-DEK keyring's sole DEK) are corrupted: the
+   * canary unwrapping proves the KEK correct independent of any DEK byte.
    *
    * AES-KW is deterministic — every write site mints fresh on each
    * persist; same KEK + same constant input always produces the same
    * ciphertext, so this round-trips without state.
+   *
+   * REQUIRED as of #1096 (no-legacy policy): the pre-canary fallback
+   * heuristic is deleted, so an absent canary is not an old file, it is a
+   * store that stripped the field — `KeyringTamperedError('canary-missing')`.
    */
-  readonly canary?: string
+  readonly canary: string
+  /**
+   * #1096 — AES-GCM({iv,data}) of the canonical authority fields
+   * (user_id, role, permissions, granted_by, expires_at, capabilities)
+   * under the vault roster key (carried as `deks[ROSTER_KEY_ID]`).
+   * Required: a valid canary with a missing or mismatching tag is refused
+   * as KeyringTamperedError — absence must itself be an error, or a store
+   * opts out of verification by deleting a plaintext field.
+   */
+  readonly roster_tag: { readonly iv: string; readonly data: string }
   /**
    * Tier-2 authenticator slots (multi-slot keyring extension).
    * Optional / append-only: keyring files written before the
