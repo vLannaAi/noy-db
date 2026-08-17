@@ -36,6 +36,7 @@ All operations use the Web Crypto API (`crypto.subtle`). Zero npm crypto depende
 | Tampered record **body** | AES-GCM auth tag — decrypt fails with `TamperedError`. Covers `_data` only; see *Envelope metadata is not authenticated* below. ⚠️ **A `TamperedError` is not by itself proof of an attack** — see *Reading a `TamperedError`* |
 | Revoked user retains data | Revocation always re-encrypts the affected collections under new DEKs — the rotation cannot be skipped |
 | Compromised biometric store | Wrapped KEK encrypted by WebAuthn credential (PRF-capable); non-PRF enrollments self-decrypt and are not recommended for this threat model |
+| Store edits a member's role, permissions, capabilities, or expiry | Since #1096, `_keyring`'s plaintext authority fields carry a `roster_tag` verified on every unlock path — see *The keyring roster is an authenticated surface* below |
 
 ### Envelope metadata is not authenticated
 
@@ -133,6 +134,83 @@ metadata, so a legacy record that was *also* tampered with reads as legacy. That
 is an accurate statement about data that never had a binding, not a weakening of
 one.
 
+### The keyring roster is an authenticated surface (#1096)
+
+A `_keyring` file's AUTHORITY half — `role`, `permissions`, `granted_by`,
+`expires_at`, `export_capability`, `import_capability` — is stored in
+**plaintext** (`_iv: ''`), so admins can edit a member's standing without
+holding that member's credential. Since #1096 those fields carry a
+`roster_tag`: AES-GCM of the canonical authority tuple (`user_id` included,
+so a genuine tag cannot be transplanted onto another member's file) under a
+vault-wide **roster key** that rides `deks['_roster']` — the same channel
+every other DEK already travels. Verification runs on **every unlock path**
+through one chokepoint, `assertRosterAuthenticated` — `loadKeyring`, the
+wrap-DEKs password slot, and all three rotate/recover flows — before any
+collection read is reachable.
+
+> **A store cannot edit any member's role, permissions, capabilities, or
+> expiry.**
+
+#### Closed
+
+| A hostile store attempting to… | is refused because |
+|---|---|
+| **Promote a role** by editing the plaintext `role` field | the edited file no longer matches its own `roster_tag`; refused at load, before any DEK is handed to the forged role |
+| **Grant capabilities** by editing `permissions` | the same tag covers the whole authority tuple, not just `role` |
+| **Transplant a genuine tag** from one member's file onto another's | `user_id` is inside the canonical string the tag covers |
+| **Delete `roster_tag` or `canary`** and hope for a legacy fallback | both are required; there is no no-canary/no-tag fallback (#1096 removed the last one) |
+| **Revoke a peer via a forged admin role** | the forged role is refused at `openVault`, before any grant/revoke call is reachable |
+
+#### The two honest bounds
+
+**(a) This stops the store, not a malicious member.** Every roster *editor*
+must hold the roster key to mint a valid tag (admins edit authority without
+holding the target's own credential) — so anyone who legitimately holds the
+roster key can forge any authority field for any member. A store colluding
+with such a member to serve the forged file is the member-forgery case, not
+the store-forgery case this closes, and sits outside this boundary the same
+way a store colluding with a revoked member's stale keys already does.
+
+**(b) A replayed genuine roster still verifies.** `roster_tag` authenticates
+a file's own contents, not its *recency* — there is no epoch or monotonic
+marker. A re-grant that **narrows** standing overwrites the keyring file in
+place rather than rotating keys, so the broader pre-narrowing file
+legitimately existed; if a store kept a copy, replaying it verifies cleanly
+and restores the higher role, including access to collections written
+*after* the narrowing (narrowing rotates nothing). That is
+[#1097](https://github.com/vLannaAi/noy-db/issues/1097), tracked beside the
+anti-entropy/withholding concession above for the same reason: keyring
+writes bypass the vault-head observer entirely — they are not records under
+`withVaultHead()` — and are versionless by design, so detecting a
+stale-but-genuine roster needs a mechanism neither this fix nor the head
+provides. Detection would in any case be defeated the same two ways
+record-withholding already is: a colluding member simply declining to
+verify, and split-view serving to different members.
+
+**Revocation never rotates the roster key, and that is deliberate.**
+`rotateKeys` explicitly refuses `'_roster'` in its `collections` list:
+rotating it would mint a fresh key for the caller and then be unable to
+re-wrap it for every other member (rotation cannot derive a KEK it was never
+given), leaving the whole vault unopenable. A revoked member who already
+held the roster key keeps it forever — but that grants them nothing beyond
+bound (a): they have no write path to a store that is not already colluding
+with them, and a colluding store is the member-forgery case already
+conceded above, not a new one.
+
+#### Reading a `KeyringTamperedError`
+
+| `err.details.reason` | meaning |
+|---|---|
+| `'canary-missing'` | the file has no `canary` at all — refused before the roster check is even reached |
+| `'roster-key-missing'` | the caller's DEK set has no `deks['_roster']` — a store that deleted the reserved roster-key entry; absence is treated as an alarm, never as "skip verification" |
+| `'roster-tag-missing'` | the file has no `roster_tag` — refused, never treated as an old/legacy file (there is no legacy fallback) |
+| `'roster-tag-mismatch'` | the tag does not decrypt to the file's own authority fields — an edited, transplanted, or otherwise inconsistent roster |
+
+As with `TamperedError`, a wrong secret never produces
+`KeyringTamperedError` — the KEK epilogue in `loadKeyring` runs first, so an
+incorrect password or biometric surfaces as `InvalidKeyError`, and the
+roster check only runs once the KEK is already proven correct.
+
 ### What NOYDB Does NOT Protect Against
 
 - Malicious application code (app has access to decrypted data in memory)
@@ -145,6 +223,13 @@ one.
 - A hostile store **suppressing** a revocation's `_keyring` delete. Rotation
   makes the retained keyring's DEKs worthless, which is the protection that
   matters, but the file itself can still be served
+- A malicious **member** who already holds the vault-wide roster key forging
+  another member's role, permissions, or capabilities — or a store colluding
+  with such a member to serve the forged file. `roster_tag` defends against
+  the store; it does not defend against a member who already has the key
+- A store **replaying** a genuine, pre-narrowing `_keyring` file to restore a
+  member's earlier, broader role — detectable only with a mechanism neither
+  `roster_tag` nor `withVaultHead()` provides yet ([#1097](https://github.com/vLannaAi/noy-db/issues/1097))
 
 ### Recommendations
 
