@@ -107,7 +107,7 @@ describe('#1043 A — a `_keyring` file is plaintext, so ROLE is forgeable outri
     // even by a forged role that inherited a nearly empty DEK map.
     const store = memoryStore()
     const { db } = await ownerWith(store)
-    await db.grant(VAULT, { userId: 'bob', displayName: 'Bob', role: 'client', secret: 'bob-pass-1', permissions: { invoices: ['read'] } })
+    await db.grant(VAULT, { userId: 'bob', displayName: 'Bob', role: 'client', secret: 'bob-pass-1', permissions: { invoices: 'ro' } })
     await db.grant(VAULT, { userId: 'carol', displayName: 'C', role: 'viewer', secret: 'carol-pass-1' })
 
     // Control: the genuine `client` bob is refused.
@@ -131,7 +131,7 @@ describe('#1043 A — a `_keyring` file is plaintext, so ROLE is forgeable outri
     const store = memoryStore()
     const { db, vault } = await ownerWith(store)
     await vault.collection<{ amount: number }>('secrets').put('s-1', { amount: 42 })
-    await db.grant(VAULT, { userId: 'bob', displayName: 'Bob', role: 'client', secret: 'bob-pass-1', permissions: { invoices: ['read'] } })
+    await db.grant(VAULT, { userId: 'bob', displayName: 'Bob', role: 'client', secret: 'bob-pass-1', permissions: { invoices: 'ro' } })
 
     await forgeRole(store, 'bob', 'admin')
     const forged = await createNoydb({ teamStrategy: withTeam(), store, user: 'bob', secret: 'bob-pass-1' })
