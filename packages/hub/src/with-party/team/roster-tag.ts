@@ -13,9 +13,8 @@
  * `persistKeyring`, the wrapped-DEKs recovery blob, `peer-recover`, pod
  * recipient slots — and a `roster_tag`: AES-GCM of the canonical authority
  * fields under that key. Every roster EDITOR holds the key (constraint:
- * admins edit authority they don't hold the target's credential for), so this
- * stops the store — which holds no keys — and deliberately NOT a malicious
- * member. SECURITY.md states the bound.
+ * admins edit authority they don't hold the target's credential for) — which
+ * is what sets the bound below.
  *
  * `user_id` is inside the canonical string so a genuine tag cannot be
  * transplanted onto another member's file.
