@@ -23,7 +23,7 @@
  *   via→kernel/enclave direction) — empty since #629 Task 4, gained its
  *   own synthetic-fire proof in #650 Task 7.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -44,6 +44,51 @@ const LAYERING_SYNTHETIC_FILE = repoPath('packages/hub/src/kernel/__via_layering
 // mechanical way to prove the guard still fires, without touching any real
 // via/ file. lookup/ is a via family dir; any via family dir works.
 const ENCLAVE_SYNTHETIC_FILE = repoPath('packages/hub/src/via/lookup/__via_enclave_synthetic__.ts')
+
+/**
+ * Every throwaway file this suite plants, in one list (#1106).
+ *
+ * ## Why a sweep exists on top of the per-test `try/finally`
+ *
+ * Each test already removes its own file in a `finally`, and that is correct for
+ * every ordinary outcome including an assertion failure. It does **not** survive
+ * the process being KILLED — a `SIGKILL` skips `finally` entirely.
+ *
+ * The residue is unusually costly for this particular suite, because the planted
+ * files exist precisely to make `check:architecture` fail. A stranded one makes
+ * the guard fail **for real**, for everyone, until somebody notices — so a
+ * killed test run stops looking like a killed test run and starts looking like
+ * an architecture violation. That has already cost time twice.
+ *
+ * `beforeAll` therefore clears leftovers so the suite self-heals from a
+ * previously-killed run, and `afterAll` clears them again in case a test aborted
+ * between planting and its own cleanup.
+ */
+const SYNTHETIC_FILES: readonly string[] = [
+  repoPath('packages/hub/src/kernel/__via_layering_synthetic__.ts'),
+  repoPath('packages/hub/src/kernel/__via_layering_side_effect_synthetic__.ts'),
+  repoPath('packages/hub/src/kernel/__via_layering_default_synthetic__.ts'),
+  repoPath('packages/hub/src/via/lookup/__via_enclave_synthetic__.ts'),
+]
+
+function sweepSyntheticFiles(): string[] {
+  const removed: string[] = []
+  for (const f of SYNTHETIC_FILES) {
+    if (existsSync(f)) { unlinkSync(f); removed.push(f) }
+  }
+  return removed
+}
+
+beforeAll(() => {
+  const removed = sweepSyntheticFiles()
+  if (removed.length > 0) {
+    // Loud on purpose: self-healing silently would hide that a previous run was
+    // killed, and that is worth knowing.
+    console.warn(`[via-guards-empty] cleared ${removed.length} stranded synthetic file(s) from a previous killed run`)
+  }
+})
+
+afterAll(() => { sweepSyntheticFiles() })
 
 interface CheckResult {
   readonly status: number
