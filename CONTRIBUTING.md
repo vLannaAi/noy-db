@@ -113,6 +113,15 @@ pnpm changeset
 
 Pick the bump level (patch/minor/major) per package, write a one-line user-facing summary. CI will block the PR if a public change lands without a changeset.
 
+#### Which packages ship their `CHANGELOG.md` (#1107)
+
+**`@noy-db/hub` does; no other package does.** This is a deliberate decision, recorded here because the previous state was a default nobody had chosen — and it was strong enough to mislead a release decision: `0.6.0-pre.19` was cut partly to get a corrected changelog "into a tarball", by three people, none of whom ran `npm pack`. It had never shipped in any package.
+
+- **hub ships it** because hub is where a format break lands, and someone debugging one has `node_modules` open in front of them, not a browser. At ~500 KB against an already ~11 MB unpacked tarball it is a few percent, and it is the one package whose history is load-bearing.
+- **Satellites do not**, because ~50 changelogs that are mostly `Updated dependencies` would be real weight for no debugging value.
+
+If you add a package whose history a consumer would read at a breakpoint, add `CHANGELOG.md` to its `files` and say so here. **Verify with `npm pack` — `files` decides what ships, and reading the repo tells you nothing about the tarball.**
+
 ### 7. Releasing to npm
 
 Releases are **manual and event-driven**. There is no automated "merge to main → publish" path. The procedure is:
