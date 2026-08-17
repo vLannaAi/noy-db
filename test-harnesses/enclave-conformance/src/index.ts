@@ -23,8 +23,12 @@ import {
  *
  * That distinction is itself part of the contract, and it is why the two are
  * separate constants rather than one convenient default.
+ *
+ * `version` joined the bound tuple in #1093 and is likewise part of the
+ * contract: it must match the `_v` each envelope below is assembled with, or
+ * the body seals at one version and is read at another.
  */
-const REF = { collection: 'conformance', id: 'r1' } as const
+const REF = { collection: 'conformance', id: 'r1', version: 1 } as const
 
 /**
  * **EnclaveModule** — the enclave conformance kit's structural view of
