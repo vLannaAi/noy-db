@@ -13,7 +13,7 @@
  * per-function doc for its oracle call site) — this file introduces no new
  * crypto or semantics, only a narrower door onto what already runs.
  */
-import { buildRecordAad, recordAadFor, type RecordIdentity } from '../record-aad.js'
+import { buildRecordAad, recordAadFor, type RecordIdentity, type RecordRef } from '../record-aad.js'
 import { encrypt, decrypt, generateDEK, wrapCek, unwrapCek, type EnclaveKey } from '../crypto.js'
 import type { EncryptedEnvelope } from '../../types.js'
 
@@ -30,7 +30,7 @@ import type { EncryptedEnvelope } from '../../types.js'
  *  - `env._cek` absent → legacy path, decrypt the body directly under `key`.
  */
 export async function openEnvelopeJson(
-  ref: { readonly collection: string; readonly id: string },
+  ref: RecordRef,
   env: EncryptedEnvelope,
   key: EnclaveKey,
   opts?: { encrypted?: boolean },
@@ -152,6 +152,21 @@ export function envelopeBodyForHash(env: EncryptedEnvelope): string {
 }
 
 /**
+ * Does `env` carry an AEAD-sealed body at all?
+ *
+ * The one question callers outside the enclave legitimately need to ask about
+ * `_iv` — a tombstone and a plaintext-collection record have none, so there is
+ * nothing to authenticate and nothing to re-seal. Both {@link
+ * verifyRecordIdentity} (which treats them as vacuously authentic) and the
+ * merge authority's `advance` (which stamps them without re-sealing) turn on
+ * it, and asking it here keeps `_iv` from leaking back out to the callers —
+ * which `enclave-body-only` refused, correctly, when `advance` tested it inline.
+ */
+export function hasSealedBody(env: Pick<EncryptedEnvelope, '_iv'>): boolean {
+  return env._iv !== ''
+}
+
+/**
  * Does `env` authenticate at the identity `ref` claims, under `key`? (#1042)
  *
  * The merge's fail-closed check, living here because it is envelope surgery:
@@ -170,11 +185,11 @@ export function envelopeBodyForHash(env: EncryptedEnvelope): string {
  * by construction, not by omission.
  */
 export async function verifyRecordIdentity(
-  ref: { readonly collection: string; readonly id: string },
+  ref: RecordRef,
   env: EncryptedEnvelope,
   key: EnclaveKey,
 ): Promise<boolean> {
-  if (env._iv === '') return true
+  if (!hasSealedBody(env)) return true
   try {
     await openEnvelopeJson(ref, env, key)
     return true

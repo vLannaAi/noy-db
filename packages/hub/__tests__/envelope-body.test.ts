@@ -54,7 +54,7 @@ describe('envelope-body helpers', () => {
     it('round-trips JSON through the encrypted path (default)', async () => {
       const dek = await generateDEK()
       const json = JSON.stringify({ hello: 'world' })
-      const body = await writeEnvelopeBody({ collection: 'c', id: 'r1' }, json, dek)
+      const body = await writeEnvelopeBody({ collection: 'c', id: 'r1', version: 1 }, json, dek)
       const envelope = baseEnvelope(body)
 
       const opened = await openEnvelopeJson({ collection: 'c', id: 'r1' }, envelope, dek)
@@ -64,7 +64,7 @@ describe('envelope-body helpers', () => {
     it('round-trips JSON through the plaintext path (encrypted: false)', async () => {
       const dek = await generateDEK()
       const json = JSON.stringify({ hello: 'plaintext' })
-      const body = await writeEnvelopeBody({ collection: 'c', id: 'r1' }, json, dek, { encrypted: false })
+      const body = await writeEnvelopeBody({ collection: 'c', id: 'r1', version: 1 }, json, dek, { encrypted: false })
 
       // Exact plaintext body shape today's direct writers emit.
       expect(body._iv).toBe('')
@@ -89,7 +89,7 @@ describe('envelope-body helpers', () => {
     it('writeEnvelopeBody({ perRecordKey: true }) produces an envelope openEnvelopeJson can open with only the DEK', async () => {
       const dek = await generateDEK()
       const json = JSON.stringify({ secret: 42 })
-      const body = await writeEnvelopeBody({ collection: 'c', id: 'r1' }, json, dek, { perRecordKey: true })
+      const body = await writeEnvelopeBody({ collection: 'c', id: 'r1', version: 1 }, json, dek, { perRecordKey: true })
 
       expect(body._cek).toBeDefined()
       const envelope = baseEnvelope(body)
@@ -102,7 +102,7 @@ describe('envelope-body helpers', () => {
       const dek = await generateDEK()
       const cek = await generateDEK()
       const json = JSON.stringify({ mirrored: true })
-      const { iv, data } = await encrypt(json, cek, buildRecordAad({ collection: 'c', id: 'r1' }))
+      const { iv, data } = await encrypt(json, cek, buildRecordAad({ collection: 'c', id: 'r1', version: 1 }))
       const wrapped = await wrapCek(cek, dek)
       const envelope = baseEnvelope({ _iv: iv, _data: data, _cek: wrapped })
 
@@ -114,7 +114,7 @@ describe('envelope-body helpers', () => {
       const dek = await generateDEK()
       const wrongDek = await generateDEK()
       const json = JSON.stringify({ x: 1 })
-      const body = await writeEnvelopeBody({ collection: 'c', id: 'r1' }, json, dek, { perRecordKey: true })
+      const body = await writeEnvelopeBody({ collection: 'c', id: 'r1', version: 1 }, json, dek, { perRecordKey: true })
       const envelope = baseEnvelope(body)
 
       await expect(openEnvelopeJson({ collection: 'c', id: 'r1' }, envelope, wrongDek)).rejects.toThrow()

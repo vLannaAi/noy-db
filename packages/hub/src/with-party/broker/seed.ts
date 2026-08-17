@@ -143,9 +143,9 @@ async function persistRecord(
   expectedVersion: number,
 ): Promise<void> {
   const envelope = await buildSealedRecordEnvelope(
-    { collection: BROKER_COLLECTION, id: record.brokerId, by: keyring.userId },
+    { collection: BROKER_COLLECTION, id: record.brokerId, by: keyring.userId, version: expectedVersion + 1 },
     (identity) => writeEnvelopeBody(identity, JSON.stringify(record), dek),
-    { version: expectedVersion + 1 },
+    {},
   )
   await store.put(vault, BROKER_COLLECTION, record.brokerId, envelope, expectedVersion)
 }

@@ -34,7 +34,8 @@
  *   - envelope body  — `record-keys/envelope-body.ts`: the C1 protected-body
  *                       access contract (`openEnvelopeJson`,
  *                       `writeEnvelopeBody`, `hasPerRecordKey`,
- *                       `envelopeBodyForHash`) — the sanctioned door onto
+ *                       `hasSealedBody`, `envelopeBodyForHash`) — the
+ *                       sanctioned door onto
  *                       `_iv`/`_data`/`_cek`/`_sealed` for everyone outside
  *                       this folder.
  *   - reserved envelopes — `record-keys/sealed-slots.ts`: `makeReservedEnvelopes`,
@@ -105,7 +106,7 @@ export { rekeyEnvelopeToDek, rekeyEnvelopeIfNeeded } from './record-keys/rekey.j
 export { buildRecordEnvelope, buildSealedRecordEnvelope } from './record-envelope.js'
 export type { RecordEnvelopeBody } from './record-envelope.js'
 export { buildRecordAad, recordAadFor } from './record-aad.js'
-export type { RecordIdentity } from './record-aad.js'
+export type { RecordIdentity, RecordRef } from './record-aad.js'
 export { RecordCodec } from './record-keys/record-codec.js'
 export type { SealedShredSlot } from './record-keys/record-codec.js'
 
@@ -121,7 +122,7 @@ export type { DeterministicContext } from './record-keys/deterministic.js'
 export { isTombstone, isTombstoneShape, buildTombstone, isDeleteMarker, buildDeleteMarker } from './record-keys/tombstone.js'
 
 // ─── envelope body (C1 protected-body access contract) ──────────────
-export { openEnvelopeJson, writeEnvelopeBody, hasPerRecordKey, envelopeBodyForHash, envelopeBodySize, verifyRecordIdentity } from './record-keys/envelope-body.js'
+export { openEnvelopeJson, writeEnvelopeBody, hasPerRecordKey, hasSealedBody, envelopeBodyForHash, envelopeBodySize, verifyRecordIdentity } from './record-keys/envelope-body.js'
 
 // ─── reserved envelopes (ViaCryptoCtx.reservedEnvelopes capability) ──
 export { makeReservedEnvelopes } from './record-keys/sealed-slots.js'

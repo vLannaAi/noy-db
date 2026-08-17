@@ -31,12 +31,22 @@ export interface EnclaveVector {
 /**
  * Fixed secret all three vectors' DEKs are wrapped under.
  *
- * ⚠️ **REGENERATED 2026-08-15 for #1041.** The envelope ciphertexts below are
- * now sealed with record-identity AAD for `{collection: 'conformance', id:
- * 'r1'}` — the address the suite reads them at. The previous values were sealed
- * without AAD and cannot be opened by a conforming enclave, which is the point:
- * known-answer vectors are FORMAT-BOUND, so a format change invalidates them by
- * design rather than by accident.
+ * ⚠️ **REGENERATED 2026-08-17 for #1093** (and before that 2026-08-15 for
+ * #1041). The envelope ciphertexts below are sealed with record-identity AAD
+ * for `{collection: 'conformance', id: 'r1', version: 1}` — the address AND the
+ * version the suite reads them at. Each previous set was sealed under a
+ * narrower tuple and cannot be opened by a conforming enclave, which is the
+ * point: known-answer vectors are FORMAT-BOUND, so a format change invalidates
+ * them by design rather than by accident.
+ *
+ * This is the kit's real job showing itself. A fork that implements the old
+ * (pre-`_v`) AAD now FAILS conformance, loudly, instead of quietly producing
+ * envelopes noy-db cannot read. That is what these vectors are for.
+ *
+ * To regenerate: derive the KEK from the fixed secret + salt below, unwrap the
+ * (unchanged) `wrappedDek`, and re-run `writeEnvelopeBody` for each vector at
+ * that REF. The wrapped DEK is deliberately reused so only the ciphertexts
+ * move.
  *
  * The VALUE is frozen and deliberately still says "passphrase" after the
  * #862 rename. These are known-answer vectors: the wrapped DEKs below were
@@ -55,8 +65,8 @@ export const VECTOR_1_PLAIN: EnclaveVector = {
     _noydb: 1,
     _v: 1,
     _ts: '2026-01-01T00:00:00.000Z',
-    _iv: 'MmYqPz9Qm9WiCKsT',
-    _data: '35VA96UQdb1ixNLRUe+37bqAYALdGfUq5JSLhGyYsgxm46iBF5NQkNEGDXD6xAg=',
+    _iv: 'huUUvbRw95BFg/7Y',
+    _data: '/cKNYzwffV8YmOPZH9fwhyaFpvbeliK65Zd17Imq3XpG218D8uP/a892lxg3jeE=',
   },
   plaintext: '{"name":"Somchai","amount":100}',
 }
@@ -68,9 +78,9 @@ export const VECTOR_2_PER_RECORD_KEY: EnclaveVector = {
     _noydb: 1,
     _v: 1,
     _ts: '2026-01-01T00:00:00.000Z',
-    _iv: 'MNIvdgciFarubKop',
-    _data: 'ml5VXKUOaG5XTe36eNuV+4brCA59wKYaKoS2uETs46xMTP1jdyk00V4ERA==',
-    _cek: 'CPPZAWdkxxmk3Tk6VcG5SX1a/QnE7Oo+nYaeXJNrCBeUqp0HLaHB6A==',
+    _iv: 'VG1KYkkiLYgZHa3y',
+    _data: '/AfIScyk28VVJQ2eWD5ck1BKx8Rt+B5WmTm5vS1iPiZJ3FFycOqretqKew==',
+    _cek: '6j5LstUpJr1F656GCCIGtKukDWRVuW/r9dhA7A12vGmKqqlJzcWGsA==',
   },
   plaintext: '{"name":"Nok","amount":250}',
 }
@@ -82,9 +92,9 @@ export const VECTOR_3_SEALED: EnclaveVector = {
     _noydb: 1,
     _v: 1,
     _ts: '2026-01-01T00:00:00.000Z',
-    _iv: '+wz5Wby+sJ/MYfy5',
-    _data: 'Ih7Qnjr+gKuimQM0meyRAhP3ZdMnu+41KAjYGuA0ua4j+mZKJnwEmopRUw==',
-    _sealed: { taxId: 'vFajgQH7YjcK77Fh:GWD48tQkOQnW59vKU+/8tA3iIOTU/gzWH2eSJe2x' },
+    _iv: 'mxV6gQcfb3aSak3V',
+    _data: 'fqlWzaY/YJNy3jZf5MsFQq6OvA/x+3N+bTREbVoK5mzNmQdgI9tY9yDiCA==',
+    _sealed: { taxId: 'vF13eL+NovJP0ANs:HHk+qL3pQ3d/ZLFOULvndKjdwFnmOo+y0x3UpN/+' },
   },
   plaintext: '{"name":"Kob","amount":500}',
 }

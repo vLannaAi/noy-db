@@ -84,9 +84,9 @@ export async function saveSchemaManifest(
   const dek = await getDEK(MANIFEST_COLLECTION)
   const json = JSON.stringify(manifest)
   const env = await buildSealedRecordEnvelope(
-    { collection: MANIFEST_COLLECTION, id: MANIFEST_SCHEMA_RECORD_ID },
+    { collection: MANIFEST_COLLECTION, id: MANIFEST_SCHEMA_RECORD_ID, version: expectedVersion + 1 },
     (identity) => writeEnvelopeBody(identity, json, dek),
-    { version: expectedVersion + 1 },
+    {},
   )
   await store.put(vault, MANIFEST_COLLECTION, MANIFEST_SCHEMA_RECORD_ID, env, expectedVersion)
 }

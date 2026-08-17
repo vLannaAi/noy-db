@@ -41,8 +41,8 @@ export async function loadFence(store: NoydbStore, vault: string): Promise<Fence
 
 export async function saveFence(store: NoydbStore, vault: string, fence: FenceDoc): Promise<void> {
   const envelope = buildRecordEnvelope(
-    { collection: META_COLLECTION, id: FENCE_RECORD_ID },
-    { version: 1, iv: '', data: JSON.stringify(fence) },
+    { collection: META_COLLECTION, id: FENCE_RECORD_ID, version: 1 },
+    { iv: '', data: JSON.stringify(fence) },
   )
   await store.put(vault, META_COLLECTION, FENCE_RECORD_ID, envelope)
 }

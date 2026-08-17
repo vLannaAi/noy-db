@@ -119,11 +119,11 @@ export async function issueDelegation(
   }
 
   const plaintext = JSON.stringify(token)
-  const identity = { collection: DELEGATIONS_COLLECTION, id: token.id, by: grantor.userId }
+  const identity = { collection: DELEGATIONS_COLLECTION, id: token.id, by: grantor.userId, version: 1 }
   const { iv, data } = await encrypt(plaintext, delegationsDek, buildRecordAad(identity))
   const envelope = buildRecordEnvelope(
-    { collection: DELEGATIONS_COLLECTION, id: token.id, by: grantor.userId },
-    { version: 1, ts: token.createdAt, iv, data},
+    identity,
+    { ts: token.createdAt, iv, data},
   )
   await store.put(vault, DELEGATIONS_COLLECTION, token.id, envelope)
   return token

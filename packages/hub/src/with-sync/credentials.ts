@@ -115,13 +115,16 @@ export async function putCredential(
   const getDek = await ensureCollectionDEK(adapter, vault, keyring)
   const dek = await getDek(SYNC_CREDENTIALS_COLLECTION)
 
-  const identity = { collection: SYNC_CREDENTIALS_COLLECTION, id: credential.adapterId }
-  const { iv, data } = await encrypt(JSON.stringify(credential), dek, buildRecordAad(identity))
-
+  // The version is resolved BEFORE the identity, because it is now part of it:
+  // sealing under one version and stamping another produces a record no reader
+  // can open (#1093).
   const existing = await adapter.get(vault, SYNC_CREDENTIALS_COLLECTION, credential.adapterId)
   const version = existing ? existing._v + 1 : 1
 
-  const envelope: EncryptedEnvelope = buildRecordEnvelope(identity, { version, iv, data })
+  const identity = { collection: SYNC_CREDENTIALS_COLLECTION, id: credential.adapterId, version }
+  const { iv, data } = await encrypt(JSON.stringify(credential), dek, buildRecordAad(identity))
+
+  const envelope: EncryptedEnvelope = buildRecordEnvelope(identity, { iv, data })
 
   await adapter.put(
     vault,

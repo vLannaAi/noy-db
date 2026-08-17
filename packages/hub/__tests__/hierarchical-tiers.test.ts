@@ -311,9 +311,11 @@ describe('v0.18 hierarchical access', () => {
       const tier1Dek = await getDEK('docs#1')
       // #1041: a tier move changes `_tier`, so the AAD moves with it — open at
       // tier 0, re-seal at tier 1, exactly as elevate() does.
+      // #1093: `_v` is in the tuple too, and the hand-built tier-1 envelope
+      // below bumps it — so the destination identity must bump with it.
       const body = await rewrapBodyToDek(
-        { collection: 'docs', id: 'd1', ...(tier0Env._by !== undefined ? { by: tier0Env._by } : {}) },
-        { collection: 'docs', id: 'd1', tier: 1, ...(tier0Env._by !== undefined ? { by: tier0Env._by } : {}) },
+        { collection: 'docs', id: 'd1', version: tier0Env._v, ...(tier0Env._by !== undefined ? { by: tier0Env._by } : {}) },
+        { collection: 'docs', id: 'd1', version: tier0Env._v + 1, tier: 1, ...(tier0Env._by !== undefined ? { by: tier0Env._by } : {}) },
         tier0Env, tier0Dek, tier1Dek,
       )
       const tier1Env: EncryptedEnvelope = {

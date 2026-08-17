@@ -181,9 +181,9 @@ export async function saveDeedMarker(
   const persisted: DeedEnvelopePayload = { _noydb_deed: 1, ...marker }
   const prior = await store.get(vault, '_meta', DEED_RECORD_ID)
   const env = buildRecordEnvelope(
-    { collection: '_meta', id: DEED_RECORD_ID },
+    { collection: '_meta', id: DEED_RECORD_ID, version: (prior?._v ?? 0) + 1 },
     // AES-GCM bypassed — the marker is plaintext audit metadata.
-    { version: (prior?._v ?? 0) + 1, iv: '', data: JSON.stringify(persisted) },
+    { iv: '', data: JSON.stringify(persisted) },
   )
   await store.put(vault, '_meta', DEED_RECORD_ID, env)
 }

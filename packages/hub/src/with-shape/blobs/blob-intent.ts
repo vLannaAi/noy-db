@@ -141,9 +141,9 @@ async function encodeIntentEnvelope(
 ): Promise<EncryptedEnvelope> {
   const json = JSON.stringify(intent)
   return buildSealedRecordEnvelope(
-    { collection: BLOB_INTENT_COLLECTION, id: key },
+    { collection: BLOB_INTENT_COLLECTION, id: key, version: newVersion },
     (identity) => writeEnvelopeBody(identity, json, dek),
-    { version: newVersion },
+    {},
   )
 }
 

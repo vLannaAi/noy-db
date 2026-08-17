@@ -97,12 +97,12 @@ export async function savePersistedSchema(
   expectedVersion?: number,
 ): Promise<void> {
   const json = JSON.stringify(payload)
-  const identity = { collection: SCHEMAS_COLLECTION, id: collection }
-  const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
   const baseVersion = expectedVersion ?? (await store.get(vault, SCHEMAS_COLLECTION, collection))?._v ?? 0
+  const identity = { collection: SCHEMAS_COLLECTION, id: collection, version: baseVersion + 1 }
+  const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
   const env = buildRecordEnvelope(
-    { collection: SCHEMAS_COLLECTION, id: collection },
-    { version: baseVersion + 1, iv, data },
+    identity,
+    { iv, data },
   )
   await store.put(vault, SCHEMAS_COLLECTION, collection, env, expectedVersion)
 }

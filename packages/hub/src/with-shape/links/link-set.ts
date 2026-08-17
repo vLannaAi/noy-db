@@ -75,12 +75,12 @@ export class LinkSet implements LinkSetHandle {
 
   private async encryptEntry(entry: LinkEntry, version: number, key: string): Promise<EncryptedEnvelope> {
     const json = JSON.stringify(entry)
-    const identity = { collection: this.collName, id: key, by: this.actor }
+    const identity = { collection: this.collName, id: key, by: this.actor, version }
     if (!this.encrypted) {
-      return buildRecordEnvelope(identity, { version, iv: '', data: json})
+      return buildRecordEnvelope(identity, { iv: '', data: json})
     }
     const { iv, data } = await encrypt(json, await this.dek(), buildRecordAad(identity))
-    return buildRecordEnvelope(identity, { version, iv, data})
+    return buildRecordEnvelope(identity, { iv, data})
   }
 
   private async decryptEntry(key: string, env: EncryptedEnvelope): Promise<LinkEntry> {

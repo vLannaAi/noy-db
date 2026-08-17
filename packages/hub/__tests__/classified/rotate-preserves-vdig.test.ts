@@ -30,7 +30,7 @@ const payload: VdigPayload = {
 
 /** Seed a live record: body + `_vdig[password]` slot sealed under `oldCek`. */
 async function seed(store: InlineMemoryStore, dek: EnclaveKey, oldCek: EnclaveKey): Promise<void> {
-  const { iv, data } = await encrypt(JSON.stringify({ name: 'Nok' }), oldCek, buildRecordAad({ collection: COLL, id: ID }))
+  const { iv, data } = await encrypt(JSON.stringify({ name: 'Nok' }), oldCek, buildRecordAad({ collection: COLL, id: ID, version: 1 }))
   const blob = await sealVdigPayload(payload, oldCek, COLL, ID, FIELD)
   const env: EncryptedEnvelope = {
     _noydb: 1, _v: 1, _ts: '2026-07-04T00:00:00.000Z',

@@ -60,11 +60,11 @@ export async function issueAttestationCore(ctx: IssueContext, args: IssueArgs): 
     fieldPaths: args.fieldSchema.fields.map((f) => f.path),
     sourceRefs: [{ collection: args.collection, id: args.id, version: src.version }],
   }
-  const identity = { collection: ATTESTATIONS_COLLECTION, id: docId }
+  const identity = { collection: ATTESTATIONS_COLLECTION, id: docId, version: 1 }
   const { iv, data } = await encrypt(JSON.stringify(index), dek, buildRecordAad(identity))
   const env = buildRecordEnvelope(
     identity,
-    { version: 1, ts: index.issuedAt, iv, data },
+    { ts: index.issuedAt, iv, data },
   )
   await ctx.store.put(ctx.vault, ATTESTATIONS_COLLECTION, docId, env)
 

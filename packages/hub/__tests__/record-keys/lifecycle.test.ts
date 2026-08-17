@@ -21,8 +21,13 @@ import {
 import { Lru } from '../../src/kernel/cache/index.js'
 import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope } from '../../src/kernel/types.js'
 
-/** #1041: fixtures seal against the identity a reader recomputes. */
-const REF = { collection: 'c', id: 'r1' }
+/**
+ * #1041: fixtures seal against the identity a reader recomputes.
+ * #1093: that identity now includes `_v`, so the fixture's version and the `_v`
+ * it stamps below are one constant.
+ */
+const VERSION = 1
+const REF = { collection: 'c', id: 'r1', version: VERSION }
 const AAD = buildRecordAad(REF)
 
 async function cekEnvelope(body: string, dek: CryptoKey): Promise<{ env: EncryptedEnvelope; cek: CryptoKey }> {
@@ -30,7 +35,7 @@ async function cekEnvelope(body: string, dek: CryptoKey): Promise<{ env: Encrypt
   const { iv, data } = await encrypt(body, cek, AAD)
   return {
     cek,
-    env: { _noydb: NOYDB_FORMAT_VERSION, _v: 1, _ts: 't', _iv: iv, _data: data, _cek: await wrapCek(cek, dek) },
+    env: { _noydb: NOYDB_FORMAT_VERSION, _v: VERSION, _ts: 't', _iv: iv, _data: data, _cek: await wrapCek(cek, dek) },
   }
 }
 
@@ -88,7 +93,7 @@ describe('rewrapBodyToDek', () => {
     const fromDek = await generateDEK()
     const toDek = await generateDEK()
     const { iv, data } = await encrypt('{"legacy":true}', fromDek, AAD)
-    const env: EncryptedEnvelope = { _noydb: NOYDB_FORMAT_VERSION, _v: 1, _ts: 't', _iv: iv, _data: data }
+    const env: EncryptedEnvelope = { _noydb: NOYDB_FORMAT_VERSION, _v: VERSION, _ts: 't', _iv: iv, _data: data }
 
     const r = await rewrapBodyToDek(REF, REF, env, fromDek, toDek)
     expect(r._cek).toBeUndefined()

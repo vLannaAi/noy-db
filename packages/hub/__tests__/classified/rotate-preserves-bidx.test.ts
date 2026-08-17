@@ -29,7 +29,7 @@ const SYNTHETIC_BIDX_TAG = Buffer.from(new Uint8Array(33).fill(7)).toString('bas
 
 /** Seed a live record: body + a synthetic `_bidx[password]` tag under `cek`. */
 async function seed(store: InlineMemoryStore, dek: EnclaveKey, cek: EnclaveKey): Promise<void> {
-  const { iv, data } = await encrypt(JSON.stringify({ name: 'Nok' }), cek, buildRecordAad({ collection: COLL, id: ID }))
+  const { iv, data } = await encrypt(JSON.stringify({ name: 'Nok' }), cek, buildRecordAad({ collection: COLL, id: ID, version: 1 }))
   const env: EncryptedEnvelope = {
     _noydb: 1, _v: 1, _ts: '2026-07-04T00:00:00.000Z',
     _iv: iv, _data: data,

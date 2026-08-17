@@ -209,8 +209,8 @@ export async function recoverUser(
   //    Backend `put` is the canonical write primitive across every
   //    `to-*` store; no partial-failure window between revoke + grant.
   const envelope = buildRecordEnvelope(
-    { collection: '_keyring', id: options.userId },
-    { version: 1, iv: '', data: JSON.stringify(next) },
+    { collection: '_keyring', id: options.userId, version: 1 },
+    { iv: '', data: JSON.stringify(next) },
   )
   await store.put(vault, '_keyring', options.userId, envelope)
 }

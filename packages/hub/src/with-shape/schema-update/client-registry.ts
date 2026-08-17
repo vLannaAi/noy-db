@@ -30,8 +30,8 @@ export async function writeClientDoc(
 ): Promise<void> {
   const recordId = `${CLIENT_PREFIX}${clientId}`
   const envelope = buildRecordEnvelope(
-    { collection: META_COLLECTION, id: recordId },
-    { version: 1, iv: '', data: JSON.stringify({ clientId, ...doc }) },
+    { collection: META_COLLECTION, id: recordId, version: 1 },
+    { iv: '', data: JSON.stringify({ clientId, ...doc }) },
   )
   await store.put(vault, META_COLLECTION, recordId, envelope)
 }

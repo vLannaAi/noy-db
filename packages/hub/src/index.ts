@@ -1039,7 +1039,7 @@ export { isDiscriminant } from './kernel/util/discriminant.js'
  * itself, so callers thread two fields rather than four.
  */
 export { recordAadFor } from './kernel/enclave/index.js'
-export type { RecordIdentity } from './kernel/enclave/index.js'
+export type { RecordIdentity, RecordRef } from './kernel/enclave/index.js'
 export { bufferToBase64, base64ToBuffer, encryptBytes, decryptBytes } from './kernel/enclave/index.js'
 export { encryptDeterministic, decryptDeterministic } from './kernel/enclave/index.js'
 // Enclave fork-swap contract — optional-group refusal (C4)

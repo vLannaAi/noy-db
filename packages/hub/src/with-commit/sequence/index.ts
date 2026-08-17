@@ -261,11 +261,11 @@ export class SequenceStore {
   private async encryptState(name: string, state: SequenceState, version: number): Promise<EncryptedEnvelope> {
     const json = JSON.stringify(state)
     if (!this.encrypted) {
-      return buildRecordEnvelope({ collection: SEQUENCE_COLLECTION, id: name }, { version, iv: '', data: json})
+      return buildRecordEnvelope({ collection: SEQUENCE_COLLECTION, id: name, version }, { iv: '', data: json})
     }
-    const identity = { collection: SEQUENCE_COLLECTION, id: name }
+    const identity = { collection: SEQUENCE_COLLECTION, id: name, version }
     const { iv, data } = await encrypt(json, await this.dek(), buildRecordAad(identity))
-    return buildRecordEnvelope({ collection: SEQUENCE_COLLECTION, id: name }, { version, iv, data})
+    return buildRecordEnvelope(identity, { iv, data})
   }
 
   async peek(name: string): Promise<number> {

@@ -164,8 +164,8 @@ async function buildEnvelope(
   const json = JSON.stringify(entry)
   // `entry.id` IS the record id the caller writes under, so identity needs no
   // threading here (#1051).
-  const identity = { collection: CONSENT_AUDIT_COLLECTION, id: entry.id }
-  const body = { version: 1, ts: entry.timestamp }
+  const identity = { collection: CONSENT_AUDIT_COLLECTION, id: entry.id, version: 1 }
+  const body = { ts: entry.timestamp }
   if (!encrypted) {
     return buildRecordEnvelope(identity, { ...body, iv: '', data: json })
   }

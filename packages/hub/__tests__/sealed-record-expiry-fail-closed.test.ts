@@ -109,7 +109,9 @@ describe('M-4 — sealed-record expiry fails closed', () => {
       payload: bufferToBase64(sealed),
       expiresAt: new Date(Date.now() + HOUR).toISOString(), // valid → passes fast-path
     }
-    const recordEnv = { _iv: 'AAAA', _data: 'AAAA' }
+    // `_v` joined the bound tuple (#1093); the body is never reached here anyway
+    // — the point is that expiry fails closed BEFORE any decrypt.
+    const recordEnv = { _iv: 'AAAA', _data: 'AAAA', _v: 1 }
     await expect(
       openSealedRecord(delivery, recordEnv, host, 'docs', 'd-1'),
     ).rejects.toBeInstanceOf(SealedRecordExpiredError)

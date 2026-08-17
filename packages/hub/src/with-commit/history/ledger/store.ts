@@ -411,14 +411,14 @@ export class LedgerStore {
    * identity bindable (#1051).
    */
   private async encryptDelta(patch: JsonPatch, index: number): Promise<EncryptedEnvelope> {
-    const identity = { collection: LEDGER_DELTAS_COLLECTION, id: paddedIndex(index), by: this.actor }
+    const identity = { collection: LEDGER_DELTAS_COLLECTION, id: paddedIndex(index), by: this.actor, version: 1 }
     const json = JSON.stringify(patch)
     if (!this.encrypted) {
-      return buildRecordEnvelope(identity, { version: 1, iv: '', data: json})
+      return buildRecordEnvelope(identity, { iv: '', data: json})
     }
     const dek = await this.getDEK(LEDGER_COLLECTION)
     const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
-    return buildRecordEnvelope(identity, { version: 1, iv, data})
+    return buildRecordEnvelope(identity, { iv, data})
   }
 
   /**
@@ -679,8 +679,8 @@ export class LedgerStore {
    * writes should always bump the index).
    */
   private async encryptEntry(entry: LedgerEntry): Promise<EncryptedEnvelope> {
-    const identity = { collection: LEDGER_COLLECTION, id: paddedIndex(entry.index), by: entry.actor }
-    const body = { version: entry.index + 1, ts: entry.ts, by: entry.actor }
+    const identity = { collection: LEDGER_COLLECTION, id: paddedIndex(entry.index), by: entry.actor, version: entry.index + 1 }
+    const body = { ts: entry.ts }
     const json = canonicalJson(entry)
     if (!this.encrypted) {
       return buildRecordEnvelope(identity, { ...body, iv: '', data: json })

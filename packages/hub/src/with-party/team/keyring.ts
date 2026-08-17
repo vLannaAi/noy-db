@@ -2009,8 +2009,8 @@ async function writeKeyringFile(
   keyringFile: KeyringFile,
 ): Promise<void> {
   const envelope = buildRecordEnvelope(
-    { collection: '_keyring', id: userId },
-    { version: 1, iv: '', data: JSON.stringify(keyringFile) },
+    { collection: '_keyring', id: userId, version: 1 },
+    { iv: '', data: JSON.stringify(keyringFile) },
   )
   await store.put(vault, '_keyring', userId, envelope)
 }

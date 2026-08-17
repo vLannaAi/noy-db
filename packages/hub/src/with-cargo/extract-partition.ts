@@ -241,11 +241,11 @@ export async function reKeyLedger(
       payloadHash,
       ...(src.reason !== undefined ? { reason: src.reason } : {}),
     }
-    const ledgerIdentity = { collection: LEDGER_COLLECTION, id: paddedIndex(i) }
+    const ledgerIdentity = { collection: LEDGER_COLLECTION, id: paddedIndex(i), version: i + 1 }
     const { iv, data } = await encrypt(canonicalJson(entry), ledgerDek, buildRecordAad(ledgerIdentity))
     entries[paddedIndex(i)] = buildRecordEnvelope(
       ledgerIdentity,
-      { version: i + 1, ts: entry.ts, iv, data},
+      { ts: entry.ts, iv, data},
     )
     prevHash = await hashEntry(entry)
     last = entry
@@ -358,7 +358,7 @@ export async function reKeyBlobs(
       const intentEnv = await adapter.get(vaultName, BLOB_INTENT_COLLECTION, intentId)
       if (intentEnv) {
         const intentPlain = await openEnvelopeJson({ collection: BLOB_INTENT_COLLECTION, id: intentId }, intentEnv, srcDek)
-        const intentBody = await writeEnvelopeBody({ collection: BLOB_INTENT_COLLECTION, id: intentId }, intentPlain, destDek)
+        const intentBody = await writeEnvelopeBody({ collection: BLOB_INTENT_COLLECTION, id: intentId, version: intentEnv._v }, intentPlain, destDek)
         place(BLOB_INTENT_COLLECTION, intentId, { ...intentEnv, ...intentBody })
       }
 

@@ -21,7 +21,7 @@ import { NOYDB_FORMAT_VERSION, type EncryptedEnvelope, type CrdtMode, type CrdtS
 import { isTombstone, isDeleteMarker } from './tombstone.js'
 import { parseSealedSlot } from './sealed-slot.js'
 import { buildRecordEnvelope } from '../record-envelope.js'
-import { buildRecordAad, recordAadFor, type RecordIdentity } from '../record-aad.js'
+import { buildRecordAad, recordAadFor, type RecordIdentity, type RecordRef } from '../record-aad.js'
 import { sealFields, unsealOneField, unsealFields, makeHandleProducer, makeSealedSlotCapability, makeReservedEnvelopes, type SealKeyMaterial } from './sealed-slots.js'
 import { DebugReservedFieldError, ClassifiedConfigError, ValidationError } from '../../errors.js'
 import { mintVdigSlot } from '../classify/write.js'
@@ -161,7 +161,6 @@ export class RecordCodec<T> {
    * a SEPARATE timestamp (computed by the caller), so the two never share one.
    */
   static buildEnvelope(identity: RecordIdentity, p: {
-    version: number
     iv: string
     data: string
     // No `by` — `_by` is stamped from `identity`, the single source (#1041).
@@ -176,7 +175,6 @@ export class RecordCodec<T> {
 
   /** Plaintext (`_iv:''`) body envelope — the `!storeCiphertext` shape. */
   static buildPlaintextEnvelope(identity: RecordIdentity, p: {
-    version: number
     data: string
     provenance?: { source: string; sourceTs: string } | undefined
   }): EncryptedEnvelope {
@@ -201,9 +199,8 @@ export class RecordCodec<T> {
       if (key.startsWith('_')) throw new DebugReservedFieldError(this.ctx.name, key)
     }
     const base = buildRecordEnvelope(
-      { collection: this.ctx.name, id, by: this.ctx.actor },
+      { collection: this.ctx.name, id, by: this.ctx.actor, version },
       {
-        version,
         iv: '',
         data: '',
         
@@ -246,20 +243,22 @@ export class RecordCodec<T> {
    * migration.
    */
   async encryptJsonString(
-    ref: RecordIdentity,
+    ref: RecordRef,
     json: string,
     version: number,
     cek?: EnclaveKey,
     source?: string,
     sourceTs?: string,
   ): Promise<EncryptedEnvelope> {
-    const identity: RecordIdentity = { ...ref, by: this.ctx.actor }
+    // `version` folds into the identity HERE rather than travelling beside it,
+    // so what is sealed and what is stamped come from one object (#1093).
+    const identity: RecordIdentity = { ...ref, version, by: this.ctx.actor }
     const provenance = this.ctx.provenance && source !== undefined
       ? { source, sourceTs: sourceTs ?? new Date().toISOString() }
       : undefined
 
     if (!this.ctx.storeCiphertext) {
-      return RecordCodec.buildPlaintextEnvelope(identity, { version, data: json, provenance })
+      return RecordCodec.buildPlaintextEnvelope(identity, { data: json, provenance })
     }
 
     const dek = await this.ctx.getDEK()
@@ -269,11 +268,11 @@ export class RecordCodec<T> {
     if (cek !== undefined) {
       const { iv, data } = await encrypt(json, cek, aad)
       const wrapped = await wrapCek(cek, dek)
-      return RecordCodec.buildEnvelope(identity, { version, iv, data, cek: wrapped, provenance })
+      return RecordCodec.buildEnvelope(identity, { iv, data, cek: wrapped, provenance })
     }
 
     const { iv, data } = await encrypt(json, dek, aad)
-    return RecordCodec.buildEnvelope(identity, { version, iv, data, provenance })
+    return RecordCodec.buildEnvelope(identity, { iv, data, provenance })
   }
 
   /**
@@ -288,7 +287,7 @@ export class RecordCodec<T> {
    * {@link encryptJsonString} for why the codec must not assume its own.
    */
   async encryptRecord(
-    ref: RecordIdentity,
+    ref: RecordRef,
     record: T,
     version: number,
     cek?: EnclaveKey,
@@ -555,7 +554,7 @@ export class RecordCodec<T> {
    * `this.ctx.name` for those would recompute the wrong AAD and fail to open a
    * perfectly good record (#1041).
    */
-  async decryptJsonString(ref: RecordIdentity, envelope: EncryptedEnvelope): Promise<string | null> {
+  async decryptJsonString(ref: RecordRef, envelope: EncryptedEnvelope): Promise<string | null> {
     const id = ref.id
     // RISK #1 (forget cascade): a shred tombstone carries `_data: ''` and no
     // `_cek`. Decrypting it would call `decrypt('', '', dek)` → AES-GCM
@@ -794,7 +793,7 @@ export class RecordCodec<T> {
    * output-recompute path, not the public per-record read surface schema
    * validation guards.
    */
-  async decryptRecordAtDek(ref: RecordIdentity, envelope: EncryptedEnvelope, dek: EnclaveKey): Promise<T | null> {
+  async decryptRecordAtDek(ref: RecordRef, envelope: EncryptedEnvelope, dek: EnclaveKey): Promise<T | null> {
     const id = ref.id
     if (isTombstone(envelope, this.ctx.storeCiphertext) || isDeleteMarker(envelope)) return null
     let plaintext: string
@@ -829,7 +828,7 @@ export class RecordCodec<T> {
    * false positive. Every non-history read leaves this flag `false`.
    */
   async decryptRecord(
-    ref: RecordIdentity,
+    ref: RecordRef,
     envelope: EncryptedEnvelope,
     opts: { skipValidation?: boolean; sealedAsHandles?: boolean } = {},
   ): Promise<T | null> {
