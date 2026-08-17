@@ -17,8 +17,9 @@
  *
  * @packageDocumentation
  */
-import { verifyRecordIdentity } from './enclave/index.js'
+import { verifyRecordIdentity, rewrapBodyToDek, applyRewrappedBody, hasSealedBody } from './enclave/index.js'
 import { dekKey } from './tier-visibility.js'
+import { ValidationError } from './errors.js'
 import type { MergeAuthority } from '../port/with/merge-authority.js'
 import type { EnclaveKey } from './enclave/index.js'
 
@@ -51,11 +52,39 @@ export function buildMergeAuthority(
       return verifyRecordIdentity({ collection, id }, envelope, dek)
     },
 
-    advance: async (_collection, _id, envelope, toVersion) => {
-      // `_v` is not yet AEAD-bound, so advancing is still a metadata restamp.
-      // The seam exists so binding it becomes a change HERE rather than a hunt
-      // through the engine — see port/with/merge-authority.ts.
-      return { ...envelope, _v: toVersion }
+    advance: async (collection, id, envelope, toVersion) => {
+      // A tombstone and a plaintext record carry no sealed body, so there is
+      // nothing to re-seal and the stamp alone is the whole operation. Same
+      // vacuous-authenticity rule `verifyRecordIdentity` applies.
+      if (!hasSealedBody(envelope)) return { ...envelope, _v: toVersion }
+
+      const dek = keyring.deks.get(dekKey(collection, envelope._tier ?? 0))
+      if (dek === undefined) {
+        // Unreachable through the sync engine, and stated loudly rather than
+        // papered over: `advance` is only called on a local-wins conflict, and
+        // a client cannot have written — hence cannot hold a dirty entry for —
+        // a collection it holds no key for. Restamping anyway would emit an
+        // envelope sealed at one version and labelled another: a record nobody,
+        // including its author, can ever open again.
+        throw new ValidationError(
+          `sync: cannot advance "${collection}/${id}" past the remote — no key for it, so its body ` +
+          'cannot be re-sealed at the new version. The local copy is unchanged.',
+        )
+      }
+
+      // `_v` is inside the AAD (#1093), so advancing a version is a RE-SEAL,
+      // not an edit. `rewrapBodyToDek` with the same DEK on both ends is
+      // exactly that: open under the identity the body currently has, re-seal
+      // under the one it is moving to. The per-record CEK is preserved, so the
+      // history chain's body-key identity survives the advance.
+      const from = {
+        collection, id,
+        version: envelope._v,
+        ...(envelope._tier !== undefined ? { tier: envelope._tier } : {}),
+        ...(envelope._by !== undefined ? { by: envelope._by } : {}),
+      }
+      const body = await rewrapBodyToDek(from, { ...from, version: toVersion }, envelope, dek, dek)
+      return { ...applyRewrappedBody(envelope, body), _v: toVersion }
     },
   }
 }

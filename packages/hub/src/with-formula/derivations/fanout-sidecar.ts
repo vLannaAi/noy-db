@@ -131,14 +131,14 @@ export async function saveFanoutSidecar(
   const id = recordId(payload.source, payload.sourceId, payload.outputKey)
   const prior = await store.get(vault, '_meta', id)
   const json = JSON.stringify(doc)
-  const identity = { collection: '_meta', id }
   const version = (prior?._v ?? 0) + 1
+  const identity = { collection: '_meta', id, version }
   let envelope: EncryptedEnvelope
   if (!encrypted) {
-    envelope = buildRecordEnvelope(identity, { version, iv: '', data: json })
+    envelope = buildRecordEnvelope(identity, { iv: '', data: json })
   } else {
     const { iv, data } = await encrypt(json, await getDEK(FANOUT_DEK_COLLECTION), buildRecordAad(identity))
-    envelope = buildRecordEnvelope(identity, { version, iv, data })
+    envelope = buildRecordEnvelope(identity, { iv, data })
   }
   await store.put(vault, '_meta', id, envelope)
 }

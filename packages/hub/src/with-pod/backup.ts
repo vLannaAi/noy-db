@@ -212,8 +212,8 @@ export async function loadVault(ctx: BackupContext, backupJson: string): Promise
 
   // 2. Restore keyrings.
   for (const [userId, keyringFile] of Object.entries(backup.keyrings)) {
-    const envelope = buildRecordEnvelope({ collection: '_keyring', id: userId },
-      { version: 1, iv: '', data: JSON.stringify(keyringFile) })
+    const envelope = buildRecordEnvelope({ collection: '_keyring', id: userId, version: 1 },
+      { iv: '', data: JSON.stringify(keyringFile) })
     await ctx.adapter.put(ctx.vault, '_keyring', userId, envelope)
   }
 

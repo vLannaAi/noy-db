@@ -21,9 +21,12 @@
  * "the gate is capable of failing" standard the peer-floor work established:
  * "it threw" and "it threw for the reason I think" are different claims.
  *
- * Rewind is NOT covered here — `_v` is deliberately unbound until #1042 gives
- * the merge a DEK-holding capability, and asserting a defence that does not
- * exist yet would be worse than asserting nothing.
+ * **`_v` joined the tuple in #1093, and rows 9–11 say exactly what that did
+ * and did not buy.** A stale body can no longer be RELABELLED as the current
+ * version (10) and a version can no longer be inflated (11) — so a rollback can
+ * never win a convergence comparison. A store re-serving a genuine old version
+ * *at its own number* still succeeds (9), because that is withholding the newer
+ * one, which is `withVaultHead()`'s job and not AAD's.
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
@@ -146,6 +149,59 @@ describe('#1041 — an untrusted store cannot alter, relocate, re-tier or re-aut
     const { store, env } = await seed()
     await store.put(VAULT, COLL, 'd1', { ...env, _noydb: 99 } as unknown as EncryptedEnvelope)
     expect(await coldRead(store)).toEqual({ secret: 'the eagle lands at dawn' })
+  })
+
+  // ⚠️ MEASURED, and it narrows what #1093 may claim — the same correction
+  // row 3a made for `_tier`, found the same way.
+  //
+  // A plain re-serve of the genuine v1 still OPENS. It has to: the envelope is
+  // internally consistent, sealed at `_v: 1` and labelled `_v: 1`, and a reader
+  // arriving fresh has nothing to compare it against. AAD binds a body to the
+  // version it claims; it cannot know which version *should* have been served.
+  // That is absence, and absence is the vault head's job (#1044).
+  //
+  // What binding `_v` buys is stated in row 10, and it is the half that
+  // matters: the stale copy authenticates ONLY AS ITSELF, so it can never be
+  // dressed up to outrank the current one. A rollback that cannot win the
+  // version race cannot displace anything.
+  it('9. a plain re-serve of an OLD version still opens — it is withholding, not forgery', async () => {
+    const { store } = await seed()
+    const v1 = (await store.get(VAULT, COLL, 'd1'))!
+    const db = await createNoydb({ store, user: 'owner', secret: 'pw' })
+    await (await db.openVault(VAULT)).collection<Doc>(COLL).put('d1', { secret: 'the second version' })
+
+    // Control: the CURRENT record reads back, so what follows is the rewind
+    // and not a broken fixture.
+    expect(await coldRead(store)).toEqual({ secret: 'the second version' })
+
+    await store.put(VAULT, COLL, 'd1', v1)
+    // Not a throw. It is a real record, served at its real version — the store
+    // is hiding v2, which no per-envelope check can see.
+    expect(await coldRead(store)).toEqual({ secret: 'the eagle lands at dawn' })
+  })
+
+  it('10. REWIND-WITH-RESTAMP — the old body relabelled at the current version', async () => {
+    // The smarter form: serve the stale body but stamp it `_v: 2` so a
+    // version-comparing check sees nothing odd. It defeats every defence that
+    // reasons about the metadata, and it is exactly what AAD is for — the
+    // relabelling is what breaks it.
+    const { store } = await seed()
+    const v1 = (await store.get(VAULT, COLL, 'd1'))!
+    const db = await createNoydb({ store, user: 'owner', secret: 'pw' })
+    await (await db.openVault(VAULT)).collection<Doc>(COLL).put('d1', { secret: 'the second version' })
+    const v2 = (await store.get(VAULT, COLL, 'd1'))!
+
+    await store.put(VAULT, COLL, 'd1', { ...v1, _v: v2._v })
+    await expect(coldRead(store)).rejects.toThrow()
+  })
+
+  it('11. VERSION INFLATION — bumping `_v` on the current record, to outrank a peer', async () => {
+    // The push direction of the same lever: inflate a version so this copy wins
+    // every convergence comparison. Refused for the same reason — `_v` is no
+    // longer a number the store may choose.
+    const { store, env } = await seed()
+    await store.put(VAULT, COLL, 'd1', { ...env, _v: env._v + 99 })
+    await expect(coldRead(store)).rejects.toThrow()
   })
 
   it('8. `_ts` stays advisory — clock correction is not a tamper event', async () => {

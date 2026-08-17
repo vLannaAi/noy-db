@@ -94,8 +94,8 @@ export async function savePaperRecoveryEntries(
     entries,
   }
   const envelope = buildRecordEnvelope(
-    { collection: '_meta', id: PAPER_DOC_ID },
-    { version: 1, iv: '', data: JSON.stringify(doc) },
+    { collection: '_meta', id: PAPER_DOC_ID, version: 1 },
+    { iv: '', data: JSON.stringify(doc) },
   )
   await store.put(vault, '_meta', PAPER_DOC_ID, envelope)
 }
@@ -217,8 +217,8 @@ export async function saveShamirRecoveryEntries(
     entries,
   }
   const envelope = buildRecordEnvelope(
-    { collection: '_meta', id: SHAMIR_DOC_ID },
-    { version: 1, iv: '', data: JSON.stringify(doc) },
+    { collection: '_meta', id: SHAMIR_DOC_ID, version: 1 },
+    { iv: '', data: JSON.stringify(doc) },
   )
   await store.put(vault, '_meta', SHAMIR_DOC_ID, envelope)
 }

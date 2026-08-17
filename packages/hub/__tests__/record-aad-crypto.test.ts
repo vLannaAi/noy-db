@@ -10,6 +10,7 @@ let dek: CryptoKey
 const identity: RecordIdentity = {
   collection: 'invoices',
   id: 'inv-1',
+  version: 3,
   tier: 0,
   by: 'alice',
 }
@@ -67,6 +68,18 @@ describe('record AAD through encrypt/decrypt (#1041)', () => {
     const { iv, data } = await encrypt(body, dek, buildRecordAad(identity))
     const forged = buildRecordAad({ ...identity, by: 'mallory' })
     await expect(decrypt(iv, data, dek, forged)).rejects.toThrow(TamperedError)
+  })
+
+  it('6b. re-versioning fails closed — the rollback lever (#1093)', async () => {
+    // The half of rollback that AAD can reach: a real body offered AS a version
+    // it was not sealed at. Closing it is what stops a stale copy from being
+    // dressed up to outrank the current one; serving it at its OWN version is
+    // withholding, which is the vault head's problem, not this one.
+    const { iv, data } = await encrypt(body, dek, buildRecordAad(identity))
+    const inflated = buildRecordAad({ ...identity, version: identity.version + 5 })
+    await expect(decrypt(iv, data, dek, inflated)).rejects.toThrow(TamperedError)
+    const rewound = buildRecordAad({ ...identity, version: identity.version - 1 })
+    await expect(decrypt(iv, data, dek, rewound)).rejects.toThrow(TamperedError)
   })
 
   it('7. dropping the AAD entirely fails closed', async () => {

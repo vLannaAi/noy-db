@@ -38,8 +38,8 @@ export async function buildPodHandle(adapter: NoydbStore, name: string): Promise
   const { generateULID } = await import('./ulid.js')
   const handle = generateULID()
   const envelope: EncryptedEnvelope = buildRecordEnvelope(
-    { collection: '_meta', id: 'handle' },
-    { version: 1, iv: '', data: JSON.stringify({ handle }) },
+    { collection: '_meta', id: 'handle', version: 1 },
+    { iv: '', data: JSON.stringify({ handle }) },
   )
   await adapter.put(name, '_meta', 'handle', envelope)
   return handle

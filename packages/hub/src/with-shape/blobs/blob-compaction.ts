@@ -497,8 +497,8 @@ function generateEvictionId(collection: string, recordId: string, slotName: stri
 
 async function writeAuditEntry(ctx: CompactionContext, entry: BlobEvictionEntry): Promise<void> {
   const json = JSON.stringify(entry)
-  const identity = { collection: BLOB_EVICTION_AUDIT_COLLECTION, id: entry.id, by: entry.actor }
-  const body = { version: 1, ts: entry.evictedAt, by: entry.actor }
+  const identity = { collection: BLOB_EVICTION_AUDIT_COLLECTION, id: entry.id, by: entry.actor, version: 1 }
+  const body = { ts: entry.evictedAt }
   let envelope: EncryptedEnvelope
   if (ctx.encrypted) {
     const dek = await ctx.getDEK(BLOB_EVICTION_AUDIT_COLLECTION)

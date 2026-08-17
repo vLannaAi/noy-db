@@ -498,8 +498,8 @@ export class BlobSet {
   ): Promise<void> {
     const json = JSON.stringify(slots)
     const now = new Date().toISOString()
-    const identity = { collection: this.slotsCollection, id: this.recordId }
-    const body = { version: currentVersion + 1, ts: now }
+    const identity = { collection: this.slotsCollection, id: this.recordId, version: currentVersion + 1 }
+    const body = { ts: now }
     let envelope: EncryptedEnvelope
 
     if (this.encrypted) {
@@ -723,13 +723,13 @@ export class BlobSet {
     const newVersion = (expectedVersion ?? 0) + 1
     let envelope: EncryptedEnvelope
 
-    const identity = { collection: BLOB_INDEX_COLLECTION, id: blob.eTag }
+    const identity = { collection: BLOB_INDEX_COLLECTION, id: blob.eTag, version: newVersion }
     if (this.encrypted) {
       const dek = await this.getDEK(dekKey(BLOB_COLLECTION, tier ?? await this.ownerTier()))
       const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
-      envelope = buildRecordEnvelope(identity, { version: newVersion, ts: now, iv, data })
+      envelope = buildRecordEnvelope(identity, { ts: now, iv, data })
     } else {
-      envelope = buildRecordEnvelope(identity, { version: newVersion, ts: now, iv: '', data: json })
+      envelope = buildRecordEnvelope(identity, { ts: now, iv: '', data: json })
     }
 
     await this.store.put(
@@ -1943,13 +1943,13 @@ export class BlobSet {
     const now = new Date().toISOString()
     let envelope: EncryptedEnvelope
 
-    const identity = { collection: BLOB_CHUNKS_COLLECTION, id }
+    const identity = { collection: BLOB_CHUNKS_COLLECTION, id, version: 1 }
     if (dek) {
       const aad = chunkAAD(eTag, index, chunkCount)
       const { iv, data } = await encryptBytesWithAAD(chunk, dek, aad)
-      envelope = buildRecordEnvelope(identity, { version: 1, ts: now, iv, data })
+      envelope = buildRecordEnvelope(identity, { ts: now, iv, data })
     } else {
-      envelope = buildRecordEnvelope(identity, { version: 1, ts: now, iv: '', data: bufferToBase64(chunk) })
+      envelope = buildRecordEnvelope(identity, { ts: now, iv: '', data: bufferToBase64(chunk) })
     }
 
     await this.store.put(this.vault, BLOB_CHUNKS_COLLECTION, id, envelope)
@@ -2038,13 +2038,13 @@ export class BlobSet {
     const now = new Date().toISOString()
     let envelope: EncryptedEnvelope
 
-    const identity = { collection: this.versionsCollection, id: key }
+    const identity = { collection: this.versionsCollection, id: key, version: 1 }
     if (this.encrypted) {
       const dek = await this.getDEK(dekKey(this.collection, tier))
       const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
-      envelope = buildRecordEnvelope(identity, { version: 1, ts: now, iv, data })
+      envelope = buildRecordEnvelope(identity, { ts: now, iv, data })
     } else {
-      envelope = buildRecordEnvelope(identity, { version: 1, ts: now, iv: '', data: json })
+      envelope = buildRecordEnvelope(identity, { ts: now, iv: '', data: json })
     }
 
     await this.store.put(this.vault, this.versionsCollection, key, envelope)

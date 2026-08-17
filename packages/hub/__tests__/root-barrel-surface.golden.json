@@ -766,6 +766,7 @@
     "RecipientSealer",
     "RecordIdentity",
     "RecordOutputSpec",
+    "RecordRef",
     "RecoverSecretInput",
     "RecoverSecretResult",
     "RecoverUserOptions",

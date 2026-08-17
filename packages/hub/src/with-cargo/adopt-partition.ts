@@ -152,8 +152,8 @@ export async function adoptPartition(
   const adoptedAt = new Date().toISOString()
   const adoption = { sealId: seal.sealId, adoptedAt, needsOwner: true as const, transferSeal: seal }
   await destinationStore.put(vaultName, '_meta', 'adoption',
-    buildRecordEnvelope({ collection: '_meta', id: 'adoption' },
-      { version: 1, ts: adoptedAt, iv: '', data: JSON.stringify(adoption) }))
+    buildRecordEnvelope({ collection: '_meta', id: 'adoption', version: 1 },
+      { ts: adoptedAt, iv: '', data: JSON.stringify(adoption) }))
 
   return { vaultName, needsOwner: true, sealId: seal.sealId }
 }

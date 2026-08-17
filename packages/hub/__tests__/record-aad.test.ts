@@ -4,6 +4,7 @@ import { buildRecordAad, type RecordIdentity } from '../src/kernel/enclave/recor
 const base: RecordIdentity = {
   collection: 'invoices',
   id: 'inv-1',
+  version: 3,
   tier: 0,
   by: 'alice',
 }
@@ -22,6 +23,7 @@ describe('buildRecordAad (#1041)', () => {
       { ...base, id: 'other' },
       { ...base, tier: 1 },
       { ...base, by: 'mallory' },
+      { ...base, version: 4 },
     ]
     const baseline = hex(buildRecordAad(base))
     for (const v of variants) {
@@ -58,14 +60,35 @@ describe('buildRecordAad (#1041)', () => {
       .toBe(hex(buildRecordAad({ ...base, tier: 0 })))
   })
 
-  it('7. carries a version tag so the binding scheme can evolve', () => {
+  it('7. carries a scheme tag so the binding can evolve — `/2` since `_v` joined', () => {
     const bytes = buildRecordAad(base)
-    expect(new TextDecoder().decode(bytes.slice(0, 11))).toBe('noydb-aad/1')
+    expect(new TextDecoder().decode(bytes.slice(0, 11))).toBe('noydb-aad/2')
   })
 
   it('8. handles non-ASCII identifiers without collapsing them', () => {
     const thai = buildRecordAad({ ...base, collection: 'ใบแจ้งหนี้' })
     const other = buildRecordAad({ ...base, collection: 'ใบแจ้งหนีx' })
     expect(hex(thai)).not.toBe(hex(other))
+  })
+
+  it('9. adjacent versions do not collide — the length prefix keeps digits apart', () => {
+    // `1` + `12` must not encode the same as `11` + `2`. Cheap to get wrong if
+    // the version were ever concatenated rather than length-prefixed, and the
+    // consequence would be two versions of a record becoming interchangeable —
+    // a rollback that AAD waves through.
+    const a = buildRecordAad({ ...base, id: '1', version: 12 })
+    const b = buildRecordAad({ ...base, id: '11', version: 2 })
+    expect(hex(a)).not.toBe(hex(b))
+  })
+
+  it('10. REFUSES a missing version rather than encoding "undefined"', () => {
+    // The guard exists because of what happened without it: several hand-built
+    // fixtures sealed with `version` absent, `String(undefined)` went into the
+    // AAD, the write SUCCEEDED, and the failure surfaced as a TamperedError on
+    // the next read — pointing at the read path, which was correct. Loud at the
+    // seal site beats silent-then-misattributed (#1093).
+    expect(() => buildRecordAad({ ...base, version: undefined as unknown as number }))
+      .toThrow(/version must be a finite number/)
+    expect(() => buildRecordAad({ ...base, version: NaN })).toThrow(/finite/)
   })
 })

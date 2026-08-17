@@ -109,9 +109,8 @@ export async function sealRecordToHost(
   // record this delivery describes. Binding the subject record's collection/id
   // here would produce an envelope that cannot be read back from where it lives.
   const env: EncryptedEnvelope = buildRecordEnvelope(
-    { collection: SEALED_CEK_NS, id: envelopeKey },
+    { collection: SEALED_CEK_NS, id: envelopeKey, version: (prior?._v ?? 0) + 1 },
     {
-      version: (prior?._v ?? 0) + 1,
       // AES-GCM bypassed — the sealing layer is the security boundary, exactly
       // like the managed-secret `_meta/sealed-secret` envelope.
       iv: '',
@@ -183,7 +182,16 @@ export async function rotateRecordCek(
   const json = await decrypt(live._iv, live._data, oldCek, openAad)
 
   const rotatedIdentity: RecordIdentity = {
-    collection, id,
+    // A CEK rotation DOES bump `_v` (asserted in `record-scoped-cek-sealing`:
+    // "the live envelope was re-keyed — new `_cek`, bumped `_v`"), so it seals
+    // at the new version, not the one it just opened.
+    //
+    // ⚠️ Do not confuse this with `rekeyEnvelopeToDek`, the DEK-rotation helper,
+    // which PRESERVES `_v` (#1074) because it re-keys a record without writing
+    // one. Two rotations, opposite answers — and with `_v` bound (#1093) getting
+    // it backwards no longer produces a wrong number, it produces an
+    // unreadable record.
+    collection, id, version: live._v + 1,
     ...(live._tier !== undefined ? { tier: live._tier } : {}),
     ...(ctx.actor ? { by: ctx.actor } : live._by !== undefined ? { by: live._by } : {}),
   }
@@ -226,7 +234,6 @@ export async function rotateRecordCek(
   // into a shape that no longer reads them: stamped nowhere, sealed as if
   // present. Exactly the mismatch class this issue exists to close.
   const env: EncryptedEnvelope = buildRecordEnvelope(rotatedIdentity, {
-    version: live._v + 1,
     iv,
     data,
     cek: await wrapCek(newCek, dek),

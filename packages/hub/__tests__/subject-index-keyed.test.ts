@@ -132,7 +132,7 @@ describe('M-2 — subject index keyed id + bucketed ref list', () => {
     const { encrypt, buildRecordAad, openEnvelopeJson } = await import('../src/kernel/enclave/index.js')
     const subjDek = await vault._introspectState().getDEK('_subject_index')
     const body = await openEnvelopeJson({ collection: '_subject_index', id: keyedId }, keyedEnv, subjDek)
-    const { iv, data } = await encrypt(body, subjDek, buildRecordAad({ collection: '_subject_index', id: legacyId }))
+    const { iv, data } = await encrypt(body, subjDek, buildRecordAad({ collection: '_subject_index', id: legacyId, version: keyedEnv._v }))
     await store.put('v', '_subject_index', legacyId, { ...keyedEnv, _iv: iv, _data: data })
     await store.delete('v', '_subject_index', keyedId)
 
@@ -152,7 +152,7 @@ describe('M-2 — subject index keyed id + bucketed ref list', () => {
     const legacyId = await sha256HexUtf8('buyer-L')
     const { encrypt, buildRecordAad } = await import('../src/kernel/enclave/index.js')
     // #1041: seal against the address it is stored at.
-    const { iv, data } = await encrypt(JSON.stringify([{ collection: 'invoices', id: 'i-L' }]), dek, buildRecordAad({ collection: '_subject_index', id: legacyId }))
+    const { iv, data } = await encrypt(JSON.stringify([{ collection: 'invoices', id: 'i-L' }]), dek, buildRecordAad({ collection: '_subject_index', id: legacyId, version: 1 }))
     await store.put('v', '_subject_index', legacyId, {
       _noydb: 1, _v: 1, _ts: new Date().toISOString(), _iv: iv, _data: data,
     } as EncryptedEnvelope)

@@ -72,6 +72,8 @@ export async function openSealedRecord(
   recordEnvelope: {
     readonly _iv: string
     readonly _data: string
+    /** Bound into the AAD since #1093 — a rewound body no longer opens. */
+    readonly _v: number
     readonly _tier?: number | undefined
     readonly _by?: string | undefined
   },

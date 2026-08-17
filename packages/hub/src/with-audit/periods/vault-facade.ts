@@ -676,14 +676,14 @@ export class VaultPeriods {
   private async writeReserved(collection: string, key: string, value: object): Promise<EncryptedEnvelope> {
     const json = JSON.stringify(value)
     const actor = this.deps.userId()
-    const identity = { collection, id: key, by: actor }
+    const identity = { collection, id: key, by: actor, version: 1 }
     let envelope: EncryptedEnvelope
     if (this.deps.encrypted) {
       const dek = await this.deps.getDEK(collection)
       const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
-      envelope = buildRecordEnvelope(identity, { version: 1, iv, data})
+      envelope = buildRecordEnvelope(identity, { iv, data})
     } else {
-      envelope = buildRecordEnvelope(identity, { version: 1, iv: '', data: json})
+      envelope = buildRecordEnvelope(identity, { iv: '', data: json})
     }
     await this.deps.adapter.put(this.deps.vault, collection, key, envelope)
     // #822: the period summaries are vault-wide state — period-scoped pull

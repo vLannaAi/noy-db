@@ -53,8 +53,8 @@ export async function persistDirectoryConfig(
   config: DirectoryConfig,
 ): Promise<void> {
   const envelope = buildRecordEnvelope(
-    { collection: META_COLLECTION, id: DIRECTORY_RECORD_ID },
-    { version: 1, iv: '', data: JSON.stringify({ enabled: config.enabled }) },
+    { collection: META_COLLECTION, id: DIRECTORY_RECORD_ID, version: 1 },
+    { iv: '', data: JSON.stringify({ enabled: config.enabled }) },
   )
   await store.put(vault, META_COLLECTION, DIRECTORY_RECORD_ID, envelope)
 }

@@ -385,7 +385,7 @@ export class SyncEngine {
                   conflicts.push(conflict)
                   if (handled === 'local') {
                     // #936: supersede, don't overwrite in place — see advancePastRemote.
-                    const winner = this.advancePastRemote(conflict.local, remoteEnvelope)
+                    const winner = await this.advancePastRemote(conflict.local, entry.collection, entry.id, remoteEnvelope)
                     await this.remote.put(this.vault, entry.collection, entry.id, winner)
                     if (winner !== conflict.local) await this.applyRemote(entry.collection, entry.id, winner)
                     completed.push(i)
@@ -804,7 +804,7 @@ export class SyncEngine {
                   conflicts.push(conflict)
                   if (handled === 'local') {
                     // #936: supersede, don't overwrite in place — see advancePastRemote.
-                    const winner = this.advancePastRemote(conflict.local, remoteEnvelope)
+                    const winner = await this.advancePastRemote(conflict.local, entry.collection, entry.id, remoteEnvelope)
                     await this.remote.put(this.vault, entry.collection, entry.id, winner)
                     if (winner !== conflict.local) await this.applyRemote(entry.collection, entry.id, winner)
                     completed.push(i)
@@ -939,14 +939,34 @@ export class SyncEngine {
    * the remote's (the same-`_v` push tie), re-stamp it at `remote._v + 1`.
    * Without this the loser's next pull sees no delta (`_v`-based
    * detection) and the peers stay silently diverged at the same version.
-   * `_v` is envelope metadata — AEAD-unbound, and `_vdig` is deliberately
-   * `_v`-independent — so the engine may restamp ciphertext. Callers must
-   * mirror the advanced envelope locally (`applyRemote`) so both sides
-   * agree. The 'merged' branch needs none of this: resolver output is
-   * already stamped `max(local, remote) + 1`.
+   * ## Why this is async, and why it goes through `MergeAuthority` (#1093)
+   *
+   * It used to be `{ ...winner, _v: remote._v + 1 }` — a metadata restamp on
+   * ciphertext the engine cannot decrypt. That spread was the SOLE reason `_v`
+   * could not be bound into the AAD: a version rewritten onto a body sealed at
+   * a different one produces a record no reader can open.
+   *
+   * `with-sync` is DEK-free by design and `check:architecture` enforces it, so
+   * the re-seal cannot happen here. It happens in the injected authority, which
+   * holds the keys. The engine still decides WHICH version to advance to; it
+   * simply no longer pretends it can rewrite a sealed body.
+   *
+   * The authority is ALWAYS present in the product — `kernel/noydb.ts` builds
+   * one from the keyring and passes it at both engine-construction sites, and
+   * `with-sync/active.ts` is the only place an engine is constructed. The
+   * fallback below is reachable only by constructing `SyncEngine` directly,
+   * which tests do. It restamps, as before — and would produce an unreadable
+   * record if such a test ever held AEAD-sealed envelopes. None do; the
+   * fixtures that reach it build their own plaintext ones.
+   *
+   * The 'merged' branch needs none of this: resolver output is already stamped
+   * `max(local, remote) + 1` by whoever built it.
    */
-  private advancePastRemote(winner: EncryptedEnvelope, remote: EncryptedEnvelope): EncryptedEnvelope {
-    return winner._v > remote._v ? winner : { ...winner, _v: remote._v + 1 }
+  private async advancePastRemote(winner: EncryptedEnvelope, collection: string, id: string, remote: EncryptedEnvelope): Promise<EncryptedEnvelope> {
+    if (winner._v > remote._v) return winner
+    const toVersion = remote._v + 1
+    if (!this.mergeAuthority) return { ...winner, _v: toVersion }
+    return this.mergeAuthority.advance(collection, id, winner, toVersion)
   }
 
   private async applyRemote(collection: string, id: string, envelope: EncryptedEnvelope): Promise<void> {
@@ -1108,8 +1128,8 @@ export class SyncEngine {
     }
 
     const envelope: EncryptedEnvelope = buildRecordEnvelope(
-      { collection: '_sync', id: 'meta' },
-      { version: 1, iv: '', data: JSON.stringify(meta) },
+      { collection: '_sync', id: 'meta', version: 1 },
+      { iv: '', data: JSON.stringify(meta) },
     )
 
     await this.local.put(this.vault, '_sync', 'meta', envelope)

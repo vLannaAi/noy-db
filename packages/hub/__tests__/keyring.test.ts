@@ -270,7 +270,7 @@ describe('keyring', () => {
 
       // Put some encrypted data
       // #1041: seal against the address it is stored at, as the product does.
-      const { iv, data } = await encrypt('{"amount":5000}', invoiceDek, buildRecordAad({ collection: 'invoices', id: 'inv-001' }))
+      const { iv, data } = await encrypt('{"amount":5000}', invoiceDek, buildRecordAad({ collection: 'invoices', id: 'inv-001', version: 1 }))
       await adapter.put(COMP, 'invoices', 'inv-001', {
         _noydb: 1, _v: 1, _ts: new Date().toISOString(), _iv: iv, _data: data,
       })

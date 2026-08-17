@@ -84,7 +84,7 @@ function lostRaceStore(winnerEnv: EncryptedEnvelope | null): { store: NoydbStore
 
 async function sealSigner(signer: DocSigner, dek: CryptoKey): Promise<EncryptedEnvelope> {
   // #1041: sealed against `_attestations/__signer__`, where it is stored.
-  const { iv, data } = await encrypt(JSON.stringify(signer), dek, buildRecordAad({ collection: ATTESTATIONS_COLLECTION, id: SIGNER_RECORD_ID }))
+  const { iv, data } = await encrypt(JSON.stringify(signer), dek, buildRecordAad({ collection: ATTESTATIONS_COLLECTION, id: SIGNER_RECORD_ID, version: 1 }))
   return { _noydb: NOYDB_FORMAT_VERSION, _v: 1, _ts: '2026-05-31T00:00:00.000Z', _iv: iv, _data: data }
 }
 

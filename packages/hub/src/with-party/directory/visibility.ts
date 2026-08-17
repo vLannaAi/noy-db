@@ -67,8 +67,8 @@ export async function persistUserVisibility(
 ): Promise<void> {
   const recordId = visibilityRecordId(keyringId)
   const envelope = buildRecordEnvelope(
-    { collection: META_COLLECTION, id: recordId },
-    { version: 1, iv: '', data: JSON.stringify({ hidden: visibility.hidden }) },
+    { collection: META_COLLECTION, id: recordId, version: 1 },
+    { iv: '', data: JSON.stringify({ hidden: visibility.hidden }) },
   )
   await store.put(vault, META_COLLECTION, recordId, envelope)
 }

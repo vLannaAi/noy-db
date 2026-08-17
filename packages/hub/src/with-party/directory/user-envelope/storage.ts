@@ -93,12 +93,12 @@ export async function saveUserEnvelope<T>(
 
   const nextVersion = (prior?._v ?? 0) + 1
   const ts = new Date().toISOString()
-  const identity = { collection: USER_ENVELOPE_COLLECTION, id: keyringId }
+  const identity = { collection: USER_ENVELOPE_COLLECTION, id: keyringId, version: nextVersion }
   const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
 
   const envelope = buildRecordEnvelope(
-    { collection: USER_ENVELOPE_COLLECTION, id: keyringId },
-    { version: nextVersion, ts, iv, data },
+    identity,
+    { ts, iv, data },
   )
   await store.put(vault, USER_ENVELOPE_COLLECTION, keyringId, envelope)
 

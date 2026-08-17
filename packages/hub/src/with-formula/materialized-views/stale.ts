@@ -98,7 +98,7 @@ function storeOf(accessor: MVStaleAccessor, collectionName: string): { adapter: 
 
 async function writeMVStaleMarker(adapter: NoydbStore, vault: string, mvName: string): Promise<void> {
   // Content-free — the marker's only payload is its key (the MV name).
-  const env = RecordCodec.buildPlaintextEnvelope({ collection: MV_STALE_COLLECTION, id: mvName }, { version: 1, data: '{}' })
+  const env = RecordCodec.buildPlaintextEnvelope({ collection: MV_STALE_COLLECTION, id: mvName, version: 1 }, { data: '{}' })
   await adapter.put(vault, MV_STALE_COLLECTION, mvName, env)
 }
 

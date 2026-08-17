@@ -56,11 +56,11 @@ export async function loadOrCreateSigner(
 
   const dek = await getDEK(ATTESTATIONS_COLLECTION)
   const signer = await generateDocSigningKeyPair()
-  const identity = { collection: ATTESTATIONS_COLLECTION, id: SIGNER_RECORD_ID }
+  const identity = { collection: ATTESTATIONS_COLLECTION, id: SIGNER_RECORD_ID, version: 1 }
   const { iv, data } = await encrypt(JSON.stringify(signer), dek, buildRecordAad(identity))
   const env = buildRecordEnvelope(
     identity,
-    { version: 1, iv, data },
+    { iv, data },
   )
   try {
     await store.put(vault, ATTESTATIONS_COLLECTION, SIGNER_RECORD_ID, env, 0)

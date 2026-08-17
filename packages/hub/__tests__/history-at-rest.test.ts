@@ -77,7 +77,7 @@ async function buildCekEnvelope(histId: string, plaintext: string, wrapDek: Encl
   // recomputes — the `_history` address it will be stored at. Without this the
   // fixture is indistinguishable from a relocated envelope, which is precisely
   // what binding is for.
-  const { iv, data } = await encrypt(plaintext, cek, buildRecordAad({ collection: HISTORY_COLLECTION, id: histId }))
+  const { iv, data } = await encrypt(plaintext, cek, buildRecordAad({ collection: HISTORY_COLLECTION, id: histId, version }))
   return {
     _noydb: NOYDB_FORMAT_VERSION,
     _v: version,
@@ -90,7 +90,7 @@ async function buildCekEnvelope(histId: string, plaintext: string, wrapDek: Encl
 
 /** Build a legacy (no `_cek`) history envelope: body encrypted directly under `dek`. */
 async function buildLegacyEnvelope(histId: string, plaintext: string, dek: EnclaveKey, version = 1): Promise<EncryptedEnvelope> {
-  const { iv, data } = await encrypt(plaintext, dek, buildRecordAad({ collection: HISTORY_COLLECTION, id: histId }))
+  const { iv, data } = await encrypt(plaintext, dek, buildRecordAad({ collection: HISTORY_COLLECTION, id: histId, version }))
   return {
     _noydb: NOYDB_FORMAT_VERSION,
     _v: version,
@@ -435,9 +435,11 @@ describe('#712 at-rest: history snapshots follow the record’s tier', () => {
     expect(live).not.toBeNull()
     // #1041: the pre-fix elevate moved the body between tiers, so `_tier`
     // changes and the AAD moves with it — open at tier 0, re-seal at tier 1.
+    // #1093: the elevate also bumps `_v`, which is in the tuple too — so the
+    // destination identity carries `_v + 1`, matching the envelope built below.
     const body = await rewrapBodyToDek(
-      { collection: 'docs', id: 'd1', ...(live!._by !== undefined ? { by: live!._by } : {}) },
-      { collection: 'docs', id: 'd1', tier: 1, ...(live!._by !== undefined ? { by: live!._by } : {}) },
+      { collection: 'docs', id: 'd1', version: live!._v, ...(live!._by !== undefined ? { by: live!._by } : {}) },
+      { collection: 'docs', id: 'd1', version: live!._v + 1, tier: 1, ...(live!._by !== undefined ? { by: live!._by } : {}) },
       live!, tier0Dek, tier1Dek,
     )
     const preFixElevated: EncryptedEnvelope = {

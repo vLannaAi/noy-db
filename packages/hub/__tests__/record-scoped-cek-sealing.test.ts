@@ -299,13 +299,15 @@ describe('record-scoped CEK sealing — cross-process reconstruction', () => {
     const recordEnv = {
       _iv: raw._iv,
       _data: raw._data,
+      // #1093: `_v` joined the bound tuple, so it must cross the boundary too.
+      _v: raw._v,
       ...(raw._tier !== undefined ? { _tier: raw._tier } : {}),
       ...(raw._by !== undefined ? { _by: raw._by } : {}),
     }
 
     async function hostFunction(
       env: SealedCekDeliveryEnvelope,
-      rec: { _iv: string; _data: string },
+      rec: { _iv: string; _data: string; _v: number },
       sealer: MemoryRecipientSealer,
     ): Promise<string> {
       return openSealedRecord(env, rec, sealer, 'docs', 'd-1')

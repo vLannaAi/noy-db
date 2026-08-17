@@ -51,8 +51,8 @@ export async function saveVaultPolicy(
   policy: VaultPolicy,
 ): Promise<void> {
   const envelope = buildRecordEnvelope(
-    { collection: META_COLLECTION, id: POLICY_RECORD_ID },
-    { version: 1, iv: '', data: JSON.stringify(policy) },
+    { collection: META_COLLECTION, id: POLICY_RECORD_ID, version: 1 },
+    { iv: '', data: JSON.stringify(policy) },
   )
   await store.put(vault, META_COLLECTION, POLICY_RECORD_ID, envelope)
 }

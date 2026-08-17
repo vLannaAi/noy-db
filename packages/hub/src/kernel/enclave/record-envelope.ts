@@ -35,7 +35,6 @@ import type { RecordIdentity } from './record-aad.js'
 
 /** The body an envelope carries, independent of who is writing it. */
 export interface RecordEnvelopeBody {
-  readonly version: number
   /** AES-GCM IV, base64. Empty string for a plaintext or tombstone envelope. */
   readonly iv: string
   /** Ciphertext (or plaintext JSON when the collection stores plaintext). */
@@ -48,8 +47,9 @@ export interface RecordEnvelopeBody {
   /**
    * Slots the envelope may additionally carry.
    *
-   * `_tier` and `_by` are deliberately NOT here — they come from `identity`,
-   * which is the single source for both. See {@link buildRecordEnvelope}.
+   * `_tier`, `_by` and `_v` are deliberately NOT here — they come from
+   * `identity`, which is the single source for all three. See
+   * {@link buildRecordEnvelope}.
    */
   readonly extra?: Partial<Pick<EncryptedEnvelope, '_det' | '_sealed' | '_vdig' | '_bidx'>> | undefined
 }
@@ -57,14 +57,14 @@ export interface RecordEnvelopeBody {
 /**
  * Build an envelope for `identity`.
  *
- * ## `identity` is the SINGLE SOURCE for `_by` and `_tier`
+ * ## `identity` is the SINGLE SOURCE for `_by`, `_tier` and `_v`
  *
- * Both are stamped from it, and `RecordEnvelopeBody` deliberately cannot carry
- * them. That is not tidiness — it is what makes the AAD binding safe.
+ * All three are stamped from it, and `RecordEnvelopeBody` deliberately cannot
+ * carry them. That is not tidiness — it is what makes the AAD binding safe.
  *
  * The caller encrypts the body under AAD derived from `{collection, id, tier,
- * by}`. A reader recomputes that AAD from the address it fetched from plus
- * `_tier`/`_by` read back **off the envelope** (`recordAadFor`). So if the
+ * by, version}`. A reader recomputes that AAD from the address it fetched from
+ * plus `_tier`/`_by`/`_v` read back **off the envelope** (`recordAadFor`). So if the
  * identity a writer *declares* could differ from the fields it *stamps*, the
  * AAD would not reproduce and the record would be undecryptable — silently, at
  * write time, discoverable only on the next read, and invisible to every gate
@@ -81,7 +81,7 @@ export function buildRecordEnvelope(
 ): EncryptedEnvelope {
   return {
     _noydb: NOYDB_FORMAT_VERSION,
-    _v: body.version,
+    _v: identity.version,
     _ts: body.ts ?? new Date().toISOString(),
     _iv: body.iv,
     _data: body.data,

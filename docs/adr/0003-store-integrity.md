@@ -125,6 +125,7 @@ prevention. With it:
 | Attack | Outcome |
 |---|---|
 | re-serve an old body with inflated `_v` | AAD for `v99` ≠ body sealed at `v1` → **rejected before `local.put`** |
+| re-serve an old body at its OWN `_v` | ⚠️ **NOT rejected** — see the note below |
 | relocate into another collection/id | rejected |
 | raise `_tier` to hide a record | ⚠️ **NOT rejected — see below** |
 | lower `_tier` to expose an elevated record | rejected (wrong DEK) |
@@ -133,6 +134,17 @@ prevention. With it:
 Note this holds for a **fresh device with no prior state** — the client recomputes AAD from the
 envelope's own claimed metadata, so it needs no local copy to compare against. Bootstrap, which
 earlier analyses listed as uncovered, is covered.
+
+⚠️ **Measured during implementation, and it narrows what "prevention" may claim.** A store that
+re-serves a genuine old envelope *at its own version* is still served: the envelope is internally
+consistent, and a reader arriving fresh has nothing to compare it against. AAD binds a body to the
+version it claims; it cannot know which version *should* have arrived.
+
+That is not a gap in Decision 2, it is its boundary. What binding `_v` removes is the attacker's
+ability to make a stale copy **outrank** a current one — and outranking is what a rollback needs
+to displace anything, since convergence is `_v`-ordered. A rollback that cannot win the comparison
+degrades to hiding the newer version, i.e. to **withholding**, which is the head's row. The same
+shape as the `_tier` correction above: an attack that reaches no key is concealment, not forgery.
 
 `_ts` is deliberately excluded: it is advisory, and binding it would make legitimate clock
 correction a tamper event.
@@ -359,10 +371,16 @@ name installs **without** it.
    an *escalation* rather than a reinstatement. It concerns a roster that was **legitimately
    minted**, so it is untouched by the no-legacy premise and by Decision 5 alike. Small,
    self-contained, needs a probe rather than a design.
-2. **Tombstones and `_v` binding** (`engine.ts:974`). Empty body, nothing meaningful to
-   authenticate. Bind them for uniformity, or exempt them explicitly and state why in the
-   harness? An exemption is an attack surface if a tombstone can be replayed to suppress a
-   live record.
+2. ~~**Tombstones and `_v` binding.**~~ **RESOLVED — exempt, through one predicate.** A tombstone
+   carries no sealed body, so there is nothing to authenticate and nothing to re-seal; both
+   `verifyRecordIdentity` and `MergeAuthority.advance` branch on the same enclave predicate
+   (`hasSealedBody`), so the exemption has one definition rather than two that can drift.
+
+   The feared attack surface — replaying a tombstone to suppress a live record — is **not created
+   by this exemption**: a tombstone wins over a live envelope by design (#590's shred-wins rule),
+   independently of `_v`, so binding `_v` on tombstones would not have prevented it. Erasure that
+   crosses a sync boundary even when unverifiable is a deliberate property, asserted as its own
+   harness row.
 3. **Head granularity and anti-entropy cost.** A per-vault `{id → version}` manifest written per
    commit is write amplification proportional to vault size — potentially unusable on exactly the
    large deployment that most needs it. Size this **early**: if per-vault does not scale,

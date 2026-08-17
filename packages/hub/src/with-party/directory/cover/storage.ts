@@ -47,8 +47,8 @@ export async function saveCover(
   cover: Cover,
 ): Promise<void> {
   const wireEnvelope = buildRecordEnvelope(
-    { collection: '_meta', id: COVER_RECORD_ID },
-    { version: 1, iv: '', data: JSON.stringify(cover) },
+    { collection: '_meta', id: COVER_RECORD_ID, version: 1 },
+    { iv: '', data: JSON.stringify(cover) },
   )
   await store.put(vault, '_meta', COVER_RECORD_ID, wireEnvelope)
 }

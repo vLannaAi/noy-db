@@ -42,7 +42,9 @@ function historyId(collection: string, recordId: string, version: number): strin
  * both at once, by construction.
  */
 export function historyIdentity(collection: string, recordId: string, version: number): RecordIdentity {
-  return { collection: HISTORY_COLLECTION, id: historyId(collection, recordId, version) }
+  // The snapshot's own `_v` IS the version it preserves — the same number that
+  // appears in its id. One argument feeds both, so they cannot disagree (#1093).
+  return { collection: HISTORY_COLLECTION, id: historyId(collection, recordId, version), version }
 }
 
 // Unused today, kept for future history-id parsing utilities.
@@ -232,8 +234,8 @@ export async function tombstoneHistory(
     // conditional spread, which TypeScript does not excess-property-check, so
     // it was silently dropped once `_by` moved to the identity (#1041).
     const tombstone: EncryptedEnvelope = buildRecordEnvelope(
-      { collection: HISTORY_COLLECTION, id, ...(actor ? { by: actor } : {}) },
-      { version: env._v, ts: now, iv: '', data: '' },
+      { collection: HISTORY_COLLECTION, id, ...(actor ? { by: actor } : {}), version: env._v },
+      { ts: now, iv: '', data: '' },
     )
     await adapter.put(vault, HISTORY_COLLECTION, id, tombstone)
     count++
@@ -309,7 +311,7 @@ export async function rewrapHistory(
     // same identity opens and re-seals it (#1041). Built from the entry itself,
     // exactly as a reader would via `recordAadFor`.
     const identity = {
-      collection: HISTORY_COLLECTION, id,
+      collection: HISTORY_COLLECTION, id, version: env._v,
       ...(env._tier !== undefined ? { tier: env._tier } : {}),
       ...(env._by !== undefined ? { by: env._by } : {}),
     }

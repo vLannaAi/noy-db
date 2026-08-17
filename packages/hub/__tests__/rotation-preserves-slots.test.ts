@@ -34,6 +34,7 @@ beforeAll(async () => {
 })
 
 const REF = { collection: 'c', id: 'r1' }
+const VERSION = 7
 
 /**
  * #1041: a fixture must seal under the identity a reader recomputes — the
@@ -42,9 +43,11 @@ const REF = { collection: 'c', id: 'r1' }
  * from the finished shape.
  */
 async function bareEnvelope(extra: Partial<EncryptedEnvelope> = {}): Promise<EncryptedEnvelope> {
-  const aad = recordAadFor(REF, extra)
+  // `_v` is in the tuple too since #1093, so the fixture must seal at the
+  // version it is about to stamp — not at whatever `extra` happens to carry.
+  const aad = recordAadFor(REF, { ...extra, _v: VERSION })
   const { iv, data } = await encrypt(BODY, oldDek, aad)
-  return { _noydb: NOYDB_FORMAT_VERSION, _v: 7, _ts: '2026-01-01T00:00:00Z', _iv: iv, _data: data, ...extra }
+  return { _noydb: NOYDB_FORMAT_VERSION, _v: VERSION, _ts: '2026-01-01T00:00:00Z', _iv: iv, _data: data, ...extra }
 }
 
 describe('#1074 — rotation preserves envelope slots', () => {

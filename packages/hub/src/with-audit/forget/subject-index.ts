@@ -118,15 +118,15 @@ async function writeRefs(
   key: string,
   refs: SubjectRef[],
 ): Promise<void> {
-  const identity = { collection: SUBJECT_INDEX_COLLECTION, id: key }
+  const identity = { collection: SUBJECT_INDEX_COLLECTION, id: key, version: 1 }
   let env: EncryptedEnvelope
   if (!encrypted) {
     // Plaintext/debug vault: keep the bare-array form (no padding needed).
-    env = buildRecordEnvelope(identity, { version: 1, iv: '', data: JSON.stringify(refs) })
+    env = buildRecordEnvelope(identity, { iv: '', data: JSON.stringify(refs) })
   } else {
     const dek = await getDEK(SUBJECT_INDEX_COLLECTION)
     const { iv, data } = await encrypt(serializeRefs(refs), dek, buildRecordAad(identity))
-    env = buildRecordEnvelope(identity, { version: 1, iv, data })
+    env = buildRecordEnvelope(identity, { iv, data })
   }
   await adapter.put(vault, SUBJECT_INDEX_COLLECTION, key, env)
 }

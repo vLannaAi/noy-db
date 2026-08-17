@@ -141,7 +141,7 @@ describe('#306 Slice B — sealed fields keyed off the per-record CEK', () => {
 
     // Forge a CEK-encrypted body (the legacy code DID use per-record CEKs for the body).
     const cek = await generateDEK()
-    const body = await encrypt(JSON.stringify({ id: 'p1', name: 'Ada' }), cek, buildRecordAad({ collection: 'people', id: 'p1' }))
+    const body = await encrypt(JSON.stringify({ id: 'p1', name: 'Ada' }), cek, buildRecordAad({ collection: 'people', id: 'p1', version: 1 }))
     const wrapped = await wrapCek(cek, dek)
 
     const env: EncryptedEnvelope = {

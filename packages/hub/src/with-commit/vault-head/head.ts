@@ -56,10 +56,10 @@ export async function writeBucket(
   body: BucketBody,
   expectedVersion: number,
 ): Promise<void> {
-  const identity = { collection: VAULT_HEAD_COLLECTION, id: bucket }
+  const identity = { collection: VAULT_HEAD_COLLECTION, id: bucket, version: expectedVersion + 1 }
   const json = JSON.stringify(body)
   const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
-  const env = buildRecordEnvelope(identity, { version: expectedVersion + 1, iv, data })
+  const env = buildRecordEnvelope(identity, { iv, data })
   // CAS: two writers racing on one bucket must not silently lose an entry.
   // A lost head entry is a record the sweep stops expecting — a false clean.
   await store.put(vault, VAULT_HEAD_COLLECTION, bucket, env, expectedVersion || undefined)

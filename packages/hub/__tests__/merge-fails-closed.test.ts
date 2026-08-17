@@ -192,6 +192,76 @@ describe('#1042 — applyRemote verifies before committing', () => {
     await expect(b.vault.collection<Doc>(OTHER).get('bad')).rejects.toThrow() // …but unreadable
   })
 
+  it('7. a ROLLED-BACK remote is rejected — the stale body cannot be relabelled as current', async () => {
+    // The attack the vault head could only report after the fact. Serve B's own
+    // earlier v1 body, restamped high enough to outrank its current copy. Every
+    // byte of the ciphertext is genuine; the lie is only the number beside it.
+    //
+    // With `_v` in the AAD (#1093) that number is no longer the store's to
+    // choose, so the merge refuses it BEFORE `local.put` — which is the whole
+    // difference between detection and prevention.
+    const { remote, a, openB, localB } = await peers()
+    await a.vault.collection<Doc>(COLL).put('d1', { secret: 'v1' })
+    await a.db.push(VAULT)
+    const b = await openB()
+    await b.db.pull(VAULT)
+
+    const stale = (await remote.get(VAULT, COLL, 'd1'))!
+    await b.vault.collection<Doc>(COLL).put('d1', { secret: 'v2, mine and newer' })
+    const before = await localB.get(VAULT, COLL, 'd1')
+
+    await remote.put(VAULT, COLL, 'd1', { ...stale, _v: (before!._v ?? 0) + 5 })
+
+    const result = await b.db.pull(VAULT)
+    expect(result.errors.length).toBeGreaterThan(0)
+    expect(await localB.get(VAULT, COLL, 'd1')).toEqual(before)
+    expect(await b.vault.collection<Doc>(COLL).get('d1')).toEqual({ secret: 'v2, mine and newer' })
+  })
+
+  it('8. ADVANCE RE-SEALS: a local-wins conflict produces a record that is still READABLE', async () => {
+    // The regression guard for #1093's other half, and the one most likely to
+    // rot silently.
+    //
+    // `advancePastRemote` used to be `{ ...winner, _v: remote._v + 1 }` — a
+    // version rewritten onto a body sealed at a different one. Harmless while
+    // `_v` was unbound; permanent data loss the moment it is bound, because the
+    // record is written, replicated, and only fails on the NEXT read.
+    //
+    // Nothing else in the suite would catch it. Verified by reverting `advance`
+    // to the old spread: this row fails and every other row still passes — so
+    // it fails for its own reason, not because something upstream broke.
+    //
+    // It surfaces as a push `errors` entry rather than a bad read, because the
+    // engine's own `applyRemote` verify catches the mis-stamped envelope on the
+    // way back in. That is the gate doing its job on its own output.
+    const { remote, a, openB, localB } = await peers()
+    await a.vault.collection<Doc>(COLL).put('seed', { secret: 'x' })
+    await a.db.push(VAULT)
+    const b = await openB()
+    await b.db.pull(VAULT)
+
+    // Both peers write d1 independently, so both land at the same `_v` — the
+    // same-version push tie that forces the advance (#936).
+    await a.vault.collection<Doc>(COLL).put('d1', { secret: 'theirs' })
+    await a.db.push(VAULT)
+    await b.vault.collection<Doc>(COLL).put('d1', { secret: 'mine, and it must survive' })
+
+    const result = await b.db.push(VAULT)
+    expect(result.errors).toEqual([])
+
+    // Superseded, not overwritten in place: strictly past the remote's version…
+    const stored = (await localB.get(VAULT, COLL, 'd1'))!
+    const theirs = (await remote.get(VAULT, COLL, 'd1'))!
+    expect(stored._v).toBeGreaterThan(1)
+
+    // …and — the property that matters — it still OPENS at its new version, on
+    // a cold client that shares nothing with the one that wrote it.
+    const cold = await createNoydb({ syncStrategy: withSync(), store: localB, sync: remote, user: 'owner', secret: 'pw' })
+    expect(await (await cold.openVault(VAULT)).collection<Doc>(COLL).get('d1'))
+      .toEqual({ secret: 'mine, and it must survive' })
+    void theirs
+  })
+
   it('6. a tombstone still replicates — it carries no sealed body to verify', async () => {
     // The gate must not break erasure propagation, which is the one thing that
     // MUST cross a sync boundary even when unverifiable.

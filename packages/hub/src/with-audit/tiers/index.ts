@@ -461,7 +461,8 @@ export async function putAtTier<T>(
     // demote()'s snapshots. `_v` stays the PRE-move version (unbumped), as
     // `preCarried` already carries it.
     const preFrom: RecordIdentity = {
-      collection: ctx.name, id,
+      // The PRE-move version — this identity opens what is already stored.
+      collection: ctx.name, id, version: existing._v,
       ...(existing._tier !== undefined ? { tier: existing._tier } : {}),
       ...(existing._by !== undefined ? { by: existing._by } : {}),
     }
@@ -477,12 +478,11 @@ export async function putAtTier<T>(
   }
 
   const json = JSON.stringify(record)
-  const identity = { collection: ctx.name, id, by: ctx.keyring.userId, ...(tier > 0 ? { tier } : {}) }
+  const identity = { collection: ctx.name, id, version, by: ctx.keyring.userId, ...(tier > 0 ? { tier } : {}) }
   const { iv, data } = await encrypt(json, dek, buildRecordAad(identity))
   const envelope = buildRecordEnvelope(
     identity,
     {
-      version,
       iv,
       data,
       // `_tier` is stamped from `identity.tier` above — the single source.
@@ -742,12 +742,14 @@ export async function elevate<T>(ctx: TiersContext<T>, id: string, toTier: numbe
   // Legacy (no `_cek`) records take the direct-DEK path unchanged.
   const now = new Date().toISOString()
   const moveFrom: RecordIdentity = {
-    collection: ctx.name, id,
+    // Opens at the version currently stored; the live write below re-seals at
+    // `_v + 1`, so the two ends of a move are NOT the same identity (#1093).
+    collection: ctx.name, id, version: envelope._v,
     ...(fromTier > 0 ? { tier: fromTier } : {}),
     ...(envelope._by !== undefined ? { by: envelope._by } : {}),
   }
   const moveTo: RecordIdentity = {
-    collection: ctx.name, id,
+    collection: ctx.name, id, version: envelope._v + 1,
     ...(toTier > 0 ? { tier: toTier } : {}),
     by: ctx.keyring.userId,
   }
@@ -882,12 +884,14 @@ export async function demote<T>(ctx: TiersContext<T>, id: string, toTier: number
   // DEK to the target tier DEK. Legacy records take the direct-DEK path.
   const now = new Date().toISOString()
   const moveFrom: RecordIdentity = {
-    collection: ctx.name, id,
+    // Opens at the version currently stored; the live write below re-seals at
+    // `_v + 1`, so the two ends of a move are NOT the same identity (#1093).
+    collection: ctx.name, id, version: envelope._v,
     ...(fromTier > 0 ? { tier: fromTier } : {}),
     ...(envelope._by !== undefined ? { by: envelope._by } : {}),
   }
   const moveTo: RecordIdentity = {
-    collection: ctx.name, id,
+    collection: ctx.name, id, version: envelope._v + 1,
     ...(toTier > 0 ? { tier: toTier } : {}),
     by: ctx.keyring.userId,
   }

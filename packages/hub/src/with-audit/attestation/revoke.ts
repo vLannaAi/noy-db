@@ -38,12 +38,12 @@ async function mutateSet(ctx: RevokeContext, mutate: (ids: Set<string>) => void)
     const { docIds, version } = await readSet(ctx.store, ctx.vault, dek)
     mutate(docIds)
     const payload: RevokedSet = { docIds: [...docIds].sort(), updatedAt: new Date().toISOString() }
-    const identity = { collection: ATTESTATIONS_COLLECTION, id: REVOKED_RECORD_ID }
-    const { iv, data } = await encrypt(JSON.stringify(payload), dek, buildRecordAad(identity))
     const expectedVersion = version ?? 0
+    const identity = { collection: ATTESTATIONS_COLLECTION, id: REVOKED_RECORD_ID, version: expectedVersion + 1 }
+    const { iv, data } = await encrypt(JSON.stringify(payload), dek, buildRecordAad(identity))
     const env = buildRecordEnvelope(
-      { collection: ATTESTATIONS_COLLECTION, id: REVOKED_RECORD_ID },
-      { version: expectedVersion + 1, ts: payload.updatedAt, iv, data },
+      identity,
+      { ts: payload.updatedAt, iv, data },
     )
     try {
       await ctx.store.put(ctx.vault, ATTESTATIONS_COLLECTION, REVOKED_RECORD_ID, env, expectedVersion)

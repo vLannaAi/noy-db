@@ -40,12 +40,13 @@ All operations use the Web Crypto API (`crypto.subtle`). Zero npm crypto depende
 ### Envelope metadata is not authenticated
 
 The AES-GCM auth tag covers a record's **body** (`_data`). Since #1041 it also
-covers the record's **identity** — `{collection, id, _tier, _by}` are bound in as
-additional authenticated data, so a storage backend that rewrites them produces
-an envelope that no longer authenticates.
+covers the record's **identity** — `{collection, id, _tier, _by}` — and since
+#1093 the record's **version** `_v`, all bound in as additional authenticated
+data, so a storage backend that rewrites any of them produces an envelope that
+no longer authenticates.
 
-> **A remote store — or a `by-peer` peer — cannot alter, relocate, re-author or
-> splice any record it serves. It can still withhold, and it can still rewind.**
+> **A remote store — or a `by-peer` peer — cannot alter, relocate, re-author,
+> splice or re-version any record it serves. It can still withhold.**
 
 That is narrower than the promise a reader might want, and it is exact. What
 follows is what each half means.
@@ -58,6 +59,7 @@ follows is what each half means.
 | **Expose an elevated record** by lowering `_tier` | a tier-N body relabelled tier 0 is opened with the wrong key |
 | **Forge or strip `_by` / `_source`** | both are bound; a tampered field changes the AAD and defeats itself |
 | **Splice another record's body** under this record's metadata | the body authenticates at the identity it was sealed for, not the one it is served under |
+| **Present a body at a version it was not sealed at** | `_v` is bound (#1093), so a stale copy authenticates *only as itself* and can never be relabelled to outrank the current one |
 | **Have a forged envelope committed by sync** | since #1042 the merge verifies **before** `local.put`, so a rejection leaves the local copy untouched |
 
 The vault name is deliberately **not** bound: `adoptPartition` legitimately
@@ -66,12 +68,13 @@ operation rather than purely an attack.
 
 ### Still open, and precisely how
 
-**Version rollback is not prevented.** `_v` remains outside the AEAD, so a store
-can re-serve a genuinely old envelope with an inflated `_v` and it authenticates
-correctly — it *is* a real record this client wrote. Binding `_v` requires the
-sync engine to re-seal when it advances a version rather than restamping
-metadata; the seam for that exists (`MergeAuthority.advance`) but the binding
-does not.
+**Rollback collapses into withholding — it is no longer forgery.** Binding `_v`
+(#1093) removed the half that AAD can reach: a store can no longer restamp an old
+body to a higher version, so a stale copy cannot win a convergence comparison and
+cannot displace a newer local one. What it *can* still do is serve the genuine
+old envelope at its genuine old number while hiding the newer one. That is not an
+alteration of any record — every record served is authentic — so no per-envelope
+check can see it. It is withholding, below.
 
 **Withholding is not preventable at all.** A store serving nothing, or serving a
 genuine older record, cannot be caught by examining the records it does serve.
@@ -104,15 +107,19 @@ binding — **done**), [#1042](https://github.com/vLannaAi/noy-db/issues/1042)
 (fail closed at merge — **done**),
 [#1044](https://github.com/vLannaAi/noy-db/issues/1044) (vault head — **done**),
 [#1051](https://github.com/vLannaAi/noy-db/issues/1051) (the refactor that
-unblocked the wiring — **done**). Binding `_v` remains.
+unblocked the wiring — **done**),
+[#1093](https://github.com/vLannaAi/noy-db/issues/1093) (binding `_v` —
+**done**). What remains is withholding, which is detected rather than prevented.
 
 ### What NOYDB Does NOT Protect Against
 
 - Malicious application code (app has access to decrypted data in memory)
 - Keylogger capturing the secret (OS-level; biometric mitigates this)
 - Memory dump attacks (DEKs in process memory during session; mitigated by `db.close()`)
-- **Version rollback, envelope relocation, and metadata forgery by an untrusted
-  store or peer** — see *Envelope metadata is not authenticated* above
+- **A store withholding records, or serving a coherent older world to a cold
+  device** — detectable with `withVaultHead()`, not preventable. Relocation,
+  re-versioning and metadata forgery ARE refused; see *Envelope metadata is not
+  authenticated* above
 - A hostile store **suppressing** a revocation's `_keyring` delete. Rotation
   makes the retained keyring's DEKs worthless, which is the protection that
   matters, but the file itself can still be served

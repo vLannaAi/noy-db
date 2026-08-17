@@ -328,8 +328,8 @@ export class PresenceHandle<P> {
     // fall back to local adapter.
     const storeAdapter = this.syncAdapter ?? this.adapter
     const envelope = buildRecordEnvelope(
-      { collection: this.storageCollection, id: recordId },
-      { version: 1, ts: now, iv: '', data: json },
+      { collection: this.storageCollection, id: recordId, version: 1 },
+      { ts: now, iv: '', data: json },
     )
     try {
       await storeAdapter.put(

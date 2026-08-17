@@ -17,7 +17,7 @@
  */
 import { type EncryptedEnvelope } from '../../types.js'
 import { buildRecordEnvelope } from '../record-envelope.js'
-import type { RecordIdentity } from '../record-aad.js'
+import type { RecordRef } from '../record-aad.js'
 
 /**
  * Shape-only tombstone recognition for layers that have no per-collection
@@ -56,15 +56,15 @@ export function isTombstone(envelope: EncryptedEnvelope, encrypted: boolean): bo
  * erasure.
  */
 export function buildTombstone(
-  identity: RecordIdentity,
+  ref: RecordRef,
   version: number,
   actor: string,
 ): EncryptedEnvelope {
   // `actor` rides on the IDENTITY, not the body — it is stamped as `_by` and
   // bound into the AAD from that one source (#1041).
   return buildRecordEnvelope(
-    { ...identity, ...(actor ? { by: actor } : {}) },
-    { version, iv: '', data: '' },
+    { ...ref, version, ...(actor ? { by: actor } : {}) },
+    { iv: '', data: '' },
   )
 }
 
@@ -80,7 +80,7 @@ export function isDeleteMarker(envelope: EncryptedEnvelope): boolean {
  * re-create can still win over it at a higher version.
  */
 export function buildDeleteMarker(
-  identity: RecordIdentity,
+  ref: RecordRef,
   version: number,
   actor: string,
 ): EncryptedEnvelope {
@@ -88,8 +88,8 @@ export function buildDeleteMarker(
   // is a distinct envelope class, not a record body — so it is stamped here.
   return {
     ...buildRecordEnvelope(
-      { ...identity, ...(actor ? { by: actor } : {}) },
-      { version, iv: '', data: '' },
+      { ...ref, version, ...(actor ? { by: actor } : {}) },
+      { iv: '', data: '' },
     ),
     _del: true,
   }
