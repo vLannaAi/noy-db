@@ -66,7 +66,19 @@ function chunkAad(eTag: string, index: number, chunkCount: number): Uint8Array {
   return new TextEncoder().encode(`${eTag}:${index}:${chunkCount}`)
 }
 
-/** What a rotation did to the blob set — asserted on, not just logged. */
+/**
+ * What a rotation did to the blob set.
+ *
+ * Deliberately NOT on the enclave barrel: no caller outside this module binds
+ * it, and that surface is the fork-swap trust boundary, so exporting a type
+ * nobody consumes is pure widening.
+ *
+ * It is a return value rather than a log line because `foreign` and `blobs`
+ * are the only way to tell "left alone, correctly" from "left alone, because
+ * the caller passed a wrong `otherDeks` set". Both re-key nothing and both
+ * return successfully. `rotate-preserves-blobs.test.ts` asserts these counts
+ * against a direct call for exactly that reason.
+ */
 export interface BlobRekeyReport {
   /** Index envelopes moved onto the new DEK. */
   readonly blobs: number
@@ -165,11 +177,28 @@ export async function rekeyBlobSet(
       try {
         plain = await decryptBytesWithAAD(chunkEnv._iv, chunkEnv._data, oldDek, aad)
       } catch {
-        // Under the new DEK already (resume), or under the blob's content CEK
-        // (erasable) — either way this chunk needs nothing done to it. A blob
-        // with no CEK at all and a chunk under neither DEK is damaged, and the
-        // index entry above is the loud report for that case.
-        continue
+        // A blob that holds a content CEK (settled or pending) keeps its bytes
+        // under that CEK, not under the `_blob` DEK — re-wrapping the CEK below
+        // is the whole of its rotation, and a chunk that refuses `oldDek` is
+        // simply one of those. Nothing to do, and nothing suspicious.
+        if (blob._cek !== undefined || blob._cekPending !== undefined) continue
+        // Otherwise the blob is legacy: every one of its chunks MUST be under a
+        // `_blob` DEK. `newDek` means a previous run already moved this one —
+        // verified, not assumed. Neither key means the chunk is damaged, and it
+        // throws for the same reason `rekeyEnvelopeIfNeeded` does: the index
+        // entry opened fine under `oldDek` and says nothing about its chunks, so
+        // continuing here would walk past unreadable data and report success.
+        try {
+          await decryptBytesWithAAD(chunkEnv._iv, chunkEnv._data, newDek, aad)
+          continue
+        } catch {
+          throw new Error(
+            `[noy-db] rotateKeys: blob chunk "${id}" (${i + 1}/${blob.chunkCount} of eTag `
+            + `"${eTag}") opens under neither the retiring nor the new \`_blob\` DEK, and its `
+            + 'blob holds no content CEK that could explain it. Rotation stopped rather than '
+            + 'leaving it unreadable and unreported.',
+          )
+        }
       }
       const { iv, data } = await encryptBytesWithAAD(plain, newDek, aad)
       await adapter.put(vault, BLOB_CHUNKS_COLLECTION, id, { ...chunkEnv, _iv: iv, _data: data })

@@ -49,6 +49,10 @@ import { withTiers } from '../src/with-audit/tiers/index.js'
 import {
   openEnvelopeJson,
   decryptBytesWithAAD,
+  rekeyBlobSet,
+  generateDEK,
+  base64ToBuffer,
+  bufferToBase64,
   type EnclaveKey,
 } from '../src/kernel/enclave/index.js'
 import {
@@ -128,8 +132,19 @@ async function readableWith(
   return hits
 }
 
-/** One small blob, one multi-chunk blob, one erasable (per-blob-CEK) blob. */
-async function seeded() {
+/**
+ * A small blob, a multi-chunk blob, and a second record sharing the small one's
+ * eTag (dedup).
+ *
+ * `mixed: true` additionally migrates the first record's blobs to per-blob-CEK
+ * mode and THEN adds a third, still-legacy blob — so the vault holds both
+ * branches at once. That matters for the confidentiality sweep specifically:
+ * the erasable branch is the one where chunks are deliberately left under an
+ * unchanged content CEK, i.e. exactly where a botched re-wrap would show up,
+ * and a fixture that never migrates leaves it covered only by an availability
+ * assertion.
+ */
+async function seeded(opts: { mixed?: boolean } = {}) {
   const { store, touched } = recordingStore()
   const db = await createNoydb({
     teamStrategy: withTeam(), blobsStrategy: withBlobs(),
@@ -158,6 +173,19 @@ async function seeded() {
     ['inv-1/big.bin', big],
     ['inv-2/shared.txt', small],
   ])
+
+  if (opts.mixed) {
+    // Migrate first, then seed the legacy blob — `migrate()` only reaches what
+    // exists when it runs, so this ordering is what produces a genuinely mixed
+    // vault rather than a wholly-erasable one.
+    const migrated = await invoices.blob('inv-1').migrate()
+    expect(migrated.migrated.length).toBeGreaterThan(0)
+    const legacy = new TextEncoder().encode('still legacy bytes')
+    await invoices.put('inv-3', { ref: 'C' })
+    await invoices.blob('inv-3').put('plain.txt', legacy)
+    expected.set('inv-3/plain.txt', legacy)
+  }
+
   return { store, touched, db, vault, invoices, expected }
 }
 
@@ -212,7 +240,10 @@ describe('#1122 — rotation must not destroy the blob set', () => {
   })
 
   it('2. THE INVARIANT: after revoke, no retained key opens ANY envelope', async () => {
-    const { store, touched, db, vault, expected } = await seeded()
+    // MIXED on purpose: two erasable blobs and one legacy one, so the sweep
+    // covers the branch where chunks are left under an unchanged content CEK
+    // as well as the branch where they move.
+    const { store, touched, db, vault, expected } = await seeded({ mixed: true })
     await readAll(vault, expected)
     const counts = await chunkCountsOf(store)
 
@@ -230,12 +261,18 @@ describe('#1122 — rotation must not destroy the blob set', () => {
     expect(retained.has('_blob')).toBe(true)
 
     // Control: those keys DO open things now, including blob surfaces —
-    // otherwise row 2 asserts nothing.
+    // otherwise row 2 asserts nothing. Counted per surface, because "some hits"
+    // would pass while a whole surface sat unswept.
     const before = await readableWith(store, touched, retained, counts)
     expect(before.length).toBeGreaterThan(0)
-    expect(before.filter((h) => h.startsWith(`${BLOB_INDEX_COLLECTION}/`)).length).toBe(2)
-    expect(before.filter((h) => h.startsWith(`${BLOB_CHUNKS_COLLECTION}/`)).length)
-      .toBe([...counts.values()].reduce((a, b) => a + b, 0))
+    // Every index entry — erasable and legacy alike — is sealed under `_blob`.
+    expect(before.filter((h) => h.startsWith(`${BLOB_INDEX_COLLECTION}/`)).length).toBe(3)
+    // Only the LEGACY blob's chunk bodies are; the two erasable blobs' bytes
+    // sit under their content CEKs, which is why the wrapped CEK inside the
+    // index entry is the thing that has to move for them.
+    const legacyChunkHits = before.filter((h) => h.startsWith(`${BLOB_CHUNKS_COLLECTION}/`)).length
+    expect(legacyChunkHits).toBeGreaterThan(0)
+    expect(legacyChunkHits).toBeLessThan([...counts.values()].reduce((a, b) => a + b, 0))
 
     await db.revoke(VAULT, { userId: 'bob' })
 
@@ -318,5 +355,162 @@ describe('#1122 — the tier blob slots', () => {
     const docs2 = (await db2.openVault(VAULT)).collection<{ n: number }>('docs', { tiers: [0, 1], perRecordKeys: true })
     expect(Array.from((await docs2.blob('d1').get('a.txt'))!)).toEqual(Array.from(flat))
     expect(Array.from((await (await docs2.blob('d2').atTier()).get('b.txt'))!)).toEqual(Array.from(secret))
+  })
+})
+
+
+/**
+ * The report `rekeyBlobSet` returns is the only thing that separates "left this
+ * alone, correctly" from "left EVERYTHING alone, because the caller passed a
+ * wrong `otherDeks` set". Both re-key nothing; both return successfully; and
+ * the end-to-end rows above would still pass the second one if the vault it ran
+ * against happened to be empty of the surface in question.
+ *
+ * So the counts are asserted directly. An all-`foreign` classification fails
+ * here loudly instead of reading as a clean rotation.
+ */
+describe('#1122 — the rotation reports what it did', () => {
+  /** The vault's live DEK for `name`. */
+  function dekOf(vault: unknown, name: string): Promise<EnclaveKey> {
+    return (vault as { getDEK(n: string): Promise<EnclaveKey> }).getDEK(name)
+  }
+
+  it('6. counts every blob it moved, and re-running reports them already moved', async () => {
+    const { store, vault, expected } = await seeded({ mixed: true })
+    await readAll(vault, expected)
+
+    const counts = await chunkCountsOf(store)
+    expect(counts.size).toBe(3) // two erasable eTags + one legacy
+    const oldDek = await dekOf(vault, '_blob')
+    const newDek = await generateDEK()
+
+    const report = await rekeyBlobSet(store, VAULT, oldDek, newDek, [])
+    // Every index entry moved — this is the assertion that fails if a wrong
+    // `otherDeks` set ever makes the routine classify its own work as foreign.
+    expect(report.blobs).toBe(3)
+    expect(report.foreign).toBe(0)
+    expect(report.alreadyMoved).toBe(0)
+    // Only the legacy blob's chunk bodies move; the erasable ones stay under
+    // their content CEKs. Both bounds asserted, so neither "moved nothing" nor
+    // "moved everything, including bytes it had no business touching" passes.
+    expect(report.chunks).toBeGreaterThan(0)
+    expect(report.chunks).toBeLessThan([...counts.values()].reduce((a, b) => a + b, 0))
+
+    // Idempotent: the resume path recognises its own work rather than redoing it.
+    const again = await rekeyBlobSet(store, VAULT, oldDek, newDek, [])
+    expect(again).toEqual({ blobs: 0, chunks: 0, foreign: 0, alreadyMoved: 3 })
+  })
+
+  it('7. an entry belonging to another blob slot is reported foreign, not moved', async () => {
+    const { store } = recordingStore()
+    const db = await createNoydb({
+      teamStrategy: withTeam(), tiersStrategy: withTiers(), blobsStrategy: withBlobs(),
+      store, user: 'owner', secret: SECRET,
+    })
+    const vault = await db.openVault(VAULT)
+    const docs = vault.collection<{ n: number }>('docs', { tiers: [0, 1], perRecordKeys: true })
+    await docs.put('d1', { n: 1 })
+    await docs.put('d2', { n: 2 })
+    await docs.blob('d1').put('a.txt', new TextEncoder().encode('tier zero bytes'))
+    await docs.blob('d2').put('b.txt', new TextEncoder().encode('tier one bytes'))
+    await docs.elevate('d2', 1)
+
+    const tier0 = await dekOf(vault, '_blob')
+    const tier1 = await dekOf(vault, '_blob#1')
+    const newTier0 = await generateDEK()
+
+    // Rotating the tier-0 slot: the elevated blob's index entry lives in the
+    // same `_blob_index` and must be recognised as tier-1's business.
+    const report = await rekeyBlobSet(store, VAULT, tier0, newTier0, [tier1])
+    expect(report.blobs).toBe(1)
+    expect(report.foreign).toBe(1)
+
+    // And WITHOUT being told about the tier-1 key it is genuinely damaged as
+    // far as this rotation can tell — so it throws rather than reporting a
+    // clean run over data it could not read.
+    const newTier0b = await generateDEK()
+    await expect(rekeyBlobSet(store, VAULT, newTier0, newTier0b, []))
+      .rejects.toThrow(/opens under neither/)
+  })
+})
+
+/**
+ * The chunk loop's two hard cases, both reachable only by construction.
+ *
+ * A chunk that refuses the retiring DEK used to be skipped, on the reasoning
+ * that the index entry above would be the loud report. That reasoning was
+ * wrong: the index entry opened fine under the retiring DEK and says nothing
+ * about its chunks, so a damaged chunk was walked silently past and the
+ * rotation returned success — the exact "permanent quiet loss" this module's
+ * own doc block refuses.
+ */
+describe('#1122 — a chunk that opens under neither key', () => {
+  async function legacyVault() {
+    const { store } = recordingStore()
+    const db = await createNoydb({
+      teamStrategy: withTeam(), blobsStrategy: withBlobs(),
+      store, user: 'owner', secret: SECRET,
+    })
+    const vault = await db.openVault(VAULT)
+    const invoices = vault.collection<{ ref: string }>('invoices')
+    await invoices.put('inv-1', { ref: 'A' })
+    const bytes = new TextEncoder().encode('legacy bytes under the _blob DEK')
+    await invoices.blob('inv-1').put('a.txt', bytes)
+    const eTag = (await store.list(VAULT, BLOB_INDEX_COLLECTION))[0]!
+    const dek = await (vault as unknown as {
+      getDEK(n: string): Promise<EnclaveKey>
+    }).getDEK('_blob')
+    return { store, db, vault, invoices, eTag, dek, bytes }
+  }
+
+  it('8. THROWS rather than reporting a clean rotation over a damaged chunk', async () => {
+    const { store, eTag, dek } = await legacyVault()
+    // Corrupt the chunk body only — the index entry stays perfectly readable
+    // under the retiring DEK, which is what made the old skip look safe.
+    const id = `${eTag}_0`
+    const chunk = (await store.get(VAULT, BLOB_CHUNKS_COLLECTION, id))!
+    const flipped = base64ToBuffer(chunk._data)
+    flipped.set([(flipped[0] ?? 0) ^ 0xff], 0)
+    await store.put(VAULT, BLOB_CHUNKS_COLLECTION, id, {
+      ...chunk, _data: bufferToBase64(flipped),
+    })
+
+    await expect(rekeyBlobSet(store, VAULT, dek, await generateDEK(), []))
+      .rejects.toThrow(/blob chunk .* opens under neither/)
+  })
+
+  it('9. RESUMES an interruption between the chunks and their index entry', async () => {
+    const { store, db, eTag, dek, bytes } = await legacyVault()
+    const newDek = await generateDEK()
+    const before = (await store.get(VAULT, BLOB_INDEX_COLLECTION, eTag))!
+
+    // A full pass, then put the index entry back the way it was: chunks under
+    // the new DEK, metadata still under the old one. That is precisely the
+    // state a crash between the two writes leaves behind, and the state the
+    // `newDek` probe exists for.
+    expect(await rekeyBlobSet(store, VAULT, dek, newDek, []))
+      .toEqual({ blobs: 1, chunks: 1, foreign: 0, alreadyMoved: 0 })
+    await store.put(VAULT, BLOB_INDEX_COLLECTION, eTag, before)
+
+    // The re-run moves the index and recognises the chunk as already done —
+    // `chunks: 0` is the assertion, since re-encrypting it under `newDek` a
+    // second time would need it to open under `newDek` first, and counting it
+    // again would mean the probe had not run.
+    expect(await rekeyBlobSet(store, VAULT, dek, newDek, []))
+      .toEqual({ blobs: 1, chunks: 0, foreign: 0, alreadyMoved: 0 })
+
+    // And the bytes are genuinely there under the new key, not merely tidy.
+    // Checked at rest rather than through the API: these two calls moved the
+    // data out from under the vault's own keyring on purpose, so the vault can
+    // no longer read it and a `get()` here would be testing the fixture.
+    const chunk = (await store.get(VAULT, BLOB_CHUNKS_COLLECTION, `${eTag}_0`))!
+    // The chunk body is post-compression, so this asserts that it OPENS under
+    // the new key and its eTag-bound AAD still holds — not that it equals the
+    // caller's bytes, which it never did at this layer.
+    const plain = await decryptBytesWithAAD(
+      chunk._iv, chunk._data, newDek, chunkAad(eTag, 0, 1),
+    )
+    expect(plain.byteLength).toBeGreaterThan(0)
+    void db, bytes
   })
 })

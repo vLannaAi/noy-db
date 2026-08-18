@@ -77,7 +77,6 @@
     "writeEnvelopeBody"
   ],
   "types": [
-    "BlobRekeyReport",
     "BrokerProofCanonicalParts",
     "DeterministicContext",
     "EchoSecretParts",

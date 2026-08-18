@@ -46,7 +46,7 @@ export const BLOB_COLLECTION = '_blob'
 export const BLOB_INDEX_COLLECTION = '_blob_index'
 
 /**
- * Stores encrypted chunk envelopes, keyed by `{eTag}/{chunkIndex}`.
+ * Stores encrypted chunk envelopes, keyed by `{eTag}_{chunkIndex}`.
  * NOT loaded into the in-memory query layer. Fetched on demand by
  * `BlobSet.get()` / `BlobSet.response()`.
  */
@@ -157,7 +157,7 @@ function chunkAAD(eTag: string, chunkIndex: number, chunkCount: number): Uint8Ar
  *
  * ```
  * _blob_index/{eTag}                            BlobObject metadata (vault-shared DEK)
- * _blob_chunks/{eTag}/{chunkIndex}              Encrypted chunk data (vault-shared DEK + AAD)
+ * _blob_chunks/{eTag}_{chunkIndex}              Encrypted chunk data (vault-shared DEK + AAD)
  * _blob_slots_{collection}/{recordId}           Slot map (parent collection DEK)
  * _blob_versions_{collection}/{recordId}/{slot}/{label}  Published versions (parent collection DEK)
  * ```
