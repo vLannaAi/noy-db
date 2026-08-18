@@ -863,13 +863,18 @@ export class BlobSet {
    *  - not yet stamped → apply via `casUpdateRefCountStamped`, then proceed
    *    exactly like the unstamped path below.
    *
-   * A crash can also land AFTER the index row is deleted but BEFORE every
-   * chunk is — `loadBlobObject` then returns null (indistinguishable from
-   * "never existed") and the object's `chunkCount` is gone with it. A
-   * stamped caller who knows the true count (the journal marker's captured
-   * `holds`, once that plumbing lands) supplies it via `chunkCountHint` so
-   * this call can still finish the chunk deletion; without it, an
-   * already-index-gone eTag is reported `'shredded'` same as today (best
+   * A crash can also land part-way through the deletion itself. Since #1127
+   * that deletion runs CHUNKS FIRST (see `deleteChunksThenIndex`), so what
+   * survives is an index row with some chunks already gone — a reachable,
+   * re-runnable state rather than chunks nothing can ever address again.
+   *
+   * An eTag whose index row is ALREADY absent on entry is therefore either
+   * pre-#1127 residue or a completed deletion. `loadBlobObject` returns null
+   * (indistinguishable from "never existed") and the object's `chunkCount` is
+   * gone with it. A stamped caller who knows the true count (the journal
+   * marker's captured `holds`, once that plumbing lands) supplies it via
+   * `chunkCountHint` so this call can still finish the chunk deletion; without
+   * it, an already-index-gone eTag is reported `'shredded'` same as today (best
    * effort — nothing left to key the cleanup off of).
    */
   private async releaseRef(
@@ -902,11 +907,9 @@ export class BlobSet {
       // refCount <= 0 but the object row is still here — the deletion step
       // never completed. Finish it now, idempotently.
       if (erasable || reclaimLegacy) {
-        await this.store.delete(this.vault, BLOB_INDEX_COLLECTION, eTag)
+        // CHUNKS BEFORE INDEX — see `deleteChunksThenIndex` (#1127).
         const chunkCount = chunkCountHint ?? loaded.blob.chunkCount
-        for (let i = 0; i < chunkCount; i++) {
-          await this.store.delete(this.vault, BLOB_CHUNKS_COLLECTION, `${eTag}_${i}`)
-        }
+        await this.deleteChunksThenIndex(eTag, chunkCount)
       }
       return erasable ? 'shredded' : 'residue'
     }
@@ -919,12 +922,58 @@ export class BlobSet {
     if (remaining > 0) return erasable ? 'retainedShared' : 'residue'
 
     if (erasable || reclaimLegacy) {
-      await this.store.delete(this.vault, BLOB_INDEX_COLLECTION, eTag)
-      for (let i = 0; i < loaded.blob.chunkCount; i++) {
-        await this.store.delete(this.vault, BLOB_CHUNKS_COLLECTION, `${eTag}_${i}`)
-      }
+      // CHUNKS BEFORE INDEX — see `deleteChunksThenIndex` (#1127).
+      await this.deleteChunksThenIndex(eTag, loaded.blob.chunkCount)
     }
     return erasable ? 'shredded' : 'residue'
+  }
+
+  /**
+   * Delete a blob's chunks, THEN its index row. The order is the whole point
+   * (#1127).
+   *
+   * Both deletions used to run index-first, which meant a crash in between
+   * stranded chunks with no index row. Nothing can ever reach those again:
+   * `loadBlobObject` returns null, so no reader addresses them — and
+   * `rekeyBlobSet` derives its chunk ids from each index entry's `chunkCount`,
+   * so a rotation never visits them either. For a LEGACY blob (bytes under the
+   * `_blob` DEK itself rather than a per-blob content CEK) the bodies then stay
+   * openable under the retired `_blob` DEK — precisely the key a revoked member
+   * walked away with. Crash during `forget()`, revoke later, and real blob
+   * content sits readable indefinitely, with no error on either side.
+   *
+   * Reversing it removes the class rather than cleaning up after it: every
+   * chunk that still exists has an index row, so every chunk is reachable by
+   * `rekeyBlobSet` and gets re-keyed. There is no orphan to sweep because none
+   * is produced.
+   *
+   * The residue this ordering leaves instead is an index row whose chunks are
+   * partly gone, and that state is strictly better in three ways:
+   *   - it is REACHABLE, so a re-run of `releaseRef` completes the deletion
+   *     idempotently (both `store.delete` calls are void on an absent key);
+   *   - `rekeyBlobSet` already tolerates it — a missing chunk hits its
+   *     `if (!chunkEnv || !chunkEnv._iv) continue`, so a rotation still
+   *     succeeds and still re-keys every chunk that remains;
+   *   - it cannot leak, because the bytes that survive are the ones still
+   *     covered by rotation.
+   *
+   * This also makes one ordering rule true across the blob subsystem rather
+   * than two opposite ones: `kernel/enclave/record-keys/rekey-blob.ts` already
+   * re-encrypts chunks before re-sealing their index entry, and documents that
+   * order as its resume property.
+   *
+   * Deliberately NOT paired with a sweep that deletes pre-existing orphans:
+   * such a sweep must decide "orphaned" from `store.list(_blob_index)`, and the
+   * store is untrusted. A store that withholds one index row could make a LIVE
+   * blob's chunks look orphaned and have us destroy them — turning withholding,
+   * which is reversible, into permanent loss. Reporting them is safe; deleting
+   * them on the store's word is not. See #1133 for the report-then-reclaim follow-up.
+   */
+  private async deleteChunksThenIndex(eTag: string, chunkCount: number): Promise<void> {
+    for (let i = 0; i < chunkCount; i++) {
+      await this.store.delete(this.vault, BLOB_CHUNKS_COLLECTION, `${eTag}_${i}`)
+    }
+    await this.store.delete(this.vault, BLOB_INDEX_COLLECTION, eTag)
   }
 
   /**

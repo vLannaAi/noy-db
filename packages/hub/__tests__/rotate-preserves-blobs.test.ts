@@ -514,3 +514,122 @@ describe('#1122 — a chunk that opens under neither key', () => {
     void db, bytes
   })
 })
+
+/**
+ * #1127 — a crash mid-delete must not strand chunks that nothing can reach.
+ *
+ * `releaseRef` used to delete the index row BEFORE the chunks. A crash in
+ * between left chunk bodies with no index entry, and nothing ever visits those
+ * again: `loadBlobObject` returns null so no reader addresses them, and
+ * `rekeyBlobSet` derives chunk ids from each index entry's `chunkCount` so a
+ * rotation walks straight past. For a legacy blob that means the bytes stay
+ * openable under the retired `_blob` DEK — the key a revoked member kept.
+ *
+ * The fix reverses the order, and these rows assert the ORDERING PROPERTY
+ * rather than the symptom: whatever the crash point, every surviving chunk
+ * still has an index row. That is what makes it reachable by the rotation, and
+ * therefore what makes row 2's invariant hold after an interrupted delete.
+ *
+ * The injection point matters. Throwing on the first CHUNK delete is the one
+ * that separates the two orderings: under the old code the index row is already
+ * gone at that moment and every chunk is stranded; under the new one the index
+ * row is still there and the chunks that remain are all covered by it. Throwing
+ * on the index delete instead would pass under both.
+ */
+function crashOnFirstChunkDelete(inner: NoydbStore): { store: NoydbStore; crashed: () => boolean } {
+  let fired = false
+  const store: NoydbStore = {
+    ...inner,
+    name: 'memory-crash-mid-delete',
+    async get(v, c, id) { return inner.get(v, c, id) },
+    async put(v, c, id, env, ev) { return inner.put(v, c, id, env, ev) },
+    async delete(v, c, id) {
+      if (c === BLOB_CHUNKS_COLLECTION && !fired) {
+        fired = true
+        throw new Error('simulated crash mid-delete')
+      }
+      return inner.delete(v, c, id)
+    },
+    async list(v, c) { return inner.list(v, c) },
+    async loadAll(v) { return inner.loadAll(v) },
+    async saveAll(v, d) { return inner.saveAll(v, d) },
+  }
+  return { store, crashed: () => fired }
+}
+
+/** Chunk ids whose eTag has no `_blob_index` row — unreachable by construction. */
+async function orphanChunks(store: NoydbStore): Promise<string[]> {
+  const indexed = new Set(await store.list(VAULT, BLOB_INDEX_COLLECTION))
+  const chunkIds = await store.list(VAULT, BLOB_CHUNKS_COLLECTION)
+  return chunkIds.filter((id) => !indexed.has(id.slice(0, id.lastIndexOf('_'))))
+}
+
+describe('#1127 — a crash mid-delete must not strand unreachable chunks', () => {
+  it('10. every chunk surviving an interrupted shred still has its index row', async () => {
+    const { store: inner } = await seeded()
+    // Control: the seeded vault is coherent to begin with, so a passing
+    // assertion below means the crash left it coherent, not that the helper
+    // never finds anything.
+    expect(await orphanChunks(inner)).toEqual([])
+
+    const { store, crashed } = crashOnFirstChunkDelete(inner)
+    const db = await createNoydb({
+      teamStrategy: withTeam(), blobsStrategy: withBlobs(),
+      store, user: 'owner', secret: SECRET,
+    })
+    const vault = await db.openVault(VAULT)
+
+    // A crash mid-delete does NOT surface as a rejection: the marked shred
+    // path catches per-hold and files the eTag under `residue`
+    // (`blob-set.ts:1290`). That silence is part of what made #1127 hard to
+    // notice, and asserting on it here keeps the fixture honest about the
+    // state a real crash leaves behind.
+    const outcome = await vault
+      .collection<{ ref: string }>('invoices').blob('inv-1').shredAllForRecord()
+    expect(crashed(), 'the crash never fired — the fixture asserts nothing').toBe(true)
+    expect(outcome.residue.length, 'the interrupted eTag should be reported as residue')
+      .toBeGreaterThan(0)
+
+    // THE PROPERTY. Under the old index-first order this is non-empty: the
+    // index row is deleted before the throwing chunk delete, so every chunk of
+    // that eTag is left unreachable.
+    const orphans = await orphanChunks(inner)
+    expect(orphans, `unreachable chunk bodies survived:\n  ${orphans.join('\n  ')}`).toEqual([])
+  })
+
+  it('11. after an interrupted shred, a revoked member still opens nothing', async () => {
+    // Row 10 asserts the structural property; this asserts the consequence the
+    // issue was actually filed about — that the interrupted state does not
+    // defeat row 2's confidentiality invariant.
+    const { store: inner, touched } = await seeded()
+    const counts = await chunkCountsOf(inner)
+    const { store } = crashOnFirstChunkDelete(inner)
+
+    const db = await createNoydb({
+      teamStrategy: withTeam(), blobsStrategy: withBlobs(),
+      store, user: 'owner', secret: SECRET,
+    })
+    const vault = await db.openVault(VAULT)
+    await vault.collection<{ ref: string }>('invoices').blob('inv-1').shredAllForRecord()
+
+    await db.grant(VAULT, { userId: 'bob', displayName: 'B', role: 'admin', secret: 'bob-pass-1' })
+    const bobDb = await createNoydb({
+      teamStrategy: withTeam(), blobsStrategy: withBlobs(),
+      store: inner, user: 'bob', secret: 'bob-pass-1',
+    })
+    const bobVault = await bobDb.openVault(VAULT)
+    const retained = new Map((bobVault as unknown as {
+      _introspectState(): { keyring: { deks: Map<string, EnclaveKey> } }
+    })._introspectState().keyring.deks)
+    expect(retained.has('_blob')).toBe(true)
+
+    const before = await readableWith(inner, touched, retained, counts)
+    expect(before.length, 'control: bob must open something before revoke').toBeGreaterThan(0)
+
+    await db.revoke(VAULT, { userId: 'bob' })
+
+    const residue = await readableWith(inner, touched, retained, counts)
+    expect(residue, `retained keys still open after an interrupted shred:\n  ${residue.join('\n  ')}`)
+      .toEqual([])
+  })
+})
