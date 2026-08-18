@@ -4,6 +4,7 @@ import type { Clause, FieldClause } from '../../kernel/query/predicate.js'
 import type { DeclaredPredicate } from '../../kernel/query/builder.js'
 import { analyzeDependencies, summarizeQueryPlan, summarizeUnionPlan, summarizeProjectionPlan } from './dependency-analyzer.js'
 import { computeQueryHash } from './query-hash.js'
+import { isCollectLeg, resolveForwardLegTarget } from './projection-legs.js'
 import type { MaterializedViewSpec, MVQueryContext } from './types.js'
 
 /**
@@ -70,8 +71,11 @@ export class MaterializedViewRegistry {
    */
   private readonly _pendingForwardDeps: Array<{
     reg: RegisteredMV
-    fields: Set<string>
-    resolveTarget: (field: string) => string | null
+    /** Forward-leg ALIASES still awaiting resolution (#1140 — a leg is identified
+     *  by its alias, not its field: with `from`, two legs may name the same FK
+     *  field on different collections). */
+    aliases: Set<string>
+    resolveTarget: (alias: string) => string | null
   }> = []
 
   /**
@@ -167,8 +171,11 @@ export class MaterializedViewRegistry {
       const projection = spec.projection
       dependencies = new Set([projection.source])
       for (const leg of projection.joins) {
-        if ('collect' in leg) dependencies.add(leg.collect)
-        else pendingForwardFields.push(leg.field)
+        // A collect leg's dependency is its literal collection name, whatever it
+        // attaches to — which is why `from` needs no new dependency machinery on
+        // that side. A forward leg's dependency is a ref() target, still unknown.
+        if (isCollectLeg(leg)) dependencies.add(leg.collect)
+        else pendingForwardFields.push(leg.as)
       }
       if (spec.sources) for (const s of spec.sources) dependencies.add(s)
       queryPlanSummary = summarizeProjectionPlan(spec)
@@ -267,11 +274,19 @@ export class MaterializedViewRegistry {
       const refRegistry = (db as unknown as {
         refRegistry?: { getOutbound(collection: string): Record<string, { target: string }> }
       }).refRegistry
-      const source = spec.projection!.source
+      const projectionSpec = spec.projection!
+      const resolveRef = (c: string, f: string): { target: string } | null =>
+        refRegistry?.getOutbound(c)[f] ?? null
       this._pendingForwardDeps.push({
         reg,
-        fields: new Set(pendingForwardFields),
-        resolveTarget: (field) => refRegistry?.getOutbound(source)[field]?.target ?? null,
+        aliases: new Set(pendingForwardFields),
+        resolveTarget: (alias) => {
+          const leg = projectionSpec.joins.find(l => l.as === alias)
+          if (!leg || isCollectLeg(leg)) return null
+          // Walks the `from` chain — every hop needs its own ref declared, so a
+          // two-hop leg simply resolves one dispatch later than a one-hop one.
+          return resolveForwardLegTarget(leg, projectionSpec.joins, projectionSpec.source, resolveRef)
+        },
       })
       // Immediate attempt — covers refs already declared by the time
       // this MV registers (re-registration flows, test wiring).
@@ -337,10 +352,10 @@ export class MaterializedViewRegistry {
   private _resolvePendingForwardDeps(): void {
     for (let i = this._pendingForwardDeps.length - 1; i >= 0; i--) {
       const entry = this._pendingForwardDeps[i]!
-      for (const field of [...entry.fields]) {
-        const target = entry.resolveTarget(field)
+      for (const alias of [...entry.aliases]) {
+        const target = entry.resolveTarget(alias)
         if (target === null) continue
-        entry.fields.delete(field)
+        entry.aliases.delete(alias)
         if (entry.reg.dependencies.has(target)) continue
         // `dependencies` is declared ReadonlySet for consumers; the
         // registry owns the underlying Set and is the one writer.
@@ -349,7 +364,7 @@ export class MaterializedViewRegistry {
         if (arr) arr.push(entry.reg)
         else this._bySource.set(target, [entry.reg])
       }
-      if (entry.fields.size === 0) this._pendingForwardDeps.splice(i, 1)
+      if (entry.aliases.size === 0) this._pendingForwardDeps.splice(i, 1)
     }
   }
 

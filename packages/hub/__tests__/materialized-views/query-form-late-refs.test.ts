@@ -131,6 +131,31 @@ describe('#1139 — query-form MV joining a ref declared after openVault', () =>
     await expect(db.openVault('books')).rejects.toThrow('deliberate planning failure')
   })
 
+  it('a parked SELF-referencing strategy escapes the cycle gate but does not run away', async () => {
+    // The documented caveat: `edges()` runs once at vault open, so a strategy
+    // still parked at that moment contributes none and `MaterializedViewCycleError`
+    // cannot fire for it. Measured rather than asserted — the `_materializedFrom`
+    // skip in the dispatcher is what actually stops the recursion, and this pins
+    // that it does.
+    const selfMV = withMaterializedView<BillRow>({
+      name: 'bills', // output collection == source
+      query: (db) => db.collection<Bill>('bills').query().join<'entity', Entity>('entityId', { as: 'entity' }) as never,
+      rowKey: (r) => `mv-${r.id}`,
+      refresh: 'eager',
+    })
+    const db = await createNoydb({
+      store: toMemory(), user: 'alice', secret: 'mv-query-form-late-refs-secret-2026',
+      materializedViewStrategies: [selfMV],
+    })
+    const vault = await db.openVault('books') // would throw if the cycle gate saw it
+    vault.collection<Entity>('entities')
+    vault.collection<Bill>('bills', { refs: { entityId: ref('entities', 'warn') } })
+
+    await vault.collection<Bill>('bills').put('b1', { id: 'b1', entityId: 'ghost', amount: 1 })
+    // The source row plus exactly ONE emitted row — not an unbounded cascade.
+    expect(await vault.collection<BillRow>('bills').list()).toHaveLength(2)
+  })
+
   it('a join on a field that never gets a ref stays unplanned and says so', async () => {
     const vault = await openBooks(joiningQueryMV('manual'))
     // `bills` is declared with a ref for `entityId`, but this strategy joins a
