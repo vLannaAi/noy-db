@@ -1,5 +1,40 @@
 # Changelog — hub
 
+## 0.6.0-pre.23
+
+### Minor Changes
+
+- Query-form materialized views can join a declared ref, and a late `refs` declaration is no longer silently discarded.
+
+  **#1141 — `refs` declared on an already-constructed collection were dropped.** The declaration fan-out ran only when `vault.collection()` missed its cache, so any earlier touch of the collection silently discarded a later `refs` declaration: strict FK enforcement never engaged (a dangling `put()` was accepted) and `.join()` kept reporting "no ref() declared". `refs` now late-attaches through the same reconcile ladder every other declaration already used. An identical redeclaration stays a no-op; a conflicting one still throws.
+
+  **#1139 — a query-form MV that joins a declared FK threw at `openVault()`, with no ordering that avoided it.** MV strategies register during `openVault()`, but a collection's refs can only be declared after it returns, so the plan was built before any ref could exist. Such a strategy is now parked and replanned on the first write dispatch or `vault.refreshView()`, matching the projection form's timing. Every other planning failure still throws out of `openVault()` immediately — only a not-yet-declared ref defers.
+
+  Adds `RefNotDeclaredError` to the root barrel: `.join()` now throws it instead of a bare `Error`, with an unchanged message, so the deferral condition is matched on a type rather than on text.
+
+- Report blob chunks that outlived their index row (#1133).
+
+  `vault.compact()` now returns `orphanBlobChunks` — a count of `_blob_chunks` rows whose eTag has no `_blob_index` entry, the distinct eTags involved, a small sample to inspect, and a separate count of ids that do not fit the `{eTag}_{index}` grammar at all. `reportOrphanBlobChunks(store, vault)` is exported from `@noy-db/hub/blobs` for callers that want it on its own.
+
+  This is the residue #1127 stopped producing: before that fix a crash between deleting a blob's index row and its chunks stranded bodies no reader and no key rotation can reach, which for a legacy blob leaves bytes openable under a retired `_blob` DEK.
+
+  **It reports and never reclaims, deliberately.** Deciding "orphaned" means trusting `store.list`, and the store is untrusted — one withheld index row would make a live blob's chunks look orphaned, so a reclaim pass would convert withholding, which is reversible, into permanent destruction. A lying store can only inflate this count.
+
+- Projection MV legs can attach to another leg's alias (#1140).
+
+  `ProjectionJoinLeg` gains `from`, naming a previously-declared FORWARD leg. A collect leg then matches against that leg's record id instead of the primary row's, and a forward leg reads its FK off that record — which makes a lookup two FKs away expressible for the first time:
+
+  ```ts
+  joins: [
+    { field: "entityId", as: "entity" },
+    { from: "entity", collect: "clients", on: "entityId", as: "clients" },
+  ];
+  ```
+
+  Every leg previously attached to the primary row, so `bill → entity → client` had no shape: the bill has no `clientId`, and `clients.entityId` refs `entities`, not `bills`. The two workarounds were denormalizing a redundant FK onto the source — reintroducing the duplicated relationship a projection MV exists to avoid — or dropping back to app code and forfeiting the dependency tracking.
+
+  `from` may only name a leg declared earlier, and only a forward one (a collect leg holds an array, not a record). Both are refused at `withMaterializedView()` construction, alongside the rest of the leg-shape checks. The backward-only rule is also why no depth cap is needed: a cycle cannot be spelled. `from` is folded into the plan summary, so two structurally different projections cannot share a `queryHash`.
+
 ## 0.6.0-pre.22
 
 ### Minor Changes

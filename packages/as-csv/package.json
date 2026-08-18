@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/as-csv",
-  "version": "0.6.0-pre.22",
+  "version": "0.6.0-pre.23",
   "description": "CSV plaintext export for noy-db — decrypts records and formats as comma-separated values. Gated by the RFC #249 `canExportPlaintext` capability bit; writes an audit-ledger entry on every call. Part of the @noy-db/as-* portable-artefact family (plaintext tier).",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
