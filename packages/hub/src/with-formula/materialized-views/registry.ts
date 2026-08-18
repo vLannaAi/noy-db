@@ -1,4 +1,4 @@
-import { MaterializedViewSourceUnknownError } from '../../kernel/errors.js'
+import { MaterializedViewSourceUnknownError, RefNotDeclaredError } from '../../kernel/errors.js'
 import type { ViaGraph, FieldRef, EdgeKind, Grain } from '../../kernel/via/graph.js'
 import type { Clause, FieldClause } from '../../kernel/query/predicate.js'
 import type { DeclaredPredicate } from '../../kernel/query/builder.js'
@@ -75,6 +75,39 @@ export class MaterializedViewRegistry {
   }> = []
 
   /**
+   * Query-form strategies whose `query()` callback could not be planned at
+   * registration time because a `.join()` names a field whose `ref()` is not
+   * declared YET (#1139).
+   *
+   * Registration runs inside `openVault()`; a collection's refs can only be
+   * declared afterwards, so for a query-form MV that joins a declared FK there
+   * is NO call ordering the consumer can choose — the plan is simply built too
+   * early. Rather than failing the vault open, the strategy is parked here and
+   * replanned from {@link resolvePendingPlans}, which every write dispatch and
+   * `vault.refreshView()` call runs first. This is the query-form counterpart
+   * of `_pendingForwardDeps`, one level up: that defers a leg's TARGET, this
+   * defers the whole plan.
+   *
+   * Only `RefNotDeclaredError` parks a strategy. Every other planning failure
+   * still throws out of `openVault()` exactly as before, so a typo'd source or
+   * a malformed spec keeps its loud, early error.
+   *
+   * A parked strategy is invisible until it resolves: it contributes no
+   * `_bySource` entries and no cycle-detection edges (same caveat as a
+   * late-resolved forward target — `edges()` runs once at vault open). It also
+   * cannot be dispatched, which is why {@link hasPendingPlans} forces the
+   * conservative branch in `Collection._txAtomicSafe`: the atomic write path
+   * skips MV dispatch, and skipping it here would mean the write that was
+   * supposed to trigger the first replan is the one that gets missed.
+   */
+  private readonly _pendingPlans: Array<{
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    spec: MaterializedViewSpec<any>
+    db: MVQueryContext
+    options?: { knownCollections?: (name: string) => boolean }
+  }> = []
+
+  /**
    * Register an MV. Invokes `spec.query()` once at registration time to
    * read the plan + join context; the resulting `Query<T>` is discarded
    * after dependency extraction. `vault.collection(...)` must therefore
@@ -140,9 +173,18 @@ export class MaterializedViewRegistry {
       if (spec.sources) for (const s of spec.sources) dependencies.add(s)
       queryPlanSummary = summarizeProjectionPlan(spec)
     } else {
-      const q = spec.query!(dbForQuery)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      qAny = q as any
+      let q: any
+      try {
+        q = spec.query!(dbForQuery)
+      } catch (e) {
+        // #1139 — a join on a ref that is not declared YET. Park and replan;
+        // see `_pendingPlans`. Anything else is a real registration failure.
+        if (!(e instanceof RefNotDeclaredError)) throw e
+        this._pendingPlans.push({ spec, db, ...(options !== undefined ? { options } : {}) })
+        return
+      }
+      qAny = q // already `any` — see the declaration above
       isQuery = typeof qAny._plan === 'function'
       if (isQuery) {
         // `q` is the `Query` arm of the union here (runtime-confirmed via
@@ -234,6 +276,41 @@ export class MaterializedViewRegistry {
       // Immediate attempt — covers refs already declared by the time
       // this MV registers (re-registration flows, test wiring).
       this._resolvePendingForwardDeps()
+    }
+  }
+
+  /**
+   * `true` while any query-form strategy is still unplanned (#1139). Read by
+   * `Collection._txAtomicSafe`, which must refuse the atomic write path while
+   * this holds — see the `_pendingPlans` doc comment for why.
+   */
+  hasPendingPlans(): boolean {
+    return this._pendingPlans.length > 0
+  }
+
+  /**
+   * Replan every parked query-form strategy (#1139). Called at the head of both
+   * write dispatchers and of `vault.refreshView()`, so a strategy resolves on the
+   * first write or refresh after its source collection's refs are declared —
+   * which is the earliest moment it could produce a correct plan, and strictly
+   * before the first moment it could have any output to produce.
+   *
+   * Each entry is handed straight back to {@link register}, so a strategy that
+   * is STILL unplannable simply re-parks itself and the next dispatch tries
+   * again. Idempotent and cheap: the array empties as strategies resolve, and
+   * both callers skip the await entirely once it is empty.
+   *
+   * A late-resolved strategy does NOT retro-feed `edges()` — the unified cycle
+   * pass runs once at vault open, before refs exist. Same caveat, and the same
+   * reason, as a late-resolved forward-leg target.
+   */
+  async resolvePendingPlans(): Promise<void> {
+    if (this._pendingPlans.length === 0) return
+    // Splice first: `register` re-parks anything still unplannable, and reading
+    // a live array it is concurrently pushing to would loop.
+    const parked = this._pendingPlans.splice(0)
+    for (const entry of parked) {
+      await this.register(entry.spec, entry.db, entry.options)
     }
   }
 

@@ -630,7 +630,7 @@ export class Vault {
    *  dispatch reads/writes — from this vault's OWN privates, rather than passing `this` itself. */
   private _viaReconcileCtx(): ViaReconcileVaultCtx {
     return {
-      i18nStrategy: this.strategies.i18n, locale: this.locale, translateText: this.translateText,
+      refRegistry: this.refRegistry, i18nStrategy: this.strategies.i18n, locale: this.locale, translateText: this.translateText,
       i18nFieldRegistry: this.i18nFieldRegistry, dictKeyFieldRegistry: this.dictKeyFieldRegistry,
       staticDescriptorByField: this.staticDescriptorByField, reservedLookupCollections: this.reservedLookupCollections,
       staticByName: this.staticByName, staticDictNames: this.staticDictNames, getOpenCollection: (n) => this._getCollection(n), getCollection: (n) => this.collection<Record<string, unknown>>(n),
@@ -728,6 +728,7 @@ export class Vault {
     if (coll) {
       reconcileViaAttach(coll, this.graph, collectionName, this._viaReconcileCtx(), {
         effectiveViaFields,
+        ...(options?.refs !== undefined ? { refs: options.refs } : {}), // #1141 — late `refs` declaration
         ...(options?.computed !== undefined ? { computed: options.computed as ComputedFields } : {}),
         ...(options?.fieldMeta !== undefined ? { fieldMeta: options.fieldMeta } : {}),
         ...(options?.meta !== undefined ? { meta: options.meta } : {}),
@@ -2552,6 +2553,7 @@ export class Vault {
     if (registry === null) {
       return { written: 0, deleted: 0, failed: 0, residueUndecodable: [], residueDeclined: [] }
     }
+    await registry.resolvePendingPlans() // #1139 — a parked strategy is not in `byName` yet
     const reg = registry.byName(name)
     if (!reg) {
       throw new Error(`refreshView: no MV registered with name "${name}"`)

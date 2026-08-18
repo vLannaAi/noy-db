@@ -44,6 +44,7 @@ import {
   type ReconcileGraphOptions,
 } from './graph-wiring.js'
 import { ValidationError } from '../errors.js'
+import type { RefDescriptor } from '../refs.js'
 import { resolveClassifiedFields } from '../../port/with/classified-strategy.js'
 import {
   isStaticDictDescriptor,
@@ -71,6 +72,8 @@ export interface ReconcilableCollection extends HasWritableViaPipeline {
   _applyFieldMeta(fieldMeta: Parameters<AnyCollection['_applyFieldMeta']>[0]): void
   _applyMeta(meta: Parameters<AnyCollection['_applyMeta']>[0]): void
   _applyClassifiedFields(classifiedFields: Parameters<AnyCollection['_applyClassifiedFields']>[0]): void
+  /** #1141 — refresh the outbound-ref snapshot after a late `refs` declaration. */
+  _attachDeclaredRefs(refs: Parameters<AnyCollection['_attachDeclaredRefs']>[0]): void
   /** #671 items 1-3 — the reader + writer seam for `getDictionary`/legacy describe() lists/`presentForJoin`. */
   readonly _viaFieldsSnapshot: AnyCollection['_viaFieldsSnapshot']
   _reconcileReadState(patch: Parameters<AnyCollection['_reconcileReadState']>[0]): void
@@ -82,6 +85,11 @@ export interface ReconcilableCollection extends HasWritableViaPipeline {
  *  `autoTranslateHook` :1111-1155), passed as plain values (never `this: Vault`) so this module
  *  never imports the `Vault` class. */
 export interface ViaReconcileVaultCtx {
+  /** #1141 — the vault's ref registry, so a late `refs` declaration can still reach it. */
+  readonly refRegistry: {
+    register(collection: string, refs: Record<string, RefDescriptor>): void
+    getOutbound(collection: string): Record<string, RefDescriptor>
+  }
   readonly i18nStrategy: I18nStrategy
   /** — named `locale`, not `defaultLocale`, to match `Vault`'s own field name 1:1 (so `this`
    *  satisfies this interface structurally with zero adapter object at the call site). */
@@ -436,6 +444,10 @@ function reconcileCollectionReadState(
  *  though a bare blobFields late-attach is otherwise silently inert, matching pre-#664 behavior). */
 export interface ReconcileLateAttachPlan {
   readonly effectiveViaFields: MergedViaFields
+  /** #1141 — outbound `refs` from this `vault.collection()` call. Not a via binding: it lands in
+   *  the VAULT's `RefRegistry`, which is why it was the one declaration with no late-attach path
+   *  and got silently dropped whenever the collection already existed. */
+  readonly refs?: Record<string, RefDescriptor>
   readonly computed?: Parameters<AnyCollection['_applyComputed']>[0]
   readonly fieldMeta?: Parameters<AnyCollection['_applyFieldMeta']>[0]
   readonly meta?: Parameters<AnyCollection['_applyMeta']>[0]
@@ -483,6 +495,15 @@ export function reconcileViaAttach(
       } as ReconcileGraphOptions)
     : undefined
 
+  // #1141 — refs first: enforcement reads the vault registry live, so registering here makes the
+  // declaration real for `put()`/`delete()` immediately; the collection's own snapshot (the one
+  // thing that does NOT read through — `describe()` and `_txAtomicSafe` read it directly) is then
+  // refreshed from the registry's merged view. `RefRegistry.register` is idempotent-or-throw, so
+  // an identical redeclaration is a no-op and a conflicting one still throws.
+  if (plan.refs !== undefined) {
+    vaultCtx.refRegistry.register(name, plan.refs)
+    coll._attachDeclaredRefs(vaultCtx.refRegistry.getOutbound(name))
+  }
   if (plan.effectiveViaFields.moneyFields) coll._applyMoneyFields(plan.effectiveViaFields.moneyFields)
   if (plan.computed) coll._applyComputed(plan.computed)
   if (plan.fieldMeta) coll._applyFieldMeta(plan.fieldMeta)
