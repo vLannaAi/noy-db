@@ -1849,7 +1849,24 @@ export class BlobSet {
     }
 
     const loaded = await this.loadBlobObject(record.eTag, fromTier)
-    if (!loaded || loaded.blob._cek === undefined) return record.eTag // legacy/missing: no-op
+    // `refCount <= 0` means the last hold is already released and this object is
+    // mid-deletion — its index row surviving is an un-reaped tombstone, not a
+    // live blob. Keying off the LOGICAL state rather than the row's physical
+    // absence is what makes this correct under either deletion order: before
+    // #1127 the index row was deleted first, so a crashed delete happened to
+    // present as `!loaded` here; now chunks go first, so the row can outlive its
+    // own bytes and reading them would raise `BlobOfflineError` on content that
+    // was deliberately destroyed.
+    if (!loaded) return record.eTag // already gone: no-op
+    if (loaded.blob.refCount <= 0) {
+      // Mid-deletion. Do not read its bytes — but do FINISH the interrupted
+      // delete, which is what a resume owes here (spec C1's completion arm).
+      // `releaseRef` sees the stamp already applied and `refCount <= 0`, so it
+      // reaps the row idempotently without double-decrementing.
+      await this.releaseOldETagAfterMove(record.eTag, fromTier, stamp)
+      return record.eTag
+    }
+    if (loaded.blob._cek === undefined) return record.eTag // legacy: no-op
     if (policy === 'dedup' && loaded.blob.refCount > 1) return record.eTag // #741: same residue as the slot case
 
     const plaintext = await this.fetchAllChunks(loaded.blob, fromBlobDEK)
