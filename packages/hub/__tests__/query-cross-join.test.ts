@@ -482,3 +482,160 @@ describe('summarizeQueryPlan > cross-join in queryHash', () => {
     expect(summarizeQueryPlan(qNamed)).not.toBe(summarizeQueryPlan(qNoOn))
   })
 })
+
+/**
+ * #1130 — `outer: true`.
+ *
+ * `.crossJoin()` emits a left row once per matching right row, so an empty
+ * subset dropped it entirely: no error, no warning, no count mismatch. The
+ * reverse-FK shape is where this bites, because `.join()` is forward-only on a
+ * declared `ref()` and cannot express it, so `.crossJoin()` is the only tool —
+ * and the natural fixture always has both sides present, which is why nobody
+ * wrote a test for it.
+ *
+ * The fixture below is the reported shape rather than an idealised one: three
+ * bills, one with a client, one whose entity has no client, one with a dangling
+ * entityId. The measured symptom was 3 in, 1 out.
+ */
+const BILLS = [
+  { id: 'b1', entityId: 'e1' }, // entity exists, client exists
+  { id: 'b2', entityId: 'e2' }, // entity exists, NO client
+  { id: 'b3', entityId: 'gone' }, // dangling entityId
+]
+const CLIENTS = [{ id: 'c1', entityId: 'e1', name: 'Ann' }]
+
+/** Reverse lookup: entityId → clients. Mirrors how a consumer builds it. */
+const BY_ENTITY = new Map<string, (typeof CLIENTS)[number][]>()
+for (const c of CLIENTS) BY_ENTITY.set(c.entityId, [...(BY_ENTITY.get(c.entityId) ?? []), c])
+
+function billsQuery() {
+  return new Query(
+    staticSource(BILLS),
+    { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+    mockJoinContext('bills', { clients: CLIENTS }),
+  )
+}
+
+describe('Query.crossJoin() > outer (#1130)', () => {
+  it('DEFAULT (inner) drops a left row whose subset is empty — the reported bug', () => {
+    // Pinned deliberately. This is not desirable behaviour, but it IS the
+    // documented default, and a silent change would break anyone relying on
+    // cross-join as a filter.
+    const result = billsQuery()
+      .crossJoin<(typeof CLIENTS)[number], 'client'>('clients', {
+        as: 'client',
+        on: (b) => BY_ENTITY.get(b.entityId) ?? [],
+      })
+      .toArray()
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({ id: 'b1', client: { name: 'Ann' } })
+  })
+
+  it('outer: true keeps every left row, with null where the subset is empty', () => {
+    const result = billsQuery()
+      .crossJoin<(typeof CLIENTS)[number], 'client', true>('clients', {
+        as: 'client',
+        outer: true,
+        on: (b) => BY_ENTITY.get(b.entityId) ?? [],
+      })
+      .toArray()
+    expect(result).toHaveLength(3) // 3 in, 3 out
+    expect(result[0]).toMatchObject({ id: 'b1', client: { name: 'Ann' } })
+    expect(result[1]).toEqual({ id: 'b2', entityId: 'e2', client: null })
+    expect(result[2]).toEqual({ id: 'b3', entityId: 'gone', client: null })
+  })
+
+  it('outer: true is equivalent to the documented `?? [null]` idiom', () => {
+    // The idiom this replaces. Asserting equivalence keeps the doc comment
+    // honest — it tells readers the two are the same thing.
+    const viaIdiom = billsQuery()
+      .crossJoin<(typeof CLIENTS)[number] | null, 'client'>('clients', {
+        as: 'client',
+        on: (b) => BY_ENTITY.get(b.entityId) ?? [null],
+      })
+      .toArray()
+    const viaFlag = billsQuery()
+      .crossJoin<(typeof CLIENTS)[number], 'client', true>('clients', {
+        as: 'client',
+        outer: true,
+        on: (b) => BY_ENTITY.get(b.entityId) ?? [],
+      })
+      .toArray()
+    expect(viaFlag).toEqual(viaIdiom)
+  })
+
+  it('outer: true does not add a null when the subset is non-empty', () => {
+    const twoClients = [
+      { id: 'c1', entityId: 'e1', name: 'Ann' },
+      { id: 'c2', entityId: 'e1', name: 'Bea' },
+    ]
+    const byEntity = new Map([['e1', twoClients]])
+    const result = new Query(
+      staticSource([{ id: 'b1', entityId: 'e1' }]),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      mockJoinContext('bills', { clients: twoClients }),
+    )
+      .crossJoin<(typeof twoClients)[number], 'client', true>('clients', {
+        as: 'client',
+        outer: true,
+        on: (b) => byEntity.get(b.entityId) ?? [],
+      })
+      .toArray()
+    expect(result).toHaveLength(2)
+    expect(result.map((r: any) => r.client.name)).toEqual(['Ann', 'Bea'])
+  })
+
+  it('outer: true also covers the full-cartesian form against an EMPTY target', () => {
+    // Without `on:` there is no per-row subset, but an empty target collection
+    // drops every left row for the same reason. Easy to miss, since the two
+    // branches of `applyCrossJoin` are separate code.
+    const inner = new Query(
+      staticSource(PERIODS),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      mockJoinContext('periods', { workers: [] }),
+    )
+      .crossJoin<(typeof WORKERS)[0], 'worker'>('workers', { as: 'worker' })
+      .toArray()
+    expect(inner).toHaveLength(0)
+
+    const outer = new Query(
+      staticSource(PERIODS),
+      { clauses: [], orderBy: [], limit: undefined, offset: 0, joins: [] },
+      mockJoinContext('periods', { workers: [] }),
+    )
+      .crossJoin<(typeof WORKERS)[0], 'worker', true>('workers', { as: 'worker', outer: true })
+      .toArray()
+    expect(outer).toHaveLength(2)
+    expect(outer.every((r: any) => r.worker === null)).toBe(true)
+  })
+
+  it('a substituted null row counts toward the maxRows ceiling like any other', () => {
+    // A row is a row. If `outer` were exempt from the ceiling it would be a
+    // way to exceed a limit the caller set deliberately.
+    expect(() =>
+      billsQuery()
+        .crossJoin<(typeof CLIENTS)[number], 'client', true>('clients', {
+          as: 'client',
+          outer: true,
+          maxRows: 2,
+          on: (b) => BY_ENTITY.get(b.entityId) ?? [],
+        })
+        .toArray(),
+    ).toThrow(CrossJoinTooLargeError)
+  })
+
+  it('outer is part of the plan summary — an inner plan must not be reused for an outer query', () => {
+    // `outer` changes which rows come back, so it belongs to the query's
+    // identity. If it were omitted from the summary, a materialized view built
+    // on the inner form could be served for the outer one.
+    const mk = (outer: boolean) =>
+      summarizeQueryPlan(
+        billsQuery().crossJoin<(typeof CLIENTS)[number], 'client', boolean>('clients', {
+          as: 'client',
+          outer,
+          on: (b) => BY_ENTITY.get(b.entityId) ?? [],
+        }) as any,
+      )
+    expect(mk(true)).not.toEqual(mk(false))
+  })
+})
