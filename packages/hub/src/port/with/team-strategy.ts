@@ -33,7 +33,7 @@ export interface TeamStrategy {
   /** #1121 — read-only sweep naming every `_keyring` file that fails authentication. */
   verifyRoster(team: TeamFacade, vault: string): Promise<RosterVerifyResult>
   /** #1121 — remove an unauthenticatable `_keyring` file and re-key behind it. */
-  quarantineKeyring(team: TeamFacade, vault: string, userId: string): Promise<QuarantineResult>
+  quarantineKeyring(team: TeamFacade, vault: string, userId: string, factors?: FactorProofBundle): Promise<QuarantineResult>
 }
 
 /**

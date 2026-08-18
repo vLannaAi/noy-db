@@ -201,3 +201,99 @@ describe('#1121 quarantineKeyring — removing what cannot be verified', () => {
     expect(result.rotated).toContain('salaries')
   })
 })
+
+/**
+ * Rows added after an adversarial review of the first draft. Each one is a
+ * defect that review found with a probe, not a hypothetical — recorded here so
+ * the fix cannot silently regress.
+ */
+describe('#1121 — what the review of the first draft found', () => {
+  it('verifyRoster REPORTS an unparseable file instead of dying on it', async () => {
+    // The diagnostic exists for vaults where something is already wrong, and
+    // the first draft threw SyntaxError on a truncated file — failing on the
+    // single case it most needed to name, and reproducing the vault-wide
+    // freeze #1114 removed, inside the tool built to end it.
+    const store = memoryStore()
+    const { db } = await ownerWith(store)
+    await db.grant(VAULT, { userId: 'bob', displayName: 'Bob', role: 'viewer', secret: 'bob-pass-1' })
+
+    const env = (await store.get(VAULT, '_keyring', 'bob'))!
+    await store.put(VAULT, '_keyring', 'bob', { ...env, _data: env._data.slice(0, 40) })
+
+    const result = await db.verifyRoster(VAULT)
+    expect(result.unverified).toEqual([{ userId: 'bob', reason: 'unparseable' }])
+    // Still counted, and the healthy members were still checked.
+    expect(result.checked).toBe(2)
+  })
+
+  it('quarantine can REMOVE an unparseable file — the most literally unauthenticatable one', async () => {
+    const store = memoryStore()
+    const { db } = await ownerWith(store)
+    await db.grant(VAULT, { userId: 'bob', displayName: 'Bob', role: 'viewer', secret: 'bob-pass-1' })
+
+    const env = (await store.get(VAULT, '_keyring', 'bob'))!
+    await store.put(VAULT, '_keyring', 'bob', { ...env, _data: env._data.slice(0, 40) })
+
+    const result = await db.quarantineKeyring(VAULT, 'bob')
+    expect(result.reason).toBe('unparseable')
+    expect(await store.get(VAULT, '_keyring', 'bob')).toBeNull()
+  })
+
+  it('REPORTS who else it de-provisioned — a quarantine rotates broadly', async () => {
+    // The first draft discarded rotateKeys' findings, so the operator learned
+    // about the other members it had just locked out as unrelated NoAccessErrors
+    // later on.
+    const store = memoryStore()
+    const { db } = await ownerWith(store)
+    await db.grant(VAULT, { userId: 'bob', displayName: 'Bob', role: 'viewer', secret: 'bob-pass-1' })
+    await db.grant(VAULT, { userId: 'carol', displayName: 'C', role: 'viewer', secret: 'carol-pass-1' })
+
+    await forgeRole(store, 'carol', 'admin')
+    const result = await db.quarantineKeyring(VAULT, 'carol')
+
+    // bob keeps his keyring but loses the rotated collections until re-granted.
+    expect(result.needsRegrant.some((r) => r.userId === 'bob' && r.collection === 'invoices')).toBe(true)
+  })
+
+  it('names OTHER forged members it met while rotating', async () => {
+    const store = memoryStore()
+    const { db } = await ownerWith(store)
+    await db.grant(VAULT, { userId: 'carol', displayName: 'C', role: 'viewer', secret: 'carol-pass-1' })
+    await db.grant(VAULT, { userId: 'dave', displayName: 'D', role: 'viewer', secret: 'dave-pass-1' })
+
+    await forgeRole(store, 'carol', 'admin')
+    await forgeRole(store, 'dave', 'admin')
+
+    const result = await db.quarantineKeyring(VAULT, 'carol')
+    expect(result.alsoUnverified.map((u) => u.userId)).toEqual(['dave'])
+  })
+
+  it('an INTERRUPTED quarantine resumes instead of reporting not-found', async () => {
+    // #1077's shape: delete-then-rotate has no transaction, so a store error in
+    // between leaves the file gone and the keys un-rotated. The first draft
+    // threw NoAccessError on retry, which reads as "already done" — the failure
+    // looking exactly like success.
+    let failNextPut = false
+    const inner = memoryStore()
+    const flaky: NoydbStore = {
+      ...inner,
+      async put(vault, collection, id, env) {
+        if (failNextPut && collection === 'invoices') throw new Error('store offline')
+        return inner.put(vault, collection, id, env)
+      },
+    }
+    const db = await createNoydb({ teamStrategy: withTeam(), store: flaky, user: 'owner-01', secret: 'owner-pass-1' })
+    const vault = await db.openVault(VAULT)
+    await vault.collection<{ amount: number }>('invoices').put('inv-1', { amount: 100 })
+    await db.grant(VAULT, { userId: 'carol', displayName: 'C', role: 'viewer', secret: 'carol-pass-1' })
+    await forgeRole(flaky, 'carol', 'admin')
+
+    failNextPut = true
+    await expect(db.quarantineKeyring(VAULT, 'carol')).rejects.toThrow('store offline')
+    failNextPut = false
+
+    // The retry finishes the job rather than claiming there is nothing to do.
+    const resumed = await db.quarantineKeyring(VAULT, 'carol')
+    expect(resumed.rotated.length).toBeGreaterThan(0)
+  })
+})

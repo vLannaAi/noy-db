@@ -1478,7 +1478,7 @@ const KERNEL_SURFACE_BUDGET = {
   // They belong on `Noydb` rather than behind a bus registration because they are the
   // sibling operations of `grant`/`revoke`/`rotate`, which are already here: an operator
   // reaching for the remedy should find it beside the thing that refused them.
-  'packages/hub/src/kernel/noydb.ts': 2223,  // #1074: +1 for pendingDeks on the bootstrap keyring literal
+  'packages/hub/src/kernel/noydb.ts': 2224,  // see the #1121 note above
   // Lowered 2407→2345 (#834 vault() cache-only, 2026-07-26): deleting the two drifted
   // fallback Vault constructors from vault() removed ~80 lines of duplicated option block.
   // A test now asserts noydb.ts contains exactly ONE `new Vault(` site — that invariant,

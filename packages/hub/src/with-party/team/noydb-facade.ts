@@ -198,10 +198,15 @@ export class TeamFacade {
     engine: (store: NoydbStore, vault: string, callerKeyring: UnlockedKeyring, userId: string) => Promise<QuarantineResult>,
     vault: string,
     userId: string,
+    factors?: FactorProofBundle,
   ): Promise<QuarantineResult> {
-    // Gated as `revoke`: it removes a principal and rotates, which is what
-    // revocation is, and the host policy that governs one should govern the other.
+    // Gated as `revoke`, and that means BOTH halves. An earlier draft called
+    // only `checkPolicyOperation` and claimed parity in this very comment — so
+    // a host that demanded a second factor to revoke a member would not have
+    // demanded one to delete that member's keyring and re-key the vault, which
+    // is strictly the larger act.
     this.deps.checkPolicyOperation(vault, 'revoke')
+    await this.deps.checkGate(vault, 'revoke-user', factors)
     const keyring = await this.deps.getKeyringInternal(vault)
     const result = await engine(this.deps.options.store, vault, keyring, userId)
     // Same reason as runRotate: the caller's DEKs were re-minted in place.

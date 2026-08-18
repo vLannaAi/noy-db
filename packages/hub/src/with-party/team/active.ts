@@ -26,8 +26,8 @@ export function withTeam(): TeamStrategy {
     async verifyRoster(team, vault) {
       return team.runVerifyRoster(verifyRosterEngine, vault)
     },
-    async quarantineKeyring(team, vault, userId) {
-      return team.runQuarantine(quarantineEngine, vault, userId)
+    async quarantineKeyring(team, vault, userId, factors) {
+      return team.runQuarantine(quarantineEngine, vault, userId, factors)
     },
   }
 }

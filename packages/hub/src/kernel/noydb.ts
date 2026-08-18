@@ -947,8 +947,8 @@ export class Noydb {
    * will not trust. This ignores every claim the file makes — which is exactly
    * why it is restricted to files that already fail authentication.
    */
-  async quarantineKeyring(vault: string, userId: string): Promise<QuarantineResult> {
-    return this.strategies.team.quarantineKeyring(this.team, vault, userId)
+  async quarantineKeyring(vault: string, userId: string, factors?: FactorProofBundle): Promise<QuarantineResult> {
+    return this.strategies.team.quarantineKeyring(this.team, vault, userId, factors)
   }
 
   /** List all users with access to a vault. */

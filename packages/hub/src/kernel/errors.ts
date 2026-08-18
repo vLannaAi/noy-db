@@ -275,6 +275,15 @@ export type KeyringTamperedReason =
   | 'roster-key-missing'
   | 'roster-tag-missing'
   | 'roster-tag-mismatch'
+  /**
+   * The file did not parse at all (#1121). Never thrown by
+   * `assertRosterAuthenticated` — which cannot reach a file it could not read —
+   * but reported by `verifyRoster` and accepted by `quarantineKeyring`, because
+   * truncation and bitrot produce the most literally unauthenticatable file
+   * there is and the tools for unauthenticatable files must not be the ones
+   * that choke on it.
+   */
+  | 'unparseable'
 
 export class KeyringTamperedError extends NoydbError {
   readonly details: {
