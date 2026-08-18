@@ -65,6 +65,8 @@ export type {
 export { detectMimeType, detectMagic, isPreCompressed } from '../../with-shape/blobs/mime-magic.js'
 
 export { runCompaction, BLOB_EVICTION_AUDIT_COLLECTION } from '../../with-shape/blobs/blob-compaction.js'
+export { reportOrphanBlobChunks } from '../../with-shape/blobs/orphan-report.js' // #1133
+export type { OrphanChunkReport } from '../../with-shape/blobs/orphan-report.js'
 export type {
   BlobFieldsConfig,
   BlobFieldPolicy,
