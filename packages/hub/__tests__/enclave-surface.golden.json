@@ -58,6 +58,7 @@
     "pbkdf2VerifyDigest",
     "queryByDet",
     "recordAadFor",
+    "rekeyBlobSet",
     "rekeyEnvelopeIfNeeded",
     "rekeyEnvelopeToDek",
     "resolveStableCek",

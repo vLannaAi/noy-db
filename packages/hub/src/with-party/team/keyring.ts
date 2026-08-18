@@ -10,6 +10,7 @@ import {
   wrapKey,
   unwrapKey,
   rekeyEnvelopeIfNeeded,
+  rekeyBlobSet,
   bufferToBase64,
   base64ToBuffer,
   type EnclaveKey,
@@ -1477,16 +1478,36 @@ export interface RotateKeysOptions {
  *
  * ## Why the layouts are duplicated here rather than imported
  *
- * `with-party` has never imported `with-commit` and this is not the change that
- * should start. The two id layouts below are copied deliberately, with their
- * owners named, and the **invariant test is what keeps them honest**: after a
- * revocation, no retained key may open any envelope. That test does not consult
- * this table, so a service that adds a third such surface fails there rather
- * than passing quietly here.
+ * `with-party` has never imported `with-commit` or `with-shape` and this is not
+ * the change that should start — `with-shape/blobs/blob-set.ts` already imports
+ * `with-party/team/tiers.js`, so the reverse edge would close a cycle. The id
+ * layouts below are copied deliberately, with their owners named, and the
+ * **invariant test is what keeps them honest**: after a revocation, no retained
+ * key may open any envelope. That test does not consult this table, so a
+ * service that adds a further such surface fails there rather than passing
+ * quietly here.
+ *
+ * ## The blob surfaces (#1122)
+ *
+ * `_blob` was the same defect one layer worse: the slot is `_blob` and every
+ * byte it protects is filed under `_blob_index` / `_blob_chunks`, so rotating
+ * it re-encrypted NOTHING and made the vault's blobs permanently unreadable —
+ * reachable through an ordinary `revoke`, since a whole-vault grantee holds
+ * `_blob`. Those two are not in this table because they cannot be re-keyed by
+ * the generic per-envelope helper (chunks use a bespoke AAD, and the index body
+ * carries wrapped per-blob CEKs); {@link rekeyBlobSet} handles them and
+ * `rotateKeys` calls it for the `_blob` slot.
+ *
+ * What IS in this table is the other half: the three per-collection blob
+ * surfaces sealed under the OWNING collection's DEK rather than under `_blob`.
  */
 const HISTORY_COLLECTION = '_history' // owner: with-commit/history/history.ts
 const LEDGER_COLLECTION = '_ledger' // owner: with-commit/history/ledger/constants.ts
 const LEDGER_DELTAS_COLLECTION = '_ledger_deltas' // ditto
+const BLOB_COLLECTION = '_blob' // owner: with-shape/blobs/blob-set.ts
+const BLOB_SLOTS_PREFIX = '_blob_slots_' // ditto — `_blob_slots_<collection>`
+const BLOB_VERSIONS_PREFIX = '_blob_versions_' // ditto — `_blob_versions_<collection>`
+const BLOB_INTENT_COLLECTION = '_blob_intent' // owner: with-shape/blobs/blob-intent.ts
 
 /** `store.list` on a collection that may not exist yet. */
 async function listOrEmpty(store: NoydbStore, vault: string, collection: string): Promise<string[]> {
@@ -1518,6 +1539,27 @@ async function derivedRefsFor(
   if (rotated === LEDGER_COLLECTION) {
     for (const id of await listOrEmpty(store, vault, LEDGER_DELTAS_COLLECTION)) {
       out.push({ collection: LEDGER_DELTAS_COLLECTION, id })
+    }
+  }
+
+  // #1122 — the per-collection blob surfaces. A slot map and a version record
+  // are sealed under the OWNING collection's DEK (`dekKey(collection, tier)`),
+  // not under `_blob`, and a `_blob_intent` marker under that collection's
+  // tier-0 DEK. All three use the ordinary record AAD, so the generic
+  // per-envelope helper re-keys them; only `_blob_index`/`_blob_chunks` need
+  // `rekeyBlobSet`. Reserved collections own none of these.
+  if (!rotated.startsWith('_')) {
+    for (const id of await listOrEmpty(store, vault, `${BLOB_SLOTS_PREFIX}${rotated}`)) {
+      out.push({ collection: `${BLOB_SLOTS_PREFIX}${rotated}`, id })
+    }
+    for (const id of await listOrEmpty(store, vault, `${BLOB_VERSIONS_PREFIX}${rotated}`)) {
+      out.push({ collection: `${BLOB_VERSIONS_PREFIX}${rotated}`, id })
+    }
+    // Marker ids are `${collection}::${recordId}` — the `::` separator is
+    // refused in record ids at the blob write surface, so the prefix is
+    // unambiguous.
+    for (const id of await listOrEmpty(store, vault, BLOB_INTENT_COLLECTION)) {
+      if (id.startsWith(`${rotated}::`)) out.push({ collection: BLOB_INTENT_COLLECTION, id })
     }
   }
 
@@ -1626,6 +1668,27 @@ export async function rotateKeys(
     const oldDek = callerKeyring.deks.get(collName)
     const newDek = newDeks.get(collName)!
     if (!oldDek) continue
+
+    // #1122 — `_blob` protects data filed under NO collection of its own.
+    // Its ciphertext lives in `_blob_index` and `_blob_chunks`, in shapes the
+    // per-envelope helper below cannot open (a bespoke chunk AAD, and wrapped
+    // per-blob CEKs inside the index body), so it gets its own enclave routine.
+    // Before this, rotating `_blob` minted a key, re-encrypted nothing, and
+    // destroyed every blob in the vault — through an ordinary `revoke`.
+    //
+    // Tier slots too: an elevated record's blob metadata is sealed under
+    // `dekKey('_blob', tier)` — `_blob#<tier>` — and filed in that same
+    // `_blob_index`, so membership there is by DEK, not by name. The other keys
+    // the caller holds are passed so an entry belonging to a DIFFERENT blob
+    // slot is recognised as that slot's business rather than mistaken for a
+    // damaged record; an entry no held key opens is genuinely damaged and
+    // throws, as `rekeyEnvelopeIfNeeded` does.
+    if (collName === BLOB_COLLECTION || collName.startsWith(`${BLOB_COLLECTION}#`)) {
+      const others: EnclaveKey[] = []
+      for (const [name, dek] of callerKeyring.deks) if (name !== collName) others.push(dek)
+      for (const [name, dek] of newDeks) if (name !== collName) others.push(dek)
+      await rekeyBlobSet(store, vault, oldDek, newDek, others)
+    }
 
     // The collection's own records, PLUS every envelope sealed under this DEK
     // but filed elsewhere (#1108). Both go through the same helper, so the
