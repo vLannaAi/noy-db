@@ -6,11 +6,18 @@
  * collection AND every right-side collection a join leg points at)
  * mutates.
  *
- * Framework-agnostic by design. The Vue layer wraps a `LiveQuery`
- * in a Vue `Ref<T[]>` by subscribing once and copying `value` into
- * the ref on every notification. React/Solid/Svelte adapters do the
- * same with their own primitives. Core never depends on a UI
- * framework.
+ * Framework-agnostic by design — core never depends on a UI
+ * framework. The one binding that wraps a `LiveQuery` today is
+ * `@noy-db/in-pinia`: `store.liveQuery(build)` subscribes once,
+ * mirrors `value` into a `ShallowRef`, re-reads `error` on every
+ * notification, and disposes via `onScopeDispose`.
+ *
+ * There is no such wrapper in `@noy-db/in-vue`,
+ * `in-react`, `in-solid` or `in-svelte` — a consumer on those
+ * subscribes directly (see **Error semantics** below, which is the
+ * part a hand-rolled wrapper usually gets wrong). Whether `in-vue`
+ * should ship one is #1131; do not describe these adapters as
+ * existing until one does.
  *
  * **Error semantics.** A `.live()` query may throw at re-run time —
  * a strict-mode `DanglingReferenceError` is the most common case
