@@ -1,5 +1,18 @@
 # Changelog — create-noy-db
 
+## 0.3.3-pre.20
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.21
+  - @noy-db/to-file@0.6.0-pre.21
+  - @noy-db/to-memory@0.6.0-pre.21
+
 ## 0.3.3-pre.19
 
 ### Patch Changes

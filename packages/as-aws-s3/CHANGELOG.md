@@ -1,5 +1,16 @@
 # @noy-db/as-aws-s3
 
+## 0.6.0-pre.21
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.21
+
 ## 0.6.0-pre.20
 
 ### Patch Changes

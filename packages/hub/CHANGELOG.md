@@ -1,5 +1,206 @@
 # Changelog — hub
 
+## 0.6.0-pre.21
+
+### Patch Changes
+
+- An in-band remedy for an unverifiable keyring: `quarantineKeyring()` and
+  `verifyRoster()` (#1121).
+
+  #1096 authenticated the roster and #1114 stopped one bad file freezing rotation
+  vault-wide, but neither made a forged file **removable**. `revoke` decides
+  whether the caller may revoke a target by reading that target's own `role`, so
+  it cannot act on a file it will not trust — and a store that forged
+  `"role":"owner"` would make its victim permanently unremovable, since `revoke`
+  protects owners unconditionally. The only repair was editing the store by hand,
+  which a consumer of a remote or daemon-hosted store may not be able to do.
+
+  **`db.quarantineKeyring(vault, userId)`** removes such a file and re-keys behind
+  it. Two properties keep it from being a backdoor:
+
+  - it **refuses a file that verifies** — otherwise it would be a way to delete any
+    keyring while bypassing the role checks `revoke` performs;
+  - because of that, it **ignores every claim the file makes**, including the role.
+    Consulting the forged field is exactly the mistake it exists to avoid.
+
+  Owner-only. It deletes the file and rotates, because deleting alone is not a
+  revocation — the store may decline the delete and the member may already hold
+  unwrapped DEKs. The rotation scope comes from the **caller's** keyring, not the
+  target's unauthenticated DEK map (#1115), so a store cannot shrink what a
+  quarantine re-keys.
+
+  **`db.verifyRoster(vault)`** is a read-only sweep naming every `_keyring` file
+  that fails authentication and why. Before it, a bad file announced itself only
+  as some other operation failing, with no way to learn which file was at fault
+  except by trial. It reports `checked` alongside the findings, because "nothing
+  unverified" is equally true of a sweep that examined nothing.
+
+  Both are gated by `withTeam()`, and quarantine clears the same `revoke-user`
+  step-up gate as `revoke` (it takes an optional `factors` bundle for that reason).
+
+  Know the cost: a quarantine re-keys everything the caller holds, so every other
+  member loses the rotated collections until re-granted — `QuarantineResult`
+  reports `needsRegrant` and `alsoUnverified` so that is discovered at the call
+  rather than as unrelated failures later. It also meets a pre-existing
+  `rotateKeys` gap unconditionally (#1122: a DEK slot whose ciphertext lives under
+  another collection name is re-keyed but not re-encrypted), so treat it as an
+  emergency remedy and diagnose with `verifyRoster()` first. An interrupted
+  quarantine resumes on retry rather than reporting a misleading not-found, the
+  same handling `revoke` gained in #1077.
+
+- SECURITY: the keyring roster is now an authenticated surface (#1096).
+
+  A `_keyring` file is stored in plaintext (`_iv: ''`) so an admin can edit a
+  member's authority without holding that member's credential. Only `deks` and
+  `canary` were wrapped, so `role`, `permissions`, `granted_by`, `expires_at` and
+  the capability bits were authenticated by **nothing** — a hostile store promoted
+  a viewer to admin by editing one word, and the forged admin could `grant` and
+  `revoke` real users.
+
+  Every keyring now carries a `roster_tag`: AES-GCM over the canonical authority
+  fields under a vault-wide **roster key**. The key rides the DEK map as a reserved
+  entry (`deks['_roster']`, not a collection), so it reaches every member through
+  the channels a DEK already travels — grant's `_`-prefix propagation,
+  `persistKeyring`, the wrapped-DEKs recovery blob, peer-recover, pod recipient
+  slots. No satellite changes.
+
+  Verification runs on **every unlock path** through one chokepoint, not only
+  `loadKeyring`: a forged role refused at tier-1 open was otherwise accepted by
+  `@noy-db/on-password`'s slot unlock and by the recovery flows. Every roster
+  **editor** also verifies a file before restamping it (`revoke`, `rotateKeys`,
+  `updateUser`, `peer-recover`, `persistKeyring`, `liberateVault`) — otherwise a
+  routine roster edit would have re-signed a store's forgery with a genuine tag,
+  merely deferring the attack rather than refusing it.
+
+  Absence is an alarm, not a skip — a store must not opt out of verification by
+  deleting a plaintext field. `canary` becomes **required** and the legacy
+  no-canary fallback heuristic is deleted. `loadKeyring` throws the new
+  `KeyringTamperedError` with reason `canary-missing`, `roster-key-missing`,
+  `roster-tag-missing` or `roster-tag-mismatch`. Verification runs _after_ the
+  key-unwrap epilogue, so an ordinary wrong secret still reports as
+  `InvalidKeyError` and is never announced as an attack.
+
+  **BREAKING — every keyring written before this is unloadable, and there is no
+  migration.** `KeyringFile.canary` and `KeyringFile.roster_tag` are required
+  fields. Per #1100 and ADR 0003 Decision 5, the format is replaced rather than
+  migrated: vaults are re-seeded.
+
+  The bound, stated rather than implied: this stops the **store**, which holds no
+  keys. It does not stop a malicious **member**, because every roster editor must
+  hold the roster key. A **replayed** genuine keyring also still verifies (#1097),
+  since a narrowing re-grant overwrites in place and the older file is internally
+  consistent. Both are documented in `SECURITY.md`.
+
+- fix(hub): `rotateKeys` re-keys the blob set instead of orphaning it (#1122)
+
+  `rotateKeys` re-keyed `store.list(vault, <slot>)` plus the derived refs
+  `derivedRefsFor` declared — the same DEK-name-equals-collection-name assumption
+  #1108 fixed for `_history` and `_ledger_deltas`, one layer worse. The `_blob`
+  slot protects data filed under **no collection of its own**: the ciphertext
+  lives in `_blob_index` and `_blob_chunks`. Rotating `_blob` minted a fresh DEK,
+  re-encrypted nothing, and left every blob in the vault unreadable.
+
+  It was reachable through an ordinary `revoke`, not just a hand-written rotation:
+  a whole-vault grantee's DEK map contains `_blob`, so revoking a viewer or an
+  admin broke the **owner's** blobs. And the symptom was the worst part —
+  `TamperedError`, the alarm #1103 spent a release making trustworthy. A user hit
+  by this was told their store might be attacking them when their own revocation
+  had done it.
+
+  ## What this fixes
+
+  `blob.get()`, `blob.list()`, `blobInfo()` and `response()` keep working across a
+  rotation or a revocation, for legacy and per-blob-CEK blobs alike, at tier 0 and
+  at elevated tiers:
+
+  - `_blob_index` and `_blob_chunks` get their own enclave routine,
+    `rekeyBlobSet`, because neither has the shape the generic per-envelope helper
+    assumes — a chunk is sealed over raw bytes under a bespoke `{eTag}:{i}:{count}`
+    AAD, and an index body carries per-blob content CEKs wrapped under the `_blob`
+    DEK that a body-only re-encrypt would strand. Chunks move before their index
+    entry, and that order is the resume property.
+  - `_blob_slots_<C>`, `_blob_versions_<C>` and `_blob_intent` **are** ordinary
+    record-AAD envelopes, sealed under the owning collection's DEK rather than
+    under `_blob`, so they join `derivedRefsFor`'s table.
+  - `_blob#<tier>` slots are covered. Membership in `_blob_index` is by DEK, not
+    by name, so the rotation is told the caller's other keys: an entry belonging
+    to another blob slot is left for that slot's own rotation, and one that no
+    held key opens is damaged and throws.
+
+  ## ⚠️ What this does NOT fix — read this before upgrading
+
+  **The blob content address is keyed by the DEK being rotated**, and this change
+  does not re-address anything. `eTag = HMAC(_blob DEK, plaintext)`, while
+  `rekeyBlobSet` necessarily preserves the stored eTag — it is an input to the
+  chunk AAD and the key of every index, slot and version row. So after any `_blob`
+  rotation, an eTag recomputed under the **live** DEK can no longer match the one
+  stored:
+
+  - **`decryptResponse()` throws `TamperedError` on every pre-rotation blob.** Its
+    integrity check is unconditional, so the presigned-URL / external-object read
+    path is broken for those blobs until each one is re-`put`. This is the same
+    cry-wolf symptom #1103 addressed: a legitimate operation reported as tampering.
+  - `verifyFlatETag` and `rehomeForTier`'s resume reconstruction have the same
+    staleness.
+  - Dedup splits: re-`put`ting identical bytes after a rotation mints a second
+    address instead of sharing the existing one.
+
+  Tracked separately — the remedy is either re-addressing during the rotation
+  (expensive: the eTag reaches the chunk AAD and every slot/version row) or
+  decoupling the content address from the rotating DEK. Both are design decisions,
+  not a follow-up edit, which is why this change is deliberately scoped to
+  availability on the ordinary read paths rather than smuggling one in.
+
+  Also known and filed: a crash between deleting a blob's index row and deleting
+  its chunks strands chunks that this rotation never visits (it iterates
+  `_blob_index`), leaving those bodies openable under a retired `_blob` DEK.
+
+- An unverifiable keyring quarantines its owner, not the vault (#1114).
+
+  #1096 made every roster editor verify a `_keyring` file before restamping it,
+  which is what stops a store's forgery being laundered into a genuine tag by a
+  routine roster edit. But `rotateKeys` iterates every member and `revoke` calls
+  it unconditionally, so **one forged file froze `revoke` and `rotateKeys`
+  vault-wide** — including the revoke that would have removed the bad file. Reads,
+  writes and `grant` were unaffected; only the two security-critical operations
+  were lost.
+
+  `rotateKeys` now SKIPS a member whose file fails verification and reports them
+  in the new `RotateResult.unverified` (`{ userId, reason }`). Skipping is safe
+  precisely here, and the reason is directional: the loop's effect on a member is
+  to hand them re-wrapped DEKs, so declining to process one gives them **less**.
+  The file is neither restamped (nothing laundered) nor re-wrapped (no new key) —
+  the same fail-closed end state rotation already produces for a member it cannot
+  re-wrap for (#854).
+
+  The cascade walk in `revoke` is deliberately NOT relaxed: there, skipping would
+  drop a member from the delegation tree, so a store serving a forged copy to the
+  revoker and the genuine copy to the victim could keep an admin descendant alive
+  through a cascade. Revoking an **admin** still requires a roster that verifies
+  end to end; revoking anyone else now works. `revoke` also still refuses to
+  revoke the forged member itself, since the target's own role decides whether the
+  caller may revoke them — removing a bad file remains an out-of-band repair.
+
+  `RotateResult` gains a field, which is additive for the callers that read it —
+  `db.rotate()` returns it and TypeScript infers the shape structurally. The
+  `KeyringTamperedReason` union was extracted in `kernel/errors.ts` because it now
+  has a consumer that reports it without throwing; it is deliberately not added to
+  a barrel, since `RotateResult` itself is not exported by name either.
+
+- Ship `CHANGELOG.md` in the `@noy-db/hub` tarball (#1107).
+
+  It had never shipped in any package — `files` is `["dist","README.md","LICENSE"]`
+  family-wide, hub adding `"codemods"`. That was a default nobody chose, and it was
+  strong enough to mislead a release decision: `0.6.0-pre.19` was cut partly to get
+  a corrected changelog "into a tarball", an argument proposed, reviewed and
+  approved without anyone running `npm pack`.
+
+  Hub ships it because hub is where a format break lands, and someone debugging one
+  has `node_modules` open rather than a browser. Satellites deliberately still do
+  not: ~50 changelogs of mostly `Updated dependencies` would be weight without
+  debugging value. The rule is written down in `CONTRIBUTING.md` so the next
+  package inherits a decision instead of a default.
+
 ## 0.6.0-pre.20
 
 ### Patch Changes
