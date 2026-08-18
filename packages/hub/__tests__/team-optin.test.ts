@@ -54,6 +54,11 @@ describe('team opt-in gate (#267)', () => {
     ).rejects.toThrow(TeamNotEnabledError)
     await expect(db.revoke(VAULT, { userId: 'bob' })).rejects.toThrow(TeamNotEnabledError)
     await expect(db.rotate(VAULT, ['notes'])).rejects.toThrow(TeamNotEnabledError)
+    // #1121 — the roster diagnostic and quarantine are team operations too, so
+    // they must be gated identically. A new team method that forgot the gate
+    // would be a silent hole in the opt-in floor.
+    await expect(db.verifyRoster(VAULT)).rejects.toThrow(TeamNotEnabledError)
+    await expect(db.quarantineKeyring(VAULT, 'bob')).rejects.toThrow(TeamNotEnabledError)
     await db.close()
   })
 
@@ -61,6 +66,8 @@ describe('team opt-in gate (#267)', () => {
     await expect(
       NO_TEAM.rotate(null as never, VAULT, []),
     ).rejects.toThrow(TeamNotEnabledError)
+    await expect(NO_TEAM.verifyRoster(null as never, VAULT)).rejects.toThrow(TeamNotEnabledError)
+    await expect(NO_TEAM.quarantineKeyring(null as never, VAULT, 'bob')).rejects.toThrow(TeamNotEnabledError)
   })
 
   it('grant / revoke work end-to-end with withTeam()', async () => {

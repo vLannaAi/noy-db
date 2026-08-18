@@ -10,7 +10,7 @@
  * keyring plumbing and receives the engine as an argument.
  */
 import type { TeamStrategy } from './strategy.js'
-import { grant as grantEngine, revoke as revokeEngine, rotateKeys as rotateEngine } from './keyring.js'
+import { grant as grantEngine, revoke as revokeEngine, rotateKeys as rotateEngine, verifyRoster as verifyRosterEngine, quarantineKeyring as quarantineEngine } from './keyring.js'
 
 export function withTeam(): TeamStrategy {
   return {
@@ -22,6 +22,12 @@ export function withTeam(): TeamStrategy {
     },
     async rotate(team, vault, collections) {
       return team.runRotate(rotateEngine, vault, collections)
+    },
+    async verifyRoster(team, vault) {
+      return team.runVerifyRoster(verifyRosterEngine, vault)
+    },
+    async quarantineKeyring(team, vault, userId) {
+      return team.runQuarantine(quarantineEngine, vault, userId)
     },
   }
 }

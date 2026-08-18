@@ -34,6 +34,7 @@
     "openVault",
     "pull",
     "push",
+    "quarantineKeyring",
     "queryAcross",
     "resetSessionTimer",
     "restoreSnapshot",
@@ -55,6 +56,7 @@
     "updatePolicy",
     "updateUser",
     "vault",
+    "verifyRoster",
     "writeQueue"
   ],
   "Vault": [

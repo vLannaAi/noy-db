@@ -1467,7 +1467,18 @@ const KERNEL_SURFACE_BUDGET = {
   // all: `note`/`expected`/`knownIn`/the sweep are entirely in the service, and
   // nothing registers unless the head is enabled, so a vault that has not opted
   // in pays nothing.
-  'packages/hub/src/kernel/noydb.ts': 2200,  // #1074: +1 for pendingDeks on the bootstrap keyring literal
+  // Bumped 2200→2223 (#1121, 2026-08-18: quarantine + roster diagnostics): two public
+  // methods, `verifyRoster` and `quarantineKeyring`, matching the shape this ceiling asks
+  // for — SIX lines of thin delegator, with every line of logic in `with-party/team`
+  // (`noydb-facade.ts` for the policy gate, `keyring.ts` for the engines) and nothing
+  // loaded unless `withTeam()` is imported. The rest of the bump is the jsdoc explaining
+  // why quarantine ignores the role it is removing, which is the part a future reader
+  // most needs and the part a smaller file would lose first.
+  //
+  // They belong on `Noydb` rather than behind a bus registration because they are the
+  // sibling operations of `grant`/`revoke`/`rotate`, which are already here: an operator
+  // reaching for the remedy should find it beside the thing that refused them.
+  'packages/hub/src/kernel/noydb.ts': 2223,  // #1074: +1 for pendingDeks on the bootstrap keyring literal
   // Lowered 2407→2345 (#834 vault() cache-only, 2026-07-26): deleting the two drifted
   // fallback Vault constructors from vault() removed ~80 lines of duplicated option block.
   // A test now asserts noydb.ts contains exactly ONE `new Vault(` site — that invariant,

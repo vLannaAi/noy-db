@@ -1070,6 +1070,160 @@ export async function revoke(
   }
 }
 
+// ─── Roster diagnostics + quarantine (#1121) ───────────────────────────
+
+/** What {@link verifyRoster} found. */
+export interface RosterVerifyResult {
+  /**
+   * How many `_keyring` files were examined.
+   *
+   * Reported first, and deliberately: "nothing unverified" is equally true of a
+   * sweep that examined nothing, and a roster check that silently covered zero
+   * members would look identical to a healthy vault. Same lesson as the vault
+   * head's `no-expectations` verdict (#1101).
+   */
+  readonly checked: number
+  /** The files that failed authentication, and why. */
+  readonly unverified: ReadonlyArray<{
+    readonly userId: string
+    readonly reason: KeyringTamperedReason
+  }>
+}
+
+/**
+ * Verify every `_keyring` file in the vault, without touching any of them.
+ *
+ * Before this there was no way to learn WHICH file was unverifiable except by
+ * trial: a member's own unlock failed, `revoke` of that member failed, and
+ * (before #1114) every rotation failed too — all with the same error, none
+ * naming the file. Read-only and side-effect free, so it is safe to run when
+ * something is already wrong.
+ */
+export async function verifyRoster(
+  store: NoydbStore,
+  vault: string,
+  callerKeyring: UnlockedKeyring,
+): Promise<RosterVerifyResult> {
+  const rosterKey = requireRosterKey(callerKeyring, 'verifyRoster')
+  const unverified: Array<{ userId: string; reason: KeyringTamperedReason }> = []
+  let checked = 0
+
+  for (const userId of await store.list(vault, '_keyring')) {
+    const found = await readKeyringFile(store, vault, userId)
+    if (!found) continue // raced with a delete; not this function's business
+    checked += 1
+    try {
+      await assertRosterTagValid(found.file, rosterKey, userId)
+    } catch (err) {
+      // Only the tamper verdict is a finding. Anything else is a real failure
+      // and must not be reported as a roster problem.
+      if (!(err instanceof KeyringTamperedError)) throw err
+      unverified.push({ userId, reason: err.details.reason })
+    }
+  }
+
+  return { checked, unverified }
+}
+
+/** What {@link quarantineKeyring} did. */
+export interface QuarantineResult {
+  readonly userId: string
+  /** Why the file could not be authenticated — the justification for removing it. */
+  readonly reason: KeyringTamperedReason
+  /** Collections re-keyed as part of the removal. */
+  readonly rotated: readonly string[]
+}
+
+/**
+ * Remove a `_keyring` file that cannot be authenticated, and re-key behind it
+ * (#1121).
+ *
+ * ## Why this is not a flag on `revoke`
+ *
+ * `revoke` reads the target's own `role` to decide whether the caller may
+ * revoke them, so it cannot act on a file it will not trust — which left a
+ * forged file removable only by editing the store by hand. Relaxing `revoke`
+ * conditionally would grow the safe path a parameter that turns it into the
+ * dangerous one; ADR 0003's standing rule is that if the implementation needs
+ * to weaken a guard, the design is wrong. This is a separate operation with its
+ * own contract, so `revoke`'s invariant stays absolute and the dangerous act is
+ * named at the call site.
+ *
+ * ## The two properties that keep it from being a backdoor
+ *
+ * 1. **It refuses a file that verifies.** Otherwise it would delete any keyring
+ *    while ignoring `canRevoke` — including an owner's, which `revoke` protects
+ *    unconditionally.
+ * 2. **Because of (1) it can safely ignore the claimed `role` — and it must.**
+ *    `canRevoke` refuses any target whose role reads `owner`, so a store that
+ *    forged `"role":"owner"` onto its victim would otherwise make them
+ *    permanently unremovable. Consulting the forged field is exactly the
+ *    mistake this operation exists to avoid.
+ *
+ * Owner-only: the narrowest role that can always act, and quarantine
+ * deliberately consumes NO field of the file it is removing.
+ *
+ * ## Why it rotates, and why the scope comes from the CALLER
+ *
+ * Deleting the file is not a revocation — the store may decline the delete, and
+ * the member may already hold unwrapped DEKs. So this rotates, exactly as
+ * `revoke` does. The scope is every collection the CALLER holds, not the
+ * target's DEK map: that map is unauthenticated (#1115), so deriving the scope
+ * from it would let the store choose which collections survive a quarantine.
+ * Over-rotating is the safe direction.
+ */
+export async function quarantineKeyring(
+  store: NoydbStore,
+  vault: string,
+  callerKeyring: UnlockedKeyring,
+  userId: string,
+): Promise<QuarantineResult> {
+  if (callerKeyring.role !== 'owner') {
+    throw new PermissionDeniedError(
+      `Role "${callerKeyring.role}" cannot quarantine a keyring — quarantine is owner-only, ` +
+        'because it removes a file whose own authority claims cannot be trusted.',
+    )
+  }
+  if (userId === callerKeyring.userId) {
+    throw new ValidationError(
+      'quarantineKeyring: refusing to quarantine the calling keyring. Removing your own ' +
+        'keyring and rotating behind it would leave the vault with no reachable owner.',
+    )
+  }
+
+  const rosterKey = requireRosterKey(callerKeyring, 'quarantineKeyring')
+  const found = await readKeyringFile(store, vault, userId)
+  if (!found) {
+    throw new NoAccessError(`No keyring found for user "${userId}" in vault "${vault}"`)
+  }
+
+  let reason: KeyringTamperedReason | null = null
+  try {
+    await assertRosterTagValid(found.file, rosterKey, userId)
+  } catch (err) {
+    if (!(err instanceof KeyringTamperedError)) throw err
+    reason = err.details.reason
+  }
+  if (reason === null) {
+    throw new ValidationError(
+      `quarantineKeyring: the keyring for "${userId}" authenticates correctly, so it is not a ` +
+        'quarantine case — use revoke() instead. Quarantine bypasses the role checks revoke ' +
+        'performs, so it is restricted to files that genuinely fail authentication.',
+    )
+  }
+
+  await store.delete(vault, '_keyring', userId)
+  await deleteUserEnvelope(store, vault, userId)
+  await deleteUserVisibility(store, vault, userId)
+
+  const rotated = [...callerKeyring.deks.keys()].filter((c) => c !== ROSTER_KEY_ID)
+  if (rotated.length > 0) {
+    await rotateKeys(store, vault, callerKeyring, { collections: rotated })
+  }
+
+  return { userId, reason, rotated }
+}
+
 // ─── Update User ───────────────────────────────────────────────────────
 
 /**
