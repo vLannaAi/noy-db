@@ -972,7 +972,9 @@ export class BlobSet {
    * store is untrusted. A store that withholds one index row could make a LIVE
    * blob's chunks look orphaned and have us destroy them — turning withholding,
    * which is reversible, into permanent loss. Reporting them is safe; deleting
-   * them on the store's word is not. See #1133 for the report-then-reclaim follow-up.
+   * them on the store's word is not. The report half shipped as
+   * `reportOrphanBlobChunks` (#1133), surfaced through `vault.compact()`; a
+   * reclaim pass remains deliberately unbuilt for the reason above.
    */
   private async deleteChunksThenIndex(eTag: string, chunkCount: number): Promise<void> {
     for (let i = 0; i < chunkCount; i++) {

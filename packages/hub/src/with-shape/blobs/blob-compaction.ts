@@ -32,6 +32,7 @@
 import type { NoydbStore, EncryptedEnvelope, SlotInfo } from '../../kernel/types.js'
 import { ValidationError } from '../../kernel/errors.js'
 import { buildRecordAad, buildRecordEnvelope, encrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
+import { reportOrphanBlobChunks, type OrphanChunkReport } from './orphan-report.js'
 
 // ─── Config types ───────────────────────────────────────────────────────
 
@@ -155,6 +156,18 @@ export interface CompactionResult {
   readonly budgetBytesFreed: number
   /** Per-collection breakdown for diagnostics. */
   readonly byCollection: Record<string, { records: number; evicted: number }>
+  /**
+   * #1133 — chunk rows in `_blob_chunks` with no surviving `_blob_index` entry.
+   * Pre-#1127 residue: unreachable by every reader AND by rotation, so for a
+   * legacy blob the bytes stay openable under a retired `_blob` DEK.
+   *
+   * REPORTED, never reclaimed — deciding "orphaned" means trusting the store's
+   * `list`, and a store that withholds one index row would have us destroy a
+   * LIVE blob's chunks. See `orphan-report.ts` for the full argument. A vault
+   * that has run `migrate()` has no legacy chunks to strand, and `chunks: 0`
+   * is the expected reading everywhere else.
+   */
+  readonly orphanBlobChunks: OrphanChunkReport
 }
 
 // ─── Core ──────────────────────────────────────────────────────────────
@@ -224,6 +237,10 @@ export async function runCompaction(
   ctx: CompactionContext,
   options: CompactRunOptions = {},
 ): Promise<CompactionResult> {
+  // #1133 — two `list` calls, no decryption, nothing written. Always on rather
+  // than opt-in: residue an operator has to know to ask about is residue nobody
+  // finds. The cost is negligible beside this pass's own per-record `getRecord`.
+  const orphanBlobChunks = await reportOrphanBlobChunks(ctx.adapter, ctx.vault)
   const now = options.now ?? new Date()
   const maxEvictions = options.maxEvictions ?? Infinity
   const dryRun = options.dryRun === true
@@ -328,6 +345,7 @@ export async function runCompaction(
     budgetEvicted,
     budgetBytesFreed,
     byCollection,
+    orphanBlobChunks,
   }
 }
 
