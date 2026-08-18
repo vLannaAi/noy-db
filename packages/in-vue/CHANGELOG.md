@@ -1,5 +1,67 @@
 # Changelog — in-vue
 
+## 0.6.0-pre.22
+
+### Minor Changes
+
+- `@noy-db/in-vue` ships `useLiveQuery()`, and `in-pinia` now delegates to it (#1131).
+
+  `kernel/query/live.ts` described a Vue wrapper for `LiveQuery` as though it were
+  provided, plus React/Solid/Svelte adapters that have never existed. #1132
+  corrected the prose. This ships the thing.
+
+  **There was exactly one implementation in the family and it was unreachable.**
+  `@noy-db/in-pinia`'s `store.liveQuery()` already did this correctly — subscribe
+  once, mirror into a `ShallowRef`, re-read `error` on every notification, dispose
+  via `onScopeDispose` — but it is a **store method, not an export**, so an export
+  enumeration cannot find it, and a Vue consumer not using Pinia had no route at
+  all. A pilot consumer hand-rolled the glue instead.
+
+  So `useLiveQuery` lands in `@noy-db/in-vue` (the base binding, no Pinia
+  required) and `in-pinia` calls it, keeping the readiness check and the query
+  build and nothing else. One implementation rather than two that drift — and
+  only one of two copies ever gets an error-semantics fix. `NoydbLiveQuery<R>` is
+  now an alias of `UseLiveQueryReturn<R>`, so the type has one definition too.
+
+  ```ts
+  const { items, error } = useLiveQuery(
+    vault.collection("bills").query().join("entityId", { as: "entity" }).live()
+  );
+  ```
+
+  **A hub doc-comment correction came out of building it, and it was backwards in
+  both halves.** `LiveQuery.value` was documented as _"updated in place… the
+  reference returned is the same array"_, advising callers to copy for change
+  detection. `refresh()` assigns `this._value = this.recompute()`, so the array is
+  **replaced**: the reference changes on every re-run, reference identity IS a
+  valid change signal (which is what makes a `shallowRef` correct and a copy
+  unnecessary), and a consumer who caches `value` holds a snapshot that never
+  updates. Verified by running it, not by reading it — two reads across a
+  notification are not `===`, and the first array still holds the old contents.
+
+  ⚠️ **Consumer-visible:** `@noy-db/in-pinia` now declares `@noy-db/in-vue` as a
+  (non-optional) peer, matching how the family already wires satellite-to-satellite
+  deps — `in-nextjs` → `in-react`, `in-nuxt` → `in-pinia`/`in-vue`,
+  `in-devtools-tui` → `in-devtools`. A Nuxt consumer already has it, since
+  `in-nuxt` peers on both. A **plain Pinia** consumer must add one line to their
+  install; the two ship on the same lockstep version line. It is deliberately not
+  optional — `store.liveQuery()` does not work without it, and an optional peer
+  would turn that into a runtime resolution failure instead of an install-time one.
+
+  The test suite asserts through a `watch` inside an `effectScope` rather than by
+  reading `items.value`. Reading the ref passes even if Vue reactivity is entirely
+  broken, since the value is correct either way; only a watcher proves a component
+  would re-render.
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.22
+
 ## 0.6.0-pre.21
 
 ### Patch Changes
