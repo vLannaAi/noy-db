@@ -67,9 +67,9 @@ Most services have their own subpath export under `@noy-db/hub/<name>`, a `with<
 | 1 | `@noy-db/hub/indexing` | Eager + lazy persisted indexes (equality + orderBy dispatch) | 886 | `joins`, `lazy` |
 | 2 | *(always-core — via `@noy-db/hub/query`)* | Multi-FK eager joins (indexed nested-loop / hash strategy) | ~470 | `indexing`, `live` |
 | 3 | `@noy-db/hub/reduce` | `count` / `sum` / `avg` / `min` / `max` + `groupBy` | 886 | `joins` |
-| 4 | *(always-core)* | Reactive subscriptions (`.live()`, `.subscribe()`) | ~210 | `joins`, `crdt`, `sync` |
+| 4 | *(always-core)* | Reactive subscriptions (`.live()`, `.subscribe()`). The only framework wrapper is `@noy-db/in-pinia`'s `store.liveQuery()` (#1131) | ~210 | `joins`, `crdt`, `sync` |
 | 28 | `@noy-db/hub/search` | Scan-mode full-text search — tokenizer, inverted index, snippets, retrieval fusion (`withSearch()`) | ~700 | `indexing`, `classified` |
-| 22 | *(always-core)* | Cartesian + lateral cross-join — `.crossJoin(target, { as })` with 50K-row cost ceiling (Dim 11 v3) | — | `joins`, `reduce` |
+| 22 | *(always-core)* | Cartesian + lateral cross-join — `.crossJoin(target, { as })` with 50K-row cost ceiling (Dim 11 v3). **Inner-join: an empty `on:` subset drops the left row** — return `[null]` to keep it (#1130) | — | `joins`, `reduce` |
 
 ### Cluster B — Write & Mutate
 

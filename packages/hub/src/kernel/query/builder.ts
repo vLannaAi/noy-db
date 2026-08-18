@@ -595,6 +595,24 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * carries the original `T` fields plus `result[as]` populated from every
    * right-side row (or the filtered subset when `on:` is supplied).
    *
+   * **⚠️ INNER-join semantics — an empty right subset DROPS the left row.**
+   * Each left row is emitted once per matching right row, so when `on:`
+   * yields nothing the row vanishes with no error, no warning and no count
+   * mismatch. This bites hardest on a reverse FK, where `.join()` (which is
+   * forward-only, and already a genuine LEFT outer join) does not apply and
+   * `.crossJoin()` is the only tool. To keep the row, return a one-element
+   * array holding `null`:
+   *
+   * ```ts
+   * .crossJoin('clients', { as: 'client', on: (b) => byEntity.get(b.entityId) ?? [null] })
+   * //                                                                          ^^^^^^^^
+   * //                                              the ONLY thing preserving the row
+   * ```
+   *
+   * That emits `{ ...left, [as]: null }` — exactly what an outer join would
+   * produce — so removing it as a redundant-looking fallback reintroduces
+   * silent row loss. A typed `outer:` option is #1130.
+   *
    * **Order matters:** `.where().crossJoin()` filters BEFORE expanding (cheaper);
    * `.crossJoin().where('alias.field', ...)` filters AFTER (required when the
    * where clause references the aliased fields).
