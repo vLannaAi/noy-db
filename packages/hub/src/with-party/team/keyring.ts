@@ -382,8 +382,17 @@ export async function loadKeyring(
   //
   // #1096 — the canary is REQUIRED. `=== undefined` stays reachable at
   // runtime despite the required type: this object was parsed from JSON a
-  // store controls. No-legacy policy means an absent canary is not an old
-  // file, it is a store stripping the field to escape verification.
+  // store controls.
+  //
+  // ⚠️ An earlier version of this comment said an absent canary "is not an old
+  // file, it is a store stripping the field". The POLICY that follows from it is
+  // right — absence is refused either way — but the factual half was wrong, and
+  // it is worth being exact because the error text depends on it. Canary-less
+  // keyrings are a real population: `canary` was `?: string` through
+  // `0.6.0-pre.19`, with its own doc saying older keyrings have none. We cannot
+  // tell an old file from a stripped one, and (unlike #1103's record case, where
+  // the benign state requires the DEK) no test can, because deleting a field
+  // needs no key. So: refuse both, and say both in the message.
   if (keyringFile.canary === undefined) {
     throw new KeyringTamperedError({ userId, reason: 'canary-missing' })
   }

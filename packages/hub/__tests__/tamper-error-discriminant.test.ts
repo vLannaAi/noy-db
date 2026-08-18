@@ -29,7 +29,7 @@
 import { describe, it, expect } from 'vitest'
 import { encrypt, decrypt, generateDEK } from '../src/kernel/enclave/crypto.js'
 import { buildRecordAad } from '../src/kernel/enclave/record-aad.js'
-import { TamperedError } from '../src/kernel/errors.js'
+import { TamperedError, KeyringTamperedError } from '../src/kernel/errors.js'
 
 const BODY = JSON.stringify({ id: 'r1', amount: 4200 })
 const IDENTITY = { collection: 'invoices', id: 'r1', version: 1, by: 'alice' }
@@ -113,5 +113,49 @@ describe('#1103 — TamperedError says WHICH failure it is', () => {
     expect(err).toBeInstanceOf(TamperedError)
     expect(err.name).toBe('TamperedError')
     expect((err as unknown as { code: string }).code).toBe('TAMPERED')
+  })
+})
+
+/**
+ * #1129 — what an UPGRADING user reads.
+ *
+ * `roster_tag` and the `_roster` key ship first in `0.6.0-pre.21`, so no keyring
+ * written by any earlier release carries either. On upgrade day the base rate
+ * for the absence labels is ~100% benign. Verified across published tarballs:
+ * a `pre.20`-written vault opened by `pre.21` throws `roster-key-missing` — the
+ * roster-key check precedes the tag check, so that is the label an upgrade hits,
+ * not `roster-tag-missing`.
+ *
+ * The refusal is correct and stays. What these rows pin is that the TEXT does
+ * not accuse the user's storage of an attack it cannot demonstrate — a store
+ * strips those fields with no key at all, so the states are indistinguishable
+ * and the message must say so rather than pick the alarming reading.
+ */
+describe('#1129 — the absence labels read as a format transition, not an accusation', () => {
+  const absence = ['canary-missing', 'roster-key-missing', 'roster-tag-missing'] as const
+
+  it.each(absence)('%s names the upgrade case first, and still refuses', (reason) => {
+    const msg = new KeyringTamperedError({ userId: 'bob', reason }).message
+    expect(msg).toContain('0.6.0-pre.21')
+    expect(msg).toMatch(/re-seeded|migration/)
+    // Both readings present — the alarm is not dropped, it is put in proportion.
+    expect(msg).toMatch(/untrusted store|escape verification/)
+    expect(msg).toContain('refused')
+    // And it must NOT lead with the bare accusation the first draft carried.
+    expect(msg).not.toContain('The store serving this vault may have altered the roster.')
+  })
+
+  it('a MISMATCH keeps the unqualified alert — no released version wrote one', () => {
+    // The asymmetry is the point: absence is a format state, a mismatched tag
+    // is not reachable by any format transition.
+    const msg = new KeyringTamperedError({ userId: 'bob', reason: 'roster-tag-mismatch' }).message
+    expect(msg).toMatch(/altered after they were signed|has changed a member/)
+    expect(msg).not.toContain('most likely written before')
+  })
+
+  it('unparseable points at the tools instead of at an attacker', () => {
+    const msg = new KeyringTamperedError({ userId: 'bob', reason: 'unparseable' }).message
+    expect(msg).toMatch(/truncation or corruption/)
+    expect(msg).toContain('verifyRoster()')
   })
 })

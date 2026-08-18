@@ -285,6 +285,70 @@ export type KeyringTamperedReason =
    */
   | 'unparseable'
 
+/**
+ * The user-facing text for a {@link KeyringTamperedError}.
+ *
+ * ## Why the absence cases do not lead with "your store attacked you"
+ *
+ * `roster_tag` and the `_roster` key ship for the first time in `0.6.0-pre.21`,
+ * so **no keyring written by any earlier release carries either**. On the day a
+ * vault upgrades, the base rate for these labels is ~100% benign — the user did
+ * nothing but install a new version, and the format changed under them
+ * (deliberately, with no migration: #1100 / ADR 0003 Decision 5).
+ *
+ * ## Why they are still refused, and why no discriminant is possible
+ *
+ * Do NOT read this as softening the policy. Absence is an alarm, not a skip: a
+ * store that could opt out of verification by deleting a plaintext field would
+ * make the whole scheme optional.
+ *
+ * And unlike `TamperedError`'s `'unbound-legacy-format'` (#1103), there is no
+ * honest test to add here. That one works because the benign case must produce a
+ * body that **decrypts under the DEK**, which an untrusted store cannot fabricate
+ * — a successful retry is positive evidence. The keyring's benign case is a
+ * **deleted field**, which a store produces trivially and with no key at all.
+ * Verified by probe: stripping `_roster` and `roster_tag` from a genuine
+ * `pre.21` file yields byte-identical output to opening a real `pre.20` vault.
+ * So "absent means old and fine" would be a downgrade attack with extra steps.
+ *
+ * What is left is the wording. We cannot tell the two apart, so the message must
+ * not pretend to — it names both readings and puts the likely one first, rather
+ * than accusing the user's storage of an attack it cannot demonstrate.
+ */
+function keyringTamperedMessage(userId: string, reason: KeyringTamperedReason): string {
+  const head = `Keyring for "${userId}" failed roster authentication (${reason}). `
+  switch (reason) {
+    case 'canary-missing':
+    case 'roster-key-missing':
+    case 'roster-tag-missing':
+      return (
+        head +
+        'This vault was most likely written before 0.6.0-pre.21, which is when the roster ' +
+        'became authenticated — that format change ships without a migration, so an existing ' +
+        'vault must be re-seeded. The same state is what an untrusted store would produce by ' +
+        'deleting the field to escape verification, and the two are indistinguishable from ' +
+        'here, so access is refused either way. If this vault has been opened by ' +
+        '0.6.0-pre.21 or later before, treat it as the second case.'
+      )
+    case 'unparseable':
+      return (
+        head +
+        'The file did not parse — truncation or corruption in transit or at rest is the ' +
+        'likeliest cause, and a store serving deliberate garbage is indistinguishable from it. ' +
+        '`verifyRoster()` reports which members are affected; `quarantineKeyring()` removes one.'
+      )
+    case 'roster-tag-mismatch':
+      return (
+        head +
+        'The roster tag is present but does not match the authority fields it protects, so ' +
+        'those fields were altered after they were signed. Unlike a missing tag this is not a ' +
+        'format-transition state — no released version wrote a mismatched tag — so the store ' +
+        'serving this vault, or something between you and it, has changed a member\'s role, ' +
+        'permissions or expiry.'
+      )
+  }
+}
+
 export class KeyringTamperedError extends NoydbError {
   readonly details: {
     readonly userId: string
@@ -294,11 +358,7 @@ export class KeyringTamperedError extends NoydbError {
     readonly userId: string
     readonly reason: KeyringTamperedReason
   }) {
-    super(
-      'KEYRING_TAMPERED',
-      `Keyring for "${details.userId}" failed roster authentication (${details.reason}). ` +
-        'The store serving this vault may have altered the roster.',
-    )
+    super('KEYRING_TAMPERED', keyringTamperedMessage(details.userId, details.reason))
     this.name = 'KeyringTamperedError'
     this.details = details
   }
