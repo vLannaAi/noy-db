@@ -948,7 +948,12 @@ export class BlobSet {
    * is produced.
    *
    * The residue this ordering leaves instead is an index row whose chunks are
-   * partly gone, and that state is strictly better in three ways:
+   * partly gone. That state is better, but it is NOT free — it cost one reader
+   * correction (`resolveRehomedVersionETag`, which read an old blob's bytes
+   * while resuming a rehome and now checks `refCount <= 0` instead of relying
+   * on the row having vanished). An earlier draft of this comment called the
+   * new state "strictly better"; the full suite disproved that, and any future
+   * path that reads a blob by index needs the same care. What is true of it:
    *   - it is REACHABLE, so a re-run of `releaseRef` completes the deletion
    *     idempotently (both `store.delete` calls are void on an absent key);
    *   - `rekeyBlobSet` already tolerates it — a missing chunk hits its
