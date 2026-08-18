@@ -69,7 +69,7 @@ Most services have their own subpath export under `@noy-db/hub/<name>`, a `with<
 | 3 | `@noy-db/hub/reduce` | `count` / `sum` / `avg` / `min` / `max` + `groupBy` | 886 | `joins` |
 | 4 | *(always-core)* | Reactive subscriptions (`.live()`, `.subscribe()`). Framework wrapper: `@noy-db/in-vue`'s `useLiveQuery()`, which `@noy-db/in-pinia`'s `store.liveQuery()` delegates to (#1131) | ~210 | `joins`, `crdt`, `sync` |
 | 28 | `@noy-db/hub/search` | Scan-mode full-text search — tokenizer, inverted index, snippets, retrieval fusion (`withSearch()`) | ~700 | `indexing`, `classified` |
-| 22 | *(always-core)* | Cartesian + lateral cross-join — `.crossJoin(target, { as })` with 50K-row cost ceiling (Dim 11 v3). **Inner-join: an empty `on:` subset drops the left row** — return `[null]` to keep it (#1130) | — | `joins`, `reduce` |
+| 22 | *(always-core)* | Cartesian + lateral cross-join — `.crossJoin(target, { as })` with 50K-row cost ceiling (Dim 11 v3). **Inner-join by default: an empty `on:` subset drops the left row** — pass `outer: true` to keep it as `null` (#1130) | — | `joins`, `reduce` |
 
 ### Cluster B — Write & Mutate
 

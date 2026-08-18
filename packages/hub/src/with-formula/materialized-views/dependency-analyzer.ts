@@ -96,6 +96,9 @@ export function summarizeQueryPlan(query: Query<any>): string {
           // Inline on: callback: use sentinel — drift detection disabled for this MV
           onPredicateName: c.onPredicateName ?? (c.on ? '[inline]' : null),
           maxRows: c.maxRows ?? null,
+          // `outer` changes the row set, so it is part of the plan's identity
+          // for drift detection, not decoration (#1130).
+          outer: c.outer ?? false,
         }
       }
       return c
