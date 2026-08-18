@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/in-liff",
-  "version": "0.6.0-pre.22",
+  "version": "0.6.0-pre.23",
   "description": "LIFF (LINE Front-end Framework) shell binding for noy-db — boot + shell context detection across LIFF/browser/PWA, LINE ID-token lifecycle with re-login on expiry, share-link deep-link ingestion, and the external-browser escape hatch with the platform handoff matrix.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

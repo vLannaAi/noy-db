@@ -1,5 +1,14 @@
 # @noy-db/in-devtools
 
+## 0.6.0-pre.23
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0-pre.23
+
 ## 0.6.0-pre.22
 
 ### Patch Changes
