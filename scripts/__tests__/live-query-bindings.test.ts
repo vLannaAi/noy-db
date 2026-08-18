@@ -21,8 +21,15 @@ import { fileURLToPath } from 'node:url'
 
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url))
 
-/** Packages documented in live.ts as wrapping a LiveQuery. Keep in sync with that comment. */
-const DOCUMENTED_WRAPPERS = ['in-pinia']
+/**
+ * Packages documented in live.ts as wrapping a LiveQuery. Keep in sync with
+ * that comment.
+ *
+ * `in-vue` OWNS the wrapper (`useLiveQuery`); `in-pinia` delegates to it and
+ * still constructs the query, so both legitimately touch `LiveQuery` and both
+ * are named in the comment.
+ */
+const DOCUMENTED_WRAPPERS = ['in-pinia', 'in-vue']
 
 function tsFilesUnder(dir: string): string[] {
   let out: string[] = []
@@ -49,7 +56,7 @@ describe('live() framework bindings', () => {
       })
       .filter(p =>
         tsFilesUnder(join(pkgRoot, p, 'src')).some(f =>
-          /\.live\(\)/.test(readFileSync(f, 'utf8')),
+          /\.live\(\)|LiveQuery/.test(readFileSync(f, 'utf8')),
         ),
       )
       .sort()

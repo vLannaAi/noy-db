@@ -455,6 +455,9 @@ importers:
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../hub
+      '@noy-db/in-vue':
+        specifier: workspace:*
+        version: link:../in-vue
       '@vue/test-utils':
         specifier: ^2.4.6
         version: 2.4.6

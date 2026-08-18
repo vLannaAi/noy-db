@@ -10,3 +10,6 @@ export { useBlobURL } from './useBlobURL.js'
 export type { UseBlobURLOptions } from './useBlobURL.js'
 export { useMigrationState } from './useMigrationState.js'
 export type { UseMigrationStateReturn } from './useMigrationState.js'
+
+export { useLiveQuery } from './useLiveQuery.js'
+export type { UseLiveQueryReturn } from './useLiveQuery.js'
