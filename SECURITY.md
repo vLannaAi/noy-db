@@ -230,19 +230,51 @@ bound (a): they have no write path to a store that is not already colluding
 with them, and a colluding store is the member-forgery case already
 conceded above, not a new one.
 
-#### Reading a `KeyringTamperedError`
+#### Reading a `KeyringTamperedError` (#1129)
 
-| `err.details.reason` | meaning |
+`TamperedError` carries a `reason` that separates a benign format transition from
+an attack (#1103). **`KeyringTamperedError`'s `reason` does NOT do that**, and the
+resemblance is a trap worth naming: its five values are *mechanism* labels — which
+check failed — not a benign-vs-attack verdict.
+
+| reason | what it means |
 |---|---|
-| `'canary-missing'` | the file has no `canary` at all — refused before the roster check is even reached |
-| `'roster-key-missing'` | the caller's DEK set has no `deks['_roster']` — a store that deleted the reserved roster-key entry; absence is treated as an alarm, never as "skip verification" |
-| `'roster-tag-missing'` | the file has no `roster_tag` — refused, never treated as an old/legacy file (there is no legacy fallback) |
-| `'roster-tag-mismatch'` | the tag does not decrypt to the file's own authority fields — an edited, transplanted, or otherwise inconsistent roster |
+| `canary-missing`, `roster-key-missing`, `roster-tag-missing` | **Ambiguous by construction.** Either the vault predates `0.6.0-pre.21`, or a store deleted the field to escape verification. |
+| `roster-tag-mismatch` | The tag is present and does not match. **Not reachable by any format transition** — no released version wrote a mismatched tag. The alert stands. |
+| `unparseable` | The file did not parse. Corruption is likeliest; deliberate garbage is indistinguishable. |
 
-As with `TamperedError`, a wrong secret never produces
-`KeyringTamperedError` — the KEK epilogue in `loadKeyring` runs first, so an
-incorrect password or biometric surfaces as `InvalidKeyError`, and the
-roster check only runs once the KEK is already proven correct.
+**On upgrade the ambiguous labels fire for essentially everyone**, because
+`roster_tag` and the `_roster` key ship first in `0.6.0-pre.21` — no earlier
+release wrote either. The refusal is correct (the format is replaced, not
+migrated: #1100, ADR 0003 Decision 5) and the vault must be re-seeded. Measured,
+not assumed: a `pre.20`-written vault opened by `pre.21` reports
+**`roster-key-missing`**, because the roster-key check precedes the tag check.
+
+**Why no discriminant is possible here, when #1103 built one for records.** The
+asymmetry is principled:
+
+| | legacy **record** | legacy **keyring** |
+|---|---|---|
+| what the benign case must produce | a body that **decrypts under the DEK** | a file with a **field deleted** |
+| can an untrusted store produce it? | **no** — it holds no DEK | **yes, with no key at all** |
+| so a successful "is it legacy?" test is | **positive evidence** | **an invitation** |
+
+Verified by probe: stripping `_roster` and `roster_tag` from a genuine `pre.21`
+keyring produces output byte-identical to opening a real `pre.20` vault. So
+*"absent means old and fine"* would be a downgrade path, and the honest response
+is to refuse both and **say both** — which is what the error text now does,
+leading with the format transition because that is the overwhelming base rate on
+upgrade day, without dropping the alternative.
+
+**Note the blast radius, which differs from the record case.** A legacy record
+fails at first read; a legacy keyring fails at **unlock**, so nothing in the vault
+works. For a hosted or LAN-served vault the obvious suspect is the operator's own
+hardware — which is exactly why the message must not accuse it.
+
+As with `TamperedError`, a wrong secret never produces `KeyringTamperedError` — the KEK
+epilogue in `loadKeyring` runs first, so an incorrect password or biometric surfaces as
+`InvalidKeyError`, and the roster check only runs once the KEK is already proven correct.
+That axis was handled from the start; **this section is the other one.**
 
 ### What NOYDB Does NOT Protect Against
 
