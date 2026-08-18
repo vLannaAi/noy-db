@@ -122,6 +122,15 @@ export interface CrossJoinClause {
   readonly onPredicateName?: string
   /** Per-clause row ceiling override. `undefined` → `DEFAULT_CROSS_JOIN_MAX_ROWS`. */
   readonly maxRows?: number
+  /**
+   * Left-outer mode (#1130). When the `on:` subset for a left row is empty,
+   * emit that row once with `null` under `as` instead of dropping it.
+   *
+   * Applies to both call shapes. With `on:` the empty thing is that left
+   * row's subset; without it, an empty TARGET collection is what would
+   * otherwise drop every left row.
+   */
+  readonly outer?: boolean
 }
 
 export type Clause = FieldClause | FilterClause | WherePredicateClause | GroupClause | CrossJoinClause
