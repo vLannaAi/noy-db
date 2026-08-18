@@ -1,6 +1,6 @@
 import { buildMergeAuthority } from './merge-authority.js'
 import { resolveStrategies, type StrategyBag } from '../port/with/strategies.js'
-import type { RotateResult } from '../with-party/team/keyring.js'
+import type { RotateResult, RosterVerifyResult, QuarantineResult } from '../with-party/team/keyring.js'
 import type {
   NoydbOptions,
   NoydbEventMap,
@@ -926,6 +926,29 @@ export class Noydb {
    */
   async rotate(vault: string, collections: string[]): Promise<RotateResult> {
     return this.strategies.team.rotate(this.team, vault, collections)
+  }
+
+  /**
+   * Verify every `_keyring` file in the vault. Read-only (#1121).
+   *
+   * Names each failing file and why, so the bad one need not be found by trial.
+   * Reports `checked` too: "nothing unverified" is equally true of a sweep that
+   * examined nothing.
+   */
+  async verifyRoster(vault: string): Promise<RosterVerifyResult> {
+    return this.strategies.team.verifyRoster(this.team, vault)
+  }
+
+  /**
+   * Remove a `_keyring` file that cannot be authenticated, and re-key behind it
+   * (#1121). Owner-only; refuses a file that verifies (use {@link revoke}).
+   *
+   * `revoke` consults the target's own `role`, so it cannot act on a file it
+   * will not trust. This ignores every claim the file makes — which is exactly
+   * why it is restricted to files that already fail authentication.
+   */
+  async quarantineKeyring(vault: string, userId: string, factors?: FactorProofBundle): Promise<QuarantineResult> {
+    return this.strategies.team.quarantineKeyring(this.team, vault, userId, factors)
   }
 
   /** List all users with access to a vault. */

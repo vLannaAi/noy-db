@@ -160,7 +160,7 @@ collection read is reachable.
 | **Transplant a genuine tag** from one member's file onto another's | `user_id` is inside the canonical string the tag covers |
 | **Delete `roster_tag` or `canary`** and hope for a legacy fallback | both are required; there is no no-canary/no-tag fallback (#1096 removed the last one) |
 | **Revoke a peer via a forged admin role** | the forged role is refused at `openVault`, before any grant/revoke call is reachable |
-| **Launder a forged file through a legitimate editor** — forge a member's role, then wait for any revoke, `updateUser`, rotation, peer-recovery or secret change to re-sign it | every roster editor **verifies before it restamps**: a flow that reads another member's file checks the existing `roster_tag` before trusting or rewriting any of it, and refuses outright rather than skipping the member. Without this the refusals above would hold only until the next routine admin action — including one the forgery itself provokes, since a forged member is locked out and recovery is the natural remedy |
+| **Launder a forged file through a legitimate editor** — forge a member's role, then wait for any revoke, `updateUser`, rotation, peer-recovery or secret change to re-sign it | every roster editor **verifies before it restamps**: a flow that reads another member's file checks the existing `roster_tag` before trusting or rewriting any of it. The rotation loop **skips** such a member and reports them in `RotateResult.unverified` (#1114) — skipping is safe there because that loop's effect is to *hand* a member re-wrapped DEKs, so declining gives them less, and the file is neither restamped nor re-wrapped. Every other editor, and the revocation cascade, still refuse outright, because there skipping would give a member *more*. Without this the refusals above would hold only until the next routine admin action — including one the forgery itself provokes, since a forged member is locked out and recovery is the natural remedy |
 
 #### The two honest bounds
 
@@ -187,6 +187,38 @@ stale-but-genuine roster needs a mechanism neither this fix nor the head
 provides. Detection would in any case be defeated the same two ways
 record-withholding already is: a colluding member simply declining to
 verify, and split-view serving to different members.
+
+**Removing a file that cannot be authenticated (#1121).** Refusing a forged
+roster creates its own problem: `revoke` decides whether the caller may revoke
+a target by reading that target's own `role`, so it cannot act on a file it
+will not trust — and a store that forged `"role":"owner"` would make its
+victim permanently unremovable, since `revoke` protects owners
+unconditionally. `quarantineKeyring()` is the in-band remedy. It is owner-only,
+it **refuses a file that verifies** (so it cannot become a way to delete any
+keyring while bypassing the normal role checks), and precisely because it acts
+only on already-unauthenticatable files it **ignores every claim the file
+makes** — including the role. It deletes the file and rotates behind it, with
+the rotation scope taken from the *caller's* keyring rather than the target's
+unauthenticated DEK map, so a store cannot shrink what a quarantine re-keys.
+
+**Know the cost before you reach for it.** That scope is the security-correct
+one, not a cheap one: a quarantine re-keys everything the owner holds, so every
+*other* member loses the rotated collections until re-granted (the result's
+`needsRegrant` names them). So a store that forges one word in one member's file
+can provoke a vault-wide re-provisioning — it cannot read anything it could not
+read before, but it can impose that work. Quarantine is an emergency remedy, and
+`verifyRoster()` exists so the emergency can be diagnosed before it is invoked.
+A **legitimately corrupted** file reaches the same state as a forged one, since
+both simply fail to authenticate; that is intended, and it is why the operation
+is owner-only rather than something an automated repair loop should call.
+
+Quarantine deliberately does **not** cascade to the delegation subtree the way
+`revoke` does. The subtree is derived from `granted_by`, which is a claim of the
+same file being removed — trusting it to decide who else to revoke would be the
+mistake this operation exists to avoid.
+
+`verifyRoster()` names which files fail and why, without touching them. Before
+it, a bad file announced itself only as an operation failing somewhere else.
 
 **Revocation never rotates the roster key, and that is deliberate.**
 `rotateKeys` explicitly refuses `'_roster'` in its `collections` list:

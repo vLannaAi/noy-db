@@ -439,6 +439,13 @@ async function main() {
 
   const results = {}
   let failures = 0
+  // Tracked separately from `failures` so `BUNDLE_BASELINE_UPDATE=1` can accept
+  // an intentional SIZE change while still refusing to bless a cross-leak. The
+  // guard below used to test `failures === 0`, which made the documented
+  // baseline-update path unusable for the one case it exists for — the failure
+  // output tells you to run it, and it then refused, citing leaks that were not
+  // there.
+  let leakFailures = 0
 
   console.log('\n📦 Bundle-size invariants — v0.25 catalog\n')
   console.log(
@@ -464,6 +471,7 @@ async function main() {
     if (result.leaks.length > 0) {
       status = `❌ LEAKED: ${result.leaks.join(', ')}`
       failures++
+      leakFailures++
     } else if (baseline && deltaPct > TOLERANCE_PCT) {
       status = `❌ +${deltaPct.toFixed(1)}% (over ${TOLERANCE_PCT}% tolerance)`
       failures++
@@ -485,7 +493,7 @@ async function main() {
   console.log()
 
   if (update) {
-    if (failures === 0 || process.env.BUNDLE_BASELINE_FORCE === '1') {
+    if (leakFailures === 0 || process.env.BUNDLE_BASELINE_FORCE === '1') {
       const newManifest = {
         ...manifest,
         scenarios: results,

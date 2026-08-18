@@ -101,6 +101,43 @@ describe('STRICT_POLICY revoke-user gate (#79)', () => {
     ).rejects.toBeInstanceOf(PolicyDeniedError)
   }, 60_000)
 
+  // #1121 — quarantine removes a principal and re-keys the vault, so it must
+  // clear the same bar as `revoke`. Its first draft called only
+  // `checkPolicyOperation` while its own comment claimed revoke parity, which
+  // would have let a host demand a second factor for the smaller act and not
+  // for the larger one.
+  it('rejects db.quarantineKeyring without factor proof, exactly as revoke', async () => {
+    const { db, store } = await bootstrap()
+    await db.grant(
+      'acme',
+      {
+        userId: 'bob',
+        displayName: 'Bob',
+        role: 'operator',
+        secret: 'glasses cabinet bicycle umbrella thunder velvet',
+        permissions: { invoices: 'rw' },
+      },
+      { factors: [{ kind: 'totp', mintedAt: new Date().toISOString() }] },
+    )
+    // Forge bob's role so the operation would otherwise proceed — the refusal
+    // below must come from the gate, not from the file being fine.
+    const env = (await store.get('acme', '_keyring', 'bob'))!
+    await store.put('acme', '_keyring', 'bob', {
+      ...env,
+      _data: env._data.replace(/"role":"[a-z]+"/, '"role":"admin"'),
+    })
+
+    await expect(
+      db.quarantineKeyring('acme', 'bob'),
+    ).rejects.toBeInstanceOf(PolicyDeniedError)
+
+    await expect(
+      db.quarantineKeyring('acme', 'bob', {
+        factors: [{ kind: 'totp', mintedAt: new Date().toISOString() }],
+      }),
+    ).resolves.toBeDefined()
+  }, 60_000)
+
   it('accepts db.revoke with a TOTP factor proof', async () => {
     const { db } = await bootstrap()
     await db.grant(

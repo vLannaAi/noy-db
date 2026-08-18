@@ -19,7 +19,7 @@
  * Internal service — reached through `noydb.team.rotateSecret(...)` etc.
  */
 import type { NoydbOptions, NoydbStore, KeyringAuthenticator } from '../../kernel/types.js'
-import type { RotateResult, RotateKeysOptions } from './keyring.js'
+import type { RotateResult, RotateKeysOptions, RosterVerifyResult, QuarantineResult } from './keyring.js'
 import { ValidationError } from '../../kernel/errors.js'
 import {
   rotateSecret as keyringRotateSecret,
@@ -176,6 +176,40 @@ export class TeamFacade {
     // Refresh the cached keyring so subsequent operations see the
     // freshly-rotated DEKs. Without this, `ensureCollectionDEK` on
     // the next Collection access would still hold the old ones.
+    this.deps.keyringCache.set(vault, keyring)
+    return result
+  }
+
+  /** Gate + run the `verifyRoster` engine (#1121). See `Noydb.verifyRoster`. */
+  async runVerifyRoster(
+    engine: (store: NoydbStore, vault: string, callerKeyring: UnlockedKeyring) => Promise<RosterVerifyResult>,
+    vault: string,
+  ): Promise<RosterVerifyResult> {
+    // Read-only, so it is gated as a read rather than as a roster mutation:
+    // this is the call an operator makes when something is ALREADY wrong, and
+    // gating it behind the same policy as `revoke` would withhold the
+    // diagnostic exactly when it is needed.
+    const keyring = await this.deps.getKeyringInternal(vault)
+    return engine(this.deps.options.store, vault, keyring)
+  }
+
+  /** Gate + run the `quarantineKeyring` engine (#1121). See `Noydb.quarantineKeyring`. */
+  async runQuarantine(
+    engine: (store: NoydbStore, vault: string, callerKeyring: UnlockedKeyring, userId: string) => Promise<QuarantineResult>,
+    vault: string,
+    userId: string,
+    factors?: FactorProofBundle,
+  ): Promise<QuarantineResult> {
+    // Gated as `revoke`, and that means BOTH halves. An earlier draft called
+    // only `checkPolicyOperation` and claimed parity in this very comment — so
+    // a host that demanded a second factor to revoke a member would not have
+    // demanded one to delete that member's keyring and re-key the vault, which
+    // is strictly the larger act.
+    this.deps.checkPolicyOperation(vault, 'revoke')
+    await this.deps.checkGate(vault, 'revoke-user', factors)
+    const keyring = await this.deps.getKeyringInternal(vault)
+    const result = await engine(this.deps.options.store, vault, keyring, userId)
+    // Same reason as runRotate: the caller's DEKs were re-minted in place.
     this.deps.keyringCache.set(vault, keyring)
     return result
   }

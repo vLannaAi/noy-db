@@ -1070,6 +1070,246 @@ export async function revoke(
   }
 }
 
+// ─── Roster diagnostics + quarantine (#1121) ───────────────────────────
+
+/** What {@link verifyRoster} found. */
+export interface RosterVerifyResult {
+  /**
+   * How many `_keyring` files were examined.
+   *
+   * Reported first, and deliberately: "nothing unverified" is equally true of a
+   * sweep that examined nothing, and a roster check that silently covered zero
+   * members would look identical to a healthy vault. Same lesson as the vault
+   * head's `no-expectations` verdict (#1101).
+   */
+  readonly checked: number
+  /** The files that failed authentication, and why. */
+  readonly unverified: ReadonlyArray<{
+    readonly userId: string
+    readonly reason: KeyringTamperedReason
+  }>
+}
+
+/**
+ * Verify every `_keyring` file in the vault, without touching any of them.
+ *
+ * Before this there was no way to learn WHICH file was unverifiable except by
+ * trial: a member's own unlock failed, `revoke` of that member failed, and
+ * (before #1114) every rotation failed too — all with the same error, none
+ * naming the file. Read-only and side-effect free, so it is safe to run when
+ * something is already wrong.
+ */
+/**
+ * Read a keyring file for AUDIT rather than for use (#1121).
+ *
+ * `readKeyringFile` does a bare `JSON.parse`, which is right everywhere it is
+ * used to OPEN a keyring — a file that will not parse cannot be honoured, and
+ * throwing is the honest outcome. It is wrong for the two tools built to deal
+ * with files that are already broken: a truncated `_data` made `verifyRoster`
+ * throw instead of reporting, and made the one file most in need of quarantine
+ * the one file quarantine could not touch.
+ */
+async function readKeyringForAudit(
+  store: NoydbStore,
+  vault: string,
+  userId: string,
+): Promise<{ file: KeyringFile } | { unparseable: true } | undefined> {
+  const envelope = await store.get(vault, '_keyring', userId)
+  if (!envelope) return undefined
+  try {
+    return { file: parseKeyringEnvelope(envelope) }
+  } catch {
+    return { unparseable: true }
+  }
+}
+
+export async function verifyRoster(
+  store: NoydbStore,
+  vault: string,
+  callerKeyring: UnlockedKeyring,
+): Promise<RosterVerifyResult> {
+  const rosterKey = requireRosterKey(callerKeyring, 'verifyRoster')
+  const unverified: Array<{ userId: string; reason: KeyringTamperedReason }> = []
+  let checked = 0
+
+  for (const userId of await store.list(vault, '_keyring')) {
+    const found = await readKeyringForAudit(store, vault, userId)
+    if (!found) continue // raced with a delete; not this function's business
+    checked += 1
+    if ('unparseable' in found) {
+      unverified.push({ userId, reason: 'unparseable' })
+      continue
+    }
+    try {
+      await assertRosterTagValid(found.file, rosterKey, userId)
+    } catch (err) {
+      // Only the tamper verdict is a finding. Anything else is a real failure
+      // and must not be reported as a roster problem.
+      if (!(err instanceof KeyringTamperedError)) throw err
+      unverified.push({ userId, reason: err.details.reason })
+    }
+  }
+
+  return { checked, unverified }
+}
+
+/** What {@link quarantineKeyring} did. */
+export interface QuarantineResult {
+  readonly userId: string
+  /** Why the file could not be authenticated — the justification for removing it. */
+  readonly reason: KeyringTamperedReason
+  /** Collections re-keyed as part of the removal. */
+  readonly rotated: readonly string[]
+  /**
+   * (member, collection) pairs whose access the rotation dropped — the OTHER
+   * members, who must be re-granted.
+   *
+   * Passed through from `rotateKeys` rather than discarded, because a
+   * quarantine rotates broadly (see the scope note on the function) and so
+   * de-provisions more people than the one being removed. An operator who is
+   * not told this discovers it as unrelated `NoAccessError`s later.
+   */
+  readonly needsRegrant: RotateResult['needsRegrant']
+  /**
+   * OTHER members whose own files also failed authentication, found while
+   * rotating. One forged file is rarely the only one, and the operator is
+   * already holding the tool for them.
+   */
+  readonly alsoUnverified: RotateResult['unverified']
+}
+
+/**
+ * Remove a `_keyring` file that cannot be authenticated, and re-key behind it
+ * (#1121).
+ *
+ * ## Why this is not a flag on `revoke`
+ *
+ * `revoke` reads the target's own `role` to decide whether the caller may
+ * revoke them, so it cannot act on a file it will not trust — which left a
+ * forged file removable only by editing the store by hand. Relaxing `revoke`
+ * conditionally would grow the safe path a parameter that turns it into the
+ * dangerous one; ADR 0003's standing rule is that if the implementation needs
+ * to weaken a guard, the design is wrong. This is a separate operation with its
+ * own contract, so `revoke`'s invariant stays absolute and the dangerous act is
+ * named at the call site rather than hidden in an option bag.
+ *
+ * ## The two properties that keep it from being a backdoor
+ *
+ * 1. **It refuses a file that verifies.** Otherwise it would delete any keyring
+ *    while ignoring `canRevoke` — including an owner's, which `revoke` protects
+ *    unconditionally.
+ * 2. **Because of (1) it can safely ignore the claimed `role` — and it must.**
+ *    `canRevoke` refuses any target whose role reads `owner`, so a store that
+ *    forged `"role":"owner"` onto its victim would otherwise make them
+ *    permanently unremovable. Consulting the forged field is exactly the
+ *    mistake this operation exists to avoid.
+ *
+ * Owner-only: the narrowest role that can always act, and quarantine
+ * deliberately consumes NO field of the file it is removing.
+ *
+ * ## Why it rotates, and why the scope comes from the CALLER
+ *
+ * Deleting the file is not a revocation — the store may decline the delete, and
+ * the member may already hold unwrapped DEKs. So this rotates, exactly as
+ * `revoke` does. The scope is every collection the CALLER holds, not the
+ * target's DEK map: that map is unauthenticated (#1115), so deriving the scope
+ * from it would let the store choose which collections survive a quarantine.
+ *
+ * ⚠️ **That is the security-correct scope, and it is NOT free.** An earlier
+ * draft of this comment called over-rotating "the safe direction"; a review
+ * probe disproved it. Rotation re-keys `store.list(vault, <name>)` plus the
+ * derived refs `rotateKeys` knows about, so a DEK slot whose ciphertext lives
+ * under a *different* collection name — `_blob`, whose data sits in
+ * `_blob_index`/`_blob_chunks`, and the `collection#tier` slots — is re-keyed
+ * without its data being re-encrypted, and that data then fails to open. That
+ * gap belongs to `rotateKeys` (it is reachable through an ordinary `revoke` of
+ * a whole-vault grantee, with no quarantine involved) and is filed as #1122,
+ * but a quarantine takes the maximal scope *unconditionally*, so it meets the
+ * gap every time rather than occasionally. Until that is fixed, treat a
+ * quarantine as an emergency operation with a real blast radius, and read
+ * `needsRegrant` afterwards.
+ */
+export async function quarantineKeyring(
+  store: NoydbStore,
+  vault: string,
+  callerKeyring: UnlockedKeyring,
+  userId: string,
+): Promise<QuarantineResult> {
+  if (callerKeyring.role !== 'owner') {
+    throw new PermissionDeniedError(
+      `Role "${callerKeyring.role}" cannot quarantine a keyring — quarantine is owner-only, ` +
+        'because it removes a file whose own authority claims cannot be trusted.',
+    )
+  }
+  if (userId === callerKeyring.userId) {
+    throw new ValidationError(
+      'quarantineKeyring: refusing to quarantine the calling keyring. Removing your own ' +
+        'keyring and rotating behind it would leave the vault with no reachable owner.',
+    )
+  }
+
+  const rosterKey = requireRosterKey(callerKeyring, 'quarantineKeyring')
+  const found = await readKeyringForAudit(store, vault, userId)
+  if (!found) {
+    // #1077's window, reached the same way: this deletes first and rotates
+    // second with no transaction, so a store error in between leaves the file
+    // gone and the keys un-rotated. Throwing not-found on the retry is what
+    // makes that state dangerous — the operator reads it as "already done" and
+    // stops, while the rotation never finished. An uncommitted rotation on the
+    // caller's own keyring (`pending_deks`, #1074) is the evidence, so resume
+    // it and make the retry idempotent instead of misleading. Same handling as
+    // `revoke`; the remedy must not be "call a different function".
+    const pending = [...(callerKeyring.pendingDeks?.keys() ?? [])]
+    if (pending.length > 0) {
+      const resumed = await rotateKeys(store, vault, callerKeyring, { collections: pending })
+      return {
+        userId,
+        reason: 'roster-tag-mismatch',
+        rotated: pending,
+        needsRegrant: resumed.needsRegrant,
+        alsoUnverified: resumed.unverified,
+      }
+    }
+    throw new NoAccessError(`No keyring found for user "${userId}" in vault "${vault}"`)
+  }
+
+  let reason: KeyringTamperedReason | null = null
+  if ('unparseable' in found) {
+    reason = 'unparseable'
+  } else {
+    try {
+      await assertRosterTagValid(found.file, rosterKey, userId)
+    } catch (err) {
+      if (!(err instanceof KeyringTamperedError)) throw err
+      reason = err.details.reason
+    }
+  }
+  if (reason === null) {
+    throw new ValidationError(
+      `quarantineKeyring: the keyring for "${userId}" authenticates correctly, so it is not a ` +
+        'quarantine case — use revoke() instead. Quarantine bypasses the role checks revoke ' +
+        'performs, so it is restricted to files that genuinely fail authentication.',
+    )
+  }
+
+  await store.delete(vault, '_keyring', userId)
+  await deleteUserEnvelope(store, vault, userId)
+  await deleteUserVisibility(store, vault, userId)
+
+  const rotated = [...callerKeyring.deks.keys()].filter((c) => c !== ROSTER_KEY_ID)
+  const result = rotated.length > 0
+    ? await rotateKeys(store, vault, callerKeyring, { collections: rotated })
+    : { needsRegrant: [], unverified: [] }
+
+  return {
+    userId,
+    reason,
+    rotated,
+    needsRegrant: result.needsRegrant,
+    alsoUnverified: result.unverified,
+  }
+}
+
 // ─── Update User ───────────────────────────────────────────────────────
 
 /**
