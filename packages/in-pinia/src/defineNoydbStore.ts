@@ -19,16 +19,13 @@
 import { defineStore } from 'pinia'
 import {
   computed,
-  getCurrentScope,
-  onScopeDispose,
   isRef,
-  ref,
   shallowRef,
   watch,
   type Ref,
-  type ShallowRef,
   type ComputedRef,
 } from 'vue'
+import { useLiveQuery, type UseLiveQueryReturn } from '@noy-db/in-vue'
 import type {
   Noydb,
   Vault,
@@ -60,11 +57,7 @@ export type NoydbStoreI18nMode =
  * `stop()` tears down upstream subscriptions. Auto-disposed on scope
  * teardown when called inside a Vue setup / Pinia store body.
  */
-export interface NoydbLiveQuery<R> {
-  items: ShallowRef<readonly R[]>
-  error: Ref<Error | null>
-  stop(): void
-}
+export type NoydbLiveQuery<R> = UseLiveQueryReturn<R>
 
 /**
  * Options accepted by `defineNoydbStore`.
@@ -327,32 +320,14 @@ export function defineNoydbStore<T>(
           'Await store.$ready first, or set prefetch: true (default).',
         )
       }
-      const built = build(cachedCollection.query())
-      const live = built.live()
-
-      const items = shallowRef<readonly R[]>(live.value)
-      const error = ref<Error | null>(live.error)
-
-      const unsubscribe = live.subscribe(() => {
-        items.value = live.value
-        error.value = live.error
-      })
-
-      let stopped = false
-      const stop = (): void => {
-        if (stopped) return
-        stopped = true
-        unsubscribe()
-        live.stop()
-      }
-
-      // Auto-teardown when the calling scope (a Vue component's setup,
-      // a Pinia store body, or any user-created effectScope) disposes.
-      // Outside an active scope (raw test harness, SSR top-level), skip
-      // registration silently — caller is responsible for stop().
-      if (getCurrentScope()) onScopeDispose(stop)
-
-      return { items, error, stop }
+      // Delegates to `@noy-db/in-vue` rather than keeping its own copy of the
+      // subscription glue (#1131). There was exactly one implementation of
+      // this in the family and it lived here, where no Vue consumer without
+      // Pinia could reach it — and two copies would drift, with only one of
+      // them getting the error semantics right. `useLiveQuery` carries the
+      // teardown and the re-read-error-every-notification rule; this function
+      // keeps only what is Pinia's: the readiness check and the query build.
+      return useLiveQuery<R>(build(cachedCollection.query()).live())
     }
 
     // Kick off hydration. The promise is exposed as $ready so components

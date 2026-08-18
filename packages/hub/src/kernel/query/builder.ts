@@ -595,6 +595,32 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * carries the original `T` fields plus `result[as]` populated from every
    * right-side row (or the filtered subset when `on:` is supplied).
    *
+   * **⚠️ INNER-join semantics — an empty right subset DROPS the left row.**
+   * Each left row is emitted once per matching right row, so when `on:`
+   * yields nothing the row vanishes with no error, no warning and no count
+   * mismatch. This bites hardest on a reverse FK, where `.join()` (which is
+   * forward-only, and already a genuine LEFT outer join) does not apply and
+   * `.crossJoin()` is the only tool. To keep the row, return a one-element
+   * array holding `null`:
+   *
+   * ```ts
+   * .crossJoin('clients', { as: 'client', on: (b) => byEntity.get(b.entityId) ?? [null] })
+   * //                                                                          ^^^^^^^^
+   * //                                              the ONLY thing preserving the row
+   * ```
+   *
+   * **Prefer `outer: true`**, which does exactly this and types the alias as
+   * `TTarget | null`:
+   *
+   * ```ts
+   * .crossJoin('clients', { as: 'client', outer: true, on: (b) => byEntity.get(b.entityId) ?? [] })
+   * ```
+   *
+   * The `?? [null]` form remains valid and is what `outer` does internally, but
+   * it is invisible intent: it types the alias as non-null while the row can
+   * hold null, and a later "simplification" that drops it silently
+   * reintroduces the row loss.
+   *
    * **Order matters:** `.where().crossJoin()` filters BEFORE expanding (cheaper);
    * `.crossJoin().where('alias.field', ...)` filters AFTER (required when the
    * where clause references the aliased fields).
@@ -611,7 +637,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    *
    * Requires a JoinContext (constructed via `collection.query()`).
    */
-  crossJoin<TTarget = unknown, As extends string = string>(
+  crossJoin<TTarget = unknown, As extends string = string, TOuter extends boolean = false>(
     target: string,
     opts: {
       as: As
@@ -619,8 +645,16 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
         | ((left: T) => unknown[] | ((right: TTarget) => boolean))
         | { readonly predicate: string }
       maxRows?: number
+      /**
+       * Keep the left row when its right side is empty, with `null` under
+       * `as`, instead of dropping it (#1130). Widens the alias to
+       * `TTarget | null` — which is why it is a type parameter rather than a
+       * plain boolean: `outer: false` must not pay for a null the row can
+       * never hold.
+       */
+      outer?: TOuter
     },
-  ): Query<T & { [K in As]: TTarget }, S, Q, M> {
+  ): Query<T & { [K in As]: TOuter extends true ? TTarget | null : TTarget }, S, Q, M> {
     if (!this.joinContext) {
       throw new Error(
         `Query.crossJoin("${target}"): requires a join context. ` +
@@ -675,10 +709,12 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       ...(onFn !== undefined && { on: onFn }),
       ...(onPredicateName !== undefined && { onPredicateName }),
       ...(opts.maxRows !== undefined && { maxRows: opts.maxRows }),
+      ...(opts.outer === true && { outer: true as const }),
     }
 
-    return new Query<T & { [K in As]: TTarget }, S, Q, M>(
-      this.source as unknown as QuerySource<T & { [K in As]: TTarget }>,
+    type Row = T & { [K in As]: TOuter extends true ? TTarget | null : TTarget }
+    return new Query<Row, S, Q, M>(
+      this.source as unknown as QuerySource<Row>,
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
       this.joinContext,
       this.reduceStrategy,
@@ -1447,15 +1483,24 @@ function applyCrossJoin(
   const maxRows = clause.maxRows ?? DEFAULT_CROSS_JOIN_MAX_ROWS
   const { as } = clause
 
+  // `outer` substitutes a single null right-hand row wherever the right side is
+  // empty, which is exactly what the documented `?? [null]` idiom did by hand
+  // (#1130). Emitting `{ ...left, [as]: null }` IS the outer-join row — the flag
+  // makes it typed and explicit rather than a trick a later "simplification"
+  // silently removes. Cost accounting is unchanged: a substituted row is one
+  // row, and it counts toward the ceiling like any other.
+  const outer = clause.outer === true
+
   if (!clause.on) {
-    const product = leftRel.length * rightRows.length
+    const rightSide = outer && rightRows.length === 0 ? [null] : rightRows
+    const product = leftRel.length * rightSide.length
     if (product > maxRows) {
       throw new CrossJoinTooLargeError({ target: clause.target, expected: product, limit: maxRows })
     }
     const expanded: unknown[] = []
     for (const left of leftRel) {
       const leftObj = left as Record<string, unknown>
-      for (const right of rightRows) {
+      for (const right of rightSide) {
         expanded.push({ ...leftObj, [as]: right })
       }
     }
@@ -1475,6 +1520,7 @@ function applyCrossJoin(
         callbackResult as (r: unknown) => boolean,
       )
     }
+    if (outer && filteredRight.length === 0) filteredRight = [null]
     cumulative += filteredRight.length
     if (cumulative > maxRows) {
       throw new CrossJoinTooLargeError({
@@ -1650,6 +1696,10 @@ function serializeClause(clause: Clause): unknown {
       on: clause.on ? '[function]' : undefined,
       onPredicateName: clause.onPredicateName,
       maxRows: clause.maxRows,
+      // Part of the identity, not decoration: `outer` changes which rows come
+      // back, so omitting it here would let an inner-mode plan be reused for an
+      // outer-mode query under the same hash (#1130).
+      outer: clause.outer,
     }
   }
   return clause

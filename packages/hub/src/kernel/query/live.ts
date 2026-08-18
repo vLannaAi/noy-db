@@ -6,11 +6,18 @@
  * collection AND every right-side collection a join leg points at)
  * mutates.
  *
- * Framework-agnostic by design. The Vue layer wraps a `LiveQuery`
- * in a Vue `Ref<T[]>` by subscribing once and copying `value` into
- * the ref on every notification. React/Solid/Svelte adapters do the
- * same with their own primitives. Core never depends on a UI
- * framework.
+ * Framework-agnostic by design — core never depends on a UI
+ * framework. The binding that wraps a `LiveQuery` is
+ * `@noy-db/in-vue`'s `useLiveQuery(live)`: it subscribes once,
+ * mirrors `value` into a `ShallowRef`, re-reads `error` on every
+ * notification, and disposes via `onScopeDispose`.
+ * `@noy-db/in-pinia`'s `store.liveQuery(build)` delegates to it, so
+ * there is one implementation rather than two that drift (#1131).
+ *
+ * There is NO wrapper for `in-react`, `in-solid` or `in-svelte` — a
+ * consumer on those subscribes directly (see **Error semantics**
+ * below, which is the part a hand-rolled wrapper usually gets
+ * wrong). Do not describe those adapters as existing until one does.
  *
  * **Error semantics.** A `.live()` query may throw at re-run time —
  * a strict-mode `DanglingReferenceError` is the most common case
@@ -58,10 +65,25 @@
  */
 export interface LiveQuery<T> {
   /**
-   * Current snapshot of the query result. Updated in place on
-   * every upstream change. The reference returned is the same
-   * `readonly T[]` array — consumers that want change detection by
-   * reference should copy: `const arr = [...live.value]`.
+   * Current snapshot of the query result.
+   *
+   * **A FRESH ARRAY on every successful re-run** — `refresh()` assigns
+   * `this._value = this.recompute()`, and `recompute` is the query's own
+   * `toArray()`. So the reference CHANGES on each change, and reference
+   * identity is a valid change signal: a Vue `shallowRef`, a React
+   * `useState`, or any `Object.is` comparison detects an update without
+   * copying.
+   *
+   * The corollary is the part that bites: a consumer who reads `value`
+   * ONCE and holds the array gets a snapshot that never updates. Read it
+   * again after each notification — do not cache it.
+   *
+   * (An earlier version of this comment said the opposite — "updated in
+   * place… the reference returned is the same array" — and told callers to
+   * copy for change detection. Both halves were wrong, and the advice was
+   * backwards. Verified against `buildLiveQuery`: two reads across a
+   * notification are not `===`, and the first array still holds the old
+   * contents.)
    */
   readonly value: readonly T[]
   /**
