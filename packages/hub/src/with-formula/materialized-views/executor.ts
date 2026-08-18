@@ -3,7 +3,7 @@ import type { TxContext } from '../../with-commit/tx/transaction.js'
 import type { EncryptedEnvelope } from '../../kernel/types.js'
 import { MaterializedViewTooLargeError, MaterializedViewConfigError, LocaleNotSpecifiedError, JoinTooLargeError } from '../../kernel/errors.js'
 import { DEFAULT_JOIN_MAX_ROWS } from '../../kernel/query/join.js'
-import type { MaterializedFromMeta, MVQueryContext, MaterializedViewSpec } from './types.js'
+import type { MaterializedFromMeta, MVQueryContext, MaterializedViewSpec, ProjectionJoinLeg } from './types.js'
 import type { RegisteredMV } from './registry.js'
 import { wrapDbWithPredicates } from './registry.js'
 import { groupAndReduce } from '../../with-lookup/reduce/groupby.js'
@@ -12,6 +12,7 @@ import { applyI18nLocale, type I18nTextDescriptor } from '../../via/i18n/core.js
 import { canonicalizeMoneyFieldsAsDecimal, decodeMoneyFields } from '../../via/money/normalize.js'
 import { exactMath } from '../../via/money/exact.js'
 import { putDerivedOutput, type PutDerivedOutputCtx } from '../../kernel/via/dispatch.js'
+import { isCollectLeg, resolveLegOwner, type RefLookup } from './projection-legs.js' // #1140
 
 /**
  * Accessor shape passed in from the owning Vault. Mirrors v1's
@@ -301,20 +302,27 @@ async function materializeProjectionResult<TRow extends Record<string, unknown>>
 ): Promise<ReadonlyArray<Record<string, unknown>>> {
   const projection = spec.projection!
   const coll = db.collection<Record<string, unknown>>(projection.source)
-  // Forward legs chain through the query builder exactly like UNION arm
-  // joins — ref() resolution, dangling-mode semantics, presentation
-  // dressing, and ceilings all ride the existing `.join()` path. Cast to
-  // `any` for the same reason `materializeUnionResult` does.
+  // ROOT forward legs chain through the query builder exactly like UNION arm
+  // joins — ref() resolution, dangling-mode semantics, presentation dressing,
+  // and ceilings all ride the existing `.join()` path. Cast to `any` for the
+  // same reason `materializeUnionResult` does.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let q: any = coll.query()
   for (const leg of projection.joins) {
-    if ('collect' in leg) continue
+    if (isCollectLeg(leg) || leg.from !== undefined) continue
     q = q.join(leg.field, { as: leg.as, maxRows: leg.maxRows, strategy: leg.strategy })
   }
   let rows = q.toArray() as Array<Record<string, unknown>>
+  // Remaining legs in DECLARATION order — which is what makes `from` work: a leg
+  // may only name an alias declared earlier, so by the time it runs, the rows it
+  // attaches to are already on the row. Root collect legs are in this loop too;
+  // they were never part of the query chain.
   for (const leg of projection.joins) {
-    if (!('collect' in leg)) continue
-    rows = applyCollectLeg(rows, leg, spec.name, projection.source, db)
+    if (isCollectLeg(leg)) {
+      rows = applyCollectLeg(rows, leg, spec.name, projection.source, projection.joins, db)
+    } else if (leg.from !== undefined) {
+      rows = applyLegRelativeForwardLeg(rows, leg, spec.name, projection.source, projection.joins, db)
+    }
   }
   const mapped: TRow[] = []
   for (const r of rows) {
@@ -328,41 +336,121 @@ async function materializeProjectionResult<TRow extends Record<string, unknown>>
 }
 
 /**
+ * A `RefLookup` backed by the live join contexts — the executor's answer to the
+ * same question the registry answers from the ref registry. Reads through, so a
+ * ref declared after `openVault()` (the only place refs CAN be declared) is
+ * visible here.
+ *
+ * @internal
+ */
+function legOwnerLookup(db: MVQueryContext): RefLookup {
+  return (collection, field) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const q = db.collection<Record<string, unknown>>(collection).query() as any
+    return (q._joinContext?.()?.resolveRef(field) as { target: string } | null | undefined) ?? null
+  }
+}
+
+/**
+ * Attach one FORWARD leg that hangs off another leg's alias (#1140).
+ *
+ * Root forward legs ride `Query.join()` and are resolved before this runs; a
+ * leg-relative one cannot, because the FK it follows lives on an already-attached
+ * record rather than on a column of the primary query. It is therefore resolved
+ * the same way a collect leg is — one snapshot of the target collection, indexed
+ * by id — which keeps it O(N+M) rather than one `get()` per row.
+ *
+ * Attaches `null` when the `from` alias is null (a dangling ref upstream), when
+ * the FK is nullish, or when the target row is missing. That is deliberately
+ * outer-by-nature and matches the collect leg's empty array: a projection MV
+ * must not drop a primary row because something two hops away is absent.
+ *
+ * @internal
+ */
+function applyLegRelativeForwardLeg(
+  primaryRows: ReadonlyArray<Record<string, unknown>>,
+  leg: Extract<ProjectionJoinLeg, { field: string }>,
+  mvName: string,
+  source: string,
+  joins: ReadonlyArray<ProjectionJoinLeg>,
+  db: MVQueryContext,
+): Array<Record<string, unknown>> {
+  const lookup = legOwnerLookup(db)
+  const owner = resolveLegOwner(leg, joins, source, lookup)
+  const refDesc = owner === null ? null : lookup(owner, leg.field)
+  if (owner === null || refDesc === null) {
+    throw new MaterializedViewConfigError(
+      `"${mvName}": projection leg "${leg.as}" requires a ref() on field "${leg.field}" of `
+      + `collection "${owner ?? `(behind from: "${leg.from}")`}" — declare it on that collection, `
+      + `then retry`,
+    )
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const targetQ = db.collection<Record<string, unknown>>(refDesc.target).query() as any
+  const byId = new Map<string, Record<string, unknown>>()
+  for (const row of targetQ.toArray() as Array<Record<string, unknown>>) {
+    const id = coerceCollectKey(row.id)
+    if (id !== null) byId.set(id, row)
+  }
+  return primaryRows.map((row) => {
+    const anchor = leg.from === undefined
+      ? row
+      : (row[leg.from] as Record<string, unknown> | null | undefined)
+    const key = anchor == null ? null : coerceCollectKey(anchor[leg.field])
+    return { ...row, [leg.as]: key === null ? null : byId.get(key) ?? null }
+  })
+}
+
+/**
  * Attach one reverse "collect" leg (#810): every row of `leg.collect`
- * whose `leg.on` field references a primary record's id lands in a
+ * whose `leg.on` field references the ATTACH POINT's id lands in a
  * possibly-empty ARRAY under `leg.as` on that primary row. One
  * snapshot pass over the collect collection, hash-grouped by the `on`
  * FK — O(N+M), mirroring the forward hash-join fallback.
  *
+ * The attach point is the primary record, or — with `from` (#1140) — the record
+ * already attached under that alias. Matching then keys off `row[from].id`
+ * instead of `row.id`, and `leg.on` must ref THAT leg's collection. A row whose
+ * `from` alias is null (a dangling forward ref) gets `[]`, which is the same
+ * outer-by-nature semantics a root collect leg already has for a primary record
+ * with no children.
+ *
  * Semantic check (first materialization, not factory time — parity
  * with join-time ref errors): `leg.on` must carry a `ref()` declared
- * on the collect collection targeting the projection `source`.
+ * on the collect collection targeting the attach point's collection.
  *
  * @internal
  */
 function applyCollectLeg(
   primaryRows: ReadonlyArray<Record<string, unknown>>,
-  leg: { readonly collect: string; readonly on: string; readonly as: string; readonly maxRows?: number },
+  leg: { readonly collect: string; readonly on: string; readonly as: string; readonly from?: string; readonly maxRows?: number },
   mvName: string,
   source: string,
+  joins: ReadonlyArray<ProjectionJoinLeg>,
   db: MVQueryContext,
 ): Array<Record<string, unknown>> {
   const childColl = db.collection<Record<string, unknown>>(leg.collect)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const childQ = childColl.query() as any
   const refDesc = childQ._joinContext?.()?.resolveRef(leg.on) as { target: string } | null | undefined
+  // The collection this leg matches AGAINST: the projection source for a root
+  // leg, the `from` leg's own target otherwise (#1140).
+  const expected = resolveLegOwner(leg, joins, source, legOwnerLookup(db))
+  const expectedName = expected ?? source
   if (refDesc == null) {
     throw new MaterializedViewConfigError(
       `"${mvName}": projection collect leg "${leg.as}" requires a ref() on field "${leg.on}" of `
-      + `collection "${leg.collect}" targeting "${source}" — declare `
-      + `refs: { ${leg.on}: ref('${source}') } on collection "${leg.collect}", then retry`,
+      + `collection "${leg.collect}" targeting "${expectedName}" — declare `
+      + `refs: { ${leg.on}: ref('${expectedName}') } on collection "${leg.collect}", then retry`,
     )
   }
-  if (refDesc.target !== source) {
+  if (refDesc.target !== expectedName) {
     throw new MaterializedViewConfigError(
       `"${mvName}": projection collect leg "${leg.as}" expects field "${leg.on}" of collection `
-      + `"${leg.collect}" to reference the projection source "${source}", but its ref() targets `
-      + `"${refDesc.target}"`,
+      + `"${leg.collect}" to reference ${leg.from === undefined
+        ? `the projection source "${expectedName}"`
+        : `"${expectedName}" (the collection behind from: "${leg.from}")`}`
+      + `, but its ref() targets "${refDesc.target}"`,
     )
   }
   const maxRows = leg.maxRows ?? DEFAULT_JOIN_MAX_ROWS
@@ -378,7 +466,11 @@ function applyCollectLeg(
   }
   const out: Array<Record<string, unknown>> = []
   for (const row of primaryRows) {
-    const key = coerceCollectKey(row.id)
+    // `from` matches against the attached record's id, not the primary row's.
+    const anchor = leg.from === undefined
+      ? row
+      : (row[leg.from] as Record<string, unknown> | null | undefined)
+    const key = anchor == null ? null : coerceCollectKey(anchor.id)
     const children = key === null ? [] : groups.get(key) ?? []
     if (children.length > maxRows) {
       throw new JoinTooLargeError({

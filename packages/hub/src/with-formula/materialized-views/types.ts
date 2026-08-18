@@ -159,20 +159,28 @@ export interface ProjectionSpec<TRow extends Record<string, unknown>> {
  *   FK on the projection source into an attached right-side record
  *   (record | null) under `as`.
  * - **Reverse "collect" leg** — every row of `collect` whose `on`
- *   field references the primary record's id, attached as a
+ *   field references the attach point's id, attached as a
  *   possibly-empty ARRAY under `as`. `on` must carry a `ref()`
- *   declared on the `collect` collection targeting the projection
- *   `source` — checked at first materialization (parity with
- *   join-time ref errors). `maxRows` here is a PER-PRIMARY-ROW
- *   fan-out ceiling (default: the join default); exceeding it throws
- *   `JoinTooLargeError`.
+ *   declared on the `collect` collection targeting that attach point
+ *   — checked at first materialization (parity with join-time ref
+ *   errors). `maxRows` here is a PER-ROW fan-out ceiling (default:
+ *   the join default); exceeding it throws `JoinTooLargeError`.
+ *
+ * Both kinds attach to the primary row by default, and to a
+ * previously-declared alias when `from` is set (#1140).
  */
 export type ProjectionJoinLeg =
   | {
-      /** FK field on the projection source (must have a `ref()` declared). */
+      /** FK field on this leg's attach point (must have a `ref()` declared). */
       readonly field: string
       /** Alias under which the resolved right-side record attaches. */
       readonly as: string
+      /**
+       * Attach to a previously-declared FORWARD leg's alias instead of to the
+       * primary row (#1140) — `field` is then read off that leg's record and
+       * resolved through a `ref()` on ITS collection. See the union's doc.
+       */
+      readonly from?: string
       /** Per-side row ceiling override. `undefined` → the join default. */
       readonly maxRows?: number
       /** Planner strategy override. `undefined` → auto-select. */
@@ -181,11 +189,40 @@ export type ProjectionJoinLeg =
   | {
       /** Sibling collection to collect from. */
       readonly collect: string
-      /** FK field on `collect` (`ref()` targeting the projection source required). */
+      /** FK field on `collect` — a `ref()` targeting this leg's attach point. */
       readonly on: string
       /** Alias under which the collected array attaches. */
       readonly as: string
-      /** Per-primary-row fan-out ceiling. `undefined` → the join default. */
+      /**
+       * Attach to a previously-declared FORWARD leg's alias instead of to the
+       * primary row (#1140): `on` must then `ref()` THAT leg's collection, and
+       * rows are matched against that leg's record id.
+       *
+       * This is what makes a two-hop lookup expressible. For
+       * `bill → entity → client`, the client is not reachable from the bill: a
+       * forward leg would need a `bill.clientId` that does not exist, and a
+       * collect leg would need `clients.entityId` to ref `bills` when it refs
+       * `entities`. With `from` it is one line:
+       *
+       * ```ts
+       * joins: [
+       *   { field: 'entityId', as: 'entity' },
+       *   { from: 'entity', collect: 'clients', on: 'entityId', as: 'clients' },
+       * ]
+       * ```
+       *
+       * The alternatives it replaces are both bad: denormalizing a redundant FK
+       * onto the source reintroduces exactly the duplicated relationship a
+       * projection MV exists to avoid, and dropping back to app code forfeits
+       * the dependency tracking it was adopted for.
+       *
+       * `from` may only name a leg declared EARLIER, and only a FORWARD one — a
+       * collect leg holds an array, not a record. Both are refused at
+       * registration. The backward-only rule is also why no depth cap is
+       * needed: a cycle cannot be spelled.
+       */
+      readonly from?: string
+      /** Per-row fan-out ceiling. `undefined` → the join default. */
       readonly maxRows?: number
     }
 
@@ -268,10 +305,14 @@ export interface MaterializedViewSpec<TRow extends Record<string, unknown>> {
    *
    * Dependencies are all AUTO: `{source} ∪ forward ref() targets ∪
    * collect collections` (explicit {@link sources} remains additive).
-   * Forward targets resolve from the source collection's `ref()`
+   * Forward targets resolve from the attach point's `ref()`
    * declarations; those are declared by user code AFTER the vault
    * opens (registration time), so the registry folds them into the
    * dependency set on the first MV dispatch that finds them declared.
+   * A leg-relative forward leg (#1140) resolves its whole `from` chain
+   * the same way, so a two-hop leg simply lands one dispatch later
+   * than a one-hop one. A collect leg needs none of this: its
+   * dependency is the literal `collect` name whatever it attaches to.
    */
   projection?: ProjectionSpec<TRow>
   /**

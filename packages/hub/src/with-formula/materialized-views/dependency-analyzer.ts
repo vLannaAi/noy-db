@@ -149,6 +149,10 @@ export function summarizeUnionPlan<T extends Record<string, unknown>>(
  * one-to-one attachments and collect legs are independent
  * hash-grouped passes, so declaration order never changes the
  * materialized rows — a pure reorder must NOT force a refresh.
+ * `from` (#1140) constrains the legal orderings (a leg must follow the
+ * alias it attaches to) without making order meaningful: each descriptor
+ * carries its own `@alias`, and aliases are unique, so the sorted set
+ * still determines the leg graph exactly.
  *
  * The projection `map` is NOT fingerprinted (identical limitation as
  * the UNION arm `map`); consumers must bump the MV's `name` when
@@ -159,11 +163,15 @@ export function summarizeProjectionPlan<T extends Record<string, unknown>>(
 ): string {
   const projection = spec.projection!
   const legs = projection.joins
-    .map(leg =>
-      'collect' in leg
-        ? `collect:${leg.collect}.${leg.on}→${leg.as}`
-        : `field:${leg.field}→${leg.as}`,
-    )
+    .map(leg => {
+      // #1140 — `from` changes which rows a leg attaches to, so it is part of
+      // the plan's identity. Omitting it would let two structurally different
+      // projections share a queryHash and silently skip a refresh.
+      const at = leg.from !== undefined ? `@${leg.from}` : ''
+      return 'collect' in leg
+        ? `collect${at}:${leg.collect}.${leg.on}→${leg.as}`
+        : `field${at}:${leg.field}→${leg.as}`
+    })
     .sort()
   const body = JSON.stringify({ source: projection.source, legs })
   return `projection(${body})${summarizeGroupingTail(spec)}`

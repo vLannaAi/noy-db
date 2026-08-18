@@ -1,5 +1,6 @@
 import { MaterializedViewConfigError, ValidationError } from '../../kernel/errors.js'
 import type { MaterializedViewSpec, MaterializedViewStrategy } from './types.js'
+import { validateProjectionLegs } from './projection-legs.js' // #1140
 
 /**
  * Register a materialized view: a declared query whose result is
@@ -187,6 +188,11 @@ export function withMaterializedView<TRow extends Record<string, unknown>>(
       }
       seenAs.add(l.as)
     }
+    // #1140 — `from` wiring, checked here with the rest of the leg shape rather
+    // than at vault open: it is pure configuration, so the earliest failure is
+    // the best one. Owned by `projection-legs.ts` because the executor and the
+    // registry both walk the same graph.
+    validateProjectionLegs(spec.name, spec.projection)
     // Post-map grouping invariants — same rules as UNION (the mapped
     // stream feeds the same shared groupAndReduce tail).
     if (Array.isArray(spec.groupBy) && spec.groupBy.length === 0) {
