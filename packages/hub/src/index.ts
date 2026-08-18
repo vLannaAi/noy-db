@@ -287,6 +287,7 @@ export {
   JoinTooLargeError,
   CrossJoinTooLargeError,
   CrossJoinSourceUnknownError,
+  RefNotDeclaredError,
   DanglingReferenceError,
   FilenameSanitizationError,
   PathEscapeError,

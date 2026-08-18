@@ -11,7 +11,7 @@ import { evaluateClause, hasFnClause } from './predicate.js'
 import type { CollectionIndexes } from '../../with-lookup/indexing/eager-indexes.js'
 import type { JoinableSource, JoinContext, JoinLeg, JoinStrategy } from './join.js'
 import { applyJoins, splitAroundJoins } from './join.js'
-import { CrossJoinTooLargeError, CrossJoinSourceUnknownError, FieldNotQueryableError } from '../errors.js'
+import { CrossJoinTooLargeError, CrossJoinSourceUnknownError, FieldNotQueryableError, RefNotDeclaredError } from '../errors.js'
 import type { LiveQuery, LiveUpstream } from './live.js'
 import { buildLiveQuery } from './live.js'
 import type { ReduceSpec, ReduceResult, ReductionUpstream, Reduction } from '../../with-lookup/reduce/reduction.js'
@@ -552,12 +552,17 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     // Check for dictKey join when no ref() is declared
     const isDictJoinField = !descriptor && this.joinContext.resolveDictSource?.(field) != null
     if (!descriptor && !isDictJoinField) {
-      throw new Error(
-        `Query.join(): no ref() declared for field "${field}" on collection ` +
+      // Typed (#1139) so the MV registry can tell "this ref is not declared YET,
+      // during openVault" from any other planning failure without matching text.
+      throw new RefNotDeclaredError({
+        collection: this.joinContext.leftCollection,
+        field,
+        message:
+          `Query.join(): no ref() declared for field "${field}" on collection ` +
           `"${this.joinContext.leftCollection}". Add ` +
           `refs: { ${field}: ref('<target-collection>') } to the collection ` +
           `options, then retry. See the ref() docs for the full list of modes.`,
-      )
+      })
     }
     const leg: JoinLeg = descriptor
       ? {

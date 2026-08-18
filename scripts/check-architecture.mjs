@@ -1003,7 +1003,15 @@ const KERNEL_SURFACE_BUDGET = {
   // identity instead of the live record's. Passing the live identity there read
   // a perfectly good snapshot as tampered — a correctness fix, not an addition.
   // Nothing here can move onto the ServiceBus: the kernel is the caller.
-  'packages/hub/src/kernel/collection.ts': 4312,
+  // Bumped 4312→4318 (2026-08-18, #1141 late `refs` declaration): `_attachDeclaredRefs`
+  // (a 1-line setter + its 3-line rationale) and one extra line on the `_refs` field
+  // comment. Cannot move onto the ServiceBus: `_refs` is a private field on this class,
+  // and it is precisely the ONE piece of ref state that does not read through to the
+  // vault registry — which is why a `refs` declaration made after the collection was
+  // already constructed used to vanish silently, taking strict FK enforcement with it.
+  // The reconcile LOGIC deliberately lives in kernel/via/reconcile.ts with the rest of
+  // the late-attach ladder; only the setter it drives is here.
+  'packages/hub/src/kernel/collection.ts': 4318,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The

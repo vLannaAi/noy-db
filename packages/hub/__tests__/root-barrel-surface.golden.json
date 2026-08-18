@@ -165,6 +165,7 @@
     "RedirectLoopError",
     "RedirectUnreachableError",
     "RefIntegrityError",
+    "RefNotDeclaredError",
     "RefRegistry",
     "RefScopeError",
     "ReservedCollectionNameError",

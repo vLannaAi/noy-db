@@ -64,6 +64,9 @@ export async function dispatchMaterializedViews(
   if (record && typeof record === 'object' && '_materializedFrom' in record) return
 
   const registry = source.registry()
+  // #1139 — replan any query-form strategy parked at vault open because its
+  // join named a ref that had not been declared yet. No-op once drained.
+  await registry.resolvePendingPlans()
   const mvs = registry.mvsForSource(collectionName)
   if (mvs.length === 0) return
 
@@ -113,7 +116,9 @@ export async function dispatchMaterializedViewsOnDelete(
 ): Promise<{ deleted: number; residueUndecodable: string[]; residueDeclined: string[] }> {
   const { materializedViewSource: source, collectionName, dispatchCtx } = ctx
 
-  const mvs = source.registry().mvsForSource(collectionName)
+  const registry = source.registry()
+  await registry.resolvePendingPlans() // #1139 — see the put-path dispatcher
+  const mvs = registry.mvsForSource(collectionName)
   const empty = { deleted: 0, residueUndecodable: [], residueDeclined: [] }
   if (mvs.length === 0) return empty
 
