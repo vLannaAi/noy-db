@@ -1,5 +1,208 @@
 # Changelog — hub
 
+## 0.6.0-pre.22
+
+### Minor Changes
+
+- `.crossJoin()` gains a typed `outer` option (#1130).
+
+  `.crossJoin()` emits the left row once per matching right row, so an empty `on:`
+  subset dropped it entirely — no error, no warning, no count mismatch. It bites
+  hardest on a **reverse FK**, because `.join()` is forward-only on a declared
+  `ref()` and cannot express that direction, so `.crossJoin()` is the only tool
+  available. The reported case measured three rows in and one row out, with the
+  missing two vanishing silently from a list view.
+
+  ```ts
+  .crossJoin('clients', { as: 'client', outer: true, on: (b) => byEntity.get(b.entityId) ?? [] })
+  // every left row survives; `client` is `Client | null`
+  ```
+
+  `outer` applies to both call shapes: with `on:` the empty thing is that left
+  row's subset, and without it an empty TARGET collection is what would otherwise
+  drop every row — two separate branches in `applyCrossJoin`, both covered.
+
+  **The alias widens to `TTarget | null` only under `outer: true`**, via a third
+  type parameter rather than a plain boolean, so existing inner-mode callers are
+  untouched and are not made to null-check something that cannot occur. Both
+  directions are asserted at compile time in `cross-join-outer.test-d.ts`, because
+  neither mistake would show up in a runtime test.
+
+  The previously documented `?? [null]` idiom still works and is exactly what
+  `outer` does internally — a test asserts the two produce identical rows. Prefer
+  the flag: the idiom types the alias as non-null while the row can hold null, and
+  a later "simplification" that removes the `[null]` silently reintroduces the row
+  loss.
+
+  `outer` is folded into the query-plan summary, so a materialized view built on
+  the inner form is not served for an outer query, and a substituted null row
+  counts toward `maxRows` like any other row.
+
+### Patch Changes
+
+- `@noy-db/in-vue` ships `useLiveQuery()`, and `in-pinia` now delegates to it (#1131).
+
+  `kernel/query/live.ts` described a Vue wrapper for `LiveQuery` as though it were
+  provided, plus React/Solid/Svelte adapters that have never existed. #1132
+  corrected the prose. This ships the thing.
+
+  **There was exactly one implementation in the family and it was unreachable.**
+  `@noy-db/in-pinia`'s `store.liveQuery()` already did this correctly — subscribe
+  once, mirror into a `ShallowRef`, re-read `error` on every notification, dispose
+  via `onScopeDispose` — but it is a **store method, not an export**, so an export
+  enumeration cannot find it, and a Vue consumer not using Pinia had no route at
+  all. A pilot consumer hand-rolled the glue instead.
+
+  So `useLiveQuery` lands in `@noy-db/in-vue` (the base binding, no Pinia
+  required) and `in-pinia` calls it, keeping the readiness check and the query
+  build and nothing else. One implementation rather than two that drift — and
+  only one of two copies ever gets an error-semantics fix. `NoydbLiveQuery<R>` is
+  now an alias of `UseLiveQueryReturn<R>`, so the type has one definition too.
+
+  ```ts
+  const { items, error } = useLiveQuery(
+    vault.collection("bills").query().join("entityId", { as: "entity" }).live()
+  );
+  ```
+
+  **A hub doc-comment correction came out of building it, and it was backwards in
+  both halves.** `LiveQuery.value` was documented as _"updated in place… the
+  reference returned is the same array"_, advising callers to copy for change
+  detection. `refresh()` assigns `this._value = this.recompute()`, so the array is
+  **replaced**: the reference changes on every re-run, reference identity IS a
+  valid change signal (which is what makes a `shallowRef` correct and a copy
+  unnecessary), and a consumer who caches `value` holds a snapshot that never
+  updates. Verified by running it, not by reading it — two reads across a
+  notification are not `===`, and the first array still holds the old contents.
+
+  ⚠️ **Consumer-visible:** `@noy-db/in-pinia` now declares `@noy-db/in-vue` as a
+  (non-optional) peer, matching how the family already wires satellite-to-satellite
+  deps — `in-nextjs` → `in-react`, `in-nuxt` → `in-pinia`/`in-vue`,
+  `in-devtools-tui` → `in-devtools`. A Nuxt consumer already has it, since
+  `in-nuxt` peers on both. A **plain Pinia** consumer must add one line to their
+  install; the two ship on the same lockstep version line. It is deliberately not
+  optional — `store.liveQuery()` does not work without it, and an optional peer
+  would turn that into a runtime resolution failure instead of an install-time one.
+
+  The test suite asserts through a `watch` inside an `effectScope` rather than by
+  reading `items.value`. Reading the ref passes even if Vue reactivity is entirely
+  broken, since the value is correct either way; only a watcher proves a component
+  would re-render.
+
+- `KeyringTamperedError` stops accusing the store when the cause is an upgrade (#1129).
+
+  `roster_tag` and the reserved `_roster` key ship for the first time in
+  `0.6.0-pre.21`, so **no keyring written by any earlier release carries either**.
+  Every existing vault therefore fails at unlock on upgrade — and was told _"The
+  store serving this vault may have altered the roster."_ Measured, not assumed: a
+  vault written by published `0.6.0-pre.20` and opened by `pre.21` reports
+  `roster-key-missing` (the roster-key check precedes the tag check).
+
+  The refusal is correct and unchanged — the format is replaced, not migrated
+  (#1100, ADR 0003 Decision 5), and the vault must be re-seeded. What changes is
+  what the user reads. The absence labels now lead with the format transition,
+  because that is the overwhelming base rate on upgrade day, while still naming the
+  attack reading and still refusing. `roster-tag-mismatch` keeps its unqualified
+  alert: no released version ever wrote a mismatched tag, so it is not reachable by
+  a format transition.
+
+  **No benign/attack discriminant was added, and none is possible.** #1103 could
+  build one for records because the benign case must produce a body that _decrypts
+  under the DEK_, which an untrusted store cannot fabricate — a successful retry is
+  positive evidence. A keyring's benign case is a _deleted field_, which a store
+  produces with no key at all. Verified by probe: stripping `_roster` and
+  `roster_tag` from a genuine `pre.21` file gives output byte-identical to opening a
+  real `pre.20` vault. "Absent means old and fine" would be a downgrade path.
+
+  A code comment claiming an absent canary "is not an old file" is corrected: the
+  policy it justified is right, the factual claim was wrong (`canary` was optional
+  through `pre.19`, and its own doc said older keyrings have none). `SECURITY.md`
+  gains a _Reading a `KeyringTamperedError`_ section stating that, unlike
+  `TamperedError.reason`, these five values are mechanism labels and **not** a
+  benign-vs-attack verdict.
+
+- A crash mid-shred no longer strands blob chunks under a retired DEK (#1127).
+
+  `releaseRef` deleted a blob's index row BEFORE its chunks. A crash in between
+  left chunk bodies nothing can ever reach: `loadBlobObject` returns null so no
+  reader addresses them, and `rekeyBlobSet` derives chunk ids from each index
+  entry's `chunkCount`, so a rotation walks straight past. For a **legacy** blob —
+  bytes under the `_blob` DEK itself rather than a per-blob content CEK — those
+  bodies stayed openable under the retired `_blob` DEK, which is exactly the key a
+  revoked member walked away with. Crash during `forget()`, revoke later, and real
+  blob content sat readable indefinitely.
+
+  It was silent on every side: no error at crash time (the marked shred path
+  catches per-hold and files the eTag under `residue`), no error at rotation time,
+  and the rotation reported success.
+
+  **The fix is the deletion ORDER, not a cleanup pass.** Chunks are now deleted
+  before the index row, so every chunk that survives has an index row, is
+  therefore reachable by `rekeyBlobSet`, and is therefore re-keyed. There is no
+  orphan to sweep because none is produced. The residue this leaves instead — an
+  index row whose chunks are partly gone — is strictly better: it is reachable, so
+  re-running `releaseRef` completes idempotently; `rekeyBlobSet` already tolerates
+  it; and it cannot leak, because the bytes that survive are the ones rotation
+  still covers.
+
+  This also makes one ordering rule true across the blob subsystem instead of two
+  opposite ones — `rekey-blob.ts` already re-encrypts chunks before re-sealing
+  their index entry and documents that order as its resume property.
+
+  **Deliberately not bundled: a sweep that deletes pre-existing orphans.** Such a
+  sweep must decide "orphaned" from `store.list(_blob_index)`, and the store is
+  untrusted. A store withholding one index row could make a live blob's chunks
+  look orphaned and have us destroy them — converting withholding, which is
+  reversible, into permanent loss. That is #1133.
+
+  One reader path needed a matching correction, found by the full suite rather
+  than by reasoning: `resolveRehomedVersionETag` read the OLD blob's bytes while
+  resuming a rehome. Under the previous order a crashed delete had already removed
+  the index row, so that read happened to see "absent"; with chunks going first
+  the row can outlive its own bytes, and the read raised `BlobOfflineError` on
+  content that was deliberately destroyed. It now keys off the LOGICAL state —
+  `refCount <= 0` means the last hold is released and the row is an un-reaped
+  tombstone — and still completes the interrupted deletion, which is what a resume
+  owes there. That is more correct under either order than relying on the row's
+  physical absence.
+
+  Two regression rows reproduce the crash window by throwing on the first chunk
+  delete, which is the injection point that separates the two orderings (an index
+  delete would pass under both). Verified to fail before the fix, with three real
+  chunk bodies still opening under `_blob` after revocation.
+
+- Document two silent traps in the query DSL that no gate could see (#1130, #1131).
+
+  Both were found by a pilot consumer, and both cost real time because the
+  published prose described a world that did not exist. Neither is a behaviour
+  change — the code is unchanged.
+
+  **`.crossJoin()` is an INNER join and says so nowhere.** Each left row is
+  emitted once per matching right row (`builder.ts:1487`), so an empty `on:`
+  subset drops the row with no error, no warning and no count mismatch. This
+  bites hardest on a reverse FK, where `.join()` — forward-only, and already a
+  genuine LEFT outer join — does not apply, so `.crossJoin()` is the only tool
+  and the natural fixture always has both sides present. The method doc now
+  carries the warning and the `[null]` idiom that restores the row, with a note
+  that `[null]` is load-bearing rather than a redundant fallback. A typed
+  `outer:` option is #1130.
+
+  **`live()`'s doc comment described four framework adapters, none of which
+  existed.** It named "the Vue layer" plus React/Solid/Svelte. The only binding
+  in the repo that wraps a `LiveQuery` is `@noy-db/in-pinia`'s
+  `store.liveQuery()` — which does subscribe-once, mirror into a `ShallowRef`,
+  re-read `error` on every notification, and dispose via `onScopeDispose`. A
+  consumer followed the comment to `@noy-db/in-vue`, found nothing, and
+  hand-rolled the glue; the error semantics are the half a hand-rolled wrapper
+  usually gets wrong. The comment now names the package and states outright that
+  the other bindings have no wrapper.
+
+  That claim is now enforced by `scripts/__tests__/live-query-bindings.test.ts`,
+  which asserts on **which packages actually call `.live()`** rather than on the
+  comment's wording — so it fails both when a documented wrapper disappears and
+  when an undocumented one appears. Verified capable of failing, not merely
+  passing. Same defect class as #1063/#1072: prose no gate reads.
+
 ## 0.6.0-pre.21
 
 ### Patch Changes
