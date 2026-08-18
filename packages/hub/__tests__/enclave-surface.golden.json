@@ -58,6 +58,7 @@
     "pbkdf2VerifyDigest",
     "queryByDet",
     "recordAadFor",
+    "rekeyBlobSet",
     "rekeyEnvelopeIfNeeded",
     "rekeyEnvelopeToDek",
     "resolveStableCek",
@@ -76,6 +77,7 @@
     "writeEnvelopeBody"
   ],
   "types": [
+    "BlobRekeyReport",
     "BrokerProofCanonicalParts",
     "DeterministicContext",
     "EchoSecretParts",

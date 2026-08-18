@@ -103,6 +103,8 @@ export type { RewrappedBody } from './record-keys/lifecycle.js'
 // #1041 — record-identity AAD. Internal: the sweep binding each encrypt/decrypt
 // pair uses it; it is not part of the published surface.
 export { rekeyEnvelopeToDek, rekeyEnvelopeIfNeeded } from './record-keys/rekey.js'
+export { rekeyBlobSet } from './record-keys/rekey-blob.js'
+export type { BlobRekeyReport } from './record-keys/rekey-blob.js'
 export { buildRecordEnvelope, buildSealedRecordEnvelope } from './record-envelope.js'
 export type { RecordEnvelopeBody } from './record-envelope.js'
 export { buildRecordAad, recordAadFor } from './record-aad.js'
