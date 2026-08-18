@@ -2,7 +2,9 @@
  * Foreign-key references — the soft-FK mechanism.
  *
  * A collection declares its references as metadata at construction
- * time:
+ * time. A declaration made on an already-constructed collection is
+ * late-attached rather than dropped (#1141) — an identical redeclaration is a
+ * no-op, a conflicting one throws:
  *
  * ```ts
  * import { ref } from '@noy-db/hub'

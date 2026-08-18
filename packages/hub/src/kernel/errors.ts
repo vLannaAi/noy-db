@@ -2597,6 +2597,35 @@ export class CrossJoinTooLargeError extends NoydbError {
 }
 
 /**
+ * Thrown by `.join()` when the field it is asked to follow carries no `ref()`
+ * declaration on the left collection (and is not a `dictKey` join field).
+ *
+ * A distinct class rather than a bare `Error` because the condition is
+ * legitimately TRANSIENT for one caller: a materialized view's `query()`
+ * callback is invoked during `openVault()`, before user code has had any
+ * opportunity to declare a collection's refs, so the MV registry defers that
+ * strategy's planning and retries instead of failing the vault open (#1139).
+ * Matching that condition on the message text would be the kind of proxy this
+ * codebase keeps getting bitten by; the class is the fact.
+ *
+ * For every other caller the meaning is unchanged and terminal: declare the
+ * ref, then retry. The message is identical to the one this replaced.
+ */
+export class RefNotDeclaredError extends NoydbError {
+  /** Collection the join was issued from. */
+  readonly collection: string
+  /** Field the join tried to follow. */
+  readonly field: string
+
+  constructor(opts: { collection: string; field: string; message: string }) {
+    super('REF_NOT_DECLARED', opts.message)
+    this.name = 'RefNotDeclaredError'
+    this.collection = opts.collection
+    this.field = opts.field
+  }
+}
+
+/**
  * Thrown at cross-join execution time when the target collection is not
  * reachable from the current vault. The left collection is included in the
  * message for context.

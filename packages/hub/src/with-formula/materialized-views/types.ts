@@ -206,6 +206,23 @@ export interface MaterializedViewSpec<TRow extends Record<string, unknown>> {
    * without pre-existing in-scope references; called again at each
    * refresh.
    *
+   * **One exception to "at registration time" (#1139).** Registration runs
+   * inside `openVault()`, and a collection's `refs` can only be declared after
+   * that returns — so a query that `.join()`s a declared FK cannot possibly
+   * resolve it on the registration call. When that happens the strategy is
+   * PARKED rather than failed, and replanned on the first write dispatch or
+   * `vault.refreshView()` — by which time the refs exist. The callback must
+   * therefore be safe to invoke more than once before the view first
+   * materializes, which it already had to be (it runs again at every refresh).
+   *
+   * Every other planning failure — a typo'd collection, a malformed spec, a
+   * throw from your own callback — still surfaces out of `openVault()`
+   * immediately. Only a not-yet-declared ref defers.
+   *
+   * While parked, the strategy is invisible: it contributes no cycle-detection
+   * edge (that pass runs once, at vault open) and appears in neither
+   * `refreshView()` nor the source dispatch map until it resolves.
+   *
    * Built via the same `Query<T>` chainable builder used elsewhere —
    * `.where()`, `.join()`, `.groupBy()`, `.aggregate()`. The
    * dependency analyzer walks the returned plan to determine source

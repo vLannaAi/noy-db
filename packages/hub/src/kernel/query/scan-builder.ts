@@ -69,7 +69,7 @@ import type {
 } from '../../with-lookup/reduce/reduction.js'
 import type { JoinContext, JoinLeg, JoinableSource } from './join.js'
 import { splitAroundJoins } from './join.js'
-import { DanglingReferenceError, FieldNotQueryableError } from '../errors.js'
+import { DanglingReferenceError, FieldNotQueryableError, RefNotDeclaredError } from '../errors.js'
 import type { ViaPipeline } from '../via/pipeline.js'
 
 /**
@@ -319,12 +319,16 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
     }
     const descriptor = this.joinContext.resolveRef(field)
     if (!descriptor) {
-      throw new Error(
-        `ScanBuilder.join(): no ref() declared for field "${field}" on ` +
+      // Typed for the same reason `Query.join()` is (#1139) — see RefNotDeclaredError.
+      throw new RefNotDeclaredError({
+        collection: this.joinContext.leftCollection,
+        field,
+        message:
+          `ScanBuilder.join(): no ref() declared for field "${field}" on ` +
           `collection "${this.joinContext.leftCollection}". Add ` +
           `refs: { ${field}: ref('<target-collection>') } to the ` +
           `collection options, then retry.`,
-      )
+      })
     }
     const leg: JoinLeg = {
       field,

@@ -351,8 +351,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /** Collection-level descriptive metadata declared via `meta`; read by `getMeta()`, surfaced in `describe()`. */
   private meta: CollectionMeta | undefined
 
-  /** Outbound ref declarations (snapshot from vault refRegistry at construction time); used by `describe()`. */
-  private readonly _refs: Record<string, RefDescriptor>
+  /** Outbound ref declarations (snapshot from the vault refRegistry); read by `describe()` and
+   *  {@link _txAtomicSafe}. Mutable for {@link _attachDeclaredRefs} (#1141). */
+  private _refs: Record<string, RefDescriptor>
 
   /** Money field descriptors keyed by field path, typed as the opaque {@link ViaDescriptor} marker
    *  (the kernel never inspects the concrete shape); `put()` quantizes to a scaled-int string,
@@ -1256,6 +1257,11 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   _applyMeta(meta: CollectionMeta): void {
     if (this.meta === undefined) this.meta = meta
   }
+
+  /** @internal #1141 — refresh the ref snapshot after a late `refs` declaration. Overwrites rather
+   *  than first-wins, deliberately: the argument is the ref registry's own merged view (see
+   *  `reconcileViaAttach`), which `RefRegistry.register` has already refused to let conflict. */
+  _attachDeclaredRefs(refs: Record<string, RefDescriptor>): void { this._refs = refs }
 
   /**
    * @internal — attach classified fields post-construction. See {@link _applyMoneyFields}.
@@ -4241,7 +4247,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     if (hooksActive) await this.writeHooks!.runAfter(event)
     if (busActive) await this.subsystemBus!.dispatch(busPoint, event)
   }
-  _txAtomicSafe(opType: 'put' | 'delete'): boolean { if ((this.materializedViewSource !== undefined && this.materializedViewSource.registry().mvsForSource(this.name).length > 0) || (this.derivationSource !== undefined && this.derivationSource.registry().strategiesForSource(this.name).length > 0) || this.crdtMode !== undefined || this.uniqueConstraints !== null || (this.writeHooks !== undefined && this.writeHooks.hasBeforeHandlers && !this.writeHooks.suppressed)) return false; return opType === 'put' ? Object.keys(this._refs).length === 0 : this.refEnforcer === undefined || !this.refEnforcer._deleteCascadesPossible(this.name) } // @internal #893/#906-prep atomic-commit eligibility gate (Task 4) — false on any derivation/MV source (any lifecycle), CRDT mode, unique constraints, or refs on this write direction. Put uses precise outbound `_refs`; delete (#922) consults the enforcer's `_deleteCascadesPossible(name)` — Vault unions ALL THREE cascade sources `enforceRefsOnDelete` (with-shape/links/vault-facade.ts) fires from (lookup-ref edges, classic inbound refs, managed links); anything narrower (e.g. `getInbound` alone) would admit unsafe atomic deletes, because `_prepareDelete` runs those cascades DURING prepare. #931 narrows #906's hooks blanket: only BEFORE-hooks gate (they can REFUSE a write, which only `put()`/`delete()` honors); after-hooks and the `afterPut`/`afterDelete` observe bus cannot refuse, so the atomic path fires them itself post-finalize via `_fireAtomicAfterWrite` instead of forfeiting the batch (the pre-#931 db-global blanket cost multi-tab write-relay and forget-subject apps the atomic path entirely). See atomic-eligibility.ts.
+  _txAtomicSafe(opType: 'put' | 'delete'): boolean { if ((this.materializedViewSource !== undefined && (this.materializedViewSource.registry().hasPendingPlans() || this.materializedViewSource.registry().mvsForSource(this.name).length > 0)) || (this.derivationSource !== undefined && this.derivationSource.registry().strategiesForSource(this.name).length > 0) || this.crdtMode !== undefined || this.uniqueConstraints !== null || (this.writeHooks !== undefined && this.writeHooks.hasBeforeHandlers && !this.writeHooks.suppressed)) return false; return opType === 'put' ? Object.keys(this._refs).length === 0 : this.refEnforcer === undefined || !this.refEnforcer._deleteCascadesPossible(this.name) } // @internal #893/#906-prep atomic-commit eligibility gate (Task 4) — false on any derivation/MV source (any lifecycle), false while ANY query-form MV plan is still parked (#1139: an unplanned strategy has no `_bySource` entry, so `mvsForSource` cannot see that this collection is one of its sources — and the atomic path skips MV dispatch, which is the very thing that would replan it), CRDT mode, unique constraints, or refs on this write direction. Put uses precise outbound `_refs`; delete (#922) consults the enforcer's `_deleteCascadesPossible(name)` — Vault unions ALL THREE cascade sources `enforceRefsOnDelete` (with-shape/links/vault-facade.ts) fires from (lookup-ref edges, classic inbound refs, managed links); anything narrower (e.g. `getInbound` alone) would admit unsafe atomic deletes, because `_prepareDelete` runs those cascades DURING prepare. #931 narrows #906's hooks blanket: only BEFORE-hooks gate (they can REFUSE a write, which only `put()`/`delete()` honors); after-hooks and the `afterPut`/`afterDelete` observe bus cannot refuse, so the atomic path fires them itself post-finalize via `_fireAtomicAfterWrite` instead of forfeiting the batch (the pre-#931 db-global blanket cost multi-tab write-relay and forget-subject apps the atomic path entirely). See atomic-eligibility.ts.
   _reconcileReadState(patch: { dictKeyFields?: Record<string, DictKeyDescriptor | StaticDictDescriptor>; i18nFields?: Record<string, I18nTextDescriptor>; lookupFields?: Record<string, LookupDescriptor>; getDictionary?: (name: string) => Promise<DictionaryHandle>; presentForJoin?: (record: unknown, locale: string) => unknown }): void { // @internal reconcile.ts's ONE late-attach writer for #671 items 1-3 — descriptor maps merge (construction wins on collision), getDictionary/presentForJoin assign (getDictionary never clobbers a live closure)
     if (patch.dictKeyFields) this.dictKeyFields = { ...patch.dictKeyFields, ...this.dictKeyFields }
     if (patch.i18nFields) this.i18nFields = { ...patch.i18nFields, ...this.i18nFields }
