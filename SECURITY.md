@@ -304,3 +304,21 @@ That axis was handled from the start; **this section is the other one.**
 4. Prefer a store you control for the **primary** target. The confidentiality
    guarantee holds against any backend, but ordering integrity currently does
    not — see *Envelope metadata is not authenticated*
+
+## Blob content addressing and key rotation (#1126)
+
+A blob's content address (`eTag`) is an HMAC over the plaintext, keyed by a
+**vault-lifetime addressing root** (`_blob_addr`) that `rotateKeys` refuses to
+rotate, domain-separated per tier. Rotation therefore re-keys blob **bodies**
+while every stored address — and so every chunk AAD and every index row — stays
+valid. Before this, the address was keyed by the rotating `_blob` DEK, so any
+rotation permanently invalidated every earlier blob's address and the
+presigned-URL read path raised `TamperedError` on legitimate data.
+
+**The residual this accepts, stated plainly.** A revoked member who kept the
+addressing root retains a *confirmation oracle*: given plaintext they already
+hold, they can recompute an address and test whether the vault still stores
+those bytes. They cannot read anything — chunk bodies are sealed under DEKs that
+**do** rotate. The alternative, re-addressing during every rotation, avoids the
+oracle at the cost of re-encrypting every chunk and rewriting every index row on
+each revocation.

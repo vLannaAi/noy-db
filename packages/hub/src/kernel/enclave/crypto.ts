@@ -531,6 +531,45 @@ export async function sha256Hex(data: Uint8Array): Promise<string> {
  * so an attacker with store access cannot pre-compute eTags for known files.
  * Deduplication still works within a vault (same key + same content = same eTag).
  */
+/**
+ * Derive the blob CONTENT-ADDRESSING key for one tier (#1126).
+ *
+ * The blob eTag is an HMAC over the plaintext. It used to be keyed by the
+ * `_blob` DEK — the very key `rotateKeys` replaces — so after any rotation
+ * `HMAC(live DEK, plaintext) !== storedETag` for every blob written before it,
+ * permanently. `decryptResponse()` checks that unconditionally, so the
+ * presigned-URL read path raised `TamperedError` on legitimate data forever;
+ * dedup also split, minting a second address for identical bytes.
+ *
+ * The fix is a `root` that rotation never touches (`_blob_addr`, refused by
+ * `rotateKeys` exactly as `_roster` is). Rotation then re-keys chunk BODIES
+ * while every address stays stable, which is what makes the AAD
+ * `{eTag}:{i}:{count}` and every `_blob_index` / `_blob_slots_*` /
+ * `_blob_versions_*` row survive it untouched.
+ *
+ * **Derived PER TIER, deliberately.** A single vault-wide address would make an
+ * elevated blob and a tier-0 blob with identical content share an eTag,
+ * leaking equality across a boundary the tier system exists to enforce — and
+ * `rehomeForTier` re-addresses on a tier move precisely because the address is
+ * tier-scoped today. Domain separation keeps that property while removing the
+ * rotation coupling: the two are independent axes, and only one of them was
+ * ever meant to change the address.
+ *
+ * Same HKDF idiom as `asKwKey`, with its own salt so the addressing key can
+ * never coincide with a wrapping or encryption key.
+ */
+export async function deriveBlobAddressKey(root: CryptoKey, tier: number): Promise<CryptoKey> {
+  const rawRoot = await subtle.exportKey('raw', root)
+  const hkdfKey = await subtle.importKey('raw', rawRoot, 'HKDF', false, ['deriveBits'])
+  const salt = new TextEncoder().encode('noydb-blob-address')
+  const info = new TextEncoder().encode(`tier:${tier}`)
+  const bits = await subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt, info }, hkdfKey, KEY_BITS)
+  // Imported as AES-GCM only because `hmacSha256Hex` re-exports raw and
+  // re-imports as HMAC; the algorithm tag here is a carrier, never used to
+  // encrypt anything.
+  return subtle.importKey('raw', bits, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt'])
+}
+
 export async function hmacSha256Hex(key: CryptoKey, data: Uint8Array): Promise<string> {
   // Export AES-GCM DEK raw bytes → import as HMAC key
   const rawKey = await subtle.exportKey('raw', key)

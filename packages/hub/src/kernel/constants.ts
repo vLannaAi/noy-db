@@ -38,3 +38,22 @@ export const USER_ENVELOPE_COLLECTION = '_users'
  * `rotateKeys` refuses to rotate it — see the guard there for why.
  */
 export const ROSTER_KEY_ID = '_roster'
+
+/**
+ * Vault-lifetime blob CONTENT-ADDRESSING root (#1126). A keyring DEK slot like
+ * `_roster`, and like it **never rotated** — `rotateKeys` refuses it by name.
+ *
+ * That refusal is the whole point: the blob eTag is an HMAC keyed by this root
+ * (domain-separated per tier), so keying it by the rotating `_blob` DEK made
+ * every pre-rotation address permanently wrong. Rotation now re-keys chunk
+ * bodies while addresses stay put.
+ *
+ * The residual it accepts, stated so nobody has to rediscover it: a revoked
+ * member who kept this key retains a CONFIRMATION ORACLE — given plaintext they
+ * already hold, they can recompute an address and test whether the vault still
+ * stores those bytes. They cannot read anything: chunk bodies are under DEKs
+ * that DO rotate. That is the trade a rotation-invariant address makes, and it
+ * is the one the alternative (re-addressing during rotation) avoids at the cost
+ * of rewriting every chunk and index row on every revocation.
+ */
+export const BLOB_ADDRESS_KEY_ID = '_blob_addr'
