@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/as-blob",
-  "version": "0.6.0-pre.23",
+  "version": "0.6.0-pre.24",
   "description": "Single-attachment plaintext export for noy-db — extracts one blob from BlobSet as native MIME bytes. Gated by the RFC #249 `canExportPlaintext` capability bit; writes an audit-ledger entry on every call. Part of the @noy-db/as-* portable-artefact family (plaintext tier, document sub-family).",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
