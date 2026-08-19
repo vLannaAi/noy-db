@@ -15,6 +15,7 @@ import { buildRecordAad,
   encrypt,
   openEnvelopeJson,
   hmacSha256Hex,
+  deriveBlobAddressKey, // #1126
   encryptBytesWithAAD,
   decryptBytesWithAAD,
   bufferToBase64,
@@ -32,6 +33,7 @@ import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import { detectMagic, isPreCompressed } from './mime-magic.js'
 import { createIntent, getIntent, deleteIntent, sweepBlobIntents, recordAppliedStamp, type BlobIntent, type BlobIntentHold } from './blob-intent.js'
+import { BLOB_ADDRESS_KEY_ID } from '../../kernel/constants.js' // #1126
 
 // ─── Internal collection names ─────────────────────────────────────────
 
@@ -164,7 +166,7 @@ function chunkAAD(eTag: string, chunkIndex: number, chunkCount: number): Uint8Ar
  *
  * ## Deduplication
  *
- * `put()` computes `eTag = HMAC-SHA-256(blobDEK, plaintext)` — keyed so the
+ * `put()` computes `eTag = HMAC-SHA-256(addressKey(tier), plaintext)` — keyed so the
  * store cannot predict eTags for known content. If another record already
  * uploaded the same bytes, the chunks are reused and `refCount` is incremented.
  *
@@ -343,6 +345,27 @@ export class BlobSet {
    * write throws an AEAD decrypt error rather than silently writing under
    * the wrong key.
    */
+  /**
+   * The content-addressing key for `tier` (#1126).
+   *
+   * Derived from `_blob_addr`, a vault-lifetime keyring slot `rotateKeys`
+   * refuses to touch — so a rotation re-keys chunk BODIES while every stored
+   * eTag, and therefore every chunk AAD and every `_blob_index` /
+   * `_blob_slots_*` / `_blob_versions_*` row, survives it unchanged.
+   *
+   * Before this the address was keyed by the `_blob` DEK itself, so after any
+   * rotation `HMAC(live DEK, plaintext) !== storedETag` permanently, for every
+   * blob written earlier: `decryptResponse()` raised `TamperedError` on the
+   * presigned-URL path forever, and dedup split.
+   *
+   * Still derived PER TIER, because the address is meant to be tier-scoped —
+   * `rehomeForTier` re-addresses on a tier move for exactly that reason. Only
+   * the ROTATION coupling was ever wrong.
+   */
+  private async addressKey(tier: number): Promise<EnclaveKey> {
+    return deriveBlobAddressKey(await this.getDEK(BLOB_ADDRESS_KEY_ID), tier)
+  }
+
   private async ownerTier(): Promise<number> {
     if (this.clearedTier !== undefined) return this.clearedTier
     return liveRecordTier(this.store, this.vault, this.collection, this.recordId)
@@ -1623,7 +1646,9 @@ export class BlobSet {
         // than falling through to a fromTier lookup for an eTag that may no
         // longer exist there.
         const toBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, toTier))
-        const fromBlobDEK = await this.getDEK(dekKey(BLOB_COLLECTION, fromTier))
+        // #1126 — the `fromTier` DEK used to be needed here to recompute the
+        // OLD address; the address now derives from the tier alone, so this
+        // resume path no longer touches the retiring key at all.
         const doneETags = new Set(Object.values(slots).map((s) => s.eTag).filter((eTag) => eTag !== ''))
         for (const eTag of doneETags) {
           let loaded: { blob: BlobObject; version: number; atTier: number } | null
@@ -1650,7 +1675,7 @@ export class BlobSet {
           // eTag to begin with.
           if (!loaded || loaded.atTier !== toTier || loaded.blob._cek === undefined) continue
           const plaintext = await this.fetchAllChunks(loaded.blob, toBlobDEK)
-          const oldETag = await hmacSha256Hex(fromBlobDEK, plaintext)
+          const oldETag = await hmacSha256Hex(await this.addressKey(fromTier), plaintext)
           if (oldETag !== eTag) rehomedETags.set(oldETag, eTag)
         }
       } else {
@@ -1674,7 +1699,7 @@ export class BlobSet {
             // decrement) — a solo blob's old object is crypto-shredded at
             // refCount 0, a shared co-owner keeps its unchanged refCount.
             const plaintext = await this.fetchAllChunks(blob, fromBlobDEK)
-            rehomedETags.set(eTag, await hmacSha256Hex(toBlobDEK, plaintext))
+            rehomedETags.set(eTag, await hmacSha256Hex(await this.addressKey(toTier), plaintext))
             for (const [slotName, slot] of Object.entries(slots)) {
               if (slot.eTag !== eTag) continue
               // #747: `fromTier` still pins the slot-map CAS (it's physically
@@ -2157,7 +2182,7 @@ export class BlobSet {
    * attacker-controlled content pulled from the same forged row and would
    * make the check tautological). After assembling the plaintext, we
    * recompute the SAME content address every write path mints
-   * (`hmacSha256Hex(flatBlobDEK, plaintext)` — `writeBlobContent`'s Step 1,
+   * (`hmacSha256Hex(addressKey(tier), plaintext)` — `writeBlobContent`'s Step 1,
    * unconditional on `_cek`) and compare it to that requested eTag. A
    * forged row can produce valid ciphertext under the flat DEK, but can't
    * produce plaintext that re-hashes to an address it doesn't control.
@@ -2197,7 +2222,8 @@ export class BlobSet {
     const plaintext = blob.compression === 'gzip' ? await decompressBytes(assembled) : assembled
 
     if (verifyFlatETag !== undefined && blobDEK) {
-      const recomputed = await hmacSha256Hex(blobDEK, plaintext)
+      // #1126 — the flat-tier fallback opened this at tier 0 by definition.
+      const recomputed = await hmacSha256Hex(await this.addressKey(0), plaintext)
       if (recomputed !== verifyFlatETag) {
         throw new TamperedError(
           `Blob content for eTag "${verifyFlatETag}" failed content-address verification after a ` +
@@ -2307,10 +2333,17 @@ export class BlobSet {
     // or it stays tier-0-decryptable at rest despite the read gate hiding
     // it through the API. `dekKey(BLOB_COLLECTION, 0) === BLOB_COLLECTION`,
     // so a tier-0 (or untiered) record's write is byte-identical to before.
+    // #1126 — the tier is now passed EXPLICITLY rather than implied by which
+    // DEK was resolved. The eTag used to be keyed by `blobDEK` itself, so
+    // tier-scoping came free with the key; addressing from a rotation-invariant
+    // root means the tier has to travel on its own, and a caller that resolved
+    // the DEK at the owner's tier while letting the address default to 0 would
+    // mint an address the read path cannot reproduce.
+    const ownerTier = await this.ownerTier()
     const blobDEK = this.encrypted
-      ? await this.getDEK(dekKey(BLOB_COLLECTION, await this.ownerTier()))
+      ? await this.getDEK(dekKey(BLOB_COLLECTION, ownerTier))
       : null
-    return this.putUnderDEK(slotName, data, blobDEK, opts)
+    return this.putUnderDEK(slotName, data, blobDEK, opts, undefined, ownerTier)
   }
 
   /**
@@ -2510,9 +2543,13 @@ export class BlobSet {
     incrementStamp?: string,
     knownApplied?: ReadonlySet<string>,
   ): Promise<{ eTag: string; mimeType: string | undefined }> {
-    // Step 1 — keyed content-hash (plaintext, before compression)
+    // Step 1 — keyed content-hash (plaintext, before compression).
+    // #1126 — keyed by the vault-lifetime addressing root, NOT by `blobDEK`.
+    // `blobDEK` is what `rotateKeys` replaces, so addressing with it made every
+    // pre-rotation eTag permanently unverifiable. `blobDEK` still decides
+    // whether this vault is encrypted at all, and still seals the bytes.
     const eTag = blobDEK
-      ? await hmacSha256Hex(blobDEK, data)
+      ? await hmacSha256Hex(await this.addressKey(tier ?? 0), data)
       : await plainSha256Hex(data)
 
     // Step 2 — MIME detection
@@ -3418,10 +3455,10 @@ export class BlobSet {
     // `cipherResponse` a caller fetched from a presigned URL) — GCM auth
     // alone doesn't catch a self-consistent forgery planted under a DEK the
     // attacker also holds. Recompute the same content address every write
-    // path mints (`hmacSha256Hex(blobDEK, plaintext)` — `writeBlobContent`'s
+    // path mints (`hmacSha256Hex(addressKey(tier), plaintext)` — `writeBlobContent`'s
     // Step 1, unconditional on `_cek`; mirrors `fetchAllChunks`'s
     // `verifyFlatETag` block) and refuse silently-wrong bytes.
-    const recomputed = await hmacSha256Hex(blobDEK, plaintext)
+    const recomputed = await hmacSha256Hex(await this.addressKey(await this.ownerTier()), plaintext)
     if (recomputed !== slot.eTag) {
       throw new TamperedError(
         `Blob content for eTag "${slot.eTag}" failed content-address verification in decryptResponse() ` +

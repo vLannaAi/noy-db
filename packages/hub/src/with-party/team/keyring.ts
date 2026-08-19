@@ -1,6 +1,6 @@
 import type { NoydbStore, KeyringFile, KeyringAuthenticator, Role, Permissions, GrantOptions, RevokeOptions, UpdateUserOptions, UserInfo, EncryptedEnvelope, ExportCapability, ExportFormat, ImportCapability, VaultPolicyOnDisk, UserEnvelope } from '../../kernel/types.js'
 import { NOYDB_KEYRING_VERSION } from '../../kernel/types.js'
-import { USER_ENVELOPE_COLLECTION, ROSTER_KEY_ID } from '../../kernel/constants.js'
+import { USER_ENVELOPE_COLLECTION, ROSTER_KEY_ID, BLOB_ADDRESS_KEY_ID } from '../../kernel/constants.js'
 import { parseDekKey } from '../../kernel/tier-visibility.js' // #1125 — a tier slot names a key, not a collection
 import {
   buildRecordEnvelope,
@@ -595,6 +595,11 @@ export async function createOwnerKeyring(
   // every later member through grant's `_`-prefix DEK propagation.
   const rosterKey = await generateDEK()
   const wrappedRosterKey = await wrapKey(rosterKey, kek)
+  // #1126 — the blob content-addressing root. Minted once, here, and never
+  // rotated (see the refusal in `rotateKeys`). Rides to every later member on
+  // the same `_`-prefix propagation loop the roster key uses.
+  const blobAddressKey = await generateDEK()
+  const wrappedBlobAddressKey = await wrapKey(blobAddressKey, kek)
   const canary = await mintKeyringCanary(kek)
 
   const authority = {
@@ -613,6 +618,7 @@ export async function createOwnerKeyring(
     deks: {
       [USER_ENVELOPE_COLLECTION]: wrappedUserEnvelopeDek,
       [ROSTER_KEY_ID]: wrappedRosterKey,
+      [BLOB_ADDRESS_KEY_ID]: wrappedBlobAddressKey,
     },
   }
   const keyringFile: KeyringFile = {
@@ -1068,6 +1074,9 @@ export async function revoke(
   // (see the refusal in `rotateKeys`). Dropped here, at the one site that
   // gathers it implicitly, so `rotateKeys` can stay loud about explicit asks.
   affectedCollections.delete(ROSTER_KEY_ID)
+  // #1126 — same treatment, same reason: the blob addressing root is a reserved
+  // key, not a collection, and rotating it would invalidate every blob eTag.
+  affectedCollections.delete(BLOB_ADDRESS_KEY_ID)
   if (affectedCollections.size > 0) {
     const { unverified } = await rotateKeys(store, vault, callerKeyring, {
       collections: [...affectedCollections],
@@ -1606,6 +1615,21 @@ export async function rotateKeys(
   // a caller that asks to rotate the roster key has a mistaken model of what
   // rotation does; swallowing that would hide the mistake rather than fix it.
   const { collections } = opts
+  // #1126 — the blob content-addressing root is NOT rotatable, for the same
+  // structural reason the roster key is not: the blob eTag is an HMAC keyed by
+  // it, so rotating it would invalidate every stored address in the vault at
+  // once — exactly the defect the root exists to remove.
+  //
+  // THROWN, not filtered. `revoke` derives its set from the target's DEK map
+  // and strips this there, the same way it strips `_roster`, so anything
+  // arriving here named it deliberately.
+  if (collections.includes(BLOB_ADDRESS_KEY_ID)) {
+    throw new ValidationError(
+      `rotateKeys: "${BLOB_ADDRESS_KEY_ID}" is the vault's blob content-addressing root, not a ` +
+        'collection, and cannot be rotated — every blob eTag is derived from it, so rotating it ' +
+        'would invalidate every stored address at once. Remove it from `collections`.',
+    )
+  }
   if (collections.includes(ROSTER_KEY_ID)) {
     throw new ValidationError(
       `rotateKeys: "${ROSTER_KEY_ID}" is the vault roster key, not a collection, and cannot be ` +

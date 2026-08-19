@@ -49,7 +49,8 @@ import {
 } from '../../kernel/validation.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { mintKeyringCanary, deriveKekForKeyring, readKeyringFile } from './keyring.js'
-import { assertRosterAuthenticated } from './roster-tag.js'
+import { assertRosterAuthenticated, mintRosterTag } from './roster-tag.js'
+import { ROSTER_KEY_ID } from '../../kernel/constants.js'
 import { buildEchoBlock } from './echo-secret.js'
 import type { DeviceSealProvider } from './device-seal.js'
 import type { KeyringAuthenticator } from '../../kernel/types.js'
@@ -387,7 +388,12 @@ export async function rotateSecret(
   // across a downgrade and miss it on an upgrade. See echoFieldForNewSecret.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- excluded from ...carried
   const { echo: _staleEcho, ...carried } = file
-  const next: KeyringFile = {
+  // #1115/#1126 — RESTAMP. This is a read-modify-write of a file whose roster
+  // tag now covers the DEK key SET, and the rebuild replaces `deks` wholesale.
+  // Carrying the old tag across leaves the vault unopenable the moment the
+  // recovered set differs from the one the tag was minted over, and fragile
+  // even when it does not.
+  const rebuilt = {
     ...carried,
     _noydb_keyring: NOYDB_KEYRING_VERSION,
     deks: wrappedDeks,
@@ -395,6 +401,10 @@ export async function rotateSecret(
     authenticators: newSlots,
     canary,
     ...(await echoFieldForNewSecret(input.newSecret, input.echoOptions)),
+  }
+  const next: KeyringFile = {
+    ...rebuilt,
+    roster_tag: await mintRosterTag(rebuilt, requireRecoveredRosterKey(deks)),
   }
 
   await writeKeyringFile(store, vault, userId, next)
@@ -700,7 +710,8 @@ async function recoverViaPaperCode(
   // echoFieldForNewSecret.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- excluded from ...carried
   const { echo: _staleEcho, ...carried } = file
-  const next: KeyringFile = {
+  // #1115/#1126 — RESTAMP, same reason as the other rebuild sites.
+  const rebuilt = {
     ...carried,
     _noydb_keyring: NOYDB_KEYRING_VERSION,
     deks: wrappedDeks,
@@ -708,6 +719,10 @@ async function recoverViaPaperCode(
     authenticators: [], // tier-2 slots wrap old KEK, drop them
     canary,
     ...(await echoFieldForNewSecret(input.newSecret)),
+  }
+  const next: KeyringFile = {
+    ...rebuilt,
+    roster_tag: await mintRosterTag(rebuilt, requireRecoveredRosterKey(deks)),
   }
 
   // Burn first, then rewrite the keyring. The two writes are not
@@ -872,7 +887,8 @@ async function recoverViaShamir(
   // echoFieldForNewSecret.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- excluded from ...carried
   const { echo: _staleEcho, ...carried } = file
-  const next: KeyringFile = {
+  // #1115/#1126 — RESTAMP, same reason as the paper path above.
+  const rebuilt = {
     ...carried,
     _noydb_keyring: NOYDB_KEYRING_VERSION,
     deks: wrappedDeks,
@@ -880,6 +896,10 @@ async function recoverViaShamir(
     authenticators: [], // tier-2 slots wrap old KEK, drop them on recovery
     canary,
     ...(await echoFieldForNewSecret(input.newSecret)),
+  }
+  const next: KeyringFile = {
+    ...rebuilt,
+    roster_tag: await mintRosterTag(rebuilt, requireRecoveredRosterKey(recoveredDeks)),
   }
 
   // No burn: Shamir entries persist across recoveries. Explicit
@@ -911,4 +931,25 @@ async function writeKeyringFile(
     { iv: '', data: JSON.stringify(file) },
   )
   await store.put(vault, '_keyring', userId, envelope)
+}
+
+/**
+ * The roster key out of a RECOVERED DEK map. Recovery rebuilds the keyring file
+ * from scratch, so it must restamp — and it can, because the roster key travels
+ * inside the recovered set like any other `_`-prefixed slot.
+ *
+ * Throws rather than skipping the restamp: a recovery that cannot produce a
+ * verifiable tag has produced a file nobody can open, and failing here says so
+ * instead of writing it.
+ */
+function requireRecoveredRosterKey(deks: Map<string, EnclaveKey>): EnclaveKey {
+  const key = deks.get(ROSTER_KEY_ID)
+  if (!key) {
+    throw new ValidationError(
+      `recoverSecret: the recovered DEK set carries no "${ROSTER_KEY_ID}" entry, so the rebuilt ` +
+        'keyring could not be re-signed. The recovery material predates the authenticated roster ' +
+        'and the vault must be re-seeded.',
+    )
+  }
+  return key
 }
