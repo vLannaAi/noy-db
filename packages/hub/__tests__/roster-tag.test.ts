@@ -6,7 +6,8 @@ const base = {
   user_id: 'bob', role: 'viewer' as const,
   permissions: { invoices: 'ro' as const, salaries: 'rw' as const },
   granted_by: 'owner-01',
-} // expires_at / export_capability / import_capability absent
+  deks: { invoices: 'WRAPPED-1', salaries: 'WRAPPED-2' }, // #1115 — names are bound, values are not
+} // expires_at / export_capability / import_capability / pending_deks absent
 
 describe('rosterCanonical', () => {
   it('is deterministic under permission key order', () => {

@@ -43,11 +43,15 @@ import type { EnclaveKey } from '../../kernel/enclave/index.js'
 import { encrypt, decrypt } from '../../kernel/enclave/index.js'
 import { ROSTER_KEY_ID } from '../../kernel/constants.js'
 import { KeyringTamperedError } from '../../kernel/errors.js'
+import type { KeyringTamperedReason } from '../../kernel/errors.js'
+import { NOYDB_KEYRING_VERSION } from '../../kernel/types.js'
 
 export interface RosterTag { readonly iv: string; readonly data: string }
 
 export type RosterAuthorityFields = Pick<KeyringFile,
-  'user_id' | 'role' | 'permissions' | 'granted_by' | 'expires_at' | 'export_capability' | 'import_capability'>
+  'user_id' | 'role' | 'permissions' | 'granted_by' | 'expires_at' | 'export_capability' | 'import_capability'
+  // #1115 — the DEK key SETS. Names only; see `rosterCanonical`.
+  | 'deks' | 'pending_deks'>
 
 /** Stable stringify — sorts object keys recursively so key order never splits the tag. */
 function stable(value: unknown): string {
@@ -68,6 +72,25 @@ export function rosterCanonical(file: RosterAuthorityFields): string {
     role: file.role,
     permissions: file.permissions,
     granted_by: file.granted_by,
+    // #1115 — WHICH collections this keyring holds a key for, authenticated.
+    //
+    // `revoke` derives its rotation scope from `Object.keys(target.deks)`, so
+    // while this set was unauthenticated a store could strip entries from the
+    // target's file and have those collections silently skipped by the
+    // rotation — leaving a revoked member, colluding with that store, holding
+    // live DEKs for exactly the collections it removed. That directly
+    // contradicts `SECURITY.md`'s "the rotation cannot be skipped".
+    //
+    // NAMES ONLY, deliberately. The wrapped values are AES-KW, which is
+    // self-authenticating: a tampered wrap fails to unwrap. What was
+    // unprotected is the SHAPE of the map, not its contents.
+    //
+    // `pending_deks` is bound for the same reason one field over: stripping it
+    // makes an interrupted rotation mint a fresh DEK instead of resuming,
+    // permanently orphaning every record already rewritten under the pending
+    // key (#1074). Leaving it out would recreate the identical hole.
+    dek_slots: Object.keys(file.deks ?? {}).sort(),
+    pending_dek_slots: Object.keys(file.pending_deks ?? {}).sort(),
     expires_at: file.expires_at ?? null,
     export_capability: file.export_capability ?? null,
     import_capability: file.import_capability ?? null,
@@ -160,9 +183,27 @@ export async function assertRosterTagValid(
   userId: string,
 ): Promise<void> {
   if (!(await verifyRosterTag(file, file.roster_tag, rosterKey))) {
-    throw new KeyringTamperedError({
-      userId,
-      reason: file.roster_tag == null ? 'roster-tag-missing' : 'roster-tag-mismatch',
-    })
+    throw new KeyringTamperedError({ userId, reason: mismatchReason(file) })
   }
+}
+
+/**
+ * Which flavour of tag failure to REPORT. Never which decision to take — every
+ * branch here refuses.
+ *
+ * `roster-tag-mismatch` is the one unqualified accusation in
+ * `KeyringTamperedReason`, justified by "no released version wrote a mismatched
+ * tag". #1115 widened what the tag covers, which makes that false for every
+ * vault written before it — so an ordinary upgrade would otherwise be announced
+ * as the store altering a member's role. That is exactly the cry-wolf failure
+ * #1129 was shipped to fix, on the alarm the product's central claim rests on.
+ *
+ * The version field is plaintext and store-writable. Reading it is safe here
+ * ONLY because it selects a message and nothing else — the same
+ * classification-only property #1103 established for `TamperedError.reason`.
+ */
+function mismatchReason(file: KeyringFile): KeyringTamperedReason {
+  if (file.roster_tag == null) return 'roster-tag-missing'
+  if (file._noydb_keyring !== NOYDB_KEYRING_VERSION) return 'format-superseded'
+  return 'roster-tag-mismatch'
 }

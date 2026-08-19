@@ -604,17 +604,24 @@ export async function createOwnerKeyring(
     permissions: {},
     granted_by: userId,
   }
-  const keyringFile: KeyringFile = {
-    _noydb_keyring: NOYDB_KEYRING_VERSION,
+  // #1115 — the tag is minted from the object that is actually WRITTEN, never
+  // from a separate `authority` literal. The DEK key set is part of what the tag
+  // covers now, so stamping a side object would let the two drift the moment
+  // someone edits `deks` here and not there. Same shape at every mint site.
+  const authorityWithDeks = {
     ...authority,
     deks: {
       [USER_ENVELOPE_COLLECTION]: wrappedUserEnvelopeDek,
       [ROSTER_KEY_ID]: wrappedRosterKey,
     },
+  }
+  const keyringFile: KeyringFile = {
+    _noydb_keyring: NOYDB_KEYRING_VERSION,
+    ...authorityWithDeks,
     salt: bufferToBase64(salt),
     created_at: new Date().toISOString(),
     canary,
-    roster_tag: await mintRosterTag(authority, rosterKey),
+    roster_tag: await mintRosterTag(authorityWithDeks, rosterKey),
     // The presence of this block is what makes the keyring an echo keyring —
     // `deriveKekForKeyring` reads it to refuse a single-string unlock (AG-1).
     ...(typeof secret !== 'string'
@@ -837,16 +844,16 @@ export async function grant(
     ...(options.exportCapability !== undefined && { export_capability: options.exportCapability }),
     ...(options.importCapability !== undefined && { import_capability: options.importCapability }),
   }
+  const authorityWithDeks = { ...authority, deks: wrappedDeks } // #1115
   const keyringFile: KeyringFile = {
     _noydb_keyring: NOYDB_KEYRING_VERSION,
-    ...authority,
-    deks: wrappedDeks,
+    ...authorityWithDeks,
     salt: bufferToBase64(newSalt),
     created_at: new Date().toISOString(),
     canary,
     // The grantee's own copy of the roster key rode in via the `_`-prefix
     // propagation loop above, so they can verify this tag on first unlock.
-    roster_tag: await mintRosterTag(authority, callerRosterKey),
+    roster_tag: await mintRosterTag(authorityWithDeks, callerRosterKey),
   }
 
   await writeKeyringFile(store, vault, options.userId, keyringFile)
@@ -1928,14 +1935,14 @@ export async function changeSecret(
     ...(existingAuthority?.export_capability !== undefined && { export_capability: existingAuthority.export_capability }),
     ...(existingAuthority?.import_capability !== undefined && { import_capability: existingAuthority.import_capability }),
   }
+  const authorityWithDeks = { ...authority, deks: wrappedDeks } // #1115
   const keyringFile: KeyringFile = {
     _noydb_keyring: NOYDB_KEYRING_VERSION,
-    ...authority,
-    deks: wrappedDeks,
+    ...authorityWithDeks,
     salt: bufferToBase64(newSalt),
     created_at: new Date().toISOString(),
     canary,
-    roster_tag: await mintRosterTag(authority, rosterKey),
+    roster_tag: await mintRosterTag(authorityWithDeks, rosterKey),
   }
 
   await writeKeyringFile(store, vault, keyring.userId, keyringFile)
@@ -2105,16 +2112,16 @@ export async function buildRecipientKeyringFile(
       ? { expires_at: recipient.expiresAt }
       : {}),
   }
+  const authorityWithDeks = { ...authority, deks: wrappedDeks } // #1115
   return {
     _noydb_keyring: NOYDB_KEYRING_VERSION,
-    ...authority,
-    deks: wrappedDeks,
+    ...authorityWithDeks,
     salt: bufferToBase64(newSalt),
     created_at: new Date().toISOString(),
     canary,
     // The recipient's copy of the roster key rode in via the `_`-prefix
     // propagation loop above, so the slot verifies on first unlock.
-    roster_tag: await mintRosterTag(authority, rosterKey),
+    roster_tag: await mintRosterTag(authorityWithDeks, rosterKey),
     // The presence of this block is what makes the recipient's slot an
     // echo keyring — mirrors `createOwnerKeyring`'s same dance so the
     // ceremony (prompt → echo → key) travels with the pod, not just a
@@ -2515,15 +2522,22 @@ export async function persistKeyring(
     ...(keyring.exportCapability !== undefined && { export_capability: keyring.exportCapability }),
     ...(keyring.importCapability !== undefined && { import_capability: keyring.importCapability }),
   }
-  const keyringFile: KeyringFile = {
-    _noydb_keyring: NOYDB_KEYRING_VERSION,
+  // #1115 — `pending_deks` rides in here too: `rotateKeys` persists the new key
+  // through this function BEFORE rewriting any record, so an unauthenticated
+  // pending set would let a store strip it and make the resume mint a fresh DEK,
+  // orphaning every record already rewritten under the pending one.
+  const authorityWithDeks = {
     ...authority,
     deks: wrappedDeks,
     ...(Object.keys(wrappedPending).length > 0 ? { pending_deks: wrappedPending } : {}),
+  }
+  const keyringFile: KeyringFile = {
+    _noydb_keyring: NOYDB_KEYRING_VERSION,
+    ...authorityWithDeks,
     salt: bufferToBase64(keyring.salt),
     created_at: existingCreatedAt ?? new Date().toISOString(),
     canary,
-    roster_tag: await mintRosterTag(authority, rosterKey),
+    roster_tag: await mintRosterTag(authorityWithDeks, rosterKey),
     ...(keyring.authenticators.length > 0 && { authenticators: keyring.authenticators }),
     ...(keyring.policy !== undefined && { policy: keyring.policy }),
     ...(existingEcho !== undefined && { echo: existingEcho }),

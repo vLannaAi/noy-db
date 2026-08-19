@@ -276,6 +276,21 @@ export type KeyringTamperedReason =
   | 'roster-tag-missing'
   | 'roster-tag-mismatch'
   /**
+   * The tag does not verify AND the file declares an older `_noydb_keyring`
+   * than this build writes (#1115) — a format transition, not an attack.
+   *
+   * Split out of `roster-tag-mismatch` deliberately. That label carries the one
+   * UNQUALIFIED accusation in this union, on the grounds that no released
+   * version ever wrote a mismatched tag. Widening what the tag covers makes
+   * that false for every vault written before the change, so without this the
+   * most common cause of a mismatch — you upgraded — would be reported as
+   * "the store has changed a member's role".
+   *
+   * CLASSIFICATION ONLY: the outcome is refusal either way, so a store that
+   * rewrites the plaintext version field changes the wording and nothing else.
+   */
+  | 'format-superseded'
+  /**
    * The file did not parse at all (#1121). Never thrown by
    * `assertRosterAuthenticated` — which cannot reach a file it could not read —
    * but reported by `verifyRoster` and accepted by `quarantineKeyring`, because
@@ -337,12 +352,23 @@ function keyringTamperedMessage(userId: string, reason: KeyringTamperedReason): 
         'likeliest cause, and a store serving deliberate garbage is indistinguishable from it. ' +
         '`verifyRoster()` reports which members are affected; `quarantineKeyring()` removes one.'
       )
+    case 'format-superseded':
+      return (
+        head +
+        'This keyring was written by an OLDER FORMAT — the roster tag protects a narrower set ' +
+        'of fields than this version verifies (#1115 added the DEK key set), so a genuine older ' +
+        'tag cannot verify here. That format change ships without a migration, so an existing ' +
+        'vault must be re-seeded. Access is refused either way, and the version field this ' +
+        'branch reads selects only the wording — never the decision — so a store cannot use it ' +
+        'to weaken anything.'
+      )
     case 'roster-tag-mismatch':
       return (
         head +
         'The roster tag is present but does not match the authority fields it protects, so ' +
         'those fields were altered after they were signed. Unlike a missing tag this is not a ' +
-        'format-transition state — no released version wrote a mismatched tag — so the store ' +
+        'format-transition state — a same-format mismatch is one no released version ever ' +
+        'wrote (an older FORMAT reports `format-superseded` instead) — so the store ' +
         'serving this vault, or something between you and it, has changed a member\'s role, ' +
         'permissions or expiry.'
       )

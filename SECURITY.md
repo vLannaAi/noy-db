@@ -34,7 +34,7 @@ All operations use the Web Crypto API (`crypto.subtle`). Zero npm crypto depende
 | Cloud admin reads data | Zero-knowledge by default — backends store only ciphertext; non-PRF WebAuthn enrollments are refused by default but can be explicitly opted in via `allowNonPrfInsecure`, producing a documented non-confidential presence gate |
 | Brute-force secret | PBKDF2 600K iterations (~200ms/attempt). a 12-char secret is infeasible |
 | Tampered record **body** | AES-GCM auth tag — decrypt fails with `TamperedError`. Covers `_data` only; see *Envelope metadata is not authenticated* below. ⚠️ **A `TamperedError` is not by itself proof of an attack** — see *Reading a `TamperedError`* |
-| Revoked user retains data | Revocation always re-encrypts the affected collections under new DEKs — the rotation cannot be skipped |
+| Revoked user retains data | Revocation always re-encrypts the affected collections under new DEKs — the rotation cannot be skipped. The scope is derived from the target's DEK key set, which the roster tag authenticates (#1115), so a store cannot shrink it by stripping entries; and it covers `collection#tier` slots, so elevated records rotate with the rest (#1125) |
 | Compromised biometric store | Wrapped KEK encrypted by WebAuthn credential (PRF-capable); non-PRF enrollments self-decrypt and are not recommended for this threat model |
 | Store edits a member's role, permissions, capabilities, or expiry | Since #1096, `_keyring`'s plaintext authority fields carry a `roster_tag` verified on every unlock path — see *The keyring roster is an authenticated surface* below |
 

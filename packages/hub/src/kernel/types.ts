@@ -76,7 +76,11 @@ export type { EchoSecretParts }
 export const NOYDB_FORMAT_VERSION = 1 as const
 
 /** Format version for keyring files. */
-export const NOYDB_KEYRING_VERSION = 1 as const
+// Bumped 1 -> 2 (#1115): the roster tag now covers the DEK key SET, so a tag
+// minted by an earlier version cannot verify under the current canonicalization.
+// The field is plaintext and store-writable — it is read ONLY to choose the
+// error MESSAGE, never the decision, which is "refuse" either way.
+export const NOYDB_KEYRING_VERSION = 2 as const
 
 /** Format version for backup files. */
 export const NOYDB_BACKUP_VERSION = 1 as const
