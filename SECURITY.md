@@ -230,6 +230,40 @@ bound (a): they have no write path to a store that is not already colluding
 with them, and a colluding store is the member-forgery case already
 conceded above, not a new one.
 
+#### A narrowing re-grant, and what replaying it still buys (#1097)
+
+`writeKeyringFile` is a bare `put`, so a re-grant with a lower role or narrower
+permissions **overwrites in place**. The file it replaces was legitimately
+minted by this vault, so a store that kept a copy can re-serve it and
+`loadKeyring` accepts it: the KEK unwraps, the canary checks out, the
+`roster_tag` verifies. **None of those is a claim about being current.**
+
+A narrowing re-grant now **rotates the collections it takes away**, which is
+what ADR 0003 assumed when it bounded a suppressed keyring delete. Measured on
+the shipped code — revoke a member, replay their retained pre-revoke file:
+
+| | result |
+|---|---|
+| `openVault` | **succeeds** |
+| reading a record | **`TamperedError`** — the DEK rotated underneath it |
+
+So the replay restores **capabilities, not keys**. The residual is that role
+gates *capabilities*, and rotation cannot reach those: a replayed admin can
+still call `grant`. Closing it needs an ordering anchor a store cannot rewind,
+and **there is not one yet** — `withVaultHead()` cannot serve as it, because
+head buckets are ordinary records read with a keyring-issued DEK, so the
+artefact granting readability of the anchor is the artefact being anchored.
+
+**This sits inside bound (a), not beside it.** The replay needs a store that
+serves the stale file, and a store colluding with a member is already outside
+this boundary. What #1097 adds is that the member need not still hold anything
+— their old file is enough — and what the fix removes is the part that mattered
+most: **they can no longer read a single record written after the narrowing.**
+
+**Nothing here should be read as "revocation is complete."** It is complete
+against the store for *data*; it is not complete against a colluding store for
+*authority*.
+
 #### Reading a `KeyringTamperedError` (#1129)
 
 `TamperedError` carries a `reason` that separates a benign format transition from
@@ -293,8 +327,10 @@ That axis was handled from the start; **this section is the other one.**
   with such a member to serve the forged file. `roster_tag` defends against
   the store; it does not defend against a member who already has the key
 - A store **replaying** a genuine, pre-narrowing `_keyring` file to restore a
-  member's earlier, broader role — detectable only with a mechanism neither
-  `roster_tag` nor `withVaultHead()` provides yet ([#1097](https://github.com/vLannaAi/noy-db/issues/1097))
+  member's earlier, broader **role**. The DEKs it carries are dead — a
+  narrowing re-grant now rotates the collections it drops — so the replay
+  yields **capabilities, not data**. See *A narrowing re-grant, and what
+  replaying it still buys* below ([#1097](https://github.com/vLannaAi/noy-db/issues/1097))
 
 ### Recommendations
 
