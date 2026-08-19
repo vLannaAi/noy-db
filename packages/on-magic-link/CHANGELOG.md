@@ -1,5 +1,110 @@
 # @noy-db/on-magic-link
 
+## 0.6.0
+
+### Minor Changes
+
+- `redeemGrantToken(link, { store, newPhrase, ... })` connects the frozen `#g=` share-link grammar (`@noy-db/hub/share-link`) to the existing `acceptInvite` ladder — the missing Tier-3 wire (#949). It reads `link.grantToken`, throwing the new `GrantTokenMissingError` when absent, and otherwise runs the unchanged TTL → audit-doc-missing fail-closed → revoked → already-accepted (replay) checks, rotates the single-use temp phrase to `newPhrase`, and opens the vault. The grammar's "single-use" claim is now true end to end: a second redemption of the same link throws `InviteAlreadyAcceptedError`. Works identically for invite and peer-recovery redemption — `kind` lives in the decoded payload, not the call site. Pure wiring; no new crypto, no change to the safety ladder itself.
+
+### Patch Changes
+
+- Single-source the envelope format version
+
+  14 sites across 13 source files hardcoded `_noydb: 1` instead of using
+  `NOYDB_FORMAT_VERSION`, while 85 sites used the constant correctly. All now
+  use the constant.
+
+  No behaviour change — the constant is `1`, so every envelope is byte-identical.
+  This is groundwork for #1041: nothing currently validates `_noydb` on read, so
+  these literals were invisible. Once the format version is bumped and a strict
+  reader is added, any surviving literal would emit format-1 envelopes that the
+  reader rejects — a runtime failure in delegation, sync presence, keyring and
+  metering paths, surfacing only when those envelopes are read back.
+
+  Because `EncryptedEnvelope._noydb` is typed `typeof NOYDB_FORMAT_VERSION`
+  rather than `number`, the absence of remaining literals is now compiler-
+  verifiable: flipping the constant typechecks clean.
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0
+
 ## 0.6.0-pre.24
 
 ### Patch Changes
