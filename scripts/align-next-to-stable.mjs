@@ -278,8 +278,19 @@ function main() {
   // fact moved. It then printed 52 OTP recovery commands for packages that
   // needed no repair, which is a worse outcome than saying nothing.
   //
-  // So: verify all of them AFTER all the writes (the writes alone take long
-  // enough to settle most), then re-check only the stragglers, a few times.
+  // So: verify all of them AFTER all the writes, then re-check only the
+  // stragglers, a few times.
+  //
+  // ⚠️ LOAD-BEARING AND EASY TO PORT AWAY: `confirmMoved` reads in the SAME
+  // ORDER these were written. That is what gives every package roughly one
+  // pass-duration of settle instead of leaving the last-written ones with
+  // none — write i lands at `i·w`, its read happens at `n·w + i·r`, so the
+  // settle floor is `n·r`, the whole read pass. Reverse the read loop for any
+  // reason and the tail drops to ~zero.
+  //
+  // It also scales the WRONG way for a small repo: at 52 packages one pass is
+  // ~80s, at 3 packages it is ~4s. So this ordering is not the safety
+  // mechanism — the retry below is. Do not port the two-pass split without it.
   const unconfirmed = confirmMoved(written, version, note)
 
   if (unconfirmed.length > 0) {

@@ -168,3 +168,28 @@ describe('confirmMoved — a stale read is not a failure', () => {
     expect(confirmMoved([], '0.6.0', noop, { read, sleep: noop })).toEqual([])
   })
 })
+
+describe('confirmMoved — the ordering that gives the tail its settle', () => {
+  it('reads in the order written, so the last-written is not read first', () => {
+    // Load-bearing and unstated until now: same-order reads give every package
+    // roughly one pass-duration of settle. Reversing the read loop takes the
+    // last-written packages to near-zero, which is where a stale read looks
+    // most like a genuine straggler.
+    const order: string[] = []
+    const read = (p: string) => { order.push(p); return { next: '0.6.0' } }
+    confirmMoved(['a', 'b', 'c'], '0.6.0', () => {}, { read, sleep: () => {}, delayMs: 0 })
+    expect(order).toEqual(['a', 'b', 'c'])
+  })
+
+  it('re-checks stragglers in their original relative order too', () => {
+    const order: string[] = []
+    let round = 0
+    const read = (p: string) => {
+      order.push(p)
+      return { next: round++ < 3 ? '0.6.0-pre.24' : '0.6.0' }
+    }
+    confirmMoved(['a', 'b', 'c'], '0.6.0', () => {}, { read, sleep: () => {}, delayMs: 0 })
+    expect(order.slice(0, 3)).toEqual(['a', 'b', 'c'])
+    expect(order.slice(3, 6)).toEqual(['a', 'b', 'c'])
+  })
+})
