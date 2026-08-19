@@ -758,6 +758,15 @@ export async function grant(
   // different one and orphan the copy we are about to wrap for the grantee.
   if (mintedForGrant) await persistKeyring(store, vault, callerKeyring)
 
+  // #1097 — capture the DEK set this grant REPLACES, before it is overwritten.
+  // A re-grant with a lower role or narrower permissions drops entries here, and
+  // the file it overwrites remains replayable; see the rotation below. `null`
+  // for a first grant, where there is nothing to narrow.
+  const previousGrantFound = await readKeyringFile(store, vault, options.userId)
+  const previousDekNames: ReadonlySet<string> | null = previousGrantFound
+    ? new Set(Object.keys(previousGrantFound.file.deks))
+    : null
+
   // Wrap the appropriate DEKs with the new user's KEK
   const wrappedDeks: Record<string, string> = {}
   for (const collName of Object.keys(permissions)) {
@@ -863,6 +872,44 @@ export async function grant(
   }
 
   await writeKeyringFile(store, vault, options.userId, keyringFile)
+
+  // #1097 — A NARROWING RE-GRANT MUST ROTATE WHAT IT TAKES AWAY.
+  //
+  // `writeKeyringFile` is a bare `put`: it OVERWRITES in place, and the file it
+  // replaces was legitimately minted by this vault. A store that kept a copy can
+  // re-serve it, and `loadKeyring` accepts it — the KEK unwraps, the canary
+  // checks out, the roster tag verifies, because none of that is a claim about
+  // being CURRENT.
+  //
+  // ADR 0003 reasoned that a suppressed keyring delete is bounded because
+  // revocation rotates, so an old roster's DEKs cannot open post-rotation
+  // records. That holds for revocation. **A narrowing re-grant rotated nothing**,
+  // so the replayed file opened records written AFTER the narrowing — live
+  // access, not stale access.
+  //
+  // Rotating the collections this grant DROPS restores the bound ADR 0003
+  // assumed: the old file's wrapped DEKs still unwrap, and no longer open
+  // anything written since. Reserved `_`-prefixed slots are excluded — they are
+  // keys, not collections, and `rotateKeys` refuses them by name.
+  //
+  // What this does NOT fix, and #1097 stays open for: the replayed file also
+  // restores the OLD ROLE, and role gates capabilities rather than keys, so
+  // rotation cannot touch it. That half needs an anchor the store cannot rewind.
+  //
+  // SELF-re-grant is excluded, and not merely to avoid an interaction: the
+  // caller already holds every DEK in their unlocked keyring, so "dropping" a
+  // collection from their own file takes nothing away and there is no stale
+  // copy to make stale. (It also cannot work — `rotateKeys` calls
+  // `persistKeyring` on the caller, which rebuilds their file from the
+  // in-memory keyring and would overwrite the grant just written.)
+  if (previousDekNames !== null && options.userId !== callerKeyring.userId) {
+    const dropped = [...previousDekNames].filter(
+      (name) => !name.startsWith('_') && !(name in wrappedDeks),
+    )
+    if (dropped.length > 0) {
+      await rotateKeys(store, vault, callerKeyring, { collections: dropped })
+    }
+  }
 
   // User envelope bootstrap. Seeded with `options.initialProfile` if
   // provided, otherwise an empty `{}`. Encrypted with the caller's
