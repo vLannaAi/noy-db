@@ -590,15 +590,30 @@ jobs:
 
           cat /tmp/bridge-comment.md >> "$GITHUB_STEP_SUMMARY"
 
+          # Family convention: `doc-sync needed: <repo> vX.Y.Z @channel`. The repo
+          # name is NOT decoration — noy-db and noy-db-ui both filed unprefixed
+          # titles, and were distinguishable only because their version lines
+          # happen to differ (0.6.x vs 0.3.x). That is a coincidence of numbering,
+          # not a property of the title. The same discipline already exists one
+          # layer down: `bridge.mjs`'s `parseBridge` takes `expectedRepo` and
+          # throws on mismatch, added because a same-named tag CAN exist in two
+          # producers. The payload was guarded; the title was not.
+          #
+          # TITLE is built ONCE and reused by all three sites below — the search,
+          # the exact-match filter, and the create. They must never drift: an
+          # idempotency search that does not match what `create` writes files a
+          # duplicate on every re-run, silently.
+          TITLE="doc-sync needed: noy-db $TAG @$CHANNEL"
+
           NUM=$(gh issue list -R vLannaAi/noy-db-docs --state open --limit 20 \
-            --search "doc-sync needed: $TAG @$CHANNEL in:title" \
-            --json number,title --jq ".[] | select(.title == \"doc-sync needed: $TAG @$CHANNEL\") | .number" | head -1)
+            --search "$TITLE in:title" \
+            --json number,title --jq ".[] | select(.title == \"$TITLE\") | .number" | head -1)
 
           if [ -n "$NUM" ]; then
             gh issue comment "$NUM" -R vLannaAi/noy-db-docs --body-file /tmp/bridge-comment.md
           else
             gh issue create -R vLannaAi/noy-db-docs \
-              --title "doc-sync needed: $TAG @$CHANNEL" \
+              --title "$TITLE" \
               --body-file /tmp/bridge-comment.md
           fi
 
