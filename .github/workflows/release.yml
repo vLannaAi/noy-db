@@ -393,6 +393,35 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      # Align `next` onto the stable. A stable cut breaks the "@next runs ahead
+      # of @latest" invariant MECHANICALLY, with nobody making a mistake:
+      # 0.6.0 > 0.6.0-pre.24, because a prerelease sorts below its own release.
+      # So the moment `latest` moves, `next` is behind it for ~52 packages at
+      # once. Pointing both at the stable is self-correcting — the next
+      # prerelease publish restores the invariant on its own.
+      #
+      # NOT continue-on-error, and NOT the never-fail-the-caller posture of the
+      # step above. That one is right there: a stale `latest` on a pre-only
+      # package is cosmetic, and reddening a release over it trains people to
+      # stop reading the log. This runs while DELIVERING A STABLE across
+      # packages that ship together, where a half-applied state is worse than a
+      # loud failure — it is exactly the state a human then repairs by hand
+      # with an OTP. The script prints those recovery commands on failure.
+      #
+      # The version is pushed IN rather than read from CI context, so the logic
+      # is runnable from a terminal: this trigger cannot fire until a real
+      # stable cut, so anything reading `github.*` internally would be testable
+      # only by cutting one.
+      - name: Align next onto the stable
+        if: steps.dist_tag.outputs.tag == 'latest'
+        run: |
+          # Same source the publish used, and the same one the tag-vs-version
+          # gate above already checked against the Release tag.
+          VERSION="$(node -p "require('./packages/hub/package.json').version")"
+          node scripts/align-next-to-stable.mjs --version="$VERSION"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       # pnpm pack resolves workspace:* to real versions; npm publish sends
       # the resulting tarball directly — bypassing pnpm's own publish path.
       - name: Pack create-noy-db tarball
