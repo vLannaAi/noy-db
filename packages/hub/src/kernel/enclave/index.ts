@@ -71,6 +71,7 @@ export {
   decryptDeterministic,
   sha256Hex,
   hmacSha256Hex,
+  deriveBlobAddressKey, // #1126
 } from './crypto.js'
 
 // ─── key lifecycle ─────────────────────────────────────────────────

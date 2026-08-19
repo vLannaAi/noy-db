@@ -19,6 +19,7 @@
     "decryptBytes",
     "decryptBytesWithAAD",
     "decryptDeterministic",
+    "deriveBlobAddressKey",
     "deriveBrokerProofBits",
     "deriveBrokerProofKey",
     "deriveClassifyIndexKey",
