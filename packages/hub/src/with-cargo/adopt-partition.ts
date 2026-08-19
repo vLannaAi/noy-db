@@ -10,7 +10,8 @@
 import { base64ToBuffer, wrapKey, type EnclaveKey } from '../kernel/enclave/index.js'
 import { TransferSealError, AdoptionStateError, ValidationError } from '../kernel/errors.js'
 import type { NoydbStore, VaultSnapshot, KeyringFile } from '../kernel/types.js'
-import { createOwnerKeyring } from '../with-party/team/keyring.js'
+import { createOwnerKeyring, requireRosterKey } from '../with-party/team/keyring.js'
+import { mintRosterTag } from '../with-party/team/roster-tag.js' // #1115
 import { resolveManagedSecret } from '../with-party/team/managed-secret.js'
 import type { SealingKeyProvider } from '../with-party/team/managed-secret.js'
 import type { ShamirRecoveryProvider } from '../with-party/team/shamir-recovery-provider.js'
@@ -299,7 +300,18 @@ export async function createOwnerOnAdoptedPartition(
     for (const [collection, dek] of partitionDeks) {
       mergedDeks[collection] = await wrapKey(dek, kek)
     }
-    const mergedFile: KeyringFile = { ...keyringFile, deks: mergedDeks }
+    // #1115 — RESTAMP. The roster tag now covers the DEK key SET, and this merge
+    // is precisely a change to that set: adoption joins the partition's
+    // collections to a keyring `createOwnerKeyring` stamped moments earlier
+    // without them. Writing the merged file under the old tag would leave every
+    // adopted vault failing `roster-tag-mismatch` on its first open.
+    //
+    // The roster key is the one just minted for this NEW vault — unlike
+    // `liberateVault`, which joins an EXISTING vault and must keep the
+    // incumbent key so co-members can still verify each other.
+    const merged: KeyringFile = { ...keyringFile, deks: mergedDeks }
+    const rosterKey = requireRosterKey(unlocked, 'adoptPartition')
+    const mergedFile: KeyringFile = { ...merged, roster_tag: await mintRosterTag(merged, rosterKey) }
     await store.put(vaultName, '_keyring', userId, { ...env, _data: JSON.stringify(mergedFile) })
   }
 
