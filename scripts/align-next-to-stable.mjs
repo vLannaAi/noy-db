@@ -136,6 +136,45 @@ export function decideAction(tags, version) {
 
 // ── everything below is I/O; the decisions above are pure ──────────────────
 
+const firstLine = (err) => (err?.stderr?.toString() ?? err?.message ?? '').split('\n')[0]
+
+/** Block the thread. Fine here: this script is a linear release step. */
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+/**
+ * Re-read until every package reports the new `next`, or the attempts run out.
+ * Returns the ones still unconfirmed — NOT the ones that failed. Collapsing
+ * "the write errored" into "I could not confirm it yet" is what turned a
+ * successful release into a red job telling someone to repair 52 packages by
+ * hand.
+ */
+export function confirmMoved(pkgs, version, note, opts = {}) {
+  const { attempts = 4, delayMs = 15_000, read = readDistTags, sleep = sleepSync } = opts
+  let pending = [...pkgs]
+  for (let i = 0; i < attempts && pending.length > 0; i++) {
+    if (i > 0) sleep(delayMs)
+    const stillPending = []
+    for (const pkg of pending) {
+      let after
+      try {
+        after = read(pkg)
+      } catch {
+        stillPending.push(pkg)
+        continue
+      }
+      if (after.next === version) note(`- \`${pkg}\` — ✅ \`next\` → ${version}`)
+      else stillPending.push(pkg)
+    }
+    pending = stillPending
+    if (pending.length > 0 && i < attempts - 1) {
+      note(`(${pending.length} not yet visible; re-checking after ${delayMs / 1000}s — registry caching)`)
+    }
+  }
+  return pending
+}
+
 function readDistTags(pkg) {
   const raw = execFileSync('npm', ['view', pkg, 'dist-tags', '--json'], {
     encoding: 'utf8',
@@ -192,14 +231,15 @@ function main() {
     process.exit(1)
   }
 
-  const failed = []
+  // ── PASS 1: write ────────────────────────────────────────────────────────
+  const written = []
+  const failed = [] // the `dist-tag add` itself errored or was refused
   for (const { pkg } of targets) {
     let tags
     try {
       tags = readDistTags(pkg)
     } catch (err) {
-      const detail = (err?.stderr?.toString() ?? err?.message ?? '').split('\n')[0]
-      note(`- \`${pkg}\` — ❌ could not read dist-tags: ${detail}`)
+      note(`- \`${pkg}\` — ❌ could not read dist-tags: ${firstLine(err)}`)
       failed.push(pkg)
       continue
     }
@@ -221,26 +261,35 @@ function main() {
 
     try {
       execFileSync('npm', ['dist-tag', 'add', `${pkg}@${version}`, 'next'], { stdio: 'pipe' })
+      written.push(pkg)
     } catch (err) {
-      const detail = (err?.stderr?.toString() ?? err?.message ?? '').split('\n')[0]
-      note(`- \`${pkg}\` — ❌ FAILED: ${detail}`)
+      note(`- \`${pkg}\` — ❌ FAILED: ${firstLine(err)}`)
       failed.push(pkg)
-      continue
     }
+  }
 
-    // A zero exit is not evidence the tag moved. Ask the registry.
-    try {
-      const after = readDistTags(pkg)
-      if (after.next !== version) {
-        note(`- \`${pkg}\` — ❌ command succeeded but \`next\` is ${after.next ?? '(none)'}`)
-        failed.push(pkg)
-        continue
-      }
-      note(`- \`${pkg}\` — ✅ ${why}`)
-    } catch {
-      note(`- \`${pkg}\` — ⚠️ moved, but the verify read failed; confirm by hand`)
-      failed.push(pkg)
-    }
+  // ── PASS 2: confirm, with settling ───────────────────────────────────────
+  //
+  // A zero exit is not evidence the tag moved — but neither is one stale read
+  // evidence that it did not. npm's read-after-write is NOT immediately
+  // consistent: `npm view` is served through a CDN, and reading straight back
+  // after a write returns the previous value often enough that the FIRST run of
+  // this job reported all 52 packages failed while every one of them had in
+  // fact moved. It then printed 52 OTP recovery commands for packages that
+  // needed no repair, which is a worse outcome than saying nothing.
+  //
+  // So: verify all of them AFTER all the writes (the writes alone take long
+  // enough to settle most), then re-check only the stragglers, a few times.
+  const unconfirmed = confirmMoved(written, version, note)
+
+  if (unconfirmed.length > 0) {
+    note('')
+    note(`⚠️ **${unconfirmed.length} package(s) could not be CONFIRMED within the settle window.**`)
+    note('The write did not error — this is very likely registry caching, not a failure.')
+    note('**Check before repairing; these are probably already correct:**')
+    note('```')
+    for (const pkg of unconfirmed) note(`npm view ${pkg} dist-tags`)
+    note('```')
   }
 
   if (failed.length > 0) {
@@ -251,6 +300,11 @@ function main() {
     for (const pkg of failed) note(`npm dist-tag add ${pkg}@${version} next --otp=<code>`)
     note('```')
     flush('npm dist-tag alignment — FAILED')
+    process.exit(1)
+  }
+
+  if (unconfirmed.length > 0) {
+    flush('npm dist-tag alignment — UNCONFIRMED')
     process.exit(1)
   }
 

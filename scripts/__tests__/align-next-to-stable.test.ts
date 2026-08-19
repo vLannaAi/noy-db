@@ -11,7 +11,7 @@
  * several of these, not one.
  */
 import { describe, it, expect } from 'vitest'
-import { decideAction, planAlignment, derivePackages, OWN_VERSION_LINE } from '../align-next-to-stable.mjs'
+import { decideAction, planAlignment, derivePackages, confirmMoved, OWN_VERSION_LINE } from '../align-next-to-stable.mjs'
 
 describe('decideAction — the refusal', () => {
   it('REFUSES when `latest` is not already the target — the catastrophic case', () => {
@@ -122,5 +122,49 @@ describe('derivePackages — derived, never hardcoded', () => {
       () => ['hub', 'internal', 'not-a-package'],
     )
     expect(derived.map((d) => d.pkg)).toEqual(['@noy-db/hub'])
+  })
+})
+
+describe('confirmMoved — a stale read is not a failure', () => {
+  const noop = () => {}
+
+  it('accepts a tag that becomes visible on a later attempt', () => {
+    // What actually happened on the 0.6.0 cut: every write succeeded and every
+    // immediate read-back returned the previous value, so the job reported 52
+    // failures and printed 52 OTP repair commands for packages that were
+    // already correct. npm's read-after-write is CDN-served and not
+    // immediately consistent.
+    let call = 0
+    const read = () => (++call > 2 ? { next: '0.6.0' } : { next: '0.6.0-pre.24' })
+    const pending = confirmMoved(['@noy-db/hub'], '0.6.0', noop, { read, sleep: noop, delayMs: 0 })
+    expect(pending).toEqual([])
+  })
+
+  it('reports one that never becomes visible — it does not confirm blindly', () => {
+    const read = () => ({ next: '0.6.0-pre.24' })
+    const pending = confirmMoved(['@noy-db/hub'], '0.6.0', noop, { read, sleep: noop, delayMs: 0, attempts: 2 })
+    expect(pending).toEqual(['@noy-db/hub'])
+  })
+
+  it('keeps waiting on a read that throws rather than calling it moved', () => {
+    const read = () => { throw new Error('ETIMEDOUT') }
+    expect(confirmMoved(['@noy-db/hub'], '0.6.0', noop, { read, sleep: noop, delayMs: 0, attempts: 2 }))
+      .toEqual(['@noy-db/hub'])
+  })
+
+  it('confirms each package independently — one straggler does not hold the rest', () => {
+    const seen: Record<string, number> = {}
+    const read = (p: string) => {
+      seen[p] = (seen[p] ?? 0) + 1
+      return { next: p === '@noy-db/slow' && seen[p]! < 3 ? '0.6.0-pre.24' : '0.6.0' }
+    }
+    const pending = confirmMoved(['@noy-db/hub', '@noy-db/slow'], '0.6.0', noop, { read, sleep: noop, delayMs: 0 })
+    expect(pending).toEqual([])
+    expect(seen['@noy-db/hub']).toBe(1) // confirmed first pass, never re-read
+  })
+
+  it('does nothing when nothing was written', () => {
+    const read = () => { throw new Error('should not be called') }
+    expect(confirmMoved([], '0.6.0', noop, { read, sleep: noop })).toEqual([])
   })
 })
