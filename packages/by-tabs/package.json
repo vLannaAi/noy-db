@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/by-tabs",
-  "version": "0.6.0-pre.24",
+  "version": "0.6.0",
   "description": "BroadcastChannel multi-tab transport for noy-db — sync between tabs of the same browser without round-tripping the storage backend",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

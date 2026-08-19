@@ -1,5 +1,144 @@
 # @noy-db/as-noydb
 
+## 0.6.0
+
+### Patch Changes
+
+- Finish the `bundle` → `pod` rename (#1046)
+
+  The rename landed on the functions but not on the types, which left the
+  canonical API impossible to adopt: `readPod` declared its options as
+  `ReadNoydbBundleOptions` and returned `NoydbBundleReadResult`, so calling
+  the non-deprecated function required naming the deprecated concept. That
+  is why no first-party package ever migrated.
+
+  **hub** — `ReadPodOptions` and `PodReadResult` are now the canonical
+  declarations; `ReadNoydbBundleOptions` and `NoydbBundleReadResult` remain
+  as `@deprecated` aliases. Additive: nothing is removed, and both names are
+  exported from the root barrel and `/pod`.
+
+  **to-file** — adds `savePod()` / `loadPod()`; `saveBundle()` / `loadBundle()`
+  stay as `@deprecated` aliases (identity, not re-implementations, so they
+  cannot drift). `savePod()` now writes through the atomic temp-then-rename
+  helper added in #1045 — a pod exceeds `PIPE_BUF` essentially always, so the
+  previous bare `writeFile` genuinely raced with concurrent readers despite a
+  docstring claiming otherwise.
+
+  **as-noydb, cli** — migrated onto `writePod` / `readPod` / `readPodHeader`.
+
+  Stale docstring references to `@noy-db/core` (a package that no longer
+  exists) corrected to `@noy-db/hub`. Note `getBundleHandle()` and
+  `BundleIntegrityError` are _not_ renamed — those are current API.
+
+- Ship a 0.6.0-pre codemod map; fix prose that taught removed API (#1061, #1062, #1063)
+
+  **New: `@noy-db/hub/codemods/0.6.0-pre.json`** — a machine-readable rename map for
+  the 0.6 breaking set (#1052 alias removal, #1058 pod vocabulary, #1054 revocation),
+  shipped as a real subpath export like its 0.4.0-pre predecessor. 25 rows, each
+  carrying whether a blanket whole-word replace is safe. A new test verifies every
+  target exists on the live surface and every source is genuinely gone, so the map
+  cannot drift from the code.
+
+  That test immediately corrected two rows I had written from #1052's prose table:
+  `SubsystemBus` and `NOYDB_BUNDLE_FORMAT_VERSION_SIGNED` were **internal**, never
+  barrel-exported, so no consumer could have held them. #1052's table over-counted
+  them as published removals — and separately missed `hasNoydbBundleMagic`, which
+  is #1061.
+
+  **Prose fixes** — none of it compiles, so nothing caught it:
+
+  - `README.md` and `SERVICES.md` taught `import { withAggregate } from
+'@noy-db/hub/aggregate'`, a subpath deleted in the 0.6 line. Both also used the
+    retired `aggregateStrategy` option key. Now `withReduce` from `/reduce` with
+    `reduceStrategy` (#1063)
+  - `@noy-db/as-noydb`'s npm `description` and README said it wraps
+    `writeNoydbBundle()` — the description renders on the package page (#1063)
+  - `kernel/noydb.ts` contrasted against `revoke({ rotateKeys: true })`, an option
+    removed in #1054. It is JSDoc, so it shipped in the published `.d.ts` (#1062)
+  - `docs/foundations/` architecture docs asserted `/kernel` and `/adapter` still
+    exist. The governance decision record is annotated rather than rewritten — its
+    argument stands, only the seam names moved
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.6.0
+
 ## 0.6.0-pre.24
 
 ### Patch Changes
