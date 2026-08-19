@@ -1,6 +1,7 @@
 import type { NoydbStore, KeyringFile, KeyringAuthenticator, Role, Permissions, GrantOptions, RevokeOptions, UpdateUserOptions, UserInfo, EncryptedEnvelope, ExportCapability, ExportFormat, ImportCapability, VaultPolicyOnDisk, UserEnvelope } from '../../kernel/types.js'
 import { NOYDB_KEYRING_VERSION } from '../../kernel/types.js'
 import { USER_ENVELOPE_COLLECTION, ROSTER_KEY_ID } from '../../kernel/constants.js'
+import { parseDekKey } from '../../kernel/tier-visibility.js' // #1125 — a tier slot names a key, not a collection
 import {
   buildRecordEnvelope,
   deriveKey,
@@ -10,6 +11,7 @@ import {
   wrapKey,
   unwrapKey,
   rekeyEnvelopeIfNeeded,
+  envelopeOpensUnderAny,
   rekeyBlobSet,
   bufferToBase64,
   base64ToBuffer,
@@ -1699,13 +1701,29 @@ export async function rotateKeys(
       await rekeyBlobSet(store, vault, oldDek, newDek, others)
     }
 
+    // #1125 — A TIER SLOT NAMES A KEY, NOT A COLLECTION. `docs#1` seals the
+    // ELEVATED records of `docs`, which live in `docs` beside their tier-0
+    // siblings; `store.list(vault, "docs#1")` is empty. Listing the slot name
+    // made rotating a tier slot a SILENT no-op — nothing re-encrypted, and a
+    // revoked member who kept the tier key went on reading elevated records.
+    // Walk the base collection for every slot, and let the key decide below
+    // which envelopes are this slot's.
+    const { collection: baseColl } = parseDekKey(collName)
+
+    // Every OTHER key the caller holds, old and new. A sibling slot already
+    // rotated in this same pass is under its new key, so both maps contribute —
+    // same construction the blob branch above uses, and for the same question.
+    const siblingSlotDeks: EnclaveKey[] = []
+    for (const [name, dek] of callerKeyring.deks) if (name !== collName) siblingSlotDeks.push(dek)
+    for (const [name, dek] of newDeks) if (name !== collName) siblingSlotDeks.push(dek)
+
     // The collection's own records, PLUS every envelope sealed under this DEK
     // but filed elsewhere (#1108). Both go through the same helper, so the
     // resume property holds for derived surfaces too: `rekeyEnvelopeIfNeeded`
     // returns null for anything already under `newDek`.
     const refs: Array<{ collection: string; id: string }> = [
-      ...(await store.list(vault, collName)).map((id) => ({ collection: collName, id })),
-      ...(await derivedRefsFor(store, vault, collName)),
+      ...(await store.list(vault, baseColl)).map((id) => ({ collection: baseColl, id })),
+      ...(await derivedRefsFor(store, vault, baseColl)),
     ]
     for (const ref of refs) {
       const { collection: refColl, id } = ref
@@ -1721,7 +1739,28 @@ export async function rotateKeys(
       // resumed-rotation case. A record readable under NEITHER key rethrows
       // rather than being skipped: walking silently past unreadable records
       // would turn a loud failure into permanent quiet loss.
-      const newEnvelope = await rekeyEnvelopeIfNeeded({ collection: refColl, id }, envelope, oldDek, newDek)
+      //
+      // #1125 — and a third outcome the two-key helper cannot express: the
+      // envelope belongs to ANOTHER tier slot of this same collection. Rotating
+      // `docs` meets elevated records sealed under `docs#N`; before this they
+      // rethrew, so revoking anyone from a vault holding a single elevated
+      // record failed outright — AFTER the keyring had already been deleted,
+      // i.e. part-applied.
+      //
+      // Classified by asking the KEY, never the envelope's claimed `_tier`.
+      // `_tier` is unencrypted and store-written: routing on it would let a
+      // store mark a tier-0 record `_tier: 5` and have the rotation skip real
+      // data, which is #1115's defect in a new place. A key opens the body or
+      // it does not.
+      let newEnvelope: EncryptedEnvelope | null
+      try {
+        newEnvelope = await rekeyEnvelopeIfNeeded({ collection: refColl, id }, envelope, oldDek, newDek)
+      } catch (err) {
+        if (await envelopeOpensUnderAny({ collection: refColl, id }, envelope, siblingSlotDeks)) {
+          continue // another slot's business — that slot's own pass re-keys it
+        }
+        throw err
+      }
       if (newEnvelope !== null) await store.put(vault, refColl, id, newEnvelope)
     }
   }
