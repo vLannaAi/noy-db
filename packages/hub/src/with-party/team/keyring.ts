@@ -895,7 +895,14 @@ export async function grant(
   // What this does NOT fix, and #1097 stays open for: the replayed file also
   // restores the OLD ROLE, and role gates capabilities rather than keys, so
   // rotation cannot touch it. That half needs an anchor the store cannot rewind.
-  if (previousDekNames !== null) {
+  //
+  // SELF-re-grant is excluded, and not merely to avoid an interaction: the
+  // caller already holds every DEK in their unlocked keyring, so "dropping" a
+  // collection from their own file takes nothing away and there is no stale
+  // copy to make stale. (It also cannot work — `rotateKeys` calls
+  // `persistKeyring` on the caller, which rebuilds their file from the
+  // in-memory keyring and would overwrite the grant just written.)
+  if (previousDekNames !== null && options.userId !== callerKeyring.userId) {
     const dropped = [...previousDekNames].filter(
       (name) => !name.startsWith('_') && !(name in wrappedDeks),
     )
