@@ -107,3 +107,28 @@ export function dekKey(collection: string, tier: number): string {
   if (tier <= 0) return collection
   return `${collection}#${tier}`
 }
+
+/**
+ * Inverse of {@link dekKey}: split a DEK slot name back into the collection it
+ * belongs to and the tier it covers.
+ *
+ * Needed because a tier slot **names a key, not a collection** (#1125).
+ * `store.list(vault, "docs#1")` is empty — elevated records live in `docs`
+ * alongside their tier-0 siblings, distinguished by the envelope `_tier` field.
+ * Anything that walks a slot's data must walk `collection` and select within it,
+ * never list the slot name.
+ *
+ * Parsed from the RIGHT, requiring an all-digit positive suffix. A name that
+ * does not fit that shape is a plain collection at tier 0 — including one that
+ * merely contains a `#`, which round-trips correctly precisely because `dekKey`
+ * never produces `#0`.
+ */
+export function parseDekKey(slot: string): { collection: string; tier: number } {
+  const cut = slot.lastIndexOf('#')
+  if (cut <= 0 || cut === slot.length - 1) return { collection: slot, tier: 0 }
+  const suffix = slot.slice(cut + 1)
+  if (!/^[0-9]+$/.test(suffix)) return { collection: slot, tier: 0 }
+  const tier = Number(suffix)
+  if (tier <= 0) return { collection: slot, tier: 0 }
+  return { collection: slot.slice(0, cut), tier }
+}
