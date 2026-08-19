@@ -1,5 +1,54 @@
 # Changelog — hub
 
+## 0.6.0-pre.24
+
+### Minor Changes
+
+- The roster tag authenticates the DEK key set (#1115).
+
+  `revoke` derives its rotation scope from `Object.keys(target.deks)`. That set was not covered by the roster tag, so a store could strip entries from the target's keyring before a revocation and have those collections silently skipped by the rotation — a revoked member colluding with that store keeps live DEKs for exactly the collections it removed. That contradicted `SECURITY.md`'s _"the rotation cannot be skipped"_.
+
+  `rosterCanonical` now binds the key **names** of `deks` and `pending_deks`. Names only: the wrapped values are AES-KW and self-authenticating, so what was unprotected was the shape of the map, not its contents. `pending_deks` is included because stripping it makes an interrupted rotation mint a fresh DEK instead of resuming, orphaning every record already rewritten under the pending key.
+
+  **This is a keyring format change with no migration** — consistent with the position recorded for `0.6.0-pre.21`: an existing vault must be re-seeded. `NOYDB_KEYRING_VERSION` is bumped to `2`, and a tag that cannot verify against an older declared version now reports the new `format-superseded` reason, which names the format transition instead of accusing the store. Classification only — access is refused either way, so a store rewriting the plaintext version field changes the wording and nothing else.
+
+  Also fixes `adoptPartition`, which merged partition DEKs into a freshly-minted keyring without restamping. That was invisible while the tag ignored `deks`; it now restamps, as `liberateVault` already did.
+
+- The blob content address survives a key rotation (#1126).
+
+  A blob's eTag is an HMAC over the plaintext. It was keyed by the `_blob` DEK — the very key `rotateKeys` replaces — so after any rotation `HMAC(live DEK, plaintext) !== storedETag` for every blob written before it, **permanently**. `decryptResponse()` checks that unconditionally, so the presigned-URL / external-object read path raised `TamperedError` on legitimate data forever; `verifyFlatETag` did the same on the flat-tier fallback; a resumed rehome mis-mapped; and dedup split, minting a second address for identical bytes.
+
+  Addresses now derive from `_blob_addr`, a **vault-lifetime keyring slot that rotation refuses to touch** — so a rotation re-keys chunk bodies while every stored address, chunk AAD and index row stays valid. The derivation stays **per tier**: the address is meant to be tier-scoped (`rehomeForTier` re-addresses on a tier move for exactly that reason); only the rotation coupling was ever wrong.
+
+  Reported by the same alarm as #1103, and this was the same cry-wolf class: a user who revoked a colleague was told their store may be attacking them.
+
+  **Format change, no migration** — consistent with the `0.6.0-pre.21` position: an existing vault must be re-seeded. **Residual:** a revoked member who kept the addressing root retains a confirmation oracle over content whose plaintext they already hold; they can read nothing, because bodies are sealed under DEKs that do rotate. See `SECURITY.md`.
+
+  Also restamps the roster tag on all three `recoverSecret` rebuild paths, which rewrote the keyring while carrying the previous tag.
+
+### Patch Changes
+
+- A narrowing re-grant rotates the collections it takes away (#1097, partial).
+
+  `writeKeyringFile` is a bare `put`, so a re-grant with a lower role or narrower permissions **overwrites in place** — and the file it replaces was legitimately minted by this vault. A store that kept a copy can re-serve it, and `loadKeyring` accepts it: the KEK unwraps, the canary checks out, the roster tag verifies. None of those is a claim about being _current_.
+
+  ADR 0003 bounded a suppressed keyring delete on the grounds that revocation rotates, so an old roster's DEKs cannot open post-rotation records. **A narrowing re-grant rotated nothing**, so a replayed file opened records written _after_ the narrowing — live access rather than stale access. Rotating the dropped collections restores that bound.
+
+  ⚠️ **This does not close the replay itself.** The old file also restores the old **role**, and role gates capabilities rather than keys, so rotation cannot touch it. That half needs an anchor the store cannot rewind, and #1097 stays open for it.
+
+  A widening re-grant and a first grant rotate nothing, so this is not a tax on every grant.
+
+- `rotateKeys` covers `collection#tier` DEK slots, in both directions (#1125).
+
+  Elevated records live in the same collection as their tier-0 siblings, distinguished by the envelope `_tier` field, and are sealed under `dekKey(collection, tier)`. Rotation keyed off the collection **name**, so it was broken twice over:
+
+  - **Rotating `docs` threw.** It met an elevated record it could not open under the tier-0 DEK and rethrew — and because `revoke` rotates as its final step, revoking anyone from a vault holding a single elevated record **failed after the keyring had already been deleted**. Part-applied.
+  - **Rotating `docs#1` was a silent no-op.** `store.list(vault, "docs#1")` is empty because the slot names a key, not a collection, so nothing was re-encrypted and a revoked member who retained the tier key kept opening elevated records.
+
+  Rotation now walks the base collection for every slot and classifies each envelope by **which key opens it** — never by the envelope's claimed `_tier`, which is unencrypted and store-written. Routing on `_tier` would let a store mark a tier-0 record `_tier: 5` and have the rotation skip real data.
+
+  Guarded by an output-domain invariant rather than a row per known defect: after a revocation, no retained key opens any envelope, and the owner can still read everything.
+
 ## 0.6.0-pre.23
 
 ### Minor Changes
