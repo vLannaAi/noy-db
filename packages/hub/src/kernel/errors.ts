@@ -330,7 +330,22 @@ export type KeyringTamperedReason =
  * not pretend to — it names both readings and puts the likely one first, rather
  * than accusing the user's storage of an attack it cannot demonstrate.
  */
-function keyringTamperedMessage(userId: string, reason: KeyringTamperedReason): string {
+/**
+ * The re-seed recovery, shared by every branch that asks for one. An existing
+ * vault cannot self-heal: a client that bootstraps its local vault before
+ * loading a bundle hits the stale keyring during setup, so 'open the new
+ * bundle' fails and the reader is stuck following the instruction literally.
+ */
+const RE_SEED =
+  ' To re-seed: REMOVE THE VAULT FROM THIS DEVICE FIRST, then import the new bundle. Importing' +
+  ' over a vault that is still present does not heal it — the stale keyring is loaded during' +
+  ' setup, before the import can replace it, so the same error is raised again.'
+
+function keyringTamperedMessage(
+  userId: string,
+  reason: KeyringTamperedReason,
+  format?: { readonly from: number; readonly to: number },
+): string {
   const head = `Keyring for "${userId}" failed roster authentication (${reason}). `
   switch (reason) {
     case 'canary-missing':
@@ -343,7 +358,8 @@ function keyringTamperedMessage(userId: string, reason: KeyringTamperedReason): 
         'vault must be re-seeded. The same state is what an untrusted store would produce by ' +
         'deleting the field to escape verification, and the two are indistinguishable from ' +
         'here, so access is refused either way. If this vault has been opened by ' +
-        '0.6.0-pre.21 or later before, treat it as the second case.'
+        '0.6.0-pre.21 or later before, treat it as the second case.' +
+        RE_SEED
       )
     case 'unparseable':
       return (
@@ -355,12 +371,14 @@ function keyringTamperedMessage(userId: string, reason: KeyringTamperedReason): 
     case 'format-superseded':
       return (
         head +
-        'This keyring was written by an OLDER FORMAT — the roster tag protects a narrower set ' +
-        'of fields than this version verifies (#1115 added the DEK key set), so a genuine older ' +
-        'tag cannot verify here. That format change ships without a migration, so an existing ' +
-        'vault must be re-seeded. Access is refused either way, and the version field this ' +
-        'branch reads selects only the wording — never the decision — so a store cannot use it ' +
-        'to weaken anything.'
+        `This keyring declares ${format ? `keyring format ${format.from}` : 'an older keyring format'}; ` +
+        `this build requires ${format ? String(format.to) : 'a newer one'}. The roster tag now ` +
+        'protects a wider set of fields (the DEK key set joined it), so a genuine older tag ' +
+        'cannot verify here. That format change ships without a migration, so an existing vault ' +
+        'must be re-seeded.' +
+        RE_SEED +
+        ' Access is refused either way, and the version field this branch reads selects only the ' +
+        'wording — never the decision — so a store cannot use it to weaken anything.'
       )
     case 'roster-tag-mismatch':
       return (
@@ -379,12 +397,26 @@ export class KeyringTamperedError extends NoydbError {
   readonly details: {
     readonly userId: string
     readonly reason: KeyringTamperedReason
+    /**
+     * The keyring format transition, when one is known: `from` is the version
+     * the FILE declares, `to` the version this build writes.
+     *
+     * Present so a reader can tell which version they hold and which one this
+     * build wants, without reverse-engineering it from the prose. The message
+     * said "an OLDER FORMAT" and never named either number, which is not
+     * enough to work out whether you are one release behind or five.
+     *
+     * Structured, not parsed out of the message: a consumer that translates
+     * the error never sees the English at all.
+     */
+    readonly format?: { readonly from: number; readonly to: number }
   }
   constructor(details: {
     readonly userId: string
     readonly reason: KeyringTamperedReason
+    readonly format?: { readonly from: number; readonly to: number }
   }) {
-    super('KEYRING_TAMPERED', keyringTamperedMessage(details.userId, details.reason))
+    super('KEYRING_TAMPERED', keyringTamperedMessage(details.userId, details.reason, details.format))
     this.name = 'KeyringTamperedError'
     this.details = details
   }
