@@ -38,6 +38,7 @@
     "encryptDeterministic",
     "envelopeBodyForHash",
     "envelopeBodySize",
+    "envelopeOpensUnderAny",
     "evaluateKofN",
     "findByDet",
     "generateDEK",

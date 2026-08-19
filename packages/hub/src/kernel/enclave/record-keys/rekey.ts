@@ -102,3 +102,37 @@ export async function rekeyEnvelopeIfNeeded(
     }
   }
 }
+
+/**
+ * Does this envelope open under ANY of `keys`? A read-only probe — decrypts
+ * nothing into a caller-visible value and writes nothing.
+ *
+ * Exists so a rotation can tell *"this envelope belongs to a DIFFERENT DEK slot
+ * the caller also holds"* from *"this envelope is damaged"* (#1125). Those two
+ * look identical from a failed `rekeyEnvelopeIfNeeded`, and collapsing them
+ * either aborts a legitimate rotation or walks past unreadable data.
+ *
+ * **The question is deliberately asked of the KEY, not of the envelope's claimed
+ * `_tier`.** `_tier` is unencrypted — the store writes it — so routing a
+ * rotation on it would let a store mark a tier-0 record `_tier: 5` and have the
+ * rotation skip it, leaving a revoked member's DEK live on real data. That is
+ * #1115's defect wearing a different hat. A key either opens the body or it does
+ * not, and a store cannot forge that.
+ *
+ * Mirrors `rekeyBlobSet`'s `otherDeks` treatment, which asks the same question
+ * about the same kind of ambiguity.
+ */
+export async function envelopeOpensUnderAny(
+  ref: { readonly collection: string; readonly id: string },
+  envelope: EncryptedEnvelope,
+  keys: readonly EnclaveKey[],
+): Promise<boolean> {
+  for (const key of keys) {
+    try {
+      if (envelope._cek !== undefined) await unwrapCek(envelope._cek, key)
+      else await decrypt(envelope._iv, envelope._data, key, recordAadFor(ref, envelope))
+      return true
+    } catch { /* not this key */ }
+  }
+  return false
+}
