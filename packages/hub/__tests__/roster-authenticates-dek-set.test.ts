@@ -153,6 +153,57 @@ describe('#1115 — an UPGRADED vault is not accused of tampering', () => {
     expect(err.message).not.toMatch(/has changed a member's role/)
   })
 
+  it('names BOTH versions, in the message and in structured `details`', () => {
+    // "an OLDER FORMAT" does not tell a reader whether they are one release
+    // behind or five. `details.format` answers it without parsing English —
+    // which matters because a consumer that translates never sees the English.
+    const err = new KeyringTamperedError({
+      userId: 'ann',
+      reason: 'format-superseded',
+      format: { from: 1, to: NOYDB_KEYRING_VERSION },
+    })
+    expect(err.details.format).toEqual({ from: 1, to: NOYDB_KEYRING_VERSION })
+    expect(err.message).toContain('keyring format 1')
+    expect(err.message).toContain(`requires ${NOYDB_KEYRING_VERSION}`)
+  })
+
+  it('carries the transition on a REAL upgraded vault, not just when hand-built', async () => {
+    const { store } = await seeded()
+    await editKeyring(store, 'owner', (f) => ({
+      ...f,
+      _noydb_keyring: (NOYDB_KEYRING_VERSION - 1) as 2,
+      deks: { ...f.deks, injected: f.deks.docs! },
+    }))
+    const err = await openError(store)
+    expect((err as KeyringTamperedError).details.format).toEqual({
+      from: NOYDB_KEYRING_VERSION - 1,
+      to: NOYDB_KEYRING_VERSION,
+    })
+  })
+
+  it('tells the reader to REMOVE the vault first — following it literally must work', () => {
+    // Without this the recovery is named but not actionable: a client that
+    // bootstraps its local vault before loading a bundle hits the stale
+    // keyring during setup, so "open the new bundle" fails and the reader is
+    // stuck. Asserted on both branches that ask for a re-seed.
+    for (const reason of ['format-superseded', 'roster-key-missing'] as const) {
+      const err = new KeyringTamperedError({ userId: 'ann', reason })
+      expect(err.message).toMatch(/REMOVE THE VAULT FROM THIS DEVICE FIRST/)
+      expect(err.message).toMatch(/does not heal it/)
+    }
+  })
+
+  it('leaks no internal issue reference into a consumer-facing message', () => {
+    // A bare `#1115` is unresolvable outside this repo. The reader needs the
+    // format numbers, which they now get; the issue number is for us.
+    for (const reason of [
+      'canary-missing', 'roster-key-missing', 'roster-tag-missing',
+      'roster-tag-mismatch', 'format-superseded', 'unparseable',
+    ] as const) {
+      expect(new KeyringTamperedError({ userId: 'ann', reason }).message).not.toMatch(/#\d{3,}/)
+    }
+  })
+
   it('the SAME edit under the CURRENT format is reported as tampering', async () => {
     const { store } = await seeded()
     await editKeyring(store, 'owner', (f) => ({ ...f, deks: { ...f.deks, injected: f.deks.docs! } }))

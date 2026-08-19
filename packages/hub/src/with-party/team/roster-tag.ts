@@ -183,7 +183,18 @@ export async function assertRosterTagValid(
   userId: string,
 ): Promise<void> {
   if (!(await verifyRosterTag(file, file.roster_tag, rosterKey))) {
-    throw new KeyringTamperedError({ userId, reason: mismatchReason(file) })
+    const reason = mismatchReason(file)
+    throw new KeyringTamperedError({
+      userId,
+      reason,
+      // Only on the format branch: elsewhere the declared version matches, so
+      // reporting a transition would invent one. `from` is what the FILE says
+      // — untrusted, and safe to surface for the same reason `mismatchReason`
+      // is safe to compute from it: it selects wording, never a decision.
+      ...(reason === 'format-superseded'
+        ? { format: { from: Number(file._noydb_keyring), to: NOYDB_KEYRING_VERSION } }
+        : {}),
+    })
   }
 }
 
