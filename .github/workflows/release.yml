@@ -348,11 +348,30 @@ jobs:
       # doesn't own create-noy-db.
       - name: Check npm auth (whoami)
         run: |
-          WHOAMI=$(npm whoami 2>&1) && echo "npm user: $WHOAMI" || echo "npm whoami failed: $WHOAMI"
-          echo "npm user: ${WHOAMI:-failed}" >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          if ! WHOAMI=$(npm whoami 2>&1); then
+            # FATAL, and it was not until noy-db-ui watched a publish fail four
+            # times on a misleading 404 while this step had already printed the
+            # real cause. npm reports write-path auth failures as 404, never
+            # 401 — deliberately, so status codes cannot probe which private
+            # packages exist — so a dead token surfaces downstream as "package
+            # not found" and sends whoever reads it hunting a naming problem.
+            #
+            # Failing here is the cheap kind: this runs BEFORE anything
+            # publishes, so nothing is half-applied and the log names the real
+            # cause. A step whose own comment says "if this step fails, the
+            # token is invalid" must not then continue.
+            echo "❌ npm whoami failed — the token is invalid or expired: $WHOAMI"
+            {
+              echo "### npm auth"
+              echo "❌ \`npm whoami\` failed. Every later 404 would be this, not a missing package."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "npm user: $WHOAMI"
+          echo "npm user: $WHOAMI" >> "$GITHUB_STEP_SUMMARY"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        continue-on-error: true
 
       # Publish the scoped @noy-db/* packages first. pnpm's recursive publish
       # resolves workspace:* peer-deps to real versions at publish time, walks
@@ -390,35 +409,6 @@ jobs:
       - name: Re-point latest for pre-only packages
         if: steps.dist_tag.outputs.tag != 'latest'
         run: node scripts/repoint-pre-only-latest.mjs
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      # Align `next` onto the stable. A stable cut breaks the "@next runs ahead
-      # of @latest" invariant MECHANICALLY, with nobody making a mistake:
-      # 0.6.0 > 0.6.0-pre.24, because a prerelease sorts below its own release.
-      # So the moment `latest` moves, `next` is behind it for ~52 packages at
-      # once. Pointing both at the stable is self-correcting — the next
-      # prerelease publish restores the invariant on its own.
-      #
-      # NOT continue-on-error, and NOT the never-fail-the-caller posture of the
-      # step above. That one is right there: a stale `latest` on a pre-only
-      # package is cosmetic, and reddening a release over it trains people to
-      # stop reading the log. This runs while DELIVERING A STABLE across
-      # packages that ship together, where a half-applied state is worse than a
-      # loud failure — it is exactly the state a human then repairs by hand
-      # with an OTP. The script prints those recovery commands on failure.
-      #
-      # The version is pushed IN rather than read from CI context, so the logic
-      # is runnable from a terminal: this trigger cannot fire until a real
-      # stable cut, so anything reading `github.*` internally would be testable
-      # only by cutting one.
-      - name: Align next onto the stable
-        if: steps.dist_tag.outputs.tag == 'latest'
-        run: |
-          # Same source the publish used, and the same one the tag-vs-version
-          # gate above already checked against the Release tag.
-          VERSION="$(node -p "require('./packages/hub/package.json').version")"
-          node scripts/align-next-to-stable.mjs --version="$VERSION"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -500,6 +490,57 @@ jobs:
   #
   # Both gates log their reason clearly to the workflow output so a green
   # run with no issue is legible, not silent.
+  # ── Align `next` onto the stable ─────────────────────────────────────────
+  #
+  # A SIBLING JOB, not a step inside `publish`, and that placement is the whole
+  # point. It used to be a step there, and on the v0.6.0 cut its failure — a
+  # stale-read false alarm, since fixed — failed the `publish` job AFTER npm had
+  # already accepted every package. `docs-bridge` needs `publish`, so it skipped
+  # entirely and that release shipped without its payload.
+  #
+  # Nothing was individually wrong: the bridge is `continue-on-error` so it
+  # cannot fail a publish, and this step is deliberately fail-loud because a
+  # half-applied dist-tag line is worse than a red run. They composed badly,
+  # because a job's exit code cannot distinguish "the thing this job exists to
+  # do failed" from "something after it failed" — and every downstream `needs:`
+  # inherits that conflation.
+  #
+  # As a sibling, nothing but publishing can fail `publish`, so the bridge's
+  # `needs:` means what it says. Structural rather than conditional — the same
+  # reason this repo's retry is unconditional rather than a documented
+  # ordering dependency. Both satellites already run it this way.
+  #
+  # Why a stable cut needs it at all: `0.6.0 > 0.6.0-pre.24`, because a
+  # prerelease sorts below its own release. So the moment `latest` moves to the
+  # stable, `next` is behind it for every package at once, with nobody making a
+  # mistake. Self-correcting — the next prerelease restores the invariant.
+  align-dist-tags:
+    name: Align next onto the stable
+    needs: publish
+    if: needs.publish.outputs.dist_tag == 'latest'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      # No install: the script uses only node builtins and the npm CLI.
+      # The version is pushed in as a parameter rather than read from CI
+      # context, so the logic stays runnable from a terminal — this job's
+      # trigger cannot fire without a real stable cut.
+      - name: Align
+        run: |
+          VERSION="$(node -p "require('./packages/hub/package.json').version")"
+          node scripts/align-next-to-stable.mjs --version="$VERSION"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
   docs-bridge:
     name: Docs bridge payload
     needs: publish
