@@ -507,8 +507,22 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     env:
-      # Space-separated list of npm dist-tag channels currently synced to
-      # docs. Pre-1.0: `next` only. At 1.0 this becomes `next latest`.
+      # Space-separated list of npm dist-tag channels that produce a doc-sync
+      # issue. `next` only — and NOT because of where we are in the version
+      # numbering, which is what this comment used to say.
+      #
+      # `latest` is a PARKED RAIL in noy-db-docs: resolved and reported, never
+      # applied. Its `diff.mjs` checks `parked` ahead of every other
+      # classification, and `apply.mjs` has no rail logic and never sees a
+      # parked entry — so a stable release produces zero actionable work
+      # there, by construction. Filing an issue for it would file work the
+      # tooling guarantees it will never do, and every one would close with no
+      # diff. That is how you train people to close doc-sync issues without
+      # reading them.
+      #
+      # Widen this when that rail stops being parked, not when a version
+      # number changes. The payload is attached either way, so the record
+      # survives if it ever does.
       DOC_SYNC_CHANNELS: next
     permissions:
       contents: write   # gh release upload
