@@ -37,11 +37,7 @@
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit"
   },
-  "peerDependencies": {
-    "@noy-db/hub": "workspace:*"
-  },
   "devDependencies": {
-    "@noy-db/hub": "workspace:*",
     "@types/node": "^22.0.0"
   },
   "keywords": [

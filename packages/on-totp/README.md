@@ -4,12 +4,12 @@
 
 > TOTP (RFC 6238) authenticator-app second factor for noy-db
 
-Part of [**`@noy-db/hub`**](https://www.npmjs.com/package/@noy-db/hub) — the zero-knowledge, offline-first, encrypted document store.
+Part of the `@noy-db/on-*` authentication family.
 
 ## Install
 
 ```bash
-pnpm add @noy-db/hub @noy-db/on-totp
+pnpm add @noy-db/on-totp
 ```
 
 ## What it is
