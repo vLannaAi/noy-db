@@ -13,8 +13,8 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, KeyringFile } from '
 import { ConflictError, EchoCeremonyRequiredError, ValidationError } from '../src/kernel/errors.js'
 import { WeakSecretError } from '../src/kernel/validation.js'
 import { createNoydb } from '../src/kernel/noydb.js'
-import { MemoryDeviceSealProvider } from '../src/with-party/team/device-seal.js'
-import { MemorySealingKeyProvider } from '../src/index.js'
+import { MemoryDeviceSeal } from '../src/with-party/team/device-seal.js'
+import { MemorySealer } from '../src/index.js'
 import { beginEchoUnlock } from '../src/with-party/team/echo-ceremony.js'
 
 // Same inline in-memory store pattern as __tests__/keyring.test.ts:17-42.
@@ -99,7 +99,7 @@ describe('echo mode end to end', () => {
         store,
         user: 'o',
         secret: 'valide parole scelte per questa policy',
-        deviceSeal: new MemoryDeviceSealProvider({ id: 'test:dev' }),
+        deviceSeal: new MemoryDeviceSeal({ id: 'test:dev' }),
       }),
     ).rejects.toThrow(ValidationError)
     await expect(createNoydb({ store, user: 'o', secretMode: 'echo' })).rejects.toThrow(ValidationError)
@@ -107,7 +107,7 @@ describe('echo mode end to end', () => {
 
   it('deviceSeal at createNoydb ⇒ sealed reveal on the owner keyring', async () => {
     const store = inlineMemory()
-    const seal = new MemoryDeviceSealProvider({ id: 'test:dev' })
+    const seal = new MemoryDeviceSeal({ id: 'test:dev' })
     const db = await createNoydb({ store, user: 'owner', secretMode: 'echo', secret: PARTS, deviceSeal: seal })
     await db.openVault('acme')
     const env = await store.get('acme', '_keyring', 'owner')
@@ -210,7 +210,7 @@ describe('echo mode end to end', () => {
         user: 'o',
         secretMode: 'echo',
         secret: PARTS,
-        sealingKey: new MemorySealingKeyProvider({ id: 'test:seal' }),
+        sealingKey: new MemorySealer({ id: 'test:seal' }),
       }),
     ).rejects.toThrow(ValidationError)
   })

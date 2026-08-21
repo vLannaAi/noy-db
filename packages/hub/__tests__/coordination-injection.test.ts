@@ -1,11 +1,11 @@
 /**
  * End-to-end injection test for the #469 coordination port.
  *
- * Proves the seam works from the outside: a custom `CoordinationProvider`
+ * Proves the seam works from the outside: a custom `NoydbMesh`
  * passed via `createNoydb({ coordinationStrategy })` is the instance the
  * `Noydb` handle exposes AND is the one the schema fence actually dispatches
  * through (setFence / reportPresence / reachableWriters / readFence), not the
- * built-in `StoreCoordinationProvider` default. This is the contract
+ * built-in `StoreMesh` default. This is the contract
  * `@klum-db/lobby` binds to via `@noy-db/hub/cargo`.
  */
 import { describe, expect, it, expectTypeOf } from 'vitest'
@@ -14,11 +14,11 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import { toMemory } from '../../to-memory/src/index.js'
 import { coordinatedCutover, additiveOnly } from '../src/with-shape/schema-update/index.js'
 import {
-  type CoordinationProvider,
+  type NoydbMesh,
   type FenceState,
   type WriterPresence,
 } from '../src/port/by/index.js'
-import { StoreCoordinationProvider } from '../src/with-shape/schema-update/store-coordination-provider.js'
+import { StoreMesh } from '../src/with-shape/schema-update/store-coordination-provider.js'
 import type { NoydbStore } from '../src/kernel/types.js'
 import type { Unsubscribe } from '../src/port/with/write-hooks.js'
 
@@ -30,13 +30,13 @@ const newSchema = z.object({ id: z.string(), amount: z.object({ gross: z.number(
 const transform = (d: Record<string, unknown>) => ({ id: d['id'], amount: { gross: d['total'] } })
 
 /**
- * A spy `CoordinationProvider` that delegates to a real
- * `StoreCoordinationProvider` (so the fence behaves exactly as the default
+ * A spy `NoydbMesh` that delegates to a real
+ * `StoreMesh` (so the fence behaves exactly as the default
  * would) while recording every method invocation. The recording is what lets
  * us prove the injected instance — not the hub default — drives the fence.
  */
-class SpyProvider implements CoordinationProvider {
-  readonly calls: Record<keyof CoordinationProvider, number> = {
+class SpyProvider implements NoydbMesh {
+  readonly calls: Record<keyof NoydbMesh, number> = {
     setFence: 0,
     readFence: 0,
     observeFence: 0,
@@ -44,12 +44,12 @@ class SpyProvider implements CoordinationProvider {
     observePresence: 0,
     reachableWriters: 0,
   }
-  readonly #inner: StoreCoordinationProvider
+  readonly #inner: StoreMesh
 
   constructor(store: NoydbStore) {
     // Small poll interval keeps the observe* fallbacks snappy; the cutover
     // here reaches quorum on the seeded snapshot so no real polling occurs.
-    this.#inner = new StoreCoordinationProvider(store, { pollIntervalMs: 5 })
+    this.#inner = new StoreMesh(store, { pollIntervalMs: 5 })
   }
 
   async setFence(vault: string, fence: FenceState): Promise<void> {
@@ -140,10 +140,10 @@ describe('coordination injection (#469)', () => {
     await db.close()
   })
 
-  it('defaults to StoreCoordinationProvider when none is injected', async () => {
+  it('defaults to StoreMesh when none is injected', async () => {
     const store = toMemory()
     const db = await createNoydb({ store, user: 'a', secret: 'inject-default-pass-1234' })
-    expect(db.coordination).toBeInstanceOf(StoreCoordinationProvider)
+    expect(db.coordination).toBeInstanceOf(StoreMesh)
     await db.close()
   })
 
@@ -167,6 +167,6 @@ describe('coordination injection (#469)', () => {
         return []
       },
     }
-    expectTypeOf(external).toMatchTypeOf<CoordinationProvider>()
+    expectTypeOf(external).toMatchTypeOf<NoydbMesh>()
   })
 })

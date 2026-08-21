@@ -52,7 +52,7 @@ import { mintKeyringCanary, deriveKekForKeyring, readKeyringFile } from './keyri
 import { assertRosterAuthenticated, mintRosterTag } from './roster-tag.js'
 import { ROSTER_KEY_ID } from '../../kernel/constants.js'
 import { buildEchoBlock } from './echo-secret.js'
-import type { DeviceSealProvider } from './device-seal.js'
+import type { NoydbDeviceSeal } from './device-seal.js'
 import type { KeyringAuthenticator } from '../../kernel/types.js'
 import type { EnrollAuthenticatorOptions } from './authenticators.js'
 import { ValidationError } from '../../kernel/errors.js'
@@ -70,7 +70,7 @@ interface RotateEchoOptions {
    * absent ⇒ `reveal: 'portable'`. Mirrors
    * {@link CreateOwnerKeyringOptions.deviceSeal}.
    */
-  readonly deviceSeal?: DeviceSealProvider
+  readonly deviceSeal?: NoydbDeviceSeal
   /** Optional display hint for the masked echo. */
   readonly maskHint?: string
 }

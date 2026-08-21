@@ -488,7 +488,7 @@ export class TeamFacade {
         'disabled',
         { minTier: 1, enabled: false },
         'Managed-secret mode (#14): the secret is hub-generated '
-        + 'and sealed under the SealingKeyProvider — there is no '
+        + 'and sealed under the NoydbSealer — there is no '
         + 'plaintext to rotate. Use the recovery flow (follow-up issue) '
         + 'to mint a fresh sealed secret.',
       )
@@ -810,7 +810,7 @@ export class TeamFacade {
    *
    * Replaces the sealed secret of a managed-mode vault with a
    * fresh 256-bit random, sealed under the configured
-   * `SealingKeyProvider`. The user never sees the new secret.
+   * `NoydbSealer`. The user never sees the new secret.
    *
    * Internally:
    *   1. Verify the recovery proof (Shamir today) and unwrap the

@@ -148,8 +148,8 @@ export {
 export type { EchoRevealChoice } from './echo-secret.js'
 export { beginEchoUnlock } from './echo-ceremony.js'
 export type { BeginEchoUnlockOptions, EchoCeremony } from './echo-ceremony.js'
-export { MemoryDeviceSealProvider } from './device-seal.js'
-export type { DeviceSealProvider } from './device-seal.js'
+export { MemoryDeviceSeal } from './device-seal.js'
+export type { NoydbDeviceSeal } from './device-seal.js'
 // Types the echo signatures name — exported from the same entry so the
 // type-reachability check (`check:types`) holds for `./team` consumers.
 export type { EchoSecretParts } from '../../kernel/enclave/index.js'

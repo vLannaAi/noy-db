@@ -45,7 +45,7 @@ import {
 } from '../src/with-party/team/rotate-recover.js'
 import { recoverUser } from '../src/with-party/team/peer-recover.js'
 import { buildEchoBlock } from '../src/with-party/team/echo-secret.js'
-import { MemoryDeviceSealProvider } from '../src/with-party/team/device-seal.js'
+import { MemoryDeviceSeal } from '../src/with-party/team/device-seal.js'
 import {
   savePaperRecoveryEntries,
   mintPaperRecoveryEntry,
@@ -135,7 +135,7 @@ describe('rotateSecret across secret modes (#940)', () => {
     await db.openVault('acme')
     db.close()
 
-    const seal = new MemoryDeviceSealProvider({ id: 'test:dev' })
+    const seal = new MemoryDeviceSeal({ id: 'test:dev' })
     await rotateSecret(store, 'acme', 'owner', {
       oldSecret: STRONG_OLD,
       newSecret: PARTS,

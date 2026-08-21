@@ -141,7 +141,7 @@ export interface NoydbPodHeader {
    * Auto-unlock material indicator. When present, the bundle
    * body wraps the dump JSON in a structure carrying per-user
    * secrets — either plaintext (`'unsealed'`, public-by-design)
-   * or sealed under a `SealingKeyProvider` (`'sealed'`, requires
+   * or sealed under a `NoydbSealer` (`'sealed'`, requires
    * matching provider on the recipient side).
    *
    * Visible pre-decompression so cloud listing UIs can warn before

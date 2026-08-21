@@ -1,8 +1,8 @@
 /**
- * **@noy-db/by-tabs** real-time {@link CoordinationProvider} — a drain-barrier
+ * **@noy-db/by-tabs** real-time {@link NoydbMesh} — a drain-barrier
  * transport over a {@link PeerChannel} (BroadcastChannel between tabs).
  *
- * The kernel defines the {@link CoordinationProvider} port (#469); the store
+ * The kernel defines the {@link NoydbMesh} port (#469); the store
  * default polls `_meta/schema-fence`, but a multi-tab app can inject this
  * push-based provider so a schema cutover fences **instantly** instead of via
  * store polling. The migration cutover and `@klum-db/lobby` both drive the same
@@ -22,10 +22,10 @@
 
 import { channelCoordination } from '@noy-db/by-peer'
 import type { PeerChannel } from '@noy-db/by-peer'
-import type { CoordinationProvider } from '@noy-db/hub/cargo'
+import type { NoydbMesh } from '@noy-db/hub/cargo'
 
 /**
- * Build a real-time {@link CoordinationProvider} backed by a {@link PeerChannel}
+ * Build a real-time {@link NoydbMesh} backed by a {@link PeerChannel}
  * (a BroadcastChannel between tabs of the same origin).
  *
  * Delegates to the shared `channelCoordination` core in `@noy-db/by-peer` — the
@@ -34,6 +34,6 @@ import type { CoordinationProvider } from '@noy-db/hub/cargo'
  * `createNoydb({ coordinationStrategy: tabsCoordination(ch) })`, or drive it
  * directly via `runDrainBarrier`.
  */
-export function tabsCoordination(channel: PeerChannel): CoordinationProvider {
+export function tabsCoordination(channel: PeerChannel): NoydbMesh {
   return channelCoordination(channel)
 }

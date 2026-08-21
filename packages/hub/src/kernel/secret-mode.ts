@@ -34,7 +34,7 @@ export function validateSecretModeOptions(options: NoydbOptions): void {
   // Managed-secret mode — mutually exclusive with both
   // `secret` (the whole point is hub generates and seals; the user
   // doesn't supply one) and `getKeyring` (a custom unlock path that
-  // bypasses the sealing flow entirely). Requires a SealingKeyProvider.
+  // bypasses the sealing flow entirely). Requires a NoydbSealer.
   if (managed) {
     if (options.secret) {
       throw new ValidationError(
@@ -50,7 +50,7 @@ export function validateSecretModeOptions(options: NoydbOptions): void {
     }
     if (!options.sealingKey) {
       throw new ValidationError(
-        '`secretMode: "managed"` requires `sealingKey: SealingKeyProvider` '
+        '`secretMode: "managed"` requires `sealingKey: NoydbSealer` '
         + '(see @noy-db/seal-macos-keychain / @noy-db/seal-aws-kms / etc.).',
       )
     }

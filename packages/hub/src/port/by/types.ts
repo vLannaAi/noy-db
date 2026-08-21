@@ -1,5 +1,5 @@
 /**
- * Kernel coordination port — the injected `CoordinationProvider` seam for the
+ * Kernel coordination port — the injected `NoydbMesh` seam for the
  * schema-fence drain-barrier.
  *
  * The kernel defines this port; `@noy-db/by-tabs` / `@noy-db/by-peer` implement
@@ -35,7 +35,7 @@ export interface WriterPresence {
 }
 
 /** Session-addressable drain-barrier coordination transport. Per-vault ops. */
-export interface CoordinationProvider {
+export interface NoydbMesh {
   /** orchestrator → all writers */
   setFence(vault: string, fence: FenceState): Promise<void>
   /**
@@ -95,7 +95,7 @@ export interface DrainBarrierOptions {
  * {@link QuiesceTimeoutError} if `quiesceTimeoutMs` elapses first.
  */
 export async function runDrainBarrier(
-  provider: CoordinationProvider,
+  provider: NoydbMesh,
   o: DrainBarrierOptions,
   run: () => Promise<void>,
 ): Promise<void> {

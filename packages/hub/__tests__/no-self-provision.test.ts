@@ -16,7 +16,7 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel
 import { ConflictError, NoAccessError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import {
-  MemorySealingKeyProvider,
+  MemorySealer,
 } from '../src/with-party/team/managed-secret.js'
 import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 import { withTeam } from '../src/with-party/team/index.js'
@@ -113,7 +113,7 @@ describe('openVault no-self-provision (#313)', () => {
 
     // bob uses managed mode — resolveManagedSecret would write _meta/sealed-secret
     // on first open if the pre-gate weren't there
-    const bobProvider = new MemorySealingKeyProvider({ id: 'test-kms' })
+    const bobProvider = new MemorySealer({ id: 'test-kms' })
     const bob = await createNoydb({ teamStrategy: withTeam(),
       store: adapter,
       user: 'bob',

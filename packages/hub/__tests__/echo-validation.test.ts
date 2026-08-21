@@ -9,7 +9,7 @@ import {
 } from '../src/kernel/validation.js'
 import { EchoCeremonyRequiredError, WrongPromptError, WrongEchoError, ConflictError } from '../src/kernel/errors.js'
 import { createNoydb } from '../src/kernel/noydb.js'
-import { MemoryDeviceSealProvider } from '../src/with-party/team/device-seal.js'
+import { MemoryDeviceSeal } from '../src/with-party/team/device-seal.js'
 
 // Same inline in-memory store pattern as __tests__/keyring.test.ts:17-42.
 function inlineMemory(): NoydbStore {
@@ -147,9 +147,9 @@ describe('echo error classes', () => {
   })
 })
 
-describe('MemoryDeviceSealProvider', () => {
+describe('MemoryDeviceSeal', () => {
   it('round-trips and throws on tamper', async () => {
-    const p = new MemoryDeviceSealProvider({ id: 'test:mem' })
+    const p = new MemoryDeviceSeal({ id: 'test:mem' })
     const sealed = await p.seal(new TextEncoder().encode('the echo'))
     expect(new TextDecoder().decode(await p.unseal(sealed))).toBe('the echo')
     const tampered = sealed.slice()

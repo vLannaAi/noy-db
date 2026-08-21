@@ -47,7 +47,7 @@
  * @packageDocumentation
  */
 
-import type { SealingKeyProvider, RecipientSealer, RecipientHint } from '@noy-db/hub'
+import type { NoydbSealer, RecipientSealer, RecipientHint } from '@noy-db/hub'
 import { sealRsaOaepTlv, parseRsaOaepTlv, aesGcmOpen } from '@noy-db/hub'
 import {
   KMSClient,
@@ -68,7 +68,7 @@ export interface AwsKmsSealingProviderOptions {
 }
 
 /**
- * Build a {@link SealingKeyProvider} backed by AWS KMS Encrypt / Decrypt.
+ * Build a {@link NoydbSealer} backed by AWS KMS Encrypt / Decrypt.
  *
  * Credentials are resolved by the SDK's ambient chain — IAM instance roles,
  * environment variables, or `~/.aws/credentials`. Never pass raw credentials
@@ -78,7 +78,7 @@ export interface AwsKmsSealingProviderOptions {
  * against unexpected SDK-response shapes).
  * Any KMS API error (AccessDenied, InvalidKeyUsage, etc.) propagates as-is.
  */
-export function awsKmsSealingProvider(opts: AwsKmsSealingProviderOptions): SealingKeyProvider {
+export function awsKmsSealingProvider(opts: AwsKmsSealingProviderOptions): NoydbSealer {
   const client = opts.client ?? new KMSClient({})
   return {
     id: `aws-kms:${opts.keyId}`,

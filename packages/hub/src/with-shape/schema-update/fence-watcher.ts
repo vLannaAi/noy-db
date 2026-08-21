@@ -1,18 +1,18 @@
 /**
  * Per-client schema-fence watcher. Watches the fence via the injected
- * {@link CoordinationProvider}; on `draining` it drains in-flight writes
+ * {@link NoydbMesh}; on `draining` it drains in-flight writes
  * and reports presence (its ack); emits a same-instance signal on every
  * state transition (for UI). Driven by an interval in production and by
  * explicit `check()`/`beat()` in tests.
  *
  * The transport is the coordination port: the default
- * {@link StoreCoordinationProvider} maps `reportPresence` →
+ * {@link StoreMesh} maps `reportPresence` →
  * `_meta/schema-fence:client:<id>` and `readFence` → `_meta/schema-fence`,
  * so behavior is byte-for-byte the same; `by-tabs` / `by-peer` swap in
  * real-time push transports.
  */
 import { type FenceState } from './fence.js'
-import type { CoordinationProvider } from '../../port/by/index.js'
+import type { NoydbMesh } from '../../port/by/index.js'
 
 export interface FenceWatcherEvent {
   readonly currentSchemaVersion: number
@@ -20,7 +20,7 @@ export interface FenceWatcherEvent {
 }
 
 export class FenceWatcher {
-  readonly #coordination: CoordinationProvider
+  readonly #coordination: NoydbMesh
   readonly #vault: string
   readonly #writerId: string
   readonly #sessionId: string
@@ -32,7 +32,7 @@ export class FenceWatcher {
   #timer: ReturnType<typeof setInterval> | undefined
 
   constructor(opts: {
-    coordination: CoordinationProvider
+    coordination: NoydbMesh
     vault: string
     clientId: string
     sessionId?: string

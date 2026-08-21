@@ -16,7 +16,7 @@ import {
   writePod,
   readPod,
   readPodHeader,
-  MemorySealingKeyProvider,
+  MemorySealer,
   MemoryRecipientSealer,
   PodSealMismatchError,
   ValidationError,
@@ -136,7 +136,7 @@ describe('#197 — autoSecrets (unsealed, public-by-design)', () => {
 
   it('rejects mutual exclusion violation', async () => {
     const { vault } = await freshVault()
-    const provider = new MemorySealingKeyProvider({ id: 'test' })
+    const provider = new MemorySealer({ id: 'test' })
     await expect(
       writePod(vault, {
         autoSecrets: { policy: 'public-by-design', perUser: { a: 'b' } },
@@ -149,7 +149,7 @@ describe('#197 — autoSecrets (unsealed, public-by-design)', () => {
 describe('#197 — sealedSecrets (self-target)', () => {
   it('seals + round-trips with the same provider', async () => {
     const { vault } = await freshVault()
-    const provider = new MemorySealingKeyProvider({ id: 'macos-keychain:com.acme/alice' })
+    const provider = new MemorySealer({ id: 'macos-keychain:com.acme/alice' })
 
     const bytes = await writePod(vault, {
       sealedSecrets: {
@@ -163,7 +163,7 @@ describe('#197 — sealedSecrets (self-target)', () => {
     expect(header.autoUnlock).toBe('sealed')
 
     // Read with matching provider — should auto-unseal to plaintext.
-    const recipientProvider = new MemorySealingKeyProvider({
+    const recipientProvider = new MemorySealer({
       id: 'macos-keychain:com.acme/alice',
     })
     const result = await readPod(bytes, {
@@ -179,7 +179,7 @@ describe('#197 — sealedSecrets (self-target)', () => {
 
   it('returns sealed entries unmodified when no sealingProviders supplied', async () => {
     const { vault } = await freshVault()
-    const provider = new MemorySealingKeyProvider({ id: 'test-pid' })
+    const provider = new MemorySealer({ id: 'test-pid' })
 
     const bytes = await writePod(vault, {
       sealedSecrets: {
@@ -199,8 +199,8 @@ describe('#197 — sealedSecrets (self-target)', () => {
 
   it('throws PodSealMismatchError when no provider matches pid (strict)', async () => {
     const { vault } = await freshVault()
-    const senderProvider = new MemorySealingKeyProvider({ id: 'aws-kms:abc' })
-    const otherProvider = new MemorySealingKeyProvider({ id: 'macos-keychain:com.other/bob' })
+    const senderProvider = new MemorySealer({ id: 'aws-kms:abc' })
+    const otherProvider = new MemorySealer({ id: 'macos-keychain:com.other/bob' })
 
     const bytes = await writePod(vault, {
       sealedSecrets: {
@@ -217,8 +217,8 @@ describe('#197 — sealedSecrets (self-target)', () => {
 
   it('PodSealMismatchError message names the failing pid + actionable resolutions', async () => {
     const { vault } = await freshVault()
-    const senderProvider = new MemorySealingKeyProvider({ id: 'aws-kms:secret-arn' })
-    const otherProvider = new MemorySealingKeyProvider({ id: 'wrong-pid' })
+    const senderProvider = new MemorySealer({ id: 'aws-kms:secret-arn' })
+    const otherProvider = new MemorySealer({ id: 'wrong-pid' })
 
     const bytes = await writePod(vault, {
       sealedSecrets: {
@@ -243,16 +243,16 @@ describe('#197 — sealedSecrets (self-target)', () => {
   it('attemptUnsealAcrossProviders opt-in tries each provider when pid mismatches', async () => {
     const { vault } = await freshVault()
     // Sender + a same-key receiver with DIFFERENT ids
-    // MemorySealingKeyProvider seals deterministically on its own
+    // MemorySealer seals deterministically on its own
     // id — so two providers with different ids can't unseal each
     // other's output. To exercise the trial-mode code path
     // successfully we use the SAME id under a different instance
     // (simulating a recipient who has the same provider configured
     // but the bundle was written with a slightly different id —
     // unrealistic edge case; verify it gracefully fails closed).
-    const senderProvider = new MemorySealingKeyProvider({ id: 'unique-sender' })
-    const otherProvider1 = new MemorySealingKeyProvider({ id: 'wrong-pid-1' })
-    const otherProvider2 = new MemorySealingKeyProvider({ id: 'wrong-pid-2' })
+    const senderProvider = new MemorySealer({ id: 'unique-sender' })
+    const otherProvider1 = new MemorySealer({ id: 'wrong-pid-1' })
+    const otherProvider2 = new MemorySealer({ id: 'wrong-pid-2' })
 
     const bytes = await writePod(vault, {
       sealedSecrets: {
@@ -274,7 +274,7 @@ describe('#197 — sealedSecrets (self-target)', () => {
 
   it('rejects mode other than self-target', async () => {
     const { vault } = await freshVault()
-    const provider = new MemorySealingKeyProvider({ id: 'test' })
+    const provider = new MemorySealer({ id: 'test' })
     await expect(
       writePod(vault, {
         sealedSecrets: {
@@ -395,7 +395,7 @@ describe('#215 — sealedCredentials, password kind (sealed)', () => {
   it('seals password credential and unseals to { kind:"password", value } when provider matches', async () => {
     const { vault } = await freshVault()
     const pid = 'macos-keychain:com.acme/carol'
-    const senderProvider = new MemorySealingKeyProvider({ id: pid })
+    const senderProvider = new MemorySealer({ id: pid })
 
     const bytes = await writePod(vault, {
       sealedCredentials: {
@@ -409,7 +409,7 @@ describe('#215 — sealedCredentials, password kind (sealed)', () => {
     expect(header.autoUnlock).toBe('sealed')
 
     // WITH matching provider — should unseal to { kind:'password', value }
-    const recipientProvider = new MemorySealingKeyProvider({ id: pid })
+    const recipientProvider = new MemorySealer({ id: pid })
     const result = await readPod(bytes, { sealingProviders: [recipientProvider] })
 
     expect(result.autoUnlock).toBeDefined()
@@ -419,7 +419,7 @@ describe('#215 — sealedCredentials, password kind (sealed)', () => {
 
   it('passes through sealed entry with kind preserved when no sealingProviders supplied', async () => {
     const { vault } = await freshVault()
-    const senderProvider = new MemorySealingKeyProvider({ id: 'test-sealed-password-pid' })
+    const senderProvider = new MemorySealer({ id: 'test-sealed-password-pid' })
 
     const bytes = await writePod(vault, {
       sealedCredentials: {
@@ -463,7 +463,7 @@ describe('#215 — sugar back-compat', () => {
   it('sealedSecrets sugar unseals as { kind:"secret", value }', async () => {
     const { vault } = await freshVault()
     const pid = 'macos-keychain:com.acme/legacy'
-    const senderProvider = new MemorySealingKeyProvider({ id: pid })
+    const senderProvider = new MemorySealer({ id: pid })
 
     const bytes = await writePod(vault, {
       sealedSecrets: {
@@ -473,7 +473,7 @@ describe('#215 — sugar back-compat', () => {
       },
     })
 
-    const recipientProvider = new MemorySealingKeyProvider({ id: pid })
+    const recipientProvider = new MemorySealer({ id: pid })
     const result = await readPod(bytes, { sealingProviders: [recipientProvider] })
 
     expect(result.autoUnlock).toBeDefined()
@@ -580,7 +580,7 @@ describe('#215 — mutual exclusion (mixing rejected)', () => {
 
   it('autoCredentials + sealedCredentials together throw ValidationError matching /only one of/', async () => {
     const { vault } = await freshVault()
-    const provider = new MemorySealingKeyProvider({ id: 'test-mix' })
+    const provider = new MemorySealer({ id: 'test-mix' })
     await expect(
       writePod(vault, {
         autoCredentials: {
@@ -620,7 +620,7 @@ describe('#215 — unsupported credential kind rejected', () => {
 
   it('sealedCredentials with kind:"webauthn" rejects with ValidationError', async () => {
     const { vault } = await freshVault()
-    const provider = new MemorySealingKeyProvider({ id: 'test-bad-kind' })
+    const provider = new MemorySealer({ id: 'test-bad-kind' })
     await expect(
       writePod(vault, {
         sealedCredentials: {
@@ -676,7 +676,7 @@ describe('recipient-target sealedCredentials — validation', () => {
 
   it('rejects a recipient-target mode with a self-only provider (runtime guard for JS callers)', async () => {
     const { vault: v } = await freshVault()
-    const selfOnly = new MemorySealingKeyProvider({ id: 'self-only' })
+    const selfOnly = new MemorySealer({ id: 'self-only' })
     const someHint = await new MemoryRecipientSealer({ id: 'r1' }).publishRecipientHint()
 
     await expect(
@@ -763,7 +763,7 @@ describe('recipient-target sealedCredentials — round-trip', () => {
 
   it('back-compat: self-target bundles still round-trip with no hint field', async () => {
     const { vault: v } = await freshVault()
-    const selfProvider = new MemorySealingKeyProvider({ id: 'shared-keychain' })
+    const selfProvider = new MemorySealer({ id: 'shared-keychain' })
 
     const bytes = await writePod(v, {
       sealedCredentials: {
@@ -772,7 +772,7 @@ describe('recipient-target sealedCredentials — round-trip', () => {
         perUser: { alice: { kind: 'secret', value: 'alice-pass-bundled' } },
       },
     })
-    const recipientProvider = new MemorySealingKeyProvider({ id: 'shared-keychain' })
+    const recipientProvider = new MemorySealer({ id: 'shared-keychain' })
     const read = await readPod(bytes, { sealingProviders: [recipientProvider] })
     expect(read.autoUnlock?.kind).toBe('sealed')
     expect(read.autoUnlock?.perUser.alice).toMatchObject({ kind: 'secret', value: 'alice-pass-bundled' })

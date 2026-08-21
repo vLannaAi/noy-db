@@ -61,7 +61,7 @@ import type { Vault } from '../kernel/vault.js'
 import type { PodRecipient } from '../with-party/team/keyring.js'
 import { pickLocale } from '../with-party/directory/cover/storage.js'
 import type { Cover } from '../with-party/directory/cover/types.js'
-import type { SealingKeyProvider, RecipientSealer, RecipientHint } from '../with-party/team/managed-secret.js'
+import type { NoydbSealer, RecipientSealer, RecipientHint } from '../with-party/team/managed-secret.js'
 
 // ─── Auto-credential types ────────────────────────────────────────────────────
 
@@ -180,7 +180,7 @@ export interface WritePodOptions {
   }
   /**
    * Auto-unlock — per-user credentials sealed under a
-   * {@link SealingKeyProvider}.
+   * {@link NoydbSealer}.
    *
    * Generalises `sealedSecrets` to support any bundleable
    * credential kind (`secret` | `password` | `pin`).
@@ -206,7 +206,7 @@ export interface WritePodOptions {
   readonly sealedCredentials?:
     | {
         readonly mode: 'self-target'
-        readonly provider: SealingKeyProvider
+        readonly provider: NoydbSealer
         readonly perUser: Record<string, AutoCredential>
       }
     | {
@@ -238,7 +238,7 @@ export interface WritePodOptions {
    * @deprecated Use `sealedCredentials` instead.
    *
    * Auto-unlock — per-user secrets sealed under a
-   * {@link SealingKeyProvider} (self-target only).
+   * {@link NoydbSealer} (self-target only).
    *
    * The hub seals each user's plaintext secret under `provider`
    * and embeds the resulting sealed envelopes in the bundle. The
@@ -256,7 +256,7 @@ export interface WritePodOptions {
    */
   readonly sealedSecrets?: {
     readonly mode: 'self-target'
-    readonly provider: SealingKeyProvider
+    readonly provider: NoydbSealer
     readonly perUser: Record<string, string>
   }
   /**
@@ -402,7 +402,7 @@ export interface PodReadResult {
  * `sealedCredentials` (or the deprecated `sealedSecrets`).
  * Provider's sealed output is base64-encoded; the `pid` is the
  * dispatch key matched against recipient-supplied
- * `SealingKeyProvider.id`. The `kind` carries the plaintext-tier
+ * `NoydbSealer.id`. The `kind` carries the plaintext-tier
  * metadata so the consumer can dispatch on credential type without
  * unsealing first.
  *
@@ -456,7 +456,7 @@ export interface ReadPodOptions {
    * `autoUnlock.perUser` map remains the SEALED entries unmodified
    * — callers can inspect them or unseal elsewhere.
    */
-  readonly sealingProviders?: readonly SealingKeyProvider[]
+  readonly sealingProviders?: readonly NoydbSealer[]
   /**
    * Opt-in trial mode for unsealing — when an entry's `pid` doesn't
    * match a registered provider, try each provider whose alg
@@ -476,7 +476,7 @@ export interface ReadPodOptions {
  */
 interface NormalizedAutoUnlock {
   readonly mode: 'unsealed' | 'sealed-self' | 'sealed-recipient'
-  readonly provider?: SealingKeyProvider | RecipientSealer
+  readonly provider?: NoydbSealer | RecipientSealer
   readonly perUser: Record<string, AutoCredential>
   /** Present only for `sealed-recipient`. Same key set as `perUser`. */
   readonly hints?: Record<string, RecipientHint>
@@ -611,7 +611,7 @@ function validateAutoUnlockOptions(
       throw new ValidationError(
         'writePod: `sealedCredentials.provider` for mode \'recipient-target\' must be a '
         + 'RecipientSealer (publishRecipientHint + sealForRecipient). Self-only providers '
-        + '(MemorySealingKeyProvider, at-macos-keychain, etc.) do not satisfy this contract.',
+        + '(MemorySealer, at-macos-keychain, etc.) do not satisfy this contract.',
       )
     }
     const hints = normalized.hints
@@ -664,7 +664,7 @@ function validateAutoUnlockOptions(
   if (normalized.provider === undefined) {
     throw new ValidationError(
       'writePod: `sealedCredentials.provider` (or `sealedSecrets.provider`) '
-      + 'is required (a `SealingKeyProvider`).',
+      + 'is required (a `NoydbSealer`).',
     )
   }
   const userCount = Object.keys(normalized.perUser).length
@@ -723,7 +723,7 @@ async function buildAutoUnlockWrapper(
     }
   } else {
     // mode === 'sealed-self'
-    const selfSealer = provider as SealingKeyProvider
+    const selfSealer = provider as NoydbSealer
     for (const [userId, cred] of Object.entries(normalized.perUser)) {
       const sealed = await selfSealer.seal(encoder.encode(cred.value))
       sealedPerUser[userId] = {
@@ -869,7 +869,7 @@ function coerceUnsealed(entry: AutoCredential | string): AutoCredential {
  *
  * - For `kind: 'unsealed'`: pass through, coercing pre-0.2 bare strings
  *   to `{ kind: 'secret', value }`.
- * - For `kind: 'sealed'`: pick a `SealingKeyProvider` from
+ * - For `kind: 'sealed'`: pick a `NoydbSealer` from
  *   `opts.sealingProviders` whose `.id` matches each entry's `pid`;
  *   unseal to `AutoCredential`. When no provider matches AND strict mode
  *   (default), throw `PodSealMismatchError`. With
@@ -908,7 +908,7 @@ async function resolveAutoUnlock(
     }
     return { kind: 'sealed', perUser: passthrough }
   }
-  const providersByPid = new Map<string, SealingKeyProvider>()
+  const providersByPid = new Map<string, NoydbSealer>()
   for (const p of opts.sealingProviders) providersByPid.set(p.id, p)
 
   const decoder = new TextDecoder()
