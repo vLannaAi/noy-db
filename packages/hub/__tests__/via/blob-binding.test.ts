@@ -1,5 +1,5 @@
 /**
- * #629 Task 7 — the blob `ViaBinding`, unit-tested directly. Mirrors
+ * #629 Task 7 — the blob `NoydbVia`, unit-tested directly. Mirrors
  * `via/classified-binding.test.ts` — construct a config by hand, exercise
  * each hook. The binding is deliberately THIN: blob writes are fully
  * out-of-band (`collection.blob(id)` → `BlobSet` side-collections; they
@@ -8,7 +8,7 @@
  * `decodeAtRest`: a blobFields collection must not flip `hasAtRestHooks`.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { blobBinding, linkBlobVia, type BlobViaConfig } from '../../src/via/blob/binding.js'
+import { blobVia, linkBlobVia, type BlobViaConfig } from '../../src/via/blob/binding.js'
 import type { BlobFieldsConfig } from '../../src/with-shape/blobs/blob-compaction.js'
 import { ViaPipeline } from '../../src/kernel/via/pipeline.js'
 import { isViaInstalled, viaBinder, type ViaCryptoCtx, type ViaEraseCtx, type ViaEraseReport } from '../../src/kernel/via/index.js'
@@ -41,9 +41,9 @@ function cfg(over: Partial<BlobViaConfig> = {}): BlobViaConfig {
   return { fields, collectionName: 'invoices', ...over }
 }
 
-describe('blobBinding (#629 Task 7)', () => {
+describe('blobVia (#629 Task 7)', () => {
   it('declares the blob brand + posture (envelope at rest, not queryable, exportable, forgettable)', () => {
-    const b = blobBinding(cfg())
+    const b = blobVia(cfg())
     expect(b.brand).toBe('blob')
     expect(b.posture).toEqual({
       encryptedAtRest: 'envelope',
@@ -54,7 +54,7 @@ describe('blobBinding (#629 Task 7)', () => {
   })
 
   it('declares NO pipeline write/read/query hooks — blob content is out-of-band', () => {
-    const b = blobBinding(cfg())
+    const b = blobVia(cfg())
     // Lesson 2 (#629): no at-rest hooks — blob bytes never flow the codec.
     expect(b.encodeAtRest).toBeUndefined()
     expect(b.decodeAtRest).toBeUndefined()
@@ -72,14 +72,14 @@ describe('blobBinding (#629 Task 7)', () => {
   })
 
   it('a blob-only pipeline keeps hasAtRestHooks false (the codec stays on its inline path)', () => {
-    const pipeline = ViaPipeline.build([blobBinding(cfg())])
+    const pipeline = ViaPipeline.build([blobVia(cfg())])
     expect(pipeline).toBeDefined()
     expect(pipeline!.hasAtRestHooks).toBe(false)
     expect(pipeline!.hasResultDecode).toBe(false)
   })
 
   it('describeFragment reports declarative knobs as scalars and predicate knobs as presence flags', () => {
-    const b = blobBinding(cfg())
+    const b = blobVia(cfg())
     expect(b.describeFragment!()).toEqual({
       blobFields: {
         receipt: { retainDays: 30, evictWhen: true, external: true, backlink: 'opaque-token' },
@@ -90,7 +90,7 @@ describe('blobBinding (#629 Task 7)', () => {
   })
 
   it('erase reports a zero-shredded, zero-residue no-op when no purge closure is wired (Task 10 wires it)', async () => {
-    const b = blobBinding(cfg())
+    const b = blobVia(cfg())
     await expect(b.erase!(eraseCtxFixture())).resolves.toEqual({ shredded: 0, residue: [] })
   })
 
@@ -100,7 +100,7 @@ describe('blobBinding (#629 Task 7)', () => {
       residue: [{ kind: 'blob-legacy-residue', eTag: 'etag-1' }],
     }
     const purgeBlobsForRecord = vi.fn(async (_id: string) => report)
-    const b = blobBinding(cfg({ purgeBlobsForRecord }))
+    const b = blobVia(cfg({ purgeBlobsForRecord }))
 
     await expect(b.erase!(eraseCtxFixture())).resolves.toEqual(report)
     expect(purgeBlobsForRecord).toHaveBeenCalledExactlyOnceWith('r1')

@@ -47,7 +47,7 @@ export type { ClassifiedFieldSpec }
 // would leave `viaBinder('classified')` unlinked for those declarations.
 // This port module is already unconditionally imported by the kernel spine
 // (for the `NO_CLASSIFIED` strategy default below), so linking here
-// guarantees the binder is always installed before `compileViaBindings`
+// guarantees the binder is always installed before `compileVias`
 // ever needs it, regardless of how a collection's classifiedFields were
 // constructed.
 linkClassifiedVia()

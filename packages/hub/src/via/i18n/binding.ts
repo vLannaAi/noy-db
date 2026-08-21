@@ -1,10 +1,10 @@
 /**
- * The i18n `ViaBinding` — wires the i18n engine (auto-translate/script
+ * The i18n `NoydbVia` — wires the i18n engine (auto-translate/script
  * enforcement/validation/densify on write; locale + dict-label presentation
  * on read) into the kernel's generic Via port. Mirrors
  * `via/money/binding.ts`'s #553 static-link pattern.
  *
- * LIVE (#623 Task 8 wired the cutover): `i18nBinding()`/`linkI18nVia()` are
+ * LIVE (#623 Task 8 wired the cutover): `i18nVia()`/`linkI18nVia()` are
  * the real put/read path for every i18n-declaring collection —
  * `collection.ts`'s `_putInternal`/`applyLocaleToRecord` (the call sites
  * this file's bodies were moved/adapted from) now delegate their i18n
@@ -14,7 +14,7 @@
  * `i18nText()`, `dictKey()`, `staticDict()` each call {@link linkI18nVia}
  * first — the same #553 pattern `money()` uses.
  */
-import type { ViaBinding, ViaWriteCtx, ViaReadCtx } from '../../kernel/via/index.js'
+import type { NoydbVia, ViaWriteCtx, ViaReadCtx } from '../../kernel/via/index.js'
 import { installViaBinder } from '../../kernel/via/index.js'
 import type { I18nTextDescriptor } from './core.js'
 import { stripI18nFilled } from './core.js'
@@ -354,7 +354,7 @@ function buildI18nDescribeFragment(cfg: I18nViaConfig): Record<string, unknown> 
 
 // ─── binding ────────────────────────────────────────────────────────────
 
-export function i18nBinding(cfg: I18nViaConfig): ViaBinding {
+export function i18nVia(cfg: I18nViaConfig): NoydbVia {
   return {
     brand: 'i18n',
     posture: { encryptedAtRest: 'envelope', queryable: 'full', exportable: true, forgettable: true },
@@ -372,5 +372,5 @@ export function i18nBinding(cfg: I18nViaConfig): ViaBinding {
 }
 
 export function linkI18nVia(): void {
-  installViaBinder('i18n', (c) => i18nBinding(c as I18nViaConfig))
+  installViaBinder('i18n', (c) => i18nVia(c as I18nViaConfig))
 }

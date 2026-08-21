@@ -10,9 +10,9 @@ import {
 } from '../../src/index.js'
 import { classified } from '../../src/via/classified/presets.js'
 import { i18nText } from '../../src/via/i18n/core.js'
-import { resolveComputedEdges, resolveViaBindingDepsEdges } from '../../src/kernel/collection-config.js'
+import { resolveComputedEdges, resolveViaDepsEdges } from '../../src/kernel/collection-config.js'
 import { DEFAULT_POSTURE } from '../../src/kernel/via/graph.js'
-import type { ViaBinding } from '../../src/kernel/via/index.js'
+import type { NoydbVia } from '../../src/kernel/via/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 import type { ClassifiedFieldSpec } from '../../src/via/classified/index.js'
 
@@ -410,23 +410,23 @@ describe('vault.graph — edge sources go live (#638 Task 2)', () => {
   })
 })
 
-describe('resolveViaBindingDepsEdges — the general via-bindings deps path (#638 Task 2)', () => {
+describe('resolveViaDepsEdges — the general via-bindings deps path (#638 Task 2)', () => {
   // No shipped binding declares `deps` today (money/i18n/classified/blob
   // don't) — these are direct unit tests of the general path a future
   // derive-bearing binding (phase C Task 7's `computed` via-binding) plugs
   // into (per the via/index.ts doc comment this task made truthful).
-  function fixtureBinding(overrides: Partial<ViaBinding>): ViaBinding {
+  function fixtureBinding(overrides: Partial<NoydbVia>): NoydbVia {
     return { brand: 'fixture', posture: DEFAULT_POSTURE, ...overrides }
   }
 
   it('a binding with no deps contributes no edges', () => {
     const binding = fixtureBinding({ covers: (f) => f === 'total' })
-    expect(resolveViaBindingDepsEdges('customers', [binding], new Set(['total', 'ssn']))).toEqual([])
+    expect(resolveViaDepsEdges('customers', [binding], new Set(['total', 'ssn']))).toEqual([])
   })
 
   it('a binding declaring deps registers an edge for every field it covers', () => {
     const binding = fixtureBinding({ deps: ['ssn'], covers: (f) => f === 'total' })
-    const edges = resolveViaBindingDepsEdges('customers', [binding], new Set(['total', 'ssn']))
+    const edges = resolveViaDepsEdges('customers', [binding], new Set(['total', 'ssn']))
     expect(edges).toEqual([
       { target: { collection: 'customers', field: 'total' }, sources: [{ collection: 'customers', field: 'ssn' }] },
     ])
@@ -434,7 +434,7 @@ describe('resolveViaBindingDepsEdges — the general via-bindings deps path (#63
 
   it('an unknown deps source field throws declare-time ValidationError', () => {
     const binding = fixtureBinding({ deps: ['nope'], covers: () => true })
-    expect(() => resolveViaBindingDepsEdges('customers', [binding], new Set(['total']))).toThrow(ValidationError)
+    expect(() => resolveViaDepsEdges('customers', [binding], new Set(['total']))).toThrow(ValidationError)
   })
 })
 

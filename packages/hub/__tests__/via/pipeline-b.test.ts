@@ -6,7 +6,7 @@
  * choose between the hook path and today's inline sealed-slot path.
  */
 import { describe, it, expect } from 'vitest'
-import type { ViaBinding, ViaWriteCtx, ViaEraseCtx, ViaCryptoCtx, ViaPosture } from '../../src/kernel/via/index.js'
+import type { NoydbVia, ViaWriteCtx, ViaEraseCtx, ViaCryptoCtx, ViaPosture } from '../../src/kernel/via/index.js'
 import { ViaPipeline } from '../../src/kernel/via/pipeline.js'
 import { ValidationError } from '../../src/kernel/errors.js'
 
@@ -47,8 +47,8 @@ function cryptoFixture(): ViaCryptoCtx {
 describe('ViaPipeline.enforceWrite', () => {
   it('awaits each binding in order', async () => {
     const order: string[] = []
-    const a: ViaBinding = { brand: 'a', posture: posture(), enforceWrite: async () => { order.push('a') } }
-    const b: ViaBinding = { brand: 'b', posture: posture(), enforceWrite: async () => { order.push('b') } }
+    const a: NoydbVia = { brand: 'a', posture: posture(), enforceWrite: async () => { order.push('a') } }
+    const b: NoydbVia = { brand: 'b', posture: posture(), enforceWrite: async () => { order.push('b') } }
     const p = ViaPipeline.build([a, b])!
 
     await p.enforceWrite({}, writeCtxFixture())
@@ -58,7 +58,7 @@ describe('ViaPipeline.enforceWrite', () => {
 
   it('first throw wins — later bindings never run', async () => {
     const order: string[] = []
-    const a: ViaBinding = {
+    const a: NoydbVia = {
       brand: 'a',
       posture: posture(),
       enforceWrite: async () => {
@@ -66,7 +66,7 @@ describe('ViaPipeline.enforceWrite', () => {
         throw new ValidationError('a refuses')
       },
     }
-    const b: ViaBinding = { brand: 'b', posture: posture(), enforceWrite: async () => { order.push('b') } }
+    const b: NoydbVia = { brand: 'b', posture: posture(), enforceWrite: async () => { order.push('b') } }
     const p = ViaPipeline.build([a, b])!
 
     await expect(p.enforceWrite({}, writeCtxFixture())).rejects.toThrow('a refuses')
@@ -74,7 +74,7 @@ describe('ViaPipeline.enforceWrite', () => {
   })
 
   it('skips bindings without enforceWrite', async () => {
-    const a: ViaBinding = { brand: 'a', posture: posture() }
+    const a: NoydbVia = { brand: 'a', posture: posture() }
     const p = ViaPipeline.build([a])!
 
     await expect(p.enforceWrite({}, writeCtxFixture())).resolves.toBeUndefined()
@@ -83,12 +83,12 @@ describe('ViaPipeline.enforceWrite', () => {
 
 describe('ViaPipeline.encodeAtRest', () => {
   it('folds the record and accumulates sealed maps across bindings', async () => {
-    const a: ViaBinding = {
+    const a: NoydbVia = {
       brand: 'a',
       posture: posture(),
       encodeAtRest: async (r) => ({ record: { ...r, aTouched: true }, sealed: { fieldA: { iv: 'ivA', data: 'dataA' } } }),
     }
-    const b: ViaBinding = {
+    const b: NoydbVia = {
       brand: 'b',
       posture: posture(),
       encodeAtRest: async (r) => ({ record: { ...r, bTouched: true }, sealed: { fieldB: { iv: 'ivB', data: 'dataB' } } }),
@@ -105,12 +105,12 @@ describe('ViaPipeline.encodeAtRest', () => {
   })
 
   it('a brand-keyed collision on the same sealed field throws', async () => {
-    const a: ViaBinding = {
+    const a: NoydbVia = {
       brand: 'a',
       posture: posture(),
       encodeAtRest: async (r) => ({ record: r, sealed: { x: { iv: '1', data: '1' } } }),
     }
-    const b: ViaBinding = {
+    const b: NoydbVia = {
       brand: 'b',
       posture: posture(),
       encodeAtRest: async (r) => ({ record: r, sealed: { x: { iv: '2', data: '2' } } }),
@@ -121,7 +121,7 @@ describe('ViaPipeline.encodeAtRest', () => {
   })
 
   it('returns sealed undefined when no binding seals anything', async () => {
-    const a: ViaBinding = { brand: 'a', posture: posture(), encodeAtRest: async (r) => ({ record: r }) }
+    const a: NoydbVia = { brand: 'a', posture: posture(), encodeAtRest: async (r) => ({ record: r }) }
     const p = ViaPipeline.build([a])!
 
     const result = await p.encodeAtRest({ foo: 'bar' }, cryptoFixture())
@@ -130,7 +130,7 @@ describe('ViaPipeline.encodeAtRest', () => {
   })
 
   it('skips bindings without encodeAtRest, leaving the record untouched', async () => {
-    const a: ViaBinding = { brand: 'a', posture: posture() }
+    const a: NoydbVia = { brand: 'a', posture: posture() }
     const p = ViaPipeline.build([a])!
 
     const result = await p.encodeAtRest({ foo: 'bar' }, cryptoFixture())
@@ -141,8 +141,8 @@ describe('ViaPipeline.encodeAtRest', () => {
 
 describe('ViaPipeline.decodeAtRest', () => {
   it('folds in order', async () => {
-    const a: ViaBinding = { brand: 'a', posture: posture(), decodeAtRest: async (r) => ({ ...r, aSeen: true }) }
-    const b: ViaBinding = { brand: 'b', posture: posture(), decodeAtRest: async (r) => ({ ...r, bSeen: true }) }
+    const a: NoydbVia = { brand: 'a', posture: posture(), decodeAtRest: async (r) => ({ ...r, aSeen: true }) }
+    const b: NoydbVia = { brand: 'b', posture: posture(), decodeAtRest: async (r) => ({ ...r, bSeen: true }) }
     const p = ViaPipeline.build([a, b])!
 
     const result = await p.decodeAtRest({}, {}, cryptoFixture(), { asHandles: false })
@@ -152,7 +152,7 @@ describe('ViaPipeline.decodeAtRest', () => {
 
   it('passes the sealed map and opts through to every binding', async () => {
     const seen: Array<{ sealed: unknown; asHandles: boolean }> = []
-    const a: ViaBinding = {
+    const a: NoydbVia = {
       brand: 'a',
       posture: posture(),
       decodeAtRest: async (r, sealed, _crypto, opts) => {
@@ -169,7 +169,7 @@ describe('ViaPipeline.decodeAtRest', () => {
   })
 
   it('skips bindings without decodeAtRest', async () => {
-    const a: ViaBinding = { brand: 'a', posture: posture() }
+    const a: NoydbVia = { brand: 'a', posture: posture() }
     const p = ViaPipeline.build([a])!
 
     const result = await p.decodeAtRest({ foo: 'bar' }, {}, cryptoFixture(), { asHandles: false })
@@ -180,8 +180,8 @@ describe('ViaPipeline.decodeAtRest', () => {
 
 describe('ViaPipeline.erase', () => {
   it('runs every binding and concatenates reports', async () => {
-    const a: ViaBinding = { brand: 'a', posture: posture(), erase: async () => ({ shredded: 1, residue: ['a-residue'] }) }
-    const b: ViaBinding = { brand: 'b', posture: posture(), erase: async () => ({ shredded: 2, residue: ['b-residue'] }) }
+    const a: NoydbVia = { brand: 'a', posture: posture(), erase: async () => ({ shredded: 1, residue: ['a-residue'] }) }
+    const b: NoydbVia = { brand: 'b', posture: posture(), erase: async () => ({ shredded: 2, residue: ['b-residue'] }) }
     const p = ViaPipeline.build([a, b])!
 
     const result = await p.erase(eraseCtxFixture())
@@ -190,8 +190,8 @@ describe('ViaPipeline.erase', () => {
   })
 
   it('skips bindings without erase', async () => {
-    const a: ViaBinding = { brand: 'a', posture: posture() }
-    const b: ViaBinding = { brand: 'b', posture: posture(), erase: async () => ({ shredded: 1, residue: [] }) }
+    const a: NoydbVia = { brand: 'a', posture: posture() }
+    const b: NoydbVia = { brand: 'b', posture: posture(), erase: async () => ({ shredded: 1, residue: [] }) }
     const p = ViaPipeline.build([a, b])!
 
     const result = await p.erase(eraseCtxFixture())
@@ -200,7 +200,7 @@ describe('ViaPipeline.erase', () => {
   })
 
   it('returns a zero report when no binding implements erase', async () => {
-    const a: ViaBinding = { brand: 'a', posture: posture() }
+    const a: NoydbVia = { brand: 'a', posture: posture() }
     const p = ViaPipeline.build([a])!
 
     const result = await p.erase(eraseCtxFixture())
@@ -209,10 +209,10 @@ describe('ViaPipeline.erase', () => {
   })
 
   it('#629 Task 10 — skips a binding declaring forgettable: false even if it defines erase', async () => {
-    const notForgettable: ViaBinding = {
+    const notForgettable: NoydbVia = {
       brand: 'a', posture: { ...posture(), forgettable: false }, erase: async () => ({ shredded: 9, residue: ['should-not-appear'] }),
     }
-    const b: ViaBinding = { brand: 'b', posture: posture(), erase: async () => ({ shredded: 1, residue: [] }) }
+    const b: NoydbVia = { brand: 'b', posture: posture(), erase: async () => ({ shredded: 1, residue: [] }) }
     const p = ViaPipeline.build([notForgettable, b])!
 
     const result = await p.erase(eraseCtxFixture())
@@ -221,8 +221,8 @@ describe('ViaPipeline.erase', () => {
   })
 
   it('#629 Task 10 — sums retainedShared across bindings, present only when > 0', async () => {
-    const a: ViaBinding = { brand: 'a', posture: posture(), erase: async () => ({ shredded: 1, residue: [], retainedShared: 2 }) }
-    const b: ViaBinding = { brand: 'b', posture: posture(), erase: async () => ({ shredded: 1, residue: [], retainedShared: 3 }) }
+    const a: NoydbVia = { brand: 'a', posture: posture(), erase: async () => ({ shredded: 1, residue: [], retainedShared: 2 }) }
+    const b: NoydbVia = { brand: 'b', posture: posture(), erase: async () => ({ shredded: 1, residue: [], retainedShared: 3 }) }
     const p = ViaPipeline.build([a, b])!
 
     const result = await p.erase(eraseCtxFixture())
@@ -233,8 +233,8 @@ describe('ViaPipeline.erase', () => {
 
 describe('ViaPipeline.eraseSealed (#629 Task 10 — forget()\'s sealed-posture-only fold)', () => {
   it('folds ONLY bindings whose posture is encryptedAtRest: "sealed", ignoring others', async () => {
-    const sealed: ViaBinding = { brand: 'classified', posture: { ...posture(), encryptedAtRest: 'sealed' }, erase: async () => ({ shredded: 1, residue: ['sealed-residue'] }) }
-    const notSealed: ViaBinding = { brand: 'blob', posture: posture(), erase: async () => ({ shredded: 99, residue: ['should-not-appear'] }) }
+    const sealed: NoydbVia = { brand: 'classified', posture: { ...posture(), encryptedAtRest: 'sealed' }, erase: async () => ({ shredded: 1, residue: ['sealed-residue'] }) }
+    const notSealed: NoydbVia = { brand: 'blob', posture: posture(), erase: async () => ({ shredded: 99, residue: ['should-not-appear'] }) }
     const p = ViaPipeline.build([sealed, notSealed])!
 
     const result = await p.eraseSealed(eraseCtxFixture())
@@ -243,7 +243,7 @@ describe('ViaPipeline.eraseSealed (#629 Task 10 — forget()\'s sealed-posture-o
   })
 
   it('returns undefined when no binding declares sealed posture', async () => {
-    const a: ViaBinding = { brand: 'a', posture: posture(), erase: async () => ({ shredded: 1, residue: [] }) }
+    const a: NoydbVia = { brand: 'a', posture: posture(), erase: async () => ({ shredded: 1, residue: [] }) }
     const p = ViaPipeline.build([a])!
 
     expect(await p.eraseSealed(eraseCtxFixture())).toBeUndefined()
@@ -252,7 +252,7 @@ describe('ViaPipeline.eraseSealed (#629 Task 10 — forget()\'s sealed-posture-o
 
 describe('ViaPipeline.hasAtRestHooks (async-stack detection)', () => {
   it('is false for a stack with only sync hooks — the sync-stack rule', () => {
-    const money: ViaBinding = {
+    const money: NoydbVia = {
       brand: 'a',
       posture: posture(),
       ingest: (r) => r,
@@ -266,22 +266,22 @@ describe('ViaPipeline.hasAtRestHooks (async-stack detection)', () => {
   })
 
   it('is true when any binding declares encodeAtRest', () => {
-    const a: ViaBinding = { brand: 'a', posture: posture(), encodeAtRest: async (r) => ({ record: r }) }
+    const a: NoydbVia = { brand: 'a', posture: posture(), encodeAtRest: async (r) => ({ record: r }) }
     const p = ViaPipeline.build([a])!
 
     expect(p.hasAtRestHooks).toBe(true)
   })
 
   it('is true when any binding declares decodeAtRest', () => {
-    const a: ViaBinding = { brand: 'a', posture: posture(), decodeAtRest: async (r) => r }
+    const a: NoydbVia = { brand: 'a', posture: posture(), decodeAtRest: async (r) => r }
     const p = ViaPipeline.build([a])!
 
     expect(p.hasAtRestHooks).toBe(true)
   })
 
   it('is true when only one of several bindings declares an at-rest hook', () => {
-    const sync: ViaBinding = { brand: 'a', posture: posture(), ingest: (r) => r }
-    const atRest: ViaBinding = { brand: 'b', posture: posture(), decodeAtRest: async (r) => r }
+    const sync: NoydbVia = { brand: 'a', posture: posture(), ingest: (r) => r }
+    const atRest: NoydbVia = { brand: 'b', posture: posture(), decodeAtRest: async (r) => r }
     const p = ViaPipeline.build([sync, atRest])!
 
     expect(p.hasAtRestHooks).toBe(true)

@@ -26,12 +26,12 @@ import { isStaticDictDescriptor } from '../../via/i18n/dictionary.js'
 // labels" fallback, same as an unresolved dynamic dictKey).
 import type { LookupDescriptor } from '../../via/lookup/descriptor.js'
 // #650 Task 7 — the 'lookup' binding's describeFragment payload shape (the
-// first-ever ViaBinding.describeFragment consumer, via/index.ts:136). describe.ts
+// first-ever NoydbVia.describeFragment consumer, via/index.ts:136). describe.ts
 // is NOT under kernel/**, so importing this via/ type directly is fine
 // (Check 14 via-layering only restricts the kernel spine).
 import type { LookupDescribeFragment, LookupDescribeFragmentEntry } from '../../via/lookup/binding.js'
 // #657 — the 'blob' binding's describeFragment payload shape (the second-ever
-// ViaBinding.describeFragment consumer, after lookup above). Same rationale:
+// NoydbVia.describeFragment consumer, after lookup above). Same rationale:
 // describe.ts is not under kernel/**, so importing this via/ type is fine.
 import type { BlobDescribeFragment, BlobDescribeFragmentEntry } from '../../via/blob/binding.js'
 import type { I18nTextDescriptor } from '../../via/i18n/core.js'
@@ -79,7 +79,7 @@ export interface DescribedField {
   readonly dict?: { name: string; static: boolean; values?: readonly { value: string; label?: string }[] }
   /**
    * Normalized lookup metadata (#650 Task 7 — the first-ever
-   * `ViaBinding.describeFragment` consumer; sourced from the `'lookup'`
+   * `NoydbVia.describeFragment` consumer; sourced from the `'lookup'`
    * binding's fragment, NOT from config directly — see `buildDescription`).
    * Present for every `lookup()`/`enumOf()`/`dict()` field, ALONGSIDE the
    * pre-existing `dict` block above (kept byte-stable for the
@@ -324,7 +324,7 @@ export interface BuildDescriptionInput {
   readonly taint?: { readonly postures: ReadonlyMap<string, ViaPosture>; readonly provenance?: ReadonlyMap<string, readonly string[]> } | undefined
   /**
    * Per-binding `describeFragment()` output, keyed by binding brand (#650
-   * Task 7 — first-ever consumer of `ViaBinding.describeFragment`,
+   * Task 7 — first-ever consumer of `NoydbVia.describeFragment`,
    * `via/index.ts:136`). `Collection.describe()`/`describeAsync()` build this
    * from `this.via?.describeFragments()`. The `'lookup'` brand's fragment
    * feeds the `lookup` block below; `'blob'`'s feeds the `blob` block
@@ -577,7 +577,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
       blobBlock = { ...blobFragmentEntry, queryable: 'none' }
     }
 
-    // ── lookup block (#650 Task 7 — first-ever ViaBinding.describeFragment
+    // ── lookup block (#650 Task 7 — first-ever NoydbVia.describeFragment
     // consumer) ── Sourced from `lookupFragments` (the binding's fragment),
     // NOT from `lookupDesc` above (which only feeds the pre-existing `dict`
     // block, byte-stable for the alias) — routing through the fragment is

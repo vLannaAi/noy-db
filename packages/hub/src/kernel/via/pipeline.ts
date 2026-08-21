@@ -1,4 +1,4 @@
-import type { ViaBinding, ViaPosture, ViaWriteCtx, ViaReadCtx, ViaCryptoCtx, SealedSlotRef, ViaEraseCtx, ViaEraseReport } from './index.js'
+import type { NoydbVia, ViaPosture, ViaWriteCtx, ViaReadCtx, ViaCryptoCtx, SealedSlotRef, ViaEraseCtx, ViaEraseReport } from './index.js'
 import { ValidationError, FieldNotQueryableError } from '../errors.js'
 
 /** Opaque per-clause query payload carried on FieldClause (replaces the money-only slot). */
@@ -35,7 +35,7 @@ export class ViaPipeline {
    * everything else (existing relative order). `present()` folds over this
    * instead of `bindings` so a `mode: 'virtual'` computed field's value
    * exists before i18n/lookup's dressing `present()` hooks run on it
-   * (today's `compileViaBindings` order is money→i18n→lookup→classified→
+   * (today's `compileVias` order is money→i18n→lookup→classified→
    * blob→computed, `collection-config.ts:554`, so dressing unconditionally
    * ran BEFORE the value it dresses existed). This reorder is binding-level,
    * not conditioned on any particular field composition — it applies to
@@ -74,32 +74,32 @@ export class ViaPipeline {
    * Money-dressing a virtual computed field's OWN output (the composed
    * `computed(virtual) + money` case) is NOT resolved by this partition
    * alone — #669 resolves it with a separate mid-fold hook instead:
-   * `ViaBinding.presentLate` runs after every binding's `present()` in this
+   * `NoydbVia.presentLate` runs after every binding's `present()` in this
    * money+computed segment, before the "everything else" segment below, so
    * money can quantize/reinterpret a virtual field's fresh MAJOR-UNITS
    * output as if it were a stored value, without perturbing this ordering
    * or the #665 invariant above it (`_presentLateBoundary` below marks
    * exactly where that mid-fold point sits within `_presentOrder`).
    */
-  private readonly _presentOrder: readonly ViaBinding[]
+  private readonly _presentOrder: readonly NoydbVia[]
   /** #669 — index into `_presentOrder` where the money+computed segment ends and the
-   *  "everything else" segment begins (`moneyBindings.length + computedBindings.length`);
+   *  "everything else" segment begins (`moneyVias.length + computedVias.length`);
    *  `present()` runs every binding's `presentLate` at exactly this boundary. */
   private readonly _presentLateBoundary: number
 
-  private constructor(readonly bindings: readonly ViaBinding[], readonly taint?: ViaTaintOverlay) {
-    const moneyBindings = bindings.filter((b) => b.brand === 'money')
-    const computedBindings = bindings.filter((b) => b.brand === 'computed')
+  private constructor(readonly bindings: readonly NoydbVia[], readonly taint?: ViaTaintOverlay) {
+    const moneyVias = bindings.filter((b) => b.brand === 'money')
+    const computedVias = bindings.filter((b) => b.brand === 'computed')
     const restBindings = bindings.filter((b) => b.brand !== 'money' && b.brand !== 'computed')
-    this._presentOrder = [...moneyBindings, ...computedBindings, ...restBindings]
-    this._presentLateBoundary = moneyBindings.length + computedBindings.length
+    this._presentOrder = [...moneyVias, ...computedVias, ...restBindings]
+    this._presentLateBoundary = moneyVias.length + computedVias.length
   }
 
   /** undefined when there is nothing to enforce — the zero-via fast path is
    *  `this.via === undefined` (#553: keeps an all-plain collection sync). A
    *  `'*'`-defaulted output collection (#642) counts as "something to enforce"
    *  even with zero field-specific postures and zero bindings. */
-  static build(bindings: readonly ViaBinding[], taint?: ViaTaintOverlay): ViaPipeline | undefined {
+  static build(bindings: readonly NoydbVia[], taint?: ViaTaintOverlay): ViaPipeline | undefined {
     if (bindings.length === 0 && (!taint || (taint.postures.size === 0 && taint.defaultPosture === undefined))) return undefined
     return new ViaPipeline(bindings, taint)
   }
@@ -348,7 +348,7 @@ export class ViaPipeline {
    * `forgettable: false` is skipped even if it defines `erase` (none does
    * today; a future non-forgettable binding is supported without a brand check).
    */
-  private async foldErase(ctx: ViaEraseCtx, bindings: readonly ViaBinding[]): Promise<ViaEraseReport> {
+  private async foldErase(ctx: ViaEraseCtx, bindings: readonly NoydbVia[]): Promise<ViaEraseReport> {
     let shredded = 0
     let retainedShared = 0
     const residue: unknown[] = []

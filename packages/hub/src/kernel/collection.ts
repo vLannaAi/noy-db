@@ -1228,7 +1228,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * `openVault`, before the user's `collection(name, { moneyFields })`
    * declaration; this reconciles that ordering. First-wins. Not public.
    *
-   * PREPENDS money rather than appending: {@link compileViaBindings} always
+   * PREPENDS money rather than appending: {@link compileVias} always
    * compiles money before i18n (money-first pipeline order — see its
    * docstring), and by the time this reconcile runs an i18n binding may
    * already be sitting in `this.via.bindings` (declared at construction).
@@ -1899,7 +1899,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
     // Single Via encode-write phase: money quantize, then i18nText
     // translate→densify→script→validate→densify (via the i18n binding) —
-    // binding order is money-first (see {@link compileViaBindings}).
+    // binding order is money-first (see {@link compileVias}).
     if (this.via) {
       record = await this.via.encodeWrite(record as Record<string, unknown>, viaWriteCtx) as T
     }

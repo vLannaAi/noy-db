@@ -1,5 +1,5 @@
 /**
- * The `'lookup'` `ViaBinding` — wires the lookup engine (present-time label
+ * The `'lookup'` `NoydbVia` — wires the lookup engine (present-time label
  * dressing across all three backing tiers) into the kernel's generic Via
  * port. Mirrors `via/i18n/binding.ts`'s #553 static-link pattern; the
  * present-time label-dressing algorithm below is adapted from
@@ -24,10 +24,10 @@
  * `hasStaticDisplay` branch already uses). `resolveOrderLabel` (#650 Task
  * 7) is the PER-CALL-locale sibling `orderBy(..., {by:'label'})` needs —
  * see its own doc comment below. `describeFragment` (#650 Task 7) is the
- * first-ever consumed `ViaBinding.describeFragment` implementation — see
+ * first-ever consumed `NoydbVia.describeFragment` implementation — see
  * `with-shape/introspection/describe.ts`'s `buildDescription`.
  */
-import type { ViaBinding, ViaReadCtx } from '../../kernel/via/index.js'
+import type { NoydbVia, ViaReadCtx } from '../../kernel/via/index.js'
 import { installViaBinder } from '../../kernel/via/index.js'
 import type { LookupDescriptor, LookupBacking, Vocabulary, OnDelete } from './descriptor.js'
 import { resolvePolicy, type Layer } from '../i18n/policy.js'
@@ -191,7 +191,7 @@ async function runLookupPresent(
 }
 
 /**
- * One field's `lookup` descriptor as it appears on a `ViaBinding.
+ * One field's `lookup` descriptor as it appears on a `NoydbVia.
  * describeFragment()` payload (#650 Task 7 — the first real consumer,
  * `with-shape/introspection/describe.ts`'s `buildDescription`, imports this
  * type directly; `describe.ts` is NOT under `kernel/**`, so it's free to
@@ -431,7 +431,7 @@ function compareLookupOrder(field: string, a: unknown, b: unknown, cfg: LookupVi
  * `resolveOrderLabel` — per-key, PER-CALL-locale label resolution for
  * `orderBy(field, dir, { by: 'label' })` (#650 Task 7, spec §6 / seam map
  * Part 10 surprise 6's option (b)) — the channel `compareForOrder` above
- * structurally cannot serve, since `ViaBinding.compareForOrder` carries no
+ * structurally cannot serve, since `NoydbVia.compareForOrder` carries no
  * locale parameter. Consumed by `kernel/query/builder.ts`'s
  * `buildOrderLabelMaps` as the fallback for lookup fields the legacy dict
  * registries don't bridge (matrix tier; reserved/static tier already
@@ -453,7 +453,7 @@ function resolveLookupOrderLabel(field: string, key: string, locale: string | un
   return buildLookupSnapshot(desc.dimension, rows, desc).label(key, locale ?? desc.displayLocale ?? '')
 }
 
-export function lookupBinding(cfg: LookupViaConfig): ViaBinding {
+export function lookupVia(cfg: LookupViaConfig): NoydbVia {
   return {
     brand: 'lookup',
     posture: { encryptedAtRest: 'envelope', queryable: 'full', exportable: true, forgettable: false },
@@ -469,5 +469,5 @@ export function lookupBinding(cfg: LookupViaConfig): ViaBinding {
 }
 
 export function linkLookupVia(): void {
-  installViaBinder('lookup', (c) => lookupBinding(c as LookupViaConfig))
+  installViaBinder('lookup', (c) => lookupVia(c as LookupViaConfig))
 }

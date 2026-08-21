@@ -8,7 +8,7 @@
  * RED (pre-Task-6): `JoinableSource` had no `presentForJoin` hook — a
  * lookup field's `<field>Label` never dressed a joined right-side record,
  * and a plain (non-`{by:'label'}`) `orderBy()` on a `sortBy`-declared
- * lookup field always sorted by the raw stored code (`ViaBinding.
+ * lookup field always sorted by the raw stored code (`NoydbVia.
  * compareForOrder` was undeclared on the `'lookup'` binding). GREEN: both
  * now work, while every pre-existing dict/i18n join + label-sort path
  * (parity fixtures below) stays byte-identical.

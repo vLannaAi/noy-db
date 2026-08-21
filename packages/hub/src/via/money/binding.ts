@@ -1,12 +1,12 @@
 /**
- * The money `ViaBinding` — wires the money engine (normalize/paths/where/
+ * The money `NoydbVia` — wires the money engine (normalize/paths/where/
  * money-reducer) into the kernel's generic Via port. `money()`
  * (descriptor.ts) calls {@link linkMoneyVia} at declaration time — the
  * same #553 static-link pattern the retired `linkMoneyEngine()` /
  * `kernel/money-runtime.ts` seam used, now the only one (Task 6 cut the
  * query DSL over to this binding and deleted the legacy seam).
  */
-import type { ViaBinding, ViaReadCtx } from '../../kernel/via/index.js'
+import type { NoydbVia, ViaReadCtx } from '../../kernel/via/index.js'
 import { installViaBinder } from '../../kernel/via/index.js'
 import type { MoneyDescriptor } from './descriptor.js'
 import { quantizeMoneyFields, decodeMoneyFields, canonicalizeStoredMoney, canonicalizeIncomingMoney, moneyScaledValue, canonicalizeMoneyIndexKey, presentVirtualMoneyFields } from './normalize.js'
@@ -26,7 +26,7 @@ export interface MoneyBindingConfig {
   readonly virtualMoneyFields?: ReadonlySet<string>
 }
 
-export function moneyBinding(moneyFields: Record<string, MoneyDescriptor>, virtualMoneyFields?: ReadonlySet<string>): ViaBinding {
+export function moneyVia(moneyFields: Record<string, MoneyDescriptor>, virtualMoneyFields?: ReadonlySet<string>): NoydbVia {
   validateMoneyFieldPaths(moneyFields) // declaration-time (replaces sites 1 & 2)
   const hasVirtualMoney = virtualMoneyFields !== undefined && virtualMoneyFields.size > 0
   // #669 — a field that is BOTH money AND virtual-mode computed has no value yet when
@@ -75,6 +75,6 @@ export function moneyBinding(moneyFields: Record<string, MoneyDescriptor>, virtu
 export function linkMoneyVia(): void {
   installViaBinder('money', (cfg) => {
     const c = cfg as MoneyBindingConfig
-    return moneyBinding(c.moneyFields, c.virtualMoneyFields)
+    return moneyVia(c.moneyFields, c.virtualMoneyFields)
   })
 }

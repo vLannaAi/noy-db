@@ -1,5 +1,5 @@
 /**
- * The blob `ViaBinding` (#629 Task 7) — wires the `blobFields` declaration
+ * The blob `NoydbVia` (#629 Task 7) — wires the `blobFields` declaration
  * into the kernel's generic Via port as a deliberately THIN binding:
  * declaration + posture + `describeFragment` + `erase` glue, and nothing
  * else. Blob content is fully out-of-band (`collection.blob(id)` →
@@ -18,7 +18,7 @@
  * EAGER — `port/with/blob-strategy.ts` calls {@link linkBlobVia} at module
  * load. `blobFields` policies are plain object literals (there is no
  * `blob.*()` declaration factory to hang a lazy link on), so the binder
- * must be installed before `compileViaBindings` ever sees one.
+ * must be installed before `compileVias` ever sees one.
  *
  * There is no `declare`-time validation: `blobFields` has never had a
  * construction-time refusal matrix (policies are consulted lazily by
@@ -31,7 +31,7 @@
  * `queryable: 'none'`); it does not participate in clause building or
  * evaluation.
  */
-import type { ViaBinding, ViaEraseCtx, ViaEraseReport } from '../../kernel/via/index.js'
+import type { NoydbVia, ViaEraseCtx, ViaEraseReport } from '../../kernel/via/index.js'
 import { installViaBinder } from '../../kernel/via/index.js'
 import type { BlobFieldsConfig } from '../../with-shape/blobs/blob-compaction.js'
 
@@ -44,7 +44,7 @@ import type { BlobFieldsConfig } from '../../with-shape/blobs/blob-compaction.js
  * `retainedShared` become counts, each residue eTag becomes a tagged
  * `{kind: 'blob-residue', eTag}` entry.
  *
- * DELIBERATELY left unwired by `compileViaBindings` (#629 Task 10, resolved
+ * DELIBERATELY left unwired by `compileVias` (#629 Task 10, resolved
  * within parity-first — see task-10-report.md "blob purge" section):
  * `per-blob-cek.test.ts`/`forget.test.ts` prove blob-shred-on-forget is
  * gated SOLELY on the vault's `blobsStrategy` being configured, never on a
@@ -76,7 +76,7 @@ async function eraseBlobs(ctx: ViaEraseCtx, cfg: BlobViaConfig): Promise<ViaEras
 
 /**
  * One field's blob knobs as they appear on `describeFragment()`'s payload
- * (#657 — the second real `ViaBinding.describeFragment` consumer after
+ * (#657 — the second real `NoydbVia.describeFragment` consumer after
  * `lookup`'s; see `with-shape/introspection/describe.ts`'s `buildDescription`).
  * Declarative scalars (`retainDays`/`external`/`public`/`backlink`) verbatim;
  * predicate knobs (`evictWhen`/`legalHold`/`retainUntil` — functions over the
@@ -120,7 +120,7 @@ function buildBlobDescribeFragment(fields: BlobFieldsConfig): Record<string, unk
   }
 }
 
-export function blobBinding(cfg: BlobViaConfig): ViaBinding {
+export function blobVia(cfg: BlobViaConfig): NoydbVia {
   return {
     brand: 'blob',
     // encryptedAtRest: 'envelope' — blob chunks are AEAD-encrypted envelopes
@@ -136,5 +136,5 @@ export function blobBinding(cfg: BlobViaConfig): ViaBinding {
 }
 
 export function linkBlobVia(): void {
-  installViaBinder('blob', (c) => blobBinding(c as BlobViaConfig))
+  installViaBinder('blob', (c) => blobVia(c as BlobViaConfig))
 }

@@ -24,7 +24,7 @@
  * `EXPORT_REDACTION_MARKER` on every present() — the one enforcement seam
  * every via feature's taint already routes through.
  */
-import type { ViaBinding, ViaPosture } from '../../kernel/via/index.js'
+import type { NoydbVia, ViaPosture } from '../../kernel/via/index.js'
 import { installViaBinder } from '../../kernel/via/index.js'
 import type { ComputedDescriptor } from './descriptor.js'
 
@@ -35,7 +35,7 @@ export interface ComputedViaConfig {
 
 const VIRTUAL_POSTURE: ViaPosture = { encryptedAtRest: 'envelope', queryable: 'none', exportable: true, forgettable: false }
 
-export function computedBinding(cfg: ComputedViaConfig): ViaBinding {
+export function computedVia(cfg: ComputedViaConfig): NoydbVia {
   const fields = cfg.virtualFields
   return {
     brand: 'computed',
@@ -53,5 +53,5 @@ export function computedBinding(cfg: ComputedViaConfig): ViaBinding {
 }
 
 export function linkComputedVia(): void {
-  installViaBinder('computed', (cfg) => computedBinding(cfg as ComputedViaConfig))
+  installViaBinder('computed', (cfg) => computedVia(cfg as ComputedViaConfig))
 }

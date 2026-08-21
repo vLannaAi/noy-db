@@ -1308,7 +1308,7 @@ function candidateRecords(source: InternalSource, clauses: readonly Clause[]): C
     // (e.g. multi-currency money operands are `{ amount, currency }`
     // objects; the index would stringify their keys to a no-match
     // sentinel). A binding MAY additionally supply `indexValue` (#625,
-    // via `ViaBinding.indexProbe`) — the STORED-form operand for a direct
+    // via `NoydbVia.indexProbe`) — the STORED-form operand for a direct
     // probe (fixed-mode money `==`/`in` today). When it's absent, skip the
     // index fast path for this clause; the fallback scan evaluates it via
     // `clause.via.evaluate`. MIXED-ERA DATA (money, #672 fixed, incl. the

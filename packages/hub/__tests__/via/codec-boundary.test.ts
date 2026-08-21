@@ -16,17 +16,17 @@ import { describe, it, expect } from 'vitest'
 import { RecordCodec, type RecordCodecContext } from '../../src/kernel/enclave/record-keys/record-codec.js'
 import { recordAadFor } from '../../src/kernel/enclave/record-aad.js'
 import { ViaPipeline } from '../../src/kernel/via/pipeline.js'
-import type { ViaBinding, ViaPosture } from '../../src/kernel/via/index.js'
+import type { NoydbVia, ViaPosture } from '../../src/kernel/via/index.js'
 import { generateDEK, decrypt, type EnclaveKey } from '../../src/kernel/enclave/index.js'
 import { SealedHandle, type EncryptedEnvelope } from '../../src/kernel/types.js'
 import { NO_CRDT } from '../../src/with-commit/crdt/strategy.js'
-import { classifiedBinding } from '../../src/via/classified/binding.js'
+import { classifiedVia } from '../../src/via/classified/binding.js'
 import { classified } from '../../src/via/classified/presets.js'
 
 const posture = (): ViaPosture => ({ encryptedAtRest: 'sealed', queryable: 'none', exportable: false, forgettable: true })
 
 /** Fixture at-rest binding: seals/unseals a `secret` field via `crypto.sealedSlots`. */
-function fixtureBinding(): ViaBinding {
+function fixtureBinding(): NoydbVia {
   return {
     brand: 'fixture',
     posture: posture(),
@@ -151,7 +151,7 @@ describe('RecordCodec codec boundary — via at-rest hooks (#629 Task 3)', () =>
 describe('zero-via fast path stays on the inline path (#629 Task 3 parity)', () => {
   it('a via pipeline with no at-rest hooks (money-like) still seals via the classic sensitiveFields path', async () => {
     const dek = await generateDEK()
-    const syncOnlyBinding: ViaBinding = { brand: 'sync-only', posture: posture(), ingest: (r) => r }
+    const syncOnlyBinding: NoydbVia = { brand: 'sync-only', posture: posture(), ingest: (r) => r }
     const pipeline = ViaPipeline.build([syncOnlyBinding])!
     expect(pipeline.hasAtRestHooks).toBe(false)
 
@@ -169,7 +169,7 @@ describe('zero-via fast path stays on the inline path (#629 Task 3 parity)', () 
     const dek = await generateDEK()
     const record = { secret: 'shh', open: 'visible' }
     const codecNoVia = new RecordCodec(makeCtx({ storeCiphertext: true, dek, sensitiveFields: new Set(['secret']) }))
-    const syncOnlyBinding: ViaBinding = { brand: 'sync-only', posture: posture(), ingest: (r) => r }
+    const syncOnlyBinding: NoydbVia = { brand: 'sync-only', posture: posture(), ingest: (r) => r }
     const codecSyncPipeline = new RecordCodec(
       makeCtx({ storeCiphertext: true, via: ViaPipeline.build([syncOnlyBinding])!, dek, sensitiveFields: new Set(['secret']) }),
     )
@@ -202,7 +202,7 @@ describe('viaCryptoCtx.reservedEnvelopes — per-collection DEK resolution (#629
     ])
 
     let captured: EncryptedEnvelope | undefined
-    const reservedBinding: ViaBinding = {
+    const reservedBinding: NoydbVia = {
       brand: 'reserved-fixture',
       posture: posture(),
       reservedPrefixes: ['_dict_'],
@@ -256,7 +256,7 @@ describe('at-rest hook failure propagates through the codec boundary (#629 Task 
   it('encryptRecord rejects when the binding\'s encodeAtRest hook throws (unserializable field value)', async () => {
     const dek = await generateDEK()
     const pipeline = ViaPipeline.build([
-      classifiedBinding({ entries: { mail: classified.email() }, collectionName: 'fixtures', guardCtx: fixtureGuardCtx }),
+      classifiedVia({ entries: { mail: classified.email() }, collectionName: 'fixtures', guardCtx: fixtureGuardCtx }),
     ])!
     const codec = new RecordCodec(makeCtx({ storeCiphertext: true, via: pipeline, dek }))
 
@@ -270,7 +270,7 @@ describe('at-rest hook failure propagates through the codec boundary (#629 Task 
   it('decryptRecord rejects when the binding\'s decodeAtRest hook throws (tampered sealed slot)', async () => {
     const dek = await generateDEK()
     const cfg = { entries: { mail: classified.email() }, collectionName: 'fixtures', guardCtx: fixtureGuardCtx }
-    const pipeline = ViaPipeline.build([classifiedBinding(cfg)])!
+    const pipeline = ViaPipeline.build([classifiedVia(cfg)])!
     const codec = new RecordCodec(makeCtx({ storeCiphertext: true, via: pipeline, dek }))
     const envelope = await codec.encryptRecord(
       { collection: 'c', id: 'r1' },

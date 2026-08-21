@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { installViaBinder } from '../../src/kernel/via/index.js'
-import { compileViaBindings, resolveCollectionConfig, type CollectionOpts } from '../../src/kernel/collection-config.js'
+import { compileVias, resolveCollectionConfig, type CollectionOpts } from '../../src/kernel/collection-config.js'
 import { ViaPipeline } from '../../src/kernel/via/pipeline.js'
 import { NoydbEventEmitter } from '../../src/kernel/events.js'
 import { STRATEGY_DEFAULTS } from '../../src/port/with/strategies.js'
@@ -14,7 +14,7 @@ import { dictKey } from '../../src/via/i18n/dictionary.js'
 import { i18nText } from '../../src/via/i18n/core.js'
 import { ValidationError } from '../../src/kernel/errors.js'
 
-// Synthetic opts — resolveCollectionConfig/compileViaBindings never call methods
+// Synthetic opts — resolveCollectionConfig/compileVias never call methods
 // on adapter/keyring/getDEK, only forward them, so undefined stand-ins are safe.
 function syntheticOpts(): CollectionOpts<unknown> {
   return {
@@ -29,7 +29,7 @@ function syntheticOpts(): CollectionOpts<unknown> {
   } as unknown as CollectionOpts<unknown>
 }
 
-// #629 Task 6 — compileViaBindings gained a required classifiedGuardCtx
+// #629 Task 6 — compileVias gained a required classifiedGuardCtx
 // parameter (the classified binding's construction input); a plain
 // collection with no classifiedFields never reads it.
 function emptyGuardCtx(): ClassifiedGuardCtx {
@@ -42,16 +42,16 @@ function emptyGuardCtx(): ClassifiedGuardCtx {
 }
 
 describe('via config-compile seam (#623 Task 3)', () => {
-  it('compileViaBindings returns [] regardless of installed binders — no consumers yet', () => {
+  it('compileVias returns [] regardless of installed binders — no consumers yet', () => {
     // A fixture binder installed under a foreign brand must not leak into
-    // the compiled list: compileViaBindings has no wiring to consult the
+    // the compiled list: compileVias has no wiring to consult the
     // registry until Tasks 5/8 add the money/i18n entries.
     installViaBinder('fixture', () => ({
       brand: 'fixture',
       posture: { encryptedAtRest: 'envelope', queryable: 'none', exportable: true, forgettable: true },
     }))
 
-    const bindings = compileViaBindings(syntheticOpts(), emptyGuardCtx())
+    const bindings = compileVias(syntheticOpts(), emptyGuardCtx())
     expect(bindings).toEqual([])
     // the zero-via fast path
     expect(ViaPipeline.build(bindings)).toBeUndefined()
@@ -64,14 +64,14 @@ describe('via config-compile seam (#623 Task 3)', () => {
 })
 
 describe('via config-compile seam — classified (#629 Task 6)', () => {
-  it('compileViaBindings compiles a classified binding LAST when classifiedFields is declared', () => {
+  it('compileVias compiles a classified binding LAST when classifiedFields is declared', () => {
     const opts = {
       ...syntheticOpts(),
       classifiedFields: { note: classified.email() },
       strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
-    const bindings = compileViaBindings(opts, emptyGuardCtx())
+    const bindings = compileVias(opts, emptyGuardCtx())
 
     expect(bindings.map((b) => b.brand)).toEqual(['classified'])
     // hasAtRestHooks becomes true — the codec boundary now routes this
@@ -80,8 +80,8 @@ describe('via config-compile seam — classified (#629 Task 6)', () => {
     expect(ViaPipeline.build(bindings)!.hasAtRestHooks).toBe(true)
   })
 
-  it('compileViaBindings pushes nothing classified-branded when classifiedFields is absent', () => {
-    const bindings = compileViaBindings(syntheticOpts(), emptyGuardCtx())
+  it('compileVias pushes nothing classified-branded when classifiedFields is absent', () => {
+    const bindings = compileVias(syntheticOpts(), emptyGuardCtx())
     expect(bindings.some((b) => b.brand === 'classified')).toBe(false)
   })
 
@@ -102,14 +102,14 @@ describe('via config-compile seam — classified (#629 Task 6)', () => {
 })
 
 describe('via config-compile seam — blob (#629 Task 7)', () => {
-  it('compileViaBindings compiles a blob binding when blobFields is declared — WITHOUT at-rest hooks', () => {
+  it('compileVias compiles a blob binding when blobFields is declared — WITHOUT at-rest hooks', () => {
     const opts = {
       ...syntheticOpts(),
       blobFields: { receipt: { retainDays: 30 } },
       strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
-    const bindings = compileViaBindings(opts, emptyGuardCtx())
+    const bindings = compileVias(opts, emptyGuardCtx())
 
     expect(bindings.map((b) => b.brand)).toEqual(['blob'])
     // Blob content is out-of-band (BlobSet side-collections) — the binding
@@ -118,8 +118,8 @@ describe('via config-compile seam — blob (#629 Task 7)', () => {
     expect(ViaPipeline.build(bindings)!.hasAtRestHooks).toBe(false)
   })
 
-  it('compileViaBindings pushes nothing blob-branded when blobFields is absent', () => {
-    const bindings = compileViaBindings(syntheticOpts(), emptyGuardCtx())
+  it('compileVias pushes nothing blob-branded when blobFields is absent', () => {
+    const bindings = compileVias(syntheticOpts(), emptyGuardCtx())
     expect(bindings.some((b) => b.brand === 'blob')).toBe(false)
   })
 
@@ -131,7 +131,7 @@ describe('via config-compile seam — blob (#629 Task 7)', () => {
       strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
-    const bindings = compileViaBindings(opts, emptyGuardCtx())
+    const bindings = compileVias(opts, emptyGuardCtx())
 
     expect(bindings.map((b) => b.brand)).toEqual(['classified', 'blob'])
     expect(ViaPipeline.build(bindings)!.hasAtRestHooks).toBe(true)
@@ -153,7 +153,7 @@ describe('via config-compile seam — blob (#629 Task 7)', () => {
 })
 
 describe('via config-compile seam — computed (#638 Task 7)', () => {
-  it('compileViaBindings compiles a computed binding LAST when a virtual computed field is declared — WITHOUT at-rest hooks', () => {
+  it('compileVias compiles a computed binding LAST when a virtual computed field is declared — WITHOUT at-rest hooks', () => {
     const opts = {
       ...syntheticOpts(),
       moneyFields: { amount: money({ currency: 'EUR' }) },
@@ -161,7 +161,7 @@ describe('via config-compile seam — computed (#638 Task 7)', () => {
       strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
-    const bindings = compileViaBindings(opts, emptyGuardCtx())
+    const bindings = compileVias(opts, emptyGuardCtx())
 
     expect(bindings.map((b) => b.brand)).toEqual(['money', 'computed'])
     // Never sealed/stored — the codec must NOT route this collection through
@@ -169,19 +169,19 @@ describe('via config-compile seam — computed (#638 Task 7)', () => {
     expect(ViaPipeline.build(bindings)!.hasAtRestHooks).toBe(false)
   })
 
-  it('compileViaBindings pushes nothing computed-branded for a MATERIALIZED-only via(computed(...)) entry', () => {
+  it('compileVias pushes nothing computed-branded for a MATERIALIZED-only via(computed(...)) entry', () => {
     const opts = {
       ...syntheticOpts(),
       viaFields: { total: via(computed((r) => (r.qty as number) * 2, { mode: 'materialized' })) },
       strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
-    const bindings = compileViaBindings(opts, emptyGuardCtx())
+    const bindings = compileVias(opts, emptyGuardCtx())
     expect(bindings.some((b) => b.brand === 'computed')).toBe(false)
   })
 
-  it('compileViaBindings pushes nothing computed-branded when no computed field is declared', () => {
-    const bindings = compileViaBindings(syntheticOpts(), emptyGuardCtx())
+  it('compileVias pushes nothing computed-branded when no computed field is declared', () => {
+    const bindings = compileVias(syntheticOpts(), emptyGuardCtx())
     expect(bindings.some((b) => b.brand === 'computed')).toBe(false)
   })
 
@@ -223,10 +223,10 @@ describe('via config-compile seam — cross-binding same-field collision guard (
       strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
-    expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(ValidationError)
-    expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(/"amount"/)
-    expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(/moneyFields/)
-    expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(/blobFields/)
+    expect(() => compileVias(opts, emptyGuardCtx())).toThrow(ValidationError)
+    expect(() => compileVias(opts, emptyGuardCtx())).toThrow(/"amount"/)
+    expect(() => compileVias(opts, emptyGuardCtx())).toThrow(/moneyFields/)
+    expect(() => compileVias(opts, emptyGuardCtx())).toThrow(/blobFields/)
   })
 
   it('throws when the same field is claimed by classifiedFields AND lookupFields', () => {
@@ -237,10 +237,10 @@ describe('via config-compile seam — cross-binding same-field collision guard (
       strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
-    expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(ValidationError)
-    expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(/"ssn"/)
-    expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(/classifiedFields/)
-    expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(/lookupFields/)
+    expect(() => compileVias(opts, emptyGuardCtx())).toThrow(ValidationError)
+    expect(() => compileVias(opts, emptyGuardCtx())).toThrow(/"ssn"/)
+    expect(() => compileVias(opts, emptyGuardCtx())).toThrow(/classifiedFields/)
+    expect(() => compileVias(opts, emptyGuardCtx())).toThrow(/lookupFields/)
   })
 
   it('does NOT throw for a classified group descriptor whose resolved member field collides with blobFields (group key itself is not a field name)', () => {
@@ -254,7 +254,7 @@ describe('via config-compile seam — cross-binding same-field collision guard (
       strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
-    expect(() => compileViaBindings(opts, emptyGuardCtx())).not.toThrow()
+    expect(() => compileVias(opts, emptyGuardCtx())).not.toThrow()
   })
 
   it('control: via(computed(...), money(...)) composing on the SAME field is NOT refused — the documented composition path (#638)', () => {
@@ -269,7 +269,7 @@ describe('via config-compile seam — cross-binding same-field collision guard (
       strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
-    const bindings = compileViaBindings(opts, emptyGuardCtx())
+    const bindings = compileVias(opts, emptyGuardCtx())
     expect(bindings.map((b) => b.brand)).toEqual(['money', 'computed'])
   })
 
@@ -285,7 +285,7 @@ describe('via config-compile seam — cross-binding same-field collision guard (
       strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
-    expect(() => compileViaBindings(opts, emptyGuardCtx())).not.toThrow()
+    expect(() => compileVias(opts, emptyGuardCtx())).not.toThrow()
   })
 
   it('control: via(computed(...), dict(...)) composing on the SAME field is NOT refused (lookup family, #631 round 2)', () => {
@@ -300,7 +300,7 @@ describe('via config-compile seam — cross-binding same-field collision guard (
       strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
-    expect(() => compileViaBindings(opts, emptyGuardCtx())).not.toThrow()
+    expect(() => compileVias(opts, emptyGuardCtx())).not.toThrow()
   })
 
   it('control: computed: {...} + dictKeyFields: {...} two-sugar-maps (no via()) composing on the SAME field is NOT refused (i18n family, #631 round 2)', () => {
@@ -311,7 +311,7 @@ describe('via config-compile seam — cross-binding same-field collision guard (
       strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
-    expect(() => compileViaBindings(opts, emptyGuardCtx())).not.toThrow()
+    expect(() => compileVias(opts, emptyGuardCtx())).not.toThrow()
   })
 
   it('control: computed: {...} + lookupFields: {...} two-sugar-maps (no via()) composing on the SAME field is NOT refused (lookup family, #631 round 2)', () => {
@@ -322,7 +322,7 @@ describe('via config-compile seam — cross-binding same-field collision guard (
       strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
-    expect(() => compileViaBindings(opts, emptyGuardCtx())).not.toThrow()
+    expect(() => compileVias(opts, emptyGuardCtx())).not.toThrow()
   })
 
   it('throws (3-claimant tightening): computed + i18nFields + dictKeyFields on ONE field — family-collapse must NOT exempt a 3rd independent claimant (#631 review fix)', () => {
@@ -339,7 +339,7 @@ describe('via config-compile seam — cross-binding same-field collision guard (
       strategies: STRATEGY_DEFAULTS,
     } as CollectionOpts<unknown>
 
-    expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(ValidationError)
-    expect(() => compileViaBindings(opts, emptyGuardCtx())).toThrow(/"status"/)
+    expect(() => compileVias(opts, emptyGuardCtx())).toThrow(ValidationError)
+    expect(() => compileVias(opts, emptyGuardCtx())).toThrow(/"status"/)
   })
 })

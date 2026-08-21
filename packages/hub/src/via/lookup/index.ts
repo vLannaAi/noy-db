@@ -15,6 +15,6 @@ export { enforceStaticDictOnPut, resolveDictSource, updateReferencingRecords, ty
 export { withLookup } from './active.js'
 // #650 Task 2 — the 'lookup' via binding + its three descriptor tiers.
 export { lookup, enumOf, enumOf as enum, dict, type LookupDescriptor, type Vocabulary, type LookupBacking, type OnDelete } from './descriptor.js'
-export { lookupBinding, linkLookupVia, type LookupViaConfig } from './binding.js'
+export { lookupVia, linkLookupVia, type LookupViaConfig } from './binding.js'
 // #650 Task 7 — the describeFragment payload shape (first-ever consumer: with-shape/introspection/describe.ts).
 export type { LookupDescribeFragment, LookupDescribeFragmentEntry } from './binding.js'

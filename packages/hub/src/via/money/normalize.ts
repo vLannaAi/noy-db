@@ -248,7 +248,7 @@ export function moneyScaledValue(stored: unknown, desc: MoneyDescriptor): bigint
 }
 
 /**
- * The `ViaBinding.canonicalizeIndexKey` implementation for money (#672) —
+ * The `NoydbVia.canonicalizeIndexKey` implementation for money (#672) —
  * bucket an eager index's money field entries by the BigInt-normalized
  * scaled-int string, not the raw stored bytes, so a pre-declaration /
  * non-canonical value (e.g. `'0100'`) lands under the SAME key a canonical

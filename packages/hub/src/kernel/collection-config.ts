@@ -48,7 +48,7 @@ import type { ComputedFields, ComputedFn, ComputedFieldEntry } from '../with-for
 import type { RollupDeleteIntent } from './via/dispatch.js'
 // #638 Task 7 — the value import (not just `import type`) forces the port module's eager
 // `linkComputedVia()` to run whenever this file loads (collection-config.ts is always in the
-// dependency graph), so `viaBinder('computed')` is resolvable before `compileViaBindings` needs it.
+// dependency graph), so `viaBinder('computed')` is resolvable before `compileVias` needs it.
 import '../port/with/computed-strategy.js'
 import type { ComputedDescriptor } from '../port/with/computed-strategy.js'
 import {
@@ -70,7 +70,7 @@ import type { MaterializedViewRegistry } from '../with-formula/materialized-view
 import type { MVQueryContext } from '../with-formula/materialized-views/types.js'
 import type { Collection, OnDirtyCallback, CacheOptions } from './collection.js'
 import { ViaPipeline } from './via/pipeline.js'
-import { viaBinder, type ViaBinding, type ViaDescriptor } from './via/index.js'
+import { viaBinder, type NoydbVia, type ViaDescriptor } from './via/index.js'
 import { mergeViaFields, guardCrossBindingFieldCollisions, type ViaFieldSpec } from './via/compose.js'
 
 /**
@@ -521,7 +521,7 @@ export function computedEntryParts(entry: ComputedFn | ComputedFieldEntry): Comp
  * per-field map. NEVER includes `resolvedClassified.riderComputed` — that sanctioned
  * classified→computed channel (seam map Part 4) stays outside every guard this map feeds
  * (`resolveComputedEdges`'s depsless-on-classified refusal, the rider-name collision check).
- * Both `compileViaBindings` (to find `mode: 'virtual'` fields) and `resolveCollectionConfig`
+ * Both `compileVias` (to find `mode: 'virtual'` fields) and `resolveCollectionConfig`
  * (to split materialized entries into `mergedComputed` + extract graph edges) read this.
  */
 function unifyComputedFields<T>(opts: CollectionOpts<T>, viaComputedFields: Record<string, ComputedDescriptor> | undefined): ComputedFields {
@@ -529,7 +529,7 @@ function unifyComputedFields<T>(opts: CollectionOpts<T>, viaComputedFields: Reco
 }
 
 /**
- * Compile a collection's declared config into the ordered list of `ViaBinding`s
+ * Compile a collection's declared config into the ordered list of `NoydbVia`s
  * for its `ViaPipeline`.
  *
  * money then i18n then lookup then classified then blob then computed — order
@@ -573,13 +573,13 @@ function unifyComputedFields<T>(opts: CollectionOpts<T>, viaComputedFields: Reco
  * (`resolveCollectionConfig`) can thread it out to the `Collection`
  * constructor, which mutates `classifySealedShred` in place once
  * `this.codec` exists. Additive — every existing caller omits it and keeps
- * getting a plain `ViaBinding[]`.
+ * getting a plain `NoydbVia[]`.
  */
-export function compileViaBindings<T>(
+export function compileVias<T>(
   opts: CollectionOpts<T>,
   classifiedGuardCtx: ClassifiedGuardCtx,
   eraseCfgOut?: { classified?: ClassifiedViaConfig },
-): ViaBinding[] {
+): NoydbVia[] {
   const { moneyFields, i18nFields, dictKeyFields, computedFields, lookupFields } = mergeViaFields(opts)
   const allComputedFields = unifyComputedFields(opts, computedFields)
   guardCrossBindingFieldCollisions({
@@ -590,7 +590,7 @@ export function compileViaBindings<T>(
     blobFields: opts.blobFields,
     computed: allComputedFields,
   })
-  const bindings: ViaBinding[] = []
+  const bindings: NoydbVia[] = []
   // #669 — hoisted above the money push (was built at the tail of this function, alongside
   // the `computed` binding push below) so money's own binding config can be told which of
   // ITS fields are ALSO virtual-mode computed (the money+virtual-on-the-same-field
@@ -670,7 +670,7 @@ export function compileViaBindings<T>(
 
 /**
  * The money∩virtual-mode-computed field-name intersection (#669) — shared by
- * `compileViaBindings` above (fresh construction, `isVirtual` closes over the just-built
+ * `compileVias` above (fresh construction, `isVirtual` closes over the just-built
  * `virtualFields` Map) and {@link Collection._applyMoneyFields} (late-attach, `isVirtual`
  * closes over the already-compiled pipeline's `computed` binding instead — virtual-mode
  * computed fields have no late-attach door of their own (declaring one on a reconcile call
@@ -699,7 +699,7 @@ export interface GraphEdge { readonly target: FieldRef; readonly sources: readon
 
 /**
  * The known-field-name universe builder (#638 Task 2 fix wave 2) — used by
- * {@link resolveCollectionConfig} to validate `resolveViaBindingDepsEdges`'s `deps`
+ * {@link resolveCollectionConfig} to validate `resolveViaDepsEdges`'s `deps`
  * entries, and by {@link resolveComputedEdges}'s classified-collection dep-name check
  * (Finding I2ii's "shared, so the two paths cannot silently drift apart" rationale).
  * #638 Task 7 dropped `resolveComputedEdges`'s dep-name check entirely (legalizing a
@@ -831,7 +831,7 @@ export function resolveComputedEdges(
 }
 
 /**
- * Extract graph edges from `ViaBinding.deps` (#638 Task 2 — `deps` goes from
+ * Extract graph edges from `NoydbVia.deps` (#638 Task 2 — `deps` goes from
  * inert to validated). For any compiled binding declaring `deps`, every field
  * it `covers()` (tested against `knownFields`) becomes a derived target whose
  * sources are `deps`; an unknown source field throws declare-time
@@ -839,9 +839,9 @@ export function resolveComputedEdges(
  * classified/blob don't) — this is the general path a future derive-bearing
  * binding (phase C Task 7's `computed` via-binding) plugs into.
  */
-export function resolveViaBindingDepsEdges(
+export function resolveViaDepsEdges(
   collectionName: string,
-  bindings: readonly ViaBinding[],
+  bindings: readonly NoydbVia[],
   knownFields: ReadonlySet<string>,
 ): readonly GraphEdge[] {
   const edges: GraphEdge[] = []
@@ -998,7 +998,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
   // #638 Task 7 — union the `computed:` sugar option with `via(computed(...))` entries,
   // then split by mode: materialized (default) folds into `mergedComputed` exactly like
   // today's sugar map; virtual NEVER does (it's never stored — `evalComputedFields` must
-  // not see it) and instead feeds the computed via-binding's config (`compileViaBindings`,
+  // not see it) and instead feeds the computed via-binding's config (`compileVias`,
   // above, does the identical split independently — both are pure/cheap, mirrors
   // `resolveCollectionConfig` already re-deriving `effectiveViaFields`).
   const allComputed = unifyComputedFields(opts, effectiveViaFields.computedFields)
@@ -1100,13 +1100,13 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
   const perRecordCek = opts.perRecordKeys === true
   const cekCache = perRecordCek ? new Lru<string, EnclaveKey>({ maxRecords: 4096 }) : null
 
-  // #629 Task 10 — captures the classified binding's cfg (see compileViaBindings's doc comment) for the constructor's post-codec wiring.
+  // #629 Task 10 — captures the classified binding's cfg (see compileVias's doc comment) for the constructor's post-codec wiring.
   const viaEraseCfgOut: { classified?: ClassifiedViaConfig } = {}
-  const via = ViaPipeline.build(compileViaBindings(opts, classifiedGuardCtx, viaEraseCfgOut))
+  const via = ViaPipeline.build(compileVias(opts, classifiedGuardCtx, viaEraseCfgOut))
 
-  // #638 Task 2 — the field-name universe `resolveViaBindingDepsEdges` validates `deps`
+  // #638 Task 2 — the field-name universe `resolveViaDepsEdges` validates `deps`
   // entries against ("references undeclared field" otherwise) — still true for the general
-  // `ViaBinding.deps` path. `resolveComputedEdges` (#638 Task 7) only consults this when
+  // `NoydbVia.deps` path. `resolveComputedEdges` (#638 Task 7) only consults this when
   // `hasClassifiedFields` (the Task 7 review's CRITICAL fix — see its own doc comment): a
   // computed `deps` entry may still name a plain field with no via feature at all on a
   // NON-classified collection.
@@ -1119,7 +1119,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     lookupFields: effectiveViaFields.lookupFields,
   })
   const computedEdges = resolveComputedEdges(opts.name, allComputed, resolvedClassified !== undefined, knownFields)
-  const viaDepsEdges = resolveViaBindingDepsEdges(opts.name, via?.bindings ?? [], knownFields)
+  const viaDepsEdges = resolveViaDepsEdges(opts.name, via?.bindings ?? [], knownFields)
 
   return {
     adapter: opts.adapter,

@@ -159,7 +159,7 @@ export function dictKey<Keys extends string>(
   // the two tiers' field semantics stay in lockstep, then adapt it to
   // dictKey's legacy public return shape. `_viaBrand` stays `'i18n'` for
   // one release (see task-2-report.md's alias-brand decision) —
-  // mergeViaFields/compileViaBindings's existing i18nFields+dictKeyFields
+  // mergeViaFields/compileVias's existing i18nFields+dictKeyFields
   // path is untouched.
   const equiv: LookupDescriptor<Keys> = {
     _viaBrand: 'lookup',

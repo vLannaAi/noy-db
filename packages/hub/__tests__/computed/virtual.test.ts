@@ -210,7 +210,7 @@ describe('computed(virtual) — read-time, never-stored mode (#638 Task 7)', () 
     // `this.via.encodeWrite` runs (collection.ts's "Computed scalar fields —
     // evaluated FIRST" comment) — its raw output is merged into the record
     // exactly like any user-supplied value, so money's OWN encode/decode/
-    // present hooks (which also cover this field, per `compileViaBindings`'s
+    // present hooks (which also cover this field, per `compileVias`'s
     // ordering) apply to it normally on both write and read, same as a plain
     // money field (money/read-parity.test.ts's '122.00'-style decimal-string
     // format). Pinned empirically — do not change this behavior, only this
@@ -279,7 +279,7 @@ describe('computed(virtual) — read-time, never-stored mode (#638 Task 7)', () 
     // field is legal late-attach, mirroring the fresh-construction exemption 1:1 (a
     // composition legal in one `vault.collection()` call must stay legal split across
     // two). `_applyMoneyFields` (kernel/collection.ts) must derive the SAME money∩virtual
-    // intersection `compileViaBindings` computes for the fresh path, from the
+    // intersection `compileVias` computes for the fresh path, from the
     // ALREADY-COMPILED `computed` binding it finds in `this.via.bindings` (there is no
     // materialized `this.computed` entry to read here — virtual mode never populates it).
     interface Priced extends Record<string, unknown> { id: string; base: number; doubledPrice?: string | number; doubledPriceFormatted?: string }
@@ -330,7 +330,7 @@ describe('computed(virtual) — read-time, never-stored mode (#638 Task 7)', () 
   // `ViaPipeline`'s `present()` folds over a present-phase-local `_presentOrder`
   // (`kernel/via/pipeline.ts`) that puts every `'computed'`-brand binding first, so a
   // virtual field's value exists BEFORE i18n/lookup's dressing `present()` hooks run on
-  // it (previously `compileViaBindings`'s money→i18n→lookup→classified→blob→computed
+  // it (previously `compileVias`'s money→i18n→lookup→classified→blob→computed
   // ordering ran computed LAST, so a virtual field's label could never be dressed off a
   // value that didn't exist yet). Money was the one family #665 deliberately did NOT fix
   // for the composed-on-itself case — #669 (above) closed that gap with a separate
@@ -440,7 +440,7 @@ describe('computed(virtual) — read-time, never-stored mode (#638 Task 7)', () 
   // not just implicit in `_presentOrder`'s partition (`kernel/via/pipeline.ts`).
   describe('#665 present-order — second-order effects (pinned, not just implicit)', () => {
     it('(a) chained virtual computeds: a LATER-declared field reading an EARLIER-declared virtual field\'s output works — declaration order, not a topo sort, and unaffected by #665', async () => {
-      // The `computed` binding is ONE ViaBinding covering every virtual field on the
+      // The `computed` binding is ONE NoydbVia covering every virtual field on the
       // collection (`via/computed/binding.ts`'s `present` loops `cfg.virtualFields`,
       // a Map in DECLARATION order, mutating the SAME threaded record as it goes) — so
       // chaining across two virtual computed fields is entirely INTERNAL to that one

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { installViaBinder, isViaInstalled, viaBinder, type ViaBinding } from '../../src/kernel/via/index.js'
+import { installViaBinder, isViaInstalled, viaBinder, type NoydbVia } from '../../src/kernel/via/index.js'
 import { NoydbError } from '../../src/kernel/errors.js'
 
 describe('via port', () => {
@@ -63,8 +63,8 @@ describe('via port', () => {
     expect(retrieved).toBe(firstBinder)
   })
 
-  it('(d) ViaBinding fixture typechecks with only brand + posture', () => {
-    const binding: ViaBinding = {
+  it('(d) NoydbVia fixture typechecks with only brand + posture', () => {
+    const binding: NoydbVia = {
       brand: 'test-feature-minimal',
       posture: {
         encryptedAtRest: 'envelope',
