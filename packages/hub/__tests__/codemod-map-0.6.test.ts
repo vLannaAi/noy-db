@@ -16,6 +16,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import * as hub from '../src/index.js'
+import { reachableExports } from '../scripts/lib/surface.mjs'
 
 interface Row {
   from: string
@@ -33,7 +34,16 @@ const map = JSON.parse(
 
 const rows = map.renames
 const hubRows = rows.filter(r => r.package === '@noy-db/hub')
-const surface = new Set(Object.keys(hub))
+
+// The ROOT BARREL is not the consumer surface — it is a proxy for it, and the
+// proxy is too narrow. `encodePodHeader` / `validatePodHeaderFields` are
+// exported from `@noy-db/hub/pod` and never re-homed on the root, so a row
+// naming them looked wrong while being right (#1154). What a consumer can
+// actually import is every subpath declared in `exports`, which is what
+// `reachableExports` walks. Runtime keys still count — they prove the value
+// exists rather than only its declaration.
+const reachable = reachableExports(fileURLToPath(new URL('..', import.meta.url))).all
+const surface = new Set([...Object.keys(hub), ...reachable])
 
 // Types erase at runtime, so they cannot be enumerated off the barrel — the
 // root-barrel surface golden covers those. Here we check what is reachable.
@@ -69,7 +79,7 @@ describe('codemods/0.6.0-pre.json', () => {
       // `rotateKeys` is an option key, and the standalone rotateKeys() function
       // still exists — the removed thing is the RevokeOptions field.
       if (r.kind === 'removed' || r.kind === 'method') continue
-      expect(surface.has(r.from), `${r.from} is still exported — the row is wrong or the removal did not land`).toBe(false)
+      expect(surface.has(r.from), `${r.from} is still exported (root barrel or any subpath) — the row is wrong or the removal did not land`).toBe(false)
     }
   })
 

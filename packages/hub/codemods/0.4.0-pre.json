@@ -432,6 +432,14 @@
       "section": "§5"
     },
     {
+      "from": "LiveAggregation",
+      "to": "LiveReduction",
+      "kind": "type",
+      "safeGlobalReplace": true,
+      "section": "\u00a75",
+      "note": "#1154. Missed when its siblings (AggregateResult, GroupedAggregation, AggregateSpec, withAggregate) were mapped. Verified against published tarballs: reachable in 0.3.0, absent from 0.4.0, and LiveReduction appears in exactly that transition \u2014 same module as ReduceResult/ReduceSpec, and it is the reactive primitive .live() returns."
+    },
+    {
       "from": "GroupedAggregation",
       "to": "GroupedReduction",
       "kind": "type",
