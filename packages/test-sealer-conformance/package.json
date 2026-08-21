@@ -1,0 +1,57 @@
+{
+  "name": "@noy-db/test-sealer-conformance",
+  "version": "0.6.0",
+  "description": "Parameterized contract tests for noy-db sealing-key providers — the conformance suite every NoydbSealer implementation must pass",
+  "license": "MIT",
+  "author": "vLannaAi <vicio@lanna.ai>",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/test-sealer-conformance#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vLannaAi/noy-db.git",
+    "directory": "packages/test-sealer-conformance"
+  },
+  "bugs": {
+    "url": "https://github.com/vLannaAi/noy-db/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@noy-db/hub": "workspace:*",
+    "vitest": "^3.0.0"
+  },
+  "devDependencies": {
+    "@noy-db/hub": "workspace:*",
+    "vitest": "^3.0.0"
+  },
+  "keywords": [
+    "noy-db",
+    "conformance",
+    "sealing",
+    "testing",
+    "kms"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

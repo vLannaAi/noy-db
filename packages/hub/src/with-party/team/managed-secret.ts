@@ -131,17 +131,37 @@ export class MemorySealer implements NoydbSealer {
     }
   }
 
-  async seal(secret: Uint8Array): Promise<Uint8Array> {
-    const out = new Uint8Array(4 + secret.length)
-    out.set(this.fingerprint, 0)
-    for (let i = 0; i < secret.length; i++) {
-      out[4 + i] = secret[i]! ^ this.keyBytes[i % 16]!
+  /**
+   * Deterministic 4-byte integrity tag over the ciphertext, keyed by the
+   * same derived bytes. NOT a MAC and not forgery-resistant — a real
+   * provider authenticates with its backend. It exists because the contract
+   * says `unseal` MUST throw on tamper, and a double that silently returns
+   * corrupted bytes is not modelling the contract it stands in for. Without
+   * it, every managed-mode test ran against a provider that could not fail
+   * the way a real one must (found by @noy-db/test-sealer-conformance).
+   */
+  private tag(cipher: Uint8Array): Uint8Array {
+    let a = 0x9e3779b9
+    for (let i = 0; i < cipher.length; i++) {
+      a = ((a ^ (cipher[i]! ^ this.keyBytes[i % 16]!)) * 0x01000193) >>> 0
     }
+    return new Uint8Array([(a >>> 24) & 0xff, (a >>> 16) & 0xff, (a >>> 8) & 0xff, a & 0xff])
+  }
+
+  async seal(secret: Uint8Array): Promise<Uint8Array> {
+    const cipher = new Uint8Array(secret.length)
+    for (let i = 0; i < secret.length; i++) {
+      cipher[i] = secret[i]! ^ this.keyBytes[i % 16]!
+    }
+    const out = new Uint8Array(8 + secret.length)
+    out.set(this.fingerprint, 0)
+    out.set(this.tag(cipher), 4)
+    out.set(cipher, 8)
     return out
   }
 
   async unseal(sealed: Uint8Array): Promise<Uint8Array> {
-    if (sealed.length < 4) {
+    if (sealed.length < 8) {
       throw new Error('MemorySealer: sealed input too short')
     }
     for (let i = 0; i < 4; i++) {
@@ -152,10 +172,19 @@ export class MemorySealer implements NoydbSealer {
         )
       }
     }
-    const body = sealed.subarray(4)
-    const out = new Uint8Array(body.length)
-    for (let i = 0; i < body.length; i++) {
-      out[i] = body[i]! ^ this.keyBytes[i % 16]!
+    const cipher = sealed.subarray(8)
+    const expected = this.tag(cipher)
+    for (let i = 0; i < 4; i++) {
+      if (sealed[4 + i] !== expected[i]) {
+        throw new Error(
+          `MemorySealer("${this.id}"): integrity check failed on unseal `
+          + '(the sealed bytes were modified after sealing)',
+        )
+      }
+    }
+    const out = new Uint8Array(cipher.length)
+    for (let i = 0; i < cipher.length; i++) {
+      out[i] = cipher[i]! ^ this.keyBytes[i % 16]!
     }
     return out
   }
