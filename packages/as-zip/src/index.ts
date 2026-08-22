@@ -284,10 +284,13 @@ export async function write(
 
 // ── Import ─────────────────────────
 
-import { diffVault, type VaultDiff } from '@noy-db/hub'
+import { diffVault } from '@noy-db/hub'
 import { readZip } from './read.js'
 
-export type ImportPolicy = 'merge' | 'replace' | 'insert-only'
+// Hub-owned as of 0.7 (ADR 0004). This line replaced a local declaration that
+// existed identically in six as-* packages, with nothing comparing them.
+import type { ImportPolicy, ImportPlan } from '@noy-db/hub/as'
+export type { ImportPolicy }
 
 export interface AsZipImportOptions {
   /** Target collection for the records. */
@@ -300,11 +303,7 @@ export interface AsZipImportOptions {
   readonly password?: string
 }
 
-export interface AsZipImportPlan {
-  readonly plan: VaultDiff
-  readonly policy: ImportPolicy
-  apply(): Promise<void>
-}
+export type AsZipImportPlan = ImportPlan
 
 /**
  * Read a `.zip` archive (optionally WinZip-AES-256 encrypted), parse

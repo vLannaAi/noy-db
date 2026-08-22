@@ -556,6 +556,11 @@ function checkEveryServiceGated() {
 //   subpath". Removing a name from here means giving it a subpath.
 const NOT_SERVICE_SUBPATHS = new Set([
   'cargo', 'to', 'pod', 'satellites', 'util', 'share-link', 'query',
+  // FAMILY PORT, like `to`: the contract an `as-*` format implements. Unlike
+  // the 0.3.0 version that was pruned for zero importers, this one carries
+  // types that exist NOWHERE else — ImportPolicy was declared six times across
+  // satellites and not at all in hub. See docs/adr/0004-as-format-port.md.
+  'as',
   // FAMILY PORT, like `to`: the contract an `at-*` sealing-key provider
   // implements, not a capability a vault opts into. Re-introduced in the
   // 0.7 line (it shipped in 0.3.0 and was removed in 0.4.0 for "zero
@@ -1601,7 +1606,7 @@ function checkNoOutboundKlumImport() {
  * the fix is an explicit exemption with the cross-repo binder named, not
  * deleting the rule.
  */
-const FAMILY_PORT_SUBPATHS = ['to', 'at', 'by']
+const FAMILY_PORT_SUBPATHS = ['to', 'at', 'by', 'as']
 
 function checkFamilyPortHasBinder() {
   for (const port of FAMILY_PORT_SUBPATHS) {
