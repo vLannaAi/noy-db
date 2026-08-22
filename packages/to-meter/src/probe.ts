@@ -24,7 +24,7 @@
  *
  * @module
  */
-import type { EncryptedEnvelope, NoydbStore, StoreCapabilities, VaultSnapshot } from '@noy-db/hub'
+import type { EncryptedEnvelope, NoydbStore, StoreCapabilities, VaultSnapshot } from '@noy-db/hub/to'
 import { NOYDB_FORMAT_VERSION } from '@noy-db/hub'
 import type {
   CasAxis,

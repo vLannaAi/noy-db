@@ -18,7 +18,7 @@
  *
  * @module
  */
-import type { NoydbStore } from '@noy-db/hub'
+import type { NoydbStore } from '@noy-db/hub/to'
 import { runStoreProbe } from './probe.js'
 import type {
   StoreProbeReport,

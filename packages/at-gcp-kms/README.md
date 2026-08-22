@@ -39,14 +39,14 @@ gcloud kms keys add-iam-policy-binding noy-db-sealing \
 ```ts
 // 3. In your app:
 import { createNoydb } from '@noy-db/hub'
-import { gcpKmsSealingProvider } from '@noy-db/at-gcp-kms'
+import { atGcpKms } from '@noy-db/at-gcp-kms'
 import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 
 const db = await createNoydb({
   store,
   user: 'alice',
   secretMode: 'managed',
-  sealingKey: gcpKmsSealingProvider({
+  sealingKey: atGcpKms({
     keyName: 'projects/my-project/locations/global/keyRings/noy-db-ring/cryptoKeys/noy-db-sealing',
   }),
   shamirRecovery: shamirRecoveryProvider(),
@@ -68,7 +68,7 @@ const vault = await db.openVault('acme')
 ## When NOT to use this provider
 
 - Non-GCP or multi-cloud deployments where adding a GCP dependency is undesirable. Use [`@noy-db/at-env`](../at-env) for a zero-extra-dependency option.
-- Local dev / CI where you don't want real KMS calls or GCP credentials in CI. Use [`@noy-db/at-env`](../at-env) or `MemorySealingKeyProvider` from `@noy-db/hub` instead.
+- Local dev / CI where you don't want real KMS calls or GCP credentials in CI. Use [`@noy-db/at-env`](../at-env) or `MemorySealer` from `@noy-db/hub` instead.
 
 ## Key rotation
 
@@ -77,15 +77,15 @@ Cloud KMS supports automatic key version rotation for symmetric keys. Enable it 
 ## API
 
 ```ts
-function gcpKmsSealingProvider(opts: {
+function atGcpKms(opts: {
   keyName: string                       // Full crypto-key resource name
   client?: KmsClientLike                // optional pre-built client (useful for tests)
-}): SealingKeyProvider
+}): NoydbSealer
 ```
 
 Never pass raw GCP credentials in the options — inject a pre-configured `KeyManagementServiceClient` for non-default auth. The default `new KeyManagementServiceClient()` resolves credentials via Application Default Credentials.
 
-Returns a [`SealingKeyProvider`](../hub/src/team/managed-secret.ts) — the contract `@noy-db/hub`'s managed-secret mode consumes.
+Returns a [`NoydbSealer`](../hub/src/port/at/index.ts) — importable as `@noy-db/hub/at` — the contract `@noy-db/hub`'s managed-secret mode consumes.
 
 ## License
 

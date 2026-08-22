@@ -734,7 +734,7 @@ export class TeamFacade {
    * const db = await createNoydb({
    *   store, user: 'alice',
    *   secretMode: 'managed',
-   *   sealingKey: macosKeychainSealingProvider({ ... }),
+   *   sealingKey: atMacosKeychain({ ... }),
    * })
    *
    * const { vault, recoveryEnrollments } = await db.team.openVaultAndEnrollRecovery('acme', {

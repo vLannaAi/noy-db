@@ -42,7 +42,7 @@ import { ConflictError } from '@noy-db/hub/to'
  * `{vault}:{collection}:{id}`. CAS checks and writes happen inside a
  * single `readwrite` IDB transaction, giving true atomic compare-and-swap
  * (`casAtomic: true`). Enable `obfuscate` to hash key components and
- * XOR-encode metadata — same obfuscation model as `browserLocalStore`.
+ * XOR-encode metadata — same obfuscation model as `toBrowserLocal`.
  */
 export interface BrowserIdbOptions {
   /** Storage key prefix. Default: 'noydb'. */
