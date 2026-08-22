@@ -14,7 +14,7 @@ import { createOwnerKeyring, requireRosterKey } from '../with-party/team/keyring
 import { mintRosterTag } from '../with-party/team/roster-tag.js' // #1115
 import { resolveManagedSecret } from '../with-party/team/managed-secret.js'
 import type { NoydbSealer } from '../with-party/team/managed-secret.js'
-import type { ShamirRecoveryProvider } from '../with-party/team/shamir-recovery-provider.js'
+import type { NoydbShamir } from '../with-party/team/noydb-shamir.js'
 import type { RecoveryEnrollmentInput } from '../with-party/team/rotate-recover.js'
 import { LedgerStore } from '../with-commit/history/ledger/store.js'
 import { LEDGER_COLLECTION } from '../with-commit/history/ledger/constants.js'
@@ -183,7 +183,7 @@ export interface CreateOwnerManagedOptions {
   readonly secretMode: 'managed'
   readonly sealingKey: NoydbSealer
   readonly recovery: ReadonlyArray<RecoveryEnrollmentInput>
-  readonly shamirRecovery: ShamirRecoveryProvider
+  readonly shamirRecovery: NoydbShamir
   readonly transferKey: Uint8Array
 }
 

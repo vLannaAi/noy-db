@@ -116,15 +116,23 @@ export async function splitKEK(kek: CryptoKey, options: SplitKEKOptions): Promis
   }
 }
 
-// ── ShamirRecoveryProvider ─────────────────────────────────────────────
+// ── NoydbShamir ─────────────────────────────────────────────
 
-/** Structural match for hub's ShamirRecoveryProvider (no hub import — avoids the cycle). */
-export interface ShamirRecoveryProvider {
+/**
+ * Structural mirror of hub's `NoydbShamir` port. Deliberately the same name.
+ *
+ * No hub import: hub devDepends on this package for six recovery test files,
+ * so a peer edge here is a build cycle — turbo refuses it outright. The two
+ * declarations are held in step from hub's side instead, where the dependency
+ * already points: `packages/hub/__tests__/noydb-shamir-satellite.test-d.ts`
+ * compiles this factory against hub's interface and asserts both directions.
+ */
+export interface NoydbShamir {
   splitToShares(secret: Uint8Array, k: number, n: number): string[]
   combineShares(shares: readonly string[]): Uint8Array
 }
 
-export function shamirRecoveryProvider(): ShamirRecoveryProvider {
+export function shamirRecoveryProvider(): NoydbShamir {
   return {
     splitToShares: (secret, k, n) => splitSecret(secret, k, n).map(encodeShareBase32),
     combineShares: (shares) => combineSecret(shares.map(decodeShareBase32)),

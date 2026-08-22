@@ -78,9 +78,14 @@ describe('codemods/0.7.0-pre.json', () => {
     for (const r of rows) expect(r.to, `${r.from} has no target`).toBeTruthy()
   })
 
-  it('6. no row duplicates another', () => {
-    const froms = rows.map((r) => r.from)
-    expect(new Set(froms).size).toBe(froms.length)
+  it('6. no row duplicates another IN THE SAME PACKAGE', () => {
+    // Keyed on (package, from), not `from` alone — codemod-map.test.ts got
+    // this right for the 0.4 line and this file was ported from 0.6, which
+    // had no cross-package rows and so never needed it. One name legitimately
+    // renames in two packages at once: `ShamirRecoveryProvider` is hub's port
+    // AND on-shamir's structural mirror of it, and they must move together.
+    const keys = rows.map((r) => `${r.package}:${r.from}`)
+    expect(new Set(keys).size).toBe(keys.length)
   })
 
   it('7. states WHY the internal renames are absent — the #1052 over-count', () => {

@@ -48,7 +48,7 @@ import {
   type ShamirRecoveryEntry,
 } from './recovery.js'
 import { saveSealedSecret } from './managed-secret.js'
-import type { ShamirRecoveryProvider } from './shamir-recovery-provider.js'
+import type { NoydbShamir } from './noydb-shamir.js'
 import { generateULID } from '../../with-pod/ulid.js'
 import { RecoveryProfileNotImplementedError, PolicyDeniedError } from '../../kernel/errors.js'
 import {
@@ -118,11 +118,11 @@ export interface TeamFacadeDeps {
 export class TeamFacade {
   constructor(private readonly deps: TeamFacadeDeps) {}
 
-  private requireShamirProvider(): ShamirRecoveryProvider {
+  private requireShamirProvider(): NoydbShamir {
     const p = this.deps.options.shamirRecovery
     if (!p) {
       throw new Error(
-        "shamir recovery requires a ShamirRecoveryProvider — pass "
+        "shamir recovery requires a NoydbShamir — pass "
         + "shamirRecovery: shamirRecoveryProvider() from '@noy-db/on-shamir' to createNoydb()",
       )
     }

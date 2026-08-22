@@ -724,7 +724,7 @@ export type { WrappedDeksBlob } from './with-party/team/wrapped-deks.js'
 // (macOS Keychain, Windows Credential Manager, libsecret, AWS KMS)
 // ship as separate packages.
 export type { NoydbSealer, RecipientHint, RecipientSealer } from './with-party/team/managed-secret.js'
-export type { ShamirRecoveryProvider } from './with-party/team/shamir-recovery-provider.js'
+export type { NoydbShamir } from './with-party/team/noydb-shamir.js'
 export {
   MemorySealer,
   MemoryRecipientSealer,
