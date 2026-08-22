@@ -562,6 +562,11 @@ const NOT_SERVICE_SUBPATHS = new Set([
   // importers") once @noy-db/test-sealer-conformance gave it something to
   // stand behind — see codemods/0.7.0-pre.json's `unretired` list.
   'at',
+  // FAMILY PORT, like `to` and `at`: the drain-barrier mesh contract a `by-*`
+  // session-share transport implements. Same history as `at` — shipped in
+  // 0.3.0, pruned in 0.4.0 for "zero importers", re-introduced in the 0.7 line
+  // once @noy-db/test-mesh-conformance gave it something to stand behind.
+  'by',
   // #843 C3a — themed homes for root-barrel-exclusive clusters, not opt-in
   // capabilities. Each groups symbols that previously had no home but `.`:
   'store',          // routeStore + wrapStore + the six StoreMiddleware factories
