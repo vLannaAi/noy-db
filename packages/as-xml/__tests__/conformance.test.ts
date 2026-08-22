@@ -1,9 +1,8 @@
 /**
- * as-csv against the published `as-*` export-gate contract.
+ * as-xml against the published `as-*` export-gate contract.
  *
- * The package's own suite covers CSV: RFC 4180 escaping, column inference,
- * value serialisation. This runs the half every plaintext projection shares —
- * that the gate refuses, and refuses before reading anything.
+ * Package-specific behaviour stays in this package's own suite. This is the
+ * half every projection shares: the gate refuses, and refuses before reading.
  */
 import { runFormatConformanceTests } from '@noy-db/test-format-conformance'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, Vault } from '@noy-db/hub'
@@ -48,45 +47,31 @@ function toMemory(): NoydbStore {
   }
 }
 
-/**
- * A vault that is EXPORT-CAPABLE, which matters more than it looks.
- *
- * Without the `exportCapability` grant, `assertCanExport` refuses every call —
- * so `write` rejects before it ever reads `acknowledgeRisks`, and the
- * acknowledgement case passes no matter what the guard does. The kit now also
- * matches on the message, so both halves have to be wrong for it to slip.
- */
+/** Export-CAPABLE on purpose — see the kit's note on `writeWithoutAcknowledgement`. */
 async function seededVault(): Promise<Vault> {
   const store = toMemory()
-  const seed = await createNoydb({
-    teamStrategy: withTeam(), store, user: 'owner-01', secret: 'owner-pass',
-  })
+  const opts = { teamStrategy: withTeam(), store, user: 'owner-01', secret: 'owner-pass' }
+  const seed = await createNoydb(opts)
   const seeded = await seed.openVault('acme')
   await seeded.collection('invoices').put('inv-1', { id: 'inv-1', client: 'Globex', amount: 1500 })
   await seed.grant('acme', {
     userId: 'owner-01', displayName: 'Owner', role: 'owner',
     secret: 'owner-pass',
-    exportCapability: { plaintext: ['csv'] },
+    exportCapability: { plaintext: ['xml'] },
   })
   await seed.close()
-
-  const db = await createNoydb({
-    teamStrategy: withTeam(), store, user: 'owner-01', secret: 'owner-pass',
-  })
+  const db = await createNoydb(opts)
   return db.openVault('acme')
 }
 
-runFormatConformanceTests('as-csv', {
+runFormatConformanceTests('as-xml', {
   tier: 'plaintext',
-  format: 'csv',
+  format: 'xml',
   vault: seededVault,
-  // Every plaintext-producing export, not a representative one. `download`
-  // delegates to `toString` today; listing both is what would catch it if
-  // that ever stops being true.
   exports: [
     { name: 'toString', run: (vault) => toString(vault, { collection: 'invoices' }) },
     { name: 'download', run: (vault) => download(vault, { collection: 'invoices' }) },
-    { name: 'write', run: (vault) => write(vault, '/tmp/conformance.csv', { collection: 'invoices', acknowledgeRisks: true }) },
+    { name: 'write', run: (vault) => write(vault, '/tmp/conformance.xml', { collection: 'invoices', acknowledgeRisks: true }) },
   ],
   writeWithoutAcknowledgement: (vault, path) =>
     write(vault, path, { collection: 'invoices' } as Parameters<typeof write>[2]),

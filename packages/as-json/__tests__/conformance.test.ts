@@ -65,6 +65,7 @@ async function seededVault(): Promise<Vault> {
 }
 
 runFormatConformanceTests('as-json', {
+  tier: 'plaintext',
   format: 'json',
   vault: seededVault,
   exports: [
