@@ -36,7 +36,7 @@
  */
 
 import type { PeerChannel } from './channel.js'
-import type { NoydbMesh, FenceState, WriterPresence } from '@noy-db/hub/cargo'
+import type { NoydbMesh, FenceState, WriterPresence } from '@noy-db/hub/by'
 
 /** Default fence when a vault has never been fenced. */
 const DEFAULT_FENCE: FenceState = { currentSchemaVersion: 0, fenceState: 'normal' }

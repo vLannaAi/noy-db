@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { NoydbMesh, WriterPresence } from '@noy-db/hub/cargo'
+import type { NoydbMesh, WriterPresence } from '@noy-db/hub/by'
 
 /**
  * Poll until `fn` yields something truthy, or the budget runs out. Delivery is

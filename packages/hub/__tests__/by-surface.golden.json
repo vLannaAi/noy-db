@@ -1,0 +1,12 @@
+{
+  "values": [
+    "isQuorum",
+    "runDrainBarrier"
+  ],
+  "types": [
+    "DrainBarrierOptions",
+    "FenceState",
+    "NoydbMesh",
+    "WriterPresence"
+  ]
+}
