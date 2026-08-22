@@ -19,7 +19,7 @@
  * @module
  */
 
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub/to'
 import type { PeerChannel } from './channel.js'
 import { serveRpc } from './rpc.js'
 
