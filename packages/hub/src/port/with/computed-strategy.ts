@@ -10,7 +10,7 @@
  * (money/i18n's `installViaBinder` call inside their own factory) would leave
  * `viaBinder('computed')` unresolved for that path. This port module is already
  * unconditionally imported by the kernel spine (`collection-config.ts`), so linking here
- * guarantees the binder is installed before `compileViaBindings` ever needs it, regardless
+ * guarantees the binder is installed before `compileVias` ever needs it, regardless
  * of which surface (sugar object-form or `via(computed(...))`) declared the virtual field.
  *
  * @internal

@@ -3,7 +3,7 @@
  * `makeSealedSlotCapability` (sealedSlots) and `makeReservedEnvelopes`.
  *
  * These are the kernel-side capability factories a later task wires into
- * `ViaBinding.encodeAtRest`/`decodeAtRest`/`erase` hooks. Both are built on
+ * `NoydbVia.encodeAtRest`/`decodeAtRest`/`erase` hooks. Both are built on
  * the byte-parity extraction in `sealed-slots.ts` (commit 1) and go through
  * the SAME `deriveSealedFieldKey`/`deriveSealedFieldKeyFromCek`/`encrypt`/
  * `decrypt` real crypto primitives `RecordCodec` uses — no mocking of the

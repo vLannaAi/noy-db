@@ -2,11 +2,11 @@
  * #623 Task 8 controller pin 3 — `_applyMoneyFields` PREPENDS money onto an
  * already-compiled `via` pipeline instead of appending, so a collection
  * whose FIRST `vault.collection()` call declared i18nFields (compiling
- * `via = [i18nBinding]`) and whose SECOND call reconciles moneyFields onto
+ * `via = [i18nVia]`) and whose SECOND call reconciles moneyFields onto
  * the already-existing instance (the same "first-wins post-construction
  * attach" pattern `_applyMoneyFields`'s docstring describes for the
  * MV-precreation case) still ends up money-first (`[money, i18n]`), matching
- * `compileViaBindings`'s pinned order for a single-call declaration.
+ * `compileVias`'s pinned order for a single-call declaration.
  *
  * `via` is a private field with no test-only accessor, so this asserts
  * observable behavior instead: object identity across the two calls (proof
@@ -69,7 +69,7 @@ describe('_applyMoneyFields reconcile order (#623 Task 8, controller pin 3)', ()
     })
     const vault = await db.openVault('books', { locale: 'en' })
 
-    // First declaration: i18nFields only — compiles via = [i18nBinding].
+    // First declaration: i18nFields only — compiles via = [i18nVia].
     const first = vault.collection<Invoice>('invoices', {
       i18nFields: { memo: i18nText({ languages: ['en', 'th'], required: 'any' }) },
     })

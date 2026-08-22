@@ -26,10 +26,10 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../src/index.js'
 import { SealedHandle } from '../../src/index.js'
 import { classified, withClassified } from '../../src/via/classified/index.js'
-import { moneyBinding } from '../../src/via/money/binding.js'
-import { i18nBinding } from '../../src/via/i18n/binding.js'
-import { classifiedBinding } from '../../src/via/classified/binding.js'
-import { blobBinding } from '../../src/via/blob/binding.js'
+import { moneyVia } from '../../src/via/money/binding.js'
+import { i18nVia } from '../../src/via/i18n/binding.js'
+import { classifiedVia } from '../../src/via/classified/binding.js'
+import { blobVia } from '../../src/via/blob/binding.js'
 import { ViaPipeline, EXPORT_REDACTION_MARKER } from '../../src/kernel/via/pipeline.js'
 import { NO_I18N } from '../../src/port/with/i18n-strategy.js'
 import { inlineMemory } from '../classified/harness.js'
@@ -50,7 +50,7 @@ async function cardsVault(secret: string) {
 
 describe('ViaPipeline.redactForExport (#629 Task 9 — new pipeline method)', () => {
   it('classified: redacts a covered field to the marker; leaves other fields (incl. riders) untouched', () => {
-    const b = classifiedBinding({
+    const b = classifiedVia({
       entries: { card: classified.creditCard({ pan: 'pan' }) },
       collectionName: 'c',
       guardCtx: {
@@ -68,7 +68,7 @@ describe('ViaPipeline.redactForExport (#629 Task 9 — new pipeline method)', ()
   })
 
   it('classified: does not mutate the input record', () => {
-    const b = classifiedBinding({
+    const b = classifiedVia({
       entries: { card: classified.creditCard({ pan: 'pan' }) },
       collectionName: 'c',
       guardCtx: {
@@ -86,28 +86,28 @@ describe('ViaPipeline.redactForExport (#629 Task 9 — new pipeline method)', ()
   })
 
   it('money: exportable:true — record reference is returned unchanged (nothing to redact)', () => {
-    const b = moneyBinding({ amount: { currency: 'USD', scale: 2 } as never })
+    const b = moneyVia({ amount: { currency: 'USD', scale: 2 } as never })
     const p = ViaPipeline.build([b])!
     const record = { id: 'r1', amount: '100.04' }
     expect(p.redactForExport(record)).toBe(record) // same reference — no copy made
   })
 
   it('i18n: exportable:true — unaffected', () => {
-    const b = i18nBinding({ i18nFields: { title: {} }, strategy: NO_I18N, collectionName: 'c' })
+    const b = i18nVia({ i18nFields: { title: {} }, strategy: NO_I18N, collectionName: 'c' })
     const p = ViaPipeline.build([b])!
     const record = { id: 'r1', title: 'hello' }
     expect(p.redactForExport(record)).toBe(record)
   })
 
   it('blob: exportable:true — unaffected', () => {
-    const b = blobBinding({ fields: { receipt: {} }, collectionName: 'c' })
+    const b = blobVia({ fields: { receipt: {} }, collectionName: 'c' })
     const p = ViaPipeline.build([b])!
     const record = { id: 'r1', receipt: 'stored-plain-value' }
     expect(p.redactForExport(record)).toBe(record)
   })
 
   it('a field no binding covers is left alone even when some other field IS redacted', () => {
-    const b = classifiedBinding({
+    const b = classifiedVia({
       entries: { card: classified.creditCard({ pan: 'pan' }) },
       collectionName: 'c',
       guardCtx: {

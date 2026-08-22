@@ -68,7 +68,7 @@ export interface LookupDescriptor<Keys extends string = string> {
  * to resolve anything — without one it silently degrades to comparing the
  * raw canonical keys (never throws — `LookupSnapshot.compareKeys`'s
  * contract). `orderBy(field, dir, {by:'label'})` doesn't need this (it
- * carries its own per-call locale via `ViaBinding.resolveOrderLabel`,
+ * carries its own per-call locale via `NoydbVia.resolveOrderLabel`,
  * #650 Task 7) — only a sortBy-driven PLAIN orderBy does. Warn once at
  * declare time rather than degrade silently at query time.
  */

@@ -26,7 +26,7 @@ import { buildTaintOverlay, taintBinding } from './taint-binding.js'
 type ComputedFieldsParam = NonNullable<Parameters<typeof resolveComputedEdges>[1]>
 
 // The classified via-binding's fixed posture (`via/classified/binding.ts`'s
-// `classifiedBinding().posture` — byte-for-byte duplicate, uniform across every
+// `classifiedVia().posture` — byte-for-byte duplicate, uniform across every
 // storage form, stable since #629 Task 5). Duplicated here rather than
 // imported: the reconcile commit path (unlike fresh construction) has no
 // compiled `ViaPipeline` to read `binding.posture` off of, and the kernel
@@ -52,7 +52,7 @@ export function registerCollectionGraphSources<T>(graph: ViaGraph, name: string,
     ...Object.keys(cfg.i18nFields ?? {}),
     ...Object.keys(cfg.dictKeyFields ?? {}),
     // #650 Task 2 — native lookup()/enumOf()/dict() fields register their
-    // posture (`lookupBinding().posture`) the same generic way every other
+    // posture (`lookupVia().posture`) the same generic way every other
     // binding does; no `'ref'` EdgeKind / graph edge yet (Task 5).
     ...Object.keys(cfg.lookupFields ?? {}),
     ...(cfg.classified !== undefined ? Object.keys(cfg.classified.byField) : []),
@@ -189,7 +189,7 @@ export function validateReconcileGraphEdges(graph: ViaGraph, name: string, optio
     // #638 Task 7 — `mode: 'virtual'` has no late-attach reconcile door: unlike a
     // materialized entry (folded into `this.computed` by `_applyComputed`, no pipeline
     // rebuild needed), a virtual field needs the computed via-binding to exist in
-    // `coll.via.bindings` — which only `compileViaBindings` (construction time) builds.
+    // `coll.via.bindings` — which only `compileVias` (construction time) builds.
     // Declaring it here would silently fall through `_applyComputed` and get MATERIALIZED
     // (stored) instead, defeating "never stored". Same construction-only rule as i18nFields/
     // dictKeyFields/viaFields (`ReconcileGraphOptions`'s doc comment).
@@ -318,7 +318,7 @@ export function applyTaintOverlay(coll: HasWritableViaPipeline, graph: ViaGraph,
   const sealAll = defaultPosture?.encryptedAtRest === 'sealed'
   const needsTaintBinding = sealFields.size > 0 || virtualExportRedact.size > 0 || sealAll
   // #642 Fix wave 1 — strip a PRIOR 'taint' binding before (maybe) appending a fresh one: a
-  // base config compiled by `compileViaBindings` never carries 'taint' itself (only this
+  // base config compiled by `compileVias` never carries 'taint' itself (only this
   // function ever constructs one), so any 'taint' entry already on `coll._via.bindings` is a
   // leftover from an earlier `applyTaintOverlay` call on THIS SAME collection (fresh-open +
   // every `reapplyDependentOverlays` refresh) — without stripping it first, each re-apply

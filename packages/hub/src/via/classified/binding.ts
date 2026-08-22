@@ -1,5 +1,5 @@
 /**
- * The classified `ViaBinding` (#629 Task 5, LIVE since Task 6) — wires
+ * The classified `NoydbVia` (#629 Task 5, LIVE since Task 6) — wires
  * classified-fields declaration/write-enforcement/at-rest sealing/erasure
  * into the kernel's generic Via port. Mirrors `via/money/binding.ts`'s
  * inline declaration-time validation and `via/i18n/binding.ts`'s
@@ -7,10 +7,10 @@
  * (`port/with/classified-strategy.ts` calls `linkClassifiedVia()` at module
  * load, not lazily from a `classified.*()` preset call): several fixtures
  * build a raw `ClassifiedFieldSpec` literal without ever calling a preset,
- * and the binder must be installed before `compileViaBindings` needs it
+ * and the binder must be installed before `compileVias` needs it
  * regardless.
  *
- * `compileViaBindings` (`kernel/collection-config.ts`) compiles this binding
+ * `compileVias` (`kernel/collection-config.ts`) compiles this binding
  * in whenever a collection declares `classifiedFields` — money then i18n
  * then classified, order pinned. `kernel/collection.ts`'s `_putInternal`
  * runs `enforceClassifiedWrite`'s effect via the pipeline's `enforceWrite`
@@ -18,13 +18,13 @@
  * replace the inline `sensitiveFields` seal path for any collection this
  * binding is compiled into.
  *
- * `declare` — `classifiedBinding(cfg)` runs `resolveClassifiedFields` +
+ * `declare` — `classifiedVia(cfg)` runs `resolveClassifiedFields` +
  * `guardClassifiedCompat` at CONSTRUCTION time (the same #553 pattern
- * `moneyBinding`'s `validateMoneyFieldPaths(moneyFields)` call uses) —
+ * `moneyVia`'s `validateMoneyFieldPaths(moneyFields)` call uses) —
  * mirrors today's "door 1" (`collection-config.ts`'s
  * `resolveCollectionConfig`). Both may throw `ClassifiedConfigError`.
  */
-import type { ViaBinding, ViaWriteCtx, ViaCryptoCtx, SealedSlotRef, ViaEraseCtx, ViaEraseReport } from '../../kernel/via/index.js'
+import type { NoydbVia, ViaWriteCtx, ViaCryptoCtx, SealedSlotRef, ViaEraseCtx, ViaEraseReport } from '../../kernel/via/index.js'
 import { installViaBinder } from '../../kernel/via/index.js'
 import { SealedHandle } from '../../kernel/types.js'
 import { resolveClassifiedFields, type ClassifiedEntry } from './resolve.js'
@@ -64,7 +64,7 @@ export interface ClassifiedViaConfig {
    * completeness (see that method's doc comment for the shreddable/
    * dekResidue/both-class semantics). `live` is `ViaEraseCtx.live`'s opaque
    * envelope, passed straight through. NOT `readonly` (#629 Task 10):
-   * `compileViaBindings` builds this cfg before the owning `Collection`'s
+   * `compileVias` builds this cfg before the owning `Collection`'s
    * `RecordCodec` exists, so `Collection`'s constructor mutates this field
    * in place once `this.codec` is available — the closure `eraseClassified`
    * reads is looked up at CALL time, not at binding-construction time, so
@@ -75,7 +75,7 @@ export interface ClassifiedViaConfig {
    * Vault-provided closure that purges every `_sealed_cek/<collection>/<id>/*`
    * host-delivery envelope for one record (mirrors `rotateRecordCek`'s own
    * prefix-delete) and returns the count purged. Deliberately left UNWIRED
-   * by `compileViaBindings` (#629 Task 10) — `forget-sealed-erasure.test.ts`
+   * by `compileVias` (#629 Task 10) — `forget-sealed-erasure.test.ts`
    * proves this purge is UNCONDITIONAL on `sealRecordToHost` usage alone,
    * independent of whether `classifiedFields` is declared (a bare
    * `sensitive: [...]` collection exercises it with no classified binding
@@ -199,7 +199,7 @@ function buildClassifiedDescribeFragment(byField: Record<string, ClassifiedField
   }
 }
 
-export function classifiedBinding(cfg: ClassifiedViaConfig): ViaBinding {
+export function classifiedVia(cfg: ClassifiedViaConfig): NoydbVia {
   // declare — door 1: resolve + guard, exactly like collection-config.ts's
   // resolveCollectionConfig does today. Throws ClassifiedConfigError on any
   // R1-R8 refusal-matrix violation or field-collision.
@@ -225,5 +225,5 @@ export function classifiedBinding(cfg: ClassifiedViaConfig): ViaBinding {
 }
 
 export function linkClassifiedVia(): void {
-  installViaBinder('classified', (c) => classifiedBinding(c as ClassifiedViaConfig))
+  installViaBinder('classified', (c) => classifiedVia(c as ClassifiedViaConfig))
 }

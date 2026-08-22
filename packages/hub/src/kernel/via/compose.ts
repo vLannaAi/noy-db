@@ -6,13 +6,13 @@
  * into a single tagged container a collection's `viaFields` option can hold.
  *
  * Declaring a field via `via()` is equivalent to declaring the same
- * descriptor under its feature's sugar key — `compileViaBindings`
+ * descriptor under its feature's sugar key — `compileVias`
  * (kernel/collection-config.ts) groups a `viaFields` map by each
  * descriptor's `_viaBrand` and merges it with the sugar keys, throwing when
  * the same field is declared in both places (#623 Task 9).
  */
 import { ValidationError } from '../errors.js'
-import type { ViaBinding, ViaDescriptor } from './index.js'
+import type { NoydbVia, ViaDescriptor } from './index.js'
 import type { ViaPipeline } from './pipeline.js'
 // Types + shape-classification predicates reach through the kernel's own
 // `port/with/` hook seam (never `src/via/` directly) — #623 Task 11.
@@ -89,7 +89,7 @@ export interface MergedViaFields {
 /**
  * Merge `viaFields` (the {@link via} composer) with the money/i18n sugar
  * keys into the effective maps every consumer reads — the kernel's
- * `compileViaBindings` (the `ViaPipeline` bindings) and `vault.ts`'s own
+ * `compileVias` (the `ViaPipeline` bindings) and `vault.ts`'s own
  * i18n/dict registries (put-time validation, dict-join/search resolution)
  * both call this so a field declared via `viaFields` behaves identically to
  * one declared under its feature's sugar key.
@@ -178,7 +178,7 @@ const VIA_FIELD_MAP_FAMILY: Readonly<Record<string, string>> = {
  * `blobFields`) resolves silently by compile-order first-wins in `ViaPipeline`'s per-field
  * posture/clause lookup — undefined pipeline behavior for a config that is almost certainly a
  * mistake. `mergeViaFields` already guards sugar-vs-`viaFields` and `dictKeyFields`-vs-
- * `lookupFields` collisions (#623 Task 9); this runs one step later, in `compileViaBindings`
+ * `lookupFields` collisions (#623 Task 9); this runs one step later, in `compileVias`
  * (fresh construction) or {@link guardReconcileCollisions} (late-attach reconcile), because
  * those are the only seams that also see `classifiedFields`/`blobFields` — neither is part of
  * `ViaFieldSources`, so `mergeViaFields` never sees them.
@@ -229,8 +229,8 @@ export function guardCrossBindingFieldCollisions(
   // Minor fix (opus task review on #664a) — caller-accurate error prefix: fresh construction
   // (`collection-config.ts`) keeps the old default; {@link guardReconcileCollisions} (the
   // late-attach reconcile path) passes its OWN name instead of this function silently claiming
-  // to be `compileViaBindings()` on a call it never made.
-  callerPrefix = 'compileViaBindings()',
+  // to be `compileVias()` on a call it never made.
+  callerPrefix = 'compileVias()',
 ): void {
   const claimantsByField = new Map<string, Set<string>>()
   for (const [sourceKey, map] of Object.entries(fieldMaps)) {
@@ -272,7 +272,7 @@ export function guardCrossBindingFieldCollisions(
  *    THIS call's incoming family map claims the SAME field for a DIFFERENT family (e.g. call-1
  *    `classifiedFields:['ssn']`, call-2 `moneyFields:{ssn}`) — undetectable by (a) alone since
  *    the collision spans two calls. Read via the LIVE collection's compiled bindings
- *    (`coll._via.bindings`): each `ViaBinding.covers(field)` (`via/index.ts`) plus its `brand` tells us
+ *    (`coll._via.bindings`): each `NoydbVia.covers(field)` (`via/index.ts`) plus its `brand` tells us
  *    which family already owns the field, mapped through the SAME {@link VIA_FIELD_MAP_FAMILY}
  *    the incoming side uses — no new collection.ts surface needed.
  *
@@ -295,7 +295,7 @@ export function guardReconcileCollisions(
   // `taint` is a posture OVERLAY, not a field-owning family — under `sealAll` its `covers()` is
   // true for every non-`_` field, so it must never be mapped through VIA_FIELD_MAP_FAMILY here
   // (same exclusion precedent as via/graph-wiring.ts's `.filter(b => b.brand !== 'taint')`).
-  const existingBindings: readonly ViaBinding[] = existingVia.bindings.filter((b) => b.brand !== 'taint')
+  const existingBindings: readonly NoydbVia[] = existingVia.bindings.filter((b) => b.brand !== 'taint')
   for (const [sourceKey, map] of Object.entries(incomingFieldMaps)) {
     const incomingFamily = VIA_FIELD_MAP_FAMILY[sourceKey]
     if (incomingFamily === undefined) continue

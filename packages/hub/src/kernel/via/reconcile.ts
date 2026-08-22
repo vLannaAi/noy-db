@@ -17,7 +17,7 @@
  *     as before;
  *  4. wires i18n/dictKey late-attach via {@link reconcileI18nFields}/{@link reconcileDictKeyFields}
  *     — rebuilding the pipeline through {@link Collection._setVia} (#666's writer seam), mirroring
- *     the fresh-construction wiring (`collection-config.ts#compileViaBindings`'s i18n slot +
+ *     the fresh-construction wiring (`collection-config.ts#compileVias`'s i18n slot +
  *     `vault.ts`'s registry population) without duplicating it in a second place;
  *  5. (#664 Part 2b) wires lookup()/enumOf()/dict() late-attach via {@link reconcileLookupFields}
  *     — tier-scoped: enum/static tiers are a clean, self-contained attach; the reserved (dict)
@@ -36,7 +36,7 @@
  */
 import type { Collection } from '../collection.js'
 import { ViaPipeline, type HasWritableViaPipeline } from './pipeline.js'
-import { viaBinder, type ViaBinding } from './index.js'
+import { viaBinder, type NoydbVia } from './index.js'
 import { guardReconcileCollisions, type MergedViaFields } from './compose.js'
 import type { ViaGraph } from './graph.js'
 import {
@@ -121,7 +121,7 @@ function hasI18nBinding(coll: ReconcilableCollection): boolean {
   return (coll._via?.bindings ?? []).some((b) => b.brand === 'i18n')
 }
 
-/** money-after / lookup-before — the SAME slot `compileViaBindings` (collection-config.ts)
+/** money-after / lookup-before — the SAME slot `compileVias` (collection-config.ts)
  *  compiles the i18n binding into (money→i18n→lookup→classified→blob→computed, taint appended
  *  last by `applyTaintOverlay`). Late-attach only ever INSERTS one i18n binding (first-wins —
  *  see {@link hasI18nBinding}), so a plain "before the first post-i18n family" scan is enough;
@@ -129,10 +129,10 @@ function hasI18nBinding(coll: ReconcilableCollection): boolean {
  *  need (those two mutate around an i18n binding that might already be there; i18n itself never
  *  needs to reorder around a LATER family, since none of money/i18n/lookup/classified/blob/
  *  computed's own late-attach paths re-sort on insert). */
-function insertI18nBinding(existing: readonly ViaBinding[], i18nBinding: ViaBinding): ViaBinding[] {
+function insertI18nBinding(existing: readonly NoydbVia[], i18nVia: NoydbVia): NoydbVia[] {
   const idx = existing.findIndex((b) =>
     b.brand === 'lookup' || b.brand === 'classified' || b.brand === 'blob' || b.brand === 'computed' || b.brand === 'taint')
-  return idx === -1 ? [...existing, i18nBinding] : [...existing.slice(0, idx), i18nBinding, ...existing.slice(idx)]
+  return idx === -1 ? [...existing, i18nVia] : [...existing.slice(0, idx), i18nVia, ...existing.slice(idx)]
 }
 
 function hasLookupBinding(coll: ReconcilableCollection): boolean {
@@ -147,9 +147,9 @@ function hasLookupBinding(coll: ReconcilableCollection): boolean {
  *  earlier in `existing` (either compiled fresh, or late-attached by an EARLIER reconcile call —
  *  {@link insertI18nBinding}'s own stop-list includes `'lookup'`, so the reverse ordering is
  *  symmetric regardless of which family attaches first). */
-function insertLookupBinding(existing: readonly ViaBinding[], lookupBindingObj: ViaBinding): ViaBinding[] {
+function insertLookupBinding(existing: readonly NoydbVia[], lookupViaObj: NoydbVia): NoydbVia[] {
   const idx = existing.findIndex((b) => b.brand === 'classified' || b.brand === 'blob' || b.brand === 'computed' || b.brand === 'taint')
-  return idx === -1 ? [...existing, lookupBindingObj] : [...existing.slice(0, idx), lookupBindingObj, ...existing.slice(idx)]
+  return idx === -1 ? [...existing, lookupViaObj] : [...existing.slice(0, idx), lookupViaObj, ...existing.slice(idx)]
 }
 
 /**
@@ -251,7 +251,7 @@ function registerDictKeyRegistries(
   }
 }
 
-/** Mirrors `compileViaBindings`'s i18n slot (collection-config.ts:702-723) — same densify-subset
+/** Mirrors `compileVias`'s i18n slot (collection-config.ts:702-723) — same densify-subset
  *  computation, same config shape handed to `viaBinder('i18n')`. `defaultPosture`/taint is
  *  preserved across the rebuild, same as `_applyMoneyFields`/`_applyClassifiedFields`
  *  (`kernel/collection.ts`, #671 item 4 fix) — every rebuild path threads `coll._via?.taint`
@@ -287,7 +287,7 @@ function rebuildI18nBinding(
  * that binding came from fresh construction or an earlier reconcile call. `dictKeyFields` is an
  * optional SECOND family arriving in the SAME `vault.collection()` call (`mergeViaFields` already
  * combined them for this one call) — passed through so ONE binding rebuild covers both, exactly
- * like `compileViaBindings` builds ONE 'i18n' binding from both maps at fresh construction.
+ * like `compileVias` builds ONE 'i18n' binding from both maps at fresh construction.
  */
 export function reconcileI18nFields(
   coll: ReconcilableCollection, vaultCtx: ViaReconcileVaultCtx, name: string,
@@ -521,7 +521,7 @@ export function reconcileViaAttach(
     reconcileDictKeyFields(coll, vaultCtx, name, plan.effectiveViaFields.dictKeyFields)
   }
   // Deliberately a separate `if`, not another `else if` on the i18n/dictKey pair above: lookup is
-  // a THIRD, independent binding family (compileViaBindings compiles it in its own `if
+  // a THIRD, independent binding family (compileVias compiles it in its own `if
   // (lookupFields !== undefined)` block, collection-config.ts:642-651 — not folded into the i18n
   // binding the way dictKeyFields is) — a single `vault.collection()` call may legally declare
   // BOTH i18nFields (or dictKeyFields) on one field AND lookupFields on another, and chaining this

@@ -36,7 +36,7 @@ interface MoneyOperandEntry {
 
 /**
  * The opaque `via` clause payload for a `where()` over a declared money
- * field (see `ViaBinding.buildClause` in kernel/via/index.ts). `entries` holds
+ * field (see `NoydbVia.buildClause` in kernel/via/index.ts). `entries` holds
  * one element for comparison ops, two for `between` (lo, hi — same
  * currency), N for `in`.
  */
@@ -90,7 +90,7 @@ function parseOperand(field: string, raw: unknown, desc: MoneyDescriptor): Money
 
 /**
  * Build the `via` clause payload ({@link MoneyWhereOperand}) for a
- * `where()` over a declared money field — the `ViaBinding.buildClause`
+ * `where()` over a declared money field — the `NoydbVia.buildClause`
  * implementation for money. The operand is quantized into stored
  * scaled-int space NOW — build time — so typos throw at the call site.
  */
@@ -134,7 +134,7 @@ export function moneyFieldClause(
 
 /**
  * The `via` index-probe operand for a `where()` over a declared money
- * field (see `ViaBinding.indexProbe` in kernel/via/index.ts) — the STORED-form
+ * field (see `NoydbVia.indexProbe` in kernel/via/index.ts) — the STORED-form
  * value `CollectionIndexes.lookupEqual`/`lookupIn` (`with-lookup/indexing/
  * eager-indexes.ts`) can bucket directly.
  *

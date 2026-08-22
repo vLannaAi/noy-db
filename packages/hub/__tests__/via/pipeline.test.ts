@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import type { ViaBinding, ViaReadCtx, ViaWriteCtx } from '../../src/kernel/via/index.js'
+import type { NoydbVia, ViaReadCtx, ViaWriteCtx } from '../../src/kernel/via/index.js'
 import { ViaPipeline, type ViaClause } from '../../src/kernel/via/pipeline.js'
 
-const fixtureBindingA = (): ViaBinding => ({
+const fixtureBindingA = (): NoydbVia => ({
   brand: 'a',
   posture: { encryptedAtRest: 'envelope', queryable: 'full', exportable: true, forgettable: true },
   ingest: (r) => {
@@ -44,7 +44,7 @@ const fixtureBindingA = (): ViaBinding => ({
   },
 })
 
-const fixtureBindingB = (): ViaBinding => ({
+const fixtureBindingB = (): NoydbVia => ({
   brand: 'b',
   posture: { encryptedAtRest: 'envelope', queryable: 'full', exportable: true, forgettable: true },
   ingest: (r) => {
@@ -138,12 +138,12 @@ describe('ViaPipeline', () => {
   // runs in the third loop) must observe the DRESSED value, proving presentLate ran first.
   it('presentLate runs BEFORE the "everything else" present segment — a rest-brand binding\'s present() sees the presentLate-dressed value, not the pre-dressed one (#669 boundary)', async () => {
     const observed: unknown[] = []
-    const dresser: ViaBinding = {
+    const dresser: NoydbVia = {
       brand: 'money',
       posture: { encryptedAtRest: 'envelope', queryable: 'ordered', exportable: true, forgettable: true },
       presentLate: async (r) => ({ ...(r as Record<string, unknown>), tag: 'dressed' }),
     }
-    const rest: ViaBinding = {
+    const rest: NoydbVia = {
       brand: 'rest-brand',
       posture: { encryptedAtRest: 'envelope', queryable: 'full', exportable: true, forgettable: true },
       present: async (r) => {
@@ -214,7 +214,7 @@ describe('ViaPipeline', () => {
   })
 
   it('hasResultDecode true when any binding has decodeResults', () => {
-    const bindingWithoutDecode: ViaBinding = {
+    const bindingWithoutDecode: NoydbVia = {
       brand: 'c',
       posture: { encryptedAtRest: 'envelope', queryable: 'full', exportable: true, forgettable: true },
     }
@@ -226,7 +226,7 @@ describe('ViaPipeline', () => {
   })
 
   it('handles empty binding hooks gracefully', () => {
-    const minimalBinding: ViaBinding = {
+    const minimalBinding: NoydbVia = {
       brand: 'minimal',
       posture: { encryptedAtRest: 'envelope', queryable: 'none', exportable: false, forgettable: false },
     }

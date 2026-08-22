@@ -1,4 +1,4 @@
-// kernel/via/taint-binding.ts — the kernel-resident `taint` ViaBinding
+// kernel/via/taint-binding.ts — the kernel-resident `taint` NoydbVia
 // (#638 Task 3, closes the reproduced #636 leak).
 //
 // Bridges `ViaGraph`'s assigned effective postures (Task 1/2) into the SAME
@@ -12,7 +12,7 @@
 //      postures to the enforcement-facing map `ViaPipeline.build`'s `taint`
 //      param consumes (dropping untainted entries, clamping a sealed
 //      field's `queryable` to `'none'`).
-//   2. `taintBinding` — the `ViaBinding` that actually performs the sealing,
+//   2. `taintBinding` — the `NoydbVia` that actually performs the sealing,
 //      keyed on the graph's `taintSealedFields` set (never a brand-specific
 //      field list the way classified/money declare their own).
 //
@@ -20,7 +20,7 @@
 // money/i18n/classified/blob, a `taint` binding is never user-declared; it is
 // constructed directly by `via/graph-wiring.ts#applyTaintOverlay`, the one
 // caller, right after the graph has this collection's edges.
-import type { ViaBinding, ViaCryptoCtx, SealedSlotRef, ViaPosture } from './index.js'
+import type { NoydbVia, ViaCryptoCtx, SealedSlotRef, ViaPosture } from './index.js'
 import { SealedHandle } from '../types.js'
 import { DEFAULT_POSTURE } from './graph.js'
 import { EXPORT_REDACTION_MARKER } from './pipeline.js'
@@ -194,7 +194,7 @@ async function decodeTaintAtRestAll(
  * computed fields (never sealed — nothing to encodeAtRest/decodeAtRest;
  * `via/graph-wiring.ts#applyTaintOverlay` computes this set as
  * `graph.virtualFields(name) ∩ { field : postures.get(field).exportable ===
- * false }`). This binding is appended AFTER whatever `compileViaBindings`
+ * false }`). This binding is appended AFTER whatever `compileVias`
  * built (including the `computed` binding), so its `present` hook — when
  * `presentRedactFields` is non-empty — runs LAST and overwrites a virtual
  * field's freshly-computed value with `EXPORT_REDACTION_MARKER`,
@@ -217,7 +217,7 @@ export function taintBinding(
   sealFields: ReadonlySet<string>,
   presentRedactFields: ReadonlySet<string> = EMPTY_STRING_SET,
   sealAllFields = false,
-): ViaBinding {
+): NoydbVia {
   const fields = [...sealFields]
   const redactFields = [...presentRedactFields]
   return {

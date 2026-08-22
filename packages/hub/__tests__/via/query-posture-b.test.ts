@@ -10,7 +10,7 @@
  * `.where()`/`.orderBy()`/`.aggregate()` silently no-op/no-match on it) —
  * the flip makes that an explicit `FieldNotQueryableError`.
  *
- * `pipeline.postureFor(field)` / `ViaBinding.covers` are also unit-tested
+ * `pipeline.postureFor(field)` / `NoydbVia.covers` are also unit-tested
  * directly, mirroring `via/classified-binding.test.ts` / `via/blob-binding.test.ts`.
  */
 import { describe, it, expect } from 'vitest'
@@ -18,10 +18,10 @@ import { createNoydb, FieldNotQueryableError } from '../../src/index.js'
 import { count, sum } from '../../src/with-lookup/reduce/index.js'
 import { classified, withClassified } from '../../src/via/classified/index.js'
 import { withReduce } from '../../src/with-lookup/reduce/index.js'
-import { moneyBinding } from '../../src/via/money/binding.js'
-import { i18nBinding } from '../../src/via/i18n/binding.js'
-import { classifiedBinding } from '../../src/via/classified/binding.js'
-import { blobBinding } from '../../src/via/blob/binding.js'
+import { moneyVia } from '../../src/via/money/binding.js'
+import { i18nVia } from '../../src/via/i18n/binding.js'
+import { classifiedVia } from '../../src/via/classified/binding.js'
+import { blobVia } from '../../src/via/blob/binding.js'
 import { ViaPipeline } from '../../src/kernel/via/pipeline.js'
 import type { ViaPosture } from '../../src/kernel/via/index.js'
 import { NO_I18N } from '../../src/port/with/i18n-strategy.js'
@@ -31,21 +31,21 @@ import { inlineMemory } from '../classified/harness.js'
 
 describe('ViaPipeline.postureFor (#629 Task 8 — new small pipeline accessor)', () => {
   it('money: covers declared fields, posture queryable "ordered"', () => {
-    const b = moneyBinding({ amount: { currency: 'USD', scale: 2 } as never })
+    const b = moneyVia({ amount: { currency: 'USD', scale: 2 } as never })
     const p = ViaPipeline.build([b])!
     expect(p.postureFor('amount')).toEqual({ encryptedAtRest: 'envelope', queryable: 'ordered', exportable: true, forgettable: true })
     expect(p.postureFor('other')).toBeUndefined()
   })
 
   it('i18n: covers declared i18nFields/dictKeyFields, posture queryable "full"', () => {
-    const b = i18nBinding({ i18nFields: { title: {} }, strategy: NO_I18N, collectionName: 'c' })
+    const b = i18nVia({ i18nFields: { title: {} }, strategy: NO_I18N, collectionName: 'c' })
     const p = ViaPipeline.build([b])!
     expect(p.postureFor('title')?.queryable).toBe('full')
     expect(p.postureFor('other')).toBeUndefined()
   })
 
   it('classified: covers declared fields, posture queryable "det-exact"', () => {
-    const b = classifiedBinding({
+    const b = classifiedVia({
       entries: { pw: classified.password({ equatable: true }) },
       collectionName: 'c',
       guardCtx: {
@@ -61,7 +61,7 @@ describe('ViaPipeline.postureFor (#629 Task 8 — new small pipeline accessor)',
   })
 
   it('blob: covers declared blobFields, posture queryable "none"', () => {
-    const b = blobBinding({ fields: { receipt: {} }, collectionName: 'c' })
+    const b = blobVia({ fields: { receipt: {} }, collectionName: 'c' })
     const p = ViaPipeline.build([b])!
     expect(p.postureFor('receipt')?.queryable).toBe('none')
     expect(p.postureFor('other')).toBeUndefined()

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { i18nBinding } from '../../src/via/i18n/binding.js'
+import { i18nVia } from '../../src/via/i18n/binding.js'
 import { i18nText } from '../../src/via/i18n/core.js'
 import { dictKey } from '../../src/via/i18n/dictionary.js'
 import type { I18nStrategy } from '../../src/port/with/i18n-strategy.js'
@@ -23,9 +23,9 @@ function stubStrategy(): I18nStrategy {
   }
 }
 
-describe('i18nBinding (#623 Task 7)', () => {
+describe('i18nVia (#623 Task 7)', () => {
   it('declares the i18n brand + posture', () => {
-    const b = i18nBinding({ strategy: stubStrategy(), collectionName: 'items' })
+    const b = i18nVia({ strategy: stubStrategy(), collectionName: 'items' })
     expect(b.brand).toBe('i18n')
     expect(b.posture).toEqual({
       encryptedAtRest: 'envelope',
@@ -40,7 +40,7 @@ describe('i18nBinding (#623 Task 7)', () => {
     const dictKeyFields = { status: dictKey('status', ['draft', 'paid'] as const) }
     const dictLabelResolver = vi.fn(async (...args: unknown[]) => `${args[1] as string}-${args[2] as string}`)
 
-    const b = i18nBinding({
+    const b = i18nVia({
       i18nFields,
       dictKeyFields,
       strategy: stubStrategy(),
@@ -64,7 +64,7 @@ describe('i18nBinding (#623 Task 7)', () => {
   it('encodeWrite invokes the i18nPutValidator closure', async () => {
     const i18nFields = { title: i18nText({ languages: ['en', 'th'], required: 'all' }) }
     const i18nPutValidator = vi.fn()
-    const b = i18nBinding({
+    const b = i18nVia({
       i18nFields,
       strategy: stubStrategy(),
       i18nPutValidator,

@@ -32,7 +32,7 @@
  *       countries collection's own PUT-id) to prove the new snapshot
  *       machinery keys by `row[descriptor.key]`, not the PUT-id.
  *
- * Also the first-ever `ViaBinding.describeFragment` consumer proof:
+ * Also the first-ever `NoydbVia.describeFragment` consumer proof:
  * `describe()`'s `lookup` block is sourced from the binding's fragment
  * (`with-shape/introspection/describe.ts`), not from raw config — see that
  * test's own comment for why its passing IS the wiring proof.
@@ -166,7 +166,7 @@ describe('countries matrix — canonical recipe: altKeys, closed vocabulary, spa
   })
 })
 
-describe('countries matrix — describe() consumes describeFragment (first-ever ViaBinding.describeFragment consumer, #650 Task 7)', () => {
+describe('countries matrix — describe() consumes describeFragment (first-ever NoydbVia.describeFragment consumer, #650 Task 7)', () => {
   it('emits a normalized lookup block whose fields have NO other source in buildDescription — proof the fragment is genuinely consumed', async () => {
     const db = await freshDb()
     const vault = await db.openVault('v')

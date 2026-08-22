@@ -82,15 +82,15 @@ export interface ViaEraseReport { readonly shredded: number; readonly residue: r
  * e.g. quantizeMoneyFields(record, moneyFields)). All hooks optional;
  * absent = passthrough. Query-participation hooks are SYNC (#553).
  */
-export interface ViaBinding {
+export interface NoydbVia {
   readonly brand: string
   readonly posture: ViaPosture
   /** Declared dependencies (field paths / cross-record specs). MANDATORY for any future
    *  derive-bearing binding — phase C validates well-formedness (strings, non-empty,
    *  reference declared fields) and graph-registers a derived edge for each covered
-   *  field at declare time, right after `compileViaBindings` builds the bindings
+   *  field at declare time, right after `compileVias` builds the bindings
    *  (unknown source field throws `ValidationError`). See
-   *  `kernel/collection-config.ts`'s `resolveViaBindingDepsEdges`. */
+   *  `kernel/collection-config.ts`'s `resolveViaDepsEdges`. */
   readonly deps?: readonly string[]
   /** Collection-name prefixes this binding's `reservedEnvelopes` capability may address (e.g. `_dict_`). */
   readonly reservedPrefixes?: readonly string[]
@@ -200,7 +200,7 @@ export interface ViaBinding {
 }
 
 /** Binder: constructs a binding from a collection's declared config. Installed by the feature's declaration factory. */
-export type ViaBinder = (config: unknown) => ViaBinding
+export type ViaBinder = (config: unknown) => NoydbVia
 
 const binders = new Map<string, ViaBinder>()
 

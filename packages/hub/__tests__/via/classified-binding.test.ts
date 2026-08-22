@@ -1,11 +1,11 @@
 /**
- * #629 Task 5 — the classified `ViaBinding`, unit-tested directly (the
+ * #629 Task 5 — the classified `NoydbVia`, unit-tested directly (the
  * binding is DORMANT: no compile entry, no collection ever compiles it in
  * this task). Mirrors `via/money-binding.test.ts` and `via/i18n-binding.test.ts`
  * — construct a config by hand, exercise each hook.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { classifiedBinding, type ClassifiedViaConfig, type ClassifiedShredSlot } from '../../src/via/classified/binding.js'
+import { classifiedVia, type ClassifiedViaConfig, type ClassifiedShredSlot } from '../../src/via/classified/binding.js'
 import { classified } from '../../src/via/classified/presets.js'
 import type { ClassifiedGuardCtx } from '../../src/via/classified/guards.js'
 import { ClassifiedConfigError } from '../../src/kernel/errors.js'
@@ -74,9 +74,9 @@ const eraseCtxFixture = (crypto: ViaCryptoCtx, live: unknown = undefined): ViaEr
   crypto,
 })
 
-describe('classifiedBinding (#629 Task 5)', () => {
+describe('classifiedVia (#629 Task 5)', () => {
   it('declares the classified brand + posture', () => {
-    const b = classifiedBinding({
+    const b = classifiedVia({
       entries: { pan: classified.creditCard({ pan: 'pan' }) },
       collectionName: 'cards',
       guardCtx: guardCtx(),
@@ -100,7 +100,7 @@ describe('classifiedBinding (#629 Task 5)', () => {
         collectionName: 'people',
         guardCtx: guardCtx(),
       }
-      expect(() => classifiedBinding(cfg)).toThrow(ClassifiedConfigError)
+      expect(() => classifiedVia(cfg)).toThrow(ClassifiedConfigError)
     })
 
     it('throws ClassifiedConfigError (R1) when a digest-only field is declared without perRecordKeys', () => {
@@ -109,7 +109,7 @@ describe('classifiedBinding (#629 Task 5)', () => {
         collectionName: 'users',
         guardCtx: guardCtx({ perRecordKeys: false }),
       }
-      expect(() => classifiedBinding(cfg)).toThrow(ClassifiedConfigError)
+      expect(() => classifiedVia(cfg)).toThrow(ClassifiedConfigError)
     })
 
     it('succeeds when the guard context satisfies the declared fields', () => {
@@ -118,13 +118,13 @@ describe('classifiedBinding (#629 Task 5)', () => {
         collectionName: 'users',
         guardCtx: guardCtx({ perRecordKeys: true }),
       }
-      expect(() => classifiedBinding(cfg)).not.toThrow()
+      expect(() => classifiedVia(cfg)).not.toThrow()
     })
   })
 
   describe('enforceWrite', () => {
     it('throws ClassifiedNeverStoredError when a storage:\'never\' field carries a value', async () => {
-      const b = classifiedBinding({
+      const b = classifiedVia({
         entries: { card: classified.creditCard({ pan: 'pan', cvc: 'cvc' }) },
         collectionName: 'cards',
         guardCtx: guardCtx(),
@@ -135,7 +135,7 @@ describe('classifiedBinding (#629 Task 5)', () => {
     })
 
     it('throws ClassifiedValidationError when a preset validator rejects the value', async () => {
-      const b = classifiedBinding({
+      const b = classifiedVia({
         entries: { pan: classified.creditCard({ pan: 'pan' }) },
         collectionName: 'cards',
         guardCtx: guardCtx(),
@@ -146,7 +146,7 @@ describe('classifiedBinding (#629 Task 5)', () => {
     })
 
     it('passes a valid write through (resolves)', async () => {
-      const b = classifiedBinding({
+      const b = classifiedVia({
         entries: { pan: classified.creditCard({ pan: 'pan' }) },
         collectionName: 'cards',
         guardCtx: guardCtx(),
@@ -159,7 +159,7 @@ describe('classifiedBinding (#629 Task 5)', () => {
 
   describe('encodeAtRest / decodeAtRest (via ctx.sealedSlots)', () => {
     it('encodeAtRest seals a recoverable field and peels it out of the record', async () => {
-      const b = classifiedBinding({
+      const b = classifiedVia({
         entries: { pan: classified.creditCard({ pan: 'pan' }) },
         collectionName: 'cards',
         guardCtx: guardCtx(),
@@ -174,7 +174,7 @@ describe('classifiedBinding (#629 Task 5)', () => {
     })
 
     it('encodeAtRest leaves storage:\'never\'/digest-only fields untouched (only recoverable fields are sealed)', async () => {
-      const b = classifiedBinding({
+      const b = classifiedVia({
         entries: {
           secret: classified.password(),
           card: classified.creditCard({ pan: 'pan', cvc: 'cvc' }),
@@ -195,7 +195,7 @@ describe('classifiedBinding (#629 Task 5)', () => {
     })
 
     it('encodeAtRest is a no-op (no sealed map) when no recoverable field is present', async () => {
-      const b = classifiedBinding({
+      const b = classifiedVia({
         entries: { pan: classified.creditCard({ pan: 'pan' }) },
         collectionName: 'cards',
         guardCtx: guardCtx(),
@@ -212,7 +212,7 @@ describe('classifiedBinding (#629 Task 5)', () => {
       // inline sensitiveFields path for the WHOLE collection — a bare
       // sensitive[] field (unrelated to classifiedFields) must still seal,
       // or it would silently stop being sealed at all.
-      const b = classifiedBinding({
+      const b = classifiedVia({
         entries: { pan: classified.creditCard({ pan: 'pan' }) },
         collectionName: 'cards',
         guardCtx: guardCtx({ bareSensitiveFields: new Set(['ssn']) }),
@@ -229,7 +229,7 @@ describe('classifiedBinding (#629 Task 5)', () => {
     })
 
     it('decodeAtRest round-trips a bare sensitive[] field sealed via the union', async () => {
-      const b = classifiedBinding({
+      const b = classifiedVia({
         entries: { pan: classified.creditCard({ pan: 'pan' }) },
         collectionName: 'cards',
         guardCtx: guardCtx({ bareSensitiveFields: new Set(['ssn']) }),
@@ -243,7 +243,7 @@ describe('classifiedBinding (#629 Task 5)', () => {
     })
 
     it('decodeAtRest round-trips the sealed field back to plaintext (asHandles: false)', async () => {
-      const b = classifiedBinding({
+      const b = classifiedVia({
         entries: { pan: classified.creditCard({ pan: 'pan' }) },
         collectionName: 'cards',
         guardCtx: guardCtx(),
@@ -257,7 +257,7 @@ describe('classifiedBinding (#629 Task 5)', () => {
     })
 
     it('decodeAtRest honors asHandles: yields a lazy SealedHandle that reveals the same value and never leaks via JSON.stringify', async () => {
-      const b = classifiedBinding({
+      const b = classifiedVia({
         entries: { pan: classified.creditCard({ pan: 'pan' }) },
         collectionName: 'cards',
         guardCtx: guardCtx(),
@@ -276,7 +276,7 @@ describe('classifiedBinding (#629 Task 5)', () => {
 
   describe('erase (classifySealedShred + sealed-CEK prefix-delete participation)', () => {
     it('reports zero shredded/residue when no closure is wired (dormant default)', async () => {
-      const b = classifiedBinding({
+      const b = classifiedVia({
         entries: { pan: classified.creditCard({ pan: 'pan' }) },
         collectionName: 'cards',
         guardCtx: guardCtx(),
@@ -292,7 +292,7 @@ describe('classifiedBinding (#629 Task 5)', () => {
       const { crypto, deletedFields } = fixtureCrypto()
       const slots: ClassifiedShredSlot[] = [{ field: 'pan', class: 'shreddable' }]
       const classifySealedShred = vi.fn(async () => ({ slots }))
-      const b = classifiedBinding({
+      const b = classifiedVia({
         entries: { pan: classified.creditCard({ pan: 'pan' }) },
         collectionName: 'cards',
         guardCtx: guardCtx(),
@@ -309,7 +309,7 @@ describe('classifiedBinding (#629 Task 5)', () => {
     it('reports "dekResidue" slots as residue without counting them shredded or deleting the capability field', async () => {
       const { crypto, deletedFields } = fixtureCrypto()
       const slots: ClassifiedShredSlot[] = [{ field: 'pan', class: 'dekResidue' }]
-      const b = classifiedBinding({
+      const b = classifiedVia({
         entries: { pan: classified.creditCard({ pan: 'pan' }) },
         collectionName: 'cards',
         guardCtx: guardCtx(),
@@ -325,7 +325,7 @@ describe('classifiedBinding (#629 Task 5)', () => {
     it('a "live-shreddable+dekResidue-in-backups" slot counts BOTH shredded and residue (dual accounting)', async () => {
       const { crypto, deletedFields } = fixtureCrypto()
       const slots: ClassifiedShredSlot[] = [{ field: 'secret', class: 'live-shreddable+dekResidue-in-backups' }]
-      const b = classifiedBinding({
+      const b = classifiedVia({
         entries: { secret: classified.password() },
         collectionName: 'users',
         guardCtx: guardCtx({ perRecordKeys: true }),
@@ -340,7 +340,7 @@ describe('classifiedBinding (#629 Task 5)', () => {
 
     it('folds the sealed-CEK purge count into shredded alongside slot classification', async () => {
       const { crypto } = fixtureCrypto()
-      const b = classifiedBinding({
+      const b = classifiedVia({
         entries: { pan: classified.creditCard({ pan: 'pan' }) },
         collectionName: 'cards',
         guardCtx: guardCtx(),
@@ -356,7 +356,7 @@ describe('classifiedBinding (#629 Task 5)', () => {
 
   describe('describeFragment', () => {
     it('reports each declared field\'s storage + sensitivity', () => {
-      const b = classifiedBinding({
+      const b = classifiedVia({
         entries: { card: classified.creditCard({ pan: 'pan', cvc: 'cvc' }) },
         collectionName: 'cards',
         guardCtx: guardCtx(),

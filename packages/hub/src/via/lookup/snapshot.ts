@@ -19,7 +19,7 @@
  *   - join dressing (`presentForJoin`, consumed by `kernel/query/join.ts`
  *     via `JoinableSource.presentForJoin`)
  *   - dimension sort (`compareForOrder`, consumed by
- *     `via/lookup/binding.ts`'s `ViaBinding.compareForOrder` closure)
+ *     `via/lookup/binding.ts`'s `NoydbVia.compareForOrder` closure)
  *   - per-call-locale order-label resolution (`resolveOrderLabel`, #650
  *     Task 7 — the `orderBy(..., {by:'label'})` channel `compareForOrder`
  *     structurally can't serve, no locale param; consumed by
