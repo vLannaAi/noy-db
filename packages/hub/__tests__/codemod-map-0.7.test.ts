@@ -25,6 +25,11 @@ interface Row {
 const read = (u: string) => readFileSync(fileURLToPath(new URL(u, import.meta.url)), 'utf8')
 const map = JSON.parse(read('../codemods/0.7.0-pre.json')) as { $comment: string; renames: Row[]; version: string }
 const rows = map.renames
+// Rows are no longer all hub's: the at-* factory renames live in satellite
+// packages, so a hub-surface assertion would call them wrong (the same
+// too-narrow-proxy mistake #1154 exposed, one level out).
+const hubRows = rows.filter((r) => r.package === '@noy-db/hub')
+const satelliteRows = rows.filter((r) => r.package !== '@noy-db/hub')
 const surface = new Set(Object.keys(hub))
 // Parse the goldens rather than substring-matching them: a renamed-away name
 // legitimately REAPPEARS in the `retired` ledger (#1011), so a text search
@@ -40,15 +45,15 @@ describe('codemods/0.7.0-pre.json', () => {
     expect(pkg.exports['./codemods/0.7.0-pre.json']).toBeDefined()
   })
 
-  it('2. every `to` exists — as a runtime value or on a frozen surface', () => {
-    for (const r of rows) {
+  it('2. every hub `to` exists — as a runtime value or on a frozen surface', () => {
+    for (const r of hubRows) {
       const found = surface.has(r.to!) || frozenLive.has(r.to!)
       expect(found, `${r.from} → ${r.to} — target is nowhere on the published surface`).toBe(true)
     }
   })
 
-  it('3. every `from` is genuinely GONE', () => {
-    for (const r of rows) {
+  it('3. every hub `from` is genuinely GONE', () => {
+    for (const r of hubRows) {
       expect(surface.has(r.from), `${r.from} is still exported at runtime — the rename did not land`).toBe(false)
       expect(frozenLive.has(r.from), `${r.from} still sits on a frozen EXPORT list`).toBe(false)
     }
@@ -87,9 +92,28 @@ describe('codemods/0.7.0-pre.json', () => {
   })
 
   it('9. every renamed-away name landed in the retired ledger (#1011)', () => {
-    const missing = rows.map((r) => r.from).filter((n) => !frozenRetired.has(n) && !frozenLive.has(n))
+    const missing = hubRows.map((r) => r.from).filter((n) => !frozenRetired.has(n) && !frozenLive.has(n))
     // Only root-barrel names are ledgered; /cargo-only names have no ledger.
     const rootOnly = missing.filter((n) => n === 'CoordinationProvider' ? false : true)
     expect(rootOnly, 'a name left the root barrel without joining `retired`').toEqual([])
+  })
+})
+
+describe('codemods/0.7.0-pre.json — satellite rows', () => {
+  it('names a real package for every non-hub row', () => {
+    for (const r of satelliteRows) {
+      expect(r.package, `${r.from} has no package`).toMatch(/^@noy-db\//)
+    }
+  })
+
+  it('every satellite `to` is exported by the package the row names, and the `from` is gone', () => {
+    // Checked against that package's SOURCE, not hub's surface — a row about
+    // @noy-db/at-env is answerable only there.
+    for (const r of satelliteRows) {
+      const dir = r.package.replace('@noy-db/', '')
+      const src = read(`../../${dir}/src/index.ts`)
+      expect(src, `${r.package} does not export ${r.to}`).toMatch(new RegExp(`\\b${r.to}\\b`))
+      expect(src.includes(r.from), `${r.package} still exports ${r.from}`).toBe(false)
+    }
   })
 })

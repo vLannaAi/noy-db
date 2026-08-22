@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { gcpKmsSealingProvider } from '../src/index.js'
+import { atGcpKms } from '../src/index.js'
 
 function fakeKms() {
   return {
@@ -17,10 +17,10 @@ function fakeKms() {
   }
 }
 
-describe('gcpKmsSealingProvider', () => {
+describe('atGcpKms', () => {
   it('round-trips a secret via injected client', async () => {
     const keyName = 'projects/my-project/locations/global/keyRings/ring/cryptoKeys/key'
-    const p = gcpKmsSealingProvider({ keyName, client: fakeKms() as any })
+    const p = atGcpKms({ keyName, client: fakeKms() as any })
     const phrase = new TextEncoder().encode('hunter2-master')
     const sealed = await p.seal(phrase)
     expect(sealed).not.toEqual(phrase)
@@ -33,7 +33,7 @@ describe('gcpKmsSealingProvider', () => {
       encrypt: async () => { throw new Error('PermissionDenied') },
       decrypt: async () => { throw new Error('PermissionDenied') },
     }
-    const p = gcpKmsSealingProvider({ keyName: 'k', client: client as any })
+    const p = atGcpKms({ keyName: 'k', client: client as any })
     await expect(p.unseal(new Uint8Array(8))).rejects.toThrow()
   })
 
@@ -42,7 +42,7 @@ describe('gcpKmsSealingProvider', () => {
       encrypt: async () => [{}] as [Record<string, never>, undefined, undefined],
       decrypt: async () => [{}] as [Record<string, never>, undefined, undefined],
     }
-    const p = gcpKmsSealingProvider({ keyName: 'k', client: client as any })
+    const p = atGcpKms({ keyName: 'k', client: client as any })
     await expect(p.seal(new Uint8Array([1, 2, 3]))).rejects.toThrow(/no ciphertext/)
   })
 
@@ -51,7 +51,7 @@ describe('gcpKmsSealingProvider', () => {
       encrypt: async () => [{}] as [Record<string, never>, undefined, undefined],
       decrypt: async () => [{}] as [Record<string, never>, undefined, undefined],
     }
-    const p = gcpKmsSealingProvider({ keyName: 'k', client: client as any })
+    const p = atGcpKms({ keyName: 'k', client: client as any })
     await expect(p.unseal(new Uint8Array([1, 2, 3]))).rejects.toThrow(/no plaintext/)
   })
 
@@ -69,7 +69,7 @@ describe('gcpKmsSealingProvider', () => {
         return [{ plaintext: toB64(blob.subarray(4)) }]   // <-- base64 STRING
       },
     }
-    const p = gcpKmsSealingProvider({ keyName: 'projects/p/locations/l/keyRings/r/cryptoKeys/k', client: stringFake as any })
+    const p = atGcpKms({ keyName: 'projects/p/locations/l/keyRings/r/cryptoKeys/k', client: stringFake as any })
     const phrase = new TextEncoder().encode('hunter2-string-path')
     const sealed = await p.seal(phrase)
     expect(sealed).toBeInstanceOf(Uint8Array)
@@ -94,7 +94,7 @@ describe('@noy-db/at-gcp-kms — integration with @noy-db/hub managed-secret mod
     const db1 = await createNoydb({
       store, user: 'alice',
       secretMode: 'managed',
-      sealingKey: gcpKmsSealingProvider({ keyName, client: sharedFake as any }),
+      sealingKey: atGcpKms({ keyName, client: sharedFake as any }),
       shamirRecovery: shamirRecoveryProvider(),
     })
     const { vault: vault1 } = await db1.team.openVaultAndEnrollRecovery('demo', {
@@ -110,7 +110,7 @@ describe('@noy-db/at-gcp-kms — integration with @noy-db/hub managed-secret mod
     const db2 = await createNoydb({
       store, user: 'alice',
       secretMode: 'managed',
-      sealingKey: gcpKmsSealingProvider({ keyName, client: sharedFake as any }),
+      sealingKey: atGcpKms({ keyName, client: sharedFake as any }),
       shamirRecovery: shamirRecoveryProvider(),
     })
     const vault2 = await db2.openVault('demo')
@@ -123,9 +123,9 @@ describe('@noy-db/at-gcp-kms — integration with @noy-db/hub managed-secret mod
 })
 
 const RUN_REAL = !!process.env.NOYDB_TEST_GCP_KMS_KEY_NAME
-describe.skipIf(!RUN_REAL)('gcpKmsSealingProvider (real GCP KMS)', () => {
+describe.skipIf(!RUN_REAL)('atGcpKms (real GCP KMS)', () => {
   it('round-trips against real GCP KMS', async () => {
-    const p = gcpKmsSealingProvider({ keyName: process.env.NOYDB_TEST_GCP_KMS_KEY_NAME! })
+    const p = atGcpKms({ keyName: process.env.NOYDB_TEST_GCP_KMS_KEY_NAME! })
     const phrase = new TextEncoder().encode('real-key-test')
     expect(await p.unseal(await p.seal(phrase))).toEqual(phrase)
   })

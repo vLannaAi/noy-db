@@ -556,6 +556,12 @@ function checkEveryServiceGated() {
 //   subpath". Removing a name from here means giving it a subpath.
 const NOT_SERVICE_SUBPATHS = new Set([
   'cargo', 'to', 'pod', 'satellites', 'util', 'share-link', 'query',
+  // FAMILY PORT, like `to`: the contract an `at-*` sealing-key provider
+  // implements, not a capability a vault opts into. Re-introduced in the
+  // 0.7 line (it shipped in 0.3.0 and was removed in 0.4.0 for "zero
+  // importers") once @noy-db/test-sealer-conformance gave it something to
+  // stand behind — see codemods/0.7.0-pre.json's `unretired` list.
+  'at',
   // #843 C3a — themed homes for root-barrel-exclusive clusters, not opt-in
   // capabilities. Each groups symbols that previously had no home but `.`:
   'store',          // routeStore + wrapStore + the six StoreMiddleware factories

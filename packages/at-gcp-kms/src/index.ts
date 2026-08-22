@@ -42,14 +42,14 @@
  * ```ts
  * // 3. In your app:
  * import { createNoydb } from '@noy-db/hub'
- * import { gcpKmsSealingProvider } from '@noy-db/at-gcp-kms'
+ * import { atGcpKms } from '@noy-db/at-gcp-kms'
  * import { shamirRecoveryProvider } from '@noy-db/on-shamir'
  *
  * const db = await createNoydb({
  *   store,
  *   user: 'alice',
  *   secretMode: 'managed',
- *   sealingKey: gcpKmsSealingProvider({
+ *   sealingKey: atGcpKms({
  *     keyName: 'projects/my-project/locations/global/keyRings/noy-db-ring/cryptoKeys/noy-db-sealing',
  *   }),
  *   shamirRecovery: shamirRecoveryProvider(),
@@ -59,7 +59,7 @@
  * @packageDocumentation
  */
 
-import type { NoydbSealer } from '@noy-db/hub'
+import type { NoydbSealer } from '@noy-db/hub/at'
 import { KeyManagementServiceClient } from '@google-cloud/kms'
 import type { protos } from '@google-cloud/kms'
 
@@ -68,13 +68,13 @@ type IDecryptRequest = protos.google.cloud.kms.v1.IDecryptRequest
 type IEncryptResponse = protos.google.cloud.kms.v1.IEncryptResponse
 type IDecryptResponse = protos.google.cloud.kms.v1.IDecryptResponse
 
-/** Minimal client surface required by {@link gcpKmsSealingProvider}. */
+/** Minimal client surface required by {@link atGcpKms}. */
 interface KmsClientLike {
   encrypt(request: IEncryptRequest): Promise<[IEncryptResponse, IEncryptRequest | undefined, unknown]>
   decrypt(request: IDecryptRequest): Promise<[IDecryptResponse, IDecryptRequest | undefined, unknown]>
 }
 
-/** Options for {@link gcpKmsSealingProvider}. */
+/** Options for {@link atGcpKms}. */
 export interface GcpKmsSealingProviderOptions {
   /**
    * Full crypto-key resource name, e.g.
@@ -104,7 +104,7 @@ function toUint8Array(value: Uint8Array | string | null | undefined): Uint8Array
  * against unexpected SDK-response shapes).
  * Any KMS API error (PermissionDenied, NotFound, etc.) propagates as-is.
  */
-export function gcpKmsSealingProvider(opts: GcpKmsSealingProviderOptions): NoydbSealer {
+export function atGcpKms(opts: GcpKmsSealingProviderOptions): NoydbSealer {
   const client: KmsClientLike = opts.client ?? new KeyManagementServiceClient()
   return {
     id: `gcp-kms:${opts.keyName}`,

@@ -32,14 +32,14 @@
  * ```ts
  * // 3. In your app:
  * import { createNoydb } from '@noy-db/hub'
- * import { awsKmsSealingProvider } from '@noy-db/at-aws-kms'
+ * import { atAwsKms } from '@noy-db/at-aws-kms'
  * import { shamirRecoveryProvider } from '@noy-db/on-shamir'
  *
  * const db = await createNoydb({
  *   store,
  *   user: 'alice',
  *   secretMode: 'managed',
- *   sealingKey: awsKmsSealingProvider({ keyId: 'arn:aws:kms:us-east-1:123:key/abc' }),
+ *   sealingKey: atAwsKms({ keyId: 'arn:aws:kms:us-east-1:123:key/abc' }),
  *   shamirRecovery: shamirRecoveryProvider(),
  * })
  * ```
@@ -47,7 +47,7 @@
  * @packageDocumentation
  */
 
-import type { NoydbSealer, RecipientSealer, RecipientHint } from '@noy-db/hub'
+import type { NoydbSealer, RecipientSealer, RecipientHint } from '@noy-db/hub/at'
 import { sealRsaOaepTlv, parseRsaOaepTlv, aesGcmOpen } from '@noy-db/hub'
 import {
   KMSClient,
@@ -59,7 +59,7 @@ import {
   type GetPublicKeyCommandOutput,
 } from '@aws-sdk/client-kms'
 
-/** Options for {@link awsKmsSealingProvider}. */
+/** Options for {@link atAwsKms}. */
 export interface AwsKmsSealingProviderOptions {
   /** KMS key id or ARN (e.g. `arn:aws:kms:us-east-1:123:key/abc`). */
   readonly keyId: string
@@ -78,7 +78,7 @@ export interface AwsKmsSealingProviderOptions {
  * against unexpected SDK-response shapes).
  * Any KMS API error (AccessDenied, InvalidKeyUsage, etc.) propagates as-is.
  */
-export function awsKmsSealingProvider(opts: AwsKmsSealingProviderOptions): NoydbSealer {
+export function atAwsKms(opts: AwsKmsSealingProviderOptions): NoydbSealer {
   const client = opts.client ?? new KMSClient({})
   return {
     id: `aws-kms:${opts.keyId}`,
@@ -145,7 +145,7 @@ function derSpkiToPem(der: Uint8Array): string {
  * wire-compatible (RSAES-OAEP, SHA-256, MGF1-SHA256, empty label). KMS
  * asymmetric keys do not support an encryption context, so none is used.
  *
- * Separate from {@link awsKmsSealingProvider} (symmetric self-seal for the
+ * Separate from {@link atAwsKms} (symmetric self-seal for the
  * managed secret) — this factory targets an asymmetric key.
  *
  * @throws Error from `publishRecipientHint` when the key is not an RSA

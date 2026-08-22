@@ -18,7 +18,7 @@
  * hub ran against a double that could not fail the way a real provider must.
  */
 import { runSealerConformanceTests } from './index.js'
-import { MemorySealer } from '@noy-db/hub'
+import { MemorySealer } from '@noy-db/hub/at'
 
 runSealerConformanceTests('MemorySealer (hub reference double)', () => new MemorySealer({ id: 'memory:a' }), {
   other: () => new MemorySealer({ id: 'memory:b' }),

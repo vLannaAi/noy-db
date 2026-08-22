@@ -16,7 +16,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { KeychainEntry } from '../src/index.js'
-import { macosKeychainSealingProvider } from '../src/index.js'
+import { atMacosKeychain } from '../src/index.js'
 
 /** Memory-backed KeychainEntry stub. */
 function memoryEntry(): KeychainEntry {
@@ -31,18 +31,18 @@ function memoryEntry(): KeychainEntry {
 describe('@noy-db/at-macos-keychain — construction', () => {
   it('throws when service is empty', () => {
     expect(() =>
-      macosKeychainSealingProvider({ service: '', account: 'alice', entry: memoryEntry() }),
+      atMacosKeychain({ service: '', account: 'alice', entry: memoryEntry() }),
     ).toThrow(/service.*required/i)
   })
 
   it('throws when account is empty', () => {
     expect(() =>
-      macosKeychainSealingProvider({ service: 'com.acme', account: '', entry: memoryEntry() }),
+      atMacosKeychain({ service: 'com.acme', account: '', entry: memoryEntry() }),
     ).toThrow(/account.*required/i)
   })
 
   it('produces the locked pid format `macos-keychain:<service>/<account>`', () => {
-    const p = macosKeychainSealingProvider({
+    const p = atMacosKeychain({
       service: 'com.acme.app',
       account: 'alice@acme.example',
       entry: memoryEntry(),
@@ -51,7 +51,7 @@ describe('@noy-db/at-macos-keychain — construction', () => {
   })
 
   it('preserves service + account case verbatim (no normalization)', () => {
-    const p = macosKeychainSealingProvider({
+    const p = atMacosKeychain({
       service: 'Com.Acme.App',
       account: 'Alice@ACME.example',
       entry: memoryEntry(),
@@ -62,7 +62,7 @@ describe('@noy-db/at-macos-keychain — construction', () => {
 
 describe('@noy-db/at-macos-keychain — seal/unseal pipeline', () => {
   it('seal → unseal round-trips arbitrary bytes', async () => {
-    const p = macosKeychainSealingProvider({
+    const p = atMacosKeychain({
       service: 'com.acme.app',
       account: 'alice',
       entry: memoryEntry(),
@@ -75,7 +75,7 @@ describe('@noy-db/at-macos-keychain — seal/unseal pipeline', () => {
   })
 
   it('produces different ciphertext for same plaintext (fresh IV per seal)', async () => {
-    const p = macosKeychainSealingProvider({
+    const p = atMacosKeychain({
       service: 'com.acme.app',
       account: 'alice',
       entry: memoryEntry(),
@@ -89,13 +89,13 @@ describe('@noy-db/at-macos-keychain — seal/unseal pipeline', () => {
   it('two provider instances sharing the same KeychainEntry unseal each other', async () => {
     // Simulates a process restart: same Keychain item, fresh provider.
     const shared = memoryEntry()
-    const p1 = macosKeychainSealingProvider({
+    const p1 = atMacosKeychain({
       service: 'com.acme.app',
       account: 'alice',
       entry: shared,
     })
     const sealed = await p1.seal(new Uint8Array([1, 2, 3, 4]))
-    const p2 = macosKeychainSealingProvider({
+    const p2 = atMacosKeychain({
       service: 'com.acme.app',
       account: 'alice',
       entry: shared,
@@ -105,12 +105,12 @@ describe('@noy-db/at-macos-keychain — seal/unseal pipeline', () => {
   })
 
   it('different KeychainEntry backings produce mutually unsealable outputs', async () => {
-    const p1 = macosKeychainSealingProvider({
+    const p1 = atMacosKeychain({
       service: 'com.acme.app',
       account: 'alice',
       entry: memoryEntry(),
     })
-    const p2 = macosKeychainSealingProvider({
+    const p2 = atMacosKeychain({
       service: 'com.acme.app',
       account: 'bob', // different account → different entry → different key
       entry: memoryEntry(),
@@ -120,7 +120,7 @@ describe('@noy-db/at-macos-keychain — seal/unseal pipeline', () => {
   })
 
   it('rejects sealed bytes shorter than IV + GCM tag', async () => {
-    const p = macosKeychainSealingProvider({
+    const p = atMacosKeychain({
       service: 'com.acme.app',
       account: 'alice',
       entry: memoryEntry(),
@@ -129,7 +129,7 @@ describe('@noy-db/at-macos-keychain — seal/unseal pipeline', () => {
   })
 
   it('detects tampered ciphertext via AES-GCM auth tag', async () => {
-    const p = macosKeychainSealingProvider({
+    const p = atMacosKeychain({
       service: 'com.acme.app',
       account: 'alice',
       entry: memoryEntry(),
@@ -146,7 +146,7 @@ describe('@noy-db/at-macos-keychain — key lifecycle', () => {
     const entry = memoryEntry()
     expect(entry.getPassword()).toBeNull() // empty
 
-    const p = macosKeychainSealingProvider({
+    const p = atMacosKeychain({
       service: 'com.acme.app',
       account: 'alice',
       entry,
@@ -168,7 +168,7 @@ describe('@noy-db/at-macos-keychain — key lifecycle', () => {
     const entry = memoryEntry()
     entry.setPassword(known32Base64)
 
-    const p = macosKeychainSealingProvider({
+    const p = atMacosKeychain({
       service: 'com.acme.app',
       account: 'alice',
       entry,
@@ -187,7 +187,7 @@ describe('@noy-db/at-macos-keychain — key lifecycle', () => {
     const entry = memoryEntry()
     const getSpy = vi.spyOn(entry, 'getPassword')
 
-    const p = macosKeychainSealingProvider({
+    const p = atMacosKeychain({
       service: 'com.acme.app',
       account: 'alice',
       entry,
@@ -208,7 +208,7 @@ describe('@noy-db/at-macos-keychain — key lifecycle', () => {
     // 8 bytes of base64 → decodes to ~6 bytes, not 32.
     entry.setPassword('AAECAwQF')
 
-    const p = macosKeychainSealingProvider({
+    const p = atMacosKeychain({
       service: 'com.acme.app',
       account: 'alice',
       entry,
@@ -220,7 +220,7 @@ describe('@noy-db/at-macos-keychain — key lifecycle', () => {
     const entry = memoryEntry()
     entry.setPassword('!!!not-base64!!!')
 
-    const p = macosKeychainSealingProvider({
+    const p = atMacosKeychain({
       service: 'com.acme.app',
       account: 'alice',
       entry,
@@ -244,14 +244,14 @@ describe('@noy-db/at-macos-keychain — platform guard', () => {
   it('throws on non-darwin platforms when no test entry is injected', () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
     expect(() =>
-      macosKeychainSealingProvider({ service: 'com.acme.app', account: 'alice' }),
+      atMacosKeychain({ service: 'com.acme.app', account: 'alice' }),
     ).toThrow(/darwin|platform "linux"/i)
   })
 
   it('does NOT throw on non-darwin when an injected entry is provided (test path)', () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
     expect(() =>
-      macosKeychainSealingProvider({
+      atMacosKeychain({
         service: 'com.acme.app',
         account: 'alice',
         entry: memoryEntry(),
@@ -262,7 +262,7 @@ describe('@noy-db/at-macos-keychain — platform guard', () => {
   it('error message points users at alternative at-* packages', () => {
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
     expect(() =>
-      macosKeychainSealingProvider({ service: 'com.acme.app', account: 'alice' }),
+      atMacosKeychain({ service: 'com.acme.app', account: 'alice' }),
     ).toThrow(/at-env|at-wincred|at-libsecret/i)
   })
 })

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { NoydbSealer } from '@noy-db/hub'
+import type { NoydbSealer } from '@noy-db/hub/at'
 
 /**
  * Parameterized conformance suite for the `at-*` family port.
@@ -22,12 +22,12 @@ import type { NoydbSealer } from '@noy-db/hub'
  * provider that silently returns garbage instead of throwing hands hub a
  * "secret" that was never sealed by anyone.
  *
- * NOTE ON IMPORTS: this suite binds `@noy-db/hub` (the root barrel) rather
- * than a family seam, because `@noy-db/hub/at` does not exist yet — by
- * design. A seam is added once there is something to implement behind it;
- * `/at` and its four siblings were published in 0.3.0 with nothing behind
- * them and removed in 0.4.0 for "zero importers". When `/at` lands, this
- * import moves and nothing else changes.
+ * NOTE ON IMPORTS: this suite binds `@noy-db/hub/at`, the family seam. It was
+ * written against the root barrel because `/at` did not exist yet — the seam
+ * follows the port, not the other way round. `/at` and its four siblings
+ * shipped in 0.3.0 with nothing behind them and were removed in 0.4.0 for
+ * "zero importers"; it returns now because this package is what stands behind
+ * it, and the five `at-*` providers bind it.
  */
 export function runSealerConformanceTests(
   name: string,
