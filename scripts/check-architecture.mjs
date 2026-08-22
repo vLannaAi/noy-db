@@ -570,6 +570,20 @@ const NOT_SERVICE_SUBPATHS = new Set([
   // #843 C3a — themed homes for root-barrel-exclusive clusters, not opt-in
   // capabilities. Each groups symbols that previously had no home but `.`:
   'store',          // routeStore + wrapStore + the six StoreMiddleware factories
+  // CONSUMED CONTRACT — a third category, and the reason it is called out here
+  // rather than left in the themed-grouping list it started in.
+  //
+  // `to`/`at`/`by` are DRIVEN ports: hub holds the reference and calls the
+  // satellite. `/introspection` is the opposite — a DRIVING adapter binds it
+  // and calls hub; hub never invokes a UI. That asymmetry is why the `/ui`
+  // PORT proposed on 2026-08-22 (NoydbSurface + descriptor/factory/locator,
+  // mirroring the three families above) was DECLINED: a `SurfaceLocator`
+  // would be registry machinery with no caller.
+  //
+  // So this subpath is what the UI family binds instead — 9 of noy-db-ui's
+  // imports against 7 from the bare root (#1021) — and it is frozen by
+  // __tests__/introspection-surface-golden.test.ts, the way `/to` has been
+  // since S5. Telling a consumer "bind this" is a promise; the golden is it.
   'introspection',  // dumpVaultSchema + the describe/meta descriptor types
   'money',          // the via-money field feature (declared per-field, not per-vault)
   // #843 C3b — the last four clusters worth a home.

@@ -1,0 +1,36 @@
+{
+  "values": [
+    "applyListProjection",
+    "dumpVaultSchema",
+    "jsonSchemaToFields"
+  ],
+  "types": [
+    "BehaviorSummary",
+    "CollectionConfig",
+    "CollectionDescription",
+    "CollectionDescriptor",
+    "CollectionStats",
+    "DerivationBehaviorEntry",
+    "DerivationDescriptor",
+    "DerivationOutputEntry",
+    "DescribeOptions",
+    "DescribedField",
+    "DumpSchemaOptions",
+    "FieldDescriptor",
+    "FieldMeta",
+    "FieldSource",
+    "GuardBehaviorEntry",
+    "InternalCollectionStats",
+    "ListProjectionOptions",
+    "MaterializedViewBehaviorEntry",
+    "MaterializedViewDescriptor",
+    "OverlayBehaviorEntry",
+    "OverlayViewDescriptor",
+    "SatelliteBehaviorEntry",
+    "SchemaIntrospection",
+    "SemanticType",
+    "StandardSchemaV1Issue",
+    "VaultIntrospectState",
+    "VaultSchemaSnapshot"
+  ]
+}
