@@ -7,7 +7,7 @@
  * each package's own reading of the interface.
  */
 import { runSealerConformanceTests } from '@noy-db/test-sealer-conformance'
-import { envSealingProvider } from '../src/index.js'
+import { atEnv } from '../src/index.js'
 
 // Two independently-keyed providers: the cross-provider refusal case cannot be
 // demonstrated with one instance, which is why `other` is required.
@@ -16,6 +16,6 @@ const B = 'NOYDB_CONFORMANCE_KEY_B'
 process.env[A] = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8='
 process.env[B] = 'f39+fXx7enl4d3Z1dHNycXBvbm1sa2poZ2ZlZGNiYWA='
 
-runSealerConformanceTests('at-env', () => envSealingProvider({ envVar: A }), {
-  other: () => envSealingProvider({ envVar: B }),
+runSealerConformanceTests('at-env', () => atEnv({ envVar: A }), {
+  other: () => atEnv({ envVar: B }),
 })

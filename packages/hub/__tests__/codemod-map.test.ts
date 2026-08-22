@@ -56,6 +56,12 @@ const hubPkg = JSON.parse(read('../package.json')) as {
   readonly exports: Record<string, unknown>
 }
 
+/** Subpaths a LATER line re-introduced, declared in that line's own map. */
+const unretired = new Set<string>(
+  ['../codemods/0.6.0-pre.json', '../codemods/0.7.0-pre.json']
+    .flatMap((f) => (JSON.parse(read(f)) as { unretired?: string[] }).unretired ?? []),
+)
+
 describe('0.4.0-pre rename map: shape', () => {
   it('gives every row a kind, a target and a replace-safety verdict', () => {
     for (const r of map.renames) {
@@ -95,8 +101,14 @@ describe('0.4.0-pre rename map: checked against the live surface', () => {
     const exported = new Set(Object.keys(hubPkg.exports))
     const asKey = (specifier: string) =>
       specifier === '@noy-db/hub' ? '.' : specifier.replace('@noy-db/hub', '.')
+    // A LATER line may re-introduce a subpath this one retired — `/at` does,
+    // once the port behind it became worth binding. That has to be declared
+    // as data rather than assumed from the fact that it resolves, or the
+    // guard silently stops guarding the day someone re-adds a retired path by
+    // accident. The `unretired` claim is verified separately below.
     for (const r of map.renames) {
       if (r.kind !== 'subpath') continue
+      if (unretired.has(r.from)) continue
       expect(exported, `${r.from} still resolves`).not.toContain(asKey(r.from))
       // A row may point at more than one landing spot (`/bundle` split in two).
       for (const target of (r.to as string).split(/\s+or\s+/)) {
@@ -192,5 +204,29 @@ describe('0.4.0-pre rename map: reachable by consumers', () => {
     const subpath = `./codemods/${map.version}.json`
     expect(hubPkg.exports, subpath).toHaveProperty(subpath)
     expect(hubPkg.exports[subpath]).toBe(subpath)
+  })
+})
+
+describe('un-retired subpaths: a claim, not a licence', () => {
+  it('every subpath declared `unretired` actually resolves', () => {
+    // Without this, `unretired` would be a way to switch the retired-subpath
+    // guard off for a path nobody shipped — the guard neutralised by the very
+    // field that documents the exception.
+    const exported = new Set(Object.keys(hubPkg.exports))
+    for (const specifier of unretired) {
+      const key = specifier.replace('@noy-db/hub', '.')
+      expect(exported, `${specifier} is declared unretired but does not resolve`).toContain(key)
+    }
+  })
+
+  it('only re-introduces a subpath some earlier line actually retired', () => {
+    // Listing a path that was never retired means the field is being used for
+    // something other than what it says.
+    const retiredEver = new Set(
+      map.renames.filter((r) => r.kind === 'subpath').map((r) => r.from),
+    )
+    for (const specifier of unretired) {
+      expect(retiredEver, `${specifier} is declared unretired but was never retired`).toContain(specifier)
+    }
   })
 })

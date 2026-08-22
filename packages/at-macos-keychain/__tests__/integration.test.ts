@@ -12,7 +12,7 @@ import { createNoydb } from '@noy-db/hub'
 import { toMemory } from '@noy-db/to-memory'
 import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 import type { KeychainEntry } from '../src/index.js'
-import { macosKeychainSealingProvider } from '../src/index.js'
+import { atMacosKeychain } from '../src/index.js'
 
 function memoryEntry(): KeychainEntry {
   let stored: string | null = null
@@ -34,7 +34,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-sec
       store,
       user: 'alice',
       secretMode: 'managed',
-      sealingKey: macosKeychainSealingProvider({
+      sealingKey: atMacosKeychain({
         service: 'com.acme.app',
         account: 'alice@acme.example',
         entry: sharedEntry,
@@ -55,7 +55,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-sec
       store,
       user: 'alice',
       secretMode: 'managed',
-      sealingKey: macosKeychainSealingProvider({
+      sealingKey: atMacosKeychain({
         service: 'com.acme.app',
         account: 'alice@acme.example',
         entry: sharedEntry,
@@ -78,7 +78,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-sec
       store,
       user: 'alice',
       secretMode: 'managed',
-      sealingKey: macosKeychainSealingProvider({
+      sealingKey: atMacosKeychain({
         service: 'com.acme.app',
         account: 'alice',
         entry: memoryEntry(),
@@ -100,7 +100,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-sec
       store,
       user: 'alice',
       secretMode: 'managed',
-      sealingKey: macosKeychainSealingProvider({
+      sealingKey: atMacosKeychain({
         service: 'com.acme.app',
         account: 'bob', // different!
         entry: memoryEntry(),
@@ -119,7 +119,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-sec
       store,
       user: 'alice',
       secretMode: 'managed',
-      sealingKey: macosKeychainSealingProvider({
+      sealingKey: atMacosKeychain({
         service: 'com.example.persist',
         account: 'persist-test',
         entry: sharedEntry,
@@ -141,7 +141,7 @@ describe('@noy-db/at-macos-keychain — integration with @noy-db/hub managed-sec
       store,
       user: 'alice',
       secretMode: 'managed',
-      sealingKey: macosKeychainSealingProvider({
+      sealingKey: atMacosKeychain({
         service: 'com.example.persist',
         account: 'persist-test',
         entry: sharedEntry,

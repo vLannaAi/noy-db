@@ -33,13 +33,13 @@
  *
  * ```ts
  * import { createNoydb } from '@noy-db/hub'
- * import { macosKeychainSealingProvider } from '@noy-db/at-macos-keychain'
+ * import { atMacosKeychain } from '@noy-db/at-macos-keychain'
  *
  * const db = await createNoydb({
  *   store,
  *   user: 'alice',
  *   secretMode: 'managed',
- *   sealingKey: macosKeychainSealingProvider({
+ *   sealingKey: atMacosKeychain({
  *     service: 'com.acme.app',         // your bundle id / app namespace
  *     account: 'alice@acme.example',   // per-user keychain item
  *   }),
@@ -81,7 +81,7 @@
 
 import { createRequire } from 'node:module'
 
-import type { NoydbSealer } from '@noy-db/hub'
+import type { NoydbSealer } from '@noy-db/hub/at'
 
 // ESM has no ambient `require`. Synthesize one bound to this module's URL so
 // the native `@napi-rs/keyring` addon (a CJS-only N-API binary) can still be
@@ -112,7 +112,7 @@ export interface KeychainEntry {
 }
 
 /**
- * Options for {@link macosKeychainSealingProvider}.
+ * Options for {@link atMacosKeychain}.
  *
  * The pair `(service, account)` becomes the Keychain lookup key. By
  * convention:
@@ -156,7 +156,7 @@ export interface MacosKeychainSealingProviderOptions {
  *   or on non-darwin platforms (with a pointer to platform-appropriate
  *   providers).
  */
-export function macosKeychainSealingProvider(
+export function atMacosKeychain(
   opts: MacosKeychainSealingProviderOptions,
 ): NoydbSealer {
   if (!opts.service || typeof opts.service !== 'string') {

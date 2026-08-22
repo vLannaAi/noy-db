@@ -21,7 +21,7 @@
  *   env:MY_CUSTOM_KEY      (custom envVar)
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { envSealingProvider } from '../src/index.js'
+import { atEnv } from '../src/index.js'
 
 // 32 bytes of arbitrary but stable test material, base64-encoded.
 const TEST_KEY_BASE64 = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8='
@@ -40,25 +40,25 @@ describe('@noy-db/at-env — pid format stability (§11.9.1)', () => {
 
   it('produces the locked `env:NOYDB_SEALING_KEY` id with default envVar', () => {
     setEnv('NOYDB_SEALING_KEY', TEST_KEY_BASE64)
-    const p = envSealingProvider()
+    const p = atEnv()
     expect(p.id).toBe('env:NOYDB_SEALING_KEY')
   })
 
   it('produces the locked `env:<envVar>` id with custom envVar', () => {
     setEnv('MY_CUSTOM_KEY', TEST_KEY_BASE64)
-    const p = envSealingProvider({ envVar: 'MY_CUSTOM_KEY' })
+    const p = atEnv({ envVar: 'MY_CUSTOM_KEY' })
     expect(p.id).toBe('env:MY_CUSTOM_KEY')
   })
 
   it('preserves envVar case verbatim (no normalization)', () => {
     setEnv('CamelCase_Key', TEST_KEY_BASE64)
-    const p = envSealingProvider({ envVar: 'CamelCase_Key' })
+    const p = atEnv({ envVar: 'CamelCase_Key' })
     expect(p.id).toBe('env:CamelCase_Key')
   })
 
   it('does not include a version suffix in the pid', () => {
     setEnv('NOYDB_SEALING_KEY', TEST_KEY_BASE64)
-    const p = envSealingProvider()
+    const p = atEnv()
     // The pid identifies the env-var-class binding, not a key version.
     // KMS-style versioned identifiers would belong on a different
     // provider; for at-env the bound-to-env-var contract IS the
@@ -68,7 +68,7 @@ describe('@noy-db/at-env — pid format stability (§11.9.1)', () => {
 
   it('starts with the `env:` family prefix exactly', () => {
     setEnv('NOYDB_SEALING_KEY', TEST_KEY_BASE64)
-    const p = envSealingProvider()
+    const p = atEnv()
     expect(p.id.startsWith('env:')).toBe(true)
     // Guard against accidental rebranding to e.g. `at-env:` or `env-var:`.
     expect(p.id).not.toMatch(/^at-env:|^env-var:|^envvar:/i)

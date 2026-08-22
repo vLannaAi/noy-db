@@ -39,14 +39,14 @@
  * ```ts
  * // 3. In your app:
  * import { createNoydb } from '@noy-db/hub'
- * import { azureKeyVaultSealingProvider } from '@noy-db/at-azure-keyvault'
+ * import { atAzureKeyvault } from '@noy-db/at-azure-keyvault'
  * import { shamirRecoveryProvider } from '@noy-db/on-shamir'
  *
  * const db = await createNoydb({
  *   store,
  *   user: 'alice',
  *   secretMode: 'managed',
- *   sealingKey: azureKeyVaultSealingProvider({
+ *   sealingKey: atAzureKeyvault({
  *     keyId: 'https://my-noydb-vault.vault.azure.net/keys/noydb-sealing/<version>',
  *   }),
  *   shamirRecovery: shamirRecoveryProvider(),
@@ -56,7 +56,7 @@
  * @packageDocumentation
  */
 
-import type { NoydbSealer } from '@noy-db/hub'
+import type { NoydbSealer } from '@noy-db/hub/at'
 import {
   CryptographyClient,
   type EncryptResult,
@@ -66,13 +66,13 @@ import {
 } from '@azure/keyvault-keys'
 import { DefaultAzureCredential } from '@azure/identity'
 
-/** Minimal client surface required by {@link azureKeyVaultSealingProvider}. */
+/** Minimal client surface required by {@link atAzureKeyvault}. */
 interface CryptoLike {
   encrypt(params: RsaEncryptParameters): Promise<EncryptResult>
   decrypt(params: RsaDecryptParameters): Promise<DecryptResult>
 }
 
-/** Options for {@link azureKeyVaultSealingProvider}. */
+/** Options for {@link atAzureKeyvault}. */
 export interface AzureKeyVaultSealingProviderOptions {
   /**
    * Full **versioned** key identifier URL, e.g.
@@ -108,7 +108,7 @@ export interface AzureKeyVaultSealingProviderOptions {
  * SDK-response shapes). Any Key Vault API error (Forbidden, NotFound, etc.)
  * propagates as-is.
  */
-export function azureKeyVaultSealingProvider(opts: AzureKeyVaultSealingProviderOptions): NoydbSealer {
+export function atAzureKeyvault(opts: AzureKeyVaultSealingProviderOptions): NoydbSealer {
   const algorithm = opts.algorithm ?? 'RSA-OAEP-256'
   const client: CryptoLike = opts.cryptographyClient
     ?? new CryptographyClient(opts.keyId, new DefaultAzureCredential())

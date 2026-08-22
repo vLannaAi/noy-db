@@ -35,23 +35,23 @@
  * ```ts
  * // 2. In your app:
  * import { createNoydb } from '@noy-db/hub'
- * import { envSealingProvider } from '@noy-db/at-env'
+ * import { atEnv } from '@noy-db/at-env'
  *
  * const db = await createNoydb({
  *   store,
  *   user: 'alice',
  *   secretMode: 'managed',
- *   sealingKey: envSealingProvider(),  // reads NOYDB_SEALING_KEY by default
+ *   sealingKey: atEnv(),  // reads NOYDB_SEALING_KEY by default
  * })
  * ```
  *
  * @packageDocumentation
  */
 
-import type { NoydbSealer } from '@noy-db/hub'
+import type { NoydbSealer } from '@noy-db/hub/at'
 
-/** Options for {@link envSealingProvider}. */
-export interface EnvSealingProviderOptions {
+/** Options for {@link atEnv}. */
+export interface AtEnvOptions {
   /**
    * Environment variable name holding the base64-encoded 32-byte AES-256
    * key. Default `'NOYDB_SEALING_KEY'`.
@@ -68,8 +68,8 @@ export interface EnvSealingProviderOptions {
  *
  * @throws Error when the env var is unset, not base64, or not 32 bytes.
  */
-export function envSealingProvider(
-  opts: EnvSealingProviderOptions = {},
+export function atEnv(
+  opts: AtEnvOptions = {},
 ): NoydbSealer {
   const envVar = opts.envVar ?? 'NOYDB_SEALING_KEY'
   const raw = process.env[envVar]

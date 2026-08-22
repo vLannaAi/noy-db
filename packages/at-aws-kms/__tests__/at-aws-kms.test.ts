@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { awsKmsSealingProvider, awsKmsRecipientSealer } from '../src/index.js'
+import { atAwsKms, awsKmsRecipientSealer } from '../src/index.js'
 
 function fakeKmsClient() {
   return {
@@ -20,9 +20,9 @@ function fakeKmsClient() {
   }
 }
 
-describe('awsKmsSealingProvider', () => {
+describe('atAwsKms', () => {
   it('round-trips a secret via injected client', async () => {
-    const p = awsKmsSealingProvider({ keyId: 'arn:aws:kms:us-east-1:1:key/abc', client: fakeKmsClient() as any })
+    const p = atAwsKms({ keyId: 'arn:aws:kms:us-east-1:1:key/abc', client: fakeKmsClient() as any })
     const phrase = new TextEncoder().encode('hunter2-master')
     const sealed = await p.seal(phrase)
     expect(sealed).not.toEqual(phrase)
@@ -32,19 +32,19 @@ describe('awsKmsSealingProvider', () => {
 
   it('unseal throws on a KMS failure', async () => {
     const client = { send: vi.fn(async () => { throw new Error('AccessDenied') }) }
-    const p = awsKmsSealingProvider({ keyId: 'k', client: client as any })
+    const p = atAwsKms({ keyId: 'k', client: client as any })
     await expect(p.unseal(new Uint8Array(8))).rejects.toThrow()
   })
 
   it('seal throws when KMS Encrypt returns no CiphertextBlob', async () => {
     const client = { send: vi.fn(async () => ({})) }
-    const p = awsKmsSealingProvider({ keyId: 'k', client: client as any })
+    const p = atAwsKms({ keyId: 'k', client: client as any })
     await expect(p.seal(new Uint8Array([1, 2, 3]))).rejects.toThrow(/no CiphertextBlob/)
   })
 
   it('unseal throws when KMS Decrypt returns no Plaintext', async () => {
     const client = { send: vi.fn(async () => ({})) }
-    const p = awsKmsSealingProvider({ keyId: 'k', client: client as any })
+    const p = atAwsKms({ keyId: 'k', client: client as any })
     await expect(p.unseal(new Uint8Array([1, 2, 3]))).rejects.toThrow(/no Plaintext/)
   })
 })
@@ -66,7 +66,7 @@ describe('@noy-db/at-aws-kms — integration with @noy-db/hub managed-secret mod
     const db1 = await createNoydb({
       store, user: 'alice',
       secretMode: 'managed',
-      sealingKey: awsKmsSealingProvider({ keyId, client: sharedFake as any }),
+      sealingKey: atAwsKms({ keyId, client: sharedFake as any }),
       shamirRecovery: shamirRecoveryProvider(),
     })
     const { vault: vault1 } = await db1.team.openVaultAndEnrollRecovery('demo', {
@@ -82,7 +82,7 @@ describe('@noy-db/at-aws-kms — integration with @noy-db/hub managed-secret mod
     const db2 = await createNoydb({
       store, user: 'alice',
       secretMode: 'managed',
-      sealingKey: awsKmsSealingProvider({ keyId, client: sharedFake as any }),
+      sealingKey: atAwsKms({ keyId, client: sharedFake as any }),
       shamirRecovery: shamirRecoveryProvider(),
     })
     const vault2 = await db2.openVault('demo')
@@ -95,9 +95,9 @@ describe('@noy-db/at-aws-kms — integration with @noy-db/hub managed-secret mod
 })
 
 const RUN_REAL = !!process.env.NOYDB_TEST_AWS_KMS_KEY_ID
-describe.skipIf(!RUN_REAL)('awsKmsSealingProvider (real KMS)', () => {
+describe.skipIf(!RUN_REAL)('atAwsKms (real KMS)', () => {
   it('round-trips against real KMS', async () => {
-    const p = awsKmsSealingProvider({ keyId: process.env.NOYDB_TEST_AWS_KMS_KEY_ID! })
+    const p = atAwsKms({ keyId: process.env.NOYDB_TEST_AWS_KMS_KEY_ID! })
     const phrase = new TextEncoder().encode('real-key-test')
     expect(await p.unseal(await p.seal(phrase))).toEqual(phrase)
   })

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { azureKeyVaultSealingProvider } from '../src/index.js'
+import { atAzureKeyvault } from '../src/index.js'
 
 function fakeCrypto() {
   return {
@@ -17,10 +17,10 @@ function fakeCrypto() {
   }
 }
 
-describe('azureKeyVaultSealingProvider', () => {
+describe('atAzureKeyvault', () => {
   it('round-trips a secret via injected client', async () => {
     const keyId = 'https://my-vault.vault.azure.net/keys/noydb-sealing/abc123'
-    const p = azureKeyVaultSealingProvider({ keyId, cryptographyClient: fakeCrypto() as any })
+    const p = atAzureKeyvault({ keyId, cryptographyClient: fakeCrypto() as any })
     const phrase = new TextEncoder().encode('hunter2-master')
     const sealed = await p.seal(phrase)
     expect(sealed).not.toEqual(phrase)
@@ -33,7 +33,7 @@ describe('azureKeyVaultSealingProvider', () => {
       encrypt: async () => { throw new Error('Forbidden') },
       decrypt: async () => { throw new Error('Forbidden') },
     }
-    const p = azureKeyVaultSealingProvider({ keyId: 'k', cryptographyClient: client as any })
+    const p = atAzureKeyvault({ keyId: 'k', cryptographyClient: client as any })
     await expect(p.unseal(new Uint8Array(8))).rejects.toThrow()
   })
 
@@ -42,7 +42,7 @@ describe('azureKeyVaultSealingProvider', () => {
       encrypt: async () => ({}) as any,
       decrypt: async () => ({}) as any,
     }
-    const p = azureKeyVaultSealingProvider({ keyId: 'k', cryptographyClient: client as any })
+    const p = atAzureKeyvault({ keyId: 'k', cryptographyClient: client as any })
     await expect(p.seal(new Uint8Array([1, 2, 3]))).rejects.toThrow(/no result/)
   })
 
@@ -51,7 +51,7 @@ describe('azureKeyVaultSealingProvider', () => {
       encrypt: async () => ({}) as any,
       decrypt: async () => ({}) as any,
     }
-    const p = azureKeyVaultSealingProvider({ keyId: 'k', cryptographyClient: client as any })
+    const p = atAzureKeyvault({ keyId: 'k', cryptographyClient: client as any })
     await expect(p.unseal(new Uint8Array([1, 2, 3]))).rejects.toThrow(/no result/)
   })
 })
@@ -73,7 +73,7 @@ describe('@noy-db/at-azure-keyvault — integration with @noy-db/hub managed-sec
     const db1 = await createNoydb({
       store, user: 'alice',
       secretMode: 'managed',
-      sealingKey: azureKeyVaultSealingProvider({ keyId, cryptographyClient: sharedFake as any }),
+      sealingKey: atAzureKeyvault({ keyId, cryptographyClient: sharedFake as any }),
       shamirRecovery: shamirRecoveryProvider(),
     })
     const { vault: vault1 } = await db1.team.openVaultAndEnrollRecovery('demo', {
@@ -89,7 +89,7 @@ describe('@noy-db/at-azure-keyvault — integration with @noy-db/hub managed-sec
     const db2 = await createNoydb({
       store, user: 'alice',
       secretMode: 'managed',
-      sealingKey: azureKeyVaultSealingProvider({ keyId, cryptographyClient: sharedFake as any }),
+      sealingKey: atAzureKeyvault({ keyId, cryptographyClient: sharedFake as any }),
       shamirRecovery: shamirRecoveryProvider(),
     })
     const vault2 = await db2.openVault('demo')
@@ -105,9 +105,9 @@ describe('@noy-db/at-azure-keyvault — integration with @noy-db/hub managed-sec
 })
 
 const RUN_REAL = !!process.env.NOYDB_TEST_AZURE_KEY_ID
-describe.skipIf(!RUN_REAL)('azureKeyVaultSealingProvider (real Azure Key Vault)', () => {
+describe.skipIf(!RUN_REAL)('atAzureKeyvault (real Azure Key Vault)', () => {
   it('round-trips against real Azure Key Vault', async () => {
-    const p = azureKeyVaultSealingProvider({ keyId: process.env.NOYDB_TEST_AZURE_KEY_ID! })
+    const p = atAzureKeyvault({ keyId: process.env.NOYDB_TEST_AZURE_KEY_ID! })
     const phrase = new TextEncoder().encode('real-key-test')
     expect(await p.unseal(await p.seal(phrase))).toEqual(phrase)
   })
