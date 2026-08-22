@@ -59,7 +59,7 @@
  * @packageDocumentation
  */
 
-import type { SealingKeyProvider } from '@noy-db/hub'
+import type { NoydbSealer } from '@noy-db/hub'
 import { KeyManagementServiceClient } from '@google-cloud/kms'
 import type { protos } from '@google-cloud/kms'
 
@@ -93,7 +93,7 @@ function toUint8Array(value: Uint8Array | string | null | undefined): Uint8Array
 }
 
 /**
- * Build a {@link SealingKeyProvider} backed by Google Cloud KMS Encrypt / Decrypt.
+ * Build a {@link NoydbSealer} backed by Google Cloud KMS Encrypt / Decrypt.
  *
  * Credentials are resolved via Application Default Credentials (ADC) — attached
  * service accounts, `GOOGLE_APPLICATION_CREDENTIALS`, or local gcloud login.
@@ -104,7 +104,7 @@ function toUint8Array(value: Uint8Array | string | null | undefined): Uint8Array
  * against unexpected SDK-response shapes).
  * Any KMS API error (PermissionDenied, NotFound, etc.) propagates as-is.
  */
-export function gcpKmsSealingProvider(opts: GcpKmsSealingProviderOptions): SealingKeyProvider {
+export function gcpKmsSealingProvider(opts: GcpKmsSealingProviderOptions): NoydbSealer {
   const client: KmsClientLike = opts.client ?? new KeyManagementServiceClient()
   return {
     id: `gcp-kms:${opts.keyName}`,

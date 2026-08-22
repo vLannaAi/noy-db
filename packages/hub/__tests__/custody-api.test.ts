@@ -5,7 +5,7 @@
  * namespace (mirroring `vault.user.*`) rather than the low-level functions:
  *
  *   1. Provision a Deed vault (latent owner sealed under a non-firm
- *      `MemorySealingKeyProvider`) with records + the `grant-custodian` /
+ *      `MemorySealer`) with records + the `grant-custodian` /
  *      `liberate-vault` gates enabled.
  *   2. The Deed owner mints a custodian via `vault.custody.grantCustodian(...)`.
  *      The firm (custodian) opens + reads/writes ALL collections, but is
@@ -35,7 +35,7 @@ import { withPortability } from '../src/with-audit/portability/index.js'
 import { withCustody } from '../src/with-party/custody/index.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import { withHistory } from '../src/with-commit/history/index.js'
-import { MemorySealingKeyProvider, resolveManagedSecret } from '../src/with-party/team/managed-secret.js'
+import { MemorySealer, resolveManagedSecret } from '../src/with-party/team/managed-secret.js'
 import { createDeedOwner, loadDeedMarker } from '../src/with-party/team/deed.js'
 import { withTeam } from '../src/with-party/team/index.js'
 
@@ -72,11 +72,11 @@ const POLICY = {
 
 describe('FR-6 Task 6 — vault.custody.* end-to-end acceptance walkthrough', () => {
   let adapter: NoydbStore
-  let sealing: MemorySealingKeyProvider
+  let sealing: MemorySealer
 
   beforeEach(() => {
     adapter = inlineMemory()
-    sealing = new MemorySealingKeyProvider({ id: 'client-kms' })
+    sealing = new MemorySealer({ id: 'client-kms' })
   })
 
   /**

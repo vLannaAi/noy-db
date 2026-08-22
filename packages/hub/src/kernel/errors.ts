@@ -1777,7 +1777,7 @@ export class PodHeaderVerificationError extends NoydbError {
 
 /**
  * Thrown by `readPod` when the bundle carries
- * sealed per-user secrets but no supplied `SealingKeyProvider`
+ * sealed per-user secrets but no supplied `NoydbSealer`
  * has a `.id` (= `pid`) matching the sealed entry's `pid`.
  *
  * Carries the failing pid + the user id so the recipient can
@@ -3442,7 +3442,7 @@ export class RecoveryNotEnrolledError extends NoydbError {
  * STRONG recovery profile enrolled.
  *
  * Managed mode means the user never types a secret — the unlock
- * material lives in a `SealingKeyProvider` (`at-*` package). If that
+ * material lives in a `NoydbSealer` (`at-*` package). If that
  * provider's key is lost AND no strong recovery is enrolled, the
  * vault is irrecoverable. To prevent that footgun, managed-mode vaults
  * require at least one strong recovery profile (Shamir today;

@@ -3,15 +3,15 @@ import { toMemory } from '../../../to-memory/src/index.js'
 import { SchemaFenceController } from '../../src/with-shape/schema-update/fence-controller.js'
 import { loadFence, saveFence } from '../../src/with-shape/schema-update/fence.js'
 import { writeClientDoc } from '../../src/with-shape/schema-update/client-registry.js'
-import { StoreCoordinationProvider } from '../../src/with-shape/schema-update/store-coordination-provider.js'
+import { StoreMesh } from '../../src/with-shape/schema-update/store-coordination-provider.js'
 import { QuiesceTimeoutError } from '../../src/kernel/errors.js'
 
 function mkCtrl(store = toMemory(), quiesceTimeoutMs = 10_000) {
   let t = 1000
-  // Default coordination = StoreCoordinationProvider over the same store; the
+  // Default coordination = StoreMesh over the same store; the
   // ack-barrier behavior (and these store-level assertions) is unchanged.
   const c = new SchemaFenceController({
-    coordination: new StoreCoordinationProvider(store), vault: 'v', onFlush: async () => {},
+    coordination: new StoreMesh(store), vault: 'v', onFlush: async () => {},
     clientId: 'migrator', now: () => t, staleMs: 500, quiesceTimeoutMs,
   })
   return { store, c, advance: (ms: number) => { t += ms }, now: () => t }

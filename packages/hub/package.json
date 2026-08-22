@@ -201,7 +201,8 @@
       "types": "./dist/with-lookup/reduce/index.d.ts",
       "default": "./dist/reduce/index.js"
     },
-    "./codemods/0.6.0-pre.json": "./codemods/0.6.0-pre.json"
+    "./codemods/0.6.0-pre.json": "./codemods/0.6.0-pre.json",
+    "./codemods/0.7.0-pre.json": "./codemods/0.7.0-pre.json"
   },
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",

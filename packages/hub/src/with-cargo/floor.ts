@@ -19,7 +19,7 @@ export { sha256Hex } from '../kernel/enclave/index.js'
 // Coordination port — the stable drain-barrier seam an outward
 // orchestrator (@klum-db/lobby) or a `by-*` transport binds to. The pure
 // helpers are runtime; the port + presence/fence shapes are types only
-// (see the `types` group below). `StoreCoordinationProvider` is hub-internal
+// (see the `types` group below). `StoreMesh` is hub-internal
 // and intentionally NOT exported here — consumers inject their own.
 export { isQuorum, runDrainBarrier } from '../port/by/index.js'
 // Rank-fusion reducer: an outward orchestrator (@klum-db/lobby)
@@ -64,7 +64,7 @@ export type { RetrieveHit, RetrieveOptions } from '../with-lookup/search/retriev
 // Coordination port types — the implementable contract surface for an
 // injected drain-barrier transport (runtime helpers are in the group above).
 export type {
-  CoordinationProvider,
+  NoydbMesh,
   WriterPresence,
   FenceState,
   DrainBarrierOptions,

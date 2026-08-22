@@ -3,16 +3,16 @@
  *
  * A vault mode where the secret is machine-generated and never
  * exposed to the user, sealed under a developer-provided
- * {@link SealingKeyProvider} (macOS Keychain, Windows Credential
+ * {@link NoydbSealer} (macOS Keychain, Windows Credential
  * Manager, libsecret, AWS KMS, …). The user has no secret to give
  * up to coercion — they can't reveal what they don't know.
  *
  * ## Components in this file
  *
- *   - {@link SealingKeyProvider} — the interface concrete providers
+ *   - {@link NoydbSealer} — the interface concrete providers
  *     implement. Provider implementations live OUTSIDE hub (per-
  *     platform packages).
- *   - {@link MemorySealingKeyProvider} — in-memory test provider; uses
+ *   - {@link MemorySealer} — in-memory test provider; uses
  *     a deterministic per-instance "key" so two providers with
  *     different ids cannot unseal each other's outputs.
  *   - {@link RecipientHint} — public material a sender uses to seal
@@ -22,10 +22,10 @@
  *   - {@link RecipientSealer} — interface for asymmetric/granted
  *     providers that support recipient-target sealing (RSA-OAEP,
  *     cloud-KMS asymmetric, etc.); distinct from self-only
- *     {@link SealingKeyProvider} (macOS Keychain, WebAuthn-PRF).
+ *     {@link NoydbSealer} (macOS Keychain, WebAuthn-PRF).
  *   - {@link MemoryRecipientSealer} — in-process reference
  *     implementation of both `RecipientSealer` and
- *     `SealingKeyProvider` using real WebCrypto RSA-OAEP + AES-GCM;
+ *     `NoydbSealer` using real WebCrypto RSA-OAEP + AES-GCM;
  *     safe for tests and same-process sender/recipient scenarios.
  *   - {@link loadSealedSecret} / {@link saveSealedSecret} —
  *     plaintext envelope storage at `_meta/sealed-secret`.
@@ -69,7 +69,7 @@ import type { NoydbStore, RecipientSealer } from '../../kernel/types.js'
  * | Linux | `@noy-db/seal-libsecret` | libsecret / secret-service |
  * | Cloud / server | `@noy-db/seal-aws-kms` | AWS KMS Decrypt |
  */
-export interface SealingKeyProvider {
+export interface NoydbSealer {
   /**
    * Non-sensitive identifier disclosed in the persisted envelope.
    * Surfaced to consumers via `loadSealedSecret().providerId` so
@@ -103,7 +103,7 @@ export interface SealingKeyProvider {
  *
  * Replace with a real platform provider in production.
  */
-export class MemorySealingKeyProvider implements SealingKeyProvider {
+export class MemorySealer implements NoydbSealer {
   readonly id: string
   private readonly fingerprint: Uint8Array
   private readonly keyBytes: Uint8Array
@@ -142,12 +142,12 @@ export class MemorySealingKeyProvider implements SealingKeyProvider {
 
   async unseal(sealed: Uint8Array): Promise<Uint8Array> {
     if (sealed.length < 4) {
-      throw new Error('MemorySealingKeyProvider: sealed input too short')
+      throw new Error('MemorySealer: sealed input too short')
     }
     for (let i = 0; i < 4; i++) {
       if (sealed[i] !== this.fingerprint[i]) {
         throw new Error(
-          `MemorySealingKeyProvider("${this.id}"): provider-id mismatch on unseal `
+          `MemorySealer("${this.id}"): provider-id mismatch on unseal `
           + '(sealed bytes were produced by a different provider)',
         )
       }
@@ -268,7 +268,7 @@ export async function aesGcmOpen(cekBytes: Uint8Array, iv: Uint8Array, ct: Uint8
 }
 
 /**
- * Reference implementation of `RecipientSealer` + `SealingKeyProvider`.
+ * Reference implementation of `RecipientSealer` + `NoydbSealer`.
  * Uses WebCrypto RSA-OAEP-SHA256 (2048-bit) to wrap a fresh 32-byte
  * AES-GCM CEK, AES-GCM-encrypts plaintext under it, and packs the
  * result into a self-describing TLV:
@@ -290,7 +290,7 @@ export async function aesGcmOpen(cekBytes: Uint8Array, iv: Uint8Array, ct: Uint8
  * keychain; use it for tests and for shipping bundles where the
  * recipient instance lives in the same process as the sender (rare).
  */
-export class MemoryRecipientSealer implements SealingKeyProvider, RecipientSealer {
+export class MemoryRecipientSealer implements NoydbSealer, RecipientSealer {
   readonly id: string
   private readonly keypair: Promise<CryptoKeyPair>
 
@@ -359,7 +359,7 @@ export interface SealedSecret {
 /**
  * Wire-format envelope persisted at `_meta/sealed-secret` for
  * managed-mode vaults. The provider produces raw sealed bytes via
- * {@link SealingKeyProvider.seal}; this wrapper carries the dispatch
+ * {@link NoydbSealer.seal}; this wrapper carries the dispatch
  * metadata hub needs to pick the right provider on the unseal path.
  *
  * Stability boundary: once shipped, the wire format only grows by
@@ -502,14 +502,14 @@ export async function loadSealedSecret(
 export async function resolveManagedSecret(
   store: NoydbStore,
   vault: string,
-  provider: SealingKeyProvider,
+  provider: NoydbSealer,
 ): Promise<string> {
   const existing = await loadSealedSecret(store, vault)
   if (existing) {
     if (existing.providerId !== provider.id) {
       throw new Error(
         `Managed-mode vault "${vault}" was sealed under provider id `
-        + `"${existing.providerId}" but the current SealingKeyProvider is `
+        + `"${existing.providerId}" but the current NoydbSealer is `
         + `"${provider.id}". Pass the same provider that originally enrolled `
         + 'the vault, or treat this as a fresh enrollment and clear '
         + '`_meta/sealed-secret` first.',

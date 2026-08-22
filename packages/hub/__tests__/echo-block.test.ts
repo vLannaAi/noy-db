@@ -5,7 +5,7 @@ import {
   resolveEchoReveal,
   verifyTypedEcho,
 } from '../src/with-party/team/echo-secret.js'
-import { MemoryDeviceSealProvider } from '../src/with-party/team/device-seal.js'
+import { MemoryDeviceSeal } from '../src/with-party/team/device-seal.js'
 import { WrongPromptError, ValidationError } from '../src/kernel/errors.js'
 import { bufferToBase64, base64ToBuffer } from '../src/kernel/enclave/index.js'
 
@@ -40,7 +40,7 @@ describe('echo block', () => {
   }, T)
 
   it('sealed: reveals only with the enrolling device provider', async () => {
-    const seal = new MemoryDeviceSealProvider({ id: 'test:mem' })
+    const seal = new MemoryDeviceSeal({ id: 'test:mem' })
     const block = await buildEchoBlock(PARTS, { kind: 'sealed', deviceSeal: seal })
     expect(block.reveal.kind).toBe('sealed')
     expect(await resolveEchoReveal(block, PARTS.prompt, seal)).toBe(PARTS.echo)
@@ -51,14 +51,14 @@ describe('echo block', () => {
   }, T)
 
   it('sealed: a genuinely foreign provider (different id) degrades to null, not an error', async () => {
-    const enrolling = new MemoryDeviceSealProvider({ id: 'device:enrolling' })
-    const foreign = new MemoryDeviceSealProvider({ id: 'device:foreign' })
+    const enrolling = new MemoryDeviceSeal({ id: 'device:enrolling' })
+    const foreign = new MemoryDeviceSeal({ id: 'device:foreign' })
     const block = await buildEchoBlock(PARTS, { kind: 'sealed', deviceSeal: enrolling })
     expect(await resolveEchoReveal(block, PARTS.prompt, foreign)).toBeNull()
   }, T)
 
   it('sealed: same provider id but a tampered blob rejects (genuine tamper anomaly, not masked)', async () => {
-    const seal = new MemoryDeviceSealProvider({ id: 'test:mem' })
+    const seal = new MemoryDeviceSeal({ id: 'test:mem' })
     const block = await buildEchoBlock(PARTS, { kind: 'sealed', deviceSeal: seal })
     if (block.reveal.kind !== 'sealed') throw new Error('expected sealed reveal')
     const tampered = { ...block, reveal: { ...block.reveal, blob: tamperBase64(block.reveal.blob) } }

@@ -4,7 +4,7 @@
  * A **Deed** is a vault owned by a *latent* principal who never
  * authenticates. The owner credential (the random secret that
  * derives `KEK_owner`) is minted machine-side and sealed under a
- * **non-firm** {@link SealingKeyProvider} — that sealing boundary is
+ * **non-firm** {@link NoydbSealer} — that sealing boundary is
  * the cryptographic *inalienability anchor*: whoever holds the
  * provider (the client / their KMS) is the only party that can ever
  * re-derive `KEK_owner`. A firm-side custodian operates the vault
@@ -33,7 +33,7 @@ import { buildRecordEnvelope } from '../../kernel/enclave/index.js'
 import type { NoydbStore } from '../../kernel/types.js'
 import type { UnlockedKeyring } from './keyring.js'
 import { createOwnerKeyring } from './keyring.js'
-import type { SealingKeyProvider } from './managed-secret.js'
+import type { NoydbSealer } from './managed-secret.js'
 import { resolveManagedSecret } from './managed-secret.js'
 
 /** Reserved id for the Deed marker under `_meta`. */
@@ -49,7 +49,7 @@ export interface DeedMarker {
   /** The latent owner principal — the user id of the `_keyring/<id>` owner file. */
   readonly ownerUserId: string
   /**
-   * The `SealingKeyProvider.id` the owner credential is sealed under.
+   * The `NoydbSealer.id` the owner credential is sealed under.
    * The inalienability anchor: only the holder of this (non-firm)
    * provider can re-derive `KEK_owner`. Audit metadata — never secret.
    */
@@ -94,7 +94,7 @@ export async function createDeedOwner(
   store: NoydbStore,
   vault: string,
   ownerUserId: string,
-  sealing: SealingKeyProvider,
+  sealing: NoydbSealer,
 ): Promise<UnlockedKeyring> {
   // 1. Mint + seal + persist the random owner secret under the
   //    non-firm provider (writes _meta/sealed-secret).

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   isQuorum,
   runDrainBarrier,
-  type CoordinationProvider,
+  type NoydbMesh,
   type FenceState,
   type WriterPresence,
 } from '../src/port/by/index.js'
@@ -55,10 +55,10 @@ describe('isQuorum', () => {
 })
 
 /**
- * Hand-rolled in-memory CoordinationProvider for driving runDrainBarrier
+ * Hand-rolled in-memory NoydbMesh for driving runDrainBarrier
  * deterministically. The test pushes presence sets via `pushPresence`.
  */
-class MockProvider implements CoordinationProvider {
+class MockProvider implements NoydbMesh {
   fences: FenceState[] = []
   writers: WriterPresence[] = []
   private presenceListeners = new Set<(w: readonly WriterPresence[]) => void>()

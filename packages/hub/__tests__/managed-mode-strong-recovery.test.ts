@@ -18,10 +18,10 @@
  *      and rewraps DEKs under the new KEK.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { NoydbStore, EncryptedEnvelope, SealingKeyProvider } from '../src/index.js'
+import type { NoydbStore, EncryptedEnvelope, NoydbSealer } from '../src/index.js'
 import {
   createNoydb,
-  MemorySealingKeyProvider,
+  MemorySealer,
 } from '../src/index.js'
 // #843 C2: hub-internal, no longer on the public barrel.
 import { loadSealedSecret } from '../src/with-party/team/managed-secret.js'
@@ -50,8 +50,8 @@ function inlineMemory(): NoydbStore {
   }
 }
 
-function freshProvider(id: string): SealingKeyProvider {
-  return new MemorySealingKeyProvider({ id })
+function freshProvider(id: string): NoydbSealer {
+  return new MemorySealer({ id })
 }
 
 const ALICE = 'alice'

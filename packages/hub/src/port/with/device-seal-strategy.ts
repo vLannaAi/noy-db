@@ -3,11 +3,11 @@
  * #940). Lives on the `/with` port (the one seam the kernel spine may
  * import statically) so `NoydbOptions.deviceSeal` can reference this type
  * without a spine→service static import. The concrete implementation
- * (`MemoryDeviceSealProvider`) and the canonical re-export of this type
+ * (`MemoryDeviceSeal`) and the canonical re-export of this type
  * live in `with-party/team/device-seal.ts`.
  * @internal
  */
-export interface DeviceSealProvider {
+export interface NoydbDeviceSeal {
   /** Non-sensitive identifier persisted as `provider_hint`. */
   readonly id: string
   seal(plain: Uint8Array): Promise<Uint8Array>

@@ -1,5 +1,5 @@
 /**
- * Store-backed default {@link CoordinationProvider}.
+ * Store-backed default {@link NoydbMesh}.
  *
  * Maps the five coordination-port methods onto today's `_meta/schema-fence`
  * store ops so that, with no `by-*` provider injected, the fence service
@@ -14,7 +14,7 @@ import type { NoydbStore } from '../../kernel/types.js'
 import type { Unsubscribe } from '../../port/with/write-hooks.js'
 import { loadFence, saveFence, type FenceDoc } from './fence.js'
 import { writeClientDoc, listClientDocs, type ClientDoc } from './client-registry.js'
-import type { CoordinationProvider, FenceState, WriterPresence } from '../../port/by/types.js'
+import type { NoydbMesh, FenceState, WriterPresence } from '../../port/by/types.js'
 
 /**
  * Default poll cadence for the `observe*` fallbacks (ms). Matches the
@@ -47,7 +47,7 @@ function presenceListEqual(a: readonly WriterPresence[], b: readonly WriterPrese
   return a.every((w) => bk.has(key(w)))
 }
 
-export class StoreCoordinationProvider implements CoordinationProvider {
+export class StoreMesh implements NoydbMesh {
   readonly #store: NoydbStore
   readonly #pollIntervalMs: number
 

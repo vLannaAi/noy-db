@@ -61,14 +61,14 @@ import type { SecretPolicy, EchoSecretPolicy } from './validation.js'
 import type { CoverSchema } from '../with-party/directory/cover/types.js'
 import type { MaterializedViewStrategy } from '../with-formula/materialized-views/types.js'
 import type { OverlayedViewStrategy } from '../with-formula/overlay-views/types.js'
-import type { SealingKeyProvider, RecipientHint } from '../with-party/team/managed-secret.js'
+import type { NoydbSealer, RecipientHint } from '../with-party/team/managed-secret.js'
 import type { ShamirRecoveryProvider } from '../with-party/team/shamir-recovery-provider.js'
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
-import type { CoordinationProvider } from '../port/by/types.js'
+import type { NoydbMesh } from '../port/by/types.js'
 import type { ScriptWarning } from '../port/with/i18n-strategy.js'
 import type { ViaDescriptor } from './via/index.js'
 import type { EnclaveKey, EchoSecretParts } from './enclave/index.js'
-import type { DeviceSealProvider } from '../port/with/device-seal-strategy.js'
+import type { NoydbDeviceSeal } from '../port/with/device-seal-strategy.js'
 
 export type { EchoSecretParts }
 
@@ -448,7 +448,7 @@ export class SealedHandle<V> implements Sealed<V> {
  * implement this — the §11.2 capability matrix lives in the type system.
  *
  * Per foundation §11.4. A function that requires recipient-target sealing
- * takes `RecipientSealer`, not `SealingKeyProvider` — the compiler rejects
+ * takes `RecipientSealer`, not `NoydbSealer` — the compiler rejects
  * passing a self-only provider at the spec site.
  */
 export interface RecipientSealer {
@@ -457,7 +457,7 @@ export interface RecipientSealer {
   publishRecipientHint(): Promise<RecipientHint>
   /**
    * Seal plaintext for the recipient described by `hint`. Returns opaque
-   * bytes — same contract as `SealingKeyProvider.seal()`. The bundle
+   * bytes — same contract as `NoydbSealer.seal()`. The bundle
    * layer base64-encodes the bytes into `SealedAutoUnlockEntry.sealed`
    * without inspecting them.
    */
@@ -2938,13 +2938,13 @@ export interface NoydbOptions {
    * (`@noy-db/seal-macos-keychain`, `@noy-db/seal-wincred`,
    * `@noy-db/seal-libsecret`, `@noy-db/seal-aws-kms`, …).
    */
-  readonly sealingKey?: SealingKeyProvider
+  readonly sealingKey?: NoydbSealer
   /**
    * Device-local sealer for the echo reveal-blob. Echo mode only.
    * Absent ⇒ live keyrings enroll `reveal: 'portable'`; present ⇒
    * `sealed` (attacker-B resistance). Spec resolved question 4.
    */
-  readonly deviceSeal?: DeviceSealProvider
+  readonly deviceSeal?: NoydbDeviceSeal
   /**
    * Echo enrollment only: optional display hint for the masked echo,
    * threaded to the owner keyring's `KeyringEchoBlock.mask_hint` (surfaced
@@ -3107,15 +3107,15 @@ export interface NoydbOptions {
   readonly plaintextTranslatorName?: string
   /**
    * Drain-barrier coordination transport for the schema fence.
-   * When omitted, the kernel uses a {@link CoordinationProvider} backed by the
-   * primary store (`StoreCoordinationProvider`), reproducing today's
+   * When omitted, the kernel uses a {@link NoydbMesh} backed by the
+   * primary store (`StoreMesh`), reproducing today's
    * store-polling fence behavior byte-for-byte. `@noy-db/by-tabs` /
    * `@noy-db/by-peer` inject a real-time push transport here; an external
    * orchestrator (`@klum-db/lobby`) drives it through the `Noydb` handle.
    *
    * @internal
    */
-  readonly coordinationStrategy?: CoordinationProvider
+  readonly coordinationStrategy?: NoydbMesh
   /**
    * Pre-resolved factory for the `vault.user` per-principal user-envelope
    * API. `createNoydb()` always resolves this itself (dynamically
@@ -3254,7 +3254,7 @@ export interface DeleteManyResult {
 // primitives) lives at `with-party/directory/user-envelope/` and is wired
 // in by `createNoydb()` via the pre-resolved `userApiFactory` option above
 // — the same dynamic-import-then-stash pattern used for the default
-// `CoordinationProvider`.
+// `NoydbMesh`.
 //
 // @see design-history/2026-05-05-user-envelope-design.md
 
@@ -3472,7 +3472,7 @@ export type UserApiFactory = (deps: UserApiDeps) => VaultUserApi
 // wired in by `createNoydb()` via the pre-resolved {@link NoydbPolicyFactory}
 // / {@link PolicyCheckGateFn} options above — the same
 // dynamic-import-then-stash pattern used for the default
-// `CoordinationProvider` / `UserApiFactory`.
+// `NoydbMesh` / `UserApiFactory`.
 //
 // @see https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/session-tiers.md → Policy gates DSL
 

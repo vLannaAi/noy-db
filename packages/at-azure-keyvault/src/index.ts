@@ -56,7 +56,7 @@
  * @packageDocumentation
  */
 
-import type { SealingKeyProvider } from '@noy-db/hub'
+import type { NoydbSealer } from '@noy-db/hub'
 import {
   CryptographyClient,
   type EncryptResult,
@@ -96,7 +96,7 @@ export interface AzureKeyVaultSealingProviderOptions {
 }
 
 /**
- * Build a {@link SealingKeyProvider} backed by Azure Key Vault Encrypt / Decrypt.
+ * Build a {@link NoydbSealer} backed by Azure Key Vault Encrypt / Decrypt.
  *
  * Credentials are resolved via `DefaultAzureCredential` — managed identities
  * on Azure hosts, `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_CLIENT_SECRET`
@@ -108,7 +108,7 @@ export interface AzureKeyVaultSealingProviderOptions {
  * SDK-response shapes). Any Key Vault API error (Forbidden, NotFound, etc.)
  * propagates as-is.
  */
-export function azureKeyVaultSealingProvider(opts: AzureKeyVaultSealingProviderOptions): SealingKeyProvider {
+export function azureKeyVaultSealingProvider(opts: AzureKeyVaultSealingProviderOptions): NoydbSealer {
   const algorithm = opts.algorithm ?? 'RSA-OAEP-256'
   const client: CryptoLike = opts.cryptographyClient
     ?? new CryptographyClient(opts.keyId, new DefaultAzureCredential())

@@ -7,15 +7,15 @@
  * migrator waits for the active client set (registry heartbeats) to ack
  * the draining generation before transforming. No leader election.
  *
- * The transport is the injected {@link CoordinationProvider} port: the
- * default {@link StoreCoordinationProvider} maps it onto today's
+ * The transport is the injected {@link NoydbMesh} port: the
+ * default {@link StoreMesh} maps it onto today's
  * `_meta/schema-fence` store ops, so behavior is byte-for-byte the same;
  * `by-tabs` / `by-peer` swap in real-time push transports.
  */
 import { type FenceState } from './fence.js'
 import { SchemaFenceError, MigrationRequiredError } from '../../kernel/errors.js'
 import type { TransformFn } from './types.js'
-import { runDrainBarrier, type CoordinationProvider } from '../../port/by/index.js'
+import { runDrainBarrier, type NoydbMesh } from '../../port/by/index.js'
 
 /** Runs one collection's transform; supplied by the Vault (binds to a Collection). */
 export type RunTransform = (collection: string, transform: TransformFn) => Promise<void>
@@ -65,7 +65,7 @@ export function schemaBumpAuditHook(
 }
 
 export class SchemaFenceController {
-  readonly #coordination: CoordinationProvider
+  readonly #coordination: NoydbMesh
   readonly #vault: string
   readonly #onFlush: () => Promise<void>
   readonly #writerId: string
@@ -78,7 +78,7 @@ export class SchemaFenceController {
   readonly #pending = new Map<string, TransformFn>()
 
   constructor(opts: {
-    coordination: CoordinationProvider
+    coordination: NoydbMesh
     vault: string
     onFlush: () => Promise<void>
     /** Stable per-instance id; the migrator excludes itself from the barrier. */
