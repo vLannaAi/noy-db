@@ -7,7 +7,9 @@
  * What this DOES cover:
  *
  *   - encryptEntryWzAes + decryptEntryWzAes round-trip cleanly
- *   - wrong password fast-fails on the verifier (before HMAC)
+ *   - wrong password is rejected — by whichever check catches it (#1167)
+ *   - the verifier IS checked and fires before the HMAC (deterministic)
+ *   - a verifier COLLISION still fails closed, on the HMAC (deterministic)
  *   - tampered ciphertext fails on the HMAC check
  *   - writeZip → readZip round-trip with password
  *   - readZip refuses non-AES encryption + non-STORE compression
@@ -16,11 +18,44 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { encryptEntryWzAes, decryptEntryWzAes, ZipCipherError } from '../src/aes.js'
+import {
+  encryptEntryWzAes,
+  decryptEntryWzAes,
+  ZipCipherError,
+  WZAES_SALT_LEN,
+  WZAES_PBKDF2_ITERATIONS,
+} from '../src/aes.js'
 import { writeZip, readZip, type ZipEntry } from '../src/index.js'
 
 const PW = 'shared-with-recipient-2026'
 const ALT = 'wrong-secret'
+
+/**
+ * The last 2 bytes of WinZip-AES's PBKDF2 output — the verifier — for a given
+ * password and salt.
+ *
+ * `deriveKeys` is module-private, so this replicates it from the exported
+ * constants and the layout its own doc comment states (32-byte AES key,
+ * 32-byte HMAC key, 2-byte verifier). A replication can drift; this one
+ * cannot drift SILENTLY, because its only consumer asserts that splicing the
+ * result makes the verifier check PASS. A wrong derivation fails that test
+ * with the verifier message instead.
+ */
+async function deriveVerifier(password: string, salt: Uint8Array): Promise<Uint8Array> {
+  const baseKey = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password) as BufferSource,
+    { name: 'PBKDF2' },
+    false,
+    ['deriveBits'],
+  )
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-1', salt: salt as BufferSource, iterations: WZAES_PBKDF2_ITERATIONS },
+    baseKey,
+    (32 + 32 + 2) * 8,
+  )
+  return new Uint8Array(bits).slice(64, 66)
+}
 
 describe('encryptEntryWzAes / decryptEntryWzAes', () => {
   it('round-trips a small payload', async () => {
@@ -54,10 +89,65 @@ describe('encryptEntryWzAes / decryptEntryWzAes', () => {
     ).rejects.toBeInstanceOf(ZipCipherError)
   })
 
-  it('wrong password fails on the verifier', async () => {
+  it('wrong password is REJECTED — by whichever check catches it (#1167)', async () => {
     const enc = await encryptEntryWzAes(new TextEncoder().encode('secret'), PW)
+    // Asserts the property, not the layer. The verifier is TWO BYTES over a
+    // per-call random salt, so a wrong password clears it once in 65,536 runs
+    // and the rejection arrives from the trailing HMAC instead. Pinning
+    // /verifier mismatch/ made a correct rejection look like a broken one at
+    // that rate — inherent, not environmental: same odds on an idle laptop as
+    // in CI.
+    //
+    // The layer is not untested, it is tested deterministically below, where
+    // the collision is constructed instead of waited for.
     await expect(decryptEntryWzAes(enc.dataRegion, ALT))
-      .rejects.toThrow(/verifier mismatch/)
+      .rejects.toThrow(/verifier mismatch|authentication code mismatch/)
+  })
+
+  it('the verifier IS checked, and fires before the HMAC (#1167)', async () => {
+    // Widening the assertion above cost something, and this pays it back.
+    //
+    // With `/verifier mismatch/` pinned, that test doubled as proof the
+    // verifier check existed at all — delete the check and it went red. The
+    // widened version does not: a deleted verifier check just means the HMAC
+    // rejects instead, which the widened regex accepts. Verified by mutation;
+    // only a zip-level test two files away caught it, which is the
+    // absorbed-by-a-distant-guard shape.
+    //
+    // So assert the layer HERE, deterministically: corrupt the stored
+    // verifier and decrypt with the RIGHT password. The HMAC would pass, so
+    // only the verifier can reject — no 1-in-65,536 anywhere.
+    const enc = await encryptEntryWzAes(new TextEncoder().encode('secret'), PW)
+    const region = new Uint8Array(enc.dataRegion)
+    region[WZAES_SALT_LEN] = region[WZAES_SALT_LEN]! ^ 0xff
+
+    await expect(decryptEntryWzAes(region, PW)).rejects.toThrow(/verifier mismatch/)
+  })
+
+  it('a verifier COLLISION still fails closed — on the HMAC (#1167)', async () => {
+    // The 1-in-65,536 branch, made deterministic by constructing the collision
+    // rather than drawing for it: splice the verifier ALT derives for THIS
+    // salt into the region, so the 2-byte check passes for the wrong password
+    // by construction. Nothing else is touched, so the HMAC must reject.
+    //
+    // This is reachable in production at exactly the same rate, and until now
+    // nothing covered it.
+    const enc = await encryptEntryWzAes(new TextEncoder().encode('secret'), PW)
+    const region = new Uint8Array(enc.dataRegion)
+    const salt = region.slice(0, WZAES_SALT_LEN)
+    const altVerifier = await deriveVerifier(ALT, salt)
+    region.set(altVerifier, WZAES_SALT_LEN)
+
+    const err = await decryptEntryWzAes(region, ALT).then(
+      () => { throw new Error('a wrong password DECRYPTED after a verifier collision') },
+      (e: unknown) => e as Error,
+    )
+    // Asserting the HMAC message is what proves the splice worked: if the
+    // local derivation below ever diverges from the module's, the verifier
+    // would NOT match and this would fail loudly with the verifier message
+    // rather than passing vacuously.
+    expect(err).toBeInstanceOf(ZipCipherError)
+    expect(err.message).toMatch(/authentication code mismatch/)
   })
 
   it('tampered ciphertext fails on the HMAC check', async () => {
