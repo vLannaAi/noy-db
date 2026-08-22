@@ -30,7 +30,7 @@ import {
   unwrapDeksFromBlob,
   type WrappedDeksBlob,
 } from './wrapped-deks.js'
-import type { ShamirRecoveryProvider } from './shamir-recovery-provider.js'
+import type { NoydbShamir } from './noydb-shamir.js'
 
 /**
  * One paper recovery code as persisted in `_meta/recovery-paper`.
@@ -249,7 +249,7 @@ export async function saveShamirRecoveryEntries(
  * @param label - Optional caller label.
  */
 export async function mintShamirRecoveryEntry(
-  provider: ShamirRecoveryProvider,
+  provider: NoydbShamir,
   deks: Map<string, EnclaveKey>,
   entryId: string,
   k: number,
@@ -284,7 +284,7 @@ export async function mintShamirRecoveryEntry(
  * with. Callers iterating multiple entries should catch.
  */
 export async function unwrapDeksFromShamirEntry(
-  provider: ShamirRecoveryProvider,
+  provider: NoydbShamir,
   entry: ShamirRecoveryEntry,
   shareStrings: readonly string[],
 ): Promise<Map<string, EnclaveKey>> {

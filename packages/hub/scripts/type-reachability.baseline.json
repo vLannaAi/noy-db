@@ -88,7 +88,7 @@
     "./team :: mintWrappedDeksBlob mentions EnclaveKey",
     "./team :: readMagicLinkGrantRecord mentions EnclaveKey",
     "./team :: readMagicLinkGrantRecord mentions MagicLinkGrantPayload",
-    "./team :: recoverSecret mentions ShamirRecoveryProvider",
+    "./team :: recoverSecret mentions NoydbShamir",
     "./team :: revoke mentions RevokeOptions",
     "./team :: unwrapDeksFromBlob mentions EnclaveKey",
     "./team :: unwrapDeksFromPaperEntry mentions EnclaveKey",

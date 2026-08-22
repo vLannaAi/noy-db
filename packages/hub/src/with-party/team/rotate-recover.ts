@@ -40,7 +40,7 @@ import {
   type PaperRecoveryEntry,
   type ShamirRecoveryEntry,
 } from './recovery.js'
-import type { ShamirRecoveryProvider } from './shamir-recovery-provider.js'
+import type { NoydbShamir } from './noydb-shamir.js'
 import {
   assertStrongSecret,
   assertStrongEchoSecret,
@@ -438,7 +438,7 @@ export type RecoveryProof =
       /** Optional disambiguator when multiple Shamir entries are enrolled.
        *  When omitted, hub tries each entry until one combines. */
       readonly entryId?: string
-      /** K or more opaque share strings, as returned by `ShamirRecoveryProvider.splitToShares`. */
+      /** K or more opaque share strings, as returned by `NoydbShamir.splitToShares`. */
       readonly shares: ReadonlyArray<string>
     } }
 
@@ -622,7 +622,7 @@ export type RecoveryEnrollmentInput =
  * stored set).
  */
 export async function recoverSecret(
-  provider: ShamirRecoveryProvider | undefined,
+  provider: NoydbShamir | undefined,
   store: NoydbStore,
   vault: string,
   userId: string,
@@ -783,7 +783,7 @@ function normalizePaperCode(input: string): string {
  *    explicit {@link Noydb.rotateRecovery} is the refresh ceremony.
  */
 async function recoverViaShamir(
-  provider: ShamirRecoveryProvider | undefined,
+  provider: NoydbShamir | undefined,
   store: NoydbStore,
   vault: string,
   userId: string,
@@ -814,7 +814,7 @@ async function recoverViaShamir(
 
   if (!provider) {
     throw new Error(
-      "shamir recovery requires a ShamirRecoveryProvider — pass "
+      "shamir recovery requires a NoydbShamir — pass "
       + "shamirRecovery: shamirRecoveryProvider() from '@noy-db/on-shamir' to createNoydb()",
     )
   }

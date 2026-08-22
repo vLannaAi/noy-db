@@ -141,6 +141,24 @@
       "section": "by-port",
       "where": "src/kernel/noydb.ts",
       "note": "The `Noydb.coordination` getter — how an external orchestrator (@klum-db/lobby) drives the port through the handle. safeGlobalReplace is false: `coordination` is an ordinary English word and appears as such throughout the family's prose. Measured: zero property accesses in any sibling repo today."
+    },
+    {
+      "from": "ShamirRecoveryProvider",
+      "to": "NoydbShamir",
+      "kind": "type",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "on-port",
+      "note": "The LAST `Provider`-suffixed port instance on the published surface, and the only `on-*` entry among hub's injected ports \u2014 `store`/`sealingKey`/`deviceSeal`/`mesh` are the others. Not renamed to `NoydbRecovery`: the contract is Shamir-specific (`splitToShares`/`combineShares`, k-of-n), so a generic name would over-claim what hub accepts. Its module moved with it: with-party/team/shamir-recovery-provider.ts \u2192 noydb-shamir.ts."
+    },
+    {
+      "from": "ShamirRecoveryProvider",
+      "to": "NoydbShamir",
+      "kind": "type",
+      "package": "@noy-db/on-shamir",
+      "safeGlobalReplace": true,
+      "section": "on-port",
+      "note": "on-shamir exports a structural MIRROR of hub's port under its own name, because hub devDepends on this package and a peer edge back is a build cycle \u2014 measured: turbo refuses `@noy-db/on-shamir#build, @noy-db/hub#build` outright. Renamed in lockstep and deliberately to the SAME name, so the duplication is legible rather than disguised; hub compiles the two against each other in noydb-shamir-satellite.test-d.ts."
     }
   ],
   "unretired": [

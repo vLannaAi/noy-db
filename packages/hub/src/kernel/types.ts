@@ -62,7 +62,7 @@ import type { CoverSchema } from '../with-party/directory/cover/types.js'
 import type { MaterializedViewStrategy } from '../with-formula/materialized-views/types.js'
 import type { OverlayedViewStrategy } from '../with-formula/overlay-views/types.js'
 import type { NoydbSealer, RecipientHint } from '../with-party/team/managed-secret.js'
-import type { ShamirRecoveryProvider } from '../with-party/team/shamir-recovery-provider.js'
+import type { NoydbShamir } from '../with-party/team/noydb-shamir.js'
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
 import type { NoydbMesh } from '../port/by/types.js'
 import type { ScriptWarning } from '../port/with/i18n-strategy.js'
@@ -2958,7 +2958,7 @@ export interface NoydbOptions {
   readonly echoMaskHint?: string
   /** Required to use `profile: 'shamir'` recovery. Pass
    *  `shamirRecoveryProvider()` from `@noy-db/on-shamir`. */
-  readonly shamirRecovery?: ShamirRecoveryProvider
+  readonly shamirRecovery?: NoydbShamir
   /** Enable encryption. Default: true. */
   readonly encrypt?: boolean
   /**

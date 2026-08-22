@@ -4,7 +4,7 @@
  * sees `RawShare` or the share codecs. Implemented by
  * `shamirRecoveryProvider()` from `@noy-db/on-shamir`.
  */
-export interface ShamirRecoveryProvider {
+export interface NoydbShamir {
   /** Split `secret` into `n` base32 share strings; any `k` recombine it. */
   splitToShares(secret: Uint8Array, k: number, n: number): string[]
   /**

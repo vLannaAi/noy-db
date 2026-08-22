@@ -405,6 +405,6 @@ describe('Shamir recovery — no-provider guard', () => {
     await db.openVault('acme')
     await expect(
       db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3 }),
-    ).rejects.toThrow(/requires a ShamirRecoveryProvider/)
+    ).rejects.toThrow(/requires a NoydbShamir/)
   })
 })

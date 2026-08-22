@@ -1775,7 +1775,7 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-party/session/strategy.js',
     '../with-party/team/keyring.js',
     '../with-party/team/managed-secret.js',
-    '../with-party/team/shamir-recovery-provider.js',
+    '../with-party/team/noydb-shamir.js',
     '../with-sync/strategy.js',
     '../with-shape/blobs/object-projection.js',
     '../port/by/types.js',
