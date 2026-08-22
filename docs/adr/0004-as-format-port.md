@@ -109,6 +109,35 @@ than four packages' jobs, four ways.
 Of the five in scope, four have an import path (`as-sql` is export-only). That
 is a property of the implementations, not of the contract.
 
+## ⚠️ `write()` cannot move into hub — `hub-portable` forbids it
+
+The Context section says hub absorbs `download`/`write`. Measured against the
+architecture guard, only part of that is available:
+
+`check-architecture`'s `hub-portable` rule forbids Node builtins anywhere in
+`hub/src`, because hub must run in a browser, Worker, Deno and Bun. Every
+`as-*` `write()` does `await import('node:fs/promises')`. The guard's patterns
+match `from '…'` and would NOT catch a dynamic `import(…)` — which makes this a
+loophole, not permission. Taking it would put a call into hub that throws in
+three of the four runtimes hub claims to support.
+
+**So the split is:**
+
+| moves to hub | stays in the package |
+|---|---|
+| the export **gate** | `download()` — 3 lines of platform code |
+| the vault **read** | `write()` — 3 lines, plus the Node import |
+| **redaction** | |
+| `encode` orchestration | |
+
+The 11-line duplicated body collapses to ~3 lines that are genuinely
+platform-specific. The gate, the read and the redaction — everything with a
+correctness or security consequence — move once. That is the substance; the
+remaining lines are the part that legitimately differs per runtime.
+
+`acknowledgeRisks` stays a hub-owned assertion so the plaintext-to-disk gate
+is not re-implemented five times either.
+
 ## ⚠️ Scope — this reaches FIVE of ten packages, not ten
 
 The design doc's sketch assumes every `as-*` is `rows → bytes`. Measured

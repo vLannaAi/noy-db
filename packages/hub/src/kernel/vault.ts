@@ -3,6 +3,12 @@ import { populateCollectionRegistries } from '../port/with/collection-registries
 import { NO_BLOBS } from '../port/with/blob-strategy.js'
 import type { StrategyBag } from '../port/with/strategies.js'
 import type {
+  NoydbFormat,
+  ImportPlan,
+  FormatExportOptions,
+  FormatImportOptions,
+} from '../port/with/formats-strategy.js'
+import type {
   NoydbStore,
   EncryptedEnvelope,
   HistoryConfig,
@@ -3508,6 +3514,27 @@ export class Vault {
    * }
    * ```
    */
+  /**
+   * Serialise this vault through an `as-*` format. The gate runs before a
+   * record is read and the format never receives a vault — see
+   * `docs/adr/0004-as-format-port.md` and `port/as/active.ts`.
+   */
+  async export<Out extends string | Uint8Array>(
+    format: NoydbFormat<Out>,
+    options?: FormatExportOptions,
+  ): Promise<Out> {
+    return this.strategies.formats.exportWith(this, format, options)
+  }
+
+  /** Plan an import from an `as-*` format. Nothing is written until `apply()`. */
+  async import<Out extends string | Uint8Array>(
+    format: NoydbFormat<Out>,
+    input: Out,
+    options?: FormatImportOptions,
+  ): Promise<ImportPlan> {
+    return this.strategies.formats.importWith(this, format, input, options)
+  }
+
   async *exportStream(opts: ExportStreamOptions = {}): AsyncIterableIterator<ExportChunk> {
     const granularity = opts.granularity ?? 'collection'
     // Export layer: when an export locale is set, read each record at that

@@ -55,6 +55,8 @@
  * @internal
  */
 
+import type { FormatsStrategy } from './formats-strategy.js'
+import { NO_FORMATS } from './formats-strategy.js'
 import { NO_VAULT_HEAD, type VaultHeadStrategy } from '../../with-commit/vault-head/strategy.js'
 import type { NoydbOptions } from '../../kernel/types.js'
 
@@ -95,6 +97,7 @@ import type { ArchiveStrategy } from '../../with-fork/archive/index.js'
  * completeness assertion below pins that correspondence.
  */
 export interface StrategyBag {
+  readonly formats: FormatsStrategy
   readonly reduce: ReduceStrategy
   readonly archive: ArchiveStrategy
   readonly attestation: AttestationStrategy
@@ -134,6 +137,7 @@ export type StrategyKey = keyof StrategyBag
  * row a compile error.
  */
 export const STRATEGY_DEFAULTS: StrategyBag = {
+  formats: NO_FORMATS,
   reduce: NO_REDUCE,
   archive: NO_ARCHIVE,
   attestation: NO_ATTESTATION,

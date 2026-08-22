@@ -27,6 +27,12 @@
  *
  * Named re-exports only (no `export *`) so the published surface is explicit.
  */
+export { withFormats } from './active.js'
+export type {
+  FormatsStrategy,
+  FormatExportOptions,
+  FormatImportOptions,
+} from '../with/formats-strategy.js'
 export type {
   NoydbFormat,
   DecodedChunk,

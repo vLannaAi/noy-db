@@ -64,6 +64,7 @@ import type { OverlayedViewStrategy } from '../with-formula/overlay-views/types.
 import type { NoydbSealer, RecipientHint } from '../with-party/team/managed-secret.js'
 import type { NoydbShamir } from '../with-party/team/noydb-shamir.js'
 import type { ObjectProjection } from '../with-shape/blobs/object-projection.js'
+import type { FormatsStrategy } from '../port/with/formats-strategy.js'
 import type { NoydbMesh } from '../port/by/types.js'
 import type { ScriptWarning } from '../port/with/i18n-strategy.js'
 import type { ViaDescriptor } from './via/index.js'
@@ -3115,6 +3116,12 @@ export interface NoydbOptions {
    *
    * @internal
    */
+  /**
+   * Enables `vault.export(format)` / `vault.import(format, input)` — the
+   * `as-*` format port. Opt-in: a vault that never exports ships none of it.
+   * `withFormats()` from `@noy-db/hub/as`.
+   */
+  readonly formatsStrategy?: FormatsStrategy
   readonly mesh?: NoydbMesh
   /**
    * Pre-resolved factory for the `vault.user` per-principal user-envelope

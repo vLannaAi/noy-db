@@ -556,11 +556,6 @@ function checkEveryServiceGated() {
 //   subpath". Removing a name from here means giving it a subpath.
 const NOT_SERVICE_SUBPATHS = new Set([
   'cargo', 'to', 'pod', 'satellites', 'util', 'share-link', 'query',
-  // FAMILY PORT, like `to`: the contract an `as-*` format implements. Unlike
-  // the 0.3.0 version that was pruned for zero importers, this one carries
-  // types that exist NOWHERE else — ImportPolicy was declared six times across
-  // satellites and not at all in hub. See docs/adr/0004-as-format-port.md.
-  'as',
   // FAMILY PORT, like `to`: the contract an `at-*` sealing-key provider
   // implements, not a capability a vault opts into. Re-introduced in the
   // 0.7 line (it shipped in 0.3.0 and was removed in 0.4.0 for "zero
@@ -625,6 +620,11 @@ const SUBPATH_ALIASES = new Map([
   ['withI18n', 'i18n'],
   ['withCrdt', 'crdt'],
   ['withSealedRecord', 'sealed-record'],
+  // `/as` carries BOTH the port a format implements and the service that
+  // consumes it, the way `/blobs` carries `withBlobs()`. The subpath is named
+  // for the family, not the factory, because the family prefix is what a
+  // developer looks up (ADR 0004).
+  ['withFormats', 'as'],
 ])
 
 function checkServiceSubpathNaming() {
@@ -1339,7 +1339,14 @@ const KERNEL_SURFACE_BUDGET = {
   // other seven entry points here (close/open/freeze/archive/purgeTargets/
   // list/get) and splitting one lifecycle across two surfaces to buy 12 lines
   // would cost more in legibility than the ceiling is protecting.
-  'packages/hub/src/kernel/vault.ts': 3716,
+  // Bumped 3716→3742 (ADR 0004, as-* format port): TWO public delegators —
+  // export()/import() — and nothing else. The ratchet did its job here: the
+  // first attempt put ~100 lines on the spine (the gate wiring, the narrow
+  // format-facing context, the transactional apply walk), and this check
+  // rejected it with exactly the right instruction. All of it moved to
+  // port/as/active.ts. What remains is the entry point an opt-in service
+  // needs on Vault, which is the same cost withBlobs() and the rest pay.
+  'packages/hub/src/kernel/vault.ts': 3742,
   // Bumped 3960→3962 (#822 period-summary push symmetry, 2026-07-26): two lines wiring
   // the vault's existing `onDirty` into VaultPeriods so `closePeriod` marks the `_periods`
   // summary dirty and push carries it. The decision (which reserved collections push and
