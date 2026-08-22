@@ -224,10 +224,13 @@ function pascalSingular(collection: string): string {
 
 // ─── Reader ──────────────────────────────────────
 
-import { diffVault, type VaultDiff } from '@noy-db/hub'
+import { diffVault } from '@noy-db/hub'
 import { XMLParser, XMLValidator } from 'fast-xml-parser'
 
-export type ImportPolicy = 'merge' | 'replace' | 'insert-only'
+// Hub-owned as of 0.7 (ADR 0004). This line replaced a local declaration that
+// existed identically in six as-* packages, with nothing comparing them.
+import type { ImportPolicy, ImportPlan } from '@noy-db/hub/as'
+export type { ImportPolicy }
 
 export interface AsXMLImportOptions {
   /** Target collection. Required — XML has no native collection grouping. */
@@ -250,11 +253,7 @@ export interface AsXMLImportOptions {
   readonly policy?: ImportPolicy
 }
 
-export interface AsXMLImportPlan {
-  readonly plan: VaultDiff
-  readonly policy: ImportPolicy
-  apply(): Promise<void>
-}
+export type AsXMLImportPlan = ImportPlan
 
 /**
  * Parse XML into records and build an import plan. Inverts what

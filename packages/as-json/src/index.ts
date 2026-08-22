@@ -169,7 +169,7 @@ function stripMeta(record: Record<string, unknown>): Record<string, unknown> {
 
 // ─── Reader ─────────────────────────────────────────────
 
-import { diffVault, type VaultDiff } from '@noy-db/hub'
+import { diffVault } from '@noy-db/hub'
 
 /**
  * Reconciliation policy for `apply()`.
@@ -182,7 +182,10 @@ import { diffVault, type VaultDiff } from '@noy-db/hub'
  *   - `'insert-only'` — only insert new records; skip both updates and
  *     deletes. Useful for append-only ledgers.
  */
-export type ImportPolicy = 'merge' | 'replace' | 'insert-only'
+// Hub-owned as of 0.7 (ADR 0004). This line replaced a local declaration that
+// existed identically in six as-* packages, with nothing comparing them.
+import type { ImportPolicy, ImportPlan } from '@noy-db/hub/as'
+export type { ImportPolicy }
 
 export interface AsJSONImportOptions {
   /** Restrict the diff + apply to a subset of collections. */
@@ -199,12 +202,7 @@ export interface AsJSONImportOptions {
  * keeps the diff cheap and lets consumers render review-and-confirm
  * UIs without a separate dry-run mode.
  */
-export interface AsJSONImportPlan {
-  readonly plan: VaultDiff
-  readonly policy: ImportPolicy
-  /** Apply every change in `plan` (filtered by `policy`) to the vault. */
-  apply(): Promise<void>
-}
+export type AsJSONImportPlan = ImportPlan
 
 /**
  * Build an import plan from a parsed JSON document. Same shape

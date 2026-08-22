@@ -851,9 +851,12 @@ function inferColumns(records: readonly Record<string, unknown>[]): string[] {
 
 // ── Reader ──────────────────────────────────────
 
-import { diffVault, type VaultDiff } from '@noy-db/hub'
+import { diffVault } from '@noy-db/hub'
 
-export type ImportPolicy = 'merge' | 'replace' | 'insert-only'
+// Hub-owned as of 0.7 (ADR 0004). This line replaced a local declaration that
+// existed identically in six as-* packages, with nothing comparing them.
+import type { ImportPolicy, ImportPlan } from '@noy-db/hub/as'
+export type { ImportPolicy }
 
 /**
  * Thrown when a dict field contains two different keys whose labels are
@@ -924,11 +927,7 @@ export interface AsXlsxImportOptions {
   readonly smart?: boolean
 }
 
-export interface AsXlsxImportPlan {
-  readonly plan: VaultDiff
-  readonly policy: ImportPolicy
-  apply(): Promise<void>
-}
+export type AsXlsxImportPlan = ImportPlan
 
 /**
  * Build an import plan from an `.xlsx` byte stream. Inverts what

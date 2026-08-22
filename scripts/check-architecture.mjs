@@ -620,6 +620,11 @@ const SUBPATH_ALIASES = new Map([
   ['withI18n', 'i18n'],
   ['withCrdt', 'crdt'],
   ['withSealedRecord', 'sealed-record'],
+  // `/as` carries BOTH the port a format implements and the service that
+  // consumes it, the way `/blobs` carries `withBlobs()`. The subpath is named
+  // for the family, not the factory, because the family prefix is what a
+  // developer looks up (ADR 0004).
+  ['withFormats', 'as'],
 ])
 
 function checkServiceSubpathNaming() {
@@ -1334,7 +1339,14 @@ const KERNEL_SURFACE_BUDGET = {
   // other seven entry points here (close/open/freeze/archive/purgeTargets/
   // list/get) and splitting one lifecycle across two surfaces to buy 12 lines
   // would cost more in legibility than the ceiling is protecting.
-  'packages/hub/src/kernel/vault.ts': 3716,
+  // Bumped 3716→3742 (ADR 0004, as-* format port): TWO public delegators —
+  // export()/import() — and nothing else. The ratchet did its job here: the
+  // first attempt put ~100 lines on the spine (the gate wiring, the narrow
+  // format-facing context, the transactional apply walk), and this check
+  // rejected it with exactly the right instruction. All of it moved to
+  // port/as/active.ts. What remains is the entry point an opt-in service
+  // needs on Vault, which is the same cost withBlobs() and the rest pay.
+  'packages/hub/src/kernel/vault.ts': 3742,
   // Bumped 3960→3962 (#822 period-summary push symmetry, 2026-07-26): two lines wiring
   // the vault's existing `onDirty` into VaultPeriods so `closePeriod` marks the `_periods`
   // summary dirty and push carries it. The decision (which reserved collections push and
@@ -1601,7 +1613,7 @@ function checkNoOutboundKlumImport() {
  * the fix is an explicit exemption with the cross-repo binder named, not
  * deleting the rule.
  */
-const FAMILY_PORT_SUBPATHS = ['to', 'at', 'by']
+const FAMILY_PORT_SUBPATHS = ['to', 'at', 'by', 'as']
 
 function checkFamilyPortHasBinder() {
   for (const port of FAMILY_PORT_SUBPATHS) {

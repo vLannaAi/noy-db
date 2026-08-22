@@ -162,6 +162,7 @@
     }
   ],
   "unretired": [
+    "@noy-db/hub/as",
     "@noy-db/hub/at",
     "@noy-db/hub/by"
   ],
