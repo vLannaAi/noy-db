@@ -21,20 +21,33 @@ That emphasis is deliberate. `at-*` is the one non-zero-knowledge family, and hu
 
 Pass `skipTamper: true` only for a backend that cannot be handed a corrupted blob (a keychain that only ever returns what it stored). Skipping it because it fails is the bug it exists to find.
 
-## Service-backed providers need an integration lane, not mocks
+## Which providers can run what, and why
 
-`at-env` runs this suite in full: it does the cryptography itself, so every assertion exercises its own code.
+The split is not "local vs cloud" — it is **where the cryptography happens**.
 
-**`at-aws-kms`, `at-gcp-kms`, `at-azure-keyvault` and `at-macos-keychain` do not, and mocks would not fix that.** They delegate — `at-aws-kms`'s `seal` *is* a KMS `EncryptCommand` — so tamper rejection and cross-provider refusal are the service's behaviour, not the provider's. Standing a fake KMS in front of them would test the fake.
+| provider | full suite | obligations | why |
+|---|---|---|---|
+| `at-env` | ✅ | — | does its own AES-256-GCM |
+| **`at-macos-keychain`** | ✅ | — | **the Keychain stores the KEY; the sealing is `crypto.subtle` in this package.** A memory-backed `KeychainEntry` swaps the key store and leaves the cryptography real |
+| `at-aws-kms` | ❌ needs real KMS | ✅ | `seal` **is** an `EncryptCommand` |
+| `at-gcp-kms` | ❌ needs real KMS | ✅ | `seal` **is** `client.encrypt` |
+| `at-azure-keyvault` | ❌ | ❌ **no test seam** | see below |
 
-The honest split for a delegating provider:
+For a **delegating** provider, refusing tampered, foreign or garbage input is the *service's* behaviour. Standing a fake KMS in front of it and asserting tamper rejection tests the fake. What remains the *provider's* is covered by `runDelegatingSealerObligations`:
 
-| obligation | whose | testable how |
+| obligation | whose | how |
 |---|---|---|
 | refuses tampered / foreign / garbage input | **the service's** | only against the real service |
-| does not SWALLOW a service failure — a rejected `Decrypt` must surface as a thrown `unseal` | **the provider's** | a mock is fine and appropriate |
-| does not fabricate output when the service returns no ciphertext | **the provider's** | a mock is fine |
+| a service failure SURFACES, never swallowed | **the provider's** | stub client |
+| no ciphertext/plaintext ⇒ THROWS, never fabricates | **the provider's** | stub client |
 
-So the roadmap for those four is a **credential-gated integration lane** running this suite against real backends, plus a narrower provider-obligations suite for the two rows a mock can honestly cover. Not this package pretending to have run.
+Both obligations are already satisfied by every wired provider, so those tests **pin** the behaviour rather than having found it missing — worth saying, so a green run is not read as evidence a bug was caught. (Mutation-checked: making `unseal` fabricate empty bytes fails 1; making it swallow the failure fails 2.)
 
-Until then, be blunt about what is and is not verified: **those four providers have never had their `unseal`-refuses behaviour tested at all.** For the one non-zero-knowledge family, that is the behaviour you would least want untested.
+### ⚠️ `at-azure-keyvault` cannot be tested at all
+
+Every other `at-*` provider takes an injection seam — `entry` for the Keychain, `client` for AWS and GCP. `AzureKeyVaultSealingProviderOptions` takes only `keyId` and `algorithm`, so there is no way to exercise it without a real Key Vault. It is the one provider with **no coverage of either kind**, and closing that needs a production change (add `client?:`), not a test.
+
+### Still owed
+
+A **credential-gated integration lane** running the full suite against real AWS/GCP/Azure backends. Until it exists, be blunt about what is unverified: those three providers' refusal behaviour has never been executed.
+

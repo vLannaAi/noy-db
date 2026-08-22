@@ -136,3 +136,62 @@ export function runSealerConformanceTests(
     })
   })
 }
+
+/**
+ * Obligations for a DELEGATING provider — one whose `seal` IS the service call.
+ *
+ * `runSealerConformanceTests` cannot be run against `at-aws-kms`,
+ * `at-gcp-kms` or `at-azure-keyvault` without real credentials, because the
+ * properties it asserts (refusing tampered, foreign or garbage input) are the
+ * SERVICE's behaviour. Standing a fake KMS in front of them would test the
+ * fake.
+ *
+ * Two obligations remain squarely the provider's, and a stub client covers
+ * them honestly:
+ *
+ *   1. a service failure must SURFACE — never be swallowed into a resolved
+ *      promise. hub reads a thrown error as "this provider cannot unlock this
+ *      vault"; a provider that swallows one reports success for a vault it
+ *      never opened.
+ *   2. a response with no ciphertext/plaintext must THROW — never be
+ *      fabricated into empty bytes. Returning `new Uint8Array(0)` for a failed
+ *      Decrypt hands hub a "secret" nobody sealed.
+ *
+ * The caller supplies the providers, because each SDK's client shape differs
+ * and this package should not know about any of them.
+ *
+ * NOTE: at time of writing all wired providers already satisfy both. These
+ * tests PIN the behaviour rather than having found it missing — which is worth
+ * saying, so nobody reads a green run as evidence a bug was caught.
+ */
+export function runDelegatingSealerObligations(
+  name: string,
+  providers: {
+    /** Built with a client whose calls REJECT. */
+    readonly rejecting: () => Promise<NoydbSealer> | NoydbSealer
+    /** Built with a client that RESOLVES but returns no ciphertext/plaintext. */
+    readonly empty: () => Promise<NoydbSealer> | NoydbSealer
+  },
+): void {
+  describe(`Delegating-sealer obligations: ${name}`, () => {
+    it('seal THROWS when the service call rejects — never swallows it', async () => {
+      const s = await providers.rejecting()
+      await expect(s.seal(new Uint8Array([1, 2, 3]))).rejects.toThrow()
+    })
+
+    it('unseal THROWS when the service call rejects — never swallows it', async () => {
+      const s = await providers.rejecting()
+      await expect(s.unseal(new Uint8Array([1, 2, 3]))).rejects.toThrow()
+    })
+
+    it('seal THROWS when the service returns no ciphertext — never fabricates', async () => {
+      const s = await providers.empty()
+      await expect(s.seal(new Uint8Array([1, 2, 3]))).rejects.toThrow()
+    })
+
+    it('unseal THROWS when the service returns no plaintext — never fabricates', async () => {
+      const s = await providers.empty()
+      await expect(s.unseal(new Uint8Array([1, 2, 3]))).rejects.toThrow()
+    })
+  })
+}

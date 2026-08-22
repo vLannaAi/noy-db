@@ -53,6 +53,7 @@
     "@napi-rs/keyring": "^1.1.0",
     "@noy-db/hub": "workspace:*",
     "@noy-db/on-shamir": "workspace:*",
+    "@noy-db/test-sealer-conformance": "workspace:*",
     "@noy-db/to-memory": "workspace:*",
     "@types/node": "^22.0.0"
   },

@@ -166,6 +166,9 @@ importers:
       '@noy-db/on-shamir':
         specifier: workspace:*
         version: link:../on-shamir
+      '@noy-db/test-sealer-conformance':
+        specifier: workspace:*
+        version: link:../test-sealer-conformance
       '@noy-db/to-memory':
         specifier: workspace:*
         version: link:../to-memory
@@ -223,6 +226,9 @@ importers:
       '@noy-db/on-shamir':
         specifier: workspace:*
         version: link:../on-shamir
+      '@noy-db/test-sealer-conformance':
+        specifier: workspace:*
+        version: link:../test-sealer-conformance
       '@noy-db/to-memory':
         specifier: workspace:*
         version: link:../to-memory
@@ -241,6 +247,9 @@ importers:
       '@noy-db/on-shamir':
         specifier: workspace:*
         version: link:../on-shamir
+      '@noy-db/test-sealer-conformance':
+        specifier: workspace:*
+        version: link:../test-sealer-conformance
       '@noy-db/to-memory':
         specifier: workspace:*
         version: link:../to-memory
