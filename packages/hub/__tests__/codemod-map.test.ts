@@ -147,7 +147,14 @@ describe('0.4.0-pre rename map: every retired root-barrel symbol is migratable',
   }
 
   it('has a row for every symbol retired from the root barrel', () => {
-    const documented = new Set(map.renames.map((r) => r.from))
+    // Reads EVERY shipped map, not just this file's. `retired` is a ledger of
+    // what left the barrel across the project's whole history, so scoping the
+    // lookup to one line would fail the moment a later line retires anything —
+    // which is exactly what the 0.7 vocabulary rename does.
+    const documented = new Set(
+      [map, JSON.parse(read('../codemods/0.6.0-pre.json')), JSON.parse(read('../codemods/0.7.0-pre.json'))]
+        .flatMap((m: { renames: Array<{ from: string }> }) => m.renames.map((r) => r.from)),
+    )
     const undocumented = (golden.retired ?? []).filter((name) => !documented.has(name))
     expect(
       undocumented,

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { ConflictError } from '../src/kernel/errors.js'
 import { isQuorum } from '../src/port/by/index.js'
 import type { FenceState, WriterPresence } from '../src/port/by/index.js'
-import { StoreCoordinationProvider } from '../src/with-shape/schema-update/store-coordination-provider.js'
+import { StoreMesh } from '../src/with-shape/schema-update/store-coordination-provider.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 
 function memStore(): NoydbStore {
@@ -36,10 +36,10 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('StoreCoordinationProvider', () => {
+describe('StoreMesh', () => {
   it('setFence then reachableWriters/observeFence round-trips a written fence', async () => {
     const store = memStore()
-    const prov = new StoreCoordinationProvider(store, { pollIntervalMs: 5 })
+    const prov = new StoreMesh(store, { pollIntervalMs: 5 })
     const fence: FenceState = { currentSchemaVersion: 3, fenceState: 'draining' }
     await prov.setFence(VAULT, fence)
 
@@ -55,7 +55,7 @@ describe('StoreCoordinationProvider', () => {
 
   it('observeFence only fires on change', async () => {
     const store = memStore()
-    const prov = new StoreCoordinationProvider(store, { pollIntervalMs: 5 })
+    const prov = new StoreMesh(store, { pollIntervalMs: 5 })
     await prov.setFence(VAULT, { currentSchemaVersion: 1, fenceState: 'normal' })
 
     const seen: FenceState[] = []
@@ -76,7 +76,7 @@ describe('StoreCoordinationProvider', () => {
 
   it('reportPresence for 2 writers; reachableWriters returns both with sessionId preserved', async () => {
     const store = memStore()
-    const prov = new StoreCoordinationProvider(store)
+    const prov = new StoreMesh(store)
     const now = 1_000_000
 
     await prov.reportPresence(VAULT, { writerId: 'w1', sessionId: 's1', lastSeen: now, quiescedAtVersion: null })
@@ -91,7 +91,7 @@ describe('StoreCoordinationProvider', () => {
 
   it('reachableWriters prunes writers older than staleMs', async () => {
     const store = memStore()
-    const prov = new StoreCoordinationProvider(store)
+    const prov = new StoreMesh(store)
     const now = 1_000_000
 
     await prov.reportPresence(VAULT, { writerId: 'fresh', sessionId: 's', lastSeen: now - 100, quiescedAtVersion: null })
@@ -103,7 +103,7 @@ describe('StoreCoordinationProvider', () => {
 
   it('observePresence fires when a new presence is written, mapping ClientDoc -> WriterPresence', async () => {
     const store = memStore()
-    const prov = new StoreCoordinationProvider(store, { pollIntervalMs: 5 })
+    const prov = new StoreMesh(store, { pollIntervalMs: 5 })
     const now = 2_000_000
 
     const emissions: (readonly WriterPresence[])[] = []
@@ -120,7 +120,7 @@ describe('StoreCoordinationProvider', () => {
 
   it('isQuorum over reachableWriters() flips false -> true as writers ack', async () => {
     const store = memStore()
-    const prov = new StoreCoordinationProvider(store)
+    const prov = new StoreMesh(store)
     const now = 3_000_000
     const generation = 9
 
@@ -139,7 +139,7 @@ describe('StoreCoordinationProvider', () => {
   it('reportPresence omits sessionId gracefully on read (defaults to writerId)', async () => {
     // writeClientDoc called without sessionId (legacy doc) maps to a non-empty sessionId.
     const store = memStore()
-    const prov = new StoreCoordinationProvider(store)
+    const prov = new StoreMesh(store)
     const now = 4_000_000
     // simulate a legacy doc: report without sessionId via the registry path
     await prov.reportPresence(VAULT, { writerId: 'legacy', sessionId: '', lastSeen: now, quiescedAtVersion: null })

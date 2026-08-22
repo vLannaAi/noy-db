@@ -201,7 +201,8 @@
       "types": "./dist/with-lookup/reduce/index.d.ts",
       "default": "./dist/reduce/index.js"
     },
-    "./codemods/0.6.0-pre.json": "./codemods/0.6.0-pre.json"
+    "./codemods/0.6.0-pre.json": "./codemods/0.6.0-pre.json",
+    "./codemods/0.7.0-pre.json": "./codemods/0.7.0-pre.json"
   },
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -223,7 +224,8 @@
     "typecheck:types": "tsc --noEmit -p tsconfig.typetest.json",
     "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json",
     "bundle-check": "node scripts/check-bundle.mjs",
-    "check:types": "node scripts/check-type-reachability.mjs"
+    "check:types": "node scripts/check-type-reachability.mjs",
+    "check:codemods": "node scripts/check-codemod-coverage.mjs"
   },
   "dependencies": {
     "@noy-db/attestation": "workspace:*"

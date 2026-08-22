@@ -165,6 +165,24 @@
       "note": "The row missing from #1052's table (#1061). klum-db imported it from @noy-db/hub/pod and only the compiler caught it \u2014 TS2724, 'Did you mean hasNoydbPodMagic?'."
     },
     {
+      "from": "encodeBundleHeader",
+      "to": "encodePodHeader",
+      "kind": "identifier",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1058",
+      "note": "Found by scripts/check-codemod-coverage.mjs rather than by review: reachable in published 0.5.0, absent from 0.6.0, successor present in the same /pod barrel."
+    },
+    {
+      "from": "validateBundleHeader",
+      "to": "validatePodHeaderFields",
+      "kind": "identifier",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "#1058",
+      "note": "Same transition and same barrel as encodeBundleHeader. The target is NOT a straight Bundle\u2192Pod substitution \u2014 the name gained `Fields` \u2014 which is why a blanket replace misses it and a map row is the only mechanical answer."
+    },
+    {
       "from": "BundleIntegrityError",
       "to": "PodIntegrityError",
       "kind": "identifier",

@@ -4,12 +4,12 @@
 
 > Email OTP second factor for noy-db
 
-Part of [**`@noy-db/hub`**](https://www.npmjs.com/package/@noy-db/hub) — the zero-knowledge, offline-first, encrypted document store.
+Part of the `@noy-db/on-*` authentication family.
 
 ## Install
 
 ```bash
-pnpm add @noy-db/hub @noy-db/on-email-otp
+pnpm add @noy-db/on-email-otp
 ```
 
 ## What it is

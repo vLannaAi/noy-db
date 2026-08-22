@@ -12,7 +12,7 @@
  *   Heroku env, Doppler, AWS Secrets Manager (mounted at boot), systemd
  *   service env, etc. — anywhere your platform already manages secrets.
  * - Local dev / CI where you want persistence across process restarts
- *   (which `MemorySealingKeyProvider` from `@noy-db/hub` can't do).
+ *   (which `MemorySealer` from `@noy-db/hub` can't do).
  * - Prototypes where setting up AWS KMS / GCP KMS isn't worth the effort.
  *
  * ## When NOT to use
@@ -48,7 +48,7 @@
  * @packageDocumentation
  */
 
-import type { SealingKeyProvider } from '@noy-db/hub'
+import type { NoydbSealer } from '@noy-db/hub'
 
 /** Options for {@link envSealingProvider}. */
 export interface EnvSealingProviderOptions {
@@ -60,7 +60,7 @@ export interface EnvSealingProviderOptions {
 }
 
 /**
- * Build a {@link SealingKeyProvider} backed by an environment variable.
+ * Build a {@link NoydbSealer} backed by an environment variable.
  *
  * The env var must contain a base64-encoded 32-byte (256-bit) key. The
  * provider validates the value at construction time and caches the
@@ -70,7 +70,7 @@ export interface EnvSealingProviderOptions {
  */
 export function envSealingProvider(
   opts: EnvSealingProviderOptions = {},
-): SealingKeyProvider {
+): NoydbSealer {
   const envVar = opts.envVar ?? 'NOYDB_SEALING_KEY'
   const raw = process.env[envVar]
   if (!raw) {

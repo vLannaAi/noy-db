@@ -606,8 +606,8 @@ export { buildEchoBlock, verifyPrompt, resolveEchoReveal, verifyTypedEcho } from
 export type { EchoRevealChoice } from './with-party/team/echo-secret.js'
 export { beginEchoUnlock } from './with-party/team/echo-ceremony.js'
 export type { EchoCeremony, BeginEchoUnlockOptions } from './with-party/team/echo-ceremony.js'
-export { MemoryDeviceSealProvider } from './with-party/team/device-seal.js'
-export type { DeviceSealProvider } from './with-party/team/device-seal.js'
+export { MemoryDeviceSeal } from './with-party/team/device-seal.js'
+export type { NoydbDeviceSeal } from './with-party/team/device-seal.js'
 export type { EchoSecretParts } from './kernel/enclave/index.js'
 export type { KeyringEchoBlock } from './kernel/types.js'
 export type { EchoRecipientSecret } from './with-party/team/keyring.js'
@@ -720,13 +720,13 @@ export type { WrappedDeksBlob } from './with-party/team/wrapped-deks.js'
 
 // Managed-secret mode — rubber-hose-resistant vaults where
 // hub generates the secret and seals it under a developer-provided
-// SealingKeyProvider. The interface lives here; concrete providers
+// NoydbSealer. The interface lives here; concrete providers
 // (macOS Keychain, Windows Credential Manager, libsecret, AWS KMS)
 // ship as separate packages.
-export type { SealingKeyProvider, RecipientHint, RecipientSealer } from './with-party/team/managed-secret.js'
+export type { NoydbSealer, RecipientHint, RecipientSealer } from './with-party/team/managed-secret.js'
 export type { ShamirRecoveryProvider } from './with-party/team/shamir-recovery-provider.js'
 export {
-  MemorySealingKeyProvider,
+  MemorySealer,
   MemoryRecipientSealer,
   sealRsaOaepTlv,
   parseRsaOaepTlv,

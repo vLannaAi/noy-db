@@ -27,6 +27,7 @@
     "docs": "typedoc",
     "docs:watch": "typedoc --watch",
     "check:architecture": "node scripts/check-architecture.mjs",
+    "check:codemods": "pnpm --filter @noy-db/hub check:codemods",
     "release": "pnpm run build && changeset publish --tag latest",
     "release:version": "node scripts/release.mjs",
     "changeset": "changeset",

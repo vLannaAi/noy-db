@@ -17,12 +17,12 @@ import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { ConflictError, ValidationError } from '../src/kernel/errors.js'
 import {
-  MemorySealingKeyProvider,
+  MemorySealer,
   MemoryRecipientSealer,
   loadSealedSecret,
   saveSealedSecret,
   SEALED_SECRET_RECORD_ID,
-  type SealingKeyProvider,
+  type NoydbSealer,
 } from '../src/with-party/team/managed-secret.js'
 import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 
@@ -49,9 +49,9 @@ function inlineMemory(): NoydbStore {
 
 interface Note extends Record<string, unknown> { id: string; body: string }
 
-describe('SealingKeyProvider — contract', () => {
+describe('NoydbSealer — contract', () => {
   it('seal → unseal round-trip yields identical bytes', async () => {
-    const provider = new MemorySealingKeyProvider({ id: 'test-1' })
+    const provider = new MemorySealer({ id: 'test-1' })
     const secret = new TextEncoder().encode('hunter2 garden palace cushion bridge')
     const sealed = await provider.seal(secret)
     expect(sealed).not.toEqual(secret) // sealed bytes differ from plaintext
@@ -60,14 +60,14 @@ describe('SealingKeyProvider — contract', () => {
   })
 
   it('different providers cannot unseal each other', async () => {
-    const a = new MemorySealingKeyProvider({ id: 'a' })
-    const b = new MemorySealingKeyProvider({ id: 'b' })
+    const a = new MemorySealer({ id: 'a' })
+    const b = new MemorySealer({ id: 'b' })
     const sealed = await a.seal(new TextEncoder().encode('secret-A'))
     await expect(b.unseal(sealed)).rejects.toThrow()
   })
 
   it('provider.id is the disclosed (non-sensitive) identifier', () => {
-    const p: SealingKeyProvider = new MemorySealingKeyProvider({ id: 'macos-keychain:com.example.app' })
+    const p: NoydbSealer = new MemorySealer({ id: 'macos-keychain:com.example.app' })
     expect(p.id).toBe('macos-keychain:com.example.app')
   })
 })
@@ -100,11 +100,11 @@ describe('_meta/sealed-secret envelope storage', () => {
 
 describe('createNoydb({ secretMode: "managed" }) — slice 1', () => {
   let store: NoydbStore
-  let provider: MemorySealingKeyProvider
+  let provider: MemorySealer
 
   beforeEach(() => {
     store = inlineMemory()
-    provider = new MemorySealingKeyProvider({ id: 'test-keychain' })
+    provider = new MemorySealer({ id: 'test-keychain' })
   })
 
   it('rejects managed mode without a sealingKey', async () => {
@@ -238,7 +238,7 @@ describe('createNoydb({ secretMode: "managed" }) — slice 1', () => {
     db.close()
 
     // Different provider id → unseal fails → reopen throws
-    const wrongProvider = new MemorySealingKeyProvider({ id: 'different-keychain' })
+    const wrongProvider = new MemorySealer({ id: 'different-keychain' })
     const db2 = await createNoydb({
       store, user: 'alice',
       secretMode: 'managed',

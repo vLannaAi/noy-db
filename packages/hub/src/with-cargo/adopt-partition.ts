@@ -13,7 +13,7 @@ import type { NoydbStore, VaultSnapshot, KeyringFile } from '../kernel/types.js'
 import { createOwnerKeyring, requireRosterKey } from '../with-party/team/keyring.js'
 import { mintRosterTag } from '../with-party/team/roster-tag.js' // #1115
 import { resolveManagedSecret } from '../with-party/team/managed-secret.js'
-import type { SealingKeyProvider } from '../with-party/team/managed-secret.js'
+import type { NoydbSealer } from '../with-party/team/managed-secret.js'
 import type { ShamirRecoveryProvider } from '../with-party/team/shamir-recovery-provider.js'
 import type { RecoveryEnrollmentInput } from '../with-party/team/rotate-recover.js'
 import { LedgerStore } from '../with-commit/history/ledger/store.js'
@@ -173,7 +173,7 @@ export interface CreateOwnerStandardOptions {
 
 /**
  * Managed-mode owner: the secret is minted + sealed under
- * a `SealingKeyProvider` (e.g. an `at-*` OS keychain) so the partition
+ * a `NoydbSealer` (e.g. an `at-*` OS keychain) so the partition
  * auto-unlocks on the recipient's device. Managed mode mandates a strong
  * (Shamir) recovery profile at creation, which needs the
  * `shamirRecovery` provider injected.
@@ -181,7 +181,7 @@ export interface CreateOwnerStandardOptions {
 export interface CreateOwnerManagedOptions {
   readonly userId: string
   readonly secretMode: 'managed'
-  readonly sealingKey: SealingKeyProvider
+  readonly sealingKey: NoydbSealer
   readonly recovery: ReadonlyArray<RecoveryEnrollmentInput>
   readonly shamirRecovery: ShamirRecoveryProvider
   readonly transferKey: Uint8Array
@@ -198,7 +198,7 @@ function isManaged(o: CreateOwnerOptions): o is CreateOwnerManagedOptions {
  * then destroy the transfer seal.
  *
  * Standard mode: the recipient supplies a secret. Managed mode: the
- * secret is minted + sealed under a `SealingKeyProvider` and a strong
+ * secret is minted + sealed under a `NoydbSealer` and a strong
  * (Shamir) recovery profile is enrolled — orchestrated via the existing
  * `openVaultAndEnrollRecovery` ceremony.
  *

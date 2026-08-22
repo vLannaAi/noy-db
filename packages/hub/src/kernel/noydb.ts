@@ -42,7 +42,7 @@ import type { SecretPolicy } from './validation.js'
 import { hasRecoveryEnrolled, hasStrongRecoveryEnrolled } from '../with-party/team/recovery.js'
 import { validateSecretModeOptions, resolveEffectiveSecret, ownerKeyringOptions } from './secret-mode.js'
 import { generateULID } from '../with-pod/ulid.js'
-import { createDefaultCoordinationProvider, type CoordinationProvider } from '../port/by/default-provider.js'
+import { createDefaultMesh, type NoydbMesh } from '../port/by/default-provider.js'
 import type { Cover } from '../with-party/directory/cover/types.js'
 import type { SetCoverInput } from '../with-party/directory/cover/schema.js'
 import { Vault } from './vault.js'
@@ -132,7 +132,7 @@ export class Noydb {
   /** Session that owns this instance's writers (one user's writers across vaults). */
   private readonly sessionId: string
   /** Drain-barrier coordination transport for the schema fence. */
-  private readonly coordinationProvider: CoordinationProvider
+  private readonly coordinationProvider: NoydbMesh
   /** Pre-resolved `vault.user` API factory (mirrors `coordinationProvider` above). Public so `Vault` can call it. */
   readonly userApiFactory: UserApiFactory
   private readonly vaultCache = new Map<string, Vault>()
@@ -1702,7 +1702,7 @@ export class Noydb {
    * The default store-backed provider reproduces today's fence behavior; a
    * `by-*` real-time transport is injected via `coordinationStrategy`.
    */
-  get coordination(): CoordinationProvider {
+  get coordination(): NoydbMesh {
     return this.coordinationProvider
   }
 
@@ -2192,7 +2192,7 @@ export async function createNoydb(options: NoydbOptions): Promise<Noydb> {
 
   validateSecretModeOptions(options)
 
-  if (!options.coordinationStrategy) options = { ...options, coordinationStrategy: await createDefaultCoordinationProvider(options.store!) }
+  if (!options.coordinationStrategy) options = { ...options, coordinationStrategy: await createDefaultMesh(options.store!) }
   if (!options.userApiFactory) options = { ...options, userApiFactory: (await import('../with-party/directory/user-envelope/api.js')).createUserApi }
   if (!options.policyFactory) {
     const policyModule = await import('../with-party/policy/index.js')

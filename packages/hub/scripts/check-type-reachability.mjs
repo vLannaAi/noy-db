@@ -21,6 +21,7 @@
  *   BASELINE_UPDATE=1 node scripts/check-type-reachability.mjs
  */
 import ts from 'typescript'
+import { entryPoints } from './lib/surface.mjs'
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -48,19 +49,9 @@ const AMBIENT = new Set([
 const pkgJson = JSON.parse(readFileSync(join(PKG, 'package.json'), 'utf8'))
 
 /** subpath → absolute .d.ts path, for every entry that resolves to one. */
-function entryPoints() {
-  const out = new Map()
-  for (const [subpath, spec] of Object.entries(pkgJson.exports ?? {})) {
-    if (subpath === './package.json') continue
-    const types = typeof spec === 'string' ? null : spec.types ?? spec.import?.types
-    if (typeof types !== 'string') continue
-    const abs = join(PKG, types)
-    if (existsSync(abs)) out.set(subpath, abs)
-  }
-  return out
-}
-
-const entries = entryPoints()
+// Entry-point resolution is shared with check-codemod-coverage.mjs — one
+// definition of "what a consumer can reach", so the two guards cannot drift.
+const entries = entryPoints(PKG, pkgJson)
 if (entries.size === 0) {
   console.error('✗ no resolvable .d.ts entry points — run `pnpm build` first.')
   process.exit(1)

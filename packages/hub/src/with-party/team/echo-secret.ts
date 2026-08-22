@@ -11,7 +11,7 @@
  *   - Building the reveal blob per the hybrid reveal policy (spec decision
  *     4): `portable` (AES-GCM under the prompt, own salt), `sealed`
  *     (opaque to hub, unsealed only by the enrolling device's
- *     {@link DeviceSealProvider}), or `none`.
+ *     {@link NoydbDeviceSeal}), or `none`.
  *   - Resolving the echo for display (`resolveEchoReveal`, `null` ⇒
  *     degraded typed-echo path) and verifying a typed echo
  *     (`verifyTypedEcho`) for that degraded path.
@@ -40,7 +40,7 @@ import {
   type EchoSecretParts,
 } from '../../kernel/enclave/index.js'
 import type { KeyringEchoBlock } from '../../kernel/types.js'
-import type { DeviceSealProvider } from './device-seal.js'
+import type { NoydbDeviceSeal } from './device-seal.js'
 import { WrongPromptError } from '../../kernel/errors.js'
 
 /** Same iteration floor as the KEK (spec resolved question 1). */
@@ -75,7 +75,7 @@ async function checkVerifier(verifier: string, part: string, saltB64: string): P
 
 export type EchoRevealChoice =
   | { readonly kind: 'portable' }
-  | { readonly kind: 'sealed'; readonly deviceSeal: DeviceSealProvider }
+  | { readonly kind: 'sealed'; readonly deviceSeal: NoydbDeviceSeal }
   | { readonly kind: 'none' }
 
 /** Build the on-keyring echo declaration for a fresh enrollment. */
@@ -132,7 +132,7 @@ export async function verifyPrompt(block: KeyringEchoBlock, prompt: string): Pro
 export async function resolveEchoReveal(
   block: KeyringEchoBlock,
   prompt: string,
-  deviceSeal?: DeviceSealProvider,
+  deviceSeal?: NoydbDeviceSeal,
 ): Promise<string | null> {
   if (block.reveal.kind === 'portable') {
     try {

@@ -2,7 +2,7 @@
  * FR-6 Task 3 — Deed marker + sealed-owner provisioning.
  *
  * A Deed vault has a latent owner: the owner credential is minted
- * machine-side and sealed under a NON-FIRM {@link SealingKeyProvider}
+ * machine-side and sealed under a NON-FIRM {@link NoydbSealer}
  * (the cryptographic inalienability anchor). The owner never types a
  * secret — they re-resolve it through the same provider.
  *
@@ -14,7 +14,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
-import { MemorySealingKeyProvider } from '../src/with-party/team/managed-secret.js'
+import { MemorySealer } from '../src/with-party/team/managed-secret.js'
 import {
   createDeedOwner,
   loadDeedMarker,
@@ -46,11 +46,11 @@ function inlineMemory(): NoydbStore {
 
 describe('FR-6 Deed — sealed/latent owner provisioning', () => {
   let store: NoydbStore
-  let provider: MemorySealingKeyProvider
+  let provider: MemorySealer
 
   beforeEach(() => {
     store = inlineMemory()
-    provider = new MemorySealingKeyProvider({ id: 'client-kms' })
+    provider = new MemorySealer({ id: 'client-kms' })
   })
 
   it('createDeedOwner returns an unlocked owner keyring', async () => {
@@ -106,7 +106,7 @@ describe('FR-6 Deed — sealed/latent owner provisioning', () => {
     // Re-resolve the sealed secret through the SAME provider — no human
     // ever typed it. This is the latent-owner proof.
     const { resolveManagedSecret } = await import('../src/with-party/team/managed-secret.js')
-    const reopenProvider = new MemorySealingKeyProvider({ id: 'client-kms' })
+    const reopenProvider = new MemorySealer({ id: 'client-kms' })
     const secret = await resolveManagedSecret(store, 'deed-vault', reopenProvider)
     expect(typeof secret).toBe('string')
     expect(secret.length).toBeGreaterThan(0)
@@ -122,7 +122,7 @@ describe('FR-6 Deed — sealed/latent owner provisioning', () => {
 
   it('a non-firm provider is the only anchor — a different provider id cannot re-resolve', async () => {
     await createDeedOwner(store, 'deed-vault', 'client-01', provider)
-    const firmProvider = new MemorySealingKeyProvider({ id: 'firm-kms' })
+    const firmProvider = new MemorySealer({ id: 'firm-kms' })
     const { resolveManagedSecret } = await import('../src/with-party/team/managed-secret.js')
     await expect(
       resolveManagedSecret(store, 'deed-vault', firmProvider),

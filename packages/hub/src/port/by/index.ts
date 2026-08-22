@@ -5,7 +5,7 @@
  * A session-share transport (`by-tabs`, `by-peer`) binds ONLY to this
  * subpath: the drain-barrier coordination contract for the schema-fence
  * cutover. `@klum-db/lobby` drives the same port through the `Noydb` handle
- * without ever naming a `by-*` package. `StoreCoordinationProvider` (the
+ * without ever naming a `by-*` package. `StoreMesh` (the
  * store-backed default implementation) lives in `with-shape/schema-update`
  * — its only consumer — and is intentionally NOT exported here.
  *
@@ -15,7 +15,7 @@
  */
 export { isQuorum, runDrainBarrier } from './types.js'
 export type {
-  CoordinationProvider,
+  NoydbMesh,
   WriterPresence,
   FenceState,
   DrainBarrierOptions,

@@ -81,7 +81,7 @@
 
 import { createRequire } from 'node:module'
 
-import type { SealingKeyProvider } from '@noy-db/hub'
+import type { NoydbSealer } from '@noy-db/hub'
 
 // ESM has no ambient `require`. Synthesize one bound to this module's URL so
 // the native `@napi-rs/keyring` addon (a CJS-only N-API binary) can still be
@@ -140,7 +140,7 @@ export interface MacosKeychainSealingProviderOptions {
 }
 
 /**
- * Build a {@link SealingKeyProvider} backed by a macOS Keychain entry.
+ * Build a {@link NoydbSealer} backed by a macOS Keychain entry.
  *
  * The 32-byte AES-256-GCM sealing key is generated on first use and
  * persisted in the Keychain under `(service, account)`. Subsequent
@@ -158,7 +158,7 @@ export interface MacosKeychainSealingProviderOptions {
  */
 export function macosKeychainSealingProvider(
   opts: MacosKeychainSealingProviderOptions,
-): SealingKeyProvider {
+): NoydbSealer {
   if (!opts.service || typeof opts.service !== 'string') {
     throw new Error(
       '@noy-db/at-macos-keychain: `service` is required, must be a non-empty string. '

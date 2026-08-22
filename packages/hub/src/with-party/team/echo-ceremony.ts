@@ -16,7 +16,7 @@
  */
 
 import type { NoydbStore } from '../../kernel/types.js'
-import type { DeviceSealProvider } from './device-seal.js'
+import type { NoydbDeviceSeal } from './device-seal.js'
 import { WrongPromptError, WrongEchoError, ValidationError, NoAccessError } from '../../kernel/errors.js'
 import { verifyPrompt, resolveEchoReveal, verifyTypedEcho } from './echo-secret.js'
 import { loadKeyring, readKeyringFile, assertKeyringNotExpired, type UnlockedKeyring } from './keyring.js'
@@ -25,7 +25,7 @@ import { loadKeyring, readKeyringFile, assertKeyringNotExpired, type UnlockedKey
 export interface BeginEchoUnlockOptions {
   readonly userId: string
   readonly prompt: string
-  readonly deviceSeal?: DeviceSealProvider
+  readonly deviceSeal?: NoydbDeviceSeal
 }
 
 /**

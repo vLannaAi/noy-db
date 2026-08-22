@@ -1,23 +1,23 @@
 import { NoydbError } from '../../kernel/errors.js'
-import type { DeviceSealProvider } from '../../port/with/device-seal-strategy.js'
+import type { NoydbDeviceSeal } from '../../port/with/device-seal-strategy.js'
 
 /**
  * Device-local sealer for the echo reveal-blob (spec decision 5).
- * DISTINCT from `SealingKeyProvider` (managed-secret mode, which seals
+ * DISTINCT from `NoydbSealer` (managed-secret mode, which seals
  * the WHOLE secret): this seals only the echo part, and only so an
  * enrolled device can display it during the unlock ceremony. The
  * sealed bytes may sit in the (untrusted) keyring file — attacker-B
  * resistance comes from `unseal` requiring this device's key store.
  *
  * The interface itself is declared on the `/with` port
- * ({@link DeviceSealProvider} from `port/with/device-seal-strategy.js`)
+ * ({@link NoydbDeviceSeal} from `port/with/device-seal-strategy.js`)
  * so the kernel spine can reference it without a static spine→service
  * import; re-exported here as the canonical consumer-facing home.
  */
-export type { DeviceSealProvider }
+export type { NoydbDeviceSeal }
 
 /** In-memory test provider — AES-GCM under a per-instance random key. */
-export class MemoryDeviceSealProvider implements DeviceSealProvider {
+export class MemoryDeviceSeal implements NoydbDeviceSeal {
   readonly id: string
   private readonly keyPromise: Promise<CryptoKey>
   constructor(opts: { id: string }) {

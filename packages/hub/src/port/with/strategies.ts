@@ -42,9 +42,9 @@
  *    than assuming a `NO_*` naming convention.
  *
  * `coordinationStrategy` is deliberately NOT in the bag. It is a
- * `CoordinationProvider`, not a service strategy — it has no `with*()`
+ * `NoydbMesh`, not a service strategy — it has no `with*()`
  * factory, no `NO_*` stub, and is resolved asynchronously from the store
- * (`createDefaultCoordinationProvider`) rather than passed through. The
+ * (`createDefaultMesh`) rather than passed through. The
  * completeness assertion at the bottom of this file excludes it by name so
  * that the exclusion is explicit and survives future edits.
  *

@@ -12,7 +12,7 @@ import { ConflictError, WrongPromptError, WrongEchoError, InvalidKeyError, NoAcc
 import { createNoydb } from '../src/index.js'
 import { beginEchoUnlock } from '../src/with-party/team/echo-ceremony.js'
 import { createOwnerKeyring } from '../src/with-party/team/keyring.js'
-import { MemoryDeviceSealProvider } from '../src/with-party/team/device-seal.js'
+import { MemoryDeviceSeal } from '../src/with-party/team/device-seal.js'
 
 // Same inline in-memory store pattern as __tests__/keyring.test.ts:17-42.
 function inlineMemory(): NoydbStore {
@@ -45,7 +45,7 @@ function inlineMemory(): NoydbStore {
 const PARTS = { prompt: 'mi chiamo vicio', echo: 'da piccolo al mare mi chiamavano', key: 'ciccio patata' }
 const T = 600_000
 
-async function seedEchoVault(store: NoydbStore, deviceSeal?: MemoryDeviceSealProvider) {
+async function seedEchoVault(store: NoydbStore, deviceSeal?: MemoryDeviceSeal) {
   const db = await createNoydb({ store, user: 'owner', secretMode: 'echo', secret: PARTS, ...(deviceSeal ? { deviceSeal } : {}) })
   await db.openVault('acme')
 }
@@ -65,7 +65,7 @@ describe('beginEchoUnlock', () => {
 
   it('sealed-without-provider: degraded typed-echo path; wrong typed echo throws', async () => {
     const store = inlineMemory()
-    await seedEchoVault(store, new MemoryDeviceSealProvider({ id: 'enrolling-device' }))
+    await seedEchoVault(store, new MemoryDeviceSeal({ id: 'enrolling-device' }))
     const ceremony = await beginEchoUnlock(store, 'acme', { userId: 'owner', prompt: PARTS.prompt })
     expect(ceremony.reveal).toBeNull() // foreign device: cannot unseal
     await expect(ceremony.complete({ echo: 'eco sbagliata', key: PARTS.key })).rejects.toThrow(WrongEchoError)
@@ -102,7 +102,7 @@ describe('beginEchoUnlock', () => {
 
   it('degraded path with input.echo absent → ValidationError', async () => {
     const store = inlineMemory()
-    await seedEchoVault(store, new MemoryDeviceSealProvider({ id: 'enrolling-device' }))
+    await seedEchoVault(store, new MemoryDeviceSeal({ id: 'enrolling-device' }))
     const ceremony = await beginEchoUnlock(store, 'acme', { userId: 'owner', prompt: PARTS.prompt })
     expect(ceremony.reveal).toBeNull()
     await expect(ceremony.complete({ key: PARTS.key })).rejects.toThrow(ValidationError)

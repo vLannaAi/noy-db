@@ -1,6 +1,6 @@
 /**
  * Managed-mode adoption (#208 follow-up) — Plan 10. The recipient owner is
- * minted in managed mode (secret sealed under a SealingKeyProvider) with
+ * minted in managed mode (secret sealed under a NoydbSealer) with
  * mandatory strong (Shamir) recovery (#195), so the partition auto-unlocks on
  * the recipient's device.
  */
@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { withCargo } from '../src/index.js'
 import { ConflictError } from '../src/kernel/errors.js'
-import { MemorySealingKeyProvider } from '../src/with-party/team/managed-secret.js'
+import { MemorySealer } from '../src/with-party/team/managed-secret.js'
 import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { extractPartition } from '../src/with-cargo/extract-partition.js'
@@ -80,7 +80,7 @@ async function extractAndAdopt() {
 describe('managed-mode adoption', () => {
   it('mints a managed owner (sealed secret + Shamir recovery); recipient auto-unlocks', async () => {
     const { dest, transferKey } = await extractAndAdopt()
-    const provider = new MemorySealingKeyProvider({ id: 'belle-keychain' })
+    const provider = new MemorySealer({ id: 'belle-keychain' })
 
     const result = await createOwnerOnAdoptedPartition(dest, 'acme', {
       userId: 'belle',
@@ -109,7 +109,7 @@ describe('managed-mode adoption', () => {
       createOwnerOnAdoptedPartition(dest, 'acme', {
         userId: 'belle',
         secretMode: 'managed',
-        sealingKey: new MemorySealingKeyProvider({ id: 'belle-keychain' }),
+        sealingKey: new MemorySealer({ id: 'belle-keychain' }),
         recovery: [{ profile: 'paper', entries: [] }], // paper alone is not strong
         shamirRecovery: shamirRecoveryProvider(),
         transferKey,
@@ -119,7 +119,7 @@ describe('managed-mode adoption', () => {
 
   it('is idempotent under retry when recovery enrollment fails mid-ceremony', async () => {
     const { dest, transferKey } = await extractAndAdopt()
-    const provider = new MemorySealingKeyProvider({ id: 'belle-keychain' })
+    const provider = new MemorySealer({ id: 'belle-keychain' })
     const real = shamirRecoveryProvider()
 
     // Inject a one-shot outage into the recovery-enrollment step (which runs
@@ -177,7 +177,7 @@ describe('managed-mode adoption', () => {
       createOwnerOnAdoptedPartition(dest, 'acme', {
         userId: 'belle',
         secretMode: 'managed',
-        sealingKey: new MemorySealingKeyProvider({ id: 'belle-keychain' }),
+        sealingKey: new MemorySealer({ id: 'belle-keychain' }),
         recovery: [{ profile: 'shamir', k: 2, n: 3 }],
         shamirRecovery: flaky,
         transferKey,

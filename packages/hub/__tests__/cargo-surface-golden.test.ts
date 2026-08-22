@@ -26,12 +26,12 @@ import * as cargo from '../src/with-cargo/index.js'
 import type {
   AccessibleVault, ReduceResult, ReduceSpec, ChangeEvent, Collection,
   AdoptPartitionOptions, AdoptPartitionResult, ClosureResult, CollectionMeta,
-  CoordinationProvider, CreateOwnerManagedOptions, CreateOwnerOptions, CreateOwnerResult,
+  NoydbMesh, CreateOwnerManagedOptions, CreateOwnerOptions, CreateOwnerResult,
   CreateOwnerStandardOptions, DanglingRefNotice, DecryptedRecord, DeedMarker, DrainBarrierOptions,
   ExtractPartitionOptions, ExtractPartitionResult, TransferSealPayload, WalkClosureOptions,
   ExtractionPreview, FenceState, FuseOptions, GrantCustodianOptions, IndexDef, JoinStrategy,
   LiberateOptions, LiberateResult, LiveReduction, LiveQuery, Noydb, Operator,
-  Query, RetrieveHit, RetrieveOptions, SealingKeyProvider, Unsubscribe, Vault,
+  Query, RetrieveHit, RetrieveOptions, NoydbSealer, Unsubscribe, Vault,
   VaultMeta, WriteConflict, WriteEvent, WriteHook, WriteQueue, WriterPresence,
 } from '../src/with-cargo/index.js'
 
@@ -97,7 +97,7 @@ describe('@noy-db/hub/cargo — golden export surface', () => {
 // A removal/rename breaks `typecheck` here in addition to the source-parse test.
 type _FrozenTypes = [
   AccessibleVault, ReduceResult<ReduceSpec>, ReduceSpec, ChangeEvent,
-  Collection<Record<string, unknown>>, CollectionMeta, CoordinationProvider,
+  Collection<Record<string, unknown>>, CollectionMeta, NoydbMesh,
   AdoptPartitionOptions, AdoptPartitionResult, ClosureResult,
   CreateOwnerManagedOptions, CreateOwnerOptions, CreateOwnerResult, CreateOwnerStandardOptions,
   DanglingRefNotice, DecryptedRecord, DeedMarker, DrainBarrierOptions, ExtractPartitionOptions,
@@ -106,6 +106,6 @@ type _FrozenTypes = [
   IndexDef, JoinStrategy, LiberateOptions, LiberateResult,
   LiveReduction<Record<string, unknown>>, LiveQuery<Record<string, unknown>>,
   Noydb, Operator, Query<Record<string, unknown>>, RetrieveHit<Record<string, unknown>>,
-  RetrieveOptions, SealingKeyProvider, Unsubscribe, Vault, VaultMeta,
+  RetrieveOptions, NoydbSealer, Unsubscribe, Vault, VaultMeta,
   WriteConflict, WriteEvent, WriteHook, WriteQueue, WriterPresence,
 ]

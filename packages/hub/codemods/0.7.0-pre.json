@@ -1,0 +1,51 @@
+{
+  "$comment": "Machine-readable rename map for the noy-db 0.7.0-pre vocabulary change — the port-instance naming rule. A type a satellite IMPLEMENTS is now `Noydb<Stem>`, matching `NoydbStore`, which was already the pattern and is unchanged (689 references across five repos; the scheme accommodates the anchor rather than renaming it). The `Provider` suffix is retired: it marked some port instances and not others, so it distinguished nothing. Every `from` was REMOVED with no alias, per the project's no-legacy-aliases policy — `/kernel` and `/adapter` were both retired that way after consumers migrated. Rows are verified against the live surface by packages/hub/__tests__/codemod-map-0.7.test.ts. ABSENT BY MEASUREMENT, not by oversight: StoreCoordinationProvider and createDefaultCoordinationProvider were renamed in the same sweep but are reachable from NO declared subpath of the published 0.6.0 tarball, so no consumer could hold them — the same reason SubsystemBus is absent from the 0.6 map. Listing them would repeat #1052's over-count.",
+  "renames": [
+    {
+      "from": "SealingKeyProvider",
+      "to": "NoydbSealer",
+      "kind": "type",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "at-port",
+      "note": "The `at-*` port instance. Published from the root barrel AND @noy-db/hub/cargo in 0.6.0; both keep re-exporting it under the new name."
+    },
+    {
+      "from": "MemorySealingKeyProvider",
+      "to": "MemorySealer",
+      "kind": "identifier",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "at-port",
+      "note": "The in-memory double an at-* implementor tests against. Follows its interface rather than keeping a suffix the interface no longer has."
+    },
+    {
+      "from": "CoordinationProvider",
+      "to": "NoydbMesh",
+      "kind": "type",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "by-port",
+      "note": "The `by-*` port instance: who is live, and what generation are they on. Named for the participants rather than the wire — `PeerChannel` is the transport, and a mesh has no head, which the previous name's alternatives (Coordinator, Conductor) implied. Published from @noy-db/hub/cargo in 0.6.0; /cargo keeps re-exporting it under the new name."
+    },
+    {
+      "from": "DeviceSealProvider",
+      "to": "NoydbDeviceSeal",
+      "kind": "type",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "at-port",
+      "note": "Sibling of NoydbSealer for device-bound sealing. Published from the root barrel and @noy-db/hub/team."
+    },
+    {
+      "from": "MemoryDeviceSealProvider",
+      "to": "MemoryDeviceSeal",
+      "kind": "identifier",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": true,
+      "section": "at-port",
+      "note": "The in-memory double for NoydbDeviceSeal."
+    }
+  ],
+  "version": "0.7.0-pre"
+}

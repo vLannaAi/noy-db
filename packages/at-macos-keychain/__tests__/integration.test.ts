@@ -1,6 +1,6 @@
 /**
  * Integration test — @noy-db/at-macos-keychain as a drop-in
- * SealingKeyProvider for a managed-mode vault.
+ * NoydbSealer for a managed-mode vault.
  *
  * Uses an injected memory-backed KeychainEntry so it runs on every
  * platform without provoking real Keychain prompts. Mirrors the

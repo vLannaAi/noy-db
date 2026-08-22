@@ -1,7 +1,7 @@
 /**
  * Tests for @noy-db/at-env — env-var sealing key provider for managed-secret mode.
  *
- * The provider implements the {@link SealingKeyProvider} contract from
+ * The provider implements the {@link NoydbSealer} contract from
  * @noy-db/hub: seal(bytes) → sealed bytes; unseal(sealed) → bytes.
  * Sealing is AES-256-GCM under a 32-byte key read from a configurable
  * environment variable (default `NOYDB_SEALING_KEY`, base64-encoded).

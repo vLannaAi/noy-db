@@ -30,7 +30,7 @@ import {
   type EchoSecretPolicy,
 } from '../../kernel/validation.js'
 import { buildEchoBlock } from './echo-secret.js'
-import type { DeviceSealProvider } from './device-seal.js'
+import type { NoydbDeviceSeal } from './device-seal.js'
 import {
   saveUserEnvelope,
   loadUserEnvelope as loadUserEnvelopeFn,
@@ -535,7 +535,7 @@ export interface CreateOwnerKeyringOptions extends SecretPolicy {
    * ⇒ `reveal: 'sealed'` (attacker-B resistance); absent ⇒ `reveal:
    * 'portable'` (spec resolved question 4). Ignored for a string secret.
    */
-  readonly deviceSeal?: DeviceSealProvider
+  readonly deviceSeal?: NoydbDeviceSeal
   /** Echo enrollment only: optional display hint for the masked echo. */
   readonly echoMaskHint?: string
   /**
