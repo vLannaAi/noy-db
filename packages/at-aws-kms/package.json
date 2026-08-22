@@ -42,11 +42,12 @@
     "@aws-sdk/client-kms": "^3.0.0"
   },
   "devDependencies": {
+    "@aws-sdk/client-kms": "^3.0.0",
     "@noy-db/hub": "workspace:*",
     "@noy-db/on-shamir": "workspace:*",
+    "@noy-db/test-sealer-conformance": "workspace:*",
     "@noy-db/to-memory": "workspace:*",
-    "@types/node": "^22.0.0",
-    "@aws-sdk/client-kms": "^3.0.0"
+    "@types/node": "^22.0.0"
   },
   "keywords": [
     "noy-db",
