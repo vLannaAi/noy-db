@@ -69,9 +69,9 @@ for the full hardening guide.
 
 ```ts
 // src/main.ts — swap the dir for a user-selected path
-import { jsonFile } from '@noy-db/to-file'
+import { toFile } from '@noy-db/to-file'
 const dir = '/Volumes/USB/myapp'   // or prompt the user
-const db = await createNoydb({ store: jsonFile({ dir }), ... })
+const db = await createNoydb({ store: toFile({ dir }), ... })
 ```
 
 Because `to-file` writes plain JSON envelopes (each already

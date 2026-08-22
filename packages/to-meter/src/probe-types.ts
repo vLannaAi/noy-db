@@ -12,7 +12,8 @@
  *
  * @module
  */
-import type { NoydbStore, SyncTargetRole, StoreCapabilities } from '@noy-db/hub'
+import type { SyncTargetRole } from '@noy-db/hub'
+import type { NoydbStore, StoreCapabilities } from '@noy-db/hub/to'
 
 /** Role a store is being considered for. */
 export type ProbeRole = 'primary' | 'sync-peer' | 'backup' | 'archive'

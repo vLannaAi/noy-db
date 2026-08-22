@@ -22,13 +22,13 @@ export NOYDB_SEALING_KEY=$(openssl rand -base64 32)
 ```ts
 // 2. In your app:
 import { createNoydb } from '@noy-db/hub'
-import { envSealingProvider } from '@noy-db/at-env'
+import { atEnv } from '@noy-db/at-env'
 
 const db = await createNoydb({
   store,
   user: 'alice',
   secretMode: 'managed',
-  sealingKey: envSealingProvider(),  // reads NOYDB_SEALING_KEY by default
+  sealingKey: atEnv(),  // reads NOYDB_SEALING_KEY by default
 })
 
 const vault = await db.openVault('acme')
@@ -40,7 +40,7 @@ const vault = await db.openVault('acme')
 ## When to use this provider
 
 - ✅ Single-node SaaS where the env var comes from Kubernetes Secrets, Heroku env, Doppler, AWS Secrets Manager mounted at boot, systemd env, etc.
-- ✅ Local dev / CI where you want persistence across restarts (which `MemorySealingKeyProvider` can't do — it's in-process only).
+- ✅ Local dev / CI where you want persistence across restarts (which `MemorySealer` can't do — it's in-process only).
 - ✅ Prototypes where setting up AWS KMS / GCP KMS isn't worth the effort.
 
 ## When NOT to use this provider
@@ -55,7 +55,7 @@ Rotating the env-var key is currently manual:
 1. Open the vault under the OLD env key.
 2. Generate a new key: `NEW=$(openssl rand -base64 32)`.
 3. Read `_meta/sealed-secret` from the store.
-4. Unseal under the OLD provider, re-seal under a NEW provider (`envSealingProvider({ envVar: 'NOYDB_NEW_KEY' })`).
+4. Unseal under the OLD provider, re-seal under a NEW provider (`atEnv({ envVar: 'NOYDB_NEW_KEY' })`).
 5. Overwrite `_meta/sealed-secret`.
 6. Swap the env var to the new value.
 
@@ -70,12 +70,12 @@ This provider is suitable when your deployment platform's secret management is t
 ## API
 
 ```ts
-function envSealingProvider(opts?: {
+function atEnv(opts?: {
   envVar?: string  // default 'NOYDB_SEALING_KEY'
-}): SealingKeyProvider
+}): NoydbSealer
 ```
 
-Returns a [`SealingKeyProvider`](../hub/src/team/managed-secret.ts) — the contract `@noy-db/hub`'s managed-secret mode consumes. The provider validates the env var at construction time and caches the imported `CryptoKey` for the lifetime of the instance.
+Returns a [`NoydbSealer`](../hub/src/port/at/index.ts) — importable as `@noy-db/hub/at` — the contract `@noy-db/hub`'s managed-secret mode consumes. The provider validates the env var at construction time and caches the imported `CryptoKey` for the lifetime of the instance.
 
 Throws at construction when the env var is unset, not valid base64, or not 32 bytes.
 

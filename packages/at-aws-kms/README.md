@@ -28,14 +28,14 @@ aws kms create-key --description "noy-db sealing key"
 ```ts
 // 3. In your app:
 import { createNoydb } from '@noy-db/hub'
-import { awsKmsSealingProvider } from '@noy-db/at-aws-kms'
+import { atAwsKms } from '@noy-db/at-aws-kms'
 import { shamirRecoveryProvider } from '@noy-db/on-shamir'
 
 const db = await createNoydb({
   store,
   user: 'alice',
   secretMode: 'managed',
-  sealingKey: awsKmsSealingProvider({ keyId: 'arn:aws:kms:us-east-1:123456789012:key/abc' }),
+  sealingKey: atAwsKms({ keyId: 'arn:aws:kms:us-east-1:123456789012:key/abc' }),
   shamirRecovery: shamirRecoveryProvider(),
 })
 
@@ -55,7 +55,7 @@ const vault = await db.openVault('acme')
 ## When NOT to use this provider
 
 - ❌ Non-AWS or multi-cloud deployments where adding an AWS dependency is undesirable. Use [`@noy-db/at-env`](../at-env) for a zero-extra-dependency option.
-- ❌ Local dev / CI where you don't want real KMS calls or AWS credentials in CI. Use [`@noy-db/at-env`](../at-env) or `MemorySealingKeyProvider` from `@noy-db/hub` instead.
+- ❌ Local dev / CI where you don't want real KMS calls or AWS credentials in CI. Use [`@noy-db/at-env`](../at-env) or `MemorySealer` from `@noy-db/hub` instead.
 
 ## Key rotation
 
@@ -64,15 +64,15 @@ KMS supports automatic key rotation for symmetric keys. Enable it on the CMK and
 ## API
 
 ```ts
-function awsKmsSealingProvider(opts: {
+function atAwsKms(opts: {
   keyId: string                    // KMS key id or full ARN
   client?: Pick<KMSClient, 'send'> // optional pre-built client (useful for tests)
-}): SealingKeyProvider
+}): NoydbSealer
 ```
 
 Never pass raw AWS credentials in the options — inject a pre-configured `KMSClient` for non-default auth. The default `new KMSClient({})` resolves credentials via the SDK's ambient chain.
 
-Returns a [`SealingKeyProvider`](../hub/src/team/managed-secret.ts) — the contract `@noy-db/hub`'s managed-secret mode consumes.
+Returns a [`NoydbSealer`](../hub/src/port/at/index.ts) — importable as `@noy-db/hub/at` — the contract `@noy-db/hub`'s managed-secret mode consumes.
 
 ## License
 

@@ -19,7 +19,7 @@ import { ConflictError } from './errors.js'
 export function memoryStore(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
   let clock = 0
-  const epsilon = 0 // matches @noy-db/to-memory's default clockUncertainty; non-overlapping intervals
+  const epsilon = 0 // matches @noy-db/to-memory's default clockUncertaintyMs; non-overlapping intervals
 
   const coll = (vault: string, collection: string): Map<string, EncryptedEnvelope> => {
     let comp = store.get(vault)

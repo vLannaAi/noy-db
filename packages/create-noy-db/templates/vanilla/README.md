@@ -43,7 +43,7 @@ unrecoverable (by design: the library cannot help you).
 
 The starter walks through the full lifecycle:
 
-1. `createNoydb({ store: browserIdbStore(), secret: secret })` —
+1. `createNoydb({ store: toBrowserIdb(), secret: secret })` —
    open the encrypted store.
 2. `await db.openVault('demo')` — create or open a vault (tenant).
 3. `vault.collection<Invoice>('invoices')` — typed collection.

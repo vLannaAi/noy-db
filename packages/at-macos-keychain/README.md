@@ -19,13 +19,13 @@ pnpm add @noy-db/hub @noy-db/at-macos-keychain @napi-rs/keyring
 
 ```ts
 import { createNoydb } from '@noy-db/hub'
-import { macosKeychainSealingProvider } from '@noy-db/at-macos-keychain'
+import { atMacosKeychain } from '@noy-db/at-macos-keychain'
 
 const db = await createNoydb({
   store,
   user: 'alice',
   secretMode: 'managed',
-  sealingKey: macosKeychainSealingProvider({
+  sealingKey: atMacosKeychain({
     service: 'com.acme.app',          // your app's bundle id
     account: 'alice@acme.example',    // per-user keychain item
   }),
@@ -86,18 +86,18 @@ of the project makes.
 ## API
 
 ```ts
-function macosKeychainSealingProvider(opts: {
+function atMacosKeychain(opts: {
   service: string                  // your app bundle id / namespace
   account: string                  // per-user identifier
   entry?: KeychainEntry            // internal test injection — leave undefined in production
-}): SealingKeyProvider
+}): NoydbSealer
 ```
 
-Returns a [`SealingKeyProvider`](../hub/src/team/managed-secret.ts) — the contract `@noy-db/hub`'s managed-secret mode consumes.
+Returns a [`NoydbSealer`](../hub/src/port/at/index.ts) — importable as `@noy-db/hub/at` — the contract `@noy-db/hub`'s managed-secret mode consumes.
 
 Throws at construction when `service` or `account` is empty, or when running on a non-darwin platform without a test stub.
 
-The provider exposes only `SealingKeyProvider` — not `RecipientSealer`. It is **self-targeted only**: it can seal and unseal locally, but cannot seal for an arbitrary recipient (no public-half to publish). Bundle-handover delivery to arbitrary recipients requires a handover-capable cloud-KMS provider.
+The provider exposes only `NoydbSealer` — not `RecipientSealer`. It is **self-targeted only**: it can seal and unseal locally, but cannot seal for an arbitrary recipient (no public-half to publish). Bundle-handover delivery to arbitrary recipients requires a handover-capable cloud-KMS provider.
 
 ## Key lifecycle
 
@@ -113,7 +113,7 @@ If a vault is being retired, call `entry.deletePassword()` directly on `@napi-rs
 For platform-independent unit tests, inject a memory-backed entry via the `entry` option:
 
 ```ts
-import { macosKeychainSealingProvider, type KeychainEntry } from '@noy-db/at-macos-keychain'
+import { atMacosKeychain, type KeychainEntry } from '@noy-db/at-macos-keychain'
 
 function memoryEntry(): KeychainEntry {
   let stored: string | null = null
@@ -124,7 +124,7 @@ function memoryEntry(): KeychainEntry {
   }
 }
 
-const provider = macosKeychainSealingProvider({
+const provider = atMacosKeychain({
   service: 'com.acme.test',
   account: 'test',
   entry: memoryEntry(),
@@ -138,7 +138,7 @@ For real-Keychain integration tests on darwin CI runners, leave `entry` undefine
 ## Related
 
 - [`@noy-db/at-env`](../at-env) — env-var sealing for server / container deployments.
-- [`@noy-db/hub`](../hub) — the database core that consumes `SealingKeyProvider`.
+- [`@noy-db/hub`](../hub) — the database core that consumes `NoydbSealer`.
 - [Sealing pid stability rule](https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/sealing-pid-stability.md)
 
 ## License

@@ -54,8 +54,9 @@
  *
  * @packageDocumentation
  */
-import type { NoydbStore } from '@noy-db/hub'
-import { ConflictError, wrapStore, withMetrics, memoryStore, NOYDB_FORMAT_VERSION } from '@noy-db/hub'
+import type { NoydbStore } from '@noy-db/hub/to'
+import { ConflictError } from '@noy-db/hub/to'
+import { wrapStore, withMetrics, memoryStore, NOYDB_FORMAT_VERSION } from '@noy-db/hub'
 
 // ── Types ───────────────────────────────────────────────────────────────
 
