@@ -2,7 +2,7 @@
  * End-to-end injection test for the #469 coordination port.
  *
  * Proves the seam works from the outside: a custom `NoydbMesh`
- * passed via `createNoydb({ coordinationStrategy })` is the instance the
+ * passed via `createNoydb({ mesh })` is the instance the
  * `Noydb` handle exposes AND is the one the schema fence actually dispatches
  * through (setFence / reportPresence / reachableWriters / readFence), not the
  * built-in `StoreMesh` default. This is the contract
@@ -98,7 +98,7 @@ describe('coordination injection (#469)', () => {
       store,
       user: 'a',
       secret: 'inject-e2e-pass-1234',
-      coordinationStrategy: spy,
+      mesh: spy,
     })
     const v = await db.openVault('demo')
     const invNew = v.collection<InvNew>('invoices', {
@@ -132,18 +132,18 @@ describe('coordination injection (#469)', () => {
     await db.close()
   })
 
-  it('exposes the injected instance via db.coordination (identity)', async () => {
+  it('exposes the injected instance via db.mesh (identity)', async () => {
     const store = toMemory()
     const spy = new SpyProvider(store)
-    const db = await createNoydb({ store, user: 'a', secret: 'inject-identity-pass-1234', coordinationStrategy: spy })
-    expect(db.coordination).toBe(spy)
+    const db = await createNoydb({ store, user: 'a', secret: 'inject-identity-pass-1234', mesh: spy })
+    expect(db.mesh).toBe(spy)
     await db.close()
   })
 
   it('defaults to StoreMesh when none is injected', async () => {
     const store = toMemory()
     const db = await createNoydb({ store, user: 'a', secret: 'inject-default-pass-1234' })
-    expect(db.coordination).toBeInstanceOf(StoreMesh)
+    expect(db.mesh).toBeInstanceOf(StoreMesh)
     await db.close()
   })
 

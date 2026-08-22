@@ -41,7 +41,7 @@ const writer = (id: string, lastSeen: number): WriterPresence => ({
  * reasoning as the sealer kit requiring a second, differently-identified
  * provider.
  *
- * `channelCoordination` (by-peer, by-tabs) is push-based and `StoreMesh` polls,
+ * `channelMesh` (by-peer, by-tabs) is push-based and `StoreMesh` polls,
  * so every observation here is written against `waitFor` rather than assuming
  * synchronous delivery. An implementation that only ever delivers on the next
  * poll is conformant — slow, but conformant.

@@ -21,6 +21,8 @@ import * as hub from '../src/index.js'
 interface Row {
   from: string; to: string | null; kind: string
   package: string; safeGlobalReplace: boolean; section: string; note?: string
+  /** Source file a non-export row is checked against — see SHAPE_KINDS. */
+  where?: string
 }
 const read = (u: string) => readFileSync(fileURLToPath(new URL(u, import.meta.url)), 'utf8')
 const map = JSON.parse(read('../codemods/0.7.0-pre.json')) as { $comment: string; renames: Row[]; version: string }
@@ -28,7 +30,16 @@ const rows = map.renames
 // Rows are no longer all hub's: the at-* factory renames live in satellite
 // packages, so a hub-surface assertion would call them wrong (the same
 // too-narrow-proxy mistake #1154 exposed, one level out).
-const hubRows = rows.filter((r) => r.package === '@noy-db/hub')
+// A row's `kind` decides WHERE it is answerable, and two of them are not
+// answerable against the export surface at all. `option-key` and `method` name
+// a field on an options bag and a getter on a class — neither is an export, so
+// `Object.keys(hub)` is silent about both, and a surface assertion would pass
+// them without looking. They carry a `where` instead: the source file the claim
+// is made about, checked there. Same move as the satellite rows below — ask the
+// artefact that actually declares the thing.
+const SHAPE_KINDS = new Set(['option-key', 'method'])
+const hubRows = rows.filter((r) => r.package === '@noy-db/hub' && !SHAPE_KINDS.has(r.kind))
+const hubShapeRows = rows.filter((r) => r.package === '@noy-db/hub' && SHAPE_KINDS.has(r.kind))
 const satelliteRows = rows.filter((r) => r.package !== '@noy-db/hub')
 const surface = new Set(Object.keys(hub))
 // Parse the goldens rather than substring-matching them: a renamed-away name
@@ -96,6 +107,39 @@ describe('codemods/0.7.0-pre.json', () => {
     // Only root-barrel names are ledgered; /cargo-only names have no ledger.
     const rootOnly = missing.filter((n) => n === 'CoordinationProvider' ? false : true)
     expect(rootOnly, 'a name left the root barrel without joining `retired`').toEqual([])
+  })
+})
+
+describe('codemods/0.7.0-pre.json — shape rows (not exports)', () => {
+  it('every option-key / method row declares WHERE it is checkable', () => {
+    // Without this the row is unfalsifiable: nothing else in the suite can see
+    // an options field or a getter, so an unanchored row would pass by default.
+    for (const r of hubShapeRows) {
+      expect(r.where, `${r.from} is a ${r.kind} row with no \`where\``).toBeTruthy()
+    }
+  })
+
+  it('the new name is present in the file the row names', () => {
+    for (const r of hubShapeRows) {
+      const src = read(`../${r.where!}`)
+      // Matched the same shape as the removal check below, deliberately. A bare
+      // `\bmesh\b` passes on `options.mesh` inside the constructor, so it would
+      // go green with the getter still named `coordination` — proving the file
+      // mentions the word, not that the API moved.
+      const pattern = r.kind === 'method' ? `get ${r.to}\\s*\\(` : `\\b${r.to}\\b`
+      expect(src, `${r.where} does not declare ${r.to}`).toMatch(new RegExp(pattern))
+    }
+  })
+
+  it('the old name is gone from the file the row names', () => {
+    for (const r of hubShapeRows) {
+      const src = read(`../${r.where!}`)
+      // A getter is matched as a DECLARATION, not as a word: `coordination` is
+      // ordinary English and appears in prose throughout this repo, so a bare
+      // word search would fail on a comment and tell us nothing about the API.
+      const pattern = r.kind === 'method' ? `get ${r.from}\\s*\\(` : `\\b${r.from}\\b`
+      expect(src, `${r.where} still declares ${r.from}`).not.toMatch(new RegExp(pattern))
+    }
   })
 })
 

@@ -4,12 +4,12 @@ Contract tests for the `by-*` family port. Every `NoydbMesh` implementation — 
 
 ```ts
 import { runMeshConformanceTests } from '@noy-db/test-mesh-conformance'
-import { pairInMemory, channelCoordination } from '@noy-db/by-peer'
+import { pairInMemory, channelMesh } from '@noy-db/by-peer'
 
 runMeshConformanceTests('my-transport', {
   pair: () => {
     const [x, y] = pairInMemory()
-    return [channelCoordination(x), channelCoordination(y)] as const
+    return [channelMesh(x), channelMesh(y)] as const
   },
 })
 ```

@@ -3115,12 +3115,12 @@ export interface NoydbOptions {
    *
    * @internal
    */
-  readonly coordinationStrategy?: NoydbMesh
+  readonly mesh?: NoydbMesh
   /**
    * Pre-resolved factory for the `vault.user` per-principal user-envelope
    * API. `createNoydb()` always resolves this itself (dynamically
    * importing `with-party/directory/user-envelope/api.js`) before
-   * constructing `Noydb` — mirrors the {@link coordinationStrategy}
+   * constructing `Noydb` — mirrors the {@link mesh}
    * pre-resolve above. There is no supported way to override it; it exists
    * as an options-bag field only so `createNoydb()` can thread the
    * pre-resolved value into the constructor without a second parameter.
@@ -3133,7 +3133,7 @@ export interface NoydbOptions {
    * read/update/bootstrap + session-policy enforcer wiring).
    * `createNoydb()` always resolves this itself (dynamically importing
    * `with-party/policy/index.js`) before constructing `Noydb` — mirrors the
-   * {@link coordinationStrategy} / {@link userApiFactory} pre-resolves
+   * {@link mesh} / {@link userApiFactory} pre-resolves
    * above. There is no supported way to override it.
    *
    * @internal

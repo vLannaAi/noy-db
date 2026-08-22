@@ -95,6 +95,52 @@
       "package": "@noy-db/at-azure-keyvault",
       "safeGlobalReplace": true,
       "section": "at-port"
+    },
+    {
+      "from": "channelCoordination",
+      "to": "channelMesh",
+      "kind": "identifier",
+      "package": "@noy-db/by-peer",
+      "safeGlobalReplace": true,
+      "section": "by-port",
+      "note": "The transport-agnostic drain-barrier core over any PeerChannel. NOT renamed to byPeer: it is not the (prefix)(package)() factory, it is the shared implementation both by-peer and by-tabs delegate to, and by-tabs would otherwise import a factory named for a package it is not."
+    },
+    {
+      "from": "peerCoordination",
+      "to": "byPeer",
+      "kind": "identifier",
+      "package": "@noy-db/by-peer",
+      "safeGlobalReplace": true,
+      "section": "by-port",
+      "note": "Factory convention: (prefix)(package)() returns exactly one port instance. Still the SAME function object as channelMesh — the identity is asserted by a parity test, so a consumer who switched names has not switched behaviour."
+    },
+    {
+      "from": "tabsCoordination",
+      "to": "byTabs",
+      "kind": "identifier",
+      "package": "@noy-db/by-tabs",
+      "safeGlobalReplace": true,
+      "section": "by-port"
+    },
+    {
+      "from": "coordinationStrategy",
+      "to": "mesh",
+      "kind": "option-key",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": false,
+      "section": "by-port",
+      "where": "src/kernel/types.ts",
+      "note": "createNoydb({ mesh }) — the exact parallel of the store option, which is the other port instance in the same bag. Tagged @internal in 0.6.0 but reachable from NoydbOptions on the root barrel AND ./pod, and taught by name in noy-db-docs core/2.noydb/6.configuration.md, so it is public by every measure that matters. safeGlobalReplace is false: `mesh` is too short and too ordinary to replace blind."
+    },
+    {
+      "from": "coordination",
+      "to": "mesh",
+      "kind": "method",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": false,
+      "section": "by-port",
+      "where": "src/kernel/noydb.ts",
+      "note": "The `Noydb.coordination` getter — how an external orchestrator (@klum-db/lobby) drives the port through the handle. safeGlobalReplace is false: `coordination` is an ordinary English word and appears as such throughout the family's prose. Measured: zero property accesses in any sibling repo today."
     }
   ],
   "unretired": [

@@ -41,12 +41,16 @@
  *    is a real strategy, which is why this table maps keys to defaults rather
  *    than assuming a `NO_*` naming convention.
  *
- * `coordinationStrategy` is deliberately NOT in the bag. It is a
+ * The `mesh` option is deliberately NOT in the bag. It is a
  * `NoydbMesh`, not a service strategy — it has no `with*()`
  * factory, no `NO_*` stub, and is resolved asynchronously from the store
- * (`createDefaultMesh`) rather than passed through. The
- * completeness assertion at the bottom of this file excludes it by name so
- * that the exclusion is explicit and survives future edits.
+ * (`createDefaultMesh`) rather than passed through.
+ *
+ * It used to be spelled `coordinationStrategy`, and the completeness assertion
+ * below had to exclude it BY NAME because a `*Strategy`-shaped key that is not
+ * a strategy is exactly what that assertion hunts for. The 0.7 rename removed
+ * the collision rather than documenting it: `mesh` is not matched by
+ * `${string}Strategy`, so no exclusion is needed and none is written.
  *
  * @internal
  */
@@ -200,8 +204,7 @@ type OptionStrategyKeys = Extract<keyof NoydbOptions, `${string}Strategy`>
 type BagOptionKeys = `${StrategyKey}Strategy`
 
 /**
- * Options that are `*Strategy`-shaped but deliberately not services. See the
- * file header for why `coordinationStrategy` is excluded.
+ * Options that are `*Strategy`-shaped but deliberately not services.
  *
  * The four `#873` renames are `never`-typed tombstones (#993) — they exist so
  * the excess-property check reports the real replacement instead of guessing a
@@ -209,7 +212,6 @@ type BagOptionKeys = `${StrategyKey}Strategy`
  * above only walks `STRATEGY_KEYS`, so they are inert at runtime.
  */
 type NonServiceStrategyOptions =
-  | 'coordinationStrategy'
   | 'blobStrategy'
   | 'indexStrategy'
   | 'txStrategy'

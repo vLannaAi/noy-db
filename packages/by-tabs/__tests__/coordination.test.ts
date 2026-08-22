@@ -4,7 +4,7 @@ import { isQuorum, runDrainBarrier } from '@noy-db/hub/cargo'
 import type { WriterPresence } from '@noy-db/hub/cargo'
 import { createNoydb } from '@noy-db/hub'
 import { toMemory } from '@noy-db/to-memory'
-import { tabsCoordination } from '../src/coordination.js'
+import { byTabs } from '../src/coordination.js'
 
 /**
  * A deterministic, fully synchronous `PeerChannel` pair: each `send` invokes
@@ -99,11 +99,11 @@ function presence(over: Partial<WriterPresence> & { writerId: string }): WriterP
   }
 }
 
-describe('tabsCoordination — presence', () => {
+describe('byTabs — presence', () => {
   it('A.reportPresence is visible to B.reachableWriters with sessionId preserved', async () => {
     const [chA, chB] = pair()
-    const a = tabsCoordination(chA)
-    const b = tabsCoordination(chB)
+    const a = byTabs(chA)
+    const b = byTabs(chB)
 
     await a.reportPresence(VAULT, presence({ writerId: 'A', sessionId: 'user-1', lastSeen: 1_000 }))
 
@@ -115,8 +115,8 @@ describe('tabsCoordination — presence', () => {
 
   it('a writer past staleMs is pruned from reachableWriters', async () => {
     const [chA, chB] = pair()
-    const a = tabsCoordination(chA)
-    const b = tabsCoordination(chB)
+    const a = byTabs(chA)
+    const b = byTabs(chB)
 
     await a.reportPresence(VAULT, presence({ writerId: 'A', lastSeen: 1_000 }))
 
@@ -127,7 +127,7 @@ describe('tabsCoordination — presence', () => {
 
   it('self-report is visible to the local provider (no echo from the wire)', async () => {
     const [chA] = pair()
-    const a = tabsCoordination(chA)
+    const a = byTabs(chA)
 
     await a.reportPresence(VAULT, presence({ writerId: 'A', lastSeen: 1_000 }))
     const seen = await a.reachableWriters(VAULT, { staleMs: 5_000, now: 1_500 })
@@ -136,8 +136,8 @@ describe('tabsCoordination — presence', () => {
 
   it('observePresence fires on a remote report with a pruned writer array', async () => {
     const [chA, chB] = pair()
-    const a = tabsCoordination(chA)
-    const b = tabsCoordination(chB)
+    const a = byTabs(chA)
+    const b = byTabs(chB)
 
     const batches: (readonly WriterPresence[])[] = []
     const unsub = b.observePresence(VAULT, (w) => batches.push(w))
@@ -150,11 +150,11 @@ describe('tabsCoordination — presence', () => {
   })
 })
 
-describe('tabsCoordination — fence', () => {
+describe('byTabs — fence', () => {
   it('A.setFence(draining) makes B.observeFence fire with draining', async () => {
     const [chA, chB] = pair()
-    const a = tabsCoordination(chA)
-    const b = tabsCoordination(chB)
+    const a = byTabs(chA)
+    const b = byTabs(chB)
 
     const fences: string[] = []
     const unsub = b.observeFence(VAULT, (f) => fences.push(f.fenceState))
@@ -169,13 +169,13 @@ describe('tabsCoordination — fence', () => {
 
   it('readFence defaults to normal/0 when nothing seen', async () => {
     const [chA] = pair()
-    const a = tabsCoordination(chA)
+    const a = byTabs(chA)
     expect(await a.readFence(VAULT)).toEqual({ currentSchemaVersion: 0, fenceState: 'normal' })
   })
 
   it('observeFence fires on a local set too', async () => {
     const [chA] = pair()
-    const a = tabsCoordination(chA)
+    const a = byTabs(chA)
     const fences: string[] = []
     a.observeFence(VAULT, (f) => fences.push(f.fenceState))
     await a.setFence(VAULT, { currentSchemaVersion: 1, fenceState: 'migrating' })
@@ -183,11 +183,11 @@ describe('tabsCoordination — fence', () => {
   })
 })
 
-describe('tabsCoordination — drain barrier (real quorum)', () => {
+describe('byTabs — drain barrier (real quorum)', () => {
   it('resolves and runs when the other writer acks at generation', async () => {
     const [chA, chB] = pair()
-    const a = tabsCoordination(chA)
-    const b = tabsCoordination(chB)
+    const a = byTabs(chA)
+    const b = byTabs(chB)
 
     const generation = 5
     let clock = 0
@@ -230,8 +230,8 @@ describe('tabsCoordination — drain barrier (real quorum)', () => {
 
   it('rejects with a timeout when the other writer never acks', async () => {
     const [chA, chB] = pair()
-    const a = tabsCoordination(chA)
-    const b = tabsCoordination(chB)
+    const a = byTabs(chA)
+    const b = byTabs(chB)
 
     let clock = 0
     const now = () => clock
@@ -264,28 +264,28 @@ describe('tabsCoordination — drain barrier (real quorum)', () => {
   })
 })
 
-describe('tabsCoordination — e2e through createNoydb', () => {
-  it('is accepted as createNoydb({ coordinationStrategy }) and is the live instance', async () => {
+describe('byTabs — e2e through createNoydb', () => {
+  it('is accepted as createNoydb({ mesh }) and is the live instance', async () => {
     const store = toMemory()
     const [chA, chB] = pair()
-    const coA = tabsCoordination(chA)
+    const coA = byTabs(chA)
 
     const db = await createNoydb({
       store,
       user: 'a',
       secret: 'tabs-e2e-pass-1234',
-      coordinationStrategy: coA,
+      mesh: coA,
     })
     // The injected by-tabs provider is the one the Noydb handle exposes/uses.
-    expect(db.coordination).toBe(coA)
+    expect(db.mesh).toBe(coA)
 
     // A second tab's provider on the paired channel converges on a fence the
     // first client's coordination pushes — the real-time cutover signal path.
-    const coB = tabsCoordination(chB)
+    const coB = byTabs(chB)
     const states: string[] = []
     const unsub = coB.observeFence('demo', (f) => states.push(f.fenceState))
 
-    await db.coordination.setFence('demo', { currentSchemaVersion: 3, fenceState: 'draining' })
+    await db.mesh.setFence('demo', { currentSchemaVersion: 3, fenceState: 'draining' })
     unsub()
 
     expect(states).toContain('draining')
