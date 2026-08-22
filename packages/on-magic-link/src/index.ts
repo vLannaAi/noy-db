@@ -79,14 +79,8 @@ import {
   isMagicLinkGrantExpired,
   MAGIC_LINK_GRANTS_COLLECTION,
 } from '@noy-db/hub'
-import type {
-  Role,
-  UnlockedKeyring,
-  Vault,
-  NoydbStore,
-  MagicLinkGrantPayload,
-  IssueMagicLinkGrantOptions,
-} from '@noy-db/hub'
+import type { Role, UnlockedKeyring, Vault, MagicLinkGrantPayload, IssueMagicLinkGrantOptions } from '@noy-db/hub'
+import type { NoydbStore } from '@noy-db/hub/to'
 
 // HKDF info string — version-namespaced so future schemes are distinguishable.
 const MAGIC_LINK_INFO_PREFIX = 'noydb-magic-link-v1:'

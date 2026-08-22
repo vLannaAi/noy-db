@@ -23,7 +23,7 @@
  * @packageDocumentation
  */
 
-import type { NoydbStore } from '@noy-db/hub'
+import type { NoydbStore } from '@noy-db/hub/to'
 import { buildRouter } from './router.js'
 
 export interface RestRequest {

@@ -28,7 +28,8 @@
  * @packageDocumentation
  */
 
-import { applyListProjection, type Vault, type DictEntry } from '@noy-db/hub'
+import { type Vault, type DictEntry } from '@noy-db/hub'
+import { applyListProjection } from '@noy-db/hub/introspection'
 import { writeXlsx, colLetter, formula, styled, type XlsxSheet, type XlsxValidation } from './xlsx.js'
 import { readXlsx } from './read.js'
 

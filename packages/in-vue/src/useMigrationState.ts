@@ -1,4 +1,10 @@
 import { ref, getCurrentScope, onScopeDispose, type Ref } from 'vue'
+// `FenceState` stays on the ROOT barrel, and is the one exception to this
+// repo's bind-the-seam-you-use rule. `@noy-db/hub/by` exports a DIFFERENT
+// type under the same name — an object carrying
+// `{ currentSchemaVersion, fenceState }` — where the root one is the
+// four-state string union this file needs. Both ship, both compile, and only
+// their meeting point fails. See #1188.
 import type { Noydb, FenceState } from '@noy-db/hub'
 import { useNoydb } from './useNoydb.js'
 

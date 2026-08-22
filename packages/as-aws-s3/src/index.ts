@@ -18,15 +18,8 @@
  * const up  = await objects.putUrl('videos/x.mp4', { contentType: 'video/mp4' }) // presigned PUT
  * ```
  */
-import type {
-  ObjectProjection,
-  ObjectMeta,
-  PutObjectOptions,
-  ObjectUrlOptions,
-  PutUrlOptions,
-  StoreCredentials,
-  StoreCredentialSource,
-} from '@noy-db/hub'
+import type { ObjectProjection, ObjectMeta, PutObjectOptions, ObjectUrlOptions, PutUrlOptions } from '@noy-db/hub'
+import type { StoreCredentials, StoreCredentialSource } from '@noy-db/hub/to'
 import {
   S3Client,
   PutObjectCommand,

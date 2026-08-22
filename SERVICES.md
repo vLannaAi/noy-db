@@ -150,6 +150,35 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 
 `./store`, `./introspection`, `./money`, `./cover`, `./schema-update`, `./policy` and `./directory` group symbols that previously had no home but the root barrel. (`./introspection` has since outgrown this description — see its own section below.) They are **additive** — each is also still re-exported from `.`, matching how the Via features are dual-homed (`./classified` and `./i18n` have always been reachable both ways). The subpath exists so the surface is navigable and tree-shakeable, not to force a migration. None has a `with<Name>()` factory, so each is allowlisted in the `service-subpath-naming` guard as a themed grouping rather than a service.
 
+### A package binds every port it uses — the prefix is the primary, not the only
+
+`@noy-db/by-peer` is a `by-*` package that also **ships a `NoydbStore`**
+(`peerStore()` is a store over an RPC channel). It binds `@noy-db/hub/by`
+**and** `@noy-db/hub/to`, and that is correct rather than a smell.
+
+The prefix names a package's **primary family** — what it mainly is, and where
+it sits in the grammar. It does not claim exclusivity. A package that
+implements or consumes a second contract binds that contract's seam too:
+
+```ts
+// @noy-db/by-peer — a mesh transport that also serves a store
+import type { NoydbMesh } from '@noy-db/hub/by'
+import type { NoydbStore, EncryptedEnvelope } from '@noy-db/hub/to'
+```
+
+The rule this replaces was never written down, only assumed: that a `to-*`
+package binds `/to` and nobody else does. It hid a real case for months —
+`by-peer`'s store implementation took the store contract from the root barrel,
+and a scan filtered by family prefix could not see it.
+
+**⚠️ One exception, and it is a defect rather than a principle.**
+`@noy-db/in-vue` needs `FenceState` and takes it from the **root barrel**, not
+from `/by`, because those are two DIFFERENT types under one name — `/by`'s is
+an object `{ currentSchemaVersion, fenceState }`, the root's is the four-state
+string union. Both ship; both compile; only their meeting point fails. Tracked
+in **#1188**; until it is resolved, "bind the seam you use" has one documented
+hole, and it is better documented than silently worked around.
+
 ### `./introspection` — the surface a UI binds
 
 ⚠️ **This one is no longer just a themed home.** It is the contract the whole
