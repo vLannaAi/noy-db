@@ -1,14 +1,14 @@
 {
-  "name": "@noy-db/by-peer",
+  "name": "@noy-db/test-mesh-conformance",
   "version": "0.6.0",
-  "description": "WebRTC peer-to-peer transport for noy-db — direct browser-to-browser channel with signaling-agnostic handshake",
+  "description": "Parameterized contract tests for noy-db by-* transports — the conformance suite every NoydbMesh implementation must pass",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
-  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/by-peer#readme",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/test-mesh-conformance#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vLannaAi/noy-db.git",
-    "directory": "packages/by-peer"
+    "directory": "packages/test-mesh-conformance"
   },
   "bugs": {
     "url": "https://github.com/vLannaAi/noy-db/issues"
@@ -33,31 +33,25 @@
   },
   "scripts": {
     "build": "tsup",
-    "test": "vitest run",
-    "lint": "eslint src/",
+    "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@noy-db/hub": "workspace:*"
+    "@noy-db/hub": "workspace:*",
+    "vitest": "^3.0.0"
   },
   "devDependencies": {
     "@noy-db/hub": "workspace:*",
-    "@noy-db/test-mesh-conformance": "workspace:*",
-    "@noy-db/to-memory": "workspace:*"
+    "vitest": "^3.0.0"
   },
   "keywords": [
     "noy-db",
-    "by-peer",
-    "p2p",
-    "webrtc",
-    "realtime",
-    "sync",
-    "peer-to-peer",
-    "encryption",
-    "zero-knowledge"
+    "conformance",
+    "coordination",
+    "transport",
+    "testing"
   ],
   "publishConfig": {
-    "access": "public",
-    "tag": "latest"
+    "access": "public"
   }
 }
