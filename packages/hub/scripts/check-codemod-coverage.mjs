@@ -53,6 +53,29 @@ import { reachableExports } from './lib/surface.mjs'
 const PKG = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const BASELINE = join(PKG, 'scripts/published-surface-0.6.0.json')
 
+/**
+ * Every subpath a map RETIRED, minus any a later line re-introduced.
+ *
+ * `unretired` is a claim declared in the later map and verified by
+ * codemod-map.test.ts — the subpath must actually resolve, and must be one
+ * some earlier line genuinely retired. Reading it here means a re-introduced
+ * path is not reported as a loss.
+ */
+export function mappedSubpaths(codemodDir, io = {}) {
+  const read = io.read ?? ((f) => readFileSync(f, 'utf8'))
+  const list = io.readDir ?? readdirSync
+  const retired = new Set()
+  const unretired = new Set()
+  for (const f of list(codemodDir)) {
+    if (!f.endsWith('.json')) continue
+    const map = JSON.parse(read(join(codemodDir, f)))
+    for (const row of map.renames ?? []) if (row.kind === 'subpath') retired.add(row.from)
+    for (const u of map.unretired ?? []) unretired.add(u)
+  }
+  for (const u of unretired) retired.delete(u)
+  return retired
+}
+
 /** Every `from` across every shipped codemod map. */
 export function mappedFroms(codemodDir, io = {}) {
   const read = io.read ?? ((f) => readFileSync(f, 'utf8'))
@@ -74,6 +97,27 @@ export function uncoveredLosses(baseline, current, mapped) {
   return [...baseline].filter((s) => !current.has(s) && !mapped.has(s)).sort()
 }
 
+/**
+ * The same assertion one level up, on SUBPATHS.
+ *
+ * Added after #1171 found `@noy-db/hub/by` and `@noy-db/hub/with` had been
+ * retired from a published package with no codemod row at all: the 0.4 prune
+ * removed seven subpaths and recorded five. A map's own test validates the
+ * rows PRESENT and is structurally blind to a row that is MISSING — #1154's
+ * class, which the symbol half of this file already closes.
+ *
+ * ⚠️ BOUND, stated rather than implied: the baseline is 0.6.0 and that prune
+ * was 0.4.0, so this would NOT have caught those two. It prevents the next
+ * one. Shipping it and calling the gap closed would be the over-claim this
+ * repo keeps cataloguing.
+ *
+ * Identifiers are compared as full specifiers (`@noy-db/hub/by`), matching
+ * how the maps write them, so a bare `./by` key is normalised by the caller.
+ */
+export function uncoveredSubpathLosses(baseline, current, mapped) {
+  return [...baseline].filter((s) => !current.has(s) && !mapped.has(s)).sort()
+}
+
 // ─── runner ────────────────────────────────────────────────────────────
 // Split behind an isMain check so importing this module for tests builds
 // nothing and reads nothing.
@@ -87,13 +131,40 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const mapped = mappedFroms(join(PKG, 'codemods'))
   const uncovered = uncoveredLosses(new Set(baseline.exports), current, mapped)
 
+  // Subpaths are compared as published specifiers, which is how a map writes
+  // a `subpath` row and how a consumer types an import.
+  const spec = (key) => (key === '.' ? '@noy-db/hub' : key.replace(/^\./, '@noy-db/hub'))
+  const pkgJson = JSON.parse(readFileSync(join(PKG, 'package.json'), 'utf8'))
+  const baseSubpaths = new Set((baseline.subpaths ?? []).map(spec))
+  const curSubpaths = new Set(Object.keys(pkgJson.exports ?? {}).map(spec))
+  const lostSubpaths = uncoveredSubpathLosses(
+    baseSubpaths,
+    curSubpaths,
+    mappedSubpaths(join(PKG, 'codemods')),
+  )
+
+  // BOTH halves report before anything exits. Exiting on the symbol result
+  // would hide every subpath finding behind it — and the two are correlated,
+  // since dropping a subpath usually drops symbols too. A check that stops at
+  // its first finding is the green-run-with-a-red-job-inside shape, in a
+  // script.
   if (uncovered.length > 0) {
     console.error(`✗ ${uncovered.length} symbol(s) left the published surface since ${baseline.version} with no codemod row:\n`)
     for (const s of uncovered) console.error(`    ${s}`)
     console.error('\n  Add a row to packages/hub/codemods/<line>.json — `to` for a rename,')
     console.error('  `kind: "removed"` + `to: null` for a deletion. A consumer holding one of')
-    console.error('  these has no mechanical way to find its replacement.')
-    process.exit(1)
+    console.error('  these has no mechanical way to find its replacement.\n')
   }
-  console.log(`✅ codemod coverage: ${baseline.exports.length} baseline symbols (${baseline.version}), 0 uncovered losses`)
+  if (lostSubpaths.length > 0) {
+    console.error(`✗ ${lostSubpaths.length} subpath(s) left the published surface since ${baseline.version} with no codemod row:\n`)
+    for (const s of lostSubpaths) console.error(`    ${s}`)
+    console.error('\n  Add a `kind: "subpath"` row naming where its exports went. A consumer')
+    console.error('  importing one of these has no mechanical way to find the replacement —')
+    console.error('  which is exactly what happened to /by and /with in the 0.4 prune (#1171).\n')
+  }
+  if (uncovered.length > 0 || lostSubpaths.length > 0) process.exit(1)
+  console.log(
+    `✅ codemod coverage: ${baseline.exports.length} baseline symbols and ` +
+      `${baseSubpaths.size} subpaths (${baseline.version}), 0 uncovered losses`,
+  )
 }
