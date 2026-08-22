@@ -1,9 +1,11 @@
 import { defineConfig } from 'vitest/config'
+import { TEST_TIMEOUT_MS } from '../../vitest.shared.js'
 import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
   plugins: [vue()],
   test: {
+    testTimeout: TEST_TIMEOUT_MS,
     name: 'nuxt',
     environment: 'node',
     environmentMatchGlobs: [
