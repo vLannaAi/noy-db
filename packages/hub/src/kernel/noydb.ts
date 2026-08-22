@@ -132,8 +132,8 @@ export class Noydb {
   /** Session that owns this instance's writers (one user's writers across vaults). */
   private readonly sessionId: string
   /** Drain-barrier coordination transport for the schema fence. */
-  private readonly coordinationProvider: NoydbMesh
-  /** Pre-resolved `vault.user` API factory (mirrors `coordinationProvider` above). Public so `Vault` can call it. */
+  private readonly meshPort: NoydbMesh
+  /** Pre-resolved `vault.user` API factory (mirrors `meshPort` above). Public so `Vault` can call it. */
   readonly userApiFactory: UserApiFactory
   private readonly vaultCache = new Map<string, Vault>()
   /**
@@ -194,7 +194,7 @@ export class Noydb {
   }
   private readonly snapshots: NoydbSnapshots
   private readonly policyManager: NoydbPolicyApi
-  /** Pre-resolved policy-gate engine function (mirrors `coordinationProvider`/`userApiFactory` above). */
+  /** Pre-resolved policy-gate engine function (mirrors `meshPort`/`userApiFactory` above). */
   private readonly policyCheckGate: PolicyCheckGateFn
   /**
    * Credential and multi-user operations — enrolment, secret rotation,
@@ -248,12 +248,12 @@ export class Noydb {
     }
     this.sessionId = options.sessionId ?? generateULID()
     // createNoydb() always resolves the store-backed default before constructing.
-    if (!options.coordinationStrategy) {
+    if (!options.mesh) {
       throw new ValidationError(
-        'Noydb must be constructed via createNoydb(), which resolves the default coordination provider.',
+        'Noydb must be constructed via createNoydb(), which resolves the default mesh.',
       )
     }
-    this.coordinationProvider = options.coordinationStrategy
+    this.meshPort = options.mesh
     if (!options.userApiFactory) throw new ValidationError('Noydb must be constructed via createNoydb(), which resolves the default user-envelope API factory.')
     this.userApiFactory = options.userApiFactory
     if (!options.policyFactory || !options.policyCheckGateFn) throw new ValidationError('Noydb must be constructed via createNoydb(), which resolves the default policy service.')
@@ -1700,10 +1700,10 @@ export class Noydb {
   /**
    * @internal Drain-barrier coordination transport for the schema fence.
    * The default store-backed provider reproduces today's fence behavior; a
-   * `by-*` real-time transport is injected via `coordinationStrategy`.
+   * `by-*` real-time transport is injected via `mesh`.
    */
-  get coordination(): NoydbMesh {
-    return this.coordinationProvider
+  get mesh(): NoydbMesh {
+    return this.meshPort
   }
 
   /**
@@ -2192,7 +2192,7 @@ export async function createNoydb(options: NoydbOptions): Promise<Noydb> {
 
   validateSecretModeOptions(options)
 
-  if (!options.coordinationStrategy) options = { ...options, coordinationStrategy: await createDefaultMesh(options.store!) }
+  if (!options.mesh) options = { ...options, mesh: await createDefaultMesh(options.store!) }
   if (!options.userApiFactory) options = { ...options, userApiFactory: (await import('../with-party/directory/user-envelope/api.js')).createUserApi }
   if (!options.policyFactory) {
     const policyModule = await import('../with-party/policy/index.js')

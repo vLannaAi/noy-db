@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { isQuorum, runDrainBarrier } from '@noy-db/hub/cargo'
 import type { WriterPresence } from '@noy-db/hub/cargo'
-import { pairInMemory, peerCoordination, channelCoordination } from '../src/index.js'
+import { pairInMemory, byPeer, channelMesh } from '../src/index.js'
 import type { PeerChannel } from '../src/index.js'
 
 /**
@@ -40,11 +40,11 @@ function presence(over: Partial<WriterPresence> & { writerId: string }): WriterP
   }
 }
 
-describe('peerCoordination — presence', () => {
+describe('byPeer — presence', () => {
   it('A.reportPresence is visible to B.reachableWriters with sessionId preserved', async () => {
     const [chA, chB] = pair()
-    const a = peerCoordination(chA)
-    const b = peerCoordination(chB)
+    const a = byPeer(chA)
+    const b = byPeer(chB)
 
     await a.reportPresence(VAULT, presence({ writerId: 'A', sessionId: 'user-1', lastSeen: 1_000 }))
     await flush()
@@ -57,8 +57,8 @@ describe('peerCoordination — presence', () => {
 
   it('a writer past staleMs is pruned from reachableWriters', async () => {
     const [chA, chB] = pair()
-    const a = peerCoordination(chA)
-    const b = peerCoordination(chB)
+    const a = byPeer(chA)
+    const b = byPeer(chB)
 
     await a.reportPresence(VAULT, presence({ writerId: 'A', lastSeen: 1_000 }))
     await flush()
@@ -70,7 +70,7 @@ describe('peerCoordination — presence', () => {
 
   it('self-report is visible to the local provider (no echo from the wire)', async () => {
     const [chA] = pair()
-    const a = peerCoordination(chA)
+    const a = byPeer(chA)
 
     await a.reportPresence(VAULT, presence({ writerId: 'A', lastSeen: 1_000 }))
     const seen = await a.reachableWriters(VAULT, { staleMs: 5_000, now: 1_500 })
@@ -79,8 +79,8 @@ describe('peerCoordination — presence', () => {
 
   it('observePresence fires on a remote report with the reporting writer present', async () => {
     const [chA, chB] = pair()
-    const a = peerCoordination(chA)
-    const b = peerCoordination(chB)
+    const a = byPeer(chA)
+    const b = byPeer(chB)
 
     const batches: (readonly WriterPresence[])[] = []
     const unsub = b.observePresence(VAULT, (w) => batches.push(w))
@@ -94,11 +94,11 @@ describe('peerCoordination — presence', () => {
   })
 })
 
-describe('peerCoordination — fence', () => {
+describe('byPeer — fence', () => {
   it('A.setFence(draining) makes B.observeFence fire with draining', async () => {
     const [chA, chB] = pair()
-    const a = peerCoordination(chA)
-    const b = peerCoordination(chB)
+    const a = byPeer(chA)
+    const b = byPeer(chB)
 
     const fences: string[] = []
     const unsub = b.observeFence(VAULT, (f) => fences.push(f.fenceState))
@@ -114,13 +114,13 @@ describe('peerCoordination — fence', () => {
 
   it('readFence defaults to normal/0 when nothing seen', async () => {
     const [chA] = pair()
-    const a = peerCoordination(chA)
+    const a = byPeer(chA)
     expect(await a.readFence(VAULT)).toEqual({ currentSchemaVersion: 0, fenceState: 'normal' })
   })
 
   it('observeFence fires on a local set too', async () => {
     const [chA] = pair()
-    const a = peerCoordination(chA)
+    const a = byPeer(chA)
     const fences: string[] = []
     a.observeFence(VAULT, (f) => fences.push(f.fenceState))
     await a.setFence(VAULT, { currentSchemaVersion: 1, fenceState: 'migrating' })
@@ -128,11 +128,11 @@ describe('peerCoordination — fence', () => {
   })
 })
 
-describe('peerCoordination — drain barrier (real quorum)', () => {
+describe('byPeer — drain barrier (real quorum)', () => {
   it('resolves and runs when the other writer acks at generation', async () => {
     const [chA, chB] = pair()
-    const a = peerCoordination(chA)
-    const b = peerCoordination(chB)
+    const a = byPeer(chA)
+    const b = byPeer(chB)
 
     const generation = 5
     let clock = 0
@@ -175,8 +175,8 @@ describe('peerCoordination — drain barrier (real quorum)', () => {
 
   it('rejects with a timeout when the other writer never acks', async () => {
     const [chA, chB] = pair()
-    const a = peerCoordination(chA)
-    const b = peerCoordination(chB)
+    const a = byPeer(chA)
+    const b = byPeer(chB)
 
     let clock = 0
     const now = () => clock
@@ -210,15 +210,15 @@ describe('peerCoordination — drain barrier (real quorum)', () => {
   })
 })
 
-describe('channelCoordination — alias parity', () => {
-  it('channelCoordination and peerCoordination are the same factory', () => {
-    expect(channelCoordination).toBe(peerCoordination)
+describe('channelMesh — alias parity', () => {
+  it('channelMesh and byPeer are the same factory', () => {
+    expect(channelMesh).toBe(byPeer)
   })
 
-  it('channelCoordination over a pair carries a fence A→B', async () => {
+  it('channelMesh over a pair carries a fence A→B', async () => {
     const [chA, chB] = pair()
-    const a = channelCoordination(chA)
-    const b = channelCoordination(chB)
+    const a = channelMesh(chA)
+    const b = channelMesh(chB)
 
     await a.setFence(VAULT, { currentSchemaVersion: 2, fenceState: 'migrating' })
     await flush()

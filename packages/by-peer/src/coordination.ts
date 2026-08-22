@@ -6,12 +6,12 @@
  * polls `_meta/schema-fence`, but a real-time app can inject this push-based
  * provider so a schema cutover fences **instantly** instead of via store
  * polling. The migration cutover and `@klum-db/lobby` both drive the same port
- * through `coordinationStrategy`, so neither names a `by-*` package.
+ * through `mesh`, so neither names a `by-*` package.
  *
  * This module owns the transport-agnostic logic for ANY {@link PeerChannel}:
- * `@noy-db/by-tabs` (BroadcastChannel) delegates to {@link channelCoordination}
+ * `@noy-db/by-tabs` (BroadcastChannel) delegates to {@link channelMesh}
  * here rather than duplicating the protocol, and the WebRTC peer path uses
- * {@link peerCoordination} (the same factory, by its by-peer public name).
+ * {@link byPeer} (the same factory, by its by-peer public name).
  *
  * ## Wire protocol
  *
@@ -69,13 +69,13 @@ interface VaultState {
  *
  * The provider owns its in-memory fence + presence maps per vault and keeps
  * them in sync with every other end on the channel. Pass it as
- * `createNoydb({ coordinationStrategy: channelCoordination(ch) })`, or drive it
+ * `createNoydb({ mesh: channelMesh(ch) })`, or drive it
  * directly via `runDrainBarrier`.
  *
- * `@noy-db/by-tabs` re-exports this under the name `tabsCoordination`, and
- * by-peer exposes the same factory as {@link peerCoordination}.
+ * `@noy-db/by-tabs` re-exports this under the name `byTabs`, and
+ * by-peer exposes the same factory as {@link byPeer}.
  */
-export function channelCoordination(channel: PeerChannel): NoydbMesh {
+export function channelMesh(channel: PeerChannel): NoydbMesh {
   const vaults = new Map<string, VaultState>()
 
   function stateFor(vault: string): VaultState {
@@ -197,12 +197,12 @@ export function channelCoordination(channel: PeerChannel): NoydbMesh {
 }
 
 /**
- * by-peer's public name for the shared {@link channelCoordination} core — a
+ * by-peer's public name for the shared {@link channelMesh} core — a
  * real-time {@link NoydbMesh} over a WebRTC `PeerChannel` (or any
  * other `PeerChannel`). Inject via
- * `createNoydb({ coordinationStrategy: peerCoordination(ch) })`.
+ * `createNoydb({ mesh: byPeer(ch) })`.
  *
- * It is the *same* factory as {@link channelCoordination}; both names are
+ * It is the *same* factory as {@link channelMesh}; both names are
  * exported so callers can pick the one that reads best at the call site.
  */
-export const peerCoordination: (channel: PeerChannel) => NoydbMesh = channelCoordination
+export const byPeer: (channel: PeerChannel) => NoydbMesh = channelMesh

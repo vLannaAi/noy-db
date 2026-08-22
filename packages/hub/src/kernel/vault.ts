@@ -469,7 +469,7 @@ export class Vault {
     this.keyring = opts.keyring
     this.encrypted = opts.encrypted
     this.schemaFence = new SchemaFenceController({
-      coordination: this.noydb.coordination,
+      coordination: this.noydb.mesh,
       vault: this.name,
       onFlush: () => this.noydb._writeQueueTracker.onFlush(),
       clientId: this.noydb._clientId,
@@ -1213,7 +1213,7 @@ export class Vault {
     const { FenceWatcher } = await import('../with-shape/schema-update/fence-watcher.js')
     if (!this.#fenceCoordinationStarted) return // _stop raced the load -- don't resurrect
     this.#fenceWatcher = new FenceWatcher({
-      coordination: this.noydb.coordination,
+      coordination: this.noydb.mesh,
       vault: this.name,
       clientId: this.noydb._clientId,
       sessionId: this.noydb._sessionId,
