@@ -1,14 +1,14 @@
 {
-  "name": "@noy-db/on-webauthn",
+  "name": "@noy-db/test-ceremony-conformance",
   "version": "0.6.0",
-  "description": "WebAuthn hardware-key keyrings for noy-db \u2014 Touch ID, Face ID, Windows Hello, YubiKey, FIDO2 passkeys",
+  "description": "Parameterized contract tests for noy-db on-* slot ceremonies \u2014 the conformance suite every SlotRewrapCeremony must pass",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
-  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/on-webauthn#readme",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/test-ceremony-conformance#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vLannaAi/noy-db.git",
-    "directory": "packages/on-webauthn"
+    "directory": "packages/test-ceremony-conformance"
   },
   "bugs": {
     "url": "https://github.com/vLannaAi/noy-db/issues"
@@ -33,34 +33,25 @@
   },
   "scripts": {
     "build": "tsup",
-    "test": "vitest run",
-    "lint": "eslint src/",
+    "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@noy-db/hub": "workspace:*"
+    "@noy-db/hub": "workspace:*",
+    "vitest": "^3.0.0"
   },
   "devDependencies": {
     "@noy-db/hub": "workspace:*",
-    "@noy-db/test-ceremony-conformance": "workspace:*"
+    "vitest": "^3.0.0"
   },
   "keywords": [
     "noy-db",
-    "auth",
-    "webauthn",
-    "passkey",
-    "biometric",
-    "fido2",
-    "yubikey",
-    "touch-id",
-    "face-id",
-    "windows-hello",
-    "hardware-key",
-    "zero-knowledge",
-    "encryption"
+    "conformance",
+    "authenticator",
+    "keyring",
+    "testing"
   ],
   "publishConfig": {
-    "access": "public",
-    "tag": "latest"
+    "access": "public"
   }
 }

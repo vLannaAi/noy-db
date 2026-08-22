@@ -30,6 +30,7 @@ import {
   WebAuthnPRFUnavailableError,
 } from '../src/index.js'
 import { ValidationError } from '@noy-db/hub'
+import { runCeremonyConformanceTests } from '@noy-db/test-ceremony-conformance'
 import type { UnlockedKeyring, KeyringAuthenticator, SlotRewrapContext, WebAuthnEnrollment } from '../src/index.js'
 
 // ─── Fixtures ────────────────────────────────────────────────────────────
@@ -480,4 +481,74 @@ describe('webAuthnSlotRewrapCeremony — validation', () => {
       }),
     ).rejects.toBeInstanceOf(WebAuthnMultiDeviceError)
   })
+})
+
+// ─── Shared contract ─────────────────────────────────────────────────────
+//
+// Everything above is what is SPECIFIC to WebAuthn: PRF vs rawId fallback,
+// cancellation, multi-device refusal, missing meta. This is the half every
+// method shares, run from the published kit so a third-party ceremony answers
+// the same questions on-password already answers.
+//
+// Every fixture callback re-stubs its own globals: each WebAuthn operation
+// consumes one `navigator.credentials` call, and `afterEach` unstubs between
+// tests. The rawId is fixed so enroll and the later re-assertion address the
+// same credential — a random one would fail for a reason unrelated to the
+// contract, which is the worst kind of conformance failure to debug.
+//
+// Note `wrapKind: 'kek'` names the FIELD the slot stores (`wrapped_kek`), not
+// the material: a WebAuthn slot wraps the keyring payload carrying
+// `ctx.newDeks`, exactly as the wrap-DEKs path does. Reading freshness off the
+// wrapKind name would have got this backwards.
+
+const CONFORMANCE_RAW_ID = new Uint8Array(16).fill(0x5c).buffer
+
+async function conformanceSlot(): Promise<KeyringAuthenticator> {
+  const keyring = await makeKeyring(new Map([['invoices', await makeDek()], ['clients', await makeDek()]]))
+  vi.unstubAllGlobals()
+  stubWebAuthn({
+    createReturn: mockCreateCredential({ rawId: CONFORMANCE_RAW_ID, prfOutput: FIXED_PRF_OUTPUT }),
+  })
+  return slotFromEnrollment(await enrollWebAuthn(keyring, 'acme'))
+}
+
+runCeremonyConformanceTests('on-webauthn', {
+  method: 'webauthn',
+
+  ceremony: () => async (ctx) => {
+    vi.unstubAllGlobals()
+    stubWebAuthn({
+      getReturn: mockGetCredential({ rawId: CONFORMANCE_RAW_ID, prfOutput: FIXED_PRF_OUTPUT }),
+    })
+    return webAuthnSlotRewrapCeremony(ctx)
+  },
+
+  oldSlot: conformanceSlot,
+
+  // Differs from oldSlot in `method` ALONE — same wrapKind, same meta. A
+  // wrap-DEKs slot would also be refused, by the OTHER guard, and would
+  // therefore say nothing about this one.
+  wrongMethodSlot: async () => ({ ...(await conformanceSlot()), method: 'password' }),
+
+  unwrap: async (opts) => {
+    if (!('wrapped_kek' in opts)) throw new Error('expected a wrap-KEK slot')
+    const meta = opts.meta as { credentialId: string; wrapIv: string }
+    vi.unstubAllGlobals()
+    stubWebAuthn({
+      getReturn: mockGetCredential({ rawId: CONFORMANCE_RAW_ID, prfOutput: FIXED_PRF_OUTPUT }),
+    })
+    const unlocked = await unlockWebAuthn({
+      _noydb_webauthn: 1,
+      vault: 'acme',
+      userId: 'alice',
+      credentialId: meta.credentialId,
+      prfUsed: true,
+      beFlag: false,
+      requireSingleDevice: false,
+      wrappedPayload: opts.wrapped_kek,
+      wrapIv: meta.wrapIv,
+      enrolledAt: new Date().toISOString(),
+    })
+    return unlocked.deks
+  },
 })
