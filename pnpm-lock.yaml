@@ -584,9 +584,6 @@ importers:
 
   packages/on-email-otp:
     devDependencies:
-      '@noy-db/hub':
-        specifier: workspace:*
-        version: link:../hub
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -625,18 +622,12 @@ importers:
 
   packages/on-threat:
     devDependencies:
-      '@noy-db/hub':
-        specifier: workspace:*
-        version: link:../hub
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
 
   packages/on-totp:
     devDependencies:
-      '@noy-db/hub':
-        specifier: workspace:*
-        version: link:../hub
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
