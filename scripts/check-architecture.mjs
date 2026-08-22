@@ -56,7 +56,7 @@
  */
 
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
-import { resolve, join, relative, dirname } from 'node:path'
+import { resolve, join, relative, dirname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../..')
@@ -1561,6 +1561,182 @@ function checkNoOutboundKlumImport() {
   }
 }
 
+// ─── Check 6b: hub's own dependencies on @noy-db packages ──────────────
+
+/**
+ * Hub may depend on a sibling `@noy-db/*` package, but every such edge has a
+ * consequence that is invisible at the edge itself: **it makes the sibling
+ * unable to import hub's contract.** turbo refuses the cycle outright —
+ *
+ *     x Cyclic dependency detected:
+ *     | 	@noy-db/on-shamir#build, @noy-db/hub#build
+ *
+ * — so the sibling has to declare a structural MIRROR of whatever hub type it
+ * satisfies, and two declarations that nothing compares will drift silently.
+ * That is the same shape as `StoreMesh` being unexportable to its own
+ * conformance kit, and hub being unable to devDepend on
+ * `@noy-db/test-sealer-conformance`.
+ *
+ * So each edge is declared here with (a) why hub needs it and (b) what holds
+ * the mirror in step — or an explicit statement that no mirror is forced.
+ * A NEW edge fails this check until someone writes both down. `mirrorCheck`
+ * is verified: the file must exist and must name the package, so the field
+ * cannot be satisfied with a path to nothing.
+ */
+const HUB_SATELLITE_DEPS = new Map([
+  ['@noy-db/attestation', {
+    why: 'runtime dependency — the pure, zero-dep attestation primitive hub embeds.',
+    // Genuinely nothing to hold in step: attestation imports hub ZERO times and
+    // implements no hub contract, so no mirror is forced and none exists.
+    mirrorCheck: null,
+  }],
+  ['@noy-db/on-shamir', {
+    why: 'devDependency — six managed-mode / recovery test files exercise REAL k-of-n threshold behaviour against the shipped implementation. A stub would leave them green while proving nothing about the property under test.',
+    // on-shamir cannot import `NoydbShamir`; it mirrors it. Hub compiles the
+    // two against each other, in the one direction the graph allows.
+    mirrorCheck: 'packages/hub/__tests__/noydb-shamir-satellite.test-d.ts',
+  }],
+])
+
+function checkHubSatelliteDeps() {
+  const pkg = readPackageJson(join(ROOT, 'packages/hub'))
+  const declared = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) }
+  for (const name of Object.keys(declared)) {
+    if (!name.startsWith('@noy-db/')) continue
+    const entry = HUB_SATELLITE_DEPS.get(name)
+    if (!entry) {
+      fail(
+        'hub-satellite-dependency',
+        `packages/hub depends on ${name}, which is not declared in HUB_SATELLITE_DEPS. A hub→satellite edge makes that satellite unable to import hub's contract (turbo refuses the cycle), so it must mirror any hub type it satisfies. Record why the edge is needed and what holds the mirror in step — or that no mirror is forced.`,
+        'packages/hub/package.json',
+      )
+      continue
+    }
+    if (entry.mirrorCheck === null) continue
+    const abs = join(ROOT, entry.mirrorCheck)
+    if (!existsSync(abs)) {
+      fail(
+        'hub-satellite-dependency',
+        `${name} declares mirrorCheck '${entry.mirrorCheck}', which does not exist. A path to nothing is not a check.`,
+        'scripts/check-architecture.mjs',
+      )
+      continue
+    }
+    if (!readFileSync(abs, 'utf8').includes(name)) {
+      fail(
+        'hub-satellite-dependency',
+        `${name} declares mirrorCheck '${entry.mirrorCheck}', but that file never names ${name} — it cannot be comparing the two declarations.`,
+        entry.mirrorCheck,
+      )
+    }
+  }
+}
+
+// ─── Check 6c: what each on-* package IS ───────────────────────────────
+
+/**
+ * The `on-*` family is NOT uniform, and pretending otherwise is how it gets
+ * a port it does not have. Measured against hub's injected ports — the
+ * complete set is `store`, `sealingKey`, `deviceSeal`, `mesh`,
+ * `shamirRecovery` — exactly ONE of ten `on-*` packages is a port instance.
+ * Two implement the slot-rewrap ceremony hub calls back through. Seven are
+ * libraries: they may consume hub, and hub never calls them.
+ *
+ * Written as a check rather than prose because the two useful halves are
+ * falsifiable:
+ *
+ *  - a `ceremony` package MUST import the ceremony contract. If someone
+ *    rewrites on-password to stop returning `EnrollAuthenticatorOptions`,
+ *    hub is no longer calling back into it and the label is stale.
+ *  - a `library` MUST NOT be depended on by hub, and MUST NOT import the
+ *    ceremony contract. Either would make it something hub calls — a port
+ *    in all but name, with none of the obligations recorded.
+ *
+ * The `port` label is deliberately NOT asserted from here: an injected port
+ * instance is identified by a field on `NoydbOptions`, which this script
+ * cannot read without a type checker, and a name-based proxy would be the
+ * kind of cheap stand-in this file exists to avoid. on-shamir's binding is
+ * checked by its mirrorCheck above instead.
+ */
+const CEREMONY_CONTRACT = /\b(SlotRewrapCeremony|EnrollAuthenticatorOptions)\b/
+
+const ON_FAMILY = new Map([
+  ['on-shamir', 'port'],
+  ['on-password', 'ceremony'],
+  ['on-webauthn', 'ceremony'],
+  ['on-oidc', 'library'],
+  ['on-pin', 'library'],
+  ['on-magic-link', 'library'],
+  ['on-recovery', 'library'],
+  ['on-email-otp', 'library'],
+  ['on-totp', 'library'],
+  ['on-threat', 'library'],
+])
+
+function checkOnFamilyClassification() {
+  const dirs = listPackageDirs()
+    .map((d) => basename(d))
+    .filter((d) => d.startsWith('on-'))
+    .sort()
+  const classified = [...ON_FAMILY.keys()].sort()
+  for (const d of dirs) {
+    if (!ON_FAMILY.has(d)) {
+      fail(
+        'on-family-classification',
+        `packages/${d} is unclassified. Every on-* package is a port instance, a slot ceremony, or a library — say which, because the family is not uniform and a new one is not automatically an Unlocker.`,
+        `packages/${d}/package.json`,
+      )
+    }
+  }
+  for (const d of classified) {
+    if (!dirs.includes(d)) {
+      fail(
+        'on-family-classification',
+        `ON_FAMILY classifies packages/${d}, which no longer exists. Remove the row.`,
+        'scripts/check-architecture.mjs',
+      )
+    }
+  }
+
+  const hubPkg = readPackageJson(join(ROOT, 'packages/hub'))
+  const hubDeps = new Set([
+    ...Object.keys(hubPkg.dependencies ?? {}),
+    ...Object.keys(hubPkg.devDependencies ?? {}),
+  ])
+
+  for (const [dir, kind] of ON_FAMILY) {
+    const src = join(ROOT, 'packages', dir, 'src')
+    if (!existsSync(src)) continue
+    let usesCeremony = false
+    walkTsFiles(src, (_file, content) => {
+      if (CEREMONY_CONTRACT.test(stripComments(content))) usesCeremony = true
+    })
+    if (kind === 'ceremony' && !usesCeremony) {
+      fail(
+        'on-family-classification',
+        `packages/${dir} is classified 'ceremony' but its src names neither SlotRewrapCeremony nor EnrollAuthenticatorOptions. Hub is not calling back into it — reclassify it.`,
+        `packages/${dir}/src`,
+      )
+    }
+    if (kind === 'library') {
+      if (usesCeremony) {
+        fail(
+          'on-family-classification',
+          `packages/${dir} is classified 'library' but implements the slot-rewrap ceremony — hub calls back into it, which makes it a ceremony package with obligations this classification does not record.`,
+          `packages/${dir}/src`,
+        )
+      }
+      if (hubDeps.has(`@noy-db/${dir}`)) {
+        fail(
+          'on-family-classification',
+          `packages/hub depends on @noy-db/${dir}, which is classified 'library'. A library is one hub never calls; the dependency says otherwise. See HUB_SATELLITE_DEPS for what that edge costs.`,
+          'packages/hub/package.json',
+        )
+      }
+    }
+  }
+}
+
 // ─── Check 7: no debugPlaintext in shipped library source (#413 P3) ─────
 
 /**
@@ -2529,6 +2705,8 @@ checkEveryServiceGated()
 checkKernelSurface()
 checkNoDebugPlaintextInSource()
 checkNoOutboundKlumImport()
+checkHubSatelliteDeps()
+checkOnFamilyClassification()
 checkPortLayering()
 checkEnclaveBarrelOnly()
 checkEnclaveBodyOnly()
