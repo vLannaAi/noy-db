@@ -21,7 +21,8 @@
  * @packageDocumentation
  */
 
-import { applyListProjection, diffVault, type Vault, type CollectionDescription, type VaultDiff } from '@noy-db/hub'
+import { diffVault, type Vault, type CollectionDescription, type VaultDiff } from '@noy-db/hub'
+import { applyListProjection } from '@noy-db/hub/introspection'
 
 export interface AsCSVOptions {
   /**

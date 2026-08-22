@@ -25,7 +25,7 @@
  * @packageDocumentation
  */
 
-import type { NoydbStore } from '@noy-db/hub'
+import type { NoydbStore } from '@noy-db/hub/to'
 
 // ---------------------------------------------------------------------------
 // Shared app-shell context contract (also consumed/mirrored by @noy-db/in-liff)

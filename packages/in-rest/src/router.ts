@@ -1,5 +1,5 @@
 import { isConflictError } from '@noy-db/hub'
-import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
+import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub/to'
 import type { RestRequest, RestResponse, RestHandlerOptions } from './index.js'
 
 function json(status: number, body: unknown): RestResponse {

@@ -17,7 +17,8 @@
  * @packageDocumentation
  */
 
-import { applyListProjection, type Vault, type CollectionDescription } from '@noy-db/hub'
+import { type Vault, type CollectionDescription } from '@noy-db/hub'
+import { applyListProjection } from '@noy-db/hub/introspection'
 
 export interface AsJSONOptions {
   /**

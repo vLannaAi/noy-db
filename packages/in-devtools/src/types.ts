@@ -1,18 +1,5 @@
-import type {
-  Vault,
-  WriteEvent,
-  WriteConflict,
-  WriteHook,
-  Unsubscribe,
-  WriteQueue,
-  AccessibleVault,
-  CollectionDescriptor,
-  CollectionStats,
-  CollectionMeta,
-  VaultMeta,
-  CollectionConfig,
-  DescribedField,
-} from '@noy-db/hub'
+import type { Vault, WriteEvent, WriteConflict, WriteHook, Unsubscribe, WriteQueue, AccessibleVault, CollectionMeta, VaultMeta } from '@noy-db/hub'
+import type { CollectionDescriptor, CollectionStats, CollectionConfig, DescribedField } from '@noy-db/hub/introspection'
 import type { MeterSnapshot } from '@noy-db/to-meter'
 
 /** Minimal structural view of a to-meter handle the inspector reads (no runtime dep). */

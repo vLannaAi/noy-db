@@ -20,7 +20,7 @@ import type { H3Event } from 'h3'
 import { createRestHandler } from '@noy-db/in-rest'
 import { nitroAdapter } from '@noy-db/in-rest/nitro'
 import type { NoydbRestHandler, RestRequest } from '@noy-db/in-rest'
-import type { NoydbStore } from '@noy-db/hub'
+import type { NoydbStore } from '@noy-db/hub/to'
 
 let _handler: NoydbRestHandler | null = null
 

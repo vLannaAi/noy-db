@@ -19,8 +19,9 @@
  * @packageDocumentation
  */
 
-import type { Vault, CollectionDescription } from '@noy-db/hub'
-import { applyListProjection } from '@noy-db/hub'
+import type { Vault } from '@noy-db/hub'
+import type { CollectionDescription } from '@noy-db/hub/introspection'
+import { applyListProjection } from '@noy-db/hub/introspection'
 
 export interface AsNDJSONOptions {
   /** Collection allowlist. Omit for every collection the caller can read. */
