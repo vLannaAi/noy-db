@@ -118,6 +118,12 @@ jobs:
       # invoked it).
       - name: Bundle check (hub)
         run: pnpm --filter @noy-db/hub bundle-check
+      # Codemod-map coverage (#1154). Lives here rather than on the build-free
+      # `architecture` job for the same reason as the bundle check: it reads the
+      # BUILT surface, because what a consumer can import is a fact about dist,
+      # not about src.
+      - name: Codemod coverage
+        run: pnpm check:codemods
 
       # #837 — every subpath must export the types its own signatures name.
       # Runs here because the check reads the BUILT .d.ts surface (what a
