@@ -28,8 +28,9 @@
 import { describe, expect, it } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
 import { ConflictError, createNoydb, classified } from '@noy-db/hub'
-import { toString as csvToString } from '../src/index.js'
+import { asCsv } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
+import { withFormats } from '@noy-db/hub/as'
 
 function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -74,7 +75,7 @@ function toMemory(): NoydbStore {
  */
 async function makeVault() {
   const adapter = toMemory()
-  const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
+  const db = await createNoydb({ formatsStrategy: withFormats(), teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
   await db.openVault('acme')
   await db.grant('acme', {
     userId: 'owner-01', displayName: 'Owner', role: 'owner',
@@ -83,7 +84,7 @@ async function makeVault() {
   })
   await db.close()
 
-  const db2 = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
+  const db2 = await createNoydb({ formatsStrategy: withFormats(), teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
   return db2.openVault('acme')
 }
 
@@ -95,7 +96,7 @@ describe('as-csv default export (no redact option) — classified field posture'
     })
     await c.put('r1', { pan: '4242424242424242', total: 9 })
 
-    const csv = await csvToString(v, { collection: 'cards' }) // no `redact` option — the default export path
+    const csv = await v.export(asCsv(), { collections: ['cards'] }) // no `redact` option — the default export path
     const lines = csv.split('\n')
     const header = lines[0]!.split(',')
     const panIdx = header.indexOf('pan')

@@ -23,6 +23,8 @@ interface Row {
   package: string; safeGlobalReplace: boolean; section: string; note?: string
   /** Source file a non-export row is checked against — see SHAPE_KINDS. */
   where?: string
+  /** Set when the target lives in a DIFFERENT package than the source. */
+  toPackage?: string
 }
 const read = (u: string) => readFileSync(fileURLToPath(new URL(u, import.meta.url)), 'utf8')
 const map = JSON.parse(read('../codemods/0.7.0-pre.json')) as { $comment: string; renames: Row[]; version: string }
@@ -159,10 +161,27 @@ describe('codemods/0.7.0-pre.json — satellite rows', () => {
     // Checked against that package's SOURCE, not hub's surface — a row about
     // @noy-db/at-env is answerable only there.
     for (const r of satelliteRows) {
+      // A rename can move a symbol across packages — `toPackage` records
+      // that, and the target is then checked where it actually lives. Without
+      // it the row would have to lie about one end or the other.
       const dir = r.package.replace('@noy-db/', '')
       const src = read(`../../${dir}/src/index.ts`)
-      expect(src, `${r.package} does not export ${r.to}`).toMatch(new RegExp(`\\b${r.to}\\b`))
-      expect(src.includes(r.from), `${r.package} still exports ${r.from}`).toBe(false)
+      if (r.toPackage) {
+        const target = r.toPackage.startsWith('@noy-db/hub')
+          ? read(`../src/port/${r.toPackage.split('/').pop()!}/index.ts`)
+          : read(`../../${r.toPackage.replace('@noy-db/', '')}/src/index.ts`)
+        expect(target, `${r.toPackage} does not export ${r.to}`).toMatch(new RegExp(`\\b${r.to}\\b`))
+      } else {
+        expect(src, `${r.package} does not export ${r.to}`).toMatch(new RegExp(`\\b${r.to}\\b`))
+      }
+      // The `from` check honours safeGlobalReplace, which the map sets false
+      // precisely for bare nouns. `toString` is Object.prototype's method
+      // name: a substring search cannot tell an export from a mention, so for
+      // an unsafe row we assert the EXPORT is gone, not the string.
+      const gone = r.safeGlobalReplace
+        ? !src.includes(r.from)
+        : !new RegExp(`export (async )?(function|const|type|interface) ${r.from}\\b`).test(src)
+      expect(gone, `${r.package} still exports ${r.from}`).toBe(true)
     }
   })
 })

@@ -21,50 +21,17 @@
  * @packageDocumentation
  */
 
-import { diffVault, type Vault, type CollectionDescription } from '@noy-db/hub'
-import { applyListProjection } from '@noy-db/hub/introspection'
+import type { Vault } from '@noy-db/hub'
 
-export interface AsCSVOptions {
-  /**
-   * Collection to export. Must be in the caller's read ACL; otherwise
-   * the resulting CSV will be empty (ACL-scoping applies at the
-   * `exportStream` layer).
-   */
-  readonly collection: string
 
+export interface AsCSVOptions extends AsCSVFormatOptions {
   /**
-   * Explicit column list. When omitted, columns are inferred from
-   * the union of keys across all records, in first-record-wins
-   * order. Specify explicitly for deterministic exports or when the
-   * source data has sparse fields.
+   * Collections to export. Was a single `collection`; now plural and a READ
+   * concern, because hub owns the read — `vault.export(fmt, { collections })`.
    */
-  readonly columns?: readonly string[]
-
-  /**
-   * Row separator. Default `'\n'` (LF). Use `'\r\n'` for Windows-
-   * friendly output (Excel prefers CRLF but accepts LF).
-   */
-  readonly eol?: '\n' | '\r\n'
-
-  /**
-   * Apply the hub's `applyListProjection` read-projection before
-   * serialising rows. `true` redacts only `classifiedFields` (mask /
-   * omit / rider, per the field's preset). The object form additionally
-   * redacts fields carrying a plain `fieldMeta` `sensitivity: 'pii' |
-   * 'secret'` tag, per `sensitivity: 'omit' | 'mask'`.
-   *
-   * Caveat: `describe()` reflects the declarations of *this session's*
-   * collection instance — redaction only takes effect when the
-   * collection was opened (this call or earlier in the session) with
-   * its `classifiedFields` / `fieldMeta` options. This is presentation-
-   * layer redaction; it never affects what's on disk. Sealed handles
-   * are unaffected either way — they always serialize as `'[sealed]'`,
-   * so ciphertext never leaks regardless of this option.
-   *
-   * Rider companion fields (e.g. `pan_last4`) remain visible as their own
-   * columns — they are safe write-time projections.
-   */
-  readonly redact?: boolean | { readonly sensitivity: 'omit' | 'mask' }
+  readonly collections?: readonly string[]
+  /** Redact before encoding. Hub applies the projection; the format never sees it. */
+  readonly redact?: true | { readonly sensitivity?: string }
 }
 
 export interface AsCSVWriteOptions extends AsCSVOptions {
@@ -85,57 +52,36 @@ export interface AsCSVDownloadOptions extends AsCSVOptions {
  * Serialise a collection as a CSV string. Pure operation — no side
  * effects beyond the authorization check + audit ledger write.
  */
-export async function toString(vault: Vault, options: AsCSVOptions): Promise<string> {
-  vault.assertCanExport('plaintext', 'csv')
-
+/**
+ * The pure encoder. Receives records — already gated and already redacted by
+ * hub — and returns CSV. It has no vault, which is what makes the export gate
+ * unskippable rather than merely checked (ADR 0004).
+ */
+function encodeCsv(chunks: readonly ExportChunk[], options: AsCSVFormatOptions): string {
   const eol = options.eol ?? '\n'
-  const collection = options.collection
-
-  // Pull the one collection via exportStream in collection granularity.
-  let records: unknown[] = []
-  for await (const chunk of vault.exportStream({ granularity: 'collection' })) {
-    if (chunk.collection === collection) {
-      records.push(...chunk.records)
-      break
-    }
-  }
-
-  if (options.redact !== undefined && options.redact !== false) {
-    const desc: CollectionDescription = vault.collection(collection).describe()
-    const projectionOpts = options.redact === true ? undefined
-      : { sensitivity: options.redact.sensitivity }
-    records = records.map((r) => applyListProjection(desc, r as Record<string, unknown>, projectionOpts))
-  }
-
-  // Determine columns.
+  const records: unknown[] = chunks.flatMap((c) => c.records)
   const columns = options.columns ?? inferColumns(records)
-  if (columns.length === 0) {
-    // Empty collection or no accessible records — emit header-only csv.
-    return ''
-  }
-
-  // Build header + rows
+  if (columns.length === 0) return ''
   const lines: string[] = [columns.map(escapeField).join(',')]
   for (const record of records) {
-    const row = columns.map(c => escapeField((record as Record<string, unknown>)[c]))
-    lines.push(row.join(','))
+    lines.push(columns.map((c) => escapeField((record as Record<string, unknown>)[c])).join(','))
   }
   return lines.join(eol)
 }
 
 /**
- * Browser download — wraps `toString()` in a `Blob` + triggers the
+ * Browser download — wraps `vault.export(asCsv())` in a `Blob` + triggers the
  * browser's download prompt. Tier 2 egress per the pattern doc.
  *
  * Requires a browser-like environment with `URL.createObjectURL` and
  * `document.createElement`. No-op in headless environments; use
- * `toString()` there instead.
+ * `vault.export(asCsv())` there instead.
  */
-export async function download(vault: Vault, options: AsCSVDownloadOptions): Promise<void> {
-  const csv = await toString(vault, options)
-  const filename = options.filename ?? `${options.collection}.csv`
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
+export async function download(vault: Vault, options: AsCSVDownloadOptions = {}): Promise<void> {
+  const fmt = asCsv(options)
+  const csv = await vault.export(fmt, readOpts(options))
+  const filename = options.filename ?? `${options.collections?.[0] ?? 'export'}.${fmt.extension}`
+  const url = URL.createObjectURL(new Blob([csv], { type: fmt.mimeType }))
   const a = document.createElement('a')
   a.href = url
   a.download = filename
@@ -144,9 +90,11 @@ export async function download(vault: Vault, options: AsCSVDownloadOptions): Pro
 }
 
 /**
- * Node file-write — persists the CSV to the filesystem. Requires
- * explicit `acknowledgeRisks: true` because the plaintext file
- * outlives the current process (Tier 3 egress).
+ * Node file write. Still here, and not in hub, for a measured reason:
+ * `check-architecture`'s `hub-portable` rule forbids Node builtins in
+ * `hub/src` because hub must run in a browser, Worker, Deno and Bun. The gate,
+ * the read and the redaction all moved; these three lines are the part that
+ * legitimately differs per runtime.
  */
 export async function write(
   vault: Vault,
@@ -156,23 +104,22 @@ export async function write(
   if (options.acknowledgeRisks !== true) {
     throw new Error(
       'as-csv.write: acknowledgeRisks: true is required for on-disk plaintext output. ' +
-      'This call creates a persistent plaintext copy of your data outside noy-db\'s ' +
-      'encrypted storage — see docs/patterns/as-exports.md §"The three tiers of \\"plaintext out\\""',
+      'See docs/patterns/as-exports.md - the three tiers of plaintext out.',
     )
   }
-  const csv = await toString(vault, options)
-  // Defer the node:fs import so this package remains browser-safe.
+  const csv = await vault.export(asCsv(options), readOpts(options))
   const { writeFile } = await import('node:fs/promises')
-  await writeFile(path, csv, 'utf-8')
+  await writeFile(path, csv, 'utf8')
 }
 
-// ── CSV formatting internals ───────────────────────────────────────────
+/** Only the keys that are actually set — `exactOptionalPropertyTypes` is on. */
+function readOpts(o: AsCSVOptions): FormatExportOptions {
+  return {
+    ...(o.collections ? { collections: o.collections } : {}),
+    ...(o.redact !== undefined ? { redact: o.redact } : {}),
+  }
+}
 
-/**
- * RFC 4180 escaping: wrap a field in double quotes if it contains
- * comma, double quote, CR, or LF. Embedded double quotes become `""`.
- * Other values stringify naturally.
- */
 function escapeField(value: unknown): string {
   if (value === null || value === undefined) return ''
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
@@ -210,105 +157,84 @@ function inferColumns(records: readonly unknown[]): string[] {
 
 // Hub-owned as of 0.7 (ADR 0004). This line replaced a local declaration that
 // existed identically in six as-* packages, with nothing comparing them.
-import type { ImportPolicy, ImportPlan } from '@noy-db/hub/as'
+import type {
+  ImportPolicy,
+  ImportPlan,
+  NoydbFormat,
+  DecodedChunk,
+  ExportChunk,
+  FormatExportOptions,
+} from '@noy-db/hub/as'
 export type { ImportPolicy }
 
-export interface AsCSVImportOptions {
-  /** Target collection. CSV has no native collection grouping. Required. */
-  readonly collection: string
-  /**
-   * Optional column type hints. When omitted, every cell is parsed as
-   * a string. Number / boolean cells are auto-detected when the hint
-   * matches: `'1'` → `1`, `'true'` → `true`, etc.
-   */
-  readonly columnTypes?: Record<string, 'string' | 'number' | 'boolean'>
-  /** Field on each record that carries its id. Default `'id'`. */
-  readonly idKey?: string
-  /** Reconciliation policy. Default `'merge'`. */
-  readonly policy?: ImportPolicy
-}
-
+/** @deprecated Use `ImportPlan` from `@noy-db/hub/as` — this is now an alias. */
 export type AsCSVImportPlan = ImportPlan
 
 /**
  * Parse RFC-4180 CSV into records and build an import plan for one
  * collection. The first row is the header; subsequent rows are
  * records. Quoted fields, embedded commas, embedded `""`, and
- * CRLF line endings all round-trip with `as-csv.toString()`.
+ * CRLF line endings all round-trip through `asCsv()`.
  *
  * Cells are returned as strings unless overridden via `columnTypes`.
  * For the common case of numeric ids ("1001" → 1001), pass
  * `columnTypes: { id: 'number' }`.
  */
-export async function fromString(
-  vault: Vault,
-  csv: string,
-  options: AsCSVImportOptions,
-): Promise<AsCSVImportPlan> {
-  vault.assertCanImport('plaintext', 'csv')
-  const policy: ImportPolicy = options.policy ?? 'merge'
-  const idKey = options.idKey ?? 'id'
+/**
+ * The pure decoder. Bytes in, records out — no vault, no gate, no diff. Hub
+ * gates, plans against the live vault, and owns `apply()`.
+ */
+function decodeCsv(csv: string, options: AsCSVFormatOptions): readonly DecodedChunk[] {
   const types = options.columnTypes ?? {}
-
   const rows = parseCSV(csv)
-  if (rows.length === 0) {
-    return emptyPlan(vault, options.collection, policy, idKey)
-  }
+  if (rows.length === 0) return [{ collection: '', records: [] }]
   const header = rows[0] ?? []
   const records: Record<string, unknown>[] = []
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r]!
-    if (row.length === 1 && row[0] === '') continue   // ignore blank lines
+    if (row.length === 1 && row[0] === '') continue
     const record: Record<string, unknown> = {}
     for (let c = 0; c < header.length; c++) {
       const col = header[c] ?? ''
-      const cell = row[c] ?? ''
-      record[col] = coerceCell(cell, types[col])
+      record[col] = coerceCell(row[c] ?? '', types[col])
     }
     records.push(record)
   }
-
-  const plan = await diffVault(vault, { [options.collection]: records }, {
-    collections: [options.collection],
-    idKey,
-  })
-
-  return {
-    plan,
-    policy,
-    async apply(): Promise<void> {
-      // Routes through the transactionsStrategy seam — vault.noydb.transaction()
-      // throws a clear error pointing at withTransactions() when the
-      // strategy is not opted in. Atomicity ensures a partial failure
-      // rolls back every executed put.
-      await vault.noydb.transaction((tx) => {
-        const txVault = tx.vault(vault.name)
-        for (const entry of plan.added) {
-          txVault.collection(entry.collection).put(entry.id, entry.record, { reason: 'import:csv' })
-        }
-        if (policy !== 'insert-only') {
-          for (const entry of plan.modified) {
-            txVault.collection(entry.collection).put(entry.id, entry.record, { reason: 'import:csv' })
-          }
-        }
-        if (policy === 'replace') {
-          for (const entry of plan.deleted) {
-            txVault.collection(entry.collection).delete(entry.id)
-          }
-        }
-      })
-    },
-  }
+  // No collection name: CSV carries none. Hub resolves it from
+  // `vault.import(fmt, csv, { collection })`.
+  return [{ collection: '', records }]
 }
 
-async function emptyPlan(
-  vault: Vault,
-  collection: string,
-  policy: ImportPolicy,
-  idKey: string,
-): Promise<AsCSVImportPlan> {
-  const plan = await diffVault(vault, { [collection]: [] }, { collections: [collection], idKey })
-  return { plan, policy, async apply() { /* nothing to do */ } }
+/** Options a CSV format instance carries. Read concerns live on `vault.export`. */
+export interface AsCSVFormatOptions {
+  /** Line ending. Default `'\n'`. */
+  readonly eol?: string
+  /** Explicit column list. Omitted: inferred from the records. */
+  readonly columns?: readonly string[]
+  /** Per-column coercion on decode. */
+  readonly columnTypes?: Readonly<Record<string, 'string' | 'number' | 'boolean'>>
+}
+
+/**
+ * The CSV format — the `as-*` port instance.
+ *
+ * ```ts
+ * const csv = await vault.export(asCsv(), { collections: ['invoices'] })
+ * const plan = await vault.import(asCsv(), csv, { collection: 'invoices' })
+ * await plan.apply()
+ * ```
+ *
+ * Requires `formatsStrategy: withFormats()` on `createNoydb`.
+ */
+export function asCsv(options: AsCSVFormatOptions = {}): NoydbFormat<string> {
+  return {
+    id: 'csv',
+    extension: 'csv',
+    mimeType: 'text/csv;charset=utf-8',
+    tier: 'plaintext',
+    encode: (chunks) => encodeCsv(chunks, options),
+    decode: (input) => decodeCsv(input, options),
+  }
 }
 
 function coerceCell(cell: string, type?: 'string' | 'number' | 'boolean'): unknown {

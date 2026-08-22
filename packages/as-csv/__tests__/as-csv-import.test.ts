@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
 import { ConflictError, createNoydb } from '@noy-db/hub'
 import { withTransactions } from '@noy-db/hub/transactions'
-import { fromString } from '../src/index.js'
+import { asCsv } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
+import { withFormats } from '@noy-db/hub/as'
 
 function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -45,7 +46,7 @@ interface Invoice { id: string; client: string; amount: number }
 
 async function setup() {
   const adapter = toMemory()
-  const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
+  const init = await createNoydb({ teamStrategy: withTeam(), formatsStrategy: withFormats(), store: adapter, user: 'alice', secret: 'pw-2026' })
   await init.openVault('demo')
   await init.grant('demo', {
     userId: 'alice', displayName: 'Alice', role: 'owner',
@@ -53,7 +54,7 @@ async function setup() {
     importCapability: { plaintext: ['csv'] },
   })
   init.close()
-  const db = await createNoydb({ teamStrategy: withTeam(),
+  const db = await createNoydb({ teamStrategy: withTeam(), formatsStrategy: withFormats(),
     store: adapter, user: 'alice', secret: 'pw-2026',
     transactionsStrategy: withTransactions(),
   })
@@ -71,10 +72,7 @@ describe('as-csv fromString', () => {
       'b,"Acme, Inc.",250',         // added (note quoted comma)
     ].join('\n')
 
-    const importer = await fromString(vault, csv, {
-      collection: 'invoices',
-      columnTypes: { amount: 'number' },
-    })
+    const importer = await vault.import(asCsv({ columnTypes: { amount: 'number' } }), csv, { collection: 'invoices' })
     expect(importer.plan.summary).toEqual({ add: 1, modify: 0, delete: 0, total: 1 })
     expect(importer.plan.added[0]!.record).toEqual({
       id: 'b', client: 'Acme, Inc.', amount: 250,
@@ -94,22 +92,16 @@ describe('as-csv fromString', () => {
       'b,"Stark ""Industries""",999',
     ].join('\n')
 
-    const importer = await fromString(vault, csv, {
-      collection: 'invoices',
-      columnTypes: { amount: 'number' },
-    })
+    const importer = await vault.import(asCsv({ columnTypes: { amount: 'number' } }), csv, { collection: 'invoices' })
     expect(importer.plan.added[0]!.record).toEqual({
       id: 'b', client: 'Stark "Industries"', amount: 999,
     })
     db.close()
   })
 
-  it('round-trips against as-csv.toString() for the same vault', async () => {
-    // toString → fromString → apply on a fresh vault should produce
-    // the same records as the source.
-    const { default: as } = await import('../src/index.js') as any
-    void as
-
+  it('round-trips export -> import -> apply on a fresh vault', async () => {
+    // export → import → apply on a fresh vault should produce the same
+    // records as the source. Both halves now go through hub.
     const { db: src, vault: srcVault } = await setup()
     await src.grant('demo', {
       userId: 'alice', displayName: 'Alice', role: 'owner',
@@ -118,14 +110,13 @@ describe('as-csv fromString', () => {
     })
     src.close()
 
-    const re = await createNoydb({ teamStrategy: withTeam(), store: (srcVault as any).adapter, user: 'alice', secret: 'pw-2026' })
+    const re = await createNoydb({ teamStrategy: withTeam(), formatsStrategy: withFormats(), store: (srcVault as any).adapter, user: 'alice', secret: 'pw-2026' })
     const reVault = await re.openVault('demo')
-    const { toString } = await import('../src/index.js')
-    const csv = await toString(reVault, { collection: 'invoices' })
+    const csv = await reVault.export(asCsv(), { collections: ['invoices'] })
 
     // Empty fresh vault — every CSV row is "added".
     const dstAdapter = toMemory()
-    const dstInit = await createNoydb({ teamStrategy: withTeam(), store: dstAdapter, user: 'alice', secret: 'pw-2026' })
+    const dstInit = await createNoydb({ teamStrategy: withTeam(), formatsStrategy: withFormats(), store: dstAdapter, user: 'alice', secret: 'pw-2026' })
     await dstInit.openVault('demo')
     await dstInit.grant('demo', {
       userId: 'alice', displayName: 'Alice', role: 'owner',
@@ -133,15 +124,12 @@ describe('as-csv fromString', () => {
       importCapability: { plaintext: ['csv'] },
     })
     dstInit.close()
-    const dst = await createNoydb({ teamStrategy: withTeam(),
+    const dst = await createNoydb({ teamStrategy: withTeam(), formatsStrategy: withFormats(),
       store: dstAdapter, user: 'alice', secret: 'pw-2026',
       transactionsStrategy: withTransactions(),
     })
     const dstVault = await dst.openVault('demo')
-    const importer = await fromString(dstVault, csv, {
-      collection: 'invoices',
-      columnTypes: { amount: 'number' },
-    })
+    const importer = await dstVault.import(asCsv({ columnTypes: { amount: 'number' } }), csv, { collection: 'invoices' })
     await importer.apply()
     expect(await dstVault.collection<Invoice>('invoices').get('a'))
       .toEqual({ id: 'a', client: 'X', amount: 100 })
@@ -157,7 +145,7 @@ describe('as-csv fromString — apply() requires withTransactions()', () => {
     // explicitly WITHOUT withTransactions() so apply() hits the strategy
     // gate before any record write reaches the store.
     const adapter = toMemory()
-    const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
+    const init = await createNoydb({ teamStrategy: withTeam(), formatsStrategy: withFormats(), store: adapter, user: 'alice', secret: 'pw-2026' })
     await init.openVault('demo')
     await init.grant('demo', {
       userId: 'alice', displayName: 'Alice', role: 'owner',
@@ -166,13 +154,10 @@ describe('as-csv fromString — apply() requires withTransactions()', () => {
     })
     init.close()
 
-    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
+    const db = await createNoydb({ teamStrategy: withTeam(), formatsStrategy: withFormats(), store: adapter, user: 'alice', secret: 'pw-2026' })
     const vault = await db.openVault('demo')
 
-    const importer = await fromString(vault, 'id,client,amount\na,X,100', {
-      collection: 'invoices',
-      columnTypes: { amount: 'number' },
-    })
+    const importer = await vault.import(asCsv(), 'id,client,amount\na,X,100', { collection: 'invoices' })
     // The plan builds fine — diffVault doesn't need transactions. Only
     // apply() crosses the gate.
     expect(importer.plan.summary.total).toBe(1)
