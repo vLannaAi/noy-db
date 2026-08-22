@@ -70,6 +70,7 @@ async function seededVault(): Promise<Vault> {
 }
 
 runFormatConformanceTests('as-zip', {
+  tier: 'plaintext',
   format: 'zip',
   vault: seededVault,
   exports: [

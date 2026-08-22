@@ -59,6 +59,9 @@ importers:
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../hub
+      '@noy-db/test-format-conformance':
+        specifier: workspace:*
+        version: link:../test-format-conformance
       '@noy-db/to-memory':
         specifier: workspace:*
         version: link:../to-memory
@@ -95,6 +98,9 @@ importers:
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../hub
+      '@noy-db/test-format-conformance':
+        specifier: workspace:*
+        version: link:../test-format-conformance
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -104,6 +110,9 @@ importers:
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../hub
+      '@noy-db/test-format-conformance':
+        specifier: workspace:*
+        version: link:../test-format-conformance
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -113,6 +122,9 @@ importers:
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../hub
+      '@noy-db/test-format-conformance':
+        specifier: workspace:*
+        version: link:../test-format-conformance
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -129,6 +141,9 @@ importers:
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../hub
+      '@noy-db/test-format-conformance':
+        specifier: workspace:*
+        version: link:../test-format-conformance
       '@noy-db/to-memory':
         specifier: workspace:*
         version: link:../to-memory
@@ -145,6 +160,9 @@ importers:
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../hub
+      '@noy-db/test-format-conformance':
+        specifier: workspace:*
+        version: link:../test-format-conformance
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17

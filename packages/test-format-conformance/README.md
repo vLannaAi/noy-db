@@ -75,5 +75,29 @@ method is still observed.
 | as-csv: `acknowledgeRisks` guard deleted | 1 fails |
 | as-zip: gate deleted | 6 fail |
 
-Three bindings: `as-csv` (text), `as-json` (four entry points), `as-zip`
-(binary, needs `withBlobs()`).
+## All nine formats bind it
+
+`as-blob` · `as-csv` · `as-json` · `as-ndjson` · `as-noydb` · `as-sql` ·
+`as-xlsx` · `as-xml` · `as-zip`.
+
+Wiring them found that the family is **two capability tiers**, not one:
+
+| tier | packages | gate |
+|---|---|---|
+| `plaintext` | eight | `assertCanExport('plaintext', <format>)` |
+| `bundle` | `as-noydb` | `assertCanExport('bundle')` — no format |
+
+`as-noydb` emits an **encrypted** pod, so it also has **no `acknowledgeRisks`
+gate**, and its source says so twice. Its fixture therefore declares no
+acknowledgement case — and the suite prints
+`write: SKIPPED — … UNVERIFIED here` rather than staying quiet, which is the
+difference between a documented absence and a hole.
+
+`as-aws-s3` is not in the list: it exports `asAwsS3(options)` and is a
+**destination, not a format**.
+
+## The vacuity guard earned its place twice
+
+It fired on `as-zip` (no `withBlobs()`) and on `as-blob` (no blob attached to
+the seeded record). In both cases six refusal assertions were green and
+meaningless. Neither would have been visible from reading the output.

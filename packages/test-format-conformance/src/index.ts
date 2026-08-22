@@ -33,7 +33,7 @@
  * @packageDocumentation
  */
 import { describe, it, expect } from 'vitest'
-import type { Vault } from '@noy-db/hub'
+import type { Vault, ExportFormat } from '@noy-db/hub'
 
 /** One plaintext-producing entry point, named as a consumer would call it. */
 export interface FormatEntryPoint {
@@ -45,8 +45,20 @@ export interface FormatEntryPoint {
 
 /** Everything an `as-*` package must supply to be checked against the gate. */
 export interface FormatFixture {
-  /** The format tag the package passes to `assertCanExport`, e.g. `'csv'`. */
-  readonly format: string
+  /**
+   * The TIER the package passes to `assertCanExport`. The `as-*` family is
+   * two capability classes, not one — discovered by wiring `as-noydb`, which
+   * calls `assertCanExport('bundle')` and never mentions plaintext because it
+   * emits an encrypted pod. A kit that assumed one tier would have made that
+   * fixture describe itself wrongly while still passing.
+   */
+  readonly tier: 'plaintext' | 'bundle'
+  /**
+   * The format tag, e.g. `'csv'`. REQUIRED for the plaintext tier and
+   * meaningless for `bundle` — hub itself throws when a plaintext check
+   * arrives without one, so the pairing is asserted rather than assumed.
+   */
+  readonly format?: ExportFormat
   /**
    * A REAL vault with at least one record. Built fresh per case, so an entry
    * point that mutates it cannot leak into the next assertion.
@@ -74,8 +86,8 @@ export interface FormatFixture {
 
 /** Thrown by the denying proxy so a refusal is attributable to the gate. */
 export class ExportDeniedByConformanceKit extends Error {
-  constructor(format: string) {
-    super(`conformance: assertCanExport denied '${format}'`)
+  constructor(tier: string, format?: string) {
+    super(`conformance: assertCanExport denied '${tier}'${format ? ` / '${format}'` : ''}`)
     this.name = 'ExportDeniedByConformanceKit'
   }
 }
@@ -93,12 +105,12 @@ interface Observation {
  * point taking a different route is still visible rather than silently
  * unobserved.
  */
-function denyingVault(real: Vault, format: string, seen: Observation): Vault {
+function denyingVault(real: Vault, tier: string, format: string | undefined, seen: Observation): Vault {
   return new Proxy(real, {
     get(target, prop, receiver) {
       if (prop === 'assertCanExport') {
         return () => {
-          throw new ExportDeniedByConformanceKit(format)
+          throw new ExportDeniedByConformanceKit(tier, format)
         }
       }
       const value = Reflect.get(target, prop, receiver) as unknown
@@ -122,6 +134,16 @@ function denyingVault(real: Vault, format: string, seen: Observation): Vault {
  */
 export function runFormatConformanceTests(name: string, fixture: FormatFixture): void {
   describe(`${name} — as-* export gate conformance`, () => {
+    it('declares a tier, and a format iff the tier needs one', () => {
+      // Hub throws on `assertCanExport('plaintext')` with no format, so a
+      // fixture in that state describes a call the package cannot be making.
+      if (fixture.tier === 'plaintext') {
+        expect(fixture.format, 'the plaintext tier requires a format').toBeTruthy()
+      } else {
+        expect(fixture.format, `the '${fixture.tier}' tier takes no format`).toBeUndefined()
+      }
+    })
+
     it('declares at least one export entry point', () => {
       // A fixture with an empty list would pass every case below without
       // running anything — a live suite iterating an empty array.
@@ -145,13 +167,13 @@ export function runFormatConformanceTests(name: string, fixture: FormatFixture):
     for (const entry of fixture.exports) {
       it(`${entry.name}: REFUSES when assertCanExport denies`, async () => {
         const seen: Observation = { decryptCalls: [] }
-        const vault = denyingVault(await fixture.vault(), fixture.format, seen)
+        const vault = denyingVault(await fixture.vault(), fixture.tier, fixture.format, seen)
         await expect(entry.run(vault)).rejects.toThrow()
       })
 
       it(`${entry.name}: refuses BEFORE reading any record`, async () => {
         const seen: Observation = { decryptCalls: [] }
-        const vault = denyingVault(await fixture.vault(), fixture.format, seen)
+        const vault = denyingVault(await fixture.vault(), fixture.tier, fixture.format, seen)
         await expect(entry.run(vault)).rejects.toThrow()
         // The property that a delegation refactor breaks silently: a gate
         // moved downstream still refuses the caller, having already decrypted.
@@ -164,7 +186,7 @@ export function runFormatConformanceTests(name: string, fixture: FormatFixture):
 
     const writeTitle = fixture.writeWithoutAcknowledgement
       ? 'write: REFUSES without acknowledgeRisks'
-      : 'write: SKIPPED — no write path in the fixture, so the acknowledgement is UNVERIFIED here'
+      : 'write: SKIPPED — fixture declares no acknowledgement case, so the plaintext-on-disk gate is UNVERIFIED here'
 
     it(writeTitle, async () => {
       const write = fixture.writeWithoutAcknowledgement

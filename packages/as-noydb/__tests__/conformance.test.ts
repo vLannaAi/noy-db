@@ -1,15 +1,14 @@
 /**
- * as-csv against the published `as-*` export-gate contract.
+ * as-noydb against the published `as-*` export-gate contract.
  *
- * The package's own suite covers CSV: RFC 4180 escaping, column inference,
- * value serialisation. This runs the half every plaintext projection shares —
- * that the gate refuses, and refuses before reading anything.
+ * Package-specific behaviour stays in this package's own suite. This is the
+ * half every projection shares: the gate refuses, and refuses before reading.
  */
 import { runFormatConformanceTests } from '@noy-db/test-format-conformance'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, Vault } from '@noy-db/hub'
 import { ConflictError, createNoydb } from '@noy-db/hub'
 import { withTeam } from '@noy-db/hub/team'
-import { toString, download, write } from '../src/index.js'
+import { toBytes, download, write } from '../src/index.js'
 
 function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -48,46 +47,30 @@ function toMemory(): NoydbStore {
   }
 }
 
-/**
- * A vault that is EXPORT-CAPABLE, which matters more than it looks.
- *
- * Without the `exportCapability` grant, `assertCanExport` refuses every call —
- * so `write` rejects before it ever reads `acknowledgeRisks`, and the
- * acknowledgement case passes no matter what the guard does. The kit now also
- * matches on the message, so both halves have to be wrong for it to slip.
- */
+/** Export-CAPABLE on purpose — see the kit's note on `writeWithoutAcknowledgement`. */
 async function seededVault(): Promise<Vault> {
   const store = toMemory()
-  const seed = await createNoydb({
-    teamStrategy: withTeam(), store, user: 'owner-01', secret: 'owner-pass',
-  })
+  const opts = { teamStrategy: withTeam(), store, user: 'owner-01', secret: 'owner-pass' }
+  const seed = await createNoydb(opts)
   const seeded = await seed.openVault('acme')
   await seeded.collection('invoices').put('inv-1', { id: 'inv-1', client: 'Globex', amount: 1500 })
-  await seed.grant('acme', {
-    userId: 'owner-01', displayName: 'Owner', role: 'owner',
-    secret: 'owner-pass',
-    exportCapability: { plaintext: ['csv'] },
-  })
+  // No grant: the bundle tier defaults ON for owner/admin, so an explicit
+  // exportCapability would be describing a permission this vault already has.
   await seed.close()
-
-  const db = await createNoydb({
-    teamStrategy: withTeam(), store, user: 'owner-01', secret: 'owner-pass',
-  })
+  const db = await createNoydb(opts)
   return db.openVault('acme')
 }
 
-runFormatConformanceTests('as-csv', {
-  tier: 'plaintext',
-  format: 'csv',
+runFormatConformanceTests('as-noydb', {
+  tier: 'bundle',
   vault: seededVault,
-  // Every plaintext-producing export, not a representative one. `download`
-  // delegates to `toString` today; listing both is what would catch it if
-  // that ever stops being true.
   exports: [
-    { name: 'toString', run: (vault) => toString(vault, { collection: 'invoices' }) },
-    { name: 'download', run: (vault) => download(vault, { collection: 'invoices' }) },
-    { name: 'write', run: (vault) => write(vault, '/tmp/conformance.csv', { collection: 'invoices', acknowledgeRisks: true }) },
+    { name: 'toBytes', run: (vault) => toBytes(vault) },
+    { name: 'download', run: (vault) => download(vault) },
+    { name: 'write', run: (vault) => write(vault, '/tmp/conformance.noydb', { acknowledgeRisks: true }) },
   ],
-  writeWithoutAcknowledgement: (vault, path) =>
-    write(vault, path, { collection: 'invoices' } as Parameters<typeof write>[2]),
+  // NO `writeWithoutAcknowledgement`, and that is correct rather than an
+  // omission: as-noydb writes an ENCRYPTED pod, so there is no plaintext-on-
+  // disk risk to acknowledge, and its source says so twice. The kit reports
+  // the absence as a named skip rather than staying silent about it.
 })
