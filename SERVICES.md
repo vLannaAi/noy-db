@@ -148,7 +148,55 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 
 ### Themed homes (#843 C3a)
 
-`./store`, `./introspection`, `./money`, `./cover`, `./schema-update`, `./policy` and `./directory` group symbols that previously had no home but the root barrel. They are **additive** — each is also still re-exported from `.`, matching how the Via features are dual-homed (`./classified` and `./i18n` have always been reachable both ways). The subpath exists so the surface is navigable and tree-shakeable, not to force a migration. None has a `with<Name>()` factory, so each is allowlisted in the `service-subpath-naming` guard as a themed grouping rather than a service.
+`./store`, `./introspection`, `./money`, `./cover`, `./schema-update`, `./policy` and `./directory` group symbols that previously had no home but the root barrel. (`./introspection` has since outgrown this description — see its own section below.) They are **additive** — each is also still re-exported from `.`, matching how the Via features are dual-homed (`./classified` and `./i18n` have always been reachable both ways). The subpath exists so the surface is navigable and tree-shakeable, not to force a migration. None has a `with<Name>()` factory, so each is allowlisted in the `service-subpath-naming` guard as a themed grouping rather than a service.
+
+### `./introspection` — the surface a UI binds
+
+⚠️ **This one is no longer just a themed home.** It is the contract the whole
+UI family binds, and it is frozen accordingly.
+
+A schema-driven UI needs `CollectionDescription`, `DescribedField`, `FieldMeta`,
+`SemanticType` and `applyListProjection` — everything needed to render a
+collection without knowing what it holds. `@noy-db/ui`, `@noy-db/ui-nuxt` and
+`@noy-db/ui-suai` bind them here (#1021), and so should a third-party binding:
+an Excel-web, Google-Sheets, Airtable or Retool surface starts from this
+subpath, not from the root barrel.
+
+```ts
+import { applyListProjection } from '@noy-db/hub/introspection'
+import type { CollectionDescription, DescribedField, SemanticType } from '@noy-db/hub/introspection'
+
+// A surface renders from the description, never from the record shape.
+const described: CollectionDescription = vault.collection('invoices').describe()
+const fields: readonly DescribedField[] = described.fields
+```
+
+**There is no `@noy-db/hub/ui`, and this is where the reason lives.** Two
+separate proposals have been declined, and conflating them costs a
+re-litigation:
+
+- **#1002** proposed `/ui` as a *type re-export barrel* over three describe
+  types. Closed `NOT_PLANNED` — `./introspection` already carried two of the
+  three, and all three today.
+- **A `/ui` PORT** — `NoydbSurface` plus a descriptor/factory/locator mirroring
+  the `to-*`/`at-*`/`by-*` families — was declined on 2026-08-22 for a
+  different and structural reason. Those three are **driven** ports: hub holds
+  the reference and calls the satellite. A UI is a **driving** adapter — it
+  calls hub, and hub never invokes a UI. A `SurfaceLocator` would be registry
+  machinery with no caller.
+
+What would reopen the port question: a component that holds surface references
+and invokes them polymorphically, or a binding whose needs `./introspection`
+demonstrably cannot express — write-back negotiation, pagination contracts, a
+live-subscription shape. Extracted from a working consumer, not drawn ahead of
+one.
+
+**Consequence, and it is the substantive half:** a subpath a family is told to
+bind is a promise, so `./introspection` is frozen by
+`__tests__/introspection-surface-golden.test.ts` — the same freeze `./to` has
+carried since S5, for the same reason. Adding an export needs a visible
+baseline update; removing or renaming one fails loudly, which is the only
+signal a third-party binding gets.
 
 **Where this stopped, and why.** #843(c) began with **467 symbols reachable from no entry but `.`**; it now stands at **278**. Of those, **185 are declared in `kernel`** — `createNoydb`, `Vault`, `Collection`, the store contract, the error types — and belong on the root barrel by design, and a further **12** are the `at-*`/`on-*` sealing SPI that satellites import from `.` (see #843 C2). That leaves ~81 spread across ~19 modules at nine or fewer each. Those are deliberately left on the root barrel: a subpath for nine symbols mints permanent public API and a guard allowlist entry to satisfy a count, which is worse than the drift it removes. Revisit only if one of those modules grows a real, separable capability.
 
