@@ -144,8 +144,9 @@
     }
   ],
   "unretired": [
-    "@noy-db/hub/at"
+    "@noy-db/hub/at",
+    "@noy-db/hub/by"
   ],
-  "$unretiredComment": "Subpaths this line RE-INTRODUCES after an earlier line retired them. `/at` was removed in 0.4.0 (see codemods/0.4.0-pre.json, kind:'subpath') because it 'had zero importers' — it was a second place to find a type already on the root barrel. It returns now because something stands behind it: @noy-db/test-sealer-conformance publishes the NoydbSealer contract as an executable suite, and the five at-* packages bind the seam. Listing a subpath here is a CLAIM, and codemod-map.test.ts refuses it unless the subpath actually resolves — so this field cannot be used to silence the retired-subpath guard without shipping the seam. Purely additive: the root barrel and /cargo keep exporting everything they did, so a consumer who followed the 0.4 row onto the root barrel is untouched.",
+  "$unretiredComment": "Subpaths this line RE-INTRODUCES after an earlier line retired them. `/by` is the second, on identical grounds: @noy-db/test-mesh-conformance publishes the NoydbMesh contract as an executable suite, and by-peer/by-tabs bind the seam. Re-introducing it also EXPOSED A GAP IN THE 0.4 MAP: that prune removed seven subpaths and recorded five, so `/by` and `/with` had no row until 2026-08-22 — the un-retired guard refuses a path no earlier map says was retired, and it was right. `/at` was removed in 0.4.0 (see codemods/0.4.0-pre.json, kind:'subpath') because it 'had zero importers' — it was a second place to find a type already on the root barrel. It returns now because something stands behind it: @noy-db/test-sealer-conformance publishes the NoydbSealer contract as an executable suite, and the five at-* packages bind the seam. Listing a subpath here is a CLAIM, and codemod-map.test.ts refuses it unless the subpath actually resolves — so this field cannot be used to silence the retired-subpath guard without shipping the seam. Purely additive: the root barrel and /cargo keep exporting everything they did, so a consumer who followed the 0.4 row onto the root barrel is untouched.",
   "version": "0.7.0-pre"
 }

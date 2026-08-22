@@ -173,6 +173,10 @@
       "types": "./dist/port/at/index.d.ts",
       "default": "./dist/at/index.js"
     },
+    "./by": {
+      "types": "./dist/port/by/index.d.ts",
+      "default": "./dist/by/index.js"
+    },
     "./store": {
       "types": "./dist/with-store/index.d.ts",
       "default": "./dist/store/index.js"

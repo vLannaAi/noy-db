@@ -316,6 +316,22 @@
       "note": "Split in two, so the target depends on what you imported: pod artifacts (write/read/header/cover) went to `/pod`, orchestration types went to `/cargo`. Resolve per import, not per file."
     },
     {
+      "from": "@noy-db/hub/by",
+      "to": "@noy-db/hub/cargo",
+      "kind": "subpath",
+      "safeGlobalReplace": true,
+      "section": "\u00a77",
+      "note": "ADDED 2026-08-22, not in this map as originally written. The 0.4 prune removed SEVEN subpaths (`./with ./ui ./by ./on ./at ./in ./as`) and this map recorded five of them; `/by` and `/with` had no row, so a consumer importing either got no migration instruction at all. Found while re-introducing `/by` in the 0.7 line, because the un-retired guard refuses a path no earlier map says was retired \u2014 the guard was right and the map was short. Every one of its six exports (`NoydbMesh` \u2014 then `CoordinationProvider` \u2014 `WriterPresence`, `FenceState`, `DrainBarrierOptions`, `isQuorum`, `runDrainBarrier`) is reachable from `/cargo` today, verified against the built surface, so this is a clean single-target redirect."
+    },
+    {
+      "from": "@noy-db/hub/with",
+      "to": "@noy-db/hub/cargo",
+      "kind": "subpath",
+      "safeGlobalReplace": false,
+      "section": "\u00a77",
+      "note": "ADDED 2026-08-22 \u2014 the second of the two rows this map was missing; see the `/by` row for how they were found. UNLIKE every other subpath row here, this is NOT a clean redirect and that is why it is unsafe to apply blind: only `WriteEvent` and `WriteHook` landed on `/cargo`. `WriteHookRegistry`, `ServiceBus`/`SubsystemBus`, and `assertCanExport`/`assertCanImport`/`canExport`/`canImport` are reachable from NO declared subpath today \u2014 they became internal with no public replacement. A consumer using those has no target to move to, and this row must not pretend otherwise."
+    },
+    {
       "from": "@noy-db/hub/as",
       "to": "@noy-db/hub",
       "kind": "subpath",
