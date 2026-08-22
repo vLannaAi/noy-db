@@ -22,7 +22,7 @@
 
 import { channelMesh } from '@noy-db/by-peer'
 import type { PeerChannel } from '@noy-db/by-peer'
-import type { NoydbMesh } from '@noy-db/hub/cargo'
+import type { NoydbMesh } from '@noy-db/hub/by'
 
 /**
  * Build a real-time {@link NoydbMesh} backed by a {@link PeerChannel}

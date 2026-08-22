@@ -22,6 +22,14 @@
  * behind it: the contract is published as an executable suite, and two
  * transports implement it. Ports first, then seams.
  *
+ * ⚠️ That last sentence was FALSE when this seam first shipped (#1171).
+ * `by-peer`, `by-tabs` and the conformance kit all imported `NoydbMesh` from
+ * `@noy-db/hub/cargo`, so `/by` was republished with **zero binders** — the
+ * exact condition it was pruned for — while this comment claimed otherwise. A
+ * subpath resolves whether or not anyone imports it, so nothing was red. The
+ * three were migrated, and `family-port-has-binder` in check-architecture.mjs
+ * now asks the question on every run rather than trusting the sentence.
+ *
  * Named re-exports only (no `export *`) so the published surface is explicit
  * and tsup's per-entry bundling keeps class identity stable across subpaths.
  * Everything here also remains on `/cargo`, which is where the 0.4 codemod row

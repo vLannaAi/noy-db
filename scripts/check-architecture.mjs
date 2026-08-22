@@ -1575,6 +1575,57 @@ function checkNoOutboundKlumImport() {
   }
 }
 
+// ─── Check 6a: a family-port subpath must have a BINDER ────────────────
+
+/**
+ * The condition that pruned seven subpaths in 0.4.0 was "zero importers".
+ * `/at` and `/by` came back in the 0.7 line on the argument that something now
+ * stands behind them — and `/by` shipped with **zero binders anyway**.
+ *
+ * Every `by-*` package, and the conformance kit written for the port, imported
+ * `NoydbMesh` from `@noy-db/hub/cargo`. The subpath's own doc comment said "a
+ * `by-*` transport binds ONLY to this subpath" and the PR body said the
+ * transports bound it. Neither was true, and nothing checked: a subpath
+ * resolves whether or not anyone imports it, so the seam looked identical to a
+ * working one from every angle except a grep nobody ran.
+ *
+ * This is that grep, run every time. It is deliberately narrow — it asks only
+ * for ONE in-repo importer, because that is the 0.4 condition verbatim, not a
+ * judgement about how much use is enough.
+ *
+ * ⚠️ BOUND: cross-repo binders do not count here and cannot. `/to`'s heaviest
+ * consumers are the 17 stores in noy-db-to, and this script cannot see them —
+ * so `/to` passes on its in-repo binders (`to-memory`, `to-file`, …) and a
+ * family whose implementors are ALL cross-repo would fail this check even
+ * though its seam is justified. That case does not exist today; when it does,
+ * the fix is an explicit exemption with the cross-repo binder named, not
+ * deleting the rule.
+ */
+const FAMILY_PORT_SUBPATHS = ['to', 'at', 'by']
+
+function checkFamilyPortHasBinder() {
+  for (const port of FAMILY_PORT_SUBPATHS) {
+    const specifier = `@noy-db/hub/${port}`
+    const binders = []
+    for (const pkgDir of listPackageDirs()) {
+      const name = basename(pkgDir)
+      if (name === 'hub') continue // hub declaring its own seam is not a binder
+      let found = false
+      walkTsFiles(join(pkgDir, 'src'), (_file, content) => {
+        if (stripComments(content).includes(`'${specifier}'`)) found = true
+      })
+      if (found) binders.push(name)
+    }
+    if (binders.length === 0) {
+      fail(
+        'family-port-has-binder',
+        `${specifier} is published and NOTHING in this repo imports it. That is the exact "zero importers" condition the 0.4.0 prune removed seven subpaths for. Either migrate the family onto the seam, or do not publish it — a subpath resolves whether or not anyone binds it, so nothing else will tell you.`,
+        'packages/hub/package.json',
+      )
+    }
+  }
+}
+
 // ─── Check 6b: hub's own dependencies on @noy-db packages ──────────────
 
 /**
@@ -2719,6 +2770,7 @@ checkEveryServiceGated()
 checkKernelSurface()
 checkNoDebugPlaintextInSource()
 checkNoOutboundKlumImport()
+checkFamilyPortHasBinder()
 checkHubSatelliteDeps()
 checkOnFamilyClassification()
 checkPortLayering()
