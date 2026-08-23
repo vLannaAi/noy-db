@@ -57,7 +57,25 @@ export class StoreMesh implements NoydbMesh {
   }
 
   async setFence(vault: string, fence: FenceDoc): Promise<void> {
-    await saveFence(this.#store, vault, fence)
+    // RE-READ AND SPREAD, never write the caller's doc whole (#1197).
+    //
+    // `saveFence` serialises what it is given and does a full `store.put` — no
+    // merge. Callers legitimately construct a PARTIAL doc: `FenceController`
+    // builds `{ currentSchemaVersion, fenceState }`, which is a valid `FenceDoc`
+    // because `schemaHash` is optional. Writing that whole silently erased the
+    // hash #946 added, so "which schema is generation N is answerable from
+    // schemaFenceState() alone" held only until the first drain.
+    //
+    // The type cannot see the loss: for an optional field, "absent" and
+    // "deliberately cleared" are the same value.
+    //
+    // Mirrors `persisted-schemas/register.ts:136`, which re-reads for the same
+    // reason and documents it — a stale snapshot would roll back a concurrent
+    // cutover's version. Re-reading NARROWS that window rather than closing it;
+    // fence transitions are orchestrator-driven and serialised, so the residual
+    // is the same one that path already accepts.
+    const current = await loadFence(this.#store, vault)
+    await saveFence(this.#store, vault, { ...current, ...fence })
   }
 
   async readFence(vault: string): Promise<FenceDoc> {
