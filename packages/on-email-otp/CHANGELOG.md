@@ -1,6 +1,6 @@
 # @noy-db/on-email-otp
 
-## 0.7.0-pre.0
+## 0.7.0-pre.1
 
 ### Patch Changes
 

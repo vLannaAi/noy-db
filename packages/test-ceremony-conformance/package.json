@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/test-ceremony-conformance",
-  "version": "0.7.0-pre.0",
+  "version": "0.7.0-pre.1",
   "description": "Parameterized contract tests for noy-db on-* slot ceremonies — the conformance suite every SlotRewrapCeremony must pass",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
