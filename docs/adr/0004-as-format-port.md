@@ -48,6 +48,27 @@ behind a hub call?** For `as-*` the answer is yes — `encode(rows)` is pure. Fo
 `ui-*` it is no — hub cannot own a render loop — which is why `ui-*` keeps the
 driving-port shape on `/introspection` and does **not** get this treatment.
 
+## ⚠️ Postscript, 2026-08-24 — the inversion took the conformance kit with it
+
+`as-csv`, `as-sql`, `as-xml` and `as-json` each had a
+`@noy-db/test-format-conformance` fixture before this ADR was implemented. **#1192
+and #1193 deleted all four**, because the fixture no longer type-checked against
+the new entry point, and no replacement was written.
+
+The kit cannot simply be re-pointed. It denies by wrapping the vault in a Proxy
+whose `get` trap replaces `assertCanExport` — which works when the entry point
+takes the vault as an ARGUMENT (`toString(vault, opts)`), and does not when the
+entry point is a METHOD ON the vault (`vault.export(asCsv(), {})`), because
+forwarding binds `this` to the real object. Its second assertion — *refuses
+before reading a record* — is blinded the same way.
+
+**The inversion moved the gate from an argument to a receiver, and every
+observation technique built on intercepting the argument went blind at once.**
+Nothing turned red: the fixtures were deleted rather than failing.
+
+Tracked as #1209. Recorded here because this ADR argued the inversion was cheap,
+and this is the part of the bill that arrived later.
+
 ## Decision
 
 `as-*` is **export AND import** — data, schema, validation. The port is

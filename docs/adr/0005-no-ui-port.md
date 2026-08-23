@@ -79,8 +79,19 @@ root barrel and read plaintext without implementing any contract. Shipping a
 catching.
 
 The real gate is runtime: `assertCanExport(tier, format)`, conformance-tested by
-`@noy-db/test-format-conformance`, which proves every `as-*` entry point refuses
+`@noy-db/test-format-conformance`, which proves an `as-*` entry point refuses
 when the gate denies **and refuses before reading a record**.
+
+> ⚠️ **Corrected 2026-08-24: that kit currently covers FIVE of the nine formats,
+> not all of them.** The four inverted by ADR 0004 — `as-csv`, `as-sql`,
+> `as-xml`, `as-json` — lost their fixtures in #1192/#1193 and cannot be
+> re-pointed at the kit as it stands: it denies by proxying the vault, and the
+> inverted entry point is a *method* on the vault, so `this` resolves to the real
+> object and the denial is bypassed. Tracked as #1209.
+>
+> The reasoning below is unaffected — it turns on the gate being **runtime rather
+> than a type**, which is still true. But "conformance-tested" is currently a
+> claim about five formats, and the sentence above said nine.
 
 ### There is no `ui` capability tier
 
