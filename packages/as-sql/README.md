@@ -14,7 +14,7 @@ pnpm add @noy-db/hub @noy-db/as-sql
 
 ## What it is
 
-SQL dump export for noy-db — decrypts records and emits dialect-aware CREATE TABLE + INSERT statements for postgres / mysql / sqlite. One-way migration helper. Gated by RFC #249 canExportPlaintext.
+SQL dump export for noy-db — decrypts records and emits dialect-aware CREATE TABLE + INSERT statements for postgres / mysql / sqlite. One-way migration helper. Gated by `vault.assertCanExport('plaintext', …)`.
 
 ## Status
 

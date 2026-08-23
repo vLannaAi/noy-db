@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/as-json",
-  "version": "0.6.0",
-  "description": "Structured JSON plaintext export for noy-db \u2014 decrypts records and emits one JSON document per vault. Gated by RFC #249 canExportPlaintext capability; writes an audit-ledger entry on every call. Part of the @noy-db/as-* portable-artefact family (plaintext tier).",
+  "version": "0.7.0-pre.0",
+  "description": "Structured JSON plaintext export for noy-db — decrypts records and emits one JSON document per vault. Gated by `vault.assertCanExport('plaintext', …)` capability; writes an audit-ledger entry on every call. Part of the @noy-db/as-* portable-artefact family (plaintext tier).",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/as-json#readme",

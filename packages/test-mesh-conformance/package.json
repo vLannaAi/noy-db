@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/test-mesh-conformance",
-  "version": "0.6.0",
+  "version": "0.7.0-pre.0",
   "description": "Parameterized contract tests for noy-db by-* transports — the conformance suite every NoydbMesh implementation must pass",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

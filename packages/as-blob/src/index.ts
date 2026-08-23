@@ -9,7 +9,7 @@
  * bytes are different shapes with the same egress gate.
  *
  * **Authorization.** Every call is gated by the invoking keyring's
- * `canExportPlaintext` capability with format `'blob'`.
+ * `assertCanExport('plaintext', …)` gate with format `'blob'`.
  * Decrypted bytes crossing the plaintext boundary require an
  * explicit grant from the vault owner; the package calls
  * `vault.assertCanExport('plaintext', 'blob')` before loading any

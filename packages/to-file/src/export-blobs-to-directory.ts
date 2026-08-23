@@ -96,7 +96,7 @@ interface OpaqueManifestEntry {
  * summary suitable for logging / audit.
  *
  * Caller MUST already hold whatever capability the vault demands
- * (`canExportPlaintext['blob']`) — this function delegates to
+ * (`assertCanExport('plaintext', 'blob')`) — this function delegates to
  * `vault.exportBlobs()`, which performs the capability check itself.
  */
 export async function exportBlobsToDirectory(

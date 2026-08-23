@@ -4,7 +4,7 @@
  * Decrypts ACL-scoped records from a vault and emits one structured
  * JSON document grouping records by collection. Sibling to the core
  * `exportJSON()` helper — same shape, but gated behind
- * `canExportPlaintext` and paired with browser-download +
+ * `assertCanExport('plaintext')` and paired with browser-download +
  * Node file-write helpers.
  *
  * **Scope.** Multi-collection per call (unlike `as-csv` which is
