@@ -101,3 +101,38 @@ difference between a documented absence and a hole.
 It fired on `as-zip` (no `withBlobs()`) and on `as-blob` (no blob attached to
 the seeded record). In both cases six refusal assertions were green and
 meaningless. Neither would have been visible from reading the output.
+
+## This kit is for EGRESS, not only for `as-*`
+
+The family prefix is not the criterion. **Anything that puts plaintext where the
+vault no longer controls it is an export**, and belongs here — which includes
+bindings that are not `as-*` packages at all.
+
+| projection | egress? | gated |
+|---|---|---|
+| `as-csv`, `as-xlsx`, `as-sql`, … | writes a file | ✅ |
+| `as-aws-s3` | pushes to a bucket — a **destination**, not a format | ✅ |
+| a `ui-*` binding rendering to a screen | the user already unlocked the vault | ❌ not egress |
+| **a `ui-*` binding pushing into Google Sheets / Excel-web / Airtable / Retool** | **a third party persists and indexes it** | ✅ **use this kit** |
+
+> **A UI that exports is an export.** Rendering locally is covered by unlock and
+> the ACL. Handing plaintext to a service that keeps a copy is the same act
+> `as-csv` performs, and it calls the same gate:
+> `assertCanExport('plaintext', <your format id>)`.
+
+Since `ExportFormat` is an **open** union, your id does not need to be one hub
+ships — `{ plaintext: ['gsheet'] }` is a grantable capability. Before that
+change a third-party id could be *checked* and never *granted*, so the only way
+to authorise one was the `'*'` wildcard.
+
+### What this contract is, honestly
+
+`as-*` packages refuse because **hub's own export paths call the gate**. A
+binding written outside this repo can simply not call it, and nothing stops it.
+So this is a **convention plus an executable check**, not an enforcement
+boundary — the same footing `to-*` runs on. Saying otherwise would repeat the
+mistake this kit was built to correct: a security claim that reads as
+enforcement and enforces nothing.
+
+Passing this suite is what makes the claim checkable. See
+`docs/adr/0005-no-ui-port.md` in the `noy-db` repo for the reasoning.
