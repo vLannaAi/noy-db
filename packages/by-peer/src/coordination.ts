@@ -36,10 +36,10 @@
  */
 
 import type { PeerChannel } from './channel.js'
-import type { NoydbMesh, FenceState, WriterPresence } from '@noy-db/hub/by'
+import type { NoydbMesh, FenceDoc, WriterPresence } from '@noy-db/hub/by'
 
 /** Default fence when a vault has never been fenced. */
-const DEFAULT_FENCE: FenceState = { currentSchemaVersion: 0, fenceState: 'normal' }
+const DEFAULT_FENCE: FenceDoc = { currentSchemaVersion: 0, fenceState: 'normal' }
 
 /**
  * Default presence horizon used when pruning before an `observePresence` emit
@@ -48,7 +48,7 @@ const DEFAULT_FENCE: FenceState = { currentSchemaVersion: 0, fenceState: 'normal
  */
 const DEFAULT_STALE_MS = 30_000
 
-type FenceEnvelope = { readonly k: 'co-fence'; readonly vault: string; readonly fence: FenceState }
+type FenceEnvelope = { readonly k: 'co-fence'; readonly vault: string; readonly fence: FenceDoc }
 type PresenceEnvelope = {
   readonly k: 'co-presence'
   readonly vault: string
@@ -57,9 +57,9 @@ type PresenceEnvelope = {
 type Envelope = FenceEnvelope | PresenceEnvelope
 
 interface VaultState {
-  fence: FenceState
+  fence: FenceDoc
   readonly presence: Map<string, WriterPresence>
-  readonly fenceObservers: Set<(f: FenceState) => void>
+  readonly fenceObservers: Set<(f: FenceDoc) => void>
   readonly presenceObservers: Set<(w: readonly WriterPresence[]) => void>
 }
 
@@ -155,18 +155,18 @@ export function channelMesh(channel: PeerChannel): NoydbMesh {
   })
 
   return {
-    async setFence(vault: string, fence: FenceState): Promise<void> {
+    async setFence(vault: string, fence: FenceDoc): Promise<void> {
       const s = stateFor(vault)
       s.fence = fence
       notifyFence(s)
       send({ k: 'co-fence', vault, fence })
     },
 
-    async readFence(vault: string): Promise<FenceState> {
+    async readFence(vault: string): Promise<FenceDoc> {
       return vaults.get(vault)?.fence ?? DEFAULT_FENCE
     },
 
-    observeFence(vault: string, onChange: (f: FenceState) => void): () => void {
+    observeFence(vault: string, onChange: (f: FenceDoc) => void): () => void {
       const s = stateFor(vault)
       s.fenceObservers.add(onChange)
       return () => s.fenceObservers.delete(onChange)

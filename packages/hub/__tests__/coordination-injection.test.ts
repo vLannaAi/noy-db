@@ -15,7 +15,7 @@ import { toMemory } from '../../to-memory/src/index.js'
 import { coordinatedCutover, additiveOnly } from '../src/with-shape/schema-update/index.js'
 import {
   type NoydbMesh,
-  type FenceState,
+  type FenceDoc,
   type WriterPresence,
 } from '../src/port/by/index.js'
 import { StoreMesh } from '../src/with-shape/schema-update/store-coordination-provider.js'
@@ -52,15 +52,15 @@ class SpyProvider implements NoydbMesh {
     this.#inner = new StoreMesh(store, { pollIntervalMs: 5 })
   }
 
-  async setFence(vault: string, fence: FenceState): Promise<void> {
+  async setFence(vault: string, fence: FenceDoc): Promise<void> {
     this.calls.setFence++
     return this.#inner.setFence(vault, fence)
   }
-  async readFence(vault: string): Promise<FenceState> {
+  async readFence(vault: string): Promise<FenceDoc> {
     this.calls.readFence++
     return this.#inner.readFence(vault)
   }
-  observeFence(vault: string, onChange: (f: FenceState) => void): Unsubscribe {
+  observeFence(vault: string, onChange: (f: FenceDoc) => void): Unsubscribe {
     this.calls.observeFence++
     return this.#inner.observeFence(vault, onChange)
   }
@@ -152,11 +152,11 @@ describe('coordination injection (#469)', () => {
     // exactly what `@klum-db/lobby` / a `by-*` transport does. No `class`
     // needed; structural typing is the whole contract.
     const external = {
-      async setFence(_v: string, _f: FenceState): Promise<void> {},
-      async readFence(_v: string): Promise<FenceState> {
+      async setFence(_v: string, _f: FenceDoc): Promise<void> {},
+      async readFence(_v: string): Promise<FenceDoc> {
         return { currentSchemaVersion: 0, fenceState: 'normal' }
       },
-      observeFence(_v: string, _on: (f: FenceState) => void): Unsubscribe {
+      observeFence(_v: string, _on: (f: FenceDoc) => void): Unsubscribe {
         return () => {}
       },
       async reportPresence(_v: string, _p: WriterPresence): Promise<void> {},

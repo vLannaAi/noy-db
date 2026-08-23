@@ -149,7 +149,7 @@
       "package": "@noy-db/hub",
       "safeGlobalReplace": true,
       "section": "on-port",
-      "note": "The LAST `Provider`-suffixed port instance on the published surface, and the only `on-*` entry among hub's injected ports \u2014 `store`/`sealingKey`/`deviceSeal`/`mesh` are the others. Not renamed to `NoydbRecovery`: the contract is Shamir-specific (`splitToShares`/`combineShares`, k-of-n), so a generic name would over-claim what hub accepts. Its module moved with it: with-party/team/shamir-recovery-provider.ts \u2192 noydb-shamir.ts."
+      "note": "The LAST `Provider`-suffixed port instance on the published surface, and the only `on-*` entry among hub's injected ports — `store`/`sealingKey`/`deviceSeal`/`mesh` are the others. Not renamed to `NoydbRecovery`: the contract is Shamir-specific (`splitToShares`/`combineShares`, k-of-n), so a generic name would over-claim what hub accepts. Its module moved with it: with-party/team/shamir-recovery-provider.ts → noydb-shamir.ts."
     },
     {
       "from": "ShamirRecoveryProvider",
@@ -158,7 +158,7 @@
       "package": "@noy-db/on-shamir",
       "safeGlobalReplace": true,
       "section": "on-port",
-      "note": "on-shamir exports a structural MIRROR of hub's port under its own name, because hub devDepends on this package and a peer edge back is a build cycle \u2014 measured: turbo refuses `@noy-db/on-shamir#build, @noy-db/hub#build` outright. Renamed in lockstep and deliberately to the SAME name, so the duplication is legible rather than disguised; hub compiles the two against each other in noydb-shamir-satellite.test-d.ts."
+      "note": "on-shamir exports a structural MIRROR of hub's port under its own name, because hub devDepends on this package and a peer edge back is a build cycle — measured: turbo refuses `@noy-db/on-shamir#build, @noy-db/hub#build` outright. Renamed in lockstep and deliberately to the SAME name, so the duplication is legible rather than disguised; hub compiles the two against each other in noydb-shamir-satellite.test-d.ts."
     },
     {
       "from": "toString",
@@ -222,7 +222,7 @@
       "package": "@noy-db/as-json",
       "safeGlobalReplace": false,
       "section": "as-port",
-      "note": "`fromString(vault, json, opts)` becomes `vault.import(asJson(), json, { policy, idKey })`. JSON carries collection names in the payload, so unlike as-csv and as-xml it needs no `{ collection }`. `toString` and `toObject` are NOT removed here \u2014 a document is not bytes, so NoydbFormat<string> cannot express toObject, and removing one while keeping the other would be a worse API than keeping both as thin wrappers over vault.export."
+      "note": "`fromString(vault, json, opts)` becomes `vault.import(asJson(), json, { policy, idKey })`. JSON carries collection names in the payload, so unlike as-csv and as-xml it needs no `{ collection }`. `toString` and `toObject` are NOT removed here — a document is not bytes, so NoydbFormat<string> cannot express toObject, and removing one while keeping the other would be a worse API than keeping both as thin wrappers over vault.export."
     },
     {
       "from": "fromObject",
@@ -231,7 +231,20 @@
       "package": "@noy-db/as-json",
       "safeGlobalReplace": false,
       "section": "as-port",
-      "note": "`fromObject(vault, doc, opts)` becomes `vault.import(asJson(), JSON.stringify(doc), opts)` \u2014 the port takes bytes, so a caller holding a parsed document serialises it first."
+      "note": "`fromObject(vault, doc, opts)` becomes `vault.import(asJson(), JSON.stringify(doc), opts)` — the port takes bytes, so a caller holding a parsed document serialises it first."
+    },
+    {
+      "from": "FenceState",
+      "to": "FenceDoc",
+      "kind": "type",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": false,
+      "section": "by-port",
+      "note": "A DE-DUPLICATION, not a rename: `./by` declared its own two-field interface that was a hand-copy of the vault's `FenceDoc` (measured mutually assignable under --strict --exactOptionalPropertyTypes), and `./cargo` re-exported that duplicate. Both now name `FenceDoc`; the duplicate is gone. A DIFFERENT type of the same name — the `FenceState` string union on the ROOT barrel — is NOT renamed and must not be rewritten, which is why safeGlobalReplace is false (#1188). Judge by import source: `from '@noy-db/hub/by'` or `/cargo` renames; `from '@noy-db/hub'` does not.",
+      "subpaths": [
+        "./by",
+        "./cargo"
+      ]
     }
   ],
   "unretired": [

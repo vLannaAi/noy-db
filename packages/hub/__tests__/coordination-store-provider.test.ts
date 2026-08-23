@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { ConflictError } from '../src/kernel/errors.js'
 import { isQuorum } from '../src/port/by/index.js'
-import type { FenceState, WriterPresence } from '../src/port/by/index.js'
+import type { FenceDoc, WriterPresence } from '../src/port/by/index.js'
 import { StoreMesh } from '../src/with-shape/schema-update/store-coordination-provider.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 
@@ -40,10 +40,10 @@ describe('StoreMesh', () => {
   it('setFence then reachableWriters/observeFence round-trips a written fence', async () => {
     const store = memStore()
     const prov = new StoreMesh(store, { pollIntervalMs: 5 })
-    const fence: FenceState = { currentSchemaVersion: 3, fenceState: 'draining' }
+    const fence: FenceDoc = { currentSchemaVersion: 3, fenceState: 'draining' }
     await prov.setFence(VAULT, fence)
 
-    const seen: FenceState[] = []
+    const seen: FenceDoc[] = []
     const unsub = prov.observeFence(VAULT, (f) => seen.push(f))
     // wait a couple of poll intervals
     await new Promise((r) => setTimeout(r, 30))
@@ -58,7 +58,7 @@ describe('StoreMesh', () => {
     const prov = new StoreMesh(store, { pollIntervalMs: 5 })
     await prov.setFence(VAULT, { currentSchemaVersion: 1, fenceState: 'normal' })
 
-    const seen: FenceState[] = []
+    const seen: FenceDoc[] = []
     const unsub = prov.observeFence(VAULT, (f) => seen.push(f))
     await new Promise((r) => setTimeout(r, 20))
     const afterFirst = seen.length

@@ -1,10 +1,10 @@
 import { ref, getCurrentScope, onScopeDispose, type Ref } from 'vue'
-// `FenceState` stays on the ROOT barrel, and is the one exception to this
-// repo's bind-the-seam-you-use rule. `@noy-db/hub/by` exports a DIFFERENT
-// type under the same name — an object carrying
-// `{ currentSchemaVersion, fenceState }` — where the root one is the
-// four-state string union this file needs. Both ship, both compile, and only
-// their meeting point fails. See #1188.
+// `FenceState` — the four-state string union — is a ROOT-barrel type, and this
+// is its home, not an exception to the bind-the-seam-you-use rule. It was one
+// until #1188: `@noy-db/hub/by` used to export an unrelated OBJECT under the
+// same name, so pointing this file at `/by` produced four type errors. That
+// duplicate is gone — `/by` now re-exports the vault's own `FenceDoc` — and
+// `FenceState` names exactly one type family-wide.
 import type { Noydb, FenceState } from '@noy-db/hub'
 import { useNoydb } from './useNoydb.js'
 

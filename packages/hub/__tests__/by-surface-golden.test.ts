@@ -34,7 +34,7 @@ import { fileURLToPath } from 'node:url'
 import * as port from '../src/port/by/index.js'
 import type {
   DrainBarrierOptions,
-  FenceState,
+  FenceDoc,
   NoydbMesh,
   WriterPresence,
 } from '../src/port/by/index.js'
@@ -92,7 +92,7 @@ describe('@noy-db/hub/by — golden export surface', () => {
 // Compile-time exhaustiveness: every baselined type must still be exported.
 type _FrozenTypes = [
   DrainBarrierOptions,
-  FenceState,
+  FenceDoc,
   NoydbMesh,
   WriterPresence,
 ]

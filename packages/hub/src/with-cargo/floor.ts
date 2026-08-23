@@ -63,9 +63,18 @@ export type { FuseOptions } from '../with-lookup/search/fuse.js'
 export type { RetrieveHit, RetrieveOptions } from '../with-lookup/search/retrieve-types.js'
 // Coordination port types — the implementable contract surface for an
 // injected drain-barrier transport (runtime helpers are in the group above).
+//
+// `FenceState` was REMOVED here in 0.7 and replaced by `FenceDoc` (#1188).
+// It was never the string union of the same name on the root barrel — it was
+// `/by`'s duplicate object type, re-exported. A removal from this frozen
+// surface, taken deliberately rather than aliased: the no-legacy-aliases
+// policy that retired `/kernel` and `/adapter` applies, and the name is what
+// caused the collision, so keeping it as an alias would preserve the defect
+// it was removed for. Measured first — zero code imports of the type outside
+// this repo (klum-db's hits are all `schemaFenceState()` method calls).
 export type {
   NoydbMesh,
   WriterPresence,
-  FenceState,
+  FenceDoc,
   DrainBarrierOptions,
 } from '../port/by/index.js'

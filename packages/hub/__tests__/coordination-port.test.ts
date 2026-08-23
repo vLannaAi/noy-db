@@ -3,7 +3,7 @@ import {
   isQuorum,
   runDrainBarrier,
   type NoydbMesh,
-  type FenceState,
+  type FenceDoc,
   type WriterPresence,
 } from '../src/port/by/index.js'
 import { QuiesceTimeoutError } from '../src/kernel/errors.js'
@@ -59,15 +59,15 @@ describe('isQuorum', () => {
  * deterministically. The test pushes presence sets via `pushPresence`.
  */
 class MockProvider implements NoydbMesh {
-  fences: FenceState[] = []
+  fences: FenceDoc[] = []
   writers: WriterPresence[] = []
   private presenceListeners = new Set<(w: readonly WriterPresence[]) => void>()
 
-  async setFence(_vault: string, fence: FenceState): Promise<void> {
+  async setFence(_vault: string, fence: FenceDoc): Promise<void> {
     this.fences.push(fence)
   }
 
-  async readFence(_vault: string): Promise<FenceState> {
+  async readFence(_vault: string): Promise<FenceDoc> {
     return this.fences.at(-1) ?? { currentSchemaVersion: 0, fenceState: 'normal' }
   }
 

@@ -39,6 +39,6 @@ export { isQuorum, runDrainBarrier } from './types.js'
 export type {
   NoydbMesh,
   WriterPresence,
-  FenceState,
+  FenceDoc,
   DrainBarrierOptions,
 } from './types.js'
