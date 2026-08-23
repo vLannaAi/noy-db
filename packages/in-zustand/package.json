@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/in-zustand",
-  "version": "0.7.0-pre.1",
+  "version": "0.7.0-pre.2",
   "description": "Zustand adapter for noy-db — factory that mirrors defineNoydbStore for Zustand users, auto-syncs state from noy-db change events, and supports optimistic mutations.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
