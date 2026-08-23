@@ -64,8 +64,21 @@ function contextFor(vault: Vault): FormatsContext {
       if (tier === 'bundle') vault.assertCanImport('bundle')
       else vault.assertCanImport('plaintext', format as never)
     },
-    chunks: (collections) =>
-      vault.exportStream({ granularity: 'collection', ...(collections ? { collections } : {}) }),
+    // ⚠️ Filtered HERE, not passed to exportStream — `ExportStreamOptions`
+    // has no `collections` field, so the option I first passed was silently
+    // dropped and hub read every collection. Caught by an as-json test
+    // expecting ['invoices'] and getting ['invoices','payments'].
+    //
+    // Post-read filtering is correct but not free: hub still DECRYPTS the
+    // collections the caller excluded. Pushing the filter down into
+    // exportStream is the real fix and is a hub change beyond this port.
+    chunks: async function* (collections) {
+      const wanted = collections ? new Set(collections) : null
+      for await (const chunk of vault.exportStream({ granularity: 'collection' })) {
+        if (wanted && !wanted.has(chunk.collection)) continue
+        yield chunk
+      }
+    },
     // NOT swallowed. A caller who asked for redaction and silently got
     // unredacted output is the exact failure this port exists to remove — a
     // security duty that fails quiet. If the description cannot be read, the

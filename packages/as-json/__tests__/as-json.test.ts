@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
+import { withFormats } from '@noy-db/hub/as'
 import { ConflictError, ExportCapabilityError, createNoydb } from '@noy-db/hub'
-import { toString, toObject, write } from '../src/index.js'
+import { asJson, toObject, toString, write } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
 
 function toMemory(): NoydbStore {
@@ -49,7 +50,7 @@ interface Invoice {
 
 async function seed(grantFormats: readonly ('json' | 'csv' | 'xml' | 'ndjson' | 'sql')[] = ['json']) {
   const adapter = toMemory()
-  const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner', secret: 'pw' })
+  const db = await createNoydb({ formatsStrategy: withFormats(), teamStrategy: withTeam(), store: adapter, user: 'owner', secret: 'pw' })
   const vault = await db.openVault('acme')
   const invoices = vault.collection<Invoice>('invoices')
   await invoices.put('i1', { id: 'i1', client: 'Alice', amount: 100 })
@@ -62,7 +63,7 @@ async function seed(grantFormats: readonly ('json' | 'csv' | 'xml' | 'ndjson' | 
     exportCapability: { plaintext: grantFormats },
   })
   await db.close()
-  const db2 = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner', secret: 'pw' })
+  const db2 = await createNoydb({ formatsStrategy: withFormats(), teamStrategy: withTeam(), store: adapter, user: 'owner', secret: 'pw' })
   const reopened = await db2.openVault('acme')
   return { db: db2, vault: reopened }
 }

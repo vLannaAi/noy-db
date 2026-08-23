@@ -9,8 +9,9 @@
 
 import { describe, expect, it } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
+import { withFormats } from '@noy-db/hub/as'
 import { ConflictError, createNoydb, classified } from '@noy-db/hub'
-import { toObject as jsonToObject } from '../src/index.js'
+import { asJson, toObject as jsonToObject } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
 
 function toMemory(): NoydbStore {
@@ -58,7 +59,7 @@ function toMemory(): NoydbStore {
  */
 async function makeVault() {
   const adapter = toMemory()
-  const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
+  const db = await createNoydb({ formatsStrategy: withFormats(), teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
   await db.openVault('acme')
   await db.grant('acme', {
     userId: 'owner-01', displayName: 'Owner', role: 'owner',
@@ -67,7 +68,7 @@ async function makeVault() {
   })
   await db.close()
 
-  const db2 = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
+  const db2 = await createNoydb({ formatsStrategy: withFormats(), teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
   return db2.openVault('acme')
 }
 

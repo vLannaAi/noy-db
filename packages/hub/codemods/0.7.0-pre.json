@@ -214,6 +214,24 @@
       "safeGlobalReplace": false,
       "section": "as-port",
       "note": "`fromString(vault, xml, opts)` becomes `vault.import(asXml(fmtOpts), xml, { collection, policy, idKey })`."
+    },
+    {
+      "from": "fromString",
+      "to": "asJson",
+      "kind": "identifier",
+      "package": "@noy-db/as-json",
+      "safeGlobalReplace": false,
+      "section": "as-port",
+      "note": "`fromString(vault, json, opts)` becomes `vault.import(asJson(), json, { policy, idKey })`. JSON carries collection names in the payload, so unlike as-csv and as-xml it needs no `{ collection }`. `toString` and `toObject` are NOT removed here \u2014 a document is not bytes, so NoydbFormat<string> cannot express toObject, and removing one while keeping the other would be a worse API than keeping both as thin wrappers over vault.export."
+    },
+    {
+      "from": "fromObject",
+      "to": "asJson",
+      "kind": "identifier",
+      "package": "@noy-db/as-json",
+      "safeGlobalReplace": false,
+      "section": "as-port",
+      "note": "`fromObject(vault, doc, opts)` becomes `vault.import(asJson(), JSON.stringify(doc), opts)` \u2014 the port takes bytes, so a caller holding a parsed document serialises it first."
     }
   ],
   "unretired": [
