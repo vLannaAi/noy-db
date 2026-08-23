@@ -18,8 +18,8 @@
  * @packageDocumentation
  */
 
-import { type Vault, type CollectionDescription } from '@noy-db/hub'
-import { applyListProjection } from '@noy-db/hub/introspection'
+import type { Vault } from '@noy-db/hub'
+import type { ExportChunk, NoydbFormat, FormatExportOptions } from '@noy-db/hub/as'
 
 export type SqlDialect = 'postgres' | 'mysql' | 'sqlite'
 export type SqlMode = 'schema-only' | 'data-only' | 'schema+data'
@@ -67,9 +67,11 @@ export interface AsSQLWriteOptions extends AsSQLOptions {
   readonly acknowledgeRisks: true
 }
 
-export async function toString(vault: Vault, options: AsSQLOptions = {}): Promise<string> {
-  vault.assertCanExport('plaintext', 'sql')
-
+/**
+ * The pure encoder — records in, SQL out. Already gated and already redacted
+ * by hub; it has no vault (ADR 0004).
+ */
+function encodeSql(chunks: readonly ExportChunk[], options: AsSQLFormatOptions = {}): string {
   const dialect = options.dialect ?? 'postgres'
   const mode = options.mode ?? 'schema+data'
   const tableName = options.tableNames ?? ((c: string) => c)
@@ -78,17 +80,10 @@ export async function toString(vault: Vault, options: AsSQLOptions = {}): Promis
 
   // Bucket records by collection so we can emit schema+data atomically.
   const buckets = new Map<string, Record<string, unknown>[]>()
-  for await (const chunk of vault.exportStream({ granularity: 'collection' })) {
+  for (const chunk of chunks) {
     if (!includeAll && allowlist && !allowlist.has(chunk.collection)) continue
-    let records = chunk.records.map(r => stripMeta(r as Record<string, unknown>))
+    const records = chunk.records.map((r: unknown) => stripMeta(r as Record<string, unknown>))
 
-    // Apply redaction projection if specified.
-    if (options.redact !== undefined && options.redact !== false) {
-      const desc: CollectionDescription = vault.collection(chunk.collection).describe()
-      const projectionOpts = options.redact === true ? undefined
-        : { sensitivity: options.redact.sensitivity }
-      records = records.map((r) => applyListProjection(desc, r, projectionOpts))
-    }
 
     const bucket = buckets.get(chunk.collection) ?? []
     bucket.push(...records)
@@ -118,29 +113,79 @@ export async function toString(vault: Vault, options: AsSQLOptions = {}): Promis
   return parts.join('\n')
 }
 
+/** Options a SQL format instance carries. Read concerns live on `vault.export`. */
+export interface AsSQLFormatOptions {
+  /** Target dialect. Default `'postgres'`. */
+  readonly dialect?: SqlDialect
+  /** Schema + data, schema only, or data only. Default `'schema+data'`. */
+  readonly mode?: SqlMode
+  /** Map collection name → table name. Default identity. */
+  readonly tableNames?: (collection: string) => string
+  /** Include `_noydb_version` / `_noydb_ts` metadata columns. Default `false`. */
+  readonly metadataColumns?: boolean
+  /**
+   * Collection allowlist, kept here as well as on `vault.export` because the
+   * encoder buckets by collection. `readOpts` forwards it to the READ so hub
+   * does not decrypt what will not be emitted.
+   */
+  readonly include?: readonly string[]
+}
+
+/**
+ * The SQL format — the `as-*` port instance.
+ *
+ * Export-only: SQL has no round-trip here, so `decode` is absent and
+ * `vault.import(asSql(), …)` throws naming the format. That is a property of
+ * this implementation, not of the contract.
+ */
+export function asSql(options: AsSQLFormatOptions = {}): NoydbFormat<string> {
+  return {
+    id: 'sql',
+    extension: 'sql',
+    mimeType: 'application/sql;charset=utf-8',
+    tier: 'plaintext',
+    encode: (chunks) => encodeSql(chunks, options),
+  }
+}
+
+/** Only the keys actually set — `exactOptionalPropertyTypes` is on. */
+function readOpts(o: AsSQLOptions): FormatExportOptions {
+  return {
+    ...(o.include ? { collections: o.include } : {}),
+    ...(o.redact !== undefined && o.redact !== false
+      ? { redact: o.redact === true ? true : { sensitivity: o.redact.sensitivity } }
+      : {}),
+  }
+}
+
+/** Browser download. Hub gates, reads and redacts; this wraps the bytes. */
 export async function download(vault: Vault, options: AsSQLDownloadOptions = {}): Promise<void> {
-  const sql = await toString(vault, options)
-  const filename = options.filename ?? 'vault-export.sql'
-  const blob = new Blob([sql], { type: 'application/sql;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
+  const fmt = asSql(options)
+  const sql = await vault.export(fmt, readOpts(options))
+  const url = URL.createObjectURL(new Blob([sql], { type: fmt.mimeType }))
   const a = document.createElement('a')
   a.href = url
-  a.download = filename
+  a.download = options.filename ?? `vault-export.${fmt.extension}`
   a.click()
   URL.revokeObjectURL(url)
 }
 
+/**
+ * Node file write. Not in hub because `hub-portable` forbids Node builtins
+ * there — hub must run in a browser, Worker, Deno and Bun. The gate, the read
+ * and the redaction all moved; these lines are the runtime-specific part.
+ */
 export async function write(vault: Vault, path: string, options: AsSQLWriteOptions): Promise<void> {
   if (options.acknowledgeRisks !== true) {
     throw new Error(
-      'as-sql.write: acknowledgeRisks: true is required for on-disk plaintext output. ' +
-      'See docs/patterns/as-exports.md §"The three tiers of \\"plaintext out\\""',
+      'as-sql.write: acknowledgeRisks: true is required for on-disk plaintext output.',
     )
   }
-  const sql = await toString(vault, options)
+  const sql = await vault.export(asSql(options), readOpts(options))
   const { writeFile } = await import('node:fs/promises')
-  await writeFile(path, sql, 'utf-8')
+  await writeFile(path, sql, 'utf8')
 }
+
 
 // ─── SQL formatting internals ───────────────────────────────────────────
 

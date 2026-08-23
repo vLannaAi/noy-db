@@ -17,8 +17,13 @@
  * @packageDocumentation
  */
 
-import { type Vault, type CollectionDescription } from '@noy-db/hub'
-import { applyListProjection } from '@noy-db/hub/introspection'
+import type {
+  ExportChunk,
+  NoydbFormat,
+  DecodedChunk,
+  FormatExportOptions,
+} from '@noy-db/hub/as'
+import type { Vault } from '@noy-db/hub'
 
 export interface AsJSONOptions {
   /**
@@ -82,81 +87,127 @@ export type AsJSONDocument = Record<string, readonly Record<string, unknown>[]>
  * Serialise the vault as a JSON string. Pure operation — no side
  * effects beyond the authorization check and audit ledger write.
  */
-export async function toString(vault: Vault, options: AsJSONOptions = {}): Promise<string> {
-  const doc = await toObject(vault, options)
-  const indent = typeof options.pretty === 'number'
-    ? options.pretty
-    : options.pretty === false
-      ? 0
-      : 2
-  return indent > 0 ? JSON.stringify(doc, null, indent) : JSON.stringify(doc)
-}
-
 /**
- * Serialise the vault as a plain JS object. Useful for in-process
- * pipelines that want to post-process the data before writing.
+ * The pure encoders — records in, JSON out. Already gated and already redacted
+ * by hub; neither has a vault (ADR 0004).
  */
-export async function toObject(vault: Vault, options: AsJSONOptions = {}): Promise<AsJSONDocument> {
-  vault.assertCanExport('plaintext', 'json')
-
-  const allowlist = options.collections ? new Set(options.collections) : null
+function encodeJsonDoc(
+  chunks: readonly ExportChunk[],
+  options: AsJSONFormatOptions,
+): AsJSONDocument {
   const doc: Record<string, Record<string, unknown>[]> = {}
-  for await (const chunk of vault.exportStream({ granularity: 'collection' })) {
-    if (allowlist && !allowlist.has(chunk.collection)) continue
+  for (const chunk of chunks) {
     const bucket = doc[chunk.collection] ?? (doc[chunk.collection] = [])
-    const shouldRedact = options.redact !== undefined && options.redact !== false
-    const projectionOpts = shouldRedact && options.redact !== true ? { sensitivity: options.redact.sensitivity } : undefined
-    const desc: CollectionDescription | undefined = shouldRedact ? vault.collection(chunk.collection).describe() : undefined
     for (const record of chunk.records) {
-      let r = record as Record<string, unknown>
-      if (shouldRedact && desc) {
-        r = applyListProjection(desc, r, projectionOpts)
-      }
-      if (options.includeMeta) {
-        bucket.push(r)
-      } else {
-        bucket.push(stripMeta(r))
-      }
+      const r = record as Record<string, unknown>
+      bucket.push(options.includeMeta ? r : stripMeta(r))
     }
   }
   return doc
 }
 
+function encodeJson(chunks: readonly ExportChunk[], options: AsJSONFormatOptions): string {
+  const indent = typeof options.pretty === 'number' ? options.pretty : options.pretty === false ? 0 : 2
+  return JSON.stringify(encodeJsonDoc(chunks, options), null, indent)
+}
+
+
 /**
  * Browser download — wraps `toString()` in a Blob and triggers the
  * browser's save-as prompt. Requires a DOM — in Node, use `write()`.
  */
+/** Options a JSON format instance carries. Read concerns live on `vault.export`. */
+export interface AsJSONFormatOptions {
+  /** Indent width, or `false` for compact. Default 2. */
+  readonly pretty?: number | boolean
+  /** Keep `_noydb_*` metadata fields. Default false. */
+  readonly includeMeta?: boolean
+}
+
+/**
+ * The JSON format — the `as-*` port instance.
+ *
+ * Unlike CSV and XML, JSON carries collection names in the payload, so
+ * `vault.import(asJson(), doc)` needs no `{ collection }`.
+ */
+export function asJson(options: AsJSONFormatOptions = {}): NoydbFormat<string> {
+  return {
+    id: 'json',
+    extension: 'json',
+    mimeType: 'application/json;charset=utf-8',
+    tier: 'plaintext',
+    encode: (chunks) => encodeJson(chunks, options),
+    decode: (input) => decodeJson(input),
+  }
+}
+
+/** Only the keys actually set — `exactOptionalPropertyTypes` is on. */
+function fmtOpts(o: AsJSONOptions): AsJSONFormatOptions {
+  return {
+    ...(o.pretty !== undefined ? { pretty: o.pretty } : {}),
+    ...(o.includeMeta !== undefined ? { includeMeta: o.includeMeta } : {}),
+  }
+}
+
+
+function readOpts(o: AsJSONOptions): FormatExportOptions {
+  return {
+    ...(o.collections ? { collections: o.collections } : {}),
+    ...(o.redact !== undefined && o.redact !== false
+      ? { redact: o.redact === true ? true : { sensitivity: o.redact.sensitivity } }
+      : {}),
+  }
+}
+
+/**
+ * Serialise to a JSON string.
+ *
+ * Kept as a thin wrapper rather than removed, unlike as-csv/as-sql/as-xml: the
+ * gate, the read and the redaction still moved to hub, and this is now three
+ * lines over `vault.export`. Its sibling `toObject` is the reason — a document
+ * is not bytes, so `NoydbFormat<string>` cannot express it, and removing one
+ * while keeping the other would be a worse API than keeping both.
+ */
+export async function toString(vault: Vault, options: AsJSONOptions = {}): Promise<string> {
+  return vault.export(asJson(fmtOpts(options)), readOpts(options))
+}
+
+/**
+ * Serialise to the parsed `{ collection: records[] }` document.
+ *
+ * The one export shape the format port does not carry, because a format
+ * produces bytes by definition. Round-tripping through `encode` keeps a single
+ * implementation rather than a second walk of the chunks.
+ */
+export async function toObject(vault: Vault, options: AsJSONOptions = {}): Promise<AsJSONDocument> {
+  return JSON.parse(await toString(vault, options)) as AsJSONDocument
+}
+
+/** Browser download. Hub gates, reads and redacts; this wraps the bytes. */
 export async function download(vault: Vault, options: AsJSONDownloadOptions = {}): Promise<void> {
-  const json = await toString(vault, options)
-  const filename = options.filename ?? 'vault-export.json'
-  const blob = new Blob([json], { type: 'application/json;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
+  const fmt = asJson(fmtOpts(options))
+  const json = await vault.export(fmt, readOpts(options))
+  const url = URL.createObjectURL(new Blob([json], { type: fmt.mimeType }))
   const a = document.createElement('a')
   a.href = url
-  a.download = filename
+  a.download = options.filename ?? `vault-export.${fmt.extension}`
   a.click()
   URL.revokeObjectURL(url)
 }
 
 /**
- * Node file-write — persists the JSON to disk. Requires
- * `acknowledgeRisks: true` because plaintext outlives the process.
+ * Node file write. Not in hub because `hub-portable` forbids Node builtins
+ * there. The gate, the read and the redaction all moved.
  */
-export async function write(
-  vault: Vault,
-  path: string,
-  options: AsJSONWriteOptions,
-): Promise<void> {
+export async function write(vault: Vault, path: string, options: AsJSONWriteOptions): Promise<void> {
   if (options.acknowledgeRisks !== true) {
-    throw new Error(
-      'as-json.write: acknowledgeRisks: true is required for on-disk plaintext output. ' +
-      'See docs/patterns/as-exports.md §"The three tiers of \\"plaintext out\\""',
-    )
+    throw new Error('as-json.write: acknowledgeRisks: true is required for on-disk plaintext output.')
   }
-  const json = await toString(vault, options)
+  const json = await vault.export(asJson(fmtOpts(options)), readOpts(options))
   const { writeFile } = await import('node:fs/promises')
-  await writeFile(path, json, 'utf-8')
+  await writeFile(path, json, 'utf8')
 }
+
 
 function stripMeta(record: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {}
@@ -169,7 +220,6 @@ function stripMeta(record: Record<string, unknown>): Record<string, unknown> {
 
 // ─── Reader ─────────────────────────────────────────────
 
-import { diffVault } from '@noy-db/hub'
 
 /**
  * Reconciliation policy for `apply()`.
@@ -208,75 +258,25 @@ export type AsJSONImportPlan = ImportPlan
  * Build an import plan from a parsed JSON document. Same shape
  * `as-json.toObject()` produces — `Record<collection, records[]>`.
  */
-export async function fromObject(
-  vault: Vault,
-  doc: AsJSONDocument,
-  options: AsJSONImportOptions = {},
-): Promise<AsJSONImportPlan> {
-  vault.assertCanImport('plaintext', 'json')
-  const policy: ImportPolicy = options.policy ?? 'merge'
-  const idKey = options.idKey ?? 'id'
-
-  // Cast through unknown — diffVault is type-erased at the boundary
-  // and AsJSONDocument's per-record type is `Record<string, unknown>`.
-  const plan = await diffVault(vault, doc as unknown as Record<string, readonly Record<string, unknown>[]>, {
-    ...(options.collections ? { collections: options.collections } : {}),
-    idKey,
-  })
-
-  return {
-    plan,
-    policy,
-    async apply(): Promise<void> {
-      // Add and modify go through collection.put which runs the normal
-      // permissions check + envelope encryption + ledger write.
-      // Delete only runs under the 'replace' policy.
-      // Wrapped via vault.noydb.transaction so a partial failure rolls
-      // back every executed put. Routes through the transactionsStrategy seam —
-      // throws a clear error pointing at withTransactions() when the
-      // strategy is not opted in.
-      await vault.noydb.transaction((tx) => {
-        const txVault = tx.vault(vault.name)
-        for (const entry of plan.added) {
-          txVault.collection(entry.collection).put(entry.id, entry.record, { reason: 'import:json' })
-        }
-        if (policy !== 'insert-only') {
-          for (const entry of plan.modified) {
-            txVault.collection(entry.collection).put(entry.id, entry.record, { reason: 'import:json' })
-          }
-        }
-        if (policy === 'replace') {
-          for (const entry of plan.deleted) {
-            txVault.collection(entry.collection).delete(entry.id)
-          }
-        }
-      })
-    },
-  }
-}
-
 /**
- * Build an import plan from a JSON string — parse, then dispatch to
- * `fromObject`. Convenience for the canonical "load my exported file"
- * workflow.
+ * The pure decoder — JSON in, records out. No vault, no gate, no diff: hub
+ * gates, plans against the live vault and owns `apply()`.
  */
-export async function fromString(
-  vault: Vault,
-  json: string,
-  options: AsJSONImportOptions = {},
-): Promise<AsJSONImportPlan> {
+function decodeJson(json: string): readonly DecodedChunk[] {
   let parsed: unknown
   try {
     parsed = JSON.parse(json)
   } catch (err) {
-    throw new Error(`as-json.fromString: input is not valid JSON (${(err as Error).message})`)
+    throw new Error(`as-json decode: input is not valid JSON (${(err as Error).message})`)
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error(
-      `as-json.fromString: top-level value must be an object mapping collections → records[], got ${
-        Array.isArray(parsed) ? 'array' : typeof parsed
-      }`,
-    )
+    throw new Error('as-json decode: expected an object mapping { collection: records[] }')
   }
-  return fromObject(vault, parsed as AsJSONDocument, options)
+  // JSON DOES carry collection names — one key per collection — so unlike CSV
+  // and XML this format needs no `{ collection }` from the caller.
+  return Object.entries(parsed as Record<string, unknown>).map(([collection, records]) => ({
+    collection,
+    records: Array.isArray(records) ? records : [],
+  }))
 }
+

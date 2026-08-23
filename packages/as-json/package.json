@@ -42,7 +42,6 @@
   },
   "devDependencies": {
     "@noy-db/hub": "workspace:*",
-    "@noy-db/test-format-conformance": "workspace:*",
     "@types/node": "^22.0.0"
   },
   "keywords": [

@@ -8,10 +8,11 @@
 
 import { describe, it, expect } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
+import { withFormats } from '@noy-db/hub/as'
 import { ConflictError, createNoydb } from '@noy-db/hub'
 import { withTransactions } from '@noy-db/hub/transactions'
 import { withHistory } from '@noy-db/hub/history'
-import { fromString, fromObject } from '../src/index.js'
+import { asJson } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
 
 function toMemory(): NoydbStore {
@@ -54,7 +55,7 @@ interface Invoice { id: string; amount: number; status: string }
 
 async function setup() {
   const adapter = toMemory()
-  const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
+  const init = await createNoydb({ formatsStrategy: withFormats(), teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
   await init.openVault('demo')
   await init.grant('demo', {
     userId: 'alice', displayName: 'Alice', role: 'owner',
@@ -62,7 +63,7 @@ async function setup() {
     importCapability: { plaintext: ['json'] },
   })
   init.close()
-  const db = await createNoydb({ teamStrategy: withTeam(),
+  const db = await createNoydb({ formatsStrategy: withFormats(), teamStrategy: withTeam(),
     store: adapter, user: 'alice', secret: 'pw-2026',
     transactionsStrategy: withTransactions(),
   })
@@ -85,7 +86,7 @@ describe('as-json fromString — preview', () => {
       ],
     })
 
-    const { plan } = await fromString(vault, json)
+    const { plan } = await vault.import(asJson(), json, {})
     expect(plan.summary).toEqual({ add: 1, modify: 1, delete: 0, total: 2 })
     expect(plan.added.map((e) => e.id)).toEqual(['c'])
     expect(plan.modified.map((e) => e.id)).toEqual(['b'])
@@ -103,7 +104,7 @@ describe('as-json fromString — apply with merge policy (default)', () => {
       ],
     })
 
-    const importer = await fromString(vault, json)
+    const importer = await vault.import(asJson(), json, {})
     await importer.apply()
 
     const inv = vault.collection<Invoice>('invoices')
@@ -125,7 +126,7 @@ describe('as-json fromString — apply with replace policy', () => {
       ],
     })
 
-    const importer = await fromString(vault, json, { policy: 'replace' })
+    const importer = await vault.import(asJson(), json, { policy: 'replace' })
     await importer.apply()
 
     const inv = vault.collection<Invoice>('invoices')
@@ -146,7 +147,7 @@ describe('as-json fromString — apply with insert-only policy', () => {
       ],
     })
 
-    const importer = await fromString(vault, json, { policy: 'insert-only' })
+    const importer = await vault.import(asJson(), json, { policy: 'insert-only' })
     await importer.apply()
 
     const inv = vault.collection<Invoice>('invoices')
@@ -160,9 +161,9 @@ describe('as-json fromString — apply with insert-only policy', () => {
 describe('as-json fromObject — direct-object input', () => {
   it('skips the JSON.parse step', async () => {
     const { db, vault } = await setup()
-    const importer = await fromObject(vault, {
+    const importer = await vault.import(asJson(), JSON.stringify({
       invoices: [{ id: 'c', amount: 300, status: 'paid' }],
-    })
+    }), {})
     expect(importer.plan.added.map((e) => e.id)).toEqual(['c'])
     db.close()
   })
@@ -172,7 +173,7 @@ describe('as-json fromString — apply stamps `reason: "import:json"` on every l
   it('imported rows are filterable from manual edits via ledger.reason', async () => {
     const adapter = toMemory()
     // Init: grant + seed an existing record manually (no reason — counts as manual edit).
-    const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026', historyStrategy: withHistory() })
+    const init = await createNoydb({ formatsStrategy: withFormats(), teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026', historyStrategy: withHistory() })
     await init.openVault('demo')
     await init.grant('demo', {
       userId: 'alice', displayName: 'Alice', role: 'owner',
@@ -181,7 +182,7 @@ describe('as-json fromString — apply stamps `reason: "import:json"` on every l
     })
     init.close()
 
-    const db = await createNoydb({ teamStrategy: withTeam(),
+    const db = await createNoydb({ formatsStrategy: withFormats(), teamStrategy: withTeam(),
       store: adapter, user: 'alice', secret: 'pw-2026',
       historyStrategy: withHistory(),
       transactionsStrategy: withTransactions(),
@@ -191,12 +192,12 @@ describe('as-json fromString — apply stamps `reason: "import:json"` on every l
     await inv.put('manual', { id: 'manual', amount: 99, status: 'draft' })
 
     // Import via apply() — every put inside is tagged 'import:json'
-    const importer = await fromString(vault, JSON.stringify({
+    const importer = await vault.import(asJson(), JSON.stringify({
       invoices: [
         { id: 'imp-1', amount: 100, status: 'paid' },
         { id: 'imp-2', amount: 200, status: 'paid' },
       ],
-    }))
+    }), {})
     await importer.apply()
 
     const entries = await vault.ledger().entries()
@@ -217,13 +218,13 @@ describe('as-json fromString — apply stamps `reason: "import:json"` on every l
 describe('as-json fromString — error surfaces', () => {
   it('rejects malformed JSON with a clear message', async () => {
     const { db, vault } = await setup()
-    await expect(fromString(vault, '{ not valid json')).rejects.toThrow(/not valid JSON/)
+    await expect(vault.import(asJson(), '{ not valid json'), {}).rejects.toThrow(/not valid JSON/)
     db.close()
   })
 
   it('rejects non-object top-level values', async () => {
     const { db, vault } = await setup()
-    await expect(fromString(vault, '[1, 2, 3]')).rejects.toThrow(/object mapping/)
+    await expect(vault.import(asJson(), '[1, 2, 3]', {})).rejects.toThrow(/object mapping/)
     db.close()
   })
 })

@@ -33,7 +33,12 @@ function redactChunk(
 ): ExportChunk {
   if (redact === undefined) return chunk
   const described = ctx.describe(chunk.collection) as CollectionDescription | undefined
-  if (!described) return chunk
+  if (!described) {
+    throw new Error(
+      `vault.export: redaction was requested but '${chunk.collection}' has no description to redact against. ` +
+        'Open the collection with its classifiedFields / fieldMeta options first.',
+    )
+  }
   const opts: ListProjectionOptions | undefined =
     redact === true ? undefined : { sensitivity: redact.sensitivity as never }
   const records = chunk.records.map((r) =>
@@ -59,15 +64,26 @@ function contextFor(vault: Vault): FormatsContext {
       if (tier === 'bundle') vault.assertCanImport('bundle')
       else vault.assertCanImport('plaintext', format as never)
     },
-    chunks: (collections) =>
-      vault.exportStream({ granularity: 'collection', ...(collections ? { collections } : {}) }),
-    describe: (collection) => {
-      try {
-        return vault.collection(collection).describe() as never
-      } catch {
-        return undefined
+    // ⚠️ Filtered HERE, not passed to exportStream — `ExportStreamOptions`
+    // has no `collections` field, so the option I first passed was silently
+    // dropped and hub read every collection. Caught by an as-json test
+    // expecting ['invoices'] and getting ['invoices','payments'].
+    //
+    // Post-read filtering is correct but not free: hub still DECRYPTS the
+    // collections the caller excluded. Pushing the filter down into
+    // exportStream is the real fix and is a hub change beyond this port.
+    chunks: async function* (collections) {
+      const wanted = collections ? new Set(collections) : null
+      for await (const chunk of vault.exportStream({ granularity: 'collection' })) {
+        if (wanted && !wanted.has(chunk.collection)) continue
+        yield chunk
       }
     },
+    // NOT swallowed. A caller who asked for redaction and silently got
+    // unredacted output is the exact failure this port exists to remove — a
+    // security duty that fails quiet. If the description cannot be read, the
+    // export fails instead.
+    describe: (collection) => vault.collection(collection).describe() as never,
     plan: async (records, policy: ImportPolicy, formatId: string, idKey?: string) => {
       const { diffVault } = await import('../../with-cargo/vault-diff.js')
       const plan = await diffVault(vault, records as never, idKey ? { idKey } : {})

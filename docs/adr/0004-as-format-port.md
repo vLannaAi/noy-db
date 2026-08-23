@@ -145,7 +145,8 @@ against what each actually reads from the vault, that is true of five:
 
 | package | reads | fits `encode(rows)` |
 |---|---|---|
-| `as-csv` `as-json` `as-ndjson` `as-sql` `as-xml` | `vault.exportStream` | **yes** |
+| `as-csv` `as-json` `as-sql` `as-xml` | `vault.exportStream` | **yes** |
+| `as-ndjson` | `vault.exportStream`, **`granularity: 'record'`** | **no** — see below |
 | `as-xlsx` | `vault.collection`, multi-sheet composition | no — composes N collections |
 | `as-zip` | `vault.collection` + attachments + password | no — records AND blobs |
 | `as-blob` | one record's blob slot | no — not rows at all |
@@ -161,6 +162,28 @@ current API and their conformance-kit obligation, which is exactly what a kit
 is for: the cases where inversion is unavailable.
 
 `as-aws-s3` is reclassified as a destination and leaves the format family.
+
+### ⚠️ `as-ndjson` was in scope and measured OUT of it
+
+It reads via `exportStream` like the four that fit, so the first table put it
+with them. Measured at the call site, it uses **`granularity: 'record'`** and
+`yield`s one line at a time — its entire reason to exist is never
+materialising a collection as an array.
+
+`NoydbFormat.encode(chunks: readonly ExportChunk[])` takes an array. Migrating
+as-ndjson would make it materialise everything, which is not a smaller API —
+it is the removal of the property the package is for.
+
+**A streaming variant is the obvious next thought and is deliberately NOT
+added.** `encodeStream(chunks: AsyncIterable<ExportChunk>): AsyncIterable<Out>`
+would be designed against exactly one implementation, which is the mistake the
+ceremony kit made with `wrapKind` and the format kit made twice with vacuous
+fixtures. When a second streaming format exists, the variant can be extracted
+from two. Until then as-ndjson keeps its conformance-kit obligation, which is
+what the kit is for: the cases where inversion is unavailable.
+
+**So the port reaches FOUR of ten**, not five: `as-csv`, `as-sql`, `as-xml`,
+`as-json`.
 
 ## Consequences
 

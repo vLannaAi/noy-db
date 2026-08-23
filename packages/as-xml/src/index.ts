@@ -20,9 +20,13 @@
  * @packageDocumentation
  */
 
+import type {
+  ExportChunk,
+  NoydbFormat,
+  DecodedChunk,
+  FormatExportOptions,
+} from '@noy-db/hub/as'
 import type { Vault } from '@noy-db/hub'
-import type { CollectionDescription } from '@noy-db/hub/introspection'
-import { applyListProjection } from '@noy-db/hub/introspection'
 
 export interface AsXMLOptions {
   /** Collection to export. */
@@ -71,26 +75,17 @@ export interface AsXMLWriteOptions extends AsXMLOptions {
   readonly acknowledgeRisks: true
 }
 
-export async function toString(vault: Vault, options: AsXMLOptions): Promise<string> {
-  vault.assertCanExport('plaintext', 'xml')
-
-  const records: unknown[] = []
-  for await (const chunk of vault.exportStream({ granularity: 'collection' })) {
-    if (chunk.collection === options.collection) {
-      records.push(...chunk.records)
-      break
-    }
-  }
-
-  if (options.redact !== undefined && options.redact !== false) {
-    const desc: CollectionDescription = vault.collection(options.collection).describe()
-    const projectionOpts = options.redact === true ? undefined
-      : { sensitivity: options.redact.sensitivity }
-    records.splice(0, records.length, ...records.map((r) => applyListProjection(desc, r as Record<string, unknown>, projectionOpts)))
-  }
+/**
+ * The pure encoder — records in, XML out. Already gated and already redacted
+ * by hub; it has no vault (ADR 0004).
+ */
+function encodeXml(chunks: readonly ExportChunk[], options: AsXMLFormatOptions): string {
+  const records: unknown[] = chunks.flatMap((c) => c.records)
 
   const rootName = options.rootElement ?? 'Records'
-  const recordName = options.recordElement ?? pascalSingular(options.collection)
+  // The chunk carries its collection name, so the element default survives the
+  // inversion without the format needing to be told which collection it got.
+  const recordName = options.recordElement ?? pascalSingular(chunks[0]?.collection ?? 'Record')
   const fields = options.fields ?? inferFields(records)
   const pretty = options.pretty !== false
   const declaration = options.xmlDeclaration !== false
@@ -127,29 +122,73 @@ export async function toString(vault: Vault, options: AsXMLOptions): Promise<str
   return parts.join('')
 }
 
+/** Options an XML format instance carries. Read concerns live on `vault.export`. */
+export interface AsXMLFormatOptions {
+  readonly rootElement?: string
+  readonly recordElement?: string
+  readonly fields?: readonly string[]
+  readonly xmlDeclaration?: boolean
+  readonly pretty?: boolean
+  readonly namespace?: string
+  readonly namespacePrefix?: string
+  /** Per-field coercion on decode. */
+  readonly fieldTypes?: Readonly<Record<string, 'string' | 'number' | 'boolean'>>
+}
+
+/**
+ * The XML format — the `as-*` port instance.
+ *
+ * ```ts
+ * const xml = await vault.export(asXml(), { collections: ['invoices'] })
+ * const plan = await vault.import(asXml(), xml, { collection: 'invoices' })
+ * ```
+ */
+export function asXml(options: AsXMLFormatOptions = {}): NoydbFormat<string> {
+  return {
+    id: 'xml',
+    extension: 'xml',
+    mimeType: 'application/xml;charset=utf-8',
+    tier: 'plaintext',
+    encode: (chunks) => encodeXml(chunks, options),
+    decode: (input) => decodeXml(input, options),
+  }
+}
+
+/** Only the keys actually set — `exactOptionalPropertyTypes` is on. */
+function readOpts(o: AsXMLOptions): FormatExportOptions {
+  return {
+    ...(o.collection ? { collections: [o.collection] } : {}),
+    ...(o.redact !== undefined && o.redact !== false
+      ? { redact: o.redact === true ? true : { sensitivity: o.redact.sensitivity } }
+      : {}),
+  }
+}
+
+/** Browser download. Hub gates, reads and redacts; this wraps the bytes. */
 export async function download(vault: Vault, options: AsXMLDownloadOptions): Promise<void> {
-  const xml = await toString(vault, options)
-  const filename = options.filename ?? `${options.collection}.xml`
-  const blob = new Blob([xml], { type: 'application/xml;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
+  const fmt = asXml(options)
+  const xml = await vault.export(fmt, readOpts(options))
+  const url = URL.createObjectURL(new Blob([xml], { type: fmt.mimeType }))
   const a = document.createElement('a')
   a.href = url
-  a.download = filename
+  a.download = options.filename ?? `${options.collection}.${fmt.extension}`
   a.click()
   URL.revokeObjectURL(url)
 }
 
+/**
+ * Node file write. Not in hub because `hub-portable` forbids Node builtins
+ * there. The gate, the read and the redaction all moved.
+ */
 export async function write(vault: Vault, path: string, options: AsXMLWriteOptions): Promise<void> {
   if (options.acknowledgeRisks !== true) {
-    throw new Error(
-      'as-xml.write: acknowledgeRisks: true is required for on-disk plaintext output. ' +
-      'See docs/patterns/as-exports.md §"The three tiers of \\"plaintext out\\""',
-    )
+    throw new Error('as-xml.write: acknowledgeRisks: true is required for on-disk plaintext output.')
   }
-  const xml = await toString(vault, options)
+  const xml = await vault.export(asXml(options), readOpts(options))
   const { writeFile } = await import('node:fs/promises')
-  await writeFile(path, xml, 'utf-8')
+  await writeFile(path, xml, 'utf8')
 }
+
 
 // ─── XML formatting internals ───────────────────────────────────────────
 
@@ -224,7 +263,6 @@ function pascalSingular(collection: string): string {
 
 // ─── Reader ──────────────────────────────────────
 
-import { diffVault } from '@noy-db/hub'
 import { XMLParser, XMLValidator } from 'fast-xml-parser'
 
 // Hub-owned as of 0.7 (ADR 0004). This line replaced a local declaration that
@@ -267,15 +305,11 @@ export type AsXMLImportPlan = ImportPlan
  * Capability: `assertCanImport('plaintext', 'xml')`.
  * Atomicity: `apply()` runs inside `vault.noydb.transaction()`.
  */
-export async function fromString(
-  vault: Vault,
-  xml: string,
-  options: AsXMLImportOptions,
-): Promise<AsXMLImportPlan> {
-  vault.assertCanImport('plaintext', 'xml')
-
-  const policy: ImportPolicy = options.policy ?? 'merge'
-  const idKey = options.idKey ?? 'id'
+/**
+ * The pure decoder — XML in, records out. No vault, no gate, no diff: hub
+ * gates, plans against the live vault and owns `apply()`.
+ */
+function decodeXml(xml: string, options: AsXMLFormatOptions): readonly DecodedChunk[] {
   const types = options.fieldTypes ?? {}
 
   const parser = new XMLParser({
@@ -294,7 +328,7 @@ export async function fromString(
   if (validation !== true) {
     const err = validation.err
     throw new Error(
-      `as-xml.fromString: input is not valid XML (${err.code} at line ${err.line}: ${err.msg})`,
+      `as-xml decode: input is not valid XML (${err.code} at line ${err.line}: ${err.msg})`,
     )
   }
 
@@ -302,11 +336,11 @@ export async function fromString(
   try {
     parsed = parser.parse(xml)
   } catch (err) {
-    throw new Error(`as-xml.fromString: input is not valid XML (${(err as Error).message})`)
+    throw new Error(`as-xml decode: input is not valid XML (${(err as Error).message})`)
   }
 
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('as-xml.fromString: parser produced a non-object root')
+    throw new Error('as-xml decode: parser produced a non-object root')
   }
 
   // Drill into the root. fast-xml-parser surfaces `<Root><Item/>...</Root>` as
@@ -315,7 +349,7 @@ export async function fromString(
   const root = stripNamespacePrefixes(parsed as Record<string, unknown>)
   const rootKeys = Object.keys(root)
   if (rootKeys.length === 0) {
-    return emptyPlan(vault, options.collection, policy, idKey)
+    return [{ collection: '', records: [] }]
   }
   // Pick first non-`?xml` root child — fast-xml-parser ignores the
   // declaration by default but be defensive.
@@ -323,7 +357,7 @@ export async function fromString(
   const rootBody = stripIfObject(root[rootName])
 
   if (rootBody === null) {
-    return emptyPlan(vault, options.collection, policy, idKey)
+    return [{ collection: '', records: [] }]
   }
 
   const recordElName = options.recordElement
@@ -331,7 +365,7 @@ export async function fromString(
     : pickRecordElementName(rootBody)
 
   if (recordElName === null) {
-    return emptyPlan(vault, options.collection, policy, idKey)
+    return [{ collection: '', records: [] }]
   }
 
   const recordsRaw = rootBody[recordElName]
@@ -352,47 +386,12 @@ export async function fromString(
     records.push(record)
   }
 
-  const plan = await diffVault(vault, { [options.collection]: records }, {
-    collections: [options.collection],
-    idKey,
-  })
-
-  return {
-    plan,
-    policy,
-    async apply(): Promise<void> {
-      // Routes through transactionsStrategy seam — throws clearly when
-      // withTransactions() isn't opted in. Atomicity rolls back any
-      // partial writes if a put fails mid-batch.
-      await vault.noydb.transaction((tx) => {
-        const txVault = tx.vault(vault.name)
-        for (const entry of plan.added) {
-          txVault.collection(entry.collection).put(entry.id, entry.record, { reason: 'import:xml' })
-        }
-        if (policy !== 'insert-only') {
-          for (const entry of plan.modified) {
-            txVault.collection(entry.collection).put(entry.id, entry.record, { reason: 'import:xml' })
-          }
-        }
-        if (policy === 'replace') {
-          for (const entry of plan.deleted) {
-            txVault.collection(entry.collection).delete(entry.id)
-          }
-        }
-      })
-    },
-  }
+  // XML carries no collection name; hub resolves it from
+  // `vault.import(fmt, xml, { collection })`.
+  return [{ collection: '', records }]
 }
 
-async function emptyPlan(
-  vault: Vault,
-  collection: string,
-  policy: ImportPolicy,
-  idKey: string,
-): Promise<AsXMLImportPlan> {
-  const plan = await diffVault(vault, { [collection]: [] }, { collections: [collection], idKey })
-  return { plan, policy, async apply() { /* nothing to do */ } }
-}
+
 
 function stripPrefix(name: string): string {
   const idx = name.indexOf(':')
