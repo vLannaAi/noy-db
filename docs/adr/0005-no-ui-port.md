@@ -82,16 +82,16 @@ The real gate is runtime: `assertCanExport(tier, format)`, conformance-tested by
 `@noy-db/test-format-conformance`, which proves an `as-*` entry point refuses
 when the gate denies **and refuses before reading a record**.
 
-> ⚠️ **Corrected 2026-08-24: that kit currently covers FIVE of the nine formats,
-> not all of them.** The four inverted by ADR 0004 — `as-csv`, `as-sql`,
-> `as-xml`, `as-json` — lost their fixtures in #1192/#1193 and cannot be
-> re-pointed at the kit as it stands: it denies by proxying the vault, and the
-> inverted entry point is a *method* on the vault, so `this` resolves to the real
-> object and the denial is bypassed. Tracked as #1209.
->
-> The reasoning below is unaffected — it turns on the gate being **runtime rather
-> than a type**, which is still true. But "conformance-tested" is currently a
-> claim about five formats, and the sentence above said nine.
+> ✅ **Corrected 2026-08-24, RESOLVED the same day.** The four formats inverted by
+> ADR 0004 had lost their fixtures in #1192/#1193 — the kit denied by proxying
+> the vault, which the inverted method-on-vault shape bypasses — so
+> "conformance-tested" was briefly a claim about five formats. The kit now
+> patches the instance instead (interception works for both shapes, and for
+> hub's internal delegation), all four fixtures are restored covering export AND
+> import gates, and an architecture rule (`as-conformance-fixture`) makes a
+> silent fixture deletion impossible. History in #1209; the structural
+> follow-up (observe at the store, immune to any future reshape) is #1211,
+> deferred until the 0.7 upgrade completes family-wide.
 
 ### There is no `ui` capability tier
 

@@ -2797,6 +2797,58 @@ checkEnclaveBodyOnly()
 checkEnclaveClassifyOnly()
 checkEnclaveClassifyIndexOnly()
 checkViaLayering()
+
+// ─── Check 16: as-conformance-fixture (#1209 — every format runs the kit) ──
+
+/**
+ * Every `packages/as-*` package must contain a conformance fixture invoking
+ * `runFormatConformanceTests`.
+ *
+ * The rule exists because the alternative already happened. When the 0.7 line
+ * inverted four formats, their fixtures stopped type-checking and were DELETED
+ * rather than migrated — and nothing noticed, because a deleted test does not
+ * fail. Coverage dropped from nine formats to five while the suite stayed
+ * green and the ADR kept claiming every `as-*` entry point was
+ * conformance-tested (#1209).
+ *
+ * This is an output-domain assertion: it does not care HOW the fixture is
+ * written, only that each format package contains one that calls the kit. A
+ * future API reshape can still force fixtures to be rewritten — it can no
+ * longer make them quietly disappear.
+ */
+function checkAsConformanceFixture() {
+  const pkgsDir = join(ROOT, 'packages')
+  // as-aws-s3 is EXEMPT, with the kit's own README as the authority: it
+  // exports `asAwsS3(options)` and is a DESTINATION, not a format — it has no
+  // encode/decode and no gate call of its own to conform. Named here rather
+  // than skipped by a looser pattern, so adding a real format package can
+  // never ride the exemption.
+  const DESTINATIONS = new Set(['as-aws-s3'])
+  for (const name of readdirSync(pkgsDir)) {
+    if (!name.startsWith('as-') || DESTINATIONS.has(name)) continue
+    const testsDir = join(pkgsDir, name, '__tests__')
+    let found = false
+    if (existsSync(testsDir)) {
+      for (const f of readdirSync(testsDir)) {
+        if (!f.endsWith('.ts')) continue
+        if (readFileSync(join(testsDir, f), 'utf8').includes('runFormatConformanceTests(')) {
+          found = true
+          break
+        }
+      }
+    }
+    if (!found) {
+      fail(
+        'as-conformance-fixture',
+        `packages/${name} has no test invoking runFormatConformanceTests. Every as-* format runs the published gate kit — when the 0.7 inversion broke four fixtures they were deleted instead of migrated, and coverage silently dropped 9 formats to 5 (#1209). Write the fixture; do not delete it.`,
+        `packages/${name}`,
+      )
+    }
+  }
+}
+
+checkAsConformanceFixture()
+
 checkViaEnclaveIsolation()
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)

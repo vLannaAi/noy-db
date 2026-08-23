@@ -1,14 +1,17 @@
 /**
- * as-noydb against the published `as-*` export-gate contract.
+ * as-sql against the published `as-*` gate contract — BOTH shapes.
  *
- * Package-specific behaviour stays in this package's own suite. This is the
- * half every projection shares: the gate refuses, and refuses before reading.
+ * Deleted in #1193 when the inversion made it stop type-checking; restored for
+ * #1209 covering the format's REAL surface: the inverted entry, the surviving
+ * argument-shape wrappers, and (where the format decodes) the import gate the
+ * old fixture never touched.
  */
 import { runFormatConformanceTests } from '@noy-db/test-format-conformance'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, Vault } from '@noy-db/hub'
 import { ConflictError, createNoydb } from '@noy-db/hub'
 import { withTeam } from '@noy-db/hub/team'
-import { toBytes, download, write } from '../src/index.js'
+import { withFormats } from '@noy-db/hub/as'
+import { asSql, download, write } from '../src/index.js'
 
 function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -47,34 +50,45 @@ function toMemory(): NoydbStore {
   }
 }
 
-/** Export-CAPABLE on purpose — see the kit's note on `writeWithoutAcknowledgement`. */
+/**
+ * Export- AND import-CAPABLE, with `withFormats()` — all three are required
+ * for the kit's ungated-success guards to be falsifiable. Without the import
+ * grant the import-denial case would refuse for the wrong reason; without the
+ * strategy the inverted entries throw FormatsNotEnabledError before proving
+ * anything.
+ */
 async function seededVault(): Promise<Vault> {
   const store = toMemory()
-  const opts = { teamStrategy: withTeam(), store, user: 'owner-01', secret: 'owner-pass' }
+  const opts = {
+    teamStrategy: withTeam(), formatsStrategy: withFormats(),
+    store, user: 'owner-01', secret: 'owner-pass',
+  }
   const seed = await createNoydb(opts)
   const seeded = await seed.openVault('acme')
   await seeded.collection('invoices').put('inv-1', { id: 'inv-1', client: 'Globex', amount: 1500 })
-  // No grant: the bundle tier defaults ON for owner/admin, so an explicit
-  // exportCapability would be describing a permission this vault already has.
+  await seed.grant('acme', {
+    userId: 'owner-01', displayName: 'Owner', role: 'owner',
+    secret: 'owner-pass',
+    exportCapability: { plaintext: ['sql'] },
+    importCapability: { plaintext: ['sql'] },
+  })
   await seed.close()
+
   const db = await createNoydb(opts)
   return db.openVault('acme')
 }
 
-runFormatConformanceTests('as-noydb', {
-  tier: 'bundle',
+runFormatConformanceTests('as-sql', {
+  tier: 'plaintext',
+  format: 'sql',
   vault: seededVault,
   exports: [
-    { name: 'toBytes', run: (vault) => toBytes(vault) },
-    { name: 'download', run: (vault) => download(vault) },
-    // No `acknowledgeRisks` — as-noydb's write emits an ENCRYPTED pod, so it
-    // has no acknowledgement gate and its options reject the unknown key. The
-    // old kit never ran this entry ungated (only exports[0] was guarded), so
-    // the bogus option sat here invisibly until the per-entry guard landed.
-    { name: 'write', run: (vault) => write(vault, '/tmp/conformance.noydb') },
+    { name: 'vault.export(asSql())', run: (vault) => vault.export(asSql(), { collections: ['invoices'] }) },
+    { name: 'download', run: (vault) => download(vault, { collection: 'invoices' } as never) },
+    { name: 'write', run: (vault) => write(vault, '/tmp/conformance.sql', { collection: 'invoices', acknowledgeRisks: true } as never) },
   ],
-  // NO `writeWithoutAcknowledgement`, and that is correct rather than an
-  // omission: as-noydb writes an ENCRYPTED pod, so there is no plaintext-on-
-  // disk risk to acknowledge, and its source says so twice. The kit reports
-  // the absence as a named skip rather than staying silent about it.
+  // No imports: as-sql is one-way (a migration helper; its NoydbFormat has no
+  // decode), so the SKIPPED line the kit prints for it is a documented absence.
+  writeWithoutAcknowledgement: (vault, path) =>
+    write(vault, path, { collection: 'invoices' } as never),
 })
