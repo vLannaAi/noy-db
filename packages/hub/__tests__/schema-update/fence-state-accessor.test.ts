@@ -32,6 +32,14 @@ describe('vault.schemaFenceState()', () => {
     await v._drainPendingSchemaWrites()
     await v.runSchemaCutover()
 
-    expect(await v.schemaFenceState()).toEqual({ currentSchemaVersion: 1, fenceState: 'normal' })
+    // #1197: `schemaHash` MUST survive the cutover's drain transitions. This
+    // assertion was `toEqual({ currentSchemaVersion, fenceState })` and passed
+    // only because every transition erased the hash — an existing test pinning
+    // the defect as expected output. #946 added the field precisely so
+    // "generation N = which schema content" is answerable from here alone.
+    const fence = await v.schemaFenceState()
+    expect(fence.currentSchemaVersion).toBe(1)
+    expect(fence.fenceState).toBe('normal')
+    expect(fence.schemaHash).toEqual(expect.any(String))
   })
 })

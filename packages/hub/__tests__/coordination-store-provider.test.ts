@@ -3,6 +3,7 @@ import { ConflictError } from '../src/kernel/errors.js'
 import { isQuorum } from '../src/port/by/index.js'
 import type { FenceDoc, WriterPresence } from '../src/port/by/index.js'
 import { StoreMesh } from '../src/with-shape/schema-update/store-coordination-provider.js'
+import { loadFence, saveFence } from '../src/with-shape/schema-update/fence.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 
 function memStore(): NoydbStore {
@@ -148,5 +149,34 @@ describe('StoreMesh', () => {
     expect(w).toBeDefined()
     // empty sessionId in -> defaults to writerId on read
     expect(w?.sessionId).toBe('legacy')
+  })
+})
+
+describe('#1197 — a fence transition must not erase fields it does not carry', () => {
+  it('preserves `schemaHash` across a setFence that only changes the phase', async () => {
+    const store = memStore()
+    await saveFence(store, 'v', { currentSchemaVersion: 3, fenceState: 'normal', schemaHash: 'abc123' })
+
+    const mesh = new StoreMesh(store)
+    // Exactly what `FenceController.#setState` constructs: a partial FenceDoc,
+    // valid because `schemaHash` is optional.
+    await mesh.setFence('v', { currentSchemaVersion: 3, fenceState: 'draining' })
+
+    const after = await loadFence(store, 'v')
+    expect(after.fenceState).toBe('draining')
+    expect(after.schemaHash).toBe('abc123')
+  })
+
+  it('a setFence that DOES carry a schemaHash still overwrites it', async () => {
+    // The merge must not become a one-way ratchet: a cutover writing a new
+    // generation's hash has to win over the old one.
+    const store = memStore()
+    await saveFence(store, 'v', { currentSchemaVersion: 3, fenceState: 'normal', schemaHash: 'old' })
+
+    await new StoreMesh(store).setFence('v', { currentSchemaVersion: 4, fenceState: 'normal', schemaHash: 'new' })
+
+    const after = await loadFence(store, 'v')
+    expect(after.schemaHash).toBe('new')
+    expect(after.currentSchemaVersion).toBe(4)
   })
 })
