@@ -1,34 +1,69 @@
 /**
- * **@noy-db/test-format-conformance** — the `as-*` export gate, published as
- * an executable suite.
+ * **@noy-db/test-format-conformance** — the `as-*` export/import gate,
+ * published as an executable suite.
  *
- * The `as-*` family is the one place plaintext leaves the vault. Each package
- * calls `vault.assertCanExport('plaintext', <format>)` before producing
- * anything, and that call is the whole security boundary: a projection that
- * skips it hands out decrypted records to a caller the vault would have
- * refused.
+ * The `as-*` family is the one place plaintext leaves the vault. Every export
+ * is gated by `vault.assertCanExport(tier, format)` before producing anything,
+ * and that call is the whole security boundary: a projection that skips it
+ * hands out decrypted records to a caller the vault would have refused. The
+ * import side is `vault.assertCanImport`, gating what may be planned INTO a
+ * vault.
  *
- * Nothing enforced it. Nine packages had converged on the same shape by
- * convention — `toString`/`toBytes`, `download`, `write` — and convention is
- * what the next format author reads instead of a contract.
+ * ## Two entry-point shapes, one contract
+ *
+ * The 0.7 line inverted four formats: the entry point moved from a function
+ * taking the vault as an ARGUMENT (`toString(vault, opts)`) to a METHOD ON the
+ * vault (`vault.export(asCsv(), {})`). Both shapes carry the same obligation,
+ * and this kit checks both with one mechanism — see the next section, because
+ * getting that mechanism wrong is precisely how this kit went blind once.
  *
  * ## Gated is not the property. Gated BEFORE decrypting is.
  *
  * A gate called after `exportStream` has already run is a gate that refuses
  * the caller and decrypts anyway. So the suite asserts BOTH:
  *
- *   - every export entry point REJECTS when `assertCanExport` throws, and
+ *   - every entry point REJECTS when the gate denies — and rejects with THIS
+ *     KIT'S OWN ERROR, so the refusal is attributable to the gate rather than
+ *     to a miswired fixture throwing something else; and
  *   - it rejects having read NOTHING — `exportStream` is never called.
  *
  * The second is the one a delegation refactor breaks silently: move the gate
- * from `toObject` into `download` and every existing test still passes.
+ * downstream and every existing test still passes.
  *
- * ## Why a Proxy and not a fake Vault
+ * ## Why the kit PATCHES THE INSTANCE, and no longer proxies it (#1209)
  *
- * `Vault` is large, and a hand-written double would drift from it — and worse,
- * would only ever exercise the methods whoever wrote the double thought of.
- * The fixture supplies a REAL vault; the kit wraps it, so an entry point that
- * reaches for some other decrypting method is still observed.
+ * The first version wrapped the vault in a `Proxy` whose `get` trap replaced
+ * `assertCanExport`, forwarding calls with `value.apply(target, args)`. That
+ * works when the entry point takes the vault as an argument — the package
+ * calls `proxy.assertCanExport(...)` and the trap fires. It CANNOT work for a
+ * method on the vault: `vault.export` runs with `this` bound to the real
+ * object (`apply(receiver, …)` is not an option — `Vault` has private fields,
+ * and a Proxy receiver breaks private-field access), so the gate it consults
+ * is the unproxied one and the denial is silently bypassed. Both assertions
+ * passed vacuously; nothing turned red.
+ *
+ * Patching own properties onto the REAL instance intercepts both shapes,
+ * because property lookup happens at call time and an own property shadows the
+ * prototype method — including for hub's own INTERNAL delegation
+ * (`exportJSON()` calls `this.exportStream(...)`, which the Proxy never saw
+ * and the patch does). Private fields keep working because it IS the real
+ * object. The patch mutates the fixture's vault, which is why `vault()` must
+ * build a fresh one per case — a requirement the fixture already carries.
+ *
+ * If hub ever routes its gate around `vault.assertCanExport` (say, by inlining
+ * the capability check), this mechanism fails LOUD — the ungated call
+ * succeeds, the denial test goes red — not silent. That is the acceptable
+ * failure direction.
+ *
+ * ## What is observed, and what deliberately is not
+ *
+ * `exportStream` is the decrypting PRIMITIVE, and the only method recorded.
+ * `vault.export` / `vault.import` are NOT recorded: under the inverted shape
+ * they are the entry points themselves (and `download`/`write` call
+ * `vault.export` internally), so recording them would fail every correct
+ * inverted format spuriously. The first version also recorded a `snapshot`
+ * method that `Vault` does not have — a guessed identifier, which is a query
+ * that cannot falsify. The list is now exactly the primitives that exist.
  *
  * @packageDocumentation
  */
@@ -37,7 +72,7 @@ import type { Vault, ExportFormat } from '@noy-db/hub'
 
 /** One plaintext-producing entry point, named as a consumer would call it. */
 export interface FormatEntryPoint {
-  /** Exported function name, e.g. `'toString'`. Used in the test title. */
+  /** Shown in the test title, e.g. `'toString'` or `'vault.export'`. */
   readonly name: string
   /** Call it against the supplied vault. Arguments are the fixture's business. */
   run(vault: Vault): Promise<unknown>
@@ -61,33 +96,59 @@ export interface FormatFixture {
   readonly format?: ExportFormat
   /**
    * A REAL vault with at least one record. Built fresh per case, so an entry
-   * point that mutates it cannot leak into the next assertion.
+   * point that mutates it cannot leak into the next assertion — and because
+   * the kit PATCHES the instance it is handed, reuse would leak the patch.
+   *
+   * For a format using the inverted shape (`vault.export(...)`), the vault
+   * must be created with `formatsStrategy: withFormats()` — without it the
+   * CAN-export guard fails with `FormatsNotEnabledError` before proving
+   * anything about the fixture's grants.
    */
   vault(): Promise<Vault>
   /**
-   * EVERY entry point that can produce plaintext — not a representative one.
+   * EVERY plaintext-producing export entry point — not a representative one.
    * A format with four exports and one listed here reports a green suite for
    * the three nobody checked.
    */
   readonly exports: ReadonlyArray<FormatEntryPoint>
   /**
+   * Import entry points (`vault.import(...)`, legacy `fromString`), gated by
+   * `assertCanImport`. Optional because not every format decodes — but a
+   * format that ships a `decode` and declares no imports here is reporting a
+   * green suite for a gate nobody checked, and the suite says so out loud.
+   *
+   * The fixture's vault must hold an `importCapability` grant for the format,
+   * or the denial case is unfalsifiable: the refusal arrives from the missing
+   * grant rather than from the kit's denial, and nothing distinguishes that
+   * from a working gate.
+   */
+  readonly imports?: ReadonlyArray<FormatEntryPoint>
+  /**
    * The on-disk write path, if the package has one. It must refuse without
    * `acknowledgeRisks: true`; pass a call that OMITS the flag.
    *
-   * The vault this receives is the fixture's own — NOT the denying proxy —
-   * and it must be export-CAPABLE. A vault that would refuse the export
-   * anyway makes the case unfalsifiable: the refusal arrives from the gate
-   * upstream and the acknowledgement is never reached. That is not
-   * hypothetical; it is what the first version of this kit did, and deleting
-   * the acknowledgement guard from as-csv left the suite green.
+   * The vault this receives is the fixture's own — NOT a denying one — and it
+   * must be export-CAPABLE. A vault that would refuse the export anyway makes
+   * the case unfalsifiable: the refusal arrives from the gate upstream and the
+   * acknowledgement is never reached. That is not hypothetical; it is what the
+   * first version of this kit did, and deleting the acknowledgement guard from
+   * as-csv left the suite green.
    */
   writeWithoutAcknowledgement?: (vault: Vault, path: string) => Promise<unknown>
 }
 
-/** Thrown by the denying proxy so a refusal is attributable to the gate. */
+/**
+ * Thrown by the kit's denial patch so a refusal is ATTRIBUTABLE to the gate.
+ *
+ * The denial tests match on this class, not on "it threw". A bare
+ * `rejects.toThrow()` passes on any error — a miswired fixture raising
+ * `TypeError`, a vault missing `withFormats()` — which is exactly the state a
+ * brand-new fixture is most likely to be in. The first version of this kit
+ * defined this class for that purpose and then never matched on it.
+ */
 export class ExportDeniedByConformanceKit extends Error {
-  constructor(tier: string, format?: string) {
-    super(`conformance: assertCanExport denied '${tier}'${format ? ` / '${format}'` : ''}`)
+  constructor(gate: 'export' | 'import', tier: string, format?: string) {
+    super(`conformance: assertCan${gate === 'export' ? 'Export' : 'Import'} denied '${tier}'${format ? ` / '${format}'` : ''}`)
     this.name = 'ExportDeniedByConformanceKit'
   }
 }
@@ -97,38 +158,33 @@ interface Observation {
 }
 
 /**
- * Wrap a real vault so `assertCanExport` denies, and every method that could
- * yield plaintext records is recorded.
+ * Patch a REAL vault in place: both gates deny with the kit's own error, and
+ * the decrypting primitive is recorded. Returns the same instance.
  *
- * `exportStream` is named explicitly because it is the shared read path; the
- * catch-all records any other function property that gets invoked, so an entry
- * point taking a different route is still visible rather than silently
- * unobserved.
+ * Own-property assignment shadows the prototype methods, so the patch fires
+ * for the argument shape (`toString(vault)` → `vault.assertCanExport(...)`),
+ * the inverted shape (`vault.export(...)` → `contextFor(this)` → property
+ * lookup at call time), and hub's internal delegation (`exportJSON()` →
+ * `this.exportStream(...)`).
  */
-function denyingVault(real: Vault, tier: string, format: string | undefined, seen: Observation): Vault {
-  return new Proxy(real, {
-    get(target, prop, receiver) {
-      if (prop === 'assertCanExport') {
-        return () => {
-          throw new ExportDeniedByConformanceKit(tier, format)
-        }
-      }
-      const value = Reflect.get(target, prop, receiver) as unknown
-      if (typeof value === 'function' && typeof prop === 'string') {
-        return (...args: unknown[]) => {
-          if (prop === 'exportStream' || prop === 'export' || prop === 'snapshot') {
-            seen.decryptCalls.push(prop)
-          }
-          return (value as (...a: unknown[]) => unknown).apply(target, args)
-        }
-      }
-      return value
-    },
-  }) as Vault
+function denyGates(vault: Vault, tier: string, format: string | undefined, seen: Observation): Vault {
+  const v = vault as unknown as Record<string, unknown>
+  v['assertCanExport'] = () => {
+    throw new ExportDeniedByConformanceKit('export', tier, format)
+  }
+  v['assertCanImport'] = () => {
+    throw new ExportDeniedByConformanceKit('import', tier, format)
+  }
+  const realStream = (vault.exportStream as (...a: unknown[]) => unknown).bind(vault)
+  v['exportStream'] = (...args: unknown[]) => {
+    seen.decryptCalls.push('exportStream')
+    return realStream(...args)
+  }
+  return vault
 }
 
 /**
- * Run the shared `as-*` export-gate contract against one format.
+ * Run the shared `as-*` gate contract against one format.
  *
  * @param name - shown in the suite title, e.g. `'as-csv'`.
  */
@@ -150,36 +206,88 @@ export function runFormatConformanceTests(name: string, fixture: FormatFixture):
       expect(fixture.exports.length).toBeGreaterThan(0)
     })
 
-    it('the fixture vault CAN export — otherwise every refusal below is free', async () => {
-      // The whole suite tests refusals, and a refusal is only evidence when
-      // the same call would otherwise SUCCEED. A fixture whose `format` tag
-      // does not match what the package passes to `assertCanExport` — or
-      // which forgets the `exportCapability` grant — makes every case below
-      // pass by refusing for the wrong reason, and nothing in the output
-      // distinguishes that from a working gate.
-      const vault = await fixture.vault()
-      await expect(
-        fixture.exports[0]!.run(vault),
-        `${fixture.exports[0]!.name} failed on an ungated vault — check the \`format\` tag and the exportCapability grant`,
-      ).resolves.toBeDefined()
-    })
-
     for (const entry of fixture.exports) {
-      it(`${entry.name}: REFUSES when assertCanExport denies`, async () => {
+      it(`${entry.name}: SUCCEEDS on an ungated vault — otherwise its refusal below is free`, async () => {
+        // Per ENTRY, not only exports[0]: a refusal is only evidence when the
+        // same call would otherwise succeed, and each entry point can be
+        // miswired independently. A fixture whose `format` tag does not match
+        // what the package passes — or which forgets the exportCapability
+        // grant, or omits `formatsStrategy: withFormats()` on an inverted
+        // vault — makes the denial pass by refusing for the wrong reason.
+        const vault = await fixture.vault()
+        // `toSatisfy(() => true)`, not `toBeDefined()`: `download`/`write`
+        // return Promise<void>, and their resolved value is legitimately
+        // undefined. The assertion is "it RESOLVES" — the guard is about the
+        // call not refusing, not about what it returns. (Found the moment this
+        // guard went per-entry; the old exports[0]-only guard happened to
+        // always land on a value-returning entry.)
+        await expect(
+          entry.run(vault),
+          `${entry.name} failed on an ungated vault — check the \`format\` tag, the exportCapability grant, and (for vault.export entries) formatsStrategy: withFormats()`,
+        ).resolves.toSatisfy(() => true)
+      })
+
+      it(`${entry.name}: REFUSES when assertCanExport denies — with the KIT'S error`, async () => {
         const seen: Observation = { decryptCalls: [] }
-        const vault = denyingVault(await fixture.vault(), fixture.tier, fixture.format, seen)
-        await expect(entry.run(vault)).rejects.toThrow()
+        const vault = denyGates(await fixture.vault(), fixture.tier, fixture.format, seen)
+        // Matched on the class: a bare toThrow() passes on ANY error, which
+        // makes a miswired fixture indistinguishable from a working gate.
+        await expect(entry.run(vault)).rejects.toThrow(ExportDeniedByConformanceKit)
       })
 
       it(`${entry.name}: refuses BEFORE reading any record`, async () => {
         const seen: Observation = { decryptCalls: [] }
-        const vault = denyingVault(await fixture.vault(), fixture.tier, fixture.format, seen)
-        await expect(entry.run(vault)).rejects.toThrow()
+        const vault = denyGates(await fixture.vault(), fixture.tier, fixture.format, seen)
+        await expect(entry.run(vault)).rejects.toThrow(ExportDeniedByConformanceKit)
         // The property that a delegation refactor breaks silently: a gate
         // moved downstream still refuses the caller, having already decrypted.
         expect(
           seen.decryptCalls,
           `${entry.name} read records before the export gate refused`,
+        ).toEqual([])
+      })
+    }
+
+    const importEntries = fixture.imports ?? []
+    const importTitle = importEntries.length
+      ? null
+      : 'imports: SKIPPED — fixture declares none, so the assertCanImport gate is UNVERIFIED here'
+    if (importTitle) {
+      it(importTitle, () => {
+        // Passes loudly. A format that ships a `decode` and declares no import
+        // entries is leaving a gate unchecked, and the output should say so
+        // rather than staying quiet — a documented absence, not a hole.
+        expect(importEntries).toEqual([])
+      })
+    }
+
+    for (const entry of importEntries) {
+      it(`${entry.name}: SUCCEEDS on an ungated vault — otherwise its refusal below is free`, async () => {
+        // Same falsifiability requirement as the export side: without an
+        // importCapability grant the denial case refuses for the wrong reason.
+        const vault = await fixture.vault()
+        await expect(
+          entry.run(vault),
+          `${entry.name} failed on an ungated vault — check the importCapability grant`,
+        ).resolves.toSatisfy(() => true)
+      })
+
+      it(`${entry.name}: REFUSES when assertCanImport denies — with the KIT'S error`, async () => {
+        const seen: Observation = { decryptCalls: [] }
+        const vault = denyGates(await fixture.vault(), fixture.tier, fixture.format, seen)
+        await expect(entry.run(vault)).rejects.toThrow(ExportDeniedByConformanceKit)
+      })
+
+      it(`${entry.name}: refuses BEFORE reading any record`, async () => {
+        // Import planning READS the vault to diff against it (`diffVault`
+        // routes through `exportStream`), so a gate moved after the plan
+        // decrypts before refusing — the same silent break as the export side.
+        const seen: Observation = { decryptCalls: [] }
+        const vault = denyGates(await fixture.vault(), fixture.tier, fixture.format, seen)
+        await expect(entry.run(vault)).rejects.toThrow(ExportDeniedByConformanceKit)
+        expect(
+          seen.decryptCalls,
+          `${entry.name} read records before the import gate refused`,
         ).toEqual([])
       })
     }
