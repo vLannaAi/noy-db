@@ -27,8 +27,9 @@
 
 import { describe, expect, it } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
+import { withFormats } from '@noy-db/hub/as'
 import { ConflictError, createNoydb, classified } from '@noy-db/hub'
-import { toString as xmlToString } from '../src/index.js'
+import { asXml } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
 
 function toMemory(): NoydbStore {
@@ -74,7 +75,7 @@ function toMemory(): NoydbStore {
  */
 async function makeVault() {
   const adapter = toMemory()
-  const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
+  const db = await createNoydb({ formatsStrategy: withFormats(), teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
   await db.openVault('acme')
   await db.grant('acme', {
     userId: 'owner-01', displayName: 'Owner', role: 'owner',
@@ -83,7 +84,7 @@ async function makeVault() {
   })
   await db.close()
 
-  const db2 = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
+  const db2 = await createNoydb({ formatsStrategy: withFormats(), teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
   return db2.openVault('acme')
 }
 
@@ -95,7 +96,7 @@ describe('as-xml default export (no redact option) — classified field posture'
     })
     await c.put('r1', { pan: '4242424242424242', total: 9 })
 
-    const xml = await xmlToString(v, { collection: 'cards' }) // no `redact` option — the default export path
+    const xml = await v.export(asXml(), { collections: ['cards'] }) // no `redact` option — the default export path
 
     // The element text is the bare marker — not the JSON.stringify(SealedHandle)
     // form (literal double quotes) that shipped pre-#629-flip.

@@ -33,7 +33,12 @@ function redactChunk(
 ): ExportChunk {
   if (redact === undefined) return chunk
   const described = ctx.describe(chunk.collection) as CollectionDescription | undefined
-  if (!described) return chunk
+  if (!described) {
+    throw new Error(
+      `vault.export: redaction was requested but '${chunk.collection}' has no description to redact against. ` +
+        'Open the collection with its classifiedFields / fieldMeta options first.',
+    )
+  }
   const opts: ListProjectionOptions | undefined =
     redact === true ? undefined : { sensitivity: redact.sensitivity as never }
   const records = chunk.records.map((r) =>
@@ -61,13 +66,11 @@ function contextFor(vault: Vault): FormatsContext {
     },
     chunks: (collections) =>
       vault.exportStream({ granularity: 'collection', ...(collections ? { collections } : {}) }),
-    describe: (collection) => {
-      try {
-        return vault.collection(collection).describe() as never
-      } catch {
-        return undefined
-      }
-    },
+    // NOT swallowed. A caller who asked for redaction and silently got
+    // unredacted output is the exact failure this port exists to remove — a
+    // security duty that fails quiet. If the description cannot be read, the
+    // export fails instead.
+    describe: (collection) => vault.collection(collection).describe() as never,
     plan: async (records, policy: ImportPolicy, formatId: string, idKey?: string) => {
       const { diffVault } = await import('../../with-cargo/vault-diff.js')
       const plan = await diffVault(vault, records as never, idKey ? { idKey } : {})

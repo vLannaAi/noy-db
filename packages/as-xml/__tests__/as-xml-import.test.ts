@@ -13,9 +13,10 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
+import { withFormats } from '@noy-db/hub/as'
 import { ConflictError, ImportCapabilityError, createNoydb } from '@noy-db/hub'
 import { withTransactions } from '@noy-db/hub/transactions'
-import { fromString, toString } from '../src/index.js'
+import { asXml } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
 
 function toMemory(): NoydbStore {
@@ -59,7 +60,7 @@ interface Invoice { id: string; client: string; amount: number }
 
 async function setup() {
   const adapter = toMemory()
-  const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
+  const init = await createNoydb({ formatsStrategy: withFormats(), teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
   await init.openVault('demo')
   await init.grant('demo', {
     userId: 'alice', displayName: 'Alice', role: 'owner',
@@ -69,7 +70,7 @@ async function setup() {
   })
   init.close()
 
-  const db = await createNoydb({ teamStrategy: withTeam(),
+  const db = await createNoydb({ formatsStrategy: withFormats(), teamStrategy: withTeam(),
     store: adapter, user: 'alice', secret: 'pw-2026',
     transactionsStrategy: withTransactions(),
   })
@@ -81,10 +82,10 @@ async function setup() {
 describe('as-xml fromString — capability gate', () => {
   it('throws ImportCapabilityError without the grant', async () => {
     const adapter = toMemory()
-    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
+    const db = await createNoydb({ formatsStrategy: withFormats(), teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
     const vault = await db.openVault('demo')
     await expect(
-      fromString(vault, '<Records><Invoice><id>a</id></Invoice></Records>', { collection: 'invoices' }),
+      vault.import(asXml(), '<Records><Invoice><id>a</id></Invoice></Records>', { collection: 'invoices' }),
     ).rejects.toThrow(ImportCapabilityError)
     db.close()
   })
@@ -98,10 +99,7 @@ describe('as-xml fromString — parse + apply', () => {
         <Invoice><id>a</id><client>X</client><amount>100</amount></Invoice>
         <Invoice><id>b</id><client>Acme &amp; Co.</client><amount>250</amount></Invoice>
       </Records>`
-    const importer = await fromString(vault, xml, {
-      collection: 'invoices',
-      fieldTypes: { amount: 'number' },
-    })
+    const importer = await vault.import(asXml({ fieldTypes: { amount: 'number' } }), xml, { collection: 'invoices' })
     expect(importer.plan.summary).toEqual({ add: 1, modify: 0, delete: 0, total: 1 })
     expect(importer.plan.added[0]!.record).toEqual({ id: 'b', client: 'Acme & Co.', amount: 250 })
 
@@ -115,10 +113,7 @@ describe('as-xml fromString — parse + apply', () => {
   it('coerces booleans via fieldTypes', async () => {
     const { db, vault } = await setup()
     const xml = `<Records><Invoice><id>x</id><paid>true</paid></Invoice></Records>`
-    const importer = await fromString(vault, xml, {
-      collection: 'invoices',
-      fieldTypes: { paid: 'boolean' },
-    })
+    const importer = await vault.import(asXml({ fieldTypes: { paid: 'boolean' } }), xml, { collection: 'invoices' })
     expect((importer.plan.added[0]!.record as Record<string, unknown>)['paid']).toBe(true)
     db.close()
   })
@@ -129,10 +124,7 @@ describe('as-xml fromString — parse + apply', () => {
       <ns:Records xmlns:ns="http://example.com/inv">
         <ns:Invoice><id>z</id><client>Zed</client><amount>9</amount></ns:Invoice>
       </ns:Records>`
-    const importer = await fromString(vault, xml, {
-      collection: 'invoices',
-      fieldTypes: { amount: 'number' },
-    })
+    const importer = await vault.import(asXml({ fieldTypes: { amount: 'number' } }), xml, { collection: 'invoices' })
     expect(importer.plan.added[0]!.record).toEqual({ id: 'z', client: 'Zed', amount: 9 })
     db.close()
   })
@@ -140,11 +132,7 @@ describe('as-xml fromString — parse + apply', () => {
   it('honors explicit recordElement override', async () => {
     const { db, vault } = await setup()
     const xml = `<Wrapper><Row><id>q</id><client>Q</client><amount>1</amount></Row></Wrapper>`
-    const importer = await fromString(vault, xml, {
-      collection: 'invoices',
-      recordElement: 'Row',
-      fieldTypes: { amount: 'number' },
-    })
+    const importer = await vault.import(asXml({ recordElement: 'Row', fieldTypes: { amount: 'number' } }), xml, { collection: 'invoices' })
     expect(importer.plan.added[0]!.record).toEqual({ id: 'q', client: 'Q', amount: 1 })
     db.close()
   })
@@ -152,10 +140,7 @@ describe('as-xml fromString — parse + apply', () => {
   it('handles a single-record document (parser non-array case)', async () => {
     const { db, vault } = await setup()
     const xml = `<Records><Invoice><id>solo</id><client>Solo</client><amount>1</amount></Invoice></Records>`
-    const importer = await fromString(vault, xml, {
-      collection: 'invoices',
-      fieldTypes: { amount: 'number' },
-    })
+    const importer = await vault.import(asXml({ fieldTypes: { amount: 'number' } }), xml, { collection: 'invoices' })
     expect(importer.plan.summary.add).toBe(1)
     expect(importer.plan.added[0]!.record).toEqual({ id: 'solo', client: 'Solo', amount: 1 })
     db.close()
@@ -164,7 +149,7 @@ describe('as-xml fromString — parse + apply', () => {
   it('rejects malformed XML with a clear message', async () => {
     const { db, vault } = await setup()
     await expect(
-      fromString(vault, '<Records><Invoice><id>a</id></Records>', { collection: 'invoices' }),
+      vault.import(asXml(), '<Records><Invoice><id>a</id></Records>', { collection: 'invoices' }),
     ).rejects.toThrow(/not valid XML/)
     db.close()
   })
@@ -175,11 +160,7 @@ describe('as-xml fromString — policies', () => {
     const { db, vault } = await setup()
     // Vault has 'a'. Input has only 'b' → 'a' should be deleted on replace.
     const xml = `<Records><Invoice><id>b</id><client>B</client><amount>2</amount></Invoice></Records>`
-    const importer = await fromString(vault, xml, {
-      collection: 'invoices',
-      policy: 'replace',
-      fieldTypes: { amount: 'number' },
-    })
+    const importer = await vault.import(asXml({ fieldTypes: { amount: 'number' } }), xml, { collection: 'invoices', policy: 'replace' })
     await importer.apply()
     expect(await vault.collection<Invoice>('invoices').get('a')).toBeNull()
     expect(await vault.collection<Invoice>('invoices').get('b')).toEqual({ id: 'b', client: 'B', amount: 2 })
@@ -190,11 +171,7 @@ describe('as-xml fromString — policies', () => {
     const { db, vault } = await setup()
     // 'a' exists with amount=100. Input has 'a' with amount=999 → modify should be skipped.
     const xml = `<Records><Invoice><id>a</id><client>X</client><amount>999</amount></Invoice></Records>`
-    const importer = await fromString(vault, xml, {
-      collection: 'invoices',
-      policy: 'insert-only',
-      fieldTypes: { amount: 'number' },
-    })
+    const importer = await vault.import(asXml({ fieldTypes: { amount: 'number' } }), xml, { collection: 'invoices', policy: 'insert-only' })
     await importer.apply()
     expect(await vault.collection<Invoice>('invoices').get('a')).toEqual({ id: 'a', client: 'X', amount: 100 })
     db.close()
@@ -204,12 +181,9 @@ describe('as-xml fromString — policies', () => {
 describe('as-xml fromString — round-trip', () => {
   it('toString → fromString → diff is empty against the source vault', async () => {
     const { db, vault } = await setup()
-    const xml = await toString(vault, { collection: 'invoices' })
+    const xml = await vault.export(asXml(), { collections: ['invoices'] })
 
-    const importer = await fromString(vault, xml, {
-      collection: 'invoices',
-      fieldTypes: { amount: 'number' },
-    })
+    const importer = await vault.import(asXml({ fieldTypes: { amount: 'number' } }), xml, { collection: 'invoices' })
     // Same source vault → no records should be added/modified/deleted.
     expect(importer.plan.summary).toEqual({ add: 0, modify: 0, delete: 0, total: 0 })
     db.close()
@@ -219,7 +193,7 @@ describe('as-xml fromString — round-trip', () => {
 describe('as-xml fromString — apply() requires withTransactions()', () => {
   it('throws a clear error when the tx strategy is missing', async () => {
     const adapter = toMemory()
-    const init = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
+    const init = await createNoydb({ formatsStrategy: withFormats(), teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
     await init.openVault('demo')
     await init.grant('demo', {
       userId: 'alice', displayName: 'Alice', role: 'owner',
@@ -227,12 +201,10 @@ describe('as-xml fromString — apply() requires withTransactions()', () => {
       importCapability: { plaintext: ['xml'] },
     })
     init.close()
-    const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
+    const db = await createNoydb({ formatsStrategy: withFormats(), teamStrategy: withTeam(), store: adapter, user: 'alice', secret: 'pw-2026' })
     const vault = await db.openVault('demo')
 
-    const importer = await fromString(vault,
-      '<Records><Invoice><id>z</id></Invoice></Records>',
-      { collection: 'invoices' })
+    const importer = await vault.import(asXml(), '<Records><Invoice><id>z</id></Invoice></Records>', { collection: 'invoices' })
     await expect(importer.apply()).rejects.toThrow(/withTransactions/)
     db.close()
   })

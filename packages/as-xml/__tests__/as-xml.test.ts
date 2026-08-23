@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
+import { withFormats } from '@noy-db/hub/as'
 import { ConflictError, ExportCapabilityError, createNoydb } from '@noy-db/hub'
-import { toString } from '../src/index.js'
+import { asXml } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
 
 function toMemory(): NoydbStore {
@@ -45,7 +46,7 @@ interface Invoice { id: string; client: string; amount: number }
 
 async function seed(grant: readonly ('xml' | 'csv')[] = ['xml']) {
   const adapter = toMemory()
-  const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner', secret: 'pw' })
+  const db = await createNoydb({ formatsStrategy: withFormats(), teamStrategy: withTeam(), store: adapter, user: 'owner', secret: 'pw' })
   const v = await db.openVault('acme')
   await v.collection<Invoice>('invoices').put('i1', { id: 'i1', client: 'Acme & Co.', amount: 100 })
   await v.collection<Invoice>('invoices').put('i2', { id: 'i2', client: 'Bob <the builder>', amount: 200 })
@@ -55,7 +56,7 @@ async function seed(grant: readonly ('xml' | 'csv')[] = ['xml']) {
     exportCapability: { plaintext: grant },
   })
   await db.close()
-  const db2 = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner', secret: 'pw' })
+  const db2 = await createNoydb({ formatsStrategy: withFormats(), teamStrategy: withTeam(), store: adapter, user: 'owner', secret: 'pw' })
   const vault = await db2.openVault('acme')
   return { vault }
 }
@@ -63,13 +64,13 @@ async function seed(grant: readonly ('xml' | 'csv')[] = ['xml']) {
 describe('as-xml', () => {
   it('emits XML declaration by default', async () => {
     const { vault } = await seed()
-    const xml = await toString(vault, { collection: 'invoices' })
+    const xml = await vault.export(asXml(), { collections: ['invoices'] })
     expect(xml.startsWith('<?xml version="1.0" encoding="UTF-8"?>')).toBe(true)
   })
 
   it('wraps records in the inferred element name', async () => {
     const { vault } = await seed()
-    const xml = await toString(vault, { collection: 'invoices' })
+    const xml = await vault.export(asXml(), { collections: ['invoices'] })
     expect(xml).toContain('<Records>')
     expect(xml).toContain('<Invoice>')
     expect(xml).toContain('</Invoice>')
@@ -78,39 +79,32 @@ describe('as-xml', () => {
 
   it('escapes XML entities in text content', async () => {
     const { vault } = await seed()
-    const xml = await toString(vault, { collection: 'invoices' })
+    const xml = await vault.export(asXml(), { collections: ['invoices'] })
     expect(xml).toContain('Acme &amp; Co.')
     expect(xml).toContain('Bob &lt;the builder&gt;')
   })
 
   it('honours custom root and record element names', async () => {
     const { vault } = await seed()
-    const xml = await toString(vault, {
-      collection: 'invoices',
-      rootElement: 'Batch',
-      recordElement: 'Entry',
-    })
+    const xml = await vault.export(asXml({ rootElement: 'Batch', recordElement: 'Entry' }), { collections: ['invoices'] })
     expect(xml).toContain('<Batch>')
     expect(xml).toContain('<Entry>')
   })
 
   it('emits namespace declaration when provided', async () => {
     const { vault } = await seed()
-    const xml = await toString(vault, {
-      collection: 'invoices',
-      namespace: 'http://schemas.example.com/accounting/v1',
-    })
+    const xml = await vault.export(asXml({ namespace: 'http://schemas.example.com/accounting/v1' }), { collections: ['invoices'] })
     expect(xml).toContain('xmlns="http://schemas.example.com/accounting/v1"')
   })
 
   it('compact mode skips indentation', async () => {
     const { vault } = await seed()
-    const xml = await toString(vault, { collection: 'invoices', pretty: false })
+    const xml = await vault.export(asXml({ pretty: false }), { collections: ['invoices'] })
     expect(xml).not.toContain('\n  ')
   })
 
   it('throws ExportCapabilityError without xml grant', async () => {
     const { vault } = await seed(['csv'])
-    await expect(toString(vault, { collection: 'invoices' })).rejects.toBeInstanceOf(ExportCapabilityError)
+    await expect(vault.export(asXml(), { collections: ['invoices'] })).rejects.toBeInstanceOf(ExportCapabilityError)
   })
 })

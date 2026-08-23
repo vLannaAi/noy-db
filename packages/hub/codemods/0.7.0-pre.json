@@ -196,6 +196,24 @@
       "safeGlobalReplace": false,
       "section": "as-port",
       "note": "`toString(vault, opts)` becomes `vault.export(asSql(fmtOpts), { collections, redact })`. EXPORT-ONLY: as-sql declares no decode(), so `vault.import(asSql(), ...)` throws naming the format. ⚠️ Removing an export called `toString` fails SILENTLY at the call site: a bare `toString(x)` resolves to globalThis.toString and returns '[object Undefined]' instead of throwing ReferenceError. Grep for the call, do not rely on a red build."
+    },
+    {
+      "from": "toString",
+      "to": "asXml",
+      "kind": "identifier",
+      "package": "@noy-db/as-xml",
+      "safeGlobalReplace": false,
+      "section": "as-port",
+      "note": "`toString(vault, opts)` becomes `vault.export(asXml(fmtOpts), { collections, redact })`. Options SPLIT: rootElement/recordElement/fields/pretty/xmlDeclaration/namespace/fieldTypes are the format's; collection and redact are hub's. Same silent-removal hazard as as-sql: a bare `toString(x)` resolves to globalThis.toString rather than throwing."
+    },
+    {
+      "from": "fromString",
+      "to": "asXml",
+      "kind": "identifier",
+      "package": "@noy-db/as-xml",
+      "safeGlobalReplace": false,
+      "section": "as-port",
+      "note": "`fromString(vault, xml, opts)` becomes `vault.import(asXml(fmtOpts), xml, { collection, policy, idKey })`."
     }
   ],
   "unretired": [
