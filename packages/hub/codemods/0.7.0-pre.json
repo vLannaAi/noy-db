@@ -159,6 +159,34 @@
       "safeGlobalReplace": true,
       "section": "on-port",
       "note": "on-shamir exports a structural MIRROR of hub's port under its own name, because hub devDepends on this package and a peer edge back is a build cycle \u2014 measured: turbo refuses `@noy-db/on-shamir#build, @noy-db/hub#build` outright. Renamed in lockstep and deliberately to the SAME name, so the duplication is legible rather than disguised; hub compiles the two against each other in noydb-shamir-satellite.test-d.ts."
+    },
+    {
+      "from": "toString",
+      "to": "asCsv",
+      "kind": "identifier",
+      "package": "@noy-db/as-csv",
+      "safeGlobalReplace": false,
+      "section": "as-port",
+      "note": "The as-* inversion (ADR 0004). `toString(vault, opts)` becomes `vault.export(asCsv(fmtOpts), { collections })` — hub gates, reads and redacts; the format only encodes. Options SPLIT: eol/columns/columnTypes go to asCsv(), collections/redact to vault.export(). Requires formatsStrategy: withFormats(). safeGlobalReplace is false: `toString` is Object.prototype's method name and appears on every value in the language."
+    },
+    {
+      "from": "fromString",
+      "to": "asCsv",
+      "kind": "identifier",
+      "package": "@noy-db/as-csv",
+      "safeGlobalReplace": false,
+      "section": "as-port",
+      "note": "`fromString(vault, csv, opts)` becomes `vault.import(asCsv(fmtOpts), csv, { collection, policy, idKey })`. The returned ImportPlan is now hub's — same shape, one definition. safeGlobalReplace is false: several as-* packages export a `fromString` and they migrate on their own schedule."
+    },
+    {
+      "from": "AsCSVImportOptions",
+      "to": "FormatImportOptions",
+      "kind": "type",
+      "package": "@noy-db/as-csv",
+      "toPackage": "@noy-db/hub/as",
+      "safeGlobalReplace": true,
+      "section": "as-port",
+      "note": "Split across the new boundary: collection/policy/idKey are hub's FormatImportOptions on `/as`; columnTypes is an asCsv() option. `toPackage` records that the target moved REPOSITORIES of ownership — the type is hub's now, not as-csv's, which no other row in either map has needed to say."
     }
   ],
   "unretired": [

@@ -42,6 +42,8 @@ export interface FormatImportOptions {
   readonly collection?: string
   /** How to reconcile with what is already there. Default `'merge'`. */
   readonly policy?: ImportPolicy
+  /** Record identity field. Default `'id'`. A diff concern, so hub owns it. */
+  readonly idKey?: string
 }
 
 /**
@@ -82,6 +84,7 @@ export interface FormatsContext {
     records: Readonly<Record<string, readonly unknown[]>>,
     policy: ImportPolicy,
     formatId: string,
+    idKey?: string,
   ): Promise<ImportPlan>
 }
 

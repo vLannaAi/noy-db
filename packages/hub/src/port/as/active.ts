@@ -68,9 +68,9 @@ function contextFor(vault: Vault): FormatsContext {
         return undefined
       }
     },
-    plan: async (records, policy: ImportPolicy, formatId: string) => {
+    plan: async (records, policy: ImportPolicy, formatId: string, idKey?: string) => {
       const { diffVault } = await import('../../with-cargo/vault-diff.js')
-      const plan = await diffVault(vault, records as never)
+      const plan = await diffVault(vault, records as never, idKey ? { idKey } : {})
       return {
         plan,
         policy,
@@ -159,7 +159,7 @@ export function withFormats(): FormatsStrategy {
         }
         candidate[target] = [...(candidate[target] ?? []), ...chunk.records]
       }
-      return ctx.plan(candidate, options.policy ?? 'merge', format.id)
+      return ctx.plan(candidate, options.policy ?? 'merge', format.id, options.idKey)
     },
   }
 }

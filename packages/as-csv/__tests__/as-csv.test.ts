@@ -14,8 +14,9 @@
 import { describe, expect, it } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
 import { ConflictError, ExportCapabilityError, createNoydb } from '@noy-db/hub'
-import { toString, download, write } from '../src/index.js'
+import { asCsv, download, write } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
+import { withFormats } from '@noy-db/hub/as'
 
 function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -63,7 +64,7 @@ interface Invoice {
 
 async function seedVault() {
   const adapter = toMemory()
-  const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
+  const db = await createNoydb({ teamStrategy: withTeam(), formatsStrategy: withFormats(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
   const vault = await db.openVault('acme')
   const invoices = vault.collection<Invoice>('invoices')
   await invoices.put('inv-1', { id: 'inv-1', client: 'Globex', amount: 1500, status: 'paid' })
@@ -83,9 +84,9 @@ describe('happy path', () => {
     })
     await db.close()
 
-    const db2 = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db2 = await createNoydb({ teamStrategy: withTeam(), formatsStrategy: withFormats(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const vault = await db2.openVault('acme')
-    const csv = await toString(vault, { collection: 'invoices' })
+    const csv = await vault.export(asCsv(), { collections: ['invoices'] })
 
     // First line is header; subsequent lines are records
     const lines = csv.split('\n')
@@ -105,7 +106,7 @@ describe('authorization refusals', () => {
     const { db } = await seedVault()
     const vault = await db.openVault('acme')
     // Default owner has no plaintext grant.
-    await expect(toString(vault, { collection: 'invoices' })).rejects.toThrow(ExportCapabilityError)
+    await expect(vault.export(asCsv(), { collections: ['invoices'] })).rejects.toThrow(ExportCapabilityError)
     await db.close()
   })
 
@@ -118,9 +119,9 @@ describe('authorization refusals', () => {
     })
     await db.close()
 
-    const opDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'op', secret: 'op-pass' })
+    const opDb = await createNoydb({ teamStrategy: withTeam(), formatsStrategy: withFormats(), store: adapter, user: 'op', secret: 'op-pass' })
     const vault = await opDb.openVault('acme')
-    await expect(toString(vault, { collection: 'invoices' })).rejects.toThrow(ExportCapabilityError)
+    await expect(vault.export(asCsv(), { collections: ['invoices'] })).rejects.toThrow(ExportCapabilityError)
     await opDb.close()
   })
 
@@ -134,9 +135,9 @@ describe('authorization refusals', () => {
     })
     await db.close()
 
-    const opDb = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'op', secret: 'op-pass' })
+    const opDb = await createNoydb({ teamStrategy: withTeam(), formatsStrategy: withFormats(), store: adapter, user: 'op', secret: 'op-pass' })
     const vault = await opDb.openVault('acme')
-    const csv = await toString(vault, { collection: 'invoices' })
+    const csv = await vault.export(asCsv(), { collections: ['invoices'] })
     expect(csv).toBe('')  // ACL-scoped; no invoices visible
     await opDb.close()
   })
@@ -152,9 +153,9 @@ describe('escaping + formatting', () => {
     })
     await db.close()
 
-    const db2 = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db2 = await createNoydb({ teamStrategy: withTeam(), formatsStrategy: withFormats(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const vault = await db2.openVault('acme')
-    const csv = await toString(vault, { collection: 'invoices', columns: ['id', 'amount'] })
+    const csv = await vault.export(asCsv({ columns: ['id', 'amount'] }), { collections: ['invoices'] })
     const lines = csv.split('\n')
     expect(lines[0]).toBe('id,amount')
     expect(lines[1]).toBe('inv-1,1500')
@@ -170,9 +171,9 @@ describe('escaping + formatting', () => {
     })
     await db.close()
 
-    const db2 = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
+    const db2 = await createNoydb({ teamStrategy: withTeam(), formatsStrategy: withFormats(), store: adapter, user: 'owner-01', secret: 'owner-pass' })
     const vault = await db2.openVault('acme')
-    const csv = await toString(vault, { collection: 'invoices', eol: '\r\n' })
+    const csv = await vault.export(asCsv({ eol: '\r\n' }), { collections: ['invoices'] })
     expect(csv).toContain('\r\n')
     await db2.close()
   })
