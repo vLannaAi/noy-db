@@ -118,14 +118,34 @@ to it.
 A satellite family binds exactly one **port**: a golden-frozen contract subpath.
 It never reaches into hub internals, and the hub never imports back.
 
-| Port | Bound by |
-|---|---|
-| `/to` | storage adapters, including the whole separate `noy-db-to` repo |
-| `/on`, `/at`, `/in`, `/by`, `/as` | the matching satellite families |
-| `/ui` | `@noy-db/ui` and its framework bindings |
-| `/with` | services hooking into the kernel |
-| `/cargo` | outward orchestrators — `klum-db`'s lobby, `by-*` transports |
-| `/pod` | the manifest-set / pod surface |
+| Port | Bound by | Direction |
+|---|---|---|
+| `/to` | storage adapters, including the whole separate `noy-db-to` repo | driven |
+| `/at` | sealing-key providers | driven |
+| `/by` | session-share transports | driven |
+| `/on` | unlock primitives | driven |
+| `/as` | export/import formats | driven |
+| `/cargo` | outward orchestrators — `klum-db`'s lobby | driven |
+| `/pod` | the manifest-set / pod surface | driven |
+| `/introspection` | `ui-*` surfaces, across the `noy-db-ui` repo | **driving** |
+
+**A DRIVEN port is one hub calls**: hub holds the reference and invokes the
+satellite, so a locator/factory has a real caller and the contract has something
+to enforce. **A DRIVING adapter calls hub** — nothing in hub ever invokes a UI,
+so `ui-*` binds a narrowed facade (`/introspection`, golden-frozen) rather than
+implementing a port. That asymmetry is the reason there is no `/ui`; see
+`docs/adr/0005-no-ui-port.md`.
+
+> ⚠️ **This table previously listed `/ui`, `/in` and `/with` as ports. None of
+> the three exists.** `/ui` was declined twice — as a type barrel (#1002,
+> `NOT_PLANNED`) and as a port (#1181) — and will not ship. `/in` was never
+> declared; `in-*` packages bind the root barrel. `/with` is an internal folder
+> (`src/port/with/`), not a published subpath.
+>
+> Verified against `package.json`'s `exports`, which declares 49 subpaths and
+> none of those three. Same class as #1072's catch in `SERVICES.md`: prose that
+> was never true, which leaves no rename trail and which no compiler, test or
+> reviewer had ever executed.
 
 `/cargo` is the canonical orchestration seam and its surface is frozen by a
 golden test. **Additive changes only** — removing an export from `/cargo` is a
