@@ -73,7 +73,7 @@ interface CryptoLike {
 }
 
 /** Options for {@link atAzureKeyvault}. */
-export interface AzureKeyVaultSealingProviderOptions {
+export interface AtAzureKeyvaultOptions {
   /**
    * Full **versioned** key identifier URL, e.g.
    * `https://<vault>.vault.azure.net/keys/<name>/<version>`.
@@ -108,7 +108,7 @@ export interface AzureKeyVaultSealingProviderOptions {
  * SDK-response shapes). Any Key Vault API error (Forbidden, NotFound, etc.)
  * propagates as-is.
  */
-export function atAzureKeyvault(opts: AzureKeyVaultSealingProviderOptions): NoydbSealer {
+export function atAzureKeyvault(opts: AtAzureKeyvaultOptions): NoydbSealer {
   const algorithm = opts.algorithm ?? 'RSA-OAEP-256'
   const client: CryptoLike = opts.cryptographyClient
     ?? new CryptographyClient(opts.keyId, new DefaultAzureCredential())

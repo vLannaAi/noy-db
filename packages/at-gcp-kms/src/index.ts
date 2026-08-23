@@ -75,7 +75,7 @@ interface KmsClientLike {
 }
 
 /** Options for {@link atGcpKms}. */
-export interface GcpKmsSealingProviderOptions {
+export interface AtGcpKmsOptions {
   /**
    * Full crypto-key resource name, e.g.
    * `projects/PROJECT/locations/LOCATION/keyRings/RING/cryptoKeys/KEY`.
@@ -104,7 +104,7 @@ function toUint8Array(value: Uint8Array | string | null | undefined): Uint8Array
  * against unexpected SDK-response shapes).
  * Any KMS API error (PermissionDenied, NotFound, etc.) propagates as-is.
  */
-export function atGcpKms(opts: GcpKmsSealingProviderOptions): NoydbSealer {
+export function atGcpKms(opts: AtGcpKmsOptions): NoydbSealer {
   const client: KmsClientLike = opts.client ?? new KeyManagementServiceClient()
   return {
     id: `gcp-kms:${opts.keyName}`,
