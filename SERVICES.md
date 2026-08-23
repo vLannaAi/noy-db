@@ -150,6 +150,32 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 
 `./store`, `./introspection`, `./money`, `./cover`, `./schema-update`, `./policy` and `./directory` group symbols that previously had no home but the root barrel. (`./introspection` has since outgrown this description — see its own section below.) They are **additive** — each is also still re-exported from `.`, matching how the Via features are dual-homed (`./classified` and `./i18n` have always been reachable both ways). The subpath exists so the surface is navigable and tree-shakeable, not to force a migration. None has a `with<Name>()` factory, so each is allowlisted in the `service-subpath-naming` guard as a themed grouping rather than a service.
 
+### `on-*` is three things, and `/on` says so
+
+The unlock family is **not uniform**, and the seam does not pretend otherwise.
+Measured across ten packages, and enforced by `on-family-classification` in
+`check-architecture.mjs`:
+
+| shape | packages | what hub does |
+|---|---|---|
+| **port instance** | `on-shamir` | hub holds a `NoydbShamir` and calls it for `profile: 'shamir'` recovery |
+| **slot ceremony** | `on-password`, `on-webauthn` | hub calls back through `SlotRewrapCeremony` during `rotateSecret` |
+| **library** | the other seven | nothing — hub never calls them |
+
+`on-totp` importing hub **zero times** is the correct amount of coupling for a
+TOTP code generator, not a gap. Three of the seven do exactly that.
+
+So the sentence to teach is: **`on-*` packages that hold or rotate a keyring
+slot implement contracts from `@noy-db/hub/on`; the rest are freestanding
+utilities.** A seam is a namespace, not a claim that a whole family binds it —
+`/to` already carries two instance types and nobody reads it as one contract.
+
+**What `/on` fixed.** The five types a ceremony signature needs were scattered:
+three on `/team`, and `KeyringAuthenticator` / `EnclaveKey` reachable only from
+the whole root barrel. A third-party unlock method had to import all of
+`@noy-db/hub` to name one function's arguments — the coupling these seams exist
+to remove.
+
 ### A package binds every port it uses — the prefix is the primary, not the only
 
 `@noy-db/by-peer` is a `by-*` package that also **ships a `NoydbStore`**

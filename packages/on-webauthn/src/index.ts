@@ -59,7 +59,8 @@
 
 import { bufferToBase64, base64ToBuffer } from '@noy-db/hub'
 import { ValidationError } from '@noy-db/hub'
-import type { UnlockedKeyring, Role, EnrollAuthenticatorOptions, SlotRewrapContext } from '@noy-db/hub'
+import type { Role } from '@noy-db/hub'
+import type { UnlockedKeyring, EnrollAuthenticatorOptions, SlotRewrapContext } from '@noy-db/hub/on'
 
 // Re-export from core for convenience
 export { ValidationError } from '@noy-db/hub'

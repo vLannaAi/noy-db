@@ -45,6 +45,7 @@ export const ENTRIES = {
   'cargo/index': 'src/with-cargo/index.ts',
   'to/index': 'src/port/to/index.ts',
   'as/index': 'src/port/as/index.ts',
+  'on/index': 'src/port/on/index.ts',
   'at/index': 'src/port/at/index.ts',
   'by/index': 'src/port/by/index.ts',
   'store/index': 'src/with-store/index.ts',

@@ -181,6 +181,10 @@
       "types": "./dist/port/by/index.d.ts",
       "default": "./dist/by/index.js"
     },
+    "./on": {
+      "types": "./dist/port/on/index.d.ts",
+      "default": "./dist/on/index.js"
+    },
     "./store": {
       "types": "./dist/with-store/index.d.ts",
       "default": "./dist/store/index.js"

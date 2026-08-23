@@ -33,6 +33,13 @@
  * where they live. A conformance kit that grew them would stop being portable
  * to a method nobody has written yet.
  *
+ * ## Why this binds `/on` rather than the root barrel
+ *
+ * Five types, and before `/on` existed they were scattered: three on `/team`,
+ * and `KeyringAuthenticator` / `EnclaveKey` reachable only from the whole
+ * library root. A third-party unlock method had to import all of
+ * `@noy-db/hub` to name the signature of one ceremony.
+ *
  * @packageDocumentation
  */
 import { describe, it, expect } from 'vitest'
@@ -42,7 +49,7 @@ import type {
   KeyringAuthenticator,
   EnrollAuthenticatorOptions,
   EnclaveKey,
-} from '@noy-db/hub'
+} from '@noy-db/hub/on'
 
 /** Everything an implementation must supply to be checked against the contract. */
 export interface CeremonyFixture {

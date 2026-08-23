@@ -562,6 +562,12 @@ const NOT_SERVICE_SUBPATHS = new Set([
   // importers") once @noy-db/test-sealer-conformance gave it something to
   // stand behind — see codemods/0.7.0-pre.json's `unretired` list.
   'at',
+  // FAMILY PORT, like `to`. The unlock contracts an `on-*` package
+  // implements — deliberately NOT one contract: NoydbShamir is a port
+  // instance hub injects, SlotRewrapCeremony is a callback hub invokes, and
+  // seven of the ten on-* packages implement neither and are libraries. A
+  // seam is a namespace, not a claim that a whole family binds it.
+  'on',
   // FAMILY PORT, like `to` and `at`: the drain-barrier mesh contract a `by-*`
   // session-share transport implements. Same history as `at` — shipped in
   // 0.3.0, pruned in 0.4.0 for "zero importers", re-introduced in the 0.7 line
@@ -1613,7 +1619,7 @@ function checkNoOutboundKlumImport() {
  * the fix is an explicit exemption with the cross-repo binder named, not
  * deleting the rule.
  */
-const FAMILY_PORT_SUBPATHS = ['to', 'at', 'by', 'as']
+const FAMILY_PORT_SUBPATHS = ['to', 'at', 'by', 'as', 'on']
 
 function checkFamilyPortHasBinder() {
   for (const port of FAMILY_PORT_SUBPATHS) {
