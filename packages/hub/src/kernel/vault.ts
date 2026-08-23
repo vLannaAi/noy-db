@@ -2924,9 +2924,9 @@ export class Vault {
    *   - The keyring must already carry a wrap for the target tier on
    *     at least one collection (or be `owner` / `admin`, who can
    *     auto-mint). Otherwise throws {@link TierNotGrantedError}.
-   *   - Per-collection capability gates (`assertCanExport`,
-   *     `canExportBundle`) are NOT bypassed — elevation is a tier
-   *     projection, not a privilege escalation path.
+   *   - The export gates (`assertCanExport('plaintext', fmt)` and
+   *     `assertCanExport('bundle')`) are NOT bypassed — elevation is a
+   *     tier projection, not a privilege escalation path.
    *   - Only one elevation can be active per vault at a time.
    *     Calling `elevate(...)` while another is live throws
    *     {@link AlreadyElevatedError}.
