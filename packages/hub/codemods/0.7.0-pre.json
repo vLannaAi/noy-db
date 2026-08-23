@@ -245,6 +245,42 @@
         "./by",
         "./cargo"
       ]
+    },
+    {
+      "from": "AwsKmsSealingProviderOptions",
+      "to": "AtAwsKmsOptions",
+      "kind": "type",
+      "package": "@noy-db/at-aws-kms",
+      "safeGlobalReplace": true,
+      "section": "at-port",
+      "note": "The options type for the renamed factory. `at-env` renamed its pair together (EnvSealingProviderOptions -> AtEnvOptions); these four renamed the FACTORY and left the options type carrying the retired `SealingProvider` vocabulary, so 0.7.0-pre.0 shipped `atAwsKms()` taking an `AwsKmsSealingProviderOptions`. Convention: `at<Pkg>()` takes `At<Pkg>Options` (#1204)."
+    },
+    {
+      "from": "GcpKmsSealingProviderOptions",
+      "to": "AtGcpKmsOptions",
+      "kind": "type",
+      "package": "@noy-db/at-gcp-kms",
+      "safeGlobalReplace": true,
+      "section": "at-port",
+      "note": "The options type for the renamed factory. `at-env` renamed its pair together (EnvSealingProviderOptions -> AtEnvOptions); these four renamed the FACTORY and left the options type carrying the retired `SealingProvider` vocabulary, so 0.7.0-pre.0 shipped `atAwsKms()` taking an `AwsKmsSealingProviderOptions`. Convention: `at<Pkg>()` takes `At<Pkg>Options` (#1204)."
+    },
+    {
+      "from": "AzureKeyVaultSealingProviderOptions",
+      "to": "AtAzureKeyvaultOptions",
+      "kind": "type",
+      "package": "@noy-db/at-azure-keyvault",
+      "safeGlobalReplace": true,
+      "section": "at-port",
+      "note": "The options type for the renamed factory. `at-env` renamed its pair together (EnvSealingProviderOptions -> AtEnvOptions); these four renamed the FACTORY and left the options type carrying the retired `SealingProvider` vocabulary, so 0.7.0-pre.0 shipped `atAwsKms()` taking an `AwsKmsSealingProviderOptions`. Convention: `at<Pkg>()` takes `At<Pkg>Options` (#1204)."
+    },
+    {
+      "from": "MacosKeychainSealingProviderOptions",
+      "to": "AtMacosKeychainOptions",
+      "kind": "type",
+      "package": "@noy-db/at-macos-keychain",
+      "safeGlobalReplace": true,
+      "section": "at-port",
+      "note": "The options type for the renamed factory. `at-env` renamed its pair together (EnvSealingProviderOptions -> AtEnvOptions); these four renamed the FACTORY and left the options type carrying the retired `SealingProvider` vocabulary, so 0.7.0-pre.0 shipped `atAwsKms()` taking an `AwsKmsSealingProviderOptions`. Convention: `at<Pkg>()` takes `At<Pkg>Options` (#1204)."
     }
   ],
   "unretired": [

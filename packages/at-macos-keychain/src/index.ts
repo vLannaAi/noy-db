@@ -123,7 +123,7 @@ export interface KeychainEntry {
  *   user id, e.g. `'alice@acme.example'`. Different users = different
  *   Keychain entries.
  */
-export interface MacosKeychainSealingProviderOptions {
+export interface AtMacosKeychainOptions {
   /** Keychain service identifier — typically your app's bundle id. */
   readonly service: string
   /** Per-user account identifier inside the service. */
@@ -157,7 +157,7 @@ export interface MacosKeychainSealingProviderOptions {
  *   providers).
  */
 export function atMacosKeychain(
-  opts: MacosKeychainSealingProviderOptions,
+  opts: AtMacosKeychainOptions,
 ): NoydbSealer {
   if (!opts.service || typeof opts.service !== 'string') {
     throw new Error(

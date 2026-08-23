@@ -60,7 +60,7 @@ import {
 } from '@aws-sdk/client-kms'
 
 /** Options for {@link atAwsKms}. */
-export interface AwsKmsSealingProviderOptions {
+export interface AtAwsKmsOptions {
   /** KMS key id or ARN (e.g. `arn:aws:kms:us-east-1:123:key/abc`). */
   readonly keyId: string
   /** Optional pre-built client (DI for tests). Default `new KMSClient({})` (ambient creds). */
@@ -78,7 +78,7 @@ export interface AwsKmsSealingProviderOptions {
  * against unexpected SDK-response shapes).
  * Any KMS API error (AccessDenied, InvalidKeyUsage, etc.) propagates as-is.
  */
-export function atAwsKms(opts: AwsKmsSealingProviderOptions): NoydbSealer {
+export function atAwsKms(opts: AtAwsKmsOptions): NoydbSealer {
   const client = opts.client ?? new KMSClient({})
   return {
     id: `aws-kms:${opts.keyId}`,
