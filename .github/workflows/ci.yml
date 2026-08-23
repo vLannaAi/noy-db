@@ -118,6 +118,13 @@ jobs:
       # invoked it).
       - name: Bundle check (hub)
         run: pnpm --filter @noy-db/hub bundle-check
+      # Runs HERE and not in the architecture job, which has no install and no
+      # build: this reads the published .d.ts surface, so `dist/` must exist.
+      # #1072 checks fenced imports; this checks the methods our prose attributes
+      # to db/vault/collection, which is the half those three phantom services
+      # lived in.
+      - name: Prose names real methods
+        run: pnpm check:prose-api
       # Codemod-map coverage (#1154). Lives here rather than on the build-free
       # `architecture` job for the same reason as the bundle check: it reads the
       # BUILT surface, because what a consumer can import is a fact about dist,

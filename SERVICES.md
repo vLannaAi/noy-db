@@ -134,7 +134,7 @@ The Dim 14 family. All three share the same encrypted-payload metadata envelope,
 |---|---|---|---:|---|
 | 17 | `@noy-db/hub/store` | Multi-store routing + middleware + sync-policy | ~1,800 | `indexing`, `pod`, `lazy` |
 | 26 | `@noy-db/hub/lazy` | Lazy mode — `prefetch: false` on-demand per-id reads over a bounded LRU working set (`withLazy()`; promoted out of `routing`, #267) | ~185 | `indexing` (persisted mirrors), `routing` |
-| 24 | *(preview)* | Multi-vault partition federation — `db.openVaultGroup()` transparent shard routing + `vault-registry` source-of-truth + `minVersion` fan-out guard (MVP, milestone 16) | — | `queryAcross`, `permissions` |
+| 24 | *(preview)* | Multi-vault partition federation — `lobbyFor(db).openVaultGroup()` (**`@klum-db/lobby`**, not hub) transparent shard routing + `vault-registry` source-of-truth + `minVersion` fan-out guard (MVP, milestone 16) | — | `queryAcross`, `permissions` |
 
 **Totals:** ~17,440 LOC across all 27 services are tree-shake-able. A consumer using only the core ships ~6,500 LOC. A consumer opting into all 27 ships ~32,490 LOC.
 
