@@ -45,7 +45,7 @@ Both obligations are already satisfied by every wired provider, so those tests *
 
 ### ⚠️ `at-azure-keyvault` cannot be tested at all
 
-Every other `at-*` provider takes an injection seam — `entry` for the Keychain, `client` for AWS and GCP. `AzureKeyVaultSealingProviderOptions` takes only `keyId` and `algorithm`, so there is no way to exercise it without a real Key Vault. It is the one provider with **no coverage of either kind**, and closing that needs a production change (add `client?:`), not a test.
+Every other `at-*` provider takes an injection seam — `entry` for the Keychain, `client` for AWS and GCP. `AtAzureKeyvaultOptions` takes only `keyId` and `algorithm`, so there is no way to exercise it without a real Key Vault. It is the one provider with **no coverage of either kind**, and closing that needs a production change (add `client?:`), not a test.
 
 ### Still owed
 
