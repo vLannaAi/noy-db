@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '@noy-db/hub'
+import { withFormats } from '@noy-db/hub/as'
 import { ConflictError, ExportCapabilityError, createNoydb } from '@noy-db/hub'
-import { toString } from '../src/index.js'
+import { asSql } from '../src/index.js'
 import { withTeam } from '@noy-db/hub/team'
 
 function toMemory(): NoydbStore {
@@ -45,7 +46,7 @@ interface Invoice { id: string; amount: number; client: string; paid: boolean }
 
 async function seed(grant: readonly ('sql' | 'csv')[] = ['sql']) {
   const adapter = toMemory()
-  const db = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner', secret: 'pw' })
+  const db = await createNoydb({ formatsStrategy: withFormats(), teamStrategy: withTeam(), store: adapter, user: 'owner', secret: 'pw' })
   const v = await db.openVault('acme')
   await v.collection<Invoice>('invoices').put('i1', { id: 'i1', amount: 100, client: "O'Malley", paid: true })
   await v.collection<Invoice>('invoices').put('i2', { id: 'i2', amount: 250, client: 'Acme', paid: false })
@@ -55,7 +56,7 @@ async function seed(grant: readonly ('sql' | 'csv')[] = ['sql']) {
     exportCapability: { plaintext: grant },
   })
   await db.close()
-  const db2 = await createNoydb({ teamStrategy: withTeam(), store: adapter, user: 'owner', secret: 'pw' })
+  const db2 = await createNoydb({ formatsStrategy: withFormats(), teamStrategy: withTeam(), store: adapter, user: 'owner', secret: 'pw' })
   const vault = await db2.openVault('acme')
   return { vault }
 }
@@ -63,14 +64,14 @@ async function seed(grant: readonly ('sql' | 'csv')[] = ['sql']) {
 describe('as-sql', () => {
   it('emits CREATE TABLE + INSERT INTO for postgres by default', async () => {
     const { vault } = await seed()
-    const sql = await toString(vault)
+    const sql = await vault.export(asSql(), {})
     expect(sql).toContain('CREATE TABLE "invoices"')
     expect(sql).toContain('INSERT INTO "invoices"')
   })
 
   it('infers column types — integer, text, boolean', async () => {
     const { vault } = await seed()
-    const sql = await toString(vault)
+    const sql = await vault.export(asSql(), {})
     expect(sql).toMatch(/"amount" INTEGER/)
     expect(sql).toMatch(/"client" TEXT/)
     expect(sql).toMatch(/"paid" BOOLEAN/)
@@ -78,13 +79,13 @@ describe('as-sql', () => {
 
   it('escapes single quotes in string literals', async () => {
     const { vault } = await seed()
-    const sql = await toString(vault)
+    const sql = await vault.export(asSql(), {})
     expect(sql).toContain("'O''Malley'")
   })
 
   it('mysql dialect uses backtick identifiers + TINYINT(1) for booleans', async () => {
     const { vault } = await seed()
-    const sql = await toString(vault, { dialect: 'mysql' })
+    const sql = await vault.export(asSql({ dialect: 'mysql' }), {  })
     expect(sql).toContain('CREATE TABLE `invoices`')
     expect(sql).toMatch(/`paid` TINYINT\(1\)/)
     // Booleans serialize as 1/0 in mysql.
@@ -93,32 +94,32 @@ describe('as-sql', () => {
 
   it('sqlite dialect maps booleans to INTEGER', async () => {
     const { vault } = await seed()
-    const sql = await toString(vault, { dialect: 'sqlite' })
+    const sql = await vault.export(asSql({ dialect: 'sqlite' }), {  })
     expect(sql).toMatch(/"paid" INTEGER/)
   })
 
   it('schema-only mode emits CREATE TABLE but no INSERT', async () => {
     const { vault } = await seed()
-    const sql = await toString(vault, { mode: 'schema-only' })
+    const sql = await vault.export(asSql({ mode: 'schema-only' }), {  })
     expect(sql).toContain('CREATE TABLE')
     expect(sql).not.toContain('INSERT')
   })
 
   it('data-only mode emits INSERT but no CREATE TABLE', async () => {
     const { vault } = await seed()
-    const sql = await toString(vault, { mode: 'data-only' })
+    const sql = await vault.export(asSql({ mode: 'data-only' }), {  })
     expect(sql).not.toContain('CREATE TABLE')
     expect(sql).toContain('INSERT')
   })
 
   it('tableNames mapper renames the output table', async () => {
     const { vault } = await seed()
-    const sql = await toString(vault, { tableNames: c => `ndb_${c}` })
+    const sql = await vault.export(asSql({ tableNames: c => `ndb_${c}` }), {  })
     expect(sql).toContain('"ndb_invoices"')
   })
 
   it('throws ExportCapabilityError without sql grant', async () => {
     const { vault } = await seed(['csv'])
-    await expect(toString(vault)).rejects.toBeInstanceOf(ExportCapabilityError)
+    await expect(vault.export(asSql(), {})).rejects.toBeInstanceOf(ExportCapabilityError)
   })
 })
