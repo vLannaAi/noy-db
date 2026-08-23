@@ -99,6 +99,23 @@ vault.import(asCsv(), input, opts)   // hub gates, plans, validates → ImportPl
 `ImportPolicy` and `ImportPlan` become hub types on `/as`. `ExportFormat`'s
 closed union stops gating what is nameable: a format declares its own `id`.
 
+> **Amended 2026-08-23 — that was HALF the fix, and the other half was hidden
+> by a cast I wrote.** Making `NoydbFormat.id` a `string` freed the format's
+> own *identity*, but `assertCanExport(tier, format: ExportFormat)` still took
+> the closed union — so a third-party format could be **checked** and never
+> **granted**. The only way to authorise one was the `'*'` wildcard, which
+> grants every format at once: strictly worse than the problem. `ExportFormat`
+> is now open (`… | (string & {})`), which keeps autocomplete for the nine
+> hub ships and admits any other id. Cost, stated: a typo in a grant
+> typechecks, and then fails closed at the runtime allowlist.
+>
+> **How it stayed invisible:** `port/as/active.ts` bridged the two with
+> `format as never`. That compiled hub's own call site while leaving every
+> consumer stuck — and it also swallowed a `string | undefined`, so a binding
+> with a blank id would have surfaced as `ExportCapabilityError` ("the owner
+> did not grant this") and sent the reader to the keyring to fix a bug in the
+> format. Both are now explicit; the guard is mutation-checked.
+
 **Schema and validation land on hub's side of the line, where the primitives
 already are** — `jsonSchemaToFields` and `StandardSchemaV1Issue` are already
 published on `/introspection`, while the formats infer locally today

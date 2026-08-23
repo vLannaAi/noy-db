@@ -796,6 +796,18 @@ export function createStore<TOptions>(
 /**
  * Interchange formats `@noy-db/as-*` packages can produce. `'*'` is a
  * wildcard granting every current + future plaintext format.
+ *
+ * OPEN, not closed. The literals below are the formats hub ships bindings
+ * for and exist so editors autocomplete them; `(string & {})` admits any
+ * other `NoydbFormat.id`, including one from a third-party package hub has
+ * never heard of. Closing this union would mean a third-party format could
+ * be *checked* by `assertCanExport` but never *granted* — forcing owners
+ * onto the `'*'` wildcard, which is strictly worse than a name hub does
+ * not recognise.
+ *
+ * The cost, stated: a typo in a grant (`'csvv'`) typechecks. It then fails
+ * closed at runtime, because the gate is an exact-match lookup — the safe
+ * direction for a security capability.
  */
 export type ExportFormat =
   | 'xlsx'
@@ -808,6 +820,7 @@ export type ExportFormat =
   | 'blob'
   | 'zip'
   | '*'
+  | (string & {})
 
 /**
  * Owner-granted export capability on a keyring.

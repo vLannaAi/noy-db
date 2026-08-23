@@ -56,13 +56,21 @@ function redactChunk(
  */
 function contextFor(vault: Vault): FormatsContext {
   return {
+    // The empty-id guards are NOT defensive padding. The
+    // plaintext tier is gated per-format, so a missing id means the calling
+    // binding is broken — and without this it would reach the gate, miss the
+    // allowlist, and surface as `ExportCapabilityError`: "the owner did not
+    // grant this", which sends the reader to the keyring instead of to the
+    // format. A loud TypeError names the real fault.
     assertCanExport: (tier, format) => {
-      if (tier === 'bundle') vault.assertCanExport('bundle')
-      else vault.assertCanExport('plaintext', format as never)
+      if (tier === 'bundle') return vault.assertCanExport('bundle')
+      if (!format) throw new TypeError("assertCanExport('plaintext') requires a non-empty format id")
+      vault.assertCanExport('plaintext', format)
     },
     assertCanImport: (tier, format) => {
-      if (tier === 'bundle') vault.assertCanImport('bundle')
-      else vault.assertCanImport('plaintext', format as never)
+      if (tier === 'bundle') return vault.assertCanImport('bundle')
+      if (!format) throw new TypeError("assertCanImport('plaintext') requires a non-empty format id")
+      vault.assertCanImport('plaintext', format)
     },
     // ⚠️ Filtered HERE, not passed to exportStream — `ExportStreamOptions`
     // has no `collections` field, so the option I first passed was silently
