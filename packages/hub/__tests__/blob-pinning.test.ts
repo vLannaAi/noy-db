@@ -168,22 +168,78 @@ describe('#808 — pin survives compact, unpin restores lifecycle', () => {
 })
 
 describe('#808 — cache budget (LRU) via vault.compact', () => {
-  it('evicts oldest-accessed unpinned internal blobs until under budget', async () => {
+  /**
+   * THE BUDGET INVARIANT — the property a caller actually depends on, and the
+   * one that must hold under any scheduling. Asserts nothing about WHICH
+   * unpinned blob dies; that is the witness below (#1189).
+   *
+   * This test used to assert the victim's identity and flaked. The issue
+   * blamed an ambiguous LRU order under parallel load; that explanation is
+   * WRONG, and the correction is why this split exists rather than a longer
+   * sleep. `blob-compaction.ts:410` breaks ties deterministically by
+   * `recordId`, so equal timestamps do not flap — they evict ALPHABETICALLY,
+   * which selects `r1`, the record the witness deliberately makes
+   * most-recently-accessed. A tiebreak added to stop a flake converts it into
+   * a consistently wrong victim.
+   *
+   * So the old test asserted a guarantee the implementation does not make:
+   * "oldest-accessed dies" holds only while access times are DISTINCT. That is
+   * fine for a cache (any unpinned victim is valid) and fatal for an assertion.
+   *
+   * ⚠️ The mechanism is NOT confirmed. 120 runs of the original scenario under
+   * full-suite load did not reproduce it, so tie-collapse remains consistent
+   * with the one observed failure rather than proven to be its cause.
+   */
+  it('evicts unpinned blobs until under budget, and only unpinned ones', async () => {
     const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, blobsStrategy: withBlobs() })
     const vault = await db.openVault('t')
     const docs = vault.collection<{ id: string }>('docs')
     for (const id of ['r1', 'r2', 'r3']) {
       await docs.put(id, { id })
       await docs.blob(id).put('file', payload(1000, id.charCodeAt(1)))
-      await sleep(5)
+    }
+
+    const result = await vault.compact({ cacheBudget: { maxBytes: 2000 } })
+
+    expect(result.budgetEvicted).toBe(1)
+    expect(result.budgetBytesFreed).toBe(1000)
+    // Exactly one victim, whichever it was — and the other two are intact.
+    const survivors = await Promise.all(
+      ['r1', 'r2', 'r3'].map(async id => (await docs.blob(id).list()).length),
+    )
+    expect(survivors.filter(n => n === 1)).toHaveLength(2)
+    expect(survivors.filter(n => n === 0)).toHaveLength(1)
+    // The point of a budget: total retained bytes are under it.
+    expect(survivors.reduce((a, b) => a + b, 0) * 1000).toBeLessThanOrEqual(2000)
+  })
+
+  /**
+   * THE ORDERING WITNESS — keeps #808's "oldest-accessed" promise executable.
+   *
+   * Deliberately kept as a separate test rather than deleted: without it,
+   * an LRU that silently became FIFO would pass the invariant above. Uses a
+   * 25ms separation rather than 5ms, so the precondition the property depends
+   * on — distinct access timestamps — has real margin.
+   *
+   * If this ever fails while the invariant test passes, read it as "access
+   * times collapsed", not "eviction is broken": the assertion below is
+   * stronger than the contract, on purpose.
+   */
+  it('given DISTINCT access times, the oldest-accessed unpinned blob is the victim', async () => {
+    const db = await createNoydb({ store: makeStore(), user: 'op', secret: SECRET, blobsStrategy: withBlobs() })
+    const vault = await db.openVault('t')
+    const docs = vault.collection<{ id: string }>('docs')
+    for (const id of ['r1', 'r2', 'r3']) {
+      await docs.put(id, { id })
+      await docs.blob(id).put('file', payload(1000, id.charCodeAt(1)))
+      await sleep(25)
     }
     // Touch r1 so it is the most recently accessed; r2 becomes the LRU victim.
-    await sleep(5)
+    await sleep(25)
     await docs.blob('r1').get('file')
 
     const result = await vault.compact({ cacheBudget: { maxBytes: 2000 } })
     expect(result.budgetEvicted).toBe(1)
-    expect(result.budgetBytesFreed).toBe(1000)
     expect(await docs.blob('r2').list()).toHaveLength(0) // oldest access evicted
     expect(await docs.blob('r1').list()).toHaveLength(1)
     expect(await docs.blob('r3').list()).toHaveLength(1)

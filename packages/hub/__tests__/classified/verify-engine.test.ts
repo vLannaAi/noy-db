@@ -19,6 +19,21 @@ async function timeOnce(fn: () => Promise<unknown>): Promise<number> {
 /** Median — discards the contention-dilated outlier of a 3-sample class. */
 const medianOf = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!
 
+/**
+ * Floor every padded path must clear, in ms (#1194).
+ *
+ * The engine pads every outcome with an unconditional 600K-iteration PBKDF2.
+ * Measured on this repo's reference machine: **66ms**, five samples, ±1ms. A
+ * path that SKIPS the pad returns in under 5ms. 25ms therefore sits 2.6x below
+ * the real pad and 5x above a skip — room for a machine well over twice as
+ * fast before this needs revisiting.
+ *
+ * ⭐ The point of a floor rather than a pairwise ratio: **contention can only
+ * make a measurement LARGER.** So a floor cannot be flipped by scheduler noise,
+ * where a ratio can and repeatedly was.
+ */
+const PAD_FLOOR_MS = 25
+
 function ctxFor(env: EncryptedEnvelope | null, cek: CryptoKey | undefined, now = () => Date.now()): VerifyEngineCtx {
   return {
     collection: 'users',
@@ -99,9 +114,11 @@ describe('verifyDigestField', () => {
     const wrong = medianOf(wrongs)
     const missingRecord = medianOf(missingRecords)
     const missingSlot = medianOf(missingSlots)
-    // The 600K PBKDF2 dominates (~100ms+); an unpadded miss returns in <5ms.
-    expect(missingRecord).toBeGreaterThan(wrong * 0.4)
-    expect(missingSlot).toBeGreaterThan(wrong * 0.4)
+    // Every outcome must have PAID the pad. See PAD_FLOOR_MS for why this is a
+    // floor and not a pairwise ratio (#1194).
+    expect(wrong).toBeGreaterThan(PAD_FLOOR_MS)
+    expect(missingRecord).toBeGreaterThan(PAD_FLOOR_MS)
+    expect(missingSlot).toBeGreaterThan(PAD_FLOOR_MS)
   }, 120_000)
 })
 
@@ -169,7 +186,28 @@ describe('verifyTextField', () => {
     expect(await verifyTextField(ctxFor(tampered, cek), 'r1', 'ssn', 'sensitive-value-42', 'password')).toEqual({ ok: false })
   }, 120_000)
 
-  it('C4 timing parity: present-correct / present-wrong / missing record / missing slot all pay the uniform pad', async () => {
+  /**
+   * ⚠️ WHAT THIS TEST PROVES, AND WHAT IT DOES NOT.
+   *
+   * It proves **no outcome skips the pad** — the defect that would make verify
+   * outcomes trivially distinguishable by duration. It does NOT prove the
+   * engine is constant-time, and no wall-clock test in a parallel suite can.
+   *
+   * It used to assert pairwise ratios (`a > b * 0.4`) and flaked under load.
+   * Loosening the tolerance was the obvious fix and is the wrong one: the
+   * assertion would then pass on an implementation that is not constant-time,
+   * which is a check that cannot fail, on a security property.
+   *
+   * The sharper objection is that the RATIO never proved the property either —
+   * a 0.4 bound permits a 2.5x spread between outcomes, and 2.5x is an enormous
+   * timing signal. It was a smoke test for "did someone delete the pad" wearing
+   * a parity test's clothes. The floor tests that same thing directly, and is
+   * immune to the noise, because contention only makes a sample slower.
+   *
+   * Proving constant-time properly means instruction counts, not wall-clock.
+   * That is a real project (#1194 option 3), deliberately not attempted here.
+   */
+  it('C4: present-correct / present-wrong / missing record / missing slot ALL pay the pad', async () => {
     const cek = await generateDEK()
     const env = await sealedEnvWith(cek, 'ssn', 'sensitive-value-42')
     // Interleaved median-of-3 per class (#564) — same rationale as the
@@ -189,14 +227,10 @@ describe('verifyTextField', () => {
     const wrong = medianOf(wrongs)
     const missingRecord = medianOf(missingRecords)
     const missingSlot = medianOf(missingSlots)
-    // The unconditional 600K-PBKDF2 pad dominates (~100ms+); a path that skipped
-    // it would return in <5ms. Pairwise generous bounds, same style as the
-    // digest-path vector — every outcome must sit inside every other's envelope.
-    expect(correct).toBeGreaterThan(wrong * 0.4)
-    expect(wrong).toBeGreaterThan(correct * 0.4)
-    expect(missingRecord).toBeGreaterThan(wrong * 0.4)
-    expect(missingSlot).toBeGreaterThan(wrong * 0.4)
-    expect(wrong).toBeGreaterThan(missingRecord * 0.4)
-    expect(wrong).toBeGreaterThan(missingSlot * 0.4)
+    // Every one of the four outcomes must have PAID the pad (#1194).
+    expect(correct).toBeGreaterThan(PAD_FLOOR_MS)
+    expect(wrong).toBeGreaterThan(PAD_FLOOR_MS)
+    expect(missingRecord).toBeGreaterThan(PAD_FLOOR_MS)
+    expect(missingSlot).toBeGreaterThan(PAD_FLOOR_MS)
   }, 120_000)
 })
