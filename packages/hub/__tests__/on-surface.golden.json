@@ -1,0 +1,12 @@
+{
+  "values": [],
+  "types": [
+    "EnclaveKey",
+    "EnrollAuthenticatorOptions",
+    "KeyringAuthenticator",
+    "NoydbShamir",
+    "SlotRewrapCeremony",
+    "SlotRewrapContext",
+    "UnlockedKeyring"
+  ]
+}

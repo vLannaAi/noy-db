@@ -34,20 +34,8 @@
  *
  * @packageDocumentation
  */
-import {
-  assertRosterAuthenticated,
-  base64ToBuffer,
-  mintWrappedDeksBlob,
-  unwrapDeksFromBlob,
-  ValidationError,
-  type EnrollAuthenticatorOptions,
-  type KeyringAuthenticator,
-  type KeyringFile,
-  type NoydbStore,
-  type SlotRewrapCeremony,
-  type SlotRewrapContext,
-  type UnlockedKeyring,
-} from '@noy-db/hub'
+import { assertRosterAuthenticated, base64ToBuffer, mintWrappedDeksBlob, unwrapDeksFromBlob, ValidationError, type KeyringFile, type NoydbStore } from '@noy-db/hub'
+import type { EnrollAuthenticatorOptions, KeyringAuthenticator, SlotRewrapCeremony, SlotRewrapContext, UnlockedKeyring } from '@noy-db/hub/on'
 
 /**
  * PBKDF2 iteration count — matches the tier-1 phrase derivation.
