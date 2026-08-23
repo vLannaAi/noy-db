@@ -14,7 +14,7 @@ import type { NoydbStore } from '../../kernel/types.js'
 import type { Unsubscribe } from '../../port/with/write-hooks.js'
 import { loadFence, saveFence, type FenceDoc } from './fence.js'
 import { writeClientDoc, listClientDocs, type ClientDoc } from './client-registry.js'
-import type { NoydbMesh, FenceState, WriterPresence } from '../../port/by/types.js'
+import type { NoydbMesh, WriterPresence } from '../../port/by/types.js'
 
 /**
  * Default poll cadence for the `observe*` fallbacks (ms). Matches the
@@ -36,7 +36,7 @@ function toPresence(doc: ClientDoc): WriterPresence {
   }
 }
 
-function fenceEqual(a: FenceState, b: FenceState): boolean {
+function fenceEqual(a: FenceDoc, b: FenceDoc): boolean {
   return a.currentSchemaVersion === b.currentSchemaVersion && a.fenceState === b.fenceState
 }
 
@@ -56,18 +56,16 @@ export class StoreMesh implements NoydbMesh {
     this.#pollIntervalMs = opts?.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
   }
 
-  async setFence(vault: string, fence: FenceState): Promise<void> {
-    // FenceState is structurally FenceDoc (currentSchemaVersion + fenceState).
-    await saveFence(this.#store, vault, fence as FenceDoc)
+  async setFence(vault: string, fence: FenceDoc): Promise<void> {
+    await saveFence(this.#store, vault, fence)
   }
 
-  async readFence(vault: string): Promise<FenceState> {
-    // FenceDoc is structurally FenceState (currentSchemaVersion + fenceState).
+  async readFence(vault: string): Promise<FenceDoc> {
     return loadFence(this.#store, vault)
   }
 
-  observeFence(vault: string, onChange: (f: FenceState) => void): Unsubscribe {
-    let last: FenceState | null = null
+  observeFence(vault: string, onChange: (f: FenceDoc) => void): Unsubscribe {
+    let last: FenceDoc | null = null
     let busy = false
     const poll = async () => {
       if (busy) return

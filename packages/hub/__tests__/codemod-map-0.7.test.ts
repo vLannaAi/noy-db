@@ -25,6 +25,12 @@ interface Row {
   where?: string
   /** Set when the target lives in a DIFFERENT package than the source. */
   toPackage?: string
+  /**
+   * Set when the rename is scoped to specific subpaths because the same name
+   * still means something else elsewhere (#1188). Narrows checks 2 and 3 to
+   * those subpaths' goldens.
+   */
+  subpaths?: string[]
 }
 const read = (u: string) => readFileSync(fileURLToPath(new URL(u, import.meta.url)), 'utf8')
 const map = JSON.parse(read('../codemods/0.7.0-pre.json')) as { $comment: string; renames: Row[]; version: string }
@@ -52,6 +58,32 @@ const cargoG = JSON.parse(read('./cargo-surface.golden.json')) as { values: stri
 const frozenLive = new Set([...rootG.values, ...rootG.types, ...cargoG.values, ...cargoG.types])
 const frozenRetired = new Set(rootG.retired ?? [])
 
+// A rename can be scoped to a SUBSET of subpaths. #1188 is the first: two
+// unrelated types shipped as `FenceState` — a string union on the root barrel,
+// and an object on `./by` re-exported by `./cargo` — and only the object moved.
+// Checking such a row against the whole surface asks the wrong question and
+// fails on a correct rename, because the name legitimately survives elsewhere.
+//
+// So a row carrying `subpaths` is checked against THOSE goldens and no others.
+// A row without it keeps the original global check, which is the stronger one —
+// do not add `subpaths` to a row to quiet a failure.
+const SUBPATH_GOLDENS: Record<string, string> = {
+  './by': './by-surface.golden.json',
+  './cargo': './cargo-surface.golden.json',
+  './to': './to-surface.golden.json',
+  './at': './at-surface.golden.json',
+  './on': './on-surface.golden.json',
+  './as': './as-surface.golden.json',
+  './pod': './pod-surface.golden.json',
+  './introspection': './introspection-surface.golden.json',
+}
+function surfaceOf(subpath: string): Set<string> {
+  const file = SUBPATH_GOLDENS[subpath]
+  if (!file) throw new Error(`row declares subpath '${subpath}' with no golden — add one to SUBPATH_GOLDENS`)
+  const g = JSON.parse(read(file)) as { values: string[]; types: string[] }
+  return new Set([...g.values, ...g.types])
+}
+
 describe('codemods/0.7.0-pre.json', () => {
   it('1. is declared as a published subpath export', () => {
     const pkg = JSON.parse(read('../package.json')) as { exports: Record<string, unknown> }
@@ -60,16 +92,33 @@ describe('codemods/0.7.0-pre.json', () => {
 
   it('2. every hub `to` exists — as a runtime value or on a frozen surface', () => {
     for (const r of hubRows) {
-      const found = surface.has(r.to!) || frozenLive.has(r.to!)
-      expect(found, `${r.from} → ${r.to} — target is nowhere on the published surface`).toBe(true)
+      const found = r.subpaths
+        ? r.subpaths.every((sp) => surfaceOf(sp).has(r.to!))
+        : surface.has(r.to!) || frozenLive.has(r.to!)
+      expect(found, `${r.from} → ${r.to} — target missing from ${r.subpaths?.join(', ') ?? 'the published surface'}`).toBe(true)
     }
   })
 
   it('3. every hub `from` is genuinely GONE', () => {
     for (const r of hubRows) {
+      if (r.subpaths) {
+        // Scoped: gone from each named subpath. Deliberately says nothing about
+        // the rest of the surface, where the same name may mean something else.
+        for (const sp of r.subpaths) {
+          expect(surfaceOf(sp).has(r.from), `${r.from} is still on ${sp} — the rename did not land`).toBe(false)
+        }
+        continue
+      }
       expect(surface.has(r.from), `${r.from} is still exported at runtime — the rename did not land`).toBe(false)
       expect(frozenLive.has(r.from), `${r.from} still sits on a frozen EXPORT list`).toBe(false)
     }
+  })
+
+  it('3b. a scoped row names subpaths that HAVE goldens — no silent skip', () => {
+    // Without this, a typo'd subpath would throw inside test 3 and read as a
+    // map error rather than a missing-golden error. It also stops `subpaths`
+    // becoming a way to opt a row out of checking entirely.
+    for (const r of hubRows) for (const sp of r.subpaths ?? []) expect(() => surfaceOf(sp), `${r.from} → ${sp}`).not.toThrow()
   })
 
   it('4. explains every row it marks unsafe to replace globally', () => {
