@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/as-csv",
-  "version": "0.7.0-pre.1",
-  "description": "CSV plaintext export for noy-db \u2014 decrypts records and formats as comma-separated values. Gated by the RFC #249 `assertCanExport('plaintext', \u2026)` gate; writes an audit-ledger entry on every call. Part of the @noy-db/as-* portable-artefact family (plaintext tier).",
+  "version": "0.7.0-pre.2",
+  "description": "CSV plaintext export for noy-db — decrypts records and formats as comma-separated values. Gated by the RFC #249 `assertCanExport('plaintext', …)` gate; writes an audit-ledger entry on every call. Part of the @noy-db/as-* portable-artefact family (plaintext tier).",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/as-csv#readme",
