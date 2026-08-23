@@ -14,7 +14,7 @@ pnpm add @noy-db/hub @noy-db/as-json
 
 ## What it is
 
-Structured JSON plaintext export for noy-db — decrypts records and emits one JSON document per vault. Gated by RFC #249 canExportPlaintext capability; writes an audit-ledger entry on every call. Part of the @noy-db/as-* portable-artefact family (plaintext tier).
+Structured JSON plaintext export for noy-db — decrypts records and emits one JSON document per vault. Gated by `vault.assertCanExport('plaintext', …)` capability; writes an audit-ledger entry on every call. Part of the @noy-db/as-* portable-artefact family (plaintext tier).
 
 ## Status
 

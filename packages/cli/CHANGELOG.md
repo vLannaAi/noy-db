@@ -1,5 +1,14 @@
 # @noy-db/cli
 
+## 0.7.0-pre.0
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.7.0-pre.0
+  - @noy-db/to-meter@1.0.0-pre.0
+
 ## 0.6.0
 
 ### Patch Changes

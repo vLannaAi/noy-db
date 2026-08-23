@@ -129,7 +129,7 @@ export interface UseCapabilityGrantReturn {
  * @example Tier-based capability flip
  * ```ts
  * let elevated: ElevatedHandle | null = null
- * const grant = useCapabilityGrant('canExportPlaintext', {
+ * const grant = useCapabilityGrant('export:plaintext', {
  *   vault: 'V1',
  *   ttlMs: 15 * 60_000,
  *   approver: 'admin',

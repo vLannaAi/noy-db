@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/as-zip",
-  "version": "0.6.0",
-  "description": "Composite record + blob archive export for noy-db \u2014 bundles a collection's records plus every attached blob into one zip. Zero dependencies (STORE-only zip encoder). Gated by the RFC #249 `canExportPlaintext` capability bit with format `'zip'`. Part of the @noy-db/as-* portable-artefact family.",
+  "version": "0.7.0-pre.0",
+  "description": "Composite record + blob archive export for noy-db — bundles a collection's records plus every attached blob into one zip. Zero dependencies (STORE-only zip encoder). Gated by the RFC #249 `assertCanExport('plaintext', …)` gate with format `'zip'`. Part of the @noy-db/as-* portable-artefact family.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/as-zip#readme",

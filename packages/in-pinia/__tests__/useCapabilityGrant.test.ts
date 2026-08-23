@@ -91,7 +91,7 @@ describe('useCapabilityGrant', () => {
     void vault
     const scope = effectScope()
     const grant = scope.run(() =>
-      useCapabilityGrant('canExportPlaintext', {
+      useCapabilityGrant('export:plaintext', {
         vault: 'V1',
         ttlMs: 60_000,
         approver: 'owner',
@@ -121,7 +121,7 @@ describe('useCapabilityGrant', () => {
     const vault = await db.openVault('V1')
     const scope = effectScope()
     const grant = scope.run(() =>
-      useCapabilityGrant('canExportPlaintext', {
+      useCapabilityGrant('export:plaintext', {
         vault: 'V1',
         ttlMs: 60_000,
         approver: 'owner',
@@ -138,7 +138,7 @@ describe('useCapabilityGrant', () => {
     expect(record).toBeDefined()
     // Only metadata fields — no record payload bleeds in.
     const stored = record!
-    expect(stored.capability).toBe('canExportPlaintext')
+    expect(stored.capability).toBe('export:plaintext')
     expect(stored.requestedBy).toBe('admin-user')
     expect(stored.approvedBy).toBe('admin-user')
     expect(stored.reason).toBe('bulk export')
@@ -155,7 +155,7 @@ describe('useCapabilityGrant', () => {
     const releases: string[] = []
     const scope = effectScope()
     const grant = scope.run(() =>
-      useCapabilityGrant('canExportPlaintext', {
+      useCapabilityGrant('export:plaintext', {
         vault: 'V1',
         ttlMs: 30,
         approver: 'owner',
@@ -178,7 +178,7 @@ describe('useCapabilityGrant', () => {
     const calls: string[] = []
     const scope = effectScope()
     const grant = scope.run(() =>
-      useCapabilityGrant('canExportPlaintext', {
+      useCapabilityGrant('export:plaintext', {
         vault: 'V1',
         ttlMs: 60_000,
         approver: 'owner',
@@ -218,7 +218,7 @@ describe('useCapabilityGrant', () => {
 
     const scope = effectScope()
     const grant = scope.run(() =>
-      useCapabilityGrant('canExportPlaintext', {
+      useCapabilityGrant('export:plaintext', {
         vault: 'V1',
         ttlMs: 60_000,
         approver: 'admin',  // requires admin or owner
@@ -234,7 +234,7 @@ describe('useCapabilityGrant', () => {
   it('6. cannot request from non-idle state', async () => {
     const scope = effectScope()
     const grant = scope.run(() =>
-      useCapabilityGrant('canExportPlaintext', {
+      useCapabilityGrant('export:plaintext', {
         vault: 'V1',
         ttlMs: 60_000,
         approver: 'owner',
@@ -249,7 +249,7 @@ describe('useCapabilityGrant', () => {
   it('7. release from non-granted state is a no-op (does not throw)', async () => {
     const scope = effectScope()
     const grant = scope.run(() =>
-      useCapabilityGrant('canExportPlaintext', {
+      useCapabilityGrant('export:plaintext', {
         vault: 'V1',
         ttlMs: 60_000,
         approver: 'owner',
@@ -271,7 +271,7 @@ describe('useCapabilityGrant', () => {
     const releases: string[] = []
     const scope = effectScope()
     const grant = scope.run(() =>
-      useCapabilityGrant('canExportPlaintext', {
+      useCapabilityGrant('export:plaintext', {
         vault: 'V1',
         ttlMs: 30,
         approver: 'owner',
@@ -295,7 +295,7 @@ describe('useCapabilityGrant', () => {
     try {
       const scope = effectScope()
       const grant = scope.run(() =>
-        useCapabilityGrant('canExportPlaintext', {
+        useCapabilityGrant('export:plaintext', {
           vault: 'V1',
           ttlMs: 60_000,
           approver: 'owner',
@@ -320,7 +320,7 @@ describe('useCapabilityGrant', () => {
     try {
       const scope = effectScope()
       const grant = scope.run(() =>
-        useCapabilityGrant('canExportPlaintext', {
+        useCapabilityGrant('export:plaintext', {
           vault: 'V1',
           ttlMs: 60_000,
           approver: 'owner',

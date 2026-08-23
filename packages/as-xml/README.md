@@ -14,7 +14,7 @@ pnpm add @noy-db/hub @noy-db/as-xml
 
 ## What it is
 
-XML plaintext export for noy-db — decrypts records and formats as XML with RFC-compliant entity escaping. For legacy systems, banking batch imports, SOAP endpoints, and accounting software that requires XML. Gated by RFC #249 canExportPlaintext.
+XML plaintext export for noy-db — decrypts records and formats as XML with RFC-compliant entity escaping. For legacy systems, banking batch imports, SOAP endpoints, and accounting software that requires XML. Gated by `vault.assertCanExport('plaintext', …)`.
 
 ## Status
 

@@ -175,7 +175,7 @@ Core has zero `node:` imports — it runs unchanged in browsers, Node, Bun, Deno
 
 #### Other plaintext formats
 
-CSV, XML, xlsx, and the rest of the plaintext tier — plus encrypted `.noydb` bundles under the `as-noydb` encrypted tier — all live in the [`@noy-db/as-*`](https://www.npmjs.com/search?q=%40noy-db%2Fas-) family. Every invocation is gated by the two-tier authorization model (`canExportPlaintext` default off, `canExportBundle` default on for owner/admin) and lands in the audit ledger.
+CSV, XML, xlsx, and the rest of the plaintext tier — plus encrypted `.noydb` bundles under the `as-noydb` encrypted tier — all live in the [`@noy-db/as-*`](https://www.npmjs.com/search?q=%40noy-db%2Fas-) family. Every invocation is gated by the two-tier authorization model (`assertCanExport('plaintext')` default off, `canExportBundle` default on for owner/admin) and lands in the audit ledger.
 
 ## Money fields
 

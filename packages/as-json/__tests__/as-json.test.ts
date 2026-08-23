@@ -107,7 +107,7 @@ describe('as-json', () => {
     expect(compact).not.toContain('\n')
   })
 
-  it('throws ExportCapabilityError when canExportPlaintext[json] is absent', async () => {
+  it('throws ExportCapabilityError when the plaintext json grant is absent', async () => {
     const { vault } = await seed(['csv']) // json not granted
     await expect(toObject(vault)).rejects.toBeInstanceOf(ExportCapabilityError)
   })

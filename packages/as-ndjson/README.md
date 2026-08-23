@@ -14,7 +14,7 @@ pnpm add @noy-db/hub @noy-db/as-ndjson
 
 ## What it is
 
-Newline-delimited JSON export for noy-db — streaming plaintext export suitable for data pipelines, warehouse ingestion, and jq pipelines. Gated by RFC #249 canExportPlaintext. Part of the @noy-db/as-* portable-artefact family (plaintext tier).
+Newline-delimited JSON export for noy-db — streaming plaintext export suitable for data pipelines, warehouse ingestion, and jq pipelines. Gated by `vault.assertCanExport('plaintext', …)`. Part of the @noy-db/as-* portable-artefact family (plaintext tier).
 
 ## Status
 

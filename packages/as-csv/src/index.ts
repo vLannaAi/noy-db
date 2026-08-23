@@ -7,7 +7,7 @@
  * escape embedded quotes by doubling them).
  *
  * **Authorization.** Every call is gated by the invoking keyring's
- * `canExportPlaintext` capability — plaintext crossings of the
+ * `assertCanExport('plaintext', …)` gate — plaintext crossings of the
  * library boundary require an explicit grant from the vault owner
  *. The package calls `vault.assertCanExport('plaintext',
  * 'csv')` before decrypting anything.

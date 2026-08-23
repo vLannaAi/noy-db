@@ -19,7 +19,7 @@ Requires `@noy-db/hub` as a peer.
 ## Authorisation (RFC #249)
 
 Every call is gated by the invoking keyring's
-`canExportPlaintext` capability with format `'blob'`. Decrypted
+`assertCanExport('plaintext', …)` gate with format `'blob'`. Decrypted
 bytes crossing the plaintext boundary require an explicit grant
 from the vault owner. By default **no role** has the capability —
 the owner grants it per-format:

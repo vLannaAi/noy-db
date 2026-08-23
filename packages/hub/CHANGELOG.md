@@ -1,5 +1,53 @@
 # Changelog — hub
 
+## 0.7.0-pre.0
+
+### Minor Changes
+
+- **The port vocabulary, and the seams that make it navigable.**
+
+  A developer should be able to learn the available ports, then pick a package —
+  internal or family — that binds one. This line makes the subpath and the type
+  name say which port they belong to.
+
+  **BREAKING — the `Provider` suffix is retired.** A type a satellite implements
+  is now `Noydb<Stem>`, matching `NoydbStore`, which was already the pattern.
+  `Provider` marked some port instances and not others, so it distinguished
+  nothing. Every removed name is in the shipped codemod map
+  (`@noy-db/hub/codemods/0.7.0-pre.json`), with `safeGlobalReplace` per row —
+  bare-noun rows are flagged unsafe because they collide with ordinary prose.
+
+  **New published seams: `/at`, `/by`, `/on`, `/as`.** Each ships with a
+  conformance kit — `test-sealer-conformance`, `test-mesh-conformance`,
+  `test-ceremony-conformance`, `test-format-conformance` — and every one of them
+  found a real defect in a binding it was written against.
+
+  **`/as` is now a port, not a family convention.** Hub owns `export` and
+  `import`; a format supplies `encode`/`decode` and declares its own `id`. That
+  consolidates a six-copy `ImportPolicy` and lets a format ship outside this repo.
+
+  **`ExportFormat` is an open union.** A third-party format id can be granted in
+  an `exportCapability`, not merely checked — previously the only way to authorise
+  one was the `'*'` wildcard, which grants every format at once.
+
+  **`FenceState` names one type again.** `/by` and `/cargo` carried a duplicate
+  object under the same name as the root barrel's string union; they now re-export
+  `FenceDoc`.
+
+  Two decisions are recorded in `docs/adr/`: **0004** (the `as-*` inversion) and
+  **0005** (there is no `/ui` port — a UI is a driving adapter, and egress rather
+  than rendering is what `assertCanExport` gates).
+
+### Patch Changes
+
+- **Fix: a schema-fence transition no longer erases `schemaHash`.**
+
+  `StoreMesh.setFence` wrote the caller's document whole, and callers legitimately
+  construct a partial one — so every drain, migrate, complete and abort dropped
+  the field #946 added. "Which schema is generation N" was answerable from
+  `schemaFenceState()` only until the first cutover. Nothing reported it: the
+  fence still loaded, still validated, and still gated writes.
+
 ## 0.6.0
 
 ### Minor Changes

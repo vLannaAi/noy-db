@@ -2,7 +2,7 @@
  * Integration tests for @noy-db/as-csv.
  *
  * Covers:
- *   - happy path: owner with canExportPlaintext['csv'] grant → valid CSV output
+ *   - happy path: owner with assertCanExport('plaintext', 'csv') grant → valid CSV output
  *   - RFC 4180 escaping: commas, quotes, newlines inside fields
  *   - null/undefined/Date/boolean/number serialisation
  *   - explicit `columns` overrides inference
