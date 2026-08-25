@@ -8,6 +8,7 @@
     "CrossShardJoinError",
     "CustodyApi",
     "DataResidencyError",
+    "NOYDB_ENVELOPE_GENERATION",
     "NO_CARGO",
     "NoAccessError",
     "PartitionExtractionError",

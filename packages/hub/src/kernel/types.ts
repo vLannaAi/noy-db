@@ -76,6 +76,35 @@ export type { EchoSecretParts }
 /** Format version for encrypted record envelopes. */
 export const NOYDB_FORMAT_VERSION = 1 as const
 
+/**
+ * Generation of the envelope SEALING format — what a reader must COMPUTE to
+ * open an envelope, as distinct from `NOYDB_FORMAT_VERSION`, which records
+ * what is WRITTEN (#1207). The two move independently: #1041 bound record
+ * identity into the AEAD without changing a stored byte, so `_noydb` correctly
+ * stayed at `1` while every envelope sealed before it became unopenable.
+ *
+ * Monotonic. Moves iff the sealing computation changes — the AAD tuple, its
+ * encoding, or the scheme label. It does not move on unrelated hub releases.
+ * History:
+ *
+ * | generation | sealing format                                | hub          |
+ * |---|---|---|
+ * | 1 | no AAD (absence of this export also means 1)           | ≤ 0.6.0-pre.17 |
+ * | 2 | identity + `_v` bound as AAD, `noydb-aad/2` (#1041/#1093) | ≥ 0.6.0-pre.18 |
+ *
+ * DIAGNOSTIC ONLY. A writer may stamp it into its own artefact so a later
+ * reader can report "sealed under generation 2, this build reads generation 3"
+ * instead of a bare `TamperedError` from code that is correct. A reader must
+ * NEVER branch on a generation read from an untrusted source (ADR 0003) —
+ * classification only, refusal unchanged, same contract as
+ * `TamperedError.reason` (#1103).
+ *
+ * `envelope-generation.test.ts` pins this value to the AAD bytes
+ * `buildRecordAad` actually emits, so a scheme change cannot ship without a
+ * generation decision in the same diff.
+ */
+export const NOYDB_ENVELOPE_GENERATION = 2 as const
+
 /** Format version for keyring files. */
 // Bumped 1 -> 2 (#1115): the roster tag now covers the DEK key SET, so a tag
 // minted by an earlier version cannot verify under the current canonicalization.

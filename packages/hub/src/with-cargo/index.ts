@@ -30,6 +30,9 @@ export type { NoydbSealer } from '../with-party/team/managed-secret.js'
 // Interchange & addressing.
 export { diffVault } from './vault-diff.js'
 export { STATE_VAULT_NAME } from '../kernel/constants.js'
+// Envelope-format generation (#1207): a writer (e.g. klum-db's NDBM manifest)
+// stamps it into its own artefact for later diagnostics. Never a read branch.
+export { NOYDB_ENVELOPE_GENERATION } from '../kernel/types.js'
 
 // Capability opt-in seam (S4): the source-side `extractPartition` free function
 // routes through the cargoStrategy, so it throws CargoNotEnabledError unless
