@@ -127,6 +127,7 @@ If you add a package whose history a consumer would read at a breakpoint, add `C
 Releases are **manual and event-driven**. There is no automated "merge to main → publish" path. The procedure is:
 
 1. **On a release branch** (e.g. `release/v0.X.0`), bump every changed package's `version` in its `package.json` to the target version.
+   - If the release changes what a reader must compute to open an envelope (the AAD tuple, its encoding, or the scheme label), `NOYDB_ENVELOPE_GENERATION` must move with it (#1207). `__tests__/envelope-generation.test.ts` pins the generation to the emitted AAD bytes, so a scheme change without a generation decision fails CI — this line exists so the failure is met as a checklist item, not a surprise.
 2. Generate per-package CHANGELOG entries from the `.changeset/*.md` files (or write them by hand — usually richer that way), then **delete the consumed changesets**.
 3. Update [`ROADMAP.md`](https://github.com/vLannaAi/noy-db-docs/blob/main/ROADMAP.md) (in `noy-db-docs`) to mark the version as shipped.
 4. **Pre-publish smoke test** (non-negotiable — see below).

@@ -41,3 +41,10 @@ export type {
   StoreClass, StoreDescriptor, StoreBinding, StoreFactory, StoreLocator, AnyNoydbStore,
 } from './locator.js'
 export { createStoreLocator, isPodStore } from './locator.js'
+
+// Envelope-format generation (#1207): lets a store host (e.g. @doi-db/daemon)
+// report "these envelopes were sealed under generation N; the client's hub
+// reads generation M" instead of surfacing a bare TamperedError from code
+// that is correct. Diagnostic only — a store never interprets what it holds,
+// and a reader never branches on a generation read from an untrusted source.
+export { NOYDB_ENVELOPE_GENERATION } from '../../kernel/types.js'

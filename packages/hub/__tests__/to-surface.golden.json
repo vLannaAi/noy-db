@@ -4,6 +4,7 @@
   "values": [
     "ConflictError",
     "DuplicateStoreKindError",
+    "NOYDB_ENVELOPE_GENERATION",
     "NetworkError",
     "PodVersionConflictError",
     "StoreCapabilityError",
