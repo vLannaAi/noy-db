@@ -89,8 +89,17 @@ export const NOYDB_FORMAT_VERSION = 1 as const
  *
  * | generation | sealing format                                | hub          |
  * |---|---|---|
- * | 1 | no AAD (absence of this export also means 1)           | ≤ 0.6.0-pre.17 |
+ * | 1 | no AAD                                                  | ≤ 0.6.0-pre.17 |
  * | 2 | identity + `_v` bound as AAD, `noydb-aad/2` (#1041/#1093) | ≥ 0.6.0-pre.18 |
+ *
+ * ABSENCE IS NOT GENERATION 1, in either direction. Absence of a *stamp* on an
+ * artefact classifies that artefact as UNKNOWN — possibly older than this
+ * constant — never as generation 1. And absence of this *export* from a hub
+ * build says nothing at all about the generation that build seals at: hub
+ * `0.6.0-pre.18` … `0.7.0-pre.2` seal at generation 2 while exporting no
+ * constant (verified against the published `0.7.0-pre.2` tarball). A writer
+ * that fell back to `1` on absence would stamp a gen-2 artefact as gen 1 — a
+ * false stamp, worse than none. Omit the stamp instead.
  *
  * DIAGNOSTIC ONLY. A writer may stamp it into its own artefact so a later
  * reader can report "sealed under generation 2, this build reads generation 3"
@@ -99,9 +108,20 @@ export const NOYDB_FORMAT_VERSION = 1 as const
  * classification only, refusal unchanged, same contract as
  * `TamperedError.reason` (#1103).
  *
+ * ADOPTION IS NOT FREE. Diagnostic does not mean costless: this is a *value*
+ * export, so a NAMED import of it moves a consumer's real hub floor to
+ * `0.7.0-pre.3` regardless of the range its `peerDependencies` declares —
+ * measured in klum-db as `TS2305` at a declared `^0.7.0-pre.0` floor, while
+ * build, typecheck, lint and its full suite were green at the exact dev pin.
+ * Two correct postures: a DEFENSIVE READ at an unchanged floor (klum-db, where
+ * narrowing would drag its optional sibling peer ranges with it), or a floor
+ * NARROWING (doi-db, at `^0.7.0-pre.3` — available there only because it
+ * publishes nothing and so gates no downstream consumer).
+ *
  * `envelope-generation.test.ts` pins this value to the AAD bytes
  * `buildRecordAad` actually emits, so a scheme change cannot ship without a
- * generation decision in the same diff.
+ * generation decision in the same diff. The `hub` column above is prose that
+ * nothing executes — treat npm as its authority.
  */
 export const NOYDB_ENVELOPE_GENERATION = 2 as const
 
