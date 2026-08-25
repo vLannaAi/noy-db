@@ -1,5 +1,12 @@
 # @noy-db/test-format-conformance
 
+## 0.7.0-pre.3
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.7.0-pre.3
+
 ## 0.7.0-pre.2
 
 ### Minor Changes

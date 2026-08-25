@@ -1,5 +1,12 @@
 # @noy-db/in-zustand
 
+## 0.7.0-pre.3
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.7.0-pre.3
+
 ## 0.7.0-pre.2
 
 ### Patch Changes

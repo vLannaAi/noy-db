@@ -1,5 +1,15 @@
 # Changelog — hub
 
+## 0.7.0-pre.3
+
+### Minor Changes
+
+- Export `NOYDB_ENVELOPE_GENERATION` — a monotonic generation of the envelope _sealing_ format, distinct from `NOYDB_FORMAT_VERSION` (#1207).
+
+  `NOYDB_FORMAT_VERSION` records what is written; the generation records what a reader must **compute** to open an envelope. The two move independently: 0.6.0-pre.18 bound record identity into the AEAD (#1041) without changing a stored byte, so nothing published could express that envelopes sealed before it are unopenable after it. The generation closes that gap: 1 = no AAD (hub ≤ 0.6.0-pre.17; absence of the export also means 1), 2 = identity + `_v` bound via `noydb-aad/2` (hub ≥ 0.6.0-pre.18).
+
+  Exported from the root barrel and re-exported from the `/cargo` and `/to` seams (additive), so an orchestrator can stamp it into a manifest and a store host can report "sealed under generation N, this build reads generation M" instead of a bare `TamperedError` from code that is correct. **Diagnostic only**: a reader must never branch on a generation read from an untrusted source (ADR 0003) — classification only, refusal unchanged, the same contract as `TamperedError.reason`. A test pins the generation to the AAD bytes actually emitted, so a sealing-format change cannot ship without a generation decision in the same diff.
+
 ## 0.7.0-pre.2
 
 ### Patch Changes
