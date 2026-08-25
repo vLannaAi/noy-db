@@ -1,5 +1,19 @@
 # Changelog — hub
 
+## 0.7.0-pre.4
+
+### Patch Changes
+
+- Correct the scoping of `NOYDB_ENVELOPE_GENERATION`'s documentation, and record that adopting it is not free (#1207 follow-up).
+
+  `0.7.0-pre.3` documented generation 1 as "no AAD (absence of the export also means 1)". That parenthetical is wrong as written, in the published `.d.ts` and in that release's changelog entry, and it is wrong in the direction that produces a false stamp rather than a missing one. "Absence of the **export**" is a statement about a hub _build_, and hub `0.6.0-pre.18` … `0.7.0-pre.2` seal at generation 2 while exporting no constant — verified against the published `0.7.0-pre.2` tarball. A writer using absence as a fallback would stamp a gen-2 artefact as gen 1.
+
+  The corrected form, now stated outright rather than left to inference: absence of a **stamp on an artefact** classifies that artefact as _unknown — possibly older than the constant_, never as generation 1; and a build's own absence of the export says nothing about the generation it seals at. A writer that cannot determine its generation omits the stamp.
+
+  Also documented: **adoption is not free.** "Diagnostic only" describes how the value may be used, not what it costs to import. It is a _value_ export, so a named import moves a consumer's real hub floor to `0.7.0-pre.3` regardless of the range its `peerDependencies` declares — measured as `TS2305` at a declared `^0.7.0-pre.0` floor while build, typecheck, lint and the full suite were green at the exact dev pin. Both correct postures are named: a defensive read at an unchanged floor, or a floor narrowing where the consumer publishes nothing and so gates no downstream range.
+
+  Documentation only — no value, signature, or export changed. The `0.7.0-pre.3` changelog entry is left standing as the record of what that release said; this entry is the correction published alongside it.
+
 ## 0.7.0-pre.3
 
 ### Minor Changes
