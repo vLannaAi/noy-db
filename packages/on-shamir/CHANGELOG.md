@@ -1,6 +1,6 @@
 # @noy-db/on-shamir
 
-## 0.7.0-pre.3
+## 0.7.0-pre.4
 
 ## 0.6.0-pre.0
 
