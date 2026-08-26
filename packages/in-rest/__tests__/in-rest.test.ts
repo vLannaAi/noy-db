@@ -152,7 +152,7 @@ describe('in-rest envelope-proxy handler', () => {
 
   // ── CAS conflict ────────────────────────────────────────────────
 
-  it('put with a stale expectedVersion → 409 with {error:{name:ConflictError,version}}', async () => {
+  it('put with a stale expectedVersion → 409 naming ConflictError', async () => {
     const handler = createRestHandler({ store, authorize: allowAll })
     await handler.handle(req('POST', '/rpc', { method: 'put', args: ['acme', 'invoices', 'i1', envelope({ _v: 1 })] }))
 
@@ -160,10 +160,42 @@ describe('in-rest envelope-proxy handler', () => {
       req('POST', '/rpc', { method: 'put', args: ['acme', 'invoices', 'i1', envelope({ _v: 2 }), 99] })
     )
     expect(res.status).toBe(409)
-    const body = JSON.parse(res.body as string) as { error: { name: string; message: string; version: number } }
+    const body = JSON.parse(res.body as string) as { error: { name: string; message: string } }
     expect(body.error.name).toBe('ConflictError')
-    expect(typeof body.error.version).toBe('number')
-    expect(body.error.version).toBe(1)
+    expect(typeof body.error.message).toBe('string')
+  })
+
+  it('the 409 body does NOT disclose the winning writer\'s version (#1218)', async () => {
+    // `_v` is another principal's progress counter. A client that can provoke
+    // a 409 would otherwise learn how far a writer it may hold no read grant
+    // for has advanced a record — a write-activity oracle, by repetition.
+    // The 409 still says "your write lost"; the client re-reads to learn what
+    // won. `ConflictError.version` itself is unchanged and still carried
+    // in-process — the sync engine needs it. This is the transport boundary.
+    const handler = createRestHandler({ store, authorize: allowAll })
+    await handler.handle(req('POST', '/rpc', { method: 'put', args: ['acme', 'invoices', 'i1', envelope({ _v: 1 })] }))
+
+    const res = await handler.handle(
+      req('POST', '/rpc', { method: 'put', args: ['acme', 'invoices', 'i1', envelope({ _v: 2 }), 99] })
+    )
+    expect(res.status).toBe(409)
+    const body = JSON.parse(res.body as string) as { error: Record<string, unknown> }
+    expect(body.error).not.toHaveProperty('version')
+    // and it must not leak through the message either
+    expect(String(body.error.message)).not.toMatch(/\b1\b/)
+  })
+
+  it('still names ConflictError, so a name-keyed client re-hydrates it (#1218)', async () => {
+    // The consumer contract this ordering was built around: @noy-db/to-rest
+    // >= 0.7.0-pre.1 keys off `name` alone and defaults version to NaN.
+    // `name` is therefore load-bearing and must not be renamed or dropped.
+    const handler = createRestHandler({ store, authorize: allowAll })
+    await handler.handle(req('POST', '/rpc', { method: 'put', args: ['acme', 'invoices', 'i1', envelope({ _v: 1 })] }))
+    const res = await handler.handle(
+      req('POST', '/rpc', { method: 'put', args: ['acme', 'invoices', 'i1', envelope({ _v: 2 }), 99] })
+    )
+    const body = JSON.parse(res.body as string) as { error: { name: string } }
+    expect(body.error.name).toBe('ConflictError')
   })
 
   // ── Fail-closed auth ────────────────────────────────────────────

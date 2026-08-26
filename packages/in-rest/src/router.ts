@@ -154,7 +154,22 @@ export function buildRouter(opts: RestHandlerOptions) {
       return json(200, result ?? null)
     } catch (err) {
       if (isConflictError(err)) {
-        return json(409, { error: { name: 'ConflictError', message: err.message, version: err.version } })
+        // #1218 — the winning writer's `_v` deliberately does NOT cross the
+        // wire. It is another principal's progress counter; a client able to
+        // provoke a 409 would otherwise learn how far a writer it may hold no
+        // read grant for has advanced a record, and repetition turns that into
+        // a write-activity oracle. The 409 still says "your write lost"; the
+        // client re-reads to learn what won, at the cost of one round trip.
+        //
+        // `name` is LOAD-BEARING and must not be renamed or dropped: clients
+        // re-hydrate ConflictError by keying off it (@noy-db/to-rest >=
+        // 0.7.0-pre.1 does exactly that, defaulting version to NaN). Older
+        // to-rest REQUIRED `version` and treats a 409 without it as a generic
+        // error — which is why that client had to ship first.
+        //
+        // `ConflictError.version` itself is unchanged and still carried
+        // in-process; the sync engine needs it. This is the transport boundary.
+        return json(409, { error: { name: 'ConflictError', message: err.message } })
       }
       if (err instanceof UnsupportedMethodError) {
         // The request was well-formed; the backing store just lacks this

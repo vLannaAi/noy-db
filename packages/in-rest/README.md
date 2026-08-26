@@ -50,7 +50,7 @@ app.route('/', honoAdapter(handler)) // or expressAdapter / fastifyPlugin / nitr
 ```
 
 `RestHandlerOptions`: `{ store, authorize?, allow?, basePath? }`. Success → `200` with the
-raw store result; a CAS conflict → `409 { error: { name: 'ConflictError', version } }`;
+raw store result; a CAS conflict → `409 { error: { name: 'ConflictError', message } }`;
 unauthorized → `401`; unknown/malformed → `400`; disallowed method → `403`.
 
 ## Status
