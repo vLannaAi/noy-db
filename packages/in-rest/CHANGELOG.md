@@ -1,5 +1,21 @@
 # @noy-db/in-rest
 
+## 0.7.0-pre.7
+
+### Minor Changes
+
+- **Breaking for old clients:** the `409` body no longer discloses the winning writer's version (#1218).
+
+  `createRestHandler`'s CAS-conflict response was `409 { error: { name, message, version } }`. The `version` field is **another principal's progress counter**. A client able to provoke a 409 could learn how far a writer it may hold no read grant for had advanced a record, and by repetition turn that into a write-activity oracle. It is now `409 { error: { name, message } }`.
+
+  ⚠️ **If you are on `@noy-db/to-rest@0.7.0-pre.0` or earlier, upgrade to `0.7.0-pre.1`+ before taking this.** That client _required_ `version` to re-hydrate the error; without it a CAS conflict arrives as a **generic `Error`**, `isConflictError()` returns `false`, and conflict handling silently stops running — retry loops rethrow, and the sync engine misfiles the conflict with no resolution. `to-rest@0.7.0-pre.1` keys off `name` alone and defaults `version` to `NaN`, and handles both the old and new payload; that is why it shipped first. Any other client that keys off `version` needs the same change.
+
+  `name` remains load-bearing and will not be renamed: it is how a client identifies the error. The 409 still means _"your write lost"_ — the client re-reads to learn what won, at the cost of one round trip.
+
+  **Unchanged:** `ConflictError.version` itself, which is still carried in-process and which the sync engine needs. This is the transport boundary only.
+
+  Known consequence, not fixed here: hub's schema-manifest writer forwards a caught conflict's version into `ManifestConflictError`, so a manifest write losing a CAS race **over a REST store** now reports `foundVersion: NaN`. The conflict is still detected and still refused; only the reported number degrades. Hub's CAS retry loops re-read rather than using the value and are unaffected.
+
 ## 0.7.0-pre.6
 
 ### Patch Changes
