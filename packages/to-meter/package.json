@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/to-meter",
-  "version": "0.7.0-pre.5",
+  "version": "0.7.0-pre.6",
   "description": "Store observability for noy-db — a metered pass-through store that records per-method latency percentiles, error rates and liveness on real traffic, plus one-shot synthetic probes (runStoreProbe / probeTopology) for suitability reports.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

@@ -1,6 +1,6 @@
 # @noy-db/on-totp
 
-## 0.7.0-pre.5
+## 0.7.0-pre.6
 
 ### Patch Changes
 
