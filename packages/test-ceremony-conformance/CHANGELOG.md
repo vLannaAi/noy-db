@@ -1,5 +1,12 @@
 # @noy-db/test-ceremony-conformance
 
+## 0.7.0-pre.5
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.7.0-pre.5
+
 ## 0.7.0-pre.4
 
 ### Patch Changes
