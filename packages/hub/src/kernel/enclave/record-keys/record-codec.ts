@@ -254,9 +254,12 @@ export class RecordCodec<T> {
     // `JSON.stringify(undefined)` is `undefined`, so a caller that passes an
     // undefined record seals over NOTHING: `_data` is a bare GCM tag over zero
     // ciphertext. The envelope is well-formed and correctly sealed, which is
-    // why nothing downstream catches it — it reads back as `null` on the cached
-    // path and as a `SyntaxError` out of `decryptRecord` on the hydrate path,
-    // two failures that both point away from the write that caused them.
+    // why nothing downstream catches it — it reads back as `undefined` on the
+    // cached path (measured; note that is off `get()`'s declared `T | null`,
+    // so `rec === null` misses it too) and as a `SyntaxError` out of
+    // `decryptRecord` on the hydrate path. Two failures that both point away
+    // from the write that caused them, and neither is `null`, which is what a
+    // genuinely absent id returns.
     // Stated on the OUTPUT condition so it holds for every caller, not just
     // the `put(record)` arity slip that surfaced it.
     if (typeof json !== 'string') {

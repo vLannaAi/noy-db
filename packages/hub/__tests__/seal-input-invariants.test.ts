@@ -64,9 +64,11 @@ describe('no envelope may be sealed over a non-string plaintext (#1220)', () => 
   it('refuses an undefined record instead of sealing empty plaintext', async () => {
     // `JSON.stringify(undefined)` is `undefined`, not a string, so the seal
     // runs over nothing: `_data` becomes a 16-byte GCM tag with zero
-    // ciphertext. The record then reads back as `null` on the cached path and
-    // throws `SyntaxError` out of `decryptRecord` on the hydrate path — two
-    // failures that both point away from the actual cause.
+    // ciphertext. The record then reads back as `undefined` on the cached path
+    // — off `get()`'s declared `T | null`, so `rec === null` misses it — and
+    // throws `SyntaxError` out of `decryptRecord` on the hydrate path. Two
+    // failures that both point away from the actual cause, and neither is the
+    // `null` a genuinely absent id returns.
     const docs = await open()
     await expect(docs.put('d1', undefined as unknown as { title: string }))
       .rejects.toThrow(TypeError)
