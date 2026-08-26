@@ -37,6 +37,15 @@ export {
   DuplicateStoreKindError,
 } from '../../kernel/errors.js'
 
+// #1224 — the PREDICATE has to live here, not only on the root barrel.
+// `isConflictError` exists because a store may bind a different copy of this
+// very subpath than its caller, which makes `instanceof` against the class
+// above silently miss (#935). A store binds `/to` and nothing else, so
+// exporting the predicate only from the root told store authors to use
+// something they could not import — and the obvious fallback, `instanceof
+// ConflictError`, is exactly the bug the predicate exists to prevent.
+export { isConflictError } from '../../kernel/errors.js'
+
 export type {
   StoreClass, StoreDescriptor, StoreBinding, StoreFactory, StoreLocator, AnyNoydbStore,
 } from './locator.js'
