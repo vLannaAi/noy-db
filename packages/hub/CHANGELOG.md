@@ -1,5 +1,35 @@
 # Changelog — hub
 
+## 0.7.0-pre.6
+
+### Patch Changes
+
+- Correct a factual claim in the `0.7.0-pre.5` changelog entry: the cached read path returned `undefined`, not `null`.
+
+  That entry described the #1220 failure as _"the cached path returned `null`, indistinguishable from no such record."_ The value is wrong. Measured on published `0.7.0-pre.4` with `to-memory@0.7.0-pre.4`, correct arity throughout:
+
+  | read                              | value                                       |
+  | --------------------------------- | ------------------------------------------- |
+  | genuinely absent id               | `null`                                      |
+  | empty-sealed record, cached path  | **`undefined`**                             |
+  | empty-sealed record, hydrate path | `SyntaxError: Unexpected end of JSON input` |
+
+  **The argument the entry made is unaffected — it gets stronger.** `undefined` is off `get()`'s declared `T | null` contract, so a caller writing `if (!rec)` or `?? fallback` folds it into _"no such record"_ exactly as it would fold `null`, **and** a caller writing `rec === null` fails to catch it as well. The collapse of distinguishable states is wider than the original sentence claimed, not narrower.
+
+  `0.7.0-pre.5`'s entry is left standing as the record of what that release said — its tarball is immutable, so amending it would only make later tarballs disagree with the shipped one. This is the correction published alongside, the same move `0.7.0-pre.4` made for `0.7.0-pre.3`.
+
+  Scope: the incorrect sentence appeared only in `CHANGELOG.md` on the published surface — it was not in any shipped `.d.ts`. No code, type, or behaviour change. The guards added in `0.7.0-pre.5` are unaffected, and note they prevent such a record being **created**, not **read**: a record sealed by an earlier build still throws on the hydrate path today.
+
+- Export `isConflictError` from `@noy-db/hub/to` (#1224).
+
+  The predicate was reachable only from the root barrel, while `/to` exported the `ConflictError` **class**. That is the wrong way round for the one seam that needs it: `isConflictError` exists precisely because a store may bind a different copy of `@noy-db/hub/to` than its caller, making `instanceof` against that class silently miss (#935) — CAS retry loops rethrow instead of retrying, and the sync engine misfiles the conflict with no resolution run.
+
+  A store binds `/to` and nothing else, so store authors were told by the predicate's own documentation to use something they could not import, and the obvious fallback — `instanceof ConflictError` off `/to` — is exactly the defect the predicate prevents.
+
+  Additive: an existing function on an existing subpath. Nothing is removed or renamed, and the root barrel export is unchanged.
+
+  Guarded by an invariant rather than an enumeration: a test parses `kernel/errors.ts` for any `is*` predicate whose contract mentions the store seam and asserts each is reachable from `/to`, so a future sibling cannot repeat this. `/to`'s golden surface baseline moves by one entry.
+
 ## 0.7.0-pre.5
 
 ### Patch Changes

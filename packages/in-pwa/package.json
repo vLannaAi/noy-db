@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/in-pwa",
-  "version": "0.7.0-pre.5",
+  "version": "0.7.0-pre.6",
   "description": "PWA shell helpers for noy-db — storage persistence with a clear grant/deny signal, fail-closed eviction guard for the local vault, install-prompt capture, display-mode context detection, online/offline watcher, and the app-shell service-worker recipe.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

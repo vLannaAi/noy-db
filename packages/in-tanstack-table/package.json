@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/in-tanstack-table",
-  "version": "0.7.0-pre.5",
+  "version": "0.7.0-pre.6",
   "description": "TanStack Table bridge for noy-db — map Collection query state (sort, filter, pagination) into Table state and back, so a useSmartTable pattern drives the DB's query DSL without glue code.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
