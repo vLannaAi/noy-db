@@ -35,9 +35,31 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { readdirSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { assertCanonicalAdvanced, nextLineVersion, changesetWroteASection } from './release/version-advanced.mjs'
 
 const __dir = fileURLToPath(new URL('.', import.meta.url))
 const ROOT = resolve(__dir, '..')
+
+// ─── 0. Capture the canonical version BEFORE anything mutates it (#1230) ──
+//
+// This has to be read here, not later: the guard below compares against it to
+// refuse a run that consumes changesets without advancing the release line.
+
+const corePkgPathPre = join(resolve(fileURLToPath(new URL('.', import.meta.url)), '..'), 'packages', 'hub', 'package.json')
+const canonicalVersionBefore = JSON.parse(readFileSync(corePkgPathPre, 'utf8')).version
+
+// And every package's version, for the same reason at a finer grain: the
+// CHANGELOG heading rewrite below is only sound for packages `changeset
+// version` actually moved (#1230). For one it left alone, the topmost heading
+// is the PREVIOUSLY PUBLISHED section and rewriting it renames released history.
+const versionsBefore = {}
+{
+  const dir0 = join(resolve(fileURLToPath(new URL('.', import.meta.url)), '..'), 'packages')
+  for (const name of readdirSync(dir0)) {
+    try { versionsBefore[name] = JSON.parse(readFileSync(join(dir0, name, 'package.json'), 'utf8')).version }
+    catch { /* not a package dir */ }
+  }
+}
 
 // ─── 1. Run changeset version ──────────────────────────────────────────
 
@@ -53,10 +75,32 @@ try {
 
 const corePkgPath = join(ROOT, 'packages', 'hub', 'package.json')
 const corePkg = JSON.parse(readFileSync(corePkgPath, 'utf8'))
-const canonicalVersion = corePkg.version
+let canonicalVersion = corePkg.version
 
 if (!canonicalVersion || !/^\d+\.\d+\.\d+/.test(canonicalVersion)) {
   console.error(`[release] Could not read a valid version from ${corePkgPath}. Got: ${canonicalVersion}`)
+  process.exit(1)
+}
+
+// #1230 — a release is a LINE MOVE, so the canonical version must advance even
+// when no changeset targeted hub (a satellite-only release). Without this the
+// normalizer drags the legitimately-bumped satellite back down to hub's
+// unchanged, already-published version and the run publishes nothing.
+if (canonicalVersion === canonicalVersionBefore) {
+  const advanced = nextLineVersion(canonicalVersionBefore)
+  console.log(
+    `\n[release] No changeset targeted @noy-db/hub, so the canonical version did not move.\n` +
+    `[release] A release is a lockstep LINE MOVE — advancing the whole line ${canonicalVersionBefore} -> ${advanced} (#1230).\n`,
+  )
+  canonicalVersion = advanced
+}
+
+// The backstop, asserted on the OUTCOME rather than the cause: whatever path
+// got us here, the line must have advanced. Fails loudly if it did not.
+try {
+  assertCanonicalAdvanced(canonicalVersionBefore, canonicalVersion)
+} catch (err) {
+  console.error(`\n${err instanceof Error ? err.message : String(err)}\n`)
   process.exit(1)
 }
 
@@ -115,6 +159,10 @@ for (const dir of packageDirs) {
 const headingsFixed = []
 
 for (const { dir, before, after } of corrected) {
+  // #1230 — only rewrite a heading changeset version just wrote. Skipping here
+  // means a version-only lockstep bump ships with no new CHANGELOG entry, which
+  // is the honest outcome: nothing about that package changed.
+  if (!changesetWroteASection(versionsBefore[dir], before)) continue
   const changelogPath = join(packagesDir, dir, 'CHANGELOG.md')
   let text
   try {
