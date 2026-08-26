@@ -1,5 +1,12 @@
 # Changelog — in-nuxt
 
+## 0.7.0-pre.7
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/in-rest@0.7.0-pre.7
+
 ## 0.7.0-pre.6
 
 ### Patch Changes
