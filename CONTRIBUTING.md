@@ -122,6 +122,12 @@ Pick the bump level (patch/minor/major) per package, write a one-line user-facin
 
 If you add a package whose history a consumer would read at a breakpoint, add `CHANGELOG.md` to its `files` and say so here. **Verify with `npm pack` — `files` decides what ships, and reading the repo tells you nothing about the tarball.**
 
+**The corollary, for anyone hunting a wrong sentence: prose ships, so do not scope the search by source extension.** All 57 packages put `README.md` in `files`, and hub also ships `CHANGELOG.md` — a `--include='*.ts'` grep is blind to every one of them, and a miss reads as an absence rather than as an unanswered question. Grep unscoped first and narrow afterwards. This is not hypothetical: `0.7.0-pre.3` shipped an incorrect sentence about `NOYDB_ENVELOPE_GENERATION` in *both* the `.d.ts` and the changelog entry, and a source-scoped search found only the first.
+
+Note also what the existing gates do **not** cover. `pnpm check:prose-api` verifies that methods our prose attributes to `db`/`vault`/`collection` exist on the published surface, and `shipped-prose-renames` catches renames — neither reads changelog *content*, so a factually wrong sentence that names no API passes both.
+
+**A wrong sentence in a released tarball is not amendable.** The tarball is immutable, so editing the historical entry only makes later tarballs disagree with the shipped one about what that release said. Publish the correction **alongside**, quoting the original so a reader meets both — see `0.7.0-pre.4`, which corrects `pre.3` while leaving its entry standing.
+
 ### 7. Releasing to npm
 
 Releases are **manual and event-driven**. There is no automated "merge to main → publish" path. The procedure is:
