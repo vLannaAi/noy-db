@@ -1,6 +1,6 @@
 # @noy-db/on-threat
 
-## 0.7.0-pre.4
+## 0.7.0-pre.5
 
 ### Patch Changes
 

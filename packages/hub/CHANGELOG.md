@@ -1,5 +1,20 @@
 # Changelog — hub
 
+## 0.7.0-pre.5
+
+### Patch Changes
+
+- Refuse to seal a record against a coerced address or over an empty plaintext (#1220).
+
+  Two boundary values were accepted silently and produced envelopes that are **valid and undecodable** — sealed correctly, addressed or filled with nothing. Both are now `TypeError`s at the seal, stated as output-domain invariants so they hold for every caller rather than for the two calls that surfaced them:
+
+  - **`buildRecordAad` refuses a non-string `collection` or `id`.** `String({})` is `"[object Object]"` and `String(undefined)` is `"undefined"`; both make perfectly good AAD, so a record sealed against one is stored at an address nothing queries. Sibling of the `version` assertion already in that function, and there for the same reason: it can only fire for a caller TypeScript never saw.
+  - **`RecordCodec.encryptJsonString` refuses a non-string plaintext.** `JSON.stringify(undefined)` is `undefined`, so an undefined record sealed over _nothing_ — `_data` a bare GCM tag over zero ciphertext.
+
+  Why this was worth a guard rather than a documentation note: the two read paths disagreed about the same bytes and neither named the cause. The cached path returned `null`, indistinguishable from _no such record_; the hydrate path threw `SyntaxError` out of `decryptRecord`, indistinguishable from _your store returned corrupt bytes_. A `to-*` author or daemon operator meeting that would reasonably suspect their store, indefinitely, over a caller mistake made days earlier.
+
+  No format, encryption, or integrity change: envelopes that seal continue to seal identically, and `NOYDB_ENVELOPE_GENERATION` is unaffected. This only refuses inputs that previously produced unreadable records.
+
 ## 0.7.0-pre.4
 
 ### Patch Changes
