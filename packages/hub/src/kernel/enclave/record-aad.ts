@@ -125,6 +125,24 @@ export function buildRecordAad(identity: RecordIdentity): Uint8Array {
       `received ${String(identity.version)}. Sealing without one produces a record no reader can open.`,
     )
   }
+  // Same argument as `version` above, for the two fields that are STRINGS
+  // and therefore coerce instead of arriving as NaN (#1220). `String({})` is
+  // `"[object Object]"` and `String(undefined)` is `"undefined"` — both seal
+  // perfectly well and both produce a record no reader will ever address.
+  // Measured: `collection.put({ id: 'd1', ... })` from JS stores under
+  // `"[object Object]"`, and an unset identity reaches the store as
+  // `undefined`. Assert on the OUTPUT condition — no seal may be computed
+  // over a non-string address — rather than on the two calls that found it.
+  for (const [field, value] of [['collection', identity.collection], ['id', identity.id]] as const) {
+    if (typeof value !== 'string') {
+      throw new TypeError(
+        `record AAD: ${field} must be a string, received ${String(value)} ` +
+        `(${typeof value}). Sealing against a coerced address produces a record ` +
+        `no reader can open, and the failure surfaces on the READ path.`,
+      )
+    }
+  }
+
   const parts: Uint8Array[] = [encoder.encode(SCHEME)]
 
   const pushField = (value: string): void => {

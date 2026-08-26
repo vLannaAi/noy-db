@@ -250,6 +250,22 @@ export class RecordCodec<T> {
     source?: string,
     sourceTs?: string,
   ): Promise<EncryptedEnvelope> {
+    // No envelope may be sealed over a non-string plaintext (#1220).
+    // `JSON.stringify(undefined)` is `undefined`, so a caller that passes an
+    // undefined record seals over NOTHING: `_data` is a bare GCM tag over zero
+    // ciphertext. The envelope is well-formed and correctly sealed, which is
+    // why nothing downstream catches it — it reads back as `null` on the cached
+    // path and as a `SyntaxError` out of `decryptRecord` on the hydrate path,
+    // two failures that both point away from the write that caused them.
+    // Stated on the OUTPUT condition so it holds for every caller, not just
+    // the `put(record)` arity slip that surfaced it.
+    if (typeof json !== 'string') {
+      throw new TypeError(
+        `record seal: plaintext must be a string for "${String(ref.collection)}/${String(ref.id)}", ` +
+        `received ${String(json)} (${typeof json}). Sealing over an empty plaintext produces ` +
+        `an envelope that is valid and undecodable.`,
+      )
+    }
     // `version` folds into the identity HERE rather than travelling beside it,
     // so what is sealed and what is stamped come from one object (#1093).
     const identity: RecordIdentity = { ...ref, version, by: this.ctx.actor }
