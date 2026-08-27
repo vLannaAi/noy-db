@@ -4,9 +4,10 @@ Excel spreadsheet plaintext export for noy-db. Produces a real
 `.xlsx` (Office Open XML) that opens natively in Excel, Numbers,
 LibreOffice Calc, and Google Sheets.
 
-Zero runtime dependencies — the XLSX encoder ships SpreadsheetML
+No spreadsheet library — the XLSX encoder ships SpreadsheetML
 parts and reuses `@noy-db/as-zip`'s zip writer. No SheetJS, no
 ExcelJS, no xlsx-populate — ~230 LOC across the two-file encoder.
+One runtime dependency: `fast-xml-parser`.
 
 Part of the `@noy-db/as-*` portable-artefact family, plaintext
 tier. See [`docs/packages-exports.md#authorization-model`](https://github.com/vLannaAi/noy-db/blob/main/docs/packages-exports.md#authorization-model).
