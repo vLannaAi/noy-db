@@ -36,3 +36,27 @@ export function classifyPublishFailure(exitCode, log) {
   }
   return 'failed'
 }
+
+/**
+ * `peerDependenciesMeta` entries with no matching `peerDependencies` entry.
+ *
+ * The meta block only ANNOTATES a peer that already exists — it cannot declare
+ * one. An orphaned entry is inert: npm never learns about the package, the
+ * consumer gets no version range and no resolver signal, and nothing warns.
+ * The manifest meanwhile reads as though the dependency were declared and
+ * deliberately optional, which is why this survives review.
+ *
+ * `@noy-db/in-rest` shipped this way: express / fastify / hono / h3 marked
+ * optional, only `@noy-db/hub` actually declared, and three of the four
+ * genuinely imported from adapter entry points.
+ *
+ * Asserted on the OUTPUT condition — no meta entry may lack a peer — rather
+ * than on the four names that happened to be found.
+ *
+ * @param {{peerDependencies?: Record<string,string>, peerDependenciesMeta?: Record<string,unknown>}} pkg
+ * @returns {string[]} orphaned names, empty when the manifest is consistent
+ */
+export function orphanPeerMeta(pkg) {
+  const peers = new Set(Object.keys(pkg?.peerDependencies ?? {}))
+  return Object.keys(pkg?.peerDependenciesMeta ?? {}).filter((n) => !peers.has(n))
+}

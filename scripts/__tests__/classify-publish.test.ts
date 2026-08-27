@@ -55,3 +55,44 @@ npm error 404 'create-noy-db@0.3.4-pre.7' is not in this registry.
     expect(classifyPublishFailure(0, alreadyPublished)).toBe('ok')
   })
 })
+
+import { orphanPeerMeta } from '../release/classify-publish.mjs'
+
+/**
+ * `peerDependenciesMeta` only ANNOTATES entries that exist in
+ * `peerDependencies`. An entry with no matching peer is inert: npm never
+ * learns about the package, the consumer gets no version range, and nothing
+ * warns — while the manifest reads as though the dependency were declared and
+ * deliberately optional.
+ *
+ * Found in `@noy-db/in-rest`, which marked express/fastify/hono/h3 optional
+ * while declaring only `@noy-db/hub` as a peer, and genuinely imports three of
+ * them from its adapter entry points.
+ */
+describe('orphanPeerMeta — peerDependenciesMeta without a peer is inert', () => {
+  it('flags a meta entry with no matching peer', () => {
+    expect(orphanPeerMeta({
+      peerDependencies: { '@noy-db/hub': '1.0.0' },
+      peerDependenciesMeta: { express: { optional: true } },
+    })).toEqual(['express'])
+  })
+
+  it('accepts a meta entry that HAS a matching peer', () => {
+    expect(orphanPeerMeta({
+      peerDependencies: { express: '^5.0.0' },
+      peerDependenciesMeta: { express: { optional: true } },
+    })).toEqual([])
+  })
+
+  it('is quiet on manifests with neither block', () => {
+    expect(orphanPeerMeta({})).toEqual([])
+    expect(orphanPeerMeta({ peerDependencies: { a: '1' } })).toEqual([])
+  })
+
+  it('reports every orphan, not just the first', () => {
+    expect(orphanPeerMeta({
+      peerDependencies: {},
+      peerDependenciesMeta: { a: { optional: true }, b: { optional: true } },
+    }).sort()).toEqual(['a', 'b'])
+  })
+})

@@ -2849,6 +2849,43 @@ function checkAsConformanceFixture() {
 
 checkAsConformanceFixture()
 
+// ─── Check 17: peer-meta-declared ──────────────────────────────────────────
+//
+// `peerDependenciesMeta` only ANNOTATES a peer that already exists in
+// `peerDependencies` — it cannot declare one. An orphaned entry is INERT: npm
+// never learns about the package, the consumer gets no version range and no
+// resolver signal, and nothing warns. The manifest meanwhile reads as though
+// the dependency were declared and deliberately optional, which is exactly why
+// it survives review.
+//
+// `@noy-db/in-rest` shipped this way through 0.7.0-pre.8: express / fastify /
+// hono / h3 all marked `optional: true`, only `@noy-db/hub` actually declared,
+// and three of the four genuinely imported from adapter entry points.
+//
+// Asserted on the OUTPUT condition — no meta entry may lack a peer — rather
+// than on the four names that happened to be found.
+
+function checkPeerMetaDeclared() {
+  for (const pkgDir of listPackageDirs()) {
+    const pj = readPackageJson(pkgDir)
+    if (!pj.name) continue
+    const peers = new Set(Object.keys(pj.peerDependencies ?? {}))
+    for (const name of Object.keys(pj.peerDependenciesMeta ?? {})) {
+      if (!peers.has(name)) {
+        fail(
+          'peer-meta-declared',
+          `${pj.name} marks "${name}" in peerDependenciesMeta but never declares it in ` +
+          `peerDependencies. The meta block only annotates an existing peer — this entry is ` +
+          `inert, so consumers get no version range and npm never mentions it.`,
+          pkgDir,
+        )
+      }
+    }
+  }
+}
+
+checkPeerMetaDeclared()
+
 checkViaEnclaveIsolation()
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
