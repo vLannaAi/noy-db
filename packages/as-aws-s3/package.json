@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/as-aws-s3",
   "version": "0.7.0-pre.8",
-  "description": "AWS S3 object projection for noy-db — serve blob bytes directly from S3/CDN (presigned or public), outside the encrypted store",
+  "description": "AWS S3 object projection for noy-db \u2014 serve blob bytes directly from S3/CDN (presigned or public), outside the encrypted store",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/as-aws-s3#readme",
@@ -38,7 +38,7 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@noy-db/hub": "workspace:*",
+    "@noy-db/hub": "workspace:^",
     "@aws-sdk/client-s3": "^3.0.0",
     "@aws-sdk/s3-request-presigner": "^3.0.0"
   },

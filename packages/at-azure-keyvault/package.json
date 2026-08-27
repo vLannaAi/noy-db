@@ -38,7 +38,7 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@noy-db/hub": "workspace:*",
+    "@noy-db/hub": "workspace:^",
     "@azure/keyvault-keys": "^4.0.0",
     "@azure/identity": "^4.0.0"
   },

@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/in-devtools",
   "version": "0.7.0-pre.8",
-  "description": "Framework-agnostic read-only inspector for a live noy-db — vaults, collections, schema, stats, records, and live writes.",
+  "description": "Framework-agnostic read-only inspector for a live noy-db \u2014 vaults, collections, schema, stats, records, and live writes.",
   "license": "MIT",
   "type": "module",
   "module": "./dist/index.js",
@@ -23,7 +23,7 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@noy-db/hub": "workspace:*"
+    "@noy-db/hub": "workspace:^"
   },
   "devDependencies": {
     "@noy-db/hub": "workspace:*",

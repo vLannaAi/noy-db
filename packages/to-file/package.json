@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/to-file",
   "version": "0.7.0-pre.8",
-  "description": "JSON file adapter for noy-db — encrypted document store on local disk, USB sticks, or network drives",
+  "description": "JSON file adapter for noy-db \u2014 encrypted document store on local disk, USB sticks, or network drives",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/to-file#readme",
@@ -38,7 +38,7 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@noy-db/hub": "workspace:*"
+    "@noy-db/hub": "workspace:^"
   },
   "devDependencies": {
     "@noy-db/hub": "workspace:*",

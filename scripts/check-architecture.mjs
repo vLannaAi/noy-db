@@ -175,13 +175,33 @@ function checkPeerDeps() {
     }
 
     // If the package declares a peer on hub, the constraint must be
-    // `workspace:*` exactly — `workspace:^` trips the changeset-cli
-    // pre-1.0 dep-propagation heuristic and forces unintended major
-    // bumps on every dependent.
-    if (peer !== undefined && peer !== 'workspace:*') {
+    // `workspace:^`, because that is what it PUBLISHES as (#1228).
+    //
+    //   workspace:*  publishes as  0.7.0-pre.8   (exact)
+    //   workspace:^  publishes as  ^0.7.0-pre.8  (a range)
+    //
+    // Exact peers make the satellite set co-installable ONLY when every member
+    // came from the same cut: `npm i @noy-db/as-csv@pre.8 @noy-db/in-vue@pre.7`
+    // is an ERESOLVE, because no hub version satisfies both. Caret ranges are
+    // jointly satisfiable — hub@pre.8 satisfies ^pre.7 and ^pre.8 — and still
+    // stop at the next minor, so a satellite never claims to work against a
+    // hub line it has not seen.
+    //
+    // ⚠️ This rule previously mandated `workspace:*`, on the grounds that
+    // `workspace:^` "trips the changeset-cli pre-1.0 dep-propagation heuristic
+    // and forces unintended major bumps on every dependent". That reason did
+    // not hold, and `release.mjs`'s own header said so all along: the heuristic
+    // fires "even with loose `workspace:*` constraints". The peer form never
+    // prevented the bumps — the NORMALIZER does. Verified by running a full
+    // `release:version` with all 50 satellites on `workspace:^`: the line
+    // advanced normally, the normalizer corrected the heuristic as usual, and
+    // every package landed on one version.
+    if (peer !== undefined && peer !== 'workspace:^') {
       fail(
         'peer-deps',
-        `${pj.name} has peerDependencies['@noy-db/hub'] = ${JSON.stringify(peer)}, expected "workspace:*".`,
+        `${pj.name} has peerDependencies['@noy-db/hub'] = ${JSON.stringify(peer)}, expected "workspace:^" ` +
+        `(it publishes as a caret RANGE; "workspace:*" publishes an EXACT version and makes satellites ` +
+        `from different cuts jointly uninstallable — #1228).`,
         pkgDir,
       )
     }
