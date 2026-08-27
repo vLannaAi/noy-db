@@ -2,7 +2,7 @@
  * JSON-RPC protocol over a `PeerChannel`.
  *
  * Request shape:
- *   `{ t: 'req', id, method, args }`
+ *   `{ t: 'req', id, method, args, auth? }`
  * Response shape (success):
  *   `{ t: 'res', id, ok: true, result }`
  * Response shape (error):
@@ -26,6 +26,13 @@ export interface RpcRequest {
   readonly id: string
   readonly method: string
   readonly args: readonly unknown[]
+  /**
+   * Bearer token from the invite (milestone 52). Additive and optional ON THE
+   * WIRE — an older client simply omits it — but a fail-closed server refuses
+   * a request without one, which is the point: holding the channel is no
+   * longer the credential.
+   */
+  readonly auth?: string
 }
 
 export interface RpcResponse {
@@ -36,13 +43,23 @@ export interface RpcResponse {
   readonly error?: { name: string; message: string; version?: number }
 }
 
-/** Handler invoked when an RPC request arrives. Return value is serialized as `result`. */
-export type RpcHandler = (method: string, args: readonly unknown[]) => Promise<unknown>
+/**
+ * Handler invoked when an RPC request arrives. Return value is serialized as
+ * `result`. `auth` is the bearer token the caller presented, or `undefined`
+ * when it presented none — the handler decides, not this layer.
+ */
+export type RpcHandler = (
+  method: string,
+  args: readonly unknown[],
+  auth?: string,
+) => Promise<unknown>
 
 /** Options for a client-side RPC caller. */
 export interface RpcClientOptions {
   /** Max milliseconds to wait for a response before rejecting. */
   timeoutMs?: number
+  /** Bearer token from the invite, presented on every request (milestone 52). */
+  token?: string
 }
 
 /**
@@ -115,7 +132,10 @@ export function createRpcClient(channel: PeerChannel, opts: RpcClientOptions = {
   return {
     async call<T = unknown>(method: string, args: readonly unknown[]): Promise<T> {
       const id = `${Date.now().toString(36)}-${(++counter).toString(36)}`
-      const req: RpcRequest = { t: 'req', id, method, args: trimTrailingUndefined(args) }
+      const req: RpcRequest = {
+        t: 'req', id, method, args: trimTrailingUndefined(args),
+        ...(opts.token !== undefined && { auth: opts.token }),
+      }
       return new Promise<T>((resolve, reject) => {
         const timer = setTimeout(() => {
           pending.delete(id)
@@ -160,7 +180,7 @@ export function serveRpc(channel: PeerChannel, handler: RpcHandler): () => void 
 
     let response: RpcResponse
     try {
-      const result = await handler(msg.method, msg.args)
+      const result = await handler(msg.method, msg.args, msg.auth)
       response = { t: 'res', id: msg.id, ok: true, result }
     } catch (err) {
       const e = err as Error & { version?: number }

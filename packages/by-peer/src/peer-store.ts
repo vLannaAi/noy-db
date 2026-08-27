@@ -26,6 +26,11 @@ export interface PeerStoreOptions {
   readonly timeoutMs?: number
   /** Optional display name used in diagnostics. Default `'by-peer'`. */
   readonly name?: string
+  /**
+   * Bearer token from the invite, presented on every request (milestone 52).
+   * The serving peer is fail-closed, so a store created without one is refused.
+   */
+  readonly token?: string
 }
 
 /**
@@ -34,7 +39,10 @@ export interface PeerStoreOptions {
  * `servePeerStore()` against its own local store.
  */
 export function peerStore(opts: PeerStoreOptions): NoydbStore & { dispose: () => void } {
-  const rpc = createRpcClient(opts.channel, { timeoutMs: opts.timeoutMs ?? 30_000 })
+  const rpc = createRpcClient(opts.channel, {
+    timeoutMs: opts.timeoutMs ?? 30_000,
+    ...(opts.token !== undefined && { token: opts.token }),
+  })
 
   async function call<T>(method: string, args: readonly unknown[]): Promise<T> {
     try {

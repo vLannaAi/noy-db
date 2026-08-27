@@ -32,7 +32,7 @@ const channel = await initiator.channel
 const db = await createNoydb({
   store: to(),
   syncStrategy: withSync(),                 // required — sync is opt-in
-  sync: { store: peerStore({ channel }), role: 'sync-peer' },
+  sync: { store: peerStore({ channel, token: inviteToken }), role: 'sync-peer' },
 })
 
 const vault = await db.openVault('my-vault')
@@ -48,7 +48,35 @@ that both fail confusingly without:
   it is opened, so `db.pull()` with no argument looks up an engine for
   `undefined` and finds none.
 
-Peer B mirrors the handshake with `acceptOffer` and runs `servePeerStore({ channel, store })` so its local store answers the incoming RPC calls.
+Peer B mirrors the handshake with `acceptOffer` and runs
+`servePeerStore({ channel, store, token: inviteToken })` so its local store
+answers the incoming RPC calls.
+
+## Authentication — fail-closed
+
+**`servePeerStore` requires the bearer token from the invite, and refuses every
+request without it.** A server configured with no `token` serves nobody. That
+mirrors `@noy-db/in-rest`, where no `authorize` hook means `401` on everything.
+
+```ts
+servePeerStore({ channel, store: local, token: inviteToken })   // server
+peerStore({ channel, token: inviteToken })                      // client
+```
+
+This reversed an earlier default. `servePeerStore` used to serve the whole store
+to anyone who reached the channel — holding the channel *was* the credential,
+which is defensible for a 1:1 invite-based session share and stops being
+defensible the moment a channel stops meaning "I invited this person".
+
+Two properties worth knowing:
+
+- **Refusal happens before the store is touched**, so a rejected write does not land.
+- **Auth is checked before method validity**, so an unauthorized caller cannot
+  learn which methods this peer serves. `Unauthorized` and "unknown method"
+  are the same answer, by construction.
+
+`allow` is **not** authentication and never was — it says which of the six
+methods may be called, not by whom. It composes with `token`.
 
 ## Read-only peers
 
@@ -56,6 +84,7 @@ Peer B mirrors the handshake with `acceptOffer` and runs `servePeerStore({ chann
 servePeerStore({
   channel,
   store: local,
+  token: inviteToken,
   allow: new Set(['get', 'list', 'loadAll', 'listPage', 'ping']),
 })
 ```
@@ -77,6 +106,7 @@ const channel = tabsChannel({ name: 'my-app:vault' })
 servePeerStore({
   channel,
   store: localStore,
+  token: inviteToken,
   leaderElection: { lockName: 'noy-db:peer-server:my-app:vault' },
 })
 ```
