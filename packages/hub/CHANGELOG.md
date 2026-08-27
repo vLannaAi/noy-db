@@ -1,5 +1,30 @@
 # Changelog — hub
 
+## 0.7.0-pre.8
+
+### Patch Changes
+
+- Say what is actually true about runtime dependencies (#1227).
+
+  Four places claimed zero runtime dependencies. Measured across all 57 packages, **51 have none** — but six do, and four of those are third-party:
+
+  | package                             | runtime dependency                                         |
+  | ----------------------------------- | ---------------------------------------------------------- |
+  | `@noy-db/as-xml`, `@noy-db/as-xlsx` | `fast-xml-parser`                                          |
+  | `@noy-db/in-devtools-tui`           | `ink`, `react`                                             |
+  | `create-noy-db`                     | its scaffolder toolchain                                   |
+  | `@noy-db/hub`                       | `@noy-db/attestation` — a sibling on the same version line |
+  | `@noy-db/in-nuxt`                   | `@noy-db/in-devtools` — likewise                           |
+
+  Corrected:
+
+  - **`@noy-db/hub`** — "Zero runtime dependencies" → _no third-party runtime dependencies to install_, naming `@noy-db/attestation` as the one runtime dependency. Also states plainly that `zod` is **vendored into the bundle** for the optional persisted-schema converter, loaded lazily, never executing unless you use that path — and that it will not appear in your lockfile. That last clause is the one an SBOM or audit process needs, and no manifest field carries it.
+  - **`@noy-db/as-xlsx`** — "Zero runtime dependencies" was **flatly false**; it depends on `fast-xml-parser`. The intent was "no heavyweight spreadsheet library", which is true and is now what it says.
+
+  Two other claims were checked and left alone because they are correct: `@noy-db/as-zip` and `@noy-db/on-totp` genuinely have no dependencies.
+
+  Documentation only. No code, dependency, or behaviour change — the manifests already said this; only the prose disagreed with them.
+
 ## 0.7.0-pre.6
 
 ### Patch Changes
