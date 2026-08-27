@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/in-svelte",
-  "version": "0.7.0-pre.8",
-  "description": "Svelte stores for noy-db \u2014 collectionStore / queryStore / syncStore backed by noy-db change events. Works with Svelte 4 store contract and Svelte 5 runes (via $store subscription interop).",
+  "version": "0.7.0-pre.9",
+  "description": "Svelte stores for noy-db — collectionStore / queryStore / syncStore backed by noy-db change events. Works with Svelte 4 store contract and Svelte 5 runes (via $store subscription interop).",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/in-svelte#readme",

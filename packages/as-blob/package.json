@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/as-blob",
-  "version": "0.7.0-pre.8",
-  "description": "Single-attachment plaintext export for noy-db \u2014 extracts one blob from BlobSet as native MIME bytes. Gated by the RFC #249 `assertCanExport('plaintext', \u2026)` gate; writes an audit-ledger entry on every call. Part of the @noy-db/as-* portable-artefact family (plaintext tier, document sub-family).",
+  "version": "0.7.0-pre.9",
+  "description": "Single-attachment plaintext export for noy-db — extracts one blob from BlobSet as native MIME bytes. Gated by the RFC #249 `assertCanExport('plaintext', …)` gate; writes an audit-ledger entry on every call. Part of the @noy-db/as-* portable-artefact family (plaintext tier, document sub-family).",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/as-blob#readme",

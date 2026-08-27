@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/at-macos-keychain",
-  "version": "0.7.0-pre.8",
-  "description": "macOS Keychain sealing key provider for noy-db managed-secret mode \u2014 AES-256-GCM under a 32-byte key stored in the user's login Keychain. Desktop-app provider in the at-* family; pairs with Touch ID via Keychain Access UI.",
+  "version": "0.7.0-pre.9",
+  "description": "macOS Keychain sealing key provider for noy-db managed-secret mode — AES-256-GCM under a 32-byte key stored in the user's login Keychain. Desktop-app provider in the at-* family; pairs with Touch ID via Keychain Access UI.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/at-macos-keychain#readme",
