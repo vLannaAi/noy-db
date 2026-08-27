@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/in-rest",
-  "version": "0.7.0-pre.8",
-  "description": "Framework-neutral REST API integration for noy-db \u2014 createRestHandler with Hono, Express, Fastify, and Nitro subpath adapters.",
+  "version": "0.7.0-pre.9",
+  "description": "Framework-neutral REST API integration for noy-db — createRestHandler with Hono, Express, Fastify, and Nitro subpath adapters.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/in-rest#readme",

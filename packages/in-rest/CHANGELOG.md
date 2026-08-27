@@ -1,5 +1,32 @@
 # @noy-db/in-rest
 
+## 0.7.0-pre.9
+
+### Patch Changes
+
+- Actually declare the framework peers that `peerDependenciesMeta` was annotating.
+
+  The published manifest through `0.7.0-pre.8` looked like this:
+
+  ```json
+  "peerDependencies":     { "@noy-db/hub": "0.7.0-pre.8" },
+  "peerDependenciesMeta": { "h3": {...}, "hono": {...}, "express": {...}, "fastify": {...} }
+  ```
+
+  **`peerDependenciesMeta` only annotates a peer that already exists in `peerDependencies` — it cannot declare one.** So all four entries were **inert**: npm never learned about the packages, consumers got no version range and no resolver signal, and nothing warned. The manifest meanwhile read as though the dependencies were declared and deliberately optional, which is why it survived review.
+
+  Three of the four are genuinely imported at runtime from adapter entry points — `adapters/express.ts`, `adapters/fastify.ts`, `adapters/hono.ts`.
+
+  Now declared as optional peers at the ranges the code is developed and tested against: `express@^5.0.0`, `fastify@^5.0.0`, `hono@^4.0.0`, `h3@^1.13.0`. The `peerDependenciesMeta` block is unchanged and now does what it was always meant to.
+
+  **Nothing breaks.** They were optional before by accident and are optional by declaration now; a consumer using the express adapter already has express. What changes is that npm can see them, warn on a genuinely incompatible version, and show them in the dependency tree.
+
+  Guarded by a new architecture invariant (`peer-meta-declared`) asserting that no `peerDependenciesMeta` entry may lack a matching `peerDependencies` entry — stated on the output condition rather than on the four names that happened to be found, and mutation-checked by re-introducing the defect.
+
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.7.0-pre.9
+
 ## 0.7.0-pre.8
 
 ### Patch Changes

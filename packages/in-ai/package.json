@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/in-ai",
-  "version": "0.7.0-pre.8",
-  "description": "LLM function-calling adapter for noy-db \u2014 expose ACL-scoped collections as tool definitions, then dispatch tool calls back to the vault. Format-agnostic (OpenAI, Anthropic, Vercel AI SDK).",
+  "version": "0.7.0-pre.9",
+  "description": "LLM function-calling adapter for noy-db — expose ACL-scoped collections as tool definitions, then dispatch tool calls back to the vault. Format-agnostic (OpenAI, Anthropic, Vercel AI SDK).",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/in-ai#readme",

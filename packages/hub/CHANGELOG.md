@@ -1,5 +1,65 @@
 # Changelog — hub
 
+## 0.7.0-pre.9
+
+### Minor Changes
+
+- Add an authenticated, comparable roster epoch (#1097).
+
+  A roster tag authenticates the roster's **contents** and makes no claim about being **current**. That gap is reachable without forging anything: there is no role-change API, so narrowing a user's standing means calling `grant` again with a lower role, and that write overwrites in place. The previous, broader file was legitimately minted by the vault — so a store that kept a copy can re-serve it. The KEK unwraps, the canary checks out, the tag verifies, and the replayed file **restores the higher role**, usably.
+
+  The rotation half of #1097 already shipped and converts live access back into stale access. It cannot touch the role, because role gates capabilities rather than keys.
+
+  ## What is new
+
+  - `KeyringFile.roster_epoch?: number`, bumped on every roster write and bound into `rosterCanonical`, so a store can neither edit nor strip it.
+  - `assertRosterEpochCurrent(found, expected, userId)` — refuses a keyring older than a floor the caller obtained **out of band**.
+  - Two `KeyringTamperedReason` codes: `roster-epoch-rewound` and `roster-epoch-absent`.
+
+  ## Why an out-of-band anchor
+
+  An epoch stored beside the roster is not an anchor — a store rewinding the roster rewinds the epoch with it. It becomes one only when compared against a value that reached the reader by a channel the store does not carry. **Hub owns the epoch and the comparison; who carries the expectation is deliberately the consumer's problem**, because hub cannot know which channel a deployment trusts.
+
+  Considered and rejected, recorded so they are not re-derived: **time** (defeats long rewinds, useless against fresh ones — and a narrowing replay is entirely the fresh case) and **the vault head** (circular: head buckets are read with a keyring-issued DEK, and a rewound roster renders as the benign `no-expectations` verdict).
+
+  ## Not a format break
+
+  Binding the epoch **conditionally** is what makes this additive. `stable()` drops `undefined`, so a keyring written before the epoch existed canonicalises byte-identically and its existing tag still verifies. Binding it as `?? null` — the shape every other optional field uses — would have failed every pre-existing tag and rendered every existing vault unopenable.
+
+  ## Opt-in, and absence is never zero
+
+  With no expected epoch this changes nothing for a caller. When one is supplied, a file carrying **no** epoch is refused as `roster-epoch-absent` rather than treated as epoch 0 — treating absence as zero would accept every pre-epoch file, which is exactly the replay the mechanism exists to refuse. `found > expected` is accepted: the anchor is a floor, not an equality, since a roster may legitimately have moved on since an invite was minted.
+
+  All thirteen roster-mint sites stamp the epoch before the tag is minted, and `writeKeyringFile` now refuses to write a keyring without one — an output-domain guard, so a future mint site cannot ship the field empty.
+
+### Patch Changes
+
+- Satellite hub peers now publish as a caret **range** instead of an exact version (#1228).
+
+  Every `@noy-db/*` satellite declared `peerDependencies['@noy-db/hub'] = "workspace:*"`, which **publishes as an exact version**:
+
+  ```
+  workspace:*   ->   "@noy-db/hub": "0.7.0-pre.8"     exact
+  workspace:^   ->   "@noy-db/hub": "^0.7.0-pre.8"    a range
+  ```
+
+  Exact peers make the satellite set co-installable **only when every member came from the same cut**. Measured against published packages:
+
+  ```
+  npm i @noy-db/as-csv@0.7.0-pre.6 @noy-db/in-vue@0.7.0-pre.5   ->  exit 1, ERESOLVE
+  npm i @noy-db/as-csv@0.7.0-pre.6 @noy-db/in-vue@0.7.0-pre.6   ->  exit 0
+  ```
+
+  No hub version satisfies two different exact peers, so any lag — a satellite not republished in a given release, or a consumer upgrading one package — made a pair uninstallable by name. Caret ranges are jointly satisfiable (`hub@pre.8` satisfies both `^pre.7` and `^pre.8`) and still stop at the next minor, so a satellite never claims to work against a hub line it has not seen.
+
+  ## The reason for the old form did not hold
+
+  The architecture rule mandated `workspace:*` because `workspace:^` "trips the changeset-cli pre-1.0 dep-propagation heuristic and forces unintended major bumps on every dependent". `release.mjs`'s own header contradicted that all along: the heuristic fires **"even with loose `workspace:*` constraints"**. The peer form never prevented the bumps — the normalizer does.
+
+  Verified rather than reasoned: a full `release:version` was run with all 50 satellites on `workspace:^`. The line advanced normally, the normalizer corrected the heuristic as usual, and every package landed on one version.
+
+  **Nothing breaks for existing consumers.** A range is strictly more permissive than the exact version it replaces, so anything that resolved before still resolves. The `peer-deps` architecture rule now requires `workspace:^` and is mutation-checked.
+
 ## 0.7.0-pre.8
 
 ### Patch Changes

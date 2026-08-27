@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/as-ndjson",
-  "version": "0.7.0-pre.8",
-  "description": "Newline-delimited JSON export for noy-db \u2014 streaming plaintext export suitable for data pipelines, warehouse ingestion, and jq pipelines. Gated by `vault.assertCanExport('plaintext', \u2026)`. Part of the @noy-db/as-* portable-artefact family (plaintext tier).",
+  "version": "0.7.0-pre.9",
+  "description": "Newline-delimited JSON export for noy-db — streaming plaintext export suitable for data pipelines, warehouse ingestion, and jq pipelines. Gated by `vault.assertCanExport('plaintext', …)`. Part of the @noy-db/as-* portable-artefact family (plaintext tier).",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/as-ndjson#readme",
