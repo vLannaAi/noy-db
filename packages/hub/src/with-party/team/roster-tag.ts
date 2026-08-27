@@ -51,7 +51,9 @@ export interface RosterTag { readonly iv: string; readonly data: string }
 export type RosterAuthorityFields = Pick<KeyringFile,
   'user_id' | 'role' | 'permissions' | 'granted_by' | 'expires_at' | 'export_capability' | 'import_capability'
   // #1115 — the DEK key SETS. Names only; see `rosterCanonical`.
-  | 'deks' | 'pending_deks'>
+  | 'deks' | 'pending_deks'
+  // #1097 — the monotonic roster epoch, bound CONDITIONALLY (see below).
+  | 'roster_epoch'>
 
 /** Stable stringify — sorts object keys recursively so key order never splits the tag. */
 function stable(value: unknown): string {
@@ -94,6 +96,23 @@ export function rosterCanonical(file: RosterAuthorityFields): string {
     expires_at: file.expires_at ?? null,
     export_capability: file.export_capability ?? null,
     import_capability: file.import_capability ?? null,
+    // #1097 — the roster epoch, bound ONLY WHEN PRESENT.
+    //
+    // The conditional spread is the entire backward-compatibility story, not a
+    // style choice. `stable()` drops `undefined`, so a file written before the
+    // epoch existed produces the byte-identical canonical string it always did
+    // and its roster tag still verifies. Writing `file.roster_epoch ?? null` —
+    // the shape every other optional field above uses — would have changed that
+    // string for every existing keyring, failed every existing tag, and
+    // rendered every existing vault unopenable. #1115 took exactly that cost
+    // deliberately; there is no reason to take it again for a field that can be
+    // additive.
+    //
+    // A PRESENT epoch is authenticated: stripping it changes the canonical and
+    // the tag stops verifying, so a store cannot downgrade a file to the
+    // no-epoch shape. It can only replay a file that genuinely never had one,
+    // which is why absence must read as UNKNOWN rather than as zero.
+    ...(file.roster_epoch !== undefined ? { roster_epoch: file.roster_epoch } : {}),
   })
 }
 

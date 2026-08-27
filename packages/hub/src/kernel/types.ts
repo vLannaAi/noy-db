@@ -1095,6 +1095,33 @@ export interface KeyringFile {
    * in the normal committed state.
    */
   readonly pending_deks?: Record<string, string>
+  /**
+   * Monotonic roster epoch (#1097).
+   *
+   * Bumped on every roster write and bound into `rosterCanonical`, so a store
+   * can neither edit nor strip it. It exists because a roster tag authenticates
+   * the roster's CONTENTS and makes no claim about being CURRENT: there is no
+   * role-change API, so narrowing a user's standing means calling `grant` again
+   * with a lower role, and that write overwrites in place. The previous,
+   * broader file was legitimately minted by this vault — so a store that kept a
+   * copy can re-serve it, the KEK unwraps, the canary checks out, the tag
+   * verifies, and the replayed file restores the OLD ROLE, usably.
+   *
+   * The epoch alone does not close that: a rewound file carries a rewound
+   * epoch, and the store controls both. It becomes an anchor only when compared
+   * against a value that reached the reader by a SECOND CHANNEL the store does
+   * not carry — an invite, a provisioning step. Hub owns the epoch and the
+   * comparison; who carries the expectation is deliberately the consumer's
+   * problem, because hub cannot know which channel a deployment trusts.
+   *
+   * OPTIONAL, and absent on every keyring written before this existed. Absence
+   * is **UNKNOWN, never zero** (see `assertRosterEpochCurrent`). Binding it
+   * conditionally is what keeps this additive: `stable()` drops `undefined`, so
+   * a file without an epoch canonicalises exactly as before and its existing
+   * tag still verifies. Binding it unconditionally would have failed every
+   * pre-existing keyring's tag and rendered every existing vault unopenable.
+   */
+  readonly roster_epoch?: number
   readonly salt: string
   readonly created_at: string
   readonly granted_by: string

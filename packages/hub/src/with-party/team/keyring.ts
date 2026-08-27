@@ -1,5 +1,6 @@
 import type { NoydbStore, KeyringFile, KeyringAuthenticator, Role, Permissions, GrantOptions, RevokeOptions, UpdateUserOptions, UserInfo, EncryptedEnvelope, ExportCapability, ExportFormat, ImportCapability, VaultPolicyOnDisk, UserEnvelope } from '../../kernel/types.js'
 import { NOYDB_KEYRING_VERSION } from '../../kernel/types.js'
+import { nextRosterEpoch } from './roster-epoch.js'
 import { USER_ENVELOPE_COLLECTION, ROSTER_KEY_ID, BLOB_ADDRESS_KEY_ID } from '../../kernel/constants.js'
 import { parseDekKey } from '../../kernel/tier-visibility.js' // #1125 — a tier slot names a key, not a collection
 import {
@@ -621,13 +622,16 @@ export async function createOwnerKeyring(
       [BLOB_ADDRESS_KEY_ID]: wrappedBlobAddressKey,
     },
   }
+  // #1097 — stamped BEFORE the tag is minted, so it lands inside the
+  // authenticated canonical and a store can neither edit nor strip it.
+  const withEpoch = { ...authorityWithDeks, roster_epoch: nextRosterEpoch(undefined) }
   const keyringFile: KeyringFile = {
     _noydb_keyring: NOYDB_KEYRING_VERSION,
-    ...authorityWithDeks,
+    ...withEpoch,
     salt: bufferToBase64(salt),
     created_at: new Date().toISOString(),
     canary,
-    roster_tag: await mintRosterTag(authorityWithDeks, rosterKey),
+    roster_tag: await mintRosterTag(withEpoch, rosterKey),
     // The presence of this block is what makes the keyring an echo keyring —
     // `deriveKekForKeyring` reads it to refuse a single-string unlock (AG-1).
     ...(typeof secret !== 'string'
@@ -860,15 +864,18 @@ export async function grant(
     ...(options.importCapability !== undefined && { import_capability: options.importCapability }),
   }
   const authorityWithDeks = { ...authority, deks: wrappedDeks } // #1115
+  // #1097 — stamped BEFORE the tag is minted, so it lands inside the
+  // authenticated canonical and a store can neither edit nor strip it.
+  const withEpoch = { ...authorityWithDeks, roster_epoch: nextRosterEpoch(previousGrantFound?.file.roster_epoch) }
   const keyringFile: KeyringFile = {
     _noydb_keyring: NOYDB_KEYRING_VERSION,
-    ...authorityWithDeks,
+    ...withEpoch,
     salt: bufferToBase64(newSalt),
     created_at: new Date().toISOString(),
     canary,
     // The grantee's own copy of the roster key rode in via the `_`-prefix
     // propagation loop above, so they can verify this tag on first unlock.
-    roster_tag: await mintRosterTag(authorityWithDeks, callerRosterKey),
+    roster_tag: await mintRosterTag(withEpoch, callerRosterKey),
   }
 
   await writeKeyringFile(store, vault, options.userId, keyringFile)
@@ -1477,7 +1484,10 @@ export async function updateKeyringIdentity(
     }),
     ...(options.permissions !== undefined && { permissions: options.permissions }),
   }
-  const next: KeyringFile = { ...edited, roster_tag: await mintRosterTag(edited, rosterKey) }
+  // #1097 — stamped BEFORE the tag is minted, so it lands inside the
+  // authenticated canonical and a store can neither edit nor strip it.
+  const withEpoch = { ...edited, roster_epoch: nextRosterEpoch(target.roster_epoch) }
+  const next: KeyringFile = { ...withEpoch, roster_tag: await mintRosterTag(withEpoch, rosterKey) }
 
   await writeKeyringFile(store, vault, options.userId, next)
 }
@@ -1919,9 +1929,12 @@ export async function rotateKeys(
       deks: updatedDeks,
       permissions: updatedPermissions,
     }
+    // #1097 — stamped BEFORE the tag is minted, so it lands inside the
+    // authenticated canonical and a store can neither edit nor strip it.
+    const withEpoch = { ...edited, roster_epoch: nextRosterEpoch(userKeyringFile.roster_epoch) }
     const updatedKeyring: KeyringFile = {
-      ...edited,
-      roster_tag: await mintRosterTag(edited, callerRosterKey),
+      ...withEpoch,
+      roster_tag: await mintRosterTag(withEpoch, callerRosterKey),
     }
 
     await writeKeyringFile(store, vault, userId, updatedKeyring)
@@ -2007,13 +2020,16 @@ export async function changeSecret(
     ...(existingAuthority?.import_capability !== undefined && { import_capability: existingAuthority.import_capability }),
   }
   const authorityWithDeks = { ...authority, deks: wrappedDeks } // #1115
+  // #1097 — stamped BEFORE the tag is minted, so it lands inside the
+  // authenticated canonical and a store can neither edit nor strip it.
+  const withEpoch = { ...authorityWithDeks, roster_epoch: nextRosterEpoch(existingAuthority?.roster_epoch) }
   const keyringFile: KeyringFile = {
     _noydb_keyring: NOYDB_KEYRING_VERSION,
-    ...authorityWithDeks,
+    ...withEpoch,
     salt: bufferToBase64(newSalt),
     created_at: new Date().toISOString(),
     canary,
-    roster_tag: await mintRosterTag(authorityWithDeks, rosterKey),
+    roster_tag: await mintRosterTag(withEpoch, rosterKey),
   }
 
   await writeKeyringFile(store, vault, keyring.userId, keyringFile)
@@ -2184,15 +2200,18 @@ export async function buildRecipientKeyringFile(
       : {}),
   }
   const authorityWithDeks = { ...authority, deks: wrappedDeks } // #1115
+  // #1097 — stamped BEFORE the tag is minted, so it lands inside the
+  // authenticated canonical and a store can neither edit nor strip it.
+  const withEpoch = { ...authorityWithDeks, roster_epoch: nextRosterEpoch(undefined) }
   return {
     _noydb_keyring: NOYDB_KEYRING_VERSION,
-    ...authorityWithDeks,
+    ...withEpoch,
     salt: bufferToBase64(newSalt),
     created_at: new Date().toISOString(),
     canary,
     // The recipient's copy of the roster key rode in via the `_`-prefix
     // propagation loop above, so the slot verifies on first unlock.
-    roster_tag: await mintRosterTag(authorityWithDeks, rosterKey),
+    roster_tag: await mintRosterTag(withEpoch, rosterKey),
     // The presence of this block is what makes the recipient's slot an
     // echo keyring — mirrors `createOwnerKeyring`'s same dance so the
     // ceremony (prompt → echo → key) travels with the pod, not just a
@@ -2602,13 +2621,16 @@ export async function persistKeyring(
     deks: wrappedDeks,
     ...(Object.keys(wrappedPending).length > 0 ? { pending_deks: wrappedPending } : {}),
   }
+  // #1097 — stamped BEFORE the tag is minted, so it lands inside the
+  // authenticated canonical and a store can neither edit nor strip it.
+  const withEpoch = { ...authorityWithDeks, roster_epoch: nextRosterEpoch(existingFound?.file.roster_epoch) }
   const keyringFile: KeyringFile = {
     _noydb_keyring: NOYDB_KEYRING_VERSION,
-    ...authorityWithDeks,
+    ...withEpoch,
     salt: bufferToBase64(keyring.salt),
     created_at: existingCreatedAt ?? new Date().toISOString(),
     canary,
-    roster_tag: await mintRosterTag(authorityWithDeks, rosterKey),
+    roster_tag: await mintRosterTag(withEpoch, rosterKey),
     ...(keyring.authenticators.length > 0 && { authenticators: keyring.authenticators }),
     ...(keyring.policy !== undefined && { policy: keyring.policy }),
     ...(existingEcho !== undefined && { echo: existingEcho }),
@@ -2796,6 +2818,21 @@ async function writeKeyringFile(
   userId: string,
   keyringFile: KeyringFile,
 ): Promise<void> {
+  // #1097 — no keyring may be WRITTEN without a roster epoch.
+  //
+  // Asserted on the OUTPUT rather than at each mint site. The epoch has to be
+  // set BEFORE `mintRosterTag` so it lands inside the authenticated canonical,
+  // and thirteen places build an authority object. Enumerating them by grep is
+  // how one gets missed — and a missed site writes a file the replay check
+  // cannot anchor: a field that ships empty and stays empty, inert AND
+  // indistinguishable from "nothing to report".
+  if (keyringFile.roster_epoch === undefined) {
+    throw new Error(
+      `writeKeyringFile: refusing to write a keyring for "${userId}" with no roster_epoch (#1097). ` +
+      'Stamp it with nextRosterEpoch(previous) onto the authority object BEFORE minting the roster ' +
+      'tag, so it is covered by rosterCanonical.',
+    )
+  }
   const envelope = buildRecordEnvelope(
     { collection: '_keyring', id: userId, version: 1 },
     { iv: '', data: JSON.stringify(keyringFile) },

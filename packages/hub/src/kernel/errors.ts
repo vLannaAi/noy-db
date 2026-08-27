@@ -291,6 +291,23 @@ export type KeyringTamperedReason =
    */
   | 'format-superseded'
   /**
+   * The caller supplied an expected roster epoch and the file carries NONE
+   * (#1097). Distinct from `roster-epoch-rewound`, and the distinction is the
+   * point: this is what a replay of a PRE-EPOCH file looks like. Reporting it
+   * as a rewind would name an attack that may not have happened; collapsing it
+   * into "fine" would accept exactly the replay the epoch exists to refuse.
+   * Absence is UNKNOWN, never zero.
+   */
+  | 'roster-epoch-absent'
+  /**
+   * The file's roster epoch is OLDER than the floor the caller obtained out of
+   * band (#1097) — a rewound roster, re-served by a store that kept a copy.
+   * The one reason in this union a store cannot produce by editing: the epoch
+   * is bound into `rosterCanonical`, so a rewound value arrives only on a file
+   * that genuinely carried it.
+   */
+  | 'roster-epoch-rewound'
+  /**
    * The file did not parse at all (#1121). Never thrown by
    * `assertRosterAuthenticated` — which cannot reach a file it could not read —
    * but reported by `verifyRoster` and accepted by `quarantineKeyring`, because
@@ -348,6 +365,23 @@ function keyringTamperedMessage(
 ): string {
   const head = `Keyring for "${userId}" failed roster authentication (${reason}). `
   switch (reason) {
+    case 'roster-epoch-absent':
+      return (
+        head +
+        'The caller expected a roster epoch and this keyring carries none. That is what a replay ' +
+        'of a keyring written before epochs existed looks like — it is NOT evidence of an attack ' +
+        'on its own, and it is not treated as epoch zero either. Re-issue the credential that ' +
+        'carries the expected epoch, or open without one if this vault predates the mechanism.'
+      )
+    case 'roster-epoch-rewound':
+      return (
+        head +
+        'This keyring is OLDER than the roster epoch the caller obtained out of band — the store ' +
+        'served a superseded roster. A narrowing re-grant overwrites in place, so an earlier, ' +
+        'BROADER file was legitimately minted by this vault and replaying it restores the old ' +
+        'role. Refusing is the point. The epoch is bound into the authenticated canonical, so ' +
+        'this value was not edited by the store; it came from a genuine, superseded file.'
+      )
     case 'canary-missing':
     case 'roster-key-missing':
     case 'roster-tag-missing':
