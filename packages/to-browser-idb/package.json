@@ -38,7 +38,7 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@noy-db/hub": "workspace:*"
+    "@noy-db/hub": "workspace:^"
   },
   "devDependencies": {
     "@noy-db/hub": "workspace:*",

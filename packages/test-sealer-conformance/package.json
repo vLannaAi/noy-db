@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/test-sealer-conformance",
   "version": "0.7.0-pre.8",
-  "description": "Parameterized contract tests for noy-db sealing-key providers — the conformance suite every NoydbSealer implementation must pass",
+  "description": "Parameterized contract tests for noy-db sealing-key providers \u2014 the conformance suite every NoydbSealer implementation must pass",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/test-sealer-conformance#readme",
@@ -37,7 +37,7 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@noy-db/hub": "workspace:*",
+    "@noy-db/hub": "workspace:^",
     "vitest": "^3.0.0"
   },
   "devDependencies": {

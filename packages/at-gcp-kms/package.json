@@ -38,7 +38,7 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@noy-db/hub": "workspace:*",
+    "@noy-db/hub": "workspace:^",
     "@google-cloud/kms": "^4.0.0"
   },
   "devDependencies": {

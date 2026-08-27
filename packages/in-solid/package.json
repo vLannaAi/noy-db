@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/in-solid",
   "version": "0.7.0-pre.8",
-  "description": "SolidJS signal primitives for noy-db — createCollectionSignal, createQuerySignal, createSyncSignal backed by noy-db change events.",
+  "description": "SolidJS signal primitives for noy-db \u2014 createCollectionSignal, createQuerySignal, createSyncSignal backed by noy-db change events.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/in-solid#readme",
@@ -38,7 +38,7 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@noy-db/hub": "workspace:*",
+    "@noy-db/hub": "workspace:^",
     "solid-js": "^1.8.0"
   },
   "devDependencies": {

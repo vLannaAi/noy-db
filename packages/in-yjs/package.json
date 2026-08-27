@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/in-yjs",
   "version": "0.7.0-pre.8",
-  "description": "Yjs Y.Doc interop for noy-db — collaborative rich-text fields with encrypted-at-rest Yjs state",
+  "description": "Yjs Y.Doc interop for noy-db \u2014 collaborative rich-text fields with encrypted-at-rest Yjs state",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/in-yjs#readme",
@@ -38,7 +38,7 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@noy-db/hub": "workspace:*",
+    "@noy-db/hub": "workspace:^",
     "yjs": ">=13.0.0"
   },
   "devDependencies": {
