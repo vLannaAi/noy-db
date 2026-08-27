@@ -17,7 +17,7 @@ An encrypted, offline-first, **serverless** document store. The library lives in
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-green.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-blue.svg)](https://www.typescriptlang.org)
-[![Runtime Deps](https://img.shields.io/badge/Runtime_Deps-0-brightgreen.svg)](#zero-dependencies)
+[![Runtime Deps](https://img.shields.io/badge/Runtime_Deps-0_in_51%2F57_packages-brightgreen.svg)](#zero-dependencies)
 [![Crypto](https://img.shields.io/badge/Crypto-Web_Crypto_API-purple.svg)](#encryption)
 
 </div>
@@ -343,9 +343,11 @@ noy-db is an international open-source project. The first production consumer wa
 ---
 
 <a name="zero-dependencies"></a>
-## Zero dependencies
+## Dependencies
 
-Every package has zero runtime dependencies. SDKs like `@aws-sdk/client-dynamodb`, `ssh2`, `pg`, `mysql2`, `zustand`, `react`, `vue`, `@tanstack/query-core` are peer dependencies — you already have them in your app.
+Almost every package has zero runtime dependencies, and none pulls in a heavyweight SDK. Things like `@aws-sdk/client-dynamodb`, `ssh2`, `pg`, `mysql2`, `zustand`, `react`, `vue`, `@tanstack/query-core` are **peer** dependencies — you already have them in your app.
+
+The exceptions, stated rather than rounded off: `as-xml` and `as-xlsx` depend on `fast-xml-parser`; `in-devtools-tui` on `ink` and `react`; `create-noy-db` on its scaffolder toolchain. `hub` and `in-nuxt` depend only on a sibling `@noy-db/*` package on the same version line.
 
 The hub package itself uses only `crypto.subtle`, which is built into every target runtime (Node ≥ 18, Bun, Deno, modern browsers, Cloudflare Workers).
 

@@ -76,7 +76,10 @@ const all = await invoices.list()
 - **Multi-user access control** — owner, admin, operator, viewer, client roles
 - **Offline-first sync** — push/pull with optimistic concurrency on encrypted envelopes
 - **Audit history** — full-copy snapshots with `history()`, `diff()`, `revert()`, `pruneHistory()`
-- **Zero runtime dependencies**
+- **No third-party runtime dependencies to install** — the only runtime dependency is
+  `@noy-db/attestation`, on the same version line. (`zod` is vendored into the bundle for the
+  optional persisted-schema converter and loaded lazily; it never executes unless you use that
+  path, and it does not appear in your lockfile.)
 
 ## Cross-vault queries
 
