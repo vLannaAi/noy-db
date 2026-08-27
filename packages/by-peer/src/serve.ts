@@ -37,14 +37,47 @@ export interface MinimalLockManager {
   ): Promise<T>
 }
 
+/**
+ * Compare in time independent of how many leading characters match.
+ *
+ * A plain `===` leaks the length of the shared prefix through timing, which
+ * over a channel an attacker can call repeatedly is enough to recover a token
+ * character by character. Length is not secret here (it is fixed by the invite
+ * format), so comparing lengths first is fine; the CONTENT comparison must not
+ * short-circuit.
+ */
+function constantTimeEquals(a: string | undefined, b: string): boolean {
+  if (a === undefined || a.length !== b.length) return false
+  let diff = 0
+  for (let i = 0; i < b.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  return diff === 0
+}
+
 export interface ServePeerStoreOptions {
   /** The duplex channel from the remote peer. */
   readonly channel: PeerChannel
   /** The local store to serve. */
   readonly store: NoydbStore
   /**
+   * Bearer token from the invite. Every request must present it (milestone 52).
+   *
+   * ⚠️ FAIL-CLOSED: when this is omitted, EVERY request is refused. That
+   * mirrors `in-rest`, where no `authorize` means 401 on everything, and it is
+   * a deliberate reversal — this function used to serve the whole store to
+   * anyone who reached the channel.
+   *
+   * Holding the channel used to BE the credential, which is defensible for a
+   * 1:1 invite-based session share. It stops being defensible the moment a
+   * channel stops meaning "I invited this person" — which is exactly what a
+   * multi-peer topology does.
+   */
+  readonly token?: string
+  /**
    * Optional method whitelist. When provided, any method not in the set
    * is rejected with "method not allowed". Useful for read-only peers.
+   *
+   * NOT authentication, and never was: it says which of the six methods may be
+   * called, not by whom. It composes with `token` rather than replacing it.
    */
   readonly allow?: ReadonlySet<string>
   /**
@@ -109,9 +142,19 @@ export function servePeerStore(opts: ServePeerStoreOptions): () => void {
  * and inside the lock callback when on.
  */
 function startServing(opts: ServePeerStoreOptions): () => void {
-  const { store, channel, allow } = opts
+  const { store, channel, allow, token } = opts
 
-  return serveRpc(channel, async (method, args) => {
+  return serveRpc(channel, async (method, args, auth) => {
+    // Fail-closed, and BEFORE anything else — a refusal that ran after the
+    // store call would be worse than no refusal: the caller sees an error and
+    // the write landed anyway.
+    if (token === undefined || !constantTimeEquals(auth, token)) {
+      throw new Error(
+        'Unauthorized: this peer store requires the bearer token from the invite. ' +
+        'Pass it as `servePeerStore({ token })` on the server and `peerStore({ token })` ' +
+        'on the client. A server with no token configured serves nobody, by design.',
+      )
+    }
     if (!CORE_METHODS.has(method)) {
       throw new Error(`Unknown RPC method: ${method}`)
     }

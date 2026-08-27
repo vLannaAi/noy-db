@@ -26,10 +26,10 @@ async function hostAndGuest() {
   const hostVault = await hostDb.openVault('niwat')
 
   const [hostCh, guestCh] = pairInMemory()
-  servePeerStore({ channel: hostCh, store: hostStore })
+  servePeerStore({ channel: hostCh, store: hostStore, token: 'test-invite-token' })
 
   const guestDb = await createNoydb({
-    store: peerStore({ channel: guestCh }), user: 'ann', secret: SECRET, validateSecret: false,
+    store: peerStore({ channel: guestCh, token: 'test-invite-token', token: 'test-invite-token' }), user: 'ann', secret: SECRET, validateSecret: false,
   })
   const guestVault = await guestDb.openVault('niwat')
   return { hostStore, hostVault, guestVault }
@@ -89,8 +89,8 @@ describe('#1026 — CAS through a peerStore', () => {
   it('a REAL version conflict still throws — the fix must not disable CAS', async () => {
     const { hostStore } = await hostAndGuest()
     const [hostCh, guestCh] = pairInMemory()
-    servePeerStore({ channel: hostCh, store: hostStore })
-    const remote = peerStore({ channel: guestCh })
+    servePeerStore({ channel: hostCh, store: hostStore, token: 'test-invite-token' })
+    const remote = peerStore({ channel: guestCh, token: 'test-invite-token', token: 'test-invite-token' })
 
     const envelope = { _noydb: 1 as const, _v: 1, _ts: new Date().toISOString(), _iv: '', _data: '{}' }
     await remote.put('niwat', 'raw', 'r1', envelope)

@@ -18,8 +18,8 @@ describe('peerStore + servePeerStore', () => {
   it('round-trips all six core methods through an in-memory channel pair', async () => {
     const [a, b] = pairInMemory()
     const remote = toMemory()
-    const dispose = servePeerStore({ channel: b, store: remote })
-    const local = peerStore({ channel: a })
+    const dispose = servePeerStore({ channel: b, store: remote, token: 'test-invite-token' })
+    const local = peerStore({ channel: a, token: 'test-invite-token', token: 'test-invite-token' })
 
     const env = envelope(1)
     await local.put('v1', 'c1', 'r1', env)
@@ -45,8 +45,8 @@ describe('peerStore + servePeerStore', () => {
   it('re-hydrates ConflictError with .version across the wire', async () => {
     const [a, b] = pairInMemory()
     const remote = toMemory()
-    const dispose = servePeerStore({ channel: b, store: remote })
-    const local = peerStore({ channel: a })
+    const dispose = servePeerStore({ channel: b, store: remote, token: 'test-invite-token' })
+    const local = peerStore({ channel: a, token: 'test-invite-token', token: 'test-invite-token' })
 
     await local.put('v1', 'c1', 'r1', envelope(1))
 
@@ -65,10 +65,10 @@ describe('peerStore + servePeerStore', () => {
   it('surfaces unknown remote methods as an Error', async () => {
     const [a, b] = pairInMemory()
     const remote = toMemory()
-    const dispose = servePeerStore({ channel: b, store: remote })
+    const dispose = servePeerStore({ channel: b, store: remote, token: 'test-invite-token' })
 
     const { createRpcClient } = await import('../src/index.js')
-    const rpc = createRpcClient(a)
+    const rpc = createRpcClient(a, { token: 'test-invite-token' })
     await expect(rpc.call('noSuchMethod', [])).rejects.toThrow(/Unknown RPC method/)
 
     rpc.dispose()
@@ -82,10 +82,11 @@ describe('peerStore + servePeerStore', () => {
 
     const dispose = servePeerStore({
       channel: b,
+      token: 'test-invite-token',
       store: remote,
       allow: new Set(['get', 'list', 'loadAll', 'ping']),
     })
-    const local = peerStore({ channel: a })
+    const local = peerStore({ channel: a, token: 'test-invite-token', token: 'test-invite-token' })
 
     expect(await local.get('v1', 'c1', 'r1')).toEqual(envelope(1))
     await expect(local.put('v1', 'c1', 'r2', envelope(1))).rejects.toThrow(/not allowed/)
@@ -98,7 +99,7 @@ describe('peerStore + servePeerStore', () => {
     const [a, b] = pairInMemory()
     const remote = toMemory()
     // Don't wire serve on b — we want the call to hang.
-    const local = peerStore({ channel: a, timeoutMs: 60_000 })
+    const local = peerStore({ channel: a, token: 'test-invite-token', timeoutMs: 60_000 })
 
     const pending = local.get('v1', 'c1', 'r1')
     b.close()
@@ -112,7 +113,7 @@ describe('peerStore + servePeerStore', () => {
 
   it('times out when the remote never responds', async () => {
     const [a] = pairInMemory()
-    const local = peerStore({ channel: a, timeoutMs: 50 })
+    const local = peerStore({ channel: a, token: 'test-invite-token', timeoutMs: 50 })
 
     await expect(local.get('v1', 'c1', 'r1')).rejects.toThrow(/timed out/)
     local.dispose()

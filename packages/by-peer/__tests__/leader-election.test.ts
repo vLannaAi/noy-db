@@ -135,9 +135,9 @@ describe('servePeerStore({ leaderElection }) — issue #3', () => {
     const [, c] = pairInMemory()
     const [, d] = pairInMemory()
 
-    const dispose1 = servePeerStore({ channel: b, store: remote, leaderElection: { lockName: 'L', locks: tracker } })
-    const dispose2 = servePeerStore({ channel: c, store: remote, leaderElection: { lockName: 'L', locks: tracker } })
-    const dispose3 = servePeerStore({ channel: d, store: remote, leaderElection: { lockName: 'L', locks: tracker } })
+    const dispose1 = servePeerStore({ channel: b, store: remote, token: 'test-invite-token', leaderElection: { lockName: 'L', locks: tracker } })
+    const dispose2 = servePeerStore({ channel: c, store: remote, token: 'test-invite-token', leaderElection: { lockName: 'L', locks: tracker } })
+    const dispose3 = servePeerStore({ channel: d, store: remote, token: 'test-invite-token', leaderElection: { lockName: 'L', locks: tracker } })
 
     await flushMicrotasks()
 
@@ -147,7 +147,7 @@ describe('servePeerStore({ leaderElection }) — issue #3', () => {
 
     // The leader (server 1) responds to the client; we verify by routing
     // through its dedicated pair.
-    const client = peerStore({ channel: a })
+    const client = peerStore({ channel: a, token: 'test-invite-token', token: 'test-invite-token' })
     await remote.put('v', 'c', 'r1', envelope(1))
     expect(await client.get('v', 'c', 'r1')).toEqual(envelope(1))
 
@@ -165,9 +165,9 @@ describe('servePeerStore({ leaderElection }) — issue #3', () => {
     const [, c] = pairInMemory()
     const [, d] = pairInMemory()
 
-    const dispose1 = servePeerStore({ channel: b, store: remote, leaderElection: { lockName: 'L', locks: tracker } })
-    const dispose2 = servePeerStore({ channel: c, store: remote, leaderElection: { lockName: 'L', locks: tracker } })
-    const dispose3 = servePeerStore({ channel: d, store: remote, leaderElection: { lockName: 'L', locks: tracker } })
+    const dispose1 = servePeerStore({ channel: b, store: remote, token: 'test-invite-token', leaderElection: { lockName: 'L', locks: tracker } })
+    const dispose2 = servePeerStore({ channel: c, store: remote, token: 'test-invite-token', leaderElection: { lockName: 'L', locks: tracker } })
+    const dispose3 = servePeerStore({ channel: d, store: remote, token: 'test-invite-token', leaderElection: { lockName: 'L', locks: tracker } })
 
     await flushMicrotasks()
     expect(tracker.acquisitions()).toBe(1)
@@ -196,22 +196,22 @@ describe('servePeerStore({ leaderElection }) — issue #3', () => {
     const [client2Ch, server2Ch] = pairInMemory()
     const [client3Ch, server3Ch] = pairInMemory()
 
-    const dispose1 = servePeerStore({ channel: server1Ch, store: remote, leaderElection: { lockName: 'L', locks } })
-    const dispose2 = servePeerStore({ channel: server2Ch, store: remote, leaderElection: { lockName: 'L', locks } })
-    const dispose3 = servePeerStore({ channel: server3Ch, store: remote, leaderElection: { lockName: 'L', locks } })
+    const dispose1 = servePeerStore({ channel: server1Ch, store: remote, token: 'test-invite-token', leaderElection: { lockName: 'L', locks } })
+    const dispose2 = servePeerStore({ channel: server2Ch, store: remote, token: 'test-invite-token', leaderElection: { lockName: 'L', locks } })
+    const dispose3 = servePeerStore({ channel: server3Ch, store: remote, token: 'test-invite-token', leaderElection: { lockName: 'L', locks } })
 
     await flushMicrotasks()
 
     // Server 1 (leader) answers normally.
-    const client1 = peerStore({ channel: client1Ch })
+    const client1 = peerStore({ channel: client1Ch, token: 'test-invite-token', token: 'test-invite-token' })
     expect(await client1.get('v', 'c', 'r1')).toEqual(envelope(1))
 
     // Servers 2 and 3 are queued behind the lock — their channels have no
     // RPC handler attached. A call there will hang until timeout.
-    const client2 = peerStore({ channel: client2Ch, timeoutMs: 50 })
+    const client2 = peerStore({ channel: client2Ch, token: 'test-invite-token', timeoutMs: 50 })
     await expect(client2.get('v', 'c', 'r1')).rejects.toThrow(/timed out/)
 
-    const client3 = peerStore({ channel: client3Ch, timeoutMs: 50 })
+    const client3 = peerStore({ channel: client3Ch, token: 'test-invite-token', timeoutMs: 50 })
     await expect(client3.get('v', 'c', 'r1')).rejects.toThrow(/timed out/)
 
     client1.dispose()
@@ -230,9 +230,9 @@ describe('servePeerStore({ leaderElection }) — issue #3', () => {
     const [, c] = pairInMemory()
 
     // Server 1 gets the lock first.
-    const dispose1 = servePeerStore({ channel: b, store: remote, leaderElection: { lockName: 'L', locks: tracker } })
+    const dispose1 = servePeerStore({ channel: b, store: remote, token: 'test-invite-token', leaderElection: { lockName: 'L', locks: tracker } })
     // Server 2 is queued.
-    const dispose2 = servePeerStore({ channel: c, store: remote, leaderElection: { lockName: 'L', locks: tracker } })
+    const dispose2 = servePeerStore({ channel: c, store: remote, token: 'test-invite-token', leaderElection: { lockName: 'L', locks: tracker } })
 
     await flushMicrotasks()
     expect(tracker.acquisitions()).toBe(1)
@@ -254,8 +254,8 @@ describe('servePeerStore({ leaderElection }) — issue #3', () => {
     await remote.put('v', 'c', 'r1', envelope(1))
 
     const [a, b] = pairInMemory()
-    const dispose = servePeerStore({ channel: b, store: remote })
-    const client = peerStore({ channel: a })
+    const dispose = servePeerStore({ channel: b, store: remote, token: 'test-invite-token' })
+    const client = peerStore({ channel: a, token: 'test-invite-token', token: 'test-invite-token' })
 
     expect(await client.get('v', 'c', 'r1')).toEqual(envelope(1))
 
@@ -276,7 +276,7 @@ describe('servePeerStore({ leaderElection }) — issue #3', () => {
     const remote = toMemory()
     const [, b] = pairInMemory()
     expect(() =>
-      servePeerStore({ channel: b, store: remote, leaderElection: { lockName: 'L' } }),
+      servePeerStore({ channel: b, store: remote, token: 'test-invite-token', leaderElection: { lockName: 'L' } }),
     ).toThrow(/Web Locks API/)
   })
 })
