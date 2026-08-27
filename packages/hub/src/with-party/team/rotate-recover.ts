@@ -50,6 +50,7 @@ import {
 import type { UnlockedKeyring } from './keyring.js'
 import { mintKeyringCanary, deriveKekForKeyring, readKeyringFile } from './keyring.js'
 import { assertRosterAuthenticated, mintRosterTag } from './roster-tag.js'
+import { nextRosterEpoch } from './roster-epoch.js'
 import { ROSTER_KEY_ID } from '../../kernel/constants.js'
 import { buildEchoBlock } from './echo-secret.js'
 import type { NoydbDeviceSeal } from './device-seal.js'
@@ -402,9 +403,12 @@ export async function rotateSecret(
     canary,
     ...(await echoFieldForNewSecret(input.newSecret, input.echoOptions)),
   }
+  // #1097 — stamped BEFORE the tag is minted, so it lands inside the
+  // authenticated canonical and a store can neither edit nor strip it.
+  const withEpoch = { ...rebuilt, roster_epoch: nextRosterEpoch(found?.file.roster_epoch) }
   const next: KeyringFile = {
-    ...rebuilt,
-    roster_tag: await mintRosterTag(rebuilt, requireRecoveredRosterKey(deks)),
+    ...withEpoch,
+    roster_tag: await mintRosterTag(withEpoch, requireRecoveredRosterKey(deks)),
   }
 
   await writeKeyringFile(store, vault, userId, next)
@@ -720,9 +724,12 @@ async function recoverViaPaperCode(
     canary,
     ...(await echoFieldForNewSecret(input.newSecret)),
   }
+  // #1097 — stamped BEFORE the tag is minted, so it lands inside the
+  // authenticated canonical and a store can neither edit nor strip it.
+  const withEpoch = { ...rebuilt, roster_epoch: nextRosterEpoch(found?.file.roster_epoch) }
   const next: KeyringFile = {
-    ...rebuilt,
-    roster_tag: await mintRosterTag(rebuilt, requireRecoveredRosterKey(deks)),
+    ...withEpoch,
+    roster_tag: await mintRosterTag(withEpoch, requireRecoveredRosterKey(deks)),
   }
 
   // Burn first, then rewrite the keyring. The two writes are not
@@ -897,9 +904,12 @@ async function recoverViaShamir(
     canary,
     ...(await echoFieldForNewSecret(input.newSecret)),
   }
+  // #1097 — stamped BEFORE the tag is minted, so it lands inside the
+  // authenticated canonical and a store can neither edit nor strip it.
+  const withEpoch = { ...rebuilt, roster_epoch: nextRosterEpoch(file.roster_epoch) }
   const next: KeyringFile = {
-    ...rebuilt,
-    roster_tag: await mintRosterTag(rebuilt, requireRecoveredRosterKey(recoveredDeks)),
+    ...withEpoch,
+    roster_tag: await mintRosterTag(withEpoch, requireRecoveredRosterKey(recoveredDeks)),
   }
 
   // No burn: Shamir entries persist across recoveries. Explicit
@@ -926,6 +936,21 @@ async function writeKeyringFile(
   userId: string,
   file: KeyringFile,
 ): Promise<void> {
+  // #1097 — no keyring may be WRITTEN without a roster epoch.
+  //
+  // Asserted on the OUTPUT rather than at each mint site. The epoch has to be
+  // set BEFORE `mintRosterTag` so it lands inside the authenticated canonical,
+  // and thirteen places build an authority object. Enumerating them by grep is
+  // how one gets missed — and a missed site writes a file the replay check
+  // cannot anchor: a field that ships empty and stays empty, inert AND
+  // indistinguishable from "nothing to report".
+  if (file.roster_epoch === undefined) {
+    throw new Error(
+      `writeKeyringFile: refusing to write a keyring for "${userId}" with no roster_epoch (#1097). ` +
+      'Stamp it with nextRosterEpoch(previous) onto the authority object BEFORE minting the roster ' +
+      'tag, so it is covered by rosterCanonical.',
+    )
+  }
   const envelope = buildRecordEnvelope(
     { collection: '_keyring', id: userId, version: 1 },
     { iv: '', data: JSON.stringify(file) },
