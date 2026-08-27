@@ -1,5 +1,14 @@
 # @noy-db/in-devtools-tui
 
+## 0.7.0-pre.8
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.7.0-pre.8
+  - @noy-db/in-devtools@0.7.0-pre.8
+  - @noy-db/to-meter@0.7.0-pre.8
+
 ## 0.7.0-pre.6
 
 ### Patch Changes

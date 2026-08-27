@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/test-adapter-conformance",
-  "version": "0.7.0-pre.7",
+  "version": "0.7.0-pre.8",
   "description": "Parameterized adapter contract tests for noy-db stores — the conformance suite every NoydbStore implementation must pass",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
