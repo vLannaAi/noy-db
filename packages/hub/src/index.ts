@@ -717,6 +717,18 @@ export { mintWrappedDeksBlob, unwrapDeksFromBlob } from './with-party/team/wrapp
 // wrap-DEKs slot is such a path, so the chokepoint is part of the published
 // surface rather than hub-internal.
 export { assertRosterAuthenticated } from './with-party/team/roster-tag.js'
+/**
+ * #1097 — the caller-side roster-epoch floor check.
+ *
+ * Exported HERE and not only from `/team`, because the comparison is the one
+ * part of the mechanism that application code performs: hub stamps and binds
+ * the epoch, but the expectation arrives by a second channel hub does not
+ * carry, so only the caller can supply it. A check the consumer cannot import
+ * is not a check — `0.7.0-pre.9` shipped this function in `dist/**` and
+ * exported it from no entry point at all, which is #1224's class one step
+ * worse: that one was reachable from the wrong seam, this one from none.
+ */
+export { assertRosterEpochCurrent, nextRosterEpoch } from './with-party/team/roster-epoch.js'
 export type { WrappedDeksBlob } from './with-party/team/wrapped-deks.js'
 
 // Managed-secret mode — rubber-hose-resistant vaults where
