@@ -20,9 +20,9 @@ export default defineNuxtConfig({
   modules: ['@noy-db/in-nuxt'],
 
   noydb: {
-    adapter: 'browser',
+    store: 'to-browser-idb',   // a HINT for the runtime plugin; you can always construct your own store
     pinia: true,
-    sync: { adapter: 'dynamo', table: 'noydb-prod', region: 'ap-southeast-1' },
+    sync: { store: 'to-aws-dynamo', table: 'noydb-prod', region: 'ap-southeast-1' },
     auth: { mode: 'biometric', sessionTimeout: '15m' },
   },
 })

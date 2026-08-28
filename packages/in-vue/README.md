@@ -15,16 +15,20 @@ pnpm add @noy-db/hub @noy-db/to-browser-idb @noy-db/in-vue
 ```ts
 // main.ts
 import { createApp } from 'vue'
+import { createNoydb } from '@noy-db/hub'
 import { NoydbPlugin } from '@noy-db/in-vue'
 import { toBrowserIdb } from '@noy-db/to-browser-idb'
 import App from './App.vue'
 
-createApp(App)
-  .use(NoydbPlugin, {
-    adapter: toBrowserIdb({ obfuscate: true }),
-    userId: 'alice',
-  })
-  .mount('#app')
+// Construct the instance yourself — the plugin PROVIDES it to components,
+// it does not build one. `NoydbPluginOptions` has exactly one key.
+const db = await createNoydb({
+  store: toBrowserIdb({ obfuscate: true }),
+  user: 'alice',
+  secret: userSecret,
+})
+
+createApp(App).use(NoydbPlugin, { instance: db }).mount('#app')
 ```
 
 ## Composables
@@ -35,22 +39,23 @@ import { useNoydb, useCollection, useSync } from '@noy-db/in-vue'
 
 type Invoice = { id: string; amount: number; customer: string }
 
-const { db, unlock, locked } = useNoydb()
-const { items, put, remove } = useCollection<Invoice>('C101', 'invoices')
-const { push, pull, status } = useSync()
-
-async function login(secret: string) {
-  await unlock(secret)
-}
+const db = useNoydb()   // the injected Noydb instance itself
+const { data, loading, error, refresh } = useCollection<Invoice>(db, 'C101', 'invoices')
+const { status, syncing, push, pull } = useSync(db, 'C101')
 </script>
 
 <template>
-  <button v-if="locked" @click="login('…')">Unlock</button>
+  <p v-if="loading">Loading…</p>
   <ul v-else>
-    <li v-for="inv in items" :key="inv.id">{{ inv.customer }}: ฿{{ inv.amount }}</li>
+    <li v-for="inv in data" :key="inv.id">{{ inv.customer }}: ฿{{ inv.amount }}</li>
   </ul>
 </template>
 ```
+
+Also exported: `useLiveQuery` (wrap a hub `LiveQuery` in reactive refs),
+`useBlobURL`, `useMigrationState`, and `NoydbKey` (the injection key, for
+`inject(NoydbKey)` outside the composable). Writes go through the instance:
+`db.openVault(...)` → `vault.collection(...)` → `put`/`delete`.
 
 ## Biometric unlock (WebAuthn)
 
