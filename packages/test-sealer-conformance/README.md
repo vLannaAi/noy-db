@@ -6,8 +6,8 @@ Contract tests for the `at-*` family port. Every `NoydbSealer` implementation â€
 import { runSealerConformanceTests } from '@noy-db/test-sealer-conformance'
 import { atEnv } from '@noy-db/at-env'
 
-runSealerConformanceTests('at-env', () => atEnv({ id: 'env:a' }), {
-  other: () => atEnv({ id: 'env:b' }),
+runSealerConformanceTests('at-env', () => atEnv({ envVar: 'NOYDB_SEAL_A' }), {
+  other: () => atEnv({ envVar: 'NOYDB_SEAL_B' }),
 })
 ```
 

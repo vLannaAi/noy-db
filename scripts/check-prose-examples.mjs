@@ -1,0 +1,204 @@
+#!/usr/bin/env node
+/**
+ * check-prose-examples — do our SHIPPED examples actually compile?
+ *
+ * ## The class this catches
+ *
+ * `check-prose-api` answers "does this method exist". Every defect found on
+ * 2026-08-28 answered that question YES and was still wrong, because the
+ * method existed and the ARGUMENT did not:
+ *
+ *   packages/hub/README.md:60    createNoydb({ userId: 'alice' })   option is `user`
+ *   packages/hub/src/index.ts:28 openVault('acme', { secret })      `secret` is a
+ *                                                                  createNoydb option
+ *   docs/subsystems/*.md         collection.describeAsync({...})    private; the
+ *                                                                  public path is
+ *                                                                  describe(opts)
+ *
+ * The first of those shipped in every tarball and is the documented origin of
+ * three consumer bug reports filed as hub defects — a reader cannot guess the
+ * identity option's name from an example that omits it, and `userId` is the
+ * obvious guess. Presence-checking cannot see any of this; a compiler sees all
+ * of it. This is the family's "symbol presence vs does the signature accept the
+ * argument" proxy, answered the way that table prescribes.
+ *
+ * ## Why only fenced blocks that IMPORT
+ *
+ * Scoped the way check-prose-api was scoped — narrow what a noisy check
+ * examines rather than tuning a threshold. A block opening with an import
+ * claims to be runnable; a bare fragment is illustrative and is SKIPPED and
+ * counted, never silently dropped.
+ *
+ * ## Which diagnostics count
+ *
+ * Ignored, because they are properties of the PROBE, not claims about our API:
+ *   TS2304  cannot find name        — elided variable in an illustrative snippet
+ *   TS2307  cannot find module      — a sibling package that is not built here
+ *   TS2552  cannot find name (did you mean) — same class as 2304
+ * Everything else is a statement about our own surface and fails the gate.
+ *
+ * Run: node scripts/check-prose-examples.mjs
+ */
+import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, existsSync } from 'node:fs'
+import { join, relative } from 'node:path'
+import { execFileSync } from 'node:child_process'
+
+const ROOT = process.cwd()
+const OUT = join(ROOT, '.prose-examples')
+// Ignored because they are properties of the PROBE, not claims about our API.
+// An illustrative snippet legitimately elides variables and parameter types;
+// it does NOT legitimately name an export or option that does not exist.
+const IGNORED = new Set([
+  'TS2304',  // cannot find name            — elided variable
+  'TS2307',  // cannot find module          — sibling package not built here
+  'TS2552',  // cannot find name (did-you-mean form of 2304)
+  'TS18004', // no value in scope for shorthand property `{ store, user }`
+  'TS18046', // 'x' is of type 'unknown'    — cascade from an elided type
+  'TS2448',  // used before declaration      — prose narrates out of order
+  'TS2454',  // used before assigned         — same
+])
+
+// ── Sources: prose that ships, plus tracked subsystem docs ────────────────
+const files = []
+const addIf = (p) => { if (existsSync(p)) files.push(p) }
+addIf('README.md')
+addIf('SERVICES.md')
+for (const pkg of readdirSync('packages')) addIf(join('packages', pkg, 'README.md'))
+if (existsSync('docs/subsystems')) {
+  for (const f of readdirSync('docs/subsystems')) if (f.endsWith('.md')) files.push(join('docs/subsystems', f))
+}
+// JSDoc module comments on published entry points ship inside the .d.ts.
+addIf('packages/hub/src/index.ts')
+
+// ── Extract fenced ts blocks, with their 1-based start line ───────────────
+const blocks = []
+for (const file of files) {
+  const text = readFileSync(file, 'utf8')
+  const isSource = file.endsWith('.ts')
+  // In a .ts file the fences live inside a /** */ block; strip leading ` * `.
+  const lines = text.split('\n')
+  let open = null, buf = []
+  lines.forEach((raw, i) => {
+    const line = isSource ? raw.replace(/^\s*\*ic?\s?/, '').replace(/^\s*\*\s?/, '') : raw
+    const fence = line.match(/^```(ts|typescript)\s*$/)
+    if (fence && open === null) { open = i + 2; buf = []; return }
+    if (open !== null && /^```\s*$/.test(line)) {
+      blocks.push({ file, line: open, code: buf.join('\n') })
+      open = null; return
+    }
+    if (open !== null) buf.push(line)
+  })
+}
+
+const runnable = blocks.filter((b) => /^\s*import\s/m.test(b.code))
+const skipped = blocks.length - runnable.length
+
+// ── Probe project ─────────────────────────────────────────────────────────
+rmSync(OUT, { recursive: true, force: true })
+mkdirSync(OUT, { recursive: true })
+const paths = {}
+for (const pkg of readdirSync('packages')) {
+  const manifest = join('packages', pkg, 'package.json')
+  if (!existsSync(manifest)) continue
+  const name = JSON.parse(readFileSync(manifest, 'utf8')).name
+  const dts = join(ROOT, 'packages', pkg, 'dist', 'index.d.ts')
+  if (name && existsSync(dts)) paths[name] = [dts]
+}
+if (Object.keys(paths).length === 0) {
+  console.error('check-prose-examples: no built dist found — run `pnpm build` first.')
+  process.exit(2)
+}
+// The examples are ESM (top-level await throughout). Without this the probe
+// inherits the repo root's CommonJS default and every such block reports
+// TS1309 — a MODULE-FORMAT diagnostic that shares the TS1xxx range with real
+// parse errors, which silently exempted 74 of 79 blocks on the first build.
+writeFileSync(join(OUT, 'package.json'), JSON.stringify({ type: 'module' }))
+// Snippets for browser bundlers legitimately assume `import.meta.env`. Model
+// the app environment they target rather than weakening API checking.
+writeFileSync(join(OUT, 'ambient.d.ts'), 'interface ImportMeta { readonly env: Record<string, string> }\n')
+if (process.env.PROSE_DEBUG) { const c={}; for (const b of runnable) c[b.file]=(c[b.file]||0)+1; console.error('RUNNABLE BY FILE:', JSON.stringify(c,null,1)); console.error('PATHS KEYS:', Object.keys(paths).length) }
+runnable.forEach((b, i) => { b.probe = `ex${i}.ts`; writeFileSync(join(OUT, b.probe), b.code) })
+const compile = (exclude) => {
+  writeFileSync(join(OUT, 'tsconfig.json'), JSON.stringify({
+    compilerOptions: {
+      module: 'nodenext', moduleResolution: 'nodenext', target: 'es2022',
+      strict: true, noImplicitAny: false, noEmit: true, skipLibCheck: true, types: [], baseUrl: '.', paths,
+    },
+    include: ['*.ts'],
+    ...(exclude.length > 0 ? { exclude } : {}),
+  }, null, 2))
+  try {
+    execFileSync('npx', ['tsc', '-p', join(OUT, 'tsconfig.json')], { encoding: 'utf8', stdio: 'pipe' })
+    return ''
+  } catch (e) { return `${e.stdout ?? ''}${e.stderr ?? ''}` }
+}
+
+const parse = (raw) => {
+  const out = []
+  for (const line of raw.split('\n')) {
+    const m = line.match(/(?:^|[/\\])(ex\d+)\.ts\((\d+),(\d+)\):\s*error\s+(TS\d+):\s*(.*)$/)
+    if (!m) continue
+    const [, probe, row, , code, msg] = m
+    const b = runnable.find((x) => x.probe === `${probe}.ts`)
+    if (b) out.push({ b, line: b.line + Number(row) - 1, code, msg })
+  }
+  return out
+}
+
+// ── Pass 1: find blocks that are not parseable TypeScript ─────────────────
+// These are TEMPLATES (`with<Name>`, `store: ...`), not examples. They must be
+// EXCLUDED, not merely ignored: tsc reports syntactic diagnostics and then
+// SKIPS SEMANTIC CHECKING FOR THE WHOLE PROGRAM, so a single template silences
+// the gate for every other block. Measured 2026-08-28: 5 templates suppressed
+// type-checking of all 79 blocks and the gate reported "all examples compile".
+const unparseable = new Set(parse(compile([])).filter((d) => /^TS1\d{3}$/.test(d.code)).map((d) => d.b))
+
+// ── Pass 2: type-check what is left ───────────────────────────────────────
+const failures = parse(compile([...unparseable].map((b) => b.probe)))
+  .filter((d) => !IGNORED.has(d.code) && !/^TS1\d{3}$/.test(d.code))
+  .map((d) => ({ file: d.b.file, line: d.line, code: d.code, msg: d.msg }))
+
+const BASELINE = join(ROOT, 'scripts', 'prose-examples-baseline.json')
+
+console.log(`check-prose-examples: ${runnable.length} runnable of ${blocks.length} fenced blocks (${skipped} without imports, skipped)`)
+if (unparseable.size > 0) {
+  console.log(`  ${unparseable.size} template block(s) not parseable as TypeScript — not checked:`)
+  for (const b of unparseable) console.log(`    ${relative(ROOT, b.file)}:${b.line}`)
+}
+
+// ── Ratchet ───────────────────────────────────────────────────────────────
+// Keyed on file+code+message, NOT line, so ordinary prose edits do not churn
+// it. It is a ratchet rather than an allowlist because a baseline entry that
+// STOPS failing is also an error: the list can only shrink, so it cannot
+// quietly become permanent the way a static exemption list does.
+const key = (f) => `${relative(ROOT, f.file)} | ${f.code} | ${f.msg}`
+const baseline = existsSync(BASELINE) ? new Set(JSON.parse(readFileSync(BASELINE, 'utf8')).known) : new Set()
+const seen = new Set(failures.map(key))
+
+if (process.env.PROSE_WRITE_BASELINE) {
+  writeFileSync(BASELINE, JSON.stringify({
+    note: 'Known-broken shipped examples. Shrink-only: remove an entry when you fix it. Never add.',
+    known: [...seen].sort(),
+  }, null, 2) + '\n')
+  console.log(`  baseline written with ${seen.size} known failure(s)`)
+  process.exit(0)
+}
+
+const introduced = failures.filter((f) => !baseline.has(key(f)))
+const fixed = [...baseline].filter((k) => !seen.has(k))
+
+if (introduced.length === 0 && fixed.length === 0) {
+  if (!process.env.PROSE_DEBUG) rmSync(OUT, { recursive: true, force: true })
+  console.log(`  no new failures (${baseline.size} known, tracked in ${relative(ROOT, BASELINE)})`)
+  process.exit(0)
+}
+if (introduced.length > 0) {
+  console.error(`\n${introduced.length} NEW example(s) do not compile:\n`)
+  for (const f of introduced) console.error(`  ${relative(ROOT, f.file)}:${f.line}  ${f.code}  ${f.msg}`)
+}
+if (fixed.length > 0) {
+  console.error(`\n${fixed.length} baseline entr(ies) no longer fail — remove them from ${relative(ROOT, BASELINE)}:\n`)
+  for (const k of fixed) console.error(`  ${k}`)
+}
+console.error(`\nProbe project kept at ${relative(ROOT, OUT)} for inspection.`)
+process.exit(1)

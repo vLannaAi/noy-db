@@ -21,9 +21,9 @@ Every call checks `vault.assertCanExport('plaintext', 'csv')` **before decryptin
 ### `toString(vault, options)` — returns CSV string
 
 ```ts
-import { toString } from '@noy-db/as-csv'
+import { asCsv } from '@noy-db/as-csv'
 
-const csv = await toString(vault, { collection: 'invoices' })
+const csv = await vault.export(asCsv(), { collections: ['invoices'] })
 // id,client,amount,status\n
 // inv-1,Globex,1500,paid\n
 // inv-2,"Acme, Inc.",2400,draft\n
@@ -36,7 +36,7 @@ const csv = await toString(vault, { collection: 'invoices' })
 import { download } from '@noy-db/as-csv'
 
 await download(vault, {
-  collection: 'invoices',
+  collections: ['invoices'],
   filename: 'invoices-2026-03.csv',  // optional; defaults to '<collection>.csv'
 })
 ```
@@ -49,7 +49,7 @@ Wraps the CSV in a `Blob`, creates an object URL, clicks a hidden anchor. Plaint
 import { write } from '@noy-db/as-csv'
 
 await write(vault, '/tmp/invoices.csv', {
-  collection: 'invoices',
+  collections: ['invoices'],
   acknowledgeRisks: true,   // required — see below
 })
 ```

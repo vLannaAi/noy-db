@@ -4,18 +4,28 @@ The `as-*` export gate, published as an executable suite.
 
 ```ts
 import { runFormatConformanceTests } from '@noy-db/test-format-conformance'
+import { asMyformat, download, write } from '../src/index.js'
 
 runFormatConformanceTests('as-myformat', {
+  tier: 'plaintext',            // or 'bundle' for an encrypted-pod format (then omit `format`)
   format: 'myformat',
   vault: () => seededExportCapableVault(),
+  // The format's WHOLE surface: the inverted entry (hub owns the read —
+  // ADR 0004) plus any argument-shape wrappers the package still exports.
   exports: [
-    { name: 'toString', run: (v) => toString(v, opts) },
+    { name: 'vault.export(asMyformat())', run: (v) => v.export(asMyformat(), { collections: ['invoices'] }) },
     { name: 'download', run: (v) => download(v, opts) },
     { name: 'write',    run: (v) => write(v, path, { ...opts, acknowledgeRisks: true }) },
+  ],
+  imports: [
+    { name: 'vault.import(asMyformat())', run: (v) => v.import(asMyformat(), payload, { collection: 'invoices' }) },
   ],
   writeWithoutAcknowledgement: (v, path) => write(v, path, opts),
 })
 ```
+
+(For a complete, compiling fixture see `packages/as-csv/__tests__/conformance.test.ts` —
+the canonical consumer.)
 
 ## What it checks
 

@@ -238,7 +238,7 @@ captured ONCE, at fresh construction, from the constructor's `cfg`; late-attach 
 instance fields. Two more residuals shared the same "construction-frozen state reconcile can't
 refresh" root cause but lived outside these lookup-specific fields. All five are closed now:
 
-- **`getDictionary`/`resolveDictLabels` (item 1)** — `collection.describeAsync({
+- **`getDictionary`/`resolveDictLabels` (item 1)** — `collection.describe({
   resolveDictLabels: true })` resolves a dynamic dict's live labels via `this.getDictionary`,
   which used to stay `undefined` if the collection was constructed with no
   `dictKeyFields`/`lookupFields` at all (exactly the case a late-attach starts from). Fixed: a

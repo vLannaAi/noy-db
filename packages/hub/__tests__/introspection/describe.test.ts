@@ -564,3 +564,74 @@ describe('collection.describe() — Task 3: i18n, widget, editable', () => {
     expect(nameField.i18n?.locales).toEqual(['en', 'th'])
   })
 })
+
+/**
+ * #1253 — fieldMeta key-validation on the SYNC path.
+ *
+ * The guard existed and was correct, but ran only on the async path, so a
+ * typo'd key on `describe()` produced a phantom field carrying its declared
+ * `sensitivity` while the real field went undescribed. Wrong in both
+ * directions at once, silently, on the surface `sensitivity` exists to serve.
+ *
+ * Asserting the OUTPUT domain — "no described field may be one the collection
+ * cannot have" — rather than the two inputs that happened to surface it.
+ */
+describe('#1253 fieldMeta key-validation on the sync path', () => {
+  it('rejects a typo when a Zod schema is configured (the reported case)', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-1253-a' })
+    const v = await db.openVault('v', { create: true })
+    const c = v.collection('workers', {
+      schema: z.object({ id: z.string(), pin: z.string() }),
+      fieldMeta: { pinn: { label: 'National ID', sensitivity: 'pii' } },
+    })
+    expect(() => c.describe()).toThrow(FieldMetaUnknownFieldError)
+    await db.close()
+  })
+
+  it('stays silent when NO validator is configured — a TS generic carries real fields', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-1253-b' })
+    const v = await db.openVault('v', { create: true })
+    // The tempting-but-wrong rule is "no validator, so config keys are the whole
+    // set". A collection typed by a TS generic alone has fields that are real and
+    // in the data but in no runtime config, and fieldMeta legitimately names them.
+    // Guarding here would reject correct code — see 'picks unit from fieldMeta'.
+    const c = v.collection<{ id: string; saleDate: string }>('sales', {
+      fieldMeta: { saleDate: { label: 'Date' } },
+    })
+    expect(() => c.describe()).not.toThrow()
+    expect(c.describe().fields.map((f) => f.key)).toContain('saleDate')
+    await db.close()
+  })
+
+  it('accepts a correct key and still carries sensitivity on the sync path', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-1253-c' })
+    const v = await db.openVault('v', { create: true })
+    const c = v.collection('workers', {
+      schema: z.object({ id: z.string(), pin: z.string() }),
+      fieldMeta: { pin: { label: 'National ID', sensitivity: 'pii' } },
+    })
+    const d = c.describe()
+    const pin = d.fields.find((f) => f.key === 'pin')
+    expect(pin?.sensitivity).toBe('pii')
+    expect(pin?.label).toBe('National ID')
+    // The control that gives the two rejections meaning: a legitimate schema
+    // field is NOT rejected, so the guard discriminates rather than refusing.
+    expect(d.fields.map((f) => f.key)).toContain('pin')
+    await db.close()
+  })
+
+  it('stays silent for a validator whose fields hub cannot read', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-1253-d' })
+    const v = await db.openVault('v', { create: true })
+    // A StandardSchema-shaped validator with no readable `.shape`. Hub must not
+    // guess: rejecting here would fail a legitimate field and teach people to
+    // stop declaring fieldMeta.
+    const opaque = { '~standard': { version: 1, vendor: 'x', validate: (x: unknown) => ({ value: x }) } }
+    const c = v.collection('workers', {
+      schema: opaque as never,
+      fieldMeta: { whatever: { label: 'Whatever' } },
+    })
+    expect(() => c.describe()).not.toThrow()
+    await db.close()
+  })
+})

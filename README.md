@@ -77,8 +77,8 @@ import { toFile } from '@noy-db/to-file'
 store: toFile({ dir: './data' })
 
 // Browser (IndexedDB)
-import { idbStore } from '@noy-db/to-browser-idb'
-store: idbStore()
+import { toBrowserIdb } from '@noy-db/to-browser-idb'
+store: toBrowserIdb()
 ```
 
 Extended cloud and SQL backends (`@noy-db/to-aws-dynamo`, `@noy-db/to-aws-s3`, `@noy-db/to-postgres`, and 13 more) live in the **[noy-db-to](https://github.com/vLannaAi/noy-db-to)** companion repo — same npm names, separate install.

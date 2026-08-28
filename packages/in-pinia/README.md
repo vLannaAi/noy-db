@@ -24,7 +24,7 @@ interface Invoice {
 }
 
 export const useInvoices = defineNoydbStore<Invoice>('invoices', {
-  compartment: 'C101',
+  vault: 'C101',
 });
 ```
 
@@ -37,10 +37,13 @@ import { toFile } from '@noy-db/to-file';
 import { setActiveNoydb } from '@noy-db/in-pinia';
 import App from './App.vue';
 
+// `createNoydb` takes the resolved secret string. (The `secret: () => …`
+// thunk form belongs to `createNoydbPiniaPlugin`, which resolves it for you
+// — use that path when the secret comes from a prompt at plugin-install time.)
 const db = await createNoydb({
-  adapter: toFile({ dir: './data' }),
+  store: toFile({ dir: './data' }),
   user: 'owner',
-  secret: () => prompt('Secret')!,
+  secret: prompt('Secret')!,
 });
 
 setActiveNoydb(db);
@@ -115,7 +118,7 @@ const InvoiceSchema = z.object({
 });
 
 export const useInvoices = defineNoydbStore<z.infer<typeof InvoiceSchema>>('invoices', {
-  compartment: 'C101',
+  vault: 'C101',
   schema: InvoiceSchema,
 });
 ```

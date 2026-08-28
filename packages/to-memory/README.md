@@ -14,11 +14,11 @@ pnpm add @noy-db/hub @noy-db/to-memory
 
 ```ts
 import { createNoydb } from '@noy-db/hub'
-import { memory } from '@noy-db/to-memory'
+import { toMemory } from '@noy-db/to-memory'
 
 const db = await createNoydb({
-  adapter: toMemory(),
-  userId: 'alice',
+  store: toMemory(),
+  user: 'alice',
   secret: 'correct horse battery staple',
 })
 ```

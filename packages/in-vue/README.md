@@ -54,12 +54,20 @@ async function login(secret: string) {
 
 ## Biometric unlock (WebAuthn)
 
-```ts
-import { enrollBiometric, unlockWithBiometric } from '@noy-db/in-vue'
+Biometric unlock is not this package's job — unlock primitives live in the
+`on-*` family, and `@noy-db/on-webauthn` is framework-neutral, so it is called
+from Vue code directly. It wraps the vault's DEK set under a passkey (PRF) and
+hands back an unlocked keyring — the secret itself never round-trips:
 
-await enrollBiometric('alice', secret)
+```ts
+import { enrollWebAuthn, unlockWebAuthn } from '@noy-db/on-webauthn'
+
+// After a primary unlock — enroll this device's passkey:
+const enrollment = await enrollWebAuthn(keyring, 'my-vault')
+persistEnrollment(enrollment)                       // safe to store; holds no key material in the clear
+
 // …later, on another session:
-const secret = await unlockWithBiometric('alice')
+const keyring = await unlockWebAuthn(loadEnrollment())
 ```
 
 ## License

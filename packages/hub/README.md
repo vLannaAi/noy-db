@@ -52,13 +52,13 @@ pnpm add @noy-db/hub @noy-db/to-memory
 
 ```ts
 import { createNoydb } from '@noy-db/hub'
-import { memory } from '@noy-db/to-memory'
+import { toMemory } from '@noy-db/to-memory'
 
 type Invoice = { id: string; amount: number; customer: string }
 
 const db = await createNoydb({
   store: toMemory(),
-  userId: 'alice',
+  user: 'alice',
   secret: 'correct horse battery staple',
 })
 
@@ -281,7 +281,7 @@ const { evicted, held } = await vault.compact() // held = retained-by-hold count
 ```ts
 import { createNoydb, withArchive } from '@noy-db/hub'
 
-const db = await createNoydb({ store: primary, archiveStrategy: withArchive({ store: coldStore }) })
+const db = await createNoydb({ store: primary, user, secret, archiveStrategy: withArchive({ store: coldStore }) })
 vault.collection('invoices', {
   archive: { archiveWhen: (r) => r.fiscalYear <= thisYear - 1, legalHold: (r) => r.underHold },
 })

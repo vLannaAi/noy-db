@@ -50,10 +50,13 @@ import { setActiveNoydb } from '@noy-db/in-pinia'
 export default defineNuxtPlugin(async () => {
   const config = useRuntimeConfig().public.noydb
 
+  // Resolve the secret first — hub takes the resolved string, never a
+  // callback. (The deferred-secret pattern lives in the binding layer:
+  // see `createNoydbPiniaPlugin`'s `secret` thunk in @noy-db/in-pinia.)
   const db = await createNoydb({
-    adapter: browser({ prefix: 'my-app' }),
+    store: toBrowserIdb({ prefix: 'my-app' }),
     user: 'owner',
-    secret: () => promptUserForSecret(),
+    secret: await promptUserForSecret(),
   })
 
   setActiveNoydb(db)

@@ -939,7 +939,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       ...(this.lookupFields !== undefined ? { lookupFields: this.lookupFields } : {}),
       computed: this.computed,
       refs: this._refs,
-      zodFields: undefined,
+      zodFields: undefined, schema: this.schema, // #1253 — sync fieldMeta key-validation
       ...(this.meta !== undefined ? { meta: this.meta } : {}),
       ...(this.i18nFields !== undefined ? { i18nFields: this.i18nFields } : {}),
       ...(this.classified !== undefined ? { classified: this.classified.byField } : {}),

@@ -205,6 +205,35 @@ const ZOD_META_KEYS = new Set<string>([
  *
  * No static zod import — all zod access is lazy via derivePersistedSchema.
  */
+/**
+ * Field KEYS from a configured validator, synchronously — the complement to
+ * {@link deriveZodFields}, which derives field TYPES and must be async.
+ *
+ * The distinction is the whole point (#1253). `describe()`'s sync path passed
+ * `zodFields: undefined`, so `fieldMeta` key-validation could never run there
+ * and a typo'd key became a PHANTOM FIELD carrying its declared `sensitivity`
+ * while the real field went undescribed — an inventory wrong in both
+ * directions, silently, on the surface `sensitivity` exists to serve.
+ *
+ * That was read as unavoidable ("the sync path cannot know the schema's
+ * fields"), which is true of types and false of keys: a Zod object exposes
+ * `.shape` directly, on both v3 and v4, with no JSON-Schema derivation and no
+ * `zod-to-json-schema` peer. The latter matters — on Zod 3 that peer is
+ * required for the async path, so the sync path is the only one some
+ * consumers can reach.
+ *
+ * A duck-typed probe, not a Zod dependency: an unrecognised validator returns
+ * `undefined` and the caller stays silent rather than guessing, so a validator
+ * hub cannot read never produces a false "unknown field" error.
+ */
+export function schemaFieldKeys(schema: unknown): readonly string[] | undefined {
+  if (schema === null || typeof schema !== 'object') return undefined
+  const shape: unknown = (schema as { shape?: unknown }).shape
+  if (shape === null || typeof shape !== 'object') return undefined
+  const keys = Object.keys(shape as Record<string, unknown>)
+  return keys.length > 0 ? keys : undefined
+}
+
 export async function deriveZodFields(
   schema: unknown,
 ): Promise<Record<string, ZodFieldSlot>> {
@@ -306,6 +335,14 @@ export interface BuildDescriptionInput {
   /** Async path fills this; sync path passes `undefined`. */
   readonly zodFields: Record<string, ZodFieldSlot> | undefined
   /**
+   * The collection's configured validator, if any. The sync path passes it so
+   * `fieldMeta` keys can still be validated (#1253): field KEYS are readable
+   * synchronously via {@link schemaFieldKeys} even though field TYPES are not.
+   * `undefined` means no validator is configured, which is itself informative
+   * — the config keys are then the complete field set.
+   */
+  readonly schema?: unknown
+  /**
    * Async path: when `resolveDictLabels` was true, this map holds
    * `{ dictName -> { value -> label } }` for dynamic dictKey fields.
    * Used to populate `dict.values[].label`.
@@ -392,7 +429,7 @@ function deriveWidget(opts: {
  * couldn't do (schema fields weren't knowable synchronously).
  */
 export function buildDescription(input: BuildDescriptionInput): CollectionDescription {
-  const { collection, fieldMeta, moneyFields, dictKeyFields, lookupFields, computed, refs, zodFields, dictLabels, meta, i18nFields, classified, taint, fieldIds } = input
+  const { collection, fieldMeta, moneyFields, dictKeyFields, lookupFields, computed, refs, zodFields, schema, dictLabels, meta, i18nFields, classified, taint, fieldIds } = input
 
   // #650 Task 7 — the 'lookup' binding's describeFragment, keyed per field.
   // Deliberately routed through `viaFragments` rather than reused directly
@@ -410,23 +447,41 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
   // invisible in describe() (#657 finding 1).
   const blobFragments = (input.viaFragments?.['blob'] as BlobDescribeFragment | undefined)?.blobFields
 
-  // When zodFields is present AND non-empty (async path, validator successfully derived
-  // a schema): validate fieldMeta keys against the real known-field set = config keys ∪
-  // zodFields keys. This is the carry from Task 1: vault.ts couldn't do this synchronously
-  // (schema fields weren't knowable at config time without running async derivation).
+  // Validate fieldMeta keys against the real known-field set = config keys ∪ the
+  // validator's fields. Sound whenever that set can be enumerated COMPLETELY:
   //
-  // When zodFields is empty (non-zod / unknown validator returned no schema info),
-  // we cannot validate — skip to remain validator-agnostic.
-  if (zodFields !== undefined && Object.keys(zodFields).length > 0 && fieldMeta !== undefined) {
+  //   async path   zodFields is non-empty      — derived types carry the keys
+  //   sync path    `.shape` was readable       — no derivation, no peer dep (#1253)
+  //
+  // Silent in EVERY other case, and the third one is the instructive one. It is
+  // tempting to reason "no validator configured, therefore the config keys are the
+  // whole field set" — that is FALSE. A collection may be typed by a TypeScript
+  // generic alone (`v.collection<Sale>('sales', { moneyFields: … })`), whose fields
+  // are real, are present in the data, and are legitimately named by `fieldMeta`,
+  // yet appear in NO runtime config. Guarding there rejects correct code.
+  //
+  // So these are deliberate false NEGATIVES on both counts: an unreadable validator
+  // and an absent one. A rule that over-fires teaches people to stop declaring
+  // fieldMeta at all, which costs more than the typos it would catch.
+  //
+  // Before #1253 this ran on the async path alone, so a typo'd key on the sync path
+  // became a phantom field carrying its `sensitivity` while the real field went
+  // undescribed — see schemaFieldKeys() for why that was thought unavoidable.
+  const validatorKeys = zodFields !== undefined && Object.keys(zodFields).length > 0
+    ? Object.keys(zodFields)
+    : schemaFieldKeys(schema)
+  const canEnumerateFields = validatorKeys !== undefined
+  if (canEnumerateFields && fieldMeta !== undefined) {
     const knownFields = new Set<string>([
       ...Object.keys(moneyFields ?? {}),
       ...Object.keys(dictKeyFields ?? {}),
       ...Object.keys(refs),
       ...Object.keys(computed ?? {}),
-      ...Object.keys(zodFields),
+      ...(validatorKeys ?? []),
       ...Object.keys(i18nFields ?? {}),
       ...Object.keys(lookupFields ?? {}),
       ...Object.keys(blobFragments ?? {}),
+      ...Object.keys(classified ?? {}),
     ])
     validateFieldMetaKeys(collection, fieldMeta, knownFields)
   }

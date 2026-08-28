@@ -393,9 +393,9 @@ Each recipe maps directly to a doc page under [`noy-db-docs/content/docs/recipes
 
 ```ts
 import { createNoydb } from '@noy-db/hub'
-import { idbStore } from '@noy-db/to-browser-idb'
+import { toBrowserIdb } from '@noy-db/to-browser-idb'
 
-const db = await createNoydb({ store: idbStore(), user: 'me' })
+const db = await createNoydb({ store: toBrowserIdb(), user: 'me' })
 ```
 
 **Bundle:** ~6,500 LOC. No history, no blobs, no sync, no joins, no aggregate.
