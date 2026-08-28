@@ -24,6 +24,15 @@
  *
  * ## Why only fenced blocks that IMPORT
  *
+ * KNOWN COST (2026-08-29): a Nuxt config block (`defineNuxtConfig({...})`)
+ * has no import — the function is a Nuxt auto-global — so it is skipped as
+ * illustrative. in-nuxt's `noydb: { adapter: 'browser' }` (wrong key AND a
+ * value outside the ModuleOptions union) survived a full sweep this way.
+ * Typing such a block would need Nuxt's ambient globals plus the module's
+ * NuxtConfig augmentation in the probe; until someone builds that, an
+ * import-less config block is checked by NOTHING and its README must be
+ * verified against the module's ModuleOptions by hand.
+ *
  * Scoped the way check-prose-api was scoped — narrow what a noisy check
  * examines rather than tuning a threshold. A block opening with an import
  * claims to be runnable; a bare fragment is illustrative and is SKIPPED and
@@ -39,7 +48,7 @@
  *
  * Run: node scripts/check-prose-examples.mjs
  */
-import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, existsSync, symlinkSync, realpathSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { execFileSync } from 'node:child_process'
 
@@ -54,6 +63,7 @@ const IGNORED = new Set([
   'TS2552',  // cannot find name (did-you-mean form of 2304)
   'TS18004', // no value in scope for shorthand property `{ store, user }`
   'TS18046', // 'x' is of type 'unknown'    — cascade from an elided type
+  'TS2834',  // relative import needs extension — the snippet's neighbour file is elided
   'TS2448',  // used before declaration      — prose narrates out of order
   'TS2454',  // used before assigned         — same
 ])
@@ -77,13 +87,22 @@ for (const file of files) {
   const isSource = file.endsWith('.ts')
   // In a .ts file the fences live inside a /** */ block; strip leading ` * `.
   const lines = text.split('\n')
-  let open = null, buf = []
+  let open = null, buf = [], fenceLang = ''
   lines.forEach((raw, i) => {
     const line = isSource ? raw.replace(/^\s*\*ic?\s?/, '').replace(/^\s*\*\s?/, '') : raw
-    const fence = line.match(/^```(ts|typescript)\s*$/)
-    if (fence && open === null) { open = i + 2; buf = []; return }
+    const fence = line.match(/^```(ts|typescript|vue)\s*$/)
+    if (fence && open === null) { open = i + 2; buf = []; fenceLang = fence[1]; return }
     if (open !== null && /^```\s*$/.test(line)) {
-      blocks.push({ file, line: open, code: buf.join('\n') })
+      let code = buf.join('\n'), lineOff = 0
+      if (fenceLang === 'vue') {
+        // A ```vue block's checkable half is its <script> content; the
+        // template is Vue syntax tsc cannot parse. Extract it, keeping the
+        // line offset so diagnostics map back to the right prose line.
+        const m = code.match(/<script[^>]*>\n([\s\S]*?)<\/script>/)
+        if (m) { lineOff = code.slice(0, m.index).split('\n').length; code = m[1] }
+        else code = ''
+      }
+      if (code.trim() !== '') blocks.push({ file, line: open + lineOff, code })
       open = null; return
     }
     if (open !== null) buf.push(line)
@@ -103,6 +122,34 @@ for (const pkg of readdirSync('packages')) {
   const name = JSON.parse(readFileSync(manifest, 'utf8')).name
   const dts = join(ROOT, 'packages', pkg, 'dist', 'index.d.ts')
   if (name && existsSync(dts)) paths[name] = [dts]
+}
+// Framework modules (vue, pinia, h3, ...) SYMLINKED into the probe's own
+// node_modules from each package's node_modules, so nodenext resolution —
+// exports maps included — finds their real types. Without this,
+// `import { createApp } from 'vue'` is an IGNORED TS2307, createApp is
+// `any`, and `.use(NoydbPlugin, {...})` is an untyped call — the options
+// literal is never checked against NoydbPluginOptions. Found 2026-08-29:
+// in-vue's README shipped `adapter:`/`userId:` (neither exists on the
+// interface) through exactly this laundering — the block WAS extracted and
+// WAS compiled, and the two ignore mechanisms composed to make the check
+// vacuous. (A `paths` entry cannot do this: its targets are file paths, so
+// a directory target never gets package.json/exports resolution.)
+const PROBE_NM = join(OUT, 'node_modules')
+const linkFramework = (name, target) => {
+  const dest = join(PROBE_NM, name)
+  if (existsSync(dest)) return
+  mkdirSync(join(dest, '..'), { recursive: true })
+  try { symlinkSync(target, dest, 'junction') } catch { /* racing duplicate — fine */ }
+}
+for (const pkg of readdirSync('packages')) {
+  const nm = join(ROOT, 'packages', pkg, 'node_modules')
+  if (!existsSync(nm)) continue
+  for (const e of readdirSync(nm)) {
+    if (e.startsWith('.') || e === '@noy-db') continue
+    if (e.startsWith('@')) {
+      for (const sub of readdirSync(join(nm, e))) linkFramework(`${e}/${sub}`, realpathSync(join(nm, e, sub)))
+    } else linkFramework(e, realpathSync(join(nm, e)))
+  }
 }
 if (Object.keys(paths).length === 0) {
   console.error('check-prose-examples: no built dist found — run `pnpm build` first.')
