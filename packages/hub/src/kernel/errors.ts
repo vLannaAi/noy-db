@@ -427,6 +427,34 @@ function keyringTamperedMessage(
   }
 }
 
+/**
+ * Roster authentication failed for a keyring file.
+ *
+ * ⚠️ **The reason is at `err.details.reason`, NOT `err.reason`.** That differs
+ * from {@link TamperedError}, which carries a direct top-level `reason`, and
+ * the resemblance is a trap worth naming: a caller who copies the
+ * `TamperedError` shape reads `undefined`, falls through to the else-branch,
+ * and **renders a format transition as an attack** — the exact collapse this
+ * error's reason codes exist to prevent.
+ *
+ * ```ts
+ * catch (e) {
+ *   if (e instanceof KeyringTamperedError) {
+ *     if (e.details.reason === 'format-superseded') handleUpgrade()
+ *     else handleSecurityAlert()
+ *   }
+ * }
+ * ```
+ *
+ * The extra nesting is not decorative — `details` also carries `userId` and,
+ * on the format branch, the version transition, and those travel together
+ * because a reason read without knowing WHOSE keyring it describes is not
+ * actionable.
+ *
+ * CLASSIFICATION ONLY, in every case: the outcome is refusal regardless of the
+ * reason, so a store that rewrites a plaintext field changes the wording and
+ * nothing else.
+ */
 export class KeyringTamperedError extends NoydbError {
   readonly details: {
     readonly userId: string
