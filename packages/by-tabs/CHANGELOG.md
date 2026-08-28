@@ -1,5 +1,16 @@
 # @noy-db/by-tabs
 
+## 0.7.0-pre.11
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.7.0-pre.11
+  - @noy-db/by-peer@0.7.0-pre.11
+
 ## 0.7.0-pre.9
 
 ### Patch Changes
