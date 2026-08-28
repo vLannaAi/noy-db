@@ -1,5 +1,25 @@
 # Changelog — hub
 
+## 0.7.0-pre.10
+
+### Patch Changes
+
+- Export `assertRosterEpochCurrent` and `nextRosterEpoch` — they shipped in `0.7.0-pre.9` reachable from nothing (#1097 follow-up).
+
+  `0.7.0-pre.9` added the roster epoch and **listed `assertRosterEpochCurrent` in its release notes under "what is new"**. The function was present in `dist/**/*.d.ts` and exported from **no entry point** — all 53 were enumerated and imported; none had it.
+
+  That is the whole mechanism's caller half. Hub stamps and binds the epoch, but the expectation arrives by a second channel hub does not carry, so **only application code can perform the comparison**. A consumer following the release notes could not import the function they were told to call.
+
+  Both are now exported from the root barrel, beside `assertRosterAuthenticated`.
+
+  ## The class, and why it is worse than #1224
+
+  #1224 was a predicate reachable from the **wrong** seam — the root barrel rather than `/to`, which is all a store binds. This one was reachable from **none**. Both were found the same way: someone tried to follow the documentation.
+
+  Guarded by an invariant rather than by adding two names: a test asserts that **every** exported member of `roster-epoch.ts` reaches a published barrel, and that the query finds something in the first place. A helper added to that module later and exported from nothing fails the test rather than shipping unreachable.
+
+  Additive — the root barrel's golden baseline moves by two entries; nothing is removed or renamed.
+
 ## 0.7.0-pre.9
 
 ### Minor Changes
