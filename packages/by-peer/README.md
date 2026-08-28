@@ -20,7 +20,7 @@ Classic cloud sync routes every envelope through a central store. `@noy-db/by-pe
 
 ```ts
 import { createNoydb } from '@noy-db/hub'
-import { to } from '@noy-db/to-browser-idb'
+import { toBrowserIdb } from '@noy-db/to-browser-idb'
 import { peerStore, createOffer, acceptOffer } from '@noy-db/by-peer'
 
 // Peer A — initiator
@@ -30,7 +30,9 @@ await initiator.accept(await receiveAnswer())
 const channel = await initiator.channel
 
 const db = await createNoydb({
-  store: to(),
+  store: toBrowserIdb(),
+  user: 'alice',
+  secret: userSecret,
   syncStrategy: withSync(),                 // required — sync is opt-in
   sync: { store: peerStore({ channel, token: inviteToken }), role: 'sync-peer' },
 })

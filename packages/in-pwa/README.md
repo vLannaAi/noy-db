@@ -58,7 +58,7 @@ is opened and routes a missing vault into re-enrollment:
 
 ```ts
 import { guardLocalVault } from '@noy-db/in-pwa'
-import { browserIdb } from '@noy-db/to-browser-idb'
+import { toBrowserIdb } from '@noy-db/to-browser-idb'
 
 const store = browserIdb()
 const { healthy } = await guardLocalVault(store, 'firm', (why) => {

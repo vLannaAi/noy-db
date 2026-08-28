@@ -14,11 +14,11 @@ pnpm add @noy-db/hub @noy-db/to-file
 
 ```ts
 import { createNoydb } from '@noy-db/hub'
-import { file } from '@noy-db/to-file'
+import { toFile } from '@noy-db/to-file'
 
 const db = await createNoydb({
-  adapter: file({ dir: '/Volumes/USB/firm-data' }),
-  userId: 'alice',
+  store: toFile({ dir: '/Volumes/USB/firm-data' }),
+  user: 'alice',
   secret: process.env.NOYDB_SECRET!,
 })
 ```

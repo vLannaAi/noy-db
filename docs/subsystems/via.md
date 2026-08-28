@@ -440,7 +440,7 @@ now also runs on every late-attach call, both within the incoming call's own fie
 the collection's already-declared fields — no partial attach on a collision. See
 [`docs/subsystems/via-lookup.md`](via-lookup.md#late-attach-reconcile--tier-scoped-664) for the
 full tier-by-tier story, the collision guard's exact behavior, and (at the time of #664/#31) three
-known late-attach residuals (`describeAsync({resolveDictLabels:true})`, `describe()`'s legacy
+known late-attach residuals (`describe({resolveDictLabels:true})`, `describe()`'s legacy
 top-level field list, and join-side `presentForJoin` dressing — each captured once at fresh
 construction and not re-derived by a later reconcile call). All three, plus two more of the same
 root cause found during milestone #32, were closed by #671 — see the linked section for the

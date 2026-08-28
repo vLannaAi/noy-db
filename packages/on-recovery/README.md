@@ -14,10 +14,10 @@ pnpm add @noy-db/on-recovery
 
 **Protects against:**
 - Primary authentication becoming unavailable (forgotten secret, lost passkey device, OIDC provider down)
-- Code replay — each code burns on successful unlock by deleting its keyring entry
+- Code replay — the hub burns each entry on successful recovery
 
 **Does NOT protect against:**
-- Physical theft of printed codes — assume paper compromise → user calls `revokeAllRecoveryCodes` + re-enrolls
+- Physical theft of printed codes — assume paper compromise → call `db.team.rotateRecovery(vault, { profile: 'paper' })` for a fresh sheet (replaces, never appends; gated by the `rotate-recovery` policy gate)
 - User enrolling without actually printing — the calling application must enforce this UX
 
 Recovery codes should NEVER be the only unlock method on a vault. Enroll secret / WebAuthn / OIDC first, then recovery codes as a fallback.
@@ -38,127 +38,105 @@ Input is lenient: whitespace, hyphens, lowercase are all stripped before validat
 
 ## Security model
 
-Each code is processed through:
+This package is a **thin code-generator + parser layer over the hub's
+`mintPaperRecoveryEntry` primitive**. The crypto lives in the hub, and it
+wraps the vault's **DEK set** — never the KEK:
 
 ```
 wrappingKey = PBKDF2-SHA256(
   password   = normalizeCode(code),
-  salt       = perCodeRandomSalt,   // Stored alongside wrapped KEK
-  iterations = 600_000,              // Matches hub's secret derivation
+  salt       = perEntryRandomSalt,
+  iterations = 600_000,              // matches hub's secret derivation
   length     = 256                   // bits
 )
 
-wrappedKEK = AES-KW(kek, wrappingKey)
+entry = AES-GCM(dekSet, wrappingKey) + salt + codeId + enrolledAt
 ```
 
-The `wrappedKEK + salt + codeId` goes into the keyring under a `_recovery_<N>` entry. On unlock, PBKDF2 re-derives the wrapping key from the user-typed code + salt, and AES-KW unwraps the KEK.
+Entries live in the vault's `_meta/recovery-paper` document. On recovery the
+hub re-derives the wrapping key from the typed code, unwraps the DEK set, and
+re-wraps it under the user's **new** secret.
+
+> **History — why there is no KEK path.** Until `0.1.0-pre.8` this package
+> wrapped the KEK directly (`unwrapKEKFromRecovery`, `wrapKEKForRecovery`).
+> That required an **extractable KEK**, which the hub's key derivation
+> deliberately disallows — the same asymmetry that made `on-password`
+> unreachable from a real consumer. All unlock tiers were unified on the
+> wrap-DEKs primitive (#26 Path C, #38 Option A), and the KEK-wrapping API
+> was removed. Do not look for it; nothing here can hand you a KEK.
 
 ## Usage
 
-This package provides the **crypto layer only**. Storage, audit, rate-limiting, and burn-on-use are application-layer concerns handled by hub's keyring + audit-ledger APIs.
+This package does exactly three things: generate printable codes, parse and
+normalize user input, and format normalized codes for display. Storage,
+matching, burn-on-use, auditing, and rotation are all **hub** concerns.
 
 ### Enrollment (after primary unlock)
 
 ```ts
 import { generateRecoveryCodeSet } from '@noy-db/on-recovery'
 
-// After the user unlocks with secret, offer recovery-code enrollment
+// The DEK set proves possession and is what the codes wrap.
+const keyring = await db.team.getKeyring('acme')
 const { codes, entries } = await generateRecoveryCodeSet({
-  count: 10,        // 8-20 is reasonable; default 10
-  kek: currentKEK,  // The vault's currently-unwrapped KEK
+  deks: keyring.deks,
+  count: 10,          // 8-20 is reasonable; default 10
 })
 
 // Show `codes` to the user ONCE — print, download, copy. Do NOT store them.
 displayRecoveryCodes(codes)
-downloadRecoveryCodes(codes)
 
-// Persist `entries` to the vault's keyring. Each entry is safe to
-// store on disk — it holds only the salt + wrapped KEK + codeId.
-for (const entry of entries) {
-  await vault.keyring.put(`_recovery_${entry.codeId}`, entry)
-}
-
-// Write an audit-ledger entry
-await vault.ledger.append({
-  type: 'on-recovery:enroll',
-  actor: currentUserId,
-  codeCount: entries.length,
-  timestamp: new Date().toISOString(),
-})
+// Persist `entries` — each holds only salt + wrapped DEK set + codeId,
+// safe to store. The hub appends them to `_meta/recovery-paper`.
+await db.team.enrollRecovery('acme', { profile: 'paper', entries })
 ```
 
-### Unlock (when primary auth is unavailable)
+### Recovery (when primary auth is unavailable)
+
+`parseRecoveryCode` classifies input **before** any expensive derivation, so
+a transcription error never counts against a rate limit:
 
 ```ts
-import { parseRecoveryCode, unwrapKEKFromRecovery } from '@noy-db/on-recovery'
+import { parseRecoveryCode } from '@noy-db/on-recovery'
 
 const parsed = parseRecoveryCode(userInput)
-
-if (parsed.status === 'invalid-format') {
-  // User typed junk — show "not a valid recovery code" without counting against rate limit
-  return showError('format')
-}
-if (parsed.status === 'invalid-checksum') {
-  // Well-formed but checksum wrong — transcription error, not a guess
-  return showError('checksum')
-}
-
-// Find which enrolled entry this code matches
-const allEntries = await vault.keyring.list({ prefix: '_recovery_' })
-
-for (const entry of allEntries) {
-  try {
-    const kek = await unwrapKEKFromRecovery(parsed.code, entry)
-
-    // Match! Burn this entry — delete the keyring record so the code
-    // can never be replayed.
-    await vault.keyring.delete(`_recovery_${entry.codeId}`)
-
-    // Write an audit-ledger entry
-    await vault.ledger.append({
-      type: 'on-recovery:unlock',
-      actor: currentUserId,
-      codesRemaining: allEntries.length - 1,
-      timestamp: new Date().toISOString(),
-    })
-
-    return kek
-  } catch {
-    // Wrong entry, try next
-  }
-}
-
-// No matching entry — counts against the host app's rate limit
-await vault.ledger.append({
-  type: 'on-recovery:unlock-failed',
-  actor: currentUserId,
-  reason: 'not-found',
-  timestamp: new Date().toISOString(),
-})
-throw new Error('no matching recovery code')
+if (parsed.status === 'invalid-format')   return showError('not a recovery code')
+if (parsed.status === 'invalid-checksum') return showError('check for typos')   // transcription, not a guess
 ```
 
-### Revocation (after a suspected paper leak)
+The recovery itself is one hub call. It finds the matching entry, burns it,
+sets the new secret, and by default **auto-rotates the remaining codes** so
+the sheet in the safe stays fully usable:
 
 ```ts
-// Scan all recovery entries, delete each.
-const allEntries = await vault.keyring.list({ prefix: '_recovery_' })
-for (const entry of allEntries) {
-  await vault.keyring.delete(`_recovery_${entry.codeId}`)
-}
-// Optionally re-enroll a fresh set.
+const { newCodes } = await db.recoverSecret('acme', {
+  newSecret,
+  recoveryProof: { profile: 'paper', payload: { code: parsed.code } },
+})
+if (newCodes.length > 0) showCodesToUser(newCodes)   // show-once, same as enrollment
 ```
+
+### Fresh sheet (lost printout / suspected paper leak)
+
+```ts
+const { newCodes } = await db.team.rotateRecovery('acme', { profile: 'paper' })
+showCodesToUser(newCodes)
+```
+
+Replaces (never appends) the paper sheet in a single envelope write. Under
+`STRICT_POLICY` this requires an off-device factor proof, so a stolen
+unlocked laptop cannot silently mint a sheet for the attacker.
 
 ## API
 
 ```ts
 // Generate a full enrollment
 async function generateRecoveryCodeSet(options: {
-  count?: number         // Default 10, clamped to 1..100
-  kek: CryptoKey         // Currently-unwrapped KEK
+  count?: number                 // Default 10, clamped to 1..100
+  deks: Map<string, CryptoKey>   // The vault's current DEK set
 }): Promise<{
-  codes: string[]        // Show to user once, then forget
-  entries: RecoveryCodeEntry[]  // Persist to keyring
+  codes: string[]                // Show to user once, then forget
+  entries: PaperRecoveryEntry[]  // Persist via db.team.enrollRecovery
 }>
 
 // Parse + normalize user input
@@ -169,30 +147,16 @@ type ParseResult =
   | { status: 'invalid-checksum' }        // Format OK, checksum wrong
   | { status: 'invalid-format' }          // Not a valid code shape
 
-// Attempt to unwrap the KEK with a code + an entry; throws on mismatch
-async function unwrapKEKFromRecovery(
-  code: string,              // The normalized code from parseRecoveryCode
-  entry: RecoveryCodeEntry,  // One of the enrolled entries
-): Promise<CryptoKey>
-
-// Lower-level helpers (for advanced use cases)
+// Re-hyphenate a normalized code for display
 function formatRecoveryCode(normalized: string): string
-async function deriveRecoveryWrappingKey(code: string, salt: Uint8Array): Promise<CryptoKey>
-async function wrapKEKForRecovery(kek: CryptoKey, code: string, salt: Uint8Array): Promise<Uint8Array>
-
-interface RecoveryCodeEntry {
-  codeId: string        // ULID — caller uses this to delete the entry on burn
-  salt: string          // Base64
-  wrappedKEK: string    // Base64
-  enrolledAt: string    // ISO timestamp
-}
 ```
+
+`PaperRecoveryEntry` (`{ codeId, enrolledAt, salt, wrapped DEK blob }`) is the
+hub's type — this package mints it via the hub and never defines its own.
 
 ## Performance
 
-PBKDF2 with 600K iterations takes ~500ms per derive on modern hardware. Generating 10 codes enrolls in ~5 seconds (serial) — acceptable for a one-time enrollment flow; show a loading indicator. Unlock is a single derive per attempt (~500ms).
-
-If you need faster enrollment (e.g., a CLI test), you can parallelize via `Promise.all`.
+PBKDF2 with 600K iterations takes ~500ms per derive on modern hardware. Generating 10 codes enrolls in ~5 seconds (serial) — acceptable for a one-time enrollment flow; show a loading indicator. Recovery is a single derive per attempt (~500ms).
 
 ## License
 

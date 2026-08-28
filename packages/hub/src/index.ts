@@ -24,8 +24,12 @@
  * import { createNoydb } from '@noy-db/hub'
  * import { toFile } from '@noy-db/to-file'
  *
- * const db = await createNoydb({ store: toFile({ dir: './data' }) })
- * const acme = await db.openVault('acme', { secret: 'hunter2' })
+ * const db = await createNoydb({
+ *   store: toFile({ dir: './data' }),
+ *   user: 'alice',
+ *   secret: 'correct horse battery staple',
+ * })
+ * const acme = await db.openVault('acme')
  * const invoices = acme.collection<Invoice>('invoices')
  *
  * await invoices.put('inv-001', { amount: 1200, client: 'Acme Corp' })

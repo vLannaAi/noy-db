@@ -36,7 +36,9 @@ Every top-level field in a persisted schema gets an opaque, permanent `id`:
 - **Sync `describe()`** never touches the store, so it always passes `fieldIds: undefined` —
   every field's `id` is `undefined`. This is not a bug: the sync path has no persisted state to
   read the id from.
-- **Async `describeAsync()`** resolves the persisted-schema `fieldIds` map via
+- **Async `describe(opts)`** (the overload that takes options; `describeAsync` is its
+  private implementation and is NOT callable from consumer code) resolves the
+  persisted-schema `fieldIds` map via
   `resolveDescribeFieldIds()` (silent-degrades to `{}` — no ids — on any failure: no DEK, no
   persisted envelope yet, or an envelope with no `fieldIds`) and threads it through
   `buildDescription`'s `BuildDescriptionInput.fieldIds`. A collection that has never opted into

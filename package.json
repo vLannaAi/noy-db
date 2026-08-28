@@ -32,7 +32,8 @@
     "release:version": "node scripts/release.mjs",
     "changeset": "changeset",
     "knip": "knip",
-    "check:prose-api": "node scripts/check-prose-api.mjs"
+    "check:prose-api": "node scripts/check-prose-api.mjs",
+    "check:prose-examples": "node scripts/check-prose-examples.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.0",
