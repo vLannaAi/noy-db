@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/test-sealer-conformance",
-  "version": "0.7.0-pre.10",
+  "version": "0.7.0-pre.11",
   "description": "Parameterized contract tests for noy-db sealing-key providers — the conformance suite every NoydbSealer implementation must pass",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

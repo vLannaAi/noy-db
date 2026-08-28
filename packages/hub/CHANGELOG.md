@@ -1,5 +1,54 @@
 # Changelog — hub
 
+## 0.7.0-pre.11
+
+### Patch Changes
+
+- `collection.describe()` now validates `fieldMeta` keys on the **sync** path when
+  the configured validator exposes its field names (#1253).
+
+  Previously the guard ran only on the async `describe(opts)` path, so a typo'd
+  `fieldMeta` key on the sync path produced a **phantom field carrying its declared
+  `sensitivity`** while the real field went undescribed — an inventory wrong in both
+  directions, silently, on the surface `sensitivity` exists to serve.
+
+  The sync path was thought unable to know the schema's fields because deriving them
+  is async. That is true of field **types** and false of field **keys**: a Zod object
+  exposes `.shape` directly, on v3 and v4, with no JSON-Schema derivation and no
+  `zod-to-json-schema` peer. The latter matters — on Zod 3 that peer is required for
+  the async path, so the sync path is the only one some consumers can reach.
+
+  Deliberately still silent in two cases, both of which would otherwise reject correct
+  code: a validator whose fields hub cannot read, and **no validator at all** — a
+  collection typed by a TypeScript generic alone has fields that are real and present
+  in the data but appear in no runtime config, and `fieldMeta` legitimately names them.
+
+- Document that `KeyringTamperedError` carries its reason at `err.details.reason`, not `err.reason`.
+
+  `TamperedError` has a **direct top-level** `reason`; `KeyringTamperedError` nests it under `details` alongside `userId` and the format transition. The classes genuinely differ, and the resemblance is a trap: a caller who copies the `TamperedError` shape reads `undefined`, falls through to the else-branch, and **renders a format transition as an attack** — the exact collapse these reason codes exist to prevent.
+
+  The class had no JSDoc saying where to read it. It now states the access shape, names the contrast, and carries a worked `catch` block, so the answer is in the shipped `.d.ts` where a caller meets it.
+
+  Documentation only — no type, value, or behaviour change.
+
+  Found by noy-db-docs, which had documented `err.reason` for this class **two lines below its own sentence warning that the resemblance to `TamperedError.reason` is "a trap worth naming"**. It identified the trap and fell into it one level earlier than it was looking.
+
+  Hub's own prose was swept and is clean: every `.reason` reference in the changelog is to `TamperedError.reason`, which is correct for that class.
+
+- Fix the getting-started example in hub's module JSDoc, which ships inside
+  `dist/index.d.ts`. It omitted the required `user` option and passed `secret` to
+  `openVault()`, where it is not accepted — `secret` is a `createNoydb()` option.
+  Compiled verbatim, the published snippet produced `TS2741` and `TS2353`.
+
+  `packages/hub/README.md` carried the same class of defect: it taught
+  `userId: 'alice'` (the option is `user`) and imported `memory` from
+  `@noy-db/to-memory` (renamed to `toMemory`). Both ship in the tarball.
+
+  Guarded going forward by `pnpm check:prose-examples`, which typechecks every
+  fenced `ts` block in shipped prose against the built `dist`. `check:prose-api`
+  verifies that a documented method _exists_; these defects all named methods that
+  do exist and passed arguments that do not, which only a compiler can see.
+
 ## 0.7.0-pre.10
 
 ### Patch Changes
