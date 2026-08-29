@@ -738,11 +738,17 @@ describe('schemaFieldKeys through ZodEffects (#1249 pilot report)', () => {
   })
 
   it('BOTH describe paths guard a wrapped schema — not the sync path only (#1262)', async () => {
-    // The #1262 report noted the unwrap living in the sync path and inferred the
-    // async path was unguarded. Measured, it is not: buildDescription falls back
-    // to schemaFieldKeys whenever the derived field map comes back empty, which
-    // is what a wrapped schema produces. Pinned because "which paths does this
-    // guard actually cover" has now been guessed wrong twice.
+    // Characterization, not a #1262 regression guard — the distinction matters.
+    // The async assertion here was ALREADY true before #1262's fix (verified by
+    // running it against the pre-fix source): derivePersistedSchema sees through
+    // preprocess on its own, so the async path gets a populated field map and
+    // never reaches the schemaFieldKeys fallback. Only the SYNC assertion below
+    // can fail on pre-fix code.
+    //
+    // Both are pinned anyway because the two paths guard via INDEPENDENT
+    // mechanisms — derived field map vs. the sync fallback — and nothing else
+    // states that. A change to derivePersistedSchema could silently drop the
+    // async half while every schemaFieldKeys test stays green.
     const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-ze-8' })
     const v = await db.openVault('v', { create: true })
     const c = v.collection('workers', {
