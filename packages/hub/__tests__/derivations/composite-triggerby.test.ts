@@ -1,8 +1,9 @@
 // Composite (multi-field) triggerBy — #1249.
 // Spec: docs/superpowers/specs/2026-08-29-composite-triggerby-design.md
-import { describe, it, expect } from 'vitest'
-import { createNoydb, withDerivation, ValidationError, DerivationCapExceededError } from '../../src/index.js'
+import { describe, it, expect, vi } from 'vitest'
+import { createNoydb, withDerivation, ValidationError, DerivationCapExceededError, DerivationCycleError } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
+import type { DerivationContext } from '../../src/with-formula/derivations/types.js'
 import { DerivationRegistry } from '../../src/with-formula/derivations/registry.js'
 
 function toMemory(): NoydbStore {
@@ -432,6 +433,179 @@ describe('match-field typo guard at collection construction (#1249, spec §5)', 
     const v = await db.openVault('firm')
     expect(() => v.collection('disbursements', { schema: z.object({ id: z.string(), clientId: z.string(), cycle: z.string(), amount: z.number() }) }))
       .toThrow(ValidationError)
+    await db.close()
+  })
+})
+
+describe('remaining spec §11 rows (#1249)', () => {
+  it('on-form and its normalized match-form produce identical fan-out', async () => {
+    // Mirrors trigger-by.test.ts's buyerNameDenorm fixture, run once per
+    // triggerBy form. match:[{from:'id',to:'buyerId'}] is exactly what
+    // normalizeTriggerBy() turns on:'buyerId' into (trigger-match.test.ts,
+    // "normalizes the on-form to match [{from:'id'}]") — so this drives
+    // BOTH forms through identical writes and checks they land on the
+    // exact same final values, i.e. the sugar changes nothing observable.
+    interface Buyer3 extends Record<string, unknown> { id: string; companyName: string }
+    interface Sale3 extends Record<string, unknown> { id: string; buyerId: string; buyerName?: string | null }
+    const makeStrategy = (form: 'on' | 'match') => withDerivation<Sale3, { self: Sale3 }>({
+      source: 'sales',
+      deterministic: true,
+      triggerBy: form === 'on'
+        ? [{ collection: 'buyers', on: 'buyerId' }]
+        : [{ collection: 'buyers', match: [{ from: 'id', to: 'buyerId' }] }],
+      outputs: { self: { shape: 'record', collection: 'sales', denorm: ['buyerName'] } },
+      derive: async (sale, ctx) => {
+        const b = await ctx.vault.collection<Buyer3>('buyers').get(sale.buyerId)
+        return { self: { ...sale, buyerName: b?.companyName ?? null } as Sale3 }
+      },
+      lifecycle: 'eager',
+    })
+    async function run(form: 'on' | 'match') {
+      const db = await createNoydb({
+        store: toMemory(), user: 'alice', secret: `composite-sugar-${form}-2026`,
+        derivationStrategies: [makeStrategy(form)],
+      })
+      const v = await db.openVault('firm')
+      const buyers = v.collection<Buyer3>('buyers')
+      const sales = v.collection<Sale3>('sales')
+      await buyers.put('b1', { id: 'b1', companyName: 'Acme' })
+      await buyers.put('b2', { id: 'b2', companyName: 'Globex' })
+      await sales.put('s1', { id: 's1', buyerId: 'b1' })
+      await sales.put('s2', { id: 's2', buyerId: 'b1' })
+      await sales.put('s3', { id: 's3', buyerId: 'b2' })
+      await buyers.put('b1', { id: 'b1', companyName: 'Acme Corp' }) // fan out to s1, s2 only
+      const result = {
+        s1: (await sales.get('s1'))?.buyerName,
+        s2: (await sales.get('s2'))?.buyerName,
+        s3: (await sales.get('s3'))?.buyerName,
+      }
+      await db.close()
+      return result
+    }
+    const onResult = await run('on')
+    const matchResult = await run('match')
+    expect(onResult).toEqual({ s1: 'Acme Corp', s2: 'Acme Corp', s3: 'Globex' })
+    expect(matchResult).toEqual(onResult)
+  })
+
+  it('lazy lifecycle marks the SAME set stale as eager fires', async () => {
+    // Copies lazy.test.ts's read pattern: a vi.fn() spy on `derive`, whose
+    // call COUNT (not a return value) is the observable. lazy.test.ts's own
+    // "does NOT derive on source write" + "derives on first read of the
+    // stale output" pair establishes that `derive` only runs for an id
+    // that was actually marked stale — a read of a NEVER-stale id is a
+    // no-op short-circuit in resolveStaleOnRead() (stale.ts) that never
+    // calls `derive` at all. So reading b1/b2/b3 after the disbursement
+    // write and checking which of the three calls reached `derive` IS a
+    // direct read of the stale set — it can only show {b1} if the
+    // composite match fan-out marked exactly b1 (not b2/b3) stale.
+    const derive = vi.fn(async (bill: Bill, ctx: DerivationContext) => {
+      const all = await ctx.vault.collection<Disbursement>('disbursements').query()
+        .where('clientId', '==', bill.clientId).where('cycle', '==', bill.cycle).toArray()
+      const covered = all.reduce((s, d) => s + d.amount, 0) > 0
+      return { self: { ...bill, status: covered ? 'covered' : 'uncovered' } as Bill }
+    })
+    const strategy = withDerivation<Bill, { self: Bill }>({
+      source: 'bills',
+      deterministic: true,
+      triggerBy: [{ collection: 'disbursements', match: [{ from: 'clientId', to: 'clientId' }, { from: 'cycle', to: 'cycle' }] }],
+      outputs: { self: { shape: 'record', collection: 'bills', denorm: ['status'] } },
+      derive,
+      lifecycle: 'lazy',
+    })
+    const db = await createNoydb({
+      store: toMemory(), user: 'alice', secret: 'composite-lazy-2026',
+      derivationStrategies: [strategy],
+    })
+    const v = await db.openVault('firm')
+    const bills = v.collection<Bill>('bills')
+    const disb = v.collection<Disbursement>('disbursements')
+    await bills.put('b1', { id: 'b1', clientId: 'c1', cycle: 'Q1' })
+    await bills.put('b2', { id: 'b2', clientId: 'c1', cycle: 'Q2' })
+    await bills.put('b3', { id: 'b3', clientId: 'c2', cycle: 'Q1' })
+    expect(derive).not.toHaveBeenCalled()   // lazy: no derive on source write (lazy.test.ts's first assertion)
+    // Each bill's OWN put is itself an `isSource` dispatch (dispatch.ts) and
+    // under lazy mode that ALSO marks the bill stale against its own id —
+    // same as lazy.test.ts's "derives on first read of the stale output".
+    // Read all three now to consume that self-put baseline stale flag
+    // before touching the trigger collection, so any stale flag observed
+    // AFTER the disbursement write can only have come from the fan-out.
+    await bills.get('b1')
+    await bills.get('b2')
+    await bills.get('b3')
+    expect(derive).toHaveBeenCalledTimes(3)
+    derive.mockClear()
+    await disb.put('d1', { id: 'd1', clientId: 'c1', cycle: 'Q1', amount: 500 })
+    expect(derive).not.toHaveBeenCalled()   // lazy: marking stale on the trigger write is not a derive call either
+    await bills.get('b2')
+    await bills.get('b3')
+    expect(derive).not.toHaveBeenCalled()   // b2/b3 were NOT re-marked stale by the fan-out — no-op reads
+    await bills.get('b1')
+    expect(derive).toHaveBeenCalledTimes(1) // b1 — and only b1 — was re-marked stale by the fan-out
+    await db.close()
+  })
+
+  it('cycle detection fires through a match entry', async () => {
+    // Mirrors cycle.test.ts's "refuses A -> B -> A" fixture shape and its
+    // asserted error class. There, BOTH edges into the cycle come from a
+    // strategy's plain `source` label. Here, B's back-edge into 'a' comes
+    // SOLELY from a triggerBy match entry: B's own `source` is 'x' (not
+    // 'b'), and registry.edges() (#1249) folds `triggerBy[].collection`
+    // into the same `sources` list as `source` when building the
+    // derivation graph. So this can only detect the cycle if a match-form
+    // triggerBy collection is wired into that graph — an implementation
+    // that only walked `spec.source`/`spec.sources` (ignoring triggerBy)
+    // would see no edge from 'b' into anything and openVault() would
+    // resolve, not reject.
+    const a = withDerivation({
+      source: 'a',
+      deterministic: true,
+      outputs: { o: { shape: 'record', collection: 'b' } },
+      derive: () => ({ o: {} }),
+      lifecycle: 'eager',
+    })
+    const b = withDerivation({
+      source: 'x',
+      deterministic: true,
+      triggerBy: [{ collection: 'b', match: [{ from: 'f', to: 'f' }] }],
+      outputs: { o: { shape: 'record', collection: 'a' } },
+      derive: () => ({ o: {} }),
+      lifecycle: 'eager',
+    })
+    const db = await createNoydb({
+      store: toMemory(), user: 'alice', secret: 'composite-cycle-2026',
+      derivationStrategies: [a, b],
+    })
+    await expect(db.openVault('demo')).rejects.toBeInstanceOf(DerivationCycleError)
+  })
+
+  it('scalar coercion: number written value matches string source value', async () => {
+    // Isolates the FAN-OUT MATCH itself (trigger-match.ts's String(x)===String(y)
+    // conjunction), not any downstream query — a vi.fn() spy, same idiom as the
+    // lazy test above, so the only thing that can make derive fire a SECOND
+    // time is the composite match itself accepting a number written value
+    // against a string source value.
+    const derive = vi.fn((bill: Bill) => ({ self: { ...bill, status: 'touched' } as Bill }))
+    const strategy = withDerivation<Bill, { self: Bill }>({
+      source: 'bills',
+      deterministic: true,
+      triggerBy: [{ collection: 'disbursements', match: [{ from: 'clientId', to: 'clientId' }, { from: 'cycle', to: 'cycle' }] }],
+      outputs: { self: { shape: 'record', collection: 'bills', denorm: ['status'] } },
+      derive,
+      lifecycle: 'eager',
+    })
+    const db = await createNoydb({
+      store: toMemory(), user: 'alice', secret: 'composite-coerce-2026',
+      derivationStrategies: [strategy],
+    })
+    const v = await db.openVault('firm')
+    const bills = v.collection<Bill>('bills')
+    const disb = v.collection<Disbursement>('disbursements')
+    await bills.put('b1', { id: 'b1', clientId: 'c1', cycle: '2026' })      // cycle: STRING
+    expect(derive).toHaveBeenCalled()   // b1's own isSource put (self-write settles after 1-2 calls; see lazy test note)
+    derive.mockClear()
+    await disb.put('d1', { id: 'd1', clientId: 'c1', cycle: 2026, amount: 500 }) // cycle: NUMBER
+    expect(derive).toHaveBeenCalled()   // re-fired via the composite match, despite the type mismatch
     await db.close()
   })
 })
