@@ -200,3 +200,101 @@ describe('composite fan-out query (#1249)', () => {
     await db.close()
   })
 })
+
+describe('composite triggerBy — write-path fan-out (#1249)', () => {
+  async function setup() {
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'composite-w-2026', derivationStrategies: [billStatusStrategy()] })
+    const v = await db.openVault('firm')
+    const bills = v.collection<Bill>('bills')
+    const disb = v.collection<Disbursement>('disbursements')
+    await bills.put('b1', { id: 'b1', clientId: 'c1', cycle: 'Q1' })
+    await bills.put('b2', { id: 'b2', clientId: 'c1', cycle: 'Q2' })
+    await bills.put('b3', { id: 'b3', clientId: 'c2', cycle: 'Q1' })
+    return { db, v, bills, disb }
+  }
+  it("the pilot's case: a disbursement write re-fires ONLY the matching (clientId, cycle) bills", async () => {
+    const { db, bills, disb } = await setup()
+    // Every bill's own put already self-derives 'uncovered' (isSource fires derive
+    // immediately, same as sales/buyerName in trigger-by.test.ts — "on insert the
+    // source path is already stamped"). What the disbursement write must NOT do is
+    // flip an unmatched bill's status, so the baseline for "not fired" is 'uncovered',
+    // not undefined.
+    expect((await bills.get('b2'))?.status).toBe('uncovered')
+    await disb.put('d1', { id: 'd1', clientId: 'c1', cycle: 'Q1', amount: 500 })
+    expect((await bills.get('b1'))?.status).toBe('covered')      // matched
+    expect((await bills.get('b2'))?.status).toBe('uncovered')    // same client, other cycle: NOT fired
+    expect((await bills.get('b3'))?.status).toBe('uncovered')    // other client: NOT fired
+    await db.close()
+  })
+  it('shared-key reverse match: single field-pair, neither side an id', async () => {
+    const db = await createNoydb({
+      store: toMemory(), user: 'alice', secret: 'composite-rev-2026',
+      derivationStrategies: [withDerivation<Bill, { self: Bill }>({
+        source: 'bills', deterministic: true, lifecycle: 'eager',
+        triggerBy: [{ collection: 'clients', match: [{ from: 'entityId', to: 'entityId' }] }],
+        outputs: { self: { shape: 'record', collection: 'bills', denorm: ['status'] } },
+        // Conditional on real state (a matching client existing), not unconditional —
+        // an unconditional derive would stamp every bill identically at its OWN
+        // isSource put, before the client write ever runs, and the test would pass
+        // whether or not the fan-out worked at all.
+        derive: async (b, ctx) => {
+          const matches = await ctx.vault.collection('clients').query()
+            .where('entityId', '==', b.entityId).toArray()
+          return { self: { ...b, status: matches.length > 0 ? 'touched' : (b.status as string | undefined) } as Bill }
+        },
+      })],
+    })
+    const v = await db.openVault('firm')
+    const bills = v.collection<Bill>('bills')
+    await bills.put('b1', { id: 'b1', clientId: 'c1', cycle: 'Q1', entityId: 'ent-1' } as Bill)
+    await bills.put('b2', { id: 'b2', clientId: 'c1', cycle: 'Q1', entityId: 'ent-2' } as Bill)
+    expect((await bills.get('b1'))?.status).toBeUndefined()   // no matching client yet
+    await v.collection('clients').put('c1', { entityId: 'ent-1', services: ['pnd1'] })
+    expect((await bills.get('b1'))?.status).toBe('touched')
+    expect((await bills.get('b2'))?.status).toBeUndefined()
+    await db.close()
+  })
+  it('maxFanout caps the matched set', async () => {
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'composite-cap-2026', derivationStrategies: [billStatusStrategy({ maxFanout: 1 })] })
+    const v = await db.openVault('firm')
+    const bills = v.collection<Bill>('bills')
+    await bills.put('b1', { id: 'b1', clientId: 'c1', cycle: 'Q1' })
+    await bills.put('b2', { id: 'b2', clientId: 'c1', cycle: 'Q1' })   // two matches, cap 1
+    await expect(v.collection('disbursements').put('d1', { clientId: 'c1', cycle: 'Q1', amount: 1 }))
+      .rejects.toThrow(DerivationCapExceededError)
+    await db.close()
+  })
+  it('TWO entries naming the same collection BOTH fire (the .find() fix)', async () => {
+    // one strategy with two triggers on 'events': match clientId, and match cycle.
+    // A write matching only the second must still fan out.
+    const db = await createNoydb({
+      store: toMemory(), user: 'alice', secret: 'composite-two-2026',
+      derivationStrategies: [withDerivation<Bill, { self: Bill }>({
+        source: 'bills', deterministic: true, lifecycle: 'eager',
+        triggerBy: [
+          { collection: 'events', match: [{ from: 'clientId', to: 'clientId' }] },
+          { collection: 'events', match: [{ from: 'cycle', to: 'cycle' }] },
+        ],
+        outputs: { self: { shape: 'record', collection: 'bills', denorm: ['status'] } },
+        // Conditional on real 'events' state, same reasoning as the shared-key test:
+        // an unconditional derive would already be stamped by b1's own isSource put,
+        // making the assertion below pass even if the .find() bug were still present.
+        derive: async (b, ctx) => {
+          const byClient = await ctx.vault.collection('events').query()
+            .where('clientId', '==', b.clientId).toArray()
+          const byCycle = await ctx.vault.collection('events').query()
+            .where('cycle', '==', b.cycle).toArray()
+          const matched = byClient.length > 0 || byCycle.length > 0
+          return { self: { ...b, status: matched ? 'poked' : (b.status as string | undefined) } as Bill }
+        },
+      })],
+    })
+    const v = await db.openVault('firm')
+    const bills = v.collection<Bill>('bills')
+    await bills.put('b1', { id: 'b1', clientId: 'cX', cycle: 'Q9' })
+    expect((await bills.get('b1'))?.status).toBeUndefined()   // no matching event yet
+    await v.collection('events').put('e1', { cycle: 'Q9' })   // matches ONLY the second entry (no clientId field)
+    expect((await bills.get('b1'))?.status).toBe('poked')
+    await db.close()
+  })
+})

@@ -32,6 +32,7 @@ import type { EncryptedEnvelope } from '../../kernel/types.js'
 import type { ledgerAuditHook, WaveContext } from '../../kernel/via/dispatch.js'
 import { putDerivedOutput, selfWriteFieldEqual } from '../../kernel/via/dispatch.js'
 import { DerivationCapExceededError } from '../../kernel/errors.js'
+import { tupleFromWritten } from './trigger-match.js'
 import { markStale } from './stale.js'
 import type { DerivationExecutor } from './executor.js'
 
@@ -159,7 +160,7 @@ export async function dispatchDerivations(
   // derivation executor chunk out of the floor bundle for any
   // consumer that doesn't fire an eager derivation.
   let executorClass: typeof DerivationExecutor | null = null
-  for (const { spec, strategyHash } of strategies) {
+  for (const { spec, strategyHash, triggers } of strategies) {
     const mode = typeof spec.lifecycle === 'string' ? spec.lifecycle : spec.lifecycle.mode
 
     // Rollup: a write to the child `from` recomputes the
@@ -188,13 +189,9 @@ export async function dispatchDerivations(
     // used as the patch base for a self-write reverse-denorm output.
     const isSource = spec.source === collectionName
     const isSibling = !isSource && (spec.sources?.includes(collectionName) ?? false)
-    // match-form entries are wired in Task 5 (#1249); narrowed here so the tree compiles between tasks.
-    const trigger = !isSource && !isSibling
-      ? spec.triggerBy?.find(
-          (t): t is { collection: string; on: string; maxFanout?: number } =>
-            t.collection === collectionName && 'on' in t,
-        )
-      : undefined
+    const triggerEntries = !isSource && !isSibling
+      ? triggers.filter((t) => t.collection === collectionName)
+      : []
 
     const runs: Array<{
       input: Record<string, unknown> & { id: string }
@@ -213,13 +210,21 @@ export async function dispatchDerivations(
         const raw = await derivationSource.getCollection(spec.source)._getStoredRecord(id)
         runs.push({ input: { ...p, id }, base: raw ?? p, runId: id, version: 0 })
       }
-    } else if (trigger) {
+    } else if (triggerEntries.length > 0) {
       const srcColl = derivationSource.getCollection(spec.source)
-      const ids = await srcColl._findMatchingIds(trigger.on, id)
-      if (trigger.maxFanout !== undefined && ids.length > trigger.maxFanout) {
-        throw new DerivationCapExceededError(`triggerBy ${collectionName}→${spec.source}`, ids.length, trigger.maxFanout)
+      const matched = new Set<string>()
+      for (const trigger of triggerEntries) {
+        const tuple = tupleFromWritten(trigger.match, id, incoming)
+        if (tuple === null) continue   // a from-value is absent/non-scalar: matches nothing
+        const ids = await srcColl._findMatchingCompositeIds(tuple)
+        if (trigger.maxFanout !== undefined && ids.length > trigger.maxFanout) {
+          throw new DerivationCapExceededError(
+            `triggerBy ${collectionName}→${spec.source} [${trigger.match.map(p => p.to).join(',')}]`,
+            ids.length, trigger.maxFanout)
+        }
+        for (const sid of ids) matched.add(sid)
       }
-      for (const sid of ids) {
+      for (const sid of matched) {
         const raw = await srcColl._getStoredRecord(sid)
         if (raw === null) continue
         runs.push({ input: { ...raw, id: sid }, base: raw, runId: sid, version: 0 })
