@@ -233,7 +233,16 @@ export function withMaterializedView<TRow extends Record<string, unknown>>(
     )
   }
   if (typeof spec.rowKey !== 'function') {
-    throw new ValidationError('withMaterializedView: rowKey is required (no default; see spec § Type surface)')
+    // Two states, two messages. The original text said "required" for BOTH,
+    // so passing a field NAME — the shape every other option here takes —
+    // reported the key as ABSENT. That collapse cost this author three
+    // attempts and produced a probe that measured nothing.
+    throw new ValidationError(
+      spec.rowKey === undefined
+        ? 'withMaterializedView: rowKey is required (no default; see spec § Type surface)'
+        : `withMaterializedView: rowKey must be a FUNCTION (row) => string, not a ${typeof spec.rowKey}`
+          + ` — it computes each output row's id from the grouped row, so a field NAME is not enough.`
+          + ` Pass \`rowKey: (r) => String(r.${typeof spec.rowKey === 'string' ? String(spec.rowKey) : 'someField'})\`.`)
   }
   if (spec.refresh !== 'eager' && spec.refresh !== 'lazy' && spec.refresh !== 'manual') {
     throw new ValidationError(
