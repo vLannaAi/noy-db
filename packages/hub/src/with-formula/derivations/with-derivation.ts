@@ -54,10 +54,33 @@ export function withDerivation<
           `withDerivation: triggerBy.collection must not equal the source "${spec.source}" (use sources[] for same-id triggers)`,
         )
       }
-      if (typeof t.on !== 'string' || t.on.length === 0) {
+      const hasOn = typeof (t as { on?: unknown }).on === 'string'
+      const hasMatch = Array.isArray((t as { match?: unknown }).match)
+      if (hasOn === hasMatch) {
+        throw new ValidationError(
+          `withDerivation: triggerBy on "${t.collection}" needs exactly one of \`on\` or \`match\``,
+        )
+      }
+      if (hasOn && (t as { on: string }).on.length === 0) {
         throw new ValidationError(
           `withDerivation: triggerBy on "${t.collection}" needs a non-empty \`on\` (the FK field on the source)`,
         )
+      }
+      if (hasMatch) {
+        const match = (t as { match: ReadonlyArray<{ from: string; to: string }> }).match
+        if (match.length === 0) {
+          throw new ValidationError(`withDerivation: triggerBy match on "${t.collection}" must be non-empty`)
+        }
+        const seen = new Set<string>()
+        for (const p of match) {
+          if (typeof p?.from !== 'string' || p.from.length === 0 || typeof p?.to !== 'string' || p.to.length === 0) {
+            throw new ValidationError(`withDerivation: triggerBy match on "${t.collection}" needs non-empty \`from\` and \`to\` in every pair`)
+          }
+          if (seen.has(p.to)) {
+            throw new ValidationError(`withDerivation: triggerBy match on "${t.collection}" repeats \`to: "${p.to}"\` — two pairs constraining one source field is a contradiction, not a wider match`)
+          }
+          seen.add(p.to)
+        }
       }
       if (t.maxFanout !== undefined && (!Number.isInteger(t.maxFanout) || t.maxFanout < 1)) {
         throw new ValidationError(
