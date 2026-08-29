@@ -39,6 +39,23 @@ const MANIFEST_PATH = join(__dirname, '..', 'bundle-manifest.json')
 // hash-based chunk naming. Allow a 5% upward drift before failing.
 const TOLERANCE_PCT = 5
 
+// …and an absolute floor on that allowance (#1268).
+//
+// A PERCENTAGE on a small baseline measures the wrong thing. The `floor`
+// scenario is ~500 gzipped bytes, so 5% is ~25 bytes — narrower than a single
+// registration-time guard. This gate fired twice on necessary validation
+// (#1249, #1266) and never once on the thing it exists to catch. The two are
+// different by ORDERS OF MAGNITUDE: a subsystem leaking into a bundle is
+// kilobytes (measured: forcing the AWS SDK inline moved a sibling package from
+// 14,069 to 1,081,539 bytes), while a guard is tens of bytes.
+//
+// So a growth fails only if it exceeds BOTH the percentage AND this absolute
+// allowance. On the large scenarios the percentage still binds and this is
+// inert; on `floor` it stops a correct check obstructing correct code.
+// Deliberately NOT a re-baseline: the numbers still ratchet, and a real leak
+// clears this by three orders of magnitude.
+const TOLERANCE_MIN_BYTES = 192
+
 /**
  * Each scenario is a tiny consumer program. The script writes it to a
  * temp dir, runs esbuild against it (resolving @noy-db/hub through
@@ -472,8 +489,10 @@ async function main() {
       status = `❌ LEAKED: ${result.leaks.join(', ')}`
       failures++
       leakFailures++
-    } else if (baseline && deltaPct > TOLERANCE_PCT) {
-      status = `❌ +${deltaPct.toFixed(1)}% (over ${TOLERANCE_PCT}% tolerance)`
+    } else if (baseline && deltaPct > TOLERANCE_PCT
+      && (result.gzippedBytes - baseline) > TOLERANCE_MIN_BYTES) {
+      status = `❌ +${deltaPct.toFixed(1)}% / +${result.gzippedBytes - baseline}B `
+        + `(over ${TOLERANCE_PCT}% AND ${TOLERANCE_MIN_BYTES}B)`
       failures++
     } else if (baseline && deltaPct !== null) {
       status = `${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(1)}%`
