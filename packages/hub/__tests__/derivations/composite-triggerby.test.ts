@@ -112,7 +112,8 @@ describe('registry — normalized triggers (#1249)', () => {
     }).spec)
     expect(reg2.hasFieldMatchTriggerFor('clients')).toBe(false)
   })
-  it('validateFieldsFor: throws on unknown to-field for the source; silent when keys undefined', async () => {
+  it('validateFieldsFor: throws on unknown to-field for the source; silent when schema unenumerable', async () => {
+    const { z } = await import('zod')
     const reg = new DerivationRegistry()
     await reg.register(withDerivation<Bill, { self: Bill }>({
       source: 'bills', deterministic: true, lifecycle: 'eager',
@@ -120,21 +121,27 @@ describe('registry — normalized triggers (#1249)', () => {
       outputs: { self: { shape: 'record', collection: 'bills', denorm: ['status'] } },
       derive: (b) => ({ self: b }),
     }).spec)
-    expect(() => reg.validateFieldsFor('bills', new Set(['id', 'clientId', 'cycle']))).toThrow(ValidationError)
-    expect(() => reg.validateFieldsFor('bills', undefined)).not.toThrow()          // unenumerable: silent
-    expect(() => reg.validateFieldsFor('bills', new Set(['clientIdd']))).not.toThrow() // field exists: fine
+    expect(() => reg.validateFieldsFor('bills', z.object({ id: z.string(), clientId: z.string(), cycle: z.string() }), []))
+      .toThrow(ValidationError)
+    expect(() => reg.validateFieldsFor('bills', undefined, [])).not.toThrow()          // unenumerable: silent
+    expect(() => reg.validateFieldsFor('bills', z.object({ clientIdd: z.string() }), [])).not.toThrow() // field exists: fine
   })
   it('validateFieldsFor: denorm fields are exempt on the source side', async () => {
+    const { z } = await import('zod')
     const reg = new DerivationRegistry()
     await reg.register(billStatusStrategy().spec)
     // 'status' is denorm-owned, absent from the schema keys — must not fire
-    expect(() => reg.validateFieldsFor('bills', new Set(['id', 'clientId', 'cycle']), new Set(['status']))).not.toThrow()
+    expect(() => reg.validateFieldsFor('bills', z.object({ id: z.string(), clientId: z.string(), cycle: z.string() }), []))
+      .not.toThrow()
   })
   it('validateFieldsFor: throws on unknown from-field for the TRIGGER collection', async () => {
+    const { z } = await import('zod')
     const reg = new DerivationRegistry()
     await reg.register(billStatusStrategy().spec)   // from: clientId, cycle on disbursements
-    expect(() => reg.validateFieldsFor('disbursements', new Set(['id', 'amount']))).toThrow(ValidationError)
-    expect(() => reg.validateFieldsFor('disbursements', new Set(['clientId', 'cycle', 'amount']))).not.toThrow()
+    expect(() => reg.validateFieldsFor('disbursements', z.object({ id: z.string(), amount: z.number() }), []))
+      .toThrow(ValidationError)
+    expect(() => reg.validateFieldsFor('disbursements', z.object({ clientId: z.string(), cycle: z.string(), amount: z.number() }), []))
+      .not.toThrow()
   })
 })
 
@@ -377,6 +384,54 @@ describe('delete fan-out — both forms (#1249, spec §8)', () => {
     expect((await sales.get('s1'))?.buyerName).toBe('ACME Ltd')
     await v.collection('buyers').delete('u1')
     expect((await sales.get('s1'))?.buyerName).toBeNull()       // re-derived against the absent parent
+    await db.close()
+  })
+})
+
+describe('match-field typo guard at collection construction (#1249, spec §5)', () => {
+  const typoStrategy = () => withDerivation<Bill, { self: Bill }>({
+    source: 'bills', deterministic: true, lifecycle: 'eager',
+    triggerBy: [{ collection: 'disbursements', match: [{ from: 'clientId', to: 'clientIdd' }] }], // typo'd to
+    outputs: { self: { shape: 'record', collection: 'bills', denorm: ['status'] } },
+    derive: (b) => ({ self: b }),
+  })
+  it('throws at vault.collection() when the source has an enumerable schema missing the field', async () => {
+    const { z } = await import('zod')
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'composite-g-2026', derivationStrategies: [typoStrategy()] })
+    const v = await db.openVault('firm')
+    expect(() => v.collection('bills', { schema: z.object({ id: z.string(), clientId: z.string(), cycle: z.string() }) }))
+      .toThrow(ValidationError)
+    await db.close()
+  })
+  it('SILENT for a TS-generic collection (unenumerable) — the #1253 posture', async () => {
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'composite-g2-2026', derivationStrategies: [typoStrategy()] })
+    const v = await db.openVault('firm')
+    expect(() => v.collection<Bill>('bills')).not.toThrow()   // no schema: fields unenumerable
+    await db.close()
+  })
+  it('denorm-owned fields do not false-positive', async () => {
+    const { z } = await import('zod')
+    // billStatusStrategy writes denorm ['status']; schema omits it — must not throw.
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'composite-g3-2026', derivationStrategies: [billStatusStrategy()] })
+    const v = await db.openVault('firm')
+    expect(() => v.collection('bills', { schema: z.object({ id: z.string(), clientId: z.string(), cycle: z.string() }) }))
+      .not.toThrow()
+    await db.close()
+  })
+  it('throws for a typo on the TRIGGER side when that collection is schema-d', async () => {
+    const { z } = await import('zod')
+    const db = await createNoydb({
+      store: toMemory(), user: 'alice', secret: 'composite-g4-2026',
+      derivationStrategies: [withDerivation<Bill, { self: Bill }>({
+        source: 'bills', deterministic: true, lifecycle: 'eager',
+        triggerBy: [{ collection: 'disbursements', match: [{ from: 'clientIdd', to: 'clientId' }] }],  // typo'd from
+        outputs: { self: { shape: 'record', collection: 'bills', denorm: ['status'] } },
+        derive: (b) => ({ self: b }),
+      })],
+    })
+    const v = await db.openVault('firm')
+    expect(() => v.collection('disbursements', { schema: z.object({ id: z.string(), clientId: z.string(), cycle: z.string(), amount: z.number() }) }))
+      .toThrow(ValidationError)
     await db.close()
   })
 })
