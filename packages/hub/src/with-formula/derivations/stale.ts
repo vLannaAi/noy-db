@@ -110,6 +110,14 @@ export async function resolveStaleOnRead(
     const pending = map.get(k)
     if (!pending || !pending.has(spec)) continue
 
+    // Consume the pending flag BEFORE the source read, not after: for a
+    // self-write output (output.collection === spec.source, e.g. a
+    // reverse-denorm patch), `sourceColl.get(id)` below re-enters this
+    // same collection/id and would otherwise still see this spec pending
+    // — infinite recursion. Restored on a strict failure below so a
+    // future read still retries.
+    pending.delete(spec)
+
     // Read the source record from the source collection and re-derive.
     // We use the same getCollection accessor that eager dispatch uses
     // — it returns the live `Collection<any>` instance with full
@@ -117,7 +125,6 @@ export async function resolveStaleOnRead(
     const sourceColl = accessor.getCollection(spec.source)
     const source = await sourceColl.get(id)
     if (!source) {
-      pending.delete(spec)
       continue
     }
     const sourceWithId = { ...(source as Record<string, unknown>), id } as Record<string, unknown> & { id: string }
@@ -133,7 +140,8 @@ export async function resolveStaleOnRead(
       if (out.kind === 'failed') {
         const err = out.error
         if (spec.strict) {
-          // Leave the stale flag set so a future read retries.
+          // Restore the stale flag (consumed above) so a future read retries.
+          pending.add(spec)
           throw err
         }
         console.warn(
