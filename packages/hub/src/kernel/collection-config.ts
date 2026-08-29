@@ -941,15 +941,27 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
   // object-valued-group-key refusal ("refuse, don't bucket wrong") and as the
   // triggerBy virtual-target refusal (#1266).
   //
-  // ⚠️ KNOWN RESIDUE, stated rather than discovered later — the same ordering
-  // documented for the tiers+crdt guard below. A single-query MV of the common
-  // shape `query: (db) => db.collection(name)…` constructs THIS collection from
-  // inside `MaterializedViewRegistry.register()` BEFORE the dependency is
-  // recorded, so `mvsForSource(name)` is still empty at this call and that
-  // shape is NOT caught here. `unionSources`, an aggregate with explicit
-  // `sources`, and any source built by an earlier `vault.collection()` ARE
-  // caught. Closing the residue needs a check inside the registry after the
-  // callback runs — filed, not guessed at.
+  // ⚠️ KNOWN RESIDUE — and the coverage claim is split by EVIDENCE, because the
+  // first draft of this comment inherited its scope from the tiers+crdt guard
+  // below rather than measuring it.
+  //
+  //   VERIFIED here by test: a `unionSources` MV IS caught.
+  //   NOT VERIFIED: an aggregate with explicit `sources`. The registry runs
+  //     `spec.query(db)` BEFORE folding `spec.sources` into the dependency
+  //     set (registry.ts, the `isQuery` branch), so the callback constructs
+  //     this collection while `mvsForSource(name)` is still empty. Whether a
+  //     later `vault.collection(name, …)` re-enters this function — and so
+  //     re-runs the guard with a populated registry — depends on collection
+  //     caching, which is NOT established here. An attempt to measure it hit a
+  //     DIFFERENT loud refusal first (late-attach reconcile rejects declaring
+  //     a virtual computed field on an already-constructed collection), so the
+  //     shape may be covered by that instead. Loud either way; not proven to be
+  //     covered by THIS guard.
+  //   NOT CAUGHT: the self-constructing single-query shape
+  //     `query: (db) => db.collection(name)…` with no explicit `sources`.
+  //
+  // Do not widen the first bullet without a test. Closing the residue needs a
+  // check inside the registry after the callback runs — filed, not guessed at.
   {
     const virtualFieldNames = matchTargetFieldNames({
       computed: opts.computed as Readonly<Record<string, unknown>> | undefined,
