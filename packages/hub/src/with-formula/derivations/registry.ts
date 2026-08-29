@@ -1,3 +1,4 @@
+import { computedEntryParts, type ComputedEntryParts } from '../../kernel/collection-config.js'
 import { DerivationCycleError, DuplicateBehaviorNameError, ValidationError } from '../../kernel/errors.js'
 import { ViaGraph, type FieldRef, type EdgeKind, type Grain } from '../../kernel/via/graph.js'
 import { schemaFieldKeys } from '../../with-shape/introspection/describe.js'
@@ -42,6 +43,57 @@ interface RegisteredStrategy {
  *
  * @internal
  */
+/**
+ * Field names a `triggerBy` match may NOT target, and the ones it may (#1266).
+ *
+ * Lives HERE, not in `kernel/collection-config.ts` where computed-mode logic
+ * otherwise sits, because that module is in the FLOOR bundle: putting twenty
+ * lines there cost every consumer 5.2% of the floor whether or not they use
+ * derivations. Registry code is already behind the derivations opt-in.
+ *
+ * A derivation matcher reads the STORED record, so a match target must be a
+ * field that is stored. `mode: 'virtual'` computed fields are evaluated on the
+ * READ path and never persisted — but they appear in `computed:` (and in
+ * `via(computed(...))`) exactly like materialized ones, so the registration
+ * guard accepted them and the fan-out then matched nothing, forever: the guard's
+ * own stated failure mode, reached through the guard rather than around it.
+ *
+ * Rejected rather than supported. Matching a virtual field means running user
+ * code for every candidate row, which turns an indexed narrow into a full scan
+ * of the collection; `mode: 'materialized'` is stored, already works, and is
+ * what the error points the caller at.
+ *
+ * `declared` also folds in `viaFields`, which the guard's key set previously
+ * omitted entirely — a `via()`-declared MATERIALIZED field is a perfectly good
+ * match target and was being rejected as a typo. An over-firing guard teaches
+ * people to stop trusting it, so both directions are fixed together.
+ */
+function matchTargetFieldNames(opts: {
+  // Deliberately `unknown`-valued: the caller is generic over the record type
+  // (`ComputedFields<T>`), and this reads only `mode`, so narrowing the value
+  // type here would force a variance cast at every call site instead of one
+  // here. Both shapes are duck-checked below.
+  readonly computed?: Readonly<Record<string, unknown>> | undefined
+  readonly viaFields?: Readonly<Record<string, unknown>> | undefined
+}): { readonly declared: readonly string[]; readonly virtual: readonly string[] } {
+  const declared: string[] = []
+  const virtual: string[] = []
+  for (const [field, entry] of Object.entries(opts.computed ?? {})) {
+    declared.push(field)
+    const parts: ComputedEntryParts = computedEntryParts(entry as Parameters<typeof computedEntryParts>[0])
+    if (parts.mode === 'virtual') virtual.push(field)
+  }
+  for (const [field, spec] of Object.entries(opts.viaFields ?? {})) {
+    declared.push(field)
+    const descriptors = (spec as { descriptors?: readonly unknown[] }).descriptors ?? []
+    for (const d of descriptors) {
+      if ((d as { _viaBrand?: unknown })._viaBrand === 'computed'
+        && (d as { mode?: unknown }).mode === 'virtual') virtual.push(field)
+    }
+  }
+  return { declared, virtual }
+}
+
 export class DerivationRegistry {
   private readonly _bySource = new Map<string, RegisteredStrategy[]>()
   private readonly _byOutput = new Map<string, RegisteredStrategy[]>()
@@ -131,38 +183,68 @@ export class DerivationRegistry {
    * own strategies rather than taken as a parameter — a field this
    * collection's own derivations write via `denorm` is never a typo.
    */
-  validateFieldsFor(collectionName: string, schema: unknown, configKeys: ReadonlyArray<string>): void {
+  validateFieldsFor(
+    collectionName: string,
+    schema: unknown,
+    configKeys: ReadonlyArray<string>,
+    viaSources: {
+      readonly computed?: Readonly<Record<string, unknown>> | undefined
+      readonly viaFields?: Readonly<Record<string, unknown>> | undefined
+    } | undefined = undefined,
+  ): void {
+    const targets = matchTargetFieldNames(viaSources ?? {})
+    const virtual = new Set(targets.virtual)
     const shapeKeys = schemaFieldKeys(schema)
-    if (shapeKeys === undefined) return
-    const keys = new Set([...shapeKeys, ...configKeys])
+    // The two checks have DIFFERENT preconditions, which is why one loop runs
+    // both rather than an early return covering both. The typo check needs a
+    // readable field list and must stay silent without one — a false "unknown
+    // field" on a TS-generic collection would be worse than no check. The
+    // virtual check needs nothing but the declaration in hand: "declared, and
+    // never stored" is provable from the declaration alone (#1266).
+    if (shapeKeys === undefined && virtual.size === 0) return
+    const keys = shapeKeys === undefined ? undefined
+      : new Set([...shapeKeys, ...configKeys, ...targets.declared])
     const denormExempt = new Set<string>()
-    for (const reg of new Set([...this._bySource.values()].flat())) {
+    const regs = new Set([...this._bySource.values()].flat())
+    for (const reg of regs) {
       if (reg.spec.source !== collectionName) continue
       for (const out of Object.values(reg.spec.outputs) as Array<{ collection?: string; denorm?: readonly string[] }>) {
         if (out.collection === collectionName) for (const d of out.denorm ?? []) denormExempt.add(d)
       }
     }
-    const regs = new Set([...this._bySource.values()].flat())
+    const unknown = (f: string): boolean =>
+      keys !== undefined && !keys.has(f) && !denormExempt.has(f)
     for (const reg of regs) {
+      const name = reg.spec.name ?? reg.spec.source
       for (const t of reg.triggers) {
-        if (reg.spec.source === collectionName) {
-          for (const p of t.match) {
-            if (!keys.has(p.to) && !denormExempt.has(p.to)) {
+        for (const p of t.match) {
+          // `to` reads the SOURCE record; `from` reads the WRITTEN record.
+          // Both are the stored shape, so both refuse a virtual target.
+          if (reg.spec.source === collectionName) {
+            if (virtual.has(p.to)) throw new ValidationError(this._virtualMatchMessage(name, collectionName, p.to, 'to'))
+            if (unknown(p.to)) {
               throw new ValidationError(
-                `derivation "${reg.spec.name ?? reg.spec.source}": triggerBy match names source field "${p.to}", which "${collectionName}" does not declare — a typo here silently matches nothing forever`)
+                `derivation "${name}": triggerBy match names source field "${p.to}", which "${collectionName}" does not declare — a typo here silently matches nothing forever`)
             }
           }
-        }
-        if (t.collection === collectionName) {
-          for (const p of t.match) {
-            if (p.from !== 'id' && !keys.has(p.from) && !denormExempt.has(p.from)) {
+          if (t.collection === collectionName && p.from !== 'id') {
+            if (virtual.has(p.from)) throw new ValidationError(this._virtualMatchMessage(name, collectionName, p.from, 'from'))
+            if (unknown(p.from)) {
               throw new ValidationError(
-                `derivation "${reg.spec.name ?? reg.spec.source}": triggerBy match reads "${p.from}" from written "${collectionName}" records, which that collection does not declare — a typo here silently matches nothing forever`)
+                `derivation "${name}": triggerBy match reads "${p.from}" from written "${collectionName}" records, which that collection does not declare — a typo here silently matches nothing forever`)
             }
           }
         }
       }
     }
+  }
+
+  /** #1266 — one message shape for both match sides; see {@link matchTargetFieldNames}. */
+  private _virtualMatchMessage(name: string, collectionName: string, field: string, side: 'to' | 'from'): string {
+    const where = side === 'to'
+      ? `names source field "${field}", which "${collectionName}"`
+      : `reads "${field}" from written "${collectionName}" records, which that collection`
+    return `derivation "${name}": triggerBy match ${where} declares as a VIRTUAL computed field — virtual fields are evaluated on read and never stored, so the matcher would read every candidate record and match nothing, forever. Declare it as \`mode: 'materialized'\` (stored, indexable) or match on a stored field.`
   }
 
   /**
