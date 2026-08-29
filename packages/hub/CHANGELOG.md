@@ -1,5 +1,107 @@
 # Changelog — hub
 
+## 0.7.0-pre.13
+
+### Patch Changes
+
+- A FAILED non-strict lazy re-derive no longer clears the stale flag (#1258).
+
+  `resolveStaleOnRead` consumes the pending flag before reading the source (a
+  recursion guard for self-write outputs). A STRICT failure throws and the catch
+  restores it; a NON-STRICT failure warned and continued, leaving the flag
+  consumed — so the record was served as fresh and never retried, permanently,
+  because nothing would mark it stale again.
+
+  The decision this needed was what `strict: false` means. It means "a failed
+  derivation must not break the read", NOT "report this output as current". The
+  record is still served, the warning still fires, and the flag now survives so
+  the next read retries — strict-mode behaviour minus the throw.
+
+  Deliberate cost, stated so it is not later mistaken for a bug: a
+  permanently-failing non-strict derivation now re-runs on every read of that id
+  rather than once. That is louder and more expensive than silently serving a
+  stale value forever, and it is the trade made everywhere else here — a degraded
+  state must not render as a healthy one.
+
+- A rollup child that RE-PARENTS now recomputes the old parent as well as the new
+  one (#1257).
+
+  The dispatcher read the rollup key from the incoming record only, so moving a
+  child from parent A to parent B recomputed B and left A's aggregate holding a
+  number that was correct before the move. That is the dangerous shape: a stale
+  total reads as data, not as an error, so nothing prompts anyone to re-check it.
+
+  Same old-value class as the `triggerBy` update fan-out fixed in #1249 — and it
+  is a small change rather than a new mechanism only because that fix added
+  prior-record capture to the write path, which this reuses.
+
+  Consistent with the rest of the derivation surface: a write that does not thread
+  a prior record (a sync-applied wave write, a tiers restore) degrades to
+  new-parent-only, the previous behaviour, rather than guessing at the old key.
+
+- `schemaFieldKeys` now unwraps `z.preprocess()` on both Zod majors, so the two
+  field-typo guards (#1253's `fieldMeta`, #1249's `triggerBy` match) see through
+  it (#1262, reported by the pilot).
+
+  The `0.7.0-pre.12` fix followed refinement effects only and put `preprocess` on
+  the carve-out side with `transform`. That was wrong: `z.preprocess(fn, inner)`
+  rewrites the INPUT and then parses with `inner`, so the parsed record's keys ARE
+  `inner`'s keys — measured, `preprocess({a,b})` parses to `['a','b']` while
+  `transform` parses to `['c']`.
+
+  Scope, measured rather than assumed: this left the **sync** `describe()` path
+  unguarded for wrapped schemas. The async path was never affected —
+  `derivePersistedSchema` sees through `preprocess` on its own, so
+  `buildDescription` gets a populated field map and never reaches the
+  `schemaFieldKeys` fallback. The sync path is public, is what tooling reaches
+  for first, and is the only path some Zod 3 consumers can reach at all (the
+  async path needs the `zod-to-json-schema` peer), so the gap was real — but it
+  was one path, not both.
+
+  Replaced the effect-kind allowlist with one rule that covers every wrapper on
+  both majors: **follow the output side.** These keys describe the parsed record,
+  so the only question a wrapper raises is whether it changes the parsed shape.
+  Zod 3 `ZodEffects` follows `_def.schema` for `refinement` and `preprocess`;
+  Zod 4 wraps both `z.preprocess()` and `.transform()` as a `ZodPipe` and
+  following `_def.out` resolves them with no effect-kind test at all — preprocess
+  reaches the object, `.transform()` reaches a shapeless `ZodTransform` and stays
+  silent on its own. **This also fixes Zod 4 `z.preprocess()`, which the narrower
+  one-line widening would have missed.**
+
+  `.transform()` remains deliberately silent on both majors: it replaces the
+  output, so the inner keys would describe a record that is never stored. The two
+  are one string apart and mean opposite things, so tests pin them against each
+  other on both majors.
+
+- `triggerBy` match targets are now checked against where the field actually
+  LIVES, not just whether it is declared (#1266, reported by the pilot).
+
+  A derivation matcher reads STORED records. A `mode: 'virtual'` computed field is
+  evaluated on the read path and never persisted — but it appears in `computed:`
+  (and in `via(computed(...))`) exactly like a materialized one, so registration
+  accepted it and the fan-out then matched nothing, forever. That is the precise
+  failure the #1249 match guard exists to prevent, reached THROUGH the guard
+  rather than around it, and it is the first thing a consumer reaches for when a
+  match target is not already stored.
+
+  Refused at registration rather than supported: matching a virtual field means
+  running user code for every candidate row, turning an indexed narrow into a full
+  scan. `mode: 'materialized'` is stored, already works, and is what the error
+  names. Both sides are refused — `to` reads the source record and `from` reads
+  the written record, and both are the stored shape. (The report covered `to`;
+  `from` had the identical defect.)
+
+  The virtual check runs even when the schema's field list is unreadable, unlike
+  the typo guard beside it. The typo guard needs a field list to compare against
+  and stays silent without one; this one does not — "declared, but never stored"
+  is provable from the declaration alone.
+
+  Second defect fixed in the same change: `viaFields` was missing from the guard's
+  key set entirely, so a `via()`-declared MATERIALIZED field — a perfectly valid
+  match target — was rejected as an undeclared typo. A guard that refuses valid
+  configurations is how people learn to stop trusting it, so both directions ship
+  together, each with a test that fails without its half of the fix.
+
 ## 0.7.0-pre.12
 
 ### Minor Changes
