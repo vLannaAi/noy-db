@@ -2320,20 +2320,22 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     }
   }
 
+  /** Extras added onto {@link #derivationDeleteCtx} — shared by `dispatchDerivations` and `dispatchTriggerDerivationsOnDelete` (#1249). */
+  #derivationDispatchCtx() { return { ...this.#derivationDeleteCtx(this.derivationSource!), via: this.via, recomputeRollup: this.recomputeRollup.bind(this), dispatchCtx: this.#dispatchCtx.bind(this), trackPut: this.#trackPut.bind(this) } }
+
   /** @internal `wave` (#638 Task 4) — threaded to `recomputeRollup` for the sync/cutover/restore
    *  dispatch wave's per-target dedup; `undefined` on the local-write path (byte-identical). */
   async dispatchDerivations(id: string, record: T, version: number, wave?: WaveContext, prior?: Record<string, unknown> | null): Promise<void> {
     if (this.derivationSource === undefined) return
-    // S4 gate: dynamic import only — see #derivationDeleteCtx (#842).
     const { dispatchDerivations } = await import('../with-formula/derivations/dispatch.js')
-    return dispatchDerivations({
-      ...this.#derivationDeleteCtx(this.derivationSource),
-      via: this.via,
-      recomputeRollup: (spec, parentId, source, w) => this.recomputeRollup(spec, parentId, source, w),
-      dispatchCtx: (source) => this.#dispatchCtx(source),
-      trackPut: (txCtx, collectionName, rid, prior) => this.#trackPut(txCtx, collectionName, rid, prior),
-    }, id, record as unknown as Record<string, unknown>, version, wave, prior)
+    return dispatchDerivations(this.#derivationDispatchCtx(), id, record as unknown as Record<string, unknown>, version, wave, prior)
   }
+
+  /** @internal — trigger fan-out for a deleted parent (#1249); see dispatch.ts. */
+  async dispatchTriggerDerivationsOnDelete(id: string, deleted: T): Promise<void> {
+    if (this.derivationSource === undefined) return
+    const { dispatchTriggerDerivationsOnDelete } = await import('../with-formula/derivations/dispatch.js')
+    return dispatchTriggerDerivationsOnDelete(this.#derivationDispatchCtx(), id, deleted as unknown as Record<string, unknown>) }
 
   /**
    * Delete a record by ID. Runs inside the hub's write-queue tracker
@@ -2649,7 +2651,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // delete the output directly with `outputCollection.delete(id)` if
     // they want. Array-shape derivations DO cascade on delete
     // because their derived ids are opaque (from the `key(out)`
-    // extractor) — without cascade the rows become unfindable orphans.
+    // extractor) — without cascade the rows become unfindable orphans. (Deleting a TRIGGER parent
+    // is a different event and DOES fan out — see dispatchTriggerDerivationsOnDelete, #1249.)
     if (!internal) {
       await this.dispatchMaterializedViewsOnDelete(id)
       await this.dispatchArrayDerivationsOnDelete(id)
@@ -2657,7 +2660,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       // that this child is gone. `existing.record` carries the deleted child's
       // FK; the recompute gathers the REMAINING children (this one already
       // removed from the store/cache above).
-      if (existing) await this.dispatchRollupsOnDelete(id, existing.record)
+      if (existing) { await this.dispatchRollupsOnDelete(id, existing.record); await this.dispatchTriggerDerivationsOnDelete(id, existing.record) }
     }
     return true
   }

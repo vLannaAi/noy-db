@@ -147,10 +147,7 @@ export async function dispatchDerivations(
    *  matched set alongside the new one (spec §7). */
   prior?: Record<string, unknown> | null,
 ): Promise<void> {
-  const {
-    derivationSource, collectionName, adapter, vault, getDEK, storeCiphertext,
-    via, recomputeRollup, dispatchCtx, trackPut,
-  } = ctx
+  const { derivationSource, collectionName, via, recomputeRollup } = ctx
 
   // `record` is the stored form here (post-quantize) — decode so
   // derive(source, ctx) sees the canonical money shape.
@@ -259,113 +256,178 @@ export async function dispatchDerivations(
       ;({ DerivationExecutor: executorClass } = await import('./executor.js'))
     }
 
-    for (const run of runs) {
-      const ctx = { vault: derivationSource.getReadOnlyFacade() }
-      const outCtx = dispatchCtx({ collection: spec.source, id: run.runId })
-      const result = await executorClass.run(spec, run.input, run.version, strategyHash, ctx)
-      for (const key of Object.keys(spec.outputs)) {
-        const out = result.outputs[key]
-        if (!out) continue
-        if (out.kind === 'failed') {
-          const err = out.error
-          if (spec.strict) throw err
-          console.warn(`[derivation] output "${key}" for source "${spec.source}" id="${run.runId}" failed:`, err)
-          continue
-        }
-        const outSpec = spec.outputs[key]
-        if (!outSpec) continue
-        const outputCollection = derivationSource.getCollection(outSpec.collection)
-        // If we're inside a multi-record transaction, register
-        // derived writes as side-effect ops on the active ctx
-        // BEFORE they fire. `revertExecuted` walks `_executed` in
-        // reverse on rollback, so capturing the pre-write envelope
-        // here lets a later mid-batch failure restore this output's
-        // prior state alongside the source op. Outside a transaction
-        // the context is null and tracking is skipped.
-        const txCtx = derivationSource.getActiveTxContext()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const run of runs) await runOne(ctx, spec as any, strategyHash, executorClass, run)
+  }
+}
 
-        // ── Array-shape branch ─────────────────────────────────
-        if (out.kind === 'array') {
-          // Load the prior key set from the fanout sidecar.
-          const { loadFanoutSidecar, saveFanoutSidecar } = await import('./fanout-sidecar.js')
-          const prior = await loadFanoutSidecar(adapter, vault, spec.source, run.runId, key, getDEK, storeCiphertext)
-          const prevKeys = new Set<string>(prior?.keys ?? [])
-          const newKeysList = out.entries.map(e => e.key)
-          const newKeysSet = new Set<string>(newKeysList)
+/**
+ * Run the executor for one (spec, run) pair and write its outputs. Shared by
+ * `dispatchDerivations`' eager loop and `dispatchTriggerDerivationsOnDelete`
+ * (#1249) — the write-out logic (array diff, record self-write reverse-denorm,
+ * normal record output) is identical for a live write and a delete-triggered
+ * re-derive; only how `runs` gets built differs.
+ */
+async function runOne(
+  ctx: DerivationDispatchCtx,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  spec: any,
+  strategyHash: string,
+  executorClass: typeof DerivationExecutor,
+  run: { input: Record<string, unknown> & { id: string }; base: Record<string, unknown>; runId: string; version: number },
+): Promise<void> {
+  const { derivationSource, adapter, vault, getDEK, storeCiphertext, dispatchCtx, trackPut } = ctx
+  const execCtx = { vault: derivationSource.getReadOnlyFacade() }
+  const outCtx = dispatchCtx({ collection: spec.source, id: run.runId })
+  const result = await executorClass.run(spec, run.input, run.version, strategyHash, execCtx)
+  for (const key of Object.keys(spec.outputs)) {
+    const out = result.outputs[key]
+    if (!out) continue
+    if (out.kind === 'failed') {
+      const err = out.error
+      if (spec.strict) throw err
+      console.warn(`[derivation] output "${key}" for source "${spec.source}" id="${run.runId}" failed:`, err)
+      continue
+    }
+    const outSpec = spec.outputs[key]
+    if (!outSpec) continue
+    const outputCollection = derivationSource.getCollection(outSpec.collection)
+    // If we're inside a multi-record transaction, register
+    // derived writes as side-effect ops on the active ctx
+    // BEFORE they fire. `revertExecuted` walks `_executed` in
+    // reverse on rollback, so capturing the pre-write envelope
+    // here lets a later mid-batch failure restore this output's
+    // prior state alongside the source op. Outside a transaction
+    // the context is null and tracking is skipped.
+    const txCtx = derivationSource.getActiveTxContext()
 
-          // Diff — delete keys that were in prev but not in new.
-          for (const k of prevKeys) {
-            if (newKeysSet.has(k)) continue
-            await outputCollection._internalDelete(k, txCtx)
-          }
+    // ── Array-shape branch ─────────────────────────────────
+    if (out.kind === 'array') {
+      // Load the prior key set from the fanout sidecar.
+      const { loadFanoutSidecar, saveFanoutSidecar } = await import('./fanout-sidecar.js')
+      const prior = await loadFanoutSidecar(adapter, vault, spec.source, run.runId, key, getDEK, storeCiphertext)
+      const prevKeys = new Set<string>(prior?.keys ?? [])
+      const newKeysList = out.entries.map((e: { key: string }) => e.key)
+      const newKeysSet = new Set<string>(newKeysList)
 
-          // Upsert every entry in the new set. (Slice 1: no
-          // identity-skip optimisation; write every row, idempotent
-          // at the (collection, id) level.)
-          for (const entry of out.entries) {
-            if (txCtx !== null) {
-              trackPut(txCtx, outSpec.collection, entry.key, await adapter.get(vault, outSpec.collection, entry.key))
-            }
-            await putDerivedOutput(outputCollection, entry.key, entry.value, outCtx, { source: 'derived' })
-          }
-
-          // Persist the new key set last, for failure-mode symmetry.
-          await saveFanoutSidecar(adapter, vault, {
-            source: spec.source,
-            sourceId: run.runId,
-            outputKey: key,
-            outputCollection: outSpec.collection,
-            keys: newKeysList,
-          }, getDEK, storeCiphertext)
-          continue
-        }
-
-        // ── Record-shape branch ────────────────────────────────
-        if (out.skipped === true) {
-          // Optional output returned null. Delete the
-          // previously-emitted output at this id, if any. Routed
-          // through `_internalDelete` so a user-registered
-          // `onDelete` on the output collection does NOT
-          // fire — this is a system-internal tombstone, not a
-          // user-initiated delete. The txCtx hookup captures the
-          // prior envelope inside `_internalDelete` for rollback
-          // symmetry; delete-of-absent is a silent no-op.
-          await outputCollection._internalDelete(run.runId, txCtx)
-          continue
-        }
-
-        // ── Self-write reverse-denorm ───────────────────────────
-        // An output back to its own source: patch ONLY the declared
-        // `denorm` fields onto the raw stored record, never the whole
-        // value (which would clobber user fields / i18n maps and carries
-        // the executor's `_derivedFrom` tag). If the patch changes
-        // nothing, skip the write — that value-equality is the cycle
-        // guard: the self-write re-fires the source-path derivation,
-        // which recomputes identical fields and terminates here.
-        if (outSpec.shape === 'record' && outSpec.denorm !== undefined && outSpec.collection === spec.source) {
-          const value = out.value
-          const patched: Record<string, unknown> = { ...run.base }
-          let changed = false
-          for (const f of outSpec.denorm) {
-            if (!selfWriteFieldEqual(run.base[f], value[f])) {
-              patched[f] = value[f]
-              changed = true
-            }
-          }
-          if (!changed) continue // cycle guard — nothing to write
-          if (txCtx !== null) {
-            trackPut(txCtx, outSpec.collection, run.runId, await adapter.get(vault, outSpec.collection, run.runId))
-          }
-          await putDerivedOutput(outputCollection, run.runId, patched, outCtx, { source: 'derived' })
-          continue
-        }
-
-        // ── Normal record output (separate output collection) ──
-        if (txCtx !== null) {
-          trackPut(txCtx, outSpec.collection, run.runId, await adapter.get(vault, outSpec.collection, run.runId))
-        }
-        await putDerivedOutput(outputCollection, run.runId, out.value, outCtx, { source: 'derived' })
+      // Diff — delete keys that were in prev but not in new.
+      for (const k of prevKeys) {
+        if (newKeysSet.has(k)) continue
+        await outputCollection._internalDelete(k, txCtx)
       }
+
+      // Upsert every entry in the new set. (Slice 1: no
+      // identity-skip optimisation; write every row, idempotent
+      // at the (collection, id) level.)
+      for (const entry of out.entries) {
+        if (txCtx !== null) {
+          trackPut(txCtx, outSpec.collection, entry.key, await adapter.get(vault, outSpec.collection, entry.key))
+        }
+        await putDerivedOutput(outputCollection, entry.key, entry.value, outCtx, { source: 'derived' })
+      }
+
+      // Persist the new key set last, for failure-mode symmetry.
+      await saveFanoutSidecar(adapter, vault, {
+        source: spec.source,
+        sourceId: run.runId,
+        outputKey: key,
+        outputCollection: outSpec.collection,
+        keys: newKeysList,
+      }, getDEK, storeCiphertext)
+      continue
+    }
+
+    // ── Record-shape branch ────────────────────────────────
+    if (out.skipped === true) {
+      // Optional output returned null. Delete the
+      // previously-emitted output at this id, if any. Routed
+      // through `_internalDelete` so a user-registered
+      // `onDelete` on the output collection does NOT
+      // fire — this is a system-internal tombstone, not a
+      // user-initiated delete. The txCtx hookup captures the
+      // prior envelope inside `_internalDelete` for rollback
+      // symmetry; delete-of-absent is a silent no-op.
+      await outputCollection._internalDelete(run.runId, txCtx)
+      continue
+    }
+
+    // ── Self-write reverse-denorm ───────────────────────────
+    // An output back to its own source: patch ONLY the declared
+    // `denorm` fields onto the raw stored record, never the whole
+    // value (which would clobber user fields / i18n maps and carries
+    // the executor's `_derivedFrom` tag). If the patch changes
+    // nothing, skip the write — that value-equality is the cycle
+    // guard: the self-write re-fires the source-path derivation,
+    // which recomputes identical fields and terminates here.
+    if (outSpec.shape === 'record' && outSpec.denorm !== undefined && outSpec.collection === spec.source) {
+      const value = out.value
+      const patched: Record<string, unknown> = { ...run.base }
+      let changed = false
+      for (const f of outSpec.denorm) {
+        if (!selfWriteFieldEqual(run.base[f], value[f])) {
+          patched[f] = value[f]
+          changed = true
+        }
+      }
+      if (!changed) continue // cycle guard — nothing to write
+      if (txCtx !== null) {
+        trackPut(txCtx, outSpec.collection, run.runId, await adapter.get(vault, outSpec.collection, run.runId))
+      }
+      await putDerivedOutput(outputCollection, run.runId, patched, outCtx, { source: 'derived' })
+      continue
+    }
+
+    // ── Normal record output (separate output collection) ──
+    if (txCtx !== null) {
+      trackPut(txCtx, outSpec.collection, run.runId, await adapter.get(vault, outSpec.collection, run.runId))
+    }
+    await putDerivedOutput(outputCollection, run.runId, out.value, outCtx, { source: 'derived' })
+  }
+}
+
+/**
+ * Trigger fan-out for a DELETED parent record (#1249, spec §8). Distinct from
+ * the "record-shape derivations not dispatched on delete" rule — that is
+ * about deleting a SOURCE record; this fires when a TRIGGER collection's
+ * record is deleted, re-deriving source records that still exist. Pairs
+ * evaluate against the tombstoned record's values; matched sources re-derive
+ * through the normal executor (their derive() reads the now-absent parent
+ * and decides what that means — the engine never cascades deletes).
+ */
+export async function dispatchTriggerDerivationsOnDelete(
+  ctx: DerivationDispatchCtx, id: string, deleted: Record<string, unknown>,
+): Promise<void> {
+  const { derivationSource, collectionName } = ctx
+  const registry = derivationSource.registry()
+  const strategies = registry.strategiesForSource(collectionName)
+  if (strategies.length === 0) return
+  let executorClass: typeof DerivationExecutor | null = null
+  for (const { spec, strategyHash, triggers } of strategies) {
+    if (spec.rollup) continue                                    // rollup-on-delete already exists
+    if (spec.source === collectionName) continue                 // source delete: existing rule, untouched
+    const entries = triggers.filter((t) => t.collection === collectionName)
+    if (entries.length === 0) continue
+    const mode = typeof spec.lifecycle === 'string' ? spec.lifecycle : spec.lifecycle.mode
+    const srcColl = derivationSource.getCollection(spec.source)
+    const matched = new Set<string>()
+    for (const trigger of entries) {
+      const tuple = tupleFromWritten(trigger.match, id, deleted)
+      if (tuple === null) continue
+      const ids = await srcColl._findMatchingCompositeIds(tuple)
+      if (trigger.maxFanout !== undefined && ids.length > trigger.maxFanout) {
+        throw new DerivationCapExceededError(
+          `triggerBy ${collectionName}→${spec.source} [${trigger.match.map(p => p.to).join(',')}] (delete)`,
+          ids.length, trigger.maxFanout)
+      }
+      for (const sid of ids) matched.add(sid)
+    }
+    if (matched.size === 0) continue
+    if (mode !== 'eager') { for (const sid of matched) await markStale(registry, spec, sid); continue }
+    if (executorClass === null) ({ DerivationExecutor: executorClass } = await import('./executor.js'))
+    for (const sid of matched) {
+      const raw = await srcColl._getStoredRecord(sid)
+      if (raw === null) continue
+      await runOne(ctx, spec, strategyHash, executorClass, { input: { ...raw, id: sid }, base: raw, runId: sid, version: 0 })
     }
   }
 }

@@ -338,3 +338,45 @@ describe('union fan-out on update (#1249, spec §7)', () => {
     await db.close()
   })
 })
+
+describe('delete fan-out — both forms (#1249, spec §8)', () => {
+  it('deleting a disbursement re-fires the matched bills (field-match form)', async () => {
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'composite-d-2026', derivationStrategies: [billStatusStrategy()] })
+    const v = await db.openVault('firm')
+    const bills = v.collection<Bill>('bills')
+    const disb = v.collection<Disbursement>('disbursements')
+    await bills.put('b1', { id: 'b1', clientId: 'c1', cycle: 'Q1' })
+    await disb.put('d1', { id: 'd1', clientId: 'c1', cycle: 'Q1', amount: 500 })
+    expect((await bills.get('b1'))?.status).toBe('covered')
+    await disb.delete('d1')
+    expect((await bills.get('b1'))?.status).toBe('uncovered')   // pre-#1249: stayed 'covered', silently stale
+    await db.close()
+  })
+  it('deleting a buyer re-fires their sales (the PRE-EXISTING id-form gap, now closed)', async () => {
+    // Reuse the buyerName denorm shape from trigger-by.test.ts: derive falls
+    // back to null when the buyer is gone.
+    interface Buyer2 extends Record<string, unknown> { id: string; companyName: string }
+    interface Sale2 extends Record<string, unknown> { id: string; buyerId: string; buyerName?: string | null }
+    const db = await createNoydb({
+      store: toMemory(), user: 'alice', secret: 'composite-d2-2026',
+      derivationStrategies: [withDerivation<Sale2, { self: Sale2 }>({
+        source: 'sales', deterministic: true, lifecycle: 'eager',
+        triggerBy: [{ collection: 'buyers', on: 'buyerId' }],
+        outputs: { self: { shape: 'record', collection: 'sales', denorm: ['buyerName'] } },
+        derive: async (sale, ctx) => {
+          const b = await ctx.vault.collection<Buyer2>('buyers').get(sale.buyerId)
+          return { self: { ...sale, buyerName: b?.companyName ?? null } as Sale2 }
+        },
+      })],
+    })
+    const v = await db.openVault('firm')
+    const sales = v.collection<Sale2>('sales')
+    await v.collection<Buyer2>('buyers').put('u1', { id: 'u1', companyName: 'ACME' })
+    await sales.put('s1', { id: 's1', buyerId: 'u1' })
+    await v.collection('buyers').put('u1', { id: 'u1', companyName: 'ACME Ltd' })
+    expect((await sales.get('s1'))?.buyerName).toBe('ACME Ltd')
+    await v.collection('buyers').delete('u1')
+    expect((await sales.get('s1'))?.buyerName).toBeNull()       // re-derived against the absent parent
+    await db.close()
+  })
+})
