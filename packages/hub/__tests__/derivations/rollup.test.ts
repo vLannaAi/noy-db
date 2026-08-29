@@ -278,3 +278,57 @@ describe('withMaterializedView rowKey — absent vs wrong-typed (design pass, de
     } as never)).toThrow(/is required/)
   })
 })
+
+/**
+ * #1269 / design pass decision 2 — an MV group key naming a VIRTUAL computed
+ * field bucketed every row under an `undefined` key: a well-formed aggregate
+ * carrying a wrong NUMBER, not an error. `query().where()` already refuses the
+ * same field, so the two halves of one apparent query layer disagreed.
+ *
+ * Refused at collection registration where the MV is visible. The residue is
+ * DELIBERATE and documented at the guard: a single-query MV that constructs its
+ * own source inside `query: (db) => db.collection(name)` is registered after
+ * this point, so it is not caught here.
+ */
+describe('MV groupBy on a VIRTUAL field is refused (#1269)', () => {
+  const virtualTag = (r: Record<string, unknown>) => `t${String(r['total'])}`
+
+  async function withMV(groupField: string, mode: 'virtual' | 'materialized') {
+    const { withMaterializedView } = await import('../../src/with-formula/materialized-views/with-materialized-view.js')
+    const { withReduce } = await import('../../src/with-lookup/reduce/index.js')
+    const db = await createNoydb({
+      store: toMemory(), user: 'alice', secret: `mv-virtual-${groupField}-${mode}-2026`,
+      reduceStrategy: withReduce(),
+      materializedViewStrategies: [withMaterializedView({
+        name: 'byTag', source: 'sales', refresh: 'eager',
+        rowKey: (r: Record<string, unknown>) => String(r[groupField]),
+        unionSources: [{ collection: 'sales', map: (r: unknown) => r }],
+        groupBy: [groupField],
+        aggregate: { n: { count: true } },
+      } as never)],
+    } as never)
+    const v = await db.openVault('firm')
+    const make = () => v.collection<Sale>('sales', {
+      computed: { tag: { fn: virtualTag, mode } },
+    } as never)
+    return { db, make }
+  }
+
+  it('refuses a virtual group key at registration, naming the field', async () => {
+    const { db, make } = await withMV('tag', 'virtual')
+    expect(make).toThrow(/VIRTUAL computed field/)
+    await db.close()
+  })
+
+  it('accepts the same MV when the field is materialized — the control', async () => {
+    const { db, make } = await withMV('tag', 'materialized')
+    expect(make).not.toThrow()
+    await db.close()
+  })
+
+  it('accepts a group key that is a plain stored field — the second control', async () => {
+    const { db, make } = await withMV('buyerId', 'virtual')
+    expect(make).not.toThrow()   // 'tag' is virtual but nothing groups on it
+    await db.close()
+  })
+})
