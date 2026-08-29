@@ -737,6 +737,23 @@ describe('schemaFieldKeys through ZodEffects (#1249 pilot report)', () => {
     await db.close()
   })
 
+  it('BOTH describe paths guard a wrapped schema — not the sync path only (#1262)', async () => {
+    // The #1262 report noted the unwrap living in the sync path and inferred the
+    // async path was unguarded. Measured, it is not: buildDescription falls back
+    // to schemaFieldKeys whenever the derived field map comes back empty, which
+    // is what a wrapped schema produces. Pinned because "which paths does this
+    // guard actually cover" has now been guessed wrong twice.
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-ze-8' })
+    const v = await db.openVault('v', { create: true })
+    const c = v.collection('workers', {
+      schema: z.preprocess((x) => x, z.object({ id: z.string(), pin: z.string() })),
+      fieldMeta: { pinn: { label: 'x' } },
+    })
+    expect(() => c.describe()).toThrow(FieldMetaUnknownFieldError)
+    await expect(c.describe({ includeSchema: true } as never)).rejects.toThrow(FieldMetaUnknownFieldError)
+    await db.close()
+  })
+
   it('a transform-effect schema stays SILENT — inner keys describe the input, not the output', async () => {
     const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-ze-3' })
     const v = await db.openVault('v', { create: true })
