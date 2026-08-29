@@ -76,3 +76,23 @@ export function recordMatchesPairs(
 ): boolean {
   return pairs.every((p) => scalar(rec[p.field]) === p.value)
 }
+
+/** Scan/filter core for composite fan-out. `indexCandidates` is the id set
+ *  from an equality index for ONE pair (or null when no pair is indexed);
+ *  when present only candidates are read, else every id. */
+export async function findMatchingIdsByPairs(
+  pairs: ReadonlyArray<{ field: string; value: string }>,
+  io: {
+    indexCandidates: ReadonlyArray<string> | null
+    listIds: () => Promise<ReadonlyArray<string>>
+    getRecord: (id: string) => Promise<Record<string, unknown> | null>
+  },
+): Promise<string[]> {
+  const ids = io.indexCandidates ?? await io.listIds()
+  const out: string[] = []
+  for (const id of ids) {
+    const rec = await io.getRecord(id)
+    if (rec !== null && recordMatchesPairs(rec, pairs)) out.push(id)
+  }
+  return out
+}

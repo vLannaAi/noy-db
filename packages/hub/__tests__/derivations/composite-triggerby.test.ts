@@ -137,3 +137,40 @@ describe('registry — normalized triggers (#1249)', () => {
     expect(() => reg.validateFieldsFor('disbursements', new Set(['clientId', 'cycle', 'amount']))).not.toThrow()
   })
 })
+
+describe('composite fan-out query (#1249)', () => {
+  it('matches on the conjunction; index-vs-scan equivalence', async () => {
+    // Two dbs: one with an FK index on clientId, one without — same matched sets.
+    // Build each: 3 bills (c1/Q1, c1/Q2, c2/Q1); pairs [clientId=c1, cycle=Q1] -> exactly ['b1'].
+    for (const indexed of [false, true]) {
+      const db = await createNoydb({
+        store: toMemory(), user: 'alice', secret: 'composite-q-2026',
+        derivationStrategies: [billStatusStrategy()],
+      })
+      const v = await db.openVault('firm')
+      // Indexed variant wired the same way as trigger-by.test.ts's `indexed` setup:
+      // per-collection `{ indexes: [...] }`, not a createNoydb-level option.
+      const bills = indexed
+        ? v.collection<Bill>('bills', { indexes: ['clientId'] })
+        : v.collection<Bill>('bills')
+      await bills.put('b1', { id: 'b1', clientId: 'c1', cycle: 'Q1' })
+      await bills.put('b2', { id: 'b2', clientId: 'c1', cycle: 'Q2' })
+      await bills.put('b3', { id: 'b3', clientId: 'c2', cycle: 'Q1' })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ids = await (bills as any)._findMatchingCompositeIds([
+        { field: 'clientId', value: 'c1' }, { field: 'cycle', value: 'Q1' },
+      ])
+      expect(ids.sort()).toEqual(['b1'])
+      await db.close()
+    }
+  })
+  it('single-pair delegate preserves _findMatchingIds behaviour', async () => {
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'composite-q2-2026', derivationStrategies: [billStatusStrategy()] })
+    const v = await db.openVault('firm')
+    const bills = v.collection<Bill>('bills')
+    await bills.put('b1', { id: 'b1', clientId: 'c1', cycle: 'Q1' })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(await (bills as any)._findMatchingIds('clientId', 'c1')).toEqual(['b1'])
+    await db.close()
+  })
+})

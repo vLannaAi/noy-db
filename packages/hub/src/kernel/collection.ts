@@ -2198,35 +2198,24 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     return record === null ? null : { record, version: env._v }
   }
 
-  /**
-   * @internal Ids of records whose top-level `field` equals `value`.
-   * Uses the FK index when the field is indexed (O(matches)); otherwise a
-   * linear scan (O(N) — fine for small child sets; index the FK to scale).
-   */
+  /** @internal Ids of records whose top-level `field` equals `value` — delegates to the composite scan. */
   async _findMatchingIds(field: string, value: unknown): Promise<string[]> {
-    const hit = this.getIndexes()?.lookupEqual(field, value)
-    if (hit) return [...hit]
-    const target = String(value)
-    const matches = (rec: Record<string, unknown>): boolean => {
-      const fv = rec[field]
-      // FK values are scalars; ignore object/array fields (never a valid FK).
-      return (typeof fv === 'string' || typeof fv === 'number') && String(fv) === target
-    }
-    if (!this.lazy) {
-      await this.ensureHydrated()
-      const out: string[] = []
-      for (const [rid, e] of this.cache) {
-        if (matches(e.record as Record<string, unknown>)) out.push(rid)
-      }
-      return out
-    }
-    const ids = await this.adapter.list(this.vault, this.name)
-    const out: string[] = []
-    for (const rid of ids) {
-      const raw = await this._getStoredRecord(rid)
-      if (raw !== null && matches(raw as Record<string, unknown>)) out.push(rid)
-    }
-    return out
+    if (typeof value !== 'string' && typeof value !== 'number') return []
+    return this._findMatchingCompositeIds([{ field, value: String(value) }])
+  }
+
+  /** @internal — conjunction fan-out for composite triggerBy (#1249). First indexed pair narrows; one scan otherwise. */
+  async _findMatchingCompositeIds(pairs: ReadonlyArray<{ field: string; value: string }>): Promise<string[]> {
+    const { findMatchingIdsByPairs } = await import('../with-formula/derivations/trigger-match.js')
+    const hit = pairs.map((p) => this.getIndexes()?.lookupEqual(p.field, p.value)).find(Boolean) ?? null
+    if (!this.lazy) await this.ensureHydrated()
+    return findMatchingIdsByPairs(pairs, {
+      indexCandidates: hit ? [...hit] : null,
+      listIds: async () => this.lazy ? this.adapter.list(this.vault, this.name) : [...this.cache.keys()],
+      getRecord: async (id) => this.lazy
+        ? (await this._getStoredRecord(id)) as Record<string, unknown> | null
+        : ((this.cache.get(id)?.record as Record<string, unknown> | undefined) ?? null),
+    })
   }
 
   /** @internal — ctx for `putDerivedOutput`'s frozen-period skip+audit (#638 Task 5). */
