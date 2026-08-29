@@ -29,7 +29,10 @@ the denormalised field kept in sync with its parts).
 The pilot confirmed the ask is the **without-denormalising** form and named
 five distinct `(entity, period)` surfaces across unrelated statutory
 obligations (payroll WHT, self-WHT, statutory close, coverage, billing) — this
-is an addressing scheme common to financial consumers, not one feature's quirk.
+is an addressing scheme common to financial consumers, not one feature's
+quirk. (Both answers are now recorded on #1249 itself, 2026-08-29, including
+the fan-out expectation: child sets are naturally small, single-key-sense
+`maxFanout` suffices — consistent with §9.)
 
 ## 2. Verified code facts the design rests on
 
@@ -164,8 +167,10 @@ _findMatchingCompositeIds(pairs: ReadonlyArray<{ field: string; value: unknown }
 - Trigger path per entry: compute the new value tuple from the written record.
   If any `from !== 'id'`, resolve the prior record. On a create (prior
   `null`) only the new tuple exists — no union. On an update, compute the old
-  tuple; when it differs from the new one, evaluate the match for both tuples
-  and union the matched id sets, deduped (a tuple with a missing/non-scalar
+  tuple; when it differs from the new one — and **any single component
+  changing constitutes a difference** (the pilot's stated requirement on
+  #1249: "a bill moving cycle matters as much as its client changing") —
+  evaluate the match for both tuples and union the matched id sets, deduped (a tuple with a missing/non-scalar
   value simply matches nothing, per §5). `from: 'id'`-only entries never
   resolve the prior (ids are stable).
 - Each matched source record re-derives once per event even when matched by
