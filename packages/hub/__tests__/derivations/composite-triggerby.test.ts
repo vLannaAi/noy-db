@@ -6,6 +6,9 @@ import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 import type { DerivationContext } from '../../src/with-formula/derivations/types.js'
 import { DerivationRegistry } from '../../src/with-formula/derivations/registry.js'
 import { dict } from '../../src/via/lookup/descriptor.js'
+import { via } from '../../src/kernel/via/compose.js'
+import { computed } from '../../src/via/computed/descriptor.js'
+import { z } from 'zod'
 
 function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
@@ -680,6 +683,98 @@ describe('index-hydration hardening (#1249 review Imp 4)', () => {
     v.collection<Bill>('bills', { indexes: ['clientId'] })
     await v.collection<Disbursement>('disbursements').put('d1', { id: 'd1', clientId: 'c1', cycle: 'Q1', amount: 500 })
     expect((await v.collection<Bill>('bills').get('b1'))?.status).toBe('covered')
+    await db.close()
+  })
+})
+
+/**
+ * #1266 (pilot) — a `match` target that names a VIRTUAL-mode computed field was
+ * accepted at registration and then matched nothing, forever: `configKeys`
+ * includes every `computed` entry regardless of mode, but a virtual field is
+ * computed on the READ path and never exists on the stored record the matcher
+ * reads. The guard's own stated failure mode, reached THROUGH the guard.
+ *
+ * Rejected rather than made to work: matching a virtual field means running
+ * user code per candidate row, turning an indexed narrow into a scan.
+ * `mode: 'materialized'` is stored and already works, so the error points there.
+ *
+ * Both sides are checked. The report covers `to` (the source side); `from` has
+ * the identical defect, because the written record handed to the dispatcher is
+ * the stored shape too.
+ */
+describe('composite triggerBy — virtual computed match targets (#1266)', () => {
+  const virtualCell = (rec: Record<string, unknown>) => `${String(rec['clientId'])}:${String(rec['cycle'])}`
+
+  it('REJECTS a `to` naming a virtual computed field, and names materialized', async () => {
+    const db = await createNoydb({
+      store: toMemory(), user: 'alice', secret: 'virtual-to-2026',
+      derivationStrategies: [withDerivation<Bill, { self: Bill }>({
+        source: 'bills', deterministic: true, lifecycle: 'eager',
+        triggerBy: [{ collection: 'disbursements', match: [{ from: 'cell', to: 'cell' }] }],
+        outputs: { self: { shape: 'record', collection: 'bills', denorm: ['status'] } },
+        derive: async (b: Bill) => ({ self: b }),
+      })],
+    })
+    const v = await db.openVault('firm')
+    expect(() => v.collection<Bill>('bills', {
+      computed: { cell: { fn: virtualCell, mode: 'virtual' } },
+    } as never)).toThrow(/virtual/i)
+    await db.close()
+  })
+
+  it('REJECTS a `from` naming a virtual computed field on the written collection', async () => {
+    const db = await createNoydb({
+      store: toMemory(), user: 'alice', secret: 'virtual-from-2026',
+      derivationStrategies: [withDerivation<Bill, { self: Bill }>({
+        source: 'bills', deterministic: true, lifecycle: 'eager',
+        triggerBy: [{ collection: 'disbursements', match: [{ from: 'cell', to: 'clientId' }] }],
+        outputs: { self: { shape: 'record', collection: 'bills', denorm: ['status'] } },
+        derive: async (b: Bill) => ({ self: b }),
+      })],
+    })
+    const v = await db.openVault('firm')
+    expect(() => v.collection<Disbursement>('disbursements', {
+      computed: { cell: { fn: virtualCell, mode: 'virtual' } },
+    } as never)).toThrow(/virtual/i)
+    await db.close()
+  })
+
+  it('ACCEPTS a via()-declared MATERIALIZED field — the guard must not over-fire (#1266)', async () => {
+    // Second defect found while fixing the first: `viaFields` was missing from
+    // the guard's key set entirely, so a via()-declared field read as an
+    // undeclared typo and was REJECTED. A guard that refuses valid configs is
+    // how people learn to stop trusting it, so both directions ship together.
+    const db = await createNoydb({
+      store: toMemory(), user: 'alice', secret: 'via-materialized-2026',
+      derivationStrategies: [withDerivation<Bill, { self: Bill }>({
+        source: 'bills', deterministic: true, lifecycle: 'eager',
+        triggerBy: [{ collection: 'disbursements', match: [{ from: 'cell', to: 'cell' }] }],
+        outputs: { self: { shape: 'record', collection: 'bills', denorm: ['status'] } },
+        derive: async (b: Bill) => ({ self: b }),
+      })],
+    })
+    const v = await db.openVault('firm')
+    expect(() => v.collection<Bill>('bills', {
+      schema: z.object({ id: z.string(), clientId: z.string(), cycle: z.string() }),
+      viaFields: { cell: via(computed(virtualCell, { mode: 'materialized' })) },
+    } as never)).not.toThrow()
+    await db.close()
+  })
+
+  it('ACCEPTS a materialized computed field as a match target — the control', async () => {
+    const db = await createNoydb({
+      store: toMemory(), user: 'alice', secret: 'materialized-2026',
+      derivationStrategies: [withDerivation<Bill, { self: Bill }>({
+        source: 'bills', deterministic: true, lifecycle: 'eager',
+        triggerBy: [{ collection: 'disbursements', match: [{ from: 'cell', to: 'cell' }] }],
+        outputs: { self: { shape: 'record', collection: 'bills', denorm: ['status'] } },
+        derive: async (b: Bill) => ({ self: b }),
+      })],
+    })
+    const v = await db.openVault('firm')
+    expect(() => v.collection<Bill>('bills', {
+      computed: { cell: { fn: virtualCell, mode: 'materialized' } },
+    } as never)).not.toThrow()
     await db.close()
   })
 })

@@ -1,3 +1,4 @@
+import { matchTargetFieldNames } from '../../kernel/collection-config.js'
 import { DerivationCycleError, DuplicateBehaviorNameError, ValidationError } from '../../kernel/errors.js'
 import { ViaGraph, type FieldRef, type EdgeKind, type Grain } from '../../kernel/via/graph.js'
 import { schemaFieldKeys } from '../../with-shape/introspection/describe.js'
@@ -131,7 +132,21 @@ export class DerivationRegistry {
    * own strategies rather than taken as a parameter — a field this
    * collection's own derivations write via `denorm` is never a typo.
    */
-  validateFieldsFor(collectionName: string, schema: unknown, configKeys: ReadonlyArray<string>): void {
+  validateFieldsFor(
+    collectionName: string,
+    schema: unknown,
+    configKeys: ReadonlyArray<string>,
+    viaSources: {
+      readonly computed?: Readonly<Record<string, unknown>> | undefined
+      readonly viaFields?: Readonly<Record<string, unknown>> | undefined
+    } = {},
+  ): void {
+    // #1266: virtual-mode computed fields are checked even when the shape is
+    // unreadable. The typo guard needs a field list to compare against and stays
+    // silent without one; this one does not — the name is declared right here, and
+    // "declared but never stored" is provable from the declaration alone.
+    const virtual = new Set(matchTargetFieldNames(viaSources).virtual)
+    if (virtual.size > 0) this._refuseVirtualMatchTargets(collectionName, virtual)
     const shapeKeys = schemaFieldKeys(schema)
     if (shapeKeys === undefined) return
     const keys = new Set([...shapeKeys, ...configKeys])
@@ -159,6 +174,36 @@ export class DerivationRegistry {
               throw new ValidationError(
                 `derivation "${reg.spec.name ?? reg.spec.source}": triggerBy match reads "${p.from}" from written "${collectionName}" records, which that collection does not declare — a typo here silently matches nothing forever`)
             }
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Refuse a `triggerBy` match pair naming a VIRTUAL computed field (#1266).
+   *
+   * The matcher reads stored records, and a virtual field is evaluated on the
+   * read path and never persisted — so such a pair registers cleanly and then
+   * matches nothing, forever. That is precisely the outcome the match guard
+   * exists to prevent, so it must fail here rather than be documented.
+   *
+   * Both sides are refused: `to` reads the SOURCE record, `from` reads the
+   * WRITTEN record, and both are the stored shape. The report that surfaced
+   * this covered `to` only; `from` has the identical defect.
+   */
+  private _refuseVirtualMatchTargets(collectionName: string, virtual: ReadonlySet<string>): void {
+    for (const reg of new Set([...this._bySource.values()].flat())) {
+      const name = reg.spec.name ?? reg.spec.source
+      for (const t of reg.triggers) {
+        for (const p of t.match) {
+          if (reg.spec.source === collectionName && virtual.has(p.to)) {
+            throw new ValidationError(
+              `derivation "${name}": triggerBy match names source field "${p.to}", which "${collectionName}" declares as a VIRTUAL computed field — virtual fields are evaluated on read and never stored, so the matcher would read every candidate record and match nothing, forever. Declare it as \`mode: 'materialized'\` (stored, indexable) or match on a stored field.`)
+          }
+          if (t.collection === collectionName && p.from !== 'id' && virtual.has(p.from)) {
+            throw new ValidationError(
+              `derivation "${name}": triggerBy match reads "${p.from}" from written "${collectionName}" records, which declares it as a VIRTUAL computed field — virtual fields are evaluated on read and never stored, so every write would produce no match. Declare it as \`mode: 'materialized'\` or match on a stored field.`)
           }
         }
       }
