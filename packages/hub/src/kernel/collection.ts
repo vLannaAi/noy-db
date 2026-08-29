@@ -19,6 +19,7 @@ import { type RecordIdentity,
   type DeterministicContext, type EnclaveKey, type SealedShredSlot,
 } from './enclave/index.js'
 import { countLiveEnvelopes } from './lazy-count.js'
+import { findMatchingIdsByPairs } from './match-pairs.js'
 import { liveRecordIsElevated, assertTierWritable } from './tier-visibility.js'
 import { applyCutoverTransform } from './cutover-transform.js'
 import {
@@ -2212,7 +2213,6 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   /** @internal — conjunction fan-out for composite triggerBy (#1249). First indexed pair narrows,
    *  filtered by the OTHER pairs only; zero reads when the index alone decides membership. */
   async _findMatchingCompositeIds(pairs: ReadonlyArray<{ field: string; value: string }>): Promise<string[]> {
-    const { findMatchingIdsByPairs } = await import('../with-formula/derivations/trigger-match.js')
     if (!this.lazy) await this.ensureHydrated() // unhydrated index's `lookupEqual` would be empty-but-truthy
     const i = pairs.findIndex((p) => this.getIndexes()?.lookupEqual(p.field, p.value))
     const hit = i < 0 ? null : this.getIndexes()!.lookupEqual(pairs[i]!.field, pairs[i]!.value)

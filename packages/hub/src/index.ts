@@ -824,8 +824,8 @@ export type {
 } from './with-audit/guards/index.js'
 
 // Derivations (Dim 14) — see design-history/2026-05-01-dim14-derivation-v1-design.md
-export { withDerivation } from './with-formula/derivations/index.js'
-export { withRollup } from './with-formula/derivations/index.js'
+export { withDerivation } from './with-formula/derivations/with-derivation.js'
+export { withRollup } from './with-formula/derivations/with-rollup.js'
 export type { WithRollupOptions } from './with-formula/derivations/index.js'
 export type {
   DerivationSpec,
