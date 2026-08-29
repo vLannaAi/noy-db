@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/in-devtools",
-  "version": "0.7.0-pre.12",
+  "version": "0.7.0-pre.13",
   "description": "Framework-agnostic read-only inspector for a live noy-db — vaults, collections, schema, stats, records, and live writes.",
   "license": "MIT",
   "type": "module",
