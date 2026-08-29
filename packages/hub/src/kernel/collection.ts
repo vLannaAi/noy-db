@@ -19,6 +19,7 @@ import { type RecordIdentity,
   type DeterministicContext, type EnclaveKey, type SealedShredSlot,
 } from './enclave/index.js'
 import { countLiveEnvelopes } from './lazy-count.js'
+import { findMatchingIdsByPairs } from './match-pairs.js'
 import { liveRecordIsElevated, assertTierWritable } from './tier-visibility.js'
 import { applyCutoverTransform } from './cutover-transform.js'
 import {
@@ -1819,7 +1820,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // derived outputs. The recursive `put` into output collections re-enters
     // this pipeline intentionally; cycle detection at vault open is the
     // primary defense against infinite recursion.
-    await this._onRecordMutated(id, 'put', 'local-write', { record: event, version })
+    // `prior` is already resolved pre-write by `_preparePut`/CRDT-merge (the
+    // timing composite-triggerBy union fan-out needs, #1249 spec §2) — thread
+    // it straight through rather than re-reading post-write, which would see
+    // the record this write just landed.
+    const priorForTrigger = prior ? (prior.record as unknown as Record<string, unknown>) : null
+    await this._onRecordMutated(id, 'put', 'local-write', { record: event, version, prior: priorForTrigger })
   }
 
   /**
@@ -2198,35 +2204,26 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     return record === null ? null : { record, version: env._v }
   }
 
-  /**
-   * @internal Ids of records whose top-level `field` equals `value`.
-   * Uses the FK index when the field is indexed (O(matches)); otherwise a
-   * linear scan (O(N) — fine for small child sets; index the FK to scale).
-   */
+  /** @internal Ids of records whose top-level `field` equals `value` — delegates to the composite scan. */
   async _findMatchingIds(field: string, value: unknown): Promise<string[]> {
-    const hit = this.getIndexes()?.lookupEqual(field, value)
-    if (hit) return [...hit]
-    const target = String(value)
-    const matches = (rec: Record<string, unknown>): boolean => {
-      const fv = rec[field]
-      // FK values are scalars; ignore object/array fields (never a valid FK).
-      return (typeof fv === 'string' || typeof fv === 'number') && String(fv) === target
-    }
-    if (!this.lazy) {
-      await this.ensureHydrated()
-      const out: string[] = []
-      for (const [rid, e] of this.cache) {
-        if (matches(e.record as Record<string, unknown>)) out.push(rid)
-      }
-      return out
-    }
-    const ids = await this.adapter.list(this.vault, this.name)
-    const out: string[] = []
-    for (const rid of ids) {
-      const raw = await this._getStoredRecord(rid)
-      if (raw !== null && matches(raw as Record<string, unknown>)) out.push(rid)
-    }
-    return out
+    if (typeof value !== 'string' && typeof value !== 'number') return []
+    return this._findMatchingCompositeIds([{ field, value: String(value) }])
+  }
+
+  /** @internal — conjunction fan-out for composite triggerBy (#1249). First indexed pair narrows,
+   *  filtered by the OTHER pairs only; zero reads when the index alone decides membership. */
+  async _findMatchingCompositeIds(pairs: ReadonlyArray<{ field: string; value: string }>): Promise<string[]> {
+    if (!this.lazy) await this.ensureHydrated() // unhydrated index's `lookupEqual` would be empty-but-truthy
+    const i = pairs.findIndex((p) => this.getIndexes()?.lookupEqual(p.field, p.value))
+    const hit = i < 0 ? null : this.getIndexes()!.lookupEqual(pairs[i]!.field, pairs[i]!.value)
+    const residual = i < 0 ? pairs : pairs.filter((_, j) => j !== i)
+    return findMatchingIdsByPairs(residual, {
+      indexCandidates: hit ? [...hit] : null,
+      listIds: async () => this.lazy ? this.adapter.list(this.vault, this.name) : [...this.cache.keys()],
+      getRecord: async (id) => this.lazy
+        ? (await this._getStoredRecord(id)) as Record<string, unknown> | null
+        : ((this.cache.get(id)?.record as Record<string, unknown> | undefined) ?? null),
+    })
   }
 
   /** @internal — ctx for `putDerivedOutput`'s frozen-period skip+audit (#638 Task 5). */
@@ -2323,20 +2320,22 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     }
   }
 
+  /** Extras added onto {@link #derivationDeleteCtx} — shared by `dispatchDerivations` and `dispatchTriggerDerivationsOnDelete` (#1249). */
+  #derivationDispatchCtx() { return { ...this.#derivationDeleteCtx(this.derivationSource!), via: this.via, recomputeRollup: this.recomputeRollup.bind(this), dispatchCtx: this.#dispatchCtx.bind(this), trackPut: this.#trackPut.bind(this) } }
+
   /** @internal `wave` (#638 Task 4) — threaded to `recomputeRollup` for the sync/cutover/restore
    *  dispatch wave's per-target dedup; `undefined` on the local-write path (byte-identical). */
-  async dispatchDerivations(id: string, record: T, version: number, wave?: WaveContext): Promise<void> {
+  async dispatchDerivations(id: string, record: T, version: number, wave?: WaveContext, prior?: Record<string, unknown> | null): Promise<void> {
     if (this.derivationSource === undefined) return
-    // S4 gate: dynamic import only — see #derivationDeleteCtx (#842).
     const { dispatchDerivations } = await import('../with-formula/derivations/dispatch.js')
-    return dispatchDerivations({
-      ...this.#derivationDeleteCtx(this.derivationSource),
-      via: this.via,
-      recomputeRollup: (spec, parentId, source, w) => this.recomputeRollup(spec, parentId, source, w),
-      dispatchCtx: (source) => this.#dispatchCtx(source),
-      trackPut: (txCtx, collectionName, rid, prior) => this.#trackPut(txCtx, collectionName, rid, prior),
-    }, id, record as unknown as Record<string, unknown>, version, wave)
+    return dispatchDerivations(this.#derivationDispatchCtx(), id, record as unknown as Record<string, unknown>, version, wave, prior)
   }
+
+  /** @internal — trigger fan-out for a deleted parent (#1249); see dispatch.ts. */
+  async dispatchTriggerDerivationsOnDelete(id: string, deleted: T): Promise<void> {
+    if (this.derivationSource === undefined) return
+    const { dispatchTriggerDerivationsOnDelete } = await import('../with-formula/derivations/dispatch.js')
+    return dispatchTriggerDerivationsOnDelete(this.#derivationDispatchCtx(), id, deleted as unknown as Record<string, unknown>) }
 
   /**
    * Delete a record by ID. Runs inside the hub's write-queue tracker
@@ -2652,7 +2651,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // delete the output directly with `outputCollection.delete(id)` if
     // they want. Array-shape derivations DO cascade on delete
     // because their derived ids are opaque (from the `key(out)`
-    // extractor) — without cascade the rows become unfindable orphans.
+    // extractor) — without cascade the rows become unfindable orphans. (Deleting a TRIGGER parent
+    // is a different event and DOES fan out — see dispatchTriggerDerivationsOnDelete, #1249.)
     if (!internal) {
       await this.dispatchMaterializedViewsOnDelete(id)
       await this.dispatchArrayDerivationsOnDelete(id)
@@ -2660,7 +2660,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       // that this child is gone. `existing.record` carries the deleted child's
       // FK; the recompute gathers the REMAINING children (this one already
       // removed from the store/cache above).
-      if (existing) await this.dispatchRollupsOnDelete(id, existing.record)
+      if (existing) { await this.dispatchRollupsOnDelete(id, existing.record); await this.dispatchTriggerDerivationsOnDelete(id, existing.record) }
     }
     return true
   }
@@ -3583,7 +3583,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     id: string,
     action: 'put' | 'delete',
     origin: MutationOrigin,
-    ctx?: { readonly record?: T; readonly version?: number },
+    ctx?: { readonly record?: T; readonly version?: number; readonly prior?: Record<string, unknown> | null },
   ): Promise<void> {
     // #606: maintain `markerIds` synchronously, in the SAME continuation as
     // the caller's own `local.put` of this envelope (no `await` between
@@ -3606,7 +3606,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: 'put' } satisfies ChangeEvent)
         this.searchIndexStore?.markDirty() // zero-cost for non-search collections
         await this.onAccess?.('put', id)
-        await this.dispatchDerivations(id, record, version)
+        await this.dispatchDerivations(id, record, version, undefined, ctx!.prior)
         await this.dispatchMaterializedViews(id, record)
         return
       }

@@ -170,6 +170,7 @@
     "dispatchMaterializedViews",
     "dispatchMaterializedViewsOnDelete",
     "dispatchRollupsOnDelete",
+    "dispatchTriggerDerivationsOnDelete",
     "dumpEnvelopes",
     "elevate",
     "emitCrossTierEvent",

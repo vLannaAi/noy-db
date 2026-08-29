@@ -42,7 +42,10 @@ export interface DerivationBehaviorEntry {
   readonly name: string
   readonly source: string
   readonly sources?: readonly string[]
-  readonly triggerBy?: ReadonlyArray<{ readonly collection: string; readonly on: string; readonly maxFanout?: number }>
+  readonly triggerBy?: ReadonlyArray<
+    | { readonly collection: string; readonly on: string; readonly maxFanout?: number }
+    | { readonly collection: string; readonly match: ReadonlyArray<{ readonly from: string; readonly to: string }>; readonly maxFanout?: number }
+  >
   readonly rollup?: { readonly from: string; readonly key: string; readonly field: string }
   readonly deterministic: true
   readonly outputs: Readonly<Record<string, DerivationOutputEntry>>

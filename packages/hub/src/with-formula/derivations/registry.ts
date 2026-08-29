@@ -1,6 +1,8 @@
-import { DerivationCycleError, DuplicateBehaviorNameError } from '../../kernel/errors.js'
+import { DerivationCycleError, DuplicateBehaviorNameError, ValidationError } from '../../kernel/errors.js'
 import { ViaGraph, type FieldRef, type EdgeKind, type Grain } from '../../kernel/via/graph.js'
+import { schemaFieldKeys } from '../../with-shape/introspection/describe.js'
 import { computeStrategyHash } from './strategy-hash.js'
+import { normalizeTriggerBy, type NormalizedTrigger } from './trigger-match.js'
 import type { DerivationSpec } from './types.js'
 
 /**
@@ -31,6 +33,7 @@ interface RegisteredStrategy {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   spec: DerivationSpec<any, any>
   strategyHash: string
+  readonly triggers: ReadonlyArray<NormalizedTrigger>
 }
 
 /**
@@ -57,7 +60,8 @@ export class DerivationRegistry {
 
     const outputKeys = Object.keys(spec.outputs)
     const strategyHash = await computeStrategyHash(spec.source, outputKeys, spec.derive, spec.sources)
-    const reg: RegisteredStrategy = { spec, strategyHash }
+    const triggers = normalizeTriggerBy(spec.triggerBy)
+    const reg: RegisteredStrategy = { spec, strategyHash, triggers }
 
     if (spec.name !== undefined) this._byName.set(spec.name, reg)
 
@@ -79,7 +83,7 @@ export class DerivationRegistry {
     // a parent write re-fires the derivation (fanned out to matching source
     // records in `dispatchDerivations`). Like sources[], these keys enter
     // `_bySource` so the cycle DFS walks the trigger→output edge.
-    for (const t of spec.triggerBy ?? []) {
+    for (const t of triggers) {
       const fromTrigger = this._bySource.get(t.collection)
       if (fromTrigger) fromTrigger.push(reg)
       else this._bySource.set(t.collection, [reg])
@@ -113,6 +117,52 @@ export class DerivationRegistry {
 
   strategiesProducingOutput(collection: string): ReadonlyArray<RegisteredStrategy> {
     return this._byOutput.get(collection) ?? []
+  }
+
+  /**
+   * The #1253-pattern typo guard for match fields (#1249): a misspelt
+   * `to`/`from` silently matches nothing forever, so validate against the
+   * collection's enumerable field set at the earliest point it exists.
+   * `schemaFieldKeys(schema) === undefined` (TS-generic collection,
+   * unreadable validator) is DELIBERATELY silent — those fields are real
+   * and unenumerable. `configKeys` folds in the collection's other
+   * non-schema field declarations (fieldMeta/moneyFields/dictKeyFields/
+   * refs/computed); `denormExempt` is derived here from this registry's
+   * own strategies rather than taken as a parameter — a field this
+   * collection's own derivations write via `denorm` is never a typo.
+   */
+  validateFieldsFor(collectionName: string, schema: unknown, configKeys: ReadonlyArray<string>): void {
+    const shapeKeys = schemaFieldKeys(schema)
+    if (shapeKeys === undefined) return
+    const keys = new Set([...shapeKeys, ...configKeys])
+    const denormExempt = new Set<string>()
+    for (const reg of new Set([...this._bySource.values()].flat())) {
+      if (reg.spec.source !== collectionName) continue
+      for (const out of Object.values(reg.spec.outputs) as Array<{ collection?: string; denorm?: readonly string[] }>) {
+        if (out.collection === collectionName) for (const d of out.denorm ?? []) denormExempt.add(d)
+      }
+    }
+    const regs = new Set([...this._bySource.values()].flat())
+    for (const reg of regs) {
+      for (const t of reg.triggers) {
+        if (reg.spec.source === collectionName) {
+          for (const p of t.match) {
+            if (!keys.has(p.to) && !denormExempt.has(p.to)) {
+              throw new ValidationError(
+                `derivation "${reg.spec.name ?? reg.spec.source}": triggerBy match names source field "${p.to}", which "${collectionName}" does not declare — a typo here silently matches nothing forever`)
+            }
+          }
+        }
+        if (t.collection === collectionName) {
+          for (const p of t.match) {
+            if (p.from !== 'id' && !keys.has(p.from) && !denormExempt.has(p.from)) {
+              throw new ValidationError(
+                `derivation "${reg.spec.name ?? reg.spec.source}": triggerBy match reads "${p.from}" from written "${collectionName}" records, which that collection does not declare — a typo here silently matches nothing forever`)
+            }
+          }
+        }
+      }
+    }
   }
 
   /**

@@ -188,7 +188,30 @@ export interface DerivationSpec<
    * Each `collection` must be non-empty and not equal `source`; `on` must
    * be a non-empty field name (validated at construction).
    */
-  triggerBy?: ReadonlyArray<{ collection: string; on: string; maxFanout?: number }>
+  triggerBy?: ReadonlyArray<
+    | { collection: string; on: string; maxFanout?: number }
+    | {
+        /**
+         * Multi-field trigger (#1249): a source record matches when EVERY
+         * pair satisfies `String(source[to]) === String(written[from])`.
+         * `from: 'id'` reads the written record's id; any other `from`
+         * reads the written record's field. Exactly one of `on` | `match`
+         * per entry. On a LOCAL UPDATE that changes any matched `from`
+         * field, fan-out runs on old-match ∪ new-match (any single
+         * component changing counts) — the prior record is threaded only
+         * from the local write path, so a sync-applied wave write or a
+         * tiers restore fans out on the new tuple only. Parent DELETES fan
+         * out using the tombstoned record's values — for BOTH forms. A
+         * missing/non-scalar `from` value matches nothing. Match fields
+         * are validated against the collections' enumerable field sets
+         * where possible (silent for TS-generic collections — see the
+         * registration guard).
+         */
+        collection: string
+        match: ReadonlyArray<{ from: string; to: string }>
+        maxFanout?: number
+      }
+  >
   /**
    * @internal — set by `withRollup()`. Marks this strategy as
    * an aggregate-onto-parent rollup: a write OR delete of a `from` (child)

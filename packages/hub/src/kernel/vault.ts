@@ -821,7 +821,7 @@ export class Vault {
         // `if (this.derivationSource)` branch no-ops without touching the
         // derivation service code.
         ...(this.derivationRegistry !== null
-          ? {
+          ? (this.derivationRegistry.validateFieldsFor(collectionName, options?.schema, Object.keys({ ...options?.fieldMeta, ...options?.moneyFields, ...options?.dictKeyFields, ...options?.refs, ...options?.computed, ...options?.i18nFields, ...options?.lookupFields, ...options?.blobFields, ...options?.classifiedFields })), {
               derivationSource: {
                 registry: () => this.derivationRegistry as DerivationRegistry,
                 getCollection: (name: string) =>
@@ -832,7 +832,7 @@ export class Vault {
                 setActiveTxContext: (ctx) => this.noydb._setActiveTxContext(ctx),
                 clearActiveTxContext: (ctx) => this.noydb._clearActiveTxContext(ctx),
               },
-            }
+            })
           : {}),
         ...(this.materializedViewRegistry !== null
           ? {
