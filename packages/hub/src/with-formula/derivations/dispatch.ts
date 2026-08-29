@@ -153,6 +153,11 @@ export async function dispatchDerivations(
   // derive(source, ctx) sees the canonical money shape.
   const incoming = (via ? via.canonicalizeStored(record) : record)
   if (incoming && typeof incoming === 'object' && '_derivedFrom' in incoming) return
+  // `prior` is the raw stored pre-write record — canonicalize it the same
+  // way as `incoming` before it feeds `tupleFromWritten` below, or a
+  // via-shaped match field (e.g. a money field) compares canonical against
+  // raw and never matches the old tuple (Min 5).
+  const canonicalPrior = prior != null ? (via ? via.canonicalizeStored(prior) : prior) : prior
   const registry = derivationSource.registry()
   const strategies = registry.strategiesForSource(collectionName)
   if (strategies.length === 0) return
@@ -222,8 +227,8 @@ export async function dispatchDerivations(
         // longer matches). `prior` is only ever a `Record` here — a wave
         // dispatch and a create both skip the old tuple outright.
         const tuples = [tupleFromWritten(trigger.match, id, incoming)]
-        if (prior != null && trigger.match.some((p) => p.from !== 'id')) {
-          const old = tupleFromWritten(trigger.match, id, prior)
+        if (canonicalPrior != null && trigger.match.some((p) => p.from !== 'id')) {
+          const old = tupleFromWritten(trigger.match, id, canonicalPrior)
           if (!sameTuple(old, tuples[0]!)) tuples.push(old)
         }
         const ids = new Set<string>()
@@ -405,6 +410,7 @@ export async function dispatchTriggerDerivationsOnDelete(
   for (const { spec, strategyHash, triggers } of strategies) {
     if (spec.rollup) continue                                    // rollup-on-delete already exists
     if (spec.source === collectionName) continue                 // source delete: existing rule, untouched
+    if (spec.sources?.includes(collectionName)) continue          // declared sibling source: same exclusion as the write path's isSibling check
     const entries = triggers.filter((t) => t.collection === collectionName)
     if (entries.length === 0) continue
     const mode = typeof spec.lifecycle === 'string' ? spec.lifecycle : spec.lifecycle.mode

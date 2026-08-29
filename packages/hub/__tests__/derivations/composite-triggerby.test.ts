@@ -1,10 +1,11 @@
 // Composite (multi-field) triggerBy — #1249.
 // Spec: docs/superpowers/specs/2026-08-29-composite-triggerby-design.md
 import { describe, it, expect, vi } from 'vitest'
-import { createNoydb, withDerivation, ValidationError, DerivationCapExceededError, DerivationCycleError } from '../../src/index.js'
+import { createNoydb, withDerivation, ValidationError, DerivationCapExceededError, DerivationCycleError, DerivationOutputShapeError } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 import type { DerivationContext } from '../../src/with-formula/derivations/types.js'
 import { DerivationRegistry } from '../../src/with-formula/derivations/registry.js'
+import { dict } from '../../src/via/lookup/descriptor.js'
 
 function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
@@ -98,21 +99,6 @@ describe('composite triggerBy — factory validation (#1249)', () => {
 })
 
 describe('registry — normalized triggers (#1249)', () => {
-  it('hasFieldMatchTriggerFor: true only for field-match entries', async () => {
-    const reg = new DerivationRegistry()
-    await reg.register(billStatusStrategy().spec)          // match-form on 'disbursements'
-    expect(reg.hasFieldMatchTriggerFor('disbursements')).toBe(true)
-    expect(reg.hasFieldMatchTriggerFor('bills')).toBe(false)     // source, not trigger
-    expect(reg.hasFieldMatchTriggerFor('unrelated')).toBe(false)
-    const reg2 = new DerivationRegistry()
-    await reg2.register(withDerivation<Bill, { self: Bill }>({
-      source: 'bills', deterministic: true, lifecycle: 'eager',
-      triggerBy: [{ collection: 'clients', on: 'clientId' }],   // id-form: no prior needed
-      outputs: { self: { shape: 'record', collection: 'bills', denorm: ['status'] } },
-      derive: (b) => ({ self: b }),
-    }).spec)
-    expect(reg2.hasFieldMatchTriggerFor('clients')).toBe(false)
-  })
   it('validateFieldsFor: throws on unknown to-field for the source; silent when schema unenumerable', async () => {
     const { z } = await import('zod')
     const reg = new DerivationRegistry()
@@ -142,6 +128,27 @@ describe('registry — normalized triggers (#1249)', () => {
     expect(() => reg.validateFieldsFor('disbursements', z.object({ id: z.string(), amount: z.number() }), []))
       .toThrow(ValidationError)
     expect(() => reg.validateFieldsFor('disbursements', z.object({ clientId: z.string(), cycle: z.string(), amount: z.number() }), []))
+      .not.toThrow()
+  })
+  it('validateFieldsFor: denorm fields are exempt on the TRIGGER (from) side too (Imp 1)', async () => {
+    const { z } = await import('zod')
+    const reg = new DerivationRegistry()
+    // Strategy A reads `note` — a field owned by another derivation's
+    // self-write denorm onto `disbursements` — as a `from` on the trigger side.
+    await reg.register(withDerivation<Bill, { self: Bill }>({
+      source: 'bills', deterministic: true, lifecycle: 'eager',
+      triggerBy: [{ collection: 'disbursements', match: [{ from: 'note', to: 'clientId' }] }],
+      outputs: { self: { shape: 'record', collection: 'bills', denorm: ['status'] } },
+      derive: (b) => ({ self: b }),
+    }).spec)
+    // Strategy B denorm-writes `note` onto `disbursements` itself.
+    await reg.register(withDerivation<Disbursement, { self: Disbursement }>({
+      source: 'disbursements', deterministic: true, lifecycle: 'eager',
+      outputs: { self: { shape: 'record', collection: 'disbursements', denorm: ['note'] } },
+      derive: (d) => ({ self: d }),
+    }).spec)
+    // 'note' is absent from the schema — must not false-positive as a typo.
+    expect(() => reg.validateFieldsFor('disbursements', z.object({ id: z.string(), clientId: z.string(), cycle: z.string(), amount: z.number() }), []))
       .not.toThrow()
   })
 })
@@ -435,6 +442,25 @@ describe('match-field typo guard at collection construction (#1249, spec §5)', 
       .toThrow(ValidationError)
     await db.close()
   })
+  it('a match field declared only via lookupFields does not false-positive (Imp 1)', async () => {
+    const { z } = await import('zod')
+    const db = await createNoydb({
+      store: toMemory(), user: 'alice', secret: 'composite-g5-2026',
+      derivationStrategies: [withDerivation<Bill, { self: Bill }>({
+        source: 'bills', deterministic: true, lifecycle: 'eager',
+        triggerBy: [{ collection: 'disbursements', match: [{ from: 'clientId', to: 'clientTag' }] }],
+        outputs: { self: { shape: 'record', collection: 'bills', denorm: ['status'] } },
+        derive: (b) => ({ self: b }),
+      })],
+    })
+    const v = await db.openVault('firm')
+    // 'clientTag' is absent from the schema but declared via lookupFields — must not throw.
+    expect(() => v.collection('bills', {
+      schema: z.object({ id: z.string(), clientId: z.string(), cycle: z.string() }),
+      lookupFields: { clientTag: dict('clientTag') },
+    })).not.toThrow()
+    await db.close()
+  })
 })
 
 describe('remaining spec §11 rows (#1249)', () => {
@@ -606,6 +632,54 @@ describe('remaining spec §11 rows (#1249)', () => {
     derive.mockClear()
     await disb.put('d1', { id: 'd1', clientId: 'c1', cycle: 2026, amount: 500 } as unknown as Disbursement) // cycle: NUMBER (deliberate type mismatch)
     expect(derive).toHaveBeenCalled()   // re-fired via the composite match, despite the type mismatch
+    await db.close()
+  })
+})
+
+describe('stale-flag restore on throw (#1249 review Imp 3)', () => {
+  it('a lazy re-derive whose output is malformed leaves the record STILL STALE — a subsequent read retries', async () => {
+    // A required record-shape output returning undefined makes
+    // DerivationExecutor.run() throw DerivationOutputShapeError DIRECTLY —
+    // not via the 'failed'-kind branch resolveStaleOnRead's strict check
+    // already guarded. Exercises the general throw path (stale.ts).
+    const derive = vi.fn(() => ({ self: undefined }) as unknown as { self: Bill })
+    const strategy = withDerivation<Bill, { self: Bill }>({
+      source: 'bills',
+      deterministic: true,
+      lifecycle: 'lazy',
+      outputs: { self: { shape: 'record', collection: 'bills', denorm: ['status'] } },
+      derive,
+    })
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'composite-stale-throw-2026', derivationStrategies: [strategy] })
+    const v = await db.openVault('firm')
+    const bills = v.collection<Bill>('bills')
+    await bills.put('b1', { id: 'b1', clientId: 'c1', cycle: 'Q1' })   // marks b1 stale (lazy self-write)
+    await expect(bills.get('b1')).rejects.toThrow(DerivationOutputShapeError)
+    const callsAfterFirst = derive.mock.calls.length
+    // If the stale flag was lost on the throw, this second read would be a
+    // no-op short-circuit (derive not called again) instead of a retry.
+    await expect(bills.get('b1')).rejects.toThrow(DerivationOutputShapeError)
+    expect(derive.mock.calls.length).toBeGreaterThan(callsAfterFirst)
+    await db.close()
+  })
+})
+
+describe('index-hydration hardening (#1249 review Imp 4)', () => {
+  it('a trigger fan-out matches a source record whose collection was never touched (and so never hydrated) this session', async () => {
+    const store = toMemory()
+    {
+      const seed = await createNoydb({ store, user: 'alice', secret: 'composite-hydrate-2026' })
+      const sv = await seed.openVault('firm')
+      await sv.collection<Bill>('bills', { indexes: ['clientId'] }).put('b1', { id: 'b1', clientId: 'c1', cycle: 'Q1' })
+      await seed.close()
+    }
+    const db = await createNoydb({ store, user: 'alice', secret: 'composite-hydrate-2026', derivationStrategies: [billStatusStrategy()] })
+    const v = await db.openVault('firm')
+    // Declare 'bills' (with its index) but never call get()/put() on it —
+    // the fan-out below must hydrate it itself before probing the index.
+    v.collection<Bill>('bills', { indexes: ['clientId'] })
+    await v.collection<Disbursement>('disbursements').put('d1', { id: 'd1', clientId: 'c1', cycle: 'Q1', amount: 500 })
+    expect((await v.collection<Bill>('bills').get('b1'))?.status).toBe('covered')
     await db.close()
   })
 })

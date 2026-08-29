@@ -119,17 +119,6 @@ export class DerivationRegistry {
     return this._byOutput.get(collection) ?? []
   }
 
-  /** True iff any strategy's normalized trigger on `collection` has a pair with from !== 'id' (#1249 — gates the prior-record capture). */
-  hasFieldMatchTriggerFor(collection: string): boolean {
-    const regs = new Set([...this._bySource.values()].flat())
-    for (const reg of regs) {
-      for (const t of reg.triggers) {
-        if (t.collection === collection && t.match.some((p) => p.from !== 'id')) return true
-      }
-    }
-    return false
-  }
-
   /**
    * The #1253-pattern typo guard for match fields (#1249): a misspelt
    * `to`/`from` silently matches nothing forever, so validate against the
@@ -166,7 +155,7 @@ export class DerivationRegistry {
         }
         if (t.collection === collectionName) {
           for (const p of t.match) {
-            if (p.from !== 'id' && !keys.has(p.from)) {
+            if (p.from !== 'id' && !keys.has(p.from) && !denormExempt.has(p.from)) {
               throw new ValidationError(
                 `derivation "${reg.spec.name ?? reg.spec.source}": triggerBy match reads "${p.from}" from written "${collectionName}" records, which that collection does not declare — a typo here silently matches nothing forever`)
             }
