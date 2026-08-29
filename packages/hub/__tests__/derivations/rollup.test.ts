@@ -196,3 +196,60 @@ describe('withRollup — mutual/rotating cycle refusal at declare time (#639)', 
     await expect(db.openVault('demo')).resolves.toBeDefined()
   })
 })
+
+/**
+ * #1257 — a child moving from parent A to parent B left A's aggregate stale.
+ *
+ * The dispatcher read the key from the INCOMING record only, so it recomputed
+ * the new parent and never touched the old one. Same old-value class #1249
+ * fixed for `triggerBy` with union fan-out; the prior-record capture that fix
+ * added to the write path is what makes this a small change rather than a new
+ * mechanism.
+ *
+ * The stranded value is the dangerous part: A's `totalSpent` keeps a number
+ * that was correct once, so it reads as data rather than as an error — nobody
+ * re-checks a plausible total.
+ */
+describe('withRollup — a child that re-parents (#1257)', () => {
+  it('recomputes BOTH the old and the new parent', async () => {
+    const db = await createNoydb({
+      store: toMemory(), user: 'alice', secret: 'rollup-reparent-2026',
+      derivationStrategies: [totalSpentRollup()],
+    })
+    const v = await db.openVault('firm')
+    const buyers = v.collection<Buyer>('buyers')
+    const sales = v.collection<Sale>('sales')
+
+    await buyers.put('b1', { id: 'b1', companyName: 'Acme' })
+    await buyers.put('b2', { id: 'b2', companyName: 'Globex' })
+    await sales.put('s1', { id: 's1', buyerId: 'b1', total: 100 })
+    await sales.put('s2', { id: 's2', buyerId: 'b1', total: 40 })
+
+    expect((await buyers.get('b1'))?.totalSpent).toBe(140)
+    expect((await buyers.get('b2'))?.totalSpent ?? 0).toBe(0)
+
+    // Re-parent s1: b1 -> b2.
+    await sales.put('s1', { id: 's1', buyerId: 'b2', total: 100 })
+
+    expect((await buyers.get('b2'))?.totalSpent).toBe(100)   // new parent gains it
+    expect((await buyers.get('b1'))?.totalSpent).toBe(40)    // OLD parent loses it
+    await db.close()
+  })
+
+  it('does NOT double-recompute when the key is unchanged — the control', async () => {
+    const db = await createNoydb({
+      store: toMemory(), user: 'alice', secret: 'rollup-samekey-2026',
+      derivationStrategies: [totalSpentRollup()],
+    })
+    const v = await db.openVault('firm')
+    const buyers = v.collection<Buyer>('buyers')
+    const sales = v.collection<Sale>('sales')
+
+    await buyers.put('b1', { id: 'b1', companyName: 'Acme' })
+    await sales.put('s1', { id: 's1', buyerId: 'b1', total: 100 })
+    // Same parent, new amount — the ordinary update path must still be right.
+    await sales.put('s1', { id: 's1', buyerId: 'b1', total: 250 })
+    expect((await buyers.get('b1'))?.totalSpent).toBe(250)
+    await db.close()
+  })
+})
