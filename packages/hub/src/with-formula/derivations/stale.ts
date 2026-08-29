@@ -124,6 +124,12 @@ export async function resolveStaleOnRead(
     // (which throws through this same catch, so it does not also
     // re-add — `Set.add` is idempotent, but the branch no longer needs
     // its own restore).
+    // #1258 — a NON-STRICT output failure must not launder staleness into
+    // freshness. `strict: false` means "a failed derivation must not break the
+    // read", NOT "report this output as current". Tracked across the output
+    // loop and re-marked below, so the record is still served (no throw) and
+    // the next read retries — strict-mode behaviour minus the throw.
+    let failedNonStrict = false
     try {
       // Read the source record from the source collection and re-derive.
       // We use the same getCollection accessor that eager dispatch uses
@@ -151,6 +157,7 @@ export async function resolveStaleOnRead(
             `[derivation] lazy output "${key}" for source "${spec.source}" id="${id}" failed:`,
             err,
           )
+          failedNonStrict = true
           continue
         }
         if (out.kind === 'array') {
@@ -182,7 +189,12 @@ export async function resolveStaleOnRead(
         }
         await outputColl.put(id, out.value)
       }
-      pending.delete(spec)
+      // Deliberate cost, stated so nobody "optimises" it away: a
+      // permanently-failing non-strict derivation now re-runs on every read of
+      // this id rather than once. Louder and more expensive than serving a
+      // stale value forever, and the trade this project makes everywhere else.
+      if (failedNonStrict) pending.add(spec)
+      else pending.delete(spec)
     } catch (e) {
       // Restore the stale flag consumed above so a future read retries.
       pending.add(spec)
