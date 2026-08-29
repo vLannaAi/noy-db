@@ -1,4 +1,4 @@
-import { computedEntryParts, type ComputedEntryParts } from '../../kernel/collection-config.js'
+import { matchTargetFieldNames } from '../../kernel/collection-config.js'
 import { DerivationCycleError, DuplicateBehaviorNameError, ValidationError } from '../../kernel/errors.js'
 import { ViaGraph, type FieldRef, type EdgeKind, type Grain } from '../../kernel/via/graph.js'
 import { schemaFieldKeys } from '../../with-shape/introspection/describe.js'
@@ -43,57 +43,6 @@ interface RegisteredStrategy {
  *
  * @internal
  */
-/**
- * Field names a `triggerBy` match may NOT target, and the ones it may (#1266).
- *
- * Lives HERE, not in `kernel/collection-config.ts` where computed-mode logic
- * otherwise sits, because that module is in the FLOOR bundle: putting twenty
- * lines there cost every consumer 5.2% of the floor whether or not they use
- * derivations. Registry code is already behind the derivations opt-in.
- *
- * A derivation matcher reads the STORED record, so a match target must be a
- * field that is stored. `mode: 'virtual'` computed fields are evaluated on the
- * READ path and never persisted — but they appear in `computed:` (and in
- * `via(computed(...))`) exactly like materialized ones, so the registration
- * guard accepted them and the fan-out then matched nothing, forever: the guard's
- * own stated failure mode, reached through the guard rather than around it.
- *
- * Rejected rather than supported. Matching a virtual field means running user
- * code for every candidate row, which turns an indexed narrow into a full scan
- * of the collection; `mode: 'materialized'` is stored, already works, and is
- * what the error points the caller at.
- *
- * `declared` also folds in `viaFields`, which the guard's key set previously
- * omitted entirely — a `via()`-declared MATERIALIZED field is a perfectly good
- * match target and was being rejected as a typo. An over-firing guard teaches
- * people to stop trusting it, so both directions are fixed together.
- */
-function matchTargetFieldNames(opts: {
-  // Deliberately `unknown`-valued: the caller is generic over the record type
-  // (`ComputedFields<T>`), and this reads only `mode`, so narrowing the value
-  // type here would force a variance cast at every call site instead of one
-  // here. Both shapes are duck-checked below.
-  readonly computed?: Readonly<Record<string, unknown>> | undefined
-  readonly viaFields?: Readonly<Record<string, unknown>> | undefined
-}): { readonly declared: readonly string[]; readonly virtual: readonly string[] } {
-  const declared: string[] = []
-  const virtual: string[] = []
-  for (const [field, entry] of Object.entries(opts.computed ?? {})) {
-    declared.push(field)
-    const parts: ComputedEntryParts = computedEntryParts(entry as Parameters<typeof computedEntryParts>[0])
-    if (parts.mode === 'virtual') virtual.push(field)
-  }
-  for (const [field, spec] of Object.entries(opts.viaFields ?? {})) {
-    declared.push(field)
-    const descriptors = (spec as { descriptors?: readonly unknown[] }).descriptors ?? []
-    for (const d of descriptors) {
-      if ((d as { _viaBrand?: unknown })._viaBrand === 'computed'
-        && (d as { mode?: unknown }).mode === 'virtual') virtual.push(field)
-    }
-  }
-  return { declared, virtual }
-}
-
 export class DerivationRegistry {
   private readonly _bySource = new Map<string, RegisteredStrategy[]>()
   private readonly _byOutput = new Map<string, RegisteredStrategy[]>()

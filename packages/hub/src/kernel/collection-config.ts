@@ -517,6 +517,59 @@ export function computedEntryParts(entry: ComputedFn | ComputedFieldEntry): Comp
 }
 
 /**
+ * Field names a `triggerBy` match may NOT target, and the ones it may (#1266).
+ *
+ * Lives beside `computedEntryParts`, the other computed-mode reader. It was
+ * briefly moved into the derivation registry on the theory that twenty lines
+ * here cost the floor bundle 5.2% — measuring it showed the helper accounted
+ * for ONE byte and the growth was elsewhere (#1268). Moved back now that a
+ * second caller (the MV group-key guard) needs it and the layering forbids
+ * the kernel importing the registry.
+ *
+ * A derivation matcher reads the STORED record, so a match target must be a
+ * field that is stored. `mode: 'virtual'` computed fields are evaluated on the
+ * READ path and never persisted — but they appear in `computed:` (and in
+ * `via(computed(...))`) exactly like materialized ones, so the registration
+ * guard accepted them and the fan-out then matched nothing, forever: the guard's
+ * own stated failure mode, reached through the guard rather than around it.
+ *
+ * Rejected rather than supported. Matching a virtual field means running user
+ * code for every candidate row, which turns an indexed narrow into a full scan
+ * of the collection; `mode: 'materialized'` is stored, already works, and is
+ * what the error points the caller at.
+ *
+ * `declared` also folds in `viaFields`, which the guard's key set previously
+ * omitted entirely — a `via()`-declared MATERIALIZED field is a perfectly good
+ * match target and was being rejected as a typo. An over-firing guard teaches
+ * people to stop trusting it, so both directions are fixed together.
+ */
+export function matchTargetFieldNames(opts: {
+  // Deliberately `unknown`-valued: the caller is generic over the record type
+  // (`ComputedFields<T>`), and this reads only `mode`, so narrowing the value
+  // type here would force a variance cast at every call site instead of one
+  // here. Both shapes are duck-checked below.
+  readonly computed?: Readonly<Record<string, unknown>> | undefined
+  readonly viaFields?: Readonly<Record<string, unknown>> | undefined
+}): { readonly declared: readonly string[]; readonly virtual: readonly string[] } {
+  const declared: string[] = []
+  const virtual: string[] = []
+  for (const [field, entry] of Object.entries(opts.computed ?? {})) {
+    declared.push(field)
+    const parts = computedEntryParts(entry as ComputedFn | ComputedFieldEntry)
+    if (parts.mode === 'virtual') virtual.push(field)
+  }
+  for (const [field, spec] of Object.entries(opts.viaFields ?? {})) {
+    declared.push(field)
+    const descriptors = (spec as { descriptors?: readonly unknown[] }).descriptors ?? []
+    for (const d of descriptors) {
+      if ((d as { _viaBrand?: unknown })._viaBrand === 'computed'
+        && (d as { mode?: unknown }).mode === 'virtual') virtual.push(field)
+    }
+  }
+  return { declared, virtual }
+}
+
+/**
  * #638 Task 7 — union the `computed:` sugar option with `via(computed(...))`-declared
  * entries (`kernel/via/compose.ts#mergeViaFields`'s `computedFields` output) into ONE
  * per-field map. NEVER includes `resolvedClassified.riderComputed` — that sanctioned
@@ -878,6 +931,48 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     throw new Error(
       `Collection "${opts.name}": embeddings are not supported on CRDT collections (L2). Use a non-CRDT collection for semantic search.`,
     )
+  }
+
+  // Guard (#1269): an MV group key naming a VIRTUAL computed field on THIS
+  // collection. A virtual field is evaluated on read and never stored, so the
+  // MV pipeline reads the stored row, finds nothing, and buckets every row
+  // under an `undefined` key — a well-formed aggregate carrying a wrong
+  // NUMBER rather than an error. Same principle as the executor's existing
+  // object-valued-group-key refusal ("refuse, don't bucket wrong") and as the
+  // triggerBy virtual-target refusal (#1266).
+  //
+  // ⚠️ KNOWN RESIDUE, stated rather than discovered later — the same ordering
+  // documented for the tiers+crdt guard below. A single-query MV of the common
+  // shape `query: (db) => db.collection(name)…` constructs THIS collection from
+  // inside `MaterializedViewRegistry.register()` BEFORE the dependency is
+  // recorded, so `mvsForSource(name)` is still empty at this call and that
+  // shape is NOT caught here. `unionSources`, an aggregate with explicit
+  // `sources`, and any source built by an earlier `vault.collection()` ARE
+  // caught. Closing the residue needs a check inside the registry after the
+  // callback runs — filed, not guessed at.
+  {
+    const virtualFieldNames = matchTargetFieldNames({
+      computed: opts.computed as Readonly<Record<string, unknown>> | undefined,
+      viaFields: opts.viaFields as Readonly<Record<string, unknown>> | undefined,
+    }).virtual
+    if (virtualFieldNames.length > 0) {
+      const virtualSet = new Set(virtualFieldNames)
+      for (const reg of opts.materializedViewSource?.registry().mvsForSource(opts.name) ?? []) {
+        const spec = reg.spec as { groupBy?: string | readonly string[]; name?: string }
+        const fields = spec.groupBy === undefined
+          ? []
+          : (typeof spec.groupBy === 'string' ? [spec.groupBy] : spec.groupBy)
+        for (const f of fields) {
+          if (!virtualSet.has(f)) continue
+          throw new ValidationError(
+            `materialized view "${spec.name ?? reg.outputCollection}": groupBy names "${f}", which `
+            + `"${opts.name}" declares as a VIRTUAL computed field. Virtual fields are evaluated on read `
+            + `and never stored, so every row would bucket under an undefined key and the aggregate would `
+            + `be silently WRONG rather than an error. Declare it as \`mode: 'materialized'\` (stored) or `
+            + `group on a stored field.`)
+        }
+      }
+    }
   }
 
   // Guard: a `fieldMeta` key that names no real field. Hoisted here from
