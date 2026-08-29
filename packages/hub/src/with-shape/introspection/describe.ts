@@ -226,15 +226,35 @@ const ZOD_META_KEYS = new Set<string>([
  * `undefined` and the caller stays silent rather than guessing, so a validator
  * hub cannot read never produces a false "unknown field" error.
  *
- * ZodEffects (reported by the pilot on #1249's guard, and it equally affected
- * #1253's): on Zod 3 an OBJECT-LEVEL `.refine()` wraps the object in a
- * ZodEffects whose `.shape` is undefined — the object sits at `_def.schema` —
- * so "has a schema" and "hub can enumerate its fields" silently diverged for
- * exactly the schemas most worth guarding (validated ones). Unwrapped here,
- * but ONLY through refinement effects: a `.transform()`/`.preprocess()`
- * changes the OUTPUT shape, so its inner keys would be a lie — those stay
- * `undefined` (silent), deliberately. Zod 4 keeps `.shape` through `.refine()`
- * and never enters the loop. Bounded depth, so a cyclic duck cannot hang us.
+ * Wrappers (reported by the pilot on #1249's guard, and it equally affected
+ * #1253's): a wrapped object's `.shape` is undefined, so "has a schema" and
+ * "hub can enumerate its fields" silently diverged for exactly the schemas
+ * most worth guarding — validated ones.
+ *
+ * ONE RULE UNWRAPS ALL OF THEM: FOLLOW THE OUTPUT SIDE. These keys describe
+ * the PARSED record, so the only question a wrapper raises is whether it
+ * changes the parsed shape.
+ *
+ *   Zod 3 `ZodEffects`  — `.refine()`/`.superRefine()` (`effect.type` is
+ *     `'refinement'`) and `z.preprocess()` (`'preprocess'`) both parse WITH
+ *     the inner schema, so the output is the inner object: follow
+ *     `_def.schema`. `.transform()` REPLACES the output, so the inner keys
+ *     would be a lie: stay `undefined`, deliberately.
+ *   Zod 4 `ZodPipe`     — `z.preprocess()` is `pipe(transform -> object)` and
+ *     `.transform()` is `pipe(object -> transform)`. Following `_def.out`
+ *     resolves both correctly with no effect-kind test: preprocess reaches the
+ *     object, transform reaches a `ZodTransform` that has no shape and no
+ *     inner schema, so the loop returns `undefined` on its own.
+ *
+ * `preprocess` was the pilot's second finding (#1262): the first fix followed
+ * refinements only, which left four of their registered collections unguarded
+ * — including the one carrying their only `fieldMeta` PII declaration, i.e.
+ * precisely the collection #1253 was written for. It is one string away from
+ * `transform` and means the opposite thing, so a test pins the two apart.
+ *
+ * A duck-typed probe throughout: an unrecognised validator returns `undefined`
+ * and the caller stays silent rather than guessing. Bounded depth, so a cyclic
+ * duck cannot hang us.
  */
 export function schemaFieldKeys(schema: unknown): readonly string[] | undefined {
   let s: unknown = schema
@@ -245,10 +265,21 @@ export function schemaFieldKeys(schema: unknown): readonly string[] | undefined 
       const keys = Object.keys(shape as Record<string, unknown>)
       return keys.length > 0 ? keys : undefined
     }
-    // Zod 3 ZodEffects: follow `_def.schema` for refinements only.
-    const def = (s as { _def?: { effect?: { type?: unknown }; schema?: unknown } })._def
-    if (def?.schema !== undefined && def.effect?.type === 'refinement') {
+    const def = (s as {
+      _def?: { effect?: { type?: unknown }; schema?: unknown; out?: unknown }
+    })._def
+    // Zod 3 ZodEffects: refinement and preprocess parse WITH the inner schema,
+    // so the output shape is the inner object's. `transform` replaces it.
+    const effect = def?.effect?.type
+    if (def?.schema !== undefined && (effect === 'refinement' || effect === 'preprocess')) {
       s = def.schema
+      continue
+    }
+    // Zod 4 ZodPipe: the output side IS the parsed shape. `z.preprocess` puts
+    // the object there; `.transform()` puts a shapeless ZodTransform there,
+    // which falls out of the loop as `undefined` on the next pass.
+    if (def?.out !== undefined) {
+      s = def.out
       continue
     }
     return undefined
