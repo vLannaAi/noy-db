@@ -604,7 +604,7 @@ describe('remaining spec §11 rows (#1249)', () => {
     await bills.put('b1', { id: 'b1', clientId: 'c1', cycle: '2026' })      // cycle: STRING
     expect(derive).toHaveBeenCalled()   // b1's own isSource put (self-write settles after 1-2 calls; see lazy test note)
     derive.mockClear()
-    await disb.put('d1', { id: 'd1', clientId: 'c1', cycle: 2026, amount: 500 }) // cycle: NUMBER
+    await disb.put('d1', { id: 'd1', clientId: 'c1', cycle: 2026, amount: 500 } as unknown as Disbursement) // cycle: NUMBER (deliberate type mismatch)
     expect(derive).toHaveBeenCalled()   // re-fired via the composite match, despite the type mismatch
     await db.close()
   })
