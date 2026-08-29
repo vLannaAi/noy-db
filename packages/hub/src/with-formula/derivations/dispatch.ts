@@ -188,8 +188,12 @@ export async function dispatchDerivations(
     // used as the patch base for a self-write reverse-denorm output.
     const isSource = spec.source === collectionName
     const isSibling = !isSource && (spec.sources?.includes(collectionName) ?? false)
+    // match-form entries are wired in Task 5 (#1249); narrowed here so the tree compiles between tasks.
     const trigger = !isSource && !isSibling
-      ? spec.triggerBy?.find(t => t.collection === collectionName)
+      ? spec.triggerBy?.find(
+          (t): t is { collection: string; on: string; maxFanout?: number } =>
+            t.collection === collectionName && 'on' in t,
+        )
       : undefined
 
     const runs: Array<{
