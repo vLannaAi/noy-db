@@ -2204,12 +2204,15 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     return this._findMatchingCompositeIds([{ field, value: String(value) }])
   }
 
-  /** @internal — conjunction fan-out for composite triggerBy (#1249). First indexed pair narrows; one scan otherwise. */
+  /** @internal — conjunction fan-out for composite triggerBy (#1249). First indexed pair narrows,
+   *  filtered by the OTHER pairs only; zero reads when the index alone decides membership. */
   async _findMatchingCompositeIds(pairs: ReadonlyArray<{ field: string; value: string }>): Promise<string[]> {
     const { findMatchingIdsByPairs } = await import('../with-formula/derivations/trigger-match.js')
-    const hit = pairs.map((p) => this.getIndexes()?.lookupEqual(p.field, p.value)).find(Boolean) ?? null
-    if (!this.lazy) await this.ensureHydrated()
-    return findMatchingIdsByPairs(pairs, {
+    const i = pairs.findIndex((p) => this.getIndexes()?.lookupEqual(p.field, p.value))
+    const hit = i < 0 ? null : this.getIndexes()!.lookupEqual(pairs[i]!.field, pairs[i]!.value)
+    const residual = i < 0 ? pairs : pairs.filter((_, j) => j !== i)
+    if ((hit === null || residual.length > 0) && !this.lazy) await this.ensureHydrated()
+    return findMatchingIdsByPairs(residual, {
       indexCandidates: hit ? [...hit] : null,
       listIds: async () => this.lazy ? this.adapter.list(this.vault, this.name) : [...this.cache.keys()],
       getRecord: async (id) => this.lazy

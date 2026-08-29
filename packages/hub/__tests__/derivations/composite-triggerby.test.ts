@@ -173,4 +173,30 @@ describe('composite fan-out query (#1249)', () => {
     expect(await (bills as any)._findMatchingIds('clientId', 'c1')).toEqual(['b1'])
     await db.close()
   })
+  it('single-pair indexed path answers straight from the index — zero record reads (#1249 review finding)', async () => {
+    // Wraps toMemory() to count adapter get/list calls. The index alone must decide
+    // membership when the sole pair is covered — same contract as the OLD
+    // `_findMatchingIds`'s `if (hit) return [...hit]` fast path, which read nothing.
+    const base = toMemory()
+    const calls = { get: 0, list: 0 }
+    const store: NoydbStore = {
+      ...base,
+      async get(v2, c, i) { calls.get++; return base.get(v2, c, i) },
+      async list(v2, c) { calls.list++; return base.list(v2, c) },
+    }
+    const db = await createNoydb({ store, user: 'alice', secret: 'composite-q3-2026', derivationStrategies: [billStatusStrategy()] })
+    const v = await db.openVault('firm')
+    const bills = v.collection<Bill>('bills', { indexes: ['clientId'] })
+    await bills.put('b1', { id: 'b1', clientId: 'c1', cycle: 'Q1' })
+    await bills.put('b2', { id: 'b2', clientId: 'c1', cycle: 'Q2' })
+    await bills.put('b3', { id: 'b3', clientId: 'c2', cycle: 'Q1' })
+    calls.get = 0
+    calls.list = 0
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ids = await (bills as any)._findMatchingCompositeIds([{ field: 'clientId', value: 'c1' }])
+    expect(ids.sort()).toEqual(['b1', 'b2'])
+    expect(calls.get).toBe(0)
+    expect(calls.list).toBe(0)
+    await db.close()
+  })
 })

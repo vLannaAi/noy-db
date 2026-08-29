@@ -77,22 +77,26 @@ export function recordMatchesPairs(
   return pairs.every((p) => scalar(rec[p.field]) === p.value)
 }
 
-/** Scan/filter core for composite fan-out. `indexCandidates` is the id set
- *  from an equality index for ONE pair (or null when no pair is indexed);
- *  when present only candidates are read, else every id. */
+/** Scan/filter core for composite fan-out. `residualPairs` are the pairs NOT
+ *  already decided by `indexCandidates` (the id set from an equality index for
+ *  ONE pair, or null when no pair is indexed). When the index alone decides
+ *  membership (`indexCandidates` non-null and no residual pairs left), this
+ *  returns the index's answer verbatim with ZERO record reads — matching the
+ *  old single-field `_findMatchingIds`' `[...hit]` fast path exactly. */
 export async function findMatchingIdsByPairs(
-  pairs: ReadonlyArray<{ field: string; value: string }>,
+  residualPairs: ReadonlyArray<{ field: string; value: string }>,
   io: {
     indexCandidates: ReadonlyArray<string> | null
     listIds: () => Promise<ReadonlyArray<string>>
     getRecord: (id: string) => Promise<Record<string, unknown> | null>
   },
 ): Promise<string[]> {
+  if (io.indexCandidates !== null && residualPairs.length === 0) return [...io.indexCandidates]
   const ids = io.indexCandidates ?? await io.listIds()
   const out: string[] = []
   for (const id of ids) {
     const rec = await io.getRecord(id)
-    if (rec !== null && recordMatchesPairs(rec, pairs)) out.push(id)
+    if (rec !== null && recordMatchesPairs(rec, residualPairs)) out.push(id)
   }
   return out
 }
