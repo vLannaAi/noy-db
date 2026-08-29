@@ -635,3 +635,57 @@ describe('#1253 fieldMeta key-validation on the sync path', () => {
     await db.close()
   })
 })
+
+/**
+ * #1249 pilot report — object-level `.refine()` on Zod 3 wraps the object in
+ * a ZodEffects whose `.shape` is undefined, so both field guards (#1253
+ * fieldMeta, #1249 triggerBy match) were silent for exactly the schemas most
+ * worth guarding. schemaFieldKeys now unwraps refinement effects — and ONLY
+ * refinements: a transform changes the output shape, so its inner keys would
+ * be a lie.
+ */
+describe('schemaFieldKeys through ZodEffects (#1249 pilot report)', () => {
+  it('fieldMeta guard fires through a Zod-3-style object-level refine', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-ze-1' })
+    const v = await db.openVault('v', { create: true })
+    // Zod 3 ZodEffects duck: `.shape` absent, object at `_def.schema`,
+    // effect.type 'refinement'. (Hub's dev dep is Zod 4, where `.refine`
+    // keeps `.shape` — this fixture pins the Zod 3 wire shape itself.)
+    const zod3StyleEffects = {
+      _def: { effect: { type: 'refinement' }, schema: z.object({ id: z.string(), pin: z.string() }) },
+      '~standard': { version: 1, vendor: 'zod', validate: (x: unknown) => ({ value: x }) },
+    }
+    const c = v.collection('workers', {
+      schema: zod3StyleEffects as never,
+      fieldMeta: { pinn: { label: 'National ID', sensitivity: 'pii' } },  // typo
+    })
+    expect(() => c.describe()).toThrow(FieldMetaUnknownFieldError)
+    await db.close()
+  })
+
+  it('Zod 4 object-level refine keeps .shape — guard fires natively', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-ze-2' })
+    const v = await db.openVault('v', { create: true })
+    const c = v.collection('workers', {
+      schema: z.object({ id: z.string(), pin: z.string() }).refine(() => true, 'obj check'),
+      fieldMeta: { pinn: { label: 'x' } },
+    })
+    expect(() => c.describe()).toThrow(FieldMetaUnknownFieldError)
+    await db.close()
+  })
+
+  it('a transform-effect schema stays SILENT — inner keys describe the input, not the output', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-ze-3' })
+    const v = await db.openVault('v', { create: true })
+    const transformDuck = {
+      _def: { effect: { type: 'transform' }, schema: z.object({ id: z.string() }) },
+      '~standard': { version: 1, vendor: 'zod', validate: (x: unknown) => ({ value: x }) },
+    }
+    const c = v.collection('workers', {
+      schema: transformDuck as never,
+      fieldMeta: { anything: { label: 'x' } },
+    })
+    expect(() => c.describe()).not.toThrow()
+    await db.close()
+  })
+})

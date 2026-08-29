@@ -225,13 +225,35 @@ const ZOD_META_KEYS = new Set<string>([
  * A duck-typed probe, not a Zod dependency: an unrecognised validator returns
  * `undefined` and the caller stays silent rather than guessing, so a validator
  * hub cannot read never produces a false "unknown field" error.
+ *
+ * ZodEffects (reported by the pilot on #1249's guard, and it equally affected
+ * #1253's): on Zod 3 an OBJECT-LEVEL `.refine()` wraps the object in a
+ * ZodEffects whose `.shape` is undefined — the object sits at `_def.schema` —
+ * so "has a schema" and "hub can enumerate its fields" silently diverged for
+ * exactly the schemas most worth guarding (validated ones). Unwrapped here,
+ * but ONLY through refinement effects: a `.transform()`/`.preprocess()`
+ * changes the OUTPUT shape, so its inner keys would be a lie — those stay
+ * `undefined` (silent), deliberately. Zod 4 keeps `.shape` through `.refine()`
+ * and never enters the loop. Bounded depth, so a cyclic duck cannot hang us.
  */
 export function schemaFieldKeys(schema: unknown): readonly string[] | undefined {
-  if (schema === null || typeof schema !== 'object') return undefined
-  const shape: unknown = (schema as { shape?: unknown }).shape
-  if (shape === null || typeof shape !== 'object') return undefined
-  const keys = Object.keys(shape as Record<string, unknown>)
-  return keys.length > 0 ? keys : undefined
+  let s: unknown = schema
+  for (let depth = 0; depth < 10; depth++) {
+    if (s === null || typeof s !== 'object') return undefined
+    const shape: unknown = (s as { shape?: unknown }).shape
+    if (shape !== null && typeof shape === 'object') {
+      const keys = Object.keys(shape as Record<string, unknown>)
+      return keys.length > 0 ? keys : undefined
+    }
+    // Zod 3 ZodEffects: follow `_def.schema` for refinements only.
+    const def = (s as { _def?: { effect?: { type?: unknown }; schema?: unknown } })._def
+    if (def?.schema !== undefined && def.effect?.type === 'refinement') {
+      s = def.schema
+      continue
+    }
+    return undefined
+  }
+  return undefined
 }
 
 export async function deriveZodFields(

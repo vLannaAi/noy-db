@@ -65,6 +65,12 @@ throws `ClassifiedConfigError` at collection-construction time.
 
 ## Reading — `SealedHandle` by default, `.reveal()` to unseal
 
+**Classified values are `SealedHandle` on EVERY read path — `get()` as well as `list()`. The
+`list` option controls the list-view *projection* (omit / mask / rider), not whether the value
+is wrapped.** Stated up front because it cost a consumer a whole issue (#1250): `list` being the
+only read-shaped option in the type invites the inference that single-record reads return
+plaintext. They do not — adopting `classified` changes the read shape at every call site.
+
 A `'recoverable'` field reads back as an opaque `SealedHandle`, not the plaintext — it never
 leaks via `JSON.stringify` (`SealedHandle.toJSON()` returns the literal string `'[sealed]'`).
 Call `.reveal()` on the handle, or `collection.reveal(id, field)`, to get the plaintext:
