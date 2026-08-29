@@ -294,15 +294,16 @@ describe('collection.describe(opts) — async path', () => {
       total: z.number(),
     })
 
-    // 'totl' is a typo — not a real field in the schema or any config
-    const c = v.collection('typo_coll', {
+    // 'totl' is a typo — not a real field in the schema or any config.
+    // Design pass: a Zod object's fields read synchronously, so this is now
+    // refused at REGISTRATION and never reaches describe(). The check moved
+    // earlier; it did not disappear.
+    expect(() => v.collection('typo_coll', {
       schema: schema as unknown as import('../../src/kernel/schema.js').StandardSchemaV1,
       fieldMeta: {
         totl: { label: 'Total (typo)' },
       },
-    })
-
-    await expect(c.describe({})).rejects.toBeInstanceOf(FieldMetaUnknownFieldError)
+    })).toThrow(FieldMetaUnknownFieldError)
   })
 
   it('validator-agnostic: non-zod Standard-Schema validator + fieldMeta channel works in sync and async describe', async () => {
@@ -580,11 +581,11 @@ describe('#1253 fieldMeta key-validation on the sync path', () => {
   it('rejects a typo when a Zod schema is configured (the reported case)', async () => {
     const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-1253-a' })
     const v = await db.openVault('v', { create: true })
-    const c = v.collection('workers', {
+    const mk = () => v.collection('workers', {
       schema: z.object({ id: z.string(), pin: z.string() }),
       fieldMeta: { pinn: { label: 'National ID', sensitivity: 'pii' } },
     })
-    expect(() => c.describe()).toThrow(FieldMetaUnknownFieldError)
+    expect(mk).toThrow(FieldMetaUnknownFieldError)   // design pass: now at REGISTRATION
     await db.close()
   })
 
@@ -666,22 +667,22 @@ describe('schemaFieldKeys through ZodEffects (#1249 pilot report)', () => {
       _def: { effect: { type: 'refinement' }, schema: z.object({ id: z.string(), pin: z.string() }) },
       '~standard': { version: 1, vendor: 'zod', validate: (x: unknown) => ({ value: x }) },
     }
-    const c = v.collection('workers', {
+    const mk = () => v.collection('workers', {
       schema: zod3StyleEffects as never,
       fieldMeta: { pinn: { label: 'National ID', sensitivity: 'pii' } },  // typo
     })
-    expect(() => c.describe()).toThrow(FieldMetaUnknownFieldError)
+    expect(mk).toThrow(FieldMetaUnknownFieldError)   // design pass: now at REGISTRATION
     await db.close()
   })
 
   it('Zod 4 object-level refine keeps .shape — guard fires natively', async () => {
     const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-ze-2' })
     const v = await db.openVault('v', { create: true })
-    const c = v.collection('workers', {
+    const mk = () => v.collection('workers', {
       schema: z.object({ id: z.string(), pin: z.string() }).refine(() => true, 'obj check'),
       fieldMeta: { pinn: { label: 'x' } },
     })
-    expect(() => c.describe()).toThrow(FieldMetaUnknownFieldError)
+    expect(mk).toThrow(FieldMetaUnknownFieldError)   // design pass: now at REGISTRATION
     await db.close()
   })
 
@@ -694,22 +695,22 @@ describe('schemaFieldKeys through ZodEffects (#1249 pilot report)', () => {
       _def: { effect: { type: 'preprocess' }, schema: z.object({ id: z.string(), pin: z.string() }) },
       '~standard': { version: 1, vendor: 'zod', validate: (x: unknown) => ({ value: x }) },
     }
-    const c = v.collection('workers', {
+    const mk = () => v.collection('workers', {
       schema: zod3StylePreprocess as never,
       fieldMeta: { pinn: { label: 'National ID', sensitivity: 'pii' } },  // typo
     })
-    expect(() => c.describe()).toThrow(FieldMetaUnknownFieldError)
+    expect(mk).toThrow(FieldMetaUnknownFieldError)   // design pass: now at REGISTRATION
     await db.close()
   })
 
   it('Zod 4 z.preprocess is a ZodPipe — guard fires through the output side (#1262)', async () => {
     const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-ze-5' })
     const v = await db.openVault('v', { create: true })
-    const c = v.collection('workers', {
+    const mk = () => v.collection('workers', {
       schema: z.preprocess((x) => x, z.object({ id: z.string(), pin: z.string() })),
       fieldMeta: { pinn: { label: 'x' } },
     })
-    expect(() => c.describe()).toThrow(FieldMetaUnknownFieldError)
+    expect(mk).toThrow(FieldMetaUnknownFieldError)   // design pass: now at REGISTRATION
     await db.close()
   })
 
@@ -751,12 +752,20 @@ describe('schemaFieldKeys through ZodEffects (#1249 pilot report)', () => {
     // async half while every schemaFieldKeys test stays green.
     const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-ze-8' })
     const v = await db.openVault('v', { create: true })
-    const c = v.collection('workers', {
+    const mk = () => v.collection('workers', {
       schema: z.preprocess((x) => x, z.object({ id: z.string(), pin: z.string() })),
       fieldMeta: { pinn: { label: 'x' } },
     })
-    expect(() => c.describe()).toThrow(FieldMetaUnknownFieldError)
-    await expect(c.describe({ includeSchema: true } as never)).rejects.toThrow(FieldMetaUnknownFieldError)
+    expect(mk).toThrow(FieldMetaUnknownFieldError)
+    // The async assertion that stood here is deliberately GONE, and the reason
+    // is worth recording rather than deleting silently: once the guard runs at
+    // registration, a schema whose fields read synchronously can no longer
+    // REACH describe() with a bad key. So this schema cannot demonstrate the
+    // two independent mechanisms any more. The describe-time check still
+    // exists and is still correct — it now covers only the tier where fields
+    // are NOT synchronously readable but ARE derivable (a non-Zod Standard
+    // Schema validator; see the validator-agnostic test above). That tier is
+    // narrower than it was, which is the intended consequence, not a gap.
     await db.close()
   })
 
@@ -772,6 +781,56 @@ describe('schemaFieldKeys through ZodEffects (#1249 pilot report)', () => {
       fieldMeta: { anything: { label: 'x' } },
     })
     expect(() => c.describe()).not.toThrow()
+    await db.close()
+  })
+})
+
+/**
+ * Design pass, decision 1 — "refuse as early as the information allows".
+ *
+ * The `fieldMeta` typo guard fired only at `describe()`, so a collection nobody
+ * describes was never checked — and `fieldMeta` carries `sensitivity`, so the
+ * unchecked case was the one with a data-classification inventory hanging off
+ * it. It now also fires at `vault.collection()`.
+ *
+ * Three tiers of knowability, not two, which is why the describe-time check
+ * STAYS rather than moving:
+ *   always      — a name declared in the config itself (needs no schema at all;
+ *                 see the virtual-field refusal in the derivation registry)
+ *   at reg.     — a validator whose fields read synchronously   <- this block
+ *   at describe — fields that exist only after async derivation
+ * Hoisting alone would move the check earlier for some collections and remove
+ * it entirely for others.
+ */
+describe('fieldMeta guard at REGISTRATION (design pass, decision 1)', () => {
+  it('refuses a typo at vault.collection(), before anyone calls describe()', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-reg-1' })
+    const v = await db.openVault('v', { create: true })
+    expect(() => v.collection('workers', {
+      schema: z.object({ id: z.string(), pin: z.string() }),
+      fieldMeta: { pinn: { label: 'National ID', sensitivity: 'pii' } },
+    })).toThrow(FieldMetaUnknownFieldError)
+    await db.close()
+  })
+
+  it('a correct key registers cleanly — the control', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-reg-3' })
+    const v = await db.openVault('v', { create: true })
+    expect(() => v.collection('workers', {
+      schema: z.object({ id: z.string(), pin: z.string() }),
+      fieldMeta: { pin: { label: 'National ID', sensitivity: 'pii' } },
+    })).not.toThrow()
+    await db.close()
+  })
+
+  it('stays SILENT with no readable validator — a TS-generic collection is not a typo', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-reg-4' })
+    const v = await db.openVault('v', { create: true })
+    // Real fields, present in the data, named by fieldMeta, in no runtime
+    // config. Rejecting these teaches people to stop declaring fieldMeta.
+    expect(() => v.collection<{ id: string; salary: number }>('staff', {
+      fieldMeta: { salary: { label: 'Salary', sensitivity: 'pii' } },
+    })).not.toThrow()
     await db.close()
   })
 })

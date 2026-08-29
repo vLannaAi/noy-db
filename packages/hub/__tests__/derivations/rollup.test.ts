@@ -253,3 +253,28 @@ describe('withRollup — a child that re-parents (#1257)', () => {
     await db.close()
   })
 })
+
+/**
+ * Design pass, decision 5 — `rowKey is required` reported the wrong condition.
+ *
+ * A field NAME (the shape every neighbouring option takes) produced "rowKey is
+ * required", which names ABSENCE. Two states that warrant different responses
+ * — "you forgot it" vs "you passed the wrong type" — rendered identically.
+ */
+describe('withMaterializedView rowKey — absent vs wrong-typed (design pass, decision 5)', () => {
+  it('a STRING rowKey says it must be a function, and names the type it got', async () => {
+    const { withMaterializedView } = await import('../../src/with-formula/materialized-views/with-materialized-view.js')
+    expect(() => withMaterializedView({
+      name: 'byTag', source: 'rows', refresh: 'eager',
+      rowKey: 'someField', query: () => undefined,
+    } as never)).toThrow(/must be a FUNCTION/)
+  })
+
+  it('an ABSENT rowKey still says it is required — the control', async () => {
+    const { withMaterializedView } = await import('../../src/with-formula/materialized-views/with-materialized-view.js')
+    expect(() => withMaterializedView({
+      name: 'byTag', source: 'rows', refresh: 'eager',
+      query: () => undefined,
+    } as never)).toThrow(/is required/)
+  })
+})

@@ -71,6 +71,7 @@ import type { MVQueryContext } from '../with-formula/materialized-views/types.js
 import type { Collection, OnDirtyCallback, CacheOptions } from './collection.js'
 import { ViaPipeline } from './via/pipeline.js'
 import { viaBinder, type NoydbVia, type ViaDescriptor } from './via/index.js'
+import { validateFieldMetaAtRegistration } from '../with-shape/introspection/field-meta.js'
 import { mergeViaFields, guardCrossBindingFieldCollisions, type ViaFieldSpec } from './via/compose.js'
 
 /**
@@ -878,6 +879,22 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
       `Collection "${opts.name}": embeddings are not supported on CRDT collections (L2). Use a non-CRDT collection for semantic search.`,
     )
   }
+
+  // Guard: a `fieldMeta` key that names no real field. Hoisted here from
+  // `describe()` so a typo is refused where it is DECLARED — a collection
+  // nobody describes was otherwise never checked, and `fieldMeta` is what
+  // carries `sensitivity`. Silent when the validator's fields cannot be read
+  // synchronously; `buildDescription` keeps its own check for the async tier.
+  validateFieldMetaAtRegistration({
+    collection: opts.name,
+    schema: opts.schema,
+    fieldMeta: opts.fieldMeta as Record<string, unknown> | undefined,
+    configKeys: Object.keys({
+      ...opts.moneyFields, ...opts.dictKeyFields, ...opts.declaredRefs, ...opts.computed,
+      ...opts.i18nFields, ...opts.lookupFields, ...opts.blobFields,
+      ...opts.classifiedFields, ...opts.viaFields,
+    }),
+  })
 
   // Guard (#850): `sensitive` promises each field its own `_sealed` slot under
   // an HKDF-derived per-field key, but the CRDT branch of `_putInternal`
