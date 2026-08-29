@@ -298,3 +298,43 @@ describe('composite triggerBy — write-path fan-out (#1249)', () => {
     await db.close()
   })
 })
+
+describe('union fan-out on update (#1249, spec §7)', () => {
+  it('a disbursement moving Q1→Q2 re-fires BOTH the old and new bill sets', async () => {
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'composite-u-2026', derivationStrategies: [billStatusStrategy()] })
+    const v = await db.openVault('firm')
+    const bills = v.collection<Bill>('bills')
+    const disb = v.collection<Disbursement>('disbursements')
+    await bills.put('b1', { id: 'b1', clientId: 'c1', cycle: 'Q1' })
+    await bills.put('b2', { id: 'b2', clientId: 'c1', cycle: 'Q2' })
+    await disb.put('d1', { id: 'd1', clientId: 'c1', cycle: 'Q1', amount: 500 })
+    expect((await bills.get('b1'))?.status).toBe('covered')
+    expect((await bills.get('b2'))?.status).toBe('uncovered')   // self-derived on b2's own put; unmatched by d1@Q1
+    // MOVE the disbursement to Q2: b1 must become uncovered (old set re-fired),
+    // b2 covered (new set fired). Without the union, b1 stays 'covered' — stale.
+    await disb.put('d1', { id: 'd1', clientId: 'c1', cycle: 'Q2', amount: 500 })
+    expect((await bills.get('b1'))?.status).toBe('uncovered')   // ← THE union assertion
+    expect((await bills.get('b2'))?.status).toBe('covered')
+    await db.close()
+  })
+  it('create (no prior) fans out the new tuple only — no error, no double-fire', async () => {
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'composite-u2-2026', derivationStrategies: [billStatusStrategy()] })
+    const v = await db.openVault('firm')
+    await v.collection<Bill>('bills').put('b1', { id: 'b1', clientId: 'c1', cycle: 'Q1' })
+    await v.collection<Disbursement>('disbursements').put('d1', { id: 'd1', clientId: 'c1', cycle: 'Q1', amount: 1 })
+    expect((await v.collection<Bill>('bills').get('b1'))?.status).toBe('covered')
+    await db.close()
+  })
+  it('maxFanout caps the UNION', async () => {
+    const db = await createNoydb({ store: toMemory(), user: 'alice', secret: 'composite-u3-2026', derivationStrategies: [billStatusStrategy({ maxFanout: 1 })] })
+    const v = await db.openVault('firm')
+    const bills = v.collection<Bill>('bills')
+    await bills.put('b1', { id: 'b1', clientId: 'c1', cycle: 'Q1' })   // old set: 1
+    await bills.put('b2', { id: 'b2', clientId: 'c1', cycle: 'Q2' })   // new set: 1 → union 2 > cap 1
+    const disb = v.collection<Disbursement>('disbursements')
+    await disb.put('d1', { id: 'd1', clientId: 'c1', cycle: 'Q1', amount: 1 })
+    await expect(disb.put('d1', { id: 'd1', clientId: 'c1', cycle: 'Q2', amount: 1 }))
+      .rejects.toThrow(DerivationCapExceededError)
+    await db.close()
+  })
+})

@@ -1819,7 +1819,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // derived outputs. The recursive `put` into output collections re-enters
     // this pipeline intentionally; cycle detection at vault open is the
     // primary defense against infinite recursion.
-    await this._onRecordMutated(id, 'put', 'local-write', { record: event, version })
+    // `prior` is already resolved pre-write by `_preparePut`/CRDT-merge (the
+    // timing composite-triggerBy union fan-out needs, #1249 spec §2) — thread
+    // it straight through rather than re-reading post-write, which would see
+    // the record this write just landed.
+    const priorForTrigger = prior ? (prior.record as unknown as Record<string, unknown>) : null
+    await this._onRecordMutated(id, 'put', 'local-write', { record: event, version, prior: priorForTrigger })
   }
 
   /**
@@ -2317,7 +2322,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /** @internal `wave` (#638 Task 4) — threaded to `recomputeRollup` for the sync/cutover/restore
    *  dispatch wave's per-target dedup; `undefined` on the local-write path (byte-identical). */
-  async dispatchDerivations(id: string, record: T, version: number, wave?: WaveContext): Promise<void> {
+  async dispatchDerivations(id: string, record: T, version: number, wave?: WaveContext, prior?: Record<string, unknown> | null): Promise<void> {
     if (this.derivationSource === undefined) return
     // S4 gate: dynamic import only — see #derivationDeleteCtx (#842).
     const { dispatchDerivations } = await import('../with-formula/derivations/dispatch.js')
@@ -2327,7 +2332,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       recomputeRollup: (spec, parentId, source, w) => this.recomputeRollup(spec, parentId, source, w),
       dispatchCtx: (source) => this.#dispatchCtx(source),
       trackPut: (txCtx, collectionName, rid, prior) => this.#trackPut(txCtx, collectionName, rid, prior),
-    }, id, record as unknown as Record<string, unknown>, version, wave)
+    }, id, record as unknown as Record<string, unknown>, version, wave, prior)
   }
 
   /**
@@ -3575,7 +3580,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     id: string,
     action: 'put' | 'delete',
     origin: MutationOrigin,
-    ctx?: { readonly record?: T; readonly version?: number },
+    ctx?: { readonly record?: T; readonly version?: number; readonly prior?: Record<string, unknown> | null },
   ): Promise<void> {
     // #606: maintain `markerIds` synchronously, in the SAME continuation as
     // the caller's own `local.put` of this envelope (no `await` between
@@ -3598,7 +3603,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: 'put' } satisfies ChangeEvent)
         this.searchIndexStore?.markDirty() // zero-cost for non-search collections
         await this.onAccess?.('put', id)
-        await this.dispatchDerivations(id, record, version)
+        await this.dispatchDerivations(id, record, version, undefined, ctx!.prior)
         await this.dispatchMaterializedViews(id, record)
         return
       }

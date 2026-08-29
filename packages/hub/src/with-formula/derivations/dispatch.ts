@@ -32,7 +32,7 @@ import type { EncryptedEnvelope } from '../../kernel/types.js'
 import type { ledgerAuditHook, WaveContext } from '../../kernel/via/dispatch.js'
 import { putDerivedOutput, selfWriteFieldEqual } from '../../kernel/via/dispatch.js'
 import { DerivationCapExceededError } from '../../kernel/errors.js'
-import { tupleFromWritten } from './trigger-match.js'
+import { tupleFromWritten, sameTuple } from './trigger-match.js'
 import { markStale } from './stale.js'
 import type { DerivationExecutor } from './executor.js'
 
@@ -141,6 +141,11 @@ export async function dispatchDerivations(
   record: Record<string, unknown>,
   version: number,
   wave?: WaveContext,
+  /** The pre-write record at `id` in THIS collection (undefined = not
+   *  captured — no field-match trigger, or a sync-applied wave; null =
+   *  captured and absent, i.e. a create). Only a `Record` re-fires the OLD
+   *  matched set alongside the new one (spec §7). */
+  prior?: Record<string, unknown> | null,
 ): Promise<void> {
   const {
     derivationSource, collectionName, adapter, vault, getDEK, storeCiphertext,
@@ -214,13 +219,25 @@ export async function dispatchDerivations(
       const srcColl = derivationSource.getCollection(spec.source)
       const matched = new Set<string>()
       for (const trigger of triggerEntries) {
-        const tuple = tupleFromWritten(trigger.match, id, incoming)
-        if (tuple === null) continue   // a from-value is absent/non-scalar: matches nothing
-        const ids = await srcColl._findMatchingCompositeIds(tuple)
-        if (trigger.maxFanout !== undefined && ids.length > trigger.maxFanout) {
+        // Union fan-out (spec §7): an update changing any matched component
+        // must re-fire BOTH the old and the new matched set, or the old
+        // set's derived output goes stale (never re-derived once it no
+        // longer matches). `prior` is only ever a `Record` here — a wave
+        // dispatch and a create both skip the old tuple outright.
+        const tuples = [tupleFromWritten(trigger.match, id, incoming)]
+        if (prior != null && trigger.match.some((p) => p.from !== 'id')) {
+          const old = tupleFromWritten(trigger.match, id, prior)
+          if (!sameTuple(old, tuples[0]!)) tuples.push(old)
+        }
+        const ids = new Set<string>()
+        for (const tuple of tuples) {
+          if (tuple === null) continue   // a from-value is absent/non-scalar: matches nothing
+          for (const sid of await srcColl._findMatchingCompositeIds(tuple)) ids.add(sid)
+        }
+        if (trigger.maxFanout !== undefined && ids.size > trigger.maxFanout) {
           throw new DerivationCapExceededError(
             `triggerBy ${collectionName}→${spec.source} [${trigger.match.map(p => p.to).join(',')}]`,
-            ids.length, trigger.maxFanout)
+            ids.size, trigger.maxFanout)
         }
         for (const sid of ids) matched.add(sid)
       }
