@@ -1,5 +1,45 @@
 # Changelog — hub
 
+## 0.7.0-pre.12
+
+### Minor Changes
+
+- `withDerivation`'s `triggerBy` accepts a multi-field `match` form (#1249):
+  `{ collection, match: [{ from, to }] }` fans a write out to every source
+  record where ALL pairs satisfy `String(source[to]) === String(written[from])`.
+  `from: 'id'` reads the written record's id, making the existing `on` form the
+  single-pair special case (it is unchanged and stays supported). This makes
+  shared-key ("reverse") relationships and composite keys like
+  `(clientId, cycle)` expressible without denormalising a synthetic key.
+
+  Also, for BOTH forms:
+
+  - a LOCAL UPDATE that changes any matched field fans out on old-match ∪
+    new-match, so records addressed by the previous value no longer go
+    silently stale; a sync-applied wave write or a tiers restore, which don't
+    thread the prior record, fan out on the new tuple only;
+  - a parent DELETE now fans out using the tombstoned record's values —
+    previously deletes fired no triggers at all, leaving matched sources
+    stale. The fan-out runs after the delete commits, so cap/strict errors
+    can surface from `delete()` (same as the existing rollup-on-delete
+    precedent);
+  - match fields are validated against the collections' enumerable field sets at
+    `vault.collection()` (the #1253 pattern): a provable typo throws instead of
+    silently matching nothing forever; TS-generic collections stay unguarded by
+    design.
+
+  `maxFanout` caps the unioned matched set per written event.
+
+### Patch Changes
+
+- `schemaFieldKeys` now unwraps Zod 3 `ZodEffects` created by object-level
+  `.refine()`/`.superRefine()` (reported by the pilot): the wrapper hides
+  `.shape`, so both field-typo guards — #1253's `fieldMeta` validation and
+  #1249's `triggerBy` match validation — were silent for exactly the schemas
+  most worth guarding. Unwrapping follows refinement effects only: a
+  `.transform()`/`.preprocess()` changes the output shape, so those stay
+  silent by design. Zod 4 keeps `.shape` through `.refine()` and is unaffected.
+
 ## 0.7.0-pre.11
 
 ### Patch Changes
