@@ -643,6 +643,17 @@ describe('#1253 fieldMeta key-validation on the sync path', () => {
  * worth guarding. schemaFieldKeys now unwraps refinement effects — and ONLY
  * refinements: a transform changes the output shape, so its inner keys would
  * be a lie.
+ *
+ * #1262 (same pilot, second finding): `z.preprocess()` belongs on the UNWRAP
+ * side, not the carve-out side — it rewrites the INPUT and then parses with
+ * the inner schema, so the parsed keys ARE the inner keys. Following the
+ * OUTPUT side is the one rule that covers every wrapper on both majors:
+ * Zod 3 refinement/preprocess -> `_def.schema`; Zod 4 `ZodPipe` -> `_def.out`
+ * (preprocess reaches the object, `.transform()` reaches a shapeless
+ * ZodTransform and stays silent with no effect-kind test at all).
+ *
+ * `preprocess` and `transform` are one string apart and mean opposite things
+ * here, so each is pinned against the other on BOTH majors.
  */
 describe('schemaFieldKeys through ZodEffects (#1249 pilot report)', () => {
   it('fieldMeta guard fires through a Zod-3-style object-level refine', async () => {
@@ -671,6 +682,58 @@ describe('schemaFieldKeys through ZodEffects (#1249 pilot report)', () => {
       fieldMeta: { pinn: { label: 'x' } },
     })
     expect(() => c.describe()).toThrow(FieldMetaUnknownFieldError)
+    await db.close()
+  })
+
+  it('fieldMeta guard fires through a Zod-3-style preprocess (#1262)', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-ze-4' })
+    const v = await db.openVault('v', { create: true })
+    // z.preprocess(fn, inner) parses WITH `inner`, so the parsed record's keys
+    // are inner's keys — measured on zod@3.25.76: preprocess({a,b}) -> ['a','b'].
+    const zod3StylePreprocess = {
+      _def: { effect: { type: 'preprocess' }, schema: z.object({ id: z.string(), pin: z.string() }) },
+      '~standard': { version: 1, vendor: 'zod', validate: (x: unknown) => ({ value: x }) },
+    }
+    const c = v.collection('workers', {
+      schema: zod3StylePreprocess as never,
+      fieldMeta: { pinn: { label: 'National ID', sensitivity: 'pii' } },  // typo
+    })
+    expect(() => c.describe()).toThrow(FieldMetaUnknownFieldError)
+    await db.close()
+  })
+
+  it('Zod 4 z.preprocess is a ZodPipe — guard fires through the output side (#1262)', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-ze-5' })
+    const v = await db.openVault('v', { create: true })
+    const c = v.collection('workers', {
+      schema: z.preprocess((x) => x, z.object({ id: z.string(), pin: z.string() })),
+      fieldMeta: { pinn: { label: 'x' } },
+    })
+    expect(() => c.describe()).toThrow(FieldMetaUnknownFieldError)
+    await db.close()
+  })
+
+  it('Zod 4 .transform() is the opposite pipe direction and stays SILENT (#1262)', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-ze-6' })
+    const v = await db.openVault('v', { create: true })
+    // pipe(object -> transform): the OUTPUT side has no shape, so the probe
+    // gives up rather than reporting the input's keys.
+    const c = v.collection('workers', {
+      schema: z.object({ id: z.string() }).transform((r) => ({ renamed: r.id })),
+      fieldMeta: { anything: { label: 'x' } },
+    })
+    expect(() => c.describe()).not.toThrow()
+    await db.close()
+  })
+
+  it('a Zod-4 preprocess control does NOT throw on a correct field (#1262)', async () => {
+    const db = await createNoydb({ store: inlineMemory(), user: 'alice', secret: 'pw-ze-7' })
+    const v = await db.openVault('v', { create: true })
+    const c = v.collection('workers', {
+      schema: z.preprocess((x) => x, z.object({ id: z.string(), pin: z.string() })),
+      fieldMeta: { pin: { label: 'National ID', sensitivity: 'pii' } },
+    })
+    expect(() => c.describe()).not.toThrow()
     await db.close()
   })
 
