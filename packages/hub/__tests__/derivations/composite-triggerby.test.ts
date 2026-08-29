@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withDerivation, ValidationError, DerivationCapExceededError } from '../../src/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
+import { DerivationRegistry } from '../../src/with-formula/derivations/registry.js'
 
 function toMemory(): NoydbStore {
   const data = new Map<string, EncryptedEnvelope>()
@@ -92,5 +93,47 @@ describe('composite triggerBy — factory validation (#1249)', () => {
   it('accepts a valid composite entry (and the existing on-form untouched)', () => {
     expect(() => billStatusStrategy()).not.toThrow()
     expect(() => withDerivation<Bill, { self: Bill }>({ ...base, triggerBy: [{ collection: 'clients', on: 'clientId' }] })).not.toThrow()
+  })
+})
+
+describe('registry — normalized triggers (#1249)', () => {
+  it('hasFieldMatchTriggerFor: true only for field-match entries', async () => {
+    const reg = new DerivationRegistry()
+    await reg.register(billStatusStrategy().spec)          // match-form on 'disbursements'
+    expect(reg.hasFieldMatchTriggerFor('disbursements')).toBe(true)
+    expect(reg.hasFieldMatchTriggerFor('bills')).toBe(false)     // source, not trigger
+    expect(reg.hasFieldMatchTriggerFor('unrelated')).toBe(false)
+    const reg2 = new DerivationRegistry()
+    await reg2.register(withDerivation<Bill, { self: Bill }>({
+      source: 'bills', deterministic: true, lifecycle: 'eager',
+      triggerBy: [{ collection: 'clients', on: 'clientId' }],   // id-form: no prior needed
+      outputs: { self: { shape: 'record', collection: 'bills', denorm: ['status'] } },
+      derive: (b) => ({ self: b }),
+    }).spec)
+    expect(reg2.hasFieldMatchTriggerFor('clients')).toBe(false)
+  })
+  it('validateFieldsFor: throws on unknown to-field for the source; silent when keys undefined', async () => {
+    const reg = new DerivationRegistry()
+    await reg.register(withDerivation<Bill, { self: Bill }>({
+      source: 'bills', deterministic: true, lifecycle: 'eager',
+      triggerBy: [{ collection: 'disbursements', match: [{ from: 'clientId', to: 'clientIdd' }] }], // typo
+      outputs: { self: { shape: 'record', collection: 'bills', denorm: ['status'] } },
+      derive: (b) => ({ self: b }),
+    }).spec)
+    expect(() => reg.validateFieldsFor('bills', new Set(['id', 'clientId', 'cycle']))).toThrow(ValidationError)
+    expect(() => reg.validateFieldsFor('bills', undefined)).not.toThrow()          // unenumerable: silent
+    expect(() => reg.validateFieldsFor('bills', new Set(['clientIdd']))).not.toThrow() // field exists: fine
+  })
+  it('validateFieldsFor: denorm fields are exempt on the source side', async () => {
+    const reg = new DerivationRegistry()
+    await reg.register(billStatusStrategy().spec)
+    // 'status' is denorm-owned, absent from the schema keys — must not fire
+    expect(() => reg.validateFieldsFor('bills', new Set(['id', 'clientId', 'cycle']), new Set(['status']))).not.toThrow()
+  })
+  it('validateFieldsFor: throws on unknown from-field for the TRIGGER collection', async () => {
+    const reg = new DerivationRegistry()
+    await reg.register(billStatusStrategy().spec)   // from: clientId, cycle on disbursements
+    expect(() => reg.validateFieldsFor('disbursements', new Set(['id', 'amount']))).toThrow(ValidationError)
+    expect(() => reg.validateFieldsFor('disbursements', new Set(['clientId', 'cycle', 'amount']))).not.toThrow()
   })
 })
