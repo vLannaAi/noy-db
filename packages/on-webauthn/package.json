@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/on-webauthn",
-  "version": "0.7.0-pre.11",
+  "version": "0.7.0-pre.12",
   "description": "WebAuthn hardware-key keyrings for noy-db — Touch ID, Face ID, Windows Hello, YubiKey, FIDO2 passkeys",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

@@ -1,5 +1,35 @@
 # Changelog — in-vue
 
+## 0.7.0-pre.12
+
+### Patch Changes
+
+- READMEs corrected against the published `.d.ts` (found by noy-db-docs
+  comparing pages to tarballs):
+
+  - **in-vue**: the plugin takes a CONSTRUCTED instance — `NoydbPluginOptions`
+    has exactly one key, `instance` — where the README taught inline
+    construction with `adapter:`/`userId:`, neither of which exists (and
+    `userId` is the same silently-dropped key hub's own quickstart shipped).
+    Composables corrected: `useNoydb()` returns the `Noydb` instance (not
+    `{ db, unlock, locked }`), `useCollection(db, compartment, collection)`
+    returns `{ data, loading, error, refresh }`, `useSync(db, compartment)`.
+    `useLiveQuery` and `NoydbKey` are now mentioned; they existed undocumented.
+  - **in-nuxt**: `adapter: 'browser'` → `store: 'to-browser-idb'` and
+    `sync.adapter: 'dynamo'` → `sync.store: 'to-aws-dynamo'` — the old forms
+    used a key that does not exist and values outside the `ModuleOptions`
+    union.
+
+  The `check:prose-examples` gate now resolves framework modules (vue, pinia,
+  …) via symlinks from each package's own `node_modules`, closing the
+  laundering path where an ignored `TS2307` on `vue` made `createApp` untyped
+  and exempted the plugin-options literal from checking — and it now extracts
+  the `<script>` half of ` ```vue ` fences, which were previously invisible.
+
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.7.0-pre.12
+
 ## 0.7.0-pre.11
 
 ### Patch Changes
