@@ -175,14 +175,27 @@ export async function dispatchDerivations(
     // recomputes its own aggregate. Handled here (the executor is not run).
     if (spec.rollup) {
       if (mode !== 'eager') continue
+      const asParentId = (v: unknown): string | null =>
+        (typeof v === 'string' || typeof v === 'number') ? String(v) : null
       let parentId: string | null
+      // #1257 — a child that RE-PARENTS strands the old parent's aggregate
+      // unless the old key is recomputed too. Reads the prior stored record
+      // (canonicalized alongside `incoming`, so a via-shaped key compares like
+      // for like). `undefined` prior — a sync-applied wave write or a tiers
+      // restore, which do not thread it — degrades to new-parent-only, the
+      // pre-#1257 behaviour, rather than guessing.
+      let oldParentId: string | null = null
       if (collectionName === spec.rollup.from) {
-        const kv = incoming[spec.rollup.key]
-        parentId = (typeof kv === 'string' || typeof kv === 'number') ? String(kv) : null
+        parentId = asParentId(incoming[spec.rollup.key])
+        const priorKey = canonicalPrior != null ? asParentId(canonicalPrior[spec.rollup.key]) : null
+        if (priorKey !== null && priorKey !== parentId) oldParentId = priorKey
       } else {
         parentId = id // a write to the parent recomputes its own aggregate
       }
       if (parentId !== null) await recomputeRollup(spec, parentId, { collection: collectionName, id }, wave)
+      // The old parent is recomputed AFTER the new one so a `maxFanout`-style
+      // failure on the new parent surfaces before extra work is spent.
+      if (oldParentId !== null) await recomputeRollup(spec, oldParentId, { collection: collectionName, id }, wave)
       continue
     }
 
