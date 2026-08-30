@@ -941,27 +941,32 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
   // object-valued-group-key refusal ("refuse, don't bucket wrong") and as the
   // triggerBy virtual-target refusal (#1266).
   //
-  // ⚠️ KNOWN RESIDUE — and the coverage claim is split by EVIDENCE, because the
-  // first draft of this comment inherited its scope from the tiers+crdt guard
-  // below rather than measuring it.
+  // ⚠️ KNOWN RESIDUE — and the boundary is NOT the one two earlier versions of
+  // this comment described. Stated from what the code below actually reads.
   //
-  //   VERIFIED here by test: a `unionSources` MV IS caught.
-  //   NOT VERIFIED: an aggregate with explicit `sources`. The registry runs
-  //     `spec.query(db)` BEFORE folding `spec.sources` into the dependency
-  //     set (registry.ts, the `isQuery` branch), so the callback constructs
-  //     this collection while `mvsForSource(name)` is still empty. Whether a
-  //     later `vault.collection(name, …)` re-enters this function — and so
-  //     re-runs the guard with a populated registry — depends on collection
-  //     caching, which is NOT established here. An attempt to measure it hit a
-  //     DIFFERENT loud refusal first (late-attach reconcile rejects declaring
-  //     a virtual computed field on an already-constructed collection), so the
-  //     shape may be covered by that instead. Loud either way; not proven to be
-  //     covered by THIS guard.
-  //   NOT CAUGHT: the self-constructing single-query shape
-  //     `query: (db) => db.collection(name)…` with no explicit `sources`.
+  // THE BOUNDARY IS DECLARATIVE `spec.groupBy`, nothing else:
+  //   CAUGHT  — a spec that declares `groupBy: [...]` as a top-level field
+  //             (`unionSources` or query-form alike). That is the only thing
+  //             the loop below inspects.
+  //   SILENT  — `.groupBy(...)` chained INSIDE a `query: (db) => …` callback.
+  //             It is a runtime call on the query builder and never appears in
+  //             the spec, so there is nothing here to read.
+  //   IRRELEVANT — `spec.sources`. This guard never reads it, so declaring it
+  //             cannot bring a shape into coverage.
   //
-  // Do not widen the first bullet without a test. Closing the residue needs a
-  // check inside the registry after the callback runs — filed, not guessed at.
+  // ⛔ Two earlier framings of this comment were WRONG and both propagated:
+  // "an aggregate with explicit `sources` IS caught" (withdrawn in #1278 as
+  // inherited-not-measured) and "the self-constructing single-query shape is
+  // the uncovered one" — which is worse, because it suggests dependency
+  // ORDERING is what decides coverage and invites a reader to fix it by
+  // declaring `sources`. Ordering decides which OTHER guard fires first (a
+  // late-attach reconcile can refuse a virtual field on an already-constructed
+  // collection, loudly); it does not decide this one. Measured by the pilot on
+  // published pre.14 and re-derived here from the code.
+  //
+  // Closing the residue means inspecting the built query plan rather than the
+  // spec, or refusing at compute time — filed, not guessed at. Do not restate
+  // the boundary in terms of MV shape, `sources`, or construction order.
   {
     const virtualFieldNames = matchTargetFieldNames({
       computed: opts.computed as Readonly<Record<string, unknown>> | undefined,
