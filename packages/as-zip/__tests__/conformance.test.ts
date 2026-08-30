@@ -5,7 +5,7 @@
  * half every plaintext projection shares: the gate refuses, and refuses
  * before reading anything.
  */
-import { runFormatConformanceTests } from '@noy-db/test-format-conformance'
+import { runFormatConformanceTests, observeStore, type ObservedStore } from '@noy-db/test-format-conformance'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, Vault } from '@noy-db/hub'
 import { ConflictError, createNoydb } from '@noy-db/hub'
 import { withTeam } from '@noy-db/hub/team'
@@ -55,7 +55,13 @@ function toMemory(): NoydbStore {
 
 /** Export-CAPABLE on purpose — see the kit's note on `writeWithoutAcknowledgement`. */
 async function seededVault(): Promise<Vault> {
-  const store = toMemory()
+  return (await seededVaultWithStore()).vault
+}
+
+async function seededVaultWithStore(): Promise<{ vault: Vault; store: ObservedStore }> {
+  // #1211 — wrapped where the store is CREATED; a wrapper applied after the
+  // vault exists intercepts nothing (the vault captured its store already).
+  const store = observeStore(toMemory())
   const seed = await createNoydb({ teamStrategy: withTeam(), blobsStrategy: withBlobs(), store, user: 'owner-01', secret: 'owner-pass' })
   const seeded = await seed.openVault('acme')
   await seeded.collection('invoices').put('inv-1', { id: 'inv-1', client: 'Globex', amount: 1500 })
@@ -66,13 +72,14 @@ async function seededVault(): Promise<Vault> {
   })
   await seed.close()
   const db = await createNoydb({ teamStrategy: withTeam(), blobsStrategy: withBlobs(), store, user: 'owner-01', secret: 'owner-pass' })
-  return db.openVault('acme')
+  return { vault: await db.openVault('acme'), store }
 }
 
 runFormatConformanceTests('as-zip', {
   tier: 'plaintext',
   format: 'zip',
   vault: seededVault,
+  observableVault: seededVaultWithStore,
   exports: [
     { name: 'toBytes', run: (vault) => toBytes(vault, { records: { collection: 'invoices' } }) },
     { name: 'download', run: (vault) => download(vault, { records: { collection: 'invoices' } }) },

@@ -68,7 +68,7 @@
  * @packageDocumentation
  */
 import { describe, it, expect } from 'vitest'
-import type { Vault, ExportFormat } from '@noy-db/hub'
+import type { Vault, ExportFormat, NoydbStore } from '@noy-db/hub'
 
 /** One plaintext-producing entry point, named as a consumer would call it. */
 export interface FormatEntryPoint {
@@ -105,6 +105,21 @@ export interface FormatFixture {
    * anything about the fixture's grants.
    */
   vault(): Promise<Vault>
+  /**
+   * The same vault, plus the {@link ObservedStore} it was built on (#1211).
+   *
+   * REQUIRED. It is declared optional only so the type does not break a
+   * consumer mid-upgrade; a fixture without it FAILS the before-reading case
+   * with a migration message rather than silently falling back to the weaker
+   * lexical observation. A silent fallback would let a package look conformant
+   * while observed by the mechanism this replaces, with nothing in the output
+   * saying which one ran.
+   *
+   * Wrap with `observeStore(...)` where the store is CREATED and pass the
+   * result to `createNoydb` — a wrapper applied after the vault exists
+   * intercepts nothing, because the vault captured its store at construction.
+   */
+  observableVault?(): Promise<{ vault: Vault; store: ObservedStore }>
   /**
    * EVERY plaintext-producing export entry point — not a representative one.
    * A format with four exports and one listed here reports a green suite for
@@ -155,6 +170,49 @@ export class ExportDeniedByConformanceKit extends Error {
 
 interface Observation {
   decryptCalls: string[]
+}
+
+/**
+ * A `NoydbStore` that counts the reads passing through it (#1211).
+ *
+ * ## Why the kit owns this and the FIXTURE applies it
+ *
+ * §7 of the design left open whether the kit should wrap the fixture's store
+ * or the fixture should hand back a pre-wrapped one. Building it settled the
+ * question: **a wrapper applied after `vault()` returns intercepts nothing**,
+ * because the vault captured its store at construction. So the wrapping has to
+ * happen where the store is created — inside the fixture.
+ *
+ * The counting logic still lives HERE rather than in nine fixtures: a fixture
+ * that miscounts would make its own package look conformant, which is the one
+ * thing a shared kit exists to prevent. The fixture threads it; the kit owns
+ * what it means.
+ *
+ * ## What is counted
+ *
+ * `get` and `list` only — the read surface an export must traverse to produce
+ * plaintext. `put`/`delete`/`loadAll`/`saveAll` are untouched and unwrapped.
+ */
+export interface ObservedStore extends NoydbStore {
+  /** Reads recorded since the last {@link ObservedStore.__resetReads}. */
+  __reads(): number
+  /** Zero the counter. The kit calls this to open its measurement window. */
+  __resetReads(): void
+}
+
+/**
+ * Wrap a store so the conformance kit can count reads through it.
+ * Apply this where the store is CREATED, and pass the result to `createNoydb`.
+ */
+export function observeStore(inner: NoydbStore): ObservedStore {
+  let reads = 0
+  return {
+    ...inner,
+    get: (...args: Parameters<NoydbStore['get']>) => { reads += 1; return inner.get(...args) },
+    list: (...args: Parameters<NoydbStore['list']>) => { reads += 1; return inner.list(...args) },
+    __reads: () => reads,
+    __resetReads: () => { reads = 0 },
+  } as ObservedStore
 }
 
 /**
@@ -235,16 +293,56 @@ export function runFormatConformanceTests(name: string, fixture: FormatFixture):
         await expect(entry.run(vault)).rejects.toThrow(ExportDeniedByConformanceKit)
       })
 
-      it(`${entry.name}: refuses BEFORE reading any record`, async () => {
-        const seen: Observation = { decryptCalls: [] }
-        const vault = denyGates(await fixture.vault(), fixture.tier, fixture.format, seen)
-        await expect(entry.run(vault)).rejects.toThrow(ExportDeniedByConformanceKit)
-        // The property that a delegation refactor breaks silently: a gate
-        // moved downstream still refuses the caller, having already decrypted.
+      it(`${entry.name}: refuses BEFORE reading any record — observed at the STORE`, async () => {
+        // #1211. The observation is STRUCTURAL: it counts reads leaving the
+        // store, not calls to a named vault method. A store cannot be bypassed
+        // by an API reshape — every record any entry point produces is bytes
+        // read from it — whereas #1209 happened precisely because a reshape
+        // moved the gate out of the place the observer was looking.
+        //
+        // No silent fallback: a fixture without `observableVault` FAILS here.
+        // Reverting to the lexical observation would let a package look
+        // conformant while watched by the weaker mechanism, with nothing in
+        // the output saying which one ran.
         expect(
-          seen.decryptCalls,
-          `${entry.name} read records before the export gate refused`,
-        ).toEqual([])
+          fixture.observableVault,
+          `${entry.name}: fixture must supply observableVault() — wrap the store with observeStore() `
+          + 'where it is CREATED and return it alongside the vault (#1211). A wrapper applied after '
+          + 'the vault exists intercepts nothing.',
+        ).toBeTypeOf('function')
+
+        const built = await fixture.observableVault!()
+        const vault = denyGates(built.vault, fixture.tier, fixture.format, { decryptCalls: [] })
+
+        // The WINDOW opens here, after vault construction. Store reads happen
+        // at openVault (keyring, fence) before any export runs, so a total
+        // count would pass on those alone — i.e. on an export that did
+        // nothing. Counting only across the call makes the false pass require
+        // a read CAUSED BY the call.
+        built.store.__resetReads()
+        await expect(entry.run(vault)).rejects.toThrow(ExportDeniedByConformanceKit)
+        expect(
+          built.store.__reads(),
+          `${entry.name} read from the store before the export gate refused`,
+        ).toBe(0)
+      })
+
+      it(`${entry.name}: the ungated call DOES read the store — the control for the case above`, async () => {
+        // Without this, `reads === 0` above is satisfied by an export served
+        // from a warm cache, or by an entry point that reads nothing at all —
+        // both indistinguishable from "the gate refused first". This is the
+        // trap an adversarial harness elsewhere in this family hit: reads
+        // through an already-used vault came from cache and never reached the
+        // store, so the harness proved nothing while appearing to validate the
+        // product's central claim.
+        const built = await fixture.observableVault!()
+        built.store.__resetReads()
+        await entry.run(built.vault)
+        expect(
+          built.store.__reads(),
+          `${entry.name} produced output without reading the store — the refusal case above cannot `
+          + 'distinguish a working gate from an entry point that reads nothing',
+        ).toBeGreaterThan(0)
       })
     }
 

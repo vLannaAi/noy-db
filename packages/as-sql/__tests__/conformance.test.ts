@@ -6,7 +6,7 @@
  * argument-shape wrappers, and (where the format decodes) the import gate the
  * old fixture never touched.
  */
-import { runFormatConformanceTests } from '@noy-db/test-format-conformance'
+import { runFormatConformanceTests, observeStore, type ObservedStore } from '@noy-db/test-format-conformance'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, Vault } from '@noy-db/hub'
 import { ConflictError, createNoydb } from '@noy-db/hub'
 import { withTeam } from '@noy-db/hub/team'
@@ -58,7 +58,13 @@ function toMemory(): NoydbStore {
  * anything.
  */
 async function seededVault(): Promise<Vault> {
-  const store = toMemory()
+  return (await seededVaultWithStore()).vault
+}
+
+async function seededVaultWithStore(): Promise<{ vault: Vault; store: ObservedStore }> {
+  // #1211 — wrapped where the store is CREATED; a wrapper applied after the
+  // vault exists intercepts nothing (the vault captured its store already).
+  const store = observeStore(toMemory())
   const opts = {
     teamStrategy: withTeam(), formatsStrategy: withFormats(),
     store, user: 'owner-01', secret: 'owner-pass',
@@ -75,13 +81,14 @@ async function seededVault(): Promise<Vault> {
   await seed.close()
 
   const db = await createNoydb(opts)
-  return db.openVault('acme')
+  return { vault: await db.openVault('acme'), store }
 }
 
 runFormatConformanceTests('as-sql', {
   tier: 'plaintext',
   format: 'sql',
   vault: seededVault,
+  observableVault: seededVaultWithStore,
   exports: [
     { name: 'vault.export(asSql())', run: (vault) => vault.export(asSql(), { collections: ['invoices'] }) },
     { name: 'download', run: (vault) => download(vault, { collection: 'invoices' } as never) },

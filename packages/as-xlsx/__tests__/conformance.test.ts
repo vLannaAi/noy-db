@@ -4,7 +4,7 @@
  * Package-specific behaviour stays in this package's own suite. This is the
  * half every projection shares: the gate refuses, and refuses before reading.
  */
-import { runFormatConformanceTests } from '@noy-db/test-format-conformance'
+import { runFormatConformanceTests, observeStore, type ObservedStore } from '@noy-db/test-format-conformance'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, Vault } from '@noy-db/hub'
 import { ConflictError, createNoydb } from '@noy-db/hub'
 import { withTeam } from '@noy-db/hub/team'
@@ -49,7 +49,13 @@ function toMemory(): NoydbStore {
 
 /** Export-CAPABLE on purpose — see the kit's note on `writeWithoutAcknowledgement`. */
 async function seededVault(): Promise<Vault> {
-  const store = toMemory()
+  return (await seededVaultWithStore()).vault
+}
+
+async function seededVaultWithStore(): Promise<{ vault: Vault; store: ObservedStore }> {
+  // #1211 — wrapped where the store is CREATED; a wrapper applied after the
+  // vault exists intercepts nothing (the vault captured its store already).
+  const store = observeStore(toMemory())
   const opts = { teamStrategy: withTeam(), store, user: 'owner-01', secret: 'owner-pass' }
   const seed = await createNoydb(opts)
   const seeded = await seed.openVault('acme')
@@ -61,13 +67,14 @@ async function seededVault(): Promise<Vault> {
   })
   await seed.close()
   const db = await createNoydb(opts)
-  return db.openVault('acme')
+  return { vault: await db.openVault('acme'), store }
 }
 
 runFormatConformanceTests('as-xlsx', {
   tier: 'plaintext',
   format: 'xlsx',
   vault: seededVault,
+  observableVault: seededVaultWithStore,
   exports: [
     { name: 'toBytes', run: (vault) => toBytes(vault, { sheets: [{ name: 'invoices', collection: 'invoices' }] }) },
     { name: 'toBytesFromCollection', run: (vault) => toBytesFromCollection(vault, 'invoices') },
