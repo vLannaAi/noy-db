@@ -77,9 +77,10 @@ const all = await invoices.list()
 - **Offline-first sync** — push/pull with optimistic concurrency on encrypted envelopes
 - **Audit history** — full-copy snapshots with `history()`, `diff()`, `revert()`, `pruneHistory()`
 - **No third-party runtime dependencies to install** — the only runtime dependency is
-  `@noy-db/attestation`, on the same version line. (`zod` is vendored into the bundle for the
-  optional persisted-schema converter and loaded lazily; it never executes unless you use that
-  path, and it does not appear in your lockfile.)
+  `@noy-db/attestation`, on the same version line. `zod` and `zod-to-json-schema` are OPTIONAL
+  peers used by the persisted-schema converter: nothing is installed on your behalf, nothing is
+  vendored into the bundle, and if you do use Zod schemas the converter reads YOUR copy rather
+  than a second one frozen at hub's build time.
 
 ## Cross-vault queries
 

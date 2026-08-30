@@ -73,7 +73,19 @@ async function loadZodToJsonSchemaConverter(): Promise<(s: unknown) => object> {
 /**
  * Lazy-require Zod v4's built-in `toJSONSchema`. Used when the validator is a
  * Zod v4 native schema and `zod-to-json-schema` is absent or cannot handle it.
- * This is a dynamic import so it does not add a static zod dependency to hub.
+ *
+ * Dynamic so hub never loads zod unless a caller actually persists a Zod v4
+ * schema. ⚠️ Dynamic is NOT what keeps zod out of the tarball — that is
+ * `peerDependencies` (#1227). tsup externalises DECLARED dependencies and
+ * BUNDLES everything else, static or dynamic alike, so while zod was a
+ * devDependency only, this line silently vendored 548 KB of zod@4.4.3 into
+ * `dist/` at a build-frozen version. The comment here previously claimed the
+ * dynamic import was what prevented that; it never did.
+ *
+ * Declaring it an OPTIONAL peer is also the correctness fix, not just a size
+ * one: `toJSONSchema` reads a schema's internals, and the schema is built by
+ * the CONSUMER's zod. A vendored copy meant hub inspected one zod's objects
+ * with another zod's version of that reader. Now there is one zod — theirs.
  */
 async function loadZodV4Converter(): Promise<(s: unknown) => object> {
   try {
