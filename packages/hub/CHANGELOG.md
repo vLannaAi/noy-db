@@ -1,5 +1,113 @@
 # Changelog — hub
 
+## 0.7.0-pre.14
+
+### Patch Changes
+
+- The bundle-size gate now needs a growth to exceed BOTH its percentage tolerance
+  and an absolute byte allowance before failing (#1268). No runtime change — this
+  is the CI gate only.
+
+  A percentage on a small baseline measures the wrong thing. The `floor` scenario
+  is ~500 gzipped bytes, so 5% is ~25 bytes — narrower than a single
+  registration-time guard. The gate had fired twice on necessary validation
+  (#1249, #1266) and never once on the thing it exists to catch.
+
+  The two are separated by orders of magnitude: a subsystem leaking into a bundle
+  is kilobytes (measured elsewhere in the family: forcing an SDK inline moved a
+  package from 14,069 to 1,081,539 bytes), while a guard is tens of bytes. A
+  192-byte allowance sits far above the latter and far below the former.
+
+  Verified in both directions rather than assumed: a simulated leak (+406 bytes)
+  still FAILS, and a 26-byte guard at +5.2% now PASSES. The numbers still ratchet
+  and nothing was re-baselined.
+
+- A materialized view whose `groupBy` names a VIRTUAL computed field is now
+  refused at collection registration (#1269).
+
+  A virtual field is evaluated on read and never stored, so the MV pipeline read
+  the stored row, found nothing, and bucketed every row under an `undefined` key —
+  a well-formed aggregate carrying a wrong NUMBER rather than an error, on the one
+  path where nobody re-checks the arithmetic. `query().where()` already refuses the
+  same field with `FieldNotQueryableError`, so the two halves of what reads as one
+  query layer disagreed.
+
+  Same principle as the executor's existing object-valued-group-key refusal
+  ("refuse, don't bucket wrong") and the `triggerBy` virtual-target refusal
+  (#1266), applied at the earliest point that can see both the MV and the
+  collection's field modes.
+
+  **Known residue, stated rather than left to be discovered:** a single-query MV of
+  the shape `query: (db) => db.collection(name)…` constructs its own source from
+  inside `MaterializedViewRegistry.register()`, before the dependency is recorded,
+  so that shape is not caught by this guard. `unionSources`, an aggregate with
+  explicit `sources`, and any source built by an earlier `vault.collection()` call
+  are caught. The same ordering is already documented for the neighbouring
+  tiers+crdt guard.
+
+- Two guards now refuse where the information to refuse already exists (design
+  pass: _where a check refuses vs where it quietly answers_).
+
+  **`fieldMeta` typo keys are refused at `vault.collection()`, not only at
+  `describe()`.** A collection nobody describes was never checked at all — and
+  `fieldMeta` is what carries `sensitivity`, so the unchecked case was the one
+  with a data-classification inventory hanging off it.
+
+  ⚠️ **BREAKING for code that catches around `describe()`.** For a validator whose
+  fields read synchronously, `FieldMetaUnknownFieldError` now arrives from
+  `vault.collection()` instead of from `describe()`. This is not only "the throw
+  comes earlier" — **a `try` that wraps only the `describe()` call no longer
+  catches it at all**, so the error escapes the handler written for it. A pilot
+  consumer's guard suite had exactly this shape: it constructed the collection
+  outside the `try`, and on upgrade those tests would have started ERRORING rather
+  than failing with a clear message, reading as "the new release broke our tests"
+  instead of "the guard moved". If you assert on this error, catch around the
+  `vault.collection()` call — or around both, and report which surface rejected,
+  which turns the relocation into a changed label rather than a break.
+
+  The describe-time check is KEPT, not moved, because there are three tiers of
+  knowability rather than two: a name declared in the config itself needs no
+  schema; a validator whose fields read synchronously is checkable at
+  registration; fields that exist only after async derivation are checkable only
+  at `describe()`. Hoisting alone would move the check earlier for some
+  collections and remove it for others. Unchanged: no readable validator means no
+  check, because a TS-generic collection names real fields that appear in no
+  runtime config.
+
+  **`withMaterializedView` distinguishes an absent `rowKey` from a wrong-typed
+  one.** Passing a field NAME — the shape every neighbouring option takes —
+  reported `rowKey is required`, which names absence. It now says it must be a
+  function, names the type it got, and shows the fix. Two states that warrant
+  different responses no longer render identically.
+
+- `zod` is now an OPTIONAL peer dependency instead of being vendored into the
+  bundle (#1227).
+
+  Hub shipped `zod@4.4.3` inside `dist/` — 548 KB, at a build-frozen version,
+  declared in no manifest field. `npm ls zod` in a consumer tree showed nothing
+  while that copy was reachable, so SBOM and audit tooling missed it and a zod
+  advisory could not be remediated by a consumer bumping zod.
+
+  **This was never a deliberate vendoring.** The loader's own comment said "this
+  is a dynamic import so it does not add a static zod dependency to hub" — but
+  tsup externalises DECLARED dependencies and bundles everything else, static or
+  dynamic alike, and zod was a devDependency only. The comment described an
+  intent the build silently defeated; it now records the actual mechanism.
+
+  **Declaring it is also the correctness fix, not only a size one.** Zod's
+  `toJSONSchema` reads a schema's internals, and the schema is built by the
+  CONSUMER's zod. A vendored copy meant hub inspected one zod's objects with a
+  different zod's reader, with version skew that nothing detected. Now there is
+  one zod — theirs.
+
+  Nothing to install: the peer is optional, exactly like `zod-to-json-schema`,
+  and the converter is still loaded lazily. A caller with a Zod v4 schema
+  necessarily already has zod; a caller without one never reaches the path.
+
+  Measured, both sides rebuilt: tarball 3.3 MB → 3.1 MB packed, 12.0 MB → 10.6 MB
+  unpacked. The README claim is updated in the same change to say what is now
+  true.
+
 ## 0.7.0-pre.13
 
 ### Patch Changes

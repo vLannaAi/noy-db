@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/on-email-otp",
-  "version": "0.7.0-pre.13",
+  "version": "0.7.0-pre.14",
   "description": "Email OTP second factor for noy-db — generates time-boxed one-time codes, delivers via a user-supplied transport (SMTP / SES / Postmark / any fn), and verifies in constant time. Part of the @noy-db/on-* authentication family.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
