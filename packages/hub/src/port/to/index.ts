@@ -15,6 +15,8 @@
  * Named re-exports only (no `export *`) so the published surface is explicit and
  * tsup's per-entry bundling keeps class identity stable across subpaths.
  */
+import type { NoydbStore as NoydbStoreType } from '../../kernel/types.js'
+
 export type {
   NoydbStore,
   NoydbPodStore,
@@ -96,4 +98,4 @@ export { NOYDB_ENVELOPE_GENERATION } from '../../kernel/types.js'
  * implements this profile natively and needs to name the same shape without
  * depending on a relay server it does not run.
  */
-export type NoydbRelayStore = Omit<import('../../kernel/types.js').NoydbStore, 'saveAll' | 'listVaults'>
+export type NoydbRelayStore = Omit<NoydbStoreType, 'saveAll' | 'listVaults'>
