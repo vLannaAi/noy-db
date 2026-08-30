@@ -1,5 +1,66 @@
 # Changelog — hub
 
+## 0.7.0-pre.15
+
+### Patch Changes
+
+- CORRECTION to `0.7.0-pre.14`'s description of #1269 — the fix is unchanged; what
+  it covers was described wrongly, twice.
+
+  The guard reads **declarative `spec.groupBy` and nothing else**. So:
+
+  - **caught** — a spec declaring `groupBy: [...]` as a top-level field, whether
+    `unionSources` or query-form;
+  - **silent** — `.groupBy(...)` chained INSIDE a `query: (db) => …` callback,
+    which is a runtime call on the query builder and never appears in the spec;
+  - **irrelevant** — `spec.sources`. The guard never reads it, so declaring it
+    cannot bring a shape into coverage.
+
+  The published `pre.14` entry said the uncovered case was "a single-query MV that
+  constructs its own source before the dependency is recorded". That framing is
+  wrong in a way that misleads: it points at dependency ORDERING and invites a
+  reader to fix coverage by declaring `sources`, which does nothing. Ordering
+  decides which OTHER guard fires first — a late-attach reconcile can loudly
+  refuse a virtual field on an already-constructed collection — not whether this
+  one fires.
+
+  Measured by a consumer on the published `pre.14` and re-derived from the code
+  here. No behaviour change: a `.groupBy()` chained in a callback was silent
+  before this correction and is silent after it. Closing that residue needs the
+  built query plan inspected, or a compute-time refusal, and is not attempted
+  here.
+
+- CORRECTION to `0.7.0-pre.14`: the optional `zod` peer now reads
+  `^3.0.0 || ^4.0.0`, not `^4.0.0`.
+
+  `pre.14` un-vendored zod and declared it as an optional peer — correctly — but
+  declared a range NARROWER THAN WHAT HUB SUPPORTS. Under npm that made
+  `@noy-db/hub@0.7.0-pre.14` + `zod@3` uninstallable by name.
+
+  Measured, with controls in both directions:
+
+  ```
+  npm i @noy-db/hub@0.7.0-pre.14 zod@3.25.76   -> exit 1, ERESOLVE
+  npm i @noy-db/hub@0.7.0-pre.14 zod@4.4.3     -> exit 0   (control: major, not range shape)
+  npm i @noy-db/hub@0.7.0-pre.13 zod@3.25.76   -> exit 0   (control: the DECLARATION changed,
+                                                            not the support)
+  ```
+
+  Zod 3 has always worked and still does — through the `zod-to-json-schema`
+  optional peer, with the v4-native `toJSONSchema` loader falling back when it is
+  absent. The two releases immediately before this one were substantially Zod 3
+  hardening (the `ZodEffects` unwrap, `z.preprocess` on both majors), so the
+  investment and the declaration pointed in opposite directions.
+
+  **Why no gate caught it:** while zod was vendored, no resolver ever saw a range,
+  so none was ever exercised. Every in-repo check stays green under either
+  declaration — a peer FORM deciding installability, which is the same class as
+  this family's exact-peer incident. There is now a test asserting the range
+  admits a real version of each major, and refusing a range that ends in a
+  dangling `||`.
+
+  pnpm only warns, so a pnpm workspace saw nothing; npm refuses.
+
 ## 0.7.0-pre.14
 
 ### Patch Changes
