@@ -118,7 +118,6 @@ const db = await createNoydb({
 | **Collaboration & Auth** | [sync](https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/sync.md) · [team](https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/team.md) · [session](https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/session.md) |
 | **Operations** | [routing](https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/services/routing.md) |
 
-→ Full catalog: **[SERVICES.md](SERVICES.md)**
 → Starter recipes: **[noy-db-docs/content/docs/recipes](https://github.com/vLannaAi/noy-db-docs/tree/main/content/docs/recipes)** — personal-notebook · accounting-app · realtime-crdt-app · analytics-app
 
 ---
@@ -358,7 +357,7 @@ The hub package itself uses only `crypto.subtle`, which is built into every targ
 | If you want to… | Read |
 |---|---|
 | see what's always-on (the floor) | [`docs/core/`](https://github.com/vLannaAi/noy-db-docs/tree/main/content/docs/core) |
-| browse the 24 opt-in services | [`docs/services/`](https://github.com/vLannaAi/noy-db-docs/tree/main/content/docs/services) — index + the [SERVICES.md](SERVICES.md) catalog |
+| browse the 24 opt-in services | [`docs/services/`](https://github.com/vLannaAi/noy-db-docs/tree/main/content/docs/services) — the service index |
 | copy a starter recipe | [`docs/recipes/`](https://github.com/vLannaAi/noy-db-docs/tree/main/content/docs/recipes) — personal-notebook · accounting-app · realtime-crdt-app · analytics-app |
 | pick a storage backend | [`docs/packages/to-stores.md`](https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/packages/to-stores.md) |
 | pick a framework integration | [`docs/packages/in-integrations.md`](https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/packages/in-integrations.md) |
