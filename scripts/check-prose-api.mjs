@@ -54,7 +54,12 @@ const surface = new Set()
   }
 })(join(HUB, 'dist'))
 
-const prose = ['README.md', '../../SERVICES.md'].map((f) => join(HUB, f)).filter(existsSync)
+// SERVICES.md moved to the private family layer (2026-08-31 restructure); the
+// private runner re-adds it via PROSE_EXTRA. Entries must exist — a silent
+// skip would pass while examining nothing.
+const extra = (process.env.PROSE_EXTRA ?? '').split(',').filter(Boolean)
+for (const f of extra) if (!existsSync(f)) { console.error(`PROSE_EXTRA entry does not exist: ${f}`); process.exit(1) }
+const prose = [join(HUB, 'README.md')].filter(existsSync).concat(extra)
 const seen = new Map()
 for (const f of prose) {
   readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
