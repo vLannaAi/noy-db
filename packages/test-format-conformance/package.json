@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/test-format-conformance",
-  "version": "0.7.0-pre.16",
+  "version": "0.7.0-pre.17",
   "description": "Parameterized contract tests for noy-db as-* formats — the export-gate suite every plaintext projection must pass",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

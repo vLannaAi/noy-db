@@ -1,5 +1,34 @@
 # Changelog — hub
 
+## 0.7.0-pre.17
+
+### Patch Changes
+
+- A DELETE through a `triggerBy` hop now fans out — it silently did not (#1294).
+
+  Reported by a consumer adopting the hop from `0.7.0-pre.16`: puts through a
+  `via` hop re-fired the derivation, deletes did not, while deletes through a
+  plain pair did. The delete path built its tuple with the UNHOPPED builder, so a
+  mapped pair compared the written record's `from` value against `source[to]` —
+  the wrong side of the relationship — and matched nothing. No error, no fan-out.
+
+  **Two gaps, not one.** Deleting the INTERMEDIATE record was also unhandled, and
+  strands every source it addressed for the same reason re-pointing one does:
+  nothing is written to the trigger or source collection, so no other path can
+  notice. The write path already covered that; the delete path did not, which made
+  the hop's correctness argument hold for puts only.
+
+  **The shipped typings said deletes fan out "for BOTH forms".** That read as
+  covering hops and did not — a behaviour gap and a prose-vs-artefact mismatch in
+  one. The sentence now enumerates `on`, plain `match`, `via` hops, and deletes of
+  the intermediate itself.
+
+  **The sync tuple builder is deleted rather than kept**, and that is the durable
+  half: two builders that had to agree is exactly how this drifted, because the
+  delete path called the wrong one. `resolveTuple` with no `via` does what the old
+  one did, its unit tests moved across unchanged, and one path cannot disagree
+  with itself.
+
 ## 0.7.0-pre.16
 
 ### Minor Changes
