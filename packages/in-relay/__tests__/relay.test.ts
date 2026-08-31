@@ -1,7 +1,7 @@
 // #1237 — the relay profile, tested for the property it exists to have.
 import { describe, it, expect } from 'vitest'
 import type { NoydbRelayStore, EncryptedEnvelope } from '@noy-db/hub/to'
-import { createRelayHandler, RELAY_METHODS } from '../src/index.js'
+import { createRelayHandler, RELAY_METHODS, NOT_RELAYED } from '../src/index.js'
 
 function relayStore(): NoydbRelayStore & { calls: string[] } {
   const data = new Map<string, EncryptedEnvelope>()
@@ -25,7 +25,8 @@ describe('relay vocabulary', () => {
     // The list cannot drift from the type: a store typed as NoydbRelayStore has
     // no such members, so adding either name would not compile a dispatch.
     expect([...RELAY_METHODS].sort()).toEqual(
-      ['delete', 'get', 'list', 'listSince', 'loadAll', 'ping', 'put'],
+      ['delete', 'estimateUsage', 'get', 'getStoreTime', 'list', 'listPage',
+       'listSince', 'loadAll', 'ping', 'presencePublish', 'put', 'tx'],
     )
   })
 
@@ -75,5 +76,59 @@ describe('relay vocabulary', () => {
     const r = await handle({ id: '1', method: 'get', args: ['v', 'c', 'r1'] })
     expect(r).toMatchObject({ ok: false, status: 500 })
     expect(r.ok === false && r.error.name).toBe('ConflictError')
+  })
+})
+
+/**
+ * Follow-ups from doi-db's by-hand parity comparison against the published
+ * 0.7.0-pre.16, in week one of a frozen first publish.
+ */
+describe('vocabulary completeness and capability gaps (parity follow-up)', () => {
+  it('dispatches listPage — its absence made clients fall back to loadAll', async () => {
+    const page = { ids: ['r1'], cursor: null }
+    const store = { ...relayStore(), async listPage() { return page } }
+    const handle = createRelayHandler({ store })
+    const r = await handle({ id: '1', method: 'listPage', args: ['v', 'c', undefined, 10] })
+    expect(r).toMatchObject({ ok: true, value: page })
+  })
+
+  it('a store lacking an OPTIONAL method gets 501, not 500', async () => {
+    // The collapse this fixes: an absent optional method threw
+    // UnknownRelayMethodError from inside dispatch and surfaced as 500,
+    // reporting a store capability gap as a server fault. A client should
+    // degrade on 501; an operator should investigate a 500.
+    const handle = createRelayHandler({ store: relayStore() })   // no listSince/listPage
+    for (const method of ['listSince', 'listPage', 'getStoreTime', 'estimateUsage', 'tx']) {
+      const r = await handle({ id: '1', method, args: [] })
+      expect(r, `${method} should be 501`).toMatchObject({ ok: false, status: 501 })
+      expect(r.ok === false && r.error.name).toBe('UnsupportedRelayMethodError')
+    }
+  })
+
+  it('501 and 400 stay DISTINCT — an unknown method is not a capability gap', async () => {
+    const handle = createRelayHandler({ store: relayStore() })
+    const unknown = await handle({ id: '1', method: 'saveAll', args: [] })
+    const unsupported = await handle({ id: '2', method: 'listSince', args: [] })
+    expect(unknown.ok === false && unknown.status).toBe(400)
+    expect(unsupported.ok === false && unsupported.status).toBe(501)
+  })
+
+  it('the EXCLUDED members stay 400-unknown even though 501 now exists', async () => {
+    // 501 must not become a way to learn that saveAll/listVaults were removed:
+    // they are refused before dispatch, indistinguishable from a typo.
+    const handle = createRelayHandler({ store: relayStore() })
+    for (const method of ['saveAll', 'listVaults', 'presignUrl', 'presenceSubscribe', 'nonsense']) {
+      const r = await handle({ id: '1', method, args: [] })
+      expect(r, `${method}`).toMatchObject({ ok: false, status: 400 })
+      expect(r.ok === false && r.error.name).toBe('UnknownRelayMethodError')
+    }
+  })
+
+  it('NOT_RELAYED names every deliberate exclusion, so the vocabulary cannot drift silently', () => {
+    // The compile-time check in src enforces coverage; this pins the REASONS
+    // list so an exclusion cannot be added without appearing here.
+    expect([...NOT_RELAYED].sort()).toEqual(['presenceSubscribe', 'presignUrl'])
+    expect(RELAY_METHODS).not.toContain('presignUrl')
+    expect(RELAY_METHODS).not.toContain('saveAll')
   })
 })
