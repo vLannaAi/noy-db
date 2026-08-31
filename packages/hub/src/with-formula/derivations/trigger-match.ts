@@ -66,25 +66,6 @@ const scalar = (v: unknown): string | null =>
   (typeof v === 'string' || typeof v === 'number') ? String(v) : null
 
 /**
- * The value tuple a written record presents to one trigger entry.
- * `null` means "this record cannot address any source" (a from-field is
- * absent or non-scalar) — a legitimate no-match, not an error.
- */
-export function tupleFromWritten(
-  match: ReadonlyArray<MatchPair>,
-  writtenId: string,
-  record: Record<string, unknown> | null,
-): Array<{ field: string; value: string }> | null {
-  const out: Array<{ field: string; value: string }> = []
-  for (const pair of match) {
-    const v = pair.from === 'id' ? writtenId : scalar(record?.[pair.from])
-    if (v === null) return null
-    out.push({ field: pair.to, value: v })
-  }
-  return out
-}
-
-/**
  * Resolve one trigger's pairs into the value tuple a written record presents,
  * following any declared hop (#1277).
  *
@@ -98,6 +79,12 @@ export function tupleFromWritten(
  * non-scalar, or an intermediate that does not resolve. That is a legitimate
  * no-match, not an error: a dangling reference addresses nothing, and refusing
  * here would turn a data condition into a thrown exception on every write.
+ *
+ * Supersedes the sync `tupleFromWritten`, which was DELETED rather than kept
+ * (#1294): having two tuple builders that had to agree is precisely how the
+ * delete path drifted — it called the unhopped one, so a mapped pair compared
+ * the wrong side of the relationship and matched nothing, silently. One path
+ * cannot disagree with itself.
  *
  * ONE lookup per hop per written record. `take: 'id'` is a direct `get`; any
  * other `take` is a field match on the intermediate, which uses its index when

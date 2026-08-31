@@ -32,7 +32,7 @@ import type { EncryptedEnvelope } from '../../kernel/types.js'
 import type { ledgerAuditHook, WaveContext } from '../../kernel/via/dispatch.js'
 import { putDerivedOutput, selfWriteFieldEqual } from '../../kernel/via/dispatch.js'
 import { DerivationCapExceededError } from '../../kernel/errors.js'
-import { tupleFromWritten, sameTuple, resolveTuple, tupleFromIntermediate, hopCollections } from './trigger-match.js'
+import { sameTuple, resolveTuple, tupleFromIntermediate, hopCollections } from './trigger-match.js'
 import { markStale } from './stale.js'
 import type { DerivationExecutor } from './executor.js'
 
@@ -154,7 +154,7 @@ export async function dispatchDerivations(
   const incoming = (via ? via.canonicalizeStored(record) : record)
   if (incoming && typeof incoming === 'object' && '_derivedFrom' in incoming) return
   // `prior` is the raw stored pre-write record — canonicalize it the same
-  // way as `incoming` before it feeds `tupleFromWritten` below, or a
+  // way as `incoming` before it feeds `resolveTuple` below, or a
   // via-shaped match field (e.g. a money field) compares canonical against
   // raw and never matches the old tuple (Min 5).
   const canonicalPrior = prior != null ? (via ? via.canonicalizeStored(prior) : prior) : prior
@@ -465,19 +465,46 @@ export async function dispatchTriggerDerivationsOnDelete(
     if (spec.source === collectionName) continue                 // source delete: existing rule, untouched
     if (spec.sources?.includes(collectionName)) continue          // declared sibling source: same exclusion as the write path's isSibling check
     const entries = triggers.filter((t) => t.collection === collectionName)
-    if (entries.length === 0) continue
+    // #1294 — deleting an INTERMEDIATE strands every source it addressed, for
+    // the same reason re-pointing one does: nothing is written to the trigger
+    // or source collection. The write path handles this; the delete path did
+    // not, which made the hop's correctness argument hold for puts only.
+    const hopEntries = triggers.filter((t) => hopCollections(t.match).includes(collectionName))
+    if (entries.length === 0 && hopEntries.length === 0) continue
     const mode = typeof spec.lifecycle === 'string' ? spec.lifecycle : spec.lifecycle.mode
     const srcColl = derivationSource.getCollection(spec.source)
     const matched = new Set<string>()
+    const lookup = async (coll: string, field: string, value: string): Promise<Record<string, unknown> | null> => {
+      const c = derivationSource.getCollection(coll)
+      if (field === 'id') return c._getStoredRecord(value)
+      const found = await c._findMatchingCompositeIds([{ field, value }])
+      const first = found[0]
+      return first === undefined ? null : c._getStoredRecord(first)
+    }
+    const cap = (trigger: { maxFanout?: number; match: ReadonlyArray<{ to: string }> }, n: number, label: string): void => {
+      if (trigger.maxFanout !== undefined && n > trigger.maxFanout) {
+        throw new DerivationCapExceededError(
+          `triggerBy ${label} ${collectionName}→${spec.source} [${trigger.match.map(p => p.to).join(',')}] (delete)`,
+          n, trigger.maxFanout)
+      }
+    }
     for (const trigger of entries) {
-      const tuple = tupleFromWritten(trigger.match, id, deleted)
+      // #1294 — resolve the hop here too. The old sync builder compared the raw
+      // `from` value against `source[to]`, which for a mapped pair is the
+      // wrong side of the relationship: it matched nothing, silently, so a
+      // delete through a hop fanned out to no one while a delete through a
+      // plain pair worked.
+      const tuple = await resolveTuple(trigger.match, id, deleted, lookup)
       if (tuple === null) continue
       const ids = await srcColl._findMatchingCompositeIds(tuple)
-      if (trigger.maxFanout !== undefined && ids.length > trigger.maxFanout) {
-        throw new DerivationCapExceededError(
-          `triggerBy ${collectionName}→${spec.source} [${trigger.match.map(p => p.to).join(',')}] (delete)`,
-          ids.length, trigger.maxFanout)
-      }
+      cap(trigger, ids.length, '')
+      for (const sid of ids) matched.add(sid)
+    }
+    for (const trigger of hopEntries) {
+      const tuple = tupleFromIntermediate(trigger.match, collectionName, deleted)
+      if (tuple === null) continue
+      const ids = await srcColl._findMatchingCompositeIds(tuple)
+      cap(trigger, ids.length, 'hop')
       for (const sid of ids) matched.add(sid)
     }
     if (matched.size === 0) continue
