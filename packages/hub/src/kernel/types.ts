@@ -3270,6 +3270,45 @@ export interface HistoryConfig {
    * confining tamper-evidence to the collections where it carries weight.
    * Independent of `enabled`, which gates per-record snapshots. Has no
    * effect when `withHistory()` is not active (there is no ledger).
+   *
+   * ## Cost — scope this deliberately (#1248)
+   *
+   * **The chain is the entire cost of history; per-record snapshots are
+   * free.** Measured on the primitive write path (one small collection, no
+   * guards / MVs / derivations, sequential `put()`, in-memory store,
+   * N = 3000):
+   *
+   * | config | µs/write | vs no history |
+   * |---|---|---|
+   * | no `withHistory()` | 137 | 1.00× |
+   * | `enabled: true, ledger: false` | 137 | **1.00×** |
+   * | `enabled: false, ledger: true` | 322 | 2.35× |
+   * | both (default) | 330 | **2.41×** |
+   *
+   * The cause is structural, not an inefficiency to tune away: an entry's
+   * `prevHash` depends on the current head, so appends are **inherently
+   * serialized** — one head read, one delta encryption and one CAS-put per
+   * record op. That serialization IS the tamper-evidence property.
+   *
+   * ⚠️ **The µs figures understate the felt cost on a real store.** They come
+   * from an in-memory store where the base op is ~137µs. On browser IndexedDB
+   * — or any store whose base op is milliseconds — the ledger adds a whole
+   * extra encrypted store write plus a hash to a path that was already
+   * ms-scale. **Treat the ~2.4× RATIO as the portable number and the
+   * microseconds as a floor**, not as the cost you will observe.
+   *
+   * ## What that means in practice
+   *
+   * A single human-paced write (someone saving a record) pays a difference
+   * nobody perceives. What pays visibly is a **one-click batch** — an
+   * "approve all", a CSV import, a period prefill — where tens to hundreds of
+   * writes land together and a 2.4× turns a multi-second action into a longer
+   * one. A write that fans out through derivations and materialized views
+   * pays once per resulting stored write, not once per user action.
+   *
+   * `HistoryConfig` is per-collection precisely so the chain can be confined
+   * to the collections where tamper-evidence carries weight, rather than
+   * being an all-or-nothing vault-wide toggle.
    */
   readonly ledger?: boolean
 }
