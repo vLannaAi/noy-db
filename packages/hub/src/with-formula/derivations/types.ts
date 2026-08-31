@@ -201,7 +201,11 @@ export interface DerivationSpec<
          * component changing counts) — the prior record is threaded only
          * from the local write path, so a sync-applied wave write or a
          * tiers restore fans out on the new tuple only. Parent DELETES fan
-         * out using the tombstoned record's values — for BOTH forms. A
+         * out using the tombstoned record's values — for the `on` form, the
+         * plain `match` form, AND a `via` hop, including a delete of the
+         * INTERMEDIATE record itself (#1294; before that fix "both forms"
+         * meant `on` | `match` and silently excluded hops, which is a
+         * sentence a consumer reasonably read the other way). A
          * missing/non-scalar `from` value matches nothing. Match fields
          * are validated against the collections' enumerable field sets
          * where possible (silent for TS-generic collections — see the
@@ -233,8 +237,9 @@ export interface DerivationSpec<
            * `take` is `'id'`), not one per candidate row — the same bound that
            * made #1266 refuse virtual computed fields as match targets.
            *
-           * ⚠️ A write to `via.collection` ALSO fires this trigger (#1277
-           * option 2), fanning out on the intermediate's old ∪ new value. That
+           * ⚠️ A write OR DELETE of a `via.collection` record ALSO fires this
+           * trigger (#1277 option 2, deletes added in #1294), fanning out on
+           * the intermediate's old ∪ new value. That
            * is what keeps a re-pointed intermediate from silently stranding
            * every source it used to address; the alternative failed silently on
            * exactly the rare edit nobody repeats.

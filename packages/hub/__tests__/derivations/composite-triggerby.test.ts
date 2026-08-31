@@ -870,6 +870,30 @@ describe('composite triggerBy — one declared hop (#1277)', () => {
     await db.close()
   })
 
+  it('EDIT C — DELETING a disbursement through the hop re-fires the bill (#1294)', async () => {
+    // Reported by a consumer adopting the hop: puts through a hop fired,
+    // deletes did not, while deletes through a plain pair did. The delete path
+    // used the UNHOPPED tuple, so a mapped pair compared a clientId against an
+    // entityId — the wrong side of the relationship — and matched nothing.
+    const { db, bills, disb } = await setup('hop-delete-2026')
+    await disb.put('D1', { id: 'D1', clientId: 'C1', cycle: 'Q1', amount: 100 })
+    expect(await statusOf(bills, 'B1')).toBe('covered')
+    await disb.delete('D1')
+    expect(await statusOf(bills, 'B1')).toBe('uncovered')
+    await db.close()
+  })
+
+  it('EDIT D — DELETING the intermediate re-fires the bills it addressed (#1294)', async () => {
+    // Same class as the re-point: nothing is written to bills or disbursements
+    // when a client is deleted, so no other path can notice.
+    const { db, v, bills, disb } = await setup('hop-delete-intermediate-2026')
+    await disb.put('D1', { id: 'D1', clientId: 'C1', cycle: 'Q1', amount: 100 })
+    expect(await statusOf(bills, 'B1')).toBe('covered')
+    await v.collection<Client>('clients').delete('C1')
+    expect(await statusOf(bills, 'B1')).toBe('no-client')
+    await db.close()
+  })
+
   it('a dangling hop matches nothing rather than throwing', async () => {
     const { db, bills, disb } = await setup('hop-dangling-2026')
     await disb.put('D9', { id: 'D9', clientId: 'NO-SUCH-CLIENT', cycle: 'Q1', amount: 1 })
