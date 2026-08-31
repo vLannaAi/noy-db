@@ -48,7 +48,7 @@
  *
  * Run: node scripts/check-prose-examples.mjs
  */
-import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, existsSync, symlinkSync, realpathSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, existsSync, symlinkSync, realpathSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { execFileSync } from 'node:child_process'
 
@@ -72,13 +72,22 @@ const IGNORED = new Set([
 const files = []
 const addIf = (p) => { if (existsSync(p)) files.push(p) }
 addIf('README.md')
-addIf('SERVICES.md')
 for (const pkg of readdirSync('packages')) addIf(join('packages', pkg, 'README.md'))
-if (existsSync('docs/subsystems')) {
-  for (const f of readdirSync('docs/subsystems')) if (f.endsWith('.md')) files.push(join('docs/subsystems', f))
-}
 // JSDoc module comments on published entry points ship inside the .d.ts.
 addIf('packages/hub/src/index.ts')
+// SERVICES.md and docs/subsystems moved to the private family layer
+// (2026-08-31 restructure). They are still checked by the SAME machinery via
+// PROSE_EXTRA — a comma-separated list of .md files or directories — which the
+// private layer's runner sets. Deliberately an EXPLICIT list rather than an
+// existsSync probe of ../ paths: a silently-absent directory here would make
+// this gate go green while examining nothing, the exact failure its own
+// two-pass template exclusion was built to avoid.
+for (const extra of (process.env.PROSE_EXTRA ?? '').split(',').filter(Boolean)) {
+  if (!existsSync(extra)) { console.error(`PROSE_EXTRA entry does not exist: ${extra}`); process.exit(1) }
+  if (statSync(extra).isDirectory()) {
+    for (const f of readdirSync(extra)) if (f.endsWith('.md')) files.push(join(extra, f))
+  } else files.push(extra)
+}
 
 // ── Extract fenced ts blocks, with their 1-based start line ───────────────
 const blocks = []
