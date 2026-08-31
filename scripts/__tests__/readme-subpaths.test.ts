@@ -41,7 +41,9 @@ function hubSpecifiersInFences(md: string): string[] {
 }
 
 describe('front-page prose teaches only real hub subpaths (#1063)', () => {
-  for (const file of ['README.md', 'SERVICES.md'] as const) {
+  // SERVICES.md moved to the private family layer (2026-08-31 restructure);
+  // the same subpath check runs there via tools/check-private-prose.mjs.
+  for (const file of ['README.md'] as const) {
     it(`${file} names no deleted subpath`, () => {
       const used = hubSpecifiersInFences(read(file))
       expect(used.length, `${file}: expected some @noy-db/hub imports in fences`).toBeGreaterThan(0)
