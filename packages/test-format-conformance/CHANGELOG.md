@@ -1,5 +1,53 @@
 # @noy-db/test-format-conformance
 
+## 0.7.0-pre.16
+
+### Minor Changes
+
+- The `as-*` gate kit now observes the STORE rather than a named vault method
+  (#1211).
+
+  The before-reading case asserted that `vault.exportStream` was not called — a
+  LEXICAL observation. #1209 happened precisely because an API reshape moved the
+  gate out of the place the observer was looking, so an observation keyed on a
+  method name is blind to the next reshape by construction. It now counts reads
+  leaving the injected `NoydbStore`: every record any entry point produces is
+  bytes read from the store, whatever shape the API takes.
+
+  **Fixture contract change.** `FormatFixture` gains `observableVault()`, which
+  returns the vault together with the store it was built on. Wrap the store with
+  the new `observeStore()` export **where the store is created** and pass the
+  result to `createNoydb` — a wrapper applied after the vault exists intercepts
+  nothing, because the vault captured its store at construction. That fact also
+  settles which side owns the wrapper: the kit owns the counting logic (a
+  fixture that miscounts would make its own package look conformant), the fixture
+  only threads it.
+
+  A fixture without `observableVault` FAILS with a migration message. There is
+  deliberately no fallback to the old observation: reverting silently would let a
+  package look conformant while watched by the weaker mechanism, with nothing in
+  the output saying which one ran.
+
+  The count is windowed around the entry-point call, not totalled. Store reads
+  happen at `openVault` (keyring, fence) before any export runs, so a total would
+  pass on those alone — that is, on an export that did nothing.
+
+  **A second assertion ships with it, and it is what makes the first mean
+  anything:** the ungated call must read the store. Without it, `reads === 0` is
+  equally satisfied by an export served from a warm cache or by an entry point
+  that reads nothing — both indistinguishable from "the gate refused first".
+
+  All nine `as-*` fixtures are migrated. Mutation-checked: making an entry point
+  read one record before the gated export turns the refusal case red
+  ("expected 2 to be +0"), which is the exact class #1209 was blind to.
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.7.0-pre.16
+
 ## 0.7.0-pre.12
 
 ### Patch Changes
