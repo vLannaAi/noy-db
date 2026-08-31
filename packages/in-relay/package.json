@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/in-relay",
-  "version": "0.7.0-pre.15",
-  "description": "Relay server half for noy-db \u2014 a frame dispatcher over a NARROWED store profile, where saveAll and listVaults are absent by construction",
+  "version": "0.7.0-pre.16",
+  "description": "Relay server half for noy-db — a frame dispatcher over a NARROWED store profile, where saveAll and listVaults are absent by construction",
   "type": "module",
   "types": "./dist/index.d.ts",
   "exports": {

@@ -1,6 +1,6 @@
 {
   "name": "@noy-db/in-pinia",
-  "version": "0.7.0-pre.15",
+  "version": "0.7.0-pre.16",
   "description": "Pinia integration for noy-db — defineNoydbStore() and the augmentation plugin for existing stores",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",

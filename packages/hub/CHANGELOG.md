@@ -1,5 +1,92 @@
 # Changelog — hub
 
+## 0.7.0-pre.16
+
+### Minor Changes
+
+- New published type on `@noy-db/hub/to`: `NoydbRelayStore` — the store contract
+  minus the two members a relay profile omits by construction (#1237).
+
+  `saveAll` is whole-vault replace, a rollback superweapon pointed at a relay's own
+  hosts. `listVaults` is an existence leak. A relay handler typed against
+  `NoydbRelayStore` **cannot compile a call to either**, so the exclusions are
+  enforced by the compiler rather than by handing a handler an object that carries
+  `saveAll` and trusting a runtime `Set` not to call it.
+
+  Purely additive and purely type-level. The `NoydbStore` runtime contract is
+  unchanged — still the same 6 methods — and a full store satisfies the relay type
+  structurally, so relaying an ordinary store needs no changes to it. That
+  boundary was a precondition rather than a convenience: the format-conformance
+  kit's store-observation design (#1211) names a change to the `NoydbStore`
+  contract as the single thing that would invalidate it, so a narrowing had to
+  stay in the type layer or stop.
+
+  It ships on `/to` rather than inside a relay package because a second consumer
+  already needs to name the shape without depending on a relay server it does not
+  run.
+
+- `triggerBy` match pairs accept ONE declared hop through an intermediate
+  collection (#1277).
+
+  ```ts
+  match: [
+    {
+      from: "clientId",
+      to: "entityId",
+      via: { collection: "clients", take: "id", on: "entityId" },
+    },
+    { from: "cycle", to: "cycle" },
+  ];
+  ```
+
+  A source matches when the intermediate — the record in `via.collection` whose
+  `via.take` equals `written[from]` — carries a `via.on` equal to `source[to]`.
+  This makes a relationship expressible where the two collections share no field
+  at all: bills carry `entityId`, disbursements carry `clientId`, and the client
+  record is what relates them.
+
+  The alternative was a denormalised key on one side. That is a second copy of
+  something the vault can already resolve, and a partial backfill goes quiet on
+  exactly the oldest, least-audited rows — the silent staleness `match` exists to
+  remove, handed back one layer down.
+
+  **A write to the INTERMEDIATE collection fires the trigger too**, fanning out on
+  its old ∪ new value. This is the whole correctness argument: re-pointing an
+  intermediate writes to neither the trigger nor the source collection, so nothing
+  else in the system can notice, and every source it used to address would be
+  stranded silently. The cheaper design — resolving the hop only on trigger writes
+  — passes every test anyone would think to write and fails only on that edit.
+
+  Hop resolution costs ONE lookup per written record (`take: 'id'` is a direct
+  get), never one per candidate row. A dangling hop matches nothing rather than
+  throwing. `maxFanout` caps the hop fan-out as it does the direct form, and the
+  intermediate's edge enters the cycle-detection graph.
+
+### Patch Changes
+
+- `HistoryConfig.ledger` now documents what it costs (#1248).
+
+  **The hash chain is the entire cost of history; per-record snapshots are free.**
+  Measured on the primitive write path (no guards / MVs / derivations, sequential
+  `put()`, in-memory store, N = 3000): snapshots-only is 1.00×, ledger-only is
+  2.35×, both is 2.41×.
+
+  The cause is structural rather than an inefficiency: an entry's `prevHash`
+  depends on the current head, so appends are inherently serialized — one head
+  read, one delta encryption and one CAS-put per record op. That serialization is
+  the tamper-evidence property.
+
+  ⚠️ The microsecond figures come from an in-memory store and **understate the
+  felt cost**: on browser IndexedDB the ledger adds a whole extra encrypted store
+  write to a path whose base op is already milliseconds. The ~2.4× ratio is the
+  portable number; the microseconds are a floor.
+
+  A single human-paced write pays a difference nobody perceives. What pays visibly
+  is a one-click batch — an "approve all", a CSV import, a period prefill — and a
+  write that fans out through derivations and MVs pays once per resulting stored
+  write. `HistoryConfig` is per-collection so the chain can be confined to the
+  collections where tamper-evidence carries weight.
+
 ## 0.7.0-pre.15
 
 ### Patch Changes
