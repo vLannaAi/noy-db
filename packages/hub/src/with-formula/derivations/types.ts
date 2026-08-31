@@ -208,7 +208,39 @@ export interface DerivationSpec<
          * registration guard).
          */
         collection: string
-        match: ReadonlyArray<{ from: string; to: string }>
+        match: ReadonlyArray<{
+          from: string
+          to: string
+          /**
+           * ONE declared hop (#1277). Without it, `to` names a field on the
+           * source record compared directly against `written[from]`. With it,
+           * the comparison goes through an intermediate record:
+           *
+           * ```
+           * intermediate = the record in `via.collection` where
+           *                intermediate[via.take] === written[from]
+           * match when   String(source[to]) === String(intermediate[via.on])
+           * ```
+           *
+           * This exists for a topology where the two collections share no
+           * field: bills carry `entityId`, disbursements carry `clientId`, and
+           * the client record is what relates them. A denormalised key would
+           * work and is the wrong answer — it is a second copy of something
+           * the vault can already resolve, and a partial backfill goes quiet on
+           * exactly the oldest, least-audited rows.
+           *
+           * Resolution costs ONE lookup per written record (a `get` when
+           * `take` is `'id'`), not one per candidate row — the same bound that
+           * made #1266 refuse virtual computed fields as match targets.
+           *
+           * ⚠️ A write to `via.collection` ALSO fires this trigger (#1277
+           * option 2), fanning out on the intermediate's old ∪ new value. That
+           * is what keeps a re-pointed intermediate from silently stranding
+           * every source it used to address; the alternative failed silently on
+           * exactly the rare edit nobody repeats.
+           */
+          via?: { collection: string; take: string; on: string }
+        }>
         maxFanout?: number
       }
   >

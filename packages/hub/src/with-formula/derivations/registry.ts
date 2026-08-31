@@ -3,7 +3,7 @@ import { DerivationCycleError, DuplicateBehaviorNameError, ValidationError } fro
 import { ViaGraph, type FieldRef, type EdgeKind, type Grain } from '../../kernel/via/graph.js'
 import { schemaFieldKeys } from '../../with-shape/introspection/describe.js'
 import { computeStrategyHash } from './strategy-hash.js'
-import { normalizeTriggerBy, type NormalizedTrigger } from './trigger-match.js'
+import { hopCollections, normalizeTriggerBy, type NormalizedTrigger } from './trigger-match.js'
 import type { DerivationSpec } from './types.js'
 
 /**
@@ -84,6 +84,20 @@ export class DerivationRegistry {
     // a parent write re-fires the derivation (fanned out to matching source
     // records in `dispatchDerivations`). Like sources[], these keys enter
     // `_bySource` so the cycle DFS walks the trigger→output edge.
+    // #1277 — the INTERMEDIATE of a declared hop is indexed too, so a write
+    // that re-points it re-fires the derivation. Without this the hop's whole
+    // correctness argument fails: nothing is written to the trigger or source
+    // collection when an intermediate moves, so no other path can notice, and
+    // every source it used to address is stranded silently. Entering `_bySource`
+    // also puts the hop edge into `validate()`'s cycle DFS, which would
+    // otherwise be blind to it.
+    for (const t of triggers) {
+      for (const hop of hopCollections(t.match)) {
+        const fromHop = this._bySource.get(hop)
+        if (fromHop) { if (!fromHop.includes(reg)) fromHop.push(reg) }
+        else this._bySource.set(hop, [reg])
+      }
+    }
     for (const t of triggers) {
       const fromTrigger = this._bySource.get(t.collection)
       if (fromTrigger) fromTrigger.push(reg)
