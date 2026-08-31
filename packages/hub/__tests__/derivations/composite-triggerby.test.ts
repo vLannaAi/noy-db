@@ -778,3 +778,111 @@ describe('composite triggerBy — virtual computed match targets (#1266)', () =>
     await db.close()
   })
 })
+
+/**
+ * #1277 — one declared hop, and the intermediate write that makes it honest.
+ *
+ * Topology: bills carry `entityId`, disbursements carry `clientId`, and the
+ * CLIENT record relates them. The two collections share no field, so a direct
+ * `match` cannot express the relationship at all.
+ *
+ *   client C1 { id: 'C1', entityId: 'E1' }          <- INTERMEDIATE
+ *   bill   B1 { id: 'B1', entityId: 'E1', cycle }   <- SOURCE
+ *   disb   D1 { clientId: 'C1', cycle }             <- TRIGGER
+ *
+ * The second test is the reason option 2 was chosen over the cheaper option 1:
+ * re-pointing the client writes to NEITHER the trigger nor the source
+ * collection, so nothing else in the system can notice. Under option 1 that
+ * test fails silently — the bill keeps a status computed for a client
+ * relationship that no longer exists.
+ */
+describe('composite triggerBy — one declared hop (#1277)', () => {
+  interface Client extends Record<string, unknown> { id: string; entityId: string }
+
+  const hopStrategy = (extra: { maxFanout?: number } = {}) =>
+    withDerivation<Bill, { self: Bill }>({
+      source: 'bills',
+      deterministic: true,
+      lifecycle: 'eager',
+      triggerBy: [{
+        collection: 'disbursements',
+        match: [
+          { from: 'clientId', to: 'entityId', via: { collection: 'clients', take: 'id', on: 'entityId' } },
+          { from: 'cycle', to: 'cycle' },
+        ],
+        ...(extra.maxFanout !== undefined ? { maxFanout: extra.maxFanout } : {}),
+      }],
+      outputs: { self: { shape: 'record', collection: 'bills', denorm: ['status'] } },
+      derive: async (bill, ctx) => {
+        // Resolve this bill's client through the same hop, then look for cover.
+        const clients = await ctx.vault.collection<Client>('clients').query()
+          .where('entityId', '==', bill.entityId).toArray()
+        const client = clients[0]
+        if (!client) return { self: { ...bill, status: 'no-client' } }
+        const disb = await ctx.vault.collection<Disbursement>('disbursements').query()
+          .where('clientId', '==', client.id).where('cycle', '==', bill.cycle).toArray()
+        return { self: { ...bill, status: disb.length > 0 ? 'covered' : 'uncovered' } }
+      },
+    })
+
+  async function setup(secret: string, extra: { maxFanout?: number } = {}) {
+    const db = await createNoydb({
+      store: toMemory(), user: 'alice', secret,
+      derivationStrategies: [hopStrategy(extra)],
+    })
+    const v = await db.openVault('firm')
+    const clients = v.collection<Client>('clients')
+    const bills = v.collection<Bill>('bills')
+    const disb = v.collection<Disbursement>('disbursements')
+    await clients.put('C1', { id: 'C1', entityId: 'E1' })
+    await bills.put('B1', { id: 'B1', clientId: '', cycle: 'Q1', entityId: 'E1' } as never)
+    return { db, v, clients, bills, disb }
+  }
+  const statusOf = async (bills: { get: (id: string) => Promise<Bill | null> }, id: string) =>
+    (await bills.get(id))?.status
+
+  it('EDIT A — a disbursement write reaches the bill THROUGH the client', async () => {
+    const { db, bills, disb } = await setup('hop-edit-a-2026')
+    expect(await statusOf(bills, 'B1')).not.toBe('covered')
+    await disb.put('D1', { id: 'D1', clientId: 'C1', cycle: 'Q1', amount: 100 })
+    expect(await statusOf(bills, 'B1')).toBe('covered')
+    await db.close()
+  })
+
+  it('EDIT B — RE-POINTING THE CLIENT refreshes the bills it used to address', async () => {
+    // The test option 1 would fail. Nothing is written to bills or
+    // disbursements here; only the intermediate moves.
+    const { db, v, clients, bills, disb } = await setup('hop-edit-b-2026')
+    await v.collection<Bill>('bills').put('B2', { id: 'B2', clientId: '', cycle: 'Q1', entityId: 'E2' } as never)
+    await disb.put('D1', { id: 'D1', clientId: 'C1', cycle: 'Q1', amount: 100 })
+    expect(await statusOf(bills, 'B1')).toBe('covered')     // E1 bill covered via C1
+    expect(await statusOf(bills, 'B2')).not.toBe('covered') // E2 bill not
+
+    // The engagement is corrected: C1 actually covers entity E2.
+    await clients.put('C1', { id: 'C1', entityId: 'E2' })
+
+    expect(await statusOf(bills, 'B2')).toBe('covered')      // now addressed by C1
+    // 'no-client', not 'uncovered': with C1 moved to E2, entity E1 has no
+    // client at all. That distinction is what proves B1 was RE-DERIVED against
+    // the new world rather than merely left alone — a stranded B1 would still
+    // read 'covered'.
+    expect(await statusOf(bills, 'B1')).toBe('no-client')
+    await db.close()
+  })
+
+  it('a dangling hop matches nothing rather than throwing', async () => {
+    const { db, bills, disb } = await setup('hop-dangling-2026')
+    await disb.put('D9', { id: 'D9', clientId: 'NO-SUCH-CLIENT', cycle: 'Q1', amount: 1 })
+    expect(await statusOf(bills, 'B1')).not.toBe('covered')
+    await db.close()
+  })
+
+  it('maxFanout caps the hop fan-out', async () => {
+    const { db, v, disb } = await setup('hop-cap-2026', { maxFanout: 1 })
+    await v.collection<Bill>('bills').put('B2', { id: 'B2', clientId: '', cycle: 'Q1', entityId: 'E1' } as never)
+    await expect(
+      disb.put('D1', { id: 'D1', clientId: 'C1', cycle: 'Q1', amount: 100 }),
+    ).rejects.toThrow(DerivationCapExceededError)
+    await db.close()
+  })
+})

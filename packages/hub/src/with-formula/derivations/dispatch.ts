@@ -32,7 +32,7 @@ import type { EncryptedEnvelope } from '../../kernel/types.js'
 import type { ledgerAuditHook, WaveContext } from '../../kernel/via/dispatch.js'
 import { putDerivedOutput, selfWriteFieldEqual } from '../../kernel/via/dispatch.js'
 import { DerivationCapExceededError } from '../../kernel/errors.js'
-import { tupleFromWritten, sameTuple } from './trigger-match.js'
+import { tupleFromWritten, sameTuple, resolveTuple, tupleFromIntermediate, hopCollections } from './trigger-match.js'
 import { markStale } from './stale.js'
 import type { DerivationExecutor } from './executor.js'
 
@@ -212,6 +212,15 @@ export async function dispatchDerivations(
     const triggerEntries = !isSource && !isSibling
       ? triggers.filter((t) => t.collection === collectionName)
       : []
+    // #1277 option 2 — a write to an INTERMEDIATE collection fires the trigger
+    // too. Without this, re-pointing the intermediate strands every source it
+    // used to address: nothing is written to the trigger or source collection,
+    // so no other path can notice. Kept separate from `triggerEntries` because
+    // the tuple is derived differently (the intermediate IS the written record,
+    // so no lookup is needed).
+    const hopEntries = !isSource && !isSibling
+      ? triggers.filter((t) => hopCollections(t.match).includes(collectionName))
+      : []
 
     const runs: Array<{
       input: Record<string, unknown> & { id: string }
@@ -230,18 +239,49 @@ export async function dispatchDerivations(
         const raw = await derivationSource.getCollection(spec.source)._getStoredRecord(id)
         runs.push({ input: { ...p, id }, base: raw ?? p, runId: id, version: 0 })
       }
-    } else if (triggerEntries.length > 0) {
+    } else if (triggerEntries.length > 0 || hopEntries.length > 0) {
       const srcColl = derivationSource.getCollection(spec.source)
       const matched = new Set<string>()
+      // One lookup per hop per written record — `take: 'id'` is a direct get,
+      // anything else is a single field match on the intermediate. Never per
+      // candidate row (#1266's bound).
+      const lookup = async (coll: string, field: string, value: string): Promise<Record<string, unknown> | null> => {
+        const c = derivationSource.getCollection(coll)
+        if (field === 'id') return c._getStoredRecord(value)
+        const ids = await c._findMatchingCompositeIds([{ field, value }])
+        const first = ids[0]
+        return first === undefined ? null : c._getStoredRecord(first)
+      }
+      // A write to an intermediate collection: fan out on its old ∪ new value.
+      // The prior record is the intermediate's own, so #1249's capture already
+      // supplies it — the same mechanism, pointed at a third collection.
+      for (const trigger of hopEntries) {
+        const tuples = [tupleFromIntermediate(trigger.match, collectionName, incoming)]
+        if (canonicalPrior != null) {
+          const old = tupleFromIntermediate(trigger.match, collectionName, canonicalPrior)
+          if (!sameTuple(old, tuples[0]!)) tuples.push(old)
+        }
+        const ids = new Set<string>()
+        for (const tuple of tuples) {
+          if (tuple === null) continue
+          for (const sid of await srcColl._findMatchingCompositeIds(tuple)) ids.add(sid)
+        }
+        if (trigger.maxFanout !== undefined && ids.size > trigger.maxFanout) {
+          throw new DerivationCapExceededError(
+            `triggerBy hop ${collectionName}→${spec.source} [${trigger.match.map(p => p.to).join(',')}]`,
+            ids.size, trigger.maxFanout)
+        }
+        for (const sid of ids) matched.add(sid)
+      }
       for (const trigger of triggerEntries) {
         // Union fan-out (spec §7): an update changing any matched component
         // must re-fire BOTH the old and the new matched set, or the old
         // set's derived output goes stale (never re-derived once it no
         // longer matches). `prior` is only ever a `Record` here — a wave
         // dispatch and a create both skip the old tuple outright.
-        const tuples = [tupleFromWritten(trigger.match, id, incoming)]
+        const tuples = [await resolveTuple(trigger.match, id, incoming, lookup)]
         if (canonicalPrior != null && trigger.match.some((p) => p.from !== 'id')) {
-          const old = tupleFromWritten(trigger.match, id, canonicalPrior)
+          const old = await resolveTuple(trigger.match, id, canonicalPrior, lookup)
           if (!sameTuple(old, tuples[0]!)) tuples.push(old)
         }
         const ids = new Set<string>()
