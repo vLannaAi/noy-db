@@ -133,6 +133,14 @@ jobs:
       # lived in.
       - name: Prose names real methods
         run: pnpm check:prose-api
+      # #1306 — the COMPILING half of the prose gates: check:prose-api answers
+      # 'does this method exist', this answers 'does the signature accept that
+      # argument'. It was local-only and drifted RED across the 0.7.0 cut,
+      # which is the failure mode a gate nobody runs always reaches: the next
+      # person sees failures they did not cause and learns to ignore it.
+      # Needs the build for the same reason as the steps around it.
+      - name: Prose examples compile
+        run: pnpm check:prose-examples
       # Codemod-map coverage (#1154). Lives here rather than on the build-free
       # `architecture` job for the same reason as the bundle check: it reads the
       # BUILT surface, because what a consumer can import is a fact about dist,

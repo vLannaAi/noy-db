@@ -173,20 +173,55 @@ writeFileSync(join(OUT, 'package.json'), JSON.stringify({ type: 'module' }))
 // the app environment they target rather than weakening API checking.
 writeFileSync(join(OUT, 'ambient.d.ts'), 'interface ImportMeta { readonly env: Record<string, string> }\n')
 if (process.env.PROSE_DEBUG) { const c={}; for (const b of runnable) c[b.file]=(c[b.file]||0)+1; console.error('RUNNABLE BY FILE:', JSON.stringify(c,null,1)); console.error('PATHS KEYS:', Object.keys(paths).length) }
-runnable.forEach((b, i) => { b.probe = `ex${i}.ts`; writeFileSync(join(OUT, b.probe), b.code) })
+runnable.forEach((b, i) => { b.probe = `ex${i}.ts`; b.nodeTyped = declaresNodeTypes(b.file); writeFileSync(join(OUT, b.probe), b.code) })
+// ── Ambient globals: the package's own declaration decides ────────────────
+// `types` is NOT left to default. Defaulting pulls in every @types/* the probe
+// host happens to have installed, which makes the gate a test of that host's
+// dependency list rather than of our prose.
+//
+// #1306: setting it to [] repo-wide ALSO removed every ambient global, so a
+// package that correctly declares @types/node still could not use `process`
+// in a shipped example — two TRUE examples failed TS2591 for a probe reason,
+// and the gate sat red across the 0.7.0 cut. That is the recorded shape "an
+// ignored diagnostic is scoped to what it names, but its consequence is not":
+// the decision was made for module resolution and silently took the globals.
+//
+// The fix keeps the DECLARATION load-bearing instead of switching Node
+// globals on everywhere. Blocks compile in two programs: `types: []` for
+// packages that do not declare @types/node, `types: ['node']` for those that
+// do. A README using `process` in a package that does not declare it still
+// fails — and that is a true finding about the manifest, not probe noise.
+// Two programs, not one per package: only a handful of packages declare it.
+// (a function declaration, not a const: it is called by the probe-writing
+// loop above, which runs before this point in the file.)
+function declaresNodeTypes(file) {
+  const m = relative(ROOT, file).match(/^packages[/\\]([^/\\]+)[/\\]/)
+  const manifest = m ? join(ROOT, 'packages', m[1], 'package.json') : join(ROOT, 'package.json')
+  if (!existsSync(manifest)) return false
+  const j = JSON.parse(readFileSync(manifest, 'utf8'))
+  return Boolean({ ...j.dependencies, ...j.devDependencies, ...j.peerDependencies }['@types/node'])
+}
+
 const compile = (exclude) => {
-  writeFileSync(join(OUT, 'tsconfig.json'), JSON.stringify({
-    compilerOptions: {
-      module: 'nodenext', moduleResolution: 'nodenext', target: 'es2022',
-      strict: true, noImplicitAny: false, noEmit: true, skipLibCheck: true, types: [], baseUrl: '.', paths,
-    },
-    include: ['*.ts'],
-    ...(exclude.length > 0 ? { exclude } : {}),
-  }, null, 2))
-  try {
-    execFileSync('npx', ['tsc', '-p', join(OUT, 'tsconfig.json')], { encoding: 'utf8', stdio: 'pipe' })
-    return ''
-  } catch (e) { return `${e.stdout ?? ''}${e.stderr ?? ''}` }
+  const ex = new Set(exclude)
+  let raw = ''
+  for (const [group, types] of [['plain', []], ['node', ['node']]]) {
+    const files = runnable
+      .filter((b) => b.nodeTyped === (group === 'node') && !ex.has(b.probe))
+      .map((b) => b.probe)
+    if (files.length === 0) continue
+    const cfg = join(OUT, `tsconfig.${group}.json`)
+    writeFileSync(cfg, JSON.stringify({
+      compilerOptions: {
+        module: 'nodenext', moduleResolution: 'nodenext', target: 'es2022',
+        strict: true, noImplicitAny: false, noEmit: true, skipLibCheck: true, types, baseUrl: '.', paths,
+      },
+      files: [...files, 'ambient.d.ts'],
+    }, null, 2))
+    try { execFileSync('npx', ['tsc', '-p', cfg], { encoding: 'utf8', stdio: 'pipe' }) }
+    catch (e) { raw += `${e.stdout ?? ''}${e.stderr ?? ''}` }
+  }
+  return raw
 }
 
 const parse = (raw) => {
