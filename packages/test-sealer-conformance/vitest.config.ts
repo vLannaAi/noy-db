@@ -5,7 +5,7 @@ export default defineConfig({
   test: {
     testTimeout: TEST_TIMEOUT_MS,
     name: 'test-sealer-conformance',
-    include: ['src/**/*.test.ts'],
+    include: ['__tests__/**/*.test.ts'],
     environment: 'node',
   },
 })
