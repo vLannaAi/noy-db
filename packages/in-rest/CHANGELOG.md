@@ -1,5 +1,78 @@
 # @noy-db/in-rest
 
+## 0.7.0
+
+### Minor Changes
+
+- **Breaking for old clients:** the `409` body no longer discloses the winning writer's version (#1218).
+
+  `createRestHandler`'s CAS-conflict response was `409 { error: { name, message, version } }`. The `version` field is **another principal's progress counter**. A client able to provoke a 409 could learn how far a writer it may hold no read grant for had advanced a record, and by repetition turn that into a write-activity oracle. It is now `409 { error: { name, message } }`.
+
+  ⚠️ **If you are on `@noy-db/to-rest@0.7.0-pre.0` or earlier, upgrade to `0.7.0-pre.1`+ before taking this.** That client _required_ `version` to re-hydrate the error; without it a CAS conflict arrives as a **generic `Error`**, `isConflictError()` returns `false`, and conflict handling silently stops running — retry loops rethrow, and the sync engine misfiles the conflict with no resolution. `to-rest@0.7.0-pre.1` keys off `name` alone and defaults `version` to `NaN`, and handles both the old and new payload; that is why it shipped first. Any other client that keys off `version` needs the same change.
+
+  `name` remains load-bearing and will not be renamed: it is how a client identifies the error. The 409 still means _"your write lost"_ — the client re-reads to learn what won, at the cost of one round trip.
+
+  **Unchanged:** `ConflictError.version` itself, which is still carried in-process and which the sync engine needs. This is the transport boundary only.
+
+  Known consequence, not fixed here: hub's schema-manifest writer forwards a caught conflict's version into `ManifestConflictError`, so a manifest write losing a CAS race **over a REST store** now reports `foundVersion: NaN`. The conflict is still detected and still refused; only the reported number degrades. Hub's CAS retry loops re-read rather than using the value and are unaffected.
+
+### Patch Changes
+
+- Actually declare the framework peers that `peerDependenciesMeta` was annotating.
+
+  The published manifest through `0.7.0-pre.8` looked like this:
+
+  ```json
+  "peerDependencies":     { "@noy-db/hub": "0.7.0-pre.8" },
+  "peerDependenciesMeta": { "h3": {...}, "hono": {...}, "express": {...}, "fastify": {...} }
+  ```
+
+  **`peerDependenciesMeta` only annotates a peer that already exists in `peerDependencies` — it cannot declare one.** So all four entries were **inert**: npm never learned about the packages, consumers got no version range and no resolver signal, and nothing warned. The manifest meanwhile read as though the dependencies were declared and deliberately optional, which is why it survived review.
+
+  Three of the four are genuinely imported at runtime from adapter entry points — `adapters/express.ts`, `adapters/fastify.ts`, `adapters/hono.ts`.
+
+  Now declared as optional peers at the ranges the code is developed and tested against: `express@^5.0.0`, `fastify@^5.0.0`, `hono@^4.0.0`, `h3@^1.13.0`. The `peerDependenciesMeta` block is unchanged and now does what it was always meant to.
+
+  **Nothing breaks.** They were optional before by accident and are optional by declaration now; a consumer using the express adapter already has express. What changes is that npm can see them, warn on a genuinely incompatible version, and show them in the dependency tree.
+
+  Guarded by a new architecture invariant (`peer-meta-declared`) asserting that no `peerDependenciesMeta` entry may lack a matching `peerDependencies` entry — stated on the output condition rather than on the four names that happened to be found, and mutation-checked by re-introducing the defect.
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.7.0
+
 ## 0.7.0-pre.16
 
 ### Patch Changes
