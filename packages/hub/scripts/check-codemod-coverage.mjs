@@ -51,7 +51,7 @@ import { fileURLToPath } from 'node:url'
 import { reachableExports } from './lib/surface.mjs'
 
 const PKG = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const BASELINE = join(PKG, 'scripts/published-surface-0.6.0.json')
+const BASELINE = join(PKG, 'scripts/published-surface-0.7.0.json')
 
 /**
  * Every subpath a map RETIRED, minus any a later line re-introduced.
@@ -106,7 +106,7 @@ export function uncoveredLosses(baseline, current, mapped) {
  * rows PRESENT and is structurally blind to a row that is MISSING — #1154's
  * class, which the symbol half of this file already closes.
  *
- * ⚠️ BOUND, stated rather than implied: the baseline is 0.6.0 and that prune
+ * ⚠️ BOUND, stated rather than implied: the baseline is 0.7.0 and that prune
  * was 0.4.0, so this would NOT have caught those two. It prevents the next
  * one. Shipping it and calling the gap closed would be the over-claim this
  * repo keeps cataloguing.
