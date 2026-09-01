@@ -1,5 +1,92 @@
 # Changelog — by-peer
 
+## 0.7.0
+
+### Minor Changes
+
+- **Breaking: `servePeerStore` is now fail-closed.** It requires the bearer token from the invite and refuses every request without one (milestone 52).
+
+  ```ts
+  servePeerStore({ channel, store, token: inviteToken }); // server
+  peerStore({ channel, token: inviteToken }); // client
+  ```
+
+  **A server configured with no `token` now serves nobody.** That mirrors `@noy-db/in-rest`, where no `authorize` hook means `401` on everything.
+
+  ## Why this reversed
+
+  `servePeerStore` served the whole store to anyone who reached the channel. Its options were `{ channel, store, allow?, leaderElection? }` — no authorize hook at all, and `allow` is a **method whitelist, not authentication**: it says which of the six methods may be called, never by whom.
+
+  Holding the channel _was_ the credential. That is defensible for a 1:1 invite-based session share, and it stops being defensible the moment a channel stops meaning _"I invited this person"_ — which is exactly what a multi-peer topology does.
+
+  ## Two properties, both tested
+
+  - **Refusal happens before the store is touched**, so a rejected write does not land. A refusal that ran after the effect would be worse than none: the caller sees an error and the write happened anyway.
+  - **Auth is checked before method validity**, so an unauthorized caller cannot learn which methods this peer serves. `Unauthorized` and "unknown method" are byte-identical answers, asserted by a test that compares them.
+
+  The token comparison is constant-time. A plain `===` leaks the shared-prefix length through timing, which over a channel an attacker can call repeatedly is enough to recover a token character by character.
+
+  ## Upgrading
+
+  Add `token` on both sides. Every existing caller is refused until you do — that is the point, and it is why this is a minor rather than a patch. In this repo the change turned 13 of 44 existing tests red, which is a fair measure of the blast radius for a consumer.
+
+  `allow`, `leaderElection`, and the wire format are otherwise unchanged; `auth` is an additive optional field on the request frame.
+
+### Patch Changes
+
+- READMEs now document the API that exists (#1252). Every fenced example in
+  shipped prose compiles against the built `dist`, enforced by
+  `check:prose-examples`.
+
+  The two that were more than renames:
+
+  - **on-recovery**: the README taught the KEK-wrapping architecture removed in
+    the tier-2 wrap-DEKs unification (`0.1.0-pre.8`, #42) — `unwrapKEKFromRecovery`,
+    `wrapKEKForRecovery`, `kek:` option, `_recovery_<N>` keyring entries, and a
+    40-line manual unlock loop, none of which exist. Rewritten to the real flow:
+    `generateRecoveryCodeSet({ deks })` → `db.team.enrollRecovery` →
+    `db.recoverSecret` (which burns and auto-rotates), with a History note on why
+    there is no KEK path.
+  - **in-vue**: `enrollBiometric`/`unlockWithBiometric` never existed in any
+    version. The section now teaches `@noy-db/on-webauthn`'s real API, which is
+    framework-neutral and called from Vue directly.
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.7.0
+
 ## 0.7.0-pre.16
 
 ### Patch Changes

@@ -1,5 +1,62 @@
 # @noy-db/test-sealer-conformance
 
+## 0.7.0
+
+### Patch Changes
+
+- READMEs now document the API that exists (#1252). Every fenced example in
+  shipped prose compiles against the built `dist`, enforced by
+  `check:prose-examples`.
+
+  The two that were more than renames:
+
+  - **on-recovery**: the README taught the KEK-wrapping architecture removed in
+    the tier-2 wrap-DEKs unification (`0.1.0-pre.8`, #42) — `unwrapKEKFromRecovery`,
+    `wrapKEKForRecovery`, `kek:` option, `_recovery_<N>` keyring entries, and a
+    40-line manual unlock loop, none of which exist. Rewritten to the real flow:
+    `generateRecoveryCodeSet({ deks })` → `db.team.enrollRecovery` →
+    `db.recoverSecret` (which burns and auto-rotates), with a History note on why
+    there is no KEK path.
+  - **in-vue**: `enrollBiometric`/`unlockWithBiometric` never existed in any
+    version. The section now teaches `@noy-db/on-webauthn`'s real API, which is
+    framework-neutral and called from Vue directly.
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.7.0
+
 ## 0.7.0-pre.16
 
 ### Patch Changes

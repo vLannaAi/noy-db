@@ -1,5 +1,755 @@
 # Changelog — hub
 
+## 0.7.0
+
+### Minor Changes
+
+- `withDerivation`'s `triggerBy` accepts a multi-field `match` form (#1249):
+  `{ collection, match: [{ from, to }] }` fans a write out to every source
+  record where ALL pairs satisfy `String(source[to]) === String(written[from])`.
+  `from: 'id'` reads the written record's id, making the existing `on` form the
+  single-pair special case (it is unchanged and stays supported). This makes
+  shared-key ("reverse") relationships and composite keys like
+  `(clientId, cycle)` expressible without denormalising a synthetic key.
+
+  Also, for BOTH forms:
+
+  - a LOCAL UPDATE that changes any matched field fans out on old-match ∪
+    new-match, so records addressed by the previous value no longer go
+    silently stale; a sync-applied wave write or a tiers restore, which don't
+    thread the prior record, fan out on the new tuple only;
+  - a parent DELETE now fans out using the tombstoned record's values —
+    previously deletes fired no triggers at all, leaving matched sources
+    stale. The fan-out runs after the delete commits, so cap/strict errors
+    can surface from `delete()` (same as the existing rollup-on-delete
+    precedent);
+  - match fields are validated against the collections' enumerable field sets at
+    `vault.collection()` (the #1253 pattern): a provable typo throws instead of
+    silently matching nothing forever; TS-generic collections stay unguarded by
+    design.
+
+  `maxFanout` caps the unioned matched set per written event.
+
+- Export `NOYDB_ENVELOPE_GENERATION` — a monotonic generation of the envelope _sealing_ format, distinct from `NOYDB_FORMAT_VERSION` (#1207).
+
+  `NOYDB_FORMAT_VERSION` records what is written; the generation records what a reader must **compute** to open an envelope. The two move independently: 0.6.0-pre.18 bound record identity into the AEAD (#1041) without changing a stored byte, so nothing published could express that envelopes sealed before it are unopenable after it. The generation closes that gap: 1 = no AAD (hub ≤ 0.6.0-pre.17; absence of the export also means 1), 2 = identity + `_v` bound via `noydb-aad/2` (hub ≥ 0.6.0-pre.18).
+
+  Exported from the root barrel and re-exported from the `/cargo` and `/to` seams (additive), so an orchestrator can stamp it into a manifest and a store host can report "sealed under generation N, this build reads generation M" instead of a bare `TamperedError` from code that is correct. **Diagnostic only**: a reader must never branch on a generation read from an untrusted source (ADR 0003) — classification only, refusal unchanged, the same contract as `TamperedError.reason`. A test pins the generation to the AAD bytes actually emitted, so a sealing-format change cannot ship without a generation decision in the same diff.
+
+- **The port vocabulary, and the seams that make it navigable.**
+
+  A developer should be able to learn the available ports, then pick a package —
+  internal or family — that binds one. This line makes the subpath and the type
+  name say which port they belong to.
+
+  **BREAKING — the `Provider` suffix is retired.** A type a satellite implements
+  is now `Noydb<Stem>`, matching `NoydbStore`, which was already the pattern.
+  `Provider` marked some port instances and not others, so it distinguished
+  nothing. Every removed name is in the shipped codemod map
+  (`@noy-db/hub/codemods/0.7.0-pre.json`), with `safeGlobalReplace` per row —
+  bare-noun rows are flagged unsafe because they collide with ordinary prose.
+
+  **New published seams: `/at`, `/by`, `/on`, `/as`.** Each ships with a
+  conformance kit — `test-sealer-conformance`, `test-mesh-conformance`,
+  `test-ceremony-conformance`, `test-format-conformance` — and every one of them
+  found a real defect in a binding it was written against.
+
+  **`/as` is now a port, not a family convention.** Hub owns `export` and
+  `import`; a format supplies `encode`/`decode` and declares its own `id`. That
+  consolidates a six-copy `ImportPolicy` and lets a format ship outside this repo.
+
+  **`ExportFormat` is an open union.** A third-party format id can be granted in
+  an `exportCapability`, not merely checked — previously the only way to authorise
+  one was the `'*'` wildcard, which grants every format at once.
+
+  **`FenceState` names one type again.** `/by` and `/cargo` carried a duplicate
+  object under the same name as the root barrel's string union; they now re-export
+  `FenceDoc`.
+
+  Two decisions are recorded in `docs/adr/`: **0004** (the `as-*` inversion) and
+  **0005** (there is no `/ui` port — a UI is a driving adapter, and egress rather
+  than rendering is what `assertCanExport` gates).
+
+- New published type on `@noy-db/hub/to`: `NoydbRelayStore` — the store contract
+  minus the two members a relay profile omits by construction (#1237).
+
+  `saveAll` is whole-vault replace, a rollback superweapon pointed at a relay's own
+  hosts. `listVaults` is an existence leak. A relay handler typed against
+  `NoydbRelayStore` **cannot compile a call to either**, so the exclusions are
+  enforced by the compiler rather than by handing a handler an object that carries
+  `saveAll` and trusting a runtime `Set` not to call it.
+
+  Purely additive and purely type-level. The `NoydbStore` runtime contract is
+  unchanged — still the same 6 methods — and a full store satisfies the relay type
+  structurally, so relaying an ordinary store needs no changes to it. That
+  boundary was a precondition rather than a convenience: the format-conformance
+  kit's store-observation design (#1211) names a change to the `NoydbStore`
+  contract as the single thing that would invalidate it, so a narrowing had to
+  stay in the type layer or stop.
+
+  It ships on `/to` rather than inside a relay package because a second consumer
+  already needs to name the shape without depending on a relay server it does not
+  run.
+
+- Add an authenticated, comparable roster epoch (#1097).
+
+  A roster tag authenticates the roster's **contents** and makes no claim about being **current**. That gap is reachable without forging anything: there is no role-change API, so narrowing a user's standing means calling `grant` again with a lower role, and that write overwrites in place. The previous, broader file was legitimately minted by the vault — so a store that kept a copy can re-serve it. The KEK unwraps, the canary checks out, the tag verifies, and the replayed file **restores the higher role**, usably.
+
+  The rotation half of #1097 already shipped and converts live access back into stale access. It cannot touch the role, because role gates capabilities rather than keys.
+
+  ## What is new
+
+  - `KeyringFile.roster_epoch?: number`, bumped on every roster write and bound into `rosterCanonical`, so a store can neither edit nor strip it.
+  - `assertRosterEpochCurrent(found, expected, userId)` — refuses a keyring older than a floor the caller obtained **out of band**.
+  - Two `KeyringTamperedReason` codes: `roster-epoch-rewound` and `roster-epoch-absent`.
+
+  ## Why an out-of-band anchor
+
+  An epoch stored beside the roster is not an anchor — a store rewinding the roster rewinds the epoch with it. It becomes one only when compared against a value that reached the reader by a channel the store does not carry. **Hub owns the epoch and the comparison; who carries the expectation is deliberately the consumer's problem**, because hub cannot know which channel a deployment trusts.
+
+  Considered and rejected, recorded so they are not re-derived: **time** (defeats long rewinds, useless against fresh ones — and a narrowing replay is entirely the fresh case) and **the vault head** (circular: head buckets are read with a keyring-issued DEK, and a rewound roster renders as the benign `no-expectations` verdict).
+
+  ## Not a format break
+
+  Binding the epoch **conditionally** is what makes this additive. `stable()` drops `undefined`, so a keyring written before the epoch existed canonicalises byte-identically and its existing tag still verifies. Binding it as `?? null` — the shape every other optional field uses — would have failed every pre-existing tag and rendered every existing vault unopenable.
+
+  ## Opt-in, and absence is never zero
+
+  With no expected epoch this changes nothing for a caller. When one is supplied, a file carrying **no** epoch is refused as `roster-epoch-absent` rather than treated as epoch 0 — treating absence as zero would accept every pre-epoch file, which is exactly the replay the mechanism exists to refuse. `found > expected` is accepted: the anchor is a floor, not an equality, since a roster may legitimately have moved on since an invite was minted.
+
+  All thirteen roster-mint sites stamp the epoch before the tag is minted, and `writeKeyringFile` now refuses to write a keyring without one — an output-domain guard, so a future mint site cannot ship the field empty.
+
+- `triggerBy` match pairs accept ONE declared hop through an intermediate
+  collection (#1277).
+
+  ```ts
+  match: [
+    {
+      from: "clientId",
+      to: "entityId",
+      via: { collection: "clients", take: "id", on: "entityId" },
+    },
+    { from: "cycle", to: "cycle" },
+  ];
+  ```
+
+  A source matches when the intermediate — the record in `via.collection` whose
+  `via.take` equals `written[from]` — carries a `via.on` equal to `source[to]`.
+  This makes a relationship expressible where the two collections share no field
+  at all: bills carry `entityId`, disbursements carry `clientId`, and the client
+  record is what relates them.
+
+  The alternative was a denormalised key on one side. That is a second copy of
+  something the vault can already resolve, and a partial backfill goes quiet on
+  exactly the oldest, least-audited rows — the silent staleness `match` exists to
+  remove, handed back one layer down.
+
+  **A write to the INTERMEDIATE collection fires the trigger too**, fanning out on
+  its old ∪ new value. This is the whole correctness argument: re-pointing an
+  intermediate writes to neither the trigger nor the source collection, so nothing
+  else in the system can notice, and every source it used to address would be
+  stranded silently. The cheaper design — resolving the hop only on trigger writes
+  — passes every test anyone would think to write and fails only on that edit.
+
+  Hop resolution costs ONE lookup per written record (`take: 'id'` is a direct
+  get), never one per candidate row. A dangling hop matches nothing rather than
+  throwing. `maxFanout` caps the hop fan-out as it does the direct form, and the
+  intermediate's edge enters the cycle-detection graph.
+
+### Patch Changes
+
+- **The `at-*` options types now follow their factories.**
+
+  `0.7.0-pre.0` renamed every `at-*` factory to `at<Pkg>()` and left four of the
+  five options types carrying the retired `SealingProvider` vocabulary — so it
+  shipped `atAwsKms()` taking an `AwsKmsSealingProviderOptions`. `at-env` had
+  already renamed both halves, which is what makes this a gap rather than a
+  decision.
+
+  | before                                | after                    |
+  | ------------------------------------- | ------------------------ |
+  | `AwsKmsSealingProviderOptions`        | `AtAwsKmsOptions`        |
+  | `GcpKmsSealingProviderOptions`        | `AtGcpKmsOptions`        |
+  | `AzureKeyVaultSealingProviderOptions` | `AtAzureKeyvaultOptions` |
+  | `MacosKeychainSealingProviderOptions` | `AtMacosKeychainOptions` |
+
+  Four rows added to `@noy-db/hub/codemods/0.7.0-pre.json`. `AwsKmsRecipientSealerOptions`
+  is deliberately unchanged — it belongs to a different factory that was not renamed.
+
+  Also corrects a doc comment in `vault.ts` that named two capability gates,
+  `canExportPlaintext` and `canExportBundle`, **neither of which has ever
+  existed**. The gate is `assertCanExport('plaintext', fmt)` /
+  `assertCanExport('bundle')`. That comment ships as JSDoc in the `.d.ts` and had
+  propagated into the docs site.
+
+- The bundle-size gate now needs a growth to exceed BOTH its percentage tolerance
+  and an absolute byte allowance before failing (#1268). No runtime change — this
+  is the CI gate only.
+
+  A percentage on a small baseline measures the wrong thing. The `floor` scenario
+  is ~500 gzipped bytes, so 5% is ~25 bytes — narrower than a single
+  registration-time guard. The gate had fired twice on necessary validation
+  (#1249, #1266) and never once on the thing it exists to catch.
+
+  The two are separated by orders of magnitude: a subsystem leaking into a bundle
+  is kilobytes (measured elsewhere in the family: forcing an SDK inline moved a
+  package from 14,069 to 1,081,539 bytes), while a guard is tens of bytes. A
+  192-byte allowance sits far above the latter and far below the former.
+
+  Verified in both directions rather than assumed: a simulated leak (+406 bytes)
+  still FAILS, and a 26-byte guard at +5.2% now PASSES. The numbers still ratchet
+  and nothing was re-baselined.
+
+- Correct a factual claim in the `0.7.0-pre.5` changelog entry: the cached read path returned `undefined`, not `null`.
+
+  That entry described the #1220 failure as _"the cached path returned `null`, indistinguishable from no such record."_ The value is wrong. Measured on published `0.7.0-pre.4` with `to-memory@0.7.0-pre.4`, correct arity throughout:
+
+  | read                              | value                                       |
+  | --------------------------------- | ------------------------------------------- |
+  | genuinely absent id               | `null`                                      |
+  | empty-sealed record, cached path  | **`undefined`**                             |
+  | empty-sealed record, hydrate path | `SyntaxError: Unexpected end of JSON input` |
+
+  **The argument the entry made is unaffected — it gets stronger.** `undefined` is off `get()`'s declared `T | null` contract, so a caller writing `if (!rec)` or `?? fallback` folds it into _"no such record"_ exactly as it would fold `null`, **and** a caller writing `rec === null` fails to catch it as well. The collapse of distinguishable states is wider than the original sentence claimed, not narrower.
+
+  `0.7.0-pre.5`'s entry is left standing as the record of what that release said — its tarball is immutable, so amending it would only make later tarballs disagree with the shipped one. This is the correction published alongside, the same move `0.7.0-pre.4` made for `0.7.0-pre.3`.
+
+  Scope: the incorrect sentence appeared only in `CHANGELOG.md` on the published surface — it was not in any shipped `.d.ts`. No code, type, or behaviour change. The guards added in `0.7.0-pre.5` are unaffected, and note they prevent such a record being **created**, not **read**: a record sealed by an earlier build still throws on the hydrate path today.
+
+- **The conformance kit covers both entry-point shapes and both gates (#1209).**
+
+  `0.7.0-pre.0`'s `/as` inversion silently blinded `@noy-db/test-format-conformance`:
+  it denied by proxying the vault, which the inverted method-on-vault shape
+  (`vault.export(asCsv())`) bypasses — `this` inside `Vault.export` is the real,
+  unproxied object. The four inverted formats' fixtures had been deleted rather
+  than migrated, so coverage dropped from nine formats to five with nothing
+  turning red.
+
+  The kit now **patches the instance** instead: own-property assignment shadows
+  the prototype method at call time, intercepting the argument shape, the
+  inverted shape, and hub's internal delegation. Denials are matched on the
+  kit's own error class rather than "it threw", every entry point gets an
+  ungated-success guard, and the **import gate (`assertCanImport`) is covered
+  for the first time** — a format shipping a `decode` with no declared import
+  entries gets a loud `SKIPPED` line.
+
+  All four fixtures are restored, and a new architecture rule
+  (`as-conformance-fixture`) makes a silent fixture deletion impossible.
+
+- Correct the scoping of `NOYDB_ENVELOPE_GENERATION`'s documentation, and record that adopting it is not free (#1207 follow-up).
+
+  `0.7.0-pre.3` documented generation 1 as "no AAD (absence of the export also means 1)". That parenthetical is wrong as written, in the published `.d.ts` and in that release's changelog entry, and it is wrong in the direction that produces a false stamp rather than a missing one. "Absence of the **export**" is a statement about a hub _build_, and hub `0.6.0-pre.18` … `0.7.0-pre.2` seal at generation 2 while exporting no constant — verified against the published `0.7.0-pre.2` tarball. A writer using absence as a fallback would stamp a gen-2 artefact as gen 1.
+
+  The corrected form, now stated outright rather than left to inference: absence of a **stamp on an artefact** classifies that artefact as _unknown — possibly older than the constant_, never as generation 1; and a build's own absence of the export says nothing about the generation it seals at. A writer that cannot determine its generation omits the stamp.
+
+  Also documented: **adoption is not free.** "Diagnostic only" describes how the value may be used, not what it costs to import. It is a _value_ export, so a named import moves a consumer's real hub floor to `0.7.0-pre.3` regardless of the range its `peerDependencies` declares — measured as `TS2305` at a declared `^0.7.0-pre.0` floor while build, typecheck, lint and the full suite were green at the exact dev pin. Both correct postures are named: a defensive read at an unchanged floor, or a floor narrowing where the consumer publishes nothing and so gates no downstream range.
+
+  Documentation only — no value, signature, or export changed. The `0.7.0-pre.3` changelog entry is left standing as the record of what that release said; this entry is the correction published alongside it.
+
+- **Fix: a schema-fence transition no longer erases `schemaHash`.**
+
+  `StoreMesh.setFence` wrote the caller's document whole, and callers legitimately
+  construct a partial one — so every drain, migrate, complete and abort dropped
+  the field #946 added. "Which schema is generation N" was answerable from
+  `schemaFenceState()` only until the first cutover. Nothing reported it: the
+  fence still loaded, still validated, and still gated writes.
+
+- `collection.describe()` now validates `fieldMeta` keys on the **sync** path when
+  the configured validator exposes its field names (#1253).
+
+  Previously the guard ran only on the async `describe(opts)` path, so a typo'd
+  `fieldMeta` key on the sync path produced a **phantom field carrying its declared
+  `sensitivity`** while the real field went undescribed — an inventory wrong in both
+  directions, silently, on the surface `sensitivity` exists to serve.
+
+  The sync path was thought unable to know the schema's fields because deriving them
+  is async. That is true of field **types** and false of field **keys**: a Zod object
+  exposes `.shape` directly, on v3 and v4, with no JSON-Schema derivation and no
+  `zod-to-json-schema` peer. The latter matters — on Zod 3 that peer is required for
+  the async path, so the sync path is the only one some consumers can reach.
+
+  Deliberately still silent in two cases, both of which would otherwise reject correct
+  code: a validator whose fields hub cannot read, and **no validator at all** — a
+  collection typed by a TypeScript generic alone has fields that are real and present
+  in the data but appear in no runtime config, and `fieldMeta` legitimately names them.
+
+- Two dependency-declaration defects, both invisible to every gate because both
+  were satisfied by something that never promised anything.
+
+  **`happy-dom` was used by 22 packages and declared by 4.** The `as-*`, `on-*`
+  and `by-*` families named it in their vitest `environment:` and never declared
+  it; it resolved only because `in-react`, `in-pinia`, `in-nuxt` and
+  `to-browser-idb` happened to declare it — at **three different majors**
+  (`^15.11.7`, `^17.4.4`, `^18.0.0`). So those suites ran against whichever
+  version won hoisting, pinned by nothing, and a devDependency bump in an
+  unrelated package could have silently changed the DOM implementation under
+  them. Every user now declares it, all at one range.
+
+  ⚠️ It is named by no `import` anywhere — only by a vitest config string, or (in
+  hub's case) by an `@vitest-environment` DOCBLOCK PRAGMA, which is invisible to
+  an import scan and a config grep alike. Found by extracting a family and
+  watching it fail to stand alone.
+
+  ⛔ **Declaring it does NOT make the mistake self-detecting, and a sweep alone
+  would have implied otherwise.** pnpm's virtual store still satisfies an
+  undeclared package from a sibling that declares it — deleting a declaration and
+  reinstalling leaves the suite green, including the test that needs the
+  environment. So correct manifests today prevent nothing tomorrow. A static
+  check (`pnpm check:test-env-deps`, wired into CI) is the part that enforces it;
+  the manifests are merely honest. (`require.resolve` reports the opposite —
+  Node's algorithm is not pnpm's store, so the probe has to read manifests rather
+  than resolve.)
+
+  **Sibling `peerDependencies` published as EXACT versions**, completing the fix
+  started in #1228. That issue converted the `hub` peer to `workspace:^` (which
+  publishes as a caret) and left sibling peers at `workspace:*` (which publishes
+  as an exact pin), so two satellites from different cuts were mutually
+  uninstallable by name. Install-proven with a discriminating control:
+
+  ```
+  as-xlsx@pre.17 + as-zip@pre.16   -> exit 1   the defect
+  as-xlsx@pre.17 + as-zip@pre.17   -> exit 0   control: it is the SKEW, not the pair
+  as-csv@pre.17  + in-vue@pre.16   -> exit 0   caret peers DO cross cuts
+  ```
+
+  Nine sibling edges across seven packages move `workspace:*` → `workspace:^`.
+  That changes the FORM without changing the KIND: they stay peers, so a consumer
+  still controls instance identity, and no per-pair judgement about whether
+  deduplication matters was required.
+
+  Already-published versions stay broken — an exact peer is frozen in a published
+  manifest. What this buys is that the next cut is not broken too.
+
+- Document that `KeyringTamperedError` carries its reason at `err.details.reason`, not `err.reason`.
+
+  `TamperedError` has a **direct top-level** `reason`; `KeyringTamperedError` nests it under `details` alongside `userId` and the format transition. The classes genuinely differ, and the resemblance is a trap: a caller who copies the `TamperedError` shape reads `undefined`, falls through to the else-branch, and **renders a format transition as an attack** — the exact collapse these reason codes exist to prevent.
+
+  The class had no JSDoc saying where to read it. It now states the access shape, names the contrast, and carries a worked `catch` block, so the answer is in the shipped `.d.ts` where a caller meets it.
+
+  Documentation only — no type, value, or behaviour change.
+
+  Found by noy-db-docs, which had documented `err.reason` for this class **two lines below its own sentence warning that the resemblance to `TamperedError.reason` is "a trap worth naming"**. It identified the trap and fell into it one level earlier than it was looking.
+
+  Hub's own prose was swept and is clean: every `.reason` reference in the changelog is to `TamperedError.reason`, which is correct for that class.
+
+- A FAILED non-strict lazy re-derive no longer clears the stale flag (#1258).
+
+  `resolveStaleOnRead` consumes the pending flag before reading the source (a
+  recursion guard for self-write outputs). A STRICT failure throws and the catch
+  restores it; a NON-STRICT failure warned and continued, leaving the flag
+  consumed — so the record was served as fresh and never retried, permanently,
+  because nothing would mark it stale again.
+
+  The decision this needed was what `strict: false` means. It means "a failed
+  derivation must not break the read", NOT "report this output as current". The
+  record is still served, the warning still fires, and the flag now survives so
+  the next read retries — strict-mode behaviour minus the throw.
+
+  Deliberate cost, stated so it is not later mistaken for a bug: a
+  permanently-failing non-strict derivation now re-runs on every read of that id
+  rather than once. That is louder and more expensive than silently serving a
+  stale value forever, and it is the trade made everywhere else here — a degraded
+  state must not render as a healthy one.
+
+- `HistoryConfig.ledger` now documents what it costs (#1248).
+
+  **The hash chain is the entire cost of history; per-record snapshots are free.**
+  Measured on the primitive write path (no guards / MVs / derivations, sequential
+  `put()`, in-memory store, N = 3000): snapshots-only is 1.00×, ledger-only is
+  2.35×, both is 2.41×.
+
+  The cause is structural rather than an inefficiency: an entry's `prevHash`
+  depends on the current head, so appends are inherently serialized — one head
+  read, one delta encryption and one CAS-put per record op. That serialization is
+  the tamper-evidence property.
+
+  ⚠️ The microsecond figures come from an in-memory store and **understate the
+  felt cost**: on browser IndexedDB the ledger adds a whole extra encrypted store
+  write to a path whose base op is already milliseconds. The ~2.4× ratio is the
+  portable number; the microseconds are a floor.
+
+  A single human-paced write pays a difference nobody perceives. What pays visibly
+  is a one-click batch — an "approve all", a CSV import, a period prefill — and a
+  write that fans out through derivations and MVs pays once per resulting stored
+  write. `HistoryConfig` is per-collection so the chain can be confined to the
+  collections where tamper-evidence carries weight.
+
+- CORRECTION to `0.7.0-pre.14`'s description of #1269 — the fix is unchanged; what
+  it covers was described wrongly, twice.
+
+  The guard reads **declarative `spec.groupBy` and nothing else**. So:
+
+  - **caught** — a spec declaring `groupBy: [...]` as a top-level field, whether
+    `unionSources` or query-form;
+  - **silent** — `.groupBy(...)` chained INSIDE a `query: (db) => …` callback,
+    which is a runtime call on the query builder and never appears in the spec;
+  - **irrelevant** — `spec.sources`. The guard never reads it, so declaring it
+    cannot bring a shape into coverage.
+
+  The published `pre.14` entry said the uncovered case was "a single-query MV that
+  constructs its own source before the dependency is recorded". That framing is
+  wrong in a way that misleads: it points at dependency ORDERING and invites a
+  reader to fix coverage by declaring `sources`, which does nothing. Ordering
+  decides which OTHER guard fires first — a late-attach reconcile can loudly
+  refuse a virtual field on an already-constructed collection — not whether this
+  one fires.
+
+  Measured by a consumer on the published `pre.14` and re-derived from the code
+  here. No behaviour change: a `.groupBy()` chained in a callback was silent
+  before this correction and is silent after it. Closing that residue needs the
+  built query plan inspected, or a compute-time refusal, and is not attempted
+  here.
+
+- A materialized view whose `groupBy` names a VIRTUAL computed field is now
+  refused at collection registration (#1269).
+
+  A virtual field is evaluated on read and never stored, so the MV pipeline read
+  the stored row, found nothing, and bucketed every row under an `undefined` key —
+  a well-formed aggregate carrying a wrong NUMBER rather than an error, on the one
+  path where nobody re-checks the arithmetic. `query().where()` already refuses the
+  same field with `FieldNotQueryableError`, so the two halves of what reads as one
+  query layer disagreed.
+
+  Same principle as the executor's existing object-valued-group-key refusal
+  ("refuse, don't bucket wrong") and the `triggerBy` virtual-target refusal
+  (#1266), applied at the earliest point that can see both the MV and the
+  collection's field modes.
+
+  **Known residue, stated rather than left to be discovered:** a single-query MV of
+  the shape `query: (db) => db.collection(name)…` constructs its own source from
+  inside `MaterializedViewRegistry.register()`, before the dependency is recorded,
+  so that shape is not caught by this guard. `unionSources`, an aggregate with
+  explicit `sources`, and any source built by an earlier `vault.collection()` call
+  are caught. The same ordering is already documented for the neighbouring
+  tiers+crdt guard.
+
+- Satellite hub peers now publish as a caret **range** instead of an exact version (#1228).
+
+  Every `@noy-db/*` satellite declared `peerDependencies['@noy-db/hub'] = "workspace:*"`, which **publishes as an exact version**:
+
+  ```
+  workspace:*   ->   "@noy-db/hub": "0.7.0-pre.8"     exact
+  workspace:^   ->   "@noy-db/hub": "^0.7.0-pre.8"    a range
+  ```
+
+  Exact peers make the satellite set co-installable **only when every member came from the same cut**. Measured against published packages:
+
+  ```
+  npm i @noy-db/as-csv@0.7.0-pre.6 @noy-db/in-vue@0.7.0-pre.5   ->  exit 1, ERESOLVE
+  npm i @noy-db/as-csv@0.7.0-pre.6 @noy-db/in-vue@0.7.0-pre.6   ->  exit 0
+  ```
+
+  No hub version satisfies two different exact peers, so any lag — a satellite not republished in a given release, or a consumer upgrading one package — made a pair uninstallable by name. Caret ranges are jointly satisfiable (`hub@pre.8` satisfies both `^pre.7` and `^pre.8`) and still stop at the next minor, so a satellite never claims to work against a hub line it has not seen.
+
+  ## The reason for the old form did not hold
+
+  The architecture rule mandated `workspace:*` because `workspace:^` "trips the changeset-cli pre-1.0 dep-propagation heuristic and forces unintended major bumps on every dependent". `release.mjs`'s own header contradicted that all along: the heuristic fires **"even with loose `workspace:*` constraints"**. The peer form never prevented the bumps — the normalizer does.
+
+  Verified rather than reasoned: a full `release:version` was run with all 50 satellites on `workspace:^`. The line advanced normally, the normalizer corrected the heuristic as usual, and every package landed on one version.
+
+  **Nothing breaks for existing consumers.** A range is strictly more permissive than the exact version it replaces, so anything that resolved before still resolves. The `peer-deps` architecture rule now requires `workspace:^` and is mutation-checked.
+
+- Two guards now refuse where the information to refuse already exists (design
+  pass: _where a check refuses vs where it quietly answers_).
+
+  **`fieldMeta` typo keys are refused at `vault.collection()`, not only at
+  `describe()`.** A collection nobody describes was never checked at all — and
+  `fieldMeta` is what carries `sensitivity`, so the unchecked case was the one
+  with a data-classification inventory hanging off it.
+
+  ⚠️ **BREAKING for code that catches around `describe()`.** For a validator whose
+  fields read synchronously, `FieldMetaUnknownFieldError` now arrives from
+  `vault.collection()` instead of from `describe()`. This is not only "the throw
+  comes earlier" — **a `try` that wraps only the `describe()` call no longer
+  catches it at all**, so the error escapes the handler written for it. A pilot
+  consumer's guard suite had exactly this shape: it constructed the collection
+  outside the `try`, and on upgrade those tests would have started ERRORING rather
+  than failing with a clear message, reading as "the new release broke our tests"
+  instead of "the guard moved". If you assert on this error, catch around the
+  `vault.collection()` call — or around both, and report which surface rejected,
+  which turns the relocation into a changed label rather than a break.
+
+  The describe-time check is KEPT, not moved, because there are three tiers of
+  knowability rather than two: a name declared in the config itself needs no
+  schema; a validator whose fields read synchronously is checkable at
+  registration; fields that exist only after async derivation are checkable only
+  at `describe()`. Hoisting alone would move the check earlier for some
+  collections and remove it for others. Unchanged: no readable validator means no
+  check, because a TS-generic collection names real fields that appear in no
+  runtime config.
+
+  **`withMaterializedView` distinguishes an absent `rowKey` from a wrong-typed
+  one.** Passing a field NAME — the shape every neighbouring option takes —
+  reported `rowKey is required`, which names absence. It now says it must be a
+  function, names the type it got, and shows the fix. Two states that warrant
+  different responses no longer render identically.
+
+- A rollup child that RE-PARENTS now recomputes the old parent as well as the new
+  one (#1257).
+
+  The dispatcher read the rollup key from the incoming record only, so moving a
+  child from parent A to parent B recomputed B and left A's aggregate holding a
+  number that was correct before the move. That is the dangerous shape: a stale
+  total reads as data, not as an error, so nothing prompts anyone to re-check it.
+
+  Same old-value class as the `triggerBy` update fan-out fixed in #1249 — and it
+  is a small change rather than a new mechanism only because that fix added
+  prior-record capture to the write path, which this reuses.
+
+  Consistent with the rest of the derivation surface: a write that does not thread
+  a prior record (a sync-applied wave write, a tiers restore) degrades to
+  new-parent-only, the previous behaviour, rather than guessing at the old key.
+
+- Export `assertRosterEpochCurrent` and `nextRosterEpoch` — they shipped in `0.7.0-pre.9` reachable from nothing (#1097 follow-up).
+
+  `0.7.0-pre.9` added the roster epoch and **listed `assertRosterEpochCurrent` in its release notes under "what is new"**. The function was present in `dist/**/*.d.ts` and exported from **no entry point** — all 53 were enumerated and imported; none had it.
+
+  That is the whole mechanism's caller half. Hub stamps and binds the epoch, but the expectation arrives by a second channel hub does not carry, so **only application code can perform the comparison**. A consumer following the release notes could not import the function they were told to call.
+
+  Both are now exported from the root barrel, beside `assertRosterAuthenticated`.
+
+  ## The class, and why it is worse than #1224
+
+  #1224 was a predicate reachable from the **wrong** seam — the root barrel rather than `/to`, which is all a store binds. This one was reachable from **none**. Both were found the same way: someone tried to follow the documentation.
+
+  Guarded by an invariant rather than by adding two names: a test asserts that **every** exported member of `roster-epoch.ts` reaches a published barrel, and that the query finds something in the first place. A helper added to that module later and exported from nothing fails the test rather than shipping unreachable.
+
+  Additive — the root barrel's golden baseline moves by two entries; nothing is removed or renamed.
+
+- Say what is actually true about runtime dependencies (#1227).
+
+  Four places claimed zero runtime dependencies. Measured across all 57 packages, **51 have none** — but six do, and four of those are third-party:
+
+  | package                             | runtime dependency                                         |
+  | ----------------------------------- | ---------------------------------------------------------- |
+  | `@noy-db/as-xml`, `@noy-db/as-xlsx` | `fast-xml-parser`                                          |
+  | `@noy-db/in-devtools-tui`           | `ink`, `react`                                             |
+  | `create-noy-db`                     | its scaffolder toolchain                                   |
+  | `@noy-db/hub`                       | `@noy-db/attestation` — a sibling on the same version line |
+  | `@noy-db/in-nuxt`                   | `@noy-db/in-devtools` — likewise                           |
+
+  Corrected:
+
+  - **`@noy-db/hub`** — "Zero runtime dependencies" → _no third-party runtime dependencies to install_, naming `@noy-db/attestation` as the one runtime dependency. Also states plainly that `zod` is **vendored into the bundle** for the optional persisted-schema converter, loaded lazily, never executing unless you use that path — and that it will not appear in your lockfile. That last clause is the one an SBOM or audit process needs, and no manifest field carries it.
+  - **`@noy-db/as-xlsx`** — "Zero runtime dependencies" was **flatly false**; it depends on `fast-xml-parser`. The intent was "no heavyweight spreadsheet library", which is true and is now what it says.
+
+  Two other claims were checked and left alone because they are correct: `@noy-db/as-zip` and `@noy-db/on-totp` genuinely have no dependencies.
+
+  Documentation only. No code, dependency, or behaviour change — the manifests already said this; only the prose disagreed with them.
+
+- `schemaFieldKeys` now unwraps `z.preprocess()` on both Zod majors, so the two
+  field-typo guards (#1253's `fieldMeta`, #1249's `triggerBy` match) see through
+  it (#1262, reported by the pilot).
+
+  The `0.7.0-pre.12` fix followed refinement effects only and put `preprocess` on
+  the carve-out side with `transform`. That was wrong: `z.preprocess(fn, inner)`
+  rewrites the INPUT and then parses with `inner`, so the parsed record's keys ARE
+  `inner`'s keys — measured, `preprocess({a,b})` parses to `['a','b']` while
+  `transform` parses to `['c']`.
+
+  Scope, measured rather than assumed: this left the **sync** `describe()` path
+  unguarded for wrapped schemas. The async path was never affected —
+  `derivePersistedSchema` sees through `preprocess` on its own, so
+  `buildDescription` gets a populated field map and never reaches the
+  `schemaFieldKeys` fallback. The sync path is public, is what tooling reaches
+  for first, and is the only path some Zod 3 consumers can reach at all (the
+  async path needs the `zod-to-json-schema` peer), so the gap was real — but it
+  was one path, not both.
+
+  Replaced the effect-kind allowlist with one rule that covers every wrapper on
+  both majors: **follow the output side.** These keys describe the parsed record,
+  so the only question a wrapper raises is whether it changes the parsed shape.
+  Zod 3 `ZodEffects` follows `_def.schema` for `refinement` and `preprocess`;
+  Zod 4 wraps both `z.preprocess()` and `.transform()` as a `ZodPipe` and
+  following `_def.out` resolves them with no effect-kind test at all — preprocess
+  reaches the object, `.transform()` reaches a shapeless `ZodTransform` and stays
+  silent on its own. **This also fixes Zod 4 `z.preprocess()`, which the narrower
+  one-line widening would have missed.**
+
+  `.transform()` remains deliberately silent on both majors: it replaces the
+  output, so the inner keys would describe a record that is never stored. The two
+  are one string apart and mean opposite things, so tests pin them against each
+  other on both majors.
+
+- `schemaFieldKeys` now unwraps Zod 3 `ZodEffects` created by object-level
+  `.refine()`/`.superRefine()` (reported by the pilot): the wrapper hides
+  `.shape`, so both field-typo guards — #1253's `fieldMeta` validation and
+  #1249's `triggerBy` match validation — were silent for exactly the schemas
+  most worth guarding. Unwrapping follows refinement effects only: a
+  `.transform()`/`.preprocess()` changes the output shape, so those stay
+  silent by design. Zod 4 keeps `.shape` through `.refine()` and is unaffected.
+- Refuse to seal a record against a coerced address or over an empty plaintext (#1220).
+
+  Two boundary values were accepted silently and produced envelopes that are **valid and undecodable** — sealed correctly, addressed or filled with nothing. Both are now `TypeError`s at the seal, stated as output-domain invariants so they hold for every caller rather than for the two calls that surfaced them:
+
+  - **`buildRecordAad` refuses a non-string `collection` or `id`.** `String({})` is `"[object Object]"` and `String(undefined)` is `"undefined"`; both make perfectly good AAD, so a record sealed against one is stored at an address nothing queries. Sibling of the `version` assertion already in that function, and there for the same reason: it can only fire for a caller TypeScript never saw.
+  - **`RecordCodec.encryptJsonString` refuses a non-string plaintext.** `JSON.stringify(undefined)` is `undefined`, so an undefined record sealed over _nothing_ — `_data` a bare GCM tag over zero ciphertext.
+
+  Why this was worth a guard rather than a documentation note: the two read paths disagreed about the same bytes and neither named the cause. The cached path returned `null`, indistinguishable from _no such record_; the hydrate path threw `SyntaxError` out of `decryptRecord`, indistinguishable from _your store returned corrupt bytes_. A `to-*` author or daemon operator meeting that would reasonably suspect their store, indefinitely, over a caller mistake made days earlier.
+
+  No format, encryption, or integrity change: envelopes that seal continue to seal identically, and `NOYDB_ENVELOPE_GENERATION` is unaffected. This only refuses inputs that previously produced unreadable records.
+
+- Fix the getting-started example in hub's module JSDoc, which ships inside
+  `dist/index.d.ts`. It omitted the required `user` option and passed `secret` to
+  `openVault()`, where it is not accepted — `secret` is a `createNoydb()` option.
+  Compiled verbatim, the published snippet produced `TS2741` and `TS2353`.
+
+  `packages/hub/README.md` carried the same class of defect: it taught
+  `userId: 'alice'` (the option is `user`) and imported `memory` from
+  `@noy-db/to-memory` (renamed to `toMemory`). Both ship in the tarball.
+
+  Guarded going forward by `pnpm check:prose-examples`, which typechecks every
+  fenced `ts` block in shipped prose against the built `dist`. `check:prose-api`
+  verifies that a documented method _exists_; these defects all named methods that
+  do exist and passed arguments that do not, which only a compiler can see.
+
+- `check:test-env-deps` now catches OVER-declaration too, and one live instance is
+  removed.
+
+  The guard shipped with the previous fix caught only the missing direction — a
+  package running tests in an environment it does not declare. The mirror case
+  turns out to be the mechanism the whole class rests on: **a package that
+  declares an environment it never runs in is what silently satisfies the packages
+  that use it and do not declare it.** The over-declaration is what makes the
+  under-declaration invisible.
+
+  `to-browser-idb` carried exactly that — `happy-dom ^18.0.0` while running
+  `environment: 'node'` with a fake-indexeddb polyfill. It was plausibly the
+  declarer supplying 18.x to the nine `as-*` suites that named the environment and
+  declared nothing. Removed; every genuine user now declares its own.
+
+  Added after the same mistake was made twice in one day: a substring scan gave
+  `by-peer` a declaration for a mention in a COMMENT, and this predated all of it.
+
+  Mutation-checked in both directions — a package that genuinely uses the
+  environment keeps its declaration without firing (no false positive on
+  legitimate declarers), and restoring the phantom fails the check.
+
+- Export `isConflictError` from `@noy-db/hub/to` (#1224).
+
+  The predicate was reachable only from the root barrel, while `/to` exported the `ConflictError` **class**. That is the wrong way round for the one seam that needs it: `isConflictError` exists precisely because a store may bind a different copy of `@noy-db/hub/to` than its caller, making `instanceof` against that class silently miss (#935) — CAS retry loops rethrow instead of retrying, and the sync engine misfiles the conflict with no resolution run.
+
+  A store binds `/to` and nothing else, so store authors were told by the predicate's own documentation to use something they could not import, and the obvious fallback — `instanceof ConflictError` off `/to` — is exactly the defect the predicate prevents.
+
+  Additive: an existing function on an existing subpath. Nothing is removed or renamed, and the root barrel export is unchanged.
+
+  Guarded by an invariant rather than an enumeration: a test parses `kernel/errors.ts` for any `is*` predicate whose contract mentions the store seam and asserts each is reachable from `/to`, so a future sibling cannot repeat this. `/to`'s golden surface baseline moves by one entry.
+
+- A DELETE through a `triggerBy` hop now fans out — it silently did not (#1294).
+
+  Reported by a consumer adopting the hop from `0.7.0-pre.16`: puts through a
+  `via` hop re-fired the derivation, deletes did not, while deletes through a
+  plain pair did. The delete path built its tuple with the UNHOPPED builder, so a
+  mapped pair compared the written record's `from` value against `source[to]` —
+  the wrong side of the relationship — and matched nothing. No error, no fan-out.
+
+  **Two gaps, not one.** Deleting the INTERMEDIATE record was also unhandled, and
+  strands every source it addressed for the same reason re-pointing one does:
+  nothing is written to the trigger or source collection, so no other path can
+  notice. The write path already covered that; the delete path did not, which made
+  the hop's correctness argument hold for puts only.
+
+  **The shipped typings said deletes fan out "for BOTH forms".** That read as
+  covering hops and did not — a behaviour gap and a prose-vs-artefact mismatch in
+  one. The sentence now enumerates `on`, plain `match`, `via` hops, and deletes of
+  the intermediate itself.
+
+  **The sync tuple builder is deleted rather than kept**, and that is the durable
+  half: two builders that had to agree is exactly how this drifted, because the
+  delete path called the wrong one. `resolveTuple` with no `via` does what the old
+  one did, its unit tests moved across unchanged, and one path cannot disagree
+  with itself.
+
+- `triggerBy` match targets are now checked against where the field actually
+  LIVES, not just whether it is declared (#1266, reported by the pilot).
+
+  A derivation matcher reads STORED records. A `mode: 'virtual'` computed field is
+  evaluated on the read path and never persisted — but it appears in `computed:`
+  (and in `via(computed(...))`) exactly like a materialized one, so registration
+  accepted it and the fan-out then matched nothing, forever. That is the precise
+  failure the #1249 match guard exists to prevent, reached THROUGH the guard
+  rather than around it, and it is the first thing a consumer reaches for when a
+  match target is not already stored.
+
+  Refused at registration rather than supported: matching a virtual field means
+  running user code for every candidate row, turning an indexed narrow into a full
+  scan. `mode: 'materialized'` is stored, already works, and is what the error
+  names. Both sides are refused — `to` reads the source record and `from` reads
+  the written record, and both are the stored shape. (The report covered `to`;
+  `from` had the identical defect.)
+
+  The virtual check runs even when the schema's field list is unreadable, unlike
+  the typo guard beside it. The typo guard needs a field list to compare against
+  and stays silent without one; this one does not — "declared, but never stored"
+  is provable from the declaration alone.
+
+  Second defect fixed in the same change: `viaFields` was missing from the guard's
+  key set entirely, so a `via()`-declared MATERIALIZED field — a perfectly valid
+  match target — was rejected as an undeclared typo. A guard that refuses valid
+  configurations is how people learn to stop trusting it, so both directions ship
+  together, each with a test that fails without its half of the fix.
+
+- `zod` is now an OPTIONAL peer dependency instead of being vendored into the
+  bundle (#1227).
+
+  Hub shipped `zod@4.4.3` inside `dist/` — 548 KB, at a build-frozen version,
+  declared in no manifest field. `npm ls zod` in a consumer tree showed nothing
+  while that copy was reachable, so SBOM and audit tooling missed it and a zod
+  advisory could not be remediated by a consumer bumping zod.
+
+  **This was never a deliberate vendoring.** The loader's own comment said "this
+  is a dynamic import so it does not add a static zod dependency to hub" — but
+  tsup externalises DECLARED dependencies and bundles everything else, static or
+  dynamic alike, and zod was a devDependency only. The comment described an
+  intent the build silently defeated; it now records the actual mechanism.
+
+  **Declaring it is also the correctness fix, not only a size one.** Zod's
+  `toJSONSchema` reads a schema's internals, and the schema is built by the
+  CONSUMER's zod. A vendored copy meant hub inspected one zod's objects with a
+  different zod's reader, with version skew that nothing detected. Now there is
+  one zod — theirs.
+
+  Nothing to install: the peer is optional, exactly like `zod-to-json-schema`,
+  and the converter is still loaded lazily. A caller with a Zod v4 schema
+  necessarily already has zod; a caller without one never reaches the path.
+
+  Measured, both sides rebuilt: tarball 3.3 MB → 3.1 MB packed, 12.0 MB → 10.6 MB
+  unpacked. The README claim is updated in the same change to say what is now
+  true.
+
+- CORRECTION to `0.7.0-pre.14`: the optional `zod` peer now reads
+  `^3.0.0 || ^4.0.0`, not `^4.0.0`.
+
+  `pre.14` un-vendored zod and declared it as an optional peer — correctly — but
+  declared a range NARROWER THAN WHAT HUB SUPPORTS. Under npm that made
+  `@noy-db/hub@0.7.0-pre.14` + `zod@3` uninstallable by name.
+
+  Measured, with controls in both directions:
+
+  ```
+  npm i @noy-db/hub@0.7.0-pre.14 zod@3.25.76   -> exit 1, ERESOLVE
+  npm i @noy-db/hub@0.7.0-pre.14 zod@4.4.3     -> exit 0   (control: major, not range shape)
+  npm i @noy-db/hub@0.7.0-pre.13 zod@3.25.76   -> exit 0   (control: the DECLARATION changed,
+                                                            not the support)
+  ```
+
+  Zod 3 has always worked and still does — through the `zod-to-json-schema`
+  optional peer, with the v4-native `toJSONSchema` loader falling back when it is
+  absent. The two releases immediately before this one were substantially Zod 3
+  hardening (the `ZodEffects` unwrap, `z.preprocess` on both majors), so the
+  investment and the declaration pointed in opposite directions.
+
+  **Why no gate caught it:** while zod was vendored, no resolver ever saw a range,
+  so none was ever exercised. Every in-repo check stays green under either
+  declaration — a peer FORM deciding installability, which is the same class as
+  this family's exact-peer incident. There is now a test asserting the range
+  admits a real version of each major, and refusing a range that ends in a
+  dangling `||`.
+
+  pnpm only warns, so a pnpm workspace saw nothing; npm refuses.
+
+  - @noy-db/attestation@0.7.0
+
 ## 0.7.0-pre.18
 
 ### Patch Changes

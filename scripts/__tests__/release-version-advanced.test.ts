@@ -107,3 +107,57 @@ describe('changesetWroteASection (#1230)', () => {
     expect(changesetWroteASection('0.7.0-pre.6', '0.7.0-pre.6')).toBe(false)
   })
 })
+
+/**
+ * The pre -> STABLE transition, which no release had exercised until 0.7.0.
+ *
+ * Within a pre line both versions have the same segment count, so the numeric
+ * compare on the counter decides every comparison and the length boundary is
+ * unreachable. Exiting pre mode is the first time one side runs out of segments
+ * — and the comparator treated the LONGER version as the later one, inverting
+ * semver at exactly that boundary. `0.7.0-pre.18 -> 0.7.0` was refused as "did
+ * not advance", and the reverse was accepted.
+ *
+ * The existing accept-case above passes `0.8.0`, which resolves at the MINOR
+ * segment and returns before the boundary is reached. A wider table of the same
+ * shape would not have found this; the ordering property below does.
+ */
+describe('assertCanonicalAdvanced across the pre/stable boundary', () => {
+  it('accepts a prerelease advancing to its own stable', () => {
+    expect(() => assertCanonicalAdvanced('0.7.0-pre.18', '0.7.0')).not.toThrow()
+    expect(() => assertCanonicalAdvanced('0.7.0-pre.0', '0.7.0')).not.toThrow()
+  })
+
+  it('REFUSES a stable regressing to one of its own prereleases', () => {
+    expect(() => assertCanonicalAdvanced('0.7.0', '0.7.0-pre.18')).toThrow(/did not advance/i)
+  })
+
+  /**
+   * The output-domain assertion: the guard must agree with a known-correct
+   * release ordering at EVERY adjacent pair, not at the pairs someone thought
+   * to enumerate. Every pair is checked in both directions, so a comparator
+   * that is permissive rather than ordered fails here too.
+   */
+  it('agrees with release order at every adjacent pair, in both directions', () => {
+    const ascending = [
+      '0.6.0',
+      '0.7.0-pre.0',
+      '0.7.0-pre.9',
+      '0.7.0-pre.17',
+      '0.7.0-pre.18',
+      '0.7.0',
+      '0.7.1-pre.0',
+      '0.7.1',
+      '0.8.0-pre.0',
+      '0.8.0',
+      '1.0.0',
+    ]
+    for (let i = 0; i < ascending.length - 1; i++) {
+      const [earlier, later] = [ascending[i], ascending[i + 1]]
+      expect(() => assertCanonicalAdvanced(earlier, later), `${earlier} -> ${later} must advance`).not.toThrow()
+      expect(() => assertCanonicalAdvanced(later, earlier), `${later} -> ${earlier} must be refused`).toThrow(
+        /did not advance/i,
+      )
+    }
+  })
+})

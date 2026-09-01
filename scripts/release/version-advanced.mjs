@@ -22,8 +22,12 @@ function isAfter(a, b) {
   for (let i = 0; i < Math.max(x.length, y.length); i++) {
     const l = x[i], r = y[i]
     if (l === r) continue
-    if (l === undefined) return false        // 0.7.0 vs 0.7.0-pre.1 → the shorter is the later release
-    if (r === undefined) return true
+    // One side ran out of segments, so the other carries a prerelease tail.
+    // In semver the SHORTER version is the later release: 0.7.0 > 0.7.0-pre.1.
+    // Unreachable within a pre line (equal segment counts), so this boundary
+    // was first exercised by the 0.7.0 stable cut.
+    if (l === undefined) return true         // a is the stable, b has the tail → a is later
+    if (r === undefined) return false        // b is the stable, a has the tail → a is earlier
     if (typeof l === 'number' && typeof r === 'number') return l > r
     return String(l) > String(r)
   }

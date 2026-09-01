@@ -1,5 +1,92 @@
 # Changelog — in-nuxt
 
+## 0.7.0
+
+### Patch Changes
+
+- READMEs corrected against the published `.d.ts` (found by noy-db-docs
+  comparing pages to tarballs):
+
+  - **in-vue**: the plugin takes a CONSTRUCTED instance — `NoydbPluginOptions`
+    has exactly one key, `instance` — where the README taught inline
+    construction with `adapter:`/`userId:`, neither of which exists (and
+    `userId` is the same silently-dropped key hub's own quickstart shipped).
+    Composables corrected: `useNoydb()` returns the `Noydb` instance (not
+    `{ db, unlock, locked }`), `useCollection(db, compartment, collection)`
+    returns `{ data, loading, error, refresh }`, `useSync(db, compartment)`.
+    `useLiveQuery` and `NoydbKey` are now mentioned; they existed undocumented.
+  - **in-nuxt**: `adapter: 'browser'` → `store: 'to-browser-idb'` and
+    `sync.adapter: 'dynamo'` → `sync.store: 'to-aws-dynamo'` — the old forms
+    used a key that does not exist and values outside the `ModuleOptions`
+    union.
+
+  The `check:prose-examples` gate now resolves framework modules (vue, pinia,
+  …) via symlinks from each package's own `node_modules`, closing the
+  laundering path where an ignored `TS2307` on `vue` made `createApp` untyped
+  and exempted the plugin-options literal from checking — and it now extracts
+  the `<script>` half of ` ```vue ` fences, which were previously invisible.
+
+- READMEs now document the API that exists (#1252). Every fenced example in
+  shipped prose compiles against the built `dist`, enforced by
+  `check:prose-examples`.
+
+  The two that were more than renames:
+
+  - **on-recovery**: the README taught the KEK-wrapping architecture removed in
+    the tier-2 wrap-DEKs unification (`0.1.0-pre.8`, #42) — `unwrapKEKFromRecovery`,
+    `wrapKEKForRecovery`, `kek:` option, `_recovery_<N>` keyring entries, and a
+    40-line manual unlock loop, none of which exist. Rewritten to the real flow:
+    `generateRecoveryCodeSet({ deks })` → `db.team.enrollRecovery` →
+    `db.recoverSecret` (which burns and auto-rotates), with a History note on why
+    there is no KEK path.
+  - **in-vue**: `enrollBiometric`/`unlockWithBiometric` never existed in any
+    version. The section now teaches `@noy-db/on-webauthn`'s real API, which is
+    framework-neutral and called from Vue directly.
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.7.0
+  - @noy-db/in-rest@1.0.0
+  - @noy-db/in-vue@1.0.0
+  - @noy-db/in-pinia@1.0.0
+  - @noy-db/in-devtools@1.0.0
+
 ## 0.7.0-pre.16
 
 ### Patch Changes

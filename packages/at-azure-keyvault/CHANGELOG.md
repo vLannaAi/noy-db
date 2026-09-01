@@ -1,5 +1,69 @@
 # Changelog — at-azure-keyvault
 
+## 0.7.0
+
+### Patch Changes
+
+- **The `at-*` options types now follow their factories.**
+
+  `0.7.0-pre.0` renamed every `at-*` factory to `at<Pkg>()` and left four of the
+  five options types carrying the retired `SealingProvider` vocabulary — so it
+  shipped `atAwsKms()` taking an `AwsKmsSealingProviderOptions`. `at-env` had
+  already renamed both halves, which is what makes this a gap rather than a
+  decision.
+
+  | before                                | after                    |
+  | ------------------------------------- | ------------------------ |
+  | `AwsKmsSealingProviderOptions`        | `AtAwsKmsOptions`        |
+  | `GcpKmsSealingProviderOptions`        | `AtGcpKmsOptions`        |
+  | `AzureKeyVaultSealingProviderOptions` | `AtAzureKeyvaultOptions` |
+  | `MacosKeychainSealingProviderOptions` | `AtMacosKeychainOptions` |
+
+  Four rows added to `@noy-db/hub/codemods/0.7.0-pre.json`. `AwsKmsRecipientSealerOptions`
+  is deliberately unchanged — it belongs to a different factory that was not renamed.
+
+  Also corrects a doc comment in `vault.ts` that named two capability gates,
+  `canExportPlaintext` and `canExportBundle`, **neither of which has ever
+  existed**. The gate is `assertCanExport('plaintext', fmt)` /
+  `assertCanExport('bundle')`. That comment ships as JSDoc in the `.d.ts` and had
+  propagated into the docs site.
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @noy-db/hub@0.7.0
+
 ## 0.7.0-pre.16
 
 ### Patch Changes
