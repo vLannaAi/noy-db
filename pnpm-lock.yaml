@@ -324,9 +324,6 @@ importers:
       '@noy-db/to-memory':
         specifier: workspace:*
         version: link:../to-memory
-      happy-dom:
-        specifier: ^18.0.0
-        version: 18.0.1
 
   packages/by-tabs:
     devDependencies:
