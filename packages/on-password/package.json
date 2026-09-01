@@ -42,7 +42,8 @@
   },
   "devDependencies": {
     "@noy-db/hub": "workspace:*",
-    "@noy-db/test-ceremony-conformance": "workspace:*"
+    "@noy-db/test-ceremony-conformance": "workspace:*",
+    "happy-dom": "^18.0.0"
   },
   "keywords": [
     "noy-db",

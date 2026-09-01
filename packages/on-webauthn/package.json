@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/on-webauthn",
   "version": "0.7.0-pre.17",
-  "description": "WebAuthn hardware-key keyrings for noy-db — Touch ID, Face ID, Windows Hello, YubiKey, FIDO2 passkeys",
+  "description": "WebAuthn hardware-key keyrings for noy-db \u2014 Touch ID, Face ID, Windows Hello, YubiKey, FIDO2 passkeys",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/on-webauthn#readme",
@@ -42,7 +42,8 @@
   },
   "devDependencies": {
     "@noy-db/hub": "workspace:*",
-    "@noy-db/test-ceremony-conformance": "workspace:*"
+    "@noy-db/test-ceremony-conformance": "workspace:*",
+    "happy-dom": "^18.0.0"
   },
   "keywords": [
     "noy-db",
